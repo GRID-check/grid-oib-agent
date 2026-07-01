@@ -1,0 +1,36 @@
+{
+  "name": "Grid OIB Agent Dev Container",
+  "build": {
+    "dockerfile": "deploy/Dockerfile",
+    "context": "..",
+    "target": "dev-builder"
+  },
+  "workspaceFolder": "/app",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/app,type=bind,consistency=cached",
+  "forwardPorts": [3000, 8000, 5432],
+  "portsAttributes": {
+    "3000": { "label": "Next.js UI" },
+    "8000": { "label": "AI-Q Backend" },
+    "5432": { "label": "PostgreSQL" }
+  },
+  "postCreateCommand": "uv pip install ruff~=0.15.1 pytest pytest-asyncio pytest-cov >/dev/null 2>&1; cd frontends/ui && npm install",
+  "postStartCommand": "git config --global --add safe.directory /app || true",
+  "remoteUser": "root",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "bradlc.vscode-tailwindcss",
+        "ms-python.python",
+        "charliermarsh.ruff"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/app/.venv/bin/python",
+        "python.analysis.typeCheckingMode": "basic",
+        "eslint.workingDirectories": ["frontends/ui"],
+        "terminal.integrated.defaultProfile.linux": "bash"
+      }
+    }
+  }
+}

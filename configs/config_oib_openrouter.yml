@@ -1,0 +1,158 @@
+# Grid OIB workflow config — OpenRouter DeepSeek LLMs, persistent OIB knowledge base plus web search.
+
+general:
+  use_uvloop: true
+  telemetry:
+    logging:
+      console:
+        _type: console
+        level: INFO
+
+  front_end:
+    _type: aiq_api
+    runner_class: aiq_api.plugin.AIQAPIWorker
+    db_url: ${NAT_JOB_STORE_DB_URL:-sqlite+aiosqlite:///./jobs.db}
+    expiry_seconds: 86400
+    cors:
+      allow_origin_regex: 'http://localhost(:\d+)?|http://127.0.0.1(:\d+)?'
+      allow_methods:
+        - GET
+        - POST
+        - DELETE
+        - OPTIONS
+      allow_headers:
+        - "*"
+      allow_credentials: true
+      expose_headers:
+        - "*"
+
+llms:
+  # Intent classification / routing
+  deepseek_llm_intent:
+    _type: openai
+    model_name: deepseek/deepseek-v4-flash
+    base_url: "https://openrouter.ai/api/v1"
+    api_key: ${OPENROUTER_API_KEY}
+    temperature: 1.0
+    top_p: 0.95
+    max_tokens: 4096
+    max_retries: 5
+    reasoning_effort: max
+
+  # General reasoning / clarifier / shallow research
+  deepseek_super_llm:
+    _type: openai
+    model_name: deepseek/deepseek-v4-flash
+    base_url: "https://openrouter.ai/api/v1"
+    api_key: ${OPENROUTER_API_KEY}
+    temperature: 1.0
+    top_p: 0.95
+    max_tokens: 65536
+    max_retries: 5
+    reasoning_effort: max
+
+  # Deep research planning/writing
+  deepseek_deep_llm:
+    _type: openai
+    model_name: deepseek/deepseek-v4-flash
+    base_url: "https://openrouter.ai/api/v1"
+    api_key: ${OPENROUTER_API_KEY}
+    temperature: 1.0
+    top_p: 0.95
+    max_tokens: 128000
+    max_retries: 10
+    reasoning_effort: max
+
+  # Document summaries for knowledge retrieval
+  summary_llm:
+    _type: openai
+    model_name: deepseek/deepseek-v4-flash
+    base_url: "https://openrouter.ai/api/v1"
+    api_key: ${OPENROUTER_API_KEY}
+    temperature: 1.0
+    top_p: 0.95
+    max_tokens: 100
+    max_retries: 5
+    reasoning_effort: max
+
+functions:
+  data_sources:
+    _type: data_source_registry
+    sources:
+      - id: web_search
+        name: "Web Search"
+        description: "Search the web for real-time information."
+        tools:
+          - web_search_tool
+          - advanced_web_search_tool
+      - id: knowledge_layer
+        name: "Knowledge Base"
+        description: "Search uploaded documents and files."
+        tools:
+          - knowledge_search
+
+  web_search_tool:
+    _type: tavily_web_search
+    max_results: 5
+    max_content_length: 1000
+
+  advanced_web_search_tool:
+    _type: tavily_web_search
+    max_results: 2
+    advanced_search: true
+
+  knowledge_search:
+    _type: knowledge_retrieval
+    backend: llamaindex
+    collection_name: ${COLLECTION_NAME:-oib_knowledge}
+    include_base_collection: false
+    include_session_collection: false
+    project_collections: []
+    generate_summary: true
+    summary_model: summary_llm
+    summary_db: ${AIQ_SUMMARY_DB:-sqlite+aiosqlite:///./summaries.db}
+    top_k: 5
+    chroma_dir: ${AIQ_CHROMA_DIR:-/tmp/chroma_data}
+
+  intent_classifier:
+    _type: intent_classifier
+    llm: deepseek_llm_intent
+    verbose: true
+
+  clarifier_agent:
+    _type: clarifier_agent
+    llm: deepseek_super_llm
+    planner_llm: deepseek_super_llm
+    max_turns: 3
+    enable_plan_approval: true
+    log_response_max_chars: 2000
+    verbose: true
+
+  shallow_research_agent:
+    _type: shallow_research_agent
+    llm: deepseek_super_llm
+    exclude_tools:
+      - advanced_web_search_tool
+    verbose: true
+    max_llm_turns: 10
+    max_tool_iterations: 5
+
+  deep_research_agent:
+    _type: deep_research_agent
+    enable_citation_verification: true
+    orchestrator_llm: deepseek_deep_llm
+    source_router_llm: deepseek_super_llm
+    researcher_llm: deepseek_super_llm
+    planner_llm: deepseek_deep_llm
+    writer_llm: deepseek_deep_llm
+    exclude_tools:
+      - web_search_tool
+    verbose: true
+
+workflow:
+  _type: chat_deepresearcher_agent
+  verbose: true
+  enable_escalation: true
+  enable_clarifier: true
+  use_async_deep_research: true
+  checkpoint_db: ${AIQ_CHECKPOINT_DB:-./checkpoints.db}

@@ -1,0 +1,255 @@
+# Database Schema — grid_app
+
+The `grid_app` database stores application state managed by the Next.js BFF. It uses **Drizzle ORM** (PostgreSQL dialect) with schema definitions in `frontends/ui/src/lib/db/schema/`.
+
+---
+
+## Schema Files
+
+All schemas are in `frontends/ui/src/lib/db/schema/` and barrel-exported from `index.ts`:
+
+| File | Table |
+|------|-------|
+| `projects.ts` | `projects` |
+| `conversations.ts` | `conversations` |
+| `messages.ts` | `messages` |
+| `documents.ts` | `documents` |
+| `user-preferences.ts` | `user_preferences` |
+
+---
+
+## projects
+
+```typescript
+// frontends/ui/src/lib/db/schema/projects.ts
+import { pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core'
+
+export const projects = pgTable('projects', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  organizationId: text('organization_id').notNull(),
+  name: text('name').notNull(),
+  createdBy: text('created_by').notNull(),
+  collectionName: text('collection_name').notNull(),
+  workosResourceId: text('workos_resource_id').unique(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+})
+```
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | `uuid` | PK, `defaultRandom()` | Auto-generated |
+| `organization_id` | `text` | NOT NULL | WorkOS organization ID |
+| `name` | `text` | NOT NULL | Project display name |
+| `created_by` | `text` | NOT NULL | WorkOS user ID of creator |
+| `collection_name` | `text` | NOT NULL | Milvus collection name for this project's knowledge base |
+| `workos_resource_id` | `text` | UNIQUE | Optional WorkOS FGA resource ID |
+| `created_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
+
+---
+
+## conversations
+
+```typescript
+// frontends/ui/src/lib/db/schema/conversations.ts
+import { pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core'
+import { projects } from './projects'
+
+export const conversations = pgTable('conversations', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull(),
+  createdBy: text('created_by').notNull(),
+  title: text('title'),
+  projectId: uuid('project_id').references(() => projects.id, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+})
+```
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | `text` | PK | Client-generated (format: `s_` prefix) |
+| `organization_id` | `text` | NOT NULL | WorkOS organization ID |
+| `created_by` | `text` | NOT NULL | WorkOS user ID |
+| `title` | `text` | | Auto-generated or user-set title |
+| `project_id` | `uuid` | FK → `projects.id` ON DELETE SET NULL | Scopes knowledge collection |
+| `created_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
+| `updated_at` | `timestamptz` | NOT NULL, `defaultNow()` | Updated on message activity |
+
+---
+
+## messages
+
+```typescript
+// frontends/ui/src/lib/db/schema/messages.ts
+import { jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core'
+import { conversations } from './conversations'
+
+export const messages = pgTable('messages', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  conversationId: text('conversation_id').notNull()
+    .references(() => conversations.id, { onDelete: 'cascade' }),
+  role: text('role').notNull(),
+  content: text('content').notNull(),
+  metadata: jsonb('metadata'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+})
+```
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | `uuid` | PK, `defaultRandom()` | Auto-generated |
+| `conversation_id` | `text` | NOT NULL, FK → `conversations.id` ON DELETE CASCADE | |
+| `role` | `text` | NOT NULL | `user`, `assistant`, `system`, or agent name |
+| `content` | `text` | NOT NULL | Message body |
+| `metadata` | `jsonb` | | Flexible: sources, tool_calls, agent info |
+| `created_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
+
+---
+
+## documents
+
+```typescript
+// frontends/ui/src/lib/db/schema/documents.ts
+import { pgTable, uuid, text, timestamp, jsonb, integer, index } from 'drizzle-orm/pg-core'
+import { projects } from './projects'
+
+export const documents = pgTable('documents', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  organizationId: text('organization_id').notNull(),
+  projectId: uuid('project_id').notNull()
+    .references(() => projects.id, { onDelete: 'cascade' }),
+  createdBy: text('created_by').notNull(),
+  filename: text('filename').notNull(),
+  minioKey: text('minio_key').notNull(),
+  collectionName: text('collection_name').notNull(),
+  fileSize: integer('file_size'),
+  contentType: text('content_type'),
+  status: text('status').notNull().default('pending'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  errorMessage: text('error_message'),
+  metadata: jsonb('metadata'),
+}, (table) => ({
+  projectIdx: index('documents_project_idx').on(table.projectId),
+  collectionIdx: index('documents_collection_idx').on(table.collectionName),
+  statusIdx: index('documents_status_idx').on(table.status),
+}))
+```
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | `uuid` | PK, `defaultRandom()` | |
+| `organization_id` | `text` | NOT NULL | |
+| `project_id` | `uuid` | NOT NULL, FK → `projects.id` ON DELETE CASCADE | |
+| `created_by` | `text` | NOT NULL | Uploading user ID |
+| `filename` | `text` | NOT NULL | Original filename |
+| `minio_key` | `text` | NOT NULL | Object storage key |
+| `collection_name` | `text` | NOT NULL | Milvus collection for the vectorized content |
+| `file_size` | `integer` | | Size in bytes |
+| `content_type` | `text` | | MIME type |
+| `status` | `text` | NOT NULL, DEFAULT `'pending'` | `pending` → `processing` → `processed` / `error` |
+| `error_message` | `text` | | Error details if status is `error` |
+| `metadata` | `jsonb` | | Flexible metadata |
+| `created_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
+| `updated_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
+
+**Indexes:**
+- `documents_project_idx` — on `project_id`
+- `documents_collection_idx` — on `collection_name`
+- `documents_status_idx` — on `status`
+
+---
+
+## user_preferences
+
+```typescript
+// frontends/ui/src/lib/db/schema/user-preferences.ts
+import { jsonb, pgTable, text } from 'drizzle-orm/pg-core'
+
+export const userPreferences = pgTable('user_preferences', {
+  workosUserId: text('workos_user_id').primaryKey(),
+  prefs: jsonb('prefs').notNull().default({}),
+})
+```
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `workos_user_id` | `text` | PK | Maps 1:1 to a WorkOS user |
+| `prefs` | `jsonb` | NOT NULL, DEFAULT `{}` | Arbitrary user preferences |
+
+---
+
+## Database Relationships
+
+```
+projects ──1:N──→ conversations
+projects ──1:N──→ documents
+conversations ──1:N──→ messages (CASCADE delete)
+```
+
+---
+
+## Relationship Diagram
+
+```
+┌──────────────┐       ┌──────────────────┐
+│   projects   │       │ user_preferences │
+├──────────────┤       ├──────────────────┤
+│ id (uuid) PK │       │ workos_user_id   │
+│ organization │       │ (text) PK        │
+│ name         │       │ prefs (jsonb)    │
+│ created_by   │       └──────────────────┘
+│ collection   │
+│ workosres_id │       ┌──────────────────┐
+│ created_at   │       │    messages      │
+└──────┬───────┘       ├──────────────────┤
+       │               │ id (uuid) PK     │
+       │ 1:N           │ conversation_id  │──FK──→ conversations.id CASCADE
+       ▼               │ role (text)      │
+┌──────────────┐       │ content (text)   │
+│conversations │       │ metadata (jsonb) │
+├──────────────┤       │ created_at       │
+│ id (text) PK │       └──────────────────┘
+│ organization │
+│ created_by   │       ┌──────────────────┐
+│ title        │       │   documents      │
+│ project_id───┼─FK──→│ projects.id      │
+│ created_at   │       ├──────────────────┤
+│ updated_at   │       │ id (uuid) PK     │
+└──────────────┘       │ project_id ──FK──│ projects.id CASCADE
+                       │ filename         │
+                       │ minio_key        │
+                       │ status           │
+                       │ ...              │
+                       └──────────────────┘
+```
+
+---
+
+## init-db.sql Tables
+
+**File:** `deploy/compose/init-db.sql`
+
+This PostgreSQL entrypoint script runs on first container startup and creates two additional databases alongside `grid_app`:
+
+### aiq_jobs database
+
+| Table | Purpose | Key Columns |
+|-------|---------|-------------|
+| `job_info` | NAT JobStore metadata | `job_id` (PK), `status`, `config_file`, `error`, `output_path`, `created_at`, `updated_at`, `expiry_seconds`, `is_expired` |
+| `job_access` | Job ownership/access control | `job_id` (PK), `owner_auth_type`, `owner_subject`, `owner_email` |
+| `job_events` | SSE streaming event persistence | `id` (serial PK), `job_id`, `event_type`, `event_data`, `created_at` |
+| `summaries` | Document summaries | `collection` + `filename` (composite PK), `summary` |
+
+Indexes: `job_info(status)`, `job_info(created_at)`, `job_access(owner_auth_type, owner_subject)`, `job_events(job_id)`, `job_events(job_id, id)`, `summaries(collection)`.
+
+### aiq_checkpoints database
+
+LangGraph conversation checkpoint tables:
+
+| Table | Purpose | Key Columns |
+|-------|---------|-------------|
+| `checkpoints` | Conversation state checkpoints | `thread_id`, `checkpoint_ns`, `checkpoint_id` (composite PK), `parent_checkpoint_id`, `type`, `checkpoint` (JSONB), `metadata` (JSONB) |
+| `checkpoint_blobs` | Binary state data | `thread_id`, `checkpoint_ns`, `channel`, `version` (composite PK), `type`, `blob` (BYTEA) |
+| `checkpoint_writes` | Pending writes | `thread_id`, `checkpoint_ns`, `checkpoint_id`, `task_id`, `idx` (composite PK), `channel`, `type`, `blob` (BYTEA) |
+| `checkpoint_migrations` | Schema version tracking | `v` (PK) |

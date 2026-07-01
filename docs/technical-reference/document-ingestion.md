@@ -1,0 +1,185 @@
+# Document Ingestion Pipeline
+
+End-to-end flow from file upload to vector search.
+
+---
+
+## Overview
+
+```
+User's Browser                 Next.js BFF                    MinIO              Python Backend          ChromaDB
+      │                            │                          │                      │                    │
+      │   POST /api/documents/      │                          │                      │                    │
+      │   upload (multipart)        │                          │                      │                    │
+      ├───────────────────────────► │                          │                      │                    │
+      │                            │                          │                      │                    │
+      │                            │  PutObject               │                      │                    │
+      │                            │ ──────────────────────► │                      │                    │
+      │                            │                          │                      │                    │
+      │                            │  INSERT documents (DB)   │                      │                    │
+      │                            │                          │                      │                    │
+      │                            │  Generate presigned URL  │                      │                    │
+      │                            │ ◄────────────────────── │                      │                    │
+      │                            │                          │                      │                    │
+      │                            │  POST /v1/ingest         │                      │                    │
+      │                            │  {file_ref, collection,  │                      │                    │
+      │                            │   document_id}           │                      │                    │
+      │                            │ ──────────────────────────────────────────────► │                    │
+      │                            │                          │                      │                    │
+      │  {documentId, jobId,       │                          │   GET presigned URL  │                    │
+      │   status: "pending"}       │                          │ ──────────────────► │                    │
+      │ ◄──────────────────────────┤                          │                      │                    │
+      │                            │                          │ ◄────────────────── │                    │
+      │                            │                          │     file bytes       │                    │
+      │                            │                          │                      │                    │
+      │                            │                          │   submit_job()       │                    │
+      │                            │                          │   (background)       │                    │
+      │                            │                          │ ────────────────►    │                    │
+      │                            │                          │                      │                    │
+      │  Poll /api/documents/      │                          │                      │                    │
+      │  {id}/status (5s)          │                          │                      │  Extract → Chunk   │
+      │ ├─────────────────────────►│                          │                      │  → Embed → Store   │
+      │ ◄──────────────────────────┤                          │                      │ ────────────────►  │
+      │  {status: "completed"}     │                          │                      │                    │
+```
+
+---
+
+## Step 1: Upload (`FileUploadZone` + `useFileUpload`)
+
+**Frontend files**:
+- `frontends/ui/src/features/documents/components/FileUploadZone.tsx`
+- `frontends/ui/src/features/documents/hooks/use-file-upload.ts`
+- `frontends/ui/src/features/documents/orchestrator.ts`
+
+The user selects files via the `FileUploadZone` (drag-and-drop or click-to-browse). The `useFileUpload` hook:
+
+1. Validates files against configured limits (`FILE_UPLOAD_ACCEPTED_TYPES`, `FILE_UPLOAD_MAX_SIZE_MB`, `FILE_UPLOAD_MAX_FILE_COUNT`)
+2. Checks for duplicate filenames in the current session
+3. Creates `TrackedFile` entries in the Zustand store (status: `uploading`)
+4. Ensures the target collection exists via `ensureCollectionExists()`
+5. Extracts `projectId` from the collection name (`proj_{projectId}` → `{projectId}`)
+6. POSTs each file as `multipart/form-data` to `/api/documents/upload` with `projectId` + `file`
+
+---
+
+## Step 2: BFF Upload Route
+
+**File**: `frontends/ui/src/app/api/documents/upload/route.ts`
+
+```typescript
+POST /api/documents/upload
+Content-Type: multipart/form-data
+Body: { projectId: string, file: File }
+```
+
+1. **Auth check** — `requireAuthorizedSession()` + `requireProjectAccess(session, projectId, 'project:edit')`
+2. **Generate documentId** — `uuidv4()`
+3. **Store in MinIO** — `PutObjectCommand` with key `org/{orgId}/project/{projId}/doc/{docId}/{filename}` (built by `buildMinioKey()` in `s3.ts`)
+4. **Insert DB row** — Drizzle `documents` table with `status: 'uploaded'`, storing `documentId`, `organizationId`, `projectId`, `createdBy`, `filename`, `minioKey`, `collectionName`, `fileSize`, `contentType`
+5. **Generate presigned GET URL** — `getSignedUrl(s3Client, GetObjectCommand, { expiresIn: MINIO_PRESIGNED_URL_TTL_SECONDS || 600 })`
+6. **Trigger ingestion** — POST to `{BACKEND_URL}/v1/ingest` with `{ file_ref: presignedUrl, collection: collectionName, document_id: documentId }`
+7. **Return response** — `{ documentId, jobId, status: 'pending' | 'uploaded' }`
+
+**MinIO config** (`frontends/ui/src/lib/s3.ts`):
+- Endpoint: `process.env.MINIO_ENDPOINT`
+- Bucket: `process.env.MINIO_BUCKET || 'grid-documents'`
+- Region: `us-east-1`, `forcePathStyle: true`
+
+---
+
+## Step 3: Python Ingest Route
+
+**File**: `src/aiq_agent/fastapi_extensions/routes/ingest.py`
+
+```python
+POST /v1/ingest
+Body: { file_ref: str, collection: str, document_id: str }
+Status: 202 Accepted
+```
+
+1. Validates `file_ref` and `collection` are present
+2. Downloads the file from the presigned URL via `httpx.AsyncClient` (follows redirects)
+3. Infers file suffix from `Content-Type` header or URL path
+4. Saves to a `tempfile.NamedTemporaryFile`
+5. Submits to the active ingestor via `ingestor.submit_job([temp_path], collection, config={cleanup_files: True, original_filenames: [...]})`
+6. Returns `{ job_id, status: 'pending', document_id }`
+
+On failure, the temp file is cleaned up in the `finally` block. The ingestion route delegates to the active ingestor singleton, which is set up during NAT function registration.
+
+---
+
+## Step 4: Background Ingestion (`LlamaIndex`)
+
+**File**: `sources/knowledge_layer/src/llamaindex/adapter.py`
+
+The `LlamaIndexIngestor.submit_job()` creates a job with `JobState.PENDING` and spawns a daemon thread running `_run_ingestion()`.
+
+### `_run_ingestion(job_id, file_paths, collection_name, config)`
+
+For each file:
+
+1. **Text extraction** — `SimpleDirectoryReader(input_files=[file_path])` loads the file content into LlamaIndex `Document` objects
+2. **Table extraction** (PDF only, optional) — Uses `pdfplumber` to extract tables as markdown; each table becomes a `Document` with `content_type: "table"` metadata
+3. **Image extraction** (PDF only, optional) — Uses `pypdfium2` to extract images (min 100×100px to filter icons); each image is sent to NVIDIA's VLM API (default: `nvidia/nemotron-nano-12b-v2-vl`) for classification (chart vs image) and captioning; captions become `Document` objects with `content_type: "chart"` or `"image"` metadata
+4. **Summarization** (optional) — If `generate_summary` is enabled, the first and last chunks are combined and sent to the configured `summary_model` LLM for a one-sentence summary
+5. **Indexing** — All `Document` objects are inserted into a `VectorStoreIndex` backed by ChromaDB with NVIDIA embeddings (`nvidia/llama-nemotron-embed-vl-1b-v2`)
+6. **Job completion** — Status updated to `JobState.COMPLETED` with metadata about chunks, tables, charts, and images created
+
+### Configuration
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `persist_dir` | `AIQ_CHROMA_DIR` or `/tmp/chroma_data` | ChromaDB persistence directory |
+| `embed_model` | `nvidia/llama-nemotron-embed-vl-1b-v2` | NVIDIA embedding model |
+| `chunk_size` | 1024 | Text chunk size (model supports up to 2048 tokens) |
+| `chunk_overlap` | 128 | Overlap between chunks |
+| `extract_tables` | false | Enable PDF table extraction |
+| `extract_images` | false | Enable PDF image extraction + VLM captioning |
+| `extract_charts` | false | Enable chart extraction with structured data |
+| `vlm_model` | `nvidia/nemotron-nano-12b-v2-vl` | VLM for image captioning |
+| `generate_summary` | false | Enable document summarization |
+| `summary_model` | null | LLM reference for summarization |
+
+### TTL Cleanup
+
+Session-scoped collections (`s_*`) are automatically reaped by a background thread. Default TTL is 24 hours (`AIQ_COLLECTION_TTL_HOURS`), checked every 3600 seconds (`AIQ_TTL_CLEANUP_INTERVAL_SECONDS`). Base/project collections are never auto-deleted.
+
+---
+
+## Step 5: Status Polling
+
+**Frontend**: `UploadOrchestrator` (singleton, lives outside React lifecycle)
+- Polls every 5 seconds via `/api/documents/{id}/status`
+- Maximum 420 poll attempts (~35 minutes)
+- Persists job state to localStorage for recovery on page refresh
+- Updates `TrackedFile` entries in Zustand store based on job status
+
+**BFF status route**: `frontends/ui/src/app/api/documents/[id]/status/route.ts`
+- Reads `documents.status` from Drizzle
+- Returns `{ id, status, filename, fileSize, contentType, collectionName, errorMessage, createdAt, updatedAt }`
+
+**Python job status**: `GET /v1/documents/{job_id}/status` (in `documents.py`)
+- Returns `IngestionJobStatus` with per-file progress via `ingestor.get_job_status(job_id)`
+
+---
+
+## Step 6: Search (Knowledge Retrieval)
+
+At query time, the `knowledge_retrieval` NAT function:
+
+1. Resolves target collections via `_resolve_target_collections()` (see [Collection Scoping](collection-scoping.md))
+2. For each collection, calls `retriever.retrieve(query, collection_name, top_k=5)`
+3. The `LlamaIndexRetriever` queries ChromaDB for the `top_k` most similar chunks
+4. Results from all collections are merged by relevance score (cosine similarity) and truncated to `top_k`
+5. Formatted with citations (filename, page number) for LLM consumption
+
+---
+
+## File: Download
+
+**File**: `frontends/ui/src/app/api/documents/[id]/download/route.ts`
+- Auth check (`requireAuthorizedSession`)
+- Reads `minioKey` from the `documents` table
+- Generates a presigned GET URL with `ResponseContentDisposition: attachment`
+- Returns `{ downloadUrl, filename, contentType, fileSize }`

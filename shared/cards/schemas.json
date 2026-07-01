@@ -1,0 +1,144 @@
+{
+  "$defs": {
+    "LegalBasisCard": {
+      "description": "A legal norm, regulation, or OIB Richtlinie that grounds the answer.",
+      "properties": {
+        "article": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Relevant article or paragraph number",
+          "title": "Article"
+        },
+        "law": {
+          "description": "Name of the law, regulation, or OIB Richtlinie",
+          "minLength": 1,
+          "title": "Law",
+          "type": "string"
+        },
+        "original_text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Literal excerpt from the source, if available",
+          "title": "Original Text"
+        },
+        "section": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Relevant section or chapter",
+          "title": "Section"
+        },
+        "summary": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Plain-language summary of the legal relevance",
+          "title": "Summary"
+        },
+        "type": {
+          "const": "legal_basis",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "law"
+      ],
+      "title": "LegalBasisCard",
+      "type": "object"
+    },
+    "SummaryCard": {
+      "description": "A concise overview of the answer for the user.",
+      "properties": {
+        "content": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "One-paragraph summary",
+          "title": "Content"
+        },
+        "key_points": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Bullet points highlighting key facts",
+          "title": "Key Points"
+        },
+        "title": {
+          "description": "Short title for the summary card",
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "summary",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "title"
+      ],
+      "title": "SummaryCard",
+      "type": "object"
+    }
+  },
+  "discriminator": {
+    "mapping": {
+      "legal_basis": "#/$defs/LegalBasisCard",
+      "summary": "#/$defs/SummaryCard"
+    },
+    "propertyName": "type"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/SummaryCard"
+    },
+    {
+      "$ref": "#/$defs/LegalBasisCard"
+    }
+  ]
+}

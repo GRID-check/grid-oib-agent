@@ -1,0 +1,162 @@
+name: AIQ CI
+
+# Trigger: push-only. All PRs (internal and external) are mirrored to
+# pull-request/<N> branches by copy-pr-bot after `/ok to test` approval.
+# Direct pushes to develop or release branches also trigger CI.
+on:
+  push:
+    branches:
+      - develop
+      - "release/**"
+      - "pull-request/[0-9]+"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aiq-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pre-commit:
+    name: Lint and Hooks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install markdown-link-check
+        run: npm install -g markdown-link-check
+
+      - name: Install dev dependencies
+        run: |
+          uv venv --python 3.13 .venv
+          uv sync --group dev
+          uv pip install nbconvert
+
+      - name: Ruff checks
+        run: |
+          . .venv/bin/activate
+          ruff check .
+          ruff format --check .
+
+      - name: Run remaining pre-commit hooks
+        run: |
+          . .venv/bin/activate
+          SKIP=ruff-check,ruff-format,pytest,helm-lint pre-commit run --all-files
+
+  test:
+    name: Pytest and Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Install test dependencies
+        run: |
+          uv venv --python 3.13 .venv
+          uv sync --group dev
+
+      - name: Run tests with coverage
+        run: |
+          set -euo pipefail
+          . .venv/bin/activate
+          python -X faulthandler -m pytest tests/ -v \
+            --junitxml=report.xml \
+            --cov=src/aiq_agent \
+            --cov-report=xml \
+            --cov-report=html \
+            --cov-report=term \
+            --cov-fail-under=65
+
+      - name: Upload coverage artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-coverage
+          path: |
+            report.xml
+            coverage.xml
+            htmlcov/
+          retention-days: 7
+
+  helm-lint:
+    name: Helm Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+
+      - name: Lint Helm charts
+        run: |
+          for chart in deploy/helm/helm-charts-k8s/*; do
+            if [ -d "$chart" ]; then
+              helm lint "$chart"
+            fi
+          done
+
+  test-scripts:
+    name: Script Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Install script test dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv venv --python 3.13 .venv
+          uv sync --group dev
+          for pkg in \
+            ./frontends/benchmarks/freshqa \
+            ./frontends/benchmarks/intent_classifier
+          do
+            if [ -d "$pkg" ]; then
+              uv pip install --no-deps -e "$pkg"
+            fi
+          done
+
+      - name: Run script tests
+        run: |
+          . .venv/bin/activate
+          chmod +x ci/scripts/test_scripts.sh
+          ci/scripts/test_scripts.sh --skip-setup
