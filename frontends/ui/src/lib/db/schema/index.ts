@@ -1,5 +1,6 @@
 export * from './conversations'
 export * from './documents'
 export * from './messages'
+export * from './project-folders'
 export * from './projects'
 export * from './user-preferences'

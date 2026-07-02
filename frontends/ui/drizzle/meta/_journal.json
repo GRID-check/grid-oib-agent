@@ -29,6 +29,20 @@
       "when": 1782850583190,
       "tag": "0003_clammy_ted_forrester",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1782850583191,
+      "tag": "0004_project_profile_context",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1743552000000,
+      "tag": "0005_project_folders",
+      "breakpoints": true
     }
   ]
 }
