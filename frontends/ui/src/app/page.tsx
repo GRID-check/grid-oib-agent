@@ -4,19 +4,30 @@
 /**
  * Home Page
  *
- * Main chat interface using the MainLayout component.
- * Displays the full Grid experience.
- * Chat state is managed via the useChatStore.
+ * Redirects authenticated users to the project workspace home.
+ * Falls back to the main chat layout for unauthenticated visitors.
  */
 
 'use client'
 
-import { type ReactNode, Suspense } from 'react'
+import { type ReactNode, Suspense, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { useAuth } from '@/adapters/auth'
 import { MainLayout } from '@/features/layout'
 
 const HomeContent = (): ReactNode => {
-  const { isAuthenticated, signIn } = useAuth()
+  const { isAuthenticated, signIn, isLoading } = useAuth()
+  const router = useRouter()
+
+  useEffect(() => {
+    if (isAuthenticated && !isLoading) {
+      router.replace('/projects')
+    }
+  }, [isAuthenticated, isLoading, router])
+
+  if (isAuthenticated) {
+    return null
+  }
 
   return (
     <MainLayout

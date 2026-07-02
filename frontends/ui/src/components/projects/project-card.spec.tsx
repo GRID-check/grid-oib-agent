@@ -25,12 +25,20 @@ describe('ProjectCard', () => {
     expect(screen.getByText('coll_alpha')).toBeInTheDocument()
   })
 
-  test('links to the project chat and members page', () => {
+  test('links to overview, files, ask grid, and members', () => {
     render(<ProjectCard project={createProject({ id: 'proj-abc' })} />)
 
-    expect(screen.getByRole('link', { name: /open chat/i })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: /open overview/i })).toHaveAttribute(
       'href',
-      '/chat?projectId=proj-abc',
+      '/projects/proj-abc',
+    )
+    expect(screen.getByRole('link', { name: /Files/i })).toHaveAttribute(
+      'href',
+      '/projects/proj-abc/files',
+    )
+    expect(screen.getByRole('link', { name: /Ask Grid/i })).toHaveAttribute(
+      'href',
+      '/projects/proj-abc/chat',
     )
     expect(screen.getByRole('link', { name: /members/i })).toHaveAttribute(
       'href',
