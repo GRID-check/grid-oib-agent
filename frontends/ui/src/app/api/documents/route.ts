@@ -26,6 +26,7 @@ export async function GET(request: NextRequest): Promise<Response> {
       contentType: documents.contentType,
       status: documents.status,
       collectionName: documents.collectionName,
+      folderId: documents.folderId,
       createdAt: documents.createdAt,
       updatedAt: documents.updatedAt,
       errorMessage: documents.errorMessage,

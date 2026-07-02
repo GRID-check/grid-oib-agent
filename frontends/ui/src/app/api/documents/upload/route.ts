@@ -4,13 +4,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { v4 as uuidv4 } from 'uuid'
 import { requireAuthorizedSession } from '@/lib/auth/require-auth'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { s3Client, bucketName, buildMinioKey } from '@/lib/s3'
 import { getDb } from '@/lib/db'
-import { documents } from '@/lib/db/schema'
+import { documents, projects, projectFolders } from '@/lib/db/schema'
 
 const getBackendUrl = (): string => {
   const url = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'
@@ -22,6 +22,7 @@ export async function POST(request: NextRequest): Promise<Response> {
 
   const formData = await request.formData()
   const projectId = formData.get('projectId') as string | null
+  const folderId = formData.get('folderId') as string | null
   const file = formData.get('file') as File | null
 
   if (!projectId || !file) {
@@ -30,9 +31,38 @@ export async function POST(request: NextRequest): Promise<Response> {
 
   await requireProjectAccess(session, projectId, 'project:edit')
 
+  const db = getDb()
+
+  let folderPath: string | null = null
+  if (folderId) {
+    const [folder] = await db
+      .select({ path: projectFolders.path })
+      .from(projectFolders)
+      .where(
+        and(
+          eq(projectFolders.id, folderId),
+          eq(projectFolders.projectId, projectId),
+        )
+      )
+      .limit(1)
+    if (!folder) {
+      return NextResponse.json({ error: 'Folder not found in project' }, { status: 404 })
+    }
+    folderPath = folder.path
+  }
+  const [project] = await db
+    .select({ collectionName: projects.collectionName })
+    .from(projects)
+    .where(and(eq(projects.id, projectId), eq(projects.organizationId, session.organizationId)))
+    .limit(1)
+
+  if (!project) {
+    return NextResponse.json({ error: 'Project not found' }, { status: 404 })
+  }
+
   const documentId = uuidv4()
-  const collectionName = `proj_${projectId}`
-  const minioKey = buildMinioKey(session.organizationId, projectId, documentId, file.name)
+  const collectionName = project.collectionName
+  const minioKey = buildMinioKey(session.organizationId, projectId, documentId, file.name, folderPath)
 
   const bytes = Buffer.from(await file.arrayBuffer())
   await s3Client.send(
@@ -44,11 +74,11 @@ export async function POST(request: NextRequest): Promise<Response> {
     })
   )
 
-  const db = getDb()
   await db.insert(documents).values({
     id: documentId,
     organizationId: session.organizationId,
     projectId,
+    folderId: folderId ?? null,
     createdBy: session.userId,
     filename: file.name,
     minioKey,

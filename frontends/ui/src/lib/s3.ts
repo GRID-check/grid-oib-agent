@@ -19,7 +19,9 @@ export function buildMinioKey(
   organizationId: string,
   projectId: string,
   documentId: string,
-  filename: string
+  filename: string,
+  folderPath?: string | null,
 ): string {
-  return `org/${organizationId}/project/${projectId}/doc/${documentId}/${filename}`;
+  const folder = folderPath ? `${folderPath}/` : ''
+  return `org/${organizationId}/project/${projectId}/${folder}doc/${documentId}/${filename}`
 }

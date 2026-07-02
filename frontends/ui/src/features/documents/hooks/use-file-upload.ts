@@ -27,6 +27,8 @@ import { useChatStore } from '@/features/chat'
 
 interface UseFileUploadOptions {
   collectionName?: string
+  projectId?: string
+  folderId?: string
   onComplete?: () => void
   onError?: (error: Error) => void
 }
@@ -46,7 +48,7 @@ interface UseFileUploadReturn {
 }
 
 export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUploadReturn => {
-  const { collectionName, onComplete, onError } = options
+  const { collectionName, projectId, folderId, onComplete, onError } = options
 
   const { idToken } = useAuth()
   const { fileUpload: fileUploadConfig } = useAppConfig()
@@ -204,41 +206,52 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
       try {
         await ensureCollectionExists(collectionName)
 
-        // Extract projectId from collectionName (e.g. "proj_abc123" -> "abc123")
-        const projectId = collectionName.startsWith('proj_') ? collectionName.slice(5) : null
+        if (projectId) {
+          // Project uploads persist document metadata before backend ingestion.
+          for (const file of validFiles) {
+            const trackedFile = trackedFileMap.get(file.name)
+            if (!trackedFile) continue
 
-        if (!projectId) {
-          throw new Error('Cannot determine project ID from collection name')
-        }
+            const formData = new FormData()
+            formData.append('projectId', projectId)
+            if (folderId) {
+              formData.append('folderId', folderId)
+            }
+            formData.append('file', file)
 
-        // Upload each file individually through the BFF
-        const pendingJobs: { jobId: string; collectionName: string; files: TrackedFile[] }[] = []
+            const response = await fetch('/api/documents/upload', {
+              method: 'POST',
+              body: formData,
+            })
 
-        for (const file of validFiles) {
-          const trackedFile = trackedFileMap.get(file.name)
-          if (!trackedFile) continue
+            if (!response.ok) {
+              const errBody = await response.json().catch(() => ({ error: 'Upload failed' }))
+              throw new Error(errBody.error || `Upload failed with status ${response.status}`)
+            }
 
-          const formData = new FormData()
-          formData.append('projectId', projectId)
-          formData.append('file', file)
+            const result = await response.json()
+            const { documentId, jobId, status } = result
 
-          const response = await fetch('/api/documents/upload', {
-            method: 'POST',
-            body: formData,
-          })
-
-          if (!response.ok) {
-            const errBody = await response.json().catch(() => ({ error: 'Upload failed' }))
-            throw new Error(errBody.error || `Upload failed with status ${response.status}`)
+            updateTrackedFile(trackedFile.id, {
+              status: status === 'pending' ? 'ingesting' : status,
+              serverFileId: documentId,
+              jobId,
+            })
           }
+        } else {
+          // Session uploads go through the canonical collection documents API.
+          const { job_id: jobId, file_ids: fileIds } = await clientRef.current.uploadFiles(collectionName, validFiles)
+          removeRecentlyDeletedIds(fileIds)
 
-          const result = await response.json()
-          const { documentId, jobId, status } = result
+          validFiles.forEach((file, index) => {
+            const trackedFile = trackedFileMap.get(file.name)
+            if (!trackedFile) return
 
-          updateTrackedFile(trackedFile.id, {
-            status: status === 'pending' ? 'ingesting' : status,
-            serverFileId: documentId,
-            jobId: jobId,
+            updateTrackedFile(trackedFile.id, {
+              status: 'ingesting',
+              serverFileId: fileIds[index],
+              jobId,
+            })
           })
         }
 
@@ -281,6 +294,7 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
     },
     [
       collectionName,
+      projectId,
       validationContext,
       fileUploadConfig,
       ensureCollectionExists,
