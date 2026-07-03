@@ -35,6 +35,7 @@ import logging
 import time
 from typing import TYPE_CHECKING
 from typing import Annotated
+from typing import Any
 
 from fastapi import Body
 from fastapi import FastAPI
@@ -274,6 +275,23 @@ class JobReportResponse(BaseModel):
     job_id: str = Field(..., description="Unique job identifier")
     has_report: bool = Field(..., description="Whether the final report is available")
     report: str | None = Field(None, description="Final research report from the agent")
+
+
+class ResearchRunItem(BaseModel):
+    """A single research run (async job) summary."""
+
+    job_id: str = Field(..., description="Unique job identifier")
+    status: str = Field(..., description="Current job status")
+    created_at: str | None = Field(None, description="Creation timestamp (ISO format)")
+    conversation_id: str | None = Field(None, description="Conversation the job was submitted from, if any")
+    project_collection: str | None = Field(None, description="Project collection the job was scoped to, if any")
+
+
+class ResearchRunsResponse(BaseModel):
+    """List of research runs matching the requested filters."""
+
+    jobs: list[ResearchRunItem] = Field(..., description="Matching research runs, newest first")
+    total: int = Field(..., description="Total number of matching runs (before limit/offset)")
 
 
 class AgentInfo(BaseModel):
@@ -630,6 +648,60 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
 
         return JobReportResponse(job_id=job_id, has_report=bool(report), report=report)
 
+    @app.get(
+        "/v1/jobs/async/jobs",
+        response_model=ResearchRunsResponse,
+        tags=["async jobs"],
+        summary="List research runs",
+        description=(
+            "List async job runs (research runs), optionally filtered by project collection, "
+            "conversation, and/or status. Scoped to the caller's own jobs, consistent with "
+            "single-job access checks elsewhere in this API."
+        ),
+    )
+    async def list_research_runs(
+        project_collection: str | None = None,
+        conversation_id: str | None = None,
+        status: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> ResearchRunsResponse:
+        """List research runs matching the given filters, newest first."""
+        principal = require_verified_principal()
+
+        clamped_limit = max(1, min(limit, 200))
+        clamped_offset = max(0, offset)
+
+        # Mirrors authorize_job_access: ownership is only enforced when REQUIRE_AUTH=true.
+        enforce_owner = os.environ.get("REQUIRE_AUTH", "false").lower() == "true"
+
+        loop = asyncio.get_running_loop()
+        rows, total = await loop.run_in_executor(
+            None,
+            _find_research_runs,
+            db_url,
+            enforce_owner,
+            principal.type,
+            principal.sub,
+            project_collection,
+            conversation_id,
+            status,
+            clamped_limit,
+            clamped_offset,
+        )
+
+        jobs = [
+            ResearchRunItem(
+                job_id=row["job_id"],
+                status=row["status"],
+                created_at=_format_created_at(row["created_at"]),
+                conversation_id=row["conversation_id"],
+                project_collection=row["project_collection"],
+            )
+            for row in rows
+        ]
+        return ResearchRunsResponse(jobs=jobs, total=total)
+
     logger.info("Registered async job routes at /v1/jobs/async")
 
     # Ensure job_events table exists before reaper runs (reaper queries it via raw SQL;
@@ -690,6 +762,87 @@ def _find_stale_jobs(db_url: str, running_status: str) -> list[str]:
 
         result = conn.execute(stale_query, params)
         return [row[0] for row in result]
+
+
+def _format_created_at(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    try:
+        return value.isoformat()
+    except AttributeError:
+        return str(value)
+
+
+def _find_research_runs(
+    db_url: str,
+    enforce_owner: bool,
+    owner_auth_type: str | None,
+    owner_subject: str | None,
+    project_collection: str | None,
+    conversation_id: str | None,
+    status: str | None,
+    limit: int,
+    offset: int,
+) -> tuple[list[dict], int]:
+    """
+    Sync helper to query research runs (job_access joined with NAT's job_info).
+
+    Runs in a thread via run_in_executor to avoid blocking the event loop with DB I/O.
+    Mirrors the raw-SQL, sync-engine query pattern used by ``_find_stale_jobs`` above.
+
+    When ``enforce_owner`` is True (REQUIRE_AUTH=true), results are scoped to the
+    given owner_auth_type/owner_subject pair -- the same principal match performed
+    by ``authorize_job_access``. When False (auth disabled), ownership is not
+    enforced, consistent with how ``authorize_job_access`` treats no-auth
+    deployments.
+    """
+    from sqlalchemy import text
+
+    from ..jobs.event_store import EventStore
+
+    EventStore._ensure_table_exists(db_url)
+    engine = EventStore._get_or_create_sync_engine(db_url)
+
+    conditions: list[str] = []
+    params: dict[str, Any] = {}
+
+    if enforce_owner:
+        conditions.append("ja.owner_auth_type = :owner_auth_type AND ja.owner_subject = :owner_subject")
+        params["owner_auth_type"] = owner_auth_type
+        params["owner_subject"] = owner_subject
+    if project_collection is not None:
+        conditions.append("ja.project_collection = :project_collection")
+        params["project_collection"] = project_collection
+    if conversation_id is not None:
+        conditions.append("ja.conversation_id = :conversation_id")
+        params["conversation_id"] = conversation_id
+    if status is not None:
+        conditions.append("ji.status = :status")
+        params["status"] = status
+
+    where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    join_sql = "FROM job_access ja INNER JOIN job_info ji ON ja.job_id = ji.job_id"
+
+    with engine.connect() as conn:
+        total = conn.execute(text(f"SELECT COUNT(*) {join_sql} {where_clause}"), params).scalar() or 0
+
+        rows = (
+            conn.execute(
+                text(
+                    "SELECT ja.job_id, ji.status, ji.created_at, ja.conversation_id, ja.project_collection "
+                    f"{join_sql} {where_clause} "
+                    "ORDER BY ji.created_at DESC "
+                    "LIMIT :limit OFFSET :offset"
+                ),
+                {**params, "limit": limit, "offset": offset},
+            )
+            .mappings()
+            .all()
+        )
+
+    return [dict(row) for row in rows], total
 
 
 async def _reap_ghost_jobs(job_store, db_url: str) -> None:

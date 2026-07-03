@@ -32,8 +32,12 @@ from aiq_agent.auth import get_current_principal
 _job_access_schema_initialized: set[str] = set()
 
 _JOB_ACCESS_INDEX_SQL = "CREATE INDEX IF NOT EXISTS idx_job_access_owner ON job_access(owner_auth_type, owner_subject)"
+_JOB_ACCESS_PROJECT_INDEX_SQL = (
+    "CREATE INDEX IF NOT EXISTS idx_job_access_owner_project ON job_access(owner_subject, project_collection)"
+)
 _JOB_ACCESS_SELECT_SQL = text(
-    "SELECT job_id, owner_auth_type, owner_subject, owner_email, created_at FROM job_access WHERE job_id = :job_id"
+    "SELECT job_id, owner_auth_type, owner_subject, owner_email, conversation_id, project_collection, created_at "
+    "FROM job_access WHERE job_id = :job_id"
 )
 _JOB_ACCESS_DELETE_SQL = text("DELETE FROM job_access WHERE job_id = :job_id")
 _JOB_ACCESS_CLEANUP_SQL = text(
@@ -54,11 +58,20 @@ def ensure_job_access_table(db_url: str) -> None:
         conn.commit()
 
 
-def create_job_access(job_id: str, principal: Principal, db_url: str) -> None:
+def create_job_access(
+    job_id: str,
+    principal: Principal,
+    db_url: str,
+    conversation_id: str | None = None,
+    project_collection: str | None = None,
+) -> None:
     """Persist the verified owner for a newly created job."""
     with _job_access_connection(db_url) as conn:
         _ensure_job_access_schema(conn, db_url)
-        conn.execute(_job_access_upsert_sql(db_url), _principal_params(job_id, principal))
+        conn.execute(
+            _job_access_upsert_sql(db_url),
+            _principal_params(job_id, principal, conversation_id, project_collection),
+        )
         conn.commit()
 
 
@@ -188,6 +201,12 @@ def _ensure_job_access_schema(conn: Connection, db_url: str) -> None:
         return
     conn.execute(text(_job_access_table_sql(db_url)))
     conn.execute(text(_JOB_ACCESS_INDEX_SQL))
+    conn.execute(text(_JOB_ACCESS_PROJECT_INDEX_SQL))
+    if _is_postgres(db_url):
+        for statement in _job_access_add_column_statements(db_url):
+            conn.execute(text(statement))
+    else:
+        _ensure_sqlite_job_access_columns(conn)
     _job_access_schema_initialized.add(db_url)
 
 
@@ -201,31 +220,76 @@ def _job_access_table_sql(db_url: str) -> str:
         "  owner_auth_type VARCHAR NOT NULL,"
         "  owner_subject VARCHAR NOT NULL,"
         "  owner_email VARCHAR,"
+        "  conversation_id VARCHAR,"
+        "  project_collection VARCHAR,"
         f"  created_at {created_at_type}"
         ")"
     )
 
 
+def _job_access_add_column_statements(db_url: str) -> list[str]:
+    """Backfill columns onto pre-existing job_access tables.
+
+    CREATE TABLE IF NOT EXISTS only creates the table with the new columns
+    when it doesn't already exist. Deployments with a pre-existing job_access
+    table need these columns added explicitly. Postgres supports
+    ``ADD COLUMN IF NOT EXISTS``; SQLite does not, so column additions there
+    are guarded with a manual existence check (mirroring the rest of this
+    module's Postgres/SQLite branching).
+    """
+    if _is_postgres(db_url):
+        return [
+            "ALTER TABLE job_access ADD COLUMN IF NOT EXISTS conversation_id VARCHAR",
+            "ALTER TABLE job_access ADD COLUMN IF NOT EXISTS project_collection VARCHAR",
+        ]
+    return []
+
+
+def _ensure_sqlite_job_access_columns(conn: Connection) -> None:
+    """Add missing columns to an existing SQLite job_access table.
+
+    SQLite has no ``ADD COLUMN IF NOT EXISTS`` syntax, so existing columns
+    are inspected via ``PRAGMA table_info`` before conditionally issuing
+    ``ALTER TABLE ... ADD COLUMN``.
+    """
+    existing_columns = {row[1] for row in conn.execute(text("PRAGMA table_info(job_access)")).fetchall()}
+    if "conversation_id" not in existing_columns:
+        conn.execute(text("ALTER TABLE job_access ADD COLUMN conversation_id VARCHAR"))
+    if "project_collection" not in existing_columns:
+        conn.execute(text("ALTER TABLE job_access ADD COLUMN project_collection VARCHAR"))
+
+
 def _job_access_upsert_sql(db_url: str):
     postgres_upsert = (
-        "INSERT INTO job_access (job_id, owner_auth_type, owner_subject, owner_email) "
-        "VALUES (:job_id, :owner_auth_type, :owner_subject, :owner_email) "
+        "INSERT INTO job_access "
+        "(job_id, owner_auth_type, owner_subject, owner_email, conversation_id, project_collection) "
+        "VALUES (:job_id, :owner_auth_type, :owner_subject, :owner_email, :conversation_id, :project_collection) "
         "ON CONFLICT(job_id) DO UPDATE SET "
         "owner_auth_type = excluded.owner_auth_type, "
         "owner_subject = excluded.owner_subject, "
-        "owner_email = excluded.owner_email"
+        "owner_email = excluded.owner_email, "
+        "conversation_id = excluded.conversation_id, "
+        "project_collection = excluded.project_collection"
     )
     sqlite_upsert = (
-        "INSERT OR REPLACE INTO job_access (job_id, owner_auth_type, owner_subject, owner_email) "
-        "VALUES (:job_id, :owner_auth_type, :owner_subject, :owner_email)"
+        "INSERT OR REPLACE INTO job_access "
+        "(job_id, owner_auth_type, owner_subject, owner_email, conversation_id, project_collection) "
+        "VALUES (:job_id, :owner_auth_type, :owner_subject, :owner_email, :conversation_id, :project_collection)"
     )
     return text(postgres_upsert if _is_postgres(db_url) else sqlite_upsert)
 
 
-def _principal_params(job_id: str, principal: Principal) -> dict[str, str | None]:
+def _principal_params(
+    job_id: str,
+    principal: Principal,
+    conversation_id: str | None = None,
+    project_collection: str | None = None,
+) -> dict[str, str | None]:
     return {
         "job_id": job_id,
         "owner_auth_type": principal.type,
         "owner_subject": principal.sub,
         "owner_email": principal.email,
+        "conversation_id": conversation_id,
+        "project_collection": project_collection,
     }
