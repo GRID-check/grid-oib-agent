@@ -5,7 +5,7 @@
 
 import { useMemo, useState } from 'react'
 import type { FolderItem } from './project-file-workspace'
-import { Folder, ChevronDown, ChevronRight } from 'lucide-react'
+import { Folder, FolderOpen, Plus } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 
@@ -40,24 +40,26 @@ export function FolderTreePane({
     }
   }
 
-  const renderFolderTree = (items: FolderItem[], depth: number = 0): JSX.Element[] => {
+  const rowClass = (active: boolean) =>
+    `flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+      active ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+    }`
+
+  const renderFolderTree = (items: FolderItem[], depth = 0): JSX.Element[] => {
     return items.flatMap((folder) => {
       const children = getChildren(folder.id)
+      const active = selectedFolderId === folder.id
+      const Icon = active ? FolderOpen : Folder
       return [
         <button
           key={folder.id}
           onClick={() => onSelectFolder(folder.id)}
-          className={`w-full text-left px-3 py-1.5 text-sm transition-colors ${
-            selectedFolderId === folder.id
-              ? 'bg-surface-sunken text-primary font-medium'
-              : 'text-secondary hover:bg-surface-sunken'
-          }`}
-          style={{ paddingLeft: `${12 + depth * 16}px` }}
+          aria-pressed={active}
+          className={rowClass(active)}
+          style={{ paddingLeft: `${8 + depth * 14}px` }}
         >
-          <span className="mr-2 text-subtle inline-flex items-center">
-            {children.length > 0 ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-          </span>
-          {folder.name}
+          <Icon className="size-4 shrink-0" aria-hidden />
+          <span className="truncate">{folder.name}</span>
         </button>,
         ...(children.length > 0 ? renderFolderTree(children, depth + 1) : []),
       ]
@@ -65,26 +67,24 @@ export function FolderTreePane({
   }
 
   return (
-    <div className="py-2">
+    <div className="flex h-full flex-col gap-1 p-2">
+      <p className="px-2 pb-1 pt-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">Folders</p>
+
       {/* All Files root */}
       <button
         onClick={() => onSelectFolder(null)}
-        className={`w-full text-left px-3 py-1.5 text-sm transition-colors ${
-          selectedFolderId === null
-            ? 'bg-surface-sunken text-primary font-medium'
-            : 'text-secondary hover:bg-surface-sunken'
-        }`}
+        aria-pressed={selectedFolderId === null}
+        className={rowClass(selectedFolderId === null)}
       >
-        <span className="mr-2 inline-flex items-center"><Folder className="h-4 w-4" /></span>
-        All Files
+        <FolderOpen className="size-4 shrink-0" aria-hidden />
+        <span className="truncate">All Files</span>
       </button>
 
       {isLoading ? (
-        <div className="space-y-2 p-2">
+        <div className="space-y-2 px-2 py-1">
           <Skeleton className="h-6 w-3/4" />
-          <Skeleton className="h-6 w-1/2 ml-4" />
-          <Skeleton className="h-6 w-2/3 ml-4" />
-          <Skeleton className="h-6 w-3/5 ml-4" />
+          <Skeleton className="ml-4 h-6 w-1/2" />
+          <Skeleton className="ml-4 h-6 w-2/3" />
           <Skeleton className="h-6 w-4/5" />
         </div>
       ) : (
@@ -93,26 +93,33 @@ export function FolderTreePane({
 
       {/* Create folder */}
       {isCreating ? (
-        <div className="px-3 py-1">
+        <div className="px-1 pt-1">
           <Input
             autoFocus
             value={newFolderName}
             onChange={(e) => setNewFolderName(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') handleCreate()
-              if (e.key === 'Escape') { setIsCreating(false); setNewFolderName('') }
+              if (e.key === 'Escape') {
+                setIsCreating(false)
+                setNewFolderName('')
+              }
             }}
-            onBlur={() => { if (!newFolderName.trim()) setIsCreating(false) }}
+            onBlur={() => {
+              if (!newFolderName.trim()) setIsCreating(false)
+            }}
             placeholder="Folder name"
-            className="h-auto py-1 focus-visible:border-brand"
+            aria-label="New folder name"
+            className="h-8"
           />
         </div>
       ) : (
         <button
           onClick={() => setIsCreating(true)}
-          className="w-full text-left px-3 py-1.5 text-sm text-subtle hover:text-secondary"
+          className="mt-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          + New Folder
+          <Plus className="size-4 shrink-0" aria-hidden />
+          <span>New folder</span>
         </button>
       )}
     </div>

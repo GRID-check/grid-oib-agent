@@ -16,6 +16,7 @@ interface UseProjectDocumentsOptions {
 interface UseProjectDocumentsReturn {
   uploadFiles: (files: File[]) => Promise<void>
   cancelUpload: () => void
+  retryFile: (fileId: string) => Promise<void>
   trackedFiles: import('@/features/documents/types').TrackedFile[]
   isUploading: boolean
   isPolling: boolean

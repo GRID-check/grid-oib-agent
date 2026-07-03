@@ -3,26 +3,32 @@
 
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, type ReactNode } from 'react'
 import type { FileItem } from './project-file-workspace'
+import { Download, FileQuestion, X } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
-import { buttonVariants } from '@/components/ui/button'
+import { Button, buttonVariants } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { formatFileSize } from '@/lib/utils/format-file-size'
+import { DocumentStatusBadge, fileTypeIcon } from './document-status'
 
 interface FilePreviewPaneProps {
   file: FileItem
   projectId: string
+  onClose?: () => void
 }
 
 const PREVIEW_TYPES = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp', 'image/svg+xml']
 
-export function FilePreviewPane({ file, projectId }: FilePreviewPaneProps) {
+export function FilePreviewPane({ file, projectId, onClose }: FilePreviewPaneProps) {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [previewFailed, setPreviewFailed] = useState(false)
   const canPreview = PREVIEW_TYPES.includes(file.contentType ?? '')
+  const Icon = fileTypeIcon(file.contentType, file.filename)
 
   useEffect(() => {
+    setPreviewFailed(false)
     if (!canPreview) {
       setPreviewUrl(null)
       return
@@ -33,67 +39,98 @@ export function FilePreviewPane({ file, projectId }: FilePreviewPaneProps) {
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (data?.url) setPreviewUrl(data.url)
+        else setPreviewFailed(true)
       })
-      .catch(() => setPreviewUrl(null))
+      .catch(() => {
+        setPreviewUrl(null)
+        setPreviewFailed(true)
+      })
       .finally(() => setIsLoading(false))
   }, [file.id, canPreview])
 
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
-      <div className="border-b border-base px-4 py-3">
-        <h3 className="text-sm font-medium text-primary truncate">{file.filename}</h3>
+      <div className="flex items-start justify-between gap-2 border-b px-4 py-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+          <h3 className="truncate text-sm font-semibold text-foreground">{file.filename}</h3>
+        </div>
+        {onClose && (
+          <Button variant="ghost" size="icon" className="size-7 shrink-0" onClick={onClose} aria-label="Close preview">
+            <X className="size-4" />
+          </Button>
+        )}
       </div>
 
       {/* Preview */}
-      <div className="flex-1 overflow-auto">
-        {canPreview && previewUrl && (
-          file.contentType === 'application/pdf' ? (
-            <iframe src={previewUrl} className="h-full w-full" title={file.filename} />
-          ) : (
-            <img src={previewUrl} alt={file.filename} className="w-full object-contain" />
-          )
-        )}
+      <div className="flex-1 overflow-auto bg-muted/30">
         {canPreview && isLoading && (
-          <div className="p-6 space-y-4">
+          <div className="space-y-4 p-6">
             <Skeleton className="h-4 w-1/3" />
             <Skeleton className="h-48 w-full" />
             <Skeleton className="h-4 w-2/3" />
             <Skeleton className="h-4 w-1/2" />
           </div>
         )}
+        {canPreview && !isLoading && previewUrl && (
+          file.contentType === 'application/pdf' ? (
+            <iframe src={previewUrl} className="h-full w-full" title={file.filename} />
+          ) : (
+            <img src={previewUrl} alt={file.filename} className="w-full object-contain" />
+          )
+        )}
+        {canPreview && !isLoading && previewFailed && (
+          <PreviewMessage message="Preview couldn't be loaded. You can still download the file below." />
+        )}
         {!canPreview && (
-          <div className="flex flex-col items-center justify-center h-32 px-4 text-center">
-            <p className="text-sm text-subtle">Preview not available for this file type.</p>
-          </div>
+          <PreviewMessage message="No inline preview for this file type. Download it to view the full document." />
         )}
       </div>
 
       {/* Metadata */}
-      <div className="border-t border-base px-4 py-3 space-y-2">
-        <div className="flex justify-between text-xs">
-          <span className="text-subtle">Size</span>
-          <span className="text-secondary font-medium">{formatFileSize(file.fileSize)}</span>
-        </div>
-        <div className="flex justify-between text-xs">
-          <span className="text-subtle">Type</span>
-          <span className="text-secondary font-medium">{file.contentType ?? 'Unknown'}</span>
-        </div>
-        <div className="flex justify-between text-xs">
-          <span className="text-subtle">Status</span>
-          <span className="text-secondary font-medium">{file.status ?? 'Unknown'}</span>
-        </div>
+      <div className="space-y-2.5 border-t px-4 py-3">
+        <MetaRow label="Status">
+          <DocumentStatusBadge status={file.status} />
+        </MetaRow>
+        <MetaRow label="Type">
+          <span className="font-mono text-xs text-foreground">{file.contentType ?? 'Unknown'}</span>
+        </MetaRow>
+        <MetaRow label="Size">
+          <span className="text-xs font-medium tabular-nums text-foreground">{formatFileSize(file.fileSize)}</span>
+        </MetaRow>
       </div>
 
       {/* Actions */}
-      <div className="border-t border-base px-4 py-3">
+      <div className="border-t px-4 py-3">
         <a
           href={`/api/documents/${file.id}/download`}
-          className={cn(buttonVariants({ variant: 'outline' }), 'w-full')}
+          className={cn(buttonVariants({ variant: 'outline' }), 'w-full gap-2')}
         >
+          <Download className="size-4" aria-hidden />
           Download
         </a>
       </div>
+    </div>
+  )
+}
+
+function MetaRow({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      {children}
+    </div>
+  )
+}
+
+function PreviewMessage({ message }: { message: string }) {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-3 px-6 py-10 text-center">
+      <div className="flex size-11 items-center justify-center rounded-full bg-muted">
+        <FileQuestion className="size-5 text-muted-foreground" aria-hidden />
+      </div>
+      <p className="max-w-xs text-sm text-muted-foreground text-balance">{message}</p>
     </div>
   )
 }

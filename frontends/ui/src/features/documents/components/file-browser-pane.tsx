@@ -3,30 +3,34 @@
 
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import type { FileItem } from './project-file-workspace'
-import { ImageIcon, FileText, Paperclip } from 'lucide-react'
-import { Badge } from '@/components/ui/badge'
+import { Search, FolderOpen, UploadCloud } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
+import { EmptyState } from '@/components/ui/empty-state'
 import { formatFileSize } from '@/lib/utils/format-file-size'
+import { DocumentStatusBadge, fileTypeIcon } from './document-status'
 
 interface FileBrowserPaneProps {
   files: FileItem[]
   selectedFileId: string | null
   onSelectFile: (id: string | null) => void
   isLoading: boolean
+  /** True when a specific folder is selected (vs. the "All Files" root). */
+  hasFolderSelected: boolean
+  /** Upload control rendered inside the first-run empty state. */
+  uploadControl?: ReactNode
 }
 
-const STATUS_BADGE_VARIANT: Record<string, 'success' | 'warning' | 'destructive'> = {
-  ready: 'success',
-  uploaded: 'success',
-  pending: 'warning',
-  ingesting: 'warning',
-  failed: 'destructive',
-}
-
-export function FileBrowserPane({ files, selectedFileId, onSelectFile, isLoading }: FileBrowserPaneProps) {
+export function FileBrowserPane({
+  files,
+  selectedFileId,
+  onSelectFile,
+  isLoading,
+  hasFolderSelected,
+  uploadControl,
+}: FileBrowserPaneProps) {
   const [search, setSearch] = useState('')
 
   const filteredFiles = useMemo(() => {
@@ -37,68 +41,94 @@ export function FileBrowserPane({ files, selectedFileId, onSelectFile, isLoading
 
   if (isLoading) {
     return (
-      <div className="flex-1 p-4 space-y-3">
-        <Skeleton className="h-8 w-full" />
-        <Skeleton className="h-6 w-full" />
-        <Skeleton className="h-6 w-full" />
-        <Skeleton className="h-6 w-3/4" />
-        <Skeleton className="h-6 w-full" />
+      <div className="space-y-3 p-4">
+        <Skeleton className="h-9 w-full" />
+        {Array.from({ length: 5 }).map((_, i) => (
+          <div key={i} className="flex items-center gap-3 px-1 py-2">
+            <Skeleton className="size-8 rounded-md" />
+            <div className="flex-1 space-y-1.5">
+              <Skeleton className="h-3.5 w-1/2" />
+              <Skeleton className="h-3 w-20" />
+            </div>
+            <Skeleton className="h-5 w-16 rounded-md" />
+          </div>
+        ))}
       </div>
     )
   }
 
+  // First-run empty state — the whole corpus (or selected folder) has no files.
   if (files.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <p className="text-sm text-subtle">No files in this folder. Upload to get started.</p>
+      <div className="flex h-full items-center justify-center p-8">
+        {hasFolderSelected ? (
+          <EmptyState
+            icon={FolderOpen}
+            title="This folder is empty"
+            description="Upload documents here, or pick another folder from the sidebar."
+            action={uploadControl}
+          />
+        ) : (
+          <EmptyState
+            icon={UploadCloud}
+            title="No documents yet"
+            description="Add your building's plans, permits and reports. Grid reads them to ground every answer in your project's own documents — not generic guidance."
+            action={uploadControl}
+          />
+        )}
       </div>
     )
   }
 
   return (
-    <div>
+    <div className="flex h-full flex-col">
       {/* Search bar */}
-      <div className="sticky top-0 border-b border-base bg-surface-base px-4 py-2">
-        <Input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search files..."
-          className="focus-visible:border-brand"
-        />
+      <div className="sticky top-0 z-10 border-b bg-background/95 px-4 py-2.5 backdrop-blur">
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+          <Input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search files..."
+            aria-label="Search files"
+            className="pl-8"
+          />
+        </div>
       </div>
 
       {/* File list */}
-      <div className="divide-y divide-base">
+      <div className="divide-y">
         {filteredFiles.length === 0 && (
-          <div className="px-4 py-8 text-center text-sm text-subtle">
-            No files match "{search}"
+          <div className="px-4 py-12 text-center text-sm text-muted-foreground">
+            No files match &ldquo;{search}&rdquo;
           </div>
         )}
-        {filteredFiles.map((file) => (
-          <button
-            key={file.id}
-            onClick={() => onSelectFile(selectedFileId === file.id ? null : file.id)}
-            className={`w-full flex items-center justify-between px-4 py-3 text-left transition-colors hover:bg-surface-sunken ${
-              selectedFileId === file.id ? 'bg-surface-sunken' : ''
-            }`}
-          >
-            <div className="flex items-center gap-3 min-w-0">
-              <span className="shrink-0">
-                {file.contentType?.startsWith('image/') ? <ImageIcon className="h-4 w-4 text-subtle" /> :
-                 file.contentType === 'application/pdf' ? <FileText className="h-4 w-4 text-subtle" /> :
-                 <Paperclip className="h-4 w-4 text-subtle" />}
-              </span>
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-primary truncate">{file.filename}</p>
-                <p className="text-xs text-subtle">{formatFileSize(file.fileSize)}</p>
+        {filteredFiles.map((file) => {
+          const Icon = fileTypeIcon(file.contentType, file.filename)
+          const isSelected = selectedFileId === file.id
+          return (
+            <button
+              key={file.id}
+              onClick={() => onSelectFile(isSelected ? null : file.id)}
+              aria-pressed={isSelected}
+              className={`flex w-full items-center justify-between gap-4 px-4 py-3 text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset ${
+                isSelected ? 'bg-accent' : ''
+              }`}
+            >
+              <div className="flex min-w-0 items-center gap-3">
+                <span className="flex size-8 shrink-0 items-center justify-center rounded-md border bg-muted/40 text-muted-foreground">
+                  <Icon className="size-4" aria-hidden />
+                </span>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium text-foreground">{file.filename}</p>
+                  <p className="text-xs text-muted-foreground tabular-nums">{formatFileSize(file.fileSize)}</p>
+                </div>
               </div>
-            </div>
-            <Badge variant={STATUS_BADGE_VARIANT[file.status ?? ''] ?? 'secondary'} className="shrink-0">
-              {file.status ?? 'unknown'}
-            </Badge>
-          </button>
-        ))}
+              <DocumentStatusBadge status={file.status} />
+            </button>
+          )
+        })}
       </div>
     </div>
   )
