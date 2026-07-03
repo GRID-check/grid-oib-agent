@@ -27,7 +27,6 @@ export async function GET(
         collectionName: projects.collectionName,
         createdAt: projects.createdAt,
         profileDisplay: projects.profileDisplay,
-        profileHighlights: projects.profileHighlights,
       })
       .from(projects)
       .where(and(eq(projects.id, id), eq(projects.organizationId, session.organizationId)))
@@ -67,7 +66,7 @@ export async function GET(
       profileDisplay: project.profileDisplay
         ? {
             ...project.profileDisplay,
-            keyFacts: project.profileHighlights ?? project.profileDisplay.keyFacts,
+            keyFacts: project.profileDisplay?.keyFacts ?? [],
           }
         : null,
       documentCount: stats?.count ?? 0,

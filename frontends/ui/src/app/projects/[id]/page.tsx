@@ -28,7 +28,6 @@ export default async function ProjectPage({ params }: ProjectPageProps): Promise
       collectionName: projects.collectionName,
       createdAt: projects.createdAt,
       profileDisplay: projects.profileDisplay,
-      profileHighlights: projects.profileHighlights,
     })
     .from(projects)
     .where(and(eq(projects.id, id), eq(projects.organizationId, session.organizationId)))
@@ -68,7 +67,7 @@ export default async function ProjectPage({ params }: ProjectPageProps): Promise
     profileDisplay: project.profileDisplay
       ? {
           ...project.profileDisplay,
-          keyFacts: project.profileHighlights ?? project.profileDisplay.keyFacts,
+          keyFacts: project.profileDisplay?.keyFacts ?? [],
         }
       : null,
     documentCount: stats?.count ?? 0,

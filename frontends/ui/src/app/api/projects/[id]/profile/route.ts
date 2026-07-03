@@ -14,7 +14,6 @@ export type StoredProfileResponse = {
   profileVersion: number
   profilePromptView: string | null
   profileDisplay: ProjectProfileDisplay | null
-  profileHighlights: ProjectProfileDisplay['keyFacts'] | null
   profileUpdatedAt: Date | null
 }
 
@@ -101,7 +100,6 @@ export function buildProfileUpdate(profile: ProjectProfile, currentVersion: numb
     profileVersion: currentVersion + 1,
     profilePromptView,
     profileDisplay,
-    profileHighlights: profileDisplay.keyFacts,
     profileUpdatedAt: new Date(),
   }
 }
@@ -112,7 +110,6 @@ export function toProfileResponse(project: StoredProfileResponse): StoredProfile
     profileVersion: project.profileVersion,
     profilePromptView: project.profilePromptView,
     profileDisplay: project.profileDisplay,
-    profileHighlights: project.profileHighlights,
     profileUpdatedAt: project.profileUpdatedAt,
   }
 }

@@ -38,7 +38,6 @@ describe('GET /api/projects/[id]/overview', () => {
         collectionName: 'proj-1-collection',
         createdAt: new Date('2026-01-01'),
         profileDisplay: { title: 'Test', summary: 'A test project' },
-        profileHighlights: [{ label: 'Type', value: 'Residential' }],
       },
     ])
 

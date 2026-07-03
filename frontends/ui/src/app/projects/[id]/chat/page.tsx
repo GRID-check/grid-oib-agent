@@ -22,6 +22,7 @@ const ProjectChatContent = ({ projectId }: { projectId: string }): ReactNode => 
     <MainLayout
       isAuthenticated={isAuthenticated}
       onSignIn={signIn}
+      withShell={false}
     />
   )
 }
