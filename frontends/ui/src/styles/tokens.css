@@ -1,0 +1,182 @@
+/* SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
+   SPDX-License-Identifier: Apache-2.0 */
+
+/* =============================================================================
+   GRID design tokens — the single source of truth for color, radius, shadow.
+
+   Design language: understated, premium, minimalist. Near-monochrome zinc
+   surfaces, one restrained blue accent, hairline borders, soft shadows.
+   No gradients. No decorative color.
+
+   Two var vocabularies are defined here:
+
+   1. shadcn/ui vars (--background, --primary, ...) consumed by the vendored
+      primitives in src/components/ui.
+   2. Legacy semantic vars (--text-color-*, --background-color-surface-*,
+      --border-color-*) consumed by the @utility classes in globals.css
+      (text-subtle, bg-surface-sunken, border-base, ...). These carry the KUI
+      names so existing markup keeps rendering while kui-generated.css is
+      dismantled; they resolve to the same palette as (1).
+
+   Dark mode is driven by the .nv-dark root class (set in app/providers.tsx).
+   The `dark:` Tailwind variant is bound to it in globals.css via
+   @custom-variant. When KUI is fully removed, .nv-dark can be renamed .dark
+   here and in providers.tsx in one commit.
+   ============================================================================= */
+
+:root {
+  /* ---- palette ---- */
+  --grid-blue: oklch(0.546 0.215 262.9); /* #2563eb */
+  --grid-blue-hover: oklch(0.498 0.217 264.4); /* #1d4ed8 */
+  --grid-blue-active: oklch(0.451 0.2 264.1); /* #1e40af */
+
+  /* ---- shadcn vars (light) ---- */
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.21 0.006 285.9); /* zinc-900 */
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.21 0.006 285.9);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.21 0.006 285.9);
+  --primary: var(--grid-blue);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.967 0.001 286.4); /* zinc-100 */
+  --secondary-foreground: oklch(0.21 0.006 285.9);
+  --muted: oklch(0.967 0.001 286.4);
+  --muted-foreground: oklch(0.552 0.014 285.9); /* zinc-500 */
+  --accent: oklch(0.967 0.001 286.4);
+  --accent-foreground: oklch(0.21 0.006 285.9);
+  --destructive: oklch(0.577 0.245 27.3); /* red-600 */
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(0.92 0.004 286.3); /* zinc-200 */
+  --input: oklch(0.92 0.004 286.3);
+  --ring: var(--grid-blue);
+
+  --radius: 0.625rem;
+
+  /* ---- legacy semantic vars (light) — same palette, KUI names ---- */
+  --text-color-primary: oklch(0.21 0.006 285.9);
+  --text-color-secondary: oklch(0.442 0.015 285.8); /* zinc-600 */
+  --text-color-subtle: oklch(0.552 0.014 285.9); /* zinc-500 */
+  --text-color-base: oklch(0.274 0.005 286); /* zinc-800 */
+  --text-color-placeholder: oklch(0.705 0.012 286.1); /* zinc-400 */
+  --text-color-inverse: oklch(0.985 0 0);
+  --text-color-brand: var(--grid-blue);
+  --text-color-feedback-success: oklch(0.527 0.137 150.1); /* green-700 */
+  --text-color-feedback-danger: oklch(0.577 0.245 27.3); /* red-600 */
+  --text-color-feedback-warning: oklch(0.555 0.115 66.4); /* amber-700 */
+  --text-color-feedback-info: var(--grid-blue);
+
+  --background-color-surface-base: oklch(1 0 0);
+  --background-color-surface-raised: oklch(0.967 0.001 286.4); /* zinc-100 */
+  --background-color-surface-sunken: oklch(0.985 0 0); /* zinc-50 */
+  --background-color-surface-overlay: oklch(1 0 0);
+  --background-color-interaction-base: oklch(0.967 0.001 286.4);
+  --background-color-interaction-primary-base: var(--grid-blue);
+  --background-color-interaction-primary-hover: var(--grid-blue-hover);
+  --background-color-interaction-primary-selected: var(--grid-blue-active);
+  --background-color-accent-gray: oklch(0.871 0.006 286.3); /* zinc-300 */
+  --background-color-accent-gray-hover: oklch(0.705 0.012 286.1); /* zinc-400 */
+  --background-color-feedback-success-subtle: oklch(0.962 0.044 156.7); /* green-50 */
+  --background-color-feedback-danger-subtle: oklch(0.971 0.013 17.4); /* red-50 */
+  --background-color-feedback-warning-subtle: oklch(0.987 0.022 95.3); /* amber-50 */
+  --background-color-feedback-info-subtle: oklch(0.97 0.014 254.6); /* blue-50 */
+
+  --border-color-base: oklch(0.92 0.004 286.3); /* zinc-200 */
+  --border-color-brand: var(--grid-blue);
+  --border-color-interaction-selected: var(--grid-blue);
+  --border-color-interaction-primary-base: var(--grid-blue);
+  --border-color-feedback-success: oklch(0.723 0.192 149.6); /* green-500 */
+  --border-color-feedback-danger: oklch(0.637 0.237 25.3); /* red-500 */
+  --border-color-feedback-warning: oklch(0.769 0.188 70.1); /* amber-500 */
+  --border-color-feedback-info: var(--grid-blue);
+}
+
+.nv-dark {
+  /* ---- shadcn vars (dark) ---- */
+  --background: oklch(0.141 0.005 285.8); /* zinc-950 */
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.21 0.006 285.9); /* zinc-900 */
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.21 0.006 285.9);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.623 0.188 259.8); /* blue-500 — lifted for dark contrast */
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.274 0.005 286); /* zinc-800 */
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.274 0.005 286);
+  --muted-foreground: oklch(0.705 0.012 286.1); /* zinc-400 */
+  --accent: oklch(0.274 0.005 286);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.2); /* red-400 */
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.623 0.188 259.8);
+
+  /* ---- legacy semantic vars (dark) ---- */
+  --text-color-primary: oklch(0.985 0 0);
+  --text-color-secondary: oklch(0.871 0.006 286.3); /* zinc-300 */
+  --text-color-subtle: oklch(0.705 0.012 286.1); /* zinc-400 */
+  --text-color-base: oklch(0.92 0.004 286.3); /* zinc-200 */
+  --text-color-placeholder: oklch(0.552 0.014 285.9); /* zinc-500 */
+  --text-color-inverse: oklch(0.21 0.006 285.9);
+  --text-color-brand: oklch(0.623 0.188 259.8);
+  --text-color-feedback-success: oklch(0.792 0.171 152.6); /* green-400 */
+  --text-color-feedback-danger: oklch(0.704 0.191 22.2); /* red-400 */
+  --text-color-feedback-warning: oklch(0.828 0.156 84.4); /* amber-400 */
+  --text-color-feedback-info: oklch(0.623 0.188 259.8);
+
+  --background-color-surface-base: oklch(0.141 0.005 285.8); /* zinc-950 */
+  --background-color-surface-raised: oklch(0.274 0.005 286); /* zinc-800 */
+  --background-color-surface-sunken: oklch(0.21 0.006 285.9); /* zinc-900 */
+  --background-color-surface-overlay: oklch(0.21 0.006 285.9);
+  --background-color-interaction-base: oklch(0.274 0.005 286);
+  --background-color-interaction-primary-base: var(--grid-blue);
+  --background-color-interaction-primary-hover: var(--grid-blue-hover);
+  --background-color-interaction-primary-selected: var(--grid-blue-active);
+  --background-color-accent-gray: oklch(0.37 0.011 285.8); /* zinc-700 */
+  --background-color-accent-gray-hover: oklch(0.442 0.015 285.8); /* zinc-600 */
+  --background-color-feedback-success-subtle: oklch(0.266 0.062 152.9); /* green-950 */
+  --background-color-feedback-danger-subtle: oklch(0.258 0.088 26.8); /* red-950 */
+  --background-color-feedback-warning-subtle: oklch(0.279 0.072 70.7); /* amber-950 */
+  --background-color-feedback-info-subtle: oklch(0.282 0.087 267.9); /* blue-950 */
+
+  --border-color-base: oklch(1 0 0 / 10%);
+  --border-color-brand: oklch(0.623 0.188 259.8);
+  --border-color-interaction-selected: oklch(0.623 0.188 259.8);
+  --border-color-interaction-primary-base: oklch(0.623 0.188 259.8);
+  --border-color-feedback-success: oklch(0.627 0.17 149.2); /* green-600 */
+  --border-color-feedback-danger: oklch(0.577 0.245 27.3); /* red-600 */
+  --border-color-feedback-warning: oklch(0.666 0.179 58.3); /* amber-600 */
+  --border-color-feedback-info: oklch(0.623 0.188 259.8);
+}
+
+/* Expose the shadcn vars as Tailwind theme colors (bg-background, text-primary
+   is taken by a legacy utility — shadcn primitives use bg-primary/text-foreground
+   etc. via these mappings). */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}

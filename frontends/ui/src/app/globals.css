@@ -4,8 +4,18 @@
 
 /* KUI Foundations 0.600 — extracted from @kui/foundations-tailwind-plugin.
    Generated once, frozen as static CSS. No build-time plugin dependency.
-   Contains: component styles, theme tokens, dark mode, density, animations. */
+   Contains: component styles, theme tokens, dark mode, density, animations.
+   BEING DISMANTLED: replaced by tokens.css + src/components/ui (shadcn). */
 @import '../styles/kui-generated.css';
+
+/* GRID design tokens — shadcn vars + legacy semantic vars (see tokens.css).
+   Imported after kui-generated.css so our token values win the cascade. */
+@import '../styles/tokens.css';
+@import 'tw-animate-css';
+
+/* Bind the `dark:` variant to the existing theme mechanism (providers.tsx
+   toggles .nv-dark on the root element). Rename to .dark once KUI is gone. */
+@custom-variant dark (&:is(.nv-dark *));
 
 /* Layout variables */
 :root {
