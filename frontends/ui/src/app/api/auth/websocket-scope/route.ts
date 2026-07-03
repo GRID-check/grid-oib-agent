@@ -46,6 +46,7 @@ export async function GET(req: Request): Promise<Response> {
     if (session) {
       response.organizationId = session.organizationId
       response.userId = session.userId
+      response.accessToken = session.accessToken
     }
 
     if (projectId) {
