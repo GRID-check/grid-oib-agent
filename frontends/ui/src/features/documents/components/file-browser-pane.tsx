@@ -6,6 +6,7 @@
 import { useMemo, useState } from 'react'
 import type { FileItem } from './project-file-workspace'
 import { Image, Document, Paperclip } from '@/adapters/ui/icons'
+import { formatFileSize } from '@/lib/utils/format-file-size'
 
 function Skeleton({ className = '' }: { className?: string }) {
   return <div className={`animate-pulse bg-surface-sunken rounded-lg ${className}`} />
@@ -16,18 +17,6 @@ interface FileBrowserPaneProps {
   selectedFileId: string | null
   onSelectFile: (id: string | null) => void
   isLoading: boolean
-}
-
-function formatFileSize(bytes: number | null): string {
-  if (!bytes || bytes === 0) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB']
-  let i = 0
-  let size = bytes
-  while (size >= 1024 && i < units.length - 1) {
-    size /= 1024
-    i++
-  }
-  return `${size.toFixed(1)} ${units[i]}`
 }
 
 const STATUS_COLORS: Record<string, string> = {

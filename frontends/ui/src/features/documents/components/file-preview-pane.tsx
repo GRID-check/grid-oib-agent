@@ -5,6 +5,7 @@
 
 import { useState, useEffect } from 'react'
 import type { FileItem } from './project-file-workspace'
+import { formatFileSize } from '@/lib/utils/format-file-size'
 
 function Skeleton({ className = '' }: { className?: string }) {
   return <div className={`animate-pulse bg-surface-sunken rounded-lg ${className}`} />
@@ -16,18 +17,6 @@ interface FilePreviewPaneProps {
 }
 
 const PREVIEW_TYPES = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp', 'image/svg+xml']
-
-function formatFileSize(bytes: number | null): string {
-  if (!bytes || bytes === 0) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB']
-  let i = 0
-  let size = bytes
-  while (size >= 1024 && i < units.length - 1) {
-    size /= 1024
-    i++
-  }
-  return `${size.toFixed(1)} ${units[i]}`
-}
 
 export function FilePreviewPane({ file, projectId }: FilePreviewPaneProps) {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)

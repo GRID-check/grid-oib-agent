@@ -14,6 +14,7 @@ import { type FC, useState, useEffect } from 'react'
 import { Flex, Text, Button, Spinner } from '@/adapters/ui'
 import { Document, Trash } from '@/adapters/ui/icons'
 import { useIsCurrentSessionBusy } from '@/features/chat'
+import { formatFileSize } from '@/lib/utils/format-file-size'
 
 /** File source status types */
 export type FileSourceStatus = 'uploading' | 'ingesting' | 'available' | 'error' | 'deleting'
@@ -69,17 +70,6 @@ const STATUS_CONFIG: Record<
     color: 'var(--text-color-subtle)',
     showSpinner: true,
   },
-}
-
-/**
- * Format byte count into a human-readable size string.
- */
-const formatFileSize = (bytes: number): string => {
-  if (bytes === 0) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB']
-  const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1)
-  const value = bytes / Math.pow(1024, exponent)
-  return `${value % 1 === 0 ? value : value.toFixed(1)} ${units[exponent]}`
 }
 
 /**

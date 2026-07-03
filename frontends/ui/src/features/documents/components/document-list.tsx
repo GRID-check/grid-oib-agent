@@ -5,6 +5,7 @@
 
 import { type FC, useCallback, useState } from 'react'
 import { Flex, Text } from '@/adapters/ui'
+import { formatFileSize } from '@/lib/utils/format-file-size'
 
 interface DocumentRow {
   id: string
@@ -104,8 +105,4 @@ export const DocumentList: FC<DocumentListProps> = ({ documents }) => {
   )
 }
 
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
+
