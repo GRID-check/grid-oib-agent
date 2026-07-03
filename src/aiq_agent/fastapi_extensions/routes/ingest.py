@@ -66,7 +66,6 @@ def add_ingest_routes(router: APIRouter):
         if not file_ref or not collection:
             raise HTTPException(status_code=400, detail="file_ref and collection are required")
 
-        temp_path = None
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.get(file_ref, follow_redirects=True)
@@ -105,12 +104,6 @@ def add_ingest_routes(router: APIRouter):
         except Exception as e:
             logger.error(f"Ingestion failed: {e}")
             raise HTTPException(status_code=500, detail=str(e))
-        finally:
-            if temp_path and os.path.exists(temp_path):
-                try:
-                    os.unlink(temp_path)
-                except OSError:
-                    pass
 
 
 def _infer_suffix(content_type: str, url: str) -> str:

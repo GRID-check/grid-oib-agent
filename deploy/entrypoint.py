@@ -68,6 +68,20 @@ def _wait_for_scheduler(port: int) -> None:
             time.sleep(1)
 
 
+def _clear_directory_contents(path: Path) -> None:
+    """Clear a directory without removing the directory itself.
+
+    Docker Compose mounts ``AIQ_CHROMA_DIR`` as a volume root, so removing the
+    root path raises ``Device or resource busy``.  Clearing children preserves
+    the mount point while still forcing Chroma to rebuild its persisted state.
+    """
+    for child in path.iterdir():
+        if child.is_dir() and not child.is_symlink():
+            shutil.rmtree(child)
+        else:
+            child.unlink()
+
+
 def _run_oib_sync_background() -> None:
     """Run OIB PDF ingestion in the background after the server starts."""
     time.sleep(5)
@@ -79,8 +93,8 @@ def _run_oib_sync_background() -> None:
             print("OIB_FORCE_REINGEST: deleted registry", flush=True)
         chroma_dir = Path(os.environ.get("AIQ_CHROMA_DIR", "/tmp/chroma_data"))
         if chroma_dir.exists():
-            shutil.rmtree(chroma_dir)
-            print(f"OIB_FORCE_REINGEST: deleted Chroma data at {chroma_dir}", flush=True)
+            _clear_directory_contents(chroma_dir)
+            print(f"OIB_FORCE_REINGEST: cleared Chroma data at {chroma_dir}", flush=True)
 
     try:
         from aiq_agent.oib_sync import sync  # noqa: PLC0415

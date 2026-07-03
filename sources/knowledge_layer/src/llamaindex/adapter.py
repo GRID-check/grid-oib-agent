@@ -240,6 +240,55 @@ def _extract_tables_from_pdf(pdf_path: str) -> list[dict[str, Any]]:
     return tables
 
 
+def _extract_text_from_pdf(pdf_path: str) -> list[dict[str, Any]]:
+    """Extract per-page text from a PDF without falling back to raw PDF bytes."""
+    try:
+        import pdfplumber
+    except ImportError:
+        logger.warning("pdfplumber not installed. Install with: pip install pdfplumber")
+        return []
+
+    pages: list[dict[str, Any]] = []
+    try:
+        with pdfplumber.open(pdf_path) as pdf:
+            for page_num, page in enumerate(pdf.pages, start=1):
+                text = (page.extract_text() or "").strip()
+                if text:
+                    pages.append({"page_number": page_num, "text": text})
+
+        logger.info("Extracted text from %d PDF pages in %s", len(pages), pdf_path)
+
+    except Exception as e:
+        logger.error("Error extracting PDF text: %s", e)
+
+    return pages
+
+
+def _looks_like_pdf(file_path: str) -> bool:
+    """Detect PDFs by file magic so presigned/temp files without .pdf still use PDF extraction."""
+    try:
+        with open(file_path, "rb") as handle:
+            return handle.read(5) == b"%PDF-"
+    except OSError:
+        return False
+
+
+def _looks_like_raw_pdf_or_binary(text: str) -> bool:
+    """Reject raw PDF bytes or binary-looking text before it reaches Chroma."""
+    sample = text[:4096]
+    if sample.lstrip().startswith("%PDF"):
+        return True
+    if "endobj" in sample and "xref" in sample:
+        return True
+    if "\x00" in sample:
+        return True
+    if not sample:
+        return False
+
+    control_count = sum(1 for ch in sample if ord(ch) < 32 and ch not in "\n\r\t")
+    return control_count / len(sample) > 0.05
+
+
 def _table_to_markdown(table: list[list[str]]) -> str:
     """Convert a table (list of lists) to markdown format."""
     if not table or not table[0]:
@@ -687,6 +736,8 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         # Create pending job with file details
         # Use original filenames if provided, otherwise extract from path
         original_filenames = job_config.get("original_filenames", [])
+        provided_file_ids = job_config.get("file_ids") or []
+        single_file_id = job_config.get("file_id")
         file_details = []
         for i, p in enumerate(validated_paths):
             # Use original filename if available, otherwise fall back to path name
@@ -694,7 +745,12 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                 file_name = original_filenames[i]
             else:
                 file_name = Path(p).name
-            file_id = str(uuid.uuid4())
+            if i < len(provided_file_ids):
+                file_id = provided_file_ids[i]
+            elif single_file_id and len(validated_paths) == 1:
+                file_id = single_file_id
+            else:
+                file_id = str(uuid.uuid4())
             file_details.append(
                 FileProgress(
                     file_id=file_id,
@@ -705,12 +761,18 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             )
             # Store file_id → file_name mapping for delete operations
             with self._lock:
-                self._files[file_id] = FileInfo(
-                    file_id=file_id,
-                    file_name=file_name,
-                    collection_name=collection_name,
-                    status=FileStatus.UPLOADING,
-                )
+                existing_file = self._files.get(file_id)
+                if existing_file:
+                    existing_file.file_name = file_name
+                    existing_file.collection_name = collection_name
+                    existing_file.status = FileStatus.UPLOADING
+                else:
+                    self._files[file_id] = FileInfo(
+                        file_id=file_id,
+                        file_name=file_name,
+                        collection_name=collection_name,
+                        status=FileStatus.UPLOADING,
+                    )
 
         job = IngestionJobStatus(
             job_id=job_id,
@@ -1242,15 +1304,37 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     if job_id:
                         job_status = self.get_job_status(job_id)
                         if job_status.status == JobState.COMPLETED:
-                            file_info.status = FileStatus.SUCCESS
+                            file_detail = next(
+                                (
+                                    detail
+                                    for detail in job_status.file_details
+                                    if detail.file_id == file_id or detail.file_name == file_info.file_name
+                                ),
+                                None,
+                            )
+                            if file_detail:
+                                file_info.status = file_detail.status
+                                file_info.chunk_count = file_detail.chunks_created
+                                file_info.error_message = file_detail.error_message
+                            else:
+                                file_info.status = FileStatus.SUCCESS
                             # completed_at is now an ISO string, parse it back to datetime
-                            if job_status.completed_at:
+                            if file_info.status == FileStatus.SUCCESS and job_status.completed_at:
                                 file_info.ingested_at = datetime.fromisoformat(job_status.completed_at)
-                            # Get chunk count from job metadata
-                            file_info.chunk_count = job_status.metadata.get("total_chunks", 0)
                         elif job_status.status == JobState.FAILED:
-                            file_info.status = FileStatus.FAILED
-                            file_info.error_message = job_status.error_message or ""
+                            file_detail = next(
+                                (
+                                    detail
+                                    for detail in job_status.file_details
+                                    if detail.file_id == file_id or detail.file_name == file_info.file_name
+                                ),
+                                None,
+                            )
+                            file_info.status = file_detail.status if file_detail else FileStatus.FAILED
+                            file_info.chunk_count = file_detail.chunks_created if file_detail else file_info.chunk_count
+                            file_info.error_message = (
+                                file_detail.error_message if file_detail else job_status.error_message or ""
+                            )
 
                 return file_info
 
@@ -1284,7 +1368,6 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             import chromadb
             from llama_index.core import Document
             from llama_index.core import Settings
-            from llama_index.core import SimpleDirectoryReader
             from llama_index.core import StorageContext
             from llama_index.core import VectorStoreIndex
             from llama_index.vector_stores.chroma import ChromaVectorStore
@@ -1328,6 +1411,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             total_tables = 0
             total_charts = 0
             total_images = 0
+            index = None
 
             # Original filenames for temp file uploads (avoids tmp prefix in metadata)
             original_filenames = config.get("original_filenames", [])
@@ -1337,7 +1421,11 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                 try:
                     file_name = original_filenames[i] if i < len(original_filenames) else Path(file_path).name
                     file_size = os.path.getsize(file_path)
-                    is_pdf = file_name.lower().endswith(".pdf")
+                    is_pdf = (
+                        file_name.lower().endswith(".pdf")
+                        or Path(file_path).suffix.lower() == ".pdf"
+                        or _looks_like_pdf(file_path)
+                    )
 
                     mode_str = "text"
                     if is_pdf and (extract_tables or extract_images):
@@ -1353,14 +1441,31 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     # Collect all documents for this file
                     all_documents = []
 
-                    # 1. Extract text content
-                    reader = SimpleDirectoryReader(input_files=[file_path])
-                    text_documents = reader.load_data()
+                    # 1. Extract text content. PDFs use pdfplumber directly because
+                    # SimpleDirectoryReader can fall back to indexing raw PDF bytes
+                    # when optional LlamaIndex file readers are missing.
+                    if is_pdf:
+                        text_documents = [
+                            Document(
+                                text=page["text"],
+                                metadata={
+                                    "file_name": file_name,
+                                    "file_size": file_size,
+                                    "page_label": str(page["page_number"]),
+                                    "content_type": "text",
+                                },
+                            )
+                            for page in _extract_text_from_pdf(file_path)
+                        ]
+                    else:
+                        from llama_index.core import SimpleDirectoryReader
 
-                    # Override file_name metadata (SimpleDirectoryReader uses temp path)
-                    for doc in text_documents:
-                        doc.metadata["file_name"] = file_name
-                        doc.metadata["file_size"] = file_size
+                        text_documents = SimpleDirectoryReader(input_files=[file_path]).load_data()
+
+                        # Override file_name metadata (SimpleDirectoryReader uses temp path)
+                        for doc in text_documents:
+                            doc.metadata["file_name"] = file_name
+                            doc.metadata["file_size"] = file_size
 
                     all_documents.extend(text_documents)
                     logger.info(f"  Text extraction: {len(text_documents)} documents")
@@ -1463,9 +1568,25 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     if executor:
                         executor.shutdown(wait=False)
 
+                    valid_documents = [
+                        doc for doc in all_documents if not _looks_like_raw_pdf_or_binary(doc.get_content())
+                    ]
+                    if len(valid_documents) != len(all_documents):
+                        raise ValueError("Raw PDF/binary content detected; refusing to index")
+                    if not valid_documents:
+                        self._update_file_status(
+                            job,
+                            i,
+                            FileStatus.FAILED,
+                            error="No content extracted (file may be password-protected, corrupted, or empty)",
+                        )
+                        logger.warning("No indexable content extracted from %s", file_name)
+                        continue
+                    all_documents = valid_documents
+
                     # Create/update index with all documents
-                    if i == 0:
-                        # First file - create new index
+                    if index is None:
+                        # First successful file - create new index
                         index = VectorStoreIndex.from_documents(
                             all_documents,
                             storage_context=storage_context,
@@ -1480,16 +1601,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     chunks_created = len(all_documents)
                     total_chunks += chunks_created
 
-                    # Mark as failed if no content was extracted
-                    if chunks_created == 0:
-                        self._update_file_status(
-                            job,
-                            i,
-                            FileStatus.FAILED,
-                            error="No content extracted (file may be password-protected, corrupted, or empty)",
-                        )
-                    else:
-                        self._update_file_status(job, i, FileStatus.SUCCESS, chunks_created=chunks_created)
+                    self._update_file_status(job, i, FileStatus.SUCCESS, chunks_created=chunks_created)
                     # Store summary in FileInfo and centralized registry
                     if summary:
                         # Register in centralized summary registry (backend-agnostic)
@@ -1531,9 +1643,16 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                 mode_parts.append("images")
             extraction_mode = "multimodal" if len(mode_parts) > 1 else "text-only"
 
-            # Mark job as completed
+            failed_files = [f for f in job.file_details if f.status == FileStatus.FAILED]
+            successful_files = [f for f in job.file_details if f.status == FileStatus.SUCCESS]
+
+            # Mark job as terminal based on per-file results
             with self._lock:
-                job.status = JobState.COMPLETED
+                if failed_files and not successful_files:
+                    job.status = JobState.FAILED
+                    job.error_message = f"{len(failed_files)}/{len(job.file_details)} file(s) failed"
+                else:
+                    job.status = JobState.COMPLETED
                 job.completed_at = datetime.utcnow().isoformat()
                 job.metadata = {
                     "total_chunks": total_chunks,
