@@ -47,7 +47,6 @@ export type MessagesSlice = {
   clearThinkingSteps: () => void
   clearReportContent: () => void
   setCurrentStatus: (status: StatusType | null) => void
-  addStatusCard: (type: StatusType, message?: string) => void
   addAgentPrompt: (
     type: PromptType,
     content: string,
@@ -538,38 +537,6 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
 
   setCurrentStatus: (status: StatusType | null) => {
     set({ currentStatus: status }, false, 'setCurrentStatus')
-  },
-
-  addStatusCard: (type: StatusType, message?: string) => {
-    const { currentConversation, conversations } = get()
-    if (!currentConversation) return
-
-    const statusMessage: ChatMessage = {
-      id: uuidv4(),
-      role: 'assistant',
-      content: message || '',
-      timestamp: new Date(),
-      messageType: 'status',
-      statusType: type,
-    }
-
-    const updatedConversation: Conversation = {
-      ...currentConversation,
-      messages: [...currentConversation.messages, statusMessage],
-      updatedAt: new Date(),
-    }
-
-    const updatedConversations = updateConversationInList(conversations, updatedConversation)
-
-    set(
-      {
-        currentConversation: updatedConversation,
-        conversations: updatedConversations,
-        currentStatus: type,
-      },
-      false,
-      'addStatusCard'
-    )
   },
 
   addAgentPrompt: (

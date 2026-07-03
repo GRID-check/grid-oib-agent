@@ -499,8 +499,6 @@ export interface ChatActions {
   clearThinkingSteps: () => void
   /** Clear report content (for new request) */
   clearReportContent: () => void
-  /** Add a status card message to the conversation */
-  addStatusCard: (type: StatusType, message?: string) => void
   /** Set current status type */
   setCurrentStatus: (status: StatusType | null) => void
   /** Add an agent prompt message to the conversation */

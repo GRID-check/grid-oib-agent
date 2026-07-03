@@ -1436,18 +1436,6 @@ describe('useChatStore', () => {
       expect(useChatStore.getState().currentStatus).toBe('searching')
     })
 
-    test('addStatusCard adds status message', () => {
-      setupConversation()
-
-      useChatStore.getState().addStatusCard('searching', 'Searching documents...')
-
-      const messages = useChatStore.getState().currentConversation?.messages
-      expect(messages).toHaveLength(1)
-      expect(messages?.[0].messageType).toBe('status')
-      expect(messages?.[0].statusType).toBe('searching')
-      expect(messages?.[0].content).toBe('Searching documents...')
-    })
-
     test('addAgentPrompt adds prompt message', () => {
       setupConversation()
 
