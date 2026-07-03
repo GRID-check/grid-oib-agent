@@ -19,7 +19,7 @@ export interface ProjectOverviewData {
     title?: string
     summary?: string
     keyFacts?: Array<{ label: string; value: string }>
-    missingInfo?: Array<{ label: string; description: string }>
+    missingInfo?: string[]
   } | null
   documentCount: number
   totalFileSize: number
