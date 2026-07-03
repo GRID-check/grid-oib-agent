@@ -1,23 +1,14 @@
 import { NextResponse } from 'next/server'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { requireAuthorizedSession } from '@/lib/auth/require-auth'
 import { requireProjectAccess } from '@/lib/authz/projects'
+import { isAuthzError } from '@/lib/auth-utils'
 import { getDb } from '@/lib/db'
 import { projects } from '@/lib/db/schema'
-import { applyProjectProfilePatch } from '@/lib/project-profile/prompt-view'
+import { applyProjectProfilePatch, invalidateProjectPromptViewCache } from '@/lib/project-profile/prompt-view'
 import { ProjectProfilePatchOperationSchema } from '@/lib/project-profile/types'
 import { buildProfileUpdate, toProfileResponse } from '../route'
-
-const isAuthzError = (error: unknown): boolean => {
-  if (!(error instanceof Error)) return false
-  const message = error.message.toLowerCase()
-  return (
-    message === 'not found' ||
-    message.includes('unauthorized') ||
-    message.includes('forbidden')
-  )
-}
 
 const patchProfileSchema = z.object({
   patch: z.array(ProjectProfilePatchOperationSchema),
@@ -61,9 +52,19 @@ export async function POST(
       return NextResponse.json({ error: error instanceof Error ? error.message : 'Invalid project profile patch.' }, { status: 400 })
     }
 
-    const values = buildProfileUpdate(profile, current.profileVersion)
-    const [project] = await db.update(projects).set(values).where(eq(projects.id, id)).returning()
+    const currentVersion = current.profileVersion
+    const values = buildProfileUpdate(profile, currentVersion)
+    const [project] = await db
+      .update(projects)
+      .set(values)
+      .where(and(eq(projects.id, id), eq(projects.profileVersion, currentVersion)))
+      .returning()
 
+    if (!project) {
+      return NextResponse.json({ error: 'Conflict: profile was modified by another request' }, { status: 409 })
+    }
+
+    invalidateProjectPromptViewCache(id)
     return NextResponse.json(toProfileResponse(project))
   } catch (error) {
     if (isAuthzError(error)) {

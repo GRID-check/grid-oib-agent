@@ -1,22 +1,13 @@
 import { NextResponse } from 'next/server'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { requireAuthorizedSession } from '@/lib/auth/require-auth'
 import { requireProjectAccess } from '@/lib/authz/projects'
+import { isAuthzError } from '@/lib/auth-utils'
 import { getDb } from '@/lib/db'
 import { projects } from '@/lib/db/schema'
-import { buildProjectProfileDisplay, buildProjectPromptView } from '@/lib/project-profile/prompt-view'
+import { buildProjectProfileDisplay, buildProjectPromptView, invalidateProjectPromptViewCache } from '@/lib/project-profile/prompt-view'
 import { ProjectProfileSchema } from '@/lib/project-profile/types'
 import type { ProjectProfile, ProjectProfileDisplay } from '@/lib/project-profile/types'
-
-const isAuthzError = (error: unknown): boolean => {
-  if (!(error instanceof Error)) return false
-  const message = error.message.toLowerCase()
-  return (
-    message === 'not found' ||
-    message.includes('unauthorized') ||
-    message.includes('forbidden')
-  )
-}
 
 export type StoredProfileResponse = {
   profile: ProjectProfile
@@ -78,9 +69,19 @@ export async function PUT(
       return NextResponse.json({ error: 'Not found' }, { status: 404 })
     }
 
-    const values = buildProfileUpdate(parsed.data, current.profileVersion)
-    const [project] = await db.update(projects).set(values).where(eq(projects.id, id)).returning()
+    const currentVersion = current.profileVersion
+    const values = buildProfileUpdate(parsed.data, currentVersion)
+    const [project] = await db
+      .update(projects)
+      .set(values)
+      .where(and(eq(projects.id, id), eq(projects.profileVersion, currentVersion)))
+      .returning()
 
+    if (!project) {
+      return NextResponse.json({ error: 'Conflict: profile was modified by another request' }, { status: 409 })
+    }
+
+    invalidateProjectPromptViewCache(id)
     return NextResponse.json(toProfileResponse(project))
   } catch (error) {
     if (isAuthzError(error)) {

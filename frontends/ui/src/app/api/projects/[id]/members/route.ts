@@ -8,8 +8,11 @@
  */
 
 import { NextResponse } from 'next/server'
+import { eq } from 'drizzle-orm'
 import { requireAuthorizedSession } from '@/lib/auth/require-auth'
 import { requireProjectAccess } from '@/lib/authz/projects'
+import { getDb } from '@/lib/db'
+import { projects } from '@/lib/db/schema'
 import { getWorkOS } from '@/lib/workos/client'
 import { z } from 'zod'
 
@@ -26,8 +29,17 @@ const PROJECT_ROLE_BY_PERMISSION: Array<{
 
 const addMemberSchema = z.object({
   organizationMembershipId: z.string().min(1),
-  roleSlug: z.enum(['project-viewer', 'project-editor', 'project-admin']),
+  roleSlug: z.union([
+    z.enum(['project-viewer', 'project-editor', 'project-admin']),
+    z.literal(''),
+  ]),
 })
+
+type RoleAssignment = {
+  id: string
+  organizationMembershipId?: string
+  roleSlug?: string
+}
 
 export async function GET(
   _request: Request,
@@ -40,8 +52,9 @@ export async function GET(
 
   const workos = getWorkOS()
 
-  const [usersResp, ...membershipResponses] = await Promise.all([
+  const [usersResp, orgMembershipsResp, ...membershipResponses] = await Promise.all([
     workos.userManagement.listUsers({ organizationId: session.organizationId }),
+    workos.userManagement.listOrganizationMemberships({ organizationId: session.organizationId }),
     ...PROJECT_ROLE_BY_PERMISSION.map(({ permissionSlug }) =>
       workos.authorization.listMembershipsForResourceByExternalId({
         organizationId: session.organizationId,
@@ -58,11 +71,16 @@ export async function GET(
     { organizationMembershipId: string; userId: string; role: ProjectRole }
   >()
 
+  const organizationMembersByUserId = new Map(
+    orgMembershipsResp.data.map((membership) => [membership.userId, membership])
+  )
+
   membershipResponses.forEach((response, index) => {
     const role = PROJECT_ROLE_BY_PERMISSION[index].role
     for (const membership of response.data) {
+      const organizationMembership = organizationMembersByUserId.get(membership.userId)
       projectMemberByUserId.set(membership.userId, {
-        organizationMembershipId: membership.id,
+        organizationMembershipId: organizationMembership?.id ?? membership.id,
         userId: membership.userId,
         role,
       })
@@ -71,18 +89,19 @@ export async function GET(
 
   const userById = new Map(usersResp.data.map((user) => [user.id, user]))
 
-  const members = [...projectMemberByUserId.values()].map((membership) => {
-    const user = userById.get(membership.userId)
+  const members = orgMembershipsResp.data.map((organizationMembership) => {
+    const user = userById.get(organizationMembership.userId)
+    const projectMembership = projectMemberByUserId.get(organizationMembership.userId)
     return {
-      organizationMembershipId: membership.organizationMembershipId,
-      userId: membership.userId,
+      organizationMembershipId: organizationMembership.id,
+      userId: organizationMembership.userId,
       email: user?.email ?? null,
       name:
         user?.name ||
         (user?.firstName
           ? `${user.firstName} ${user.lastName ?? ''}`.trim()
-          : user?.lastName || user?.email || membership.userId),
-      role: membership.role,
+          : user?.lastName || user?.email || organizationMembership.userId),
+      role: projectMembership?.role ?? null,
     }
   })
 
@@ -109,15 +128,43 @@ export async function POST(
   }
 
   const { organizationMembershipId, roleSlug } = parsed.data
+  const db = getDb()
   const workos = getWorkOS()
 
   try {
-    await workos.authorization.assignRole({
-      organizationMembershipId,
-      resourceExternalId: id,
-      resourceTypeSlug: 'project',
-      roleSlug,
+    const [project] = await db
+      .select({ workosResourceId: projects.workosResourceId })
+      .from(projects)
+      .where(eq(projects.id, id))
+      .limit(1)
+
+    if (!project?.workosResourceId) {
+      return NextResponse.json({ error: 'Project resource not found.' }, { status: 404 })
+    }
+
+    const assignments = await workos.authorization.listRoleAssignmentsForResource({
+      resourceId: project.workosResourceId,
     })
+
+    await Promise.all(
+      (assignments.data as RoleAssignment[])
+        .filter((assignment) => assignment.organizationMembershipId === organizationMembershipId)
+        .map((assignment) =>
+          workos.authorization.removeRoleAssignment({
+            organizationMembershipId,
+            roleAssignmentId: assignment.id,
+          })
+        )
+    )
+
+    if (roleSlug) {
+      await workos.authorization.assignRole({
+        organizationMembershipId,
+        resourceExternalId: id,
+        resourceTypeSlug: 'project',
+        roleSlug,
+      })
+    }
 
     return new NextResponse(null, { status: 201 })
   } catch (error) {

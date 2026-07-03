@@ -3,15 +3,7 @@ import { requireAuthorizedSession } from '@/lib/auth/require-auth'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { projectIntakeDefinitionV1 } from '@/lib/project-profile/intake-definition'
 
-const isAuthzError = (error: unknown): boolean => {
-  if (!(error instanceof Error)) return false
-  const message = error.message.toLowerCase()
-  return (
-    message === 'not found' ||
-    message.includes('unauthorized') ||
-    message.includes('forbidden')
-  )
-}
+import { isAuthzError } from '@/lib/auth-utils'
 
 export async function GET(
   _request: Request,
