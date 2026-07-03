@@ -18,15 +18,15 @@ import { requireAuthorizedSession } from '@/lib/auth/require-auth'
 import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
 import type { GridSession } from '@/lib/auth/types'
 import { isAuthzError } from '@/lib/auth-utils'
-
-const isAuthRequired = (): boolean => {
-  return process.env.REQUIRE_AUTH?.toLowerCase() === 'true'
-}
-
-const getBackendUrl = (): string => {
-  const url = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'
-  return url.replace(/\/$/, '')
-}
+import {
+  isAuthRequired,
+  getBackendUrl,
+  resolveBearerAuthHeader,
+  buildAuthHeaders,
+  backendErrorEnvelope,
+  handleAuthzError,
+  proxyErrorEnvelope,
+} from '@/lib/backend-proxy'
 
 export async function POST(req: Request): Promise<Response> {
   try {
@@ -38,8 +38,7 @@ export async function POST(req: Request): Promise<Response> {
     let authHeader: string | null = null
     if (authRequired) {
       session = await requireAuthorizedSession()
-      const headerToken = req.headers.get('Authorization')
-      authHeader = headerToken || (session.accessToken ? `Bearer ${session.accessToken}` : null)
+      authHeader = resolveBearerAuthHeader(req, session)
     }
 
     const conversationId = body.conversationId || body.session_id
@@ -54,7 +53,7 @@ export async function POST(req: Request): Promise<Response> {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...(authHeader ? { Authorization: authHeader } : {}),
+        ...buildAuthHeaders(authHeader),
         'X-Grid-Collection-Scope': headerValue,
       },
       body: JSON.stringify(body),
@@ -64,56 +63,18 @@ export async function POST(req: Request): Promise<Response> {
       const errorText = await response.text()
       console.error('[Generate Respond API] Backend error:', errorText)
 
-      return new NextResponse(
-        JSON.stringify({
-          error: {
-            code: 'BACKEND_ERROR',
-            message: `Backend returned ${response.status}: ${errorText}`,
-          },
-        }),
-        {
-          status: response.status,
-          headers: { 'Content-Type': 'application/json' },
-        }
-      )
+      return backendErrorEnvelope(response.status, errorText)
     }
 
     const data = await response.json().catch(() => ({}))
     return NextResponse.json(data)
   } catch (error) {
     if (isAuthzError(error)) {
-      const status = error instanceof Error && error.message.toLowerCase() === 'not found' ? 404 : 403
-      const code = status === 404 ? 'NOT_FOUND' : 'FORBIDDEN'
-
-      return new NextResponse(
-        JSON.stringify({
-          error: {
-            code,
-            message: error instanceof Error ? error.message : 'Access denied',
-          },
-        }),
-        {
-          status,
-          headers: { 'Content-Type': 'application/json' },
-        }
-      )
+      return handleAuthzError(error)
     }
 
     console.error('[Generate Respond API] Proxy error:', error)
 
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-
-    return new NextResponse(
-      JSON.stringify({
-        error: {
-          code: 'PROXY_ERROR',
-          message: errorMessage,
-        },
-      }),
-      {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' },
-      }
-    )
+    return proxyErrorEnvelope(error)
   }
 }

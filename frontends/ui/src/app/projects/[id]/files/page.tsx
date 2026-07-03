@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { eq, and } from 'drizzle-orm'
+import { notFound } from 'next/navigation'
 import { requireAuthorizedSession } from '@/lib/auth/require-auth'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { getDb } from '@/lib/db'
@@ -25,7 +26,7 @@ export default async function FilesPage({ params }: FilesPageProps): Promise<JSX
     .limit(1)
 
   if (!project) {
-    throw new Error('Project not found')
+    notFound()
   }
 
   return <ProjectFileWorkspace projectId={id} projectName={project.name} collectionName={project.collectionName} />
