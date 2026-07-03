@@ -5,6 +5,7 @@ import { eq, and, desc, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { projects, documents } from '@/lib/db/schema'
 import type { ProjectOverviewData } from '@/features/projects/types'
+import { getApplicableStandards } from '@/lib/oib/applicable-standards'
 
 /**
  * Load the project overview data (project metadata, document stats, and the
@@ -26,6 +27,7 @@ export async function getProjectOverviewData(
       name: projects.name,
       collectionName: projects.collectionName,
       createdAt: projects.createdAt,
+      profile: projects.profile,
       profileDisplay: projects.profileDisplay,
     })
     .from(projects)
@@ -58,6 +60,11 @@ export async function getProjectOverviewData(
     .orderBy(desc(documents.createdAt))
     .limit(5)
 
+  // Derive which OIB-Richtlinien apply from the project's own brief, and whether
+  // that brief has enough captured facts to tailor the applicability.
+  const applicableStandards = getApplicableStandards(project.profile ?? null)
+  const briefComplete = Boolean(project.profileDisplay?.keyFacts?.length)
+
   return {
     id: project.id,
     name: project.name,
@@ -69,6 +76,8 @@ export async function getProjectOverviewData(
           keyFacts: project.profileDisplay?.keyFacts ?? [],
         }
       : null,
+    applicableStandards,
+    briefComplete,
     documentCount: stats?.count ?? 0,
     totalFileSize: Number(stats?.totalSize) || 0,
     recentDocuments: recentDocs.map((d) => ({

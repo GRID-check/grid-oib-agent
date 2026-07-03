@@ -21,6 +21,16 @@ const ProjectChatContent = ({ projectId }: { projectId: string }): ReactNode => 
   const { loadResearchPanelTab } = useLoadJobData()
   const loadedJobRef = useRef<string | null>(null)
 
+  // Deep link from Overview's "Ask Grid" actions: /projects/:id/chat?ask=<question>.
+  // The chat composer draft (InputArea's `message`) is held in component-local
+  // useState with no store-backed setter, so there is no clean, low-risk way to
+  // seed it from here without threading new state through a memoized input. Rather
+  // than force a risky change, we leave the param unconsumed — it is harmless, the
+  // link still lands the architect on this project's chat, and prefill can be
+  // wired later once the composer draft is lifted into the chat store.
+  const askPrefill = searchParams.get('ask')
+  void askPrefill
+
   useEffect(() => {
     setProjectId(projectId)
     return () => setProjectId(null)

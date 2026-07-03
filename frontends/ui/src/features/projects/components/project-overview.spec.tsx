@@ -12,6 +12,8 @@ const mockData: ProjectOverviewData = {
   collectionName: 'proj-1-collection',
   createdAt: '2026-01-01T00:00:00.000Z',
   profileDisplay: null,
+  applicableStandards: [],
+  briefComplete: false,
   documentCount: 0,
   totalFileSize: 0,
   recentDocuments: [],

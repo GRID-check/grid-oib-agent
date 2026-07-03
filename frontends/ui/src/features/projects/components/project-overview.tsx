@@ -4,6 +4,7 @@
 import Link from 'next/link'
 import { ClipboardList, Database, FileText, HardDrive, MessageSquare, PencilLine, Upload } from 'lucide-react'
 import type { ProjectOverviewData } from '../types'
+import { ApplicableStandards } from './applicable-standards'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
@@ -151,6 +152,13 @@ export function ProjectOverview({ data }: ProjectOverviewProps) {
           }
         />
       )}
+
+      {/* Applicable OIB standards — derived from the brief, orientation only. */}
+      <ApplicableStandards
+        projectId={data.id}
+        standards={data.applicableStandards}
+        briefComplete={data.briefComplete}
+      />
 
       {/* Stats */}
       <section className="grid grid-cols-2 gap-4 sm:grid-cols-3">
