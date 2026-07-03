@@ -24,7 +24,7 @@ export interface UserMessageProps {
  */
 export const UserMessage: FC<UserMessageProps> = ({ content, timestamp }) => {
   return (
-    <div className="flex w-full justify-end">
+    <div className="animate-in fade-in-0 slide-in-from-bottom-1 flex w-full justify-end duration-200">
       <div className="flex max-w-[80%] flex-col items-end">
         <div className="bg-surface-sunken-opaque border-base flex rounded-bl-xl rounded-tl-xl rounded-tr-xl border p-4">
           <MarkdownRenderer content={content} />

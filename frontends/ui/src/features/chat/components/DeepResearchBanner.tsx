@@ -68,11 +68,8 @@ const formatTokens = (count: number): string => {
  */
 const getBannerConfig = (
   bannerType: DeepResearchBannerType,
-  jobId: string,
   stats?: { totalTokens?: number; toolCallCount?: number }
 ): BannerConfig => {
-  const jobIdLine = `Job ID: ${jobId}\n`
-
   switch (bannerType) {
     case 'success': {
       // Build stats suffix for success banner
@@ -87,7 +84,7 @@ const getBannerConfig = (
 
       return {
         heading: `Report Completed!${statsText}`,
-        subheading: `Research has finished and a report is ready to view in the research panel. (${jobIdLine})`,
+        subheading: 'Research has finished and a report is ready to view in the research panel.',
         buttonText: 'View Report',
         buttonTab: 'report',
         status: 'success',
@@ -96,7 +93,8 @@ const getBannerConfig = (
     case 'failure':
       return {
         heading: 'Report Failed to Complete',
-        subheading: `Something prevented the research report from completing. Check the thinking for details. (${jobIdLine})`,
+        subheading:
+          'Something prevented the research report from completing. Check the thinking for details.',
         buttonText: 'View Thinking',
         buttonTab: 'thinking',
         status: 'error',
@@ -104,7 +102,8 @@ const getBannerConfig = (
     case 'cancelled':
       return {
         heading: 'Research Cancelled',
-        subheading: `Research was stopped by user. You can view any partial progress in the research panel. (${jobIdLine})`,
+        subheading:
+          'Research was stopped by user. You can view any partial progress in the research panel.',
         buttonText: 'View Progress',
         buttonTab: 'tasks',
         status: 'warning',
@@ -112,13 +111,14 @@ const getBannerConfig = (
     case 'expired':
       return {
         heading: 'Report Expired',
-        subheading: `The report has expired and is no longer available. (${jobIdLine})`,
+        subheading: 'The report has expired and is no longer available.',
         status: 'warning',
       }
     case 'starting':
       return {
         heading: 'Starting Deep Research',
-        subheading: `Chat is paused while the report is created to prevent generating multiple reports. You can click away while this runs. This may take several minutes. (${jobIdLine})`,
+        subheading:
+          'Chat is paused while the report is created to prevent generating multiple reports. You can click away while this runs — it may take several minutes.',
         buttonText: 'View Progress',
         buttonTab: 'tasks',
         status: 'info',
@@ -139,7 +139,7 @@ export const DeepResearchBanner: FC<DeepResearchBannerProps> = ({
   const openRightPanel = useLayoutStore((s) => s.openRightPanel)
   const setResearchPanelTab = useLayoutStore((s) => s.setResearchPanelTab)
   const { loadResearchPanelTab } = useLoadJobData()
-  const config = getBannerConfig(bannerType, jobId, { totalTokens, toolCallCount })
+  const config = getBannerConfig(bannerType, { totalTokens, toolCallCount })
 
   // Job is complete if banner type indicates completion (success, failure, cancelled, expired)
   // 'starting' banner means job is still in progress - don't try to load archived data

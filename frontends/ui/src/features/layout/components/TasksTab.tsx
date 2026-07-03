@@ -24,15 +24,13 @@ import { TaskCard } from './TaskCard'
  * Uses deepResearchTodos from the store (populated by SSE artifact.update events).
  */
 export const TasksTab: FC = () => {
-  const { deepResearchTodos, deepResearchJobId, currentStatus, isDeepResearchStreaming } =
-    useChatStore(
-      useShallow((s) => ({
-        deepResearchTodos: s.deepResearchTodos,
-        deepResearchJobId: s.deepResearchJobId,
-        currentStatus: s.currentStatus,
-        isDeepResearchStreaming: s.isDeepResearchStreaming,
-      }))
-    )
+  const { deepResearchTodos, currentStatus, isDeepResearchStreaming } = useChatStore(
+    useShallow((s) => ({
+      deepResearchTodos: s.deepResearchTodos,
+      currentStatus: s.currentStatus,
+      isDeepResearchStreaming: s.isDeepResearchStreaming,
+    }))
+  )
 
   const isEmpty = deepResearchTodos.length === 0
 
@@ -48,9 +46,6 @@ export const TasksTab: FC = () => {
       <div className="flex shrink-0 flex-col gap-1">
         <div className="flex items-center gap-2">
           <span className="text-sm font-semibold text-muted-foreground">Tasks</span>
-          {deepResearchJobId && (
-            <span className="text-xs text-muted-foreground">JobID: {deepResearchJobId}</span>
-          )}
           {totalCount > 0 && (
             <span className="text-xs text-muted-foreground">
               {completedCount}/{totalCount}
@@ -80,9 +75,9 @@ export const TasksTab: FC = () => {
 
           {/* Writing report indicator */}
           {isWritingReport && (
-            <div className="flex shrink-0 items-center gap-2 rounded-md bg-blue-50 px-3 py-2 dark:bg-blue-950">
-              <div className="h-2 w-2 animate-pulse rounded-full bg-blue-500 motion-reduce:animate-none" />
-              <span className="text-sm text-blue-700 dark:text-blue-300">
+            <div className="flex shrink-0 items-center gap-2 rounded-md bg-[var(--background-color-feedback-info-subtle)] px-3 py-2">
+              <div className="h-2 w-2 animate-pulse rounded-full bg-[var(--text-color-feedback-info)] motion-reduce:animate-none" />
+              <span className="text-sm text-[var(--text-color-feedback-info)]">
                 Writing final report... This may take a few minutes.
               </span>
             </div>

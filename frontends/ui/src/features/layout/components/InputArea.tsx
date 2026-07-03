@@ -18,6 +18,7 @@
 
 import { type FC, memo, useState, useCallback, useRef, useEffect, type KeyboardEvent } from 'react'
 import { Globe, FileText, Paperclip, SendHorizontal, X, XCircle } from 'lucide-react'
+import { toast } from 'sonner'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -264,7 +265,16 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
 
     // Proceed with normal send
     setMessage('')
-    await sendMessage(currentMessage)
+    try {
+      await sendMessage(currentMessage)
+    } catch (error) {
+      console.error('Failed to send message:', error)
+      // Restore the message so the user doesn't lose what they typed.
+      setMessage(currentMessage)
+      toast.error('Message not sent', {
+        description: 'Something went wrong sending your message. Please try again.',
+      })
+    }
   }, [
     message,
     disabled,

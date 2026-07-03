@@ -62,9 +62,9 @@ export const ReportTab: FC<ReportTabProps> = ({ children }) => {
         ) : isResearchNotes ? (
           /* Research notes: preview treatment */
           <div className="flex flex-1 flex-col gap-3">
-            <div className="flex shrink-0 items-center gap-2 rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 dark:border-yellow-800 dark:bg-yellow-950">
-              <div className="h-2 w-2 animate-pulse rounded-full bg-yellow-500 motion-reduce:animate-none" />
-              <span className="text-sm text-yellow-700 dark:text-yellow-300">
+            <div className="flex shrink-0 items-center gap-2 rounded-md border border-[var(--border-color-feedback-warning)] bg-[var(--background-color-feedback-warning-subtle)] px-3 py-2">
+              <div className="h-2 w-2 animate-pulse rounded-full bg-[var(--text-color-feedback-warning)] motion-reduce:animate-none" />
+              <span className="text-sm text-[var(--text-color-feedback-warning)]">
                 Research notes from agents — final report is still being generated.
               </span>
             </div>

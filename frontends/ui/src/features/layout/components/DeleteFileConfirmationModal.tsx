@@ -29,6 +29,8 @@ export interface DeleteFileConfirmationModalProps {
   onOpenChange: (open: boolean) => void
   /** Callback when delete is confirmed */
   onConfirm: () => void
+  /** Name of the file being deleted, shown in the dialog copy */
+  fileName?: string
 }
 
 /**
@@ -39,7 +41,10 @@ export const DeleteFileConfirmationModal: FC<DeleteFileConfirmationModalProps> =
   open,
   onOpenChange,
   onConfirm,
+  fileName,
 }) => {
+  const trimmedName = fileName?.trim()
+
   const handleConfirm = () => {
     onConfirm()
     onOpenChange(false)
@@ -51,12 +56,18 @@ export const DeleteFileConfirmationModal: FC<DeleteFileConfirmationModalProps> =
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <AlertTriangle className="h-5 w-5 text-warning" aria-hidden="true" />
-            <span>Deleting Files</span>
+            <span>Delete File</span>
           </DialogTitle>
         </DialogHeader>
         <div className="flex flex-col gap-3">
           <p className="text-sm">
-            You are about to delete files. This will completely remove it from your session.
+            You are about to delete{' '}
+            {trimmedName ? (
+              <span className="font-semibold">&ldquo;{trimmedName}&rdquo;</span>
+            ) : (
+              'this file'
+            )}
+            . This will completely remove it from your session.
           </p>
           <p className="text-sm">
             This action cannot be reversed. Are you sure you want to do this?
@@ -67,7 +78,7 @@ export const DeleteFileConfirmationModal: FC<DeleteFileConfirmationModalProps> =
             <Button variant="ghost">Cancel</Button>
           </DialogClose>
           <Button variant="destructive" onClick={handleConfirm}>
-            Delete Files
+            Delete File
           </Button>
         </DialogFooter>
       </DialogContent>

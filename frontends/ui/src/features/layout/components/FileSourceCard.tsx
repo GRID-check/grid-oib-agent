@@ -236,7 +236,7 @@ export const FileSourceCard: FC<FileSourceCardProps> = ({
               <>
                 <span className="text-muted-foreground">•</span>
                 <span
-                  className={cn('text-xs', expiryLabel.expired ? 'text-warning' : 'text-orange-400')}
+                  className={cn('text-xs', expiryLabel.expired ? 'text-error' : 'text-warning')}
                 >
                   {expiryLabel.text}
                 </span>

@@ -29,6 +29,8 @@ export interface DeleteAllSessionsConfirmationModalProps {
   onOpenChange: (open: boolean) => void
   /** Callback when delete is confirmed */
   onConfirm: () => void
+  /** Number of sessions that will be deleted, shown in the dialog copy */
+  count?: number
 }
 
 /**
@@ -39,6 +41,7 @@ export const DeleteAllSessionsConfirmationModal: FC<DeleteAllSessionsConfirmatio
   open,
   onOpenChange,
   onConfirm,
+  count,
 }) => {
   const handleConfirm = () => {
     onConfirm()
@@ -56,8 +59,11 @@ export const DeleteAllSessionsConfirmationModal: FC<DeleteAllSessionsConfirmatio
         </DialogHeader>
         <div className="flex flex-col gap-3">
           <p className="text-sm">
-            You are about to delete ALL sessions. You will lose all progress and any files you have
-            attached will be removed.
+            You are about to delete{' '}
+            <span className="font-semibold">
+              {count && count > 0 ? `all ${count} sessions` : 'ALL sessions'}
+            </span>
+            . You will lose all progress and any files you have attached will be removed.
           </p>
           <p className="text-sm">
             This action cannot be reversed. Are you sure you want to do this?

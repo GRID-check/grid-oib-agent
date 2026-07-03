@@ -356,6 +356,7 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
         open={isDeleteModalOpen}
         onOpenChange={handleModalOpenChange}
         onConfirm={handleConfirmDelete}
+        fileName={targetFiles.find((f) => f.id === fileIdToDelete)?.fileName}
       />
     </div>
   )

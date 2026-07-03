@@ -14,6 +14,7 @@
 
 import { type FC, type ReactNode, memo, useCallback, useRef, useEffect } from 'react'
 import { CircleStop, Sparkles, X } from 'lucide-react'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -128,6 +129,9 @@ export const ResearchPanel: FC<ResearchPanelProps> = memo(function ResearchPanel
       }, CANCEL_FALLBACK_TIMEOUT_MS)
     } catch (error) {
       console.error('Failed to cancel job:', error)
+      toast.error('Could not stop research', {
+        description: 'The research run may still be running. Please try again.',
+      })
     }
   }, [deepResearchJobId, idToken])
 
@@ -180,8 +184,8 @@ export const ResearchPanel: FC<ResearchPanelProps> = memo(function ResearchPanel
     <div
       className="relative flex h-full"
       style={{
-        width: isOpen ? 'calc(60% + 40px)' : '40px',
-        minWidth: isOpen ? 'calc(60% + 40px)' : '40px',
+        width: isOpen ? 'calc(50% + 40px)' : '40px',
+        minWidth: isOpen ? 'calc(50% + 40px)' : '40px',
         transition: prefersReducedMotion
           ? 'none'
           : 'width 600ms ease-in-out, min-width 600ms ease-in-out',

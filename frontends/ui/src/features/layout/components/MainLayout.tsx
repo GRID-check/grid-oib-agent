@@ -163,7 +163,9 @@ export const MainLayout: FC<MainLayoutProps> = ({
         <div
           className="flex flex-col overflow-hidden"
           style={{
-            width: isResearchPanelOpen ? '40%' : '100%',
+            // Balanced split: the research panel informs alongside chat rather
+            // than squeezing it into a cramped column.
+            width: isResearchPanelOpen ? '50%' : '100%',
             transition: prefersReducedMotion ? 'none' : 'width 600ms ease-in-out',
           }}
         >

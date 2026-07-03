@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { v4 as uuidv4 } from 'uuid'
+import { toast } from 'sonner'
 import { createJSONStorage, type StorageValue, type PersistStorage } from 'zustand/middleware'
 import type { StateCreator } from 'zustand'
 import type {
@@ -637,6 +638,10 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
       import('@/adapters/api/deep-research-client').then(({ cancelJob }) => {
         cancelJob(jobIdToCancel!).catch((err) => {
           console.warn('Failed to cancel deep research job on session delete:', err)
+          toast.error('Research run may still be running', {
+            description:
+              'The session was deleted, but its deep-research job could not be stopped on the server.',
+          })
         })
       })
     }
@@ -715,6 +720,7 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
           jobIdsToCancel.map((jobId) => cancelJob(jobId))
         )
 
+        const failedCount = results.filter((result) => result.status === 'rejected').length
         results.forEach((result, index) => {
           if (result.status === 'fulfilled') return
           console.warn(
@@ -723,6 +729,15 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
             result.reason
           )
         })
+        if (failedCount > 0) {
+          toast.error(
+            `${failedCount} research ${failedCount === 1 ? 'run' : 'runs'} may still be running`,
+            {
+              description:
+                'Sessions were deleted, but some deep-research jobs could not be stopped on the server.',
+            }
+          )
+        }
       })
     }
 

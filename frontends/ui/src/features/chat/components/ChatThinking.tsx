@@ -76,7 +76,7 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
   }
 
   return (
-    <div className="bg-surface-sunken border-base w-full rounded-lg border">
+    <div className="bg-surface-sunken border-base animate-in fade-in-0 slide-in-from-bottom-1 w-full rounded-lg border duration-200">
       <Collapsible>
         <CollapsibleTrigger asChild>
           <button

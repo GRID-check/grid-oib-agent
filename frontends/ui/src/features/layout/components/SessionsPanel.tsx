@@ -283,12 +283,14 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
         open={deleteModalOpen}
         onOpenChange={setDeleteModalOpen}
         onConfirm={handleConfirmDelete}
+        sessionTitle={sessions.find((s) => s.id === sessionToDelete)?.title}
       />
 
       <DeleteAllSessionsConfirmationModal
         open={deleteAllModalOpen}
         onOpenChange={setDeleteAllModalOpen}
         onConfirm={handleConfirmDeleteAll}
+        count={sessions.filter((s) => s.title.trim() !== '').length}
       />
     </DockedPanel>
   )

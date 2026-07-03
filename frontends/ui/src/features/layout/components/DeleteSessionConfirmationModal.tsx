@@ -29,6 +29,8 @@ export interface DeleteSessionConfirmationModalProps {
   onOpenChange: (open: boolean) => void
   /** Callback when delete is confirmed */
   onConfirm: () => void
+  /** Title of the session being deleted, shown in the dialog copy */
+  sessionTitle?: string
 }
 
 /**
@@ -39,7 +41,9 @@ export const DeleteSessionConfirmationModal: FC<DeleteSessionConfirmationModalPr
   open,
   onOpenChange,
   onConfirm,
+  sessionTitle,
 }) => {
+  const trimmedTitle = sessionTitle?.trim()
   const handleConfirm = () => {
     onConfirm()
     onOpenChange(false)
@@ -56,8 +60,13 @@ export const DeleteSessionConfirmationModal: FC<DeleteSessionConfirmationModalPr
         </DialogHeader>
         <div className="flex flex-col gap-3">
           <p className="text-sm">
-            You are about to delete this session. You will lose all progress and any files you have
-            attached will be removed.
+            You are about to delete{' '}
+            {trimmedTitle ? (
+              <span className="font-semibold">&ldquo;{trimmedTitle}&rdquo;</span>
+            ) : (
+              'this session'
+            )}
+            . You will lose all progress and any files you have attached will be removed.
           </p>
           <p className="text-sm">
             This action cannot be reversed. Are you sure you want to do this?

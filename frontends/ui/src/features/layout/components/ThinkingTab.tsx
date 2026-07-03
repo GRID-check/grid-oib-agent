@@ -137,9 +137,9 @@ const CitationListView: FC<CitationListViewProps> = ({ filter, citations }) => {
         </div>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
-          {filteredCitations.map((citation) => (
+          {filteredCitations.map((citation, index) => (
             <div key={citation.id} className="shrink-0">
-              <CitationCard citation={citation} />
+              <CitationCard citation={citation} index={index + 1} />
             </div>
           ))}
         </div>

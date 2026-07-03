@@ -180,7 +180,7 @@ export const AgentResponse: FC<AgentResponseProps> = ({
 
   // Default variant - with box styling
   return (
-    <div className="flex w-full justify-start">
+    <div className="animate-in fade-in-0 slide-in-from-bottom-1 flex w-full justify-start duration-200">
       <div className="flex max-w-[85%] flex-col">
         <div className="bg-surface-sunken-opaque border-base flex flex-col gap-2 overflow-hidden break-words rounded-br-xl rounded-tl-xl rounded-tr-xl border p-4">
           {/* Optional Grid cards rendered before the markdown body */}

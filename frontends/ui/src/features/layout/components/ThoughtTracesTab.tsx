@@ -38,7 +38,7 @@ export const ThoughtTracesTab: FC<ThoughtTracesTabProps> = ({ thoughtTraces = []
           <span className="text-sm font-semibold text-muted-foreground">Thought Traces</span>
           {thoughtTraces.length > 0 && (
             <span className="text-xs text-muted-foreground">
-              {streamingCount > 0 ? `${streamingCount} active` : `${thoughtTraces.length}`}
+              {streamingCount > 0 ? `${streamingCount} running` : `${thoughtTraces.length}`}
             </span>
           )}
         </div>
