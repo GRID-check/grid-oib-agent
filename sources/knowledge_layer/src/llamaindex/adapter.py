@@ -99,9 +99,23 @@ TTL_CLEANUP_INTERVAL_SECONDS = int(os.environ.get("AIQ_TTL_CLEANUP_INTERVAL_SECO
 SUMMARY_MAX_INPUT_CHARS = 4000  # ~1000 tokens input
 
 
+def _read_api_key_env(name: str) -> str:
+    """Read an API key env var, treating unresolved ``${...}`` placeholders as unset.
+
+    docker compose ``env_file`` does not interpolate ``${VAR}`` references, so a
+    line like ``AIQ_VLM_API_KEY=${OPENROUTER_API_KEY}`` reaches the process as a
+    literal placeholder string rather than a key.
+    """
+    key = os.environ.get(name, "")
+    if key.startswith("${") and key.endswith("}"):
+        logger.error("%s contains an unresolved placeholder %r - treating as unset", name, key)
+        return ""
+    return key
+
+
 def _get_nvidia_api_key() -> str:
     """Get NVIDIA API key from environment."""
-    key = os.environ.get("NVIDIA_API_KEY", "")
+    key = _read_api_key_env("NVIDIA_API_KEY")
     if not key:
         logger.warning("NVIDIA_API_KEY not set - embeddings may fail")
     return key
@@ -109,7 +123,7 @@ def _get_nvidia_api_key() -> str:
 
 def _get_vlm_api_key() -> str:
     """Get VLM API key from environment, falling back to NVIDIA_API_KEY."""
-    key = os.environ.get("AIQ_VLM_API_KEY", "")
+    key = _read_api_key_env("AIQ_VLM_API_KEY")
     if not key:
         key = _get_nvidia_api_key()
     return key
@@ -633,10 +647,17 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         try:
             from llama_index.embeddings.nvidia import NVIDIAEmbedding
 
+            nvidia_api_key = _get_nvidia_api_key()
+            if not nvidia_api_key:
+                logger.error(
+                    "NVIDIA_API_KEY is not set - ingestion/retrieval will fail. "
+                    "Set the NVIDIA_API_KEY environment variable to enable embeddings."
+                )
+
             self._embed_model = NVIDIAEmbedding(
                 base_url=self.embed_base_url,
                 model=self.embed_model_name,
-                api_key=_get_nvidia_api_key(),
+                api_key=nvidia_api_key,
             )
 
             # Ensure persist directory exists
@@ -1768,10 +1789,17 @@ class LlamaIndexRetriever(BaseRetriever):
             from llama_index.core import Settings
             from llama_index.embeddings.nvidia import NVIDIAEmbedding
 
+            nvidia_api_key = _get_nvidia_api_key()
+            if not nvidia_api_key:
+                logger.error(
+                    "NVIDIA_API_KEY is not set - retrieval/ingestion will fail. "
+                    "Set the NVIDIA_API_KEY environment variable to enable embeddings."
+                )
+
             self._embed_model = NVIDIAEmbedding(
                 base_url=self.embed_base_url,
                 model=self.embed_model_name,
-                api_key=_get_nvidia_api_key(),
+                api_key=nvidia_api_key,
             )
             Settings.embed_model = self._embed_model
 

@@ -401,7 +401,7 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
 
                 if _get_mw_user().get("skip_clarifier"):
                     skip_clarifier = True
-            except (ImportError, Exception):
+            except Exception:
                 pass
         logger.info("skip_clarifier=%s", skip_clarifier)
 

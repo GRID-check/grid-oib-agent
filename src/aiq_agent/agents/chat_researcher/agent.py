@@ -370,7 +370,18 @@ class ChatResearcherAgent:
                 return "deep_research"
 
             tail = last_content[-800:].lower() if len(last_content) > 800 else last_content.lower()
-            escalation_keywords = ["i don't have enough information", "unable to find", "need more research"]
+            escalation_keywords = [
+                "i don't have enough information",
+                "unable to find",
+                "need more research",
+                "keine ausreichenden informationen",
+                "nicht genügend informationen",
+                "konnte keine informationen",
+                "keine informationen gefunden",
+                "nicht finden",
+                "weitere recherche erforderlich",
+                "genauere prüfung erforderlich",
+            ]
             if any(kw in tail for kw in escalation_keywords):
                 return "deep_research"
 
@@ -405,8 +416,6 @@ class ChatResearcherAgent:
         )
 
         graph.add_edge("deep_research", END)
-
-        return graph.compile(checkpointer=self.checkpointer)
 
         return graph.compile(checkpointer=self.checkpointer)
 
