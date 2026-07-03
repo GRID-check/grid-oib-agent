@@ -55,6 +55,8 @@ class ClarifierAgentState(BaseModel):
         data_sources: Optional list of data sources to scope tools.
         available_documents: User-uploaded documents (file_name, summary) that are
             ingested; the user may refer to these.
+        project_context: Optional project profile context for
+            project-aware research planning.
         max_turns: Maximum number of turns for the clarification dialog.
         clarifier_log: Log of the clarification dialog.
         iteration: Current iteration of the clarification dialog.
@@ -67,6 +69,7 @@ class ClarifierAgentState(BaseModel):
 
     messages: Annotated[list[AnyMessage], add_messages]
     data_sources: list[str] | None = Field(default=None)
+    project_context: str | None = Field(default=None)
     available_documents: list[dict[str, Any]] | None = Field(
         default=None,
         description="User-uploaded documents (file_name, summary) that are ingested; the user may refer to these.",

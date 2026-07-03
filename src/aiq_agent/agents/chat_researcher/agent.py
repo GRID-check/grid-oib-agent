@@ -161,6 +161,7 @@ class ChatResearcherAgent:
                     messages=trimmed_messages,
                     data_sources=state.data_sources,
                     available_documents=available_docs if available_docs else None,
+                    project_context=state.project_context,
                 )
                 result = await self.clarifier_fn(clarifier_state)
 
