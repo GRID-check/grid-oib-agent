@@ -59,13 +59,44 @@ export function ProjectIntakeWizard({ projectId }: ProjectIntakeWizardProps) {
   const [answers, setAnswers] = useState<Record<string, ProjectPrimitiveValue>>({})
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [draftSaved, setDraftSaved] = useState(false)
+
+  const STORAGE_KEY = `intake-draft-${projectId}`
 
   useEffect(() => {
     fetch(`/api/projects/${projectId}/intake-definition`)
       .then((r) => (r.ok ? r.json() : Promise.reject('Failed to load')))
-      .then((data) => { setDefinition(data); setLoading(false) })
+      .then((data) => {
+        setDefinition(data)
+        try {
+          const draft = sessionStorage.getItem(STORAGE_KEY)
+          if (draft) {
+            const parsed = JSON.parse(draft)
+            if (parsed.answers) setAnswers(parsed.answers)
+            if (typeof parsed.currentStage === 'number') setCurrentStage(parsed.currentStage)
+          }
+        } catch { /* invalid draft, ignore */ }
+        setLoading(false)
+      })
       .catch(() => { setError('Failed to load project questions'); setLoading(false) })
   }, [projectId])
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      try {
+        sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ answers, currentStage }))
+        setDraftSaved(true)
+      } catch { /* quota exceeded, ignore */ }
+    }, 500)
+    return () => clearTimeout(timer)
+  }, [answers, currentStage, STORAGE_KEY])
+
+  useEffect(() => {
+    if (draftSaved) {
+      const timer = setTimeout(() => setDraftSaved(false), 2000)
+      return () => clearTimeout(timer)
+    }
+  }, [draftSaved])
 
   const stage = definition?.stages[currentStage] ?? null
   const isFirst = currentStage === 0
@@ -101,6 +132,9 @@ export function ProjectIntakeWizard({ projectId }: ProjectIntakeWizardProps) {
         body: JSON.stringify(profile),
       })
       if (!res.ok) throw new Error('Failed to save')
+      try {
+        sessionStorage.removeItem(STORAGE_KEY)
+      } catch { /* ignore */ }
       await fetch(`/api/projects/${projectId}/generate-summary`, { method: 'POST' })
       router.push(`/projects/${projectId}`)
       router.refresh()
@@ -154,6 +188,9 @@ export function ProjectIntakeWizard({ projectId }: ProjectIntakeWizardProps) {
         <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-surface-raised-30">
           <div className="h-full rounded-full bg-brand transition-all duration-300" style={{ width: `${progress}%` }} />
         </div>
+        {draftSaved && (
+          <p className="mt-1 text-xs text-success">Draft saved</p>
+        )}
       </div>
 
       {/* Current stage */}
