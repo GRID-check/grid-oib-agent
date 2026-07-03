@@ -48,7 +48,7 @@ services:
       - AIQ_CHROMA_DIR=${AIQ_CHROMA_DIR:-/app/data/chroma_data}
       # Server config
       # Grid OIB config (default)
-      - CONFIG_FILE=${BACKEND_CONFIG:-/app/configs/config_grid_oib.yml}
+      - CONFIG_FILE=${BACKEND_CONFIG:-/app/configs/config_oib_openrouter.yml}
       - HOST=0.0.0.0
       - PORT=8000
       # RAG config
@@ -201,6 +201,9 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+      # Crash recovery (fsync of the data dir) can take >1 min on slow disks;
+      # without a start_period the stack fails with "postgres is unhealthy".
+      start_period: 120s
     restart: unless-stopped
 
 volumes:

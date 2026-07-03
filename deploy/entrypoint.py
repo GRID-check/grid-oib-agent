@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 import signal
@@ -84,6 +85,13 @@ def _clear_directory_contents(path: Path) -> None:
 
 def _run_oib_sync_background() -> None:
     """Run OIB PDF ingestion in the background after the server starts."""
+    # The entrypoint process never configures logging, so oib_sync's INFO
+    # progress logs are invisible without this.
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(levelname)-8s - %(name)s - %(message)s",
+        stream=sys.stdout,
+    )
     time.sleep(5)
 
     if os.environ.get("OIB_FORCE_REINGEST", "").lower() in ("1", "true", "yes"):
