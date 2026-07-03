@@ -17,19 +17,10 @@ import { NextResponse } from 'next/server'
 import { requireAuthorizedSession } from '@/lib/auth/require-auth'
 import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
 import type { GridSession } from '@/lib/auth/types'
+import { isAuthzError } from '@/lib/auth-utils'
 
 const isAuthRequired = (): boolean => {
   return process.env.REQUIRE_AUTH?.toLowerCase() === 'true'
-}
-
-const isAuthzError = (error: unknown): boolean => {
-  if (!(error instanceof Error)) return false
-  const message = error.message.toLowerCase()
-  return (
-    message === 'not found' ||
-    message.includes('unauthorized') ||
-    message.includes('forbidden')
-  )
 }
 
 const getBackendUrl = (): string => {

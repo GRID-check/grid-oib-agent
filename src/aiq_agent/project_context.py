@@ -39,7 +39,8 @@ def normalize_project_context(value: str | None, *, max_chars: int = 4000) -> st
     if not value:
         return None
     if len(value) > max_chars:
-        value = value[:max_chars].rsplit("\n", 1)[0]
+        value = value[:max_chars]
+        value = value.rsplit("\n", 1)[0]
     return value
 
 

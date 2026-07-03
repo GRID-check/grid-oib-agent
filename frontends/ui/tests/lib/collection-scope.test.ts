@@ -34,6 +34,13 @@ describe('computeCollectionScope', () => {
     ])
   })
 
+  it('does not double-prefix already-prefixed conversation corpus', () => {
+    expect(computeCollectionScope(baseSession, { conversationId: 's_uuid-123' })).toEqual([
+      'oib_knowledge',
+      's_uuid-123',
+    ])
+  })
+
   it('returns ordered base, project, conversation', () => {
     expect(
       computeCollectionScope(baseSession, { projectId: 'abc', conversationId: 'uuid-123' }),

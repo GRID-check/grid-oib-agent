@@ -16,20 +16,12 @@ import { NextResponse } from 'next/server'
 import { requireAuthorizedSession } from '@/lib/auth/require-auth'
 import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
 import { loadProjectPromptView } from '@/lib/project-profile/prompt-view'
-import type { GridSession } from '@/lib/auth/types'
+import type { AuthorizedSession, GridSession } from '@/lib/auth/types'
+import { requireProjectAccess } from '@/lib/authz/projects'
+import { isAuthzError } from '@/lib/auth-utils'
 
 const isAuthRequired = (): boolean => {
   return process.env.REQUIRE_AUTH?.toLowerCase() === 'true'
-}
-
-const isAuthzError = (error: unknown): boolean => {
-  if (!(error instanceof Error)) return false
-  const message = error.message.toLowerCase()
-  return (
-    message === 'not found' ||
-    message.includes('unauthorized') ||
-    message.includes('forbidden')
-  )
 }
 
 const getBackendUrl = (): string => {
@@ -57,7 +49,14 @@ export async function POST(req: Request): Promise<Response> {
       projectId: body.projectId,
       conversationId: body.conversationId,
     })
-    const projectContext = body.projectId ? await loadProjectPromptView(projectId) : null
+
+    let projectContext = null
+    if (body.projectId && projectId) {
+      if (authRequired && session) {
+        await requireProjectAccess(session as AuthorizedSession, projectId, 'project:view')
+      }
+      projectContext = await loadProjectPromptView(projectId)
+    }
 
     // Build the backend URL
     const backendUrl = `${getBackendUrl()}/chat/stream`

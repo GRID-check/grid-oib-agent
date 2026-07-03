@@ -217,6 +217,17 @@ def _initialize_ingestor(config: KnowledgeRetrievalConfig, summary_llm_obj=None)
 _warned_legacy_fallback = False
 
 
+def _normalize_session_collection_name(session_id: str | None) -> str | None:
+    """Return the UI session collection name for a raw conversation ID."""
+    if not session_id:
+        return None
+    from aiq_agent.knowledge.base import SESSION_COLLECTION_PREFIX
+
+    if session_id.startswith(SESSION_COLLECTION_PREFIX):
+        return session_id
+    return f"{SESSION_COLLECTION_PREFIX}{session_id}"
+
+
 def _resolve_target_collections(config: KnowledgeRetrievalConfig, session_id: str | None) -> list[str]:
     """
     Build the ordered, de-duplicated set of collections to search.
@@ -261,11 +272,13 @@ def _resolve_target_collections(config: KnowledgeRetrievalConfig, session_id: st
         # Legacy pinned behavior: base only, never the session collection.
         return [config.collection_name]
 
+    session_collection = _normalize_session_collection_name(session_id)
+
     targets: list[str] = []
     if config.include_base_collection and config.collection_name:
         targets.append(config.collection_name)
-    if config.include_session_collection and session_id:
-        targets.append(session_id)
+    if config.include_session_collection and session_collection:
+        targets.append(session_collection)
     targets.extend(config.project_collections)
 
     # De-duplicate while preserving order.

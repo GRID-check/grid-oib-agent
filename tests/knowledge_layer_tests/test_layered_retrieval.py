@@ -80,6 +80,14 @@ class TestResolveTargetCollections:
         )
         assert _resolve_target_collections(config, "s_abc") == ["oib_knowledge", "s_abc"]
 
+    def test_raw_conversation_id_is_normalized_to_session_collection(self):
+        config = KnowledgeRetrievalConfig(
+            collection_name="oib_knowledge",
+            include_base_collection=True,
+            include_session_collection=True,
+        )
+        assert _resolve_target_collections(config, "abc") == ["oib_knowledge", "s_abc"]
+
     def test_session_only_when_base_disabled(self):
         config = KnowledgeRetrievalConfig(
             collection_name="oib_knowledge",

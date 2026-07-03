@@ -31,6 +31,19 @@ const getDocumentsBaseUrl = (): string => {
   return isBrowser ? '/api/v1' : apiConfig.documentsBaseUrl
 }
 
+const buildCollectionRequestUrl = (path: string, collectionName: string): string => {
+  const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'http://localhost'
+  const url = new URL(path, baseUrl)
+
+  if (collectionName.startsWith('s_')) {
+    url.searchParams.set('conversationId', collectionName)
+  }
+
+  return path.startsWith('http://') || path.startsWith('https://')
+    ? url.toString()
+    : `${url.pathname}${url.search}`
+}
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -144,7 +157,7 @@ export const createDocumentsClient = (options: DocumentsClientOptions = {}) => {
      * Get a specific collection by name
      */
     async getCollection(name: string, signal?: AbortSignal): Promise<CollectionInfo | null> {
-      const response = await fetch(`${getCollectionsUrl()}/${name}`, {
+      const response = await fetch(buildCollectionRequestUrl(`${getCollectionsUrl()}/${name}`, name), {
         method: 'GET',
         headers: getHeaders(),
         signal,
@@ -242,7 +255,10 @@ export const createDocumentsClient = (options: DocumentsClientOptions = {}) => {
             reject(new Error('Upload failed: Network error'))
           })
 
-          xhr.open('POST', `${getCollectionsUrl()}/${collectionName}/documents`)
+          xhr.open(
+            'POST',
+            buildCollectionRequestUrl(`${getCollectionsUrl()}/${collectionName}/documents`, collectionName)
+          )
 
           if (authToken) {
             xhr.setRequestHeader('Authorization', `Bearer ${authToken}`)
@@ -259,7 +275,7 @@ export const createDocumentsClient = (options: DocumentsClientOptions = {}) => {
       }
       // Don't set Content-Type for FormData - browser sets it with boundary
 
-      const response = await fetch(`${getCollectionsUrl()}/${collectionName}/documents`, {
+      const response = await fetch(buildCollectionRequestUrl(`${getCollectionsUrl()}/${collectionName}/documents`, collectionName), {
         method: 'POST',
         headers,
         body: formData,
@@ -282,7 +298,7 @@ export const createDocumentsClient = (options: DocumentsClientOptions = {}) => {
      * List files in a collection
      */
     async listFiles(collectionName: string, signal?: AbortSignal): Promise<FileInfo[]> {
-      const response = await fetch(`${getCollectionsUrl()}/${collectionName}/documents`, {
+      const response = await fetch(buildCollectionRequestUrl(`${getCollectionsUrl()}/${collectionName}/documents`, collectionName), {
         method: 'GET',
         headers: getHeaders(),
         signal,
@@ -309,7 +325,7 @@ export const createDocumentsClient = (options: DocumentsClientOptions = {}) => {
      * Delete files from a collection
      */
     async deleteFiles(collectionName: string, fileIds: string[]): Promise<void> {
-      const response = await fetch(`${getCollectionsUrl()}/${collectionName}/documents`, {
+      const response = await fetch(buildCollectionRequestUrl(`${getCollectionsUrl()}/${collectionName}/documents`, collectionName), {
         method: 'DELETE',
         headers: getHeaders(),
         body: JSON.stringify({ file_ids: fileIds }),

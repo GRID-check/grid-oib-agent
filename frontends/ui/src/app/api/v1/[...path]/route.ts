@@ -21,10 +21,14 @@
  */
 
 import { NextResponse } from 'next/server'
+import { and, eq } from 'drizzle-orm'
 import { requireAuthorizedSession } from '@/lib/auth/require-auth'
 import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
 import { requireProjectAccess } from '@/lib/authz/projects'
+import { getDb } from '@/lib/db'
+import { projects } from '@/lib/db/schema'
 import type { GridSession, AuthorizedSession } from '@/lib/auth/types'
+import { isAuthzError } from '@/lib/auth-utils'
 
 const isAuthRequired = (): boolean => {
   return process.env.REQUIRE_AUTH?.toLowerCase() === 'true'
@@ -43,16 +47,6 @@ const buildBackendUrl = (path: string[], searchParams?: URLSearchParams): string
     url.searchParams.set(key, value)
   })
   return url.toString()
-}
-
-const isAuthzError = (error: unknown): boolean => {
-  if (!(error instanceof Error)) return false
-  const message = error.message.toLowerCase()
-  return (
-    message === 'not found' ||
-    message.includes('unauthorized') ||
-    message.includes('forbidden')
-  )
 }
 
 const isRedirectError = (error: unknown): boolean => {
@@ -116,6 +110,10 @@ function resolveRequestContext(
   }
 }
 
+function normalizeSessionCollectionName(value: string): string {
+  return value.startsWith('s_') ? value : `s_${value}`
+}
+
 async function validateCollectionName(
   path: string[],
   session: GridSession | null,
@@ -133,12 +131,22 @@ async function validateCollectionName(
   }
 
   if (collectionName.startsWith('proj_')) {
-    const projectId = collectionName.slice('proj_'.length)
-    if (!session) {
+    if (!session?.organizationId) {
       return handleAuthzError(new Error('Forbidden'))
     }
     try {
-      await requireProjectAccess(session as AuthorizedSession, projectId, 'project:edit')
+      const db = getDb()
+      const [project] = await db
+        .select({ id: projects.id })
+        .from(projects)
+        .where(and(eq(projects.collectionName, collectionName), eq(projects.organizationId, session.organizationId)))
+        .limit(1)
+
+      if (!project) {
+        return handleAuthzError(new Error('Not found'))
+      }
+
+      await requireProjectAccess(session as AuthorizedSession, project.id, 'project:edit')
     } catch (error) {
       return handleAuthzError(error)
     }
@@ -146,8 +154,7 @@ async function validateCollectionName(
   }
 
   if (collectionName.startsWith('s_')) {
-    const conversationId = collectionName.slice('s_'.length)
-    if (!context.conversationId || context.conversationId !== conversationId) {
+    if (!context.conversationId || normalizeSessionCollectionName(context.conversationId) !== collectionName) {
       return errorResponse(400, 'INVALID_COLLECTION', 'Collection does not match active conversation')
     }
     return null

@@ -1,9 +1,9 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
-import { userPreferences } from '@/lib/db/schema'
+import { projects, userPreferences } from '@/lib/db/schema'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import {
   buildCollectionScopeHeader,
@@ -14,6 +14,7 @@ import type { AuthorizedSession, GridSession } from '@/lib/auth/types'
 
 export interface RequestContext {
   projectId?: string
+  includeProject?: boolean
   conversationId?: string
 }
 
@@ -50,6 +51,24 @@ export async function resolveActiveProjectId(
   return undefined
 }
 
+async function resolveProjectCollectionName(
+  projectId: string | undefined,
+  organizationId: string | undefined,
+): Promise<string | undefined> {
+  if (!projectId || !organizationId) {
+    return undefined
+  }
+
+  const db = getDb()
+  const [project] = await db
+    .select({ collectionName: projects.collectionName })
+    .from(projects)
+    .where(and(eq(projects.id, projectId), eq(projects.organizationId, organizationId)))
+    .limit(1)
+
+  return project?.collectionName
+}
+
 export async function buildCollectionScopeFromRequest(
   session: GridSession | null,
   context: RequestContext,
@@ -57,12 +76,15 @@ export async function buildCollectionScopeFromRequest(
   scope: string[]
   headerValue: string
   projectId: string | undefined
+  projectCollectionName: string | undefined
   conversationId: string | undefined
 }> {
   const anonymous = !isAuthRequired()
 
-  let projectId = context.projectId
-  if (!projectId && session && !anonymous) {
+  const includeProject = context.includeProject !== false
+
+  let projectId = includeProject ? context.projectId : undefined
+  if (includeProject && !projectId && session && !anonymous) {
     projectId = await resolveActiveProjectId(session, undefined)
   }
 
@@ -72,8 +94,14 @@ export async function buildCollectionScopeFromRequest(
     await requireProjectAccess(session as AuthorizedSession, projectId, 'project:view')
   }
 
+  const projectCollectionName = includeProject
+    ? await resolveProjectCollectionName(projectId, session?.organizationId ?? undefined)
+    : undefined
+
   const scope = computeCollectionScope(session, {
     projectId,
+    projectCollectionName,
+    includeProject,
     conversationId,
   } satisfies ScopeContext)
 
@@ -81,6 +109,7 @@ export async function buildCollectionScopeFromRequest(
     scope,
     headerValue: buildCollectionScopeHeader(scope),
     projectId,
+    projectCollectionName,
     conversationId,
   }
 }

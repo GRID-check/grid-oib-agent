@@ -1137,9 +1137,9 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
 
       const hasSessionFiles = sessionFiles.length > 0
 
-      // Add knowledge_layer to data sources if files exist
-      const dataSourcesForMessage = hasSessionFiles && layoutState.knowledgeLayerAvailable
-        ? [...enabledDataSources, 'knowledge_layer']
+      // Keep internal knowledge available for base/project/session corpora even though it is hidden from toggles.
+      const dataSourcesForMessage = layoutState.knowledgeLayerAvailable
+        ? Array.from(new Set([...enabledDataSources, 'knowledge_layer']))
         : enabledDataSources
 
       // Prepare file metadata for display

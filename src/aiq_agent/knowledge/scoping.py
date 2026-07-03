@@ -35,6 +35,13 @@ from nat.builder.context import Context
 logger = logging.getLogger(__name__)
 
 
+def _normalize_collection_name(name: str) -> str:
+    """Normalize known collection names while preserving custom collections."""
+    while name.startswith("s_s_"):
+        name = name[2:]
+    return name
+
+
 def _base64url_decode(value: str) -> bytes:
     """Base64url-decode *value*, adding padding if necessary."""
     padding = 4 - len(value) % 4
@@ -76,7 +83,7 @@ def get_collection_scope_from_context() -> list[str] | None:
         logger.debug("X-Grid-Collection-Scope is not a list of strings: %s", scope)
         return None
 
-    return list(dict.fromkeys(scope))
+    return list(dict.fromkeys(_normalize_collection_name(item) for item in scope))
 
 
 def get_collection_scope_from_context_or(

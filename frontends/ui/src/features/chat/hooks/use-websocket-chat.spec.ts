@@ -631,13 +631,13 @@ describe('useWebSocketChat', () => {
     }
   })
 
-  test('sendMessage does not add knowledge_layer when no files uploaded', async () => {
+  test('sendMessage keeps knowledge_layer enabled when no visible sources or session files exist', async () => {
     mockWsClient.isConnected.mockReturnValue(true)
 
     // Mock layout store without knowledge_layer (it's filtered out by API client)
     const mockLayoutStore = await import('@/features/layout/store')
     vi.mocked(mockLayoutStore.useLayoutStore.getState).mockReturnValue({
-      enabledDataSourceIds: ['web', 'docs'],
+      enabledDataSourceIds: [],
       knowledgeLayerAvailable: true,
     } as ReturnType<typeof mockLayoutStore.useLayoutStore.getState>)
 
@@ -653,8 +653,8 @@ describe('useWebSocketChat', () => {
       result.current.sendMessage('Hello')
     })
 
-    // knowledge_layer should NOT be added since no files exist
-    expect(mockWsClient.sendMessage).toHaveBeenCalledWith('Hello', ['web', 'docs'])
+    // knowledge_layer covers the base and project-scoped corpora even when there are no session files.
+    expect(mockWsClient.sendMessage).toHaveBeenCalledWith('Hello', ['knowledge_layer'])
   })
 
   test('sendMessage adds knowledge_layer when files are uploaded', async () => {
