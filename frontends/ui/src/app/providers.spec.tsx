@@ -25,10 +25,6 @@ vi.mock('@workos-inc/authkit-nextjs/components', () => ({
   AuthKitProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
 }))
 
-vi.mock('@/adapters/ui', () => ({
-  ThemeProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
-}))
-
 vi.mock('@/features/layout', () => ({
   useLayoutStore: (selector: (state: typeof layoutState) => unknown) => selector(layoutState),
 }))

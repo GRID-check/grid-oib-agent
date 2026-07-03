@@ -6,17 +6,22 @@
  *
  * Wraps the application with necessary providers:
  * - AppConfigProvider (runtime server-side config)
- * - ThemeProvider (KUI dark/light mode)
+ * - TooltipProvider / Toaster (shadcn/ui primitives)
  * - AuthKitProvider (WorkOS AuthKit session)
  * - DeepResearchRestorer (checks for active deep research jobs on mount)
  * - ConversationHydrator (loads server-persisted conversations)
+ *
+ * Theme (dark/light) is applied directly to the document element via
+ * useThemeEffect below — it toggles the `.nv-light` / `.nv-dark` classes
+ * that the token stylesheet keys off of. There is no separate theme provider.
  */
 
 'use client'
 
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { AuthKitProvider } from '@workos-inc/authkit-nextjs/components'
-import { ThemeProvider } from '@/adapters/ui'
+import { TooltipProvider } from '@/components/ui/tooltip'
+import { Toaster } from '@/components/ui/sonner'
 import { AppConfigProvider, type AppConfig } from '@/shared/context'
 import { useLayoutStore } from '@/features/layout'
 import { useChatStore } from '@/features/chat/store'
@@ -133,11 +138,7 @@ const ThemeWrapper = ({ children }: { children: ReactNode }): ReactNode => {
   // Restore per-session data source toggles after initial fetch
   useDataSourceSessionRestore()
 
-  return (
-    <ThemeProvider theme={theme} global defer>
-      {children}
-    </ThemeProvider>
-  )
+  return <>{children}</>
 }
 
 /**
@@ -197,7 +198,10 @@ export const Providers = ({ children, config }: ProvidersProps): ReactNode => {
   return (
     <AppConfigProvider config={config}>
       <AuthKitProvider>
-        {content}
+        <TooltipProvider delayDuration={200}>
+          {content}
+        </TooltipProvider>
+        <Toaster />
       </AuthKitProvider>
     </AppConfigProvider>
   )

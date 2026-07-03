@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { ReactElement } from 'react'
-import { ThemeProvider } from '@nvidia/foundations-react-core'
 import { render } from '@testing-library/react'
+import { TooltipProvider } from '@/components/ui/tooltip'
 
 const TestProviders = ({ children }: { children: React.ReactNode }) => (
-  <ThemeProvider theme="light">{children}</ThemeProvider>
+  <TooltipProvider delayDuration={200}>{children}</TooltipProvider>
 )
 
 const renderWithProviders = (ui: ReactElement) => {
