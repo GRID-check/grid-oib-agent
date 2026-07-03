@@ -39,6 +39,7 @@ from nat.front_ends.fastapi.fastapi_front_end_plugin_worker import FastApiFrontE
 
 from .routes.collections import add_collection_routes
 from .routes.documents import add_document_routes
+from .routes.generate_summary import add_generate_summary_routes
 from .routes.ingest import add_ingest_routes
 
 logger = logging.getLogger(__name__)
@@ -147,6 +148,7 @@ class KnowledgeAPIWorker(FastApiFrontEndPluginWorker):
         add_collection_routes(app, ingestor)
         add_document_routes(app, ingestor)
         add_ingest_routes(app, ingestor)
+        add_generate_summary_routes(app)
 
         logger.info(f"Knowledge API routes registered (backend={knowledge_config.backend})")
 

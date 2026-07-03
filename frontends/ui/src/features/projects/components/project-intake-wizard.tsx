@@ -101,6 +101,7 @@ export function ProjectIntakeWizard({ projectId }: ProjectIntakeWizardProps) {
         body: JSON.stringify(profile),
       })
       if (!res.ok) throw new Error('Failed to save')
+      await fetch(`/api/projects/${projectId}/generate-summary`, { method: 'POST' })
       router.push(`/projects/${projectId}`)
       router.refresh()
     } catch {
@@ -123,7 +124,7 @@ export function ProjectIntakeWizard({ projectId }: ProjectIntakeWizardProps) {
   if (loading) {
     return (
       <div className="mx-auto max-w-2xl px-4 py-16">
-        <div className="h-4 w-48 animate-pulse rounded bg-neutral-200" />
+        <div className="h-4 w-48 animate-pulse rounded bg-surface-raised-30" />
       </div>
     )
   }
@@ -146,18 +147,18 @@ export function ProjectIntakeWizard({ projectId }: ProjectIntakeWizardProps) {
     <div className="mx-auto max-w-2xl px-4 py-12">
       {/* Progress bar */}
       <div className="mb-8">
-        <div className="flex items-center justify-between text-xs text-neutral-400">
+        <div className="flex items-center justify-between text-xs text-subtle">
           <span>Step {currentStage + 1} of {definition.stages.length}</span>
           <span>{stage.title}</span>
         </div>
-        <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-neutral-200">
-          <div className="h-full rounded-full bg-neutral-800 transition-all duration-300" style={{ width: `${progress}%` }} />
+        <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-surface-raised-30">
+          <div className="h-full rounded-full bg-brand transition-all duration-300" style={{ width: `${progress}%` }} />
         </div>
       </div>
 
       {/* Current stage */}
       <div>
-        <h2 className="text-lg font-semibold text-neutral-900">{stage.title}</h2>
+        <h2 className="text-lg font-semibold text-primary">{stage.title}</h2>
         <div className="mt-6 space-y-6">
           {visibleQuestions.map((q) => (
             <QuestionField key={q.id} question={q} value={answers[q.id]} onChange={(v) => setAnswer(q.id, v)} />
@@ -166,17 +167,17 @@ export function ProjectIntakeWizard({ projectId }: ProjectIntakeWizardProps) {
       </div>
 
       {/* Navigation */}
-      <div className="mt-10 flex items-center justify-between border-t border-neutral-200 pt-6">
+      <div className="mt-10 flex items-center justify-between border-t border-base pt-6">
         <button
           type="button"
           onClick={prevStage}
           disabled={isFirst}
-          className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-700 transition hover:bg-neutral-50 disabled:opacity-30"
+          className="rounded-lg border border-base px-4 py-2 text-sm font-medium text-secondary transition hover:bg-surface-sunken disabled:opacity-30"
         >
           Back
         </button>
 
-        <span className="text-xs text-neutral-400">
+        <span className="text-xs text-subtle">
           {visibleQuestions.length} question{visibleQuestions.length !== 1 ? 's' : ''}
         </span>
 
@@ -185,7 +186,7 @@ export function ProjectIntakeWizard({ projectId }: ProjectIntakeWizardProps) {
             type="button"
             onClick={handleSave}
             disabled={!canProceed || saving}
-            className="rounded-lg bg-neutral-900 px-6 py-2 text-sm font-medium text-white transition hover:bg-neutral-800 disabled:opacity-40"
+            className="rounded-lg bg-primary px-6 py-2 text-sm font-medium text-white transition hover:bg-primary-hover disabled:opacity-40"
           >
             {saving ? 'Saving...' : 'Save & Finish'}
           </button>
@@ -194,7 +195,7 @@ export function ProjectIntakeWizard({ projectId }: ProjectIntakeWizardProps) {
             type="button"
             onClick={nextStage}
             disabled={!canProceed}
-            className="rounded-lg bg-neutral-900 px-6 py-2 text-sm font-medium text-white transition hover:bg-neutral-800 disabled:opacity-40"
+            className="rounded-lg bg-primary px-6 py-2 text-sm font-medium text-white transition hover:bg-primary-hover disabled:opacity-40"
           >
             Next
           </button>
@@ -219,33 +220,33 @@ function QuestionField({
     case 'text':
       return (
         <div>
-          <label htmlFor={id} className="block text-sm font-medium text-neutral-700">{question.label}</label>
+          <label htmlFor={id} className="block text-sm font-medium text-secondary">{question.label}</label>
           <input
             id={id}
             type="text"
             value={typeof value === 'string' ? value : ''}
             onChange={(e) => onChange(e.target.value)}
-            className="mt-1 block w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm shadow-sm focus:border-neutral-500 focus:outline-none"
+            className="mt-1 block w-full rounded-lg border border-base px-3 py-2 text-sm shadow-sm focus:border-brand focus:outline-none"
           />
         </div>
       )
     case 'number':
       return (
         <div>
-          <label htmlFor={id} className="block text-sm font-medium text-neutral-700">{question.label}</label>
+          <label htmlFor={id} className="block text-sm font-medium text-secondary">{question.label}</label>
           <input
             id={id}
             type="number"
             value={typeof value === 'number' ? value : (typeof value === 'string' ? value : '')}
             onChange={(e) => onChange(e.target.value === '' ? '' : Number(e.target.value))}
-            className="mt-1 block w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm shadow-sm focus:border-neutral-500 focus:outline-none"
+            className="mt-1 block w-full rounded-lg border border-base px-3 py-2 text-sm shadow-sm focus:border-brand focus:outline-none"
           />
         </div>
       )
     case 'boolean':
       return (
         <fieldset>
-          <legend className="text-sm font-medium text-neutral-700">{question.label}</legend>
+          <legend className="text-sm font-medium text-secondary">{question.label}</legend>
           <div className="mt-2 flex gap-4">
             {['true', 'false'].map((opt) => {
               const boolVal = opt === 'true'
@@ -256,9 +257,9 @@ function QuestionField({
                     name={id}
                     checked={value === boolVal}
                     onChange={() => onChange(boolVal)}
-                    className="text-neutral-900 focus:ring-neutral-500"
+                    className="text-primary focus:ring-brand"
                   />
-                  <span className="text-sm text-neutral-700">{opt === 'true' ? 'Yes' : 'No'}</span>
+                  <span className="text-sm text-secondary">{opt === 'true' ? 'Yes' : 'No'}</span>
                 </label>
               )
             })}
@@ -268,12 +269,12 @@ function QuestionField({
     case 'single_select':
       return (
         <div>
-          <label htmlFor={id} className="block text-sm font-medium text-neutral-700">{question.label}</label>
+          <label htmlFor={id} className="block text-sm font-medium text-secondary">{question.label}</label>
           <select
             id={id}
             value={typeof value === 'string' ? value : ''}
             onChange={(e) => onChange(e.target.value)}
-            className="mt-1 block w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm shadow-sm focus:border-neutral-500 focus:outline-none"
+            className="mt-1 block w-full rounded-lg border border-base px-3 py-2 text-sm shadow-sm focus:border-brand focus:outline-none"
           >
             <option value="">Select...</option>
             {(question.options ?? []).map((opt) => (
@@ -285,7 +286,7 @@ function QuestionField({
     case 'multi_select':
       return (
         <fieldset>
-          <legend className="text-sm font-medium text-neutral-700">{question.label}</legend>
+          <legend className="text-sm font-medium text-secondary">{question.label}</legend>
           <div className="mt-2 space-y-2">
             {(question.options ?? []).map((opt) => {
               const arr = Array.isArray(value) ? value : []
@@ -301,9 +302,9 @@ function QuestionField({
                         : [...arr, opt.value]
                       onChange(next)
                     }}
-                    className="text-neutral-900 focus:ring-neutral-500"
+                    className="text-primary focus:ring-brand"
                   />
-                  <span className="text-sm text-neutral-700">{opt.label}</span>
+                  <span className="text-sm text-secondary">{opt.label}</span>
                 </label>
               )
             })}
