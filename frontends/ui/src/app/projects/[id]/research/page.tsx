@@ -32,7 +32,14 @@ export default async function ProjectResearchPage({ params }: ProjectResearchPag
 
   return (
     <div className="mx-auto w-full max-w-5xl px-4 py-8 md:px-8">
-      <h1 className="text-2xl font-semibold tracking-tight">Research</h1>
+      <header className="flex items-end justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Research runs</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Deep research reports Grid has produced for this project, newest first.
+          </p>
+        </div>
+      </header>
       <ResearchRunsList projectId={id} projectCollection={project.collectionName} />
     </div>
   )

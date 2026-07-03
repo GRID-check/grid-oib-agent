@@ -17,7 +17,11 @@ export default async function ProjectMembersPage({ params }: ProjectMembersPageP
   const session = await requireAuthorizedSession()
   const { id } = await params
 
-  await requireProjectAccess(session, id, 'project:manage')
+  // Read access is enough to view the roster; management controls are gated
+  // separately (below) so editors/viewers get a dignified read-only view
+  // instead of a hard crash.
+  const { role } = await requireProjectAccess(session, id, 'project:view')
+  const canManage = role === 'project-admin'
 
   const db = getDb()
   const [project] = await db.select({ name: projects.name }).from(projects).where(eq(projects.id, id)).limit(1)
@@ -29,19 +33,20 @@ export default async function ProjectMembersPage({ params }: ProjectMembersPageP
           <Users className="h-6 w-6" />
         </div>
         <div className="flex flex-col gap-1">
-          <span className="text-xs uppercase tracking-[0.24em] text-muted-foreground">
-            access matrix
+          <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            Access
           </span>
           <h1 className="text-2xl font-semibold tracking-tight">
             {project?.name ?? 'Project'} members
           </h1>
           <p className="max-w-2xl text-sm text-muted-foreground">
-            Add organization members to this project by assigning a project role. Set no access to
-            remove them from this workspace.
+            {canManage
+              ? 'Grant organization members access to this project by assigning a project role, or set no access to remove them.'
+              : 'Everyone with access to this project. Only project admins can change roles or add members.'}
           </p>
         </div>
       </header>
-      <ProjectMembersForm projectId={id} />
+      <ProjectMembersForm projectId={id} canManage={canManage} />
     </div>
   )
 }
