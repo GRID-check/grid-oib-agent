@@ -4,7 +4,9 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { Flex, Select, Text } from '@/adapters/ui'
+import { Folder } from '@/adapters/ui/icons'
 
 interface Project {
   id: string
@@ -17,9 +19,11 @@ interface PreferencesResponse {
 }
 
 export function ProjectSelector(): JSX.Element | null {
+  const router = useRouter()
   const [projects, setProjects] = useState<Project[]>([])
   const [activeProjectId, setActiveProjectId] = useState<string>('')
   const [isLoading, setIsLoading] = useState(true)
+  const activeProject = projects.find((project) => project.id === activeProjectId)
 
   useEffect(() => {
     let cancelled = false
@@ -78,7 +82,8 @@ export function ProjectSelector(): JSX.Element | null {
         throw new Error('Failed to save preferences')
       }
 
-      window.location.reload()
+      router.push(window.location.pathname)
+      router.refresh()
     } catch (error) {
       console.error('[ProjectSelector] Failed to save active project:', error)
     }
@@ -89,10 +94,18 @@ export function ProjectSelector(): JSX.Element | null {
   }
 
   return (
-    <Flex align="center" gap="2" className="hidden md:flex">
-      <Text kind="label/regular/sm" className="text-subtle whitespace-nowrap">
-        Project
-      </Text>
+    <div className="hidden items-center gap-3 rounded-full border border-base bg-surface-raised-30 px-3 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] md:flex">
+      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-surface-sunken text-brand">
+        <Folder className="h-4 w-4" />
+      </div>
+      <Flex direction="col" gap="0" className="min-w-[120px]">
+        <Text kind="body/regular/xs" className="text-subtle uppercase tracking-[0.18em]">
+          workspace
+        </Text>
+        <Text kind="label/semibold/sm" className="max-w-[150px] truncate text-primary">
+          {activeProject?.name ?? 'Select project'}
+        </Text>
+      </Flex>
       <Select
         value={activeProjectId}
         onValueChange={handleValueChange}
@@ -105,6 +118,6 @@ export function ProjectSelector(): JSX.Element | null {
           })),
         ]}
       />
-    </Flex>
+    </div>
   )
 }

@@ -6,6 +6,15 @@ import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
 import { ProjectSelector } from './project-selector'
 
+const mockRouter = {
+  push: vi.fn(),
+  refresh: vi.fn(),
+}
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => mockRouter,
+}))
+
 const mockProjects = [
   { id: 'p1', name: 'Alpha', collectionName: 'coll_1' },
   { id: 'p2', name: 'Beta', collectionName: 'coll_2' },
@@ -48,10 +57,6 @@ vi.mock('@/adapters/ui', async (importOriginal) => {
 describe('ProjectSelector', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    Object.defineProperty(window, 'location', {
-      writable: true,
-      value: { reload: vi.fn() },
-    })
   })
 
   function setupFetch() {
@@ -102,6 +107,7 @@ describe('ProjectSelector', () => {
       )
     })
 
-    expect(window.location.reload).toHaveBeenCalledOnce()
+    expect(mockRouter.push).toHaveBeenCalledWith(window.location.pathname)
+    expect(mockRouter.refresh).toHaveBeenCalledOnce()
   })
 })
