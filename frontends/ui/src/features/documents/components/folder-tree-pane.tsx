@@ -7,6 +7,10 @@ import { useMemo, useState } from 'react'
 import type { FolderItem } from './project-file-workspace'
 import { Folder, ChevronDown, ChevronRight } from '@/adapters/ui/icons'
 
+function Skeleton({ className = '' }: { className?: string }) {
+  return <div className={`animate-pulse bg-surface-sunken rounded-lg ${className}`} />
+}
+
 interface FolderTreePaneProps {
   folders: FolderItem[]
   selectedFolderId: string | null
@@ -78,7 +82,13 @@ export function FolderTreePane({
       </button>
 
       {isLoading ? (
-        <div className="px-3 py-4 text-sm text-subtle">Loading folders...</div>
+        <div className="space-y-2 p-2">
+          <Skeleton className="h-6 w-3/4" />
+          <Skeleton className="h-6 w-1/2 ml-4" />
+          <Skeleton className="h-6 w-2/3 ml-4" />
+          <Skeleton className="h-6 w-3/5 ml-4" />
+          <Skeleton className="h-6 w-4/5" />
+        </div>
       ) : (
         renderFolderTree(rootFolders)
       )}

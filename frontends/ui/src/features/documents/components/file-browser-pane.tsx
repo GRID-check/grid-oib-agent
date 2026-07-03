@@ -7,6 +7,10 @@ import { useMemo, useState } from 'react'
 import type { FileItem } from './project-file-workspace'
 import { Image, Document, Paperclip } from '@/adapters/ui/icons'
 
+function Skeleton({ className = '' }: { className?: string }) {
+  return <div className={`animate-pulse bg-surface-sunken rounded-lg ${className}`} />
+}
+
 interface FileBrowserPaneProps {
   files: FileItem[]
   selectedFileId: string | null
@@ -45,8 +49,12 @@ export function FileBrowserPane({ files, selectedFileId, onSelectFile, isLoading
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <p className="text-sm text-subtle">Loading files...</p>
+      <div className="flex-1 p-4 space-y-3">
+        <Skeleton className="h-8 w-full" />
+        <Skeleton className="h-6 w-full" />
+        <Skeleton className="h-6 w-full" />
+        <Skeleton className="h-6 w-3/4" />
+        <Skeleton className="h-6 w-full" />
       </div>
     )
   }
