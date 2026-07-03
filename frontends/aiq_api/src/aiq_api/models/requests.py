@@ -35,6 +35,14 @@ class DeleteFilesRequest(BaseModel):
     file_ids: list[str] = Field(..., description="List of file IDs to delete")
 
 
+class IngestRequest(BaseModel):
+    """Request body for URL-based ingestion."""
+
+    file_ref: str = Field(..., description="Presigned URL or file reference to download")
+    collection: str = Field(..., description="Target collection name")
+    document_id: str | None = Field(None, description="Optional document tracking ID")
+
+
 class UploadResponse(BaseModel):
     """Response for document upload (async operation)."""
 

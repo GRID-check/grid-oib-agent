@@ -57,6 +57,7 @@ from .jobs.connection_manager import get_connection_manager
 from .jobs.event_store import EventStore
 from .routes.collections import add_collection_routes
 from .routes.documents import add_document_routes
+from .routes.ingest import add_ingest_routes
 from .routes.jobs import register_job_routes
 from .routes.oib import add_oib_routes
 from .websocket_reconnect import configure_websocket_auth
@@ -205,6 +206,7 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
         knowledge_router = APIRouter()
         add_collection_routes(knowledge_router)
         add_document_routes(knowledge_router)
+        add_ingest_routes(knowledge_router)
         add_oib_routes(knowledge_router)
         app.include_router(knowledge_router)
         logger.info("Knowledge API routes registered")

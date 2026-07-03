@@ -16,8 +16,10 @@
 """URL-based ingestion endpoint for documents stored in MinIO."""
 
 import logging
+import mimetypes
 import os
 import tempfile
+from urllib.parse import urlparse
 
 import httpx
 from fastapi import APIRouter
@@ -72,6 +74,8 @@ def add_ingest_routes(router: APIRouter):
                 response.raise_for_status()
 
             suffix = _infer_suffix(response.headers.get("content-type", ""), file_ref)
+            # NOTE: The temp file is NOT deleted here - the ingestion job owns
+            # cleanup (cleanup_files=True) so the background thread can access it.
             with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
                 tmp.write(response.content)
                 temp_path = tmp.name
@@ -101,6 +105,8 @@ def add_ingest_routes(router: APIRouter):
         except httpx.RequestError as e:
             logger.error(f"Network error downloading file: {e}")
             raise HTTPException(status_code=502, detail=f"Network error downloading file: {e}")
+        except HTTPException:
+            raise
         except Exception as e:
             logger.error(f"Ingestion failed: {e}")
             raise HTTPException(status_code=500, detail=str(e))
@@ -115,16 +121,14 @@ def _infer_suffix(content_type: str, url: str) -> str:
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
         "application/vnd.openxmlformats-officedocument.presentationml.presentation": ".pptx",
     }
-    suffix = content_map.get(content_type.split(";")[0].strip(), "")
+    suffix = content_map.get(content_type.split(";", maxsplit=1)[0].strip(), "")
     if not suffix:
-        import mimetypes
-        suffix = mimetypes.guess_extension(url.split("?")[0]) or ".bin"
+        suffix = mimetypes.guess_extension(url.split("?", maxsplit=1)[0]) or ".bin"
     return suffix
 
 
 def _extract_filename(url: str) -> str:
     """Extract filename from URL path."""
-    from urllib.parse import urlparse
     path = urlparse(url).path
     filename = os.path.basename(path)
     if not filename or filename == "/":

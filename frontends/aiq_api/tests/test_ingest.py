@@ -15,19 +15,19 @@
 
 """Tests for the URL-based ingest endpoint."""
 
-from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
 import httpx
 import pytest
+from fastapi import APIRouter
 from fastapi import FastAPI
 from httpx import ASGITransport
 from httpx import AsyncClient
 
-from aiq_agent.fastapi_extensions.routes.ingest import add_ingest_routes
 from aiq_agent.knowledge.factory import clear_active_ingestor
 from aiq_agent.knowledge.factory import set_active_ingestor
+from aiq_api.routes.ingest import add_ingest_routes
 
 
 @pytest.fixture
@@ -45,7 +45,9 @@ def mock_ingestor():
 def app(mock_ingestor):
     """Create a FastAPI app with ingest routes registered."""
     app = FastAPI()
-    add_ingest_routes(app)
+    router = APIRouter()
+    add_ingest_routes(router)
+    app.include_router(router)
     return app
 
 
@@ -83,6 +85,7 @@ async def test_ingest_from_url_success(app, mock_ingestor):
     assert len(call_args[0][0]) == 1  # single file path
     # submit_job(file_paths, collection_name, config=...)
     assert call_args[0][1] == "proj_test123"  # collection name
+    assert call_args[1]["config"]["cleanup_files"] is True
     assert call_args[1]["config"]["original_filenames"] == ["key"]
 
 

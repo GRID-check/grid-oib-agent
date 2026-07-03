@@ -90,7 +90,6 @@ workos = "aiq_agent.auth.workos_validator:get_validators"
 aiq_chat_researcher = "aiq_agent.agents.chat_researcher.register"
 aiq_shallow_researcher = "aiq_agent.agents.shallow_researcher.register"
 aiq_deep_researcher = "aiq_agent.agents.deep_researcher.register"
-aiq_fastapi_extensions = "aiq_agent.fastapi_extensions.register"
 aiq_clarifier = "aiq_agent.agents.clarifier.register"
 aiq_data_source_registry = "aiq_agent.common.data_source_registry"
 
