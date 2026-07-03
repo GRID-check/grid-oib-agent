@@ -19,7 +19,9 @@ interface ResearchRunsListProps {
 }
 
 const STATUS_BADGE_VARIANT: Record<string, NonNullable<BadgeProps['variant']>> = {
-  running: 'warning',
+  running: 'info',
+  submitted: 'info',
+  pending: 'info',
   completed: 'success',
   failed: 'destructive',
   cancelled: 'secondary',

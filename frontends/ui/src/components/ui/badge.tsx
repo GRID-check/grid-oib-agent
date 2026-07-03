@@ -24,6 +24,8 @@ const badgeVariants = cva(
           'border-transparent bg-[var(--background-color-feedback-success-subtle)] text-[var(--text-color-feedback-success)]',
         warning:
           'border-transparent bg-[var(--background-color-feedback-warning-subtle)] text-[var(--text-color-feedback-warning)]',
+        info:
+          'border-transparent bg-[var(--background-color-feedback-info-subtle)] text-[var(--text-color-feedback-info)]',
       },
     },
     defaultVariants: {
