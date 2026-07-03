@@ -29,6 +29,7 @@ export function ProjectProfilePatchCard({
 }: ProjectProfilePatchCardProps) {
   const [status, setStatus] = useState<'pending' | 'accepted' | 'rejected'>('pending')
   const [error, setError] = useState<string | null>(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   const handleAccept = async () => {
     if (!projectId) {
@@ -36,6 +37,7 @@ export function ProjectProfilePatchCard({
       return
     }
     setError(null)
+    setIsSubmitting(true)
     try {
       const res = await fetch(`/api/projects/${projectId}/profile/patches`, {
         method: 'POST',
@@ -46,8 +48,10 @@ export function ProjectProfilePatchCard({
         const body = await res.json().catch(() => ({}))
         throw new Error(body.error || `Failed (${res.status})`)
       }
+      setIsSubmitting(false)
       setStatus('accepted')
     } catch (e) {
+      setIsSubmitting(false)
       setError(e instanceof Error ? e.message : 'Failed to apply patch')
     }
   }
@@ -61,7 +65,7 @@ export function ProjectProfilePatchCard({
     return (
       <Card className="border-l-4 border-l-success border-base bg-surface-raised-30 p-4">
         <Flex direction="col" gap="2">
-          <Text kind="body/regular/sm" className="text-primary">Projektkontext aktualisiert.</Text>
+          <Text kind="body/regular/sm" className="text-primary">Project context updated.</Text>
         </Flex>
       </Card>
     )
@@ -71,7 +75,7 @@ export function ProjectProfilePatchCard({
     return (
       <Card className="border-l-4 border-l-subtle border-base bg-surface-raised-30 p-4">
         <Flex direction="col" gap="2">
-          <Text kind="body/regular/sm" className="text-subtle">Änderung verworfen.</Text>
+          <Text kind="body/regular/sm" className="text-subtle">Changes discarded.</Text>
         </Flex>
       </Card>
     )
@@ -87,9 +91,9 @@ export function ProjectProfilePatchCard({
           <table className="w-full border-collapse text-sm">
             <thead>
               <tr className="border-b border-base text-subtle">
-                <th scope="col" className="py-1 pr-2 text-left font-medium">Feld</th>
-                <th scope="col" className="p-1 text-left font-medium">Vorher</th>
-                <th scope="col" className="pl-2 text-left font-medium">Nachher</th>
+                <th scope="col" className="py-1 pr-2 text-left font-medium">Field</th>
+                <th scope="col" className="p-1 text-left font-medium">Before</th>
+                <th scope="col" className="pl-2 text-left font-medium">After</th>
               </tr>
             </thead>
             <tbody>
@@ -109,21 +113,21 @@ export function ProjectProfilePatchCard({
         )}
 
         <Flex gap="2">
-          {!projectId && <p className="grid-card__hint">Projekt-ID erforderlich zum Übernehmen.</p>}
+          {!projectId && <p className="grid-card__hint">Project ID required to apply changes.</p>}
           <button
             type="button"
             onClick={handleAccept}
-            disabled={!projectId || !!error}
+            disabled={!projectId || isSubmitting}
             className="rounded bg-brand px-3 py-1 text-sm font-medium text-on-brand hover:opacity-90 disabled:opacity-50"
           >
-            Übernehmen
+            {isSubmitting ? 'Applying...' : 'Accept'}
           </button>
           <button
             type="button"
             onClick={handleReject}
             className="rounded border border-base bg-surface-raised px-3 py-1 text-sm font-medium text-primary hover:bg-surface-raised-hovered"
           >
-            Verwerfen
+            Reject
           </button>
         </Flex>
       </Flex>
