@@ -121,6 +121,7 @@ async def submit_agent_job(
     data_sources: list[str] | None = None,
     auth_token: str | None = None,
     collection_scope: list[str] | None = None,
+    project_context: str | None = None,
 ) -> str:
     """
     Submit an agent job to the Dask cluster.
@@ -215,6 +216,12 @@ async def submit_agent_job(
 
         collection_scope = get_collection_scope_from_context()
 
+    # Auto-detect project context from NAT context if not explicitly provided.
+    if project_context is None:
+        from aiq_agent.project_context import get_project_context_from_context
+
+        project_context = get_project_context_from_context()
+
     if principal is None:
         principal = _resolve_submission_principal(owner)
     if principal is None:
@@ -244,6 +251,7 @@ async def submit_agent_job(
                 data_sources,
                 auth_token,
                 collection_scope,
+                project_context,
             ],
         )
         await loop.run_in_executor(None, create_job_access, resolved_job_id, principal, db_url)

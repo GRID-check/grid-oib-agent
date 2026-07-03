@@ -317,9 +317,9 @@ async def deep_research_workflow(config: DeepResearchWorkflowConfig, builder: Bu
     deep_research_agent_fn = await builder.get_function("deep_research_agent")
     workflow_id = config.name or config.type
 
-    async def _run(query: str) -> ChatResponse:
+    async def _run(query: str, project_context: str | None = None) -> ChatResponse:
         """Run deep research on a query string."""
-        state = DeepResearchAgentState(messages=[HumanMessage(content=query)])
+        state = DeepResearchAgentState(messages=[HumanMessage(content=query)], project_context=project_context)
         result = await deep_research_agent_fn.ainvoke(state)
         response_content = result.messages[-1].content
         return _create_chat_response(response_content, response_id="research_response", model=workflow_id)

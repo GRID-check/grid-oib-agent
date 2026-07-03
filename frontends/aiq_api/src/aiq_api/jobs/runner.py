@@ -252,6 +252,7 @@ async def run_agent_job(
     data_sources: list[str] | None = None,
     auth_token: str | None = None,
     collection_scope: list[str] | None = None,
+    project_context: str | None = None,
 ):
     """
     Dask task to run any registered agent with cancellation support and telemetry.
@@ -286,6 +287,9 @@ async def run_agent_job(
         collection_scope: Optional list of collection names to scope knowledge
             retrieval to. Injected into the worker's request metadata so that
             ``get_collection_scope_from_context()`` returns the correct scope.
+        project_context: Optional project context string to inject into the
+            worker's request metadata so that
+            ``get_project_context_from_context()`` returns the correct context.
     """
 
     # Propagate auth token into the current async task's context so tools
@@ -432,6 +436,14 @@ async def run_agent_job(
                 existing_headers = dict(request_attrs.headers) if request_attrs and request_attrs.headers else {}
                 request_attrs._request.headers = Headers(
                     headers={**existing_headers, "x-grid-collection-scope": encoded}
+                )
+                context_state.metadata.set(request_attrs)
+
+            if project_context is not None:
+                request_attrs = context_state.metadata.get()
+                existing_headers = dict(request_attrs.headers) if request_attrs and request_attrs.headers else {}
+                request_attrs._request.headers = Headers(
+                    headers={**existing_headers, "x-grid-project-context": project_context}
                 )
                 context_state.metadata.set(request_attrs)
 

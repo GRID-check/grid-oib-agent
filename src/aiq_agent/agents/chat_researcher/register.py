@@ -138,6 +138,10 @@ class ChatDeepResearcherConfig(FunctionBaseConfig, name="chat_deepresearcher_age
         default="./checkpoints.db",
         description="SQLite database path or Postgres DSN for persistent checkpoints.",
     )
+    card_generator_llm: LLMRef | None = Field(
+        default=None,
+        description="Optional LLM to use for structured response card generation. Defaults to nemotron_super_llm.",
+    )
 
 
 @register_function(config_type=ChatDeepResearcherConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])
@@ -209,13 +213,13 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
     deep_research_fn = await builder.get_function("deep_research_agent")
     clarifier_fn = await builder.get_function("clarifier_agent") if config.enable_clarifier else None
 
-    # Resolve the writer LLM (nemotron_super_llm) for card generation.
-    # The shallow-reasoning clarifier model produces far better structured JSON
-    # than the temperature-1.0 intent/routing model.
+    # Resolve the LLM used for card generation. Most NVIDIA configs define
+    # nemotron_super_llm; alternate configs can provide card_generator_llm.
     card_generator_llm = None
     try:
+        card_llm_ref = config.card_generator_llm or LLMRef("nemotron_super_llm")
         card_generator_llm = await builder.get_llm(
-            LLMRef("nemotron_super_llm"), wrapper_type=LLMFrameworkEnum.LANGCHAIN
+            card_llm_ref, wrapper_type=LLMFrameworkEnum.LANGCHAIN
         )
     except Exception:
         logger.warning("Could not resolve LLM for card generation", exc_info=True)
@@ -297,6 +301,7 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                     available_documents=available_docs,
                     data_sources=state.data_sources,
                     collection_scope=state.collection_scope,
+                    project_context=state.project_context,
                 )
 
             deep_research_job_submitter = _submit_deep_job
@@ -334,6 +339,15 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
             from aiq_agent.knowledge.scoping import get_collection_scope_from_context
 
             _collection_scope = get_collection_scope_from_context()
+        except ImportError:
+            pass
+
+        # Read the X-Grid-Project-Context header from NAT context, if present.
+        _project_context = None
+        try:
+            from aiq_agent.project_context import get_project_context_from_context
+
+            _project_context = get_project_context_from_context()
         except ImportError:
             pass
 
@@ -410,8 +424,13 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
             if header_scope:
                 collections_to_check = header_scope
             else:
-                # Session collection (conversation_id == collection_name), when present.
-                session_collection = Context.get().conversation_id if Context.get() else None
+                # Session collection (s_<conversation_id>), when present.
+                raw_conversation_id = Context.get().conversation_id if Context.get() else None
+                session_collection = None
+                if raw_conversation_id:
+                    session_collection = (
+                        raw_conversation_id if raw_conversation_id.startswith("s_") else f"s_{raw_conversation_id}"
+                    )
                 # Base OIB corpus name, resolved from env with a sensible default.
                 base_collection = (
                     os.environ.get("COLLECTION_NAME")
@@ -462,6 +481,7 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                 available_documents=available_documents,
                 collection_scope=_collection_scope,
                 skip_clarifier=skip_clarifier,
+                project_context=_project_context,
             )
             result = await agent.run(state, thread_id=nat_context_conversation_id)
         finally:
