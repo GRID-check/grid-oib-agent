@@ -42,7 +42,6 @@ describe('FileSourceCard', () => {
     render(<FileSourceCard {...defaultProps} status="available" />)
 
     expect(screen.getByText('Available')).toBeInTheDocument()
-    expect(screen.getByText('✓')).toBeInTheDocument()
   })
 
   test('renders uploading status with spinner', () => {
@@ -63,7 +62,6 @@ describe('FileSourceCard', () => {
     render(<FileSourceCard {...defaultProps} status="error" errorMessage="Upload failed" />)
 
     expect(screen.getByText('Error')).toBeInTheDocument()
-    expect(screen.getByText('✕')).toBeInTheDocument()
     expect(screen.getByText('Upload failed')).toBeInTheDocument()
   })
 

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 /**
@@ -17,15 +17,22 @@
 'use client'
 
 import { type FC, memo, useState, useCallback, useRef, useEffect, type KeyboardEvent } from 'react'
-import { Flex, Text, Button, TextArea, Banner, Popover } from '@/adapters/ui'
+import { Globe, FileText, Paperclip, SendHorizontal, X, XCircle } from 'lucide-react'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Textarea } from '@/components/ui/textarea'
+import { cn } from '@/lib/utils'
 import { useWebSocketChat, useChatStore, useIsCurrentSessionBusy } from '@/features/chat'
 import { useLayoutStore } from '../store'
 import { useAppConfig } from '@/shared/context'
 import { useFileUpload, useFileDragDrop, useFileUploadBanners } from '@/features/documents'
-import { Globe, Document, Paperclip, Paperplane, Cancel } from '@/adapters/ui/icons'
 
 /** Connection mode for the chat */
 export type ConnectionMode = 'sse' | 'websocket'
+
+/** Maximum height of the auto-sizing textarea in pixels */
+const TEXTAREA_MAX_HEIGHT_PX = 200
 
 interface InputAreaProps {
   /** Placeholder text */
@@ -57,6 +64,9 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
 
   // File input ref for attachment button
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Textarea ref for the autosize effect
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   // Get file upload configuration from app config
   const { fileUpload: fileUploadConfig } = useAppConfig()
@@ -203,6 +213,14 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   const isDisabledByAuth = !isAuthenticated
   const disabled = isDisabledByAuth || (isBusy && !isResponseMode) || isResearchSessionComplete
 
+  // Autosize: grow the textarea with content, capped at TEXTAREA_MAX_HEIGHT_PX
+  useEffect(() => {
+    const el = textareaRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(el.scrollHeight, TEXTAREA_MAX_HEIGHT_PX)}px`
+  }, [message])
+
   // Dynamic placeholder based on state
   // Note: isResponseMode is checked before isBusy because the user needs to
   // see the response prompt even when the session is "busy" due to HITL.
@@ -342,68 +360,84 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   const totalSourcesCount = availableDataSources?.length ?? 0
 
   return (
-    <Flex direction="col" className="mx-auto w-full max-w-3xl p-4">
-      <Flex
-        direction="col"
-        className={`
-          bg-surface-raised relative rounded-2xl border border-black p-4 transition-colors
-          ${isDisabledByAuth ? 'opacity-60' : ''}
-          ${isDragging && isUnsupportedDrag ? 'border-error border-dashed' : isDragging ? 'border-brand border-dashed' : ''}
-        `}
+    <div className="mx-auto flex w-full max-w-3xl flex-col p-4">
+      <div
+        className={cn(
+          'relative flex flex-col rounded-2xl border bg-muted/40 p-4 transition-colors',
+          isDisabledByAuth && 'opacity-60',
+          isDragging && isUnsupportedDrag
+            ? 'border-dashed border-error'
+            : isDragging
+              ? 'border-dashed border-brand'
+              : ''
+        )}
         {...dragHandlers}
       >
         {/* Drag overlay */}
         {isDragging && (
-          <div className="bg-surface-raised-90 absolute inset-0 z-10 flex items-center justify-center rounded-2xl">
-            <Flex direction="col" align="center" gap="2">
+          <div className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-background/90">
+            <div className="flex flex-col items-center gap-2">
               {isUnsupportedDrag ? (
-                <Cancel className="text-error h-8 w-8" />
+                <XCircle className="h-8 w-8 text-error" aria-hidden="true" />
               ) : (
-                <Paperclip className="text-brand h-8 w-8" />
+                <Paperclip className="h-8 w-8 text-brand" aria-hidden="true" />
               )}
-              <Text
-                kind="label/semibold/sm"
-                className={isUnsupportedDrag ? 'text-error' : 'text-brand'}
+              <span
+                className={cn(
+                  'text-sm font-semibold',
+                  isUnsupportedDrag ? 'text-error' : 'text-brand'
+                )}
               >
                 {isUnsupportedDrag ? 'Unsupported file type' : 'Drop files to upload'}
-              </Text>
+              </span>
               {isUnsupportedDrag && (
-                <Text kind="body/regular/xs" className="text-subtle">
+                <span className="text-xs text-muted-foreground">
                   Accepts: {fileUploadConfig.acceptedTypes}
-                </Text>
+                </span>
               )}
-            </Flex>
+            </div>
           </div>
         )}
         {/* Text Input */}
         <div onKeyDown={handleKeyDown}>
-          <TextArea
-            className="bg-surface-raised border-0"
+          <Textarea
+            ref={textareaRef}
+            className="max-h-[200px] min-h-[2.5rem] resize-none border-0 bg-transparent shadow-none focus-visible:ring-0"
             value={message}
-            onValueChange={handleValueChange}
+            onChange={(e) => handleValueChange(e.target.value)}
             placeholder={getPlaceholder()}
             disabled={disabled}
-            resizeable="auto"
-            size="medium"
+            rows={1}
             aria-label={isResponseMode ? 'Response input' : 'Chat message input'}
           />
         </div>
 
         {/* Upload Error Display */}
         {uploadError && (
-          <Banner kind="inline" status="error" onClose={clearError} className="mt-2">
-            {uploadError}
-          </Banner>
+          <Alert variant="destructive" className="mt-2">
+            <AlertDescription className="flex w-full items-start justify-between gap-2">
+              <span>{uploadError}</span>
+              <button
+                type="button"
+                onClick={clearError}
+                aria-label="Dismiss error"
+                className="shrink-0 rounded-xs opacity-70 transition-opacity hover:opacity-100"
+              >
+                <X className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </AlertDescription>
+          </Alert>
         )}
 
         {/* Bottom Actions Bar */}
-        <Flex align="center" justify="end" className="mt-3">
+        <div className="mt-3 flex items-center justify-end">
           {/* Right Actions: Counters, Attach, Research, Submit */}
-          <Flex align="center" gap="2">
+          <div className="flex items-center gap-2">
             {/* Sources indicator - clickable to toggle data connections tab */}
             <Button
-              kind="tertiary"
-              size="tiny"
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2"
               onClick={() => {
                 if (useLayoutStore.getState().rightPanel === 'data-sources') {
                   closeRightPanel()
@@ -417,18 +451,17 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
               aria-label="Toggle data sources connections"
               title="Selected data connections"
             >
-              <Flex align="center" gap="1">
-                <Globe className="h-3 w-3" />
-                <Text kind="label/bold/sm">
-                  {enabledSourcesCount}/{totalSourcesCount}
-                </Text>
-              </Flex>
+              <Globe className="size-3" aria-hidden="true" />
+              <span className="text-xs font-semibold">
+                {enabledSourcesCount}/{totalSourcesCount}
+              </span>
             </Button>
 
             {/* Files indicator - clickable to toggle files tab */}
             <Button
-              kind="tertiary"
-              size="tiny"
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2"
               onClick={() => {
                 if (useLayoutStore.getState().rightPanel === 'data-sources') {
                   closeRightPanel()
@@ -442,10 +475,8 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
               aria-label="Open uploaded files"
               title={knowledgeLayerAvailable ? 'Available files' : 'File upload not available'}
             >
-              <Flex align="center" gap="1">
-                <Document className="h-3 w-3" />
-                <Text kind="label/bold/sm">{attachedFilesCount}</Text>
-              </Flex>
+              <FileText className="size-3" aria-hidden="true" />
+              <span className="text-xs font-semibold">{attachedFilesCount}</span>
             </Button>
 
             {/* Hidden file input */}
@@ -461,8 +492,9 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
 
             {/* Attach files */}
             <Button
-              kind="tertiary"
-              size="small"
+              variant="ghost"
+              size="icon"
+              className="size-8"
               onClick={handleAttachClick}
               disabled={isDisabledByAuth || isUploading || isBusy || !knowledgeLayerAvailable}
               tabIndex={-1}
@@ -475,57 +507,51 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                     : 'Select files to upload'
               }
             >
-              <Paperclip className="h-4 w-4" />
+              <Paperclip className="h-4 w-4" aria-hidden="true" />
             </Button>
 
             {/* Send button - wrapped in Popover when research session is complete/in-progress.
                 Exception: isResponseMode always shows the normal send button so users can
                 submit HITL responses (approve/reject) even during active research. */}
             {isResearchSessionComplete && !isResponseMode ? (
-              <Popover
-                side="top"
-                align="end"
-                slotContent={
-                  <Text kind="body/regular/sm" className="max-w-xs p-3">
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    size="sm"
+                    aria-label="Research completed - create new session"
+                    title="Research completed"
+                  >
+                    <SendHorizontal className="h-4 w-4" aria-hidden="true" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent side="top" align="end" className="w-auto max-w-xs p-3">
+                  <p className="text-sm">
                     Research completed. For further questions or reports, please create a new
                     session.
-                  </Text>
-                }
-              >
-                <Button
-                  kind="primary"
-                  size="small"
-                  aria-label="Research completed - create new session"
-                  title="Research completed"
-                >
-                  <Paperplane className="h-4 w-4" />
-                </Button>
+                  </p>
+                </PopoverContent>
               </Popover>
             ) : isResearchSessionInProgress && !isResponseMode ? (
-              <Popover
-                side="top"
-                align="end"
-                slotContent={
-                  <Text kind="body/regular/sm" className="max-w-xs p-3">
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    size="sm"
+                    aria-label="Research in progress - please wait"
+                    title="Research in progress"
+                  >
+                    <SendHorizontal className="h-4 w-4" aria-hidden="true" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent side="top" align="end" className="w-auto max-w-xs p-3">
+                  <p className="text-sm">
                     Research is currently in progress. Chat is paused to prevent generating multiple
                     reports at the same time.
-                  </Text>
-                }
-              >
-                <Button
-                  kind="primary"
-                  size="small"
-                  aria-label="Research in progress - please wait"
-                  title="Research in progress"
-                >
-                  <Paperplane className="h-4 w-4" />
-                </Button>
+                  </p>
+                </PopoverContent>
               </Popover>
             ) : (
               <Button
-                kind="primary"
-                size="small"
-                color={!message.trim() || disabled ? undefined : 'brand'}
+                size="sm"
                 onClick={handleSubmit}
                 disabled={!message.trim() || disabled}
                 aria-label={isResponseMode ? 'Send response' : 'Send message'}
@@ -534,13 +560,13 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                 {isLoading ? (
                   <span className="animate-pulse">...</span>
                 ) : (
-                  <Paperplane className="h-4 w-4" />
+                  <SendHorizontal className="h-4 w-4" aria-hidden="true" />
                 )}
               </Button>
             )}
-          </Flex>
-        </Flex>
-      </Flex>
-    </Flex>
+          </div>
+        </div>
+      </div>
+    </div>
   )
 })

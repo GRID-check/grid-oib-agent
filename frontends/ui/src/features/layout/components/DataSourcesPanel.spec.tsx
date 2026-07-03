@@ -123,15 +123,15 @@ describe('DataSourcesPanel', () => {
   test('renders tab navigation', () => {
     render(<DataSourcesPanel />)
 
-    expect(screen.getByRole('radio', { name: /connections/i })).toBeInTheDocument()
-    expect(screen.getByRole('radio', { name: /files/i })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /connections/i })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /files/i })).toBeInTheDocument()
   })
 
   test('switches to files tab when clicked', async () => {
     const user = userEvent.setup()
     render(<DataSourcesPanel />)
 
-    await user.click(screen.getByRole('radio', { name: /files/i }))
+    await user.click(screen.getByRole('tab', { name: /files/i }))
 
     expect(mockSetDataSourcesPanelTab).toHaveBeenCalledWith('files')
   })

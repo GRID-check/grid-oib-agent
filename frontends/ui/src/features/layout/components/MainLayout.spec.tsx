@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+import type { ReactNode } from 'react'
 import { render, screen } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
@@ -65,8 +66,12 @@ vi.mock('../store', () => ({
 }))
 
 // Mock child components
-vi.mock('./AppBar', () => ({
-  AppBar: ({
+vi.mock('./AppShell', () => ({
+  AppShell: ({ children }: { children: ReactNode }) => <>{children}</>,
+}))
+
+vi.mock('./ChatToolbar', () => ({
+  ChatToolbar: ({
     sessionTitle,
     onNewSession,
     isNewSessionDisabled,

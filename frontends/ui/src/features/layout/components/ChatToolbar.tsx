@@ -4,8 +4,9 @@
 'use client'
 
 import { type FC, memo, useCallback } from 'react'
-import { Button, Divider, Flex, Text } from '@/adapters/ui'
-import { ChatMessage, Globe } from '@/adapters/ui/icons'
+import { Globe, MessageSquareText } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Separator } from '@/components/ui/separator'
 import { useAuth } from '@/adapters/auth'
 import { useLayoutStore } from '../store'
 
@@ -40,12 +41,12 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
   }, [isAuthenticated, isNewSessionDisabled, onNewSession])
 
   return (
-    <header className="border-b border-base bg-surface-raised-30">
-      <Flex align="center" justify="between" className="h-12 gap-4 px-4">
-        <Flex align="center" gap="2" className="min-w-0 flex-1">
+    <header className="border-b bg-muted/30">
+      <div className="flex h-12 items-center justify-between gap-4 px-4">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
           <Button
-            kind="secondary"
-            size="small"
+            variant="outline"
+            size="sm"
             onClick={handleNewSessionClick}
             disabled={!isAuthenticated || isNewSessionDisabled}
             aria-label="Create new session"
@@ -53,37 +54,33 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
             New chat
           </Button>
           <Button
-            kind="tertiary"
-            size="small"
+            variant="ghost"
+            size="sm"
             onClick={handleMenuClick}
             disabled={!isAuthenticated}
             aria-label="Toggle sessions sidebar"
           >
-            <Flex align="center" gap="1">
-              <ChatMessage className="h-4 w-4" />
-              <Text kind="label/bold/sm">Sessions</Text>
-            </Flex>
+            <MessageSquareText className="h-4 w-4" aria-hidden="true" />
+            <span className="text-sm font-semibold">Sessions</span>
           </Button>
-          {sessionTitle ? <Divider orientation="vertical" /> : null}
+          {sessionTitle ? <Separator orientation="vertical" className="h-5" /> : null}
           {sessionTitle ? (
-            <Text kind="body/regular/sm" className="hidden max-w-[520px] truncate text-subtle md:block">
+            <span className="hidden max-w-[520px] truncate text-sm text-muted-foreground md:block">
               {sessionTitle}
-            </Text>
+            </span>
           ) : null}
-        </Flex>
+        </div>
         <Button
-          kind="tertiary"
-          size="small"
+          variant="ghost"
+          size="sm"
           onClick={handleAddSourcesClick}
           disabled={!isAuthenticated}
           aria-label="Add data sources"
         >
-          <Flex align="center" gap="1">
-            <Globe className="h-4 w-4" />
-            <Text kind="label/regular/md">Sources</Text>
-          </Flex>
+          <Globe className="h-4 w-4" aria-hidden="true" />
+          <span className="text-sm">Sources</span>
         </Button>
-      </Flex>
+      </div>
     </header>
   )
 })

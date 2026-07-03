@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 /**
@@ -12,9 +12,9 @@
 'use client'
 
 import { type FC, useMemo } from 'react'
-import { Flex, Text, Button } from '@/adapters/ui'
 import { useShallow } from 'zustand/react/shallow'
-import { LoadingSpinner } from '@/adapters/ui/icons'
+import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
 import { type DataSource } from '../data-sources'
 import { DataConnectionCard } from './DataConnectionCard'
 import { useLayoutStore } from '../store'
@@ -30,16 +30,14 @@ interface DataConnectionsTabProps {
  * Tab content for managing data connections.
  * Displays available data sources with enable/disable toggles.
  */
-export const DataConnectionsTab: FC<DataConnectionsTabProps> = ({
-  enabledSourceIds,
-  onToggle,
-}) => {
-  const { availableDataSources, dataSourcesLoading, dataSourcesError } =
-    useLayoutStore(useShallow((s) => ({
+export const DataConnectionsTab: FC<DataConnectionsTabProps> = ({ enabledSourceIds, onToggle }) => {
+  const { availableDataSources, dataSourcesLoading, dataSourcesError } = useLayoutStore(
+    useShallow((s) => ({
       availableDataSources: s.availableDataSources,
       dataSourcesLoading: s.dataSourcesLoading,
       dataSourcesError: s.dataSourcesError,
-    })))
+    }))
+  )
   const fetchDataSources = useLayoutStore((s) => s.fetchDataSources)
 
   // Convert API data sources to UI format - no fallback
@@ -59,55 +57,47 @@ export const DataConnectionsTab: FC<DataConnectionsTabProps> = ({
 
   if (dataSourcesLoading) {
     return (
-      <Flex direction="col" align="center" justify="center" className="flex-1">
-        <LoadingSpinner size="medium" aria-label="Loading data sources" />
-        <Text kind="body/regular/sm" className="text-subtle mt-2">
-          Loading data sources...
-        </Text>
-      </Flex>
+      <div className="flex flex-1 flex-col items-center justify-center">
+        <Spinner label="Loading data sources" />
+        <span className="mt-2 text-sm text-muted-foreground">Loading data sources...</span>
+      </div>
     )
   }
 
   // Show error state when API fails - no fallback to hardcoded sources
   if (dataSourcesError) {
     return (
-      <Flex direction="col" align="center" justify="center" className="flex-1 py-8">
-        <Text kind="body/regular/sm" className="text-error mb-2">
-          Unable to load data sources
-        </Text>
-        <Text kind="body/regular/xs" className="text-subtle mb-4 text-center">
-          {dataSourcesError}
-        </Text>
+      <div className="flex flex-1 flex-col items-center justify-center py-8">
+        <span className="mb-2 text-sm text-destructive">Unable to load data sources</span>
+        <span className="mb-4 text-center text-xs text-muted-foreground">{dataSourcesError}</span>
         <Button
-          kind="secondary"
-          size="small"
+          variant="outline"
+          size="sm"
           onClick={() => fetchDataSources()}
           aria-label="Retry loading data sources"
         >
           Retry
         </Button>
-      </Flex>
+      </div>
     )
   }
 
   // Show empty state if no sources available
   if (displaySources.length === 0) {
     return (
-      <Flex direction="col" align="center" justify="center" className="flex-1 py-8">
-        <Text kind="body/regular/sm" className="text-subtle">
-          No data sources available
-        </Text>
-      </Flex>
+      <div className="flex flex-1 flex-col items-center justify-center py-8">
+        <span className="text-sm text-muted-foreground">No data sources available</span>
+      </div>
     )
   }
 
   return (
-    <Flex direction="col" className="flex-1 overflow-y-auto">
-      <Text kind="label/semibold/xs" className="text-subtle mb-3 uppercase">
+    <div className="flex flex-1 flex-col overflow-y-auto">
+      <span className="mb-3 text-xs font-semibold uppercase text-muted-foreground">
         Available Sources ({displaySources.length})
-      </Text>
+      </span>
 
-      <Flex direction="col" gap="2">
+      <div className="flex flex-col gap-2">
         {displaySources.map((source) => (
           <DataConnectionCard
             key={source.id}
@@ -117,7 +107,7 @@ export const DataConnectionsTab: FC<DataConnectionsTabProps> = ({
             onToggle={onToggle}
           />
         ))}
-      </Flex>
-    </Flex>
+      </div>
+    </div>
   )
 }

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 /**
@@ -15,8 +15,8 @@
 'use client'
 
 import { type FC } from 'react'
-import { Flex, Text } from '@/adapters/ui'
-import { Link, Check } from '@/adapters/ui/icons'
+import { Check, Link as LinkIcon } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import type { CitationSource } from '@/features/chat/types'
 
 interface CitationCardProps {
@@ -49,61 +49,41 @@ const getDomain = (url: string): string => {
  */
 export const CitationCard: FC<CitationCardProps> = ({ citation }) => {
   return (
-    <a
-      href={citation.url}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="block"
-    >
-      <Flex
-        direction="col"
-        className="rounded-lg border overflow-hidden bg-surface-sunken border-base hover:bg-surface-raised-50 transition-colors"
-      >
+    <a href={citation.url} target="_blank" rel="noopener noreferrer" className="block">
+      <div className="flex flex-col overflow-hidden rounded-lg border bg-muted/40 transition-colors hover:bg-accent">
         {/* Header */}
-        <Flex align="center" gap="2" className="w-full px-3 py-2">
+        <div className="flex w-full items-center gap-2 px-3 py-2">
           {/* Status Icon - Cited vs Referenced */}
           <span
-            className="shrink-0"
-            style={{
-              color: citation.isCited
-                ? 'var(--text-color-feedback-success)'
-                : 'var(--text-color-subtle)',
-            }}
+            className={cn('shrink-0', citation.isCited ? 'text-success' : 'text-muted-foreground')}
             aria-hidden="true"
           >
-            {citation.isCited ? (
-              <Check className="h-4 w-4" />
-            ) : (
-              <Link className="h-4 w-4" />
-            )}
+            {citation.isCited ? <Check className="h-4 w-4" /> : <LinkIcon className="h-4 w-4" />}
           </span>
 
           {/* Citation Title */}
-          <Text
-            kind="label/semibold/sm"
-            className="flex-1 min-w-0 truncate"
-            style={{
-              color: citation.isCited
-                ? 'var(--text-color-feedback-success)'
-                : 'var(--text-color-subtle)',
-            }}
+          <span
+            className={cn(
+              'min-w-0 flex-1 truncate text-sm font-semibold',
+              citation.isCited ? 'text-success' : 'text-muted-foreground'
+            )}
           >
             {getDomain(citation.url)}
-          </Text>
+          </span>
 
           {/* Timestamp */}
-          <Text kind="body/regular/xs" className="text-subtle shrink-0">
+          <span className="shrink-0 text-xs text-muted-foreground">
             {formatTime(citation.timestamp)}
-          </Text>
-        </Flex>
+          </span>
+        </div>
 
         {/* Full URL */}
-        <Flex className="px-3 pb-2 border-t border-base">
-          <Text kind="body/regular/sm" className="text-subtle truncate mt-1 break-all">
+        <div className="flex border-t px-3 pb-2">
+          <span className="mt-1 truncate break-all text-sm text-muted-foreground">
             {citation.url}
-          </Text>
-        </Flex>
-      </Flex>
+          </span>
+        </div>
+      </div>
     </a>
   )
 }

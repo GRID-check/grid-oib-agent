@@ -268,7 +268,7 @@ describe('SessionsPanel', () => {
     render(<SessionsPanel sessions={mockSessions} />)
 
     await vi.waitFor(() => {
-      expect(document.querySelector('svg[data-src$="/line/chat-single.svg"]')).toBeInTheDocument()
+      expect(screen.getAllByLabelText('Chat session').length).toBeGreaterThan(0)
     })
   })
 
@@ -287,9 +287,7 @@ describe('SessionsPanel', () => {
     )
 
     await vi.waitFor(() => {
-      expect(
-        document.querySelector('svg[data-src$="/line/document-checkmark.svg"]')
-      ).toBeInTheDocument()
+      expect(screen.getByLabelText('Report completed')).toBeInTheDocument()
     })
   })
 
@@ -308,9 +306,7 @@ describe('SessionsPanel', () => {
     )
 
     await vi.waitFor(() => {
-      expect(
-        document.querySelector('svg[data-src$="/line/select-ellipse.svg"]')
-      ).toBeInTheDocument()
+      expect(screen.getByLabelText('Report expired')).toBeInTheDocument()
     })
   })
 

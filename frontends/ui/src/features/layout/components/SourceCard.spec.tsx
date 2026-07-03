@@ -59,16 +59,16 @@ describe('SourceCard', () => {
   })
 
   describe('cited state', () => {
-    test('shows checkmark emoji when cited', () => {
+    test('shows checkmark icon when cited', () => {
       render(<SourceCard source={createSource({ isCited: true })} />)
 
-      expect(screen.getByText('✅')).toBeInTheDocument()
+      expect(screen.getByLabelText('Cited')).toBeInTheDocument()
     })
 
     test('does not show checkmark when not cited', () => {
       render(<SourceCard source={createSource({ isCited: false })} />)
 
-      expect(screen.queryByText('✅')).not.toBeInTheDocument()
+      expect(screen.queryByLabelText('Cited')).not.toBeInTheDocument()
     })
   })
 

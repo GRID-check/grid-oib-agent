@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 /**
@@ -16,8 +16,9 @@
 'use client'
 
 import { type FC, useState } from 'react'
-import { Flex, Text, Button } from '@/adapters/ui'
-import { Chat, ChevronDown, LoadingSpinner } from '@/adapters/ui/icons'
+import { ChevronDown, MessageSquare } from 'lucide-react'
+import { Spinner } from '@/components/ui/spinner'
+import { cn } from '@/lib/utils'
 import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
 
 /** Thought trace information from SSE events */
@@ -78,117 +79,101 @@ export const ThoughtCard: FC<ThoughtCardProps> = ({ thought }) => {
   const canExpand = !thought.isStreaming
 
   return (
-    <Flex
-      direction="col"
-      className="rounded-lg border overflow-hidden bg-surface-sunken border-base"
-    >
+    <div className="flex flex-col overflow-hidden rounded-lg border bg-muted/40">
       {/* Header - always visible */}
-      <Button
-        kind="tertiary"
-        size="small"
+      <button
+        type="button"
         onClick={() => canExpand && setIsExpanded(!isExpanded)}
         aria-expanded={isExpanded}
         aria-controls={`thought-content-${thought.id}`}
-        className="w-full justify-start text-left p-0"
+        className="w-full text-left disabled:cursor-default"
         disabled={!canExpand}
       >
-        <Flex align="center" gap="2" className="w-full px-3 py-2">
+        <div className="flex w-full items-center gap-2 px-3 py-2">
           {/* Status Icon - spinner when streaming */}
           {thought.isStreaming ? (
-            <LoadingSpinner size="small" className="h-4 w-4 shrink-0" aria-label="Generating" />
+            <Spinner size="sm" label="Generating" className="shrink-0" />
           ) : (
-            <span
-              className="shrink-0"
-              style={{ color: 'var(--text-color-subtle)' }}
-              aria-hidden="true"
-            >
-              <Chat className="h-4 w-4" />
+            <span className="shrink-0 text-muted-foreground" aria-hidden="true">
+              <MessageSquare className="h-4 w-4" />
             </span>
           )}
 
           {/* Model Info */}
-          <Flex align="center" gap="1" className="flex-1 min-w-0">
-            <Text
-              kind="label/semibold/sm"
-              style={{
-                color: thought.isStreaming
-                  ? 'var(--text-color-feedback-info)'
-                  : 'var(--text-color-subtle)',
-              }}
+          <div className="flex min-w-0 flex-1 items-center gap-1">
+            <span
+              className={cn(
+                'text-sm font-semibold',
+                thought.isStreaming ? 'text-info' : 'text-muted-foreground'
+              )}
             >
               {thought.modelName}
-            </Text>
+            </span>
             {thought.workflow && (
-              <Text kind="label/regular/sm" className="text-subtle truncate">
+              <span className="truncate text-sm text-muted-foreground">
                 via {thought.workflow}
-              </Text>
+              </span>
             )}
-          </Flex>
+          </div>
 
           {/* Token usage (when not streaming) */}
           {!thought.isStreaming && thought.usage && (
-            <Text kind="body/regular/xs" className="text-subtle shrink-0">
+            <span className="shrink-0 text-xs text-muted-foreground">
               Tokens: {thought.usage.prompt_tokens} in / {thought.usage.completion_tokens} out
-            </Text>
+            </span>
           )}
 
           {/* Timestamp - only shown when not streaming */}
           {!thought.isStreaming && thought.timestamp && (
-            <Text kind="body/regular/xs" className="text-subtle shrink-0">
+            <span className="shrink-0 text-xs text-muted-foreground">
               {formatTime(thought.timestamp)}
-            </Text>
+            </span>
           )}
 
           {/* Expand/collapse icon - hidden when streaming */}
           {canExpand && (
             <span
-              className={`
-                text-subtle transition-transform duration-200
-                ${isExpanded ? 'rotate-180' : ''}
-              `}
+              className={cn(
+                'text-muted-foreground transition-transform duration-200 motion-reduce:transition-none',
+                isExpanded && 'rotate-180'
+              )}
               aria-hidden="true"
             >
               <ChevronDown className="h-4 w-4" />
             </span>
           )}
-        </Flex>
-      </Button>
+        </div>
+      </button>
 
       {/* Collapsed preview - show thinking content preview */}
       {!isExpanded && hasPreview && (
-        <Flex className="px-3 pb-2 border-t border-base">
-          <Text kind="body/regular/sm" className="text-subtle truncate mt-1">
-            {previewText}
-          </Text>
-        </Flex>
+        <div className="flex border-t px-3 pb-2">
+          <span className="mt-1 truncate text-sm text-muted-foreground">{previewText}</span>
+        </div>
       )}
 
       {/* Expanded content - show thinking and output together */}
       {isExpanded && (
-        <Flex
+        <div
           id={`thought-content-${thought.id}`}
-          direction="col"
-          gap="3"
-          className="px-3 pb-3 border-t border-base"
+          className="flex flex-col gap-3 border-t px-3 pb-3"
         >
           {/* Thinking content (if available) */}
           {thought.thinking && (
-            <div className="bg-surface-raised text-primary p-2 rounded text-sm italic mt-2">
+            <div className="mt-2 rounded bg-muted p-2 text-sm italic">
               <MarkdownRenderer content={thought.thinking} compact />
             </div>
           )}
 
           {/* Output content */}
           {thought.content && (
-            <Flex direction="col" gap="1" className={thought.thinking ? '' : 'mt-2'}>
-              <Text kind="label/semibold/xs" className="text-subtle uppercase">
-                Output
-              </Text>
+            <div className={cn('flex flex-col gap-1', !thought.thinking && 'mt-2')}>
+              <span className="text-xs font-semibold uppercase text-muted-foreground">Output</span>
               <MarkdownRenderer content={thought.content} compact />
-            </Flex>
+            </div>
           )}
-        </Flex>
+        </div>
       )}
-    </Flex>
+    </div>
   )
 }

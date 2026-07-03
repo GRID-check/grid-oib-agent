@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 /**
@@ -12,8 +12,10 @@
 'use client'
 
 import { type FC, useCallback, useEffect, useRef, useState } from 'react'
-import { Flex, Text, Button, Banner } from '@/adapters/ui'
-import { LoadingSpinner } from '@/adapters/ui/icons'
+import { X } from 'lucide-react'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
 import { FileSourceCard } from './FileSourceCard'
 import { DeleteFileConfirmationModal } from './DeleteFileConfirmationModal'
 import {
@@ -32,6 +34,27 @@ interface FileSourcesTabProps {
   onDeleteFile?: (id: string) => void
 }
 
+/** Dismissable inline error alert used for upload failures. */
+const UploadErrorAlert: FC<{ message: string; onClose: () => void; className?: string }> = ({
+  message,
+  onClose,
+  className,
+}) => (
+  <Alert variant="destructive" className={className}>
+    <AlertDescription className="flex w-full items-start justify-between gap-2">
+      <span>{message}</span>
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Dismiss error"
+        className="shrink-0 rounded-xs opacity-70 transition-opacity hover:opacity-100"
+      >
+        <X className="h-4 w-4" aria-hidden="true" />
+      </button>
+    </AlertDescription>
+  </Alert>
+)
+
 /**
  * Tab content showing list of uploaded file sources.
  * Connected to the file upload store for real-time updates.
@@ -41,7 +64,9 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
   const currentConversation = useChatStore((state) => state.currentConversation)
   const ensureSession = useChatStore((state) => state.ensureSession)
   const projectId = useChatStore((state) => state.projectId)
-  const [uploadTarget, setUploadTarget] = useState<'project' | 'session'>(projectId ? 'project' : 'session')
+  const [uploadTarget, setUploadTarget] = useState<'project' | 'session'>(
+    projectId ? 'project' : 'session'
+  )
   const [projectCollectionName, setProjectCollectionName] = useState<string | undefined>(undefined)
 
   // Check if file uploads are available (knowledge layer)
@@ -191,35 +216,33 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
   }, [])
 
   const uploadTargetControls = projectId ? (
-    <Flex direction="col" gap="2" className="rounded-xl border border-subtle bg-surface-2 p-3">
-      <Text kind="label/semibold/xs" className="text-subtle uppercase">
-        Upload To
-      </Text>
-      <Flex gap="2">
+    <div className="flex flex-col gap-2 rounded-xl border bg-muted/40 p-3">
+      <span className="text-xs font-semibold uppercase text-muted-foreground">Upload To</span>
+      <div className="flex gap-2">
         <Button
-          kind={uploadTarget === 'project' ? 'primary' : 'secondary'}
-          size="small"
+          variant={uploadTarget === 'project' ? 'default' : 'outline'}
+          size="sm"
           onClick={() => setUploadTarget('project')}
           disabled={!projectCollectionName}
         >
           Project corpus
         </Button>
         <Button
-          kind={uploadTarget === 'session' ? 'primary' : 'secondary'}
-          size="small"
+          variant={uploadTarget === 'session' ? 'default' : 'outline'}
+          size="sm"
           onClick={() => setUploadTarget('session')}
         >
           Private session
         </Button>
-      </Flex>
-      <Text kind="body/regular/xs" className="text-subtle">
+      </div>
+      <span className="text-xs text-muted-foreground">
         {isProjectTarget
           ? projectCollectionName
             ? 'Available in this project.'
             : 'Preparing project corpus...'
           : 'Only available in this chat session.'}
-      </Text>
-    </Flex>
+      </span>
+    </div>
   ) : null
 
   if (targetFiles.length === 0) {
@@ -227,44 +250,38 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
     // always show the spinner — never flash "No Files" during transitions.
     if (isAwaitingFiles) {
       return (
-        <Flex direction="col" align="center" justify="center" gap="2" className="flex-1 py-8">
-          <LoadingSpinner size="medium" aria-label="Loading files" />
-          <Text kind="body/regular/sm" className="text-subtle">
-            Checking for files...
-          </Text>
-        </Flex>
+        <div className="flex flex-1 flex-col items-center justify-center gap-2 py-8">
+          <Spinner label="Loading files" />
+          <span className="text-sm text-muted-foreground">Checking for files...</span>
+        </div>
       )
     }
 
     return (
-      <Flex direction="col" gap="4" className="flex-1">
+      <div className="flex flex-1 flex-col gap-4">
         {/* Show info banner when file upload is not available */}
         {uploadTargetControls}
 
         {!knowledgeLayerAvailable && (
-          <Banner kind="inline" status="info" className="mb-6 px-4 py-3">
-            Setup backend to enable files.
-          </Banner>
+          <Alert variant="info" className="mb-6">
+            <AlertDescription>Setup backend to enable files.</AlertDescription>
+          </Alert>
         )}
 
         {/* Show empty state message when file upload is available */}
         {knowledgeLayerAvailable && (
-          <Flex direction="col" gap="1">
-            <Text kind="label/semibold/xs" className="text-subtle uppercase">
+          <div className="flex flex-col gap-1">
+            <span className="text-xs font-semibold uppercase text-muted-foreground">
               No Attached Files
-            </Text>
-            <Text kind="body/regular/sm" className="text-subtle">
+            </span>
+            <span className="text-sm text-muted-foreground">
               Files uploaded here go to {uploadTargetLabel.toLowerCase()} unless removed.
-            </Text>
-          </Flex>
+            </span>
+          </div>
         )}
 
         {/* Upload Error Display */}
-        {uploadError && (
-          <Banner kind="inline" status="error" onClose={clearError}>
-            {uploadError}
-          </Banner>
-        )}
+        {uploadError && <UploadErrorAlert message={uploadError} onClose={clearError} />}
 
         {/* File Upload Zone */}
         {knowledgeLayerAvailable && (
@@ -276,12 +293,12 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
             isUploading={uploadDisabled}
           />
         )}
-      </Flex>
+      </div>
     )
   }
 
   return (
-    <Flex direction="col" gap="2" className="flex-1 overflow-y-auto">
+    <div className="flex flex-1 flex-col gap-2 overflow-y-auto">
       {/* Hidden file input */}
       <input
         ref={fileInputRef}
@@ -293,22 +310,18 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
       />
 
       {/* Upload Error Display */}
-      {uploadError && (
-        <Banner kind="inline" status="error" onClose={clearError}>
-          {uploadError}
-        </Banner>
-      )}
+      {uploadError && <UploadErrorAlert message={uploadError} onClose={clearError} />}
 
       {/* Header with count and add button */}
       {uploadTargetControls}
 
-      <Flex align="center" justify="between" className="mb-1">
-        <Text kind="label/semibold/xs" className="text-subtle uppercase">
+      <div className="mb-1 flex items-center justify-between">
+        <span className="text-xs font-semibold uppercase text-muted-foreground">
           {uploadTargetLabel} Files ({targetFiles.length})
-        </Text>
+        </span>
         <Button
-          kind="tertiary"
-          size="small"
+          variant="ghost"
+          size="sm"
           onClick={handleAddFileClick}
           disabled={isLoadingFiles || !knowledgeLayerAvailable || uploadDisabled}
           title={
@@ -321,7 +334,7 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
         >
           + Add File
         </Button>
-      </Flex>
+      </div>
 
       {/* File list */}
       {targetFiles.map((file) => (
@@ -344,6 +357,6 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
         onOpenChange={handleModalOpenChange}
         onConfirm={handleConfirmDelete}
       />
-    </Flex>
+    </div>
   )
 }

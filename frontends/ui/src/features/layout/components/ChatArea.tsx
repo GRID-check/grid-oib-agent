@@ -10,17 +10,24 @@
  * Shows different welcome states based on authentication:
  * - Logged out: Prompt to sign in with CTA button
  * - Logged in: Ready to start chatting
- *
- 
  */
 
 'use client'
 
 import { type FC, memo, useRef, useEffect, useCallback, useState, useMemo } from 'react'
-import { Flex, Text, Button } from '@/adapters/ui'
-import { Chat, CheckCircle, Document, Folder, Lock, SelectEllipse } from '@/adapters/ui/icons'
+import { CheckCircle2, CircleEllipsis, FileText, Folder, Lock, MessageSquare } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
-import { useChatStore, AgentPrompt, AgentResponse, ErrorBanner, FileUploadBanner, DeepResearchBanner, UserMessage, ChatThinking } from '@/features/chat'
+import { Button } from '@/components/ui/button'
+import {
+  useChatStore,
+  AgentPrompt,
+  AgentResponse,
+  ErrorBanner,
+  FileUploadBanner,
+  DeepResearchBanner,
+  UserMessage,
+  ChatThinking,
+} from '@/features/chat'
 import type { ChatMessage } from '@/features/chat'
 import { StarfieldAnimation } from '@/shared/components/StarfieldAnimation'
 
@@ -35,13 +42,17 @@ interface ChatAreaProps {
  * Main chat area container with scrollable message list.
  * Shows welcome state when no messages exist.
  */
-export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({ isAuthenticated = false, onSignIn }) {
-  const { currentConversation, isStreaming, currentUserMessageId } =
-    useChatStore(useShallow((s) => ({
+export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
+  isAuthenticated = false,
+  onSignIn,
+}) {
+  const { currentConversation, isStreaming, currentUserMessageId } = useChatStore(
+    useShallow((s) => ({
       currentConversation: s.currentConversation,
       isStreaming: s.isStreaming,
       currentUserMessageId: s.currentUserMessageId,
-    })))
+    }))
+  )
 
   const respondToPrompt = useChatStore((s) => s.respondToPrompt)
   const getThinkingStepsForMessage = useChatStore((s) => s.getThinkingStepsForMessage)
@@ -58,7 +69,6 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({ isAuthentica
         const messageType = msg.messageType || (msg.role === 'user' ? 'user' : 'assistant')
         return (
           messageType === 'user' ||
-          messageType === 'status' ||
           messageType === 'prompt' ||
           messageType === 'agent_response' ||
           messageType === 'file' ||
@@ -116,15 +126,11 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({ isAuthentica
   }, [])
 
   return (
-    <Flex
-      direction="col"
-      className="scrollbar-hide flex-1 overflow-y-auto"
-      aria-label="Chat messages"
-    >
+    <div className="scrollbar-hide flex flex-1 flex-col overflow-y-auto" aria-label="Chat messages">
       {isEmpty ? (
         <WelcomeState isAuthenticated={isAuthenticated} onSignIn={onSignIn} />
       ) : (
-        <Flex direction="col" gap="4" className="mx-auto w-full max-w-3xl px-4 pt-4 pb-24">
+        <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 pb-24 pt-4">
           {displayableMessages.map((message, index) => {
             const isUserMessage = message.messageType === 'user' || message.role === 'user'
             const messageSteps = isUserMessage ? getStepsForUserMessage(message.id) : []
@@ -141,18 +147,16 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({ isAuthentica
             // Only evaluate status within this message turn (until next user message).
             // This prevents later turns from overriding interrupted/waiting state.
             const turnMessages =
-              nextUserMessageIndex >= 0
-                ? remaining.slice(0, nextUserMessageIndex)
-                : remaining
+              nextUserMessageIndex >= 0 ? remaining.slice(0, nextUserMessageIndex) : remaining
 
             // Waiting: an unresponded HITL prompt follows this user message
-            const isWaiting = shouldCheckPostState && turnMessages.some((m) =>
-              m.messageType === 'prompt' && !m.isPromptResponded
-            )
+            const isWaiting =
+              shouldCheckPostState &&
+              turnMessages.some((m) => m.messageType === 'prompt' && !m.isPromptResponded)
 
             // Interrupted: no actual response AND not waiting for HITL
-            const hasResponse = turnMessages.some((m) =>
-              m.messageType === 'assistant' || m.messageType === 'agent_response'
+            const hasResponse = turnMessages.some(
+              (m) => m.messageType === 'assistant' || m.messageType === 'agent_response'
             )
             const isInterrupted = shouldCheckPostState && !isWaiting && !hasResponse
 
@@ -168,7 +172,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({ isAuthentica
 
                 {/* Render thinking steps after user messages — negative margin lets the next message overlap */}
                 {isUserMessage && hasThinkingSteps && (
-                  <Flex justify="start" className="-mb-8 w-[85%]">
+                  <div className="-mb-8 flex w-[85%] justify-start">
                     <ChatThinking
                       steps={messageSteps}
                       isThinking={isStreaming && message.id === currentUserMessageId}
@@ -177,7 +181,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({ isAuthentica
                       enabledDataSources={message.enabledDataSources}
                       messageFiles={message.messageFiles}
                     />
-                  </Flex>
+                  </div>
                 )}
               </div>
             )
@@ -185,9 +189,9 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({ isAuthentica
 
           {/* Invisible scroll anchor */}
           <div ref={messagesEndRef} />
-        </Flex>
+        </div>
       )}
-    </Flex>
+    </div>
   )
 })
 
@@ -216,25 +220,6 @@ const MessageRenderer: FC<MessageRendererProps> = ({
   switch (messageType) {
     case 'user':
       return <UserMessage content={message.content} timestamp={message.timestamp} />
-
-    case 'status':
-      // TODO: StatusCard was removed in refactor - implement inline status display
-      // Status messages show agent activity (thinking, searching, planning, etc.)
-      if (!message.statusType) {
-        return null
-      }
-      return (
-        <Flex
-          align="center"
-          gap="2"
-          className="px-4 py-2 rounded-lg bg-surface-raised-30 border border-base"
-          role="status"
-        >
-          <Text kind="body/regular/sm" className="text-subtle">
-            {message.statusType}: {message.content}
-          </Text>
-        </Flex>
-      )
 
     case 'prompt':
       // Guard against missing promptType
@@ -276,17 +261,15 @@ const MessageRenderer: FC<MessageRendererProps> = ({
         return null
       }
       return (
-        <Flex
-          align="center"
-          gap="2"
-          className="px-4 py-2 rounded-lg bg-surface-raised-30 border border-base"
+        <div
+          className="flex items-center gap-2 rounded-lg border bg-muted/30 px-4 py-2"
           role="status"
         >
-          <Document className="text-subtle h-4 w-4" />
-          <Text kind="body/regular/sm" className="text-subtle">
+          <FileText className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+          <span className="text-sm text-muted-foreground">
             {message.fileData.fileName} ({message.fileData.fileStatus})
-          </Text>
-        </Flex>
+          </span>
+        </div>
       )
 
     case 'file_upload_status':
@@ -366,39 +349,49 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
           <StarfieldAnimation particleCount={260} maxRadius={245} rotationSpeed={0.0005} />
         </div>
         <div className="relative mx-auto grid w-full max-w-6xl grid-cols-1 gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-          <div className="rounded-[2rem] border border-base bg-surface-raised-30 p-8 shadow-[0_35px_100px_-75px_rgba(15,23,42,0.8)]">
-            <Flex direction="col" gap="6" align="start">
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-base bg-surface-sunken text-brand">
-                <Lock className="h-6 w-6" />
+          <div className="rounded-[2rem] border bg-muted/30 p-8 shadow-[0_35px_100px_-75px_rgba(15,23,42,0.8)]">
+            <div className="flex flex-col items-start gap-6">
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl border bg-muted text-brand">
+                <Lock className="h-6 w-6" aria-hidden="true" />
               </div>
-              <Flex direction="col" gap="3">
-                <Text kind="body/regular/xs" className="text-subtle uppercase tracking-[0.24em]">
+              <div className="flex flex-col gap-3">
+                <span className="text-xs uppercase tracking-[0.24em] text-muted-foreground">
                   secure workspace
-                </Text>
-                <Text kind="title/xl" className="max-w-2xl text-primary tracking-[-0.04em] md:text-5xl md:leading-none">
+                </span>
+                <h1 className="max-w-2xl text-4xl font-semibold tracking-[-0.04em] md:text-5xl md:leading-none">
                   Grid opens after your organization is verified.
-                </Text>
-                <Text kind="body/regular/md" className="max-w-xl text-subtle">
-                  Sign in to unlock project-scoped OIB research, document ingestion, and member access controls.
-                </Text>
-              </Flex>
-              <Button kind="primary" size="large" onClick={onSignIn} aria-label="Sign in with SSO" className="transition active:scale-[0.98]">
+                </h1>
+                <p className="max-w-xl text-sm text-muted-foreground">
+                  Sign in to unlock project-scoped OIB research, document ingestion, and member
+                  access controls.
+                </p>
+              </div>
+              <Button
+                size="lg"
+                onClick={onSignIn}
+                aria-label="Sign in with SSO"
+                className="transition active:scale-[0.98]"
+              >
                 Sign in with SSO
               </Button>
-            </Flex>
+            </div>
           </div>
 
-          <div className="grid gap-4 content-end">
-            {['WorkOS authentication', 'Project-scoped retrieval', 'Role-based access'].map((item, index) => (
-              <div key={item} className="rounded-[1.5rem] border border-base bg-surface-raised-30 p-5" style={{ animationDelay: `${index * 80}ms` }}>
-                <Flex align="center" gap="3">
-                  <CheckCircle className="h-5 w-5 text-brand" />
-                  <Text kind="label/semibold/md" className="text-primary">
-                    {item}
-                  </Text>
-                </Flex>
-              </div>
-            ))}
+          <div className="grid content-end gap-4">
+            {['WorkOS authentication', 'Project-scoped retrieval', 'Role-based access'].map(
+              (item, index) => (
+                <div
+                  key={item}
+                  className="rounded-[1.5rem] border bg-muted/30 p-5"
+                  style={{ animationDelay: `${index * 80}ms` }}
+                >
+                  <div className="flex items-center gap-3">
+                    <CheckCircle2 className="h-5 w-5 text-brand" aria-hidden="true" />
+                    <span className="text-sm font-semibold">{item}</span>
+                  </div>
+                </div>
+              )
+            )}
           </div>
         </div>
       </div>
@@ -411,52 +404,62 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
         <StarfieldAnimation particleCount={300} maxRadius={230} rotationSpeed={0.001} />
       </div>
       <div className="relative mx-auto grid w-full max-w-6xl grid-cols-1 gap-6 lg:grid-cols-[1.25fr_0.75fr]">
-        <section className="rounded-[2rem] border border-base bg-surface-raised-30 p-8 shadow-[0_35px_100px_-75px_rgba(15,23,42,0.8)]">
-          <Flex direction="col" gap="7">
-            <Flex direction="col" gap="4" className="max-w-3xl">
-              <Text kind="body/regular/xs" className="text-subtle uppercase tracking-[0.24em]">
+        <section className="rounded-[2rem] border bg-muted/30 p-8 shadow-[0_35px_100px_-75px_rgba(15,23,42,0.8)]">
+          <div className="flex flex-col gap-7">
+            <div className="flex max-w-3xl flex-col gap-4">
+              <span className="text-xs uppercase tracking-[0.24em] text-muted-foreground">
                 OIB research cockpit
-              </Text>
-              <Text kind="title/xl" className="text-primary tracking-[-0.04em] md:text-5xl md:leading-none">
+              </span>
+              <h1 className="text-4xl font-semibold tracking-[-0.04em] md:text-5xl md:leading-none">
                 Start with a project, then ask for cited building-code reasoning.
-              </Text>
-              <Text kind="body/regular/md" className="max-w-2xl text-subtle">
-                Grid keeps retrieval scoped to the selected workspace and turns long guideline documents into traceable decisions.
-              </Text>
-            </Flex>
+              </h1>
+              <p className="max-w-2xl text-sm text-muted-foreground">
+                Grid keeps retrieval scoped to the selected workspace and turns long guideline
+                documents into traceable decisions.
+              </p>
+            </div>
 
             <div className="grid grid-cols-1 gap-3 md:grid-cols-[1.1fr_0.9fr]">
-              <a href="/projects" className="group rounded-[1.5rem] border border-base bg-surface-sunken p-5 transition hover:-translate-y-[2px] hover:bg-surface-raised-50">
-                <Flex direction="col" gap="4">
-                  <Folder className="h-6 w-6 text-brand" />
-                  <Flex direction="col" gap="1">
-                    <Text kind="label/bold/md" className="text-primary">Open projects</Text>
-                    <Text kind="body/regular/sm" className="text-subtle">Create workspaces, manage documents, and invite roles.</Text>
-                  </Flex>
-                </Flex>
+              <a
+                href="/projects"
+                className="group rounded-[1.5rem] border bg-muted p-5 transition hover:-translate-y-[2px] hover:bg-accent"
+              >
+                <div className="flex flex-col gap-4">
+                  <Folder className="h-6 w-6 text-brand" aria-hidden="true" />
+                  <div className="flex flex-col gap-1">
+                    <span className="text-sm font-semibold">Open projects</span>
+                    <span className="text-sm text-muted-foreground">
+                      Create workspaces, manage documents, and invite roles.
+                    </span>
+                  </div>
+                </div>
               </a>
-              <div className="rounded-[1.5rem] border border-base p-5">
-                <Flex direction="col" gap="4">
-                  <SelectEllipse className="h-6 w-6 text-brand" />
-                  <Flex direction="col" gap="1">
-                    <Text kind="label/bold/md" className="text-primary">Select context</Text>
-                    <Text kind="body/regular/sm" className="text-subtle">Use the workspace selector before running analysis.</Text>
-                  </Flex>
-                </Flex>
+              <div className="rounded-[1.5rem] border p-5">
+                <div className="flex flex-col gap-4">
+                  <CircleEllipsis className="h-6 w-6 text-brand" aria-hidden="true" />
+                  <div className="flex flex-col gap-1">
+                    <span className="text-sm font-semibold">Select context</span>
+                    <span className="text-sm text-muted-foreground">
+                      Use the workspace selector before running analysis.
+                    </span>
+                  </div>
+                </div>
               </div>
             </div>
-          </Flex>
+          </div>
         </section>
 
         <aside className="grid content-center gap-3">
           {prompts.map((prompt, index) => (
-            <div key={prompt} className="rounded-[1.5rem] border border-base bg-surface-raised-30 p-5 transition hover:-translate-y-[1px]" style={{ animationDelay: `${index * 90}ms` }}>
-              <Flex gap="3" align="start">
-                <Chat className="mt-1 h-5 w-5 shrink-0 text-brand" />
-                <Text kind="body/regular/sm" className="text-primary">
-                  {prompt}
-                </Text>
-              </Flex>
+            <div
+              key={prompt}
+              className="rounded-[1.5rem] border bg-muted/30 p-5 transition hover:-translate-y-[1px]"
+              style={{ animationDelay: `${index * 90}ms` }}
+            >
+              <div className="flex items-start gap-3">
+                <MessageSquare className="mt-1 h-5 w-5 shrink-0 text-brand" aria-hidden="true" />
+                <span className="text-sm">{prompt}</span>
+              </div>
             </div>
           ))}
         </aside>

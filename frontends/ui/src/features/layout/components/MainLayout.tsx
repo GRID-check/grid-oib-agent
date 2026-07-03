@@ -18,7 +18,6 @@
 
 import { type FC, useCallback, useMemo } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { Flex } from '@/adapters/ui'
 import { useReducedMotion } from '@/hooks/use-reduced-motion'
 import { AppShell } from './AppShell'
 import { ChatToolbar } from './ChatToolbar'
@@ -151,7 +150,7 @@ export const MainLayout: FC<MainLayoutProps> = ({
   )
 
   const content = (
-    <Flex direction="col" className="min-h-0 flex-1 min-w-[768px] overflow-x-auto overflow-y-hidden">
+    <div className="flex min-h-0 min-w-[768px] flex-1 flex-col overflow-x-auto overflow-y-hidden">
       <ChatToolbar
         sessionTitle={currentConversation?.title}
         onNewSession={handleNewSession}
@@ -198,7 +197,7 @@ export const MainLayout: FC<MainLayoutProps> = ({
 
       {/* Data Sources Panel (Right) - Overlay */}
       {isAuthenticated && <DataSourcesPanel />}
-    </Flex>
+    </div>
   )
 
   return withShell ? <AppShell>{content}</AppShell> : content

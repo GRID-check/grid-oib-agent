@@ -1,11 +1,11 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 /**
  * SessionsPanel Component
  *
  * Left panel displaying session history with new session and delete all buttons.
- * Slides in from the left and overlays content.
+ * Docked aside that slides in from the left.
  */
 
 'use client'
@@ -20,24 +20,26 @@ import {
   useRef,
   useEffect,
 } from 'react'
-import { Flex, Text, Button, SidePanel } from '@/adapters/ui'
 import { useShallow } from 'zustand/react/shallow'
 import {
-  Chat,
-  ChatMessage,
-  DocumentCheckmark,
-  Edit,
-  LoadingSpinner,
+  CircleEllipsis,
+  FileCheck2,
+  MessageSquare,
+  MessageSquareText,
+  Pencil,
   Plus,
   Search,
-  SelectEllipse,
-  Trash,
-} from '@/adapters/ui/icons'
+  Trash2,
+} from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
+import { cn } from '@/lib/utils'
 import { useLayoutStore } from '../store'
 import { useChatStore } from '@/features/chat'
 import { checkStorageHealth } from '@/features/chat/lib/storage-manager'
 import { DeleteSessionConfirmationModal } from './DeleteSessionConfirmationModal'
 import { DeleteAllSessionsConfirmationModal } from './DeleteAllSessionsConfirmationModal'
+import { DockedPanel } from './DockedPanel'
 
 interface Session {
   id: string
@@ -137,13 +139,6 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
     onDeleteAllSessions?.()
   }, [onDeleteAllSessions])
 
-  const handleOpenChange = useCallback(
-    (open: boolean) => {
-      setSessionsPanelOpen(open)
-    },
-    [setSessionsPanelOpen]
-  )
-
   const handleClose = useCallback(() => {
     setSessionsPanelOpen(false)
   }, [setSessionsPanelOpen])
@@ -170,39 +165,38 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
   const groupedSessions = useMemo(() => groupSessionsByDate(filteredSessions), [filteredSessions])
   const isEmptyState = filteredSessions.length === 0
   return (
-    <SidePanel
-      className="side-panel-dock-under-header bg-surface-base top-[var(--header-height)] h-[calc(100vh-var(--header-height))] w-[406px]"
+    <DockedPanel
       open={isSessionsPanelOpen}
-      onOpenChange={handleOpenChange}
       side="left"
-      bordered
-      closeOnClickOutside={false}
+      onClose={handleClose}
       forceMount
-      slotHeading={
-        <Flex align="center" gap="2">
-          <ChatMessage />
-          <Text kind="label/semibold/md">Sessions</Text>
-        </Flex>
+      aria-label="Sessions"
+      className="w-[406px]"
+      heading={
+        <>
+          <MessageSquareText className="h-4 w-4" aria-hidden="true" />
+          <span>Sessions</span>
+        </>
       }
-      slotFooter={
-        <Flex direction="col" gap="1">
-          <Text kind="body/regular/xs" className="text-subtle">
+      footer={
+        <div className="flex flex-col gap-1">
+          <p className="text-xs text-muted-foreground">
             Using {storagePercent}% of browser storage quota
-          </Text>
-          <Text kind="body/regular/xs" className="text-subtle">
+          </p>
+          <p className="text-xs text-muted-foreground">
             Note: Chat sessions are saved in this browser. Research reports may expire on the
             server.
-          </Text>
-        </Flex>
+          </p>
+        </div>
       }
     >
       {/* Delete All + New Session */}
       {!isEmptyState && searchQuery.trim() === '' && (
-        <Flex align="center" justify="between" gap="2" className="mb-4">
+        <div className="mb-4 flex items-center justify-between gap-2">
           <Button
-            kind="tertiary"
-            size="small"
-            color="danger"
+            variant="ghost"
+            size="sm"
+            className="text-destructive hover:text-destructive"
             onClick={handleDeleteAllClick}
             disabled={anySessionBusy}
             aria-label={anySessionBusy ? 'Delete all sessions (disabled)' : 'Delete all sessions'}
@@ -212,14 +206,12 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
                 : 'Delete all sessions'
             }
           >
-            <Flex align="center" gap="1">
-              <Trash className="h-4 w-4" />
-              <Text kind="label/regular/sm">Delete All</Text>
-            </Flex>
+            <Trash2 className="h-4 w-4" aria-hidden="true" />
+            <span className="text-sm">Delete All</span>
           </Button>
           <Button
-            kind="tertiary"
-            size="small"
+            variant="ghost"
+            size="sm"
             onClick={handleNewSession}
             disabled={isNavigationBlocked}
             aria-label={
@@ -233,33 +225,31 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
                 : 'Start new session'
             }
           >
-            <Flex align="center" gap="1">
-              <Plus className="h-4 w-4" />
-              <Text kind="label/bold/sm">New Session</Text>
-            </Flex>
+            <Plus className="h-4 w-4" aria-hidden="true" />
+            <span className="text-sm font-semibold">New Session</span>
           </Button>
-        </Flex>
+        </div>
       )}
       {/* Search */}
       <div className="relative mb-4">
-        <Search className="text-subtle pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2" />
+        <Search className="pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <input
           type="text"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder="Search sessions..."
-          className="bg-surface-base border-base text-primary placeholder:text-subtle focus:border-accent-primary h-9 w-full rounded-md border pl-8 pr-3 text-sm outline-none"
+          className="h-9 w-full rounded-md border bg-background pl-8 pr-3 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
           aria-label="Search sessions"
         />
       </div>
 
       {/* Session List */}
-      <Flex direction="col" className="flex-1 overflow-y-auto">
+      <div className="flex flex-1 flex-col overflow-y-auto">
         {Object.entries(groupedSessions).map(([dateLabel, dateSessions]) => (
-          <Flex key={dateLabel} direction="col" gap="2" className="mb-4">
-            <Text kind="label/semibold/xs" className="text-subtle uppercase">
+          <div key={dateLabel} className="mb-4 flex flex-col gap-2">
+            <span className="text-xs font-semibold uppercase text-muted-foreground">
               {dateLabel}
-            </Text>
+            </span>
             {dateSessions.map((session) => (
               <SessionItem
                 key={session.id}
@@ -272,22 +262,22 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
                 onRename={onRenameSession}
               />
             ))}
-          </Flex>
+          </div>
         ))}
 
         {isEmptyState && (
-          <Flex direction="col" align="center" justify="center" className="flex-1 py-8">
-            <Text kind="body/regular/sm" className="text-subtle">
+          <div className="flex flex-1 flex-col items-center justify-center py-8">
+            <span className="text-sm text-muted-foreground">
               {searchQuery.trim() ? 'No matching sessions' : 'No sessions yet'}
-            </Text>
+            </span>
             {!searchQuery.trim() && (
-              <Button kind="secondary" size="small" onClick={handleNewSession} className="mt-4">
+              <Button variant="outline" size="sm" onClick={handleNewSession} className="mt-4">
                 Start a new session
               </Button>
             )}
-          </Flex>
+          </div>
         )}
-      </Flex>
+      </div>
 
       <DeleteSessionConfirmationModal
         open={deleteModalOpen}
@@ -300,7 +290,7 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
         onOpenChange={setDeleteAllModalOpen}
         onConfirm={handleConfirmDeleteAll}
       />
-    </SidePanel>
+    </DockedPanel>
   )
 })
 
@@ -414,17 +404,11 @@ const SessionItem: FC<SessionItemProps> = ({
       onKeyDown={(e) => e.key === 'Enter' && !isEditing && !isBusy && handleClick()}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
-      className={`
-        focus-visible:ring-brand group flex h-10 w-full items-center gap-2
-        rounded-md border p-2 text-left
-        outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset
-        ${isBusy ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}
-        ${
-          isSelected
-            ? 'bg-surface-raised border-accent-primary border'
-            : 'border-base hover:bg-surface-raised-50 bg-transparent'
-        }
-      `}
+      className={cn(
+        'group flex h-10 w-full items-center gap-2 rounded-md border p-2 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50',
+        isBusy ? 'cursor-not-allowed opacity-60' : 'cursor-pointer',
+        isSelected ? 'border-accent-primary bg-muted' : 'bg-transparent hover:bg-accent'
+      )}
       aria-label={
         isBusy ? `Session: ${session.title} (processing in progress)` : `Session: ${session.title}`
       }
@@ -439,26 +423,22 @@ const SessionItem: FC<SessionItemProps> = ({
           onKeyDown={handleKeyDown}
           onBlur={handleInputBlur}
           onClick={(e) => e.stopPropagation()}
-          className="
-            bg-surface-base border-accent-primary text-primary h-8 min-w-0 flex-1 rounded border
-            px-2 py-1 text-sm outline-none
-          "
+          className="h-8 min-w-0 flex-1 rounded border border-accent-primary bg-background px-2 py-1 text-sm outline-none"
           aria-label="Edit session title"
         />
       ) : (
         <>
           <SessionStatusIcon session={session} isSessionActive={isSessionActive} />
 
-          <Text kind="body/regular/sm" className="text-primary min-w-0 flex-1 truncate">
-            {session.title}
-          </Text>
+          <span className="min-w-0 flex-1 truncate text-sm">{session.title}</span>
 
           {/* Action icons - shown on hover */}
           {isHovered && (
-            <Flex align="center" gap="1" className="shrink-0">
+            <div className="flex shrink-0 items-center gap-1">
               <Button
-                kind="tertiary"
-                size="tiny"
+                variant="ghost"
+                size="icon"
+                className="size-7"
                 onClick={handleEditClick}
                 disabled={isBusy || isSessionActive}
                 aria-label={
@@ -470,12 +450,12 @@ const SessionItem: FC<SessionItemProps> = ({
                     : 'Rename session'
                 }
               >
-                <Edit height={16} width={16} />
+                <Pencil className="h-4 w-4" aria-hidden="true" />
               </Button>
               <Button
-                kind="tertiary"
-                size="tiny"
-                color="danger"
+                variant="ghost"
+                size="icon"
+                className="size-7 text-destructive hover:text-destructive"
                 onClick={handleDeleteClick}
                 disabled={isBusy || isSessionActive}
                 aria-label={
@@ -487,9 +467,9 @@ const SessionItem: FC<SessionItemProps> = ({
                     : 'Delete session'
                 }
               >
-                <Trash height={16} width={16} />
+                <Trash2 className="h-4 w-4" aria-hidden="true" />
               </Button>
-            </Flex>
+            </div>
           )}
         </>
       )}
@@ -504,20 +484,25 @@ const SessionStatusIcon: FC<{ session: Session; isSessionActive: boolean }> = ({
   const isActive = isSessionActive || session.hasActiveDeepResearch
 
   if (isActive) {
-    return <LoadingSpinner className="text-accent-primary shrink-0" aria-label="Session active" />
+    return <Spinner size="sm" label="Session active" className="shrink-0 text-accent-primary" />
   }
 
   if (session.hasExpiredReport) {
-    return <SelectEllipse className="text-subtle h-4 w-4 shrink-0" aria-label="Report expired" />
-  }
-
-  if (session.hasCompletedReport) {
     return (
-      <DocumentCheckmark className="text-success h-4 w-4 shrink-0" aria-label="Report completed" />
+      <CircleEllipsis
+        className="h-4 w-4 shrink-0 text-muted-foreground"
+        aria-label="Report expired"
+      />
     )
   }
 
-  return <Chat className="text-subtle h-4 w-4 shrink-0" aria-label="Chat session" />
+  if (session.hasCompletedReport) {
+    return <FileCheck2 className="h-4 w-4 shrink-0 text-success" aria-label="Report completed" />
+  }
+
+  return (
+    <MessageSquare className="h-4 w-4 shrink-0 text-muted-foreground" aria-label="Chat session" />
+  )
 }
 
 /**

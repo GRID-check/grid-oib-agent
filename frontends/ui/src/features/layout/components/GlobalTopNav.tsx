@@ -5,10 +5,15 @@
 
 import Link from 'next/link'
 import { type FC, useCallback, useState } from 'react'
-import { Avatar, Button, Divider, Flex, Logo, Popover, Text } from '@/adapters/ui'
-import { Book, Info, Lock, Logout, Moon, OpenExternal, Sun } from '@/adapters/ui/icons'
+import { BookOpen, ExternalLink, Info, Lock, LogOut, Moon, Sun } from 'lucide-react'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { Button } from '@/components/ui/button'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Separator } from '@/components/ui/separator'
+import { cn } from '@/lib/utils'
 import { useAuth } from '@/adapters/auth'
 import { ProjectSelector } from '@/components/projects/project-selector'
+import { GridLogo } from './GridLogo'
 import { useLayoutStore } from '../store'
 import type { ThemeMode } from '../types'
 
@@ -30,79 +35,92 @@ export const GlobalTopNav: FC = () => {
   }, [signOut])
 
   return (
-    <header className="sticky top-0 z-50 border-b border-base bg-surface-base/95 backdrop-blur-xl">
-      <Flex align="center" justify="between" className="h-16 gap-4 px-4 md:px-6">
-        <Flex align="center" gap="4" className="min-w-0">
-          <Link href="/" className="group flex items-center gap-2 rounded-full px-2 py-1 transition hover:bg-surface-raised-50">
-            <Logo kind="logo-only" size="small" />
-            <Flex direction="col" gap="0" className="leading-none">
-              <Text kind="label/semibold/md" className="text-primary tracking-[-0.02em]">Grid</Text>
-              <Text kind="body/regular/xs" className="text-subtle uppercase tracking-[0.18em]">OIB Agent</Text>
-            </Flex>
+    <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur-xl">
+      <div className="flex h-16 items-center justify-between gap-4 px-4 md:px-6">
+        <div className="flex min-w-0 items-center gap-4">
+          <Link
+            href="/"
+            className="group flex items-center gap-2 rounded-full px-2 py-1 transition hover:bg-accent"
+          >
+            <GridLogo size={20} />
+            <span className="flex flex-col leading-none">
+              <span className="text-sm font-semibold tracking-[-0.02em]">Grid</span>
+              <span className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                OIB Agent
+              </span>
+            </span>
           </Link>
-          <nav className="hidden items-center gap-1 rounded-full border border-base bg-surface-raised-30 p-1 md:flex" aria-label="Primary navigation">
-            <Link href="/" className="rounded-full px-3 py-1.5 text-sm font-medium text-primary transition hover:bg-surface-sunken">
+          <nav
+            className="hidden items-center gap-1 rounded-full border bg-muted/40 p-1 md:flex"
+            aria-label="Primary navigation"
+          >
+            <Link
+              href="/"
+              className="rounded-full px-3 py-1.5 text-sm font-medium transition hover:bg-accent"
+            >
               Chat
             </Link>
-            <Link href="/projects" className="rounded-full px-3 py-1.5 text-sm font-medium text-primary transition hover:bg-surface-sunken">
+            <Link
+              href="/projects"
+              className="rounded-full px-3 py-1.5 text-sm font-medium transition hover:bg-accent"
+            >
               Projects
             </Link>
           </nav>
           {isAuthenticated && authRequired && <ProjectSelector />}
-        </Flex>
+        </div>
 
-        <Flex align="center" gap="2" className="shrink-0">
+        <div className="flex shrink-0 items-center gap-2">
           {!authRequired ? (
-            <Popover
-              open={isUserMenuOpen}
-              onOpenChange={setIsUserMenuOpen}
-              side="bottom"
-              align="end"
-              className="bg-surface-base"
-              slotContent={<AuthDisabledContent />}
-            >
-              <Button kind="tertiary" size="small" aria-label="Default user - authentication not configured">
-                <Avatar size="small" fallback="D" />
-              </Button>
+            <Popover open={isUserMenuOpen} onOpenChange={setIsUserMenuOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Default user - authentication not configured"
+                >
+                  <Avatar className="size-7">
+                    <AvatarFallback>D</AvatarFallback>
+                  </Avatar>
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent side="bottom" align="end" className="w-auto p-0">
+                <AuthDisabledContent />
+              </PopoverContent>
             </Popover>
           ) : isAuthenticated ? (
-            <Popover
-              open={isUserMenuOpen}
-              onOpenChange={setIsUserMenuOpen}
-              side="bottom"
-              align="end"
-              className="bg-surface-base"
-              slotContent={
+            <Popover open={isUserMenuOpen} onOpenChange={setIsUserMenuOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label={`User menu for ${user?.name || user?.email || 'User'}`}
+                  title="User menu"
+                >
+                  <Avatar className="size-7">
+                    {user?.image && <AvatarImage src={user.image} alt="" />}
+                    <AvatarFallback>
+                      {String(user?.name || user?.email || 'U').charAt(0).toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent side="bottom" align="end" className="w-auto p-0">
                 <UserDropdownContent
                   user={user ?? undefined}
                   organizationId={organizationId}
                   onSignOut={handleSignOut}
                 />
-              }
-            >
-              <Button
-                kind="tertiary"
-                size="small"
-                aria-label={`User menu for ${user?.name || user?.email || 'User'}`}
-                title="User menu"
-              >
-                <Avatar
-                  size="small"
-                  src={user?.image ?? undefined}
-                  fallback={String(user?.name || user?.email || 'U').charAt(0).toUpperCase()}
-                />
-              </Button>
+              </PopoverContent>
             </Popover>
           ) : (
-            <Button kind="primary" size="small" onClick={signIn} aria-label="Sign in with SSO">
-              <Flex align="center" gap="1">
-                <Lock className="h-4 w-4" />
-                <Text kind="label/semibold/sm">Sign In</Text>
-              </Flex>
+            <Button size="sm" onClick={signIn} aria-label="Sign in with SSO">
+              <Lock className="h-4 w-4" aria-hidden="true" />
+              <span className="text-sm font-semibold">Sign In</span>
             </Button>
           )}
-        </Flex>
-      </Flex>
+        </div>
+      </div>
     </header>
   )
 }
@@ -118,91 +136,103 @@ const AppearanceThemeControl: FC = () => {
   const setTheme = useLayoutStore((s) => s.setTheme)
 
   return (
-    <Flex direction="col" gap="2">
-      <Text kind="label/regular/sm" className="text-subtle">Appearance</Text>
-      <Flex align="center" gap="1" className="rounded-lg bg-surface-raised-50 p-1" role="radiogroup" aria-label="Theme">
+    <div className="flex flex-col gap-2">
+      <span className="text-xs text-muted-foreground">Appearance</span>
+      <div
+        className="flex items-center gap-1 rounded-lg bg-muted p-1"
+        role="radiogroup"
+        aria-label="Theme"
+      >
         {APPEARANCE_SEGMENTS.map(({ mode, label }) => {
           const selected = theme === mode
           return (
-            <Button
+            <button
               key={mode}
               type="button"
               role="radio"
               aria-checked={selected}
               aria-label={`${label} theme`}
-              kind="tertiary"
-              size="small"
               onClick={() => setTheme(mode)}
-              className={`h-auto min-h-9 flex-1 rounded-md border-0 px-2 py-1.5 shadow-none ${selected ? '!bg-black !text-white hover:!bg-black' : 'bg-transparent'}`}
+              className={cn(
+                'flex min-h-8 flex-1 items-center justify-center gap-1 rounded-md px-2 py-1.5 text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50',
+                selected
+                  ? 'bg-background font-semibold shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              )}
             >
-              <Flex align="center" justify="center" gap="1" className="w-full">
-                {mode === 'dark' ? <Moon className={`h-4 w-4 ${selected ? '!text-white' : 'text-primary'}`} /> : null}
-                {mode === 'light' ? <Sun className={`h-4 w-4 ${selected ? '!text-white' : 'text-primary'}`} /> : null}
-                <Text kind={selected ? 'label/semibold/sm' : 'label/regular/sm'} className={selected ? 'text-white' : 'text-primary'}>{label}</Text>
-              </Flex>
-            </Button>
+              {mode === 'dark' && <Moon className="h-4 w-4 shrink-0" aria-hidden="true" />}
+              {mode === 'light' && <Sun className="h-4 w-4 shrink-0" aria-hidden="true" />}
+              <span>{label}</span>
+            </button>
           )
         })}
-      </Flex>
-    </Flex>
+      </div>
+    </div>
   )
 }
 
 const DocumentationSection: FC = () => (
-  <Flex direction="col" gap="2">
-    <Text kind="label/regular/sm" className="text-subtle">Documentation</Text>
+  <div className="flex flex-col gap-2">
+    <span className="text-xs text-muted-foreground">Documentation</span>
     <a
       href={DOCS_URL}
       target="_blank"
       rel="noopener noreferrer"
-      className="flex w-full items-center justify-between rounded-md px-2 py-2 text-primary transition-colors hover:bg-surface-raised-50"
+      className="flex w-full items-center justify-between rounded-md px-2 py-2 text-sm transition-colors hover:bg-accent"
     >
-      <Flex align="center" gap="2">
-        <Book className="h-4 w-4 shrink-0" />
-        <Text kind="label/regular/sm">Docs</Text>
-      </Flex>
-      <OpenExternal className="h-4 w-4 shrink-0 text-subtle" />
+      <span className="flex items-center gap-2">
+        <BookOpen className="h-4 w-4 shrink-0" aria-hidden="true" />
+        <span>Docs</span>
+      </span>
+      <ExternalLink className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
     </a>
-  </Flex>
+  </div>
 )
 
 const UserDropdownContent: FC<UserDropdownContentProps> = ({ user, organizationId, onSignOut }) => (
-  <Flex direction="col" gap="3" className="min-w-[240px] p-4">
-    <Flex align="center" gap="3">
-      <Avatar size="medium" src={user?.image ?? undefined} fallback={String(user?.name || user?.email || 'U').charAt(0).toUpperCase()} />
-      <Flex direction="col" gap="1">
-        <Text kind="label/bold/md" className="text-primary">{user?.name || 'User'}</Text>
-        {user?.email ? <Text kind="body/regular/sm" className="text-subtle">{user.email}</Text> : null}
-        {organizationId ? <Text kind="body/regular/sm" className="text-subtle">Org: {organizationId}</Text> : null}
-      </Flex>
-    </Flex>
-    <Divider />
+  <div className="flex min-w-[240px] flex-col gap-3 p-4">
+    <div className="flex items-center gap-3">
+      <Avatar className="size-10">
+        {user?.image && <AvatarImage src={user.image} alt="" />}
+        <AvatarFallback>
+          {String(user?.name || user?.email || 'U').charAt(0).toUpperCase()}
+        </AvatarFallback>
+      </Avatar>
+      <div className="flex flex-col gap-0.5">
+        <span className="text-sm font-semibold">{user?.name || 'User'}</span>
+        {user?.email ? <span className="text-sm text-muted-foreground">{user.email}</span> : null}
+        {organizationId ? (
+          <span className="text-sm text-muted-foreground">Org: {organizationId}</span>
+        ) : null}
+      </div>
+    </div>
+    <Separator />
     <AppearanceThemeControl />
-    <Divider />
+    <Separator />
     <DocumentationSection />
-    <Divider />
-    <Button kind="secondary" size="small" onClick={onSignOut} className="w-full" aria-label="Sign out">
-      <Flex align="center" justify="center" gap="2">
-        <Logout className="h-4 w-4" />
-        <Text kind="label/regular/sm">Sign Out</Text>
-      </Flex>
+    <Separator />
+    <Button variant="outline" size="sm" onClick={onSignOut} className="w-full" aria-label="Sign out">
+      <LogOut className="h-4 w-4" aria-hidden="true" />
+      <span className="text-sm">Sign Out</span>
     </Button>
-  </Flex>
+  </div>
 )
 
 const AuthDisabledContent: FC = () => (
-  <Flex direction="col" gap="3" className="min-w-[240px] p-4">
-    <Flex align="center" gap="3">
-      <Avatar size="medium" fallback="D" />
-      <Text kind="label/bold/md" className="text-primary">Default User</Text>
-    </Flex>
-    <Flex align="center" gap="2" className="rounded border border-base p-3">
-      <Info className="h-4 w-4 shrink-0 text-[var(--text-color-subtle)]" />
-      <Text kind="body/regular/sm" className="text-subtle">Authentication Not Configured</Text>
-    </Flex>
-    <Divider />
+  <div className="flex min-w-[240px] flex-col gap-3 p-4">
+    <div className="flex items-center gap-3">
+      <Avatar className="size-10">
+        <AvatarFallback>D</AvatarFallback>
+      </Avatar>
+      <span className="text-sm font-semibold">Default User</span>
+    </div>
+    <div className="flex items-center gap-2 rounded-md border p-3">
+      <Info className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+      <span className="text-sm text-muted-foreground">Authentication Not Configured</span>
+    </div>
+    <Separator />
     <AppearanceThemeControl />
-    <Divider />
+    <Separator />
     <DocumentationSection />
-  </Flex>
+  </div>
 )

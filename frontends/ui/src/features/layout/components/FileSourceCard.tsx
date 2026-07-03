@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 /**
@@ -11,8 +11,10 @@
 'use client'
 
 import { type FC, useState, useEffect } from 'react'
-import { Flex, Text, Button, Spinner } from '@/adapters/ui'
-import { Document, Trash } from '@/adapters/ui/icons'
+import { Check, FileText, Trash2, X } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
+import { cn } from '@/lib/utils'
 import { useIsCurrentSessionBusy } from '@/features/chat'
 import { formatFileSize } from '@/lib/utils/format-file-size'
 
@@ -43,31 +45,31 @@ export interface FileSourceCardProps {
 /** Status configuration for styling */
 const STATUS_CONFIG: Record<
   FileSourceStatus,
-  { label: string; color: string; showSpinner: boolean }
+  { label: string; textClass: string; showSpinner: boolean }
 > = {
   uploading: {
     label: 'Uploading...',
-    color: 'var(--text-color-feedback-info)',
+    textClass: 'text-info',
     showSpinner: true,
   },
   ingesting: {
     label: 'Ingesting...',
-    color: 'var(--text-color-feedback-info)',
+    textClass: 'text-info',
     showSpinner: true,
   },
   available: {
     label: 'Available',
-    color: 'var(--text-color-feedback-success)',
+    textClass: 'text-success',
     showSpinner: false,
   },
   error: {
     label: 'Error',
-    color: 'var(--text-color-feedback-danger)',
+    textClass: 'text-error',
     showSpinner: false,
   },
   deleting: {
     label: 'Deleting...',
-    color: 'var(--text-color-subtle)',
+    textClass: 'text-muted-foreground',
     showSpinner: true,
   },
 }
@@ -104,7 +106,9 @@ const computeMsRemaining = (
  * Format milliseconds remaining into "Expires in H:MM" or the expired label.
  * Returns null when expiration doesn't apply.
  */
-const formatExpiryLabel = (msRemaining: number | null): { text: string; expired: boolean } | null => {
+const formatExpiryLabel = (
+  msRemaining: number | null
+): { text: string; expired: boolean } | null => {
   if (msRemaining === null) return null
   if (msRemaining <= 0) return { text: 'Deletion Pending - Reupload', expired: true }
 
@@ -171,108 +175,100 @@ export const FileSourceCard: FC<FileSourceCardProps> = ({
   const deleteDisabled = isBusy || isProcessing || isDeleting
 
   return (
-    <Flex
-      align="start"
-      justify="between"
-      className={`
-        bg-surface-raised border-base rounded-lg border
-        p-3 transition-colors
-        ${status === 'error' ? 'border-error/50' : ''}
-        ${isDeleting ? 'opacity-50' : ''}
-        group
-      `}
+    <div
+      className={cn(
+        'group flex items-start justify-between rounded-lg border bg-muted/40 p-3 transition-colors',
+        status === 'error' && 'border-error/50',
+        isDeleting && 'opacity-50'
+      )}
     >
-      <Flex align="center" gap="3" className="min-w-0 flex-1">
+      <div className="flex min-w-0 flex-1 items-center gap-3">
         {/* File Icon or Spinner */}
         {config.showSpinner ? (
-          <Spinner size="small" aria-label={config.label} />
+          <Spinner size="sm" label={config.label} />
         ) : (
-          <Document
-            width={32}
-            height={32}
-            className={status === 'error' ? 'text-error' : 'text-secondary'}
+          <FileText
+            className={cn('h-8 w-8', status === 'error' ? 'text-error' : 'text-muted-foreground')}
+            aria-hidden="true"
           />
         )}
 
         {/* Content */}
-        <Flex direction="col" gap="1" className="min-w-0 flex-1">
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
           {/* Title, file size, and timestamp */}
-          <Flex align="center" gap="2" className="min-w-0">
-            <Text kind="label/semibold/sm" className="text-primary truncate">
-              {title}
-            </Text>
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="truncate text-sm font-semibold">{title}</span>
             {fileSize != null && fileSize > 0 && (
-              <Text kind="body/regular/xs" className="text-subtle shrink-0">
+              <span className="shrink-0 text-xs text-muted-foreground">
                 {formatFileSize(fileSize)}
-              </Text>
+              </span>
             )}
             {uploadedAt && (
               <>
-                <span className="text-subtle shrink-0">•</span>
-                <Text kind="body/regular/xs" className="text-subtle shrink-0">
+                <span className="shrink-0 text-muted-foreground">•</span>
+                <span className="shrink-0 text-xs text-muted-foreground">
                   {formatDateTime(uploadedAt)}
-                </Text>
+                </span>
               </>
             )}
-          </Flex>
+          </div>
 
           {/* Description (if provided) */}
           {description && (
-            <Text kind="body/regular/xs" className="text-subtle line-clamp-2">
-              {description}
-            </Text>
+            <span className="line-clamp-2 text-xs text-muted-foreground">{description}</span>
           )}
 
           {/* Status and expiration row */}
-          <Flex align="center" gap="2" className="mt-1">
+          <div className="mt-1 flex items-center gap-2">
             {/* Status indicator */}
-            <Flex align="center" gap="1">
-              {status === 'available' && <span className="text-success text-xs">✓</span>}
-              {status === 'error' && <span className="text-error text-xs">✕</span>}
-              <Text
-                kind={config.showSpinner ? "body/regular/sm" : "body/regular/xs"}
-                style={{ color: config.color }}
-              >
+            <span className="flex items-center gap-1">
+              {status === 'available' && (
+                <Check className="h-3 w-3 text-success" aria-hidden="true" />
+              )}
+              {status === 'error' && <X className="h-3 w-3 text-error" aria-hidden="true" />}
+              <span className={cn(config.showSpinner ? 'text-sm' : 'text-xs', config.textClass)}>
                 {config.label}
-              </Text>
-            </Flex>
+              </span>
+            </span>
 
             {/* Expiration countdown */}
             {expiryLabel && (
               <>
-                <span className="text-subtle">•</span>
-                <Text
-                  kind="body/regular/xs"
-                  className={expiryLabel.expired ? 'text-warning' : 'text-orange-400'}
+                <span className="text-muted-foreground">•</span>
+                <span
+                  className={cn('text-xs', expiryLabel.expired ? 'text-warning' : 'text-orange-400')}
                 >
                   {expiryLabel.text}
-                </Text>
+                </span>
               </>
             )}
-          </Flex>
+          </div>
 
           {/* Error message */}
           {status === 'error' && errorMessage && (
-            <Text kind="body/regular/xs" className="text-error mt-1">
-              {errorMessage}
-            </Text>
+            <span className="mt-1 text-xs text-error">{errorMessage}</span>
           )}
-        </Flex>
+        </div>
 
         {/* Delete button */}
         <Button
-          kind="tertiary"
-          size="small"
-          color="danger"
+          variant="ghost"
+          size="icon"
+          className="ml-2 size-8 flex-shrink-0 text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
           onClick={handleDelete}
           disabled={deleteDisabled}
           aria-label={deleteDisabled ? `Delete ${title} (disabled)` : `Delete ${title}`}
-          title={isProcessing ? "Wait for upload to complete" : deleteDisabled ? "Cannot delete files during active operations" : "Delete file"}
-          className="ml-2 flex-shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
+          title={
+            isProcessing
+              ? 'Wait for upload to complete'
+              : deleteDisabled
+                ? 'Cannot delete files during active operations'
+                : 'Delete file'
+          }
         >
-          <Trash width={16} height={16} className="text-subtle hover:text-error" />
+          <Trash2 className="h-4 w-4" aria-hidden="true" />
         </Button>
-      </Flex>
-    </Flex>
+      </div>
+    </div>
   )
 }

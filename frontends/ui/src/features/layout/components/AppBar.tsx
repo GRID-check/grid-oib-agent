@@ -16,8 +16,23 @@
 'use client'
 
 import { type FC, memo, useCallback, useState } from 'react'
-import { Flex, Text, Button, Logo, Avatar, Popover, Divider } from '@/adapters/ui'
-import { Globe, Book, Lock, Logout, OpenExternal, Info, Moon, Sun, ChatMessage } from '@/adapters/ui/icons'
+import {
+  Globe,
+  BookOpen,
+  Lock,
+  LogOut,
+  ExternalLink,
+  Info,
+  Moon,
+  Sun,
+  MessageSquareText,
+} from 'lucide-react'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { Button } from '@/components/ui/button'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Separator } from '@/components/ui/separator'
+import { cn } from '@/lib/utils'
+import { GridLogo } from './GridLogo'
 import { useLayoutStore } from '../store'
 import type { ThemeMode } from '../types'
 
@@ -72,13 +87,13 @@ export const AppBar: FC<AppBarProps> = memo(function AppBar({
   }, [signOut])
 
   return (
-    <header className="border-b border-base">
-      <Flex align="center" justify="between" className="h-[var(--header-height)] gap-4 px-4">
+    <header className="border-b">
+      <div className="flex h-[var(--header-height)] items-center justify-between gap-4 px-4">
         {/* Left section: New session button + Sessions toggle */}
-        <Flex align="center" gap="2" className="min-w-0 flex-1">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
           <Button
-            kind="tertiary"
-            size="small"
+            variant="ghost"
+            size="sm"
             onClick={handleNewSessionClick}
             disabled={!isAuthenticated || isNewSessionDisabled}
             aria-label="Create new session"
@@ -88,130 +103,106 @@ export const AppBar: FC<AppBarProps> = memo(function AppBar({
                 : 'Create new session'
             }
           >
-            <Flex align="center" gap="density-lg">
-              <Logo kind="logo-only" size="small" />
-
-              <Text kind="label/semibold/lg" className="text-primary whitespace-nowrap">
-                Grid
-              </Text>
-            </Flex>
+            <GridLogo size={20} />
+            <span className="whitespace-nowrap text-sm font-semibold">Grid</span>
           </Button>
-          <Flex justify="start">
-          <Divider orientation="vertical" />
-          </Flex>
+          <Separator orientation="vertical" className="h-5" />
           <Button
-            kind="tertiary"
-            size="small"
+            variant="ghost"
+            size="sm"
             onClick={handleMenuClick}
             disabled={!isAuthenticated}
             aria-label="Toggle sessions sidebar"
             title="Toggle sessions sidebar"
           >
-            <Flex align="center" gap="1">
-              <ChatMessage className="h-4 w-4" />
-              <Text kind="label/bold/sm">Sessions</Text>
-            </Flex>
+            <MessageSquareText className="h-4 w-4" aria-hidden="true" />
+            <span className="text-sm font-semibold">Sessions</span>
           </Button>
           {isAuthenticated && authRequired && <ProjectSelector />}
-          {sessionTitle && (
-            <Flex justify="start">
-              <Divider orientation="vertical" />
-            </Flex>
-          )}
+          {sessionTitle && <Separator orientation="vertical" className="h-5" />}
           {isAuthenticated && (
             <div className="ml-4 hidden min-w-0 flex-1 items-center md:flex">
-              <Text
-                kind="body/regular/md"
-                className="block w-full max-w-[360px] truncate text-subtle lg:max-w-[480px] xl:max-w-[560px]"
-              >
+              <span className="block w-full max-w-[360px] truncate text-sm text-muted-foreground lg:max-w-[480px] xl:max-w-[560px]">
                 {sessionTitle}
-              </Text>
+              </span>
             </div>
           )}
-        </Flex>
+        </div>
 
         {/* Right section: Actions + User */}
-        <Flex align="center" gap="2" className="shrink-0">
+        <div className="flex shrink-0 items-center gap-2">
           <Button
-            kind="tertiary"
-            size="small"
+            variant="ghost"
+            size="sm"
             onClick={handleAddSourcesClick}
             disabled={!isAuthenticated}
             aria-label="Add data sources"
             title="Add data sources"
           >
-            <Flex align="center" gap="1">
-              <Globe className="h-4 w-4" />
-              <Text kind="label/regular/md">Data Sources</Text>
-            </Flex>
+            <Globe className="h-4 w-4" aria-hidden="true" />
+            <span className="text-sm">Data Sources</span>
           </Button>
 
           {/* User section: Auth not required notice, Avatar with dropdown, or Sign In button */}
           {!authRequired ? (
-            <Popover
-              open={isUserMenuOpen}
-              onOpenChange={setIsUserMenuOpen}
-              side="bottom"
-              align="end"
-              className="bg-surface-base"
-              slotContent={<AuthDisabledContent />}
-            >
-              <Button
-                kind="tertiary"
-                size="small"
-                aria-label="Default User - Authentication Not Configured"
-                title="Default User set. Authentication Not Configured."
-                className="ml-2"
-              >
-                <Avatar size="small" fallback="D" />
-              </Button>
+            <Popover open={isUserMenuOpen} onOpenChange={setIsUserMenuOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Default User - Authentication Not Configured"
+                  title="Default User set. Authentication Not Configured."
+                  className="ml-2"
+                >
+                  <Avatar className="size-7">
+                    <AvatarFallback>D</AvatarFallback>
+                  </Avatar>
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent side="bottom" align="end" className="w-auto p-0">
+                <AuthDisabledContent />
+              </PopoverContent>
             </Popover>
           ) : isAuthenticated ? (
-            <Popover
-              open={isUserMenuOpen}
-              onOpenChange={setIsUserMenuOpen}
-              side="bottom"
-              align="end"
-              className="bg-surface-base"
-              slotContent={
+            <Popover open={isUserMenuOpen} onOpenChange={setIsUserMenuOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label={`User menu for ${user?.name || user?.email || 'User'}`}
+                  title="User menu"
+                  className="ml-2"
+                >
+                  <Avatar className="size-7">
+                    {user?.image && <AvatarImage src={user.image} alt="" />}
+                    <AvatarFallback>
+                      {String(user?.name || user?.email || 'U').charAt(0).toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent side="bottom" align="end" className="w-auto p-0">
                 <UserDropdownContent
                   user={user ?? undefined}
                   organizationId={organizationId}
                   onSignOut={handleSignOut}
                 />
-              }
-            >
-              <Button
-                kind="tertiary"
-                size="small"
-                aria-label={`User menu for ${user?.name || user?.email || 'User'}`}
-                title="User menu"
-                className="ml-2"
-              >
-                <Avatar
-                  size="small"
-                  src={user?.image ?? undefined}
-                  fallback={String(user?.name || user?.email || 'U').charAt(0).toUpperCase()}
-                />
-              </Button>
+              </PopoverContent>
             </Popover>
           ) : (
             <Button
-              kind="primary"
-              size="small"
+              size="sm"
               onClick={signIn}
               aria-label="Sign in with SSO"
               title="Sign in with SSO"
               className="ml-2"
             >
-              <Flex align="center" gap="1">
-                <Lock className="h-4 w-4" />
-                <Text kind="label/semibold/sm">Sign In</Text>
-              </Flex>
+              <Lock className="h-4 w-4" aria-hidden="true" />
+              <span className="text-sm font-semibold">Sign In</span>
             </Button>
           )}
-        </Flex>
-      </Flex>
+        </div>
+      </div>
     </header>
   )
 })
@@ -242,142 +233,105 @@ const AppearanceThemeControl: FC = () => {
   const setTheme = useLayoutStore((s) => s.setTheme)
 
   return (
-    <Flex direction="col" gap="2">
-      <Text kind="label/regular/sm" className="text-subtle">
-        Appearance
-      </Text>
-      <Flex
-        align="center"
-        gap="1"
-        className="p-1"
+    <div className="flex flex-col gap-2">
+      <span className="text-xs text-muted-foreground">Appearance</span>
+      <div
+        className="flex items-center gap-1 rounded-lg bg-muted p-1"
         role="radiogroup"
         aria-label="Theme"
-        style={{
-          background: 'var(--color-component-track-background, #FFFFFF33)',
-          borderRadius: 'var(--radius-lg)',
-        }}
       >
         {APPEARANCE_SEGMENTS.map(({ mode, label }) => {
           const selected = theme === mode
           return (
-            <Button
+            <button
               key={mode}
               type="button"
               role="radio"
               aria-checked={selected}
               aria-label={`${label} theme`}
-              kind="tertiary"
-              size="small"
               onClick={() => setTheme(mode)}
-              className={`h-auto min-h-9 flex-1 rounded-[var(--radius-md)] border-0 px-2 py-1.5 shadow-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)] ${
-                selected ? '!bg-black !text-white hover:!bg-black' : 'bg-transparent hover:bg-white/10'
-              }`}
+              className={cn(
+                'flex min-h-8 flex-1 items-center justify-center gap-1 rounded-md px-2 py-1.5 text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50',
+                selected
+                  ? 'bg-background font-semibold shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              )}
             >
-              <Flex align="center" justify="center" gap="1" className="w-full">
-                {mode === 'dark' ? (
-                  <Moon
-                    className={`h-4 w-4 shrink-0 ${selected ? '!text-white' : 'text-primary'}`}
-                    width={16}
-                    height={16}
-                  />
-                ) : null}
-                {mode === 'light' ? (
-                  <Sun
-                    className={`h-4 w-4 shrink-0 ${selected ? '!text-white' : 'text-primary'}`}
-                    width={16}
-                    height={16}
-                  />
-                ) : null}
-                <Text
-                  kind={selected ? 'label/semibold/sm' : 'label/regular/sm'}
-                  className={selected ? 'text-white' : 'text-primary'}
-                >
-                  {label}
-                </Text>
-              </Flex>
-            </Button>
+              {mode === 'dark' && <Moon className="h-4 w-4 shrink-0" aria-hidden="true" />}
+              {mode === 'light' && <Sun className="h-4 w-4 shrink-0" aria-hidden="true" />}
+              <span>{label}</span>
+            </button>
           )
         })}
-      </Flex>
-    </Flex>
+      </div>
+    </div>
   )
 }
 
 const DocumentationSection: FC = () => {
   return (
-    <Flex direction="col" gap="2">
-      <Text kind="label/regular/sm" className="text-subtle">
-        Documentation
-      </Text>
+    <div className="flex flex-col gap-2">
+      <span className="text-xs text-muted-foreground">Documentation</span>
       <a
         href={DOCS_URL}
         target="_blank"
         rel="noopener noreferrer"
         aria-label="Open documentation"
-        className="flex w-full items-center justify-between rounded-[var(--radius-md)] px-2 py-2 text-primary transition-colors hover:bg-surface-raised-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--color-border-focus)]"
+        className="flex w-full items-center justify-between rounded-md px-2 py-2 text-sm transition-colors hover:bg-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
       >
-        <Flex align="center" gap="2">
-          <Book className="h-4 w-4 shrink-0" />
-          <Text kind="label/regular/sm">Docs</Text>
-        </Flex>
-        <OpenExternal className="h-4 w-4 shrink-0 text-subtle" />
+        <span className="flex items-center gap-2">
+          <BookOpen className="h-4 w-4 shrink-0" aria-hidden="true" />
+          <span>Docs</span>
+        </span>
+        <ExternalLink className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
       </a>
-    </Flex>
+    </div>
   )
 }
 
 const UserDropdownContent: FC<UserDropdownContentProps> = ({ user, organizationId, onSignOut }) => {
   return (
-    <Flex direction="col" gap="3" className="min-w-[240px] p-4">
+    <div className="flex min-w-[240px] flex-col gap-3 p-4">
       {/* User info section */}
-      <Flex align="center" gap="3">
-        <Avatar
-          size="medium"
-          src={user?.image ?? undefined}
-          fallback={String(user?.name || user?.email || 'U').charAt(0).toUpperCase()}
-        />
-        <Flex direction="col" gap="1">
-          <Text kind="label/bold/md" className="text-primary">
-            {user?.name || 'User'}
-          </Text>
-          {user?.email && (
-            <Text kind="body/regular/sm" className="text-subtle">
-              {user.email}
-            </Text>
-          )}
+      <div className="flex items-center gap-3">
+        <Avatar className="size-10">
+          {user?.image && <AvatarImage src={user.image} alt="" />}
+          <AvatarFallback>
+            {String(user?.name || user?.email || 'U').charAt(0).toUpperCase()}
+          </AvatarFallback>
+        </Avatar>
+        <div className="flex flex-col gap-0.5">
+          <span className="text-sm font-semibold">{user?.name || 'User'}</span>
+          {user?.email && <span className="text-sm text-muted-foreground">{user.email}</span>}
           {organizationId && (
-            <Text kind="body/regular/sm" className="text-subtle">
-              Org: {organizationId}
-            </Text>
+            <span className="text-sm text-muted-foreground">Org: {organizationId}</span>
           )}
-        </Flex>
-      </Flex>
+        </div>
+      </div>
 
-      <Divider />
+      <Separator />
 
       <AppearanceThemeControl />
 
-      <Divider />
+      <Separator />
 
       <DocumentationSection />
 
-      <Divider />
+      <Separator />
 
       {/* Sign out button */}
       <Button
-        kind="secondary"
-        size="small"
+        variant="outline"
+        size="sm"
         onClick={onSignOut}
         className="w-full"
         aria-label="Sign out"
         title="Sign out"
       >
-        <Flex align="center" justify="center" gap="2">
-          <Logout className="h-4 w-4" />
-          <Text kind="label/regular/sm">Sign Out</Text>
-        </Flex>
+        <LogOut className="h-4 w-4" aria-hidden="true" />
+        <span className="text-sm">Sign Out</span>
       </Button>
-    </Flex>
+    </div>
   )
 }
 
@@ -387,32 +341,28 @@ const UserDropdownContent: FC<UserDropdownContentProps> = ({ user, organizationI
  */
 const AuthDisabledContent: FC = () => {
   return (
-    <Flex direction="col" gap="3" className="min-w-[240px] p-4">
+    <div className="flex min-w-[240px] flex-col gap-3 p-4">
       {/* User info section */}
-      <Flex align="center" gap="3">
-        <Avatar size="medium" fallback="D" />
-        <Flex direction="col" gap="1">
-          <Text kind="label/bold/md" className="text-primary">
-            Default User
-          </Text>
-        </Flex>
-      </Flex>
+      <div className="flex items-center gap-3">
+        <Avatar className="size-10">
+          <AvatarFallback>D</AvatarFallback>
+        </Avatar>
+        <span className="text-sm font-semibold">Default User</span>
+      </div>
 
       {/* Info message */}
-      <Flex align="center" gap="2" className="rounded border border-base p-3">
-        <Info className="h-4 w-4 shrink-0 text-[var(--text-color-subtle)]" />
-        <Text kind="body/regular/sm" className="text-subtle">
-          Authentication Not Configured
-        </Text>
-      </Flex>
+      <div className="flex items-center gap-2 rounded-md border p-3">
+        <Info className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+        <span className="text-sm text-muted-foreground">Authentication Not Configured</span>
+      </div>
 
-      <Divider />
+      <Separator />
 
       <AppearanceThemeControl />
 
-      <Divider />
+      <Separator />
 
       <DocumentationSection />
-    </Flex>
+    </div>
   )
 }

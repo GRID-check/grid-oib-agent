@@ -281,7 +281,7 @@ describe('AppBar', () => {
       expectElementBefore(appearanceSection, docsSection)
     })
 
-    test('uses the KUI popover with the app background surface for user settings', async () => {
+    test('uses the popover with the app background surface for user settings', async () => {
       const user = userEvent.setup()
       setAuthState({ isAuthenticated: true, authRequired: false })
       render(<AppBar />)
@@ -290,11 +290,9 @@ describe('AppBar', () => {
         name: /default user.*authentication not configured/i,
       }))
 
-      const popoverContent = screen.getByTestId('nv-popover-content')
-      expect(popoverContent).toHaveClass('nv-popover-content')
-      expect(popoverContent).toHaveClass('bg-surface-base')
-      expect(popoverContent).not.toHaveClass('!bg-transparent')
-      expect(popoverContent).not.toHaveClass('!shadow-none')
+      const popoverContent = document.querySelector('[data-slot="popover-content"]')
+      expect(popoverContent).not.toBeNull()
+      expect(popoverContent).toHaveClass('bg-popover')
       expect(popoverContent).not.toHaveStyle({ backgroundColor: 'transparent' })
     })
 

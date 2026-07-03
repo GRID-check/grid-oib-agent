@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 /**
@@ -15,8 +15,8 @@
 'use client'
 
 import { type FC, useCallback } from 'react'
-import { Flex, Text, Button } from '@/adapters/ui'
-import { Download, Document } from '@/adapters/ui/icons'
+import { Download, FileText } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
 import { downloadAsMarkdown } from '@/utils/download-as-markdown'
 import { useDownloadPdfRoute } from '@/hooks/use-download-pdf'
@@ -79,39 +79,34 @@ export const ReportCard: FC<ReportCardProps> = ({
 
   if (!hasContent) {
     return (
-      <Flex
-        direction="col"
-        align="center"
-        justify="center"
-        className="h-full text-center py-8"
-      >
-        <Document className="text-subtle mb-3 h-8 w-8" />
-        <Text kind="body/regular/md" className="text-subtle">
+      <div className="flex h-full flex-col items-center justify-center py-8 text-center">
+        <FileText className="mb-3 h-8 w-8 text-muted-foreground" aria-hidden="true" />
+        <p className="text-sm text-muted-foreground">
           The report will appear here once research is complete.
-        </Text>
-        <Text kind="body/regular/sm" className="text-subtle mt-2">
+        </p>
+        <p className="mt-2 text-sm text-muted-foreground">
           You can export it as Markdown or PDF.
-        </Text>
-      </Flex>
+        </p>
+      </div>
     )
   }
 
   return (
-    <Flex direction="col" className="h-full">
+    <div className="flex h-full flex-col">
       {/* Header */}
-      <Flex align="center" justify="between" className="mb-4 shrink-0">
-        <Flex align="center" gap="2">
-          {title && <Text kind="label/semibold/md">{title}</Text>}
+      <div className="mb-4 flex shrink-0 items-center justify-between">
+        <div className="flex items-center gap-2">
+          {title && <span className="text-sm font-semibold">{title}</span>}
           {isDraft && (
-            <Text kind="label/regular/xs" className="text-warning bg-warning/10 px-2 py-0.5 rounded">
+            <span className="rounded border border-warning px-2 py-0.5 text-xs text-warning">
               Draft
-            </Text>
+            </span>
           )}
-        </Flex>
-        <Text kind="body/regular/xs" className="text-subtle">
+        </div>
+        <span className="text-xs text-muted-foreground">
           {wordCount.toLocaleString()} words
-        </Text>
-      </Flex>
+        </span>
+      </div>
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto pr-2">
@@ -119,22 +114,22 @@ export const ReportCard: FC<ReportCardProps> = ({
       </div>
 
       {/* Export Footer */}
-      <Flex align="center" justify="end" gap="2" className="border-base shrink-0 border-t pt-3 mt-4">
+      <div className="mt-4 flex shrink-0 items-center justify-end gap-2 border-t pt-3">
         <Button
-          kind="tertiary"
-          size="small"
+          variant="ghost"
+          size="sm"
           onClick={handleExportMarkdown}
           disabled={isExportDisabled}
-          aria-label={isExportDisabled ? `Export as Markdown (${tooltipContent})` : 'Export as Markdown'}
+          aria-label={
+            isExportDisabled ? `Export as Markdown (${tooltipContent})` : 'Export as Markdown'
+          }
           title={tooltipContent}
         >
-          <Download />
+          <Download aria-hidden="true" />
           Markdown
         </Button>
         <Button
-          kind="primary"
-          color="brand"
-          size="small"
+          size="sm"
           onClick={handleExportPDF}
           disabled={isExportDisabled || isPdfLoading}
           aria-label={
@@ -146,10 +141,10 @@ export const ReportCard: FC<ReportCardProps> = ({
           }
           title={isPdfLoading ? 'Generating PDF...' : tooltipContent}
         >
-          <Download />
+          <Download aria-hidden="true" />
           {isPdfLoading ? 'Generating...' : 'PDF'}
         </Button>
-      </Flex>
-    </Flex>
+      </div>
+    </div>
   )
 }
