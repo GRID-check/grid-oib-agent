@@ -2,7 +2,21 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import type { ProjectIntakeDefinition, ProjectIntakeQuestion, ProjectIntakeStage } from '@/lib/project-profile/intake-definition'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Progress } from '@/components/ui/progress'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Skeleton } from '@/components/ui/skeleton'
+import type { ProjectIntakeDefinition, ProjectIntakeQuestion } from '@/lib/project-profile/intake-definition'
 import type { ProjectProfile, ProjectPrimitiveValue } from '@/lib/project-profile/types'
 
 interface ProjectIntakeWizardProps {
@@ -159,7 +173,7 @@ export function ProjectIntakeWizard({ projectId }: ProjectIntakeWizardProps) {
   if (loading) {
     return (
       <div className="mx-auto max-w-2xl px-4 py-16">
-        <div className="h-4 w-48 animate-pulse rounded bg-surface-raised-30" />
+        <Skeleton className="h-4 w-48" />
       </div>
     )
   }
@@ -167,7 +181,9 @@ export function ProjectIntakeWizard({ projectId }: ProjectIntakeWizardProps) {
   if (error) {
     return (
       <div className="mx-auto max-w-2xl px-4 py-16">
-        <p className="text-sm text-red-600">{error}</p>
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
       </div>
     )
   }
@@ -182,21 +198,19 @@ export function ProjectIntakeWizard({ projectId }: ProjectIntakeWizardProps) {
     <div className="mx-auto max-w-2xl px-4 py-12">
       {/* Progress bar */}
       <div className="mb-8">
-        <div className="flex items-center justify-between text-xs text-subtle">
+        <div className="flex items-center justify-between text-xs text-muted-foreground">
           <span>Step {currentStage + 1} of {definition.stages.length}</span>
           <span>{stage.title}</span>
         </div>
-        <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-surface-raised-30">
-          <div className="h-full rounded-full bg-brand transition-all duration-300" style={{ width: `${progress}%` }} />
-        </div>
+        <Progress value={progress} className="mt-2 h-1" />
         {draftSaved && (
-          <p className="mt-1 text-xs text-success">Draft saved</p>
+          <p className="mt-1 text-xs text-[var(--text-color-feedback-success)]">Draft saved</p>
         )}
       </div>
 
       {/* Current stage */}
       <div>
-        <h2 className="text-lg font-semibold text-primary">{stage.title}</h2>
+        <h2 className="text-lg font-semibold tracking-tight">{stage.title}</h2>
         <div className="mt-6 space-y-6">
           {visibleQuestions.map((q) => (
             <QuestionField key={q.id} question={q} value={answers[q.id]} onChange={(v) => setAnswer(q.id, v)} />
@@ -205,38 +219,23 @@ export function ProjectIntakeWizard({ projectId }: ProjectIntakeWizardProps) {
       </div>
 
       {/* Navigation */}
-      <div className="mt-10 flex items-center justify-between border-t border-base pt-6">
-        <button
-          type="button"
-          onClick={prevStage}
-          disabled={isFirst}
-          className="rounded-lg border border-base px-4 py-2 text-sm font-medium text-secondary transition hover:bg-surface-sunken disabled:opacity-30"
-        >
+      <div className="mt-10 flex items-center justify-between border-t pt-6">
+        <Button type="button" variant="outline" onClick={prevStage} disabled={isFirst}>
           Back
-        </button>
+        </Button>
 
-        <span className="text-xs text-subtle">
+        <span className="text-xs text-muted-foreground">
           {visibleQuestions.length} question{visibleQuestions.length !== 1 ? 's' : ''}
         </span>
 
         {isLast ? (
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={!canProceed || saving}
-            className="rounded-lg bg-primary px-6 py-2 text-sm font-medium text-white transition hover:bg-primary-hover disabled:opacity-40"
-          >
+          <Button type="button" onClick={handleSave} disabled={!canProceed || saving}>
             {saving ? 'Saving...' : 'Save & Finish'}
-          </button>
+          </Button>
         ) : (
-          <button
-            type="button"
-            onClick={nextStage}
-            disabled={!canProceed}
-            className="rounded-lg bg-primary px-6 py-2 text-sm font-medium text-white transition hover:bg-primary-hover disabled:opacity-40"
-          >
+          <Button type="button" onClick={nextStage} disabled={!canProceed}>
             Next
-          </button>
+          </Button>
         )}
       </div>
     </div>
@@ -257,47 +256,45 @@ function QuestionField({
   switch (question.type) {
     case 'text':
       return (
-        <div>
-          <label htmlFor={id} className="block text-sm font-medium text-secondary">{question.label}</label>
-          <input
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor={id} className="text-sm font-medium">{question.label}</Label>
+          <Input
             id={id}
             type="text"
             value={typeof value === 'string' ? value : ''}
             onChange={(e) => onChange(e.target.value)}
-            className="mt-1 block w-full rounded-lg border border-base px-3 py-2 text-sm shadow-sm focus:border-brand focus:outline-none"
           />
         </div>
       )
     case 'number':
       return (
-        <div>
-          <label htmlFor={id} className="block text-sm font-medium text-secondary">{question.label}</label>
-          <input
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor={id} className="text-sm font-medium">{question.label}</Label>
+          <Input
             id={id}
             type="number"
             value={typeof value === 'number' ? value : (typeof value === 'string' ? value : '')}
             onChange={(e) => onChange(e.target.value === '' ? '' : Number(e.target.value))}
-            className="mt-1 block w-full rounded-lg border border-base px-3 py-2 text-sm shadow-sm focus:border-brand focus:outline-none"
           />
         </div>
       )
     case 'boolean':
       return (
         <fieldset>
-          <legend className="text-sm font-medium text-secondary">{question.label}</legend>
+          <legend className="text-sm font-medium">{question.label}</legend>
           <div className="mt-2 flex gap-4">
             {['true', 'false'].map((opt) => {
               const boolVal = opt === 'true'
               return (
-                <label key={opt} className="flex items-center gap-2">
+                <label key={opt} className="flex items-center gap-2 text-sm">
                   <input
                     type="radio"
                     name={id}
                     checked={value === boolVal}
                     onChange={() => onChange(boolVal)}
-                    className="text-primary focus:ring-brand"
+                    className="h-4 w-4 accent-primary"
                   />
-                  <span className="text-sm text-secondary">{opt === 'true' ? 'Yes' : 'No'}</span>
+                  {opt === 'true' ? 'Yes' : 'No'}
                 </label>
               )
             })}
@@ -306,44 +303,47 @@ function QuestionField({
       )
     case 'single_select':
       return (
-        <div>
-          <label htmlFor={id} className="block text-sm font-medium text-secondary">{question.label}</label>
-          <select
-            id={id}
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor={id} className="text-sm font-medium">{question.label}</Label>
+          <Select
             value={typeof value === 'string' ? value : ''}
-            onChange={(e) => onChange(e.target.value)}
-            className="mt-1 block w-full rounded-lg border border-base px-3 py-2 text-sm shadow-sm focus:border-brand focus:outline-none"
+            onValueChange={(v) => onChange(v)}
           >
-            <option value="">Select...</option>
-            {(question.options ?? []).map((opt) => (
-              <option key={opt.value} value={opt.value}>{opt.label}</option>
-            ))}
-          </select>
+            <SelectTrigger id={id} className="w-full">
+              <SelectValue placeholder="Select..." />
+            </SelectTrigger>
+            <SelectContent>
+              {(question.options ?? []).map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       )
     case 'multi_select':
       return (
         <fieldset>
-          <legend className="text-sm font-medium text-secondary">{question.label}</legend>
-          <div className="mt-2 space-y-2">
+          <legend className="text-sm font-medium">{question.label}</legend>
+          <div className="mt-2 flex flex-col gap-2">
             {(question.options ?? []).map((opt) => {
               const arr = Array.isArray(value) ? value : []
               const checked = arr.includes(opt.value)
               return (
-                <label key={opt.value} className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
+                <div key={opt.value} className="flex items-center gap-2">
+                  <Checkbox
+                    id={`${id}-${opt.value}`}
                     checked={checked}
-                    onChange={() => {
+                    onCheckedChange={() => {
                       const next = checked
                         ? arr.filter((v) => v !== opt.value)
                         : [...arr, opt.value]
                       onChange(next)
                     }}
-                    className="text-primary focus:ring-brand"
                   />
-                  <span className="text-sm text-secondary">{opt.label}</span>
-                </label>
+                  <Label htmlFor={`${id}-${opt.value}`} className="text-sm font-normal">
+                    {opt.label}
+                  </Label>
+                </div>
               )
             })}
           </div>

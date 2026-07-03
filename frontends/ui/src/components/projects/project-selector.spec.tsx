@@ -1,6 +1,7 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+import type { ReactNode } from 'react'
 import { render, screen, waitFor } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
@@ -24,33 +25,63 @@ const mockPreferences = {
   prefs: { active_project_id: 'p2' },
 }
 
-vi.mock('@/adapters/ui', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/adapters/ui')>()
+// Radix Select does not work with jsdom pointer events; replace with a native
+// <select> that flattens the SelectItem descendants into <option>s.
+vi.mock('@/components/ui/select', async () => {
+  const React = await import('react')
+
+  function SelectItem(_props: { value: string; children: ReactNode }) {
+    return null
+  }
+
+  function collectItems(
+    children: ReactNode,
+    items: Array<{ value: string; label: ReactNode }> = [],
+  ) {
+    React.Children.forEach(children, (child) => {
+      if (!React.isValidElement(child)) return
+      const props = child.props as { value?: string; children?: ReactNode }
+      if (child.type === SelectItem) {
+        items.push({ value: props.value ?? '', label: props.children })
+      } else if (props.children) {
+        collectItems(props.children, items)
+      }
+    })
+    return items
+  }
+
+  function Select({
+    value,
+    onValueChange,
+    children,
+  }: {
+    value?: string
+    onValueChange?: (value: string) => void
+    children?: ReactNode
+  }) {
+    const items = collectItems(children)
+    return (
+      <select
+        value={value}
+        onChange={(event) => onValueChange?.(event.target.value)}
+        data-testid="project-select"
+      >
+        <option value="">Select a project</option>
+        {items.map((item) => (
+          <option key={item.value} value={item.value}>
+            {item.label}
+          </option>
+        ))}
+      </select>
+    )
+  }
+
   return {
-    ...actual,
-    Select: function Select({
-      value,
-      onValueChange,
-      items,
-    }: {
-      value?: string
-      onValueChange?: (value: string) => void
-      items: Array<{ value: string; children: React.ReactNode }>
-    }) {
-      return (
-        <select
-          value={value}
-          onChange={(event) => onValueChange?.(event.target.value)}
-          data-testid="project-select"
-        >
-          {items.map((item) => (
-            <option key={item.value} value={item.value}>
-              {item.children}
-            </option>
-          ))}
-        </select>
-      )
-    },
+    Select,
+    SelectItem,
+    SelectTrigger: ({ children }: { children?: ReactNode }) => <>{children}</>,
+    SelectContent: ({ children }: { children?: ReactNode }) => <>{children}</>,
+    SelectValue: () => null,
   }
 })
 

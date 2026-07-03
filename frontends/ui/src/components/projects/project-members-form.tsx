@@ -1,11 +1,24 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Button, Flex, Select, Text, TextInput } from '@/adapters/ui'
-import { Search, Users } from '@/adapters/ui/icons'
+import { useStore } from '@tanstack/react-form'
+import { z } from 'zod'
+import { Search, Users } from 'lucide-react'
+import { useAppForm } from '@/components/form'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Skeleton } from '@/components/ui/skeleton'
 
 interface Member {
   organizationMembershipId: string
@@ -25,12 +38,24 @@ const ROLE_OPTIONS = [
   { value: 'project-admin', label: 'Admin' },
 ]
 
+/** Radix Select items cannot use an empty-string value; sentinel for "no access". */
+const NO_ACCESS = 'none'
+
+const searchSchema = z.object({
+  query: z.string(),
+})
+
 export function ProjectMembersForm({ projectId }: ProjectMembersFormProps): JSX.Element {
   const [members, setMembers] = useState<Member[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [updatingId, setUpdatingId] = useState<string | null>(null)
-  const [query, setQuery] = useState('')
   const [error, setError] = useState<string | null>(null)
+
+  const form = useAppForm({
+    defaultValues: { query: '' },
+    validators: { onChange: searchSchema },
+  })
+  const query = useStore(form.store, (state) => state.values.query)
 
   useEffect(() => {
     let cancelled = false
@@ -101,127 +126,130 @@ export function ProjectMembersForm({ projectId }: ProjectMembersFormProps): JSX.
 
   if (isLoading) {
     return (
-      <Flex direction="col" gap="3" className="rounded-[1.5rem] border border-base bg-surface-raised-30 p-5">
+      <div className="flex flex-col gap-3 rounded-lg border bg-card p-5">
         {[0, 1, 2].map((item) => (
-          <div key={item} className="h-16 animate-pulse rounded-2xl bg-surface-raised-50" />
+          <Skeleton key={item} className="h-16 rounded-md" />
         ))}
-      </Flex>
+      </div>
     )
   }
 
   return (
-    <Flex direction="col" gap="5">
-      <div className="rounded-[1.75rem] border border-base bg-surface-raised-30 p-5 shadow-[0_24px_70px_-50px_rgba(15,23,42,0.55)]">
-        <Flex direction="col" gap="4">
-          <Flex align="start" justify="between" gap="4">
-            <Flex gap="3" align="center">
-              <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-base bg-surface-raised-50 text-brand">
-                <Users className="h-5 w-5" />
-              </div>
-              <Flex direction="col" gap="1">
-                <Text kind="label/bold/md" className="text-primary">
-                  Organization roster
-                </Text>
-                <Text kind="body/regular/sm" className="text-subtle">
-                  Assign project access to existing organization members.
-                </Text>
-              </Flex>
-            </Flex>
-            <div className="rounded-2xl border border-base bg-surface-sunken px-4 py-3 text-right">
-              <Text kind="label/bold/md" className="text-primary">
-                {activeCount}/{members.length}
-              </Text>
-              <Text kind="body/regular/xs" className="text-subtle uppercase tracking-[0.18em]">
-                active
-              </Text>
+    <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-4 rounded-lg border bg-card p-5">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border bg-muted text-primary">
+              <Users className="h-5 w-5" />
             </div>
-          </Flex>
-
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-subtle" />
-            <TextInput
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search members by name or email"
-              aria-label="Search project members"
-              className="w-full pl-9"
-            />
+            <div className="flex flex-col gap-0.5">
+              <h2 className="text-sm font-semibold">Organization roster</h2>
+              <p className="text-sm text-muted-foreground">
+                Assign project access to existing organization members.
+              </p>
+            </div>
           </div>
-        </Flex>
+          <div className="rounded-md border bg-muted px-4 py-2 text-right">
+            <p className="text-sm font-semibold">
+              {activeCount}/{members.length}
+            </p>
+            <p className="text-xs uppercase tracking-wider text-muted-foreground">active</p>
+          </div>
+        </div>
+
+        <form.AppField name="query">
+          {(field) => (
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={field.state.value}
+                onChange={(event) => field.handleChange(event.target.value)}
+                onBlur={field.handleBlur}
+                placeholder="Search members by name or email"
+                aria-label="Search project members"
+                className="pl-9"
+              />
+            </div>
+          )}
+        </form.AppField>
       </div>
 
       {error && (
-        <div className="rounded-2xl border border-status-error bg-status-error-muted p-4">
-          <Text kind="label/semibold/sm" className="text-status-error">
-            Access update failed
-          </Text>
-          <Text kind="body/regular/sm" className="mt-1 text-primary">
-            {error}
-          </Text>
-        </div>
+        <Alert variant="destructive">
+          <AlertTitle>Access update failed</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
       )}
 
-      <Flex direction="col" gap="3">
+      <div className="flex flex-col gap-2">
         {filteredMembers.map((member) => {
           const isUpdating = updatingId === member.organizationMembershipId
           return (
-            <Flex
+            <div
               key={member.organizationMembershipId}
-              align="center"
-              justify="between"
-              gap="4"
-              className="rounded-[1.25rem] border border-base bg-surface-raised-30 p-4 transition hover:-translate-y-[1px] hover:bg-surface-raised-50"
+              className="flex items-center justify-between gap-4 rounded-lg border bg-card p-4 transition-colors hover:bg-accent/50"
             >
-              <Flex align="center" gap="3" className="min-w-0">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-surface-sunken text-sm font-semibold text-primary">
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-muted text-xs font-semibold">
                   {member.name.slice(0, 2).toUpperCase()}
                 </div>
-                <Flex direction="col" gap="1" className="min-w-0">
-                  <Text kind="label/regular/md" className="truncate text-primary">
-                    {member.name}
-                  </Text>
-                  <Text kind="body/regular/sm" className="truncate text-subtle">
+                <div className="flex min-w-0 flex-col gap-0.5">
+                  <p className="truncate text-sm font-medium">{member.name}</p>
+                  <p className="truncate text-xs text-muted-foreground">
                     {member.email ?? member.userId}
-                  </Text>
-                </Flex>
-              </Flex>
+                  </p>
+                </div>
+              </div>
 
               <div className="flex min-w-[220px] items-center justify-end gap-3">
                 {isUpdating && (
-                  <Text kind="body/regular/xs" className="text-subtle uppercase tracking-[0.18em]">
+                  <span className="text-xs uppercase tracking-wider text-muted-foreground">
                     saving
-                  </Text>
+                  </span>
                 )}
                 <Select
-                  value={member.role ?? ''}
-                  onValueChange={(value) => updateRole(member.organizationMembershipId, value)}
-                  items={[
-                    { value: '', children: 'No project access' },
-                    ...ROLE_OPTIONS.map((option) => ({
-                      value: option.value,
-                      children: option.label,
-                    })),
-                  ]}
-                />
+                  value={member.role || NO_ACCESS}
+                  onValueChange={(value) =>
+                    updateRole(member.organizationMembershipId, value === NO_ACCESS ? '' : value)
+                  }
+                >
+                  <SelectTrigger
+                    className="w-[180px]"
+                    aria-label={`Project role for ${member.name}`}
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NO_ACCESS}>No project access</SelectItem>
+                    {ROLE_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
-            </Flex>
+            </div>
           )
         })}
-      </Flex>
+      </div>
 
       {filteredMembers.length === 0 && (
-        <div className="rounded-[1.25rem] border border-dashed border-base p-8 text-center">
-          <Text kind="label/semibold/md" className="text-primary">
-            No matching members
-          </Text>
-          <Text kind="body/regular/sm" className="mt-2 text-subtle">
+        <div className="rounded-lg border border-dashed p-8 text-center">
+          <h3 className="text-sm font-semibold">No matching members</h3>
+          <p className="mt-2 text-sm text-muted-foreground">
             Clear the search to see the full organization roster.
-          </Text>
-          <Button kind="secondary" size="small" className="mt-4" onClick={() => setQuery('')}>
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            className="mt-4"
+            onClick={() => form.setFieldValue('query', '')}
+          >
             Clear search
           </Button>
         </div>
       )}
-    </Flex>
+    </div>
   )
 }
