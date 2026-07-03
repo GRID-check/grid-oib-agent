@@ -18,7 +18,7 @@ interface ProjectLayoutProps {
 export default async function ProjectLayout({ children, params }: ProjectLayoutProps): Promise<JSX.Element> {
   const session = await requireAuthorizedSession()
   const { id } = await params
-  await requireProjectAccess(session, id, 'project:view')
+  const { role } = await requireProjectAccess(session, id, 'project:view')
   const db = getDb()
 
   const orgProjects = await db
@@ -34,6 +34,7 @@ export default async function ProjectLayout({ children, params }: ProjectLayoutP
         projects={orgProjects}
         user={{ name: session.name, email: session.email }}
         authRequired={isAuthRequired()}
+        canManageMembers={role === 'project-admin'}
       />
       <main className="min-w-0 flex-1 overflow-y-auto">{children}</main>
     </div>
