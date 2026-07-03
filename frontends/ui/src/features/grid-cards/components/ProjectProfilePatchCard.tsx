@@ -16,7 +16,7 @@ interface ProjectProfilePatchCardProps {
   title: string
   rationale: string
   preview: PreviewItem[]
-  patch: Array<{ op: string; path: string; value: unknown }>
+  patch: Array<{ op: string; path: string; value?: unknown }>
   projectId?: string | null
 }
 

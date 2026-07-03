@@ -25,7 +25,7 @@ export interface ProjectIntakeDefinition {
   stages: ProjectIntakeStage[]
 }
 
-export const v1IntakeDefinition: ProjectIntakeDefinition = {
+export const projectIntakeDefinitionV1: ProjectIntakeDefinition = {
   version: 1,
   stages: [
     {
@@ -243,4 +243,4 @@ export const v1IntakeDefinition: ProjectIntakeDefinition = {
   ],
 }
 
-export const projectIntakeDefinitionV1 = v1IntakeDefinition
+

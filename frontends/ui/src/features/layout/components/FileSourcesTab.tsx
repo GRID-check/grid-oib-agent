@@ -11,7 +11,7 @@
 
 'use client'
 
-import { type FC, useCallback, useRef, useState } from 'react'
+import { type FC, useCallback, useEffect, useRef, useState } from 'react'
 import { Flex, Text, Button, Banner } from '@/adapters/ui'
 import { LoadingSpinner } from '@/adapters/ui/icons'
 import { FileSourceCard } from './FileSourceCard'
@@ -40,6 +40,9 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
   // Get current conversation and ensureSession for session management
   const currentConversation = useChatStore((state) => state.currentConversation)
   const ensureSession = useChatStore((state) => state.ensureSession)
+  const projectId = useChatStore((state) => state.projectId)
+  const [uploadTarget, setUploadTarget] = useState<'project' | 'session'>(projectId ? 'project' : 'session')
+  const [projectCollectionName, setProjectCollectionName] = useState<string | undefined>(undefined)
 
   // Check if file uploads are available (knowledge layer)
   const knowledgeLayerAvailable = useLayoutStore((state) => state.knowledgeLayerAvailable)
@@ -47,17 +50,51 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
   // Get file upload configuration from app config
   const { fileUpload: fileUploadConfig } = useAppConfig()
 
-  // File upload hook - provides session files and handles validation internally
+  useEffect(() => {
+    if (!projectId) {
+      setUploadTarget('session')
+      setProjectCollectionName(undefined)
+      return
+    }
+
+    let cancelled = false
+    setUploadTarget('project')
+
+    fetch(`/api/projects/${projectId}`)
+      .then((response) => (response.ok ? response.json() : null))
+      .then((project: { collectionName?: string } | null) => {
+        if (!cancelled) {
+          setProjectCollectionName(project?.collectionName)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setProjectCollectionName(undefined)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [projectId])
+
+  const isProjectTarget = uploadTarget === 'project' && !!projectId
+  const isProjectTargetReady = isProjectTarget && !!projectCollectionName
+  const targetCollectionName = isProjectTarget ? projectCollectionName : currentConversation?.id
+  const targetProjectId = isProjectTargetReady ? projectId : undefined
+
+  // File upload hook - provides target files and handles validation internally
   const {
     uploadFiles,
     deleteFile,
-    sessionFiles,
+    sessionFiles: targetFiles,
     isUploading,
     isPolling,
     error: uploadError,
     clearError,
   } = useFileUpload({
-    collectionName: currentConversation?.id,
+    collectionName: targetCollectionName,
+    projectId: targetProjectId,
   })
 
   // The documents store's currentCollectionName tells us WHICH session is actively being processed.
@@ -67,7 +104,7 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
   const isLoadingFiles = useDocumentsStore((state) => state.isLoadingFiles)
   const loadedSessionId = useDocumentsStore((state) => state.loadedSessionId)
   const isThisSessionProcessing =
-    activeCollection === currentConversation?.id && (isUploading || isPolling)
+    activeCollection === targetCollectionName && (isUploading || isPolling)
 
   // Show spinner when:
   // 1. Actively loading files from server, OR
@@ -75,12 +112,15 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
   // 3. Session is known to have files but we haven't loaded for it yet
   //    (covers the render-to-useEffect gap on session switch; stops once
   //    loadFilesForSession completes — even if the result is empty)
-  const sessionId = currentConversation?.id
+  const sessionId = targetCollectionName
   const hasLoadedForSession = loadedSessionId === sessionId
   const sessionExpectsFiles =
     !!sessionId && !hasLoadedForSession && sessionHasKnownCollection(sessionId)
   const isAwaitingFiles =
-    isLoadingFiles || (isThisSessionProcessing && sessionFiles.length === 0) || sessionExpectsFiles
+    isLoadingFiles || (isThisSessionProcessing && targetFiles.length === 0) || sessionExpectsFiles
+
+  const uploadTargetLabel = isProjectTarget ? 'Project corpus' : 'Private session'
+  const uploadDisabled = isUploading || (isProjectTarget && !projectCollectionName)
 
   // Delete confirmation modal state
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
@@ -92,15 +132,18 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
    */
   const handleUpload = useCallback(
     async (files: File[]) => {
-      const sessionId = ensureSession()
-      if (!sessionId) {
+      if (isProjectTarget && !projectCollectionName) {
+        console.error('Project collection is not ready for upload')
+        return
+      }
+      if (!isProjectTarget && !ensureSession()) {
         console.error('Failed to create session for upload')
         return
       }
       // uploadFiles validates internally and sets error if invalid
       await uploadFiles(files)
     },
-    [ensureSession, uploadFiles]
+    [ensureSession, isProjectTarget, projectCollectionName, uploadFiles]
   )
 
   // Hidden file input ref
@@ -147,7 +190,39 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
     }
   }, [])
 
-  if (sessionFiles.length === 0) {
+  const uploadTargetControls = projectId ? (
+    <Flex direction="col" gap="2" className="rounded-xl border border-subtle bg-surface-2 p-3">
+      <Text kind="label/semibold/xs" className="text-subtle uppercase">
+        Upload To
+      </Text>
+      <Flex gap="2">
+        <Button
+          kind={uploadTarget === 'project' ? 'primary' : 'secondary'}
+          size="small"
+          onClick={() => setUploadTarget('project')}
+          disabled={!projectCollectionName}
+        >
+          Project corpus
+        </Button>
+        <Button
+          kind={uploadTarget === 'session' ? 'primary' : 'secondary'}
+          size="small"
+          onClick={() => setUploadTarget('session')}
+        >
+          Private session
+        </Button>
+      </Flex>
+      <Text kind="body/regular/xs" className="text-subtle">
+        {isProjectTarget
+          ? projectCollectionName
+            ? 'Available in this project.'
+            : 'Preparing project corpus...'
+          : 'Only available in this chat session.'}
+      </Text>
+    </Flex>
+  ) : null
+
+  if (targetFiles.length === 0) {
     // When files are expected (loading, uploading, or session known to have files),
     // always show the spinner — never flash "No Files" during transitions.
     if (isAwaitingFiles) {
@@ -164,6 +239,8 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
     return (
       <Flex direction="col" gap="4" className="flex-1">
         {/* Show info banner when file upload is not available */}
+        {uploadTargetControls}
+
         {!knowledgeLayerAvailable && (
           <Banner kind="inline" status="info" className="mb-6 px-4 py-3">
             Setup backend to enable files.
@@ -177,7 +254,7 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
               No Attached Files
             </Text>
             <Text kind="body/regular/sm" className="text-subtle">
-              All attached files will be accessible to agents in this session unless removed.
+              Files uploaded here go to {uploadTargetLabel.toLowerCase()} unless removed.
             </Text>
           </Flex>
         )}
@@ -192,11 +269,11 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
         {/* File Upload Zone */}
         {knowledgeLayerAvailable && (
           <FileUploadZone
-            sessionId={currentConversation?.id}
+            collectionName={targetCollectionName}
             acceptedTypes={fileUploadConfig.acceptedTypes}
             maxFileSize={fileUploadConfig.maxFileSize}
             onUpload={handleUpload}
-            isUploading={isUploading}
+            isUploading={uploadDisabled}
           />
         )}
       </Flex>
@@ -223,15 +300,17 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
       )}
 
       {/* Header with count and add button */}
+      {uploadTargetControls}
+
       <Flex align="center" justify="between" className="mb-1">
         <Text kind="label/semibold/xs" className="text-subtle uppercase">
-          Uploaded Files ({sessionFiles.length})
+          {uploadTargetLabel} Files ({targetFiles.length})
         </Text>
         <Button
           kind="tertiary"
           size="small"
           onClick={handleAddFileClick}
-          disabled={isLoadingFiles || !knowledgeLayerAvailable}
+          disabled={isLoadingFiles || !knowledgeLayerAvailable || uploadDisabled}
           title={
             isLoadingFiles
               ? 'Loading files...'
@@ -245,7 +324,7 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
       </Flex>
 
       {/* File list */}
-      {sessionFiles.map((file) => (
+      {targetFiles.map((file) => (
         <FileSourceCard
           key={file.id}
           id={file.id}

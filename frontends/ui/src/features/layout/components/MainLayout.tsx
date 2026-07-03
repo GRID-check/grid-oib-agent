@@ -20,7 +20,8 @@ import { type FC, useCallback, useMemo } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { Flex } from '@/adapters/ui'
 import { useReducedMotion } from '@/hooks/use-reduced-motion'
-import { AppBar } from './AppBar'
+import { AppShell } from './AppShell'
+import { ChatToolbar } from './ChatToolbar'
 import { SessionsPanel } from './SessionsPanel'
 import { ChatArea } from './ChatArea'
 import { InputArea } from './InputArea'
@@ -40,6 +41,8 @@ interface MainLayoutProps {
   isAuthenticated?: boolean
   /** Callback when sign in is clicked */
   onSignIn?: () => void
+  /** Render the global app shell around the chat workspace */
+  withShell?: boolean
 }
 
 /**
@@ -50,6 +53,7 @@ interface MainLayoutProps {
 export const MainLayout: FC<MainLayoutProps> = ({
   isAuthenticated = false,
   onSignIn,
+  withShell = true,
 }) => {
   const {
     currentConversation,
@@ -146,10 +150,9 @@ export const MainLayout: FC<MainLayoutProps> = ({
     [userConversations, isDeepResearchStreaming, deepResearchOwnerConversationId]
   )
 
-  return (
-    <Flex direction="col" className="h-screen min-w-[768px] overflow-x-auto overflow-y-hidden">
-      {/* AppBar - Fixed at top */}
-      <AppBar
+  const content = (
+    <Flex direction="col" className="min-h-0 flex-1 min-w-[768px] overflow-x-auto overflow-y-hidden">
+      <ChatToolbar
         sessionTitle={currentConversation?.title}
         onNewSession={handleNewSession}
         isNewSessionDisabled={isNavigationBlocked}
@@ -197,4 +200,6 @@ export const MainLayout: FC<MainLayoutProps> = ({
       {isAuthenticated && <DataSourcesPanel />}
     </Flex>
   )
+
+  return withShell ? <AppShell>{content}</AppShell> : content
 }

@@ -43,6 +43,13 @@
       "when": 1743552000000,
       "tag": "0005_project_folders",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1751550000000,
+      "tag": "0006_remove_profile_highlights",
+      "breakpoints": true
     }
   ]
 }

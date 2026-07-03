@@ -187,7 +187,7 @@ export const initialMessagesState = {
   projectId: null as string | null,
 }
 
-export const createMessagesSlice: StateCreator<ChatStore, [], [], MessagesSlice> = (set, get) => ({
+export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", never]], [], MessagesSlice> = (set, get) => ({
   ...initialMessagesState,
 
   startAssistantMessage: () => {

@@ -12,7 +12,7 @@ export const projects = pgTable('projects', {
   createdBy: text('created_by').notNull(),
   collectionName: text('collection_name').notNull(),
   workosResourceId: text('workos_resource_id').unique(),
-  profile: jsonb('profile').$type<ProjectProfile>().notNull().default({}),
+  profile: jsonb('profile').$type<ProjectProfile>().notNull().default({} as ProjectProfile),
   profileVersion: integer('profile_version').notNull().default(1),
   profilePromptView: text('profile_prompt_view'),
   profileDisplay: jsonb('profile_display').$type<ProjectProfileDisplay>(),

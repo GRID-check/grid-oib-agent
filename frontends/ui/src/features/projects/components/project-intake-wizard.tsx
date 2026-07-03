@@ -30,16 +30,17 @@ function buildProfileFromAnswers(answers: Record<string, ProjectPrimitiveValue>,
   for (const question of allQuestions) {
     const answer = answers[question.id]
     if (answer === undefined || answer === null || answer === '') continue
+    const normalizedValue = Array.isArray(answer) ? JSON.stringify(answer) : answer
 
     const writesTo = question.writesTo || ''
     if (writesTo.startsWith('/goals/')) {
       const key = writesTo.replace('/goals/', '')
-      goals[key] = answer
+      goals[key] = normalizedValue
     } else if (writesTo.startsWith('/facts/')) {
       const match = writesTo.match(/^\/facts\/([^/]+)/)
       if (match) {
         facts[match[1]] = {
-          value: answer,
+          value: normalizedValue,
           confidence: 'confirmed' as const,
           source: 'onboarding' as const,
           updatedAt: now,

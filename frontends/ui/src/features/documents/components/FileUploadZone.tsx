@@ -29,7 +29,9 @@ interface UploadedFile {
 }
 
 interface FileUploadZoneProps {
-  /** Session ID for filtering displayed files */
+  /** Collection name for filtering displayed files */
+  collectionName?: string
+  /** @deprecated use collectionName */
   sessionId?: string
   /** Max file size in bytes (for display only) */
   maxFileSize?: number
@@ -48,6 +50,7 @@ interface FileUploadZoneProps {
 // ============================================================================
 
 export const FileUploadZone: FC<FileUploadZoneProps> = ({
+  collectionName,
   sessionId,
   maxFileSize = MAX_FILE_SIZE,
   acceptedTypes = ACCEPTED_FILE_TYPES,
@@ -57,20 +60,21 @@ export const FileUploadZone: FC<FileUploadZoneProps> = ({
 }) => {
   // Check if current session is busy with operations
   const isBusy = useIsCurrentSessionBusy()
+  const targetCollectionName = collectionName ?? sessionId
 
-  // Get files for current session
+  // Get files for current upload target collection
   const trackedFiles = useDocumentsStore((state) => state.trackedFiles)
-  const sessionFiles = useMemo(
-    () => (sessionId ? trackedFiles.filter((f) => f.collectionName === sessionId) : []),
-    [trackedFiles, sessionId]
+  const collectionFiles = useMemo(
+    () => (targetCollectionName ? trackedFiles.filter((f) => f.collectionName === targetCollectionName) : []),
+    [trackedFiles, targetCollectionName]
   )
 
   // Map sessionFiles to KUI Upload value format
   const [uploadValue, setUploadValue] = useState<UploadedFile[]>([])
 
-  // Sync sessionFiles to uploadValue
+  // Sync collection files to uploadValue
   useEffect(() => {
-    const mapped = sessionFiles
+    const mapped = collectionFiles
       .filter((tf) => tf.file) // Only include files with File object (can be displayed in Upload)
       .map((tf) => ({
         id: tf.id,
@@ -85,14 +89,14 @@ export const FileUploadZone: FC<FileUploadZoneProps> = ({
         uploadedBytes: tf.progress ? Math.floor((tf.progress / 100) * tf.fileSize) : undefined,
       }))
     setUploadValue(mapped)
-  }, [sessionFiles])
+  }, [collectionFiles])
 
   const handleValueChange = useCallback(
     (files: UploadedFile | UploadedFile[]) => {
       const fileArray = Array.isArray(files) ? files : [files]
 
-      // Find truly new files (not already tracked in this session)
-      const existingIds = new Set(sessionFiles.map((tf) => tf.id))
+      // Find truly new files (not already tracked in this collection)
+      const existingIds = new Set(collectionFiles.map((tf) => tf.id))
       const newFiles = fileArray.filter((f) => !existingIds.has(f.id)).map((f) => f.file)
 
       if (newFiles.length === 0) return
@@ -100,7 +104,7 @@ export const FileUploadZone: FC<FileUploadZoneProps> = ({
       // Pass files to parent - validation happens in uploadFiles hook
       onUpload?.(newFiles)
     },
-    [sessionFiles, onUpload]
+    [collectionFiles, onUpload]
   )
 
   const uploadDisabled = isUploading || isBusy

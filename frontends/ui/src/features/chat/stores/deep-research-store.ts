@@ -222,7 +222,7 @@ export const initialDeepResearchState = {
   respondToInteractionFn: null as ((response: string) => void) | null,
 }
 
-export const createDeepResearchSlice: StateCreator<ChatStore, [], [], DeepResearchSlice> = (set, get) => ({
+export const createDeepResearchSlice: StateCreator<ChatStore, [["zustand/devtools", never]], [], DeepResearchSlice> = (set, get) => ({
   ...initialDeepResearchState,
 
   startDeepResearch: (jobId: string, messageId?: string) => {

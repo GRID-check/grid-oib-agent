@@ -9,7 +9,7 @@
  * may be less accurate without external data sources.
  *
  * Auto-hides when:
- * - Any data source is enabled (e.g., web search)
+ * - Any data source is enabled (e.g., web search or internal knowledge)
  * - At least one file is available (status === 'success')
  *
  * Dismissable by user. Dismiss state resets when conditions improve
@@ -40,6 +40,7 @@ export const NoSourcesBanner: FC<NoSourcesBannerProps> = ({ isAuthenticated = fa
   const [isDismissedByUser, setIsDismissedByUser] = useState(false)
 
   const enabledDataSourceIds = useLayoutStore((state) => state.enabledDataSourceIds)
+  const knowledgeLayerAvailable = useLayoutStore((state) => state.knowledgeLayerAvailable)
   const sessionId = useChatStore((state) => state.currentConversation?.id)
 
   // Get completed files for the current session from the documents store
@@ -49,7 +50,7 @@ export const NoSourcesBanner: FC<NoSourcesBannerProps> = ({ isAuthenticated = fa
     )
   )
 
-  const hasAnySources = enabledDataSourceIds.length > 0
+  const hasAnySources = enabledDataSourceIds.length > 0 || knowledgeLayerAvailable
   const shouldShow = !hasAnySources && !hasAvailableFiles
 
   // Track previous shouldShow to detect when conditions improve.

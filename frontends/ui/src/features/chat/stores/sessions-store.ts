@@ -299,7 +299,7 @@ export const initialSessionsState = {
   conversations: [] as Conversation[],
 }
 
-export const createSessionsSlice: StateCreator<ChatStore, [], [], SessionsSlice> = (set, get) => ({
+export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", never]], [], SessionsSlice> = (set, get) => ({
   ...initialSessionsState,
 
   loadServerConversations: async () => {

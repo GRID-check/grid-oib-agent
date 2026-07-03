@@ -27,6 +27,7 @@ export function ProjectShell({ projectId, projectName, children }: ProjectShellP
   const pathname = usePathname()
 
   function isActive(href: string, exact: boolean): boolean {
+    if (!pathname) return false
     const fullHref = `/projects/${projectId}${href}`
     return exact ? pathname === fullHref : pathname.startsWith(fullHref)
   }

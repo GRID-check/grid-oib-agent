@@ -18,7 +18,7 @@
 
 import { type FC, memo, useRef, useEffect, useCallback, useState, useMemo } from 'react'
 import { Flex, Text, Button } from '@/adapters/ui'
-import { Document, Lock } from '@/adapters/ui/icons'
+import { Chat, CheckCircle, Document, Folder, Lock, SelectEllipse } from '@/adapters/ui/icons'
 import { useShallow } from 'zustand/react/shallow'
 import { useChatStore, AgentPrompt, AgentResponse, ErrorBanner, FileUploadBanner, DeepResearchBanner, UserMessage, ChatThinking } from '@/features/chat'
 import type { ChatMessage } from '@/features/chat'
@@ -353,66 +353,114 @@ interface WelcomeStateProps {
 }
 
 const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn }) => {
+  const prompts = [
+    'Compare OIB 2 fire resistance duties across building classes.',
+    'Summarize accessibility requirements for a public retrofit.',
+    'Find contradictions between uploaded plans and OIB guidance.',
+  ]
+
   if (!isAuthenticated) {
-    // Logged out state - prompt to sign in
     return (
-      <Flex direction="col" align="center" justify="center" className="relative flex-1 p-8">
-        {/* Starfield background */}
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-30">
-          <div className="h-[500px] w-[500px]">
-            <StarfieldAnimation particleCount={300} maxRadius={220} rotationSpeed={0.0005} />
+      <div className="relative flex flex-1 items-center overflow-hidden p-8">
+        <div className="pointer-events-none absolute right-[-8rem] top-1/2 h-[560px] w-[560px] -translate-y-1/2 opacity-30">
+          <StarfieldAnimation particleCount={260} maxRadius={245} rotationSpeed={0.0005} />
+        </div>
+        <div className="relative mx-auto grid w-full max-w-6xl grid-cols-1 gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+          <div className="rounded-[2rem] border border-base bg-surface-raised-30 p-8 shadow-[0_35px_100px_-75px_rgba(15,23,42,0.8)]">
+            <Flex direction="col" gap="6" align="start">
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-base bg-surface-sunken text-brand">
+                <Lock className="h-6 w-6" />
+              </div>
+              <Flex direction="col" gap="3">
+                <Text kind="body/regular/xs" className="text-subtle uppercase tracking-[0.24em]">
+                  secure workspace
+                </Text>
+                <Text kind="title/xl" className="max-w-2xl text-primary tracking-[-0.04em] md:text-5xl md:leading-none">
+                  Grid opens after your organization is verified.
+                </Text>
+                <Text kind="body/regular/md" className="max-w-xl text-subtle">
+                  Sign in to unlock project-scoped OIB research, document ingestion, and member access controls.
+                </Text>
+              </Flex>
+              <Button kind="primary" size="large" onClick={onSignIn} aria-label="Sign in with SSO" className="transition active:scale-[0.98]">
+                Sign in with SSO
+              </Button>
+            </Flex>
+          </div>
+
+          <div className="grid gap-4 content-end">
+            {['WorkOS authentication', 'Project-scoped retrieval', 'Role-based access'].map((item, index) => (
+              <div key={item} className="rounded-[1.5rem] border border-base bg-surface-raised-30 p-5" style={{ animationDelay: `${index * 80}ms` }}>
+                <Flex align="center" gap="3">
+                  <CheckCircle className="h-5 w-5 text-brand" />
+                  <Text kind="label/semibold/md" className="text-primary">
+                    {item}
+                  </Text>
+                </Flex>
+              </div>
+            ))}
           </div>
         </div>
-
-        {/* Content */}
-        <Flex direction="col" align="center" gap="6" className="relative z-10 max-w-md text-center">
-          <span className="text-6xl text-brand">
-            <Lock />
-          </span>
-          <Text kind="title/lg" className="text-primary">
-            Welcome to Grid
-          </Text>
-          <Text kind="body/regular/md" className="text-subtle">
-            Sign in with your account to start your AI-powered research session.
-          </Text>
-          <Button
-            kind="primary"
-            size="large"
-            onClick={onSignIn}
-            aria-label="Sign in with SSO"
-            className="mt-2"
-          >
-            <Flex align="center" gap="2">
-              <Text kind="label/semibold/md">Sign In with SSO</Text>
-            </Flex>
-          </Button>
-        </Flex>
-
-      </Flex>
+      </div>
     )
   }
 
-  // Logged in state - ready to chat
   return (
-    <Flex direction="col" align="center" justify="center" className="relative flex-1 p-8">
-      {/* Starfield background */}
-      <div className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-30">
-        <div className="h-[500px] w-[500px]">
-          <StarfieldAnimation particleCount={300} maxRadius={220} rotationSpeed={0.001} />
-        </div>
+    <div className="relative flex flex-1 items-center overflow-hidden p-8">
+      <div className="pointer-events-none absolute -right-24 top-10 h-[520px] w-[520px] opacity-25">
+        <StarfieldAnimation particleCount={300} maxRadius={230} rotationSpeed={0.001} />
       </div>
+      <div className="relative mx-auto grid w-full max-w-6xl grid-cols-1 gap-6 lg:grid-cols-[1.25fr_0.75fr]">
+        <section className="rounded-[2rem] border border-base bg-surface-raised-30 p-8 shadow-[0_35px_100px_-75px_rgba(15,23,42,0.8)]">
+          <Flex direction="col" gap="7">
+            <Flex direction="col" gap="4" className="max-w-3xl">
+              <Text kind="body/regular/xs" className="text-subtle uppercase tracking-[0.24em]">
+                OIB research cockpit
+              </Text>
+              <Text kind="title/xl" className="text-primary tracking-[-0.04em] md:text-5xl md:leading-none">
+                Start with a project, then ask for cited building-code reasoning.
+              </Text>
+              <Text kind="body/regular/md" className="max-w-2xl text-subtle">
+                Grid keeps retrieval scoped to the selected workspace and turns long guideline documents into traceable decisions.
+              </Text>
+            </Flex>
 
-      {/* Content */}
-      <Flex direction="col" align="center" gap="4" className="relative z-10 max-w-md text-center">
-        <Text kind="title/lg" className="text-primary">
-          Welcome to Grid
-        </Text>
-        <Text kind="body/regular/md" className="text-subtle">
-          Your AI-powered research companion for exploring technical documentation, market analysis,
-          and more.
-        </Text>
-      </Flex>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-[1.1fr_0.9fr]">
+              <a href="/projects" className="group rounded-[1.5rem] border border-base bg-surface-sunken p-5 transition hover:-translate-y-[2px] hover:bg-surface-raised-50">
+                <Flex direction="col" gap="4">
+                  <Folder className="h-6 w-6 text-brand" />
+                  <Flex direction="col" gap="1">
+                    <Text kind="label/bold/md" className="text-primary">Open projects</Text>
+                    <Text kind="body/regular/sm" className="text-subtle">Create workspaces, manage documents, and invite roles.</Text>
+                  </Flex>
+                </Flex>
+              </a>
+              <div className="rounded-[1.5rem] border border-base p-5">
+                <Flex direction="col" gap="4">
+                  <SelectEllipse className="h-6 w-6 text-brand" />
+                  <Flex direction="col" gap="1">
+                    <Text kind="label/bold/md" className="text-primary">Select context</Text>
+                    <Text kind="body/regular/sm" className="text-subtle">Use the workspace selector before running analysis.</Text>
+                  </Flex>
+                </Flex>
+              </div>
+            </div>
+          </Flex>
+        </section>
 
-    </Flex>
+        <aside className="grid content-center gap-3">
+          {prompts.map((prompt, index) => (
+            <div key={prompt} className="rounded-[1.5rem] border border-base bg-surface-raised-30 p-5 transition hover:-translate-y-[1px]" style={{ animationDelay: `${index * 90}ms` }}>
+              <Flex gap="3" align="start">
+                <Chat className="mt-1 h-5 w-5 shrink-0 text-brand" />
+                <Text kind="body/regular/sm" className="text-primary">
+                  {prompt}
+                </Text>
+              </Flex>
+            </div>
+          ))}
+        </aside>
+      </div>
+    </div>
   )
 }

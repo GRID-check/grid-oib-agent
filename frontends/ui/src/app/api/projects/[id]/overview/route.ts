@@ -70,7 +70,7 @@ export async function GET(
           }
         : null,
       documentCount: stats?.count ?? 0,
-      totalFileSize: stats?.totalSize ?? 0,
+      totalFileSize: Number(stats?.totalSize) || 0,
       recentDocuments: recentDocs.map((d) => ({
         ...d,
         fileSize: d.fileSize,
