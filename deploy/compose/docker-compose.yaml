@@ -33,7 +33,7 @@ services:
     build:
       context: ../..
       dockerfile: deploy/Dockerfile
-      target: ${BUILD_TARGET:-dev}
+      target: ${BUILD_TARGET:-release}
     container_name: aiq-agent
     env_file:
       - ../.env
@@ -73,6 +73,8 @@ services:
     networks:
       - aiq-network
     depends_on:
+      aiq-data-permissions:
+        condition: service_completed_successfully
       minio:
         condition: service_healthy
       postgres:
@@ -84,6 +86,14 @@ services:
       retries: 10
       start_period: 30s
     restart: unless-stopped
+
+  aiq-data-permissions:
+    image: alpine:3.20
+    command: ["sh", "-c", "chown -R 1000:1000 /app/data"]
+    volumes:
+      - aiq-data:/app/data
+      - chroma_data:/app/data/chroma_data
+    restart: "no"
 
   minio:
     image: minio/minio:RELEASE.2024-06-29T01-20-47Z
@@ -130,7 +140,7 @@ services:
       - GRID_APP_DATABASE_URL=${GRID_APP_DATABASE_URL:-postgresql://aiq:aiq_dev@postgres:5432/grid_app}
       - WORKOS_CLIENT_ID=${WORKOS_CLIENT_ID}
       - WORKOS_API_KEY=${WORKOS_API_KEY}
-      - WORKOS_REDIRECT_URI=${WORKOS_REDIRECT_URI:-http://localhost:3000/api/auth/callback}
+      - NEXT_PUBLIC_WORKOS_REDIRECT_URI=${NEXT_PUBLIC_WORKOS_REDIRECT_URI:-${WORKOS_REDIRECT_URI:-http://localhost:3000/api/auth/callback}}
       - WORKOS_COOKIE_PASSWORD=${WORKOS_COOKIE_PASSWORD}
       - FILE_UPLOAD_ACCEPTED_TYPES=${FILE_UPLOAD_ACCEPTED_TYPES:-.pdf,.docx,.txt,.md}
       - FILE_UPLOAD_MAX_SIZE_MB=${FILE_UPLOAD_MAX_SIZE_MB:-}

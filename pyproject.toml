@@ -83,6 +83,9 @@ viz = [
 # See [tool.uv.workspace] below for auto-discovered packages
 # -----------------------------------------------------------------------------
 
+[project.entry-points."aiq_api.validators"]
+workos = "aiq_agent.auth.workos_validator:get_validators"
+
 [project.entry-points."nat.plugins"]
 aiq_chat_researcher = "aiq_agent.agents.chat_researcher.register"
 aiq_shallow_researcher = "aiq_agent.agents.shallow_researcher.register"

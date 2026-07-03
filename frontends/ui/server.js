@@ -115,7 +115,7 @@ const normalizeQueryParam = (value) => {
 }
 
 const fetchCollectionScopeHeader = (req, projectId, conversationId) => {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const query = new URLSearchParams()
     if (projectId) query.set('projectId', projectId)
     if (conversationId) query.set('conversationId', conversationId)
@@ -151,6 +151,11 @@ const fetchCollectionScopeHeader = (req, projectId, conversationId) => {
         })
       }
     )
+
+    request.setTimeout(5000, () => {
+      request.destroy()
+      reject(new Error('Collection scope request timed out'))
+    })
 
     request.on('error', (err) => {
       console.warn('[WS Proxy] Collection scope request failed:', err.message)
@@ -241,6 +246,11 @@ const startServer = async () => {
         }
       } catch (err) {
         console.warn('[WS Proxy] Collection scope lookup failed:', err.message)
+        try {
+          socket.write('HTTP/1.1 500 Internal Server Error\r\n\r\n')
+        } catch {}
+        socket.destroy()
+        return
       }
 
       backendProxy.ws(

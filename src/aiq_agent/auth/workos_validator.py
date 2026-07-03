@@ -45,3 +45,19 @@ def create_workos_validator() -> JWTValidator:
         algorithms=["RS256"],
         verify_iss=True,
     )
+
+
+def get_validators() -> list:
+    """Return a list of validators for the ``aiq_api.validators`` entry point.
+
+    Reads ``WORKOS_CLIENT_ID`` from the environment. If set, returns a
+    WorkOS JWT validator.  If not set, returns an empty list so the entry
+    point is a no-op without the env var.
+
+    Returns:
+        A list containing a :class:`JWTValidator` or an empty list.
+    """
+    client_id = os.environ.get("WORKOS_CLIENT_ID")
+    if not client_id:
+        return []
+    return [create_workos_validator()]
