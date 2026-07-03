@@ -1,17 +1,25 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import { eq, asc } from 'drizzle-orm'
-import { FolderOpen, Plus } from 'lucide-react'
+import { asc, count, eq } from 'drizzle-orm'
+import { FolderOpen } from 'lucide-react'
 import { requireAuthorizedSession } from '@/lib/auth/require-auth'
 import { getDb } from '@/lib/db'
-import { projects } from '@/lib/db/schema'
+import { documents, projects } from '@/lib/db/schema'
 import { ProjectCard } from '@/components/projects/project-card'
-import { CreateProjectForm } from '@/components/projects/create-project-form'
-import { AppShell } from '@/features/layout/components/AppShell'
+import { CreateProjectDialog } from '@/components/projects/create-project-dialog'
+import { EmptyState } from '@/components/ui/empty-state'
+import { OrgTopbar } from '@/components/shell'
 
-export default async function ProjectsPage(): Promise<JSX.Element> {
+const isAuthRequired = (): boolean => process.env.REQUIRE_AUTH?.toLowerCase() === 'true'
+
+interface ProjectsPageProps {
+  searchParams: Promise<{ new?: string }>
+}
+
+export default async function ProjectsPage({ searchParams }: ProjectsPageProps): Promise<JSX.Element> {
   const session = await requireAuthorizedSession()
+  const { new: newParam } = await searchParams
   const db = getDb()
 
   const rows = await db
@@ -20,74 +28,58 @@ export default async function ProjectsPage(): Promise<JSX.Element> {
     .where(eq(projects.organizationId, session.organizationId))
     .orderBy(asc(projects.createdAt))
 
+  const docCounts = await db
+    .select({ projectId: documents.projectId, total: count() })
+    .from(documents)
+    .where(eq(documents.organizationId, session.organizationId))
+    .groupBy(documents.projectId)
+
+  const docCountByProject = new Map(docCounts.map((row) => [row.projectId, Number(row.total)]))
+
+  const autoOpenCreate = newParam === '1'
+
   return (
-    <AppShell>
-      <main className="mx-auto w-full max-w-7xl px-4 py-8 md:px-8">
-        <header className="flex flex-col justify-between gap-6 border-b pb-8 md:flex-row md:items-end">
-          <div className="flex max-w-2xl flex-col gap-3">
-            <span className="text-xs uppercase tracking-[0.24em] text-muted-foreground">
-              Architecture project OS
-            </span>
-            <h1 className="text-2xl font-semibold tracking-tight">
-              Run every building project from one calm workspace.
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              Grid keeps files, context, colleagues, OIB research, and project conversations
-              together so the assistant is only one part of the workspace.
+    <div className="flex min-h-[100dvh] flex-col bg-background text-foreground">
+      <OrgTopbar
+        user={{ name: session.name, email: session.email }}
+        authRequired={isAuthRequired()}
+        heading="Projects"
+      />
+
+      <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-8 md:px-8">
+        <header className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-end">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">Projects</h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Every building project in one calm workspace — documents, members, OIB/RIS research,
+              and chat, grounded together.
             </p>
           </div>
-          <div className="grid min-w-[220px] grid-cols-2 gap-3 rounded-lg border bg-card p-4">
-            <div>
-              <p className="text-2xl font-semibold tracking-tight">{rows.length}</p>
-              <p className="text-xs uppercase tracking-wider text-muted-foreground">active</p>
-            </div>
-            <div>
-              <p className="text-2xl font-semibold tracking-tight">OIB</p>
-              <p className="text-xs uppercase tracking-wider text-muted-foreground">corpus</p>
-            </div>
-          </div>
+          <CreateProjectDialog defaultOpen={autoOpenCreate} />
         </header>
 
-        <section className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-[380px_1fr]">
-          <aside className="h-fit rounded-lg border bg-card p-5 lg:sticky lg:top-6">
-            <div className="flex flex-col gap-4">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border bg-muted text-primary">
-                  <Plus className="h-5 w-5" />
-                </div>
-                <div className="flex flex-col gap-0.5">
-                  <h2 className="text-sm font-semibold">New workspace</h2>
-                  <p className="text-sm text-muted-foreground">
-                    Name the mission, then add documents and members.
-                  </p>
-                </div>
-              </div>
-              <CreateProjectForm />
-            </div>
-          </aside>
-
+        <section className="mt-8">
           {rows.length === 0 ? (
-            <div className="flex min-h-[420px] flex-col items-center justify-center gap-4 rounded-lg border border-dashed p-8 text-center">
-              <div className="flex h-14 w-14 items-center justify-center rounded-md border bg-muted text-primary">
-                <FolderOpen className="h-6 w-6" />
-              </div>
-              <h2 className="text-lg font-semibold tracking-tight">
-                No project has been staged yet
-              </h2>
-              <p className="max-w-md text-sm text-muted-foreground">
-                Create the first workspace on the left. The project selector, member access, and
-                project chat unlock after that.
-              </p>
-            </div>
+            <EmptyState
+              icon={FolderOpen}
+              title="Start your first project"
+              description="Grid is an OIB/RIS building-compliance copilot. Create a project to bring its documents, members, and research into one workspace — then ask Grid questions grounded in Austrian building law."
+              action={<CreateProjectDialog label="Create your first project" />}
+              className="min-h-[420px] justify-center"
+            />
           ) : (
-            <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 animate-in fade-in-0 sm:grid-cols-2 xl:grid-cols-3">
               {rows.map((project) => (
-                <ProjectCard key={project.id} project={project} />
+                <ProjectCard
+                  key={project.id}
+                  project={project}
+                  docCount={docCountByProject.get(project.id) ?? 0}
+                />
               ))}
             </div>
           )}
         </section>
       </main>
-    </AppShell>
+    </div>
   )
 }

@@ -1,73 +1,63 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-'use client'
-
-import { Folder, LayoutDashboard, FileText, MessageSquare, Users } from 'lucide-react'
+import Link from 'next/link'
+import { FileText, Folder } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import type { Project } from '@/lib/db/schema'
 
 interface ProjectCardProps {
   project: Project
+  /** Number of documents ingested into the project corpus. */
+  docCount?: number
 }
 
-export function ProjectCard({ project }: ProjectCardProps): JSX.Element {
-  const createdAt = new Intl.DateTimeFormat('en', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  }).format(project.createdAt)
+const formatDate = (date: Date) =>
+  new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric', year: 'numeric' }).format(date)
+
+export function ProjectCard({ project, docCount = 0 }: ProjectCardProps): JSX.Element {
+  const summary =
+    project.profileDisplay?.summary?.trim() ||
+    'OIB/RIS building-compliance workspace. Add documents and a brief to ground Grid.'
+
+  const activityDate = project.profileUpdatedAt ?? project.createdAt
+  const activityLabel = project.profileUpdatedAt
+    ? `Updated ${formatDate(activityDate)}`
+    : `Created ${formatDate(activityDate)}`
+
+  const isActive = docCount > 0
+  const docLabel = `${docCount} ${docCount === 1 ? 'document' : 'documents'}`
 
   return (
-    <Card className="gap-5 p-5 transition-colors hover:bg-accent/30">
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border bg-muted text-primary">
-          <Folder className="h-5 w-5" />
+    <Link
+      href={`/projects/${project.id}`}
+      className="group rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+      aria-label={`Open ${project.name}`}
+    >
+      <Card className="h-full gap-4 p-5 transition-colors group-hover:border-primary/30 group-hover:bg-accent/30">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex size-9 shrink-0 items-center justify-center rounded-md border bg-muted text-primary">
+            <Folder className="size-4" />
+          </div>
+          <Badge variant={isActive ? 'success' : 'secondary'}>
+            {isActive ? 'Active' : 'Draft'}
+          </Badge>
         </div>
-        <Badge variant="outline" className="uppercase tracking-wider text-muted-foreground">
-          Project
-        </Badge>
-      </div>
 
-      <div className="flex flex-col gap-1">
-        <h3 className="text-lg font-semibold tracking-tight">{project.name}</h3>
-        <p className="truncate font-mono text-xs text-muted-foreground">{project.collectionName}</p>
-      </div>
+        <div className="flex flex-col gap-1">
+          <h3 className="text-base font-semibold tracking-tight">{project.name}</h3>
+          <p className="line-clamp-2 text-sm text-muted-foreground">{summary}</p>
+        </div>
 
-      <div className="flex flex-col gap-4 border-t pt-4">
-        <div className="flex flex-col gap-0.5">
-          <span className="text-xs uppercase tracking-wider text-muted-foreground">created</span>
-          <span className="text-sm">{createdAt}</span>
+        <div className="mt-auto flex items-center justify-between gap-4 border-t pt-3 text-xs text-muted-foreground">
+          <span className="inline-flex items-center gap-1.5">
+            <FileText className="size-3.5" />
+            {docLabel}
+          </span>
+          <span className="tabular-nums">{activityLabel}</span>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Button asChild size="sm">
-            <a href={`/projects/${project.id}`}>
-              <LayoutDashboard className="h-4 w-4" />
-              Open overview
-            </a>
-          </Button>
-          <Button asChild size="sm" variant="outline">
-            <a href={`/projects/${project.id}/files`}>
-              <FileText className="h-4 w-4" />
-              Files
-            </a>
-          </Button>
-          <Button asChild size="sm" variant="outline">
-            <a href={`/projects/${project.id}/chat`}>
-              <MessageSquare className="h-4 w-4" />
-              Ask Grid
-            </a>
-          </Button>
-          <Button asChild size="sm" variant="outline">
-            <a href={`/projects/${project.id}/members`}>
-              <Users className="h-4 w-4" />
-              Members
-            </a>
-          </Button>
-        </div>
-      </div>
-    </Card>
+      </Card>
+    </Link>
   )
 }

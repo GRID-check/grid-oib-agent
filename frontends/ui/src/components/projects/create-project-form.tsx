@@ -17,6 +17,22 @@ const createProjectSchema = z.object({
     .max(255, 'Project name must be at most 255 characters.'),
 })
 
+/**
+ * First-run accelerators grounded in the Austrian OIB/RIS domain. Selecting one
+ * pre-fills the project name so a new architect isn't staring at a blank field.
+ */
+const PROJECT_TEMPLATES: Array<{ label: string; name: string }> = [
+  { label: 'Neubau Wohnbau', name: 'Neubau Wohnbau' },
+  { label: 'Betriebsbau Brandschutz', name: 'Betriebsbau — Brandschutz' },
+  { label: 'Sanierung Bestand', name: 'Sanierung Bestand' },
+  { label: 'OIB Brandschutz-Audit', name: 'OIB Brandschutz-Audit' },
+]
+
+// The server action re-validates and can surface vendor/database exception text.
+// Never show that to an architect — log it, show a calm, actionable message.
+const FRIENDLY_CREATE_ERROR =
+  "We couldn't create this project just now. Please try again in a moment."
+
 export function CreateProjectForm(): JSX.Element {
   const [serverError, setServerError] = useState<string | null>(null)
 
@@ -29,7 +45,8 @@ export function CreateProjectForm(): JSX.Element {
       formData.set('name', value.name.trim())
       const result = await createProject({}, formData)
       if (result?.error) {
-        setServerError(result.error)
+        console.error('[CreateProjectForm] create failed:', result.error)
+        setServerError(FRIENDLY_CREATE_ERROR)
       }
     },
   })
@@ -45,22 +62,44 @@ export function CreateProjectForm(): JSX.Element {
     >
       <form.Subscribe selector={(state) => state.isSubmitting}>
         {(isSubmitting) => (
-          <form.AppField name="name">
-            {(field) => (
-              <field.TextField
-                label="Project name"
-                placeholder="OIB fire safety review"
-                autoFocus
-                aria-label="Project name"
-                disabled={isSubmitting}
-              />
-            )}
-          </form.AppField>
+          <>
+            <form.AppField name="name">
+              {(field) => (
+                <field.TextField
+                  label="Project name"
+                  placeholder="OIB fire safety review"
+                  autoFocus
+                  aria-label="Project name"
+                  disabled={isSubmitting}
+                />
+              )}
+            </form.AppField>
+
+            <div className="flex flex-col gap-2">
+              <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                Start from a template
+              </span>
+              <div className="flex flex-wrap gap-2">
+                {PROJECT_TEMPLATES.map((template) => (
+                  <button
+                    key={template.name}
+                    type="button"
+                    disabled={isSubmitting}
+                    onClick={() => form.setFieldValue('name', template.name)}
+                    className="rounded-md border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none disabled:opacity-50"
+                  >
+                    {template.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </>
         )}
       </form.Subscribe>
 
       <p className="text-sm text-muted-foreground">
-        Create a focused workspace for documents, retrieval, members, and chat context.
+        Create a focused workspace for documents, retrieval, members, and chat grounded in the
+        OIB/RIS corpus.
       </p>
 
       {serverError && (

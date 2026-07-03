@@ -29,6 +29,12 @@ export interface SidebarUser {
 export interface SidebarUserMenuProps {
   user?: SidebarUser
   authRequired: boolean
+  /** Dropdown side — 'top' for the sidebar footer (default), 'bottom' for a topbar. */
+  menuSide?: 'top' | 'bottom'
+  /** Dropdown alignment — defaults to 'start'. */
+  menuAlign?: 'start' | 'end'
+  /** Hide the name label next to the avatar (compact avatar-only trigger). */
+  compact?: boolean
 }
 
 const THEME_OPTIONS: Array<{ mode: ThemeMode; label: string; icon: React.ComponentType<{ className?: string }> }> = [
@@ -37,7 +43,13 @@ const THEME_OPTIONS: Array<{ mode: ThemeMode; label: string; icon: React.Compone
   { mode: 'dark', label: 'Dark', icon: Moon },
 ]
 
-export function SidebarUserMenu({ user, authRequired }: SidebarUserMenuProps) {
+export function SidebarUserMenu({
+  user,
+  authRequired,
+  menuSide = 'top',
+  menuAlign = 'start',
+  compact = false,
+}: SidebarUserMenuProps) {
   const { signOut } = useAuth()
   const theme = useLayoutStore((s) => s.theme)
   const setTheme = useLayoutStore((s) => s.setTheme)
@@ -49,8 +61,9 @@ export function SidebarUserMenu({ user, authRequired }: SidebarUserMenuProps) {
     <DropdownMenu>
       <DropdownMenuTrigger
         className={cn(
-          'flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm',
+          'flex items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm',
           'transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none',
+          compact ? 'w-auto' : 'w-full',
         )}
         aria-label={`User menu for ${displayName}`}
       >
@@ -58,9 +71,11 @@ export function SidebarUserMenu({ user, authRequired }: SidebarUserMenuProps) {
           {user?.image && <AvatarImage src={user.image} alt="" />}
           <AvatarFallback className="text-[10px] font-medium">{initial}</AvatarFallback>
         </Avatar>
-        <span className="min-w-0 flex-1 truncate text-muted-foreground">{displayName}</span>
+        {!compact && (
+          <span className="min-w-0 flex-1 truncate text-muted-foreground">{displayName}</span>
+        )}
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" side="top" className="w-56">
+      <DropdownMenuContent align={menuAlign} side={menuSide} className="w-56">
         <DropdownMenuLabel>
           <div className="flex flex-col gap-0.5">
             <span className="text-sm font-medium">{displayName}</span>
