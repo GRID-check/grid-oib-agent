@@ -1,10 +1,13 @@
 import { eq } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { projects } from '@/lib/db/schema'
-import { ProjectProfilePatchOperationSchema, ProjectProfileSchema, safePatchPath } from './types'
-import type { ProjectPrimitiveValue, ProjectProfile, ProjectProfileDisplay, ProjectProfilePatchOperation } from './types'
+import { ProjectProfileSchema } from './types'
+import type { ProjectPrimitiveValue, ProjectProfile, ProjectProfileDisplay } from './types'
 
-const UNSAFE_POINTER_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor'])
+// Re-exported so existing server-side importers (profile / patches routes, tests)
+// keep a single import surface; the engine itself now lives in the isomorphic
+// patch-engine module so the intake wizard can share it.
+export { applyProjectProfilePatch, emptyProjectProfile } from './patch-engine'
 
 const promptViewCache = new Map<string, { data: string | null; timestamp: number }>()
 const PROMPT_VIEW_CACHE_TTL_MS = 5 * 60 * 1000
@@ -84,105 +87,6 @@ export function buildProjectProfileDisplay(profile: ProjectProfile): ProjectProf
       })),
     missingInfo: [...normalized.unknowns].sort(),
   }
-}
-
-export function applyProjectProfilePatch(
-  profile: ProjectProfile,
-  patch: ProjectProfilePatchOperation[],
-): ProjectProfile {
-  const next = structuredClone(ProjectProfileSchema.parse(profile))
-
-  for (const operation of patch) {
-    assertSafePath(operation.path)
-    const parsedOperation = ProjectProfilePatchOperationSchema.parse(operation)
-    applyPatchOperation(next, parsedOperation)
-  }
-
-  return ProjectProfileSchema.parse(next)
-}
-
-function applyPatchOperation(profile: ProjectProfile, operation: ProjectProfilePatchOperation): void {
-  const parts = operation.path.split('/').slice(1).map(decodeJsonPointerSegment)
-  parts.forEach((part) => assertSafePointerSegment(part, operation.path))
-  const key = parts.at(-1)
-  if (!key) {
-    throw new Error(`Unsafe project profile patch path: ${operation.path}`)
-  }
-
-  const parent = parts.slice(0, -1).reduce<unknown>((target, part) => {
-    if (!isObjectLike(target)) {
-      throw new Error(`Unsafe project profile patch path: ${operation.path}`)
-    }
-
-    if (Array.isArray(target)) {
-      const index = Number(part)
-      if (!Number.isInteger(index) || index < 0 || index >= target.length) {
-        throw new Error(`Unsafe project profile patch path: ${operation.path}`)
-      }
-      return target[index]
-    }
-
-    if (!Object.prototype.hasOwnProperty.call(target, part)) {
-      throw new Error(`Unsafe project profile patch path: ${operation.path}`)
-    }
-
-    return target[part]
-  }, profile)
-
-  if (!isObjectLike(parent)) {
-    throw new Error(`Unsafe project profile patch path: ${operation.path}`)
-  }
-
-  if (Array.isArray(parent)) {
-    applyArrayOperation(parent, key, operation)
-    return
-  }
-
-  if (operation.op === 'remove') {
-    delete parent[key]
-    return
-  }
-
-  parent[key] = operation.value
-}
-
-function applyArrayOperation(parent: unknown[], key: string, operation: ProjectProfilePatchOperation): void {
-  if (operation.op === 'add' && key === '-') {
-    parent.push(operation.value)
-    return
-  }
-
-  const index = Number(key)
-  if (!Number.isInteger(index) || index < 0 || index >= parent.length) {
-    throw new Error(`Unsafe project profile patch path: ${operation.path}`)
-  }
-
-  if (operation.op === 'remove') {
-    parent.splice(index, 1)
-    return
-  }
-
-  parent[index] = operation.value
-}
-
-function assertSafePath(path: string): void {
-  if (!safePatchPath.test(path)) {
-    throw new Error(`Unsafe project profile patch path: ${path}`)
-  }
-}
-
-function decodeJsonPointerSegment(segment: string): string {
-  return segment.replaceAll('~1', '/').replaceAll('~0', '~')
-}
-
-function assertSafePointerSegment(segment: string, path: string): void {
-  if (UNSAFE_POINTER_SEGMENTS.has(segment)) {
-    throw new Error(`Unsafe project profile patch path: ${path}`)
-  }
-}
-
-function isObjectLike(value: unknown): value is Record<string, unknown> | unknown[] {
-  return typeof value === 'object' && value !== null
 }
 
 function formatPromptToken(value: string): string {

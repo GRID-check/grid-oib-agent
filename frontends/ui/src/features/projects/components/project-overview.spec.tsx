@@ -25,7 +25,17 @@ describe('ProjectOverview', () => {
 
   it('shows setup prompt when no profile exists', () => {
     render(<ProjectOverview data={mockData} />)
-    expect(screen.getByText(/Tell Grid about this project/i)).toBeDefined()
+    expect(screen.getByText(/Set up the project brief/i)).toBeDefined()
+  })
+
+  it('never renders a blank brief: profile present but no key facts still guides the user', () => {
+    const dataWithEmptyProfile = {
+      ...mockData,
+      profileDisplay: { title: 'Project profile', summary: '', keyFacts: [], missingInfo: [] },
+    }
+    render(<ProjectOverview data={dataWithEmptyProfile} />)
+    expect(screen.getByText(/Project Brief/i)).toBeDefined()
+    expect(screen.getByText(/no details are captured yet/i)).toBeDefined()
   })
 
   it('shows file count', () => {
