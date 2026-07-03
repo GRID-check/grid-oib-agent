@@ -34,7 +34,7 @@ const ProjectChatContent = ({ projectId }: { projectId: string }): ReactNode => 
     void loadResearchPanelTab(jobId, 'report')
   }, [isAuthenticated, jobId, loadResearchPanelTab])
 
-  return <MainLayout isAuthenticated={isAuthenticated} onSignIn={signIn} withShell={false} />
+  return <MainLayout isAuthenticated={isAuthenticated} onSignIn={signIn} />
 }
 
 const ProjectChatPage = ({ params }: ProjectChatPageProps): ReactNode => {

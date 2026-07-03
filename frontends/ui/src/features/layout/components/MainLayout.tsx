@@ -19,7 +19,6 @@
 import { type FC, useCallback, useMemo } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useReducedMotion } from '@/hooks/use-reduced-motion'
-import { AppShell } from './AppShell'
 import { ChatToolbar } from './ChatToolbar'
 import { SessionsPanel } from './SessionsPanel'
 import { ChatArea } from './ChatArea'
@@ -40,8 +39,6 @@ interface MainLayoutProps {
   isAuthenticated?: boolean
   /** Callback when sign in is clicked */
   onSignIn?: () => void
-  /** Render the global app shell around the chat workspace */
-  withShell?: boolean
 }
 
 /**
@@ -49,11 +46,7 @@ interface MainLayoutProps {
  * Manages the overall structure and panel states.
  * Chat state is managed via the useChatStore.
  */
-export const MainLayout: FC<MainLayoutProps> = ({
-  isAuthenticated = false,
-  onSignIn,
-  withShell = true,
-}) => {
+export const MainLayout: FC<MainLayoutProps> = ({ isAuthenticated = false, onSignIn }) => {
   const {
     currentConversation,
     conversations,
@@ -202,5 +195,5 @@ export const MainLayout: FC<MainLayoutProps> = ({
     </div>
   )
 
-  return withShell ? <AppShell>{content}</AppShell> : content
+  return content
 }
