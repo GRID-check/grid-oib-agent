@@ -10,7 +10,6 @@
 // Main layout components
 export {
   MainLayout,
-  AppBar,
   SessionsPanel,
   ChatArea,
   InputArea,

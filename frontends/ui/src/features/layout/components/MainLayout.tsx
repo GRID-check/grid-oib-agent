@@ -5,10 +5,10 @@
  * MainLayout Component
  *
  * The main application layout container that orchestrates:
- * - AppBar (top)
+ * - ChatToolbar (top)
  * - SessionsPanel (left, overlay)
  * - ChatArea + InputArea (center, responsive width)
- * - ResearchPanel (right, pushes content - takes 60% when open)
+ * - ResearchPanel (right, pushes content when open)
  * - DataSourcesPanel (right, overlay)
  *
  * Handles auth state to show different UI for logged-in vs logged-out users.

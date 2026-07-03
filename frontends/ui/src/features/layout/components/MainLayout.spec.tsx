@@ -66,10 +66,6 @@ vi.mock('../store', () => ({
 }))
 
 // Mock child components
-vi.mock('./AppShell', () => ({
-  AppShell: ({ children }: { children: ReactNode }) => <>{children}</>,
-}))
-
 vi.mock('./ChatToolbar', () => ({
   ChatToolbar: ({
     sessionTitle,
