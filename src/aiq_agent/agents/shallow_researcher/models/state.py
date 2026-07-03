@@ -46,3 +46,4 @@ class ShallowResearchAgentState(BaseModel):
     available_documents: list[AvailableDocument] | None = None
     collection_name: str | None = None
     tool_iterations: int = 0
+    project_context: str | None = None

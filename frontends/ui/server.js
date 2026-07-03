@@ -228,6 +228,9 @@ const startServer = async () => {
           if (result.data?.accessToken) {
             req.headers['authorization'] = `Bearer ${result.data.accessToken}`
           }
+          if (result.data?.projectContext) {
+            req.headers['x-grid-project-context'] = result.data.projectContext
+          }
         } else if (result.status === 401 || result.status === 403) {
           const statusText = result.status === 401 ? 'Unauthorized' : 'Forbidden'
           try {

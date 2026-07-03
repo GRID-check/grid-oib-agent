@@ -119,3 +119,12 @@ Current date and time: {{ current_datetime }}
 Authenticated user: **{{ user_info.name }}** ({{ user_info.email or "email not provided" }})
 When the request references "me", "myself", or "my work", it means this person.
 {% endif %}
+
+{% if project_context %}
+## Project Context
+<project_context>
+{{ project_context }}
+</project_context>
+
+Use confirmed project context when interpreting the user's request. Treat unknowns as missing information, not assumptions. Do not invent missing project facts.
+{% endif %}

@@ -1,0 +1,117 @@
+import { NextResponse } from 'next/server'
+import { eq } from 'drizzle-orm'
+import { requireAuthorizedSession } from '@/lib/auth/require-auth'
+import { requireProjectAccess } from '@/lib/authz/projects'
+import { getDb } from '@/lib/db'
+import { projects } from '@/lib/db/schema'
+import { buildProjectProfileDisplay, buildProjectPromptView } from '@/lib/project-profile/prompt-view'
+import { ProjectProfileSchema } from '@/lib/project-profile/types'
+import type { ProjectProfile, ProjectProfileDisplay } from '@/lib/project-profile/types'
+
+const isAuthzError = (error: unknown): boolean => {
+  if (!(error instanceof Error)) return false
+  const message = error.message.toLowerCase()
+  return (
+    message === 'not found' ||
+    message.includes('unauthorized') ||
+    message.includes('forbidden')
+  )
+}
+
+export type StoredProfileResponse = {
+  profile: ProjectProfile
+  profileVersion: number
+  profilePromptView: string | null
+  profileDisplay: ProjectProfileDisplay | null
+  profileHighlights: ProjectProfileDisplay['keyFacts'] | null
+  profileUpdatedAt: Date | null
+}
+
+export async function GET(
+  _request: Request,
+  { params }: { params: Promise<{ id: string }> },
+): Promise<Response> {
+  try {
+    const session = await requireAuthorizedSession()
+    const { id } = await params
+
+    await requireProjectAccess(session, id, 'project:view')
+
+    const db = getDb()
+    const [project] = await db.select().from(projects).where(eq(projects.id, id)).limit(1)
+
+    if (!project) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    }
+
+    return NextResponse.json(toProfileResponse(project))
+  } catch (error) {
+    if (isAuthzError(error)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+    console.error('[Profile API] Error:', error)
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 })
+  }
+}
+
+export async function PUT(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> },
+): Promise<Response> {
+  try {
+    const session = await requireAuthorizedSession()
+    const { id } = await params
+
+    await requireProjectAccess(session, id, 'project:edit')
+
+    const body = await request.json().catch(() => null)
+    const parsed = ProjectProfileSchema.safeParse(body)
+
+    if (!parsed.success) {
+      return NextResponse.json({ error: 'Invalid project profile.' }, { status: 400 })
+    }
+
+    const db = getDb()
+    const [current] = await db.select({ profileVersion: projects.profileVersion }).from(projects).where(eq(projects.id, id)).limit(1)
+
+    if (!current) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    }
+
+    const values = buildProfileUpdate(parsed.data, current.profileVersion)
+    const [project] = await db.update(projects).set(values).where(eq(projects.id, id)).returning()
+
+    return NextResponse.json(toProfileResponse(project))
+  } catch (error) {
+    if (isAuthzError(error)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+    console.error('[Profile API] Error:', error)
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 })
+  }
+}
+
+export function buildProfileUpdate(profile: ProjectProfile, currentVersion: number) {
+  const profilePromptView = buildProjectPromptView(profile)
+  const profileDisplay = buildProjectProfileDisplay(profile)
+
+  return {
+    profile,
+    profileVersion: currentVersion + 1,
+    profilePromptView,
+    profileDisplay,
+    profileHighlights: profileDisplay.keyFacts,
+    profileUpdatedAt: new Date(),
+  }
+}
+
+export function toProfileResponse(project: StoredProfileResponse): StoredProfileResponse {
+  return {
+    profile: project.profile,
+    profileVersion: project.profileVersion,
+    profilePromptView: project.profilePromptView,
+    profileDisplay: project.profileDisplay,
+    profileHighlights: project.profileHighlights,
+    profileUpdatedAt: project.profileUpdatedAt,
+  }
+}

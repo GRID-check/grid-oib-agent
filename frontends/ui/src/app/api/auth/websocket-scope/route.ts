@@ -13,6 +13,7 @@ import { NextResponse } from 'next/server'
 import { getGridSession } from '@/lib/auth/session'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
+import { loadProjectPromptView } from '@/lib/project-profile/prompt-view'
 import type { AuthorizedSession } from '@/lib/auth/types'
 
 const isAuthRequired = (): boolean => {
@@ -61,6 +62,11 @@ export async function GET(req: Request): Promise<Response> {
       response.accessToken = session.accessToken
     }
 
+    const projectContext = projectId ? await loadProjectPromptView(projectId) : null
+    if (projectContext) {
+      response.projectContext = projectContext
+    }
+
     return NextResponse.json(response, { status: 200 })
   } catch (error) {
     if (isAuthzError(error)) {
@@ -75,3 +81,5 @@ export async function GET(req: Request): Promise<Response> {
     )
   }
 }
+
+

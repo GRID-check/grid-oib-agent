@@ -67,3 +67,4 @@ class DeepResearchAgentState(BaseModel):
     rubric: str | None = None
     clarifier_result: str | None = None
     available_documents: list[AvailableDocument] | None = None
+    project_context: str | None = None

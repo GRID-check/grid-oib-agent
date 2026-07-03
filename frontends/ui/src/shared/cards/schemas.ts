@@ -9,13 +9,14 @@
 // `npm run generate:cards`.
 
 import { z } from 'zod'
-import { gridCardSchema, legalBasisCardSchema, summaryCardSchema } from './generated'
+import { gridCardSchema, legalBasisCardSchema, summaryCardSchema, projectProfilePatchCardSchema } from './generated'
 
-export { gridCardSchema, legalBasisCardSchema, summaryCardSchema }
+export { gridCardSchema, legalBasisCardSchema, summaryCardSchema, projectProfilePatchCardSchema }
 
 export type GridCard = z.infer<typeof gridCardSchema>
 export type SummaryCardData = z.infer<typeof summaryCardSchema>
 export type LegalBasisCardData = z.infer<typeof legalBasisCardSchema>
+export type ProjectProfilePatchCardData = z.infer<typeof projectProfilePatchCardSchema>
 
 export function validateGridCards(raw: unknown): GridCard[] {
   if (!Array.isArray(raw)) return []

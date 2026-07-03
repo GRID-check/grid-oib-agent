@@ -15,6 +15,7 @@
 import { NextResponse } from 'next/server'
 import { requireAuthorizedSession } from '@/lib/auth/require-auth'
 import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
+import { loadProjectPromptView } from '@/lib/project-profile/prompt-view'
 import type { GridSession } from '@/lib/auth/types'
 
 const isAuthRequired = (): boolean => {
@@ -52,10 +53,11 @@ export async function POST(req: Request): Promise<Response> {
       authHeader = headerToken || (session.accessToken ? `Bearer ${session.accessToken}` : null)
     }
 
-    const { headerValue } = await buildCollectionScopeFromRequest(session, {
+    const { headerValue, projectId } = await buildCollectionScopeFromRequest(session, {
       projectId: body.projectId,
       conversationId: body.conversationId,
     })
+    const projectContext = body.projectId ? await loadProjectPromptView(projectId) : null
 
     // Build the backend URL
     const backendUrl = `${getBackendUrl()}/chat/stream`
@@ -71,6 +73,7 @@ export async function POST(req: Request): Promise<Response> {
         'Content-Type': 'application/json',
         ...(authHeader ? { Authorization: authHeader } : {}),
         'X-Grid-Collection-Scope': headerValue,
+        ...(projectContext ? { 'X-Grid-Project-Context': projectContext } : {}),
       },
       body: JSON.stringify(body),
     })
@@ -159,3 +162,5 @@ export async function POST(req: Request): Promise<Response> {
     )
   }
 }
+
+

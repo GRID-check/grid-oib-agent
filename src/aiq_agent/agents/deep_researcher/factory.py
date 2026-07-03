@@ -125,12 +125,17 @@ class DeepResearchGraphContext:
     def available_documents(self) -> list[dict[str, Any]]:
         return [doc.model_dump() for doc in (self.state.available_documents or [])]
 
+    @property
+    def project_context(self) -> str | None:
+        return self.state.project_context
+
     def render_prompt(self, prompt_name: str, **values: Any) -> str:
         return render_prompt_template(
             self.prompts[prompt_name],
             current_datetime=self.current_datetime,
             user_info=self.state.user_info,
             available_documents=self.available_documents,
+            project_context=self.project_context,
             **values,
         )
 

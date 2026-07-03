@@ -6,16 +6,19 @@ import { Flex } from '@/adapters/ui'
 import type { GridCard } from '@/shared/cards/schemas'
 import { SummaryCard } from './SummaryCard'
 import { LegalBasisCard } from './LegalBasisCard'
+import { ProjectProfilePatchCard } from './ProjectProfilePatchCard'
 
 interface GridCardsProps {
   /** Parsed grid cards to render. */
   cards: GridCard[]
+  /** Optional project ID for patch card API calls. */
+  projectId?: string | null
 }
 
 /**
- * Renders a list of Grid cards (summary / legal_basis) in a vertical stack.
+ * Renders a list of Grid cards (summary / legal_basis / project_profile_patch) in a vertical stack.
  */
-export const GridCards: FC<GridCardsProps> = ({ cards }) => {
+export const GridCards: FC<GridCardsProps> = ({ cards, projectId }) => {
   if (cards.length === 0) {
     return null
   }
@@ -29,7 +32,24 @@ export const GridCards: FC<GridCardsProps> = ({ cards }) => {
           return <SummaryCard key={key} {...card} />
         }
 
-        return <LegalBasisCard key={key} {...card} />
+        if (card.type === 'legal_basis') {
+          return <LegalBasisCard key={key} {...card} />
+        }
+
+        if (card.type === 'project_profile_patch') {
+          return (
+            <ProjectProfilePatchCard
+              key={key}
+              title={card.title || ''}
+              rationale={card.rationale || ''}
+              preview={card.preview || []}
+              patch={card.patch || []}
+              projectId={projectId}
+            />
+          )
+        }
+
+        return null
       })}
     </Flex>
   )

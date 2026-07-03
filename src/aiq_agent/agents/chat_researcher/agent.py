@@ -207,6 +207,7 @@ class ChatResearcherAgent:
                     messages=trimmed_messages,
                     data_sources=state.data_sources,
                     available_documents=state.available_documents,
+                    project_context=state.project_context,
                 )
                 result = await self.shallow_research_fn(shallow_state)
             except EmptySourceRegistryError as exc:
@@ -297,6 +298,7 @@ class ChatResearcherAgent:
                 clarifier_result=state.clarifier_result,
                 available_documents=state.available_documents,
                 user_info=state.user_info,
+                project_context=state.project_context,
             )
             try:
                 result = await self.deep_research_fn(deep_state)
@@ -467,8 +469,10 @@ class ChatResearcherAgent:
                 "user_info": state.user_info,
                 "data_sources": state.data_sources,
                 "available_documents": state.available_documents,
+                "collection_scope": state.collection_scope,
                 "shallow_result": None,  # reset at turn boundary to avoid stale checkpoint state
                 "skip_clarifier": state.skip_clarifier,
+                "project_context": state.project_context,
             }
             messages = state.messages
 

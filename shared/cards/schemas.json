@@ -74,6 +74,99 @@
       "title": "LegalBasisCard",
       "type": "object"
     },
+    "ProjectProfilePatchCard": {
+      "description": "A reviewable patch (add/replace/remove) against a project profile.",
+      "properties": {
+        "patch": {
+          "items": {
+            "$ref": "#/$defs/ProjectProfilePatchOperation"
+          },
+          "title": "Patch",
+          "type": "array"
+        },
+        "preview": {
+          "items": {
+            "$ref": "#/$defs/ProjectProfilePatchPreviewItem"
+          },
+          "title": "Preview",
+          "type": "array"
+        },
+        "rationale": {
+          "title": "Rationale",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "project_profile_patch",
+          "default": "project_profile_patch",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "rationale",
+        "patch",
+        "preview"
+      ],
+      "title": "ProjectProfilePatchCard",
+      "type": "object"
+    },
+    "ProjectProfilePatchOperation": {
+      "description": "A JSON Patch operation targeting a project profile section.",
+      "properties": {
+        "op": {
+          "enum": [
+            "add",
+            "replace",
+            "remove"
+          ],
+          "title": "Op",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "value": {
+          "default": null,
+          "title": "Value"
+        }
+      },
+      "required": [
+        "op",
+        "path"
+      ],
+      "title": "ProjectProfilePatchOperation",
+      "type": "object"
+    },
+    "ProjectProfilePatchPreviewItem": {
+      "description": "A before/after preview for a single patched field.",
+      "properties": {
+        "after": {
+          "title": "After",
+          "type": "string"
+        },
+        "before": {
+          "title": "Before",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "before",
+        "after"
+      ],
+      "title": "ProjectProfilePatchPreviewItem",
+      "type": "object"
+    },
     "SummaryCard": {
       "description": "A concise overview of the answer for the user.",
       "properties": {
@@ -129,6 +222,7 @@
   "discriminator": {
     "mapping": {
       "legal_basis": "#/$defs/LegalBasisCard",
+      "project_profile_patch": "#/$defs/ProjectProfilePatchCard",
       "summary": "#/$defs/SummaryCard"
     },
     "propertyName": "type"
@@ -139,6 +233,9 @@
     },
     {
       "$ref": "#/$defs/LegalBasisCard"
+    },
+    {
+      "$ref": "#/$defs/ProjectProfilePatchCard"
     }
   ]
 }

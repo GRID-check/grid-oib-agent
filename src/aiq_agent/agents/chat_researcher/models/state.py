@@ -64,3 +64,4 @@ class ChatResearcherState(BaseModel):
     collection_scope: list[str] | None = None
     cards: list[dict[str, Any]] | None = None
     skip_clarifier: bool = False
+    project_context: str | None = None
