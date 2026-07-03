@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { type FC } from 'react'
-import { Flex } from '@/adapters/ui'
 import type { GridCard } from '@/shared/cards/schemas'
 import { SummaryCard } from './SummaryCard'
 import { LegalBasisCard } from './LegalBasisCard'
@@ -24,7 +23,7 @@ export const GridCards: FC<GridCardsProps> = ({ cards, projectId }) => {
   }
 
   return (
-    <Flex direction="col" gap="3" className="w-full">
+    <div className="flex w-full flex-col gap-3">
       {cards.map((card, index) => {
         const key = `${card.type}-${index}`
 
@@ -51,6 +50,6 @@ export const GridCards: FC<GridCardsProps> = ({ cards, projectId }) => {
 
         return null
       })}
-    </Flex>
+    </div>
   )
 }

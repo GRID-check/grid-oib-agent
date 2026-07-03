@@ -14,9 +14,9 @@
 'use client'
 
 import { type FC, useCallback } from 'react'
-import { Flex, Text, Button } from '@/adapters/ui'
+import { MessageSquare } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { formatTime } from '@/shared/utils/format-time'
-import { Chat } from '@/adapters/ui/icons'
 import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
 import { useChatStore } from '../store'
 import type { PromptType } from '../types'
@@ -75,20 +75,16 @@ export const AgentPrompt: FC<AgentPromptProps> = ({
   }, [respondToInteractionFn])
 
   return (
-    <Flex justify="start" className="w-full">
-      <Flex direction="col" className="max-w-[85%]">
-        <Flex
-          direction="col"
-          gap="3"
-          className="bg-surface-sunken-opaque border-base overflow-hidden break-words rounded-br-xl rounded-tl-xl rounded-tr-xl border p-4"
-        >
+    <div className="flex w-full justify-start">
+      <div className="flex max-w-[85%] flex-col">
+        <div className="bg-surface-sunken-opaque border-base flex flex-col gap-3 overflow-hidden break-words rounded-br-xl rounded-tl-xl rounded-tr-xl border p-4">
           {/* Agent icon and label */}
-          <Flex align="center" gap="2" className={isResponded ? 'opacity-75' : ''}>
-            <Chat className="text-secondary h-5 w-5" />
-            <Text kind="label/semibold/sm" className="text-secondary">
+          <div className={`flex items-center gap-2 ${isResponded ? 'opacity-75' : ''}`}>
+            <MessageSquare className="text-secondary h-5 w-5" />
+            <span className="text-secondary text-sm font-semibold">
               {isResponded ? 'Agent received your input' : 'Agent needs your input'}
-            </Text>
-          </Flex>
+            </span>
+          </div>
 
           {/* Content - rendered as markdown */}
           <div className={`prose prose-sm max-w-none ${isResponded ? 'opacity-75' : ''}`}>
@@ -100,39 +96,38 @@ export const AgentPrompt: FC<AgentPromptProps> = ({
 
           {/* Approve/Reject buttons for plan approval prompts */}
           {showApprovalButtons && (
-            <Flex justify="end" gap="2">
+            <div className="flex justify-end gap-2">
               <Button
-                kind="secondary"
-                size="small"
+                variant="outline"
+                size="sm"
                 onClick={handleApprove}
                 aria-label="Approve plan"
               >
                 Approve
               </Button>
               <Button
-                kind="secondary"
-                size="small"
-                color="danger"
+                variant="destructive"
+                size="sm"
                 onClick={handleReject}
                 aria-label="Reject plan"
               >
                 Reject
               </Button>
-            </Flex>
+            </div>
           )}
 
           {/* Response display (only shown after user responds) */}
           {isResponded && <ResponseDisplay response={response} />}
-        </Flex>
+        </div>
 
         {/* Timestamp outside bubble, right-aligned */}
         {timestamp && (
-          <Text kind="body/regular/xs" className="text-subtle mr-3 mt-1 self-end">
+          <span className="text-subtle mr-3 mt-1 self-end text-xs">
             {formatTime(timestamp)}
-          </Text>
+          </span>
         )}
-      </Flex>
-    </Flex>
+      </div>
+    </div>
   )
 }
 
@@ -141,19 +136,17 @@ export const AgentPrompt: FC<AgentPromptProps> = ({
  */
 const OptionsList: FC<{ options: string[] }> = ({ options }) => {
   return (
-    <Flex direction="col" gap="1">
+    <div className="flex flex-col gap-1">
       {options.map((option, index) => (
-        <Flex
+        <div
           key={index}
-          align="center"
-          gap="2"
-          className="bg-surface-raised border-base rounded-lg border p-2"
+          className="bg-surface-raised border-base flex items-center gap-2 rounded-lg border p-2"
         >
           <span className="text-subtle text-xs">{index + 1}.</span>
-          <Text kind="body/regular/sm">{option}</Text>
-        </Flex>
+          <span className="text-sm">{option}</span>
+        </div>
       ))}
-    </Flex>
+    </div>
   )
 }
 
@@ -164,11 +157,11 @@ const ResponseDisplay: FC<{ response?: string }> = ({ response }) => {
   if (!response) return null
 
   return (
-    <Flex align="center" gap="2" className="bg-surface-raised border-base rounded-lg border p-2">
-      <Chat className="text-subtle h-4 w-4" />
-      <Text kind="body/regular/sm" className="text-subtle">
+    <div className="bg-surface-raised border-base flex items-center gap-2 rounded-lg border p-2">
+      <MessageSquare className="text-subtle h-4 w-4" />
+      <span className="text-subtle text-sm">
         Your response: <span className="text-primary">{response}</span>
-      </Text>
-    </Flex>
+      </span>
+    </div>
   )
 }

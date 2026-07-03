@@ -4,7 +4,8 @@
 'use client'
 
 import { useState } from 'react'
-import { Card, Flex, Text } from '@/adapters/ui'
+import { Card } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
 
 interface PreviewItem {
   label: string
@@ -63,74 +64,64 @@ export function ProjectProfilePatchCard({
 
   if (status === 'accepted') {
     return (
-      <Card className="border-l-4 border-l-success border-base bg-surface-raised-30 p-4">
-        <Flex direction="col" gap="2">
-          <Text kind="body/regular/sm" className="text-primary">Project context updated.</Text>
-        </Flex>
+      <Card className="border-l-success border-base bg-surface-raised-30 gap-2 border-l-4 p-4">
+        <p className="text-primary text-sm">Project context updated.</p>
       </Card>
     )
   }
 
   if (status === 'rejected') {
     return (
-      <Card className="border-l-4 border-l-subtle border-base bg-surface-raised-30 p-4">
-        <Flex direction="col" gap="2">
-          <Text kind="body/regular/sm" className="text-subtle">Changes discarded.</Text>
-        </Flex>
+      <Card className="border-l-subtle border-base bg-surface-raised-30 gap-2 border-l-4 p-4">
+        <p className="text-subtle text-sm">Changes discarded.</p>
       </Card>
     )
   }
 
   return (
-    <Card className="border-l-4 border-l-warning border-base bg-surface-raised-30 p-4">
-      <Flex direction="col" gap="3">
-        <Text kind="label/semibold/md" className="text-warning">{title}</Text>
-        <Text kind="body/regular/sm" className="text-primary">{rationale}</Text>
+    <Card className="border-l-warning border-base bg-surface-raised-30 gap-3 border-l-4 p-4">
+      <p className="text-warning text-sm font-semibold">{title}</p>
+      <p className="text-primary text-sm">{rationale}</p>
 
-        {preview.length > 0 && (
-          <table className="w-full border-collapse text-sm">
-            <thead>
-              <tr className="border-b border-base text-subtle">
-                <th scope="col" className="py-1 pr-2 text-left font-medium">Field</th>
-                <th scope="col" className="p-1 text-left font-medium">Before</th>
-                <th scope="col" className="pl-2 text-left font-medium">After</th>
+      {preview.length > 0 && (
+        <table className="w-full border-collapse text-sm">
+          <thead>
+            <tr className="border-base text-subtle border-b">
+              <th scope="col" className="py-1 pr-2 text-left font-medium">Field</th>
+              <th scope="col" className="p-1 text-left font-medium">Before</th>
+              <th scope="col" className="pl-2 text-left font-medium">After</th>
+            </tr>
+          </thead>
+          <tbody>
+            {preview.map((item, i) => (
+              <tr key={i} className="border-base border-b">
+                <td className="text-primary py-1 pr-2 font-medium">{item.label}</td>
+                <td className="text-subtle p-1">{item.before}</td>
+                <td className="text-primary pl-2">{item.after}</td>
               </tr>
-            </thead>
-            <tbody>
-              {preview.map((item, i) => (
-                <tr key={i} className="border-b border-base">
-                  <td className="py-1 pr-2 font-medium text-primary">{item.label}</td>
-                  <td className="p-1 text-subtle">{item.before}</td>
-                  <td className="pl-2 text-primary">{item.after}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+            ))}
+          </tbody>
+        </table>
+      )}
 
-        {error && (
-          <Text kind="body/regular/sm" className="text-danger">{error}</Text>
-        )}
+      {error && <p className="text-danger text-sm">{error}</p>}
 
-        <Flex gap="2">
-          {!projectId && <p className="grid-card__hint">Project ID required to apply changes.</p>}
-          <button
-            type="button"
-            onClick={handleAccept}
-            disabled={!projectId || isSubmitting}
-            className="rounded bg-brand px-3 py-1 text-sm font-medium text-on-brand hover:opacity-90 disabled:opacity-50"
-          >
-            {isSubmitting ? 'Applying...' : 'Accept'}
-          </button>
-          <button
-            type="button"
-            onClick={handleReject}
-            className="rounded border border-base bg-surface-raised px-3 py-1 text-sm font-medium text-primary hover:bg-surface-raised-hovered"
-          >
-            Reject
-          </button>
-        </Flex>
-      </Flex>
+      <div className="flex items-center gap-2">
+        {!projectId && (
+          <p className="text-subtle text-xs">Project ID required to apply changes.</p>
+        )}
+        <Button
+          type="button"
+          size="sm"
+          onClick={handleAccept}
+          disabled={!projectId || isSubmitting}
+        >
+          {isSubmitting ? 'Applying...' : 'Accept'}
+        </Button>
+        <Button type="button" variant="outline" size="sm" onClick={handleReject}>
+          Reject
+        </Button>
+      </div>
     </Card>
   )
 }

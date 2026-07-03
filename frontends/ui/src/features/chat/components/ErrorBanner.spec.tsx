@@ -59,11 +59,10 @@ describe('ErrorBanner', () => {
       expect(screen.queryByText(/unable to connect to the server/i)).not.toBeInTheDocument()
     })
 
-    test('uses KUI Banner component', () => {
-      const { container } = render(<ErrorBanner code="connection.failed" />)
+    test('renders as an alert', () => {
+      render(<ErrorBanner code="connection.failed" />)
 
-      // KUI Banner renders with specific class structure
-      expect(container.querySelector('[class*="banner"]')).toBeInTheDocument()
+      expect(screen.getByRole('alert')).toBeInTheDocument()
     })
   })
 

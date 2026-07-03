@@ -13,7 +13,7 @@ import type { ErrorCode } from '../types'
 
 /** Metadata for each error type */
 export interface ErrorMeta {
-  /** KUI Banner status */
+  /** Alert status */
   status: 'error' | 'warning' | 'info'
   /** Human-readable title */
   title: string

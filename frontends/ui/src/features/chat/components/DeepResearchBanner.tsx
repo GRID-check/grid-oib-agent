@@ -15,7 +15,9 @@
 'use client'
 
 import { type FC, useCallback } from 'react'
-import { Banner, Button, Flex, Text } from '@/adapters/ui'
+import { CheckCircle2, Info, AlertTriangle, XCircle } from 'lucide-react'
+import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
 import { formatTime } from '@/shared/utils/format-time'
 import { useLayoutStore } from '@/features/layout/store'
 import { useLoadJobData } from '../hooks/use-load-job-data'
@@ -34,8 +36,16 @@ export interface DeepResearchBannerProps {
   timestamp?: Date | string
 }
 
-/** Banner status type for KUI Banner component */
+/** Banner status type */
 type BannerStatus = 'success' | 'info' | 'warning' | 'error'
+
+/** Maps banner status to Alert variant + icon */
+const STATUS_META: Record<BannerStatus, { variant: 'success' | 'info' | 'warning' | 'destructive'; Icon: typeof Info }> = {
+  success: { variant: 'success', Icon: CheckCircle2 },
+  info: { variant: 'info', Icon: Info },
+  warning: { variant: 'warning', Icon: AlertTriangle },
+  error: { variant: 'destructive', Icon: XCircle },
+}
 
 interface BannerConfig {
   heading: string
@@ -161,8 +171,8 @@ export const DeepResearchBanner: FC<DeepResearchBannerProps> = ({
   const actions =
     bannerType === 'success' && config.buttonText ? (
       <Button
-        kind="secondary"
-        size="small"
+        variant="outline"
+        size="sm"
         onClick={handleButtonClick}
         aria-label={config.buttonText}
       >
@@ -170,22 +180,21 @@ export const DeepResearchBanner: FC<DeepResearchBannerProps> = ({
       </Button>
     ) : undefined
 
+  const { variant, Icon } = STATUS_META[config.status]
+
   return (
-    <Flex direction="col" gap="1" className="w-full">
-      <Banner
-        slotSubheading={config.subheading}
-        slotActions={actions}
-        kind="header"
-        status={config.status}
-        actionsPosition="right"
-      >
-        {config.heading}
-      </Banner>
+    <div className="flex w-full flex-col gap-1">
+      <Alert variant={variant}>
+        <Icon />
+        <AlertTitle>{config.heading}</AlertTitle>
+        <AlertDescription>
+          <span>{config.subheading}</span>
+          {actions && <div className="mt-1">{actions}</div>}
+        </AlertDescription>
+      </Alert>
       {timestamp && (
-        <Text kind="body/regular/xs" className="text-subtle mr-3 self-end">
-          {formatTime(timestamp)}
-        </Text>
+        <span className="text-subtle mr-3 self-end text-xs">{formatTime(timestamp)}</span>
       )}
-    </Flex>
+    </div>
   )
 }

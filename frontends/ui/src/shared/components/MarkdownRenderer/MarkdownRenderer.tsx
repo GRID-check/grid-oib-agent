@@ -6,7 +6,7 @@
 import { type FC, type ReactNode, memo, useMemo } from 'react'
 import ReactMarkdown, { type Components, type ExtraProps } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Text, CodeSnippet, Anchor } from '@/adapters/ui'
+import { CodeBlock } from '@/shared/components/CodeBlock'
 import type { MarkdownRendererProps } from './types'
 import { getLanguageFromClassName } from './utils'
 
@@ -30,7 +30,7 @@ function slugify(text: string): string {
 }
 
 /**
- * MarkdownRenderer - Renders markdown content with KUI styling
+ * MarkdownRenderer - Renders markdown content with shadcn-idiomatic styling
  *
  * @param content - Markdown string to render
  * @param isStreaming - Whether content is still streaming (disables memoization)
@@ -56,12 +56,11 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
             const lineCount = codeContent.split('\n').length
 
             return (
-              <CodeSnippet
+              <CodeBlock
                 value={codeContent}
                 language={language}
-                kind="block"
                 collapsible={lineCount > 15}
-                rows={15}
+                maxLines={15}
               />
             )
           }
@@ -77,52 +76,48 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
           )
         },
 
-        // Skip default pre rendering since CodeSnippet handles it
+        // Skip default pre rendering since CodeBlock handles it
         pre: ({ children }) => <>{children}</>,
 
         // Headings — include id for in-page anchor navigation
         h1: ({ children }) => {
           const id = slugify(getTextFromChildren(children))
           return (
-            <Text asChild kind="title/xl" className="text-primary mb-3 mt-6 block scroll-mt-4">
-              <h1 id={id}>{children}</h1>
-            </Text>
+            <h1 id={id} className="text-primary mb-3 mt-6 block scroll-mt-4 text-2xl font-semibold tracking-tight">
+              {children}
+            </h1>
           )
         },
         h2: ({ children }) => {
           const id = slugify(getTextFromChildren(children))
           return (
-            <Text asChild kind="title/lg" className="text-primary mb-2 mt-5 block scroll-mt-4">
-              <h2 id={id}>{children}</h2>
-            </Text>
+            <h2 id={id} className="text-primary mb-2 mt-5 block scroll-mt-4 text-lg font-semibold">
+              {children}
+            </h2>
           )
         },
         h3: ({ children }) => {
           const id = slugify(getTextFromChildren(children))
           return (
-            <Text asChild kind="title/md" className="text-primary mb-2 mt-4 block scroll-mt-4">
-              <h3 id={id}>{children}</h3>
-            </Text>
+            <h3 id={id} className="text-primary mb-2 mt-4 block scroll-mt-4 text-base font-semibold">
+              {children}
+            </h3>
           )
         },
         h4: ({ children }) => {
           const id = slugify(getTextFromChildren(children))
           return (
-            <Text asChild kind="title/sm" className="text-primary mb-1 mt-3 block scroll-mt-4">
-              <h4 id={id}>{children}</h4>
-            </Text>
+            <h4 id={id} className="text-primary mb-1 mt-3 block scroll-mt-4 text-sm font-semibold">
+              {children}
+            </h4>
           )
         },
 
         // Paragraphs
         p: ({ children }) => (
-          <Text
-            asChild
-            kind={compact ? 'body/regular/sm' : 'body/regular/md'}
-            className="text-primary mb-3 block leading-relaxed"
-          >
-            <p>{children}</p>
-          </Text>
+          <p className={`text-primary mb-3 block leading-relaxed ${compact ? 'text-sm' : 'text-base'}`}>
+            {children}
+          </p>
         ),
 
         // Lists
@@ -133,18 +128,16 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
           <ol className="text-primary mb-3 list-outside list-decimal space-y-1 pl-5">{children}</ol>
         ),
         li: ({ children }) => (
-          <Text asChild kind={compact ? 'body/regular/sm' : 'body/regular/md'}>
-            <li className="text-primary">{children}</li>
-          </Text>
+          <li className={`text-primary ${compact ? 'text-sm' : 'text-base'}`}>{children}</li>
         ),
 
         // Links — anchor hrefs scroll in-page; external hrefs open new tabs
         a: ({ href, children }) => {
           if (href?.startsWith('#')) {
             return (
-              <Anchor
+              <a
                 href={href}
-                kind="inline"
+                className="text-brand underline underline-offset-2 hover:opacity-80"
                 onClick={(e: React.MouseEvent) => {
                   e.preventDefault()
                   const el = document.getElementById(href.slice(1))
@@ -152,13 +145,18 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
                 }}
               >
                 {children}
-              </Anchor>
+              </a>
             )
           }
           return (
-            <Anchor href={href ?? '#'} target="_blank" rel="noopener noreferrer" kind="inline">
+            <a
+              href={href ?? '#'}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-brand underline underline-offset-2 hover:opacity-80"
+            >
               {children}
-            </Anchor>
+            </a>
           )
         },
 
@@ -188,14 +186,10 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
         tbody: ({ children }) => <tbody>{children}</tbody>,
         tr: ({ children }) => <tr className="border-base border-b">{children}</tr>,
         th: ({ children }) => (
-          <Text asChild kind="label/semibold/sm">
-            <th className="text-primary px-3 py-2 text-left">{children}</th>
-          </Text>
+          <th className="text-primary px-3 py-2 text-left text-sm font-semibold">{children}</th>
         ),
         td: ({ children }) => (
-          <Text asChild kind="body/regular/sm">
-            <td className="text-primary px-3 py-2">{children}</td>
-          </Text>
+          <td className="text-primary px-3 py-2 text-sm">{children}</td>
         ),
       }),
       [compact]

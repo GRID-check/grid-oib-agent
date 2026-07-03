@@ -17,11 +17,11 @@ describe('UserMessage', () => {
 Line 2
 Line 3`
 
-    render(<UserMessage content={multilineContent} />)
+    const { container } = render(<UserMessage content={multilineContent} />)
 
-    // Check that the Text component contains the multiline content
-    const textElement = screen.getByTestId('nv-text')
-    expect(textElement.textContent).toBe(multilineContent)
+    // Single newlines within a markdown paragraph are preserved as soft breaks
+    const markdown = container.querySelector('.markdown-content')
+    expect(markdown?.textContent).toBe(multilineContent)
   })
 
   test('renders empty content', () => {

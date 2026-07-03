@@ -10,7 +10,6 @@
 'use client'
 
 import { type FC } from 'react'
-import { Flex, Text } from '@/adapters/ui'
 import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
 import { formatTime } from '@/shared/utils/format-time'
 
@@ -25,17 +24,17 @@ export interface UserMessageProps {
  */
 export const UserMessage: FC<UserMessageProps> = ({ content, timestamp }) => {
   return (
-    <Flex justify="end" className="w-full">
-      <Flex direction="col" align="end" className="max-w-[80%]">
-        <Flex className="bg-surface-sunken-opaque border border-base rounded-bl-xl rounded-tl-xl rounded-tr-xl p-4">
+    <div className="flex w-full justify-end">
+      <div className="flex max-w-[80%] flex-col items-end">
+        <div className="bg-surface-sunken-opaque border-base flex rounded-bl-xl rounded-tl-xl rounded-tr-xl border p-4">
           <MarkdownRenderer content={content} />
-        </Flex>
+        </div>
         {timestamp && (
-          <Text kind="body/regular/xs" className="text-subtle mt-1 ml-3 self-start">
+          <span className="text-subtle ml-3 mt-1 self-start text-xs">
             {formatTime(timestamp)}
-          </Text>
+          </span>
         )}
-      </Flex>
-    </Flex>
+      </div>
+    </div>
   )
 }

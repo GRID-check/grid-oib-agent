@@ -20,7 +20,8 @@
 'use client'
 
 import { type FC, useState, useEffect, useRef } from 'react'
-import { Banner } from '@/adapters/ui'
+import { AlertTriangle, X } from 'lucide-react'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { useLayoutStore } from '@/features/layout/store'
 import { useDocumentsStore } from '@/features/documents'
 import { useChatStore } from '../store'
@@ -75,9 +76,18 @@ export const NoSourcesBanner: FC<NoSourcesBannerProps> = ({ isAuthenticated = fa
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4">
-      <Banner status="warning" kind="inline" onClose={handleDismiss}>
-        {WARNING_MESSAGE}
-      </Banner>
+      <Alert variant="warning" className="relative">
+        <AlertTriangle />
+        <AlertDescription className="pr-6">{WARNING_MESSAGE}</AlertDescription>
+        <button
+          type="button"
+          onClick={handleDismiss}
+          aria-label="Dismiss"
+          className="text-muted-foreground hover:text-foreground absolute right-3 top-3"
+        >
+          <X className="h-4 w-4" aria-hidden="true" />
+        </button>
+      </Alert>
     </div>
   )
 }
