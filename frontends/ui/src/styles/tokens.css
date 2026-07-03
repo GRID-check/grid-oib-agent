@@ -14,14 +14,13 @@
       primitives in src/components/ui.
    2. Legacy semantic vars (--text-color-*, --background-color-surface-*,
       --border-color-*) consumed by the @utility classes in globals.css
-      (text-subtle, bg-surface-sunken, border-base, ...). These carry the KUI
-      names so existing markup keeps rendering while kui-generated.css is
-      dismantled; they resolve to the same palette as (1).
+      (text-subtle, bg-surface-sunken, border-base, ...). These carry the
+      original semantic names so existing markup keeps rendering; they resolve
+      to the same palette as (1).
 
-   Dark mode is driven by the .nv-dark root class (set in app/providers.tsx).
+   Dark mode is driven by the .dark root class (set in app/providers.tsx).
    The `dark:` Tailwind variant is bound to it in globals.css via
-   @custom-variant. When KUI is fully removed, .nv-dark can be renamed .dark
-   here and in providers.tsx in one commit.
+   @custom-variant.
    ============================================================================= */
 
 :root {
@@ -91,7 +90,7 @@
   --border-color-feedback-info: var(--grid-blue);
 }
 
-.nv-dark {
+.dark {
   /* ---- shadcn vars (dark) ---- */
   --background: oklch(0.141 0.005 285.8); /* zinc-950 */
   --foreground: oklch(0.985 0 0);

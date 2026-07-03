@@ -2,92 +2,23 @@
 @import 'tailwindcss/preflight.css';
 @import 'tailwindcss/utilities.css';
 
-/* KUI Foundations 0.600 — extracted from @kui/foundations-tailwind-plugin.
-   Generated once, frozen as static CSS. No build-time plugin dependency.
-   Contains: component styles, theme tokens, dark mode, density, animations.
-   BEING DISMANTLED: replaced by tokens.css + src/components/ui (shadcn). */
-@import '../styles/kui-generated.css';
-
-/* GRID design tokens — shadcn vars + legacy semantic vars (see tokens.css).
-   Imported after kui-generated.css so our token values win the cascade. */
+/* GRID design tokens — shadcn vars + legacy semantic vars (see tokens.css). */
 @import '../styles/tokens.css';
 @import 'tw-animate-css';
 
-/* Bind the `dark:` variant to the existing theme mechanism (providers.tsx
-   toggles .nv-dark on the root element). Rename to .dark once KUI is gone. */
-@custom-variant dark (&:is(.nv-dark *));
+/* Bind the `dark:` variant to the theme mechanism: providers.tsx toggles the
+   `.dark` class on the root element; light is the default (no class). */
+@custom-variant dark (&:is(.dark *));
 
 /* Layout variables */
 :root {
   --header-height: 3.5rem;
 }
 
-/*
- * KUI sets on .nv-side-panel-content:
- *   --heading-padding-block: spacing-density-xl + spacing*3  (~28px per block side)
- * and .nv-side-panel-heading uses padding-block: var(--heading-padding-block),
- * which makes the title row ~77px. Override the token on docked panels so padding
- * matches the main header height. The bordered heading has a 1px bottom border;
- * spacing*6 matches KUI’s default heading icon size used in the row height math.
- * .nv-side-panel-close uses the same token for vertical position (inherits).
- */
-.nv-side-panel-content.side-panel-dock-under-header {
-  --heading-padding-block: calc(
-    (var(--header-height) - 1px - calc(var(--spacing) * 6)) / 2
-  );
-}
-
-.nv-side-panel-content.side-panel-dock-under-header .nv-side-panel-heading {
-  box-sizing: border-box;
-  min-height: var(--header-height);
-}
-
-/* Bordered panels add border-top on .nv-side-panel-footer; remove for docked app panels. */
-.nv-side-panel-content.side-panel-dock-under-header.nv-side-panel-content--bordered
-  .nv-side-panel-footer {
-  border-top-width: 0;
-  border-top-style: none;
-}
-
-/* =============================================================================
-   Grid brand color theme (unlayered — highest cascade priority)
-
-   Overrides KUI Foundations theme tokens with a clean blue accent that matches
-   the Grid product identity. These unlayered declarations guarantee the brand
-   color resolves correctly for buttons, toggles, spinners, and borders.
-   ============================================================================= */
-
-:root {
-  --color-brand: #2563eb;
-  --color-brand-hover: #1d4ed8;
-  --color-brand-active: #1e40af;
-}
-
-/* Light theme brand tokens */
-:where(:root, .nv-light) {
-  --background-color-interaction-primary-base: var(--color-brand);
-  --background-color-interaction-primary-hover: var(--color-brand-hover);
-  --background-color-interaction-primary-selected: var(--color-brand-active);
-  --border-color-interaction-primary-base: var(--color-brand);
-  --text-color-brand: var(--color-brand);
-  --border-color-brand: var(--color-brand);
-}
-
-/* Dark theme brand tokens */
-.nv-dark {
-  --background-color-interaction-primary-base: var(--color-brand);
-  --background-color-interaction-primary-hover: var(--color-brand-hover);
-  --background-color-interaction-primary-selected: var(--color-brand-active);
-  --border-color-interaction-primary-base: var(--color-brand);
-  --text-color-brand: var(--color-brand);
-  --border-color-brand: var(--color-brand);
-}
-
 /* Custom global styles */
 html,
 body {
   height: 100%;
-  min-width: 768px;
   margin: 0;
   padding: 0;
 }
@@ -100,44 +31,6 @@ body {
 @media (prefers-reduced-motion: no-preference) {
   html {
     scroll-behavior: smooth;
-  }
-}
-
-/* =============================================================================
-   Reduced-motion fallbacks for KUI SidePanel, overlay, and collapsibles.
-
-   KUI's slide animations are gated behind @media (prefers-reduced-motion:
-   no-preference) in kui-generated.css and rely on animation-fill-mode: both
-   to persist the final transform. When animations are disabled (reduce), no
-   fill-mode applies and force-mounted panels stay visible at transform: none.
-   These rules provide the correct end-state transforms directly.
-   ============================================================================= */
-@media (prefers-reduced-motion: reduce) {
-  .nv-side-panel-content.nv-side-panel-content--side-left {
-    transform: translate(-100%);
-  }
-  .nv-side-panel-content.nv-side-panel-content--side-left[data-state="open"] {
-    transform: translate(0);
-  }
-
-  .nv-side-panel-content.nv-side-panel-content--side-right {
-    transform: translate(100%);
-  }
-  .nv-side-panel-content.nv-side-panel-content--side-right[data-state="open"] {
-    transform: translate(0);
-  }
-
-  .nv-side-panel-overlay {
-    opacity: 0;
-    pointer-events: none;
-  }
-  .nv-side-panel-overlay[data-state="open"] {
-    opacity: 1;
-    pointer-events: auto;
-  }
-
-  .nv-collapsible-content[data-state="closed"] {
-    height: 0;
   }
 }
 

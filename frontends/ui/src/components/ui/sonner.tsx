@@ -13,7 +13,7 @@ function Toaster({ ...props }: ToasterProps) {
     const root = document.documentElement
 
     const updateTheme = () => {
-      setTheme(root.classList.contains('nv-dark') ? 'dark' : 'light')
+      setTheme(root.classList.contains('dark') ? 'dark' : 'light')
     }
 
     updateTheme()

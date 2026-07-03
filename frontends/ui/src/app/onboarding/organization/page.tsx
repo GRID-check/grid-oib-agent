@@ -19,7 +19,7 @@ import { CheckCircle2, Folder, Lock, Users } from 'lucide-react'
 import { useAppForm } from '@/components/form'
 import { Card } from '@/components/ui/card'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import { Logo } from '@/adapters/ui'
+import { Logo } from '@/components/brand/logo'
 import { StarfieldAnimation } from '@/shared/components/StarfieldAnimation'
 
 const organizationSchema = z.object({

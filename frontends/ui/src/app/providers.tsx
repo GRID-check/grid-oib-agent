@@ -12,8 +12,9 @@
  * - ConversationHydrator (loads server-persisted conversations)
  *
  * Theme (dark/light) is applied directly to the document element via
- * useThemeEffect below — it toggles the `.nv-light` / `.nv-dark` classes
- * that the token stylesheet keys off of. There is no separate theme provider.
+ * useThemeEffect below — it toggles the `.dark` class that the token
+ * stylesheet keys off of. Light is the default (no class). There is no
+ * separate theme provider.
  */
 
 'use client'
@@ -51,27 +52,18 @@ const useThemeEffect = (theme: ThemeMode): void => {
     if (!mounted) return
 
     const root = document.documentElement
-
-    // Remove existing theme classes
-    root.classList.remove('nv-light', 'nv-dark')
+    const applyDark = (isDark: boolean): void => root.classList.toggle('dark', isDark)
 
     if (theme === 'system') {
-      // Check system preference
-      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
-      root.classList.add(prefersDark ? 'nv-dark' : 'nv-light')
-
-      // Listen for system theme changes
       const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
-      const handleChange = (e: MediaQueryListEvent): void => {
-        root.classList.remove('nv-light', 'nv-dark')
-        root.classList.add(e.matches ? 'nv-dark' : 'nv-light')
-      }
+      applyDark(mediaQuery.matches)
+
+      const handleChange = (e: MediaQueryListEvent): void => applyDark(e.matches)
       mediaQuery.addEventListener('change', handleChange)
       return () => mediaQuery.removeEventListener('change', handleChange)
-    } else {
-      // Apply explicit theme
-      root.classList.add(theme === 'dark' ? 'nv-dark' : 'nv-light')
     }
+
+    applyDark(theme === 'dark')
   }, [theme, mounted])
 }
 

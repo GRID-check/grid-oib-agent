@@ -50,13 +50,6 @@ const RootLayout = async ({ children }: RootLayoutProps): Promise<ReactNode> => 
 
   return (
     <html lang="en" id="style-root" suppressHydrationWarning>
-      <head>
-        {/* CDN SVG icon loader - inlines <svg data-src="..."> elements */}
-        <script
-          src="https://unpkg.com/external-svg-loader@1.6.8/svg-loader.min.js"
-          async
-        />
-      </head>
       <body className="bg-surface-base">
         <Providers config={config}>{children}</Providers>
       </body>
