@@ -49,8 +49,8 @@ export function FilePreviewPane({ file, projectId }: FilePreviewPaneProps) {
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
-      <div className="border-b border-neutral-200 px-4 py-3">
-        <h3 className="text-sm font-medium text-neutral-900 truncate">{file.filename}</h3>
+      <div className="border-b border-base px-4 py-3">
+        <h3 className="text-sm font-medium text-primary truncate">{file.filename}</h3>
       </div>
 
       {/* Preview */}
@@ -64,37 +64,37 @@ export function FilePreviewPane({ file, projectId }: FilePreviewPaneProps) {
         )}
         {canPreview && isLoading && (
           <div className="flex items-center justify-center h-32">
-            <p className="text-sm text-neutral-400">Loading preview...</p>
+            <p className="text-sm text-subtle">Loading preview...</p>
           </div>
         )}
         {!canPreview && (
           <div className="flex flex-col items-center justify-center h-32 px-4 text-center">
-            <p className="text-sm text-neutral-400">Preview not available for this file type.</p>
+            <p className="text-sm text-subtle">Preview not available for this file type.</p>
           </div>
         )}
       </div>
 
       {/* Metadata */}
-      <div className="border-t border-neutral-200 px-4 py-3 space-y-2">
+      <div className="border-t border-base px-4 py-3 space-y-2">
         <div className="flex justify-between text-xs">
-          <span className="text-neutral-400">Size</span>
-          <span className="text-neutral-700 font-medium">{formatFileSize(file.fileSize)}</span>
+          <span className="text-subtle">Size</span>
+          <span className="text-secondary font-medium">{formatFileSize(file.fileSize)}</span>
         </div>
         <div className="flex justify-between text-xs">
-          <span className="text-neutral-400">Type</span>
-          <span className="text-neutral-700 font-medium">{file.contentType ?? 'Unknown'}</span>
+          <span className="text-subtle">Type</span>
+          <span className="text-secondary font-medium">{file.contentType ?? 'Unknown'}</span>
         </div>
         <div className="flex justify-between text-xs">
-          <span className="text-neutral-400">Status</span>
-          <span className="text-neutral-700 font-medium">{file.status ?? 'Unknown'}</span>
+          <span className="text-subtle">Status</span>
+          <span className="text-secondary font-medium">{file.status ?? 'Unknown'}</span>
         </div>
       </div>
 
       {/* Actions */}
-      <div className="border-t border-neutral-200 px-4 py-3">
+      <div className="border-t border-base px-4 py-3">
         <a
           href={`/api/documents/${file.id}/download`}
-          className="flex w-full items-center justify-center rounded-lg border border-neutral-300 bg-white px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50"
+          className="flex w-full items-center justify-center rounded-lg border border-base bg-surface-base px-4 py-2 text-sm font-medium text-secondary hover:bg-surface-sunken"
         >
           Download
         </a>

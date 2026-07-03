@@ -100,8 +100,8 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName }:
   return (
     <div className="flex h-full flex-col">
       {/* Top action bar */}
-      <div className="flex items-center justify-between border-b border-neutral-200 px-4 py-3">
-        <h2 className="text-sm font-medium text-neutral-500">{projectName} / Files</h2>
+      <div className="flex items-center justify-between border-b border-base px-4 py-3">
+        <h2 className="text-sm font-medium text-subtle">{projectName} / Files</h2>
         <ProjectUppyUpload
           projectId={projectId}
           folderId={selectedFolderId}
@@ -113,7 +113,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName }:
       {/* Three-pane layout */}
       <div className="flex flex-1 overflow-hidden">
         {/* Folder tree */}
-        <div className="w-60 shrink-0 border-r border-neutral-200 overflow-y-auto">
+        <div className="w-60 shrink-0 border-r border-base overflow-y-auto">
           <FolderTreePane
             folders={folders}
             selectedFolderId={selectedFolderId}
@@ -135,7 +135,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName }:
 
         {/* Preview pane */}
         {selectedFile && (
-          <div className="w-96 shrink-0 border-l border-neutral-200 overflow-y-auto">
+          <div className="w-96 shrink-0 border-l border-base overflow-y-auto">
             <FilePreviewPane file={selectedFile} projectId={projectId} />
           </div>
         )}

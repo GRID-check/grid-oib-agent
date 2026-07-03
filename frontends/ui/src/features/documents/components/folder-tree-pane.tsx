@@ -5,6 +5,7 @@
 
 import { useMemo, useState } from 'react'
 import type { FolderItem } from './project-file-workspace'
+import { Folder, ChevronDown, ChevronRight } from '@/adapters/ui/icons'
 
 interface FolderTreePaneProps {
   folders: FolderItem[]
@@ -46,13 +47,13 @@ export function FolderTreePane({
           onClick={() => onSelectFolder(folder.id)}
           className={`w-full text-left px-3 py-1.5 text-sm transition-colors ${
             selectedFolderId === folder.id
-              ? 'bg-neutral-100 text-neutral-900 font-medium'
-              : 'text-neutral-600 hover:bg-neutral-50'
+              ? 'bg-surface-sunken text-primary font-medium'
+              : 'text-secondary hover:bg-surface-sunken'
           }`}
           style={{ paddingLeft: `${12 + depth * 16}px` }}
         >
-          <span className="mr-2 text-neutral-400">
-            {children.length > 0 ? '▾' : '▸'}
+          <span className="mr-2 text-subtle inline-flex items-center">
+            {children.length > 0 ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
           </span>
           {folder.name}
         </button>,
@@ -68,16 +69,16 @@ export function FolderTreePane({
         onClick={() => onSelectFolder(null)}
         className={`w-full text-left px-3 py-1.5 text-sm transition-colors ${
           selectedFolderId === null
-            ? 'bg-neutral-100 text-neutral-900 font-medium'
-            : 'text-neutral-600 hover:bg-neutral-50'
+            ? 'bg-surface-sunken text-primary font-medium'
+            : 'text-secondary hover:bg-surface-sunken'
         }`}
       >
-        <span className="mr-2">📁</span>
+        <span className="mr-2 inline-flex items-center"><Folder className="h-4 w-4" /></span>
         All Files
       </button>
 
       {isLoading ? (
-        <div className="px-3 py-4 text-sm text-neutral-400">Loading folders...</div>
+        <div className="px-3 py-4 text-sm text-subtle">Loading folders...</div>
       ) : (
         renderFolderTree(rootFolders)
       )}
@@ -95,13 +96,13 @@ export function FolderTreePane({
             }}
             onBlur={() => { if (!newFolderName.trim()) setIsCreating(false) }}
             placeholder="Folder name"
-            className="w-full rounded border border-neutral-300 px-2 py-1 text-sm focus:border-neutral-500 focus:outline-none"
+            className="w-full rounded border border-base px-2 py-1 text-sm focus:border-brand focus:outline-none"
           />
         </div>
       ) : (
         <button
           onClick={() => setIsCreating(true)}
-          className="w-full text-left px-3 py-1.5 text-sm text-neutral-400 hover:text-neutral-600"
+          className="w-full text-left px-3 py-1.5 text-sm text-subtle hover:text-secondary"
         >
           + New Folder
         </button>

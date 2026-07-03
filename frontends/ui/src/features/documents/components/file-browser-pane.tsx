@@ -5,6 +5,7 @@
 
 import { useMemo, useState } from 'react'
 import type { FileItem } from './project-file-workspace'
+import { Image, Document, Paperclip } from '@/adapters/ui/icons'
 
 interface FileBrowserPaneProps {
   files: FileItem[]
@@ -26,11 +27,11 @@ function formatFileSize(bytes: number | null): string {
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  ready: 'bg-green-50 text-green-700',
-  uploaded: 'bg-green-50 text-green-700',
-  pending: 'bg-blue-50 text-blue-700',
-  ingesting: 'bg-blue-50 text-blue-700',
-  failed: 'bg-red-50 text-red-700',
+  ready: 'bg-success-subtle text-success',
+  uploaded: 'bg-success-subtle text-success',
+  pending: 'bg-info-subtle text-info',
+  ingesting: 'bg-info-subtle text-info',
+  failed: 'bg-danger-subtle text-danger',
 }
 
 export function FileBrowserPane({ files, selectedFileId, onSelectFile, isLoading }: FileBrowserPaneProps) {
@@ -45,7 +46,7 @@ export function FileBrowserPane({ files, selectedFileId, onSelectFile, isLoading
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <p className="text-sm text-neutral-400">Loading files...</p>
+        <p className="text-sm text-subtle">Loading files...</p>
       </div>
     )
   }
@@ -53,7 +54,7 @@ export function FileBrowserPane({ files, selectedFileId, onSelectFile, isLoading
   if (files.length === 0) {
     return (
       <div className="flex items-center justify-center h-full">
-        <p className="text-sm text-neutral-400">No files in this folder. Upload to get started.</p>
+        <p className="text-sm text-subtle">No files in this folder. Upload to get started.</p>
       </div>
     )
   }
@@ -61,20 +62,20 @@ export function FileBrowserPane({ files, selectedFileId, onSelectFile, isLoading
   return (
     <div>
       {/* Search bar */}
-      <div className="sticky top-0 border-b border-neutral-200 bg-white px-4 py-2">
+      <div className="sticky top-0 border-b border-base bg-surface-base px-4 py-2">
         <input
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search files..."
-          className="w-full rounded-lg border border-neutral-300 px-3 py-1.5 text-sm focus:border-neutral-500 focus:outline-none"
+          className="w-full rounded-lg border border-base px-3 py-1.5 text-sm focus:border-brand focus:outline-none"
         />
       </div>
 
       {/* File list */}
-      <div className="divide-y divide-neutral-100">
+      <div className="divide-y divide-base">
         {filteredFiles.length === 0 && (
-          <div className="px-4 py-8 text-center text-sm text-neutral-400">
+          <div className="px-4 py-8 text-center text-sm text-subtle">
             No files match "{search}"
           </div>
         )}
@@ -82,22 +83,23 @@ export function FileBrowserPane({ files, selectedFileId, onSelectFile, isLoading
           <button
             key={file.id}
             onClick={() => onSelectFile(selectedFileId === file.id ? null : file.id)}
-            className={`w-full flex items-center justify-between px-4 py-3 text-left transition-colors hover:bg-neutral-50 ${
-              selectedFileId === file.id ? 'bg-neutral-50' : ''
+            className={`w-full flex items-center justify-between px-4 py-3 text-left transition-colors hover:bg-surface-sunken ${
+              selectedFileId === file.id ? 'bg-surface-sunken' : ''
             }`}
           >
             <div className="flex items-center gap-3 min-w-0">
-              <span className="text-lg shrink-0">
-                {file.contentType?.startsWith('image/') ? '🖼' :
-                 file.contentType === 'application/pdf' ? '📄' : '📎'}
+              <span className="shrink-0">
+                {file.contentType?.startsWith('image/') ? <Image className="h-4 w-4 text-subtle" /> :
+                 file.contentType === 'application/pdf' ? <Document className="h-4 w-4 text-subtle" /> :
+                 <Paperclip className="h-4 w-4 text-subtle" />}
               </span>
               <div className="min-w-0">
-                <p className="text-sm font-medium text-neutral-900 truncate">{file.filename}</p>
-                <p className="text-xs text-neutral-400">{formatFileSize(file.fileSize)}</p>
+                <p className="text-sm font-medium text-primary truncate">{file.filename}</p>
+                <p className="text-xs text-subtle">{formatFileSize(file.fileSize)}</p>
               </div>
             </div>
             <span className={`inline-flex items-center shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${
-              STATUS_COLORS[file.status ?? ''] ?? 'bg-neutral-50 text-neutral-500'
+              STATUS_COLORS[file.status ?? ''] ?? 'bg-surface-sunken text-subtle'
             }`}>
               {file.status ?? 'unknown'}
             </span>

@@ -29,23 +29,23 @@ export function ProjectOverview({ data }: ProjectOverviewProps) {
     <div className="mx-auto w-full max-w-5xl space-y-8 px-4 py-8 md:px-8">
       {/* Project Identity */}
       <div>
-        <h1 className="text-3xl font-semibold tracking-tight text-neutral-900">{data.name}</h1>
+        <h1 className="text-3xl font-semibold tracking-tight text-primary">{data.name}</h1>
         {data.profileDisplay?.summary && (
-          <p className="mt-2 text-lg text-neutral-500">{data.profileDisplay.summary}</p>
+          <p className="mt-2 text-lg text-subtle">{data.profileDisplay.summary}</p>
         )}
       </div>
 
       {/* Context Summary Card */}
       {hasProfile && data.profileDisplay?.keyFacts && data.profileDisplay.keyFacts.length > 0 && (
-        <div className="rounded-xl border border-neutral-200 bg-white p-6">
-          <h2 className="text-sm font-medium uppercase tracking-wider text-neutral-400">
+        <div className="rounded-xl border border-base bg-surface-base p-6">
+          <h2 className="text-sm font-medium uppercase tracking-wider text-subtle">
             Project Context
           </h2>
           <dl className="mt-4 grid grid-cols-2 gap-4 gap-x-8 gap-y-3 sm:grid-cols-3">
             {data.profileDisplay.keyFacts.map((fact, i) => (
               <div key={i}>
-                <dt className="text-xs text-neutral-400">{fact.label}</dt>
-                <dd className="mt-0.5 text-sm font-medium text-neutral-800">{fact.value}</dd>
+                <dt className="text-xs text-subtle">{fact.label}</dt>
+                <dd className="mt-0.5 text-sm font-medium text-primary">{fact.value}</dd>
               </div>
             ))}
           </dl>
@@ -54,14 +54,14 @@ export function ProjectOverview({ data }: ProjectOverviewProps) {
 
       {/* Setup Prompt */}
       {!hasProfile && (
-        <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-6">
-          <p className="text-sm text-neutral-500">
+        <div className="rounded-xl border border-base bg-surface-sunken p-6">
+          <p className="text-sm text-subtle">
             Tell Grid about this project to get personalized assistance. Project context helps the
             AI understand your goals, requirements, and constraints.
           </p>
           <Link
             href={`/projects/${data.id}/intake`}
-            className="mt-3 inline-flex items-center rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-800"
+            className="mt-3 inline-flex items-center rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover"
           >
             Set up project context
           </Link>
@@ -72,20 +72,20 @@ export function ProjectOverview({ data }: ProjectOverviewProps) {
       <div className="flex gap-3">
         <Link
           href={`/projects/${data.id}/chat`}
-          className="inline-flex items-center rounded-lg bg-neutral-900 px-5 py-2.5 text-sm font-medium text-white hover:bg-neutral-800"
+          className="inline-flex items-center rounded-lg bg-primary px-5 py-2.5 text-sm font-medium text-white hover:bg-primary-hover"
         >
           Ask Grid
         </Link>
         <Link
           href={`/projects/${data.id}/files`}
-          className="inline-flex items-center rounded-lg border border-neutral-300 bg-white px-5 py-2.5 text-sm font-medium text-neutral-700 hover:bg-neutral-50"
+          className="inline-flex items-center rounded-lg border border-base bg-surface-base px-5 py-2.5 text-sm font-medium text-secondary hover:bg-surface-sunken"
         >
           Upload Files
         </Link>
         {data.profileDisplay?.missingInfo && data.profileDisplay.missingInfo.length > 0 && (
           <Link
             href={`/projects/${data.id}/intake`}
-            className="inline-flex items-center rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm font-medium text-amber-700 hover:bg-amber-100"
+            className="inline-flex items-center rounded-lg border border-warning bg-warning-subtle px-4 py-2.5 text-sm font-medium text-warning hover:bg-warning-subtle-hover"
           >
             Complete context
           </Link>
@@ -94,17 +94,17 @@ export function ProjectOverview({ data }: ProjectOverviewProps) {
 
       {/* Stats Row */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
-        <div className="rounded-xl border border-neutral-200 bg-white p-5">
-          <p className="text-2xl font-semibold text-neutral-900">{data.documentCount}</p>
-          <p className="mt-1 text-sm text-neutral-400">Files</p>
+        <div className="rounded-xl border border-base bg-surface-base p-5">
+          <p className="text-2xl font-semibold text-primary">{data.documentCount}</p>
+          <p className="mt-1 text-sm text-subtle">Files</p>
         </div>
-        <div className="rounded-xl border border-neutral-200 bg-white p-5">
-          <p className="text-2xl font-semibold text-neutral-900">{formatFileSize(data.totalFileSize)}</p>
-          <p className="mt-1 text-sm text-neutral-400">Total size</p>
+        <div className="rounded-xl border border-base bg-surface-base p-5">
+          <p className="text-2xl font-semibold text-primary">{formatFileSize(data.totalFileSize)}</p>
+          <p className="mt-1 text-sm text-subtle">Total size</p>
         </div>
-        <div className="rounded-xl border border-neutral-200 bg-white p-5">
-          <p className="text-2xl font-semibold text-neutral-900">{data.collectionName}</p>
-          <p className="mt-1 text-sm text-neutral-400">Knowledge base</p>
+        <div className="rounded-xl border border-base bg-surface-base p-5">
+          <p className="text-2xl font-semibold text-primary">{data.collectionName}</p>
+          <p className="mt-1 text-sm text-subtle">Knowledge base</p>
         </div>
       </div>
 
@@ -112,32 +112,32 @@ export function ProjectOverview({ data }: ProjectOverviewProps) {
       {hasDocuments && (
         <div>
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-medium uppercase tracking-wider text-neutral-400">
+            <h2 className="text-sm font-medium uppercase tracking-wider text-subtle">
               Recent Files
             </h2>
             <Link
               href={`/projects/${data.id}/files`}
-              className="text-sm text-neutral-500 hover:text-neutral-700"
+              className="text-sm text-subtle hover:text-secondary"
             >
               View all
             </Link>
           </div>
-          <div className="mt-3 divide-y divide-neutral-100 rounded-xl border border-neutral-200 bg-white">
+          <div className="mt-3 divide-y divide-base rounded-xl border border-base bg-surface-base">
             {data.recentDocuments.map((doc) => (
               <div key={doc.id} className="flex items-center justify-between px-5 py-3">
                 <div className="flex items-center gap-3">
-                  <span className="text-sm text-neutral-900">{doc.filename}</span>
-                  <span className="text-xs text-neutral-400">{formatFileSize(doc.fileSize)}</span>
+                  <span className="text-sm text-primary">{doc.filename}</span>
+                  <span className="text-xs text-subtle">{formatFileSize(doc.fileSize)}</span>
                 </div>
                 <span
                   className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
                     doc.status === 'uploaded' || doc.status === 'ready'
-                      ? 'bg-green-50 text-green-700'
+                      ? 'bg-success-subtle text-success'
                       : doc.status === 'pending' || doc.status === 'ingesting'
-                        ? 'bg-blue-50 text-blue-700'
+                        ? 'bg-info-subtle text-info'
                         : doc.status === 'failed'
-                          ? 'bg-red-50 text-red-700'
-                          : 'bg-neutral-50 text-neutral-500'
+                          ? 'bg-danger-subtle text-danger'
+                          : 'bg-surface-sunken text-subtle'
                   }`}
                 >
                   {doc.status ?? 'unknown'}
@@ -150,13 +150,13 @@ export function ProjectOverview({ data }: ProjectOverviewProps) {
 
       {/* Empty State */}
       {!hasDocuments && (
-        <div className="rounded-xl border border-dashed border-neutral-300 bg-neutral-50 p-10 text-center">
-          <p className="text-sm text-neutral-400">
+        <div className="rounded-xl border border-dashed border-base bg-surface-sunken p-10 text-center">
+          <p className="text-sm text-subtle">
             No files yet. Upload your first document to get started.
           </p>
           <Link
             href={`/projects/${data.id}/files`}
-            className="mt-3 inline-flex items-center rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-800"
+            className="mt-3 inline-flex items-center rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover"
           >
             Upload Files
           </Link>
