@@ -440,12 +440,16 @@ async def run_agent_job(
                 context_state.metadata.set(request_attrs)
 
             if project_context is not None:
-                request_attrs = context_state.metadata.get()
-                existing_headers = dict(request_attrs.headers) if request_attrs and request_attrs.headers else {}
-                request_attrs._request.headers = Headers(
-                    headers={**existing_headers, "x-grid-project-context": project_context}
-                )
-                context_state.metadata.set(request_attrs)
+                from aiq_agent.project_context import normalize_project_context
+
+                normalized = normalize_project_context(project_context)
+                if normalized:
+                    request_attrs = context_state.metadata.get()
+                    existing_headers = dict(request_attrs.headers) if request_attrs and request_attrs.headers else {}
+                    request_attrs._request.headers = Headers(
+                        headers={**existing_headers, "x-grid-project-context": normalized}
+                    )
+                    context_state.metadata.set(request_attrs)
 
             workflow_metadata = TraceMetadata(
                 provided_metadata={
