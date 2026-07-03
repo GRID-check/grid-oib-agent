@@ -43,13 +43,20 @@ SYSTEM_PROMPT = (
 def _llm_settings() -> tuple[str, str, str]:
     """Resolve the model/api_key/base_url for the summary LLM call.
 
-    ``SUMMARY_LLM_*`` env vars take precedence, falling back to the generic
-    ``LLM_*`` vars so a dedicated summarization model/provider can be
-    configured independently of the main agent LLM if desired.
+    ``SUMMARY_LLM_*`` env vars take precedence, then generic ``LLM_*`` vars.
+    Neither is set in the standard deployment, so the final fallback matches
+    the OpenRouter setup used by ``config_oib_openrouter.yml`` — without it
+    every summary silently degrades to "".
     """
-    model = os.getenv("SUMMARY_LLM_MODEL", os.getenv("LLM_MODEL", "gpt-4o-mini"))
-    api_key = os.getenv("SUMMARY_LLM_API_KEY", os.getenv("LLM_API_KEY", ""))
-    base_url = os.getenv("SUMMARY_LLM_BASE_URL", os.getenv("LLM_BASE_URL", "https://api.openai.com/v1"))
+    openrouter_key = os.getenv("OPENROUTER_API_KEY", "")
+    default_model = "deepseek/deepseek-v4-flash" if openrouter_key else "gpt-4o-mini"
+    default_base = "https://openrouter.ai/api/v1" if openrouter_key else "https://api.openai.com/v1"
+
+    model = os.getenv("SUMMARY_LLM_MODEL", os.getenv("LLM_MODEL", default_model))
+    api_key = os.getenv("SUMMARY_LLM_API_KEY", os.getenv("LLM_API_KEY", openrouter_key))
+    base_url = os.getenv("SUMMARY_LLM_BASE_URL", os.getenv("LLM_BASE_URL", default_base))
+    if not api_key:
+        logger.warning("No API key for summary LLM (SUMMARY_LLM_API_KEY / LLM_API_KEY / OPENROUTER_API_KEY)")
     return model, api_key, base_url.rstrip("/")
 
 

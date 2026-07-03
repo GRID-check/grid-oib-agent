@@ -40,12 +40,20 @@ export function ProjectOverview({ data }: ProjectOverviewProps) {
         )}
       </div>
 
-      {/* Context Summary Card */}
+      {/* Project Brief — the context the agent works from, owned by the architect */}
       {hasProfile && data.profileDisplay?.keyFacts && data.profileDisplay.keyFacts.length > 0 && (
         <div className="rounded-lg border bg-card p-6">
-          <h2 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            Project Context
-          </h2>
+          <div className="flex items-center justify-between">
+            <h2 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              Project Brief
+            </h2>
+            <Link
+              href={`/projects/${data.id}/intake`}
+              className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+            >
+              Edit brief
+            </Link>
+          </div>
           <dl className="mt-4 grid grid-cols-2 gap-x-8 gap-y-3 sm:grid-cols-3">
             {data.profileDisplay.keyFacts.map((fact, i) => (
               <div key={i}>
@@ -54,6 +62,21 @@ export function ProjectOverview({ data }: ProjectOverviewProps) {
               </div>
             ))}
           </dl>
+          {data.profileDisplay.missingInfo && data.profileDisplay.missingInfo.length > 0 && (
+            <div className="mt-5 border-t pt-4">
+              <p className="text-xs text-muted-foreground">
+                Grid still doesn&apos;t know:{' '}
+                {data.profileDisplay.missingInfo.join(' · ')}
+                {' — '}
+                <Link
+                  href={`/projects/${data.id}/intake`}
+                  className="font-medium text-foreground underline-offset-4 hover:underline"
+                >
+                  complete the brief
+                </Link>
+              </p>
+            </div>
+          )}
         </div>
       )}
 
@@ -78,15 +101,6 @@ export function ProjectOverview({ data }: ProjectOverviewProps) {
         <Button asChild variant="outline">
           <Link href={`/projects/${data.id}/files`}>Upload Files</Link>
         </Button>
-        {data.profileDisplay?.missingInfo && data.profileDisplay.missingInfo.length > 0 && (
-          <Button
-            asChild
-            variant="outline"
-            className="border-[var(--border-color-feedback-warning)] text-[var(--text-color-feedback-warning)] hover:bg-[var(--background-color-feedback-warning-subtle)] hover:text-[var(--text-color-feedback-warning)]"
-          >
-            <Link href={`/projects/${data.id}/intake`}>Complete context</Link>
-          </Button>
-        )}
       </div>
 
       {/* Stats Row */}

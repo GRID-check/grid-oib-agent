@@ -1,9 +1,14 @@
-import { eq } from 'drizzle-orm'
+// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+import { asc, eq } from 'drizzle-orm'
 import { requireAuthorizedSession } from '@/lib/auth/require-auth'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { getDb } from '@/lib/db'
 import { projects } from '@/lib/db/schema'
-import { ProjectShell } from '@/components/projects/project-shell'
+import { AppSidebar } from '@/components/shell'
+
+const isAuthRequired = (): boolean => process.env.REQUIRE_AUTH?.toLowerCase() === 'true'
 
 interface ProjectLayoutProps {
   children: React.ReactNode
@@ -16,17 +21,21 @@ export default async function ProjectLayout({ children, params }: ProjectLayoutP
   await requireProjectAccess(session, id, 'project:view')
   const db = getDb()
 
-  const [project] = await db
-    .select({ name: projects.name })
+  const orgProjects = await db
+    .select({ id: projects.id, name: projects.name })
     .from(projects)
-    .where(eq(projects.id, id))
-    .limit(1)
-
-  const projectName = project?.name ?? 'Project'
+    .where(eq(projects.organizationId, session.organizationId))
+    .orderBy(asc(projects.name))
 
   return (
-    <ProjectShell projectId={id} projectName={projectName}>
-      {children}
-    </ProjectShell>
+    <div className="flex h-screen overflow-hidden bg-background text-foreground">
+      <AppSidebar
+        projectId={id}
+        projects={orgProjects}
+        user={{ name: session.name, email: session.email }}
+        authRequired={isAuthRequired()}
+      />
+      <main className="min-w-0 flex-1 overflow-y-auto">{children}</main>
+    </div>
   )
 }
