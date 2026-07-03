@@ -1,14 +1,22 @@
 import { eq } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { projects } from '@/lib/db/schema'
-import { ProjectProfilePatchOperationSchema, ProjectProfileSchema } from './types'
+import { ProjectProfilePatchOperationSchema, ProjectProfileSchema, safePatchPath } from './types'
 import type { ProjectPrimitiveValue, ProjectProfile, ProjectProfileDisplay, ProjectProfilePatchOperation } from './types'
 
-const SAFE_PATCH_PATH = /^\/(facts|goals|unknowns|assumptions)(\/.*)?$/
 const UNSAFE_POINTER_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor'])
+
+const promptViewCache = new Map<string, { data: string | null; timestamp: number }>()
+const PROMPT_VIEW_CACHE_TTL_MS = 5 * 60 * 1000
 
 export async function loadProjectPromptView(projectId: string | undefined): Promise<string | null> {
   if (!projectId) return null
+
+  const cached = promptViewCache.get(projectId)
+  if (cached && Date.now() - cached.timestamp < PROMPT_VIEW_CACHE_TTL_MS) {
+    return cached.data
+  }
+
   const db = getDb()
   const [project] = await db
     .select({ profilePromptView: projects.profilePromptView })
@@ -16,7 +24,14 @@ export async function loadProjectPromptView(projectId: string | undefined): Prom
     .where(eq(projects.id, projectId))
     .limit(1)
   const promptView = project?.profilePromptView?.trim()
-  return promptView || null
+  const result = promptView || null
+
+  promptViewCache.set(projectId, { data: result, timestamp: Date.now() })
+  return result
+}
+
+export function invalidateProjectPromptViewCache(projectId: string): void {
+  promptViewCache.delete(projectId)
 }
 
 export function buildProjectPromptView(profile: ProjectProfile): string {
@@ -151,7 +166,7 @@ function applyArrayOperation(parent: unknown[], key: string, operation: ProjectP
 }
 
 function assertSafePath(path: string): void {
-  if (!SAFE_PATCH_PATH.test(path)) {
+  if (!safePatchPath.test(path)) {
     throw new Error(`Unsafe project profile patch path: ${path}`)
   }
 }
@@ -191,6 +206,8 @@ function escapeLineSeparator(value: string): string {
 }
 
 function formatDisplayValue(value: ProjectPrimitiveValue): string {
+  if (value === null) return ''
+
   if (typeof value === 'boolean') {
     return value ? 'Yes' : 'No'
   }
