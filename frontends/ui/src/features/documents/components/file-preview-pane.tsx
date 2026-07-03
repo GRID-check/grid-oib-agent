@@ -5,11 +5,10 @@
 
 import { useState, useEffect } from 'react'
 import type { FileItem } from './project-file-workspace'
+import { Skeleton } from '@/components/ui/skeleton'
+import { buttonVariants } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 import { formatFileSize } from '@/lib/utils/format-file-size'
-
-function Skeleton({ className = '' }: { className?: string }) {
-  return <div className={`animate-pulse bg-surface-sunken rounded-lg ${className}`} />
-}
 
 interface FilePreviewPaneProps {
   file: FileItem
@@ -90,7 +89,7 @@ export function FilePreviewPane({ file, projectId }: FilePreviewPaneProps) {
       <div className="border-t border-base px-4 py-3">
         <a
           href={`/api/documents/${file.id}/download`}
-          className="flex w-full items-center justify-center rounded-lg border border-base bg-surface-base px-4 py-2 text-sm font-medium text-secondary hover:bg-surface-sunken"
+          className={cn(buttonVariants({ variant: 'outline' }), 'w-full')}
         >
           Download
         </a>

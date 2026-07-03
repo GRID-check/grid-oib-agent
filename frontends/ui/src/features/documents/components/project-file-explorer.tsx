@@ -4,8 +4,10 @@
 'use client'
 
 import { type FC, useCallback, useMemo, useState } from 'react'
-import { Button, Flex, Text } from '@/adapters/ui'
-import { Document, DocumentCheckmark, Upload } from '@/adapters/ui/icons'
+import { FileCheck2, FileText, Upload } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { formatFileSize } from '@/lib/utils/format-file-size'
 
 interface DocumentRow {
@@ -52,61 +54,61 @@ export const ProjectFileExplorer: FC<ProjectFileExplorerProps> = ({ documents })
   return (
     <div className="rounded-[2rem] border border-base bg-surface-base shadow-[0_35px_100px_-75px_rgba(15,23,42,0.8)]">
       <div className="border-b border-base p-5">
-        <Flex align="start" justify="between" gap="4" className="flex-col md:flex-row">
-          <Flex gap="3" align="center">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-base bg-surface-sunken text-brand">
-              <DocumentCheckmark className="h-6 w-6" />
+        <div className="flex flex-col items-start justify-between gap-4 md:flex-row">
+          <div className="flex items-center gap-3">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-base bg-surface-sunken text-accent-primary">
+              <FileCheck2 className="h-6 w-6" />
             </div>
-            <Flex direction="col" gap="1">
-              <Text kind="body/regular/xs" className="text-subtle uppercase tracking-[0.24em]">project file explorer</Text>
-              <Text kind="label/bold/lg" className="text-primary">Documents ({documents.length})</Text>
-            </Flex>
-          </Flex>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs uppercase tracking-[0.24em] text-subtle">project file explorer</span>
+              <span className="text-lg font-bold text-primary">Documents ({documents.length})</span>
+            </div>
+          </div>
           <div className="inline-flex items-center gap-2 rounded-full border border-base px-4 py-2 text-sm text-subtle">
             <Upload className="h-4 w-4" />
             Upload from the Files sidebar
           </div>
-        </Flex>
-        <input
+        </div>
+        <Input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Filter files by name..."
-          className="mt-5 w-full rounded-2xl border border-base bg-surface-sunken px-4 py-3 text-sm text-primary outline-none transition focus:border-brand"
+          className="mt-5 h-auto rounded-2xl border-base bg-surface-sunken px-4 py-3 text-sm text-primary focus-visible:border-brand"
         />
       </div>
 
       {filteredDocuments.length === 0 ? (
-        <Flex direction="col" align="center" justify="center" gap="3" className="min-h-[280px] p-8 text-center">
+        <div className="flex min-h-[280px] flex-col items-center justify-center gap-3 p-8 text-center">
           <div className="flex h-16 w-16 items-center justify-center rounded-3xl border border-dashed border-base text-subtle">
-            <Document className="h-7 w-7" />
+            <FileText className="h-7 w-7" />
           </div>
-          <Text kind="label/bold/md" className="text-primary">No files found</Text>
-          <Text kind="body/regular/sm" className="max-w-md text-subtle">
+          <span className="text-base font-bold text-primary">No files found</span>
+          <p className="max-w-md text-sm text-subtle">
             Project uploads appear here after they are added from the chat Files sidebar.
-          </Text>
-        </Flex>
+          </p>
+        </div>
       ) : (
         <div className="divide-y divide-base">
           {filteredDocuments.map((doc) => (
-            <Flex key={doc.id} align="center" justify="between" gap="4" className="px-5 py-4 transition hover:bg-surface-raised-30">
-              <Flex align="center" gap="3" className="min-w-0 flex-1">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-surface-sunken text-brand">
-                  <Document className="h-5 w-5" />
+            <div key={doc.id} className="flex items-center justify-between gap-4 px-5 py-4 transition hover:bg-surface-raised-30">
+              <div className="flex min-w-0 flex-1 items-center gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-surface-sunken text-accent-primary">
+                  <FileText className="h-5 w-5" />
                 </div>
-                <Flex direction="col" gap="1" className="min-w-0 flex-1">
-                  <Text kind="label/semibold/sm" className="truncate text-primary">{doc.filename}</Text>
-                  <Flex align="center" gap="3" className="flex-wrap">
-                    {doc.fileSize ? <Text kind="body/regular/xs" className="text-subtle">{formatFileSize(doc.fileSize)}</Text> : null}
-                    {doc.contentType ? <Text kind="body/regular/xs" className="text-subtle">{doc.contentType}</Text> : null}
-                    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${statusClassName(doc.status)}`}>{doc.status}</span>
-                  </Flex>
-                  {doc.errorMessage ? <Text kind="body/regular/xs" className="text-error">{doc.errorMessage}</Text> : null}
-                </Flex>
-              </Flex>
-              <Button kind="secondary" size="small" onClick={() => handleDownload(doc.id)} disabled={downloadingId === doc.id}>
+                <div className="flex min-w-0 flex-1 flex-col gap-1">
+                  <span className="truncate text-sm font-semibold text-primary">{doc.filename}</span>
+                  <div className="flex flex-wrap items-center gap-3">
+                    {doc.fileSize ? <span className="text-xs text-subtle">{formatFileSize(doc.fileSize)}</span> : null}
+                    {doc.contentType ? <span className="text-xs text-subtle">{doc.contentType}</span> : null}
+                    <Badge variant={statusBadgeVariant(doc.status)}>{doc.status}</Badge>
+                  </div>
+                  {doc.errorMessage ? <span className="text-xs text-error">{doc.errorMessage}</span> : null}
+                </div>
+              </div>
+              <Button variant="secondary" size="sm" onClick={() => handleDownload(doc.id)} disabled={downloadingId === doc.id}>
                 {downloadingId === doc.id ? 'Downloading...' : 'Download'}
               </Button>
-            </Flex>
+            </div>
           ))}
         </div>
       )}
@@ -114,11 +116,11 @@ export const ProjectFileExplorer: FC<ProjectFileExplorerProps> = ({ documents })
   )
 }
 
-function statusClassName(status: string): string {
-  if (status === 'uploaded' || status === 'pending') return 'bg-yellow-100 text-yellow-800'
-  if (status === 'ingested' || status === 'success') return 'bg-green-100 text-green-800'
-  if (status === 'failed') return 'bg-red-100 text-red-800'
-  return 'bg-gray-100 text-gray-800'
+function statusBadgeVariant(status: string): 'warning' | 'success' | 'destructive' | 'secondary' {
+  if (status === 'uploaded' || status === 'pending') return 'warning'
+  if (status === 'ingested' || status === 'success') return 'success'
+  if (status === 'failed') return 'destructive'
+  return 'secondary'
 }
 
 

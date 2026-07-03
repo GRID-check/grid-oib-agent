@@ -4,7 +4,6 @@
 'use client'
 
 import { useProjectDocuments } from '@/features/documents/hooks/use-project-documents'
-import { Flex, Text } from '@/adapters/ui'
 
 interface ProjectUploadZoneProps {
   projectId: string
@@ -15,7 +14,7 @@ export function ProjectUploadZone({ projectId }: ProjectUploadZoneProps): JSX.El
 
   return (
     <div className="rounded-lg border p-4">
-      <Text kind="label/bold/md" className="mb-2 text-primary">Upload documents</Text>
+      <p className="mb-2 text-sm font-bold text-primary">Upload documents</p>
       <input
         type="file"
         multiple
@@ -25,21 +24,15 @@ export function ProjectUploadZone({ projectId }: ProjectUploadZoneProps): JSX.El
           if (files.length) uploadFiles(files)
         }}
       />
-      {isUploading && (
-        <Text kind="body/regular/sm" className="mt-2 text-subtle">Uploading...</Text>
-      )}
-      {error && (
-        <Text kind="body/regular/sm" className="mt-2 text-red-500">
-          {error}
-        </Text>
-      )}
-      <Flex direction="col" gap="1" className="mt-2">
+      {isUploading && <p className="mt-2 text-sm text-subtle">Uploading...</p>}
+      {error && <p className="mt-2 text-sm text-error">{error}</p>}
+      <div className="mt-2 flex flex-col gap-1">
         {trackedFiles.map((file) => (
-          <Text key={file.id} kind="body/regular/sm" className="text-subtle">
+          <p key={file.id} className="text-sm text-subtle">
             {file.fileName} — {file.status}
-          </Text>
+          </p>
         ))}
-      </Flex>
+      </div>
     </div>
   )
 }

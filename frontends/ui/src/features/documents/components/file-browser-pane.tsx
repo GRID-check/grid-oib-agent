@@ -5,12 +5,11 @@
 
 import { useMemo, useState } from 'react'
 import type { FileItem } from './project-file-workspace'
-import { Image, Document, Paperclip } from '@/adapters/ui/icons'
+import { ImageIcon, FileText, Paperclip } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
+import { Skeleton } from '@/components/ui/skeleton'
 import { formatFileSize } from '@/lib/utils/format-file-size'
-
-function Skeleton({ className = '' }: { className?: string }) {
-  return <div className={`animate-pulse bg-surface-sunken rounded-lg ${className}`} />
-}
 
 interface FileBrowserPaneProps {
   files: FileItem[]
@@ -19,12 +18,12 @@ interface FileBrowserPaneProps {
   isLoading: boolean
 }
 
-const STATUS_COLORS: Record<string, string> = {
-  ready: 'bg-success-subtle text-success',
-  uploaded: 'bg-success-subtle text-success',
-  pending: 'bg-info-subtle text-info',
-  ingesting: 'bg-info-subtle text-info',
-  failed: 'bg-danger-subtle text-danger',
+const STATUS_BADGE_VARIANT: Record<string, 'success' | 'warning' | 'destructive'> = {
+  ready: 'success',
+  uploaded: 'success',
+  pending: 'warning',
+  ingesting: 'warning',
+  failed: 'destructive',
 }
 
 export function FileBrowserPane({ files, selectedFileId, onSelectFile, isLoading }: FileBrowserPaneProps) {
@@ -60,12 +59,12 @@ export function FileBrowserPane({ files, selectedFileId, onSelectFile, isLoading
     <div>
       {/* Search bar */}
       <div className="sticky top-0 border-b border-base bg-surface-base px-4 py-2">
-        <input
+        <Input
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search files..."
-          className="w-full rounded-lg border border-base px-3 py-1.5 text-sm focus:border-brand focus:outline-none"
+          className="focus-visible:border-brand"
         />
       </div>
 
@@ -86,8 +85,8 @@ export function FileBrowserPane({ files, selectedFileId, onSelectFile, isLoading
           >
             <div className="flex items-center gap-3 min-w-0">
               <span className="shrink-0">
-                {file.contentType?.startsWith('image/') ? <Image className="h-4 w-4 text-subtle" /> :
-                 file.contentType === 'application/pdf' ? <Document className="h-4 w-4 text-subtle" /> :
+                {file.contentType?.startsWith('image/') ? <ImageIcon className="h-4 w-4 text-subtle" /> :
+                 file.contentType === 'application/pdf' ? <FileText className="h-4 w-4 text-subtle" /> :
                  <Paperclip className="h-4 w-4 text-subtle" />}
               </span>
               <div className="min-w-0">
@@ -95,11 +94,9 @@ export function FileBrowserPane({ files, selectedFileId, onSelectFile, isLoading
                 <p className="text-xs text-subtle">{formatFileSize(file.fileSize)}</p>
               </div>
             </div>
-            <span className={`inline-flex items-center shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${
-              STATUS_COLORS[file.status ?? ''] ?? 'bg-surface-sunken text-subtle'
-            }`}>
+            <Badge variant={STATUS_BADGE_VARIANT[file.status ?? ''] ?? 'secondary'} className="shrink-0">
               {file.status ?? 'unknown'}
-            </span>
+            </Badge>
           </button>
         ))}
       </div>

@@ -4,7 +4,8 @@
 'use client'
 
 import { type FC, useCallback, useState } from 'react'
-import { Flex, Text } from '@/adapters/ui'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { formatFileSize } from '@/lib/utils/format-file-size'
 
 interface DocumentRow {
@@ -42,67 +43,46 @@ export const DocumentList: FC<DocumentListProps> = ({ documents }) => {
   }, [])
 
   if (documents.length === 0) {
-    return (
-      <Text kind="body/regular/sm" className="py-4 text-center text-subtle">
-        No documents uploaded yet.
-      </Text>
-    )
+    return <p className="py-4 text-center text-sm text-subtle">No documents uploaded yet.</p>
   }
 
   return (
-    <Flex direction="col" gap="2">
+    <div className="flex flex-col gap-2">
       {documents.map((doc) => (
-        <Flex
+        <div
           key={doc.id}
-          align="center"
-          justify="between"
-          className="rounded-lg border px-4 py-3 transition-colors hover:bg-surface-raised-50"
+          className="flex items-center justify-between rounded-lg border px-4 py-3 transition-colors hover:bg-surface-raised-50"
         >
-          <Flex direction="col" gap="1" className="min-w-0 flex-1">
-            <Text kind="label/semibold/sm" className="truncate text-primary">
-              {doc.filename}
-            </Text>
-            <Flex gap="3" align="center">
-              {doc.fileSize && (
-                <Text kind="body/regular/xs" className="text-subtle">
-                  {formatFileSize(doc.fileSize)}
-                </Text>
-              )}
-              {doc.contentType && (
-                <Text kind="body/regular/xs" className="text-subtle">
-                  {doc.contentType}
-                </Text>
-              )}
-              <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-                doc.status === 'uploaded' || doc.status === 'pending'
-                  ? 'bg-yellow-100 text-yellow-800'
-                  : doc.status === 'ingested' || doc.status === 'success'
-                    ? 'bg-green-100 text-green-800'
-                    : doc.status === 'failed'
-                      ? 'bg-red-100 text-red-800'
-                      : 'bg-gray-100 text-gray-800'
-              }`}>
-                {doc.status}
-              </span>
-            </Flex>
-            {doc.errorMessage && (
-              <Text kind="body/regular/xs" className="text-error">
-                {doc.errorMessage}
-              </Text>
-            )}
-          </Flex>
-          <button
+          <div className="flex min-w-0 flex-1 flex-col gap-1">
+            <span className="truncate text-sm font-semibold text-primary">{doc.filename}</span>
+            <div className="flex items-center gap-3">
+              {doc.fileSize && <span className="text-xs text-subtle">{formatFileSize(doc.fileSize)}</span>}
+              {doc.contentType && <span className="text-xs text-subtle">{doc.contentType}</span>}
+              <Badge variant={statusBadgeVariant(doc.status)}>{doc.status}</Badge>
+            </div>
+            {doc.errorMessage && <span className="text-xs text-error">{doc.errorMessage}</span>}
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => handleDownload(doc.id)}
             disabled={downloadingId === doc.id}
-            className="ml-4 shrink-0 rounded-lg px-3 py-2 text-sm font-medium text-primary underline-offset-4 hover:bg-surface-raised-100 disabled:opacity-50"
+            className="ml-4 shrink-0"
             title="Download file"
           >
             {downloadingId === doc.id ? 'Downloading...' : 'Download'}
-          </button>
-        </Flex>
+          </Button>
+        </div>
       ))}
-    </Flex>
+    </div>
   )
+}
+
+function statusBadgeVariant(status: string): 'warning' | 'success' | 'destructive' | 'secondary' {
+  if (status === 'uploaded' || status === 'pending') return 'warning'
+  if (status === 'ingested' || status === 'success') return 'success'
+  if (status === 'failed') return 'destructive'
+  return 'secondary'
 }
 
 

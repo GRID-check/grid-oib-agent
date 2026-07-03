@@ -5,11 +5,9 @@
 
 import { useMemo, useState } from 'react'
 import type { FolderItem } from './project-file-workspace'
-import { Folder, ChevronDown, ChevronRight } from '@/adapters/ui/icons'
-
-function Skeleton({ className = '' }: { className?: string }) {
-  return <div className={`animate-pulse bg-surface-sunken rounded-lg ${className}`} />
-}
+import { Folder, ChevronDown, ChevronRight } from 'lucide-react'
+import { Input } from '@/components/ui/input'
+import { Skeleton } from '@/components/ui/skeleton'
 
 interface FolderTreePaneProps {
   folders: FolderItem[]
@@ -96,7 +94,7 @@ export function FolderTreePane({
       {/* Create folder */}
       {isCreating ? (
         <div className="px-3 py-1">
-          <input
+          <Input
             autoFocus
             value={newFolderName}
             onChange={(e) => setNewFolderName(e.target.value)}
@@ -106,7 +104,7 @@ export function FolderTreePane({
             }}
             onBlur={() => { if (!newFolderName.trim()) setIsCreating(false) }}
             placeholder="Folder name"
-            className="w-full rounded border border-base px-2 py-1 text-sm focus:border-brand focus:outline-none"
+            className="h-auto py-1 focus-visible:border-brand"
           />
         </div>
       ) : (

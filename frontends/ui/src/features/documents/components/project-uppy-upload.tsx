@@ -4,6 +4,7 @@
 'use client'
 
 import { useRef } from 'react'
+import { Button } from '@/components/ui/button'
 
 interface ProjectUppyUploadProps {
   projectId: string
@@ -32,13 +33,9 @@ export function ProjectUppyUpload({ projectId, folderId, onUpload, isUploading }
         className="hidden"
         onChange={handleChange}
       />
-      <button
-        onClick={() => inputRef.current?.click()}
-        disabled={isUploading}
-        className="inline-flex items-center rounded-lg bg-neutral-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-neutral-800 disabled:opacity-50"
-      >
+      <Button onClick={() => inputRef.current?.click()} disabled={isUploading} size="sm">
         {isUploading ? 'Uploading...' : 'Upload'}
-      </button>
+      </Button>
     </>
   )
 }
