@@ -43,6 +43,18 @@ class IngestRequest(BaseModel):
     document_id: str | None = Field(None, description="Optional document tracking ID")
 
 
+class GenerateSummaryRequest(BaseModel):
+    """Request body for AI project summary generation."""
+
+    profile_text: str = Field(..., description="Structured project profile prompt view text")
+
+
+class GenerateSummaryResponse(BaseModel):
+    """Response for AI project summary generation."""
+
+    summary: str = Field(..., description="One-sentence generated project summary (empty string on failure)")
+
+
 class UploadResponse(BaseModel):
     """Response for document upload (async operation)."""
 
