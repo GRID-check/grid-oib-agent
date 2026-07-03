@@ -15,19 +15,10 @@ import { requireProjectAccess } from '@/lib/authz/projects'
 import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
 import { loadProjectPromptView } from '@/lib/project-profile/prompt-view'
 import type { AuthorizedSession } from '@/lib/auth/types'
+import { isAuthzError } from '@/lib/auth-utils'
 
 const isAuthRequired = (): boolean => {
   return process.env.REQUIRE_AUTH?.toLowerCase() === 'true'
-}
-
-const isAuthzError = (error: unknown): boolean => {
-  if (!(error instanceof Error)) return false
-  const message = error.message.toLowerCase()
-  return (
-    message === 'not found' ||
-    message.includes('unauthorized') ||
-    message.includes('forbidden')
-  )
 }
 
 export async function GET(req: Request): Promise<Response> {
@@ -40,10 +31,6 @@ export async function GET(req: Request): Promise<Response> {
 
     if (isAuthRequired() && !session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-    if (isAuthRequired() && projectId && session) {
-      await requireProjectAccess(session as AuthorizedSession, projectId, 'project:view')
     }
 
     const { scope, headerValue } = await buildCollectionScopeFromRequest(session, {
@@ -59,12 +46,16 @@ export async function GET(req: Request): Promise<Response> {
     if (session) {
       response.organizationId = session.organizationId
       response.userId = session.userId
-      response.accessToken = session.accessToken
     }
 
-    const projectContext = projectId ? await loadProjectPromptView(projectId) : null
-    if (projectContext) {
-      response.projectContext = projectContext
+    if (projectId) {
+      if (isAuthRequired() && session) {
+        await requireProjectAccess(session as AuthorizedSession, projectId, 'project:view')
+      }
+      const projectContext = await loadProjectPromptView(projectId)
+      if (projectContext) {
+        response.projectContext = projectContext
+      }
     }
 
     return NextResponse.json(response, { status: 200 })
