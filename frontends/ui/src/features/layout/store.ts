@@ -9,7 +9,7 @@
  */
 
 import { create } from 'zustand'
-import { devtools } from 'zustand/middleware'
+import { devtools, persist } from 'zustand/middleware'
 import type {
   LayoutState,
   LayoutStore,
@@ -38,8 +38,9 @@ const initialState: LayoutState = {
 
 export const useLayoutStore = create<LayoutStore>()(
   devtools(
-    (set) => ({
-      ...initialState,
+    persist(
+      (set) => ({
+        ...initialState,
 
       toggleSessionsPanel: () =>
         set(
@@ -149,6 +150,13 @@ export const useLayoutStore = create<LayoutStore>()(
           'setDataSourcePanelTab'
         ),
     }),
+      {
+        name: 'grid-layout',
+        // Only the user's explicit theme choice should survive reloads —
+        // panel/tab/data-source state stays ephemeral per session.
+        partialize: (state) => ({ theme: state.theme }),
+      }
+    ),
     { name: 'LayoutStore' }
   )
 )
