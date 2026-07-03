@@ -18,7 +18,7 @@ const APPEARANCE_SEGMENTS: { mode: ThemeMode; label: string }[] = [
   { mode: 'light', label: 'Light' },
 ]
 
-const DOCS_URL = '/docs'
+const DOCS_URL = process.env.NEXT_PUBLIC_DOCS_URL || 'https://docs.grid.ai'
 
 export const GlobalTopNav: FC = () => {
   const { isAuthenticated, authRequired, user, organizationId, signIn, signOut } = useAuth()
