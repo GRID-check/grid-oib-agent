@@ -201,12 +201,17 @@ def _ensure_job_access_schema(conn: Connection, db_url: str) -> None:
         return
     conn.execute(text(_job_access_table_sql(db_url)))
     conn.execute(text(_JOB_ACCESS_INDEX_SQL))
-    conn.execute(text(_JOB_ACCESS_PROJECT_INDEX_SQL))
+    # Backfill columns onto pre-existing tables BEFORE creating the
+    # project_collection index below -- on a deployment where job_access
+    # already existed without that column, CREATE TABLE IF NOT EXISTS is a
+    # no-op and the index creation would otherwise fail with
+    # "column project_collection does not exist".
     if _is_postgres(db_url):
         for statement in _job_access_add_column_statements(db_url):
             conn.execute(text(statement))
     else:
         _ensure_sqlite_job_access_columns(conn)
+    conn.execute(text(_JOB_ACCESS_PROJECT_INDEX_SQL))
     _job_access_schema_initialized.add(db_url)
 
 
