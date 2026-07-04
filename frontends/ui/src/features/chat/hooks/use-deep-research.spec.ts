@@ -198,7 +198,7 @@ describe('useDeepResearch', () => {
       activeDeepResearchMessageId: null,
       currentUserMessageId: 'user-msg-1',
     }
-    vi.mocked(useChatStore).getState = vi.fn(() => ({
+    useChatStore.getState = vi.fn(() => ({
       ...mockStoreState,
       addErrorCard: mockAddErrorCard,
       persistDeepResearchToSession: mockPersistDeepResearchToSession,
@@ -603,7 +603,7 @@ describe('useDeepResearch', () => {
         activeDeepResearchMessageId: 'msg-123',
       })
 
-      vi.mocked(useChatStore).getState = vi.fn(() => ({
+      useChatStore.getState = vi.fn(() => ({
         ...mockStoreState,
         reportContent: 'Test report',
         deepResearchLLMSteps: [],
@@ -1030,7 +1030,7 @@ describe('useDeepResearch', () => {
       })
 
       mockCheckBackendHealthCached.mockResolvedValue(false)
-      vi.mocked(useChatStore).getState = vi.fn(() => ({
+      useChatStore.getState = vi.fn(() => ({
         ...mockStoreState,
         isDeepResearchStreaming: true,
         deepResearchOwnerConversationId: 'test-conv-123',
@@ -1087,7 +1087,7 @@ describe('useDeepResearch', () => {
       await setupConnectedHook()
 
       mockCheckBackendHealthCached.mockResolvedValue(true)
-      vi.mocked(useChatStore).getState = vi.fn(() => ({
+      useChatStore.getState = vi.fn(() => ({
         ...mockStoreState,
         isDeepResearchStreaming: true,
         addErrorCard: mockAddErrorCard,
@@ -1116,7 +1116,7 @@ describe('useDeepResearch', () => {
       await setupConnectedHook()
 
       mockCheckBackendHealthCached.mockResolvedValue(false)
-      vi.mocked(useChatStore).getState = vi.fn(() => ({
+      useChatStore.getState = vi.fn(() => ({
         ...mockStoreState,
         isDeepResearchStreaming: false,
         deepResearchStatus: 'failure',
@@ -1154,7 +1154,7 @@ describe('useDeepResearch', () => {
         activeDeepResearchMessageId: 'msg-123',
       })
 
-      vi.mocked(useChatStore).getState = vi.fn(() => ({
+      useChatStore.getState = vi.fn(() => ({
         ...mockStoreState,
         reportContent: 'Test report',
         deepResearchLLMSteps: [

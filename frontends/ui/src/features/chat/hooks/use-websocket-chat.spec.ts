@@ -268,7 +268,7 @@ describe('useWebSocketChat', () => {
       pendingInteraction: null,
       planMessages: [],
     }
-    vi.mocked(useChatStore).getState = vi.fn(() => mockStoreState) as unknown as typeof useChatStore.getState
+    useChatStore.getState = vi.fn(() => mockStoreState) as unknown as typeof useChatStore.getState
     mockWsClient.isConnected.mockReturnValue(false)
   })
 
@@ -639,7 +639,7 @@ describe('useWebSocketChat', () => {
     vi.mocked(mockLayoutStore.useLayoutStore.getState).mockReturnValue({
       enabledDataSourceIds: [],
       knowledgeLayerAvailable: true,
-    } as ReturnType<typeof mockLayoutStore.useLayoutStore.getState>)
+    } as unknown as ReturnType<typeof mockLayoutStore.useLayoutStore.getState>)
 
     // Mock documents store with no files for this session
     const mockDocumentsStore = await import('@/features/documents/store')
@@ -665,7 +665,7 @@ describe('useWebSocketChat', () => {
     vi.mocked(mockLayoutStore.useLayoutStore.getState).mockReturnValue({
       enabledDataSourceIds: ['web', 'docs'],
       knowledgeLayerAvailable: true,
-    } as ReturnType<typeof mockLayoutStore.useLayoutStore.getState>)
+    } as unknown as ReturnType<typeof mockLayoutStore.useLayoutStore.getState>)
 
     // Mock documents store with files for this session (status: success)
     const mockDocumentsStore = await import('@/features/documents/store')
@@ -693,7 +693,7 @@ describe('useWebSocketChat', () => {
     vi.mocked(mockLayoutStore.useLayoutStore.getState).mockReturnValue({
       enabledDataSourceIds: ['web'],
       knowledgeLayerAvailable: true,
-    } as ReturnType<typeof mockLayoutStore.useLayoutStore.getState>)
+    } as unknown as ReturnType<typeof mockLayoutStore.useLayoutStore.getState>)
 
     // Mock documents store with files in ingesting state
     const mockDocumentsStore = await import('@/features/documents/store')
@@ -721,7 +721,7 @@ describe('useWebSocketChat', () => {
     vi.mocked(mockLayoutStore.useLayoutStore.getState).mockReturnValue({
       enabledDataSourceIds: ['web', 'docs'],
       knowledgeLayerAvailable: false,
-    } as ReturnType<typeof mockLayoutStore.useLayoutStore.getState>)
+    } as unknown as ReturnType<typeof mockLayoutStore.useLayoutStore.getState>)
 
     // Mock documents store with files (but knowledge layer not available)
     const mockDocumentsStore = await import('@/features/documents/store')
@@ -744,7 +744,7 @@ describe('useWebSocketChat', () => {
   test('sendMessage sets error when WebSocket not connected and no conversation', () => {
     mockWsClient.isConnected.mockReturnValue(false)
     mockStoreState.currentConversation = null
-    vi.mocked(useChatStore).getState = vi.fn(() => mockStoreState) as unknown as typeof useChatStore.getState
+    useChatStore.getState = vi.fn(() => mockStoreState) as unknown as typeof useChatStore.getState
 
     const { result } = renderWebSocketHook({ autoConnect: false })
 
