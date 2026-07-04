@@ -66,7 +66,7 @@ export function AppSidebar({
   authRequired,
   canManageMembers = true,
 }: AppSidebarProps) {
-  const pathname = usePathname()
+  const pathname = usePathname() ?? ''
   const base = `/projects/${projectId}`
   const [collapsed, setCollapsed] = React.useState(false)
 

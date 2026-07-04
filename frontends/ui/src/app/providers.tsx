@@ -52,7 +52,9 @@ const useThemeEffect = (theme: ThemeMode): void => {
     if (!mounted) return
 
     const root = document.documentElement
-    const applyDark = (isDark: boolean): void => root.classList.toggle('dark', isDark)
+    const applyDark = (isDark: boolean): void => {
+      root.classList.toggle('dark', isDark)
+    }
 
     if (theme === 'system') {
       const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')

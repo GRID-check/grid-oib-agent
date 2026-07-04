@@ -17,7 +17,7 @@ const ProjectChatContent = ({ projectId }: { projectId: string }): ReactNode => 
   // Deep link from the project Research page: /projects/:id/chat?job=<jobId>
   // loads that job's report into the research panel.
   const searchParams = useSearchParams()
-  const jobId = searchParams.get('job')
+  const jobId = searchParams?.get('job') ?? null
   const { loadResearchPanelTab } = useLoadJobData()
   const loadedJobRef = useRef<string | null>(null)
 
@@ -28,7 +28,7 @@ const ProjectChatContent = ({ projectId }: { projectId: string }): ReactNode => 
   // than force a risky change, we leave the param unconsumed — it is harmless, the
   // link still lands the architect on this project's chat, and prefill can be
   // wired later once the composer draft is lifted into the chat store.
-  const askPrefill = searchParams.get('ask')
+  const askPrefill = searchParams?.get('ask') ?? null
   void askPrefill
 
   useEffect(() => {
