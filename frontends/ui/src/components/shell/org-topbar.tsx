@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * Org-level top frame for surfaces that live above a project (the projects
  * list, onboarding). Deliberately lightweight: brand mark on the left, the
@@ -12,6 +9,7 @@
 import Link from 'next/link'
 
 import { Logo } from '@/components/brand/logo'
+import { FadeIn } from '@/components/motion'
 import { SidebarUserMenu, type SidebarUser } from './sidebar-user-menu'
 
 export interface OrgTopbarProps {
@@ -24,11 +22,14 @@ export interface OrgTopbarProps {
 export function OrgTopbar({ user, authRequired, heading }: OrgTopbarProps) {
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-background/80 backdrop-blur-xl">
-      <div className="mx-auto flex h-14 w-full max-w-5xl items-center justify-between gap-4 px-4 md:px-8">
+      <FadeIn
+        distance={4}
+        className="mx-auto flex h-14 w-full max-w-5xl items-center justify-between gap-4 px-6 md:px-8"
+      >
         <div className="flex items-center gap-3">
           <Link
-            href="/projects"
-            className="rounded-sm focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
+            href="/app/projects"
+            className="rounded-md focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
             aria-label="Grid — all projects"
           >
             <Logo kind="horizontal" size="small" />
@@ -47,7 +48,7 @@ export function OrgTopbar({ user, authRequired, heading }: OrgTopbarProps) {
           menuAlign="end"
           compact
         />
-      </div>
+      </FadeIn>
     </header>
   )
 }

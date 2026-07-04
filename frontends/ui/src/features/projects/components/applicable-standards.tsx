@@ -1,9 +1,7 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 import Link from 'next/link'
 import { ClipboardCheck, ExternalLink, MessageSquareText } from 'lucide-react'
 import type { ApplicableStandard, ApplicableStatus } from '@/lib/oib/applicable-standards'
+import { Stagger, StaggerItem } from '@/components/motion'
 import { Badge } from '@/components/ui/badge'
 import { EmptyState } from '@/components/ui/empty-state'
 
@@ -36,7 +34,7 @@ function statusLabel(status: ApplicableStatus): string {
 /** Build the deep link that prefills the chat composer with a question about a Richtlinie. */
 function askGridHref(projectId: string, standard: ApplicableStandard): string {
   const question = `Which requirements of ${standard.code} (${standard.titleEn}) apply to this project?`
-  return `/projects/${projectId}/chat?ask=${encodeURIComponent(question)}`
+  return `/app/projects/${projectId}/chat?ask=${encodeURIComponent(question)}`
 }
 
 /**
@@ -46,9 +44,9 @@ function askGridHref(projectId: string, standard: ApplicableStandard): string {
  */
 export function ApplicableStandards({ projectId, standards, briefComplete }: ApplicableStandardsProps) {
   return (
-    <section className="space-y-3 animate-in fade-in-0">
+    <section className="space-y-4">
       <div>
-        <h2 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+        <h2 className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
           Applicable standards
         </h2>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -62,11 +60,11 @@ export function ApplicableStandards({ projectId, standards, briefComplete }: App
       </div>
 
       {standards.length > 0 ? (
-        <div className="divide-y rounded-lg border bg-card">
+        <Stagger className="divide-y divide-border overflow-hidden rounded-2xl border bg-card shadow-xs">
           {standards.map((standard) => (
-            <div
+            <StaggerItem
               key={standard.code}
-              className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-start sm:justify-between sm:gap-4"
+              className="flex flex-col gap-3 px-6 py-4 transition-colors duration-200 ease-out hover:bg-accent/40 sm:flex-row sm:items-start sm:justify-between sm:gap-4"
             >
               {/* Left: code + title + reason */}
               <div className="flex min-w-0 gap-3">
@@ -104,9 +102,9 @@ export function ApplicableStandards({ projectId, standards, briefComplete }: App
                   Ask Grid
                 </Link>
               </div>
-            </div>
+            </StaggerItem>
           ))}
-        </div>
+        </Stagger>
       ) : (
         <EmptyState
           icon={ClipboardCheck}

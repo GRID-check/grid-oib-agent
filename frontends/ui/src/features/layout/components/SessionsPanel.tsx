@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * SessionsPanel Component
  *
@@ -34,6 +31,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/utils'
+import { motion, fadeRise, staggerParent, springGentle } from '@/components/motion'
 import { useLayoutStore } from '../store'
 import { useChatStore } from '@/features/chat'
 import { checkStorageHealth } from '@/features/chat/lib/storage-manager'
@@ -243,24 +241,31 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
         />
       </div>
 
-      {/* Session List */}
-      <div className="flex flex-1 flex-col overflow-y-auto">
+      {/* Session List — items stagger in when the panel opens (forceMount keeps the
+          panel in the DOM, so this is driven by the open state, not by mounting) */}
+      <motion.div
+        className="flex flex-1 flex-col overflow-y-auto"
+        variants={staggerParent}
+        initial={false}
+        animate={isSessionsPanelOpen ? 'visible' : 'hidden'}
+      >
         {Object.entries(groupedSessions).map(([dateLabel, dateSessions]) => (
           <div key={dateLabel} className="mb-4 flex flex-col gap-2">
             <span className="text-xs font-semibold uppercase text-muted-foreground">
               {dateLabel}
             </span>
             {dateSessions.map((session) => (
-              <SessionItem
-                key={session.id}
-                session={session}
-                isSelected={selectedSessionId === session.id}
-                isBusy={isNavigationBlocked}
-                isSessionActive={isSessionBusy(session.id)}
-                onSelect={handleSessionClick}
-                onDelete={handleDeleteClick}
-                onRename={onRenameSession}
-              />
+              <motion.div key={session.id} variants={fadeRise} transition={springGentle}>
+                <SessionItem
+                  session={session}
+                  isSelected={selectedSessionId === session.id}
+                  isBusy={isNavigationBlocked}
+                  isSessionActive={isSessionBusy(session.id)}
+                  onSelect={handleSessionClick}
+                  onDelete={handleDeleteClick}
+                  onRename={onRenameSession}
+                />
+              </motion.div>
             ))}
           </div>
         ))}
@@ -277,7 +282,7 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
             )}
           </div>
         )}
-      </div>
+      </motion.div>
 
       <DeleteSessionConfirmationModal
         open={deleteModalOpen}

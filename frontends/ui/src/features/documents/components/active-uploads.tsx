@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 'use client'
 
 import { Loader2, RotateCcw, XCircle } from 'lucide-react'
@@ -24,7 +21,7 @@ export function ActiveUploads({ files, onRetry }: ActiveUploadsProps) {
 
   return (
     <div className="border-b bg-muted/30 px-4 py-3">
-      <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">Uploads</p>
+      <p className="mb-2 text-xs font-medium uppercase tracking-widest text-muted-foreground">Uploads</p>
       <ul className="space-y-2">
         {files.map((file) => {
           const isFailed = file.status === 'failed'

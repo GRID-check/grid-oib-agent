@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 import { describe, expect, it } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { FilePreviewPane } from './file-preview-pane'
@@ -9,7 +6,7 @@ describe('FilePreviewPane', () => {
   const mockFile = {
     id: 'doc-1',
     filename: 'plan.pdf',
-    fileSize: 1024000,
+    fileSize: 1048576,
     contentType: 'application/pdf',
     status: 'ready',
     folderId: null,

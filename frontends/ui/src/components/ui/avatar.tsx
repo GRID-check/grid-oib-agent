@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 'use client'
 
 import * as React from 'react'
@@ -41,7 +38,10 @@ const AvatarFallback = React.forwardRef<
   <AvatarPrimitive.Fallback
     ref={ref}
     data-slot="avatar-fallback"
-    className={cn('bg-muted flex size-full items-center justify-center rounded-full', className)}
+    className={cn(
+      'bg-muted text-muted-foreground flex size-full items-center justify-center rounded-full text-xs font-medium',
+      className
+    )}
     {...props}
   />
 ))

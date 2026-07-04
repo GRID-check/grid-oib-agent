@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * GRID product logo — inline SVG mark plus optional wordmark.
  * Token-driven (text-primary / brand accent), so it adapts to light/dark.

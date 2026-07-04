@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * Organization onboarding page
  *
@@ -59,7 +56,7 @@ const OrganizationOnboardingPage = (): ReactNode => {
         // A deliberate "workspace ready" beat before entering the workspace,
         // then straight to /projects (no bounce through the home redirect).
         setStatus('success')
-        setTimeout(() => router.replace('/projects'), 1400)
+        setTimeout(() => router.replace('/app/projects'), 1400)
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Something went wrong.')
       }
@@ -76,13 +73,13 @@ const OrganizationOnboardingPage = (): ReactNode => {
         <section className="space-y-8">
           <Logo kind="horizontal" size="large" />
           <div className="flex max-w-2xl flex-col gap-4">
-            <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
               first workspace
             </span>
             <h1 className="text-4xl font-semibold tracking-[-0.04em] md:text-5xl md:leading-none">
               Set your organization before Grid handles project data.
             </h1>
-            <p className="max-w-xl text-sm text-muted-foreground">
+            <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
               Your organization is the private boundary for your building projects — documents,
               members, and OIB/RIS research all live inside it. You become its admin.
             </p>
@@ -94,7 +91,7 @@ const OrganizationOnboardingPage = (): ReactNode => {
               { icon: Users, label: 'Admin access' },
               { icon: Folder, label: 'Projects ready' },
             ].map(({ icon: Icon, label }) => (
-              <div key={label} className="rounded-lg border bg-card p-4">
+              <div key={label} className="rounded-2xl border bg-card p-5 shadow-xs">
                 <Icon className="mb-3 h-5 w-5 text-primary" />
                 <span className="text-sm font-semibold">{label}</span>
               </div>
@@ -106,7 +103,7 @@ const OrganizationOnboardingPage = (): ReactNode => {
           {status === 'success' ? (
             <div className="flex flex-col gap-6" role="status" aria-live="polite">
               <div className="flex flex-col gap-2">
-                <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
                   workspace ready
                 </span>
                 <h2 className="text-lg font-semibold">You&rsquo;re all set</h2>
@@ -132,7 +129,7 @@ const OrganizationOnboardingPage = (): ReactNode => {
           ) : (
             <>
               <div className="flex flex-col gap-2">
-                <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
                   organization setup
                 </span>
                 <h2 className="text-lg font-semibold">Name your organization</h2>

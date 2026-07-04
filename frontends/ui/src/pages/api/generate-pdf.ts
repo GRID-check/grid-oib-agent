@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 import type { NextApiRequest, NextApiResponse } from 'next'
 import React from 'react'
 import { renderToStream } from '@react-pdf/renderer'

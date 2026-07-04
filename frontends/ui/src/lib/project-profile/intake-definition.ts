@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 import { applyProjectProfilePatch, emptyProjectProfile } from './patch-engine'
 import type { ProjectPrimitiveValue, ProjectProfile, ProjectProfilePatchOperation } from './types'
 
@@ -20,6 +17,11 @@ export interface ProjectIntakeQuestion {
   options?: ProjectIntakeOption[]
   condition?: { field: string; equals?: string; oneOf?: string[] }
   writesTo?: string
+  /**
+   * Skippable: the wizard lets the user continue without answering. Unanswered
+   * optional questions still land in `profile.unknowns` so Grid can chase them later.
+   */
+  optional?: boolean
 }
 
 export interface ProjectIntakeStage {
@@ -36,19 +38,71 @@ export interface ProjectIntakeDefinition {
 }
 
 export const projectIntakeDefinitionV1: ProjectIntakeDefinition = {
-  version: 1,
+  version: 2,
   stages: [
+    {
+      // Focus comes FIRST: once someone has named what they want out of the project,
+      // finishing the brief feels like working toward it (commitment & consistency)
+      // instead of filling in a form. Multi-select on purpose — Grid helps with all
+      // of it, so nobody is forced to rank one goal above the rest.
+      id: 'goal',
+      title: 'Your focus',
+      description: 'Grid helps across the whole project — this just tells it where to dig in first.',
+      questions: [
+        {
+          id: 'focus_areas',
+          label: 'What should Grid help with on this project?',
+          help: 'Select everything that applies.',
+          type: 'multi_select',
+          options: [
+            { value: 'einreichung', label: 'Getting a permit submission (Einreichung) approved' },
+            { value: 'compliance_check', label: 'Verifying the design against the OIB' },
+            { value: 'fruehe_planung', label: 'Pinning down design constraints early' },
+            { value: 'brandschutz', label: 'Fire-safety concept' },
+            { value: 'sanierung', label: 'Renovation / existing-building compliance' },
+            { value: 'sonstiges', label: 'Something else' },
+          ],
+          writesTo: '/goals/focus_areas',
+        },
+        {
+          id: 'goal_details',
+          label: 'Tell Grid more',
+          help: 'One sentence is enough — e.g. "Confirm the fire-compartment strategy for the submission."',
+          type: 'text',
+          condition: { field: 'focus_areas', equals: 'sonstiges' },
+          writesTo: '/goals/goal_details',
+        },
+        {
+          id: 'deadline',
+          label: 'When do you need answers?',
+          help: 'Grid uses this to prioritise what to resolve first.',
+          type: 'single_select',
+          options: [
+            { value: 'this_week', label: 'This week' },
+            { value: 'this_month', label: 'Within a month' },
+            { value: 'this_quarter', label: 'This quarter' },
+            { value: 'no_deadline', label: 'No fixed deadline' },
+          ],
+          writesTo: '/goals/deadline',
+        },
+        {
+          id: 'output_format',
+          label: 'How should Grid package its findings?',
+          type: 'single_select',
+          options: [
+            { value: 'design_constraints', label: 'Design constraints' },
+            { value: 'compliance_checklist', label: 'Compliance checklist' },
+            { value: 'full_report', label: 'Full report' },
+          ],
+          writesTo: '/facts/output_format/value',
+        },
+      ],
+    },
     {
       id: 'core',
       title: 'Project core',
       description: 'The essentials Grid needs to frame the building.',
       questions: [
-        {
-          id: 'project_name',
-          label: 'Project name',
-          type: 'text',
-          writesTo: '/facts/project_name/value',
-        },
         {
           id: 'hauptnutzung',
           label: 'Main use',
@@ -83,6 +137,7 @@ export const projectIntakeDefinitionV1: ProjectIntakeDefinition = {
         {
           id: 'sicherheitskategorie',
           label: 'Safety category',
+          optional: true,
           type: 'single_select',
           options: [
             { value: 'low', label: 'Low' },
@@ -102,7 +157,8 @@ export const projectIntakeDefinitionV1: ProjectIntakeDefinition = {
         {
           id: 'widmung',
           label: 'Zoning',
-          help: 'Land-use category (Widmung) from the development plan.',
+          help: 'Land-use category (Widmung) from the development plan. Skip it if you don’t have the plan handy.',
+          optional: true,
           type: 'single_select',
           options: [
             { value: 'bauland', label: 'Building land (Bauland)' },
@@ -130,6 +186,7 @@ export const projectIntakeDefinitionV1: ProjectIntakeDefinition = {
         {
           id: 'bauweise',
           label: 'Construction method',
+          optional: true,
           type: 'single_select',
           options: [
             { value: 'offen', label: 'Open' },
@@ -142,6 +199,7 @@ export const projectIntakeDefinitionV1: ProjectIntakeDefinition = {
           id: 'hohe_gebaeude_details',
           label: 'High-building details',
           help: 'Relevant details for GK4/GK5 high buildings.',
+          optional: true,
           type: 'text',
           condition: { field: 'gebaeudeklasse', oneOf: ['GK4', 'GK5'] },
           writesTo: '/facts/hohe_gebaeude_details/value',
@@ -223,6 +281,7 @@ export const projectIntakeDefinitionV1: ProjectIntakeDefinition = {
         {
           id: 'bestandsalter',
           label: 'Age of existing building',
+          optional: true,
           type: 'single_select',
           options: [
             { value: '<10', label: '< 10 years' },
@@ -232,31 +291,6 @@ export const projectIntakeDefinitionV1: ProjectIntakeDefinition = {
           ],
           condition: { field: 'bestand_neubau', equals: 'bestand' },
           writesTo: '/facts/bestandsalter/value',
-        },
-      ],
-    },
-    {
-      id: 'goals',
-      title: 'Goals & output',
-      description: 'What you want Grid to help you achieve.',
-      questions: [
-        {
-          id: 'primary_goal',
-          label: 'Primary goal',
-          help: 'e.g. "Confirm fire-compartment strategy for the submission".',
-          type: 'text',
-          writesTo: '/goals/primary_goal',
-        },
-        {
-          id: 'output_format',
-          label: 'Preferred output',
-          type: 'single_select',
-          options: [
-            { value: 'design_constraints', label: 'Design constraints' },
-            { value: 'compliance_checklist', label: 'Compliance checklist' },
-            { value: 'full_report', label: 'Full report' },
-          ],
-          writesTo: '/facts/output_format/value',
         },
       ],
     },
@@ -276,6 +310,12 @@ export function evaluateIntakeCondition(
   const cond = question.condition
   if (!cond) return true
   const answer = answers[cond.field]
+  // Multi-select answers match when the required value is among the selections.
+  if (Array.isArray(answer)) {
+    if (cond.equals !== undefined) return answer.includes(cond.equals)
+    if (cond.oneOf !== undefined) return answer.some((v) => cond.oneOf!.includes(String(v)))
+    return true
+  }
   if (cond.equals !== undefined) return answer === cond.equals
   if (cond.oneOf !== undefined) return typeof answer === 'string' && cond.oneOf.includes(answer)
   return true
@@ -319,10 +359,22 @@ function resolveWriteTarget(writesTo: string | undefined): WriteTarget | null {
 export function buildIntakeProfile(
   answers: Record<string, ProjectPrimitiveValue>,
   definition: ProjectIntakeDefinition,
+  options?: { projectName?: string },
 ): ProjectProfile {
   const now = new Date().toISOString()
   const patch: ProjectProfilePatchOperation[] = []
   const unknowns: string[] = []
+
+  // The name was already given when the project was created — seed it into the
+  // profile instead of asking again in the wizard.
+  const projectName = options?.projectName?.trim()
+  if (projectName) {
+    patch.push({
+      op: 'add',
+      path: '/facts/project_name',
+      value: { value: projectName, confidence: 'confirmed', source: 'onboarding', updatedAt: now },
+    })
+  }
 
   for (const question of flattenIntakeQuestions(definition)) {
     const target = resolveWriteTarget(question.writesTo)

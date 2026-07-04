@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 // Pure, isomorphic (client- and server-safe) JSON-pointer patch engine for the
 // project profile. Kept free of any database / server-only imports so the intake
 // wizard can build its profile through the exact same engine that chat-driven

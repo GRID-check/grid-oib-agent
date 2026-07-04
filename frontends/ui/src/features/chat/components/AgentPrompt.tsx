@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * AgentPrompt Component
  *
@@ -77,7 +74,7 @@ export const AgentPrompt: FC<AgentPromptProps> = ({
   return (
     <div className="flex w-full justify-start">
       <div className="flex max-w-[85%] flex-col">
-        <div className="bg-surface-sunken-opaque border-base flex flex-col gap-3 overflow-hidden break-words rounded-br-xl rounded-tl-xl rounded-tr-xl border p-4">
+        <div className="flex flex-col gap-3 overflow-hidden break-words rounded-2xl rounded-bl-md bg-card p-4 shadow-xs">
           {/* Agent icon and label */}
           <div className={`flex items-center gap-2 ${isResponded ? 'opacity-75' : ''}`}>
             <MessageSquare className="text-secondary h-5 w-5" />
@@ -140,7 +137,7 @@ const OptionsList: FC<{ options: string[] }> = ({ options }) => {
       {options.map((option, index) => (
         <div
           key={index}
-          className="bg-surface-raised border-base flex items-center gap-2 rounded-lg border p-2"
+          className="flex items-center gap-2 rounded-xl bg-muted/50 px-3 py-2"
         >
           <span className="text-subtle text-xs">{index + 1}.</span>
           <span className="text-sm">{option}</span>
@@ -157,7 +154,7 @@ const ResponseDisplay: FC<{ response?: string }> = ({ response }) => {
   if (!response) return null
 
   return (
-    <div className="bg-surface-raised border-base flex items-center gap-2 rounded-lg border p-2">
+    <div className="flex items-center gap-2 rounded-xl bg-muted/50 px-3 py-2">
       <MessageSquare className="text-subtle h-4 w-4" />
       <span className="text-subtle text-sm">
         Your response: <span className="text-primary">{response}</span>

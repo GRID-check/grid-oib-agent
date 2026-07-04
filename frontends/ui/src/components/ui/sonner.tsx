@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 'use client'
 
 import * as React from 'react'
@@ -32,7 +29,7 @@ function Toaster({ ...props }: ToasterProps) {
       className="toaster group"
       toastOptions={{
         classNames: {
-          toast: 'bg-popover text-popover-foreground border-border',
+          toast: 'bg-popover text-popover-foreground border-border rounded-xl shadow-md',
         },
       }}
       {...props}

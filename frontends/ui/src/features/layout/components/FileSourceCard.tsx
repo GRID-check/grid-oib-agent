@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * FileSourceCard Component
  *
@@ -15,6 +12,7 @@ import { Check, FileText, Trash2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/utils'
+import { motion, springGentle } from '@/components/motion'
 import { useIsCurrentSessionBusy } from '@/features/chat'
 import { formatFileSize } from '@/lib/utils/format-file-size'
 
@@ -175,12 +173,16 @@ export const FileSourceCard: FC<FileSourceCardProps> = ({
   const deleteDisabled = isBusy || isProcessing || isDeleting
 
   return (
-    <div
+    <motion.div
       className={cn(
-        'group flex items-start justify-between rounded-lg border bg-muted/40 p-3 transition-colors',
-        status === 'error' && 'border-error/50',
-        isDeleting && 'opacity-50'
+        'group flex items-start justify-between rounded-2xl bg-card p-3 shadow-xs transition-colors duration-200 ease-out',
+        status === 'error' && 'ring-1 ring-error/40'
       )}
+      initial={{ opacity: 0, y: 8 }}
+      // Deleting state dims the card (was `opacity-50`; motion owns inline opacity now)
+      animate={{ opacity: isDeleting ? 0.5 : 1, y: 0 }}
+      exit={{ opacity: 0, scale: 0.97 }}
+      transition={springGentle}
     >
       <div className="flex min-w-0 flex-1 items-center gap-3">
         {/* File Icon or Spinner */}
@@ -254,7 +256,7 @@ export const FileSourceCard: FC<FileSourceCardProps> = ({
         <Button
           variant="ghost"
           size="icon"
-          className="ml-2 size-8 flex-shrink-0 text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
+          className="ml-2 size-8 flex-shrink-0 rounded-full text-muted-foreground opacity-0 transition-opacity duration-200 ease-out hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
           onClick={handleDelete}
           disabled={deleteDisabled}
           aria-label={deleteDisabled ? `Delete ${title} (disabled)` : `Delete ${title}`}
@@ -269,6 +271,6 @@ export const FileSourceCard: FC<FileSourceCardProps> = ({
           <Trash2 className="h-4 w-4" aria-hidden="true" />
         </Button>
       </div>
-    </div>
+    </motion.div>
   )
 }

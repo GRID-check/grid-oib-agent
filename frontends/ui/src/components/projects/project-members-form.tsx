@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -177,9 +174,9 @@ export function ProjectMembersForm({ projectId, canManage }: ProjectMembersFormP
 
   if (isLoading) {
     return (
-      <div className="flex flex-col gap-3 rounded-lg border bg-card p-5">
+      <div className="flex flex-col gap-3 rounded-2xl border bg-card p-6 shadow-xs">
         {[0, 1, 2].map((item) => (
-          <Skeleton key={item} className="h-14 rounded-md" />
+          <Skeleton key={item} className="h-14 rounded-xl" />
         ))}
       </div>
     )
@@ -208,11 +205,11 @@ export function ProjectMembersForm({ projectId, canManage }: ProjectMembersFormP
             event.stopPropagation()
             void inviteForm.handleSubmit()
           }}
-          className="flex flex-col gap-4 rounded-lg border bg-card p-6"
+          className="flex flex-col gap-4 rounded-2xl border bg-card p-6 shadow-xs"
         >
           <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border bg-muted text-primary">
-              <UserPlus className="h-4 w-4" />
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-muted text-primary">
+              <UserPlus className="h-4 w-4" aria-hidden />
             </div>
             <div className="flex flex-col gap-0.5">
               <h2 className="text-sm font-semibold">Add a member</h2>
@@ -247,7 +244,7 @@ export function ProjectMembersForm({ projectId, canManage }: ProjectMembersFormP
           </div>
 
           {inviteError && (
-            <p role="alert" className="text-xs font-medium text-destructive">
+            <p role="alert" className="text-sm text-destructive">
               {inviteError}
             </p>
           )}
@@ -276,11 +273,11 @@ export function ProjectMembersForm({ projectId, canManage }: ProjectMembersFormP
         </Alert>
       )}
 
-      <div className="rounded-lg border bg-card">
-        <div className="flex flex-col gap-3 border-b px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="overflow-hidden rounded-2xl border bg-card shadow-xs">
+        <div className="flex flex-col gap-3 border-b border-border px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border bg-muted text-primary">
-              <Users className="h-4 w-4" />
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-muted text-primary">
+              <Users className="h-4 w-4" aria-hidden />
             </div>
             <div className="flex flex-col gap-0.5">
               <h2 className="text-sm font-semibold">Members</h2>
@@ -331,13 +328,13 @@ export function ProjectMembersForm({ projectId, canManage }: ProjectMembersFormP
             }
           />
         ) : (
-          <div className="divide-y">
+          <div className="divide-y divide-border">
             {filteredMembers.map((member) => {
               const isUpdating = updatingId === member.organizationMembershipId
               return (
                 <div
                   key={member.organizationMembershipId}
-                  className="flex items-center justify-between gap-4 px-5 py-3.5 transition-colors hover:bg-accent/40"
+                  className="flex items-center justify-between gap-4 px-6 py-3.5 transition-colors duration-200 ease-out hover:bg-accent/40"
                 >
                   <div className="flex min-w-0 items-center gap-3">
                     <Avatar className="size-9">
@@ -356,7 +353,7 @@ export function ProjectMembersForm({ projectId, canManage }: ProjectMembersFormP
                   {canManage ? (
                     <div className="flex min-w-[220px] items-center justify-end gap-3">
                       {isUpdating && (
-                        <span className="text-xs uppercase tracking-wider text-muted-foreground">
+                        <span className="text-xs uppercase tracking-widest text-muted-foreground">
                           saving
                         </span>
                       )}

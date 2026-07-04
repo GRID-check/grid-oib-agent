@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 import { render, screen, waitFor } from '@/test-utils'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
 import { ProjectMembersForm } from './project-members-form'

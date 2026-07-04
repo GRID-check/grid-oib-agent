@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 vi.mock('@/lib/auth/session', () => ({
@@ -15,19 +12,26 @@ vi.mock('@/lib/collection-scope-request', () => ({
   buildCollectionScopeFromRequest: vi.fn(),
 }))
 
+vi.mock('@/lib/project-profile/prompt-view', () => ({
+  loadProjectPromptView: vi.fn(),
+}))
+
 import { GET } from '@/app/api/auth/websocket-scope/route'
 import { getGridSession } from '@/lib/auth/session'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
+import { loadProjectPromptView } from '@/lib/project-profile/prompt-view'
 
 const mockGetGridSession = vi.mocked(getGridSession)
 const mockRequireProjectAccess = vi.mocked(requireProjectAccess)
 const mockBuildCollectionScopeFromRequest = vi.mocked(buildCollectionScopeFromRequest)
+const mockLoadProjectPromptView = vi.mocked(loadProjectPromptView)
 
 describe('/api/auth/websocket-scope', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     delete process.env.REQUIRE_AUTH
+    mockLoadProjectPromptView.mockResolvedValue(null)
   })
 
   it('returns scope and header when auth is disabled', async () => {

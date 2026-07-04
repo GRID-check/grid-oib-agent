@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 import { asc, count, eq } from 'drizzle-orm'
 import { FolderOpen } from 'lucide-react'
 import { requireAuthorizedSession } from '@/lib/auth/require-auth'
@@ -46,7 +43,7 @@ export default async function ProjectsPage({ searchParams }: ProjectsPageProps):
         heading="Projects"
       />
 
-      <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-8 md:px-8">
+      <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-10 md:px-8">
         <header className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-end">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Projects</h1>
@@ -68,7 +65,7 @@ export default async function ProjectsPage({ searchParams }: ProjectsPageProps):
               className="min-h-[420px] justify-center"
             />
           ) : (
-            <div className="grid grid-cols-1 gap-4 animate-in fade-in-0 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="grid grid-cols-1 gap-6 animate-in fade-in-0 sm:grid-cols-2 xl:grid-cols-3">
               {rows.map((project) => (
                 <ProjectCard
                   key={project.id}

@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 'use client'
 
 import * as React from 'react'
@@ -16,6 +13,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { motion, springSnappy } from '@/components/motion'
 import { useLayoutStore } from '@/features/layout/store'
 import type { ThemeMode } from '@/features/layout/types'
 import { cn } from '@/lib/utils'
@@ -61,16 +59,19 @@ export function SidebarUserMenu({
     <DropdownMenu>
       <DropdownMenuTrigger
         className={cn(
-          'flex items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm',
-          'transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none',
-          compact ? 'w-auto' : 'w-full',
+          'flex items-center gap-2.5 text-left text-sm',
+          'transition-colors duration-200 ease-out hover:bg-accent',
+          'focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none',
+          compact ? 'w-auto rounded-full p-1' : 'h-9 w-full rounded-lg px-2',
         )}
         aria-label={`User menu for ${displayName}`}
       >
-        <Avatar className="size-6">
-          {user?.image && <AvatarImage src={user.image} alt="" />}
-          <AvatarFallback className="text-[10px] font-medium">{initial}</AvatarFallback>
-        </Avatar>
+        <motion.span className="flex shrink-0" whileTap={{ scale: 0.95 }} transition={springSnappy}>
+          <Avatar className="size-6">
+            {user?.image && <AvatarImage src={user.image} alt="" />}
+            <AvatarFallback className="text-[10px] font-medium">{initial}</AvatarFallback>
+          </Avatar>
+        </motion.span>
         {!compact && (
           <span className="min-w-0 flex-1 truncate text-muted-foreground">{displayName}</span>
         )}
@@ -91,16 +92,16 @@ export function SidebarUserMenu({
         <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">Theme</DropdownMenuLabel>
         {THEME_OPTIONS.map(({ mode, label, icon: Icon }) => (
           <DropdownMenuItem key={mode} onSelect={(e) => { e.preventDefault(); setTheme(mode) }} className="gap-2">
-            <Icon className="size-4 text-muted-foreground" />
+            <Icon className="size-4 text-muted-foreground" aria-hidden />
             <span className="flex-1">{label}</span>
-            {theme === mode && <Check className="size-4" />}
+            {theme === mode && <Check className="size-4" aria-hidden />}
           </DropdownMenuItem>
         ))}
         {authRequired && (
           <>
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={() => signOut()} className="gap-2">
-              <LogOut className="size-4 text-muted-foreground" />
+              <LogOut className="size-4 text-muted-foreground" aria-hidden />
               Sign out
             </DropdownMenuItem>
           </>

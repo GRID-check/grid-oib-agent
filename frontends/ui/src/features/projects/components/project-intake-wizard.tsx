@@ -1,11 +1,9 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Check, Loader2, PencilLine } from 'lucide-react'
+import { AnimatePresence, easeQuiet, motion } from '@/components/motion'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -43,6 +41,8 @@ type Answers = Record<string, ProjectPrimitiveValue>
 /** Is a single question satisfactorily answered for its type? */
 function isQuestionValid(question: ProjectIntakeQuestion, answers: Answers): boolean {
   const answer = answers[question.id]
+  // Optional questions never block progress; unanswered ones become unknowns.
+  if (question.optional && !isIntakeAnswerProvided(answer)) return true
   switch (question.type) {
     case 'boolean':
       return answer !== undefined
@@ -178,10 +178,17 @@ export function ProjectIntakeWizard({
 
   const stageValid = visibleQuestions.every((q) => isQuestionValid(q, answers))
 
+  /** +1 when moving forward, -1 when moving back — drives the step slide direction. */
+  const directionRef = useRef(1)
+
   const goToStep = useCallback(
     (step: number) => {
       setError(null)
-      setCurrentStep(Math.max(0, Math.min(step, totalSteps - 1)))
+      setCurrentStep((prev) => {
+        const next = Math.max(0, Math.min(step, totalSteps - 1))
+        directionRef.current = next >= prev ? 1 : -1
+        return next
+      })
     },
     [totalSteps],
   )
@@ -206,7 +213,7 @@ export function ProjectIntakeWizard({
     setSaving(true)
     setError(null)
     try {
-      const profile = buildIntakeProfile(answers, definition)
+      const profile = buildIntakeProfile(answers, definition, { projectName })
       const res = await fetch(`/api/projects/${projectId}/profile`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -233,13 +240,13 @@ export function ProjectIntakeWizard({
         /* non-fatal */
       }
 
-      router.push(`/projects/${projectId}`)
+      router.push(`/app/projects/${projectId}`)
       router.refresh()
     } catch (e) {
       setError(e instanceof Error && e.message.includes('refresh') ? e.message : 'We could not save the project brief. Please try again.')
       setSaving(false)
     }
-  }, [definition, answers, projectId, router, STORAGE_KEY])
+  }, [definition, answers, projectId, projectName, router, STORAGE_KEY])
 
   if (loading) {
     return (
@@ -278,14 +285,15 @@ export function ProjectIntakeWizard({
     <div className="mx-auto max-w-2xl px-4 py-12">
       {/* Header */}
       <header className="mb-8">
-        <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+        <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
           {isEdit ? 'Edit project brief' : 'Project setup'}
         </p>
         <h1 className="mt-1 text-2xl font-semibold tracking-tight">
           {projectName ?? 'Tell Grid about this project'}
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Grid uses this brief to ground every answer in your building&apos;s real context.
+          About 2 minutes. Grid uses this brief to ground every answer — and to show which OIB
+          Richtlinien apply to this building.
         </p>
       </header>
 
@@ -352,7 +360,7 @@ export function ProjectIntakeWizard({
         <span
           className={cn(
             'shrink-0 text-xs transition-opacity',
-            draftSaved ? 'text-[var(--text-color-feedback-success)] opacity-100' : 'text-muted-foreground opacity-0',
+            draftSaved ? 'text-success opacity-100' : 'text-muted-foreground opacity-0',
           )}
           aria-live="polite"
         >
@@ -360,8 +368,21 @@ export function ProjectIntakeWizard({
         </span>
       </div>
 
-      {/* Step content — keyed so each transition re-animates */}
-      <div key={currentStep} className="animate-in fade-in-0 slide-in-from-bottom-1 duration-200">
+      {/* Step content — keyed so each transition re-animates, sliding in the travel direction */}
+      <AnimatePresence mode="wait" initial={false} custom={directionRef.current}>
+      <motion.div
+        key={currentStep}
+        custom={directionRef.current}
+        variants={{
+          enter: (direction: number) => ({ opacity: 0, x: direction * 12 }),
+          center: { opacity: 1, x: 0 },
+          exit: (direction: number) => ({ opacity: 0, x: direction * -12 }),
+        }}
+        initial="enter"
+        animate="center"
+        exit="exit"
+        transition={easeQuiet}
+      >
         <div className="mb-6">
           <h2 className="text-lg font-semibold tracking-tight">{stepTitle}</h2>
           {!isReview && stage?.description && (
@@ -393,7 +414,8 @@ export function ProjectIntakeWizard({
             ))}
           </div>
         )}
-      </div>
+      </motion.div>
+      </AnimatePresence>
 
       {error && definition && (
         <Alert variant="destructive" className="mt-8">
@@ -419,7 +441,7 @@ export function ProjectIntakeWizard({
         {isReview ? (
           <Button type="button" onClick={handleSave} disabled={saving}>
             {saving && <Loader2 className="size-4 animate-spin" aria-hidden />}
-            {saving ? 'Saving…' : isEdit ? 'Save changes' : 'Save & finish'}
+            {saving ? 'Saving…' : isEdit ? 'Save changes' : 'Save & see my standards'}
           </Button>
         ) : (
           <Button type="button" onClick={handleNext} disabled={saving}>
@@ -444,7 +466,7 @@ function ReviewStep({
 
   return (
     <div className="space-y-4">
-      <div className="divide-y rounded-lg border bg-card">
+      <div className="divide-y divide-border overflow-hidden rounded-2xl border bg-card shadow-xs">
         {definition.stages.map((stage, stageIndex) => {
           const items = stage.questions
             .filter((q) => evaluateIntakeCondition(q, answers))
@@ -452,7 +474,7 @@ function ReviewStep({
           if (items.length === 0) return null
 
           return (
-            <section key={stage.id} className="p-5">
+            <section key={stage.id} className="p-6">
               <div className="flex items-center justify-between gap-4">
                 <h3 className="text-sm font-semibold">{stage.title}</h3>
                 <button
@@ -485,8 +507,8 @@ function ReviewStep({
       </div>
 
       {unknowns.length > 0 && (
-        <div className="rounded-lg border border-dashed bg-muted/40 p-4">
-          <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+        <div className="rounded-2xl bg-muted/50 p-5">
+          <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
             Grid still won&apos;t know
           </p>
           <p className="mt-1.5 text-sm text-muted-foreground">
@@ -515,6 +537,13 @@ function QuestionField({
   const id = `q-${question.id}`
   const describedBy = error ? `${id}-error` : question.help ? `${id}-help` : undefined
 
+  const labelContent = (
+    <>
+      {question.label}
+      {question.optional && <span className="ml-1 font-normal text-muted-foreground">(optional)</span>}
+    </>
+  )
+
   const help = question.help ? (
     <p id={`${id}-help`} className="text-xs text-muted-foreground">
       {question.help}
@@ -522,7 +551,7 @@ function QuestionField({
   ) : null
 
   const errorText = error ? (
-    <p id={`${id}-error`} className="text-xs text-[var(--text-color-feedback-danger)]">
+    <p id={`${id}-error`} className="text-sm text-destructive">
       {error}
     </p>
   ) : null
@@ -532,7 +561,7 @@ function QuestionField({
       return (
         <div className="flex flex-col gap-1.5">
           <Label htmlFor={id} className="text-sm font-medium">
-            {question.label}
+            {labelContent}
           </Label>
           {help}
           <Input
@@ -550,7 +579,7 @@ function QuestionField({
       return (
         <div className="flex flex-col gap-1.5">
           <Label htmlFor={id} className="text-sm font-medium">
-            {question.label}
+            {labelContent}
           </Label>
           {help}
           <Input
@@ -567,7 +596,7 @@ function QuestionField({
     case 'boolean':
       return (
         <fieldset aria-describedby={describedBy}>
-          <legend className="text-sm font-medium">{question.label}</legend>
+          <legend className="text-sm font-medium">{labelContent}</legend>
           {help}
           <div className="mt-2 flex gap-4">
             {['true', 'false'].map((opt) => {
@@ -593,7 +622,7 @@ function QuestionField({
       return (
         <div className="flex flex-col gap-1.5">
           <Label htmlFor={id} className="text-sm font-medium">
-            {question.label}
+            {labelContent}
           </Label>
           {help}
           <Select value={typeof value === 'string' ? value : ''} onValueChange={(v) => onChange(v)}>
@@ -614,7 +643,7 @@ function QuestionField({
     case 'multi_select':
       return (
         <fieldset aria-describedby={describedBy}>
-          <legend className="text-sm font-medium">{question.label}</legend>
+          <legend className="text-sm font-medium">{labelContent}</legend>
           {help}
           <div className="mt-2 flex flex-col gap-2">
             {(question.options ?? []).map((opt) => {

@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 import React from 'react'
 import { Document, Page, Text, View, StyleSheet, Font, Link } from '@react-pdf/renderer'
 import { marked } from 'marked'

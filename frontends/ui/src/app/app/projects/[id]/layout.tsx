@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 import { asc, eq } from 'drizzle-orm'
 import { requireAuthorizedSession } from '@/lib/auth/require-auth'
 import { requireProjectAccess } from '@/lib/authz/projects'
@@ -36,7 +33,9 @@ export default async function ProjectLayout({ children, params }: ProjectLayoutP
         authRequired={isAuthRequired()}
         canManageMembers={role === 'project-admin'}
       />
-      <main className="min-w-0 flex-1 overflow-y-auto">{children}</main>
+      <main id="main-content" className="min-w-0 flex-1 overflow-y-auto bg-background">
+        {children}
+      </main>
     </div>
   )
 }

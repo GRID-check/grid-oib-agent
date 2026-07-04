@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 'use client'
 
 import { useMemo, useState, type ReactNode } from 'react'
@@ -112,12 +109,12 @@ export function FileBrowserPane({
               key={file.id}
               onClick={() => onSelectFile(isSelected ? null : file.id)}
               aria-pressed={isSelected}
-              className={`flex w-full items-center justify-between gap-4 px-4 py-3 text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset ${
+              className={`flex w-full items-center justify-between gap-4 px-4 py-3 text-left transition-colors duration-200 ease-out hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset ${
                 isSelected ? 'bg-accent' : ''
               }`}
             >
               <div className="flex min-w-0 items-center gap-3">
-                <span className="flex size-8 shrink-0 items-center justify-center rounded-md border bg-muted/40 text-muted-foreground">
+                <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
                   <Icon className="size-4" aria-hidden />
                 </span>
                 <div className="min-w-0">

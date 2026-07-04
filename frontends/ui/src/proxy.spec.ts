@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 
 const mockMiddleware = vi.fn()
@@ -16,13 +13,14 @@ describe('AuthKit v4 proxy', () => {
     vi.resetModules()
   })
 
-  test('configures authkitMiddleware with AuthKit callback and error pages allow-listed', async () => {
+  test('configures authkitMiddleware with public landing, AuthKit callback, and error pages allow-listed', async () => {
     await import('./proxy')
 
     expect(mockAuthkitMiddleware).toHaveBeenCalledWith(
       expect.objectContaining({
         middlewareAuth: expect.objectContaining({
           unauthenticatedPaths: [
+            '/',
             '/api/auth/callback',
             '/api/auth/websocket-scope',
             '/auth/error',

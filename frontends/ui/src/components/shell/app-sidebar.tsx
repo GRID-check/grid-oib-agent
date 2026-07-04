@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 'use client'
 
 /**
@@ -26,6 +23,7 @@ import {
 } from 'lucide-react'
 
 import { Logo } from '@/components/brand/logo'
+import { AnimatePresence, easeQuiet, motion, springSnappy } from '@/components/motion'
 import { cn } from '@/lib/utils'
 import { ProjectSwitcher, type ProjectSwitcherProject } from './project-switcher'
 import { SidebarUserMenu, type SidebarUser } from './sidebar-user-menu'
@@ -67,7 +65,7 @@ export function AppSidebar({
   canManageMembers = true,
 }: AppSidebarProps) {
   const pathname = usePathname() ?? ''
-  const base = `/projects/${projectId}`
+  const base = `/app/projects/${projectId}`
   const [collapsed, setCollapsed] = React.useState(false)
 
   // Restore the persisted rail state after mount (avoids SSR hydration mismatch).
@@ -111,9 +109,9 @@ export function AppSidebar({
         )}
       >
         <Link
-          href="/projects"
+          href="/app/projects"
           aria-label="Grid — all projects"
-          className="rounded-sm focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
+          className="rounded-md focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
         >
           <Logo kind={collapsed ? 'logo-only' : 'horizontal'} size="small" />
         </Link>
@@ -122,9 +120,17 @@ export function AppSidebar({
             type="button"
             onClick={toggleCollapsed}
             aria-label="Collapse sidebar"
-            className="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
+            className="flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors duration-200 ease-out hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
           >
-            <PanelLeftClose className="size-4" />
+            <motion.span
+              className="flex"
+              initial={{ rotate: 180 }}
+              animate={{ rotate: 0 }}
+              transition={springSnappy}
+              aria-hidden
+            >
+              <PanelLeftClose className="size-4" aria-hidden />
+            </motion.span>
           </button>
         )}
       </div>
@@ -135,21 +141,32 @@ export function AppSidebar({
             type="button"
             onClick={toggleCollapsed}
             aria-label="Expand sidebar"
-            className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
+            className="flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors duration-200 ease-out hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
           >
-            <PanelLeftOpen className="size-4" />
+            <motion.span
+              className="flex"
+              initial={{ rotate: -180 }}
+              animate={{ rotate: 0 }}
+              transition={springSnappy}
+              aria-hidden
+            >
+              <PanelLeftOpen className="size-4" aria-hidden />
+            </motion.span>
           </button>
         </div>
       )}
 
       {/* Project switcher */}
-      <div className={cn('pb-2', collapsed ? 'px-2' : 'px-2')}>
+      <div className={cn('pb-2', collapsed ? 'px-2' : 'px-3')}>
         <ProjectSwitcher projects={projects} activeProjectId={projectId} collapsed={collapsed} />
       </div>
 
       {/* Section nav */}
       <nav
-        className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-2 pt-2"
+        className={cn(
+          'flex flex-1 flex-col gap-1 overflow-y-auto pt-2',
+          collapsed ? 'px-2' : 'px-3',
+        )}
         aria-label="Project sections"
       >
         {navItems.map((item) => {
@@ -163,25 +180,49 @@ export function AppSidebar({
               aria-current={active ? 'page' : undefined}
               title={collapsed ? item.label : undefined}
               className={cn(
-                'flex items-center gap-2.5 rounded-lg py-1.5 text-sm transition-colors',
-                'focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none',
-                collapsed ? 'justify-center px-0' : 'px-2.5',
+                'relative flex h-9 shrink-0 items-center gap-3 rounded-lg text-sm transition-colors duration-200 ease-out',
+                'focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none',
+                collapsed ? 'justify-center px-0' : 'px-3',
                 active
-                  ? 'bg-accent font-medium text-foreground'
+                  ? 'font-medium text-foreground'
                   : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
               )}
             >
+              {active && (
+                <motion.span
+                  layoutId="sidebar-active"
+                  className="absolute inset-0 rounded-lg bg-accent"
+                  transition={springSnappy}
+                  aria-hidden
+                />
+              )}
               <Icon
-                className={cn('size-4 shrink-0', active ? 'text-primary' : 'text-muted-foreground')}
+                aria-hidden
+                className={cn(
+                  'relative z-10 size-4 shrink-0',
+                  active ? 'text-foreground' : 'text-muted-foreground',
+                )}
               />
-              {!collapsed && item.label}
+              <AnimatePresence initial={false}>
+                {!collapsed && (
+                  <motion.span
+                    className="relative z-10 truncate"
+                    initial={{ opacity: 0, x: -4 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -4 }}
+                    transition={{ ...easeQuiet, duration: 0.15 }}
+                  >
+                    {item.label}
+                  </motion.span>
+                )}
+              </AnimatePresence>
             </Link>
           )
         })}
       </nav>
 
       {/* Footer: user + settings */}
-      <div className={cn('border-t border-border p-2', collapsed && 'flex justify-center')}>
+      <div className={cn('border-t border-border', collapsed ? 'flex justify-center p-2' : 'p-3')}>
         <SidebarUserMenu user={user} authRequired={authRequired} compact={collapsed} />
       </div>
     </aside>

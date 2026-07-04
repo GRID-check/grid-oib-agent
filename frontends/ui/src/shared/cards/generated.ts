@@ -1,6 +1,4 @@
 // AUTO-GENERATED from shared/cards/schemas.json — do not edit; run `npm run generate:cards`
-// SPDX-FileCopyrightText: Copyright (c) 2026, Grid Agent Contributors. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
 
 import { z } from 'zod'
 

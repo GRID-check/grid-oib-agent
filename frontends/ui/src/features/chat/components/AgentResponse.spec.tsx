@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 import { render, screen } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
@@ -183,7 +180,8 @@ describe('AgentResponse', () => {
     expect(screen.getByText('Summary Title')).toBeInTheDocument()
     expect(screen.getByText('Summary content')).toBeInTheDocument()
     expect(screen.getByText('Point one')).toBeInTheDocument()
-    expect(screen.getByText('Legal basis: GDPR')).toBeInTheDocument()
+    expect(screen.getByText('Legal basis')).toBeInTheDocument()
+    expect(screen.getByText('GDPR')).toBeInTheDocument()
     expect(screen.getByText('Summary of the legal basis')).toBeInTheDocument()
     expect(screen.getByText('Original legal text')).toBeInTheDocument()
   })

@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * InputArea Component
  *
@@ -24,6 +21,7 @@ import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
+import { AnimatePresence, motion, easeQuiet, springSnappy } from '@/components/motion'
 import { useWebSocketChat, useChatStore, useIsCurrentSessionBusy } from '@/features/chat'
 import { useLayoutStore } from '../store'
 import { useAppConfig } from '@/shared/context'
@@ -288,7 +286,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   ])
 
   const handleKeyDown = useCallback(
-    (e: KeyboardEvent<HTMLDivElement>) => {
+    (e: KeyboardEvent<HTMLTextAreaElement>) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault()
         handleSubmit()
@@ -373,7 +371,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     <div className="mx-auto flex w-full max-w-3xl flex-col p-4">
       <div
         className={cn(
-          'relative flex flex-col rounded-2xl border bg-muted/40 p-4 transition-colors',
+          'relative flex flex-col rounded-2xl border bg-card p-4 shadow-md transition-[box-shadow,border-color] duration-200 ease-out focus-within:ring-2 focus-within:ring-ring/30',
           isDisabledByAuth && 'opacity-60',
           isDragging && isUnsupportedDrag
             ? 'border-dashed border-error'
@@ -409,35 +407,44 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           </div>
         )}
         {/* Text Input */}
-        <div onKeyDown={handleKeyDown}>
-          <Textarea
-            ref={textareaRef}
-            className="max-h-[200px] min-h-[2.5rem] resize-none border-0 bg-transparent shadow-none focus-visible:ring-0"
-            value={message}
-            onChange={(e) => handleValueChange(e.target.value)}
-            placeholder={getPlaceholder()}
-            disabled={disabled}
-            rows={1}
-            aria-label={isResponseMode ? 'Response input' : 'Chat message input'}
-          />
-        </div>
+        <Textarea
+          ref={textareaRef}
+          className="max-h-[200px] min-h-[2.5rem] resize-none border-0 bg-transparent shadow-none focus-visible:ring-0"
+          value={message}
+          onChange={(e) => handleValueChange(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder={getPlaceholder()}
+          disabled={disabled}
+          rows={1}
+          aria-label={isResponseMode ? 'Response input' : 'Chat message input'}
+        />
 
         {/* Upload Error Display */}
-        {uploadError && (
-          <Alert variant="destructive" className="mt-2">
-            <AlertDescription className="flex w-full items-start justify-between gap-2">
-              <span>{uploadError}</span>
-              <button
-                type="button"
-                onClick={clearError}
-                aria-label="Dismiss error"
-                className="shrink-0 rounded-xs opacity-70 transition-opacity hover:opacity-100"
-              >
-                <X className="h-4 w-4" aria-hidden="true" />
-              </button>
-            </AlertDescription>
-          </Alert>
-        )}
+        <AnimatePresence initial={false}>
+          {uploadError && (
+            <motion.div
+              key="upload-error"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 4 }}
+              transition={easeQuiet}
+            >
+              <Alert variant="destructive" className="mt-2">
+                <AlertDescription className="flex w-full items-start justify-between gap-2">
+                  <span>{uploadError}</span>
+                  <button
+                    type="button"
+                    onClick={clearError}
+                    aria-label="Dismiss error"
+                    className="shrink-0 rounded-full p-1 opacity-70 transition-opacity duration-200 ease-out hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+                  >
+                    <X className="h-4 w-4" aria-hidden="true" />
+                  </button>
+                </AlertDescription>
+              </Alert>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Bottom Actions Bar */}
         <div className="mt-3 flex items-center justify-end">
@@ -447,7 +454,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
             <Button
               variant="ghost"
               size="sm"
-              className="h-7 px-2"
+              className="h-8 rounded-full px-2.5 text-muted-foreground"
               onClick={() => {
                 if (useLayoutStore.getState().rightPanel === 'data-sources') {
                   closeRightPanel()
@@ -457,7 +464,6 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                 }
               }}
               disabled={isDisabledByAuth}
-              tabIndex={-1}
               aria-label="Toggle data sources connections"
               title="Selected data connections"
             >
@@ -471,7 +477,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
             <Button
               variant="ghost"
               size="sm"
-              className="h-7 px-2"
+              className="h-8 rounded-full px-2.5 text-muted-foreground"
               onClick={() => {
                 if (useLayoutStore.getState().rightPanel === 'data-sources') {
                   closeRightPanel()
@@ -481,7 +487,6 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                 }
               }}
               disabled={isDisabledByAuth || !knowledgeLayerAvailable}
-              tabIndex={-1}
               aria-label="Open uploaded files"
               title={knowledgeLayerAvailable ? 'Available files' : 'File upload not available'}
             >
@@ -504,10 +509,9 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
             <Button
               variant="ghost"
               size="icon"
-              className="size-8"
+              className="size-8 rounded-full text-muted-foreground"
               onClick={handleAttachClick}
               disabled={isDisabledByAuth || isUploading || isBusy || !knowledgeLayerAvailable}
-              tabIndex={-1}
               aria-label="Attach files"
               title={
                 isBusy
@@ -560,19 +564,45 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                 </PopoverContent>
               </Popover>
             ) : (
-              <Button
-                size="sm"
-                onClick={handleSubmit}
-                disabled={!message.trim() || disabled}
-                aria-label={isResponseMode ? 'Send response' : 'Send message'}
-                title="Send query"
+              <motion.div
+                className="inline-flex"
+                whileTap={{ scale: 0.94 }}
+                transition={springSnappy}
               >
-                {isLoading ? (
-                  <span className="animate-pulse">...</span>
-                ) : (
-                  <SendHorizontal className="h-4 w-4" aria-hidden="true" />
-                )}
-              </Button>
+                <Button
+                  size="sm"
+                  onClick={handleSubmit}
+                  disabled={!message.trim() || disabled}
+                  aria-label={isResponseMode ? 'Send response' : 'Send message'}
+                  title="Send query"
+                >
+                  <AnimatePresence mode="popLayout" initial={false}>
+                    {isLoading ? (
+                      <motion.span
+                        key="loading"
+                        className="animate-pulse"
+                        initial={{ opacity: 0, scale: 0.8 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.8 }}
+                        transition={springSnappy}
+                      >
+                        ...
+                      </motion.span>
+                    ) : (
+                      <motion.span
+                        key="send"
+                        className="inline-flex"
+                        initial={{ opacity: 0, scale: 0.8 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.8 }}
+                        transition={springSnappy}
+                      >
+                        <SendHorizontal className="h-4 w-4" aria-hidden="true" />
+                      </motion.span>
+                    )}
+                  </AnimatePresence>
+                </Button>
+              </motion.div>
             )}
           </div>
         </div>

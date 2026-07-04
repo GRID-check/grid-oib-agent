@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * Home Page
  *
@@ -33,7 +30,7 @@ const HomeContent = (): ReactNode => {
 
   useEffect(() => {
     if (isAuthenticated && !isLoading) {
-      router.replace('/projects')
+      router.replace('/app/projects')
     }
   }, [isAuthenticated, isLoading, router])
 

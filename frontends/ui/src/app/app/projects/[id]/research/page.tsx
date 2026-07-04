@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 import { eq } from 'drizzle-orm'
 import { notFound } from 'next/navigation'
 import { requireAuthorizedSession } from '@/lib/auth/require-auth'
@@ -31,7 +28,7 @@ export default async function ProjectResearchPage({ params }: ProjectResearchPag
   }
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-4 py-8 md:px-8">
+    <div className="mx-auto w-full max-w-5xl px-4 py-10 md:px-8">
       <header className="flex items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Research runs</h1>

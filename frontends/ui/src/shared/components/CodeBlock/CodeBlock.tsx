@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * CodeBlock Component
  *
@@ -13,6 +10,7 @@
 
 import { type FC, useMemo, useState } from 'react'
 import { Check, ChevronDown, ChevronUp, Copy } from 'lucide-react'
+import { AnimatePresence, motion, springSnappy } from '@/components/motion'
 
 export interface CodeBlockProps {
   /** Raw code content to display */
@@ -52,7 +50,7 @@ export const CodeBlock: FC<CodeBlockProps> = ({
   }
 
   return (
-    <div className={`bg-surface-raised border-base my-3 overflow-hidden rounded-lg border ${className}`}>
+    <div className={`border-base my-3 overflow-hidden rounded-xl border bg-muted ${className}`}>
       <div className="border-base flex items-center justify-between border-b px-3 py-1.5">
         <span className="text-subtle text-xs font-medium uppercase tracking-wide">
           {language || 'text'}
@@ -61,18 +59,39 @@ export const CodeBlock: FC<CodeBlockProps> = ({
           type="button"
           onClick={handleCopy}
           aria-label={copied ? 'Copied' : 'Copy code'}
-          className="text-subtle hover:text-primary inline-flex items-center gap-1 text-xs"
+          className="text-subtle hover:text-primary inline-flex min-h-7 items-center gap-1 rounded-full px-2 text-xs transition-colors duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
         >
-          {copied ? (
-            <Check className="h-3.5 w-3.5" aria-hidden="true" />
-          ) : (
-            <Copy className="h-3.5 w-3.5" aria-hidden="true" />
-          )}
+          {/* Icon swap with a brief scale pop on copy feedback */}
+          <AnimatePresence mode="popLayout" initial={false}>
+            {copied ? (
+              <motion.span
+                key="check"
+                className="inline-flex"
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.8 }}
+                transition={springSnappy}
+              >
+                <Check className="h-3.5 w-3.5" aria-hidden="true" />
+              </motion.span>
+            ) : (
+              <motion.span
+                key="copy"
+                className="inline-flex"
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.8 }}
+                transition={springSnappy}
+              >
+                <Copy className="h-3.5 w-3.5" aria-hidden="true" />
+              </motion.span>
+            )}
+          </AnimatePresence>
           {copied ? 'Copied' : 'Copy'}
         </button>
       </div>
 
-      <pre className="overflow-x-auto p-3 text-sm">
+      <pre className="overflow-x-auto p-3 font-mono text-sm leading-relaxed">
         <code>{displayValue}</code>
       </pre>
 
@@ -80,7 +99,8 @@ export const CodeBlock: FC<CodeBlockProps> = ({
         <button
           type="button"
           onClick={() => setExpanded((prev) => !prev)}
-          className="border-base text-subtle hover:text-primary flex w-full items-center justify-center gap-1 border-t px-3 py-1.5 text-xs"
+          className="border-base text-subtle hover:text-primary flex min-h-8 w-full items-center justify-center gap-1 border-t px-3 py-1.5 text-xs transition-colors duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/60"
+          aria-expanded={expanded}
         >
           {expanded ? (
             <>

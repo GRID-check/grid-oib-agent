@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 import { describe, expect, it } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { ProjectOverview } from './project-overview'
@@ -36,7 +33,9 @@ describe('ProjectOverview', () => {
       profileDisplay: { title: 'Project profile', summary: '', keyFacts: [], missingInfo: [] },
     }
     render(<ProjectOverview data={dataWithEmptyProfile} />)
-    expect(screen.getByText(/Project Brief/i)).toBeDefined()
+    // The Applicable Standards panel also mentions the project brief, so match
+    // the section heading specifically rather than any text occurrence.
+    expect(screen.getByRole('heading', { name: /Project Brief/i })).toBeDefined()
     expect(screen.getByText(/no details are captured yet/i)).toBeDefined()
   })
 

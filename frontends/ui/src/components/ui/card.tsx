@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 import * as React from 'react'
 
 import { cn } from '@/lib/utils'
@@ -11,7 +8,7 @@ const Card = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElemen
       ref={ref}
       data-slot="card"
       className={cn(
-        'bg-card text-card-foreground flex flex-col gap-6 rounded-lg border shadow-sm',
+        'bg-card text-card-foreground flex flex-col gap-6 rounded-2xl border shadow-sm',
         className
       )}
       {...props}

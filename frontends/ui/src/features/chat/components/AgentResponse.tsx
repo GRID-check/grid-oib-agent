@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * AgentResponse Component
  *
@@ -182,7 +179,7 @@ export const AgentResponse: FC<AgentResponseProps> = ({
   return (
     <div className="animate-in fade-in-0 slide-in-from-bottom-1 flex w-full justify-start duration-200">
       <div className="flex max-w-[85%] flex-col">
-        <div className="bg-surface-sunken-opaque border-base flex flex-col gap-2 overflow-hidden break-words rounded-br-xl rounded-tl-xl rounded-tr-xl border p-4">
+        <div className="flex flex-col gap-2 overflow-hidden break-words rounded-2xl rounded-bl-md bg-card p-4 shadow-xs">
           {/* Optional Grid cards rendered before the markdown body */}
           {hasCards && <GridCards cards={cards} />}
 

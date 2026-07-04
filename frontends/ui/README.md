@@ -400,7 +400,7 @@ WORKOS_REDIRECT_URI=http://localhost:3000/api/auth/callback
 WORKOS_COOKIE_PASSWORD=$(openssl rand -hex 32)
 ```
 
-Then restart the dev server. The first user without an active organization is redirected to `/onboarding/organization` to create one.
+Then restart the dev server. The first user without an active organization is redirected to `/app/onboarding/organization` to create one.
 
 ### Disabling Authentication
 

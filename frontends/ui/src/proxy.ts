@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * Next.js Proxy for WorkOS AuthKit v4 Session Management
  *
@@ -27,6 +24,9 @@ const middleware = authkitMiddleware({
   middlewareAuth: {
     enabled: isAuthRequired(),
     unauthenticatedPaths: [
+      // Public marketing landing. AuthKit compiles these paths with
+      // path-to-regexp (anchored), so '/' matches only the root.
+      '/',
       '/api/auth/callback',
       '/api/auth/websocket-scope',
       '/auth/error',

@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * Authorization guards for server components and route handlers.
  */
@@ -19,7 +16,7 @@ export async function requireAuthorizedSession(): Promise<AuthorizedSession> {
   const session = await requireGridSession()
 
   if (!session.organizationId) {
-    redirect('/onboarding/organization')
+    redirect('/app/onboarding/organization')
   }
 
   return session as AuthorizedSession

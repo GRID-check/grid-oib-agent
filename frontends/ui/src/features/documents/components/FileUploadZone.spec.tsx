@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 import { render, screen } from '@/test-utils'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
 import { FileUploadZone } from './FileUploadZone'
@@ -19,6 +16,21 @@ let mockTrackedFiles: Array<{
 vi.mock('../store', () => ({
   useDocumentsStore: (selector: (state: { trackedFiles: typeof mockTrackedFiles }) => unknown) =>
     selector({ trackedFiles: mockTrackedFiles }),
+}))
+
+// Mock useAppConfig (required by useFileDragDrop inside FileUploadZone)
+vi.mock('@/shared/context', () => ({
+  useAppConfig: () => ({
+    authRequired: true,
+    fileUpload: {
+      acceptedTypes: '.pdf,.docx,.txt,.md',
+      acceptedMimeTypes: ['application/pdf', 'text/plain', 'text/markdown'],
+      maxTotalSizeMB: 100,
+      maxFileSize: 100 * 1024 * 1024,
+      maxTotalSize: 100 * 1024 * 1024,
+      maxFileCount: 10,
+    },
+  }),
 }))
 
 // Mock the constants

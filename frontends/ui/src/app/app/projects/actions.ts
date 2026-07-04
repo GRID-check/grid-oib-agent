@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 'use server'
 
 import { revalidatePath } from 'next/cache'
@@ -66,6 +63,8 @@ export async function createProject(_prevState: CreateProjectState, formData: Fo
     return { error: message }
   }
 
-  revalidatePath('/projects')
-  redirect(`/projects/${projectId}`)
+  revalidatePath('/app/projects')
+  // Land new projects directly in intake: the brief is what makes Grid's answers
+  // (and the applicable-standards panel) useful, so setup flows straight into it.
+  redirect(`/app/projects/${projectId}/intake`)
 }

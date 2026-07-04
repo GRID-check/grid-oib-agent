@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * ChatArea Component
  *
@@ -29,6 +26,7 @@ import {
   ChatThinking,
 } from '@/features/chat'
 import type { ChatMessage } from '@/features/chat'
+import { AnimatePresence, motion, fadeRise, springGentle } from '@/components/motion'
 import { StarfieldAnimation } from '@/shared/components/StarfieldAnimation'
 
 interface ChatAreaProps {
@@ -85,6 +83,21 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   // Track previous message count for scroll detection
   const [prevMessageCount, setPrevMessageCount] = useState(displayableMessages.length)
 
+  // Entrance-animation bookkeeping: messages already present when a conversation
+  // renders (hydration / session switch) must NOT animate in — only messages
+  // appended afterwards get the fade-rise entrance. Seeded synchronously so the
+  // very first render already knows which ids are "old".
+  const hydratedIdsRef = useRef<Set<string> | null>(null)
+  const hydratedConversationIdRef = useRef<string | undefined>(currentConversation?.id)
+  if (
+    hydratedIdsRef.current === null ||
+    hydratedConversationIdRef.current !== currentConversation?.id
+  ) {
+    hydratedConversationIdRef.current = currentConversation?.id
+    hydratedIdsRef.current = new Set(displayableMessages.map((m) => m.id))
+  }
+  const hydratedIds = hydratedIdsRef.current
+
   /**
    * Helper to get thinking steps for a user message.
    * First checks ephemeral store (for active session), then falls back
@@ -131,61 +144,72 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
         <WelcomeState isAuthenticated={isAuthenticated} onSignIn={onSignIn} />
       ) : (
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 pb-24 pt-4">
-          {displayableMessages.map((message, index) => {
-            const isUserMessage = message.messageType === 'user' || message.role === 'user'
-            const messageSteps = isUserMessage ? getStepsForUserMessage(message.id) : []
-            const hasThinkingSteps = messageSteps.length > 0
+          <AnimatePresence initial={false}>
+            {displayableMessages.map((message, index) => {
+              const isUserMessage = message.messageType === 'user' || message.role === 'user'
+              const messageSteps = isUserMessage ? getStepsForUserMessage(message.id) : []
+              const hasThinkingSteps = messageSteps.length > 0
 
-            // Derive post-thinking state for user messages with thinking steps.
-            // Priority: isThinking (active) > isWaiting (HITL) > isInterrupted > done
-            const isCurrentlyStreaming = isStreaming && message.id === currentUserMessageId
-            const shouldCheckPostState = isUserMessage && hasThinkingSteps && !isCurrentlyStreaming
-            const remaining = shouldCheckPostState ? displayableMessages.slice(index + 1) : []
-            const nextUserMessageIndex = remaining.findIndex(
-              (m) => m.messageType === 'user' || m.role === 'user'
-            )
-            // Only evaluate status within this message turn (until next user message).
-            // This prevents later turns from overriding interrupted/waiting state.
-            const turnMessages =
-              nextUserMessageIndex >= 0 ? remaining.slice(0, nextUserMessageIndex) : remaining
+              // Derive post-thinking state for user messages with thinking steps.
+              // Priority: isThinking (active) > isWaiting (HITL) > isInterrupted > done
+              const isCurrentlyStreaming = isStreaming && message.id === currentUserMessageId
+              const shouldCheckPostState = isUserMessage && hasThinkingSteps && !isCurrentlyStreaming
+              const remaining = shouldCheckPostState ? displayableMessages.slice(index + 1) : []
+              const nextUserMessageIndex = remaining.findIndex(
+                (m) => m.messageType === 'user' || m.role === 'user'
+              )
+              // Only evaluate status within this message turn (until next user message).
+              // This prevents later turns from overriding interrupted/waiting state.
+              const turnMessages =
+                nextUserMessageIndex >= 0 ? remaining.slice(0, nextUserMessageIndex) : remaining
 
-            // Waiting: an unresponded HITL prompt follows this user message
-            const isWaiting =
-              shouldCheckPostState &&
-              turnMessages.some((m) => m.messageType === 'prompt' && !m.isPromptResponded)
+              // Waiting: an unresponded HITL prompt follows this user message
+              const isWaiting =
+                shouldCheckPostState &&
+                turnMessages.some((m) => m.messageType === 'prompt' && !m.isPromptResponded)
 
-            // Interrupted: no actual response AND not waiting for HITL
-            const hasResponse = turnMessages.some(
-              (m) => m.messageType === 'assistant' || m.messageType === 'agent_response'
-            )
-            const isInterrupted = shouldCheckPostState && !isWaiting && !hasResponse
+              // Interrupted: no actual response AND not waiting for HITL
+              const hasResponse = turnMessages.some(
+                (m) => m.messageType === 'assistant' || m.messageType === 'agent_response'
+              )
+              const isInterrupted = shouldCheckPostState && !isWaiting && !hasResponse
 
-            return (
-              <div key={message.id} className="flex flex-col gap-4">
-                {/* Render the message */}
-                <MessageRenderer
-                  message={message}
-                  onPromptRespond={handlePromptRespond}
-                  onFileRetry={handleFileRetry}
-                  onErrorDismiss={dismissErrorCard}
-                />
+              return (
+                <motion.div
+                  key={message.id}
+                  className="flex flex-col gap-4"
+                  variants={fadeRise}
+                  // Animate only genuinely new messages; hydrated ones render in place.
+                  initial={hydratedIds.has(message.id) ? false : 'hidden'}
+                  animate="visible"
+                  exit={{ opacity: 0, transition: { duration: 0.15 } }}
+                  transition={springGentle}
+                >
+                  {/* Render the message */}
+                  <MessageRenderer
+                    message={message}
+                    onPromptRespond={handlePromptRespond}
+                    onFileRetry={handleFileRetry}
+                    onErrorDismiss={dismissErrorCard}
+                  />
 
-                {/* Render thinking steps after user messages — negative margin lets the next message overlap */}
-                {isUserMessage && hasThinkingSteps && (
-                  <div className="-mb-8 flex w-[85%] justify-start">
-                    <ChatThinking
-                      steps={messageSteps}
-                      isThinking={isStreaming && message.id === currentUserMessageId}
-                      isWaiting={isWaiting}
-                      isInterrupted={isInterrupted}
-                      enabledDataSources={message.enabledDataSources}
-                      messageFiles={message.messageFiles}
-                    />
-                  </div>
-                )}
-              </div>
-            )
-          })}
+                  {/* Render thinking steps after user messages — negative margin lets the next message overlap */}
+                  {isUserMessage && hasThinkingSteps && (
+                    <div className="-mb-8 flex w-[85%] justify-start">
+                      <ChatThinking
+                        steps={messageSteps}
+                        isThinking={isStreaming && message.id === currentUserMessageId}
+                        isWaiting={isWaiting}
+                        isInterrupted={isInterrupted}
+                        enabledDataSources={message.enabledDataSources}
+                        messageFiles={message.messageFiles}
+                      />
+                    </div>
+                  )}
+                </motion.div>
+              )
+            })}
+          </AnimatePresence>
 
           {/* Invisible scroll anchor */}
           <div ref={messagesEndRef} />
@@ -262,7 +286,7 @@ const MessageRenderer: FC<MessageRendererProps> = ({
       }
       return (
         <div
-          className="flex items-center gap-2 rounded-lg border bg-muted/30 px-4 py-2"
+          className="flex items-center gap-2 rounded-xl bg-muted/50 px-4 py-2 shadow-xs"
           role="status"
         >
           <FileText className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
@@ -421,7 +445,7 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
 
             <div className="grid grid-cols-1 gap-3 md:grid-cols-[1.1fr_0.9fr]">
               <a
-                href="/projects"
+                href="/app/projects"
                 className="group rounded-[1.5rem] border bg-muted p-5 transition hover:-translate-y-[2px] hover:bg-accent"
               >
                 <div className="flex flex-col gap-4">

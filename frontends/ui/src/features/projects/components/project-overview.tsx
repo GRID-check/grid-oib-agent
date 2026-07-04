@@ -1,10 +1,8 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 import Link from 'next/link'
 import { ClipboardList, Database, FileText, HardDrive, MessageSquare, PencilLine, Upload } from 'lucide-react'
 import type { ProjectOverviewData } from '../types'
 import { ApplicableStandards } from './applicable-standards'
+import { Stagger, StaggerItem } from '@/components/motion'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
@@ -58,8 +56,9 @@ export function ProjectOverview({ data }: ProjectOverviewProps) {
   }
 
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-8 px-4 py-8 md:px-8">
+    <Stagger className="mx-auto w-full max-w-5xl space-y-10 px-4 py-10 md:px-8">
       {/* Header */}
+      <StaggerItem>
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div className="min-w-0">
           <h1 className="text-2xl font-semibold tracking-tight">{data.name}</h1>
@@ -69,29 +68,31 @@ export function ProjectOverview({ data }: ProjectOverviewProps) {
         </div>
         <div className="flex flex-wrap gap-2">
           <Button asChild>
-            <Link href={`/projects/${data.id}/chat`}>
+            <Link href={`/app/projects/${data.id}/chat`}>
               <MessageSquare className="size-4" aria-hidden />
               Ask Grid
             </Link>
           </Button>
           <Button asChild variant="outline">
-            <Link href={`/projects/${data.id}/files`}>
+            <Link href={`/app/projects/${data.id}/files`}>
               <Upload className="size-4" aria-hidden />
               Upload files
             </Link>
           </Button>
         </div>
       </header>
+      </StaggerItem>
 
       {/* Project Brief — the architect-owned context Grid works from. Never blank. */}
+      <StaggerItem>
       {profile ? (
-        <section className="rounded-lg border bg-card p-6">
+        <section className="rounded-2xl border bg-card p-6 shadow-sm">
           <div className="flex items-center justify-between gap-4">
-            <h2 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            <h2 className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
               Project Brief
             </h2>
             <Link
-              href={`/projects/${data.id}/intake`}
+              href={`/app/projects/${data.id}/intake`}
               className="inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
             >
               <PencilLine className="size-3.5" aria-hidden />
@@ -115,7 +116,7 @@ export function ProjectOverview({ data }: ProjectOverviewProps) {
               <p className="mt-3 text-sm text-muted-foreground">
                 The brief has been started but no details are captured yet.{' '}
                 <Link
-                  href={`/projects/${data.id}/intake`}
+                  href={`/app/projects/${data.id}/intake`}
                   className="font-medium text-foreground underline-offset-4 hover:underline"
                 >
                   Complete the brief
@@ -131,7 +132,7 @@ export function ProjectOverview({ data }: ProjectOverviewProps) {
                 Grid still doesn&apos;t know: {missingInfo.join(' · ')}
                 {' — '}
                 <Link
-                  href={`/projects/${data.id}/intake`}
+                  href={`/app/projects/${data.id}/intake`}
                   className="font-medium text-foreground underline-offset-4 hover:underline"
                 >
                   complete the brief
@@ -147,29 +148,33 @@ export function ProjectOverview({ data }: ProjectOverviewProps) {
           description="Tell Grid about this building — use, class, storeys and goals. A complete brief lets Grid ground every answer in your project's real context."
           action={
             <Button asChild>
-              <Link href={`/projects/${data.id}/intake`}>Set up project context</Link>
+              <Link href={`/app/projects/${data.id}/intake`}>Set up project context</Link>
             </Button>
           }
         />
       )}
+      </StaggerItem>
 
       {/* Applicable OIB standards — derived from the brief, orientation only. */}
-      <ApplicableStandards
-        projectId={data.id}
-        standards={data.applicableStandards}
-        briefComplete={data.briefComplete}
-      />
+      <StaggerItem>
+        <ApplicableStandards
+          projectId={data.id}
+          standards={data.applicableStandards}
+          briefComplete={data.briefComplete}
+        />
+      </StaggerItem>
 
       {/* Stats */}
-      <section className="grid grid-cols-2 gap-4 sm:grid-cols-3">
-        <div className="rounded-lg border bg-card p-5">
+      <StaggerItem>
+      <section className="grid grid-cols-2 gap-4 sm:grid-cols-3 sm:gap-6">
+        <div className="rounded-2xl border bg-card p-6 shadow-xs">
           <div className="flex items-center gap-2 text-muted-foreground">
             <FileText className="size-4" aria-hidden />
             <span className="text-sm">Files</span>
           </div>
           <p className="mt-2 text-2xl font-semibold tracking-tight tabular-nums">{data.documentCount}</p>
         </div>
-        <div className="rounded-lg border bg-card p-5">
+        <div className="rounded-2xl border bg-card p-6 shadow-xs">
           <div className="flex items-center gap-2 text-muted-foreground">
             <HardDrive className="size-4" aria-hidden />
             <span className="text-sm">Total size</span>
@@ -178,7 +183,7 @@ export function ProjectOverview({ data }: ProjectOverviewProps) {
             {formatFileSize(data.totalFileSize)}
           </p>
         </div>
-        <div className="col-span-2 rounded-lg border bg-card p-5 sm:col-span-1">
+        <div className="col-span-2 rounded-2xl border bg-card p-6 shadow-xs sm:col-span-1">
           <div className="flex items-center gap-2 text-muted-foreground">
             <Database className="size-4" aria-hidden />
             <span className="text-sm">Knowledge base</span>
@@ -188,16 +193,18 @@ export function ProjectOverview({ data }: ProjectOverviewProps) {
           </p>
         </div>
       </section>
+      </StaggerItem>
 
       {/* Recent Files */}
-      <section className="space-y-3">
+      <StaggerItem>
+      <section className="space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+          <h2 className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
             Recent Files
           </h2>
           {hasDocuments && (
             <Link
-              href={`/projects/${data.id}/files`}
+              href={`/app/projects/${data.id}/files`}
               className="text-sm text-muted-foreground transition-colors hover:text-foreground"
             >
               View all
@@ -206,9 +213,9 @@ export function ProjectOverview({ data }: ProjectOverviewProps) {
         </div>
 
         {hasDocuments ? (
-          <div className="divide-y rounded-lg border bg-card">
+          <div className="divide-y divide-border overflow-hidden rounded-2xl border bg-card shadow-xs">
             {data.recentDocuments.map((doc) => (
-              <div key={doc.id} className="flex items-center justify-between gap-4 px-5 py-3">
+              <div key={doc.id} className="flex items-center justify-between gap-4 px-6 py-3.5">
                 <div className="flex min-w-0 items-center gap-3">
                   <FileText className="size-4 shrink-0 text-muted-foreground" aria-hidden />
                   <span className="truncate text-sm">{doc.filename}</span>
@@ -227,12 +234,13 @@ export function ProjectOverview({ data }: ProjectOverviewProps) {
             description="Upload building documents — plans, reports, the Bauordnung excerpts — so Grid can cite your project when it answers."
             action={
               <Button asChild>
-                <Link href={`/projects/${data.id}/files`}>Upload files</Link>
+                <Link href={`/app/projects/${data.id}/files`}>Upload files</Link>
               </Button>
             }
           />
         )}
       </section>
-    </div>
+      </StaggerItem>
+    </Stagger>
   )
 }

@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * Document status semantics — the single source of truth for how a document's
  * ingestion status maps to a Badge variant and a human label across the Files

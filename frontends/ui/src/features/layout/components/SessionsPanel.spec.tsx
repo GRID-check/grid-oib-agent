@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 import { render, screen } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
@@ -156,7 +153,7 @@ describe('SessionsPanel', () => {
     render(<SessionsPanel sessions={mockSessions} selectedSessionId="session-1" />)
 
     const firstSession = screen.getByRole('button', { name: /session: first session/i })
-    expect(firstSession).toHaveClass('bg-surface-raised')
+    expect(firstSession).toHaveClass('border-accent-primary', 'bg-muted')
   })
 
   test('shows edit and delete icons on hover', async () => {

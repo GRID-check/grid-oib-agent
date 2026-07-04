@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 'use client'
 
 import * as React from 'react'
@@ -15,6 +12,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { motion, springSnappy } from '@/components/motion'
 import { cn } from '@/lib/utils'
 
 export interface ProjectSwitcherProject {
@@ -31,24 +29,36 @@ export interface ProjectSwitcherProps {
 export function ProjectSwitcher({ projects, activeProjectId, collapsed }: ProjectSwitcherProps) {
   const router = useRouter()
   const active = projects.find((p) => p.id === activeProjectId)
+  const [open, setOpen] = React.useState(false)
 
   return (
-    <DropdownMenu>
+    <DropdownMenu onOpenChange={setOpen}>
       <DropdownMenuTrigger
         className={cn(
-          'flex w-full items-center gap-2 rounded-lg border border-transparent px-2 py-1.5 text-left text-sm font-medium',
-          'transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none',
+          'flex h-9 w-full items-center gap-2.5 rounded-lg px-2 text-left text-sm font-medium',
+          'transition-colors duration-200 ease-out hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none',
           collapsed && 'justify-center px-0',
         )}
         aria-label={active ? `Switch project (current: ${active.name})` : 'Select project'}
       >
-        <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+        <span
+          className="flex size-6 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground"
+          aria-hidden
+        >
           <FolderKanban className="size-3.5" />
         </span>
         {!collapsed && (
           <>
             <span className="min-w-0 flex-1 truncate">{active?.name ?? 'Select project'}</span>
-            <ChevronsUpDown className="size-3.5 shrink-0 text-muted-foreground" />
+            <motion.span
+              className="flex shrink-0"
+              initial={false}
+              animate={{ rotate: open ? 180 : 0 }}
+              transition={springSnappy}
+              aria-hidden
+            >
+              <ChevronsUpDown className="size-3.5 text-muted-foreground" aria-hidden />
+            </motion.span>
           </>
         )}
       </DropdownMenuTrigger>
@@ -57,7 +67,7 @@ export function ProjectSwitcher({ projects, activeProjectId, collapsed }: Projec
         {projects.map((project) => (
           <DropdownMenuItem
             key={project.id}
-            onSelect={() => router.push(`/projects/${project.id}`)}
+            onSelect={() => router.push(`/app/projects/${project.id}`)}
             className="gap-2"
           >
             <span className="min-w-0 flex-1 truncate">{project.name}</span>
@@ -65,12 +75,12 @@ export function ProjectSwitcher({ projects, activeProjectId, collapsed }: Projec
           </DropdownMenuItem>
         ))}
         <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={() => router.push('/projects')} className="gap-2">
-          <FolderKanban className="size-4 text-muted-foreground" />
+        <DropdownMenuItem onSelect={() => router.push('/app/projects')} className="gap-2">
+          <FolderKanban className="size-4 text-muted-foreground" aria-hidden />
           All projects
         </DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => router.push('/projects?new=1')} className="gap-2">
-          <Plus className="size-4 text-muted-foreground" />
+        <DropdownMenuItem onSelect={() => router.push('/app/projects?new=1')} className="gap-2">
+          <Plus className="size-4 text-muted-foreground" aria-hidden />
           New project
         </DropdownMenuItem>
       </DropdownMenuContent>

@@ -1,16 +1,19 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * LandingHero — the flagship first impression. A confident headline about
  * building compliance grounded in the code, a one-paragraph subhead, the
  * primary Sign in CTA, and — as the hero visual — a static LegalBasisCard
  * mock so the citation quality is visible immediately.
+ *
+ * Entrance: a quiet staggered reveal (eyebrow → h1 → subhead → CTA) with the
+ * hero visual settling in last on a gentle spring.
  */
+
+'use client'
 
 import { type FC } from 'react'
 import { ArrowRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Stagger, StaggerItem, motion, fadeRise, springGentle } from '@/components/motion'
 import { LegalBasisCardMock } from './LegalBasisCardMock'
 
 interface LandingHeroProps {
@@ -19,40 +22,62 @@ interface LandingHeroProps {
 
 export const LandingHero: FC<LandingHeroProps> = ({ onSignIn }) => {
   return (
-    <section className="mx-auto w-full max-w-5xl px-4 pb-16 pt-16 md:px-8 md:pb-24 md:pt-24">
-      <div className="grid items-center gap-12 lg:grid-cols-[1.05fr_0.95fr] lg:gap-16">
+    <section
+      aria-labelledby="hero-heading"
+      className="mx-auto w-full max-w-5xl px-6 pb-24 pt-20 md:px-8 md:pb-32 md:pt-28"
+    >
+      <div className="grid items-center gap-16 lg:grid-cols-[1.05fr_0.95fr] lg:gap-20">
         {/* Copy column */}
-        <div className="animate-in fade-in-0 slide-in-from-bottom-1 flex flex-col items-start duration-500">
-          <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+        <Stagger className="flex flex-col items-start">
+          <motion.p
+            variants={fadeRise}
+            transition={springGentle}
+            className="text-xs font-medium uppercase tracking-widest text-muted-foreground"
+          >
             OIB &amp; RIS compliance copilot for Austrian architects
-          </p>
+          </motion.p>
 
-          <h1 className="mt-4 text-4xl font-semibold tracking-tight text-foreground text-balance md:text-5xl">
+          <motion.h1
+            id="hero-heading"
+            variants={fadeRise}
+            transition={springGentle}
+            className="mt-5 text-5xl font-semibold tracking-tight text-foreground text-balance md:text-6xl"
+          >
             Every answer, grounded in the building code.
-          </h1>
+          </motion.h1>
 
-          <p className="mt-5 max-w-xl text-base leading-relaxed text-muted-foreground">
+          <motion.p
+            variants={fadeRise}
+            transition={springGentle}
+            className="mt-6 max-w-xl text-base leading-relaxed text-muted-foreground md:text-lg"
+          >
             Grid answers building-compliance questions for each of your projects — grounded in
             the OIB-Richtlinien and Austrian legal sources from RIS. Every answer is scoped to
             the project at hand and cited to the exact Richtlinie and paragraph, so you can
             verify it against the code itself.
-          </p>
+          </motion.p>
 
-          <div className="mt-8 flex flex-wrap items-center gap-3">
+          <StaggerItem className="mt-10 flex flex-wrap items-center gap-4">
             <Button size="lg" onClick={onSignIn}>
               Sign in
-              <ArrowRight />
+              <ArrowRight aria-hidden="true" />
             </Button>
             <span className="text-sm text-muted-foreground">
               Single sign-on for your practice
             </span>
-          </div>
-        </div>
+          </StaggerItem>
+        </Stagger>
 
-        {/* Hero visual: static proof-of-work citation */}
-        <div className="lg:pl-4">
+        {/* Hero visual: static proof-of-work citation — settles in last */}
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ ...springGentle, delay: 0.3 }}
+          whileHover={{ y: -4, rotate: -0.25, transition: springGentle }}
+          className="lg:pl-4"
+        >
           <LegalBasisCardMock />
-        </div>
+        </motion.div>
       </div>
     </section>
   )

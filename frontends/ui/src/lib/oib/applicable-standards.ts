@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * Derive which OIB-Richtlinien apply to a project from the project's own brief
  * (its {@link ProjectProfile}). Pure and isomorphic — safe to run on the server

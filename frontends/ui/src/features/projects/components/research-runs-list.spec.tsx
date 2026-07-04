@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 import type { ReactNode } from 'react'
 import { render, screen, waitFor } from '@/test-utils'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
@@ -39,7 +36,7 @@ describe('ResearchRunsList', () => {
 
     expect(await screen.findByText(/No research runs yet/i)).toBeDefined()
     const cta = screen.getByRole('link', { name: /Start a run in Chat/i })
-    expect(cta.getAttribute('href')).toBe('/projects/p1/chat')
+    expect(cta.getAttribute('href')).toBe('/app/projects/p1/chat')
   })
 
   test('shows a View report link to the chat job for completed runs', async () => {
@@ -47,7 +44,7 @@ describe('ResearchRunsList', () => {
     render(<ResearchRunsList projectId="p1" projectCollection="proj_1" />)
 
     const link = await screen.findByRole('link', { name: /View report/i })
-    expect(link.getAttribute('href')).toBe('/projects/p1/chat?job=job-123456789')
+    expect(link.getAttribute('href')).toBe('/app/projects/p1/chat?job=job-123456789')
     // short job id is surfaced in mono
     expect(screen.getByText('job-1234')).toBeDefined()
   })

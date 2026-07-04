@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 import type { ReactNode } from 'react'
 import { render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
@@ -19,6 +16,7 @@ const chatState = {
   reconnectToActiveJob: vi.fn(),
   cleanupOrphanedStartingBanners: vi.fn(),
   isDeepResearchStreaming: false,
+  loadServerConversations: vi.fn(),
 }
 
 vi.mock('@workos-inc/authkit-nextjs/components', () => ({

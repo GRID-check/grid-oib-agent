@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 import { v4 as uuidv4 } from 'uuid'
 import { toast } from 'sonner'
 import { createJSONStorage, type StorageValue, type PersistStorage } from 'zustand/middleware'

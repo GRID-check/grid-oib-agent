@@ -1,11 +1,9 @@
-// SPDX-FileCopyrightText: Copyright (c) 2026, Grid Agent Contributors. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 'use client'
 
 import { useState } from 'react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { motion, springGentle } from '@/components/motion'
 
 interface PreviewItem {
   label: string
@@ -64,29 +62,33 @@ export function ProjectProfilePatchCard({
 
   if (status === 'accepted') {
     return (
-      <Card className="border-l-success border-base bg-surface-raised-30 gap-2 border-l-4 p-4">
-        <p className="text-primary text-sm">Project context updated.</p>
-      </Card>
+      <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} transition={springGentle}>
+        <Card className="gap-2 border-l-4 border-l-success p-5 shadow-xs">
+          <p className="text-sm text-foreground">Project context updated.</p>
+        </Card>
+      </motion.div>
     )
   }
 
   if (status === 'rejected') {
     return (
-      <Card className="border-l-subtle border-base bg-surface-raised-30 gap-2 border-l-4 p-4">
-        <p className="text-subtle text-sm">Changes discarded.</p>
-      </Card>
+      <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} transition={springGentle}>
+        <Card className="gap-2 border-l-4 border-l-muted-foreground/30 p-5 shadow-xs">
+          <p className="text-sm text-muted-foreground">Changes discarded.</p>
+        </Card>
+      </motion.div>
     )
   }
 
   return (
-    <Card className="border-l-warning border-base bg-surface-raised-30 gap-3 border-l-4 p-4">
-      <p className="text-warning text-sm font-semibold">{title}</p>
-      <p className="text-primary text-sm">{rationale}</p>
+    <Card className="gap-3 border-l-4 border-l-[var(--border-color-feedback-warning)] p-5 shadow-xs">
+      <p className="text-sm font-semibold text-foreground">{title}</p>
+      <p className="text-sm leading-relaxed text-muted-foreground">{rationale}</p>
 
       {preview.length > 0 && (
         <table className="w-full border-collapse text-sm">
           <thead>
-            <tr className="border-base text-subtle border-b">
+            <tr className="border-b border-border text-muted-foreground">
               <th scope="col" className="py-1 pr-2 text-left font-medium">Field</th>
               <th scope="col" className="p-1 text-left font-medium">Before</th>
               <th scope="col" className="pl-2 text-left font-medium">After</th>
@@ -94,21 +96,21 @@ export function ProjectProfilePatchCard({
           </thead>
           <tbody>
             {preview.map((item, i) => (
-              <tr key={i} className="border-base border-b">
-                <td className="text-primary py-1 pr-2 font-medium">{item.label}</td>
-                <td className="text-subtle p-1">{item.before}</td>
-                <td className="text-primary pl-2">{item.after}</td>
+              <tr key={i} className="border-b border-border">
+                <td className="py-1 pr-2 font-medium text-foreground">{item.label}</td>
+                <td className="p-1 text-muted-foreground">{item.before}</td>
+                <td className="pl-2 text-foreground">{item.after}</td>
               </tr>
             ))}
           </tbody>
         </table>
       )}
 
-      {error && <p className="text-danger text-sm">{error}</p>}
+      {error && <p className="text-sm text-destructive">{error}</p>}
 
       <div className="flex items-center gap-2">
         {!projectId && (
-          <p className="text-subtle text-xs">Project ID required to apply changes.</p>
+          <p className="text-xs text-muted-foreground">Project ID required to apply changes.</p>
         )}
         <Button
           type="button"

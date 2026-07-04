@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * Application Providers
  *
@@ -21,6 +18,7 @@
 
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { AuthKitProvider } from '@workos-inc/authkit-nextjs/components'
+import { MotionConfig } from 'motion/react'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { Toaster } from '@/components/ui/sonner'
 import { AppConfigProvider, type AppConfig } from '@/shared/context'
@@ -192,10 +190,14 @@ export const Providers = ({ children, config }: ProvidersProps): ReactNode => {
   return (
     <AppConfigProvider config={config}>
       <AuthKitProvider>
-        <TooltipProvider delayDuration={200}>
-          {content}
-        </TooltipProvider>
-        <Toaster />
+        {/* reducedMotion="user" disables transform/layout animations for users
+            with prefers-reduced-motion, app-wide. */}
+        <MotionConfig reducedMotion="user">
+          <TooltipProvider delayDuration={200}>
+            {content}
+          </TooltipProvider>
+          <Toaster />
+        </MotionConfig>
       </AuthKitProvider>
     </AppConfigProvider>
   )

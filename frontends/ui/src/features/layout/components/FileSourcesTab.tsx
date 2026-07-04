@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * FileSourcesTab Component
  *
@@ -16,6 +13,7 @@ import { X } from 'lucide-react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
+import { AnimatePresence } from '@/components/motion'
 import { FileSourceCard } from './FileSourceCard'
 import { DeleteFileConfirmationModal } from './DeleteFileConfirmationModal'
 import {
@@ -336,20 +334,23 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
         </Button>
       </div>
 
-      {/* File list */}
-      {targetFiles.map((file) => (
-        <FileSourceCard
-          key={file.id}
-          id={file.id}
-          title={file.fileName}
-          fileSize={file.fileSize}
-          uploadedAt={file.uploadedAt}
-          status={mapToDisplayStatus(file.status)}
-          errorMessage={file.errorMessage ?? undefined}
-          expirationIntervalHours={fileUploadConfig.fileExpirationCheckIntervalHours}
-          onDelete={handleDeleteClick}
-        />
-      ))}
+      {/* File list — AnimatePresence lets deleted cards fade out; initial={false}
+          keeps hydrated lists static while newly uploaded files animate in */}
+      <AnimatePresence initial={false}>
+        {targetFiles.map((file) => (
+          <FileSourceCard
+            key={file.id}
+            id={file.id}
+            title={file.fileName}
+            fileSize={file.fileSize}
+            uploadedAt={file.uploadedAt}
+            status={mapToDisplayStatus(file.status)}
+            errorMessage={file.errorMessage ?? undefined}
+            expirationIntervalHours={fileUploadConfig.fileExpirationCheckIntervalHours}
+            onDelete={handleDeleteClick}
+          />
+        ))}
+      </AnimatePresence>
 
       {/* Delete Confirmation Modal */}
       <DeleteFileConfirmationModal

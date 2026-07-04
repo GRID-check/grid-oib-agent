@@ -1,11 +1,9 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { AlertCircle, ArrowRight, Telescope } from 'lucide-react'
+import { Stagger, StaggerItem } from '@/components/motion'
 import { Badge, type BadgeProps } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -137,15 +135,15 @@ export function ResearchRunsList({ projectId, projectCollection }: ResearchRunsL
 
   if (jobs === null) {
     return (
-      <div className="mt-8 overflow-hidden rounded-lg border bg-card">
-        <div className="divide-y">
+      <div className="mt-8 overflow-hidden rounded-2xl border bg-card shadow-xs">
+        <div className="divide-y divide-border">
           {Array.from({ length: 5 }).map((_, index) => (
-            <div key={index} className="flex items-center justify-between gap-4 px-5 py-3.5">
+            <div key={index} className="flex items-center justify-between gap-4 px-6 py-3.5">
               <div className="flex items-center gap-3">
-                <Skeleton className="h-5 w-20 rounded-md" />
+                <Skeleton className="h-5 w-20 rounded-full" />
                 <Skeleton className="h-4 w-24" />
               </div>
-              <Skeleton className="h-8 w-28 rounded-md" />
+              <Skeleton className="h-8 w-28 rounded-full" />
             </div>
           ))}
         </div>
@@ -162,7 +160,7 @@ export function ResearchRunsList({ projectId, projectCollection }: ResearchRunsL
         description="Deep research runs appear here once you ask Grid an involved question in Chat — it works the OIB/RIS sources and returns a cited report you can revisit."
         action={
           <Button asChild>
-            <Link href={`/projects/${projectId}/chat`}>Start a run in Chat</Link>
+            <Link href={`/app/projects/${projectId}/chat`}>Start a run in Chat</Link>
           </Button>
         }
       />
@@ -170,14 +168,14 @@ export function ResearchRunsList({ projectId, projectCollection }: ResearchRunsL
   }
 
   return (
-    <div className="mt-8 overflow-hidden rounded-lg border bg-card">
-      <div className="divide-y">
+    <div className="mt-8 overflow-hidden rounded-2xl border bg-card shadow-xs">
+      <Stagger className="divide-y divide-border">
         {jobs.map((job) => {
           const isCompleted = job.status === 'completed'
           return (
-            <div
+            <StaggerItem
               key={job.job_id}
-              className="flex items-center justify-between gap-4 px-5 py-3.5 transition-colors hover:bg-accent/40"
+              className="flex items-center justify-between gap-4 px-6 py-3.5 transition-colors duration-200 ease-out hover:bg-accent/40"
             >
               <div className="flex min-w-0 items-center gap-4">
                 <Badge variant={STATUS_BADGE_VARIANT[job.status] ?? 'secondary'}>
@@ -195,7 +193,7 @@ export function ResearchRunsList({ projectId, projectCollection }: ResearchRunsL
 
               {isCompleted ? (
                 <Button asChild size="sm" className="shrink-0">
-                  <Link href={`/projects/${projectId}/chat?job=${job.job_id}`}>
+                  <Link href={`/app/projects/${projectId}/chat?job=${job.job_id}`}>
                     View report
                     <ArrowRight />
                   </Link>
@@ -205,10 +203,10 @@ export function ResearchRunsList({ projectId, projectCollection }: ResearchRunsL
                   {STATUS_HINT[job.status] ?? ''}
                 </span>
               )}
-            </div>
+            </StaggerItem>
           )
         })}
-      </div>
+      </Stagger>
     </div>
   )
 }

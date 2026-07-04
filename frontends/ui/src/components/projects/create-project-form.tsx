@@ -1,13 +1,10 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 'use client'
 
 import { useState } from 'react'
 import { z } from 'zod'
 import { useAppForm } from '@/components/form'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { createProject } from '@/app/projects/actions'
+import { createProject } from '@/app/app/projects/actions'
 
 const createProjectSchema = z.object({
   name: z
@@ -76,7 +73,7 @@ export function CreateProjectForm(): JSX.Element {
             </form.AppField>
 
             <div className="flex flex-col gap-2">
-              <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
                 Start from a template
               </span>
               <div className="flex flex-wrap gap-2">
@@ -86,7 +83,7 @@ export function CreateProjectForm(): JSX.Element {
                     type="button"
                     disabled={isSubmitting}
                     onClick={() => form.setFieldValue('name', template.name)}
-                    className="rounded-md border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none disabled:opacity-50"
+                    className="rounded-full border px-3 py-1 text-xs text-muted-foreground transition-colors duration-200 ease-out hover:border-primary/40 hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none disabled:opacity-50"
                   >
                     {template.label}
                   </button>
@@ -97,7 +94,7 @@ export function CreateProjectForm(): JSX.Element {
         )}
       </form.Subscribe>
 
-      <p className="text-sm text-muted-foreground">
+      <p className="text-sm leading-relaxed text-muted-foreground">
         Create a focused workspace for documents, retrieval, members, and chat grounded in the
         OIB/RIS corpus.
       </p>

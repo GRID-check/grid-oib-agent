@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 import { render, screen } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect } from 'vitest'
@@ -10,7 +7,8 @@ describe('DeleteFileConfirmationModal', () => {
   test('renders modal when open', () => {
     render(<DeleteFileConfirmationModal open={true} onOpenChange={vi.fn()} onConfirm={vi.fn()} />)
 
-    expect(screen.getByText('Delete File')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /delete file/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Delete File' })).toBeInTheDocument()
     expect(screen.getByText(/you are about to delete this file/i)).toBeInTheDocument()
     expect(screen.getByText(/this action cannot be reversed/i)).toBeInTheDocument()
   })

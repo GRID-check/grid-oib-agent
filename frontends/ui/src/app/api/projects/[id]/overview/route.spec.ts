@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/lib/auth/require-auth', () => ({
@@ -25,42 +22,47 @@ import { GET } from './route'
 describe('GET /api/projects/[id]/overview', () => {
   it('returns project overview with stats', async () => {
     const { getDb } = await import('@/lib/db')
-    const mockSelect = vi.fn().mockReturnThis()
-    const mockFrom = vi.fn().mockReturnThis()
-    const mockWhere = vi.fn().mockReturnThis()
-    const mockOrderBy = vi.fn().mockReturnThis()
-    const mockLimit = vi.fn().mockReturnThis()
 
-    mockLimit.mockResolvedValue([
-      {
-        id: 'proj-1',
-        name: 'Test Project',
-        collectionName: 'proj-1-collection',
-        createdAt: new Date('2026-01-01'),
-        profileDisplay: { title: 'Test', summary: 'A test project' },
-      },
-    ])
+    const projectRow = {
+      id: 'proj-1',
+      name: 'Test Project',
+      collectionName: 'proj-1-collection',
+      createdAt: new Date('2026-01-01'),
+      profile: null,
+      profileDisplay: { title: 'Test', summary: 'A test project', keyFacts: [] },
+    }
+    const statsRow = { count: 1, totalSize: 1024 }
+    const recentDocRow = {
+      id: 'doc-1',
+      filename: 'spec.pdf',
+      fileSize: 1024,
+      contentType: 'application/pdf',
+      status: 'ready',
+      createdAt: new Date('2026-01-02'),
+    }
 
-    mockSelect.mockImplementation((fields?: unknown) => {
-      if (fields && typeof fields === 'object' && 'count' in (fields as any)) {
-        return { from: mockFrom }
-      }
-      return { from: mockFrom }
-    })
-
-    mockFrom.mockImplementation((_table: unknown) => ({ where: mockWhere }))
-    mockWhere.mockImplementation((_condition: unknown) => ({
-      orderBy: mockOrderBy,
-      limit: mockLimit,
-    }))
-    mockOrderBy.mockImplementation((_col: unknown) => ({ limit: mockLimit }))
+    // The overview query issues three selects, in order:
+    // 1. project:      select().from().where().limit(1)          -> [projectRow]
+    // 2. stats:        select().from().where()  (awaited direct) -> [statsRow]
+    // 3. recent docs:  select().from().where().orderBy().limit() -> [recentDocRow]
+    const mockLimit = vi
+      .fn()
+      .mockResolvedValueOnce([projectRow])
+      .mockResolvedValueOnce([recentDocRow])
+    const mockOrderBy = vi.fn().mockImplementation(() => ({ limit: mockLimit }))
+    // where() must be awaitable (stats query) while still exposing the
+    // orderBy/limit chain for the project and recent-docs queries.
+    const mockWhere = vi.fn().mockImplementation(() =>
+      Object.assign(Promise.resolve([statsRow]), {
+        orderBy: mockOrderBy,
+        limit: mockLimit,
+      }),
+    )
+    const mockFrom = vi.fn().mockImplementation(() => ({ where: mockWhere }))
+    const mockSelect = vi.fn().mockImplementation(() => ({ from: mockFrom }))
 
     vi.mocked(getDb).mockReturnValue({
       select: mockSelect,
-      from: mockFrom,
-      where: mockWhere,
-      orderBy: mockOrderBy,
-      limit: mockLimit,
     } as any)
 
     const response = await GET(

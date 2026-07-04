@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2026, Grid Agent Contributors. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 // The Grid card schema is generated from the canonical Pydantic models. This
 // module re-exports the generated Zod schemas under the stable public API and
 // derives the TypeScript types consumed across the app. To change the schema,

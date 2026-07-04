@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 import { eq } from 'drizzle-orm'
 import { notFound } from 'next/navigation'
 import { requireAuthorizedSession } from '@/lib/auth/require-auth'

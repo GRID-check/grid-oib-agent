@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 'use client'
 
 import { type FC, type ReactNode, memo, useMemo } from 'react'
@@ -68,7 +65,7 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
           // Inline code
           return (
             <code
-              className="bg-surface-raised text-primary rounded px-1.5 py-0.5 font-mono text-sm"
+              className="text-primary rounded-md bg-muted px-1.5 py-0.5 font-mono text-[0.875em]"
               {...props}
             >
               {children}
@@ -91,7 +88,7 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
         h2: ({ children }) => {
           const id = slugify(getTextFromChildren(children))
           return (
-            <h2 id={id} className="text-primary mb-2 mt-5 block scroll-mt-4 text-lg font-semibold">
+            <h2 id={id} className="text-primary mb-2 mt-5 block scroll-mt-4 text-xl font-semibold tracking-tight">
               {children}
             </h2>
           )
@@ -99,7 +96,7 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
         h3: ({ children }) => {
           const id = slugify(getTextFromChildren(children))
           return (
-            <h3 id={id} className="text-primary mb-2 mt-4 block scroll-mt-4 text-base font-semibold">
+            <h3 id={id} className="text-primary mb-2 mt-4 block scroll-mt-4 text-base font-semibold tracking-tight">
               {children}
             </h3>
           )
@@ -168,7 +165,7 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
 
         // Blockquotes
         blockquote: ({ children }) => (
-          <blockquote className="border-info text-subtle my-3 border-l-4 pl-4 italic">
+          <blockquote className="border-base text-subtle my-3 border-l-2 pl-4 italic leading-relaxed">
             {children}
           </blockquote>
         ),
@@ -178,13 +175,13 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
 
         // Tables (GFM)
         table: ({ children }) => (
-          <div className="my-4 overflow-x-auto">
-            <table className="border-base min-w-full rounded border">{children}</table>
+          <div className="border-base my-4 overflow-x-auto rounded-xl border">
+            <table className="min-w-full">{children}</table>
           </div>
         ),
-        thead: ({ children }) => <thead className="bg-surface-raised">{children}</thead>,
+        thead: ({ children }) => <thead className="bg-muted/50">{children}</thead>,
         tbody: ({ children }) => <tbody>{children}</tbody>,
-        tr: ({ children }) => <tr className="border-base border-b">{children}</tr>,
+        tr: ({ children }) => <tr className="border-base border-b last:border-b-0">{children}</tr>,
         th: ({ children }) => (
           <th className="text-primary px-3 py-2 text-left text-sm font-semibold">{children}</th>
         ),

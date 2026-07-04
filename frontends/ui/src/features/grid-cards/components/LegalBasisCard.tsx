@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * LegalBasisCard — the product's proof-of-work.
  *
@@ -48,9 +45,9 @@ export const LegalBasisCard: FC<LegalBasisCardData> = ({
   const sourceUrl = resolveSourceUrl(law, section)
 
   return (
-    <Card className="animate-in fade-in-0 slide-in-from-bottom-1 gap-3 rounded-lg border border-l-2 border-l-primary/40 bg-card p-5 shadow-none">
+    <Card className="animate-in fade-in-0 slide-in-from-bottom-1 gap-3 border-l-2 border-l-primary/40 p-5 shadow-xs">
       {/* Eyebrow — marks this as a citation, not a message */}
-      <div className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+      <div className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-widest text-muted-foreground">
         <Scale className="size-3.5" aria-hidden="true" />
         <span>Legal basis</span>
       </div>
@@ -86,7 +83,7 @@ export const LegalBasisCard: FC<LegalBasisCardData> = ({
           href={sourceUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-accent-primary inline-flex w-fit items-center gap-1.5 text-xs font-medium transition-opacity hover:opacity-80"
+          className="inline-flex w-fit items-center gap-1.5 text-xs font-medium text-primary transition-opacity duration-200 ease-out hover:opacity-80"
         >
           <ExternalLink className="size-3.5" aria-hidden="true" />
           {/oib|richtlinie/i.test(law) ? 'View OIB Richtlinie' : 'Verify in RIS'}

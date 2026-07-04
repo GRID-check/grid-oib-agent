@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 import path from 'path'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vitest/config'
@@ -13,7 +10,7 @@ export default defineConfig({
     environment: 'happy-dom',
     testTimeout: 50000,
     root: './',
-    include: ['src/**/*.spec.{ts,tsx}', 'tests/**/*.test.{ts,tsx}'],
+    include: ['src/**/*.{spec,test}.{ts,tsx}', 'tests/**/*.test.{ts,tsx}'],
     exclude: ['**/mocks/**', '**/node_modules/**'],
     setupFiles: ['./config/vitest/polyfills.ts', './config/vitest/vitest.setup.ts'],
     clearMocks: true,
@@ -29,7 +26,7 @@ export default defineConfig({
       exclude: [
         'node_modules/**',
         'config/**',
-        '**/*.spec.{ts,tsx}',
+        '**/*.{spec,test}.{ts,tsx}',
         '**/mocks/**',
         '**/test-utils/**',
         '**/*.d.ts',

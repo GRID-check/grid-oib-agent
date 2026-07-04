@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * Landing — the premium marketing page shown to genuine logged-out visitors.
  *
@@ -28,7 +25,7 @@ export const Landing: FC<LandingProps> = ({ onSignIn }) => {
   return (
     <div className="flex min-h-[100dvh] flex-col bg-background text-foreground">
       <LandingTopBar onSignIn={onSignIn} />
-      <main className="flex-1">
+      <main id="main-content" className="flex-1">
         <LandingHero onSignIn={onSignIn} />
         <HowItWorks />
         <TrustSection />

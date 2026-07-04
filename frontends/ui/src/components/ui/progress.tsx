@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 'use client'
 
 import * as React from 'react'
@@ -15,12 +12,12 @@ const Progress = React.forwardRef<
   <ProgressPrimitive.Root
     ref={ref}
     data-slot="progress"
-    className={cn('bg-primary/20 relative h-2 w-full overflow-hidden rounded-full', className)}
+    className={cn('bg-secondary relative h-1.5 w-full overflow-hidden rounded-full', className)}
     {...props}
   >
     <ProgressPrimitive.Indicator
       data-slot="progress-indicator"
-      className="bg-primary h-full w-full flex-1 transition-all"
+      className="bg-primary h-full w-full flex-1 rounded-full transition-transform duration-500 ease-out"
       style={{ transform: `translateX(-${100 - (value || 0)}%)` }}
     />
   </ProgressPrimitive.Root>

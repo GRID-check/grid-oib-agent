@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 'use client'
 
 import { useState } from 'react'
@@ -18,7 +15,7 @@ import {
 import { CreateProjectForm } from './create-project-form'
 
 interface CreateProjectDialogProps {
-  /** Open on mount — wired to `/projects?new=1` from the project switcher. */
+  /** Open on mount — wired to `/app/projects?new=1` from the project switcher. */
   defaultOpen?: boolean
   label?: string
   variant?: ButtonProps['variant']

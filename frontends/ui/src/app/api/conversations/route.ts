@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 import { NextResponse } from 'next/server'
 import { desc, eq } from 'drizzle-orm'
 import { z } from 'zod'

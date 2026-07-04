@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 'use client'
 
 import { useEffect } from 'react'
@@ -44,7 +41,7 @@ export default function RouteError({
             </Button>
           )}
           <Button asChild>
-            <Link href="/projects">Back to projects</Link>
+            <Link href="/app/projects">Back to projects</Link>
           </Button>
         </>
       }

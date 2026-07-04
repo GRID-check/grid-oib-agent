@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 import * as React from 'react'
 import type { LucideIcon } from 'lucide-react'
 
@@ -40,13 +37,13 @@ export function EmptyState({
     <div
       className={cn(
         'flex flex-col items-center justify-center text-center',
-        variant === 'panel' ? 'rounded-lg border border-dashed bg-muted/40 px-6 py-12' : 'py-10',
+        variant === 'panel' ? 'rounded-2xl border border-dashed bg-muted/30 px-6 py-14' : 'py-10',
         className,
       )}
       {...props}
     >
       {Icon && (
-        <div className="mb-3 flex size-11 items-center justify-center rounded-full bg-muted">
+        <div className="mb-4 flex size-12 items-center justify-center rounded-full bg-muted shadow-2xs">
           <Icon className="size-5 text-muted-foreground" aria-hidden />
         </div>
       )}

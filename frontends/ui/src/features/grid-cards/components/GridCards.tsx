@@ -1,11 +1,9 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 import { type FC } from 'react'
 import type { GridCard } from '@/shared/cards/schemas'
 import { SummaryCard } from './SummaryCard'
 import { LegalBasisCard } from './LegalBasisCard'
 import { ProjectProfilePatchCard } from './ProjectProfilePatchCard'
+import { FadeIn } from '@/components/motion'
 
 interface GridCardsProps {
   /** Parsed grid cards to render. */
@@ -28,23 +26,32 @@ export const GridCards: FC<GridCardsProps> = ({ cards, projectId }) => {
         const key = `${card.type}-${index}`
 
         if (card.type === 'summary') {
-          return <SummaryCard key={key} {...card} />
+          return (
+            <FadeIn key={key} distance={6}>
+              <SummaryCard {...card} />
+            </FadeIn>
+          )
         }
 
         if (card.type === 'legal_basis') {
-          return <LegalBasisCard key={key} {...card} />
+          return (
+            <FadeIn key={key} distance={6}>
+              <LegalBasisCard {...card} />
+            </FadeIn>
+          )
         }
 
         if (card.type === 'project_profile_patch') {
           return (
-            <ProjectProfilePatchCard
-              key={key}
-              title={card.title || ''}
-              rationale={card.rationale || ''}
-              preview={card.preview || []}
-              patch={card.patch || []}
-              projectId={projectId}
-            />
+            <FadeIn key={key} distance={6}>
+              <ProjectProfilePatchCard
+                title={card.title || ''}
+                rationale={card.rationale || ''}
+                preview={card.preview || []}
+                patch={card.patch || []}
+                projectId={projectId}
+              />
+            </FadeIn>
           )
         }
 

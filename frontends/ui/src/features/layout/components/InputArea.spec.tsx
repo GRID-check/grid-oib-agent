@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 import { render, screen } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
@@ -166,7 +163,7 @@ describe('InputArea', () => {
     expect(screen.getByRole('button', { name: /send message/i })).toBeDisabled()
   })
 
-  test('tabs from the prompt input directly to the send button', async () => {
+  test('all composer controls are keyboard reachable via tab', async () => {
     const user = userEvent.setup()
     render(<InputArea isAuthenticated={true} />)
 
@@ -175,6 +172,17 @@ describe('InputArea', () => {
     expect(input).toHaveFocus()
 
     await user.type(input, 'Hello')
+    await user.tab()
+    expect(
+      screen.getByRole('button', { name: /toggle data sources connections/i })
+    ).toHaveFocus()
+
+    await user.tab()
+    expect(screen.getByRole('button', { name: /open uploaded files/i })).toHaveFocus()
+
+    await user.tab()
+    expect(screen.getByRole('button', { name: /attach files/i })).toHaveFocus()
+
     await user.tab()
     expect(screen.getByRole('button', { name: /send message/i })).toHaveFocus()
   })

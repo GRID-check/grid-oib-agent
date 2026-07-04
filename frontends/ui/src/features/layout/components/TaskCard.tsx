@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * TaskCard Component
  *
@@ -19,6 +16,7 @@ import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/utils'
+import { motion, fadeRise, springGentle } from '@/components/motion'
 import type { DeepResearchTodo, DeepResearchTodoStatus } from '@/features/chat/types'
 
 interface TaskCardProps {
@@ -74,27 +72,33 @@ export const TaskCard: FC<TaskCardProps> = ({ todo }) => {
   const statusText = getStatusText(todo.status)
 
   return (
-    <div className={cn('flex items-center gap-3 rounded-lg border p-3', isComplete && 'opacity-70')}>
-      {/* Checkbox - checked when complete, always disabled (read-only) */}
-      <Checkbox checked={isComplete} disabled aria-label={`Task: ${todo.content}`} />
-
-      {/* Task Name */}
-      <span
-        className={cn(
-          'min-w-0 flex-1 text-sm font-semibold',
-          isComplete && 'text-muted-foreground line-through'
-        )}
+    // Outer motion wrapper handles the mount fade-rise; inner div keeps the
+    // `opacity-70` completed-state class (motion owns inline opacity on its own node)
+    <motion.div variants={fadeRise} initial="hidden" animate="visible" transition={springGentle}>
+      <div
+        className={cn('flex items-center gap-3 rounded-lg border p-3', isComplete && 'opacity-70')}
       >
-        {todo.content}
-      </span>
+        {/* Checkbox - checked when complete, always disabled (read-only) */}
+        <Checkbox checked={isComplete} disabled aria-label={`Task: ${todo.content}`} />
 
-      {/* Status Badge - with spinner for in_progress */}
-      <Badge variant="outline" className={cn('gap-1', getBadgeClasses(todo.status))}>
-        {todo.status === 'in_progress' && (
-          <Spinner size="sm" label="In progress" className="[&_svg]:size-3" />
-        )}
-        {statusText}
-      </Badge>
-    </div>
+        {/* Task Name */}
+        <span
+          className={cn(
+            'min-w-0 flex-1 text-sm font-semibold',
+            isComplete && 'text-muted-foreground line-through'
+          )}
+        >
+          {todo.content}
+        </span>
+
+        {/* Status Badge - with spinner for in_progress */}
+        <Badge variant="outline" className={cn('gap-1', getBadgeClasses(todo.status))}>
+          {todo.status === 'in_progress' && (
+            <Spinner size="sm" label="In progress" className="[&_svg]:size-3" />
+          )}
+          {statusText}
+        </Badge>
+      </div>
+    </motion.div>
   )
 }

@@ -23,8 +23,20 @@ body {
   padding: 0;
 }
 
+body {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
 #__next {
   height: 100%;
+}
+
+/* Quiet, brand-tinted text selection */
+::selection {
+  background-color: color-mix(in oklch, var(--primary) 22%, transparent);
 }
 
 /* Smooth scrolling — only when user has no motion preference */
@@ -34,10 +46,12 @@ body {
   }
 }
 
-/* Focus visible styles for accessibility */
+/* Focus visible styles for accessibility — always a visible 2px ring,
+   offset so it never blends into the control's own edge */
 :focus-visible {
-  outline: 2px solid var(--border-color-interaction-selected);
+  outline: 2px solid var(--ring);
   outline-offset: 2px;
+  border-radius: inherit;
 }
 
 /* Hide scrollbar utility */
@@ -178,19 +192,25 @@ body {
   width: 100%;
 }
 
-/* Global scrollbar styles */
+/* Global scrollbar styles — thin, trackless, alpha thumb (macOS-like) */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--background-color-accent-gray) transparent;
+}
+
 *::-webkit-scrollbar {
-  width: 8px;
-  background: var(--background-color-surface-overlay);
+  width: 6px;
+  height: 6px;
+  background: transparent;
 }
 
 *::-webkit-scrollbar-track {
-  background: var(--background-color-surface-overlay);
+  background: transparent;
 }
 
 *::-webkit-scrollbar-thumb {
   background-color: var(--background-color-accent-gray);
-  border-radius: 4px;
+  border-radius: 9999px;
 }
 
 *::-webkit-scrollbar-thumb:hover {

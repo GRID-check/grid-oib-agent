@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * ChatThinking Component
  *
@@ -16,6 +13,7 @@
 import { type FC } from 'react'
 import { ChevronDown, CheckCircle2, AlertTriangle, Clock } from 'lucide-react'
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible'
+import { motion } from '@/components/motion'
 import { Spinner } from '@/components/ui/spinner'
 import { formatTime } from '@/shared/utils/format-time'
 import type { ThinkingStep } from '../types'
@@ -76,28 +74,34 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
   }
 
   return (
-    <div className="bg-surface-sunken border-base animate-in fade-in-0 slide-in-from-bottom-1 w-full rounded-lg border duration-200">
+    <div className="animate-in fade-in-0 slide-in-from-bottom-1 w-full rounded-2xl bg-muted/50 shadow-xs duration-200 ease-out">
       <Collapsible>
         <CollapsibleTrigger asChild>
           <button
             type="button"
-            className="group flex w-full cursor-pointer items-center justify-between px-4 pb-4 pt-3 text-left"
+            className="group flex w-full cursor-pointer items-center justify-between rounded-2xl px-4 pb-4 pt-3 text-left outline-none transition-colors duration-200 ease-out focus-visible:ring-2 focus-visible:ring-ring/60"
+            aria-label={`Show thinking steps (${steps.length})`}
           >
             {/* Left: status indicator */}
             <span className="flex items-center gap-2">
               {isThinking ? (
                 <>
                   <Spinner size="sm" label="Thinking in progress" />
-                  <span className="text-primary text-base font-semibold">
+                  {/* Gentle opacity pulse — a genuine loading state, so a loop is OK */}
+                  <motion.span
+                    className="text-primary text-sm font-semibold"
+                    animate={{ opacity: [0.4, 1, 0.4] }}
+                    transition={{ repeat: Infinity, duration: 1.6, ease: 'easeInOut' }}
+                  >
                     Working on a response...
-                  </span>
+                  </motion.span>
                 </>
               ) : isWaiting ? (
                 <>
                   <span className="text-brand">
                     <Clock className="h-5 w-5" />
                   </span>
-                  <span className="text-primary text-base font-semibold">
+                  <span className="text-primary text-sm font-semibold">
                     Waiting for response
                   </span>
                 </>
@@ -106,7 +110,7 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
                   <span className="text-warning">
                     <AlertTriangle className="h-5 w-5" />
                   </span>
-                  <span className="text-primary text-base font-semibold">
+                  <span className="text-primary text-sm font-semibold">
                     Interrupted
                   </span>
                 </>
@@ -115,7 +119,7 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
                   <span className="text-success">
                     <CheckCircle2 className="h-5 w-5" />
                   </span>
-                  <span className="text-primary text-base font-semibold">
+                  <span className="text-primary text-sm font-semibold">
                     Done
                   </span>
                 </>
@@ -124,7 +128,7 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
 
             {/* Right: toggle indicator */}
             <span className="flex items-center gap-1">
-              <span className="text-secondary text-sm">
+              <span className="text-secondary text-xs">
                 {`Show thinking (${steps.length})`}
               </span>
               <ChevronDown className="text-secondary h-4 w-4 transition-transform group-data-[state=open]:rotate-180" />
@@ -169,14 +173,14 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
       {/* Data Sources Summary — always visible below the collapsible */}
       {(hasDataSources || hasFiles) && (
         <div className="border-base flex flex-col border-t px-4 pb-5 pt-3">
-          <span className="text-primary mb-1 text-base font-bold">
+          <span className="text-primary mb-1 text-sm font-semibold">
             Selected Data Sources:
           </span>
           {hasDataSources && (
             <span className="text-primary text-sm">{dataSourcesDisplay}</span>
           )}
           {hasFiles && (
-            <span className="text-secondary text-sm">
+            <span className="text-secondary text-xs">
               {messageFiles.map((f) => f.fileName).join(', ')}
             </span>
           )}

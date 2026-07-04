@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 import { render, screen } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
@@ -116,7 +113,7 @@ describe('FileSourcesTab', () => {
 
     expect(screen.getByText('No Attached Files')).toBeInTheDocument()
     expect(
-      screen.getByText('All attached files will be accessible to agents in this session unless removed.')
+      screen.getByText('Files uploaded here go to private session unless removed.')
     ).toBeInTheDocument()
   })
 
@@ -159,7 +156,7 @@ describe('FileSourcesTab', () => {
 
     render(<FileSourcesTab />)
 
-    expect(screen.getByText(/uploaded files \(1\)/i)).toBeInTheDocument()
+    expect(screen.getByText(/private session files \(1\)/i)).toBeInTheDocument()
   })
 
   test('opens delete confirmation modal when delete is clicked', async () => {
