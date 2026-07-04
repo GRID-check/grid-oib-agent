@@ -23,3 +23,10 @@ Verification harness: frontend `docker build -f Dockerfile.typecheck` + `docker 
 - **Change:** added `signingS3Client: {}` to the mock (2 lines). Grep confirmed no other spec mocks `@/lib/s3`.
 - **Verified:** preview suite 3/3 green (vitest in the Docker harness via bind-mount).
 - **Pipeline (compressed, logged deliberately):** Sonnet stage = cycle 1's Opus diagnosis (exact root cause already in hand); Fable stage = trivial/no-alternatives; orchestrator implemented directly. Full pipeline on a 2-line mock fix would have been process theater.
+
+## Cycle 3 — T2 · T2-1 — compose env_file interpolation hazard — CLOSED (already fixed upstream)
+
+- **Finding (Sonnet):** the 2026-07-03 bug (`AIQ_VLM_API_KEY=${OPENROUTER_API_KEY}` literal via env_file) no longer exists: `deploy/.env` value corrected + explicit warning comment added, AND `src/aiq_agent/common/config_validation.py:_read_api_key_env()` now defensively treats `${...}` literals as unset. Verified without echoing any secret values.
+- **Decision:** dead end / already resolved — per loop rules, logged as such rather than forcing a change. One residual closed to keep the cycle durable: the warning comment existed only in the private `.env`, not in `.env.example` that new deployments copy — ported it (comment-only change).
+- **Verified:** comment-only diff in `.env.example`; nothing executable changed.
+- **Pipeline:** Sonnet full exploration (env names only, no values); Fable stage unnecessary (no decision space); orchestrator applied the doc comment.

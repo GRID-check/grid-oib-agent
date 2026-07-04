@@ -12,7 +12,7 @@
 ## Tier 2 — Bugs
 
 - ~~**T2-5**~~ DONE cycle 2 — added `signingS3Client` to the spec's s3 mock; suite 3/3 green; confirmed no other spec mocks `@/lib/s3`.
-- **T2-1** `deploy/compose/docker-compose.yaml` — `AIQ_VLM_API_KEY=${OPENROUTER_API_KEY}` style interpolation inside `deploy/.env` is NOT interpolated by compose `env_file` (reaches the app as the literal string). Silent VLM auth failure. Verify current state and fix (move to compose `environment:` interpolation or document).
+- ~~**T2-1**~~ CLOSED cycle 3 — already fixed before this run: `.env` no longer uses `${...}` (warning comment present) AND `config_validation.py:_read_api_key_env()` treats `${...}` literals as unset. Cycle output: ported the warning comment to `.env.example` (regression prevention for new deployments).
 - **T2-2** `src/aiq_agent/agents/chat_researcher/` — escalation heuristic (`should_escalate`) sniffs English phrases; product domain is German. Escalation likely never fires for German conversations. Scope + fix (language-neutral signal or German patterns).
 - **T2-3** `src/aiq_agent/fastapi_extensions/` — dead, broken duplicate front-end (register.py calls route fns with wrong arity). Dead code that can be imported by mistake. Delete after confirming nothing references it.
 - **T2-4** `frontends/ui/src/app/api/projects/[id]/generate-summary/route.ts` + backend `generate_summary.py` — silent failure chain: missing LLM key → blanket except → `summary: ""` with zero errors anywhere. Add visible error logging / non-200 so the summary being empty is diagnosable.
