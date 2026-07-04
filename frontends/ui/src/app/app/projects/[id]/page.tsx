@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation'
-import { requireAuthorizedSession } from '@/lib/auth/require-auth'
+import { requireAuthorizedPageSession } from '@/lib/auth/require-auth'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { getProjectOverviewData } from '@/lib/projects/overview-query'
 import { ProjectOverview } from '@/features/projects/components/project-overview'
@@ -9,7 +9,7 @@ interface ProjectPageProps {
 }
 
 export default async function ProjectPage({ params }: ProjectPageProps): Promise<JSX.Element> {
-  const session = await requireAuthorizedSession()
+  const session = await requireAuthorizedPageSession()
   const { id } = await params
 
   await requireProjectAccess(session, id, 'project:view')

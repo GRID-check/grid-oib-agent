@@ -1,6 +1,6 @@
 import { asc, count, eq } from 'drizzle-orm'
 import { FolderOpen } from 'lucide-react'
-import { requireAuthorizedSession } from '@/lib/auth/require-auth'
+import { requireAuthorizedPageSession } from '@/lib/auth/require-auth'
 import { getDb } from '@/lib/db'
 import { documents, projects } from '@/lib/db/schema'
 import { ProjectCard } from '@/components/projects/project-card'
@@ -15,7 +15,7 @@ interface ProjectsPageProps {
 }
 
 export default async function ProjectsPage({ searchParams }: ProjectsPageProps): Promise<JSX.Element> {
-  const session = await requireAuthorizedSession()
+  const session = await requireAuthorizedPageSession()
   const { new: newParam } = await searchParams
   const db = getDb()
 

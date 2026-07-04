@@ -1,6 +1,6 @@
 import { eq, and } from 'drizzle-orm'
 import { notFound } from 'next/navigation'
-import { requireAuthorizedSession } from '@/lib/auth/require-auth'
+import { requireAuthorizedPageSession } from '@/lib/auth/require-auth'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { getDb } from '@/lib/db'
 import { projects } from '@/lib/db/schema'
@@ -11,7 +11,7 @@ interface FilesPageProps {
 }
 
 export default async function FilesPage({ params }: FilesPageProps): Promise<JSX.Element> {
-  const session = await requireAuthorizedSession()
+  const session = await requireAuthorizedPageSession()
   const { id } = await params
   await requireProjectAccess(session, id, 'project:view')
 

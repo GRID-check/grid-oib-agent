@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { eq } from 'drizzle-orm'
-import { requireAuthorizedSession } from '@/lib/auth/require-auth'
+import { requireAuthorizedPageSession } from '@/lib/auth/require-auth'
 import { getDb } from '@/lib/db'
 import { getWorkOS } from '@/lib/workos/client'
 import { projects } from '@/lib/db/schema'
@@ -13,7 +13,7 @@ export interface CreateProjectState {
 }
 
 export async function createProject(_prevState: CreateProjectState, formData: FormData): Promise<CreateProjectState> {
-  const session = await requireAuthorizedSession()
+  const session = await requireAuthorizedPageSession()
 
   const name = formData.get('name')
   if (typeof name !== 'string' || name.trim().length === 0 || name.trim().length > 255) {

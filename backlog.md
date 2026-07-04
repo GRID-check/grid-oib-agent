@@ -5,12 +5,13 @@
 
 ## Tier 1 — Security
 
-- **T1-1** `frontends/ui/src/lib/auth/require-auth.ts` — `requireAuthorizedSession()` calls `redirect('/app/onboarding/organization')` for no-org users. In **API route handlers** (profile, memory, jobs proxy, documents…) `redirect()` throws `NEXT_REDIRECT`, which the routes' catch blocks misclassify (500s / masked 403s). Auth guard misbehaving in API context = tier 1. Fix: API-safe guard that returns 401/403 JSON; keep redirect behavior for pages/server components. Likely also implicated in the user-reported research-tab 403.
+- ~~**T1-1**~~ DONE cycle 1 — typed `NoOrganizationError` (403, isAuthzError-compatible) + `requireAuthorizedPageSession()` for the 8 page/action sites; zero API-route edits; contract spec added. Residual (accepted): ~17 bare-call API routes return JSON 500 (not 403) for no-org — strictly better than the old 307→HTML; follow-up **T3-6**.
 - **T1-2** [FLAG — human] `deploy/.env` contains live API keys on disk (OpenRouter, WorkOS, Tavily…). Cannot rotate unattended. ACTION REQUIRED (human): rotate keys, move to a secret store. Logged, not fixable in-loop.
 - **T1-3** [FLAG — human] `GRID_INTERNAL_API_TOKEN` compose default is `grid-internal-dev-token`. Endpoint fails closed when unset, but a well-known default in compose is weak for prod. Human should set a real value in `deploy/.env` for any shared deployment. Consider warning log when the default value is detected.
 
 ## Tier 2 — Bugs
 
+- **T2-5** `frontends/ui/src/app/api/documents/[id]/preview/route.spec.ts` — spec's `vi.mock('@/lib/s3')` doesn't export `signingS3Client` (added by the MinIO presign fix) → 1 test fails (`returns presigned URL for PDF documents`). 2-line mock fix; restores a fully green suite for that route. Discovered cycle 1.
 - **T2-1** `deploy/compose/docker-compose.yaml` — `AIQ_VLM_API_KEY=${OPENROUTER_API_KEY}` style interpolation inside `deploy/.env` is NOT interpolated by compose `env_file` (reaches the app as the literal string). Silent VLM auth failure. Verify current state and fix (move to compose `environment:` interpolation or document).
 - **T2-2** `src/aiq_agent/agents/chat_researcher/` — escalation heuristic (`should_escalate`) sniffs English phrases; product domain is German. Escalation likely never fires for German conversations. Scope + fix (language-neutral signal or German patterns).
 - **T2-3** `src/aiq_agent/fastapi_extensions/` — dead, broken duplicate front-end (register.py calls route fns with wrong arity). Dead code that can be imported by mistake. Delete after confirming nothing references it.
@@ -23,6 +24,7 @@
 - **T3-3** DRY base-agent refactor: 7 duplication patterns across 4 register.py files → `common/agent_base.py`. Deferred earlier pending runtime confirmation; safe to do with static verification + full test suite, but HIGH blast radius — keep late in the night, require all backend tests green before/after.
 - **T3-4** helm-lint CI job is a no-op (always passes). Make it actually lint or remove the false signal.
 - **T3-5** `frontends/ui` tsconfig typechecks test files in `next build` — spec type errors block prod builds (known foot-gun). Consider excluding specs from the build tsconfig (separate `tsconfig.typecheck.json` already exists via Dockerfile? verify) — low risk, high annoyance-prevention.
+- **T3-6** ~17 bare-call API routes (conversations, documents, projects list/detail, members, user/preferences…) have no try/catch around `requireAuthorizedSession` → no-org case returns JSON 500 instead of 403. Uniformity follow-up from T1-1; consider a shared route wrapper instead of 17 edits.
 
 ## Tier 4 — Features (only when tiers 1–3 empty)
 

@@ -8,3 +8,11 @@ Verification harness: frontend `docker build -f Dockerfile.typecheck` + `docker 
 - Created `backlog.md` (seeded from this session's deep diagnosis + known-issues docs) and this log.
 - Baseline checkpoint commit of the entire working tree (session fixes + user's in-flight design work) so every subsequent cycle commit is small, clean, and independently revertible. NOTE for human: this checkpoint includes your uncommitted design-polish edits — nothing was lost; it's all in git history on this branch.
 - Flagged (not fixable unattended): **T1-2** live secrets in `deploy/.env` (rotate!), **T1-3** default internal API token in compose.
+
+## Cycle 1 — T1 · T1-1 — auth guard redirect() inside API routes — `frontends/ui/src/lib/auth/require-auth.ts`
+
+- **Wrong & why it mattered:** `requireAuthorizedSession()` used Next's `redirect()` for no-org sessions. In ~24 API route handlers that throw either escaped as a 307→onboarding HTML (bare routes; JSON clients fail opaquely) or was swallowed into generic 500s / `PROXY_ERROR` (catch-wrapped routes, incl. the deep-research jobs proxy — plausibly part of the user-reported research-tab failure). Auth guard misbehaving in API context.
+- **Change:** typed `NoOrganizationError` (`code NO_ORGANIZATION`, `status 403`, message crafted so the existing `isAuthzError` classifier matches it — zero API-route edits) + new `requireAuthorizedPageSession()` carrying the redirect; 8 page/action call sites switched. New contract spec `require-auth.spec.ts` (4 tests) pins the message↔classifier coupling. Grep-verified no `app/app/**` file still uses the API variant.
+- **Verified:** typecheck exit 0; vitest: require-auth 4/4, overview 1/1, folders 4/4 green. 1 pre-existing failure in documents/preview spec (mock missing `signingS3Client` — caused by the earlier presign fix, NOT this change) → logged as **T2-5**, next cycle.
+- **Pipeline:** Sonnet: 37-call-site inventory + per-catch-shape failure semantics + no-test-coverage confirmation. Fable: chose invert-responsibility option (c) over per-route edits; set 403-not-401 semantics; accepted bare-route-500 residual as follow-up (T3-6). Opus: implemented + verified exactly to plan.
+- **Human review:** none needed beyond normal PR review. Residual T3-6 noted.

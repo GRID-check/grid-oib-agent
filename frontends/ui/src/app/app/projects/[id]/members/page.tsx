@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm'
 import { Users } from 'lucide-react'
-import { requireAuthorizedSession } from '@/lib/auth/require-auth'
+import { requireAuthorizedPageSession } from '@/lib/auth/require-auth'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { getDb } from '@/lib/db'
 import { projects } from '@/lib/db/schema'
@@ -11,7 +11,7 @@ interface ProjectMembersPageProps {
 }
 
 export default async function ProjectMembersPage({ params }: ProjectMembersPageProps): Promise<JSX.Element> {
-  const session = await requireAuthorizedSession()
+  const session = await requireAuthorizedPageSession()
   const { id } = await params
 
   // Read access is enough to view the roster; management controls are gated

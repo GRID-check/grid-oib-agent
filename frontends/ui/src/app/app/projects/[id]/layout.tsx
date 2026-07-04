@@ -1,5 +1,5 @@
 import { asc, eq } from 'drizzle-orm'
-import { requireAuthorizedSession } from '@/lib/auth/require-auth'
+import { requireAuthorizedPageSession } from '@/lib/auth/require-auth'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { getDb } from '@/lib/db'
 import { projects } from '@/lib/db/schema'
@@ -13,7 +13,7 @@ interface ProjectLayoutProps {
 }
 
 export default async function ProjectLayout({ children, params }: ProjectLayoutProps): Promise<JSX.Element> {
-  const session = await requireAuthorizedSession()
+  const session = await requireAuthorizedPageSession()
   const { id } = await params
   const { role } = await requireProjectAccess(session, id, 'project:view')
   const db = getDb()
