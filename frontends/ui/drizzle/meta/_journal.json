@@ -64,6 +64,13 @@
       "when": 1783270000000,
       "tag": "0008_project_memory",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1783300000000,
+      "tag": "0009_deletion_pipeline",
+      "breakpoints": true
     }
   ]
 }

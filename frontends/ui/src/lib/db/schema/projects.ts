@@ -14,6 +14,7 @@ export const projects = pgTable('projects', {
   profilePromptView: text('profile_prompt_view'),
   profileDisplay: jsonb('profile_display').$type<ProjectProfileDisplay>(),
   profileUpdatedAt: timestamp('profile_updated_at', { withTimezone: true }),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 })
 

@@ -1,5 +1,7 @@
 export * from './conversations'
+export * from './deletion-queue'
 export * from './documents'
+export * from './legal-holds'
 export * from './messages'
 export * from './project-folders'
 export * from './project-memory'
