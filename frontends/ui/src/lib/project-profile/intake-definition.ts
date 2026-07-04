@@ -72,30 +72,6 @@ export const projectIntakeDefinitionV1: ProjectIntakeDefinition = {
           condition: { field: 'focus_areas', equals: 'sonstiges' },
           writesTo: '/goals/goal_details',
         },
-        {
-          id: 'deadline',
-          label: 'When do you need answers?',
-          help: 'Grid uses this to prioritise what to resolve first.',
-          type: 'single_select',
-          options: [
-            { value: 'this_week', label: 'This week' },
-            { value: 'this_month', label: 'Within a month' },
-            { value: 'this_quarter', label: 'This quarter' },
-            { value: 'no_deadline', label: 'No fixed deadline' },
-          ],
-          writesTo: '/goals/deadline',
-        },
-        {
-          id: 'output_format',
-          label: 'How should Grid package its findings?',
-          type: 'single_select',
-          options: [
-            { value: 'design_constraints', label: 'Design constraints' },
-            { value: 'compliance_checklist', label: 'Compliance checklist' },
-            { value: 'full_report', label: 'Full report' },
-          ],
-          writesTo: '/facts/output_format/value',
-        },
       ],
     },
     {

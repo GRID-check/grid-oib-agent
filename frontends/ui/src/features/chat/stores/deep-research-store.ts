@@ -21,6 +21,7 @@ import {
 } from '../lib/deep-research-session-storage'
 import { isUnavailableDeepResearchJobError } from '../lib/deep-research-errors'
 import { patchConversationMessageById } from './sessions-store'
+import { validateGridCards, type GridCard } from '@/shared/cards/schemas'
 
 export type DeepResearchSlice = {
   deepResearchJobId: string | null
@@ -35,6 +36,7 @@ export type DeepResearchSlice = {
   deepResearchAgents: DeepResearchAgent[]
   deepResearchToolCalls: DeepResearchToolCall[]
   deepResearchFiles: DeepResearchFile[]
+  deepResearchCards: GridCard[]
   deepResearchStreamLoaded: boolean
   planMessages: PlanMessage[]
   pendingInteraction: PendingInteraction | null
@@ -77,6 +79,7 @@ export type DeepResearchSlice = {
   completeDeepResearchToolCall: (toolCallId: string, output?: string) => void
   getAgentToolCalls: (agentId: string) => DeepResearchToolCall[]
   addDeepResearchFile: (file: Omit<DeepResearchFile, 'id' | 'timestamp'>) => string
+  setDeepResearchCards: (cards: unknown) => void
   addPlanMessage: (message: Omit<PlanMessage, 'id' | 'timestamp'>) => string
   updatePlanMessageResponse: (messageId: string, response: string) => void
   clearPlanMessages: () => void
@@ -213,6 +216,7 @@ export const initialDeepResearchState = {
   deepResearchAgents: [] as DeepResearchAgent[],
   deepResearchToolCalls: [] as DeepResearchToolCall[],
   deepResearchFiles: [] as DeepResearchFile[],
+  deepResearchCards: [] as GridCard[],
   deepResearchStreamLoaded: false,
   planMessages: [] as PlanMessage[],
   pendingInteraction: null as PendingInteraction | null,
@@ -240,6 +244,7 @@ export const createDeepResearchSlice: StateCreator<ChatStore, [["zustand/devtool
         deepResearchAgents: [],
         deepResearchToolCalls: [],
         deepResearchFiles: [],
+        deepResearchCards: [],
         deepResearchStreamLoaded: false,
       },
       false,
@@ -538,6 +543,7 @@ export const createDeepResearchSlice: StateCreator<ChatStore, [["zustand/devtool
         deepResearchAgents: [],
         deepResearchToolCalls: [],
         deepResearchFiles: [],
+        deepResearchCards: [],
         deepResearchStreamLoaded: false,
       },
       false,
@@ -644,6 +650,7 @@ export const createDeepResearchSlice: StateCreator<ChatStore, [["zustand/devtool
             deepResearchAgents: [],
             deepResearchToolCalls: [],
             deepResearchFiles: [],
+            deepResearchCards: [],
             deepResearchStreamLoaded: false,
             reportContent: '',
             reportContentCategory: null,
@@ -941,6 +948,7 @@ export const createDeepResearchSlice: StateCreator<ChatStore, [["zustand/devtool
           deepResearchAgents: [],
           deepResearchToolCalls: [],
           deepResearchFiles: [],
+          deepResearchCards: [],
           deepResearchStreamLoaded: false,
           reportContent: '',
           reportContentCategory: null,
@@ -1134,6 +1142,11 @@ export const createDeepResearchSlice: StateCreator<ChatStore, [["zustand/devtool
     )
 
     return fileId
+  },
+
+  setDeepResearchCards: (cards: unknown) => {
+    const validated = validateGridCards(cards)
+    set({ deepResearchCards: validated }, false, 'setDeepResearchCards')
   },
 
   addPlanMessage: (message: Omit<PlanMessage, 'id' | 'timestamp'>) => {

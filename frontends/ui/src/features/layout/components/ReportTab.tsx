@@ -16,6 +16,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { FileText } from 'lucide-react'
 import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
 import { useChatStore } from '@/features/chat'
+import { GridCards } from '@/features/grid-cards'
 import { ExportFooter } from './ExportFooter'
 
 interface ReportTabProps {
@@ -29,16 +30,19 @@ interface ReportTabProps {
  * Renders research notes with a subtle preview treatment and the final report at full prominence.
  */
 export const ReportTab: FC<ReportTabProps> = ({ children }) => {
-  const { reportContent, reportContentCategory, isStreaming, currentStatus } = useChatStore(
-    useShallow((s) => ({
-      reportContent: s.reportContent,
-      reportContentCategory: s.reportContentCategory,
-      isStreaming: s.isStreaming,
-      currentStatus: s.currentStatus,
-    }))
-  )
+  const { reportContent, reportContentCategory, isStreaming, currentStatus, deepResearchCards } =
+    useChatStore(
+      useShallow((s) => ({
+        reportContent: s.reportContent,
+        reportContentCategory: s.reportContentCategory,
+        isStreaming: s.isStreaming,
+        currentStatus: s.currentStatus,
+        deepResearchCards: s.deepResearchCards,
+      }))
+    )
 
   const reportContentStr = typeof reportContent === 'string' ? reportContent : ''
+  const cards = deepResearchCards ?? []
   const isEmpty = !reportContentStr.trim()
   const isGeneratingReport = isStreaming && currentStatus === 'writing'
   const isResearchNotes = reportContentCategory === 'research_notes'
@@ -59,9 +63,9 @@ export const ReportTab: FC<ReportTabProps> = ({ children }) => {
         ) : isResearchNotes ? (
           /* Research notes: preview treatment */
           <div className="flex flex-1 flex-col gap-3">
-            <div className="flex shrink-0 items-center gap-2 rounded-md border border-[var(--border-color-feedback-warning)] bg-[var(--background-color-feedback-warning-subtle)] px-3 py-2">
-              <div className="h-2 w-2 animate-pulse rounded-full bg-[var(--text-color-feedback-warning)] motion-reduce:animate-none" />
-              <span className="text-sm text-[var(--text-color-feedback-warning)]">
+            <div className="flex shrink-0 items-center gap-2 rounded-md border border-warning bg-warning-subtle px-3 py-2">
+              <div className="h-2 w-2 animate-pulse rounded-full bg-warning motion-reduce:animate-none" />
+              <span className="text-sm text-warning">
                 Research notes from agents — final report is still being generated.
               </span>
             </div>
@@ -74,8 +78,9 @@ export const ReportTab: FC<ReportTabProps> = ({ children }) => {
             </div>
           </div>
         ) : (
-          /* Final report: full prominence */
-          <div className="flex-1">
+          /* Final report: full prominence, with Grid cards when available */
+          <div className="flex flex-1 flex-col gap-4">
+            {cards.length > 0 && <GridCards cards={cards} />}
             <MarkdownRenderer
               content={reportContentStr}
               isStreaming={isGeneratingReport}

@@ -373,16 +373,16 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
           <StarfieldAnimation particleCount={260} maxRadius={245} rotationSpeed={0.0005} />
         </div>
         <div className="relative mx-auto grid w-full max-w-6xl grid-cols-1 gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-          <div className="rounded-[2rem] border bg-muted/30 p-8 shadow-[0_35px_100px_-75px_rgba(15,23,42,0.8)]">
+          <div className="rounded-2xl border bg-muted/30 p-8 shadow-lg">
             <div className="flex flex-col items-start gap-6">
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl border bg-muted text-brand">
+              <div className="flex h-14 w-14 items-center justify-center rounded-xl border bg-muted text-brand">
                 <Lock className="h-6 w-6" aria-hidden="true" />
               </div>
               <div className="flex flex-col gap-3">
-                <span className="text-xs uppercase tracking-[0.24em] text-muted-foreground">
+                <span className="text-xs uppercase tracking-label text-muted-foreground">
                   secure workspace
                 </span>
-                <h1 className="max-w-2xl text-4xl font-semibold tracking-[-0.04em] md:text-5xl md:leading-none">
+                <h1 className="max-w-2xl text-4xl font-semibold tracking-display md:text-5xl md:leading-none">
                   Grid opens after your organization is verified.
                 </h1>
                 <p className="max-w-xl text-sm text-muted-foreground">
@@ -394,7 +394,7 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
                 size="lg"
                 onClick={onSignIn}
                 aria-label="Sign in with SSO"
-                className="transition active:scale-[0.98]"
+                className="transition active:scale-press"
               >
                 Sign in with SSO
               </Button>
@@ -406,7 +406,7 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
               (item, index) => (
                 <div
                   key={item}
-                  className="rounded-[1.5rem] border bg-muted/30 p-5"
+                  className="animate-in fade-in-0 slide-in-from-bottom-2 rounded-xl border bg-muted/30 p-5 transition-all duration-200 ease-out fill-mode-backwards hover:-translate-y-0.5 hover:bg-muted/50"
                   style={{ animationDelay: `${index * 80}ms` }}
                 >
                   <div className="flex items-center gap-3">
@@ -428,13 +428,13 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
         <StarfieldAnimation particleCount={300} maxRadius={230} rotationSpeed={0.001} />
       </div>
       <div className="relative mx-auto grid w-full max-w-6xl grid-cols-1 gap-6 lg:grid-cols-[1.25fr_0.75fr]">
-        <section className="rounded-[2rem] border bg-muted/30 p-8 shadow-[0_35px_100px_-75px_rgba(15,23,42,0.8)]">
+        <section className="rounded-2xl border bg-muted/30 p-8 shadow-lg">
           <div className="flex flex-col gap-7">
             <div className="flex max-w-3xl flex-col gap-4">
-              <span className="text-xs uppercase tracking-[0.24em] text-muted-foreground">
+              <span className="text-xs uppercase tracking-label text-muted-foreground">
                 OIB research cockpit
               </span>
-              <h1 className="text-4xl font-semibold tracking-[-0.04em] md:text-5xl md:leading-none">
+              <h1 className="text-4xl font-semibold tracking-display md:text-5xl md:leading-none">
                 Start with a project, then ask for cited building-code reasoning.
               </h1>
               <p className="max-w-2xl text-sm text-muted-foreground">
@@ -446,7 +446,7 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
             <div className="grid grid-cols-1 gap-3 md:grid-cols-[1.1fr_0.9fr]">
               <a
                 href="/app/projects"
-                className="group rounded-[1.5rem] border bg-muted p-5 transition hover:-translate-y-[2px] hover:bg-accent"
+                className="group rounded-xl border bg-muted p-5 transition hover:-translate-y-0.5 hover:bg-accent"
               >
                 <div className="flex flex-col gap-4">
                   <Folder className="h-6 w-6 text-brand" aria-hidden="true" />
@@ -458,7 +458,7 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
                   </div>
                 </div>
               </a>
-              <div className="rounded-[1.5rem] border p-5">
+              <div className="rounded-xl border bg-muted/30 p-5">
                 <div className="flex flex-col gap-4">
                   <CircleEllipsis className="h-6 w-6 text-brand" aria-hidden="true" />
                   <div className="flex flex-col gap-1">
@@ -477,7 +477,7 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
           {prompts.map((prompt, index) => (
             <div
               key={prompt}
-              className="rounded-[1.5rem] border bg-muted/30 p-5 transition hover:-translate-y-[1px]"
+              className="animate-in fade-in-0 slide-in-from-bottom-2 cursor-default rounded-xl border bg-muted/30 p-5 transition-all duration-200 ease-out fill-mode-backwards hover:-translate-y-px hover:border-primary/20 hover:bg-muted/50"
               style={{ animationDelay: `${index * 90}ms` }}
             >
               <div className="flex items-start gap-3">

@@ -19,7 +19,6 @@ describe('buildIntakeProfile', () => {
       hauptnutzung: 'wohnen',
       anzahl_einheiten: 12,
       focus_areas: ['einreichung', 'brandschutz'],
-      deadline: 'this_month',
     }
 
     const profile = buildIntakeProfile(answers, definition)
@@ -30,7 +29,6 @@ describe('buildIntakeProfile', () => {
     expect(profile.facts.anzahl_einheiten?.source).toBe('onboarding')
     expect(profile.facts.anzahl_einheiten?.confidence).toBe('confirmed')
     expect(profile.goals.focus_areas).toEqual(['einreichung', 'brandschutz'])
-    expect(profile.goals.deadline).toBe('this_month')
   })
 
   it('seeds project_name from the created project instead of asking again', () => {
@@ -80,7 +78,6 @@ describe('answersFromProfile', () => {
       anzahl_einheiten: 12,
       grundgrenze: true,
       focus_areas: ['einreichung', 'sanierung'],
-      deadline: 'no_deadline',
     }
 
     const profile = buildIntakeProfile(answers, definition)
@@ -90,7 +87,6 @@ describe('answersFromProfile', () => {
     expect(restored.anzahl_einheiten).toBe(12)
     expect(restored.grundgrenze).toBe(true)
     expect(restored.focus_areas).toEqual(['einreichung', 'sanierung'])
-    expect(restored.deadline).toBe('no_deadline')
   })
 })
 

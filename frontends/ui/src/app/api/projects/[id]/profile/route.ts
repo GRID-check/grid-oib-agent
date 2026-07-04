@@ -62,14 +62,18 @@ export async function PUT(
     }
 
     const db = getDb()
-    const [current] = await db.select({ profileVersion: projects.profileVersion }).from(projects).where(eq(projects.id, id)).limit(1)
+    const [current] = await db
+      .select({ profileVersion: projects.profileVersion, profileDisplay: projects.profileDisplay })
+      .from(projects)
+      .where(eq(projects.id, id))
+      .limit(1)
 
     if (!current) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 })
     }
 
     const currentVersion = current.profileVersion
-    const values = buildProfileUpdate(parsed.data, currentVersion)
+    const values = buildProfileUpdate(parsed.data, currentVersion, current.profileDisplay?.summary ?? '')
     const [project] = await db
       .update(projects)
       .set(values)
@@ -91,9 +95,9 @@ export async function PUT(
   }
 }
 
-export function buildProfileUpdate(profile: ProjectProfile, currentVersion: number) {
+export function buildProfileUpdate(profile: ProjectProfile, currentVersion: number, previousSummary = '') {
   const profilePromptView = buildProjectPromptView(profile)
-  const profileDisplay = buildProjectProfileDisplay(profile)
+  const profileDisplay = buildProjectProfileDisplay(profile, previousSummary)
 
   return {
     profile,

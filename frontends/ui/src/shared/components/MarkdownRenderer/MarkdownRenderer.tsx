@@ -65,7 +65,7 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
           // Inline code
           return (
             <code
-              className="text-primary rounded-md bg-muted px-1.5 py-0.5 font-mono text-[0.875em]"
+              className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[0.875em] text-foreground"
               {...props}
             >
               {children}
@@ -80,7 +80,7 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
         h1: ({ children }) => {
           const id = slugify(getTextFromChildren(children))
           return (
-            <h1 id={id} className="text-primary mb-3 mt-6 block scroll-mt-4 text-2xl font-semibold tracking-tight">
+            <h1 id={id} className="mb-3 mt-6 block scroll-mt-4 text-2xl font-semibold tracking-tight text-foreground">
               {children}
             </h1>
           )
@@ -88,7 +88,7 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
         h2: ({ children }) => {
           const id = slugify(getTextFromChildren(children))
           return (
-            <h2 id={id} className="text-primary mb-2 mt-5 block scroll-mt-4 text-xl font-semibold tracking-tight">
+            <h2 id={id} className="mb-2 mt-5 block scroll-mt-4 text-xl font-semibold tracking-tight text-foreground">
               {children}
             </h2>
           )
@@ -96,7 +96,7 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
         h3: ({ children }) => {
           const id = slugify(getTextFromChildren(children))
           return (
-            <h3 id={id} className="text-primary mb-2 mt-4 block scroll-mt-4 text-base font-semibold tracking-tight">
+            <h3 id={id} className="mb-2 mt-4 block scroll-mt-4 text-base font-semibold tracking-tight text-foreground">
               {children}
             </h3>
           )
@@ -104,7 +104,7 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
         h4: ({ children }) => {
           const id = slugify(getTextFromChildren(children))
           return (
-            <h4 id={id} className="text-primary mb-1 mt-3 block scroll-mt-4 text-sm font-semibold">
+            <h4 id={id} className="mb-1 mt-3 block scroll-mt-4 text-sm font-semibold text-foreground">
               {children}
             </h4>
           )
@@ -112,20 +112,20 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
 
         // Paragraphs
         p: ({ children }) => (
-          <p className={`text-primary mb-3 block leading-relaxed ${compact ? 'text-sm' : 'text-base'}`}>
+          <p className={`mb-3 block leading-relaxed text-foreground ${compact ? 'text-sm' : 'text-base'}`}>
             {children}
           </p>
         ),
 
         // Lists
         ul: ({ children }) => (
-          <ul className="text-primary mb-3 list-outside list-disc space-y-1 pl-5">{children}</ul>
+          <ul className="mb-3 list-outside list-disc space-y-1 pl-5 text-foreground">{children}</ul>
         ),
         ol: ({ children }) => (
-          <ol className="text-primary mb-3 list-outside list-decimal space-y-1 pl-5">{children}</ol>
+          <ol className="mb-3 list-outside list-decimal space-y-1 pl-5 text-foreground">{children}</ol>
         ),
         li: ({ children }) => (
-          <li className={`text-primary ${compact ? 'text-sm' : 'text-base'}`}>{children}</li>
+          <li className={`text-foreground ${compact ? 'text-sm' : 'text-base'}`}>{children}</li>
         ),
 
         // Links — anchor hrefs scroll in-page; external hrefs open new tabs
@@ -159,9 +159,9 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
 
         // Emphasis
         strong: ({ children }) => (
-          <strong className="text-primary font-semibold">{children}</strong>
+          <strong className="font-semibold text-foreground">{children}</strong>
         ),
-        em: ({ children }) => <em className="text-primary italic">{children}</em>,
+        em: ({ children }) => <em className="italic text-foreground">{children}</em>,
 
         // Blockquotes
         blockquote: ({ children }) => (
@@ -183,10 +183,10 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
         tbody: ({ children }) => <tbody>{children}</tbody>,
         tr: ({ children }) => <tr className="border-base border-b last:border-b-0">{children}</tr>,
         th: ({ children }) => (
-          <th className="text-primary px-3 py-2 text-left text-sm font-semibold">{children}</th>
+          <th className="px-3 py-2 text-left text-sm font-semibold text-foreground">{children}</th>
         ),
         td: ({ children }) => (
-          <td className="text-primary px-3 py-2 text-sm">{children}</td>
+          <td className="px-3 py-2 text-sm text-foreground">{children}</td>
         ),
       }),
       [compact]

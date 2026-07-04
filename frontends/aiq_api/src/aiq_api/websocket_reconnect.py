@@ -383,6 +383,15 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
             if cards is None and isinstance(data_model, BaseModel):
                 cards = data_model.model_extra.get("cards") if data_model.model_extra else None
 
+            # Pull the structured deep-research job id (if this turn dispatched an
+            # async job) so the frontend can open the research panel from a real
+            # field instead of regex-parsing the response prose.
+            deep_research_job_id = getattr(data_model, "deep_research_job_id", None)
+            if deep_research_job_id is None and isinstance(data_model, BaseModel):
+                deep_research_job_id = (
+                    data_model.model_extra.get("deep_research_job_id") if data_model.model_extra else None
+                )
+
             if issubclass(message_schema, WebSocketSystemResponseTokenMessage):
                 message = await self._message_validator.create_system_response_token_message(
                     message_id=message_id,
@@ -397,6 +406,12 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
                         message.cards = cards
                     except Exception:
                         logger.warning("Could not attach cards to websocket message", exc_info=True)
+                # Attach the structured deep-research job id to the final message.
+                if message_type == WebSocketMessageType.RESPONSE_MESSAGE and deep_research_job_id:
+                    try:
+                        message.deep_research_job_id = deep_research_job_id
+                    except Exception:
+                        logger.warning("Could not attach deep_research_job_id to websocket message", exc_info=True)
 
             elif issubclass(message_schema, WebSocketSystemIntermediateStepMessage):
                 message = await self._message_validator.create_system_intermediate_step_message(

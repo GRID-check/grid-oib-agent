@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { ClipboardList, Database, FileText, HardDrive, MessageSquare, PencilLine, Upload } from 'lucide-react'
 import type { ProjectOverviewData } from '../types'
 import { ApplicableStandards } from './applicable-standards'
+import { ProjectMemoryPanel } from './project-memory-panel'
 import { Stagger, StaggerItem } from '@/components/motion'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -164,33 +165,38 @@ export function ProjectOverview({ data }: ProjectOverviewProps) {
         />
       </StaggerItem>
 
+      {/* Project memory — what Grid has learned about this project, user-curated. */}
+      <StaggerItem>
+        <ProjectMemoryPanel projectId={data.id} />
+      </StaggerItem>
+
       {/* Stats */}
       <StaggerItem>
-      <section className="grid grid-cols-2 gap-4 sm:grid-cols-3 sm:gap-6">
-        <div className="rounded-2xl border bg-card p-6 shadow-xs">
-          <div className="flex items-center gap-2 text-muted-foreground">
+      <section className="grid grid-cols-2 gap-5 sm:grid-cols-3">
+        <div className="rounded-2xl border bg-card p-6 shadow-xs transition-shadow duration-200 ease-out hover:shadow-sm">
+          <div className="flex size-9 items-center justify-center rounded-xl bg-muted text-primary">
             <FileText className="size-4" aria-hidden />
-            <span className="text-sm">Files</span>
           </div>
-          <p className="mt-2 text-2xl font-semibold tracking-tight tabular-nums">{data.documentCount}</p>
+          <p className="mt-4 text-2xl font-semibold tracking-tight tabular-nums">{data.documentCount}</p>
+          <p className="mt-0.5 text-sm text-muted-foreground">Files</p>
         </div>
-        <div className="rounded-2xl border bg-card p-6 shadow-xs">
-          <div className="flex items-center gap-2 text-muted-foreground">
+        <div className="rounded-2xl border bg-card p-6 shadow-xs transition-shadow duration-200 ease-out hover:shadow-sm">
+          <div className="flex size-9 items-center justify-center rounded-xl bg-muted text-primary">
             <HardDrive className="size-4" aria-hidden />
-            <span className="text-sm">Total size</span>
           </div>
-          <p className="mt-2 text-2xl font-semibold tracking-tight tabular-nums">
+          <p className="mt-4 text-2xl font-semibold tracking-tight tabular-nums">
             {formatFileSize(data.totalFileSize)}
           </p>
+          <p className="mt-0.5 text-sm text-muted-foreground">Total size</p>
         </div>
-        <div className="col-span-2 rounded-2xl border bg-card p-6 shadow-xs sm:col-span-1">
-          <div className="flex items-center gap-2 text-muted-foreground">
+        <div className="col-span-2 rounded-2xl border bg-card p-6 shadow-xs transition-shadow duration-200 ease-out hover:shadow-sm sm:col-span-1">
+          <div className="flex size-9 items-center justify-center rounded-xl bg-muted text-primary">
             <Database className="size-4" aria-hidden />
-            <span className="text-sm">Knowledge base</span>
           </div>
-          <p className="mt-2 truncate font-mono text-sm text-foreground" title={data.collectionName}>
+          <p className="mt-4 truncate font-mono text-sm text-foreground" title={data.collectionName}>
             {data.collectionName}
           </p>
+          <p className="mt-0.5 text-sm text-muted-foreground">Knowledge base</p>
         </div>
       </section>
       </StaggerItem>
@@ -215,7 +221,7 @@ export function ProjectOverview({ data }: ProjectOverviewProps) {
         {hasDocuments ? (
           <div className="divide-y divide-border overflow-hidden rounded-2xl border bg-card shadow-xs">
             {data.recentDocuments.map((doc) => (
-              <div key={doc.id} className="flex items-center justify-between gap-4 px-6 py-3.5">
+              <div key={doc.id} className="flex items-center justify-between gap-4 px-6 py-3.5 transition-colors duration-200 ease-out hover:bg-muted/40">
                 <div className="flex min-w-0 items-center gap-3">
                   <FileText className="size-4 shrink-0 text-muted-foreground" aria-hidden />
                   <span className="truncate text-sm">{doc.filename}</span>

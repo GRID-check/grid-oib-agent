@@ -114,6 +114,7 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
   const addDeepResearchToolCall = useChatStore((s) => s.addDeepResearchToolCall)
   const completeDeepResearchToolCall = useChatStore((s) => s.completeDeepResearchToolCall)
   const addDeepResearchFile = useChatStore((s) => s.addDeepResearchFile)
+  const setDeepResearchCards = useChatStore((s) => s.setDeepResearchCards)
   const patchConversationMessage = useChatStore((s) => s.patchConversationMessage)
   const addDeepResearchBanner = useChatStore((s) => s.addDeepResearchBanner)
   const setStreamLoaded = useChatStore((s) => s.setStreamLoaded)
@@ -211,6 +212,7 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
         citations: [] as Array<{ url: string; content: string; isCited: boolean }>,
         files: new Map<string, string>(),
         reportContent: null as string | null,
+        reportCards: null as unknown[] | null,
       }
 
       /** The stream may outlive the selected job; guard every delayed flush by job ID. */
@@ -251,6 +253,10 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
           ...(files.length > 0 && { deepResearchFiles: files }),
           currentStatus: buf.reportContent !== null ? 'writing' : state.currentStatus,
         }))
+
+        if (buf.reportCards) {
+          setDeepResearchCards(buf.reportCards)
+        }
 
         // Bridge in-progress items to live mode so their end events
         // (llm.end with usage, tool.end with output) can find them
@@ -494,17 +500,19 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
             }
           },
 
-          onOutputUpdate: (content, outputCategory, _workflow) => {
+          onOutputUpdate: (content, outputCategory, _workflow, cards) => {
             // Only the explicit final_report artifact belongs in the Report tab.
             // Draft, research_notes, and uncategorized output can be partial JSON
             // from failed or cancelled workflow paths.
             if (outputCategory !== 'final_report') return
             if (buf.active) {
               buf.reportContent = content
+              if (cards) buf.reportCards = cards
               return
             }
             if (!isActiveJob()) return
             setReportContent(content, 'final_report')
+            if (cards) setDeepResearchCards(cards)
             setCurrentStatus('writing')
           },
 
@@ -572,6 +580,7 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
       addDeepResearchLLMStep, appendToDeepResearchLLMStep,
       completeDeepResearchLLMStep, addDeepResearchAgentWithId, completeDeepResearchAgent,
       addDeepResearchToolCall, completeDeepResearchToolCall, addDeepResearchFile,
+      setDeepResearchCards,
       patchConversationMessage, addDeepResearchBanner, setStreaming, setStreamLoaded,
       getDeepResearchStreamFailure,
     ]

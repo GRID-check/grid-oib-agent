@@ -290,7 +290,9 @@ class ChatResearcherAgent:
             if self.deep_research_job_submitter is not None:
                 job_id = await self.deep_research_job_submitter(state)
                 response = f"Deep research job submitted. Job ID: {job_id}"
-                return {"messages": [AIMessage(content=response)]}
+                # Emit the job id as a structured channel value so the frontend
+                # can open the research panel without regex-parsing this prose.
+                return {"messages": [AIMessage(content=response)], "deep_research_job_id": job_id}
 
             research_query = state.original_query or get_latest_user_query(state.messages)
             deep_state = DeepResearchAgentState(
@@ -492,26 +494,32 @@ class ChatResearcherAgent:
         result = await self._graph.ainvoke(input_state, config=graph_config)
 
         # Post-process: generate structured response cards from the final answer.
-        if isinstance(result, ChatResearcherState):
-            query = result.original_query or (
-                messages[-1].content if messages else None
-            )
-            context = self._last_ai_message_text(result)
-            if query and context and result.user_intent and result.user_intent.intent == "research":
-                cards = await self._generate_cards(str(query), context)
-                if cards:
-                    result.cards = cards
-        else:
-            query = result.get("original_query") or (
-                messages[-1].content if messages else None
-            )
-            context = self._last_ai_message_text(result)
-            if query and context:
-                intent = result.get("user_intent")
-                if intent is None or getattr(intent, "intent", None) == "research":
-                    cards = await self._generate_cards(str(query), context)
-                    if cards:
-                        result["cards"] = cards
+        #
+        # Unified across the dict / ChatResearcherState return shapes (the graph
+        # returns a dict; the state object is defensive). Cards are generated for
+        # any turn that produced a real answer -- we no longer hard-gate on
+        # intent == "research" (the old code was inconsistent between the two
+        # branches, and the intent classifier already defaults ambiguous turns
+        # to "research"). We DO skip generation when the turn merely dispatched
+        # an async deep-research job: the "answer" is just the job-submitted
+        # stub, so there is nothing to build cards from -- the real answer (and
+        # its cards) arrives later through the job pipeline.
+        def _get(field: str) -> Any:
+            return getattr(result, field, None) if isinstance(result, ChatResearcherState) else result.get(field)
+
+        def _set(field: str, value: Any) -> None:
+            if isinstance(result, ChatResearcherState):
+                setattr(result, field, value)
+            else:
+                result[field] = value
+
+        job_id = _get("deep_research_job_id")
+        query = _get("original_query") or (messages[-1].content if messages else None)
+        context = self._last_ai_message_text(result)
+        if query and context and not job_id:
+            cards = await self._generate_cards(str(query), context)
+            if cards:
+                _set("cards", cards)
 
         logger.info("ChatResearcherAgent: Workflow complete")
 

@@ -200,6 +200,7 @@ const mockWsClient = {
   sendInteractionResponse: vi.fn(() => 'mock-outbound-interaction-id'),
   isConnected: vi.fn(() => false),
   updateConversationId: vi.fn(),
+  updateProjectId: vi.fn(),
 }
 
 let capturedCallbacks: {

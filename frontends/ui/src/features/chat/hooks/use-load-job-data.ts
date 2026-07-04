@@ -290,11 +290,21 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
             }
           )
 
-          outputs?.forEach((output: { type: string; content: string; output_category?: string }) => {
-            if (output.type === 'report' || output.output_category === 'final_report') {
-              setReportContent(output.content, 'final_report')
+          outputs?.forEach(
+            (output: {
+              type: string
+              content: string
+              output_category?: string
+              cards?: unknown[]
+            }) => {
+              if (output.type === 'report' || output.output_category === 'final_report') {
+                setReportContent(output.content, 'final_report')
+                if (output.cards) {
+                  useChatStore.getState().setDeepResearchCards(output.cards)
+                }
+              }
             }
-          })
+          )
         }
       } catch (stateError) {
         console.warn('Failed to load job state:', stateError)
@@ -368,6 +378,7 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
           citations: [] as Array<{ url: string; content: string; isCited: boolean }>,
           files: new Map<string, string>(), // filename -> latest content (deduped)
           reportContent: null as string | null,
+          reportCards: null as unknown[] | null,
         }
 
         /**
@@ -443,6 +454,10 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
             ...(files.length > 0 && { deepResearchFiles: files }),
             currentStatus: buffer.reportContent !== null ? 'complete' : state.currentStatus,
           }))
+
+          if (buffer.reportCards) {
+            useChatStore.getState().setDeepResearchCards(buffer.reportCards)
+          }
           return true
         }
 
@@ -572,9 +587,10 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
               buffer.files.set(filename, content)
             },
 
-            onOutputUpdate: (content, outputCategory) => {
+            onOutputUpdate: (content, outputCategory, _workflow, cards) => {
               if (outputCategory !== 'final_report') return
               buffer.reportContent = content
+              if (cards) buffer.reportCards = cards
             },
 
             onComplete: () => {

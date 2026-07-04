@@ -92,6 +92,7 @@ aiq_shallow_researcher = "aiq_agent.agents.shallow_researcher.register"
 aiq_deep_researcher = "aiq_agent.agents.deep_researcher.register"
 aiq_clarifier = "aiq_agent.agents.clarifier.register"
 aiq_data_source_registry = "aiq_agent.common.data_source_registry"
+aiq_project_memory = "aiq_agent.agents.project_memory.register"
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "sources/**/tests"]

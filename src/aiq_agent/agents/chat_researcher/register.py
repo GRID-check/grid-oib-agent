@@ -498,6 +498,10 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
             response_content = "No response generated."
 
         cards = getattr(result, "cards", None) or (result.get("cards") if isinstance(result, dict) else None)
+        deep_research_job_id = (
+            getattr(result, "deep_research_job_id", None)
+            or (result.get("deep_research_job_id") if isinstance(result, dict) else None)
+        )
 
         # Exit after response when --input is provided
         if "--input" in sys.argv:
@@ -513,6 +517,8 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         response = _create_chat_response(response_content, response_id="research_response", model=workflow_id)
         if cards:
             response.cards = cards
+        if deep_research_job_id:
+            response.deep_research_job_id = deep_research_job_id
         return response
 
     yield FunctionInfo.from_fn(_run, description="Chat deep researcher with intent routing and escalation.")

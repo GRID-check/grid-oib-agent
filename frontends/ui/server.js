@@ -233,6 +233,15 @@ const startServer = async () => {
           if (result.data?.projectContext) {
             req.headers['x-grid-project-context'] = result.data.projectContext
           }
+          // Project id + core memory digest for the agent. The id lets backend
+          // tools (e.g. `remember`) write project-scoped rows; the digest is
+          // merged into the injected agent context alongside project context.
+          if (result.data?.projectId) {
+            req.headers['x-grid-project-id'] = result.data.projectId
+          }
+          if (result.data?.projectMemory) {
+            req.headers['x-grid-project-memory'] = result.data.projectMemory
+          }
         } else if (result.status === 401 || result.status === 403) {
           const statusText = result.status === 401 ? 'Unauthorized' : 'Forbidden'
           try {

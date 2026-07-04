@@ -114,6 +114,11 @@ functions:
     top_k: 5
     chroma_dir: ${AIQ_CHROMA_DIR:-/tmp/chroma_data}
 
+  # Project Memory: silent, observable capture of durable project findings.
+  # Available in project-scoped chats; no-ops (with a clear error) elsewhere.
+  remember:
+    _type: project_memory_remember
+
   intent_classifier:
     _type: intent_classifier
     llm: deepseek_llm_intent
@@ -131,8 +136,12 @@ functions:
   shallow_research_agent:
     _type: shallow_research_agent
     llm: deepseek_super_llm
-    exclude_tools:
-      - advanced_web_search_tool
+    # Explicit list (replaces registry inheritance) so the non-data-source
+    # `remember` tool is included alongside search/knowledge tools.
+    tools:
+      - web_search_tool
+      - knowledge_search
+      - remember
     verbose: true
     max_llm_turns: 10
     max_tool_iterations: 5

@@ -3,6 +3,7 @@
 
 """Grid response card models and helpers."""
 
+from .generate import generate_cards
 from .models import GridCard
 from .models import LegalBasisCard
 from .models import SummaryCard
@@ -14,5 +15,6 @@ __all__ = [
     "LegalBasisCard",
     "SummaryCard",
     "build_card_generation_prompt",
+    "generate_cards",
     "validate_cards",
 ]

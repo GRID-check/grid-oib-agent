@@ -3,7 +3,7 @@ import { GetObjectCommand } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { eq } from 'drizzle-orm'
 import { requireAuthorizedSession } from '@/lib/auth/require-auth'
-import { s3Client, bucketName } from '@/lib/s3'
+import { signingS3Client, bucketName } from '@/lib/s3'
 import { getDb } from '@/lib/db'
 import { documents } from '@/lib/db/schema'
 
@@ -57,7 +57,7 @@ export async function GET(
     }
 
     const presignedUrl = await getSignedUrl(
-      s3Client,
+      signingS3Client,
       new GetObjectCommand({
         Bucket: bucketName,
         Key: doc.minioKey,

@@ -14,6 +14,12 @@ interface FolderTreePaneProps {
   isLoading: boolean
 }
 
+// `undefined` = not creating; `null` = creating at the root; a string = creating
+// a subfolder inside that folder id. Nesting is fully supported by the schema
+// and API -- this explicit target just makes it discoverable instead of relying
+// on the implicitly-selected folder.
+type CreateTarget = string | null | undefined
+
 export function FolderTreePane({
   folders,
   selectedFolderId,
@@ -21,26 +27,57 @@ export function FolderTreePane({
   onCreateFolder,
   isLoading,
 }: FolderTreePaneProps) {
-  const [isCreating, setIsCreating] = useState(false)
+  const [createTarget, setCreateTarget] = useState<CreateTarget>(undefined)
   const [newFolderName, setNewFolderName] = useState('')
 
   const rootFolders = useMemo(() => folders.filter((f) => f.parentId === null), [folders])
 
   const getChildren = (parentId: string) => folders.filter((f) => f.parentId === parentId)
 
+  const startCreate = (parentId: string | null) => {
+    setNewFolderName('')
+    setCreateTarget(parentId)
+  }
+
+  const cancelCreate = () => {
+    setCreateTarget(undefined)
+    setNewFolderName('')
+  }
+
   const handleCreate = async () => {
     if (!newFolderName.trim()) return
-    setIsCreating(false)
-    const ok = await onCreateFolder(newFolderName.trim(), selectedFolderId ?? undefined)
+    const parentId = createTarget ?? undefined
+    setCreateTarget(undefined)
+    const ok = await onCreateFolder(newFolderName.trim(), parentId)
     if (ok) {
       setNewFolderName('')
     }
   }
 
   const rowClass = (active: boolean) =>
-    `flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+    `group flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors ${
       active ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground hover:bg-accent hover:text-foreground'
     }`
+
+  const renderCreateInput = (depth: number) => (
+    <div key={`create-${createTarget ?? 'root'}`} className="px-1 pt-1" style={{ paddingLeft: `${8 + depth * 14}px` }}>
+      <Input
+        autoFocus
+        value={newFolderName}
+        onChange={(e) => setNewFolderName(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') handleCreate()
+          if (e.key === 'Escape') cancelCreate()
+        }}
+        onBlur={() => {
+          if (!newFolderName.trim()) cancelCreate()
+        }}
+        placeholder="Folder name"
+        aria-label="New folder name"
+        className="h-8"
+      />
+    </div>
+  )
 
   const renderFolderTree = (items: FolderItem[], depth = 0): JSX.Element[] => {
     return items.flatMap((folder) => {
@@ -48,16 +85,29 @@ export function FolderTreePane({
       const active = selectedFolderId === folder.id
       const Icon = active ? FolderOpen : Folder
       return [
-        <button
+        <div
           key={folder.id}
-          onClick={() => onSelectFolder(folder.id)}
-          aria-pressed={active}
           className={rowClass(active)}
           style={{ paddingLeft: `${8 + depth * 14}px` }}
         >
-          <Icon className="size-4 shrink-0" aria-hidden />
-          <span className="truncate">{folder.name}</span>
-        </button>,
+          <button
+            onClick={() => onSelectFolder(folder.id)}
+            aria-pressed={active}
+            className="flex min-w-0 flex-1 items-center gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
+          >
+            <Icon className="size-4 shrink-0" aria-hidden />
+            <span className="truncate">{folder.name}</span>
+          </button>
+          <button
+            onClick={() => startCreate(folder.id)}
+            aria-label={`Add subfolder in ${folder.name}`}
+            title="Add subfolder"
+            className="shrink-0 rounded-sm p-0.5 opacity-0 transition-opacity hover:bg-background/60 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100"
+          >
+            <Plus className="size-3.5" aria-hidden />
+          </button>
+        </div>,
+        ...(createTarget === folder.id ? [renderCreateInput(depth + 1)] : []),
         ...(children.length > 0 ? renderFolderTree(children, depth + 1) : []),
       ]
     })
@@ -88,31 +138,12 @@ export function FolderTreePane({
         renderFolderTree(rootFolders)
       )}
 
-      {/* Create folder */}
-      {isCreating ? (
-        <div className="px-1 pt-1">
-          <Input
-            autoFocus
-            value={newFolderName}
-            onChange={(e) => setNewFolderName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') handleCreate()
-              if (e.key === 'Escape') {
-                setIsCreating(false)
-                setNewFolderName('')
-              }
-            }}
-            onBlur={() => {
-              if (!newFolderName.trim()) setIsCreating(false)
-            }}
-            placeholder="Folder name"
-            aria-label="New folder name"
-            className="h-8"
-          />
-        </div>
+      {/* Create a top-level folder */}
+      {createTarget === null ? (
+        renderCreateInput(0)
       ) : (
         <button
-          onClick={() => setIsCreating(true)}
+          onClick={() => startCreate(null)}
           className="mt-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <Plus className="size-4 shrink-0" aria-hidden />

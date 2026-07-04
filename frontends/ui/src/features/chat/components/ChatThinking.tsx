@@ -89,7 +89,7 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
                   <Spinner size="sm" label="Thinking in progress" />
                   {/* Gentle opacity pulse — a genuine loading state, so a loop is OK */}
                   <motion.span
-                    className="text-primary text-sm font-semibold"
+                    className="text-sm font-semibold text-foreground"
                     animate={{ opacity: [0.4, 1, 0.4] }}
                     transition={{ repeat: Infinity, duration: 1.6, ease: 'easeInOut' }}
                   >
@@ -101,7 +101,7 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
                   <span className="text-brand">
                     <Clock className="h-5 w-5" />
                   </span>
-                  <span className="text-primary text-sm font-semibold">
+                  <span className="text-foreground text-sm font-semibold">
                     Waiting for response
                   </span>
                 </>
@@ -110,7 +110,7 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
                   <span className="text-warning">
                     <AlertTriangle className="h-5 w-5" />
                   </span>
-                  <span className="text-primary text-sm font-semibold">
+                  <span className="text-foreground text-sm font-semibold">
                     Interrupted
                   </span>
                 </>
@@ -119,7 +119,7 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
                   <span className="text-success">
                     <CheckCircle2 className="h-5 w-5" />
                   </span>
-                  <span className="text-primary text-sm font-semibold">
+                  <span className="text-foreground text-sm font-semibold">
                     Done
                   </span>
                 </>
@@ -128,10 +128,10 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
 
             {/* Right: toggle indicator */}
             <span className="flex items-center gap-1">
-              <span className="text-secondary text-xs">
+              <span className="text-xs text-muted-foreground">
                 {`Show thinking (${steps.length})`}
               </span>
-              <ChevronDown className="text-secondary h-4 w-4 transition-transform group-data-[state=open]:rotate-180" />
+              <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
             </span>
           </button>
         </CollapsibleTrigger>
@@ -157,10 +157,10 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
                   className={`flex w-full items-center justify-between py-1.5 ${indentClass}`}
                   role="listitem"
                 >
-                  <span className="text-primary min-w-0 truncate text-sm">
+                  <span className="min-w-0 truncate text-sm text-foreground">
                     {step.displayName}
                   </span>
-                  <span className="text-secondary shrink-0 pl-4 text-xs">
+                  <span className="shrink-0 pl-4 text-xs text-muted-foreground">
                     {formatTime(step.timestamp)}
                   </span>
                 </div>
@@ -173,14 +173,14 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
       {/* Data Sources Summary — always visible below the collapsible */}
       {(hasDataSources || hasFiles) && (
         <div className="border-base flex flex-col border-t px-4 pb-5 pt-3">
-          <span className="text-primary mb-1 text-sm font-semibold">
+          <span className="mb-1 text-sm font-semibold text-foreground">
             Selected Data Sources:
           </span>
           {hasDataSources && (
-            <span className="text-primary text-sm">{dataSourcesDisplay}</span>
+            <span className="text-sm text-foreground">{dataSourcesDisplay}</span>
           )}
           {hasFiles && (
-            <span className="text-secondary text-xs">
+            <span className="text-xs text-muted-foreground">
               {messageFiles.map((f) => f.fileName).join(', ')}
             </span>
           )}

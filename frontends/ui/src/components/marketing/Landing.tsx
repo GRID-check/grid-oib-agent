@@ -23,7 +23,7 @@ interface LandingProps {
 
 export const Landing: FC<LandingProps> = ({ onSignIn }) => {
   return (
-    <div className="flex min-h-[100dvh] flex-col bg-background text-foreground">
+    <div className="flex min-h-dvh flex-col bg-background text-foreground">
       <LandingTopBar onSignIn={onSignIn} />
       <main id="main-content" className="flex-1">
         <LandingHero onSignIn={onSignIn} />

@@ -46,6 +46,7 @@ describe('ReportTab', () => {
         reportContent: '# Report Title\n\nReport content here',
         isStreaming: false,
         currentStatus: null,
+        deepResearchCards: [],
       }
       return selector ? selector(state) : state
     })
@@ -61,6 +62,7 @@ describe('ReportTab', () => {
         reportContent: 'Some content',
         isStreaming: false,
         currentStatus: null,
+        deepResearchCards: [],
       }
       return selector ? selector(state) : state
     })
@@ -76,6 +78,7 @@ describe('ReportTab', () => {
         reportContent: 'Partial content...',
         isStreaming: true,
         currentStatus: 'writing',
+        deepResearchCards: [],
       }
       return selector ? selector(state) : state
     })

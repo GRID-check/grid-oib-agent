@@ -371,7 +371,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     <div className="mx-auto flex w-full max-w-3xl flex-col p-4">
       <div
         className={cn(
-          'relative flex flex-col rounded-2xl border bg-card p-4 shadow-md transition-[box-shadow,border-color] duration-200 ease-out focus-within:ring-2 focus-within:ring-ring/30',
+          'relative flex flex-col rounded-2xl border bg-card p-4 shadow-sm transition-[box-shadow,border-color] duration-200 ease-out focus-within:ring-2 focus-within:ring-ring/30',
           isDisabledByAuth && 'opacity-60',
           isDragging && isUnsupportedDrag
             ? 'border-dashed border-error'
@@ -409,7 +409,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
         {/* Text Input */}
         <Textarea
           ref={textareaRef}
-          className="max-h-[200px] min-h-[2.5rem] resize-none border-0 bg-transparent shadow-none focus-visible:ring-0"
+          className="max-h-52 min-h-10 resize-none border-0 bg-transparent shadow-none focus-visible:ring-0"
           value={message}
           onChange={(e) => handleValueChange(e.target.value)}
           onKeyDown={handleKeyDown}
@@ -568,6 +568,9 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                 className="inline-flex"
                 whileTap={{ scale: 0.94 }}
                 transition={springSnappy}
+                // whileTap makes framer-motion inject tabindex="0"; the wrapper must
+                // not be a tab stop — the Button inside is the real control.
+                tabIndex={-1}
               >
                 <Button
                   size="sm"

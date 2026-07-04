@@ -10,6 +10,19 @@
    `.dark` class on the root element; light is the default (no class). */
 @custom-variant dark (&:is(.dark *));
 
+/* Tailwind v4's preflight defaults border color to currentColor (near-black text
+   color) instead of v3's gray. Restore the theme hairline as the app-wide default
+   so `border`/`divide-*` without an explicit color never render black. */
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--border);
+  }
+}
+
 /* Layout variables */
 :root {
   --header-height: 3.5rem;
@@ -68,14 +81,6 @@ body {
    Using KUI Foundations theme CSS variables for light/dark theme support
    ============================================================================= */
 
-@utility text-primary {
-  color: var(--text-color-primary);
-}
-
-@utility text-secondary {
-  color: var(--text-color-secondary);
-}
-
 @utility text-subtle {
   color: var(--text-color-subtle);
 }
@@ -112,6 +117,14 @@ body {
   background-color: var(--background-color-interaction-base);
 }
 
+@utility bg-interaction-primary-hover {
+  background-color: var(--background-color-interaction-primary-hover);
+}
+
+@utility bg-interaction-primary-selected {
+  background-color: var(--background-color-interaction-primary-selected);
+}
+
 @utility bg-surface-base {
   background-color: var(--background-color-surface-base);
 }
@@ -122,6 +135,46 @@ body {
 
 @utility bg-surface-sunken {
   background-color: var(--background-color-surface-sunken);
+}
+
+@utility bg-success-subtle {
+  background-color: var(--background-color-feedback-success-subtle);
+}
+
+@utility bg-danger-subtle {
+  background-color: var(--background-color-feedback-danger-subtle);
+}
+
+@utility bg-warning-subtle {
+  background-color: var(--background-color-feedback-warning-subtle);
+}
+
+@utility bg-info-subtle {
+  background-color: var(--background-color-feedback-info-subtle);
+}
+
+@utility bg-success {
+  background-color: var(--text-color-feedback-success);
+}
+
+@utility bg-danger {
+  background-color: var(--text-color-feedback-danger);
+}
+
+@utility bg-warning {
+  background-color: var(--text-color-feedback-warning);
+}
+
+@utility bg-info {
+  background-color: var(--text-color-feedback-info);
+}
+
+@utility bg-input-background {
+  background-color: var(--input-background);
+}
+
+@utility bg-input-dark {
+  background-color: color-mix(in oklch, var(--input) 30%, transparent);
 }
 
 /* Opaque variant for chat bubbles - ensures full opacity to prevent bleed-through in light theme */
@@ -155,6 +208,10 @@ body {
   border-color: var(--border-color-base);
 }
 
+@utility border-l-subtle {
+  border-left-color: var(--border-color-base);
+}
+
 @utility border-error {
   border-color: var(--border-color-feedback-danger);
 }
@@ -167,12 +224,28 @@ body {
   border-left-color: var(--border-color-feedback-success);
 }
 
+@utility border-warning {
+  border-color: var(--border-color-feedback-warning);
+}
+
+@utility border-l-warning {
+  border-left-color: var(--border-color-feedback-warning);
+}
+
 @utility border-info {
   border-color: var(--border-color-feedback-info);
 }
 
-@utility border-warning {
-  border-color: var(--border-color-feedback-warning);
+@utility border-l-info {
+  border-left-color: var(--border-color-feedback-info);
+}
+
+@utility border-danger {
+  border-color: var(--border-color-feedback-danger);
+}
+
+@utility border-l-danger {
+  border-left-color: var(--border-color-feedback-danger);
 }
 
 @utility border-brand {
@@ -187,9 +260,27 @@ body {
   --tw-ring-color: var(--border-color-brand);
 }
 
-/* Constrain spinner SVG inside the research panel toggle tab */
+@utility tracking-display {
+  letter-spacing: -0.04em;
+}
+
+@utility tracking-label {
+  letter-spacing: 0.24em;
+}
+
+@utility scale-press {
+  transform: scale(0.98);
+}
 .research-panel-toggle .nv-spinner svg {
   width: 100%;
+}
+
+@utility min-h-dvh {
+  min-height: 100dvh;
+}
+
+@utility z-skip-link {
+  z-index: 100;
 }
 
 /* Global scrollbar styles — thin, trackless, alpha thumb (macOS-like) */

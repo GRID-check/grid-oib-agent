@@ -322,7 +322,7 @@ export function ProjectIntakeWizard({
                 </button>
                 <span
                   className={cn(
-                    'w-full truncate text-center text-[11px] leading-tight',
+                    'w-full truncate text-center text-xs leading-tight',
                     state === 'current' ? 'font-medium text-foreground' : 'text-muted-foreground',
                   )}
                 >
@@ -344,7 +344,7 @@ export function ProjectIntakeWizard({
             </span>
             <span
               className={cn(
-                'w-full truncate text-center text-[11px] leading-tight',
+                'w-full truncate text-center text-xs leading-tight',
                 isReview ? 'font-medium text-foreground' : 'text-muted-foreground',
               )}
             >

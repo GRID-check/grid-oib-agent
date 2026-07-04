@@ -27,6 +27,8 @@ prompt templates skip the project context block.
 import logging
 
 PROJECT_CONTEXT_HEADER = "x-grid-project-context"
+PROJECT_MEMORY_HEADER = "x-grid-project-memory"
+PROJECT_ID_HEADER = "x-grid-project-id"
 
 logger = logging.getLogger(__name__)
 
@@ -44,16 +46,73 @@ def normalize_project_context(value: str | None, *, max_chars: int = 4000) -> st
     return value
 
 
-def get_project_context_from_context() -> str | None:
-    """Read X-Grid-Project-Context from NAT Context metadata headers."""
+def _read_header(name: str) -> str | None:
+    """Read a raw header value from NAT Context metadata."""
     try:
         from nat.builder.context import Context
 
         ctx = Context.get()
         if ctx is None or ctx.metadata is None:
             return None
-        raw = ctx.metadata.headers.get(PROJECT_CONTEXT_HEADER)
-        return normalize_project_context(raw)
+        return ctx.metadata.headers.get(name)
     except Exception:
-        logger.debug("Failed to read project context from NAT context", exc_info=True)
+        logger.debug("Failed to read %s from NAT context", name, exc_info=True)
+        return None
+
+
+def get_project_context_from_context() -> str | None:
+    """Compose the injected agent context from the request headers.
+
+    Combines the intake-profile context (``X-Grid-Project-Context``) with the
+    project memory core digest (``X-Grid-Project-Memory``, see
+    docs/architecture/project-memory-design.md). Composed here so every
+    existing caller and prompt template picks memory up transparently as part
+    of the single ``project_context`` blob.
+    """
+    context = normalize_project_context(_read_header(PROJECT_CONTEXT_HEADER))
+    memory = normalize_project_context(_read_header(PROJECT_MEMORY_HEADER), max_chars=2000)
+
+    if context and memory:
+        return f"{context}\n\n{memory}"
+    return context or memory
+
+
+def get_project_id_from_context() -> str | None:
+    """Read the current project's id (``X-Grid-Project-Id``).
+
+    Used by project-scoped tools (e.g. ``remember``) to write rows for the
+    right project. None outside a project-scoped conversation.
+    """
+    raw = _read_header(PROJECT_ID_HEADER)
+    if not raw:
+        return None
+    raw = raw.strip()
+    return raw or None
+
+
+def get_organization_id_from_context() -> str | None:
+    """Read the caller's organization id (``X-Grid-Organization-Id``).
+
+    Set by server.js on the WS upgrade for authenticated sessions. Used by
+    organization-scoped memory writes. None in anonymous mode.
+    """
+    raw = _read_header("x-grid-organization-id")
+    if not raw:
+        return None
+    raw = raw.strip()
+    return raw or None
+
+
+def get_conversation_id_from_context() -> str | None:
+    """Best-effort read of the active conversation id for provenance."""
+    try:
+        from nat.builder.context import Context
+
+        ctx = Context.get()
+        if ctx is None:
+            return None
+        conversation_id = getattr(ctx, "conversation_id", None)
+        return str(conversation_id) if conversation_id else None
+    except Exception:
+        logger.debug("Failed to read conversation id from NAT context", exc_info=True)
         return None

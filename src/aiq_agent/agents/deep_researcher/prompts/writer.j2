@@ -86,31 +86,6 @@ Write the final Markdown to `/shared/output.md`.
 Then return only this short completion marker as your final response: `Wrote /shared/output.md`.
 Do not return the full Markdown in your message and do not return JSON unless explicitly asked.
 
-### GRID RESPONSE CARDS
-When the answer calls for a concise overview or a legal-basis explanation, include a `<grid_cards>` block after your prose. The block must contain a single JSON array with one or more card objects. Supported card types for this MVP are:
-- "summary" — a short overview of the topic.
-- "legal_basis" — the relevant legal norm, OIB Richtlinie, or RIS reference.
-
-Example:
-<grid_cards>
-[
-  {
-    "type": "summary",
-    "title": "Zusammenfassung",
-    "content": "Die OIB-Richtlinie 6 regelt den Wärmeschutz von Gebäuden."
-  },
-  {
-    "type": "legal_basis",
-    "title": "Rechtsgrundlage",
-    "norm": "OIB Richtlinie 6",
-    "reference": "https://www.oib.or.at",
-    "summary": "Anforderungen an den Wärmeschutz und den sommerlichen Wärmeschutz."
-  }
-]
-</grid_cards>
-
-Only include cards when they add value. Never make up references; if no exact URL is known, omit the reference field.
-
 {#- === KV CACHE BOUNDARY — dynamic content below === -#}
 
 ## Context

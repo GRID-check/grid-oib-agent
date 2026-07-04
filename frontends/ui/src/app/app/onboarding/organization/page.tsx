@@ -64,7 +64,7 @@ const OrganizationOnboardingPage = (): ReactNode => {
   })
 
   return (
-    <main className="relative min-h-[100dvh] overflow-hidden bg-muted p-6 md:p-10">
+    <main       className="relative min-h-dvh overflow-hidden bg-muted p-6 md:p-10">
       <div className="pointer-events-none absolute -right-28 top-8 h-[640px] w-[640px] opacity-25">
         <StarfieldAnimation particleCount={260} maxRadius={270} rotationSpeed={0.001} />
       </div>
@@ -76,7 +76,7 @@ const OrganizationOnboardingPage = (): ReactNode => {
             <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
               first workspace
             </span>
-            <h1 className="text-4xl font-semibold tracking-[-0.04em] md:text-5xl md:leading-none">
+            <h1 className="text-4xl font-semibold tracking-display md:text-5xl md:leading-none">
               Set your organization before Grid handles project data.
             </h1>
             <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
@@ -164,7 +164,7 @@ const OrganizationOnboardingPage = (): ReactNode => {
                     )}
                   </form.AppField>
                   <form.AppForm>
-                    <form.SubmitButton size="lg" className="w-full transition active:scale-[0.98]">
+                    <form.SubmitButton size="lg" className="w-full transition active:scale-press">
                       Create organization
                     </form.SubmitButton>
                   </form.AppForm>
@@ -172,9 +172,11 @@ const OrganizationOnboardingPage = (): ReactNode => {
               </form>
 
               <div className="flex flex-col gap-3 border-t pt-5">
-                {SETUP_STEPS.map((item) => (
+                {SETUP_STEPS.map((item, index) => (
                   <div key={item} className="flex items-center gap-3">
-                    <CheckCircle2 className="h-4 w-4 text-primary" />
+                    <span className="flex size-6 shrink-0 items-center justify-center rounded-full border border-muted-foreground/30 text-xs font-medium text-muted-foreground">
+                      {index + 1}
+                    </span>
                     <span className="text-sm text-muted-foreground">{item}</span>
                   </div>
                 ))}

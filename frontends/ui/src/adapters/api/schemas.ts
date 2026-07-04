@@ -197,6 +197,9 @@ export const NATSystemResponseMessageSchema = z.object({
   ]),
   timestamp: z.string().optional(),
   cards: z.array(z.unknown()).optional(),
+  // Structured deep-research job id (present when the turn dispatched an async
+  // job). Preferred over regex-parsing the response prose.
+  deep_research_job_id: z.string().optional(),
 })
 
 /** Intermediate step content */

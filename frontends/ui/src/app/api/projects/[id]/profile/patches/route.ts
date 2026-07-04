@@ -36,6 +36,7 @@ export async function POST(
       .select({
         profile: projects.profile,
         profileVersion: projects.profileVersion,
+        profileDisplay: projects.profileDisplay,
       })
       .from(projects)
       .where(eq(projects.id, id))
@@ -53,7 +54,7 @@ export async function POST(
     }
 
     const currentVersion = current.profileVersion
-    const values = buildProfileUpdate(profile, currentVersion)
+    const values = buildProfileUpdate(profile, currentVersion, current.profileDisplay?.summary ?? '')
     const [project] = await db
       .update(projects)
       .set(values)

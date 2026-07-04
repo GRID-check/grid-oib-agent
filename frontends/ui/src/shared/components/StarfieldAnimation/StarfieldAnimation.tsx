@@ -10,7 +10,7 @@ const DEFAULT_MAX_RADIUS = 50
 const DEFAULT_PARTICLE_SIZE = 2.0
 const DEFAULT_ROTATION_SPEED = 0.001
 const DEFAULT_SEED = 12345
-const DEFAULT_PARTICLE_COLOR = '118, 185, 0'
+const DEFAULT_PARTICLE_COLOR = 'var(--primary)'
 
 /**
  * Animated starfield background using canvas.
@@ -79,6 +79,12 @@ export const StarfieldAnimation: FC<StarfieldAnimationProps> = ({
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
+    // Resolve CSS variable to a concrete color so canvas can use it.
+    const resolvedColor =
+      typeof window !== 'undefined' && particleColor.startsWith('var(')
+        ? getComputedStyle(document.documentElement).getPropertyValue(particleColor.slice(4, -1)).trim() || particleColor
+        : particleColor
+
     // Get the actual display size from the container
     const updateCanvasSize = (): { width: number; height: number; scale: number } => {
       const rect = canvas.getBoundingClientRect()
@@ -116,7 +122,7 @@ export const StarfieldAnimation: FC<StarfieldAnimationProps> = ({
       const scaleFactor = currentScale
 
       // Batch render all particles as triangles
-      ctx.fillStyle = `rgba(${particleColor}, 1)`
+      ctx.fillStyle = resolvedColor
 
       for (let i = 0; i < particles.length; i++) {
         const p = particles[i]

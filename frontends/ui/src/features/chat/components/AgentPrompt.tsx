@@ -74,11 +74,11 @@ export const AgentPrompt: FC<AgentPromptProps> = ({
   return (
     <div className="flex w-full justify-start">
       <div className="flex max-w-[85%] flex-col">
-        <div className="flex flex-col gap-3 overflow-hidden break-words rounded-2xl rounded-bl-md bg-card p-4 shadow-xs">
+        <div className="flex flex-col gap-3 overflow-hidden break-words rounded-2xl rounded-bl-md bg-card p-4">
           {/* Agent icon and label */}
           <div className={`flex items-center gap-2 ${isResponded ? 'opacity-75' : ''}`}>
-            <MessageSquare className="text-secondary h-5 w-5" />
-            <span className="text-secondary text-sm font-semibold">
+            <MessageSquare className="h-5 w-5 text-muted-foreground" />
+            <span className="text-sm font-semibold text-muted-foreground">
               {isResponded ? 'Agent received your input' : 'Agent needs your input'}
             </span>
           </div>
@@ -97,18 +97,18 @@ export const AgentPrompt: FC<AgentPromptProps> = ({
               <Button
                 variant="outline"
                 size="sm"
-                onClick={handleApprove}
-                aria-label="Approve plan"
-              >
-                Approve
-              </Button>
-              <Button
-                variant="destructive"
-                size="sm"
                 onClick={handleReject}
                 aria-label="Reject plan"
               >
                 Reject
+              </Button>
+              <Button
+                variant="default"
+                size="sm"
+                onClick={handleApprove}
+                aria-label="Approve plan"
+              >
+                Approve
               </Button>
             </div>
           )}

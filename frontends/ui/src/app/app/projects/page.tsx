@@ -36,7 +36,7 @@ export default async function ProjectsPage({ searchParams }: ProjectsPageProps):
   const autoOpenCreate = newParam === '1'
 
   return (
-    <div className="flex min-h-[100dvh] flex-col bg-background text-foreground">
+    <div className="flex min-h-dvh flex-col bg-background text-foreground">
       <OrgTopbar
         user={{ name: session.name, email: session.email }}
         authRequired={isAuthRequired()}
@@ -62,7 +62,7 @@ export default async function ProjectsPage({ searchParams }: ProjectsPageProps):
               title="Start your first project"
               description="Grid is an OIB/RIS building-compliance copilot. Create a project to bring its documents, members, and research into one workspace — then ask Grid questions grounded in Austrian building law."
               action={<CreateProjectDialog label="Create your first project" />}
-              className="min-h-[420px] justify-center"
+              className="min-h-96 justify-center"
             />
           ) : (
             <div className="grid grid-cols-1 gap-6 animate-in fade-in-0 sm:grid-cols-2 xl:grid-cols-3">

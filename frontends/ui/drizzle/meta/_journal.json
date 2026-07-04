@@ -50,6 +50,20 @@
       "when": 1751550000000,
       "tag": "0006_remove_profile_highlights",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1783160769218,
+      "tag": "0007_add_documents_folder_id",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1783270000000,
+      "tag": "0008_project_memory",
+      "breakpoints": true
     }
   ]
 }

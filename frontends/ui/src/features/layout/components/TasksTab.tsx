@@ -72,9 +72,9 @@ export const TasksTab: FC = () => {
 
           {/* Writing report indicator */}
           {isWritingReport && (
-            <div className="flex shrink-0 items-center gap-2 rounded-md bg-[var(--background-color-feedback-info-subtle)] px-3 py-2">
-              <div className="h-2 w-2 animate-pulse rounded-full bg-[var(--text-color-feedback-info)] motion-reduce:animate-none" />
-              <span className="text-sm text-[var(--text-color-feedback-info)]">
+            <div className="flex shrink-0 items-center gap-2 rounded-md bg-info-subtle px-3 py-2">
+              <div className="h-2 w-2 animate-pulse rounded-full bg-info motion-reduce:animate-none" />
+              <span className="text-sm text-info">
                 Writing final report... This may take a few minutes.
               </span>
             </div>

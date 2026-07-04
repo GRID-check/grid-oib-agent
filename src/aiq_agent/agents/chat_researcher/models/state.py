@@ -65,3 +65,8 @@ class ChatResearcherState(BaseModel):
     cards: list[dict[str, Any]] | None = None
     skip_clarifier: bool = False
     project_context: str | None = None
+    # Set when a deep-research run is dispatched as an async job. Carried as a
+    # STRUCTURED signal to the frontend (instead of the frontend regex-parsing
+    # the "Deep research job submitted. Job ID: ..." prose) so deep-research
+    # visibility no longer breaks on any wording change.
+    deep_research_job_id: str | None = None

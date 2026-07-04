@@ -63,7 +63,7 @@ export function ProjectProfilePatchCard({
   if (status === 'accepted') {
     return (
       <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} transition={springGentle}>
-        <Card className="gap-2 border-l-4 border-l-success p-5 shadow-xs">
+        <Card className="gap-2 border-l-2 border-l-success p-5 shadow-xs">
           <p className="text-sm text-foreground">Project context updated.</p>
         </Card>
       </motion.div>
@@ -73,7 +73,7 @@ export function ProjectProfilePatchCard({
   if (status === 'rejected') {
     return (
       <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} transition={springGentle}>
-        <Card className="gap-2 border-l-4 border-l-muted-foreground/30 p-5 shadow-xs">
+        <Card className="gap-2 border-l-2 border-l-subtle p-5 shadow-xs">
           <p className="text-sm text-muted-foreground">Changes discarded.</p>
         </Card>
       </motion.div>
@@ -81,7 +81,7 @@ export function ProjectProfilePatchCard({
   }
 
   return (
-    <Card className="gap-3 border-l-4 border-l-[var(--border-color-feedback-warning)] p-5 shadow-xs">
+    <Card className="gap-3 border-l-2 border-l-warning p-5 shadow-xs">
       <p className="text-sm font-semibold text-foreground">{title}</p>
       <p className="text-sm leading-relaxed text-muted-foreground">{rationale}</p>
 

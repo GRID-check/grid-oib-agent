@@ -11,6 +11,7 @@ import { getGridSession } from '@/lib/auth/session'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
 import { loadProjectPromptView } from '@/lib/project-profile/prompt-view'
+import { buildProjectMemoryDigest } from '@/lib/projects/memory-service'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { isAuthzError } from '@/lib/auth-utils'
 
@@ -50,10 +51,24 @@ export async function GET(req: Request): Promise<Response> {
       if (isAuthRequired() && session) {
         await requireProjectAccess(session as AuthorizedSession, projectId, 'project:view')
       }
+      response.projectId = projectId
       const projectContext = await loadProjectPromptView(projectId)
       if (projectContext) {
         response.projectContext = projectContext
       }
+    }
+
+    // Core memory digest (bounded) — becomes x-grid-project-memory on the WS
+    // upgrade. Merges project items with org-wide items; org knowledge applies
+    // even outside a project-scoped chat. Best-effort: memory must never block
+    // the chat handshake.
+    try {
+      const projectMemory = await buildProjectMemoryDigest(projectId, session?.organizationId ?? undefined)
+      if (projectMemory) {
+        response.projectMemory = projectMemory
+      }
+    } catch (error) {
+      console.warn('[WebSocket Scope API] Failed to build project memory digest:', error)
     }
 
     return NextResponse.json(response, { status: 200 })

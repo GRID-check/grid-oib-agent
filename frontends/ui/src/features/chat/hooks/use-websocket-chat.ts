@@ -357,6 +357,11 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
     pendingInteraction: s.pendingInteraction,
   })))
   const currentConversationId = currentConversation?.id
+  // Subscribe reactively so the connect effect re-runs when the project store
+  // resolves after the socket was first created (fixes the first-load race
+  // where the WS connected with projectId: undefined and never carried
+  // project context -- the agent then had no knowledge of the project).
+  const projectId = useChatStore((s) => s.projectId)
 
   // Actions — stable references, individual selectors won't cause re-renders
   const addUserMessage = useChatStore((s) => s.addUserMessage)
@@ -575,7 +580,8 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         status: string,
         isFinal: boolean,
         parentId?: string,
-        cards?: unknown[]
+        cards?: unknown[],
+        deepResearchJobId?: string
       ) => {
         // A response on the wire proves the post-rotation auth is alive --
         // clear the consecutive auth_expired counter so a *future* (and
@@ -605,14 +611,16 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         // Validate grid cards carried on the response message
         const validatedCards: GridCard[] = validateGridCards(cards)
 
-        // Check for deep research escalation signal
-        // Backend sends: "Deep research job submitted. Job ID: {uuid}"
+        // Deep research escalation signal. Prefer the STRUCTURED job id sent
+        // as a dedicated field; fall back to regex-parsing the response prose
+        // only for older backends that don't emit the structured field.
         const deepResearchMatch = content?.match(
           /Deep research job submitted\. Job ID: ([a-f0-9-]+)/i
         )
+        const resolvedJobId = deepResearchJobId ?? deepResearchMatch?.[1]
 
-        if (deepResearchMatch) {
-          const jobId = deepResearchMatch[1]
+        if (resolvedJobId) {
+          const jobId = resolvedJobId
           // Get current state for plan messages and conversation
           const state = useChatStore.getState()
           const currentPlanMessages = state.planMessages
@@ -1053,12 +1061,15 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
   useEffect(() => {
     if (!currentConversationId || !autoConnect) return
 
-    // Create new client if needed
+    // Create new client if needed. Seed projectId from the store at creation
+    // time; subsequent changes are pushed by the dedicated projectId effect
+    // below (which rotates the socket cleanly). We deliberately do NOT key this
+    // effect on projectId -- doing so tears the socket down mid-connect and
+    // produces "closed before the connection is established" churn.
     if (!wsClientRef.current) {
-      const projectId = useChatStore.getState().projectId
       wsClientRef.current = createNATWebSocketClient({
         conversationId: currentConversationId,
-        projectId: projectId || undefined,
+        projectId: useChatStore.getState().projectId || undefined,
         callbacks: createCallbacks(),
         onBeforeReconnect: refreshAuthBeforeReconnect,
       })
@@ -1111,6 +1122,20 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
     setLoading,
     setCurrentStatus,
   ])
+
+  /**
+   * Push project id changes onto the live socket WITHOUT tearing it down.
+   *
+   * The socket lifecycle above is tied to the conversation, not the project.
+   * When the project store resolves after the socket was created (the first-load
+   * race), this effect hands the new id to the existing client, which rotates
+   * the connection atomically (rotate() swaps the socket in one step, avoiding
+   * the close-before-open race) so the handshake re-sends the project scope and
+   * the backend gets x-grid-project-context. No-ops when the id is unchanged.
+   */
+  useEffect(() => {
+    wsClientRef.current?.updateProjectId(projectId || undefined)
+  }, [projectId])
 
   /**
    * Send a message via WebSocket

@@ -17,7 +17,7 @@ import { Logo } from '@/components/brand/logo'
 import { Spinner } from '@/components/ui/spinner'
 
 const BrandedLoading = (): ReactNode => (
-  <div className="flex min-h-[100dvh] flex-col items-center justify-center gap-4 bg-background text-foreground">
+  <div className="flex min-h-dvh flex-col items-center justify-center gap-4 bg-background text-foreground">
     <Logo kind="horizontal" size="large" />
     <Spinner size="sm" className="text-muted-foreground" />
     <span className="sr-only">Loading your workspace…</span>
