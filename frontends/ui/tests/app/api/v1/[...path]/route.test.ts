@@ -77,6 +77,7 @@ describe('/api/v1/[...path]', () => {
         headerValue: 'encoded-scope',
         projectId: 'proj-1',
         conversationId: 'conv-1',
+        projectCollectionName: undefined,
       })
       const fetchMock = mockFetch()
 
@@ -105,6 +106,7 @@ describe('/api/v1/[...path]', () => {
         headerValue: 'encoded-scope',
         projectId: 'proj-1',
         conversationId: 'conv-1',
+        projectCollectionName: undefined,
       })
       const fetchMock = mockFetch()
 
@@ -136,6 +138,7 @@ describe('/api/v1/[...path]', () => {
         headerValue: 'encoded-scope',
         projectId: 'proj-1',
         conversationId: undefined,
+        projectCollectionName: undefined,
       })
       const fetchMock = mockFetch()
 
@@ -172,6 +175,7 @@ describe('/api/v1/[...path]', () => {
         headerValue: 'encoded-scope',
         projectId: 'proj-1',
         conversationId: undefined,
+        projectCollectionName: undefined,
       })
       const fetchMock = mockFetch()
 
@@ -200,6 +204,7 @@ describe('/api/v1/[...path]', () => {
         headerValue: 'anon-scope',
         projectId: undefined,
         conversationId: 'conv-1',
+        projectCollectionName: undefined,
       })
       const fetchMock = mockFetch()
 
@@ -225,6 +230,7 @@ describe('/api/v1/[...path]', () => {
         headerValue: 'encoded-scope',
         projectId: 'proj-1',
         conversationId: undefined,
+        projectCollectionName: undefined,
       })
       const fetchMock = mockFetch()
 
@@ -272,6 +278,7 @@ describe('/api/v1/[...path]', () => {
         headerValue: 'encoded-scope',
         projectId: undefined,
         conversationId: 'conv-1',
+        projectCollectionName: undefined,
       })
       const fetchMock = mockFetch()
 
@@ -297,6 +304,7 @@ describe('/api/v1/[...path]', () => {
         headerValue: 'encoded-scope',
         projectId: undefined,
         conversationId: undefined,
+        projectCollectionName: undefined,
       })
       const fetchMock = mockFetch()
 

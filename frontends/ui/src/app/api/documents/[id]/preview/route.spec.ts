@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it, vi } from 'vitest'
+import type { NextRequest } from 'next/server'
 
 vi.mock('@/lib/auth/require-auth', () => ({
   requireAuthorizedSession: vi.fn().mockResolvedValue({
@@ -38,7 +39,7 @@ describe('GET /api/documents/[id]/preview', () => {
     } as any)
 
     const response = await GET(
-      new Request('https://grid.test/api/documents/doc-1/preview'),
+      new Request('https://grid.test/api/documents/doc-1/preview') as unknown as NextRequest,
       { params: Promise.resolve({ id: 'doc-1' }) },
     )
     expect(response.status).toBe(404)
@@ -62,7 +63,7 @@ describe('GET /api/documents/[id]/preview', () => {
     } as any)
 
     const response = await GET(
-      new Request('https://grid.test/api/documents/doc-1/preview'),
+      new Request('https://grid.test/api/documents/doc-1/preview') as unknown as NextRequest,
       { params: Promise.resolve({ id: 'doc-1' }) },
     )
     expect(response.status).toBe(200)
@@ -89,7 +90,7 @@ describe('GET /api/documents/[id]/preview', () => {
     } as any)
 
     const response = await GET(
-      new Request('https://grid.test/api/documents/doc-1/preview'),
+      new Request('https://grid.test/api/documents/doc-1/preview') as unknown as NextRequest,
       { params: Promise.resolve({ id: 'doc-1' }) },
     )
     expect(response.status).toBe(415)
