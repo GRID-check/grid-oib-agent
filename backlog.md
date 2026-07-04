@@ -11,7 +11,7 @@
 
 ## Tier 2 — Bugs
 
-- **T2-5** `frontends/ui/src/app/api/documents/[id]/preview/route.spec.ts` — spec's `vi.mock('@/lib/s3')` doesn't export `signingS3Client` (added by the MinIO presign fix) → 1 test fails (`returns presigned URL for PDF documents`). 2-line mock fix; restores a fully green suite for that route. Discovered cycle 1.
+- ~~**T2-5**~~ DONE cycle 2 — added `signingS3Client` to the spec's s3 mock; suite 3/3 green; confirmed no other spec mocks `@/lib/s3`.
 - **T2-1** `deploy/compose/docker-compose.yaml` — `AIQ_VLM_API_KEY=${OPENROUTER_API_KEY}` style interpolation inside `deploy/.env` is NOT interpolated by compose `env_file` (reaches the app as the literal string). Silent VLM auth failure. Verify current state and fix (move to compose `environment:` interpolation or document).
 - **T2-2** `src/aiq_agent/agents/chat_researcher/` — escalation heuristic (`should_escalate`) sniffs English phrases; product domain is German. Escalation likely never fires for German conversations. Scope + fix (language-neutral signal or German patterns).
 - **T2-3** `src/aiq_agent/fastapi_extensions/` — dead, broken duplicate front-end (register.py calls route fns with wrong arity). Dead code that can be imported by mistake. Delete after confirming nothing references it.

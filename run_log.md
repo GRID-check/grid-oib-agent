@@ -16,3 +16,10 @@ Verification harness: frontend `docker build -f Dockerfile.typecheck` + `docker 
 - **Verified:** typecheck exit 0; vitest: require-auth 4/4, overview 1/1, folders 4/4 green. 1 pre-existing failure in documents/preview spec (mock missing `signingS3Client` — caused by the earlier presign fix, NOT this change) → logged as **T2-5**, next cycle.
 - **Pipeline:** Sonnet: 37-call-site inventory + per-catch-shape failure semantics + no-test-coverage confirmation. Fable: chose invert-responsibility option (c) over per-route edits; set 403-not-401 semantics; accepted bare-route-500 residual as follow-up (T3-6). Opus: implemented + verified exactly to plan.
 - **Human review:** none needed beyond normal PR review. Residual T3-6 noted.
+
+## Cycle 2 — T2 · T2-5 — preview spec mock gap — `frontends/ui/src/app/api/documents/[id]/preview/route.spec.ts`
+
+- **Wrong & why:** the earlier MinIO presign fix introduced `signingS3Client`; this spec's `vi.mock('@/lib/s3')` didn't export it → route 500s under test → 1 red test polluting every future suite run's signal.
+- **Change:** added `signingS3Client: {}` to the mock (2 lines). Grep confirmed no other spec mocks `@/lib/s3`.
+- **Verified:** preview suite 3/3 green (vitest in the Docker harness via bind-mount).
+- **Pipeline (compressed, logged deliberately):** Sonnet stage = cycle 1's Opus diagnosis (exact root cause already in hand); Fable stage = trivial/no-alternatives; orchestrator implemented directly. Full pipeline on a 2-line mock fix would have been process theater.

@@ -16,6 +16,8 @@ vi.mock('@/lib/db', () => ({
 
 vi.mock('@/lib/s3', () => ({
   s3Client: {},
+  // Browser-facing presigned URLs are signed with the public-endpoint client.
+  signingS3Client: {},
   bucketName: 'grid-documents',
 }))
 
