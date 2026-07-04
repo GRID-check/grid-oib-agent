@@ -18,7 +18,8 @@ Docker Compose (`deploy/compose/docker-compose.yaml`):
 - **frontend** — Next.js 16 BFF + a Node WebSocket proxy (`frontends/ui/server.js`).
 
 The **real** backend front-end plugin is `frontends/aiq_api` (`_type: aiq_api`).
-`src/aiq_agent/fastapi_extensions/` is a dead/broken duplicate — do not use it.
+(The old `src/aiq_agent/fastapi_extensions/` duplicate was deleted 2026-07-03,
+commit `2570b1b`; its one live route, `/v1/ingest`, was ported into `aiq_api`.)
 
 The working config is `configs/config_oib_openrouter.yml` (OpenRouter DeepSeek +
 OpenRouter embeddings). `config_grid_oib.yml` (Kimi) is not currently working.

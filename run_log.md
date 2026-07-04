@@ -38,3 +38,9 @@ Verification harness: frontend `docker build -f Dockerfile.typecheck` + `docker 
 - **Verified:** py_compile + ruff clean; `tests/.../chat_researcher/` 143 passed incl. 11 new tests; full backend suite 939 passed / 5 failed — failures PROVEN pre-existing via stash-rerun (logged as T3-7).
 - **Pipeline:** Sonnet found the disconnected-structured-path root cause; Fable chose (b) fail-open marker, placed detection in the node (router can't mutate state), set single-commit coupling of prompt+code; Opus implemented + proved pre-existing failures.
 - **Human review:** observe one live escalation (marker compliance) — folded into RUNTIME-SMOKE.
+
+## Cycle 5 — T2 · T2-3 — dead fastapi_extensions package — CLOSED (already deleted upstream)
+
+- **Finding (Sonnet):** package was deleted 2026-07-03 in commit `2570b1b` (wrong-arity registration confirmed as the reason; `/v1/ingest` ported to aiq_api; entry point removed; tests relocated). Zero code/build/test references remain — only ~11 historical doc mentions.
+- **Cycle output:** corrected the now-false claim in `docs/architecture/backend-deep-dive.md` (it still described the package as present). Doc-sweep residual logged as **T5-3**.
+- **Pipeline:** Sonnet verification sweep; no decision space; orchestrator applied the doc fix.

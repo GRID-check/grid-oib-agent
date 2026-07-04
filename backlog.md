@@ -14,7 +14,7 @@
 - ~~**T2-5**~~ DONE cycle 2 — added `signingS3Client` to the spec's s3 mock; suite 3/3 green; confirmed no other spec mocks `@/lib/s3`.
 - ~~**T2-1**~~ CLOSED cycle 3 — already fixed before this run: `.env` no longer uses `${...}` (warning comment present) AND `config_validation.py:_read_api_key_env()` treats `${...}` literals as unset. Cycle output: ported the warning comment to `.env.example` (regression prevention for new deployments).
 - ~~**T2-2**~~ DONE cycle 4 — root cause was deeper than "English-only": the structured `shallow_result.escalate_to_deep` was NEVER populated on success (always None), so escalation hinged on 10 guessed prose phrases. Fix: prompt-mandated language-independent `[ESCALATE_TO_DEEP]` marker (fail-open: absent marker = today's behavior), detected+stripped in `shallow_research_node`, populating the existing structured path; keyword tail-match extracted to a tested helper and kept as fallback. 11 new unit tests. NOTE: marker emission needs one live-run observation (LLM compliance) — added to RUNTIME-SMOKE.
-- **T2-3** `src/aiq_agent/fastapi_extensions/` — dead, broken duplicate front-end (register.py calls route fns with wrong arity). Dead code that can be imported by mistake. Delete after confirming nothing references it.
+- ~~**T2-3**~~ CLOSED cycle 5 — already deleted 2026-07-03 (commit `2570b1b`, `/v1/ingest` ported to aiq_api, entry point removed, tests relocated). Cycle output: corrected the stale claim in `docs/architecture/backend-deep-dive.md`. Residual: ~11 historical docs still mention the old package (informational only) → **T5-3**.
 - **T2-4** `frontends/ui/src/app/api/projects/[id]/generate-summary/route.ts` + backend `generate_summary.py` — silent failure chain: missing LLM key → blanket except → `summary: ""` with zero errors anywhere. Add visible error logging / non-200 so the summary being empty is diagnosable.
 
 ## Tier 3 — Stability
@@ -36,6 +36,7 @@
 
 - **T5-1** `AGENTS.md` — stale: no mention of the typecheck loop, project memory feature, internal API token env, or the two knowledge systems. Update contributor guide.
 - **T5-2** `docs/architecture/backend-deep-dive.md` — add the internal-memory-API single-writer change (§ written pre-rework mentions grid_app direct write removal — verify accuracy).
+- **T5-3** ~11 historical docs under docs/ still mention `fastapi_extensions` (deleted). Informational-only; sweep in one doc-cleanup cycle (update architecture/ingestion docs to the aiq_api-only path).
 
 ## Blocked / waiting on human
 
