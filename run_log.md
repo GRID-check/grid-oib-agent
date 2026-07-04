@@ -30,3 +30,11 @@ Verification harness: frontend `docker build -f Dockerfile.typecheck` + `docker 
 - **Decision:** dead end / already resolved — per loop rules, logged as such rather than forcing a change. One residual closed to keep the cycle durable: the warning comment existed only in the private `.env`, not in `.env.example` that new deployments copy — ported it (comment-only change).
 - **Verified:** comment-only diff in `.env.example`; nothing executable changed.
 - **Pipeline:** Sonnet full exploration (env names only, no values); Fable stage unnecessary (no decision space); orchestrator applied the doc comment.
+
+## Cycle 4 — T2 · T2-2 — escalation never fires on weak-but-successful shallow answers — `chat_researcher/agent.py` + `shallow_researcher/prompts/researcher.j2`
+
+- **Wrong & why:** structured `shallow_result.escalate_to_deep` was never populated on the success path (hardcoded None) — the only real escalation signal was regex-guessing 10 EN/DE phrases against free prose. Plausible German phrasings mostly miss → users with hard questions silently get weak shallow answers instead of deep research.
+- **Change (Fable decision: fail-open marker over full structured-output rewrite):** prompt now mandates a literal `[ESCALATE_TO_DEEP]` marker (language-independent by construction) when the model judges its answer insufficient; `shallow_research_node` detects + strips it (user never sees it) and populates the existing structured path; keyword tail-match extracted to `matches_escalation_keywords()` and kept as fallback. If the LLM never emits the marker, behavior is byte-identical to before.
+- **Verified:** py_compile + ruff clean; `tests/.../chat_researcher/` 143 passed incl. 11 new tests; full backend suite 939 passed / 5 failed — failures PROVEN pre-existing via stash-rerun (logged as T3-7).
+- **Pipeline:** Sonnet found the disconnected-structured-path root cause; Fable chose (b) fail-open marker, placed detection in the node (router can't mutate state), set single-commit coupling of prompt+code; Opus implemented + proved pre-existing failures.
+- **Human review:** observe one live escalation (marker compliance) — folded into RUNTIME-SMOKE.

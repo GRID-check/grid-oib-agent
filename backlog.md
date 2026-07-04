@@ -13,7 +13,7 @@
 
 - ~~**T2-5**~~ DONE cycle 2 — added `signingS3Client` to the spec's s3 mock; suite 3/3 green; confirmed no other spec mocks `@/lib/s3`.
 - ~~**T2-1**~~ CLOSED cycle 3 — already fixed before this run: `.env` no longer uses `${...}` (warning comment present) AND `config_validation.py:_read_api_key_env()` treats `${...}` literals as unset. Cycle output: ported the warning comment to `.env.example` (regression prevention for new deployments).
-- **T2-2** `src/aiq_agent/agents/chat_researcher/` — escalation heuristic (`should_escalate`) sniffs English phrases; product domain is German. Escalation likely never fires for German conversations. Scope + fix (language-neutral signal or German patterns).
+- ~~**T2-2**~~ DONE cycle 4 — root cause was deeper than "English-only": the structured `shallow_result.escalate_to_deep` was NEVER populated on success (always None), so escalation hinged on 10 guessed prose phrases. Fix: prompt-mandated language-independent `[ESCALATE_TO_DEEP]` marker (fail-open: absent marker = today's behavior), detected+stripped in `shallow_research_node`, populating the existing structured path; keyword tail-match extracted to a tested helper and kept as fallback. 11 new unit tests. NOTE: marker emission needs one live-run observation (LLM compliance) — added to RUNTIME-SMOKE.
 - **T2-3** `src/aiq_agent/fastapi_extensions/` — dead, broken duplicate front-end (register.py calls route fns with wrong arity). Dead code that can be imported by mistake. Delete after confirming nothing references it.
 - **T2-4** `frontends/ui/src/app/api/projects/[id]/generate-summary/route.ts` + backend `generate_summary.py` — silent failure chain: missing LLM key → blanket except → `summary: ""` with zero errors anywhere. Add visible error logging / non-200 so the summary being empty is diagnosable.
 
@@ -24,6 +24,7 @@
 - **T3-3** DRY base-agent refactor: 7 duplication patterns across 4 register.py files → `common/agent_base.py`. Deferred earlier pending runtime confirmation; safe to do with static verification + full test suite, but HIGH blast radius — keep late in the night, require all backend tests green before/after.
 - **T3-4** helm-lint CI job is a no-op (always passes). Make it actually lint or remove the false signal.
 - **T3-5** `frontends/ui` tsconfig typechecks test files in `next build` — spec type errors block prod builds (known foot-gun). Consider excluding specs from the build tsconfig (separate `tsconfig.typecheck.json` already exists via Dockerfile? verify) — low risk, high annoyance-prevention.
+- **T3-7** 5 pre-existing backend test failures (proven pre-existing by stash in cycle 4): sqlite checkpointer in `tests/.../test_common_init.py`, unicode prompt loading in `test_prompt_utils.py`, data-sources passing in `jobs/test_runner.py`. Pollute the full-suite signal; triage + fix.
 - **T3-6** ~17 bare-call API routes (conversations, documents, projects list/detail, members, user/preferences…) have no try/catch around `requireAuthorizedSession` → no-org case returns JSON 500 instead of 403. Uniformity follow-up from T1-1; consider a shared route wrapper instead of 17 edits.
 
 ## Tier 4 — Features (only when tiers 1–3 empty)

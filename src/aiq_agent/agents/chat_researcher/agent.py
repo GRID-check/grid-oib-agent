@@ -61,6 +61,51 @@ from .utils import trim_message_history
 
 logger = logging.getLogger(__name__)
 
+ESCALATION_MARKER = "[ESCALATE_TO_DEEP]"
+
+
+def detect_and_strip_escalation_marker(content: Any) -> tuple[Any, bool]:
+    """Detect and remove the shallow-agent insufficiency marker from a message.
+
+    If ``content`` is not a string it is returned unchanged with ``False``.
+    Otherwise every literal occurrence of :data:`ESCALATION_MARKER` (matched
+    leniently as a substring anywhere in the text) is removed, the resulting
+    trailing whitespace is collapsed (including any dangling blank line the
+    marker left behind), and ``(stripped, was_present)`` is returned.
+    """
+    if not isinstance(content, str):
+        return content, False
+
+    if ESCALATION_MARKER not in content:
+        return content, False
+
+    stripped = content.replace(ESCALATION_MARKER, "")
+    # Collapse trailing whitespace and any blank line left where the marker sat.
+    stripped = stripped.rstrip()
+    return stripped, True
+
+
+def matches_escalation_keywords(content: str) -> bool:
+    """Return True if the tail of an answer signals insufficient information.
+
+    Verbatim lift of the keyword tail-match logic historically embedded in
+    ``should_escalate``: only the last 800 characters (lowercased) are examined.
+    """
+    tail = content[-800:].lower() if len(content) > 800 else content.lower()
+    escalation_keywords = [
+        "i don't have enough information",
+        "unable to find",
+        "need more research",
+        "keine ausreichenden informationen",
+        "nicht genügend informationen",
+        "konnte keine informationen",
+        "keine informationen gefunden",
+        "nicht finden",
+        "weitere recherche erforderlich",
+        "genauere prüfung erforderlich",
+    ]
+    return any(kw in tail for kw in escalation_keywords)
+
 
 class ChatResearcherAgent:
     """
@@ -280,9 +325,34 @@ class ChatResearcherAgent:
                 None,
             )
             if final_ai_message:
+                if isinstance(final_ai_message.content, str):
+                    stripped, marker_present = detect_and_strip_escalation_marker(final_ai_message.content)
+                    if marker_present:
+                        return {
+                            "messages": [final_ai_message.model_copy(update={"content": stripped})],
+                            "shallow_result": ShallowResult(
+                                answer=stripped,
+                                confidence="low",
+                                escalate_to_deep=True,
+                                escalation_reason="Shallow agent emitted insufficiency marker",
+                            ),
+                        }
                 return {"messages": [final_ai_message], "shallow_result": None}
             if new_messages:
-                return {"messages": [new_messages[-1]], "shallow_result": None}
+                fallback_message = new_messages[-1]
+                if isinstance(fallback_message.content, str):
+                    stripped, marker_present = detect_and_strip_escalation_marker(fallback_message.content)
+                    if marker_present:
+                        return {
+                            "messages": [fallback_message.model_copy(update={"content": stripped})],
+                            "shallow_result": ShallowResult(
+                                answer=stripped,
+                                confidence="low",
+                                escalate_to_deep=True,
+                                escalation_reason="Shallow agent emitted insufficiency marker",
+                            ),
+                        }
+                return {"messages": [fallback_message], "shallow_result": None}
             return {"messages": [], "shallow_result": None}
 
         async def deep_research_node(state: ChatResearcherState) -> dict[str, Any]:
@@ -371,20 +441,7 @@ class ChatResearcherAgent:
             if not last_content.strip():
                 return "deep_research"
 
-            tail = last_content[-800:].lower() if len(last_content) > 800 else last_content.lower()
-            escalation_keywords = [
-                "i don't have enough information",
-                "unable to find",
-                "need more research",
-                "keine ausreichenden informationen",
-                "nicht genügend informationen",
-                "konnte keine informationen",
-                "keine informationen gefunden",
-                "nicht finden",
-                "weitere recherche erforderlich",
-                "genauere prüfung erforderlich",
-            ]
-            if any(kw in tail for kw in escalation_keywords):
+            if matches_escalation_keywords(last_content):
                 return "deep_research"
 
             return "END"
