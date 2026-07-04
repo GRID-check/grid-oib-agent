@@ -61,7 +61,7 @@ const formatRelativeTime = (isoDate: string): string => {
     [Infinity, 'year'],
   ]
 
-  const divisors: Record<Intl.RelativeTimeFormatUnit, number> = {
+  const divisors: Record<string, number> = {
     second: 1,
     minute: 60,
     hour: 3600,
