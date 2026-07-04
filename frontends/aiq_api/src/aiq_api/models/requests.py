@@ -53,6 +53,10 @@ class GenerateSummaryResponse(BaseModel):
     """Response for AI project summary generation."""
 
     summary: str = Field(..., description="One-sentence generated project summary (empty string on failure)")
+    error: str | None = Field(
+        default=None,
+        description="Failure code when summary generation could not complete (e.g. llm_not_configured, llm_request_failed, llm_response_malformed); None on success",
+    )
 
 
 class UploadResponse(BaseModel):

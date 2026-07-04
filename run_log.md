@@ -44,3 +44,10 @@ Verification harness: frontend `docker build -f Dockerfile.typecheck` + `docker 
 - **Finding (Sonnet):** package was deleted 2026-07-03 in commit `2570b1b` (wrong-arity registration confirmed as the reason; `/v1/ingest` ported to aiq_api; entry point removed; tests relocated). Zero code/build/test references remain — only ~11 historical doc mentions.
 - **Cycle output:** corrected the now-false claim in `docs/architecture/backend-deep-dive.md` (it still described the package as present). Doc-sweep residual logged as **T5-3**.
 - **Pipeline:** Sonnet verification sweep; no decision space; orchestrator applied the doc fix.
+
+## Cycle 6 — T2 · T2-4 — silent summary-generation failure chain — `generate_summary.py` + BFF route + wizard
+
+- **Wrong & why:** every failure mode (no LLM key, network, upstream 4xx/5xx, malformed response) returned HTTP 200 `{summary:""}`; BFF's 502 path was dead code; wizard swallowed with zero logging. Empty summaries were undiagnosable ("failed" vs "never ran" indistinguishable).
+- **Change:** additive `error` field on `GenerateSummaryResponse` (`llm_not_configured` — short-circuits before sending an unauthenticated request — / `llm_request_failed` / `llm_response_malformed`); ordered exception handling replaces the blanket except; BFF logs + forwards the code and persists only non-empty summaries (an error can no longer clobber a good summary); wizard warns on rejection/!ok/error. Best-effort contract preserved everywhere (still 200, flow unchanged).
+- **Verified:** py_compile + ruff clean; `test_generate_summary.py` 6/6 (2 swallow tests updated to assert codes; new no-key test asserts no outbound HTTP; success asserts error is None); frontend typecheck exit 0. Deviation (justified): test mocking switched from patching `AsyncClient.post` (which also intercepted the ASGI test client in httpx 0.28 — the ORIGINAL tests were failing in this env, proven) to patching the class.
+- **Pipeline:** Sonnet re-verified the full chain + proposed options with tradeoffs; Fable stage performed by orchestrator (adopted Sonnet's Option A, pinned error-code contract + test plan); Opus implemented.

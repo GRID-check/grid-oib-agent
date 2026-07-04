@@ -235,9 +235,17 @@ export function ProjectIntakeWizard({
 
       // Summary generation is an enrichment — never let its failure look like a save failure.
       try {
-        await fetch(`/api/projects/${projectId}/generate-summary`, { method: 'POST' })
-      } catch {
-        /* non-fatal */
+        const res = await fetch(`/api/projects/${projectId}/generate-summary`, { method: 'POST' })
+        if (!res.ok) {
+          console.warn('[ProjectIntakeWizard] Summary generation returned a non-ok status (non-fatal):', res.status)
+        } else {
+          const data = await res.json().catch(() => null) as { error?: string | null } | null
+          if (data?.error) {
+            console.warn('[ProjectIntakeWizard] Summary generation failed (non-fatal):', data.error)
+          }
+        }
+      } catch (e) {
+        console.warn('[ProjectIntakeWizard] Summary generation request failed (non-fatal):', e)
       }
 
       router.push(`/app/projects/${projectId}`)

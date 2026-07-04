@@ -39,24 +39,35 @@ export async function POST(
       return NextResponse.json({ error: 'Summary generation failed' }, { status: 502 })
     }
 
-    const { summary } = await backendRes.json() as { summary: string }
+    const { summary, error } = await backendRes.json() as { summary: string; error?: string | null }
 
-    const db = getDb()
-    const [current] = await db
-      .select({ profileDisplay: projects.profileDisplay })
-      .from(projects)
-      .where(eq(projects.id, id))
-      .limit(1)
+    // Best-effort contract: generation failures are non-fatal (HTTP 200), but
+    // surface the backend's diagnostic code so the wizard/logs can report it.
+    if (error) {
+      console.error('[GenerateSummary] Generation failed:', error)
+      return NextResponse.json({ summary: '', error })
+    }
 
-    if (current?.profileDisplay) {
-      const updatedDisplay: ProjectProfileDisplay = {
-        ...current.profileDisplay,
-        summary,
+    // Only persist a real summary — never let an empty result clobber an
+    // existing good one.
+    if (summary) {
+      const db = getDb()
+      const [current] = await db
+        .select({ profileDisplay: projects.profileDisplay })
+        .from(projects)
+        .where(eq(projects.id, id))
+        .limit(1)
+
+      if (current?.profileDisplay) {
+        const updatedDisplay: ProjectProfileDisplay = {
+          ...current.profileDisplay,
+          summary,
+        }
+        await db
+          .update(projects)
+          .set({ profileDisplay: updatedDisplay })
+          .where(and(eq(projects.id, id)))
       }
-      await db
-        .update(projects)
-        .set({ profileDisplay: updatedDisplay })
-        .where(and(eq(projects.id, id)))
     }
 
     invalidateProjectPromptViewCache(id)

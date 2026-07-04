@@ -79,9 +79,12 @@ def add_generate_summary_routes(router: APIRouter) -> None:
             return GenerateSummaryResponse(summary="")
 
         model, api_key, base_url = _llm_settings()
-        headers = {"Content-Type": "application/json"}
-        if api_key:
-            headers["Authorization"] = f"Bearer {api_key}"
+        if not api_key:
+            # No credentials resolved — do not send a request that is guaranteed
+            # to fail (401/403). Surface a diagnosable code instead.
+            return GenerateSummaryResponse(summary="", error="llm_not_configured")
+
+        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
 
         payload = {
             "model": model,
@@ -98,9 +101,24 @@ def add_generate_summary_routes(router: APIRouter) -> None:
                 response = await client.post(f"{base_url}/chat/completions", json=payload, headers=headers)
                 response.raise_for_status()
                 data = response.json()
-
-            summary = data["choices"][0]["message"]["content"].strip()
-            return GenerateSummaryResponse(summary=summary)
+        except httpx.HTTPStatusError as exc:
+            logger.warning(
+                "Summary LLM returned an error status: %s (%s)",
+                exc.response.status_code if exc.response is not None else "unknown",
+                type(exc).__name__,
+            )
+            return GenerateSummaryResponse(summary="", error="llm_request_failed")
+        except httpx.RequestError as exc:
+            logger.warning("Summary LLM request failed: %s", type(exc).__name__)
+            return GenerateSummaryResponse(summary="", error="llm_request_failed")
         except Exception:
-            logger.exception("Failed to generate project summary")
-            return GenerateSummaryResponse(summary="")
+            logger.exception("Unexpected error calling summary LLM")
+            return GenerateSummaryResponse(summary="", error="llm_request_failed")
+
+        try:
+            summary = data["choices"][0]["message"]["content"].strip()
+        except (KeyError, IndexError, AttributeError):
+            logger.warning("Summary LLM response had an unexpected shape")
+            return GenerateSummaryResponse(summary="", error="llm_response_malformed")
+
+        return GenerateSummaryResponse(summary=summary)
