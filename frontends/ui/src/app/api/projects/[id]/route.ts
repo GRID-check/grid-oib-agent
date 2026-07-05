@@ -5,12 +5,12 @@
  */
 
 import { NextResponse } from 'next/server'
-import { eq } from 'drizzle-orm'
+import { and, eq, isNull } from 'drizzle-orm'
 import { requireAuthorizedSession } from '@/lib/auth/require-auth'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { getDb } from '@/lib/db'
-import { getWorkOS } from '@/lib/workos/client'
-import { projects } from '@/lib/db/schema'
+import { deletionQueue, projects } from '@/lib/db/schema'
+import { computePurgeAfter, projectGraceDays } from '@/lib/deletion/policy'
 import { z } from 'zod'
 
 const updateProjectSchema = z.object({
@@ -33,7 +33,7 @@ export async function GET(
     .where(eq(projects.id, id))
     .limit(1)
 
-  if (!project) {
+  if (!project || project.deletedAt) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
 
@@ -63,7 +63,7 @@ export async function PATCH(
   const [project] = await db
     .update(projects)
     .set({ name: parsed.data.name })
-    .where(eq(projects.id, id))
+    .where(and(eq(projects.id, id), isNull(projects.deletedAt)))
     .returning()
 
   if (!project) {
@@ -73,8 +73,12 @@ export async function PATCH(
   return NextResponse.json(project)
 }
 
+const deleteProjectSchema = z.object({
+  confirmName: z.string().min(1),
+})
+
 export async function DELETE(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<Response> {
   const session = await requireAuthorizedSession()
@@ -82,23 +86,55 @@ export async function DELETE(
 
   await requireProjectAccess(session, id, 'project:manage')
 
-  const workos = getWorkOS()
-  const db = getDb()
-
-  try {
-    await workos.authorization.deleteResourceByExternalId({
-      organizationId: session.organizationId,
-      resourceTypeSlug: 'project',
-      externalId: id,
-      cascadeDelete: true,
-    })
-
-    await db.delete(projects).where(eq(projects.id, id))
-
-    return new NextResponse(null, { status: 204 })
-  } catch (error) {
-    console.error('[Projects] Failed to delete project:', error)
-    const message = error instanceof Error ? error.message : 'Unknown error'
-    return NextResponse.json({ error: message }, { status: 500 })
+  const body = await request.json().catch(() => null)
+  const parsed = deleteProjectSchema.safeParse(body)
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: 'Type the project name to confirm deletion.' },
+      { status: 400 },
+    )
   }
+
+  const db = getDb()
+  const [project] = await db
+    .select()
+    .from(projects)
+    .where(eq(projects.id, id))
+    .limit(1)
+
+  if (!project || project.deletedAt) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  }
+  if (parsed.data.confirmName !== project.name) {
+    return NextResponse.json(
+      { error: 'Project name does not match.' },
+      { status: 400 },
+    )
+  }
+
+  const now = new Date()
+  const purgeAfter = computePurgeAfter(now, projectGraceDays())
+
+  // Soft delete + enqueue atomically. The purger hard-deletes every store
+  // after the grace period; nothing is destroyed here.
+  await db.transaction(async (tx) => {
+    await tx.update(projects).set({ deletedAt: now }).where(eq(projects.id, id))
+    await tx
+      .insert(deletionQueue)
+      .values({
+        entityType: 'project',
+        entityId: id,
+        displayName: project.name,
+        organizationId: project.organizationId,
+        requestedBy: session.userId,
+        purgeAfter,
+        payload: { collectionName: project.collectionName },
+      })
+      .onConflictDoNothing()
+  })
+
+  return NextResponse.json(
+    { status: 'pending', purgeAfter: purgeAfter.toISOString() },
+    { status: 202 },
+  )
 }

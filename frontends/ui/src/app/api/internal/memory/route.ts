@@ -20,6 +20,19 @@ import {
 
 const INTERNAL_TOKEN_HEADER = 'x-grid-internal-token'
 
+// Well-known default shipped in docker-compose for local development. It must
+// never authenticate anything outside a dev environment.
+const DEV_DEFAULT_TOKEN = 'grid-internal-dev-token'
+const DEV_APP_ENVS = new Set(['development', 'dev', 'local'])
+
+function isDevEnvironment(): boolean {
+  // The frontend container does not receive APP_ENV; fall back to NODE_ENV
+  // (Next.js sets it to 'production' in the built image, 'development' for
+  // `next dev`). Unset means production — fail closed.
+  const env = (process.env.APP_ENV ?? process.env.NODE_ENV ?? 'production').toLowerCase()
+  return DEV_APP_ENVS.has(env)
+}
+
 const internalMemorySchema = z
   .object({
     scope: z.enum(['project', 'organization']).default('project'),
@@ -38,6 +51,12 @@ export async function POST(request: Request): Promise<Response> {
   const expectedToken = process.env.GRID_INTERNAL_API_TOKEN
   if (!expectedToken) {
     console.error('[Internal Memory API] GRID_INTERNAL_API_TOKEN is not configured — rejecting')
+    return NextResponse.json({ error: 'Internal API disabled' }, { status: 503 })
+  }
+  if (expectedToken === DEV_DEFAULT_TOKEN && !isDevEnvironment()) {
+    console.error(
+      `[Internal Memory API] GRID_INTERNAL_API_TOKEN is the well-known dev default ('${DEV_DEFAULT_TOKEN}') in a non-dev environment — refusing to serve. Set a real token in the deployment environment.`,
+    )
     return NextResponse.json({ error: 'Internal API disabled' }, { status: 503 })
   }
   if (request.headers.get(INTERNAL_TOKEN_HEADER) !== expectedToken) {

@@ -9,6 +9,12 @@
 - **T1-2** [FLAG — human] `deploy/.env` contains live API keys on disk (OpenRouter, WorkOS, Tavily…). Cannot rotate unattended. ACTION REQUIRED (human): rotate keys, move to a secret store. Logged, not fixable in-loop.
 - **T1-3** [FLAG — human] `GRID_INTERNAL_API_TOKEN` compose default is `grid-internal-dev-token`. Endpoint fails closed when unset, but a well-known default in compose is weak for prod. Human should set a real value in `deploy/.env` for any shared deployment. Consider warning log when the default value is detected.
 
+## USER-PINNED PRIORITIES (2026-07-05 ~01:00 — override tier order where stated)
+
+- **PIN-1 Deletion pipeline must be PERFECT.** P1 (in flight) fixes the 5 audit findings. AFTER P1 lands: mandatory adversarial re-audit pass (fresh eyes, try to break the fixed pipeline: hold-race, tenancy, idempotency, partial failures, backoff) + all purger tests green. Do not call this done until the re-audit finds nothing.
+- **PIN-2 Memory-system audit.** Full audit of Project/Org Memory (schema, internal endpoint token handling, tenancy on every query, digest injection bounds, remember-tool input handling, panel authz). Same rigor as the deletion audit. Schedule immediately after P1 integration.
+- **PIN-3 High-quality docs for the ENTIRE app.** Beyond P3's refresh: a coherent docs set (architecture, subsystems, ops/runbook, API surfaces, onboarding). Multi-stream docs effort once P3 lands (avoid file collisions). Quality bar: a new engineer can onboard from docs alone.
+
 ## Tier 2 — Bugs
 
 - **T2-6** [AUDITED cycle 8 — FLAGGED for human, code is YOUR UNCOMMITTED WIP so not touched] Deletion pipeline audit verdict: **needs-fixes, not dangerous**. Solid: tenancy (org from trusted DB row), SQL-enforced UTC grace period (GDPR-capped), precise MinIO prefix scoping, idempotent ordered steps, `project:manage` gate, real tests. FIX BEFORE SHIPPING: (1) legal-hold TOCTOU — hold checked only at claim time (`purger/db.js:19-38`), not re-checked inside `purgeProject` before destruction; (2) `GRID_INTERNAL_API_TOKEN` well-known default + `maintenance.py` accepts it (reject the known default outside dev); (3) non-`project` entity types poison the queue (10 futile retries, no alert); (4) deletions list omits `requestedBy` (audit-trail gap); (5) no retry backoff (outage burns all 10 attempts).

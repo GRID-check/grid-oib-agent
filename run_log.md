@@ -65,3 +65,25 @@ Verification harness: frontend `docker build -f Dockerfile.typecheck` + `docker 
 - **Finding (Sonnet audit, file:line evidence):** verdict **needs-fixes / not dangerous**. Strong fundamentals (org scoping from trusted rows, SQL grace period, precise MinIO prefixes, idempotent steps, manage-gated enqueue, tests exist). 5 issues, top three: legal-hold TOCTOU race (hold not re-checked at purge-execution time), well-known default internal token accepted by `maintenance.py`, unimplemented entity types poison the queue.
 - **Decision (guardrail):** the pipeline is another session's UNCOMMITTED work-in-progress — modifying or committing someone's in-flight WIP unattended risks clobbering active work. Findings logged verbatim in backlog (T2-6) for the author; no code changed. This is an explicit flag-not-fix cycle.
 - **Pipeline:** Sonnet full audit; Fable judgment = orchestrator applying the don't-touch-WIP guardrail.
+
+## Cycle 9 — MODE CHANGE (user instruction, ~00:5x): parallel streams + deletion pipeline authorized
+
+- User override: "fix the deletion pipeline, high priority" (lifts the don't-touch-WIP guardrail for T2-6) and "work in parallel".
+- Launched 3 concurrent streams with disjoint file scopes, no-commit policy (orchestrator integrates + commits per stream):
+  - **P1** deletion-pipeline fixes (all 5 audit findings + hold-race test) — purger/*, maintenance.py, internal memory route, deletions route.
+  - **P2** frontend failing-spec batch (T3-1) — spec files only.
+  - **P3** docs/CI batch (T5-1 AGENTS.md, T5-3 stale mentions, T5-2 deep-dive accuracy, T3-4 helm-lint) — docs + CI only.
+- Deferred to avoid collisions: T3-6 (route wrapper) until P2 lands.
+
+## Cycle 10 — T1/CRITICAL · memory-audit C1 — multi-line context headers crash the WS gateway — `server.js` + `project_context.py`
+
+- **Wrong & why (found by P4 memory audit, reproduced against real deps):** `x-grid-project-context` and `x-grid-project-memory` carry MULTI-LINE text; Node rejects `\n` in header values (`ERR_INVALID_CHAR`); `backendProxy.ws()` throws SYNCHRONOUSLY outside any try/catch → uncaught exception → gateway process crash = chat DoS for everyone. Very plausibly the user's observed "WebSocket closed before connection established": once the projectId fix made the handshake carry a project, the multi-line profile header would kill every upgrade.
+- **Change:** both headers are now base64url-encoded in server.js (same scheme as the collection-scope header) and decoded in `project_context.py` (`_read_encoded_header`, raw fallback for backward compat); `backendProxy.ws` wrapped in try/catch → 502 instead of process death.
+- **Verified:** `node --check server.js` OK; py_compile + ruff clean; encode/decode round-trip proven incl. multi-line + German umlauts.
+- **Pipeline:** P4 (Fable audit) found + reproduced; orchestrator implemented immediately (critical path, no free agent owned these files).
+
+## Cycle 11 — PIN-1 · deletion-pipeline fixes (P1 stream) — all 5 audit findings
+
+- **Changes (P1, Fable):** (1) legal-hold TOCTOU closed — hold re-checked INSIDE the purge transaction before any destructive step; `LEGAL_HOLD_ACTIVE` releases the row back to pending with attempt refunded; (2) well-known dev default token rejected outside dev in BOTH `maintenance.py` and the internal memory route (503 + loud log, fails closed on unset env); (3) unknown entity types marked permanently failed on first claim (no 10-retry poison loop; enqueue is project-only by construction); (4) `requestedBy` in the admin deletions list; (5) exponential claim backoff 2m→64m cap via `claimed_at + 2^attempts` in SQL.
+- **Verified:** purger suite 5/5 incl. new TOCTOU test (asserts NO backend/MinIO/WorkOS/SQL destruction when a hold appears post-claim); frontend tsc exit 0; maintenance.py py_compile + ruff clean.
+- **Next per PIN-1:** adversarial re-audit before the item is called done.
