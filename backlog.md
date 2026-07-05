@@ -52,6 +52,24 @@
 - **T4-1** Deep-research cards delivery landed (jobs/runner.py → SSE → ReportTab) but is runtime-unverified. Not more feature work — needs a live run; flag for human smoke test.
 - **T4-2** Project memory Phase 2 (consolidation/dedup gate, RAG recall) — designed in docs/architecture/project-memory-design.md; NOT for unattended implementation (needs product eyes on quality).
 
+## Docs overhaul (PIN-3) — remaining after this session
+
+DONE: enterprise system-overview (SSOT, `docs/architecture/system-overview.md`); ADRs 0008-0013 + flipped 0002-0007 to Accepted; purge 79→44 (35 removed, 4 relocated); new docs cards.md, llm-providers.md, contributing/testing-and-verification.md; AGENTS.md doc-obligation rule; README rewrite.
+REMAINING (per triage plan):
+- **De-stale ~25 reference docs** — kill the two systemic lies: (a) dead SSE-chat framing (chat is WS-only) across technical-reference/{chat-flow,architecture-overview,authentication-flow,bff-proxy-pattern,collection-scoping}, api/{bff-routes,python-endpoints,websocket-protocol}, user-guides/chat; (b) Kimi-as-default across deployment/{docker-compose,environment-variables,security-config,startup-flow} — make config_oib_openrouter the default, add missing env vars (MINIO_PUBLIC_ENDPOINT, GRID_INTERNAL_API_TOKEN, FRONTEND_INTERNAL_URL).
+- **DB truth:** database/schema.md → 9 tables (add project_memory, deletion_queue, legal_holds, project_folders); database/migrations.md → through 0009.
+- **Add x-grid-project-memory** to header tables (websocket-gateway, collection-scoping, api/websocket-protocol).
+- **4 new docs:** api/internal-memory-api.md, user-guides/memory.md, deployment/runbook.md (purger/legal-holds/backups), and polish architecture/deletion-pipeline.md (relocated raw).
+- **Reconcile auth-state contradiction** (architecture/multitenancy-and-auth-spec.md REQUIRE_AUTH=false vs technical-reference auth docs) — needs a code check.
+- **Rewrite docs/README.md** as a single-tree index (was three overlapping trees).
+- **project-memory-design.md** header still says "Status: DESIGN (not built)" — flip to shipped.
+
+## Backend rough edges (from 2026-07-05 backend inventory — new)
+- Duplicate card-gen logic: `cards/generate.py` vs inline `ChatResearcherAgent._generate_cards` — consolidate.
+- `websocket_reconnect.py` `_running_workflow_task` always None (blocked on NeMo-Agent-Toolkit#1744) → cancel/set no-ops.
+- `otel_header_redaction_exporter.py` raises at import if OTel extra missing (only partially guarded).
+- Unused back-compat aliases in runner.py/submit.py; duplicate get_all_sources import in routes/jobs.py.
+
 ## Tier 5 — Docs
 
 - **T5-1** `AGENTS.md` — stale: no mention of the typecheck loop, project memory feature, internal API token env, or the two knowledge systems. Update contributor guide.
