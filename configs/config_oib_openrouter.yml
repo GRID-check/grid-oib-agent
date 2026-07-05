@@ -29,13 +29,18 @@ general:
 llms:
   # ───────────────────────────────────────────────────────────────────────────
   # REASONING EFFORT PER AGENT ROLE
-  # `reasoning_effort` controls how much the model deliberates before answering.
-  # Valid values (highest → lowest): max, xhigh, high, medium, low, minimal, none.
-  # Policy: capped at `high` for our agents; cheap routing/summary use minimal/low.
-  # To retune a role, change its `reasoning_effort` below — each role has its own
-  # LLM definition so they are independently settable. All roles share one
-  # OpenAI-compatible endpoint; swap model_name/base_url/api_key to change
-  # provider (the system is LLM-agnostic — see docs/architecture/llm-providers.md).
+  # DeepSeek V4 Flash natively supports only 3 reasoning tiers: none (Non-Think),
+  # high (Think High), max (Think Max) — the OpenAI-style minimal/low/medium
+  # naming is a compatibility alias that OpenRouter coerces to one of these
+  # three under the hood (minimal/low/medium/high all resolve to "high";
+  # xhigh/max resolve to "max"). We set values to their *actual* resolved tier
+  # directly so the config isn't misleading. Policy: none for pure routing/
+  # trivial one-liners, high for the medium-effort tier, max for roles that
+  # need real multi-step reasoning depth. To retune a role, change its
+  # `reasoning_effort` below — each role has its own LLM definition so they
+  # are independently settable. All roles share one OpenAI-compatible
+  # endpoint; swap model_name/base_url/api_key to change provider (the system
+  # is LLM-agnostic — see docs/architecture/llm-providers.md).
   # ───────────────────────────────────────────────────────────────────────────
 
   # Intent Router — classify meta-vs-research + shallow-vs-deep depth. Pure routing.
@@ -48,7 +53,7 @@ llms:
     top_p: 0.95
     max_tokens: 4096
     max_retries: 5
-    reasoning_effort: minimal
+    reasoning_effort: none
 
   # Shallow Research — fast retrieval + synthesis (the quick-answer tier).
   shallow_llm:
@@ -60,7 +65,7 @@ llms:
     top_p: 0.95
     max_tokens: 65536
     max_retries: 5
-    reasoning_effort: medium
+    reasoning_effort: high
 
   # HITL Clarification & Planning — clarify ambiguity, generate the research plan.
   clarifier_llm:
@@ -72,7 +77,7 @@ llms:
     top_p: 0.95
     max_tokens: 65536
     max_retries: 5
-    reasoning_effort: high
+    reasoning_effort: max
 
   # Deep Researcher — Orchestrator (also the report writer): top-level control.
   deep_orchestrator_llm:
@@ -84,7 +89,7 @@ llms:
     top_p: 0.95
     max_tokens: 128000
     max_retries: 10
-    reasoning_effort: high
+    reasoning_effort: max
 
   # Deep Researcher — Planning sub-agents.
   deep_planner_llm:
@@ -96,7 +101,7 @@ llms:
     top_p: 0.95
     max_tokens: 128000
     max_retries: 10
-    reasoning_effort: high
+    reasoning_effort: max
 
   # Deep Researcher — Researcher sub-agents (parallel investigations).
   deep_researcher_llm:
@@ -108,7 +113,7 @@ llms:
     top_p: 0.95
     max_tokens: 65536
     max_retries: 5
-    reasoning_effort: high
+    reasoning_effort: max
 
   # Deep Researcher — source routing (which source to query). Lighter decision.
   deep_router_llm:
@@ -120,7 +125,7 @@ llms:
     top_p: 0.95
     max_tokens: 8192
     max_retries: 5
-    reasoning_effort: medium
+    reasoning_effort: high
 
   # Card generation — structured rich-UI compliance cards.
   card_llm:
@@ -132,7 +137,7 @@ llms:
     top_p: 0.95
     max_tokens: 65536
     max_retries: 5
-    reasoning_effort: medium
+    reasoning_effort: high
 
   # Document / project summaries — trivial one-liners.
   summary_llm:
@@ -144,7 +149,7 @@ llms:
     top_p: 0.95
     max_tokens: 100
     max_retries: 5
-    reasoning_effort: low
+    reasoning_effort: none
 
 functions:
   data_sources:
