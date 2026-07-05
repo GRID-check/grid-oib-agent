@@ -75,8 +75,25 @@ Secrets and deployment knobs live in environment variables only (`deploy/.env`).
 
 GRID has two distinct "knowledge" systems: **project knowledge** (the intake-wizard profile plus the agent-curated project/org memory, injected as WS headers `x-grid-project-context` and `x-grid-project-memory`; memory writes go through the token-guarded internal BFF endpoint so `grid_app` stays single-writer) and **RAG document knowledge** (MinIO uploads ingested into scoped collections via `/v1/ingest`). See `docs/architecture/backend-deep-dive.md` and `docs/architecture/project-memory-design.md`.
 
+## Documentation is part of the work (obligation)
+
+Updating documentation is **not optional and not a follow-up** — it is part of the same change that alters behavior. When you (human or agent) do any of the following, you MUST update the relevant docs in the SAME change, before it is considered done:
+
+| You changed… | Update… |
+|---|---|
+| Architecture, a data flow, a subsystem, or a cross-cutting mechanism | `docs/architecture/backend-deep-dive.md` (and the specific subsystem doc) |
+| A significant/hard-to-reverse decision (new subsystem, transport, storage, provider model, security boundary) | add an **ADR** under `docs/adr/` (copy `0000-template.md`, next number) |
+| An env var, config key, or default | this file's Environment-variables table + `docs/deployment/environment-variables.md` |
+| An API route, WS message, or tool contract | `docs/api/*` |
+| A DB schema / migration | `docs/database/*` |
+| User-facing behavior | the relevant `docs/user-guides/*` |
+| Setup, containers, or the run/verify flow | `README.md` + the Quick-start / Verification sections here |
+
+Rules of thumb: prefer updating an existing doc over adding a new one; delete docs that a change makes wrong rather than leaving them stale; keep the `docs/architecture/` deep-dives and the ADR log as the source of truth. If a change is significant enough to explain in a PR, it is significant enough to document in the repo.
+
 ## Conventions
 
 - Python: ruff, line length 120, Python 3.11.
 - New tools use `@register_function` and a `FunctionBaseConfig` subclass.
 - Secrets live in environment variables only.
+- Documentation obligations above apply to every change — treat stale docs as a bug.
