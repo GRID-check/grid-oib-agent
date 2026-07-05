@@ -107,9 +107,17 @@ async def intent_classifier(config: IntentClassifierConfig, builder: Builder):
         llm_timeout=config.llm_timeout,
     )
 
+    # Tools that exist outside the data-source registry (e.g. `remember`) must
+    # survive the per-request data-source narrowing below, otherwise the
+    # classifier believes they don't exist and denies the capability to users.
+    from aiq_agent.common import get_all_tool_refs as _registry_refs
+
+    registry_names = set(_registry_refs())
+    non_registry_tools_info = [t for t in tools_info if t["name"] not in registry_names]
+
     async def _run(state: ChatResearcherState) -> dict[str, Any]:
         if state.data_sources is not None:
-            classifier.tools_info = format_data_source_tools(state.data_sources)
+            classifier.tools_info = format_data_source_tools(state.data_sources) + non_registry_tools_info
         return await classifier.run(state)
 
     yield FunctionInfo.from_fn(
@@ -516,7 +524,10 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
 
         response = _create_chat_response(response_content, response_id="research_response", model=workflow_id)
         if cards:
+            logger.info("Attaching %d card(s) to ChatResponse", len(cards))
             response.cards = cards
+        else:
+            logger.info("No cards on this turn (cards=%r)", cards)
         if deep_research_job_id:
             response.deep_research_job_id = deep_research_job_id
         return response

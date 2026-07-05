@@ -65,11 +65,9 @@ class TestIntentClassifier:
 
     @pytest.mark.asyncio
     async def test_run_classifies_meta_intent(self, mock_llm):
-        """Test run() returns dict with meta intent and messages when LLM returns meta JSON."""
+        """Test run() is a pure router: meta intent produces NO messages (the shallow agent answers)."""
         mock_response = MagicMock()
-        mock_response.content = (
-            '{"intent":"meta","meta_response":"Hi there!","research_depth":null,"depth_reasoning":null}'
-        )
+        mock_response.content = '{"intent":"meta","research_depth":null,"depth_reasoning":null}'
         mock_llm.ainvoke = AsyncMock(return_value=mock_response)
 
         classifier = IntentClassifier(llm=mock_llm)
@@ -79,10 +77,10 @@ class TestIntentClassifier:
 
         assert isinstance(result, dict)
         assert result["user_intent"].intent == "meta"
-        assert "messages" in result
-        assert len(result["messages"]) == 1
-        assert isinstance(result["messages"][0], AIMessage)
-        assert result["messages"][0].content == "Hi there!"
+        # Pure router: never authors user-facing text; downstream agent replies.
+        assert "messages" not in result
+        # Depth still defaults to shallow so routing has a decision either way.
+        assert result["depth_decision"].decision == "shallow"
         mock_llm.ainvoke.assert_called_once()
 
     @pytest.mark.asyncio
@@ -137,7 +135,7 @@ class TestIntentClassifier:
 
     @pytest.mark.asyncio
     async def test_run_handles_llm_error(self, mock_llm):
-        """Test run() on LLM error returns meta + error message so flow ends (no clarifier)."""
+        """Test run() on LLM error returns error intent + message so flow ends (no routing)."""
         mock_llm.ainvoke = AsyncMock(side_effect=Exception("LLM error"))
 
         classifier = IntentClassifier(llm=mock_llm)
@@ -146,7 +144,7 @@ class TestIntentClassifier:
         result = await classifier.run(state)
 
         assert isinstance(result, dict)
-        assert result["user_intent"].intent == "meta"
+        assert result["user_intent"].intent == "error"
         assert "messages" in result
         assert len(result["messages"]) == 1
         assert isinstance(result["messages"][0], AIMessage)
@@ -156,7 +154,7 @@ class TestIntentClassifier:
     async def test_run_with_callbacks(self, mock_llm):
         """Test run() passes callbacks via config to LLM ainvoke(rendered_prompt, config=...)."""
         mock_response = MagicMock()
-        mock_response.content = '{"intent":"meta","meta_response":"Hi","research_depth":null,"depth_reasoning":null}'
+        mock_response.content = '{"intent":"meta","research_depth":null,"depth_reasoning":null}'
         mock_llm.ainvoke = AsyncMock(return_value=mock_response)
 
         mock_callback = MagicMock()
@@ -175,10 +173,7 @@ class TestIntentClassifier:
     async def test_run_meta_in_longer_response(self, mock_llm):
         """Test run() parses meta from JSON in response."""
         mock_response = MagicMock()
-        mock_response.content = (
-            '{"intent":"meta","meta_response":"The intent is meta because it\'s a greeting.",'
-            '"research_depth":null,"depth_reasoning":null}'
-        )
+        mock_response.content = '{"intent":"meta","research_depth":null,"depth_reasoning":null}'
         mock_llm.ainvoke = AsyncMock(return_value=mock_response)
 
         classifier = IntentClassifier(llm=mock_llm)

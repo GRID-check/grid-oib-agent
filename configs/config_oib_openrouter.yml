@@ -198,6 +198,13 @@ functions:
   intent_classifier:
     _type: intent_classifier
     llm: intent_llm
+    # Explicit list so the classifier's prompt advertises the non-data-source
+    # `remember` tool — otherwise it denies that memory exists and dead-ends
+    # memory requests in the tool-less meta branch.
+    tools:
+      - web_search_tool
+      - knowledge_search
+      - remember
     verbose: true
 
   clarifier_agent:

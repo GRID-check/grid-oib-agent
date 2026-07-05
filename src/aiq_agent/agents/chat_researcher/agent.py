@@ -406,8 +406,11 @@ class ChatResearcherAgent:
                 return {"messages": [result.messages[-1]]}
 
         def route_after_orchestration(state: ChatResearcherState) -> str:
-            """From combined orchestration: meta -> END (response already in messages), else by depth."""
-            if state.user_intent and state.user_intent.intent == "meta":
+            """Route by classification: error -> END (canned message already in
+            messages), deep research -> clarifier, everything else (research
+            shallow AND meta/conversational turns) -> shallow agent, which owns
+            the persona and the `remember` tool."""
+            if state.user_intent and state.user_intent.intent == "error":
                 return "END"
             if state.depth_decision and state.depth_decision.decision == "deep":
                 return "clarifier"
@@ -415,6 +418,13 @@ class ChatResearcherAgent:
 
         def should_escalate(state: ChatResearcherState) -> str:
             if not self.enable_escalation:
+                return "END"
+
+            # Conversational (meta) turns are answered by the shallow agent but
+            # must never escalate: the keyword tail-match below could otherwise
+            # misread chit-chat ("I don't have enough information about you...")
+            # as a failed research attempt and launch deep research.
+            if state.user_intent and state.user_intent.intent == "meta":
                 return "END"
 
             # Respect explicit escalation decision from shallow research.
@@ -483,6 +493,12 @@ class ChatResearcherAgent:
     ) -> list[dict[str, Any]] | None:
         """Generate validated Grid response cards from the research context."""
         if not self.llm or not query or not research_context:
+            logger.info(
+                "Card generation skipped: llm=%s query=%s context=%s",
+                bool(self.llm),
+                bool(query),
+                bool(research_context),
+            )
             return None
 
         prompt = build_card_generation_prompt()
@@ -500,7 +516,14 @@ class ChatResearcherAgent:
             parsed = json.loads(raw_text)
             if not isinstance(parsed, list):
                 parsed = [parsed]
-            return validate_cards(parsed)
+            cards = validate_cards(parsed)
+            logger.info(
+                "Card generation produced %d card(s) (raw items: %d, types: %s)",
+                len(cards),
+                len(parsed),
+                [c.get("type") for c in cards],
+            )
+            return cards
         except Exception as e:
             logger.exception("Card generation failed: %s", e)
             return None
@@ -540,6 +563,10 @@ class ChatResearcherAgent:
                 "available_documents": state.available_documents,
                 "collection_scope": state.collection_scope,
                 "shallow_result": None,  # reset at turn boundary to avoid stale checkpoint state
+                # Reset like shallow_result: a persisted job id from a previous
+                # deep-research turn would otherwise suppress card generation
+                # for every later turn on this thread.
+                "deep_research_job_id": None,
                 "skip_clarifier": state.skip_clarifier,
                 "project_context": state.project_context,
             }
@@ -553,14 +580,15 @@ class ChatResearcherAgent:
         # Post-process: generate structured response cards from the final answer.
         #
         # Unified across the dict / ChatResearcherState return shapes (the graph
-        # returns a dict; the state object is defensive). Cards are generated for
-        # any turn that produced a real answer -- we no longer hard-gate on
-        # intent == "research" (the old code was inconsistent between the two
-        # branches, and the intent classifier already defaults ambiguous turns
-        # to "research"). We DO skip generation when the turn merely dispatched
-        # an async deep-research job: the "answer" is just the job-submitted
-        # stub, so there is nothing to build cards from -- the real answer (and
-        # its cards) arrives later through the job pipeline.
+        # returns a dict; the state object is defensive). Cards are generated
+        # only for research turns that produced a real answer. Skipped when:
+        # - the turn merely dispatched an async deep-research job (the "answer"
+        #   is just the job-submitted stub; the real answer and its cards arrive
+        #   later through the job pipeline), or
+        # - the turn was conversational (meta/error): greetings and memory
+        #   confirmations have nothing to card and shouldn't cost an LLM call.
+        # A missing user_intent (None) still generates -- ambiguous turns default
+        # to research behavior.
         def _get(field: str) -> Any:
             return getattr(result, field, None) if isinstance(result, ChatResearcherState) else result.get(field)
 
@@ -573,7 +601,9 @@ class ChatResearcherAgent:
         job_id = _get("deep_research_job_id")
         query = _get("original_query") or (messages[-1].content if messages else None)
         context = self._last_ai_message_text(result)
-        if query and context and not job_id:
+        user_intent = _get("user_intent")
+        is_conversational = user_intent is not None and getattr(user_intent, "intent", None) != "research"
+        if query and context and not job_id and not is_conversational:
             cards = await self._generate_cards(str(query), context)
             if cards:
                 _set("cards", cards)
