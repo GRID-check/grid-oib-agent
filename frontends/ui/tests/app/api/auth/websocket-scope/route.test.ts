@@ -16,6 +16,11 @@ vi.mock('@/lib/project-profile/prompt-view', () => ({
   loadProjectPromptView: vi.fn(),
 }))
 
+// Keep the test hermetic: the real digest builder requires a database.
+vi.mock('@/lib/projects/memory-service', () => ({
+  buildProjectMemoryDigest: vi.fn(),
+}))
+
 import { GET } from '@/app/api/auth/websocket-scope/route'
 import { getGridSession } from '@/lib/auth/session'
 import { requireProjectAccess } from '@/lib/authz/projects'
@@ -55,6 +60,8 @@ describe('/api/auth/websocket-scope', () => {
     expect(json).toEqual({
       scope: ['oib_knowledge'],
       header: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9',
+      // The route echoes the requested projectId so server.js can scope the socket.
+      projectId: 'proj-1',
     })
     expect(mockRequireProjectAccess).not.toHaveBeenCalled()
     expect(mockBuildCollectionScopeFromRequest).toHaveBeenCalledWith(null, {
