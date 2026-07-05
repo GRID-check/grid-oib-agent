@@ -60,6 +60,26 @@ def _read_header(name: str) -> str | None:
         return None
 
 
+def _read_encoded_header(name: str) -> str | None:
+    """Read a base64url-encoded multi-line header (falls back to raw).
+
+    ``x-grid-project-context`` and ``x-grid-project-memory`` carry MULTI-LINE
+    text; server.js base64url-encodes them because Node rejects newlines in
+    header values. Decode here; if decoding fails (older proxy sending raw
+    single-line values), fall back to the raw string.
+    """
+    raw = _read_header(name)
+    if not raw:
+        return None
+    try:
+        import base64
+
+        padded = raw + "=" * (-len(raw) % 4)
+        return base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8")
+    except Exception:
+        return raw
+
+
 def get_project_context_from_context() -> str | None:
     """Compose the injected agent context from the request headers.
 
@@ -69,8 +89,8 @@ def get_project_context_from_context() -> str | None:
     existing caller and prompt template picks memory up transparently as part
     of the single ``project_context`` blob.
     """
-    context = normalize_project_context(_read_header(PROJECT_CONTEXT_HEADER))
-    memory = normalize_project_context(_read_header(PROJECT_MEMORY_HEADER), max_chars=2000)
+    context = normalize_project_context(_read_encoded_header(PROJECT_CONTEXT_HEADER))
+    memory = normalize_project_context(_read_encoded_header(PROJECT_MEMORY_HEADER), max_chars=2000)
 
     if context and memory:
         return f"{context}\n\n{memory}"
