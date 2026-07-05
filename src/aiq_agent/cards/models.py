@@ -236,6 +236,134 @@ class EgressDiagramCard(BaseModel):
     reference: NormReference = Field(description="Source of the escape-length limit (OIB 2)")
 
 
+# ── Schematic cards (wave 2) ─────────────────────────────────────────────────
+
+
+class Obstruction(BaseModel):
+    """An object blocking daylight (opposing building, own projection)."""
+
+    distance_m: float = Field(gt=0, description="Horizontal distance from the window in metres")
+    height_m: float = Field(description="Height of the obstruction above the window sill in metres")
+    label: str = Field(min_length=1, description="What it is, e.g. 'Gegenüberliegendes Gebäude'")
+
+
+class DaylightIncidenceCard(BaseModel):
+    """A daylight (Belichtung) schematic: the 45° free-light line vs obstructions.
+
+    Emit for daylight/Belichtung questions (OIB 3). Draws a window section, the
+    45° free-light-incidence line from the window's lower edge, any obstruction,
+    and a glass-area-vs-floor-area check. The renderer does the 45° geometry —
+    the model supplies distances/heights only.
+    """
+
+    type: Literal["daylight_incidence"]
+    title: str = Field(min_length=1, description="Title, e.g. 'Belichtung – freier Lichteinfall'")
+    room_floor_area_m2: float | None = Field(default=None, description="Aufenthaltsraum floor area in m²")
+    glass_area: DimensionCheck = Field(description="Lichteintrittsfläche (m²) vs the ≥10% requirement")
+    window_sill_height_m: float | None = Field(default=None, description="Sill (Parapet) height in metres")
+    window_head_height_m: float | None = Field(default=None, description="Window head (Sturz) height in metres")
+    obstruction: Obstruction | None = Field(default=None, description="Any object intruding into the 45° light cone")
+    reference: NormReference = Field(description="Source of the daylight requirement (OIB 3)")
+    note: str | None = Field(default=None, description="Optional clarification")
+
+
+class GuardrailCheckCard(BaseModel):
+    """An Absturzsicherung (guardrail) elevation with the interacting limits.
+
+    Emit for guardrail/railing questions (OIB 4). Draws the railing to scale and
+    checks height (>=100 cm, >=110 cm where Absturzhöhe > 12 m), max opening
+    (<=12 cm cube), bottom gap, and shades the no-climb zone.
+    """
+
+    type: Literal["guardrail_check"]
+    title: str = Field(min_length=1, description="Title, e.g. 'Absturzsicherung Dachterrasse'")
+    context: Literal["balkon", "loggia", "stiege", "fenster", "dachterrasse"] = Field(description="Railing location")
+    fall_height: DimensionCheck = Field(description="Absturzhöhe (m) — decides which height limit applies")
+    rail_height: DimensionCheck = Field(description="Geländerhöhe (cm) vs the required minimum")
+    max_opening: DimensionCheck = Field(description="Largest opening (cm) vs the <=12 cm cube rule")
+    bottom_gap: DimensionCheck | None = Field(default=None, description="Gap at the base (cm)")
+    has_horizontal_elements_in_climb_zone: bool | None = Field(default=None, description="Climbable horizontals?")
+    reference: NormReference = Field(description="Source of the guardrail limits (OIB 4)")
+    note: str | None = Field(default=None, description="Optional clarification")
+
+
+class DensityCheckCard(BaseModel):
+    """A site-density schematic: parcel + footprint + coverage/density bars.
+
+    Emit for Bebauungsdichte/Bebauungsgrad/GFZ questions. Draws the parcel with
+    the footprint shaded and two limit bars (built area / parcel and BGF /
+    parcel) vs the Bebauungsplan limits. The renderer computes the ratios — the
+    model supplies areas + the limits (from the user's Bebauungsplan) only.
+    """
+
+    type: Literal["density_check"]
+    title: str = Field(min_length=1, description="Title, e.g. 'Bebauungsdichte – Grundstück'")
+    parcel_area_m2: float = Field(gt=0, description="Parcel (Grundstück) area in m²")
+    footprint_area_m2: float | None = Field(default=None, description="Built (bebaute) area in m²")
+    gross_floor_area_m2: float | None = Field(default=None, description="Bruttogeschossfläche (BGF) in m²")
+    coverage: DimensionCheck = Field(description="Bebauungsgrad (built/parcel) vs limit; value null = renderer derives")
+    density: DimensionCheck = Field(description="GFZ (BGF/parcel) vs limit; null value = renderer derives")
+    reference: NormReference = Field(description="Source of the limits (usually the Bebauungsplan)")
+    note: str | None = Field(default=None, description="Optional clarification")
+
+
+class AufstellflaechePlan(BaseModel):
+    """The fire-brigade Aufstellfläche geometry."""
+
+    width: DimensionCheck = Field(description="Aufstellfläche width (m)")
+    length: DimensionCheck = Field(description="Aufstellfläche length (m)")
+    distance_to_facade: DimensionCheck | None = Field(default=None, description="Distance to the facade (m)")
+
+
+class FireAccessPlanCard(BaseModel):
+    """A fire-brigade access (Feuerwehrzufahrt) site plan schematic.
+
+    Emit for fire-access questions (OIB 2 / TRVB). Top-down plan: access route
+    from the road, the Aufstellfläche beside the facade, and the reach distance
+    from the Aufstellfläche to the farthest necessary entrance (typically
+    <=80 m). Numeric minimums vary by Land — always corpus-grounded per check.
+    """
+
+    type: Literal["fire_access_plan"]
+    title: str = Field(min_length=1, description="Title, e.g. 'Feuerwehrzufahrt & Aufstellfläche'")
+    parcel_width_m: float = Field(gt=0, description="Parcel width in metres")
+    parcel_depth_m: float = Field(gt=0, description="Parcel depth in metres")
+    building_width_m: float = Field(gt=0, description="Building footprint width in metres")
+    building_depth_m: float = Field(gt=0, description="Building footprint depth in metres")
+    route_width: DimensionCheck = Field(description="Zufahrt clear width (m) vs the minimum")
+    gate_clearance_height: DimensionCheck | None = Field(default=None, description="Durchfahrt clear height (m)")
+    aufstellflaeche: AufstellflaechePlan = Field(description="The fire-brigade standing-area geometry")
+    walk_distance_to_entrance: DimensionCheck = Field(description="Reach to farthest entrance (m), e.g. <=80")
+    gebaeudeklasse: str | None = Field(default=None, description="The building's Gebäudeklasse (drives the limit)")
+    reference: NormReference = Field(description="Source of the access requirements (OIB 2 / TRVB)")
+    note: str | None = Field(default=None, description="Optional clarification")
+
+
+class AcousticCheckItem(BaseModel):
+    """One sound-insulation check between two building parts."""
+
+    path_label: str = Field(min_length=1, description="What is separated, e.g. 'Wohnungstrennwand Top 3/Top 4'")
+    metric: Literal["DnTw", "LnTw", "Rw_res"] = Field(description="Airborne / impact / resulting metric")
+    check: DimensionCheck = Field(description="Measured vs required in dB (comparator differs by metric)")
+    reference: NormReference = Field(description="Source of the dB limit (OIB 5 / ÖNORM B 8115-2)")
+
+
+class AcousticCheckCard(BaseModel):
+    """Sound-insulation (Schallschutz) gauges — direction-aware dB checks.
+
+    Emit for Schallschutz questions (OIB 5). One gauge per building-part pair:
+    airborne (DnTw, higher is better) and impact (LnTw, lower is better) shown
+    with opposite orientation so the margin is unmistakable. Measured values
+    come from the Bauphysik report; unknown → needs_input.
+    """
+
+    type: Literal["acoustic_check"]
+    title: str = Field(min_length=1, description="Title, e.g. 'Schallschutz – Wohnungstrennung'")
+    checks: list[AcousticCheckItem] = Field(description="The individual dB checks")
+    sound_class: str | None = Field(default=None, description="ÖNORM B 8115-2 Schallschutzklasse, if given")
+    note: str | None = Field(default=None, description="Optional clarification")
+
+
 GridCard = (
     SummaryCard
     | LegalBasisCard
@@ -245,6 +373,11 @@ GridCard = (
     | DimensionDiagramCard
     | SetbackPlanCard
     | EgressDiagramCard
+    | DaylightIncidenceCard
+    | GuardrailCheckCard
+    | DensityCheckCard
+    | FireAccessPlanCard
+    | AcousticCheckCard
 )
 
 # Discriminated-union adapter. ``grid_card_adapter`` is the canonical public name;
