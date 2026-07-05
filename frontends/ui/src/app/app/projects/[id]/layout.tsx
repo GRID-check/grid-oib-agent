@@ -1,4 +1,5 @@
-import { asc, eq } from 'drizzle-orm'
+import { and, asc, eq, isNull } from 'drizzle-orm'
+import { notFound } from 'next/navigation'
 import { requireAuthorizedPageSession } from '@/lib/auth/require-auth'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { getDb } from '@/lib/db'
@@ -18,10 +19,24 @@ export default async function ProjectLayout({ children, params }: ProjectLayoutP
   const { role } = await requireProjectAccess(session, id, 'project:view')
   const db = getDb()
 
+  // Soft-deleted projects are gone for everyone — including org admins, who
+  // bypass the per-project check inside requireProjectAccess.
+  const [current] = await db
+    .select({ deletedAt: projects.deletedAt })
+    .from(projects)
+    .where(eq(projects.id, id))
+    .limit(1)
+  if (!current || current.deletedAt) notFound()
+
   const orgProjects = await db
     .select({ id: projects.id, name: projects.name })
     .from(projects)
-    .where(eq(projects.organizationId, session.organizationId))
+    .where(
+      and(
+        eq(projects.organizationId, session.organizationId),
+        isNull(projects.deletedAt),
+      ),
+    )
     .orderBy(asc(projects.name))
 
   return (

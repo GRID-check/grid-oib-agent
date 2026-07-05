@@ -64,11 +64,15 @@ async def _purge_jobs(collection_name: str) -> int:
     dsn = _jobs_dsn()
     if dsn is None:
         return 0
-    pattern = f"%{collection_name}%"
+    # Escape LIKE metacharacters so a caller cannot pass e.g. "%" (or a name
+    # containing "_") and match — and delete — job rows across every project /
+    # org. ESCAPE '\' pairs with the escaped pattern below.
+    escaped = collection_name.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    pattern = f"%{escaped}%"
     async with await psycopg.AsyncConnection.connect(dsn) as conn:
         async with conn.cursor() as cur:
             await cur.execute(
-                "SELECT DISTINCT job_id FROM job_events WHERE event_data LIKE %s",
+                "SELECT DISTINCT job_id FROM job_events WHERE event_data LIKE %s ESCAPE '\\'",
                 (pattern,),
             )
             job_ids = [row[0] for row in await cur.fetchall()]
@@ -116,6 +120,11 @@ def add_maintenance_routes(router: APIRouter) -> None:
         _require_internal_token(request)
 
         collection_deleted = False
+        # Unambiguous outcome for the caller: "deleted" (removed now),
+        # "not_found" (already gone — idempotent success) or "failed" (existed
+        # but delete_collection returned falsy). The purger must retry on
+        # "failed" rather than orphan the collection.
+        collection_status = "not_found"
         jobs_deleted = 0
 
         if body.collection_name:
@@ -125,6 +134,7 @@ def add_maintenance_routes(router: APIRouter) -> None:
             ingestor = get_active_ingestor()
             if ingestor is not None and ingestor.get_collection(body.collection_name):
                 collection_deleted = ingestor.delete_collection(body.collection_name)
+                collection_status = "deleted" if collection_deleted else "failed"
             # delete_collection clears summaries too, but run it explicitly so a
             # previously half-failed purge (collection gone, summaries left) heals.
             clear_collection_summaries(body.collection_name)
@@ -133,6 +143,8 @@ def add_maintenance_routes(router: APIRouter) -> None:
         await _purge_checkpoints(body.conversation_ids)
 
         return {
+            "status": "failed" if collection_status == "failed" else "ok",
+            "collection_status": collection_status,
             "collection_deleted": collection_deleted,
             "jobs_deleted": jobs_deleted,
             "checkpoints_purged_for": len(body.conversation_ids),

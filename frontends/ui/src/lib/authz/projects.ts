@@ -14,21 +14,30 @@ export async function requireProjectAccess(
   session: AuthorizedSession,
   projectId: string,
   permission: ProjectPermission = "project:view",
+  options: { includeDeleted?: boolean } = {},
 ): Promise<{ role: "project-viewer" | "project-editor" | "project-admin" }> {
   // Org admins bypass per-project checks.
   if (session.role === "admin") {
     return { role: "project-admin" };
   }
 
-  // Verify the project belongs to the current org.
+  // Verify the project belongs to the current org (and is not soft-deleted,
+  // unless the caller explicitly needs deleted projects, e.g. restore).
   const db = getDb();
   const [project] = await db
-    .select({ organizationId: projects.organizationId })
+    .select({
+      organizationId: projects.organizationId,
+      deletedAt: projects.deletedAt,
+    })
     .from(projects)
     .where(eq(projects.id, projectId))
     .limit(1);
 
-  if (!project || project.organizationId !== session.organizationId) {
+  if (
+    !project ||
+    project.organizationId !== session.organizationId ||
+    (project.deletedAt && !options.includeDeleted)
+  ) {
     throw new Error("Not found");
   }
 

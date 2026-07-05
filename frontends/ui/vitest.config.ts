@@ -10,7 +10,11 @@ export default defineConfig({
     environment: 'happy-dom',
     testTimeout: 50000,
     root: './',
-    include: ['src/**/*.{spec,test}.{ts,tsx}', 'tests/**/*.test.{ts,tsx}'],
+    include: [
+      'src/**/*.{spec,test}.{ts,tsx}',
+      'tests/**/*.test.{ts,tsx}',
+      'purger/**/*.spec.mjs',
+    ],
     exclude: ['**/mocks/**', '**/node_modules/**'],
     setupFiles: ['./config/vitest/polyfills.ts', './config/vitest/vitest.setup.ts'],
     clearMocks: true,

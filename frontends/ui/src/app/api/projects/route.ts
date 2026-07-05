@@ -6,7 +6,7 @@
  */
 
 import { NextResponse } from 'next/server'
-import { eq } from 'drizzle-orm'
+import { and, eq, isNull } from 'drizzle-orm'
 import { requireAuthorizedSession } from '@/lib/auth/require-auth'
 import { getDb } from '@/lib/db'
 import { getWorkOS } from '@/lib/workos/client'
@@ -24,7 +24,12 @@ export async function GET(): Promise<Response> {
   const rows = await db
     .select()
     .from(projects)
-    .where(eq(projects.organizationId, session.organizationId))
+    .where(
+      and(
+        eq(projects.organizationId, session.organizationId),
+        isNull(projects.deletedAt),
+      ),
+    )
 
   return NextResponse.json(rows)
 }

@@ -5,7 +5,7 @@
  */
 
 import { NextResponse } from 'next/server'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, isNull } from 'drizzle-orm'
 import { requireAuthorizedSession } from '@/lib/auth/require-auth'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { getDb } from '@/lib/db'
@@ -32,6 +32,12 @@ export async function POST(
           eq(deletionQueue.entityType, 'project'),
           eq(deletionQueue.entityId, id),
           eq(deletionQueue.status, 'pending'),
+          // Only an UN-CLAIMED row is safe to restore. `markFailed` returns a
+          // partially-purged row to 'pending' (with claimed_at set); restoring
+          // it would resurrect a project whose Chroma/MinIO data was already
+          // destroyed — a hollow, corrupt restore. claimed_at IS NULL means the
+          // purger has never touched it, so nothing has been destroyed yet.
+          isNull(deletionQueue.claimedAt),
         ),
       )
       .returning()
@@ -47,7 +53,10 @@ export async function POST(
 
   if (!restored) {
     return NextResponse.json(
-      { error: 'No pending deletion to restore (already purged or purging).' },
+      {
+        error: 'No pending deletion to restore (already purged, or purge in progress).',
+        code: 'PURGE_IN_PROGRESS',
+      },
       { status: 409 },
     )
   }

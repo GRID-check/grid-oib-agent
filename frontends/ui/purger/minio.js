@@ -34,12 +34,24 @@ async function deleteMinioPrefix(s3, bucket, prefix) {
     )
     const keys = (page.Contents || []).map((obj) => ({ Key: obj.Key }))
     if (keys.length > 0) {
-      await s3.send(
+      // Quiet:true returns ONLY per-key errors. A 200 response can still carry
+      // partial failures — if we ignore them the purge "succeeds", the grid_app
+      // pointer is deleted, and the surviving objects become unrecoverable
+      // orphans (a GDPR-erasure failure). Throw so the queue row retries.
+      const res = await s3.send(
         new DeleteObjectsCommand({
           Bucket: bucket,
           Delete: { Objects: keys, Quiet: true },
         }),
       )
+      if (res.Errors && res.Errors.length > 0) {
+        const sample = res.Errors.slice(0, 3)
+          .map((e) => `${e.Key}: ${e.Code}`)
+          .join('; ')
+        throw new Error(
+          `MinIO delete reported ${res.Errors.length} error(s) for prefix ${prefix}: ${sample}`,
+        )
+      }
       deleted += keys.length
     }
     continuationToken = page.IsTruncated ? page.NextContinuationToken : undefined
