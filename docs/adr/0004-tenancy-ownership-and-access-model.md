@@ -1,6 +1,6 @@
 # ADR-0004: Tenancy, ownership & access model
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-06-30
 - **Deciders:** Grid Agent team
 - **Related:** [ADR-0002](0002-outsource-identity-to-workos.md), [ADR-0003](0003-nextjs-bff-and-stateless-python-agent.md), [ADR-0006](0006-knowledge-collection-scoping.md), [ADR-0007](0007-no-local-identity-sync.md), [`../architecture/multitenancy-and-auth-spec.md`](../architecture/multitenancy-and-auth-spec.md)
