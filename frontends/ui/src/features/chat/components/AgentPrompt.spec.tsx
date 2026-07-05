@@ -128,9 +128,10 @@ describe('AgentPrompt', () => {
     expect(approveButton).not.toHaveAttribute('tabindex')
     expect(rejectButton).not.toHaveAttribute('tabindex')
 
-    await user.tab()
-    expect(approveButton).toHaveFocus()
+    // DOM order: Reject (secondary) first, Approve (primary) last/right.
     await user.tab()
     expect(rejectButton).toHaveFocus()
+    await user.tab()
+    expect(approveButton).toHaveFocus()
   })
 })

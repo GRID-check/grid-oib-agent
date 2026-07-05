@@ -1,4 +1,4 @@
-import { asc, count, eq } from 'drizzle-orm'
+import { and, asc, count, eq, isNull } from 'drizzle-orm'
 import { FolderOpen } from 'lucide-react'
 import { requireAuthorizedPageSession } from '@/lib/auth/require-auth'
 import { getDb } from '@/lib/db'
@@ -7,6 +7,7 @@ import { ProjectCard } from '@/components/projects/project-card'
 import { CreateProjectDialog } from '@/components/projects/create-project-dialog'
 import { EmptyState } from '@/components/ui/empty-state'
 import { OrgTopbar } from '@/components/shell'
+import { RecentlyDeleted } from '@/features/projects/components/recently-deleted'
 
 const isAuthRequired = (): boolean => process.env.REQUIRE_AUTH?.toLowerCase() === 'true'
 
@@ -22,7 +23,12 @@ export default async function ProjectsPage({ searchParams }: ProjectsPageProps):
   const rows = await db
     .select()
     .from(projects)
-    .where(eq(projects.organizationId, session.organizationId))
+    .where(
+      and(
+        eq(projects.organizationId, session.organizationId),
+        isNull(projects.deletedAt),
+      ),
+    )
     .orderBy(asc(projects.createdAt))
 
   const docCounts = await db
@@ -43,7 +49,7 @@ export default async function ProjectsPage({ searchParams }: ProjectsPageProps):
         heading="Projects"
       />
 
-      <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-10 md:px-8">
+      <main id="main-content" className="mx-auto w-full max-w-5xl flex-1 px-4 py-10 md:px-8">
         <header className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-end">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Projects</h1>
@@ -76,6 +82,8 @@ export default async function ProjectsPage({ searchParams }: ProjectsPageProps):
             </div>
           )}
         </section>
+
+        <RecentlyDeleted />
       </main>
     </div>
   )

@@ -83,8 +83,9 @@ export const ThoughtCard: FC<ThoughtCardProps> = ({ thought }) => {
         onClick={() => canExpand && setIsExpanded(!isExpanded)}
         aria-expanded={isExpanded}
         aria-controls={`thought-content-${thought.id}`}
-        className="w-full text-left disabled:cursor-default"
+        className="w-full text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/60 disabled:cursor-default"
         disabled={!canExpand}
+        title={!canExpand ? 'Details available when generation completes' : undefined}
       >
         <div className="flex w-full items-center gap-2 px-3 py-2">
           {/* Status Icon - spinner when streaming */}

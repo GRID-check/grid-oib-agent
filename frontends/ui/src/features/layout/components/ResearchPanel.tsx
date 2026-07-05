@@ -193,7 +193,7 @@ export const ResearchPanel: FC<ResearchPanelProps> = memo(function ResearchPanel
         onClick={handleToggle}
         disabled={!isAuthenticated}
         className={cn(
-          'relative z-10 mt-3 flex h-[152px] w-10 shrink-0 items-center justify-center self-start overflow-hidden rounded-l-lg border bg-background transition-colors',
+          'relative z-10 mt-3 flex h-[152px] w-10 shrink-0 items-center justify-center self-start overflow-hidden rounded-l-lg border bg-background outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/60',
           isAuthenticated ? 'cursor-pointer hover:border-brand' : 'cursor-not-allowed opacity-50'
         )}
         aria-label={isOpen ? 'Close research panel' : 'Open research panel'}

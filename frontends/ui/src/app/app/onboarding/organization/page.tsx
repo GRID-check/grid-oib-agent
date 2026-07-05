@@ -64,7 +64,7 @@ const OrganizationOnboardingPage = (): ReactNode => {
   })
 
   return (
-    <main       className="relative min-h-dvh overflow-hidden bg-muted p-6 md:p-10">
+    <main id="main-content" className="relative min-h-dvh overflow-hidden bg-muted p-6 md:p-10">
       <div className="pointer-events-none absolute -right-28 top-8 h-[640px] w-[640px] opacity-25">
         <StarfieldAnimation particleCount={260} maxRadius={270} rotationSpeed={0.001} />
       </div>

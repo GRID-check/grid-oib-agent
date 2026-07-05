@@ -106,11 +106,15 @@ export const StarfieldAnimation: FC<StarfieldAnimationProps> = ({
     // Initialize particles
     particlesRef.current = createParticles()
 
-    const animate = (): void => {
+    // Respect the user's reduced-motion preference: draw a single static
+    // frame instead of running the rotation loop.
+    const reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)')
+
+    const drawFrame = (advanceRotation: boolean): void => {
       const { width, height, scale: currentScale } = updateCanvasSize()
 
       ctx.clearRect(0, 0, width, height)
-      rotationRef.current += rotationSpeed
+      if (advanceRotation) rotationRef.current += rotationSpeed
 
       const particles = particlesRef.current
       const rotation = rotationRef.current
@@ -150,12 +154,27 @@ export const StarfieldAnimation: FC<StarfieldAnimationProps> = ({
       }
 
       ctx.globalAlpha = 1
+    }
+
+    const animate = (): void => {
+      drawFrame(true)
       animationFrameRef.current = requestAnimationFrame(animate)
     }
 
-    animationFrameRef.current = requestAnimationFrame(animate)
+    const start = (): void => {
+      cancelAnimationFrame(animationFrameRef.current)
+      if (reducedMotionQuery.matches) {
+        drawFrame(false)
+      } else {
+        animationFrameRef.current = requestAnimationFrame(animate)
+      }
+    }
+
+    start()
+    reducedMotionQuery.addEventListener('change', start)
 
     return () => {
+      reducedMotionQuery.removeEventListener('change', start)
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current)
       }

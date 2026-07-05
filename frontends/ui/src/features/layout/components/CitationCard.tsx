@@ -56,7 +56,7 @@ export const CitationCard: FC<CitationCardProps> = ({ citation, index }) => {
       href={citation.url}
       target="_blank"
       rel="noopener noreferrer"
-      className="animate-in fade-in-0 block"
+      className="animate-in fade-in-0 block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
     >
       <div className="flex gap-3 rounded-lg border bg-card p-3 transition-colors hover:bg-accent">
         {/* Numbered marker */}

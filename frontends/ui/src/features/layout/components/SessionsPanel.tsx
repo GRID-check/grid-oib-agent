@@ -329,6 +329,7 @@ const SessionItem: FC<SessionItemProps> = ({
   onRename,
 }) => {
   const [isHovered, setIsHovered] = useState(false)
+  const [isFocused, setIsFocused] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
   const [editValue, setEditValue] = useState(session.title)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -411,6 +412,14 @@ const SessionItem: FC<SessionItemProps> = ({
       onKeyDown={(e) => e.key === 'Enter' && !isEditing && !isBusy && handleClick()}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
+      // Keyboard parity with hover: reveal the rename/delete actions while
+      // focus is anywhere inside the item (focus/blur bubble in React).
+      onFocus={() => setIsFocused(true)}
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+          setIsFocused(false)
+        }
+      }}
       className={cn(
         'group flex h-10 w-full items-center gap-2 rounded-md border p-2 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50',
         isBusy ? 'cursor-not-allowed opacity-60' : 'cursor-pointer',
@@ -439,8 +448,8 @@ const SessionItem: FC<SessionItemProps> = ({
 
           <span className="min-w-0 flex-1 truncate text-sm">{session.title}</span>
 
-          {/* Action icons - shown on hover */}
-          {isHovered && (
+          {/* Action icons - shown on hover or while focus is inside the item */}
+          {(isHovered || isFocused) && (
             <div className="flex shrink-0 items-center gap-1">
               <Button
                 variant="ghost"

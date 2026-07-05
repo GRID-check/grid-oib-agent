@@ -77,7 +77,7 @@ export const FileCard: FC<FileCardProps> = ({ file }) => {
         onClick={() => setIsExpanded(!isExpanded)}
         aria-expanded={isExpanded}
         aria-controls={`file-content-${file.id}`}
-        className="w-full text-left"
+        className="w-full text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/60"
       >
         <div className="flex w-full items-center gap-2 px-3 py-2">
           {/* File Icon */}

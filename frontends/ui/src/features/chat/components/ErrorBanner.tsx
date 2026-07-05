@@ -63,7 +63,7 @@ export const ErrorBanner: FC<ErrorBannerProps> = ({
                   onClick={() => setIsExpanded(!isExpanded)}
                   aria-expanded={isExpanded}
                   aria-controls="error-details"
-                  className="inline-flex cursor-pointer items-center gap-1 border-none bg-transparent p-0 text-xs font-medium no-underline"
+                  className="inline-flex cursor-pointer items-center gap-1 rounded-xs border-none bg-transparent p-0 text-xs font-medium no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
                 >
                   {isExpanded ? 'Hide details' : 'Show details'}
                   {isExpanded ? (
@@ -89,7 +89,7 @@ export const ErrorBanner: FC<ErrorBannerProps> = ({
             type="button"
             onClick={onDismiss}
             aria-label="Close"
-            className="text-muted-foreground hover:text-foreground absolute right-3 top-3"
+            className="text-muted-foreground hover:text-foreground absolute right-3 top-3 rounded-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
           >
             <X className="h-4 w-4" aria-hidden="true" />
           </button>

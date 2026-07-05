@@ -61,7 +61,12 @@ const getDomain = (url: string): string => {
  */
 export const SourceCard: FC<SourceCardProps> = ({ source }) => {
   return (
-    <a href={source.url} target="_blank" rel="noopener noreferrer" className="block">
+    <a
+      href={source.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+    >
       <div
         className={cn(
           'flex flex-col gap-1 rounded-lg border p-3 transition-colors hover:bg-accent',

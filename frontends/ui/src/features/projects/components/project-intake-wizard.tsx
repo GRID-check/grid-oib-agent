@@ -89,6 +89,8 @@ export function ProjectIntakeWizard({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [draftSaved, setDraftSaved] = useState(false)
+  /** Bumped by "Try again" to re-run the definition fetch after a load failure. */
+  const [loadAttempt, setLoadAttempt] = useState(0)
 
   const STORAGE_KEY = `intake-draft-${projectId}`
   const isEdit = mode === 'edit'
@@ -125,14 +127,20 @@ export function ProjectIntakeWizard({
       })
       .catch(() => {
         if (cancelled) return
-        setError('We could not load the project questions. Please refresh to try again.')
+        setError('We could not load the project questions.')
         setLoading(false)
       })
     return () => {
       cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId])
+  }, [projectId, loadAttempt])
+
+  const retryLoad = useCallback(() => {
+    setError(null)
+    setLoading(true)
+    setLoadAttempt((attempt) => attempt + 1)
+  }, [])
 
   // Debounced autosave of the working draft.
   useEffect(() => {
@@ -278,7 +286,12 @@ export function ProjectIntakeWizard({
     return (
       <div className="mx-auto max-w-2xl px-4 py-12">
         <Alert variant="destructive">
-          <AlertDescription>{error}</AlertDescription>
+          <AlertDescription className="flex flex-col items-start gap-3">
+            <span>{error}</span>
+            <Button variant="outline" size="sm" onClick={retryLoad}>
+              Try again
+            </Button>
+          </AlertDescription>
         </Alert>
       </div>
     )
@@ -376,7 +389,20 @@ export function ProjectIntakeWizard({
         </span>
       </div>
 
-      {/* Step content — keyed so each transition re-animates, sliding in the travel direction */}
+      {/* Step content — keyed so each transition re-animates, sliding in the travel direction.
+          Wrapped in a form so Enter in a field advances the step (or saves on review). */}
+      <form
+        noValidate
+        onSubmit={(event) => {
+          event.preventDefault()
+          if (saving) return
+          if (isReview) {
+            void handleSave()
+          } else {
+            handleNext()
+          }
+        }}
+      >
       <AnimatePresence mode="wait" initial={false} custom={directionRef.current}>
       <motion.div
         key={currentStep}
@@ -447,16 +473,17 @@ export function ProjectIntakeWizard({
         </span>
 
         {isReview ? (
-          <Button type="button" onClick={handleSave} disabled={saving}>
+          <Button type="submit" disabled={saving}>
             {saving && <Loader2 className="size-4 animate-spin" aria-hidden />}
             {saving ? 'Saving…' : isEdit ? 'Save changes' : 'Save & see my standards'}
           </Button>
         ) : (
-          <Button type="button" onClick={handleNext} disabled={saving}>
+          <Button type="submit" disabled={saving}>
             {currentStep === reviewStep - 1 ? 'Review' : 'Next'}
           </Button>
         )}
       </div>
+      </form>
     </div>
   )
 }

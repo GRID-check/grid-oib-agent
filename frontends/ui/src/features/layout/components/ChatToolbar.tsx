@@ -47,6 +47,13 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
             onClick={handleNewSessionClick}
             disabled={!isAuthenticated || isNewSessionDisabled}
             aria-label="Create new session"
+            title={
+              !isAuthenticated
+                ? 'Sign in to create sessions'
+                : isNewSessionDisabled
+                  ? 'Cannot create a new session while the current session is active'
+                  : 'Create new session'
+            }
           >
             New chat
           </Button>
@@ -56,6 +63,7 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
             onClick={handleMenuClick}
             disabled={!isAuthenticated}
             aria-label="Toggle sessions sidebar"
+            title={!isAuthenticated ? 'Sign in to view sessions' : 'Toggle sessions sidebar'}
           >
             <MessageSquareText className="h-4 w-4" aria-hidden="true" />
             <span className="text-sm font-semibold">Sessions</span>
@@ -73,6 +81,7 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
           onClick={handleAddSourcesClick}
           disabled={!isAuthenticated}
           aria-label="Add data sources"
+          title={!isAuthenticated ? 'Sign in to manage data sources' : 'Add data sources'}
         >
           <Globe className="h-4 w-4" aria-hidden="true" />
           <span className="text-sm">Sources</span>

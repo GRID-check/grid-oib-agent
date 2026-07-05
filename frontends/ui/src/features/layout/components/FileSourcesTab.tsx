@@ -45,7 +45,7 @@ const UploadErrorAlert: FC<{ message: string; onClose: () => void; className?: s
         type="button"
         onClick={onClose}
         aria-label="Dismiss error"
-        className="shrink-0 rounded-xs opacity-70 transition-opacity hover:opacity-100"
+        className="shrink-0 rounded-xs opacity-70 transition-opacity hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
       >
         <X className="h-4 w-4" aria-hidden="true" />
       </button>

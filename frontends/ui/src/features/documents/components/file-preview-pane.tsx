@@ -1,8 +1,8 @@
 'use client'
 
-import { useState, useEffect, type ReactNode } from 'react'
+import { useState, useEffect, useCallback, type ReactNode } from 'react'
 import type { FileItem } from './project-file-workspace'
-import { Download, FileQuestion, X } from 'lucide-react'
+import { Download, FileQuestion, RotateCcw, X } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -24,7 +24,7 @@ export function FilePreviewPane({ file, projectId, onClose }: FilePreviewPanePro
   const canPreview = PREVIEW_TYPES.includes(file.contentType ?? '')
   const Icon = fileTypeIcon(file.contentType, file.filename)
 
-  useEffect(() => {
+  const loadPreview = useCallback(() => {
     setPreviewFailed(false)
     if (!canPreview) {
       setPreviewUrl(null)
@@ -44,6 +44,10 @@ export function FilePreviewPane({ file, projectId, onClose }: FilePreviewPanePro
       })
       .finally(() => setIsLoading(false))
   }, [file.id, canPreview])
+
+  useEffect(() => {
+    loadPreview()
+  }, [loadPreview])
 
   return (
     <div className="flex h-full flex-col">
@@ -78,7 +82,15 @@ export function FilePreviewPane({ file, projectId, onClose }: FilePreviewPanePro
           )
         )}
         {canPreview && !isLoading && previewFailed && (
-          <PreviewMessage message="Preview couldn't be loaded. You can still download the file below." />
+          <PreviewMessage
+            message="Preview couldn't be loaded. You can still download the file below."
+            action={
+              <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={loadPreview}>
+                <RotateCcw className="size-3.5" aria-hidden />
+                Try again
+              </Button>
+            }
+          />
         )}
         {!canPreview && (
           <PreviewMessage message="No inline preview for this file type. Download it to view the full document." />
@@ -121,13 +133,14 @@ function MetaRow({ label, children }: { label: string; children: ReactNode }) {
   )
 }
 
-function PreviewMessage({ message }: { message: string }) {
+function PreviewMessage({ message, action }: { message: string; action?: ReactNode }) {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-3 px-6 py-10 text-center">
       <div className="flex size-11 items-center justify-center rounded-full bg-muted">
         <FileQuestion className="size-5 text-muted-foreground" aria-hidden />
       </div>
       <p className="max-w-xs text-sm text-muted-foreground text-balance">{message}</p>
+      {action}
     </div>
   )
 }

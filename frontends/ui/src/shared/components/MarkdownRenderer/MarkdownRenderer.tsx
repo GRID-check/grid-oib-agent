@@ -138,7 +138,8 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
                 onClick={(e: React.MouseEvent) => {
                   e.preventDefault()
                   const el = document.getElementById(href.slice(1))
-                  el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                  const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+                  el?.scrollIntoView({ behavior: prefersReducedMotion ? 'auto' : 'smooth', block: 'start' })
                 }}
               >
                 {children}

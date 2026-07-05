@@ -365,6 +365,7 @@ export function ProjectMembersForm({ projectId, canManage }: ProjectMembersFormP
                             value === NO_ACCESS ? '' : (value as ProjectRole),
                           )
                         }
+                        disabled={isUpdating}
                       >
                         <SelectTrigger
                           className="w-[180px]"

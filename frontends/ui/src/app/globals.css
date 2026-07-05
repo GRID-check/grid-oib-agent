@@ -1,6 +1,11 @@
-@import 'tailwindcss/theme.css';
-@import 'tailwindcss/preflight.css';
-@import 'tailwindcss/utilities.css';
+/* Layer the Tailwind sub-imports exactly like `@import "tailwindcss"` does.
+   Without `layer(...)` these rules are UNLAYERED and beat every `@layer` rule,
+   so preflight's `border: 0 solid` (currentColor) would override our base
+   border-color and render black borders. */
+@layer theme, base, components, utilities;
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/preflight.css' layer(base);
+@import 'tailwindcss/utilities.css' layer(utilities);
 
 /* GRID design tokens — shadcn vars + legacy semantic vars (see tokens.css). */
 @import '../styles/tokens.css';
@@ -56,6 +61,20 @@ body {
 @media (prefers-reduced-motion: no-preference) {
   html {
     scroll-behavior: smooth;
+  }
+}
+
+/* Reduced motion: framer-motion is handled globally via <MotionConfig
+   reducedMotion="user"> in providers.tsx; this covers the rest — CSS
+   transitions and tw-animate-css entrance animations collapse to an instant
+   state change instead of moving. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }
 

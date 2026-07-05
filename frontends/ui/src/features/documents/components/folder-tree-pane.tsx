@@ -121,7 +121,7 @@ export function FolderTreePane({
       <button
         onClick={() => onSelectFolder(null)}
         aria-pressed={selectedFolderId === null}
-        className={rowClass(selectedFolderId === null)}
+        className={`${rowClass(selectedFolderId === null)} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`}
       >
         <FolderOpen className="size-4 shrink-0" aria-hidden />
         <span className="truncate">All Files</span>

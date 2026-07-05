@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { ClipboardList, Database, FileText, HardDrive, MessageSquare, PencilLine, Upload } from 'lucide-react'
 import type { ProjectOverviewData } from '../types'
 import { ApplicableStandards } from './applicable-standards'
+import { ProjectDangerZone } from './project-danger-zone'
 import { ProjectMemoryPanel } from './project-memory-panel'
 import { Stagger, StaggerItem } from '@/components/motion'
 import { Badge } from '@/components/ui/badge'
@@ -246,6 +247,11 @@ export function ProjectOverview({ data }: ProjectOverviewProps) {
           />
         )}
       </section>
+      </StaggerItem>
+
+      {/* Danger zone — soft delete with grace-period restore. */}
+      <StaggerItem>
+        <ProjectDangerZone projectId={data.id} projectName={data.name} />
       </StaggerItem>
     </Stagger>
   )

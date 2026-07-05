@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { toast } from 'sonner'
-import { AlertCircle, ShieldCheck, X } from 'lucide-react'
+import { AlertCircle, RotateCcw, ShieldCheck, X } from 'lucide-react'
 import { useProjectDocuments } from '../hooks/use-project-documents'
 import { FolderTreePane } from './folder-tree-pane'
 import { FileBrowserPane } from './file-browser-pane'
@@ -42,12 +42,18 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName }:
   const [files, setFiles] = useState<FileItem[]>([])
   const [isLoadingFolders, setIsLoadingFolders] = useState(true)
   const [isLoadingFiles, setIsLoadingFiles] = useState(true)
+  const [foldersError, setFoldersError] = useState(false)
+  const [filesError, setFilesError] = useState(false)
 
   const loadFiles = useCallback(() => {
     setIsLoadingFiles(true)
+    setFilesError(false)
     const params = new URLSearchParams({ projectId })
     return fetch(`/api/documents?${params}`)
-      .then((r) => (r.ok ? r.json() : { documents: [] }))
+      .then((r) => {
+        if (!r.ok) throw new Error(`Failed to load documents (${r.status})`)
+        return r.json()
+      })
       .then((data) => {
         const docs: FileItem[] = (data.documents ?? []).map((d: any) => ({
           id: d.id,
@@ -60,7 +66,10 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName }:
         }))
         setFiles(docs)
       })
-      .catch(() => setFiles([]))
+      .catch(() => {
+        setFiles([])
+        setFilesError(true)
+      })
       .finally(() => setIsLoadingFiles(false))
   }, [projectId])
 
@@ -73,14 +82,25 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName }:
   })
 
   // Fetch folders
-  useEffect(() => {
+  const loadFolders = useCallback(() => {
     setIsLoadingFolders(true)
-    fetch(`/api/projects/${projectId}/folders`)
-      .then((r) => (r.ok ? r.json() : { folders: [] }))
+    setFoldersError(false)
+    return fetch(`/api/projects/${projectId}/folders`)
+      .then((r) => {
+        if (!r.ok) throw new Error(`Failed to load folders (${r.status})`)
+        return r.json()
+      })
       .then((data) => setFolders(data.folders ?? []))
-      .catch(() => setFolders([]))
+      .catch(() => {
+        setFolders([])
+        setFoldersError(true)
+      })
       .finally(() => setIsLoadingFolders(false))
   }, [projectId])
+
+  useEffect(() => {
+    void loadFolders()
+  }, [loadFolders])
 
   // Fetch files
   useEffect(() => {
@@ -192,35 +212,43 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName }:
       <div className="flex flex-1 overflow-hidden">
         {/* Folder tree */}
         <div className="w-60 shrink-0 overflow-y-auto border-r">
-          <FolderTreePane
-            folders={folders}
-            selectedFolderId={selectedFolderId}
-            onSelectFolder={setSelectedFolderId}
-            onCreateFolder={handleCreateFolder}
-            isLoading={isLoadingFolders}
-          />
+          {foldersError ? (
+            <PaneLoadError message="Folders couldn't be loaded." onRetry={loadFolders} />
+          ) : (
+            <FolderTreePane
+              folders={folders}
+              selectedFolderId={selectedFolderId}
+              onSelectFolder={setSelectedFolderId}
+              onCreateFolder={handleCreateFolder}
+              isLoading={isLoadingFolders}
+            />
+          )}
         </div>
 
         {/* File browser */}
         <div className="flex-1 overflow-y-auto">
-          <FileBrowserPane
-            files={filteredFiles}
-            selectedFileId={selectedFileId}
-            onSelectFile={setSelectedFileId}
-            isLoading={isLoadingFiles}
-            hasFolderSelected={selectedFolderId !== null}
-            uploadControl={
-              <ProjectUppyUpload
-                projectId={projectId}
-                folderId={selectedFolderId}
-                onUpload={(files) => uploadFiles(files)}
-                isUploading={isUploading}
-                variant="default"
-                size="default"
-                label="Upload documents"
-              />
-            }
-          />
+          {filesError ? (
+            <PaneLoadError message="Documents couldn't be loaded." onRetry={loadFiles} />
+          ) : (
+            <FileBrowserPane
+              files={filteredFiles}
+              selectedFileId={selectedFileId}
+              onSelectFile={setSelectedFileId}
+              isLoading={isLoadingFiles}
+              hasFolderSelected={selectedFolderId !== null}
+              uploadControl={
+                <ProjectUppyUpload
+                  projectId={projectId}
+                  folderId={selectedFolderId}
+                  onUpload={(files) => uploadFiles(files)}
+                  isUploading={isUploading}
+                  variant="default"
+                  size="default"
+                  label="Upload documents"
+                />
+              }
+            />
+          )}
         </div>
 
         {/* Preview pane */}
@@ -230,6 +258,20 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName }:
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+/** Inline pane-level load failure with a retry affordance. */
+function PaneLoadError({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-3 px-6 py-10 text-center">
+      <AlertCircle className="size-5 text-destructive" aria-hidden />
+      <p className="text-sm text-muted-foreground text-balance">{message}</p>
+      <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={onRetry}>
+        <RotateCcw className="size-3.5" aria-hidden />
+        Try again
+      </Button>
     </div>
   )
 }

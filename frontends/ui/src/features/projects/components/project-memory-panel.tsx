@@ -257,6 +257,13 @@ export function ProjectMemoryPanel({ projectId }: ProjectMemoryPanelProps): JSX.
           <Textarea
             value={addContent}
             onChange={(event) => setAddContent(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                event.preventDefault()
+                setAdding(false)
+                setAddContent('')
+              }
+            }}
             placeholder="One concise, self-contained finding about this project…"
             rows={2}
             autoFocus
@@ -344,6 +351,12 @@ export function ProjectMemoryPanel({ projectId }: ProjectMemoryPanelProps): JSX.
                             <Textarea
                               value={editDraft}
                               onChange={(event) => setEditDraft(event.target.value)}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Escape') {
+                                  event.preventDefault()
+                                  setEditingId(null)
+                                }
+                              }}
                               rows={2}
                               autoFocus
                             />

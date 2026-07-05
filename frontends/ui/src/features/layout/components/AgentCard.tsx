@@ -184,8 +184,9 @@ export const AgentCard: FC<AgentCardProps> = ({ agent, defaultExpanded = true })
         onClick={() => canExpand && setIsExpanded(!isExpanded)}
         aria-expanded={isExpanded}
         aria-controls={`agent-content-${agent.id}`}
-        className="w-full text-left disabled:cursor-default"
+        className="w-full text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/60 disabled:cursor-default"
         disabled={!canExpand}
+        title={!canExpand && isRunning ? 'Details available when the agent completes' : undefined}
       >
         <div className="flex w-full items-center gap-2 px-3 py-2">
           {/* Status Icon - spinner when running */}

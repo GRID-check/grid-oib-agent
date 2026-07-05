@@ -8,7 +8,7 @@
 
 'use client'
 
-import { type ChangeEvent, type FC, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { type ChangeEvent, type FC, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { CheckCircle2, FileText, Loader2, Upload, XCircle } from 'lucide-react'
 import { useDocumentsStore } from '../store'
 import { useIsCurrentSessionBusy } from '@/features/chat'
@@ -63,6 +63,7 @@ export const FileUploadZone: FC<FileUploadZoneProps> = ({
   const isBusy = useIsCurrentSessionBusy()
   const targetCollectionName = collectionName ?? sessionId
   const inputRef = useRef<HTMLInputElement>(null)
+  const inputId = useId()
 
   // Get files for current upload target collection
   const trackedFiles = useDocumentsStore((state) => state.trackedFiles)
@@ -125,7 +126,11 @@ export const FileUploadZone: FC<FileUploadZoneProps> = ({
 
   return (
     <div className="flex flex-col gap-3">
-      {label ? <label className="text-sm font-medium text-foreground">{label}</label> : null}
+      {label ? (
+        <label htmlFor={inputId} className="text-sm font-medium text-foreground">
+          {label}
+        </label>
+      ) : null}
 
       <motion.div
         {...dragHandlers}
@@ -151,6 +156,7 @@ export const FileUploadZone: FC<FileUploadZoneProps> = ({
       >
         <input
           ref={inputRef}
+          id={inputId}
           type="file"
           multiple
           accept={acceptedTypes}
