@@ -91,9 +91,27 @@ Updating documentation is **not optional and not a follow-up** — it is part of
 
 Rules of thumb: prefer updating an existing doc over adding a new one; delete docs that a change makes wrong rather than leaving them stale; keep the `docs/architecture/` deep-dives and the ADR log as the source of truth. If a change is significant enough to explain in a PR, it is significant enough to document in the repo.
 
+## Git workflow (branching & commits)
+
+- **One feature, one branch.** Each distinct feature/fix gets its **own branch cut
+  from `develop`** (e.g. `feature/rich-ui-cards`, `fix/research-403`). Do **not**
+  keep piling unrelated work onto an existing feature branch that already has an
+  open PR — that makes the PR unreviewable and couples unrelated changes.
+- **Merge target is `develop`.** Open the PR against `develop`; `develop` is the
+  integration branch. Only release promotes `develop` onward.
+- If new work genuinely depends on an unmerged branch, **stack** the new branch on
+  it (branch from that tip) and note the dependency in the PR — but prefer branching
+  from `develop` whenever the work is independent.
+- **Conventional Commits** (`type(scope): summary`), imperative, small and
+  independently revertible — one logical change per commit. Reference the ADR/issue
+  when relevant.
+- Never commit secrets. Branch before committing if you're on `develop`/`main`.
+
 ## Conventions
 
 - Python: ruff, line length 120, Python 3.11.
 - New tools use `@register_function` and a `FunctionBaseConfig` subclass.
 - Secrets live in environment variables only.
 - Documentation obligations above apply to every change — treat stale docs as a bug.
+- Git workflow above (feature-branch-per-feature, Conventional Commits, PR to
+  `develop`) applies to every change.
