@@ -27,8 +27,19 @@ general:
         - "*"
 
 llms:
-  # Intent classification / routing
-  deepseek_llm_intent:
+  # ───────────────────────────────────────────────────────────────────────────
+  # REASONING EFFORT PER AGENT ROLE
+  # `reasoning_effort` controls how much the model deliberates before answering.
+  # Valid values (highest → lowest): max, xhigh, high, medium, low, minimal, none.
+  # Policy: capped at `high` for our agents; cheap routing/summary use minimal/low.
+  # To retune a role, change its `reasoning_effort` below — each role has its own
+  # LLM definition so they are independently settable. All roles share one
+  # OpenAI-compatible endpoint; swap model_name/base_url/api_key to change
+  # provider (the system is LLM-agnostic — see docs/architecture/llm-providers.md).
+  # ───────────────────────────────────────────────────────────────────────────
+
+  # Intent Router — classify meta-vs-research + shallow-vs-deep depth. Pure routing.
+  intent_llm:
     _type: openai
     model_name: deepseek/deepseek-v4-flash
     base_url: "https://openrouter.ai/api/v1"
@@ -37,10 +48,10 @@ llms:
     top_p: 0.95
     max_tokens: 4096
     max_retries: 5
-    reasoning_effort: max
+    reasoning_effort: minimal
 
-  # General reasoning / clarifier / shallow research
-  deepseek_super_llm:
+  # Shallow Research — fast retrieval + synthesis (the quick-answer tier).
+  shallow_llm:
     _type: openai
     model_name: deepseek/deepseek-v4-flash
     base_url: "https://openrouter.ai/api/v1"
@@ -49,10 +60,22 @@ llms:
     top_p: 0.95
     max_tokens: 65536
     max_retries: 5
-    reasoning_effort: max
+    reasoning_effort: medium
 
-  # Deep research planning/writing
-  deepseek_deep_llm:
+  # HITL Clarification & Planning — clarify ambiguity, generate the research plan.
+  clarifier_llm:
+    _type: openai
+    model_name: deepseek/deepseek-v4-flash
+    base_url: "https://openrouter.ai/api/v1"
+    api_key: ${OPENROUTER_API_KEY}
+    temperature: 1.0
+    top_p: 0.95
+    max_tokens: 65536
+    max_retries: 5
+    reasoning_effort: high
+
+  # Deep Researcher — Orchestrator (also the report writer): top-level control.
+  deep_orchestrator_llm:
     _type: openai
     model_name: deepseek/deepseek-v4-flash
     base_url: "https://openrouter.ai/api/v1"
@@ -61,9 +84,57 @@ llms:
     top_p: 0.95
     max_tokens: 128000
     max_retries: 10
-    reasoning_effort: max
+    reasoning_effort: high
 
-  # Document summaries for knowledge retrieval
+  # Deep Researcher — Planning sub-agents.
+  deep_planner_llm:
+    _type: openai
+    model_name: deepseek/deepseek-v4-flash
+    base_url: "https://openrouter.ai/api/v1"
+    api_key: ${OPENROUTER_API_KEY}
+    temperature: 1.0
+    top_p: 0.95
+    max_tokens: 128000
+    max_retries: 10
+    reasoning_effort: high
+
+  # Deep Researcher — Researcher sub-agents (parallel investigations).
+  deep_researcher_llm:
+    _type: openai
+    model_name: deepseek/deepseek-v4-flash
+    base_url: "https://openrouter.ai/api/v1"
+    api_key: ${OPENROUTER_API_KEY}
+    temperature: 1.0
+    top_p: 0.95
+    max_tokens: 65536
+    max_retries: 5
+    reasoning_effort: high
+
+  # Deep Researcher — source routing (which source to query). Lighter decision.
+  deep_router_llm:
+    _type: openai
+    model_name: deepseek/deepseek-v4-flash
+    base_url: "https://openrouter.ai/api/v1"
+    api_key: ${OPENROUTER_API_KEY}
+    temperature: 1.0
+    top_p: 0.95
+    max_tokens: 8192
+    max_retries: 5
+    reasoning_effort: medium
+
+  # Card generation — structured rich-UI compliance cards.
+  card_llm:
+    _type: openai
+    model_name: deepseek/deepseek-v4-flash
+    base_url: "https://openrouter.ai/api/v1"
+    api_key: ${OPENROUTER_API_KEY}
+    temperature: 1.0
+    top_p: 0.95
+    max_tokens: 65536
+    max_retries: 5
+    reasoning_effort: medium
+
+  # Document / project summaries — trivial one-liners.
   summary_llm:
     _type: openai
     model_name: deepseek/deepseek-v4-flash
@@ -73,7 +144,7 @@ llms:
     top_p: 0.95
     max_tokens: 100
     max_retries: 5
-    reasoning_effort: max
+    reasoning_effort: low
 
 functions:
   data_sources:
@@ -121,13 +192,13 @@ functions:
 
   intent_classifier:
     _type: intent_classifier
-    llm: deepseek_llm_intent
+    llm: intent_llm
     verbose: true
 
   clarifier_agent:
     _type: clarifier_agent
-    llm: deepseek_super_llm
-    planner_llm: deepseek_super_llm
+    llm: clarifier_llm
+    planner_llm: clarifier_llm
     max_turns: 3
     enable_plan_approval: true
     log_response_max_chars: 2000
@@ -135,7 +206,7 @@ functions:
 
   shallow_research_agent:
     _type: shallow_research_agent
-    llm: deepseek_super_llm
+    llm: shallow_llm
     # Explicit list (replaces registry inheritance) so the non-data-source
     # `remember` tool is included alongside search/knowledge tools.
     tools:
@@ -149,11 +220,11 @@ functions:
   deep_research_agent:
     _type: deep_research_agent
     enable_citation_verification: true
-    orchestrator_llm: deepseek_deep_llm
-    source_router_llm: deepseek_super_llm
-    researcher_llm: deepseek_super_llm
-    planner_llm: deepseek_deep_llm
-    writer_llm: deepseek_deep_llm
+    orchestrator_llm: deep_orchestrator_llm
+    source_router_llm: deep_router_llm
+    researcher_llm: deep_researcher_llm
+    planner_llm: deep_planner_llm
+    writer_llm: deep_orchestrator_llm
     exclude_tools:
       - web_search_tool
     verbose: true
@@ -165,4 +236,4 @@ workflow:
   enable_clarifier: true
   use_async_deep_research: true
   checkpoint_db: ${AIQ_CHECKPOINT_DB:-./checkpoints.db}
-  card_generator_llm: deepseek_super_llm
+  card_generator_llm: card_llm
