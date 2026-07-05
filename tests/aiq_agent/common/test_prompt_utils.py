@@ -94,7 +94,7 @@ Please provide a detailed answer."""
         with TemporaryDirectory() as tmpdir:
             prompt_path = Path(tmpdir)
             unicode_content = "Analyze: 日本語 テスト 🔍 émojis"
-            (prompt_path / "unicode.j2").write_text(unicode_content)
+            (prompt_path / "unicode.j2").write_text(unicode_content, encoding="utf-8")
 
             result = load_prompt(prompt_path, "unicode")
             assert result == unicode_content

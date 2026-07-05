@@ -57,7 +57,7 @@ def load_prompt(path: Path, name: str) -> str:
         raise PromptError(f"Prompt file not found: {name} in {path}")
 
     try:
-        return prompt_path.read_text()
+        return prompt_path.read_text(encoding="utf-8")
     except Exception as e:
         raise PromptError(f"Failed to load prompt {name}: {e}") from e
 
