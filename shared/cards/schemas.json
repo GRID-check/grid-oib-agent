@@ -1,5 +1,311 @@
 {
   "$defs": {
+    "BuildingSectionCard": {
+      "description": "A to-scale building cross-section (schematic) drawn from storey heights.\n\nEmit for height/Geb\u00e4udeklasse/Fluchtniveau questions where seeing the\nbuilding against threshold lines helps (e.g. 'liege ich unter der GK4-Grenze?\nFluchtniveau bei 9,8 m'). Draws stacked storeys, the ground line, and dashed\nmarker lines (Fluchtniveau, GK/Hochhaus limits) with labels.",
+      "properties": {
+        "markers": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/SectionMarker"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Reference lines: Fluchtniveau, GK/Hochhaus",
+          "title": "Markers"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional clarification",
+          "title": "Note"
+        },
+        "reference": {
+          "$ref": "#/$defs/NormReference",
+          "description": "Source of the threshold heights"
+        },
+        "storeys": {
+          "description": "Storeys bottom-to-top; basements flagged below_grade",
+          "items": {
+            "$ref": "#/$defs/SectionStorey"
+          },
+          "title": "Storeys",
+          "type": "array"
+        },
+        "title": {
+          "description": "Title, e.g. 'Geb\u00e4udeschnitt \u2013 H\u00f6henpr\u00fcfung'",
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "building_section",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "title",
+        "storeys",
+        "reference"
+      ],
+      "title": "BuildingSectionCard",
+      "type": "object"
+    },
+    "DimensionCheck": {
+      "description": "One measured dimension drawn on a schematic and checked against a limit.\n\n`value` is the project's actual measurement (drawn to scale); `required` is\nthe OIB limit. If `value` is unknown, leave it null and set status\n'needs_input'.",
+      "properties": {
+        "comparator": {
+          "anyOf": [
+            {
+              "enum": [
+                "<=",
+                ">="
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How actual must relate to required",
+          "title": "Comparator"
+        },
+        "label": {
+          "description": "What is measured, e.g. 'lichte Durchgangsbreite'",
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "required": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "OIB limit for this dimension",
+          "title": "Required"
+        },
+        "status": {
+          "description": "Verdict for this dimension",
+          "enum": [
+            "pass",
+            "fail",
+            "warning",
+            "needs_input"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "unit": {
+          "default": "cm",
+          "description": "Unit for both value and required, e.g. 'cm', 'm', '%'",
+          "title": "Unit",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Actual measurement (drawn); null if unknown",
+          "title": "Value"
+        }
+      },
+      "required": [
+        "label",
+        "status"
+      ],
+      "title": "DimensionCheck",
+      "type": "object"
+    },
+    "DimensionDiagramCard": {
+      "description": "A parametric accessibility/geometry schematic with dimension arrows.\n\nEmit for clearance questions (door width, ramp gradient, turning circle,\ncorridor width, threshold). The renderer picks a prebuilt template for\n`shape` and draws each dimension arrow where it is measured, coloured by\nstatus \u2014 preventing the Stocklichte-vs-Durchgangslichte misread.",
+      "properties": {
+        "dimensions": {
+          "description": "The measured dimensions to annotate on the schematic",
+          "items": {
+            "$ref": "#/$defs/DimensionCheck"
+          },
+          "title": "Dimensions",
+          "type": "array"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional clarification",
+          "title": "Note"
+        },
+        "reference": {
+          "$ref": "#/$defs/NormReference",
+          "description": "Source of the dimension limits (e.g. OIB 4 / \u00d6NORM B 1600)"
+        },
+        "shape": {
+          "description": "Which schematic template to draw",
+          "enum": [
+            "door",
+            "ramp",
+            "corridor",
+            "turning_circle",
+            "threshold",
+            "parking_space"
+          ],
+          "title": "Shape",
+          "type": "string"
+        },
+        "title": {
+          "description": "Title, e.g. 'Rampe \u2013 Neigung & Breite'",
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "dimension_diagram",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "title",
+        "shape",
+        "dimensions",
+        "reference"
+      ],
+      "title": "DimensionDiagramCard",
+      "type": "object"
+    },
+    "EgressDiagramCard": {
+      "description": "A schematic escape-route (Fluchtweg) path with the total length checked.\n\nEmit for escape-route-length questions ('ist der Fluchtweg mit 12 m + 26 m\nzul\u00e4ssig?'). Draws the path segment-by-segment from the worst-case point to\nthe exit and checks the total against the OIB 2 limit (typically 40 m).",
+      "properties": {
+        "exit_label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": "Treppenhaus",
+          "description": "Label for the path end/exit",
+          "title": "Exit Label"
+        },
+        "reference": {
+          "$ref": "#/$defs/NormReference",
+          "description": "Source of the escape-length limit (OIB 2)"
+        },
+        "segments": {
+          "description": "Path runs from the worst-case point to the exit, in order",
+          "items": {
+            "$ref": "#/$defs/EgressSegment"
+          },
+          "title": "Segments",
+          "type": "array"
+        },
+        "start_label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": "ung\u00fcnstigster Punkt",
+          "description": "Label for the path start",
+          "title": "Start Label"
+        },
+        "title": {
+          "description": "Title, e.g. 'Fluchtweg \u2013 Gehwegl\u00e4nge'",
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "total_length": {
+          "$ref": "#/$defs/DimensionCheck",
+          "description": "Sum of segment lengths vs the OIB limit (e.g. <= 40 m)"
+        },
+        "type": {
+          "const": "egress_diagram",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "title",
+        "segments",
+        "total_length",
+        "reference"
+      ],
+      "title": "EgressDiagramCard",
+      "type": "object"
+    },
+    "EgressSegment": {
+      "description": "One straight run of an escape path, drawn end-to-end with the next.",
+      "properties": {
+        "label": {
+          "description": "Segment label, e.g. 'Raum \u2192 Gang', 'Gang \u2192 Treppenhaus'",
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "length_m": {
+          "description": "Run length in metres (drawn to scale)",
+          "exclusiveMinimum": 0,
+          "title": "Length M",
+          "type": "number"
+        },
+        "turn": {
+          "default": "straight",
+          "description": "Turn AFTER this run",
+          "enum": [
+            "straight",
+            "left",
+            "right"
+          ],
+          "title": "Turn",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "length_m"
+      ],
+      "title": "EgressSegment",
+      "type": "object"
+    },
     "LegalBasisCard": {
       "description": "A legal norm, regulation, or OIB Richtlinie that grounds the answer.",
       "properties": {
@@ -72,6 +378,61 @@
         "law"
       ],
       "title": "LegalBasisCard",
+      "type": "object"
+    },
+    "NormReference": {
+      "description": "A verifiable pointer into a regulation (the atom of grounding).\n\nEvery required value MUST carry one so the architect can verify it against\nthe source. Never fabricate a reference.",
+      "properties": {
+        "document": {
+          "description": "Regulation name, e.g. 'OIB-Richtlinie 2', '\u00d6NORM B 1600'",
+          "minLength": 1,
+          "title": "Document",
+          "type": "string"
+        },
+        "edition": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Edition/year, e.g. 'Ausgabe Mai 2023'",
+          "title": "Edition"
+        },
+        "excerpt": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Literal quoted sentence grounding the value (<= ~200 chars)",
+          "title": "Excerpt"
+        },
+        "section": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Clause/table, e.g. 'Pkt. 5.1.1', 'Tabelle 1b'",
+          "title": "Section"
+        }
+      },
+      "required": [
+        "document"
+      ],
+      "title": "NormReference",
       "type": "object"
     },
     "ProjectProfilePatchCard": {
@@ -167,6 +528,246 @@
       "title": "ProjectProfilePatchPreviewItem",
       "type": "object"
     },
+    "SectionMarker": {
+      "description": "A horizontal reference line at a given height in the section.",
+      "properties": {
+        "height_m": {
+          "description": "Height above ground datum in metres",
+          "title": "Height M",
+          "type": "number"
+        },
+        "kind": {
+          "default": "reference",
+          "description": "Styling role",
+          "enum": [
+            "fluchtniveau",
+            "threshold",
+            "reference"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "label": {
+          "description": "What the line marks, e.g. 'Fluchtniveau', 'GK4-Grenze'",
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "height_m"
+      ],
+      "title": "SectionMarker",
+      "type": "object"
+    },
+    "SectionStorey": {
+      "description": "One storey in a building cross-section, drawn as a band to scale.",
+      "properties": {
+        "below_grade": {
+          "default": false,
+          "description": "True for basements/underground storeys",
+          "title": "Below Grade",
+          "type": "boolean"
+        },
+        "height_m": {
+          "description": "Clear storey height in metres (drawn to scale)",
+          "exclusiveMinimum": 0,
+          "title": "Height M",
+          "type": "number"
+        },
+        "label": {
+          "description": "Storey label, e.g. 'EG', '1.OG', 'KG'",
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "height_m"
+      ],
+      "title": "SectionStorey",
+      "type": "object"
+    },
+    "SetbackPlanCard": {
+      "description": "A top-down site plan (schematic): parcel, footprint, and setback envelopes.\n\nEmit for Abstandsfl\u00e4chen/Bauwich questions ('h\u00e4lt das Geb\u00e4ude die Abst\u00e4nde\nein?'). Draws the parcel, the required-setback envelope, and the building\nfootprint, with a distance arrow per side coloured by status.",
+      "properties": {
+        "building_depth_m": {
+          "description": "Building footprint depth in metres",
+          "exclusiveMinimum": 0,
+          "title": "Building Depth M",
+          "type": "number"
+        },
+        "building_width_m": {
+          "description": "Building footprint width in metres",
+          "exclusiveMinimum": 0,
+          "title": "Building Width M",
+          "type": "number"
+        },
+        "parcel_depth_m": {
+          "description": "Parcel depth in metres (drawn to scale)",
+          "exclusiveMinimum": 0,
+          "title": "Parcel Depth M",
+          "type": "number"
+        },
+        "parcel_width_m": {
+          "description": "Parcel width in metres (drawn to scale)",
+          "exclusiveMinimum": 0,
+          "title": "Parcel Width M",
+          "type": "number"
+        },
+        "reference": {
+          "$ref": "#/$defs/NormReference",
+          "description": "Source of the setback requirements"
+        },
+        "sides": {
+          "description": "Required/actual distance per parcel edge",
+          "items": {
+            "$ref": "#/$defs/SetbackSide"
+          },
+          "title": "Sides",
+          "type": "array"
+        },
+        "title": {
+          "description": "Title, e.g. 'Abstandsfl\u00e4chen \u2013 Lageplan'",
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "setback_plan",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "title",
+        "parcel_width_m",
+        "parcel_depth_m",
+        "building_width_m",
+        "building_depth_m",
+        "sides",
+        "reference"
+      ],
+      "title": "SetbackPlanCard",
+      "type": "object"
+    },
+    "SetbackSide": {
+      "description": "A required distance from the building footprint to one parcel edge.",
+      "properties": {
+        "actual_m": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Actual distance in metres; null if unknown",
+          "title": "Actual M"
+        },
+        "required_m": {
+          "description": "Required setback in metres (OIB/Bauordnung)",
+          "title": "Required M",
+          "type": "number"
+        },
+        "side": {
+          "description": "Which edge",
+          "enum": [
+            "front",
+            "back",
+            "left",
+            "right"
+          ],
+          "title": "Side",
+          "type": "string"
+        },
+        "status": {
+          "description": "Verdict for this side",
+          "enum": [
+            "pass",
+            "fail",
+            "warning",
+            "needs_input"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "side",
+        "required_m",
+        "status"
+      ],
+      "title": "SetbackSide",
+      "type": "object"
+    },
+    "StairDiagramCard": {
+      "description": "A staircase drawn to scale (schematic section) with step-geometry checks.\n\nEmit for stair questions (e.g. 'passt eine Treppe mit 17 Stufen, 18 cm\nSteigung, 27 cm Auftritt, 100 cm breit?'). Draws the step profile to scale\nand checks riser/going/width and the comfort rule (2\u00d7Steigung + Auftritt \u2248\n59\u201365 cm) against OIB 4.",
+      "properties": {
+        "comfort_note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Result of the 2\u00d7Steigung + Auftritt comfort check",
+          "title": "Comfort Note"
+        },
+        "reference": {
+          "$ref": "#/$defs/NormReference",
+          "description": "Source of the step-geometry limits"
+        },
+        "riser_count": {
+          "description": "Number of steps in the flight (drawn)",
+          "exclusiveMinimum": 0,
+          "title": "Riser Count",
+          "type": "integer"
+        },
+        "riser_height": {
+          "$ref": "#/$defs/DimensionCheck",
+          "description": "Steigung (rise) per step; typical limit <= 18 cm"
+        },
+        "title": {
+          "description": "Title, e.g. 'Treppenlauf \u2013 Steigungsverh\u00e4ltnis'",
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "tread_depth": {
+          "$ref": "#/$defs/DimensionCheck",
+          "description": "Auftritt (going) per step; typical limit >= 28 cm"
+        },
+        "type": {
+          "const": "stair_diagram",
+          "title": "Type",
+          "type": "string"
+        },
+        "width": {
+          "$ref": "#/$defs/DimensionCheck",
+          "description": "Nutzbare Laufbreite; limit depends on Geb\u00e4udeklasse"
+        }
+      },
+      "required": [
+        "type",
+        "title",
+        "riser_count",
+        "riser_height",
+        "tread_depth",
+        "width",
+        "reference"
+      ],
+      "title": "StairDiagramCard",
+      "type": "object"
+    },
     "SummaryCard": {
       "description": "A concise overview of the answer for the user.",
       "properties": {
@@ -221,8 +822,13 @@
   },
   "discriminator": {
     "mapping": {
+      "building_section": "#/$defs/BuildingSectionCard",
+      "dimension_diagram": "#/$defs/DimensionDiagramCard",
+      "egress_diagram": "#/$defs/EgressDiagramCard",
       "legal_basis": "#/$defs/LegalBasisCard",
       "project_profile_patch": "#/$defs/ProjectProfilePatchCard",
+      "setback_plan": "#/$defs/SetbackPlanCard",
+      "stair_diagram": "#/$defs/StairDiagramCard",
       "summary": "#/$defs/SummaryCard"
     },
     "propertyName": "type"
@@ -236,6 +842,21 @@
     },
     {
       "$ref": "#/$defs/ProjectProfilePatchCard"
+    },
+    {
+      "$ref": "#/$defs/BuildingSectionCard"
+    },
+    {
+      "$ref": "#/$defs/StairDiagramCard"
+    },
+    {
+      "$ref": "#/$defs/DimensionDiagramCard"
+    },
+    {
+      "$ref": "#/$defs/SetbackPlanCard"
+    },
+    {
+      "$ref": "#/$defs/EgressDiagramCard"
     }
   ]
 }
