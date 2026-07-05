@@ -70,9 +70,41 @@ does the rendering.
 
 ## Dependencies (phase 3 only)
 
-`web-ifc` (MPL-2.0), `@thatopen/components` + `@thatopen/fragments` (MIT),
-`three` + `@react-three/fiber` if not already added by the massing card. Self-host
-the `.wasm`. Lazy-load everything.
+`web-ifc` (MPL-2.0), **`@thatopen/components` + `@thatopen/components-front`**
+(MIT — the maintained successor to IFC.js; supersedes the deprecated
+`web-ifc-viewer` / `web-ifc-three`), `@thatopen/fragments`, and `three` (+
+`@react-three/fiber` if the massing card already added it). Self-host the `.wasm`.
+Lazy-load everything.
+
+### React integration (there's no drop-in component — write a thin wrapper)
+
+ThatOpen is three.js-based and framework-agnostic; the standard React pattern is a
+small client wrapper (not a hand-roll, not a magic one-liner):
+
+```tsx
+'use client'
+// <IfcViewerCard> — lazy-loaded via next/dynamic(ssr:false)
+export function IfcViewer({ fragUrl, highlights }: Props) {
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    let world: any, components: any, disposed = false
+    ;(async () => {
+      const OBC = await import('@thatopen/components')
+      components = new OBC.Components()
+      // init world (scene/camera/renderer) into ref.current, load the .frag,
+      // apply `highlights` (elementId -> color) via the Highlighter, set camera
+    })()
+    return () => { disposed = true; components?.dispose() }   // critical: dispose on unmount
+  }, [fragUrl])
+  return <div ref={ref} className="h-[420px] w-full overflow-hidden rounded-xl" />
+}
+```
+
+Key React concerns: mount into a ref, **dispose the ThatOpen `Components`/world on
+unmount** (WebGL leaks otherwise), lazy-load so the ~MB viewer never enters the
+chat bundle, and guard against the async init resolving after unmount
+(`disposed` flag). `@thatopen/ui` (web components) is an alternative for toolbars
+but the viewport itself is the wrapper above.
 
 ## Phasing within this feature
 
