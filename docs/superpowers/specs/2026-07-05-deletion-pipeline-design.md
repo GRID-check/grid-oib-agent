@@ -1,7 +1,7 @@
 # Deletion Pipeline: Projects, Documents, Conversations, Organizations
 
 **Date:** 2026-07-05
-**Status:** Approved
+**Status:** Phase 1 implemented
 **Branch:** feature/applicable-oib-standards (or follow-up branch)
 
 ## Problem
@@ -76,7 +76,7 @@ Grace periods are config values; the architecture is identical at 0. All grace p
 
 ### Purger service
 
-New docker-compose service `purger`: **same image as `aiq_api`, different command** (`python -m aiq_api.purger`). No new codebase, no inbound ports. It holds all credentials (grid_app DB, aiq_jobs DB, aiq_checkpoints DB, MinIO, Chroma dir/API, WorkOS API key) — acceptable as a privileged internal service. "Spawn on demand" was rejected: it requires docker-socket access from an app container (root-equivalent, fails enterprise security review). A sleeping poll loop costs ~zero.
+New docker-compose service `purger`: **same image as the frontend, different command** (`node purger/index.js`). *(Revised from the original `aiq_api`-image idea during implementation planning: `grid_app` Postgres is owned by the frontend — single-writer rule — so the purger is plain-JS in `frontends/ui/purger/`, and the Python backend instead exposes one internal maintenance endpoint for its stores.)* No new codebase, no inbound ports. It holds all credentials (grid_app DB, aiq_jobs DB, aiq_checkpoints DB, MinIO, Chroma dir/API, WorkOS API key) — acceptable as a privileged internal service. "Spawn on demand" was rejected: it requires docker-socket access from an app container (root-equivalent, fails enterprise security review). A sleeping poll loop costs ~zero.
 
 Loop, every 60s:
 
@@ -138,7 +138,7 @@ Content deletion (their messages' *text*, files they uploaded) stays with the ow
 3. Delete the WorkOS organization (and remaining FGA resources)
 4. Finalize queue row
 
-Python-side steps are performed directly by the purger (it shares the `aiq_api` codebase — `delete_collection`, summaries helpers, checkpoint DB access). WorkOS calls use the WorkOS Python SDK (or REST) with the same API key the UI uses.
+Python-side steps (Chroma collection + summaries, `aiq_jobs` rows, LangGraph checkpoints) are performed by the backend's internal `POST /v1/maintenance/purge-project-resources` endpoint, guarded by `GRID_INTERNAL_API_TOKEN`; the purger calls it as its first step. WorkOS calls use the same `@workos-inc/node` SDK and API key the UI uses.
 
 ### API surface (Next.js BFF)
 
