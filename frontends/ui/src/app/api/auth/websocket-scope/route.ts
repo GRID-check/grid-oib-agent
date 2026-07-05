@@ -51,6 +51,12 @@ export async function GET(req: Request): Promise<Response> {
       if (isAuthRequired() && session) {
         await requireProjectAccess(session as AuthorizedSession, projectId, 'project:view')
       }
+      // Residual exposure: when REQUIRE_AUTH is off (anonymous single-tenant
+      // deployments) there is no session, so the caller-supplied projectId
+      // reaches loadProjectPromptView and the memory digest unchecked. The
+      // service layer pins queries to session.organizationId whenever a
+      // session exists (defense-in-depth); fully gating anonymous mode is a
+      // product decision.
       response.projectId = projectId
       const projectContext = await loadProjectPromptView(projectId)
       if (projectContext) {

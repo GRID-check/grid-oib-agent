@@ -31,16 +31,25 @@ export async function listProjectMemory(
   const db = getDb()
 
   // Project items, plus the org-wide items that apply to every project.
+  // Defense-in-depth: when the caller knows the organization, the project
+  // branch is additionally constrained to that org so a projectId from
+  // another tenant can never match.
+  const projectCondition = options.organizationId
+    ? and(
+        eq(projectMemory.projectId, projectId),
+        eq(projectMemory.organizationId, options.organizationId),
+      )
+    : eq(projectMemory.projectId, projectId)
   const scopeCondition = options.organizationId
     ? or(
-        eq(projectMemory.projectId, projectId),
+        projectCondition,
         and(
           eq(projectMemory.scope, 'organization'),
           eq(projectMemory.organizationId, options.organizationId),
           isNull(projectMemory.projectId),
         ),
       )
-    : eq(projectMemory.projectId, projectId)
+    : projectCondition
 
   const conditions = [scopeCondition]
   if (!options.includeArchived) {
@@ -147,11 +156,46 @@ export async function deleteProjectMemoryItem(
   return deleted.length > 0
 }
 
+/** The subset of a memory item the digest formatter needs. */
+export type DigestItem = Pick<
+  ProjectMemoryItem,
+  'scope' | 'kind' | 'content' | 'confidence' | 'verification'
+>
+
+/**
+ * Pure digest formatter (exported for tests). Each item becomes one line:
+ *   - [scope-tag kind | confidence | verification] "content"
+ * Content is whitespace-collapsed and wrapped in double quotes with internal
+ * quotes escaped (\"), so stored content can never forge an additional
+ * `- [...]` tag line or break out of its own entry. Lines are appended in
+ * order until DIGEST_MAX_CHARS would be exceeded.
+ */
+export function formatDigestLines(items: DigestItem[]): string | null {
+  if (items.length === 0) return null
+
+  const lines: string[] = ['PROJECT_MEMORY v1']
+  let used = lines[0].length
+  for (const item of items) {
+    const content = item.content.replace(/\s+/g, ' ').trim()
+    if (!content) continue
+    const escaped = content.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+    const scopeTag = item.scope === 'organization' ? 'org-wide | ' : ''
+    const line = `- [${scopeTag}${item.kind} | ${item.confidence} | ${item.verification}] "${escaped}"`
+    if (used + line.length + 1 > DIGEST_MAX_CHARS) break
+    lines.push(line)
+    used += line.length + 1
+  }
+
+  return lines.length > 1 ? lines.join('\n') : null
+}
+
 /**
  * Build the bounded "core memory" digest injected as the
  * `x-grid-project-memory` header on the WS upgrade. Merges org-wide and
  * project items (pinned first, then most recently updated), each line tagged
- * with scope/kind/confidence/verification so the model can weigh it.
+ * with scope/kind/confidence/verification so the model can weigh it; the
+ * content itself is quoted/escaped by formatDigestLines so it cannot forge
+ * tag lines.
  *
  * Returns null when there is no active memory (header is then omitted).
  */
@@ -164,7 +208,17 @@ export async function buildProjectMemoryDigest(
 
   const scopeConditions = []
   if (projectId) {
-    scopeConditions.push(eq(projectMemory.projectId, projectId))
+    // Defense-in-depth: when the caller's organization is known, the project
+    // branch is additionally pinned to that org so a foreign projectId can
+    // never surface another tenant's memory.
+    scopeConditions.push(
+      organizationId
+        ? and(
+            eq(projectMemory.projectId, projectId),
+            eq(projectMemory.organizationId, organizationId),
+          )
+        : eq(projectMemory.projectId, projectId),
+    )
   }
   if (organizationId) {
     scopeConditions.push(
@@ -190,19 +244,21 @@ export async function buildProjectMemoryDigest(
     .orderBy(desc(projectMemory.pinned), desc(projectMemory.updatedAt))
     .limit(DIGEST_MAX_ITEMS)
 
-  if (items.length === 0) return null
+  return formatDigestLines(items)
+}
 
-  const lines: string[] = ['PROJECT_MEMORY v1']
-  let used = lines[0].length
-  for (const item of items) {
-    const content = item.content.replace(/\s+/g, ' ').trim()
-    if (!content) continue
-    const scopeTag = item.scope === 'organization' ? 'org-wide | ' : ''
-    const line = `- [${scopeTag}${item.kind} | ${item.confidence} | ${item.verification}] ${content}`
-    if (used + line.length + 1 > DIGEST_MAX_CHARS) break
-    lines.push(line)
-    used += line.length + 1
-  }
-
-  return lines.length > 1 ? lines.join('\n') : null
+/**
+ * True when at least one project belongs to the organization. Used by the
+ * internal memory endpoint to validate org-scoped writes. Limitation: there
+ * is no organizations table, so an org with zero projects is treated as
+ * unknown — acceptable because org memory is only useful alongside projects.
+ */
+export async function organizationExists(organizationId: string): Promise<boolean> {
+  const db = getDb()
+  const rows = await db
+    .select({ id: projects.id })
+    .from(projects)
+    .where(eq(projects.organizationId, organizationId))
+    .limit(1)
+  return rows.length > 0
 }

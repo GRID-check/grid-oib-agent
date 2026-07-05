@@ -1,8 +1,10 @@
+import { timingSafeEqual } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import {
   createProjectMemoryItem,
   createProjectMemoryItemForProject,
+  organizationExists,
 } from '@/lib/projects/memory-service'
 import {
   PROJECT_MEMORY_CONFIDENCES,
@@ -24,6 +26,15 @@ const INTERNAL_TOKEN_HEADER = 'x-grid-internal-token'
 // never authenticate anything outside a dev environment.
 const DEV_DEFAULT_TOKEN = 'grid-internal-dev-token'
 const DEV_APP_ENVS = new Set(['development', 'dev', 'local'])
+
+/** Constant-time token comparison; length mismatch short-circuits safely. */
+function tokensMatch(provided: string | null, expected: string): boolean {
+  if (!provided) return false
+  const a = Buffer.from(provided)
+  const b = Buffer.from(expected)
+  if (a.length !== b.length) return false
+  return timingSafeEqual(a, b)
+}
 
 function isDevEnvironment(): boolean {
   // The frontend container does not receive APP_ENV; fall back to NODE_ENV
@@ -59,7 +70,7 @@ export async function POST(request: Request): Promise<Response> {
     )
     return NextResponse.json({ error: 'Internal API disabled' }, { status: 503 })
   }
-  if (request.headers.get(INTERNAL_TOKEN_HEADER) !== expectedToken) {
+  if (!tokensMatch(request.headers.get(INTERNAL_TOKEN_HEADER), expectedToken)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
@@ -71,6 +82,17 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     const { scope, projectId, organizationId, kind, content, confidence, sourceConversationId } = parsed.data
+
+    if (scope === 'organization') {
+      // Validate the org id against known tenants. There is no organizations
+      // table, so "known" means: at least one project belongs to it. This
+      // blocks arbitrary-org writes from a compromised backend, though an
+      // org with zero projects is also rejected (acceptable limitation).
+      const known = await organizationExists(organizationId as string)
+      if (!known) {
+        return NextResponse.json({ error: 'Unknown organization' }, { status: 404 })
+      }
+    }
 
     const item =
       scope === 'project'
