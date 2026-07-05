@@ -43,12 +43,4 @@ export const gridCardSchema = z.discriminatedUnion('type', [
   dimensionDiagramCardSchema,
   setbackPlanCardSchema,
   egressDiagramCardSchema,
-  dimensionCheckSchema,
-  egressSegmentSchema,
-  normReferenceSchema,
-  projectProfilePatchOperationSchema,
-  projectProfilePatchPreviewItemSchema,
-  sectionMarkerSchema,
-  sectionStoreySchema,
-  setbackSideSchema,
 ])
