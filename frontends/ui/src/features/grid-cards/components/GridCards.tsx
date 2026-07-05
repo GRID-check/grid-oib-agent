@@ -8,6 +8,11 @@ import { StairDiagramCard } from '../schematics/StairDiagramCard'
 import { DimensionDiagramCard } from '../schematics/DimensionDiagramCard'
 import { SetbackPlanCard } from '../schematics/SetbackPlanCard'
 import { EgressDiagramCard } from '../schematics/EgressDiagramCard'
+import { DaylightIncidenceCard } from '../schematics/DaylightIncidenceCard'
+import { GuardrailCheckCard } from '../schematics/GuardrailCheckCard'
+import { DensityCheckCard } from '../schematics/DensityCheckCard'
+import { FireAccessPlanCard } from '../schematics/FireAccessPlanCard'
+import { AcousticCheckCard } from '../schematics/AcousticCheckCard'
 import { FadeIn } from '@/components/motion'
 
 interface GridCardsProps {
@@ -19,8 +24,10 @@ interface GridCardsProps {
 
 /**
  * Renders a list of Grid cards in a vertical stack: summary / legal_basis /
- * project_profile_patch plus the five schematic cards (building_section,
- * stair_diagram, dimension_diagram, setback_plan, egress_diagram).
+ * project_profile_patch plus the ten schematic cards (building_section,
+ * stair_diagram, dimension_diagram, setback_plan, egress_diagram,
+ * daylight_incidence, guardrail_check, density_check, fire_access_plan,
+ * acoustic_check).
  */
 export const GridCards: FC<GridCardsProps> = ({ cards, projectId }) => {
   if (cards.length === 0) {
@@ -118,6 +125,92 @@ export const GridCards: FC<GridCardsProps> = ({ cards, projectId }) => {
                 start_label={card.start_label}
                 exit_label={card.exit_label}
                 reference={card.reference}
+              />
+            </FadeIn>
+          )
+        }
+
+        if (card.type === 'daylight_incidence') {
+          return (
+            <FadeIn key={key} distance={6}>
+              <DaylightIncidenceCard
+                title={card.title}
+                room_floor_area_m2={card.room_floor_area_m2}
+                glass_area={card.glass_area}
+                window_sill_height_m={card.window_sill_height_m}
+                window_head_height_m={card.window_head_height_m}
+                obstruction={card.obstruction}
+                reference={card.reference}
+                note={card.note}
+              />
+            </FadeIn>
+          )
+        }
+
+        if (card.type === 'guardrail_check') {
+          return (
+            <FadeIn key={key} distance={6}>
+              <GuardrailCheckCard
+                title={card.title}
+                context={card.context}
+                fall_height={card.fall_height}
+                rail_height={card.rail_height}
+                max_opening={card.max_opening}
+                bottom_gap={card.bottom_gap}
+                has_horizontal_elements_in_climb_zone={card.has_horizontal_elements_in_climb_zone}
+                reference={card.reference}
+                note={card.note}
+              />
+            </FadeIn>
+          )
+        }
+
+        if (card.type === 'density_check') {
+          return (
+            <FadeIn key={key} distance={6}>
+              <DensityCheckCard
+                title={card.title}
+                parcel_area_m2={card.parcel_area_m2}
+                footprint_area_m2={card.footprint_area_m2}
+                gross_floor_area_m2={card.gross_floor_area_m2}
+                coverage={card.coverage}
+                density={card.density}
+                reference={card.reference}
+                note={card.note}
+              />
+            </FadeIn>
+          )
+        }
+
+        if (card.type === 'fire_access_plan') {
+          return (
+            <FadeIn key={key} distance={6}>
+              <FireAccessPlanCard
+                title={card.title}
+                parcel_width_m={card.parcel_width_m}
+                parcel_depth_m={card.parcel_depth_m}
+                building_width_m={card.building_width_m}
+                building_depth_m={card.building_depth_m}
+                route_width={card.route_width}
+                gate_clearance_height={card.gate_clearance_height}
+                aufstellflaeche={card.aufstellflaeche}
+                walk_distance_to_entrance={card.walk_distance_to_entrance}
+                gebaeudeklasse={card.gebaeudeklasse}
+                reference={card.reference}
+                note={card.note}
+              />
+            </FadeIn>
+          )
+        }
+
+        if (card.type === 'acoustic_check') {
+          return (
+            <FadeIn key={key} distance={6}>
+              <AcousticCheckCard
+                title={card.title}
+                checks={card.checks ?? []}
+                sound_class={card.sound_class}
+                note={card.note}
               />
             </FadeIn>
           )
