@@ -351,17 +351,24 @@ class AgentEventCallback(BaseCallbackHandler):
         """Return the session-scoped SourceRegistry if set, otherwise None."""
         return get_session_registry()
 
-    def emit_final_report(self, content: str) -> None:
+    def emit_final_report(self, content: str, cards: list[dict] | None = None) -> None:
         """Emit the post-processed final report as an OUTPUT artifact.
 
         Call this after citation verification and sanitisation so the
         frontend receives the verified content (overwrites the earlier
         auto-emitted version).
+
+        Args:
+            content: The final report markdown.
+            cards: Optional validated Grid response cards to attach to the
+                report artifact (delivered as an additive ``cards`` field).
         """
+        extra: dict[str, Any] = {"cards": cards} if cards else {}
         self._emit_artifact(
             ArtifactType.OUTPUT,
             content,
             output_category="final_report",
+            **extra,
         )
 
     def _is_search_tool(self, tool_name: str) -> bool:

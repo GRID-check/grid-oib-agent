@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 import { useState, useEffect } from 'react'
 
 const QUERY = '(prefers-reduced-motion: reduce)'

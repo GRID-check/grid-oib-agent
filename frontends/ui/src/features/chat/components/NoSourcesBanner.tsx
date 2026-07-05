@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * NoSourcesBanner Component
  *
@@ -9,7 +6,7 @@
  * may be less accurate without external data sources.
  *
  * Auto-hides when:
- * - Any data source is enabled (e.g., web search)
+ * - Any data source is enabled (e.g., web search or internal knowledge)
  * - At least one file is available (status === 'success')
  *
  * Dismissable by user. Dismiss state resets when conditions improve
@@ -20,7 +17,8 @@
 'use client'
 
 import { type FC, useState, useEffect, useRef } from 'react'
-import { Banner } from '@/adapters/ui'
+import { AlertTriangle, X } from 'lucide-react'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { useLayoutStore } from '@/features/layout/store'
 import { useDocumentsStore } from '@/features/documents'
 import { useChatStore } from '../store'
@@ -40,6 +38,7 @@ export const NoSourcesBanner: FC<NoSourcesBannerProps> = ({ isAuthenticated = fa
   const [isDismissedByUser, setIsDismissedByUser] = useState(false)
 
   const enabledDataSourceIds = useLayoutStore((state) => state.enabledDataSourceIds)
+  const knowledgeLayerAvailable = useLayoutStore((state) => state.knowledgeLayerAvailable)
   const sessionId = useChatStore((state) => state.currentConversation?.id)
 
   // Get completed files for the current session from the documents store
@@ -49,7 +48,7 @@ export const NoSourcesBanner: FC<NoSourcesBannerProps> = ({ isAuthenticated = fa
     )
   )
 
-  const hasAnySources = enabledDataSourceIds.length > 0
+  const hasAnySources = enabledDataSourceIds.length > 0 || knowledgeLayerAvailable
   const shouldShow = !hasAnySources && !hasAvailableFiles
 
   // Track previous shouldShow to detect when conditions improve.
@@ -74,9 +73,18 @@ export const NoSourcesBanner: FC<NoSourcesBannerProps> = ({ isAuthenticated = fa
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4">
-      <Banner status="warning" kind="inline" onClose={handleDismiss}>
-        {WARNING_MESSAGE}
-      </Banner>
+      <Alert variant="warning" className="relative">
+        <AlertTriangle />
+        <AlertDescription className="pr-6">{WARNING_MESSAGE}</AlertDescription>
+        <button
+          type="button"
+          onClick={handleDismiss}
+          aria-label="Dismiss"
+          className="text-muted-foreground hover:text-foreground absolute right-3 top-3 rounded-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+        >
+          <X className="h-4 w-4" aria-hidden="true" />
+        </button>
+      </Alert>
     </div>
   )
 }

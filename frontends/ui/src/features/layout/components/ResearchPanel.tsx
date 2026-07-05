@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * ResearchPanel Component
  *
@@ -13,8 +10,12 @@
 'use client'
 
 import { type FC, type ReactNode, memo, useCallback, useRef, useEffect } from 'react'
-import { Flex, Button, SegmentedControl, Spinner, Text } from '@/adapters/ui'
-import { Close, Generate, StopCircle } from '@/adapters/ui/icons'
+import { CircleStop, Sparkles, X } from 'lucide-react'
+import { toast } from 'sonner'
+import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { cn } from '@/lib/utils'
 import { cancelJob } from '@/adapters/api'
 import { useChatStore, useLoadJobData } from '@/features/chat'
 import { useAuth } from '@/adapters/auth'
@@ -125,6 +126,9 @@ export const ResearchPanel: FC<ResearchPanelProps> = memo(function ResearchPanel
       }, CANCEL_FALLBACK_TIMEOUT_MS)
     } catch (error) {
       console.error('Failed to cancel job:', error)
+      toast.error('Could not stop research', {
+        description: 'The research run may still be running. Please try again.',
+      })
     }
   }, [deepResearchJobId, idToken])
 
@@ -177,8 +181,8 @@ export const ResearchPanel: FC<ResearchPanelProps> = memo(function ResearchPanel
     <div
       className="relative flex h-full"
       style={{
-        width: isOpen ? 'calc(60% + 40px)' : '40px',
-        minWidth: isOpen ? 'calc(60% + 40px)' : '40px',
+        width: isOpen ? 'calc(50% + 40px)' : '40px',
+        minWidth: isOpen ? 'calc(50% + 40px)' : '40px',
         transition: prefersReducedMotion
           ? 'none'
           : 'width 600ms ease-in-out, min-width 600ms ease-in-out',
@@ -188,12 +192,10 @@ export const ResearchPanel: FC<ResearchPanelProps> = memo(function ResearchPanel
       <button
         onClick={handleToggle}
         disabled={!isAuthenticated}
-        className={`research-panel-toggle border-base bg-surface-base relative z-10 mt-[calc(var(--spacing)*3)] flex w-10 shrink-0 items-center justify-center self-start overflow-hidden rounded-l-lg border-b border-l border-r border-t transition-colors ${
-          isAuthenticated
-            ? 'cursor-pointer hover:border-[#76B900]'
-            : 'cursor-not-allowed opacity-50'
-        }`}
-        style={{ height: 'calc(var(--spacing) * 38)' }}
+        className={cn(
+          'relative z-10 mt-3 flex h-[152px] w-10 shrink-0 items-center justify-center self-start overflow-hidden rounded-l-lg border bg-background outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/60',
+          isAuthenticated ? 'cursor-pointer hover:border-brand' : 'cursor-not-allowed opacity-50'
+        )}
         aria-label={isOpen ? 'Close research panel' : 'Open research panel'}
         aria-expanded={isOpen}
         title={
@@ -205,38 +207,26 @@ export const ResearchPanel: FC<ResearchPanelProps> = memo(function ResearchPanel
         }
         data-testid="research-panel-toggle"
       >
-        <span
-          className="absolute left-1/2 flex -translate-x-1/2 items-center justify-center"
-          style={{
-            top: 'calc(var(--spacing) * 3)',
-            width: 'calc(var(--spacing) * 6)',
-            height: 'calc(var(--spacing) * 6)',
-          }}
-        >
+        <span className="absolute left-1/2 top-3 flex h-6 w-6 -translate-x-1/2 items-center justify-center">
           {isDeepResearchStreaming ? (
-            <Spinner size="small" aria-label="Researching" />
+            <Spinner size="sm" label="Researching" />
           ) : (
-            <Generate className="h-[calc(var(--spacing)*6)] w-[calc(var(--spacing)*6)]" />
+            <Sparkles className="h-6 w-6" aria-hidden="true" />
           )}
         </span>
-        <Text
-          kind="label/semibold/sm"
-          className="text-primary absolute left-1/2 -translate-x-1/2 -rotate-90 whitespace-nowrap"
-          style={{ top: 'calc(var(--spacing) * 21)' }}
-        >
+        <span className="absolute left-1/2 top-[84px] -translate-x-1/2 -rotate-90 whitespace-nowrap text-sm font-semibold">
           Show Research
-        </Text>
+        </span>
       </button>
 
       {/* Outer container: clips content, fills remaining space */}
       <div
-        className="border-base bg-surface-base -ml-px h-full flex-1 overflow-hidden rounded-tl-xl border-l border-t"
+        className="-ml-px h-full flex-1 overflow-hidden rounded-tl-xl border-l border-t bg-background"
         aria-hidden={!isOpen}
       >
         {/* Inner container: fixed width so content stays stable */}
-        <Flex
-          direction="col"
-          className="h-full w-full"
+        <div
+          className="flex h-full w-full flex-col"
           style={{
             visibility: isOpen ? 'visible' : 'hidden',
             opacity: isOpen ? 1 : 0,
@@ -248,62 +238,56 @@ export const ResearchPanel: FC<ResearchPanelProps> = memo(function ResearchPanel
           }}
         >
           {/* Header with tabs and close button */}
-          <Flex
-            align="center"
-            justify="between"
-            className="border-base shrink-0 border-b py-4 pl-6 pr-8"
-          >
-            <Flex align="center" gap="density-xl">
-              <SegmentedControl
-                value={researchPanelTab}
-                onValueChange={handleTabChange}
-                size="medium"
-                items={[
-                  { value: 'tasks', children: 'Tasks' },
-                  { value: 'thinking', children: 'Thinking' },
-                  { value: 'report', children: 'Report' },
-                ]}
-              />
+          <div className="flex shrink-0 items-center justify-between border-b py-4 pl-6 pr-8">
+            <div className="flex items-center gap-4">
+              <Tabs value={researchPanelTab} onValueChange={handleTabChange}>
+                <TabsList>
+                  <TabsTrigger value="tasks">Tasks</TabsTrigger>
+                  <TabsTrigger value="thinking">Thinking</TabsTrigger>
+                  <TabsTrigger value="report">Report</TabsTrigger>
+                </TabsList>
+              </Tabs>
               {/* Stop Researching button - always visible, disabled when not streaming */}
               <Button
-                kind="tertiary"
-                size="small"
+                variant="ghost"
+                size="sm"
                 onClick={isDeepResearchStreaming ? handleStopResearch : undefined}
                 disabled={!isDeepResearchStreaming}
                 aria-label="Stop researching"
                 title={isDeepResearchStreaming ? 'Stop researching' : 'No active research'}
                 data-testid="research-panel-stop"
               >
-                <StopCircle className="mr-2 h-4 w-4" aria-hidden="true" />
+                <CircleStop className="h-4 w-4" aria-hidden="true" />
                 Stop Researching
               </Button>
-            </Flex>
-            <Flex align="center" gap="density-xl">
+            </div>
+            <div className="flex items-center gap-4">
               {/* Close button */}
               <Button
-                kind="tertiary"
-                size="small"
+                variant="ghost"
+                size="icon"
+                className="size-8"
                 onClick={handleClose}
                 aria-label="Close research panel"
                 title="Close research panel"
                 data-testid="research-panel-close"
               >
-                <Close className="h-4 w-4" aria-hidden="true" />
+                <X className="h-4 w-4" aria-hidden="true" />
               </Button>
-            </Flex>
-          </Flex>
+            </div>
+          </div>
 
           {/* Content Area - each tab manages its own scrolling and footer */}
-          <Flex direction="col" className="flex-1 overflow-hidden py-5 pl-6 pr-8">
+          <div className="flex flex-1 flex-col overflow-hidden py-5 pl-6 pr-8">
             {isStreamLoading ? (
-              <Flex direction="col" align="center" justify="center" className="h-full gap-4">
-                <Spinner size="medium" aria-label="Loading research data" />
-                <Text kind="body/regular/md" className="text-tertiary">
+              <div className="flex h-full flex-col items-center justify-center gap-4">
+                <Spinner label="Loading research data" />
+                <span className="text-sm text-muted-foreground">
                   {TABS_REQUIRING_STREAM.includes(researchPanelTab)
                     ? 'Loading research data...'
                     : 'Loading report...'}
-                </Text>
-              </Flex>
+                </span>
+              </div>
             ) : (
               <>
                 {researchPanelTab === 'tasks' && <TasksTab />}
@@ -311,8 +295,8 @@ export const ResearchPanel: FC<ResearchPanelProps> = memo(function ResearchPanel
                 {researchPanelTab === 'report' && <ReportTab>{children}</ReportTab>}
               </>
             )}
-          </Flex>
-        </Flex>
+          </div>
+        </div>
       </div>
     </div>
   )

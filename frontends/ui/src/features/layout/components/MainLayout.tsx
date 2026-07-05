@@ -1,14 +1,11 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * MainLayout Component
  *
  * The main application layout container that orchestrates:
- * - AppBar (top)
+ * - ChatToolbar (top)
  * - SessionsPanel (left, overlay)
  * - ChatArea + InputArea (center, responsive width)
- * - ResearchPanel (right, pushes content - takes 60% when open)
+ * - ResearchPanel (right, pushes content when open)
  * - DataSourcesPanel (right, overlay)
  *
  * Handles auth state to show different UI for logged-in vs logged-out users.
@@ -18,9 +15,8 @@
 
 import { type FC, useCallback, useMemo } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { Flex } from '@/adapters/ui'
 import { useReducedMotion } from '@/hooks/use-reduced-motion'
-import { AppBar } from './AppBar'
+import { ChatToolbar } from './ChatToolbar'
 import { SessionsPanel } from './SessionsPanel'
 import { ChatArea } from './ChatArea'
 import { InputArea } from './InputArea'
@@ -47,10 +43,7 @@ interface MainLayoutProps {
  * Manages the overall structure and panel states.
  * Chat state is managed via the useChatStore.
  */
-export const MainLayout: FC<MainLayoutProps> = ({
-  isAuthenticated = false,
-  onSignIn,
-}) => {
+export const MainLayout: FC<MainLayoutProps> = ({ isAuthenticated = false, onSignIn }) => {
   const {
     currentConversation,
     conversations,
@@ -146,10 +139,9 @@ export const MainLayout: FC<MainLayoutProps> = ({
     [userConversations, isDeepResearchStreaming, deepResearchOwnerConversationId]
   )
 
-  return (
-    <Flex direction="col" className="h-screen min-w-[768px] overflow-x-auto overflow-y-hidden">
-      {/* AppBar - Fixed at top */}
-      <AppBar
+  const content = (
+    <div className="flex min-h-0 min-w-[768px] flex-1 flex-col overflow-x-auto overflow-y-hidden">
+      <ChatToolbar
         sessionTitle={currentConversation?.title}
         onNewSession={handleNewSession}
         isNewSessionDisabled={isNavigationBlocked}
@@ -161,7 +153,9 @@ export const MainLayout: FC<MainLayoutProps> = ({
         <div
           className="flex flex-col overflow-hidden"
           style={{
-            width: isResearchPanelOpen ? '40%' : '100%',
+            // Balanced split: the research panel informs alongside chat rather
+            // than squeezing it into a cramped column.
+            width: isResearchPanelOpen ? '50%' : '100%',
             transition: prefersReducedMotion ? 'none' : 'width 600ms ease-in-out',
           }}
         >
@@ -195,6 +189,8 @@ export const MainLayout: FC<MainLayoutProps> = ({
 
       {/* Data Sources Panel (Right) - Overlay */}
       {isAuthenticated && <DataSourcesPanel />}
-    </Flex>
+    </div>
   )
+
+  return content
 }

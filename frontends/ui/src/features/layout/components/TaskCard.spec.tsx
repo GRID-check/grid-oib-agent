@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 import { render, screen } from '@/test-utils'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
 import { TaskCard } from './TaskCard'
@@ -99,21 +96,16 @@ describe('TaskCard', () => {
 
   describe('completed task styling', () => {
     test('completed tasks have reduced opacity', () => {
-      render(<TaskCard todo={createTodo({ status: 'completed' })} />)
+      const { container } = render(<TaskCard todo={createTodo({ status: 'completed' })} />)
 
-      // Find the card element by test id and check for opacity class
-      const flexElements = screen.getAllByTestId('nv-flex')
-      // The outer Flex should have opacity-70 class
-      const hasOpacity = flexElements.some((el) => el.classList.contains('opacity-70'))
-      expect(hasOpacity).toBe(true)
+      // The card root should have the opacity-70 class
+      expect(container.querySelector('.opacity-70')).not.toBeNull()
     })
 
     test('non-completed tasks do not have reduced opacity', () => {
-      render(<TaskCard todo={createTodo({ status: 'pending' })} />)
+      const { container } = render(<TaskCard todo={createTodo({ status: 'pending' })} />)
 
-      const flexElements = screen.getAllByTestId('nv-flex')
-      const hasOpacity = flexElements.some((el) => el.classList.contains('opacity-70'))
-      expect(hasOpacity).toBe(false)
+      expect(container.querySelector('.opacity-70')).toBeNull()
     })
 
     test('completed task text has strikethrough', () => {

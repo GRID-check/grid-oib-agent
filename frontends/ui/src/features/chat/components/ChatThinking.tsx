@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * ChatThinking Component
  *
@@ -8,14 +5,16 @@
  * Shows a status header (spinner while working, check when done) and a flat
  * chronological list of all steps with displayName + timestamp.
  *
- * Uses KUI Collapsible for proper expand/collapse behavior.
+ * Uses shadcn Collapsible for expand/collapse behavior.
  */
 
 'use client'
 
 import { type FC } from 'react'
-import { Flex, Text, Collapsible, AnimatedChevron, Spinner } from '@/adapters/ui'
-import { CheckCircle, Warning, Clock } from '@/adapters/ui/icons'
+import { ChevronDown, CheckCircle2, AlertTriangle, Clock } from 'lucide-react'
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible'
+import { motion } from '@/components/motion'
+import { Spinner } from '@/components/ui/spinner'
 import { formatTime } from '@/shared/utils/format-time'
 import type { ThinkingStep } from '../types'
 
@@ -50,7 +49,7 @@ const formatDataSourceName = (sourceId: string): string => {
 }
 
 /**
- * ChatThinking - collapsible thinking steps panel with nvidia green border
+ * ChatThinking - collapsible thinking steps panel
  */
 export const ChatThinking: FC<ChatThinkingProps> = ({
   steps,
@@ -75,117 +74,117 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
   }
 
   return (
-    <div className="bg-surface-sunken border-base w-full rounded-lg border">
-      <Collapsible
-        slotTrigger={
-          <Flex align="center" justify="between" className="w-full cursor-pointer px-4 pt-3" style={{ paddingBottom: 'calc(var(--spacing) * 4)' }}>
+    <div className="animate-in fade-in-0 slide-in-from-bottom-1 w-full rounded-2xl bg-muted/50 shadow-xs duration-200 ease-out">
+      <Collapsible>
+        <CollapsibleTrigger asChild>
+          <button
+            type="button"
+            className="group flex w-full cursor-pointer items-center justify-between rounded-2xl px-4 pb-4 pt-3 text-left outline-none transition-colors duration-200 ease-out focus-visible:ring-2 focus-visible:ring-ring/60"
+            aria-label={`Show thinking steps (${steps.length})`}
+          >
             {/* Left: status indicator */}
-            <Flex align="center" gap="2">
+            <span className="flex items-center gap-2">
               {isThinking ? (
                 <>
-                  <Spinner size="small" aria-label="Thinking in progress" />
-                  <Text kind="label/semibold/md" className="text-primary">
+                  <Spinner size="sm" label="Thinking in progress" />
+                  {/* Gentle opacity pulse — a genuine loading state, so a loop is OK */}
+                  <motion.span
+                    className="text-sm font-semibold text-foreground"
+                    animate={{ opacity: [0.4, 1, 0.4] }}
+                    transition={{ repeat: Infinity, duration: 1.6, ease: 'easeInOut' }}
+                  >
                     Working on a response...
-                  </Text>
+                  </motion.span>
                 </>
               ) : isWaiting ? (
                 <>
                   <span className="text-brand">
                     <Clock className="h-5 w-5" />
                   </span>
-                  <Text kind="label/semibold/md" className="text-primary">
+                  <span className="text-foreground text-sm font-semibold">
                     Waiting for response
-                  </Text>
+                  </span>
                 </>
               ) : isInterrupted ? (
                 <>
                   <span className="text-warning">
-                    <Warning className="h-5 w-5" />
+                    <AlertTriangle className="h-5 w-5" />
                   </span>
-                  <Text kind="label/semibold/md" className="text-primary">
+                  <span className="text-foreground text-sm font-semibold">
                     Interrupted
-                  </Text>
+                  </span>
                 </>
               ) : (
                 <>
                   <span className="text-success">
-                    <CheckCircle className="h-5 w-5" />
+                    <CheckCircle2 className="h-5 w-5" />
                   </span>
-                  <Text kind="label/semibold/md" className="text-primary">
+                  <span className="text-foreground text-sm font-semibold">
                     Done
-                  </Text>
+                  </span>
                 </>
               )}
-            </Flex>
+            </span>
 
             {/* Right: toggle indicator */}
-            <Flex align="center" gap="1">
-              <Text kind="label/regular/sm" className="text-secondary">
+            <span className="flex items-center gap-1">
+              <span className="text-xs text-muted-foreground">
                 {`Show thinking (${steps.length})`}
-              </Text>
-              <span className="text-secondary">
-                <AnimatedChevron />
               </span>
-            </Flex>
-          </Flex>
-        }
-      >
-        <Flex
-          direction="col"
-          className="border-base border-t px-4 pb-4 pt-4"
-          role="list"
-          aria-label="Thinking steps"
-        >
-          {/* Thinking Steps: 3 levels — Workflow (0) | Function Start/Complete (1) | model/tool (2) */}
-          {steps.map((step) => {
-            const isWorkflowRoot = step.functionName === 'chat_deepresearcher_agent'
-            const isFunctionStep = step.isTopLevel === true
-            const indentClass = isWorkflowRoot
-              ? ''
-              : isFunctionStep
-                ? 'pl-4 border-l-2 border-base ml-1'
-                : 'pl-8 border-l-2 border-base ml-1'
-            return (
-              <Flex
-                key={step.id}
-                align="center"
-                justify="between"
-                className={`w-full py-1.5 ${indentClass}`}
-                role="listitem"
-              >
-                <Text kind="body/regular/sm" className="text-primary min-w-0 truncate">
-                  {step.displayName}
-                </Text>
-                <Text kind="body/regular/xs" className="text-secondary shrink-0 pl-4">
-                  {formatTime(step.timestamp)}
-                </Text>
-              </Flex>
-            )
-          })}
-        </Flex>
+              <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
+            </span>
+          </button>
+        </CollapsibleTrigger>
+
+        <CollapsibleContent>
+          <div
+            className="border-base flex flex-col border-t px-4 pb-4 pt-4"
+            role="list"
+            aria-label="Thinking steps"
+          >
+            {/* Thinking Steps: 3 levels — Workflow (0) | Function Start/Complete (1) | model/tool (2) */}
+            {steps.map((step) => {
+              const isWorkflowRoot = step.functionName === 'chat_deepresearcher_agent'
+              const isFunctionStep = step.isTopLevel === true
+              const indentClass = isWorkflowRoot
+                ? ''
+                : isFunctionStep
+                  ? 'pl-4 border-l-2 border-base ml-1'
+                  : 'pl-8 border-l-2 border-base ml-1'
+              return (
+                <div
+                  key={step.id}
+                  className={`flex w-full items-center justify-between py-1.5 ${indentClass}`}
+                  role="listitem"
+                >
+                  <span className="min-w-0 truncate text-sm text-foreground">
+                    {step.displayName}
+                  </span>
+                  <span className="shrink-0 pl-4 text-xs text-muted-foreground">
+                    {formatTime(step.timestamp)}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+        </CollapsibleContent>
       </Collapsible>
 
       {/* Data Sources Summary — always visible below the collapsible */}
       {(hasDataSources || hasFiles) && (
-        <Flex
-          direction="col"
-          className="border-base border-t px-4 pt-3"
-          style={{ paddingBottom: 'calc(var(--spacing) * 5)' }}
-        >
-          <Text kind="label/bold/md" className="text-primary mb-1">
+        <div className="border-base flex flex-col border-t px-4 pb-5 pt-3">
+          <span className="mb-1 text-sm font-semibold text-foreground">
             Selected Data Sources:
-          </Text>
+          </span>
           {hasDataSources && (
-            <Text kind="body/regular/sm" className="text-primary">
-              {dataSourcesDisplay}
-            </Text>
+            <span className="text-sm text-foreground">{dataSourcesDisplay}</span>
           )}
           {hasFiles && (
-            <Text kind="body/regular/sm" className="text-secondary">
+            <span className="text-xs text-muted-foreground">
               {messageFiles.map((f) => f.fileName).join(', ')}
-            </Text>
+            </span>
           )}
-        </Flex>
+        </div>
       )}
     </div>
   )

@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 import { NextRequest, NextResponse } from 'next/server'
 import { and, eq, desc } from 'drizzle-orm'
 import { requireAuthorizedSession } from '@/lib/auth/require-auth'
@@ -26,6 +23,7 @@ export async function GET(request: NextRequest): Promise<Response> {
       contentType: documents.contentType,
       status: documents.status,
       collectionName: documents.collectionName,
+      folderId: documents.folderId,
       createdAt: documents.createdAt,
       updatedAt: documents.updatedAt,
       errorMessage: documents.errorMessage,

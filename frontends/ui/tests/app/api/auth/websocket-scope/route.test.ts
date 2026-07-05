@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 vi.mock('@/lib/auth/session', () => ({
@@ -15,19 +12,31 @@ vi.mock('@/lib/collection-scope-request', () => ({
   buildCollectionScopeFromRequest: vi.fn(),
 }))
 
+vi.mock('@/lib/project-profile/prompt-view', () => ({
+  loadProjectPromptView: vi.fn(),
+}))
+
+// Keep the test hermetic: the real digest builder requires a database.
+vi.mock('@/lib/projects/memory-service', () => ({
+  buildProjectMemoryDigest: vi.fn(),
+}))
+
 import { GET } from '@/app/api/auth/websocket-scope/route'
 import { getGridSession } from '@/lib/auth/session'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
+import { loadProjectPromptView } from '@/lib/project-profile/prompt-view'
 
 const mockGetGridSession = vi.mocked(getGridSession)
 const mockRequireProjectAccess = vi.mocked(requireProjectAccess)
 const mockBuildCollectionScopeFromRequest = vi.mocked(buildCollectionScopeFromRequest)
+const mockLoadProjectPromptView = vi.mocked(loadProjectPromptView)
 
 describe('/api/auth/websocket-scope', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     delete process.env.REQUIRE_AUTH
+    mockLoadProjectPromptView.mockResolvedValue(null)
   })
 
   it('returns scope and header when auth is disabled', async () => {
@@ -38,6 +47,7 @@ describe('/api/auth/websocket-scope', () => {
       headerValue: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9',
       projectId: 'proj-1',
       conversationId: 'conv-1',
+      projectCollectionName: undefined,
     })
 
     const req = new Request(
@@ -50,6 +60,8 @@ describe('/api/auth/websocket-scope', () => {
     expect(json).toEqual({
       scope: ['oib_knowledge'],
       header: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9',
+      // The route echoes the requested projectId so server.js can scope the socket.
+      projectId: 'proj-1',
     })
     expect(mockRequireProjectAccess).not.toHaveBeenCalled()
     expect(mockBuildCollectionScopeFromRequest).toHaveBeenCalledWith(null, {
@@ -89,6 +101,7 @@ describe('/api/auth/websocket-scope', () => {
       headerValue: 'scope-header',
       projectId: 'proj-1',
       conversationId: undefined,
+      projectCollectionName: undefined,
     })
 
     const req = new Request('http://localhost:3000/api/auth/websocket-scope?projectId=proj-1')

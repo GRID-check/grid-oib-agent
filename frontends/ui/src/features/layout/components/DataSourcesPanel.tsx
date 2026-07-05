@@ -1,19 +1,21 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * DataSourcesPanel Component
  *
- * Right-side panel for managing data sources and file uploads.
+ * Right-side docked panel for managing data sources and file uploads.
  * Contains two tabs: Data Connections (API sources) and File Sources (uploaded files).
  */
 
 'use client'
 
 import { type FC, memo, useCallback, useMemo } from 'react'
-import { Flex, Text, SidePanel, SegmentedControl, Switch, Button, Banner } from '@/adapters/ui'
 import { useShallow } from 'zustand/react/shallow'
-import { Globe, LoadingSpinner } from '@/adapters/ui/icons'
+import { Globe } from 'lucide-react'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
+import { Switch } from '@/components/ui/switch'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { cn } from '@/lib/utils'
 import { useAuth } from '@/adapters/auth'
 import { useLayoutStore } from '../store'
 import { useIsCurrentSessionBusy, useChatStore } from '@/features/chat'
@@ -22,6 +24,7 @@ import { DataConnectionCard } from './DataConnectionCard'
 import { FileSourcesTab } from './FileSourcesTab'
 import { UploadOrchestrator } from '@/features/documents'
 import type { DataSourcesPanelTab } from '../types'
+import { DockedPanel } from './DockedPanel'
 
 interface DataSourcesPanelProps {
   /** Callback when source enabled state changes */
@@ -34,7 +37,10 @@ interface DataSourcesPanelProps {
  * Panel for managing data sources and file uploads.
  * Opens from the right side of the screen.
  */
-export const DataSourcesPanel: FC<DataSourcesPanelProps> = memo(function DataSourcesPanel({ onSourceToggle, onDeleteFile }) {
+export const DataSourcesPanel: FC<DataSourcesPanelProps> = memo(function DataSourcesPanel({
+  onSourceToggle,
+  onDeleteFile,
+}) {
   const { idToken, authRequired } = useAuth()
   const saveDataSourcesToConversation = useChatStore(
     (state) => state.saveDataSourcesToConversation
@@ -47,16 +53,17 @@ export const DataSourcesPanel: FC<DataSourcesPanelProps> = memo(function DataSou
     availableDataSources,
     dataSourcesLoading,
     dataSourcesError,
-  } = useLayoutStore(useShallow((s) => ({
-    dataSourcesPanelTab: s.dataSourcesPanelTab,
-    enabledDataSourceIds: s.enabledDataSourceIds,
-    availableDataSources: s.availableDataSources,
-    dataSourcesLoading: s.dataSourcesLoading,
-    dataSourcesError: s.dataSourcesError,
-  })))
+  } = useLayoutStore(
+    useShallow((s) => ({
+      dataSourcesPanelTab: s.dataSourcesPanelTab,
+      enabledDataSourceIds: s.enabledDataSourceIds,
+      availableDataSources: s.availableDataSources,
+      dataSourcesLoading: s.dataSourcesLoading,
+      dataSourcesError: s.dataSourcesError,
+    }))
+  )
 
   const closeRightPanel = useLayoutStore((s) => s.closeRightPanel)
-  const openRightPanel = useLayoutStore((s) => s.openRightPanel)
   const setDataSourcesPanelTab = useLayoutStore((s) => s.setDataSourcesPanelTab)
   const toggleDataSource = useLayoutStore((s) => s.toggleDataSource)
   const setEnabledDataSources = useLayoutStore((s) => s.setEnabledDataSources)
@@ -91,17 +98,6 @@ export const DataSourcesPanel: FC<DataSourcesPanelProps> = memo(function DataSou
     return displaySources.some((source) => source.requiresAuth)
   }, [displaySources])
 
-  const handleOpenChange = useCallback(
-    (open: boolean) => {
-      if (open) {
-        openRightPanel('data-sources')
-      } else {
-        closeRightPanel()
-      }
-    },
-    [openRightPanel, closeRightPanel]
-  )
-
   const handleToggle = useCallback(
     (sourceId: string, enabled: boolean) => {
       const updatedIds = enabled
@@ -132,9 +128,7 @@ export const DataSourcesPanel: FC<DataSourcesPanelProps> = memo(function DataSou
 
   // Sources are available unless they require auth and the user has no token
   const availableSources = useMemo(() => {
-    return displaySources.filter(
-      (source) => !source.requiresAuth || hasValidToken
-    )
+    return displaySources.filter((source) => !source.requiresAuth || hasValidToken)
   }, [displaySources, hasValidToken])
 
   // Count enabled sources from the store (only count available ones)
@@ -151,75 +145,59 @@ export const DataSourcesPanel: FC<DataSourcesPanelProps> = memo(function DataSou
   }, [allAvailableEnabled, setEnabledDataSources, availableSources, saveDataSourcesToConversation])
 
   return (
-    <SidePanel
-      className="side-panel-dock-under-header bg-surface-base top-[var(--header-height)] h-[calc(100vh-var(--header-height))] w-[406px]"
+    <DockedPanel
       open={isOpen}
-      onOpenChange={handleOpenChange}
       side="right"
-      bordered
-      closeOnClickOutside={false}
-      style={
-        {
-          height: 'calc(100vh - 3.5rem)',
-        } as React.CSSProperties
+      onClose={closeRightPanel}
+      aria-label="Data Sources"
+      className="w-[406px]"
+      heading={
+        <>
+          <Globe className="h-5 w-5" aria-hidden="true" />
+          <span>Data Sources</span>
+        </>
       }
-      slotHeading={
-        <Flex align="center" gap="2">
-          <Globe className="h-5 w-5" />
-          Data Sources
-        </Flex>
-      }
-      slotFooter={
+      footer={
         dataSourcesPanelTab === 'connections' ? (
-          <Text kind="body/regular/xs" className="text-subtle">
+          <p className="text-xs text-muted-foreground">
             {enabledAvailableCount} of {availableCount} available connections enabled. Enabled
             connections will be available to the AI assistant.
-          </Text>
+          </p>
         ) : (
-          <Text kind="body/regular/xs" className="text-left text-subtle">
+          <p className="text-left text-xs text-muted-foreground">
             Attached files will be always available to agents until deleted.
-          </Text>
+          </p>
         )
       }
     >
       {/* Tab Navigation */}
-      <Flex className="mb-4">
-        <SegmentedControl
-          value={dataSourcesPanelTab}
-          onValueChange={handleTabChange}
-          size="small"
-          className="w-full"
-          items={[
-            { value: 'connections', children: 'Connections' },
-            { value: 'files', children: 'Files' },
-          ]}
-        />
-      </Flex>
+      <Tabs value={dataSourcesPanelTab} onValueChange={handleTabChange} className="mb-4">
+        <TabsList className="w-full">
+          <TabsTrigger value="connections">Connections</TabsTrigger>
+          <TabsTrigger value="files">Files</TabsTrigger>
+        </TabsList>
+      </Tabs>
 
       {/* Tab Content */}
       {dataSourcesPanelTab === 'connections' ? (
         /* Data Sources Tab */
-        <Flex direction="col" className="flex-1 overflow-y-auto">
+        <div className="flex flex-1 flex-col overflow-y-auto">
           {/* Auth Warning Banner - shown when authenticated sources exist but no valid token */}
           {hasAuthenticatedSources && !hasValidToken && (
-            <Banner
-              kind="inline"
-              status={!authRequired ? 'info' : 'warning'}
-              className="mb-6 px-4 py-3"
-            >
-              {!authRequired
-                ? 'Enable authentication to access additional data sources.'
-                : 'Sign in to access additional data sources.'}
-            </Banner>
+            <Alert variant={!authRequired ? 'info' : 'warning'} className="mb-6">
+              <AlertDescription>
+                {!authRequired
+                  ? 'Enable authentication to access additional data sources.'
+                  : 'Sign in to access additional data sources.'}
+              </AlertDescription>
+            </Alert>
           )}
 
           {/* All Connections Toggle */}
-          <Text kind="label/semibold/xs" className="text-subtle mb-3 uppercase">
+          <span className="mb-3 text-xs font-semibold uppercase text-muted-foreground">
             All Connections
-          </Text>
-          <Flex
-            align="center"
-            justify="between"
+          </span>
+          <div
             role="button"
             tabIndex={isBusy ? -1 : 0}
             onClick={isBusy ? undefined : handleToggleAll}
@@ -229,9 +207,10 @@ export const DataSourcesPanel: FC<DataSourcesPanelProps> = memo(function DataSou
                 handleToggleAll()
               }
             }}
-            className={`border-base mb-4 rounded-lg border p-3 transition-colors ${
-              isBusy ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:bg-surface-raised-50'
-            }`}
+            className={cn(
+              'mb-4 flex items-center justify-between rounded-lg border p-3 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50',
+              isBusy ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:bg-accent'
+            )}
             aria-pressed={allAvailableEnabled}
             aria-disabled={isBusy}
             aria-label={
@@ -241,13 +220,10 @@ export const DataSourcesPanel: FC<DataSourcesPanelProps> = memo(function DataSou
             }
             title={isBusy ? 'Data source changes disabled during active operations' : undefined}
           >
-            <Text kind="label/semibold/sm" className="text-primary">
-            Disable / Enable All
-            </Text>
+            <span className="text-sm font-semibold">Disable / Enable All</span>
             {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
             <div onClick={(e) => e.stopPropagation()}>
               <Switch
-                size="small"
                 checked={allAvailableEnabled}
                 onCheckedChange={handleToggleAll}
                 disabled={isBusy}
@@ -260,42 +236,36 @@ export const DataSourcesPanel: FC<DataSourcesPanelProps> = memo(function DataSou
                 }
               />
             </div>
-          </Flex>
+          </div>
 
           {/* Individual Connections */}
-          <Text kind="label/semibold/xs" className="text-subtle mb-3 uppercase">
+          <span className="mb-3 text-xs font-semibold uppercase text-muted-foreground">
             Individual Connections ({displaySources.length})
-          </Text>
+          </span>
 
           {dataSourcesLoading ? (
-            <Flex align="center" justify="center" className="py-8">
-              <LoadingSpinner size="medium" aria-label="Loading data sources" />
-            </Flex>
+            <div className="flex items-center justify-center py-8">
+              <Spinner label="Loading data sources" />
+            </div>
           ) : dataSourcesError ? (
-            <Flex direction="col" align="center" className="py-4">
-              <Text kind="body/regular/sm" className="text-error mb-2">
-                Unable to load data sources
-              </Text>
-              <Text kind="body/regular/xs" className="text-subtle mb-3">
-                {dataSourcesError}
-              </Text>
+            <div className="flex flex-col items-center py-4">
+              <span className="mb-2 text-sm text-destructive">Unable to load data sources</span>
+              <span className="mb-3 text-xs text-muted-foreground">{dataSourcesError}</span>
               <Button
-                kind="secondary"
-                size="small"
+                variant="outline"
+                size="sm"
                 onClick={() => fetchDataSources()}
                 aria-label="Retry loading data sources"
               >
                 Retry
               </Button>
-            </Flex>
+            </div>
           ) : displaySources.length === 0 ? (
-            <Flex direction="col" align="center" className="py-4">
-              <Text kind="body/regular/sm" className="text-subtle">
-                No data sources available
-              </Text>
-            </Flex>
+            <div className="flex flex-col items-center py-4">
+              <span className="text-sm text-muted-foreground">No data sources available</span>
+            </div>
           ) : (
-            <Flex direction="col" gap="2">
+            <div className="flex flex-col gap-2">
               {displaySources.map((source) => {
                 const isSourceAvailable = !source.requiresAuth || hasValidToken
                 return (
@@ -312,13 +282,13 @@ export const DataSourcesPanel: FC<DataSourcesPanelProps> = memo(function DataSou
                   />
                 )
               })}
-            </Flex>
+            </div>
           )}
-        </Flex>
+        </div>
       ) : (
         /* File Sources Tab */
         <FileSourcesTab onDeleteFile={onDeleteFile} />
       )}
-    </SidePanel>
+    </DockedPanel>
   )
 })

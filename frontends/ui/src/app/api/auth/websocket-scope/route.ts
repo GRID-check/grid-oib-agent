@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * Internal WebSocket Collection Scope Endpoint
  *
@@ -13,20 +10,13 @@ import { NextResponse } from 'next/server'
 import { getGridSession } from '@/lib/auth/session'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
+import { loadProjectPromptView } from '@/lib/project-profile/prompt-view'
+import { buildProjectMemoryDigest } from '@/lib/projects/memory-service'
 import type { AuthorizedSession } from '@/lib/auth/types'
+import { isAuthzError } from '@/lib/auth-utils'
 
 const isAuthRequired = (): boolean => {
   return process.env.REQUIRE_AUTH?.toLowerCase() === 'true'
-}
-
-const isAuthzError = (error: unknown): boolean => {
-  if (!(error instanceof Error)) return false
-  const message = error.message.toLowerCase()
-  return (
-    message === 'not found' ||
-    message.includes('unauthorized') ||
-    message.includes('forbidden')
-  )
 }
 
 export async function GET(req: Request): Promise<Response> {
@@ -39,10 +29,6 @@ export async function GET(req: Request): Promise<Response> {
 
     if (isAuthRequired() && !session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-    if (isAuthRequired() && projectId && session) {
-      await requireProjectAccess(session as AuthorizedSession, projectId, 'project:view')
     }
 
     const { scope, headerValue } = await buildCollectionScopeFromRequest(session, {
@@ -61,6 +47,36 @@ export async function GET(req: Request): Promise<Response> {
       response.accessToken = session.accessToken
     }
 
+    if (projectId) {
+      if (isAuthRequired() && session) {
+        await requireProjectAccess(session as AuthorizedSession, projectId, 'project:view')
+      }
+      // Residual exposure: when REQUIRE_AUTH is off (anonymous single-tenant
+      // deployments) there is no session, so the caller-supplied projectId
+      // reaches loadProjectPromptView and the memory digest unchecked. The
+      // service layer pins queries to session.organizationId whenever a
+      // session exists (defense-in-depth); fully gating anonymous mode is a
+      // product decision.
+      response.projectId = projectId
+      const projectContext = await loadProjectPromptView(projectId)
+      if (projectContext) {
+        response.projectContext = projectContext
+      }
+    }
+
+    // Core memory digest (bounded) — becomes x-grid-project-memory on the WS
+    // upgrade. Merges project items with org-wide items; org knowledge applies
+    // even outside a project-scoped chat. Best-effort: memory must never block
+    // the chat handshake.
+    try {
+      const projectMemory = await buildProjectMemoryDigest(projectId, session?.organizationId ?? undefined)
+      if (projectMemory) {
+        response.projectMemory = projectMemory
+      }
+    } catch (error) {
+      console.warn('[WebSocket Scope API] Failed to build project memory digest:', error)
+    }
+
     return NextResponse.json(response, { status: 200 })
   } catch (error) {
     if (isAuthzError(error)) {
@@ -75,3 +91,5 @@ export async function GET(req: Request): Promise<Response> {
     )
   }
 }
+
+

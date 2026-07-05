@@ -1,19 +1,9 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
 
 // Use vi.hoisted for mocks that need to be available before vi.mock
-const { mockClient, mockDocumentsStoreState, mockOrchestratorFns } = vi.hoisted(() => ({
-  mockClient: {
-    getCollection: vi.fn(),
-    createCollection: vi.fn(),
-    uploadFiles: vi.fn(),
-    deleteFiles: vi.fn(),
-    listFiles: vi.fn(),
-  },
-  mockDocumentsStoreState: {
+const { mockClient, mockDocumentsStoreState, mockOrchestratorFns } = vi.hoisted(() => {
+  const state = {
     trackedFiles: [] as unknown[],
     isUploading: false,
     isPolling: false,
@@ -28,16 +18,39 @@ const { mockClient, mockDocumentsStoreState, mockOrchestratorFns } = vi.hoisted(
     setUploading: vi.fn(),
     setError: vi.fn(),
     clearError: vi.fn(),
-  },
-  mockOrchestratorFns: {
-    setAuthToken: vi.fn(),
-    setCallbacks: vi.fn(),
-    handleSessionChange: vi.fn(),
-    loadFilesForSession: vi.fn(),
-    startPolling: vi.fn(),
-    stopPolling: vi.fn(),
-  },
-}))
+  }
+
+  // The hook reads useDocumentsStore.getState().trackedFiles after upload to
+  // group files by jobId for the orchestrator, so these mocks must actually
+  // mutate the mock state (implementations survive vi.clearAllMocks).
+  state.addTrackedFile.mockImplementation((file: unknown) => {
+    state.trackedFiles = [...state.trackedFiles, file]
+  })
+  state.updateTrackedFile.mockImplementation((id: unknown, updates: unknown) => {
+    state.trackedFiles = state.trackedFiles.map((f) =>
+      (f as { id?: unknown }).id === id ? { ...(f as object), ...(updates as object) } : f
+    )
+  })
+
+  return {
+    mockClient: {
+      getCollection: vi.fn(),
+      createCollection: vi.fn(),
+      uploadFiles: vi.fn(),
+      deleteFiles: vi.fn(),
+      listFiles: vi.fn(),
+    },
+    mockDocumentsStoreState: state,
+    mockOrchestratorFns: {
+      setAuthToken: vi.fn(),
+      setCallbacks: vi.fn(),
+      handleSessionChange: vi.fn(),
+      loadFilesForSession: vi.fn(),
+      enqueueJobs: vi.fn(),
+      stopPolling: vi.fn(),
+    },
+  }
+})
 
 // Mock modules
 vi.mock('@/adapters/api', () => ({
@@ -62,10 +75,12 @@ vi.mock('@/shared/context', () => ({
   }),
 }))
 
-vi.mock('../store', () => ({
-  useDocumentsStore: (selector?: (state: typeof mockDocumentsStoreState) => unknown) =>
-    selector ? selector(mockDocumentsStoreState) : mockDocumentsStoreState,
-}))
+vi.mock('../store', () => {
+  const useDocumentsStore = (selector?: (state: typeof mockDocumentsStoreState) => unknown) =>
+    selector ? selector(mockDocumentsStoreState) : mockDocumentsStoreState
+  useDocumentsStore.getState = () => mockDocumentsStoreState
+  return { useDocumentsStore }
+})
 
 vi.mock('@/features/chat', () => {
   const mockChatState = { addFileUploadStatusCard: vi.fn() }
@@ -252,11 +267,13 @@ describe('useFileUpload', () => {
       expect(mockDocumentsStoreState.setUploading).toHaveBeenCalledWith(true)
       expect(mockClient.uploadFiles).toHaveBeenCalled()
       expect(mockDocumentsStoreState.removeRecentlyDeletedIds).toHaveBeenCalledWith(['file-id-1'])
-      expect(mockOrchestratorFns.startPolling).toHaveBeenCalledWith(
-        'job-1',
-        'session-1',
-        expect.any(Array)
-      )
+      expect(mockOrchestratorFns.enqueueJobs).toHaveBeenCalledWith([
+        expect.objectContaining({
+          jobId: 'job-1',
+          collectionName: 'session-1',
+          files: [expect.objectContaining({ jobId: 'job-1', fileName: 'test.pdf' })],
+        }),
+      ])
     })
 
     test('creates collection if not exists', async () => {

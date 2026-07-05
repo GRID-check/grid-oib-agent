@@ -29,6 +29,15 @@ Create a focused plan that addresses the user's research needs.
 
 {#- === KV CACHE BOUNDARY — dynamic content below === -#}
 
+{% if project_context %}
+## Project Context
+<project_context>
+{{ project_context }}
+</project_context>
+
+Use confirmed project context when interpreting the user's request. Treat unknowns as missing information, not assumptions. Do not invent missing project facts.
+{% endif %}
+
 {% if clarifier_context %}
 CLARIFICATION CONTEXT:
 {{ clarifier_context }}

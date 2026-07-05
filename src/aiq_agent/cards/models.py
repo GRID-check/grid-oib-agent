@@ -4,11 +4,13 @@
 """Pydantic models for Grid response cards."""
 
 from typing import Annotated
+from typing import Any
 from typing import Literal
 
 from pydantic import BaseModel
 from pydantic import Field
 from pydantic import TypeAdapter
+from pydantic import field_validator
 
 
 class SummaryCard(BaseModel):
@@ -31,7 +33,44 @@ class LegalBasisCard(BaseModel):
     original_text: str | None = Field(default=None, description="Literal excerpt from the source, if available")
 
 
-GridCard = SummaryCard | LegalBasisCard
+class ProjectProfilePatchOperation(BaseModel):
+    """A JSON Patch operation targeting a project profile section."""
+
+    op: Literal["add", "replace", "remove"]
+    path: str
+    value: Any = None
+
+    @field_validator("path")
+    @classmethod
+    def _validate_path(cls, v: str) -> str:
+        allowed_prefixes = ("/facts", "/goals", "/unknowns", "/assumptions")
+        if not v.startswith(allowed_prefixes):
+            raise ValueError(f"Patch path must start with one of {allowed_prefixes}")
+        segments = v.split("/")
+        if ".." in segments:
+            raise ValueError("Patch path must not contain '..' segments")
+        return v
+
+
+class ProjectProfilePatchPreviewItem(BaseModel):
+    """A before/after preview for a single patched field."""
+
+    label: str
+    before: str
+    after: str
+
+
+class ProjectProfilePatchCard(BaseModel):
+    """A reviewable patch (add/replace/remove) against a project profile."""
+
+    type: Literal["project_profile_patch"] = "project_profile_patch"
+    title: str
+    rationale: str
+    patch: list[ProjectProfilePatchOperation]
+    preview: list[ProjectProfilePatchPreviewItem]
+
+
+GridCard = SummaryCard | LegalBasisCard | ProjectProfilePatchCard
 
 # Discriminated-union adapter. ``grid_card_adapter`` is the canonical public name;
 # ``_grid_card_adapter`` is retained as a backwards-compatible alias.
@@ -41,6 +80,9 @@ _grid_card_adapter = grid_card_adapter
 __all__ = [
     "GridCard",
     "LegalBasisCard",
+    "ProjectProfilePatchCard",
+    "ProjectProfilePatchOperation",
+    "ProjectProfilePatchPreviewItem",
     "SummaryCard",
     "grid_card_adapter",
     "validate_cards",

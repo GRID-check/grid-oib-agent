@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * SourceCard Component
  *
@@ -15,7 +12,8 @@
 'use client'
 
 import { type FC } from 'react'
-import { Flex, Text } from '@/adapters/ui'
+import { Check } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 /** Source information from SSE events */
 export interface SourceInfo {
@@ -67,51 +65,42 @@ export const SourceCard: FC<SourceCardProps> = ({ source }) => {
       href={source.url}
       target="_blank"
       rel="noopener noreferrer"
-      className="block"
+      className="block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
     >
-      <Flex
-        direction="col"
-        gap="1"
-        className={`
-          p-3 rounded-lg border border-base
-          hover:bg-surface-raised-50 transition-colors
-          ${source.isCited ? 'border-l-2 border-l-success' : ''}
-        `}
+      <div
+        className={cn(
+          'flex flex-col gap-1 rounded-lg border p-3 transition-colors hover:bg-accent',
+          source.isCited && 'border-l-2 border-l-success'
+        )}
       >
         {/* Header row */}
-        <Flex align="center" gap="2">
+        <div className="flex items-center gap-2">
           {/* Cited indicator */}
           {source.isCited && (
-            <span className="text-sm" aria-hidden="true">
-              ✅
-            </span>
+            <Check className="h-4 w-4 shrink-0 text-success" aria-label="Cited" role="img" />
           )}
 
           {/* Title or domain */}
-          <Text kind="label/semibold/sm" className="flex-1 truncate">
+          <span className="flex-1 truncate text-sm font-semibold">
             {source.title || getDomain(source.url)}
-          </Text>
+          </span>
 
           {/* Timestamp */}
           {source.discoveredAt && (
-            <Text kind="body/regular/xs" className="text-subtle shrink-0">
+            <span className="shrink-0 text-xs text-muted-foreground">
               {formatTime(source.discoveredAt)}
-            </Text>
+            </span>
           )}
-        </Flex>
+        </div>
 
         {/* URL */}
-        <Text kind="body/regular/xs" className="text-subtle truncate">
-          {source.url}
-        </Text>
+        <span className="truncate text-xs text-muted-foreground">{source.url}</span>
 
         {/* Snippet */}
         {source.snippet && (
-          <Text kind="body/regular/xs" className="text-subtle line-clamp-2 mt-1">
-            {source.snippet}
-          </Text>
+          <span className="mt-1 line-clamp-2 text-xs text-muted-foreground">{source.snippet}</span>
         )}
-      </Flex>
+      </div>
     </a>
   )
 }

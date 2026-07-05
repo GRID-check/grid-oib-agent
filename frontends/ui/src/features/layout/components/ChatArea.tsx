@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * ChatArea Component
  *
@@ -10,18 +7,26 @@
  * Shows different welcome states based on authentication:
  * - Logged out: Prompt to sign in with CTA button
  * - Logged in: Ready to start chatting
- *
- 
  */
 
 'use client'
 
 import { type FC, memo, useRef, useEffect, useCallback, useState, useMemo } from 'react'
-import { Flex, Text, Button } from '@/adapters/ui'
-import { Document, Lock } from '@/adapters/ui/icons'
+import { CheckCircle2, CircleEllipsis, FileText, Folder, Lock, MessageSquare } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
-import { useChatStore, AgentPrompt, AgentResponse, ErrorBanner, FileUploadBanner, DeepResearchBanner, UserMessage, ChatThinking } from '@/features/chat'
+import { Button } from '@/components/ui/button'
+import {
+  useChatStore,
+  AgentPrompt,
+  AgentResponse,
+  ErrorBanner,
+  FileUploadBanner,
+  DeepResearchBanner,
+  UserMessage,
+  ChatThinking,
+} from '@/features/chat'
 import type { ChatMessage } from '@/features/chat'
+import { AnimatePresence, motion, fadeRise, springGentle } from '@/components/motion'
 import { StarfieldAnimation } from '@/shared/components/StarfieldAnimation'
 
 interface ChatAreaProps {
@@ -35,13 +40,17 @@ interface ChatAreaProps {
  * Main chat area container with scrollable message list.
  * Shows welcome state when no messages exist.
  */
-export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({ isAuthenticated = false, onSignIn }) {
-  const { currentConversation, isStreaming, currentUserMessageId } =
-    useChatStore(useShallow((s) => ({
+export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
+  isAuthenticated = false,
+  onSignIn,
+}) {
+  const { currentConversation, isStreaming, currentUserMessageId } = useChatStore(
+    useShallow((s) => ({
       currentConversation: s.currentConversation,
       isStreaming: s.isStreaming,
       currentUserMessageId: s.currentUserMessageId,
-    })))
+    }))
+  )
 
   const respondToPrompt = useChatStore((s) => s.respondToPrompt)
   const getThinkingStepsForMessage = useChatStore((s) => s.getThinkingStepsForMessage)
@@ -58,7 +67,6 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({ isAuthentica
         const messageType = msg.messageType || (msg.role === 'user' ? 'user' : 'assistant')
         return (
           messageType === 'user' ||
-          messageType === 'status' ||
           messageType === 'prompt' ||
           messageType === 'agent_response' ||
           messageType === 'file' ||
@@ -74,6 +82,21 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({ isAuthentica
 
   // Track previous message count for scroll detection
   const [prevMessageCount, setPrevMessageCount] = useState(displayableMessages.length)
+
+  // Entrance-animation bookkeeping: messages already present when a conversation
+  // renders (hydration / session switch) must NOT animate in — only messages
+  // appended afterwards get the fade-rise entrance. Seeded synchronously so the
+  // very first render already knows which ids are "old".
+  const hydratedIdsRef = useRef<Set<string> | null>(null)
+  const hydratedConversationIdRef = useRef<string | undefined>(currentConversation?.id)
+  if (
+    hydratedIdsRef.current === null ||
+    hydratedConversationIdRef.current !== currentConversation?.id
+  ) {
+    hydratedConversationIdRef.current = currentConversation?.id
+    hydratedIdsRef.current = new Set(displayableMessages.map((m) => m.id))
+  }
+  const hydratedIds = hydratedIdsRef.current
 
   /**
    * Helper to get thinking steps for a user message.
@@ -116,78 +139,83 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({ isAuthentica
   }, [])
 
   return (
-    <Flex
-      direction="col"
-      className="scrollbar-hide flex-1 overflow-y-auto"
-      aria-label="Chat messages"
-    >
+    <div className="scrollbar-hide flex flex-1 flex-col overflow-y-auto" aria-label="Chat messages">
       {isEmpty ? (
         <WelcomeState isAuthenticated={isAuthenticated} onSignIn={onSignIn} />
       ) : (
-        <Flex direction="col" gap="4" className="mx-auto w-full max-w-3xl px-4 pt-4 pb-24">
-          {displayableMessages.map((message, index) => {
-            const isUserMessage = message.messageType === 'user' || message.role === 'user'
-            const messageSteps = isUserMessage ? getStepsForUserMessage(message.id) : []
-            const hasThinkingSteps = messageSteps.length > 0
+        <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 pb-24 pt-4">
+          <AnimatePresence initial={false}>
+            {displayableMessages.map((message, index) => {
+              const isUserMessage = message.messageType === 'user' || message.role === 'user'
+              const messageSteps = isUserMessage ? getStepsForUserMessage(message.id) : []
+              const hasThinkingSteps = messageSteps.length > 0
 
-            // Derive post-thinking state for user messages with thinking steps.
-            // Priority: isThinking (active) > isWaiting (HITL) > isInterrupted > done
-            const isCurrentlyStreaming = isStreaming && message.id === currentUserMessageId
-            const shouldCheckPostState = isUserMessage && hasThinkingSteps && !isCurrentlyStreaming
-            const remaining = shouldCheckPostState ? displayableMessages.slice(index + 1) : []
-            const nextUserMessageIndex = remaining.findIndex(
-              (m) => m.messageType === 'user' || m.role === 'user'
-            )
-            // Only evaluate status within this message turn (until next user message).
-            // This prevents later turns from overriding interrupted/waiting state.
-            const turnMessages =
-              nextUserMessageIndex >= 0
-                ? remaining.slice(0, nextUserMessageIndex)
-                : remaining
+              // Derive post-thinking state for user messages with thinking steps.
+              // Priority: isThinking (active) > isWaiting (HITL) > isInterrupted > done
+              const isCurrentlyStreaming = isStreaming && message.id === currentUserMessageId
+              const shouldCheckPostState = isUserMessage && hasThinkingSteps && !isCurrentlyStreaming
+              const remaining = shouldCheckPostState ? displayableMessages.slice(index + 1) : []
+              const nextUserMessageIndex = remaining.findIndex(
+                (m) => m.messageType === 'user' || m.role === 'user'
+              )
+              // Only evaluate status within this message turn (until next user message).
+              // This prevents later turns from overriding interrupted/waiting state.
+              const turnMessages =
+                nextUserMessageIndex >= 0 ? remaining.slice(0, nextUserMessageIndex) : remaining
 
-            // Waiting: an unresponded HITL prompt follows this user message
-            const isWaiting = shouldCheckPostState && turnMessages.some((m) =>
-              m.messageType === 'prompt' && !m.isPromptResponded
-            )
+              // Waiting: an unresponded HITL prompt follows this user message
+              const isWaiting =
+                shouldCheckPostState &&
+                turnMessages.some((m) => m.messageType === 'prompt' && !m.isPromptResponded)
 
-            // Interrupted: no actual response AND not waiting for HITL
-            const hasResponse = turnMessages.some((m) =>
-              m.messageType === 'assistant' || m.messageType === 'agent_response'
-            )
-            const isInterrupted = shouldCheckPostState && !isWaiting && !hasResponse
+              // Interrupted: no actual response AND not waiting for HITL
+              const hasResponse = turnMessages.some(
+                (m) => m.messageType === 'assistant' || m.messageType === 'agent_response'
+              )
+              const isInterrupted = shouldCheckPostState && !isWaiting && !hasResponse
 
-            return (
-              <div key={message.id} className="flex flex-col gap-4">
-                {/* Render the message */}
-                <MessageRenderer
-                  message={message}
-                  onPromptRespond={handlePromptRespond}
-                  onFileRetry={handleFileRetry}
-                  onErrorDismiss={dismissErrorCard}
-                />
+              return (
+                <motion.div
+                  key={message.id}
+                  className="flex flex-col gap-4"
+                  variants={fadeRise}
+                  // Animate only genuinely new messages; hydrated ones render in place.
+                  initial={hydratedIds.has(message.id) ? false : 'hidden'}
+                  animate="visible"
+                  exit={{ opacity: 0, transition: { duration: 0.15 } }}
+                  transition={springGentle}
+                >
+                  {/* Render the message */}
+                  <MessageRenderer
+                    message={message}
+                    onPromptRespond={handlePromptRespond}
+                    onFileRetry={handleFileRetry}
+                    onErrorDismiss={dismissErrorCard}
+                  />
 
-                {/* Render thinking steps after user messages — negative margin lets the next message overlap */}
-                {isUserMessage && hasThinkingSteps && (
-                  <Flex justify="start" className="-mb-8 w-[85%]">
-                    <ChatThinking
-                      steps={messageSteps}
-                      isThinking={isStreaming && message.id === currentUserMessageId}
-                      isWaiting={isWaiting}
-                      isInterrupted={isInterrupted}
-                      enabledDataSources={message.enabledDataSources}
-                      messageFiles={message.messageFiles}
-                    />
-                  </Flex>
-                )}
-              </div>
-            )
-          })}
+                  {/* Render thinking steps after user messages — negative margin lets the next message overlap */}
+                  {isUserMessage && hasThinkingSteps && (
+                    <div className="-mb-8 flex w-[85%] justify-start">
+                      <ChatThinking
+                        steps={messageSteps}
+                        isThinking={isStreaming && message.id === currentUserMessageId}
+                        isWaiting={isWaiting}
+                        isInterrupted={isInterrupted}
+                        enabledDataSources={message.enabledDataSources}
+                        messageFiles={message.messageFiles}
+                      />
+                    </div>
+                  )}
+                </motion.div>
+              )
+            })}
+          </AnimatePresence>
 
           {/* Invisible scroll anchor */}
           <div ref={messagesEndRef} />
-        </Flex>
+        </div>
       )}
-    </Flex>
+    </div>
   )
 })
 
@@ -216,25 +244,6 @@ const MessageRenderer: FC<MessageRendererProps> = ({
   switch (messageType) {
     case 'user':
       return <UserMessage content={message.content} timestamp={message.timestamp} />
-
-    case 'status':
-      // TODO: StatusCard was removed in refactor - implement inline status display
-      // Status messages show agent activity (thinking, searching, planning, etc.)
-      if (!message.statusType) {
-        return null
-      }
-      return (
-        <Flex
-          align="center"
-          gap="2"
-          className="px-4 py-2 rounded-lg bg-surface-raised-30 border border-base"
-          role="status"
-        >
-          <Text kind="body/regular/sm" className="text-subtle">
-            {message.statusType}: {message.content}
-          </Text>
-        </Flex>
-      )
 
     case 'prompt':
       // Guard against missing promptType
@@ -276,17 +285,15 @@ const MessageRenderer: FC<MessageRendererProps> = ({
         return null
       }
       return (
-        <Flex
-          align="center"
-          gap="2"
-          className="px-4 py-2 rounded-lg bg-surface-raised-30 border border-base"
+        <div
+          className="flex items-center gap-2 rounded-xl bg-muted/50 px-4 py-2 shadow-xs"
           role="status"
         >
-          <Document className="text-subtle h-4 w-4" />
-          <Text kind="body/regular/sm" className="text-subtle">
+          <FileText className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+          <span className="text-sm text-muted-foreground">
             {message.fileData.fileName} ({message.fileData.fileStatus})
-          </Text>
-        </Flex>
+          </span>
+        </div>
       )
 
     case 'file_upload_status':
@@ -353,66 +360,134 @@ interface WelcomeStateProps {
 }
 
 const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn }) => {
+  const prompts = [
+    'Compare OIB 2 fire resistance duties across building classes.',
+    'Summarize accessibility requirements for a public retrofit.',
+    'Find contradictions between uploaded plans and OIB guidance.',
+  ]
+
   if (!isAuthenticated) {
-    // Logged out state - prompt to sign in
     return (
-      <Flex direction="col" align="center" justify="center" className="relative flex-1 p-8">
-        {/* Starfield background */}
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-30">
-          <div className="h-[500px] w-[500px]">
-            <StarfieldAnimation particleCount={300} maxRadius={220} rotationSpeed={0.0005} />
+      <div className="relative flex flex-1 items-center overflow-hidden p-8">
+        <div className="pointer-events-none absolute right-[-8rem] top-1/2 h-[560px] w-[560px] -translate-y-1/2 opacity-30">
+          <StarfieldAnimation particleCount={260} maxRadius={245} rotationSpeed={0.0005} />
+        </div>
+        <div className="relative mx-auto grid w-full max-w-6xl grid-cols-1 gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+          <div className="rounded-2xl border bg-muted/30 p-8 shadow-lg">
+            <div className="flex flex-col items-start gap-6">
+              <div className="flex h-14 w-14 items-center justify-center rounded-xl border bg-muted text-brand">
+                <Lock className="h-6 w-6" aria-hidden="true" />
+              </div>
+              <div className="flex flex-col gap-3">
+                <span className="text-xs uppercase tracking-label text-muted-foreground">
+                  secure workspace
+                </span>
+                <h1 className="max-w-2xl text-4xl font-semibold tracking-display md:text-5xl md:leading-none">
+                  Grid opens after your organization is verified.
+                </h1>
+                <p className="max-w-xl text-sm text-muted-foreground">
+                  Sign in to unlock project-scoped OIB research, document ingestion, and member
+                  access controls.
+                </p>
+              </div>
+              <Button
+                size="lg"
+                onClick={onSignIn}
+                aria-label="Sign in with SSO"
+                className="transition active:scale-press"
+              >
+                Sign in with SSO
+              </Button>
+            </div>
+          </div>
+
+          <div className="grid content-end gap-4">
+            {['WorkOS authentication', 'Project-scoped retrieval', 'Role-based access'].map(
+              (item, index) => (
+                <div
+                  key={item}
+                  className="animate-in fade-in-0 slide-in-from-bottom-2 rounded-xl border bg-muted/30 p-5 transition-all duration-200 ease-out fill-mode-backwards hover:-translate-y-0.5 hover:bg-muted/50"
+                  style={{ animationDelay: `${index * 80}ms` }}
+                >
+                  <div className="flex items-center gap-3">
+                    <CheckCircle2 className="h-5 w-5 text-brand" aria-hidden="true" />
+                    <span className="text-sm font-semibold">{item}</span>
+                  </div>
+                </div>
+              )
+            )}
           </div>
         </div>
-
-        {/* Content */}
-        <Flex direction="col" align="center" gap="6" className="relative z-10 max-w-md text-center">
-          <span className="text-6xl text-brand">
-            <Lock />
-          </span>
-          <Text kind="title/lg" className="text-primary">
-            Welcome to Grid
-          </Text>
-          <Text kind="body/regular/md" className="text-subtle">
-            Sign in with your account to start your AI-powered research session.
-          </Text>
-          <Button
-            kind="primary"
-            size="large"
-            onClick={onSignIn}
-            aria-label="Sign in with SSO"
-            className="mt-2"
-          >
-            <Flex align="center" gap="2">
-              <Text kind="label/semibold/md">Sign In with SSO</Text>
-            </Flex>
-          </Button>
-        </Flex>
-
-      </Flex>
+      </div>
     )
   }
 
-  // Logged in state - ready to chat
   return (
-    <Flex direction="col" align="center" justify="center" className="relative flex-1 p-8">
-      {/* Starfield background */}
-      <div className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-30">
-        <div className="h-[500px] w-[500px]">
-          <StarfieldAnimation particleCount={300} maxRadius={220} rotationSpeed={0.001} />
-        </div>
+    <div className="relative flex flex-1 items-center overflow-hidden p-8">
+      <div className="pointer-events-none absolute -right-24 top-10 h-[520px] w-[520px] opacity-25">
+        <StarfieldAnimation particleCount={300} maxRadius={230} rotationSpeed={0.001} />
       </div>
+      <div className="relative mx-auto grid w-full max-w-6xl grid-cols-1 gap-6 lg:grid-cols-[1.25fr_0.75fr]">
+        <section className="rounded-2xl border bg-muted/30 p-8 shadow-lg">
+          <div className="flex flex-col gap-7">
+            <div className="flex max-w-3xl flex-col gap-4">
+              <span className="text-xs uppercase tracking-label text-muted-foreground">
+                OIB research cockpit
+              </span>
+              <h1 className="text-4xl font-semibold tracking-display md:text-5xl md:leading-none">
+                Start with a project, then ask for cited building-code reasoning.
+              </h1>
+              <p className="max-w-2xl text-sm text-muted-foreground">
+                Grid keeps retrieval scoped to the selected workspace and turns long guideline
+                documents into traceable decisions.
+              </p>
+            </div>
 
-      {/* Content */}
-      <Flex direction="col" align="center" gap="4" className="relative z-10 max-w-md text-center">
-        <Text kind="title/lg" className="text-primary">
-          Welcome to Grid
-        </Text>
-        <Text kind="body/regular/md" className="text-subtle">
-          Your AI-powered research companion for exploring technical documentation, market analysis,
-          and more.
-        </Text>
-      </Flex>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-[1.1fr_0.9fr]">
+              <a
+                href="/app/projects"
+                className="group rounded-xl border bg-muted p-5 transition hover:-translate-y-0.5 hover:bg-accent"
+              >
+                <div className="flex flex-col gap-4">
+                  <Folder className="h-6 w-6 text-brand" aria-hidden="true" />
+                  <div className="flex flex-col gap-1">
+                    <span className="text-sm font-semibold">Open projects</span>
+                    <span className="text-sm text-muted-foreground">
+                      Create workspaces, manage documents, and invite roles.
+                    </span>
+                  </div>
+                </div>
+              </a>
+              <div className="rounded-xl border bg-muted/30 p-5">
+                <div className="flex flex-col gap-4">
+                  <CircleEllipsis className="h-6 w-6 text-brand" aria-hidden="true" />
+                  <div className="flex flex-col gap-1">
+                    <span className="text-sm font-semibold">Select context</span>
+                    <span className="text-sm text-muted-foreground">
+                      Use the workspace selector before running analysis.
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
 
-    </Flex>
+        <aside className="grid content-center gap-3">
+          {prompts.map((prompt, index) => (
+            <div
+              key={prompt}
+              className="animate-in fade-in-0 slide-in-from-bottom-2 cursor-default rounded-xl border bg-muted/30 p-5 transition-all duration-200 ease-out fill-mode-backwards hover:-translate-y-px hover:border-primary/20 hover:bg-muted/50"
+              style={{ animationDelay: `${index * 90}ms` }}
+            >
+              <div className="flex items-start gap-3">
+                <MessageSquare className="mt-1 h-5 w-5 shrink-0 text-brand" aria-hidden="true" />
+                <span className="text-sm">{prompt}</span>
+              </div>
+            </div>
+          ))}
+        </aside>
+      </div>
+    </div>
   )
 }

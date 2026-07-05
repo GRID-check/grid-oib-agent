@@ -143,6 +143,15 @@ User: "What caused World War I?"
 
 {#- === KV CACHE BOUNDARY — dynamic content below === -#}
 
+{% if project_context %}
+## Project Context
+<project_context>
+{{ project_context }}
+</project_context>
+
+Use confirmed project context when interpreting the user's request. Treat unknowns as missing information, not assumptions. Do not invent missing project facts.
+{% endif %}
+
 {% if available_documents and available_documents | length > 0 %}
 ## Uploaded documents (IMPORTANT)
 The user has uploaded the following file(s); they are ingested and will be included in research:{% for doc in available_documents %}

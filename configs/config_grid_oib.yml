@@ -101,8 +101,8 @@ functions:
     _type: knowledge_retrieval
     backend: llamaindex
     collection_name: ${COLLECTION_NAME:-oib_knowledge}
-    include_base_collection: false
-    include_session_collection: false
+    include_base_collection: true
+    include_session_collection: true
     project_collections: []
     generate_summary: true
     summary_model: summary_llm
@@ -152,3 +152,4 @@ workflow:
   enable_clarifier: true
   use_async_deep_research: true
   checkpoint_db: ${AIQ_CHECKPOINT_DB:-./checkpoints.db}
+  card_generator_llm: nemotron_super_llm

@@ -271,6 +271,17 @@ class TestGetCheckpointer:
         common_module._checkpointers.clear()
         common_module._postgres_pools.clear()
 
+    @staticmethod
+    async def _close_sqlite_checkpointers():
+        """Close cached SQLite connections so temp files can be deleted on Windows."""
+        from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+
+        import aiq_agent.common as common_module
+
+        for checkpointer in common_module._checkpointers.values():
+            if isinstance(checkpointer, AsyncSqliteSaver):
+                await checkpointer.conn.close()
+
     @pytest.mark.asyncio
     async def test_sqlite_checkpointer_creation(self):
         """Test that SQLite checkpointer is created for file paths."""
@@ -284,6 +295,7 @@ class TestGetCheckpointer:
 
             assert isinstance(checkpointer, AsyncSqliteSaver)
         finally:
+            await self._close_sqlite_checkpointers()
             os.unlink(db_path)
 
     @pytest.mark.asyncio
@@ -298,6 +310,7 @@ class TestGetCheckpointer:
 
             assert checkpointer1 is checkpointer2
         finally:
+            await self._close_sqlite_checkpointers()
             os.unlink(db_path)
 
     @pytest.mark.asyncio
@@ -314,6 +327,7 @@ class TestGetCheckpointer:
 
             assert checkpointer1 is not checkpointer2
         finally:
+            await self._close_sqlite_checkpointers()
             os.unlink(db_path1)
             os.unlink(db_path2)
 

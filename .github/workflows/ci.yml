@@ -58,7 +58,7 @@ jobs:
       - name: Run remaining pre-commit hooks
         run: |
           . .venv/bin/activate
-          SKIP=ruff-check,ruff-format,pytest,helm-lint pre-commit run --all-files
+          SKIP=ruff-check,ruff-format,pytest pre-commit run --all-files
 
   test:
     name: Pytest and Coverage
@@ -105,24 +105,11 @@ jobs:
             htmlcov/
           retention-days: 7
 
-  helm-lint:
-    name: Helm Lint
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install Helm
-        uses: azure/setup-helm@v4
-
-      - name: Lint Helm charts
-        run: |
-          for chart in deploy/helm/helm-charts-k8s/*; do
-            if [ -d "$chart" ]; then
-              helm lint "$chart"
-            fi
-          done
-
+  # Note: the former helm-lint job was removed (2026-07-05). It looped over
+  # deploy/helm/helm-charts-k8s/*, but the charts were deleted for the MVP
+  # (see deploy/helm/README.md), so the job matched nothing and always passed
+  # green — a false signal. Reinstate a real `helm lint <chart>` job if charts
+  # return.
   test-scripts:
     name: Script Validation
     runs-on: ubuntu-latest

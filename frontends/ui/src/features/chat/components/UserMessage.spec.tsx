@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 import { render, screen } from '@/test-utils'
 import { describe, test, expect } from 'vitest'
 import { UserMessage } from './UserMessage'
@@ -17,11 +14,11 @@ describe('UserMessage', () => {
 Line 2
 Line 3`
 
-    render(<UserMessage content={multilineContent} />)
+    const { container } = render(<UserMessage content={multilineContent} />)
 
-    // Check that the Text component contains the multiline content
-    const textElement = screen.getByTestId('nv-text')
-    expect(textElement.textContent).toBe(multilineContent)
+    // Single newlines within a markdown paragraph are preserved as soft breaks
+    const markdown = container.querySelector('.markdown-content')
+    expect(markdown?.textContent).toBe(multilineContent)
   })
 
   test('renders empty content', () => {

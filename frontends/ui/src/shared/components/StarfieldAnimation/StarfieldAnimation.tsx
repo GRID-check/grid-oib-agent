@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 'use client'
 
 import { type FC, useRef, useEffect, useCallback } from 'react'
@@ -13,7 +10,7 @@ const DEFAULT_MAX_RADIUS = 50
 const DEFAULT_PARTICLE_SIZE = 2.0
 const DEFAULT_ROTATION_SPEED = 0.001
 const DEFAULT_SEED = 12345
-const DEFAULT_PARTICLE_COLOR = '118, 185, 0'
+const DEFAULT_PARTICLE_COLOR = 'var(--primary)'
 
 /**
  * Animated starfield background using canvas.
@@ -82,6 +79,12 @@ export const StarfieldAnimation: FC<StarfieldAnimationProps> = ({
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
+    // Resolve CSS variable to a concrete color so canvas can use it.
+    const resolvedColor =
+      typeof window !== 'undefined' && particleColor.startsWith('var(')
+        ? getComputedStyle(document.documentElement).getPropertyValue(particleColor.slice(4, -1)).trim() || particleColor
+        : particleColor
+
     // Get the actual display size from the container
     const updateCanvasSize = (): { width: number; height: number; scale: number } => {
       const rect = canvas.getBoundingClientRect()
@@ -103,11 +106,15 @@ export const StarfieldAnimation: FC<StarfieldAnimationProps> = ({
     // Initialize particles
     particlesRef.current = createParticles()
 
-    const animate = (): void => {
+    // Respect the user's reduced-motion preference: draw a single static
+    // frame instead of running the rotation loop.
+    const reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)')
+
+    const drawFrame = (advanceRotation: boolean): void => {
       const { width, height, scale: currentScale } = updateCanvasSize()
 
       ctx.clearRect(0, 0, width, height)
-      rotationRef.current += rotationSpeed
+      if (advanceRotation) rotationRef.current += rotationSpeed
 
       const particles = particlesRef.current
       const rotation = rotationRef.current
@@ -119,7 +126,7 @@ export const StarfieldAnimation: FC<StarfieldAnimationProps> = ({
       const scaleFactor = currentScale
 
       // Batch render all particles as triangles
-      ctx.fillStyle = `rgba(${particleColor}, 1)`
+      ctx.fillStyle = resolvedColor
 
       for (let i = 0; i < particles.length; i++) {
         const p = particles[i]
@@ -147,12 +154,27 @@ export const StarfieldAnimation: FC<StarfieldAnimationProps> = ({
       }
 
       ctx.globalAlpha = 1
+    }
+
+    const animate = (): void => {
+      drawFrame(true)
       animationFrameRef.current = requestAnimationFrame(animate)
     }
 
-    animationFrameRef.current = requestAnimationFrame(animate)
+    const start = (): void => {
+      cancelAnimationFrame(animationFrameRef.current)
+      if (reducedMotionQuery.matches) {
+        drawFrame(false)
+      } else {
+        animationFrameRef.current = requestAnimationFrame(animate)
+      }
+    }
+
+    start()
+    reducedMotionQuery.addEventListener('change', start)
 
     return () => {
+      reducedMotionQuery.removeEventListener('change', start)
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current)
       }

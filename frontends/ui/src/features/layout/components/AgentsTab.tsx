@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * AgentsTab Component
  *
@@ -13,9 +10,8 @@
 'use client'
 
 import { type FC, useMemo } from 'react'
-import { Flex, Text } from '@/adapters/ui'
 import { useShallow } from 'zustand/react/shallow'
-import { Wand } from '@/adapters/ui/icons'
+import { Wand2 } from 'lucide-react'
 import { useChatStore } from '@/features/chat'
 import { AgentCard, type AgentInfo } from './AgentCard'
 import { EMPTY_RESEARCH_DETAILS_HELP_TEXT } from './research-empty-state-copy'
@@ -54,46 +50,42 @@ export const AgentsTab: FC = () => {
   const completedToolCalls = agentToolCalls.filter((tc) => tc.status === 'complete').length
 
   return (
-    <Flex direction="col" gap="4" className="h-full min-h-0">
+    <div className="flex h-full min-h-0 flex-col gap-4">
       {/* Header */}
-      <Flex direction="col" gap="1" className="shrink-0">
-        <Flex align="center" gap="2">
-          <Text kind="label/semibold/md" className="text-subtle">
-            Agents
-          </Text>
+      <div className="flex shrink-0 flex-col gap-1">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold text-muted-foreground">Agents</span>
           {agentsWithToolCalls.length > 0 && (
-            <Text kind="body/regular/xs" className="text-subtle">
+            <span className="text-xs text-muted-foreground">
               {runningCount > 0 ? `${runningCount} running` : `${agentsWithToolCalls.length}`}
               {agentToolCalls.length > 0 &&
                 ` • ${completedToolCalls}/${agentToolCalls.length} queries`}
-            </Text>
+            </span>
           )}
-        </Flex>
-        <Text kind="body/regular/xs" className="text-subtle">
+        </div>
+        <span className="text-xs text-muted-foreground">
           Active planner, researcher, and writer agents executing tasks.
-        </Text>
-      </Flex>
+        </span>
+      </div>
 
       {/* Content */}
       {isEmpty ? (
-        <Flex direction="col" align="center" justify="center" className="flex-1 py-8 text-center">
-          <Wand className="text-subtle mb-3 h-8 w-8" />
-          <Text kind="body/regular/md" className="text-subtle">
-            No agent activity available.
-          </Text>
-          <Text kind="body/regular/sm" className="text-subtle mt-2">
+        <div className="flex flex-1 flex-col items-center justify-center py-8 text-center">
+          <Wand2 className="mb-3 h-8 w-8 text-muted-foreground" aria-hidden="true" />
+          <p className="text-sm text-muted-foreground">No agent activity available.</p>
+          <p className="mt-2 text-sm text-muted-foreground">
             {EMPTY_RESEARCH_DETAILS_HELP_TEXT}
-          </Text>
-        </Flex>
+          </p>
+        </div>
       ) : (
-        <Flex direction="col" gap="2" className="min-h-0 flex-1 overflow-y-auto">
+        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
           {agentsWithToolCalls.map((agent) => (
             <div key={agent.id} className="shrink-0">
               <AgentCard agent={agent} defaultExpanded />
             </div>
           ))}
-        </Flex>
+        </div>
       )}
-    </Flex>
+    </div>
   )
 }

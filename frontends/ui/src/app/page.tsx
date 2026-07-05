@@ -1,34 +1,50 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * Home Page
  *
- * Main chat interface using the MainLayout component.
- * Displays the full Grid experience.
- * Chat state is managed via the useChatStore.
+ * Redirects authenticated users to the project workspace. While the session
+ * resolves (or the redirect is in flight) it shows a quiet branded loading
+ * beat instead of flashing UI. Genuine logged-out visitors get the premium
+ * marketing landing page with a sign-in affordance.
  */
 
 'use client'
 
-import { type ReactNode, Suspense } from 'react'
+import { type ReactNode, Suspense, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { useAuth } from '@/adapters/auth'
-import { MainLayout } from '@/features/layout'
+import { Landing } from '@/components/marketing'
+import { Logo } from '@/components/brand/logo'
+import { Spinner } from '@/components/ui/spinner'
+
+const BrandedLoading = (): ReactNode => (
+  <div className="flex min-h-dvh flex-col items-center justify-center gap-4 bg-background text-foreground">
+    <Logo kind="horizontal" size="large" />
+    <Spinner size="sm" className="text-muted-foreground" />
+    <span className="sr-only">Loading your workspace…</span>
+  </div>
+)
 
 const HomeContent = (): ReactNode => {
-  const { isAuthenticated, signIn } = useAuth()
+  const { isAuthenticated, signIn, isLoading } = useAuth()
+  const router = useRouter()
 
-  return (
-    <MainLayout
-      isAuthenticated={isAuthenticated}
-      onSignIn={signIn}
-    />
-  )
+  useEffect(() => {
+    if (isAuthenticated && !isLoading) {
+      router.replace('/app/projects')
+    }
+  }, [isAuthenticated, isLoading, router])
+
+  // Session resolving, or authenticated and redirecting → branded loading beat.
+  if (isLoading || isAuthenticated) {
+    return <BrandedLoading />
+  }
+
+  return <Landing onSignIn={signIn} />
 }
 
 const HomePage = (): ReactNode => {
   return (
-    <Suspense fallback={null}>
+    <Suspense fallback={<BrandedLoading />}>
       <HomeContent />
     </Suspense>
   )

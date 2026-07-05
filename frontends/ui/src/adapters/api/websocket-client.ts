@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * WebSocket Client Adapter
  *
@@ -41,7 +38,8 @@ export interface NATWebSocketClientCallbacks {
     status: string,
     isFinal: boolean,
     parentId?: string,
-    cards?: unknown[]
+    cards?: unknown[],
+    deepResearchJobId?: string
   ) => void
   /** Called when intermediate steps arrive (thinking, tool calls) */
   onIntermediateStep?: (content: NATIntermediateStepContent | string, status: string, parentId?: string) => void
@@ -320,6 +318,32 @@ export class NATWebSocketClient {
     this.options.conversationId = conversationId
   }
 
+  /**
+   * Update the project ID (e.g., once the project store resolves after the
+   * socket was first created).
+   *
+   * The project scope is injected into the connection HANDSHAKE: `server.js`
+   * reads the `projectId` query param on the WS upgrade to set the
+   * `x-grid-project-context` header the backend uses to give the agent
+   * project knowledge. That param is baked into the URL at connect time by
+   * `buildWebSocketUrl`, so a changed project ID can only take effect on a
+   * fresh socket. We rotate() -- the same atomic swap used for auth rotation
+   * -- but only when the value actually changes, and only if a socket already
+   * exists (otherwise the pending connect() will pick up the new value).
+   *
+   * This is the fix for the first-load race where the socket connected with
+   * `projectId: undefined` (before the project store was populated) and then
+   * never carried project context for the conversation's lifetime.
+   */
+  updateProjectId = (projectId: string | undefined): void => {
+    const next = projectId || undefined
+    if (this.options.projectId === next) return
+    this.options.projectId = next
+    if (this.ws) {
+      void this.rotate()
+    }
+  }
+
   private setupEventHandlers = (): void => {
     // Capture the socket instance in each handler closure. If `this.ws` is
     // swapped (rotate(), reconnect, etc.), late events from the old socket
@@ -409,7 +433,8 @@ export class NATWebSocketClient {
             message.status,
             isFinal,
             message.parent_id,
-            message.cards
+            message.cards,
+            message.deep_research_job_id
           )
           break
         }

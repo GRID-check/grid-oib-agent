@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * Deep Research SSE Client
  *
@@ -159,6 +156,8 @@ export interface ArtifactUpdateEvent extends DeepResearchSSEEvent {
       type: ArtifactType
       content: string | TodoItem[]
       url?: string // For citation_source and citation_use types
+      output_category?: string // For output type (e.g. "final_report")
+      cards?: unknown[] // Grid response cards attached to the final report output
     }
     metadata?: {
       workflow?: string
@@ -209,7 +208,12 @@ export interface DeepResearchCallbacks {
   onTodoUpdate?: (todos: TodoItem[], workflow?: string) => void
   onCitationUpdate?: (url: string, content: string, isCited?: boolean) => void
   onFileUpdate?: (filename: string, content: string) => void
-  onOutputUpdate?: (content: string, outputCategory?: string, workflow?: string) => void
+  onOutputUpdate?: (
+    content: string,
+    outputCategory?: string,
+    workflow?: string,
+    cards?: unknown[]
+  ) => void
   /** Called on job heartbeat (confirms job is alive during long operations) */
   onHeartbeat?: (uptimeSeconds: number) => void
   /** Called when job completes successfully */
@@ -485,11 +489,12 @@ export const createDeepResearchClient = (options: DeepResearchStreamOptions): De
       case 'artifact.update': {
         // artifact.update has nested structure: { id, timestamp, data: { type, content, url?, output_category? }, metadata?: { workflow } }
         const artifactWrapper = rawData as {
-          data?: { type: ArtifactType; content: string | TodoItem[]; url?: string; output_category?: string }
+          data?: { type: ArtifactType; content: string | TodoItem[]; url?: string; output_category?: string; cards?: unknown[] }
           type?: ArtifactType
           content?: string | TodoItem[]
           url?: string
           output_category?: string
+          cards?: unknown[]
           metadata?: { workflow?: string }
         }
         // Handle both nested (data.type) and flat (type) structures
@@ -517,7 +522,12 @@ export const createDeepResearchClient = (options: DeepResearchStreamOptions): De
             break
           }
           case 'output':
-            callbacks.onOutputUpdate?.(artifactData.content as string, artifactData.output_category, artifactWorkflow)
+            callbacks.onOutputUpdate?.(
+              artifactData.content as string,
+              artifactData.output_category,
+              artifactWorkflow,
+              artifactData.cards
+            )
             break
           default:
             if (process.env.NODE_ENV === 'development') {
@@ -785,6 +795,7 @@ export interface JobStateResponse {
       type: string
       content: string
       output_category?: string
+      cards?: unknown[]
       timestamp?: string
     }>
   } | null

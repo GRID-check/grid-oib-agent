@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * FileCard Component
  *
@@ -14,8 +11,8 @@
 'use client'
 
 import { type FC, useState } from 'react'
-import { Flex, Text, Button } from '@/adapters/ui'
-import { Document, ChevronDown } from '@/adapters/ui/icons'
+import { ChevronDown, FileText } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
 
 /** File artifact information from SSE events */
@@ -73,99 +70,84 @@ export const FileCard: FC<FileCardProps> = ({ file }) => {
   const shouldRenderMarkdown = isMarkdownFile(file.filename)
 
   return (
-    <Flex
-      direction="col"
-      className="rounded-lg border overflow-hidden bg-surface-sunken border-base"
-    >
+    <div className="flex flex-col overflow-hidden rounded-lg border bg-muted/40">
       {/* Header - always visible */}
-      <Button
-        kind="tertiary"
-        size="small"
+      <button
+        type="button"
         onClick={() => setIsExpanded(!isExpanded)}
         aria-expanded={isExpanded}
         aria-controls={`file-content-${file.id}`}
-        className="w-full justify-start text-left p-0"
+        className="w-full text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/60"
       >
-        <Flex align="center" gap="2" className="w-full px-3 py-2">
+        <div className="flex w-full items-center gap-2 px-3 py-2">
           {/* File Icon */}
-          <span
-            className="shrink-0"
-            style={{ color: 'var(--text-color-subtle)' }}
-            aria-hidden="true"
-          >
-            <Document className="h-4 w-4" />
+          <span className="shrink-0 text-muted-foreground" aria-hidden="true">
+            <FileText className="h-4 w-4" />
           </span>
 
           {/* File Info */}
-          <Flex direction="col" gap="0" className="flex-1 min-w-0">
-            <Text kind="label/semibold/sm" className="text-default truncate">
-              {file.filename}
-            </Text>
-          </Flex>
+          <div className="flex min-w-0 flex-1 flex-col">
+            <span className="truncate text-sm font-semibold">{file.filename}</span>
+          </div>
 
           {/* Line count */}
           {file.content && (
-            <Text kind="body/regular/xs" className="text-subtle shrink-0">
+            <span className="shrink-0 text-xs text-muted-foreground">
               {file.content.split('\n').length} lines
-            </Text>
+            </span>
           )}
 
           {/* Timestamp */}
           {file.timestamp && (
-            <Text kind="body/regular/xs" className="text-subtle shrink-0">
+            <span className="shrink-0 text-xs text-muted-foreground">
               {formatTime(file.timestamp)}
-            </Text>
+            </span>
           )}
 
           {/* Expand/collapse icon */}
           <span
-            className={`
-              text-subtle transition-transform duration-200
-              ${isExpanded ? 'rotate-180' : ''}
-            `}
+            className={cn(
+              'text-muted-foreground transition-transform duration-200 motion-reduce:transition-none',
+              isExpanded && 'rotate-180'
+            )}
             aria-hidden="true"
           >
             <ChevronDown className="h-4 w-4" />
           </span>
-        </Flex>
-      </Button>
+        </div>
+      </button>
 
       {/* Collapsed preview */}
       {!isExpanded && contentPreview && (
-        <Flex className="px-3 pb-2 border-t border-base">
-          <Text kind="body/regular/sm" className="text-subtle truncate mt-1 font-mono">
+        <div className="flex border-t px-3 pb-2">
+          <span className="mt-1 truncate font-mono text-sm text-muted-foreground">
             {contentPreview}
-          </Text>
-        </Flex>
+          </span>
+        </div>
       )}
 
       {/* Expanded content */}
       {isExpanded && (
-        <Flex
-          id={`file-content-${file.id}`}
-          direction="col"
-          gap="3"
-          className="px-3 pb-3 border-t border-base"
-        >
+        <div id={`file-content-${file.id}`} className="flex flex-col gap-3 border-t px-3 pb-3">
           {/* File Content */}
           {file.content && (
-            <Flex direction="col" gap="1" className="mt-2">
-              <Text kind="label/semibold/xs" className="text-subtle uppercase">
+            <div className="mt-2 flex flex-col gap-1">
+              <span className="text-xs font-semibold uppercase text-muted-foreground">
                 Content
-              </Text>
+              </span>
               {shouldRenderMarkdown ? (
-                <div className="bg-surface-raised text-primary p-2 rounded overflow-auto max-h-96">
+                <div className="max-h-96 overflow-auto rounded bg-muted p-2">
                   <MarkdownRenderer content={file.content} compact />
                 </div>
               ) : (
-                <pre className="text-xs font-mono bg-surface-raised text-primary p-2 rounded overflow-auto whitespace-pre-wrap max-h-96">
+                <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded bg-muted p-2 font-mono text-xs">
                   {file.content}
                 </pre>
               )}
-            </Flex>
+            </div>
           )}
-        </Flex>
+        </div>
       )}
-    </Flex>
+    </div>
   )
 }

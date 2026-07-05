@@ -1,0 +1,124 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Project profile summary generation endpoint.
+
+Calls an OpenAI-compatible chat completions endpoint to produce a concise
+one-sentence project summary from the structured profile prompt view text
+sent by the UI's ``/api/projects/[id]/generate-summary`` BFF route.
+"""
+
+import logging
+import os
+
+import httpx
+from fastapi import APIRouter
+
+from ..models.requests import GenerateSummaryRequest
+from ..models.requests import GenerateSummaryResponse
+
+logger = logging.getLogger(__name__)
+
+SYSTEM_PROMPT = (
+    "You are a project summarizer for an architectural design platform. "
+    "Given the following structured project profile data, generate ONE concise "
+    "sentence that describes the project. Focus on the main purpose, key "
+    "characteristics, and primary goals. Write in a professional, natural tone. "
+    "Do not use bullet points, lists, or markdown. Output only the summary sentence."
+)
+
+
+def _llm_settings() -> tuple[str, str, str]:
+    """Resolve the model/api_key/base_url for the summary LLM call.
+
+    ``SUMMARY_LLM_*`` env vars take precedence, then generic ``LLM_*`` vars.
+    Neither is set in the standard deployment, so the final fallback matches
+    the OpenRouter setup used by ``config_oib_openrouter.yml`` — without it
+    every summary silently degrades to "".
+    """
+    openrouter_key = os.getenv("OPENROUTER_API_KEY", "")
+    default_model = "deepseek/deepseek-v4-flash" if openrouter_key else "gpt-4o-mini"
+    default_base = "https://openrouter.ai/api/v1" if openrouter_key else "https://api.openai.com/v1"
+
+    model = os.getenv("SUMMARY_LLM_MODEL", os.getenv("LLM_MODEL", default_model))
+    api_key = os.getenv("SUMMARY_LLM_API_KEY", os.getenv("LLM_API_KEY", openrouter_key))
+    base_url = os.getenv("SUMMARY_LLM_BASE_URL", os.getenv("LLM_BASE_URL", default_base))
+    if not api_key:
+        logger.warning("No API key for summary LLM (SUMMARY_LLM_API_KEY / LLM_API_KEY / OPENROUTER_API_KEY)")
+    return model, api_key, base_url.rstrip("/")
+
+
+def add_generate_summary_routes(router: APIRouter) -> None:
+    """Register the generate-summary endpoint."""
+
+    @router.post(
+        "/v1/generate-summary",
+        response_model=GenerateSummaryResponse,
+        tags=["projects"],
+        summary="Generate an AI project summary from profile data",
+        description=(
+            "Calls an LLM to produce a concise one-sentence project summary "
+            "from the structured profile prompt view text."
+        ),
+    )
+    async def generate_summary(request: GenerateSummaryRequest) -> GenerateSummaryResponse:
+        profile_text = request.profile_text.strip()
+        if not profile_text:
+            return GenerateSummaryResponse(summary="")
+
+        model, api_key, base_url = _llm_settings()
+        if not api_key:
+            # No credentials resolved — do not send a request that is guaranteed
+            # to fail (401/403). Surface a diagnosable code instead.
+            return GenerateSummaryResponse(summary="", error="llm_not_configured")
+
+        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
+
+        payload = {
+            "model": model,
+            "temperature": 0.3,
+            "max_tokens": 150,
+            "messages": [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": profile_text},
+            ],
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(f"{base_url}/chat/completions", json=payload, headers=headers)
+                response.raise_for_status()
+                data = response.json()
+        except httpx.HTTPStatusError as exc:
+            logger.warning(
+                "Summary LLM returned an error status: %s (%s)",
+                exc.response.status_code if exc.response is not None else "unknown",
+                type(exc).__name__,
+            )
+            return GenerateSummaryResponse(summary="", error="llm_request_failed")
+        except httpx.RequestError as exc:
+            logger.warning("Summary LLM request failed: %s", type(exc).__name__)
+            return GenerateSummaryResponse(summary="", error="llm_request_failed")
+        except Exception:
+            logger.exception("Unexpected error calling summary LLM")
+            return GenerateSummaryResponse(summary="", error="llm_request_failed")
+
+        try:
+            summary = data["choices"][0]["message"]["content"].strip()
+        except (KeyError, IndexError, AttributeError):
+            logger.warning("Summary LLM response had an unexpected shape")
+            return GenerateSummaryResponse(summary="", error="llm_response_malformed")
+
+        return GenerateSummaryResponse(summary=summary)

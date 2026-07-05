@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * Gateway Server with WebSocket Proxy
  *
@@ -115,7 +112,7 @@ const normalizeQueryParam = (value) => {
 }
 
 const fetchCollectionScopeHeader = (req, projectId, conversationId) => {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const query = new URLSearchParams()
     if (projectId) query.set('projectId', projectId)
     if (conversationId) query.set('conversationId', conversationId)
@@ -151,6 +148,11 @@ const fetchCollectionScopeHeader = (req, projectId, conversationId) => {
         })
       }
     )
+
+    request.setTimeout(5000, () => {
+      request.destroy()
+      reject(new Error('Collection scope request timed out'))
+    })
 
     request.on('error', (err) => {
       console.warn('[WS Proxy] Collection scope request failed:', err.message)
@@ -228,6 +230,30 @@ const startServer = async () => {
           if (result.data?.accessToken) {
             req.headers['authorization'] = `Bearer ${result.data.accessToken}`
           }
+          // CRITICAL: projectContext and projectMemory are MULTI-LINE text.
+          // Node rejects '\n' in header values (ERR_INVALID_CHAR) and the
+          // throw would kill the upgrade (and, uncaught, the process). They
+          // are therefore base64url-encoded here and decoded by the Python
+          // backend (project_context.py) — same scheme as the collection
+          // scope header.
+          if (result.data?.projectContext) {
+            req.headers['x-grid-project-context'] = Buffer.from(
+              result.data.projectContext,
+              'utf8'
+            ).toString('base64url')
+          }
+          // Project id + core memory digest for the agent. The id lets backend
+          // tools (e.g. `remember`) write project-scoped rows; the digest is
+          // merged into the injected agent context alongside project context.
+          if (result.data?.projectId) {
+            req.headers['x-grid-project-id'] = result.data.projectId
+          }
+          if (result.data?.projectMemory) {
+            req.headers['x-grid-project-memory'] = Buffer.from(
+              result.data.projectMemory,
+              'utf8'
+            ).toString('base64url')
+          }
         } else if (result.status === 401 || result.status === 403) {
           const statusText = result.status === 401 ? 'Unauthorized' : 'Forbidden'
           try {
@@ -238,23 +264,39 @@ const startServer = async () => {
         }
       } catch (err) {
         console.warn('[WS Proxy] Collection scope lookup failed:', err.message)
+        try {
+          socket.write('HTTP/1.1 500 Internal Server Error\r\n\r\n')
+        } catch {}
+        socket.destroy()
+        return
       }
 
-      backendProxy.ws(
-        req,
-        socket,
-        head,
-        { target: BACKEND_WS_URL, changeOrigin: true },
-        (err) => {
-          if (err) {
-            console.error('[WS Proxy] Error:', err.message)
-            try {
-              socket.write('HTTP/1.1 502 Bad Gateway\r\n\r\n')
-            } catch {}
-            socket.destroy()
+      // Guard the proxy call itself: http-proxy can throw SYNCHRONOUSLY from
+      // ws() (e.g. an invalid header value) and an uncaught throw in the
+      // 'upgrade' listener crashes the whole gateway process.
+      try {
+        backendProxy.ws(
+          req,
+          socket,
+          head,
+          { target: BACKEND_WS_URL, changeOrigin: true },
+          (err) => {
+            if (err) {
+              console.error('[WS Proxy] Error:', err.message)
+              try {
+                socket.write('HTTP/1.1 502 Bad Gateway\r\n\r\n')
+              } catch {}
+              socket.destroy()
+            }
           }
-        }
-      )
+        )
+      } catch (err) {
+        console.error('[WS Proxy] Upgrade failed synchronously:', err.message)
+        try {
+          socket.write('HTTP/1.1 502 Bad Gateway\r\n\r\n')
+        } catch {}
+        socket.destroy()
+      }
       return
     }
 

@@ -161,3 +161,12 @@ The following documents are available via knowledge_search:
 {% for doc in available_documents %}- **{{ doc.file_name }}**: {{ doc.summary or "No summary available" }}
 {% endfor %}
 {% endif %}
+
+{% if project_context %}
+## Project Context
+<project_context>
+{{ project_context }}
+</project_context>
+
+Use confirmed project context when interpreting the user's request. Treat unknowns as missing information, not assumptions. Do not invent missing project facts.
+{% endif %}

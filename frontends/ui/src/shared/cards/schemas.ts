@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2026, Grid Agent Contributors. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 // The Grid card schema is generated from the canonical Pydantic models. This
 // module re-exports the generated Zod schemas under the stable public API and
 // derives the TypeScript types consumed across the app. To change the schema,
@@ -9,13 +6,14 @@
 // `npm run generate:cards`.
 
 import { z } from 'zod'
-import { gridCardSchema, legalBasisCardSchema, summaryCardSchema } from './generated'
+import { gridCardSchema, legalBasisCardSchema, summaryCardSchema, projectProfilePatchCardSchema } from './generated'
 
-export { gridCardSchema, legalBasisCardSchema, summaryCardSchema }
+export { gridCardSchema, legalBasisCardSchema, summaryCardSchema, projectProfilePatchCardSchema }
 
 export type GridCard = z.infer<typeof gridCardSchema>
 export type SummaryCardData = z.infer<typeof summaryCardSchema>
 export type LegalBasisCardData = z.infer<typeof legalBasisCardSchema>
+export type ProjectProfilePatchCardData = z.infer<typeof projectProfilePatchCardSchema>
 
 export function validateGridCards(raw: unknown): GridCard[] {
   if (!Array.isArray(raw)) return []

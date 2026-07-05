@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * API Configuration
  *
@@ -12,8 +9,6 @@ interface ApiConfig {
   baseUrl: string
   chatStreamUrl: string
   generateStreamUrl: string
-  chatApiRoute: string
-  generateApiRoute: string
   websocketUrl: string
   healthUrl: string
   timeout: number
@@ -48,8 +43,6 @@ export const apiConfig: ApiConfig = {
   baseUrl: getBaseUrl(),
   chatStreamUrl: `${getBaseUrl()}/chat/stream`,
   generateStreamUrl: `${getBaseUrl()}/generate/stream`,
-  chatApiRoute: '/api/chat',
-  generateApiRoute: '/api/generate',
   websocketUrl: `${getBaseUrl().replace(/^http/, 'ws')}/websocket`,
   healthUrl: `${getBaseUrl()}/health`,
   timeout: 30000,

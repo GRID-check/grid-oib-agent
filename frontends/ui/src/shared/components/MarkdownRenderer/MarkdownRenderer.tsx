@@ -1,12 +1,9 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 'use client'
 
 import { type FC, type ReactNode, memo, useMemo } from 'react'
 import ReactMarkdown, { type Components, type ExtraProps } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Text, CodeSnippet, Anchor } from '@/adapters/ui'
+import { CodeBlock } from '@/shared/components/CodeBlock'
 import type { MarkdownRendererProps } from './types'
 import { getLanguageFromClassName } from './utils'
 
@@ -30,7 +27,7 @@ function slugify(text: string): string {
 }
 
 /**
- * MarkdownRenderer - Renders markdown content with KUI styling
+ * MarkdownRenderer - Renders markdown content with shadcn-idiomatic styling
  *
  * @param content - Markdown string to render
  * @param isStreaming - Whether content is still streaming (disables memoization)
@@ -56,12 +53,11 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
             const lineCount = codeContent.split('\n').length
 
             return (
-              <CodeSnippet
+              <CodeBlock
                 value={codeContent}
                 language={language}
-                kind="block"
                 collapsible={lineCount > 15}
-                rows={15}
+                maxLines={15}
               />
             )
           }
@@ -69,7 +65,7 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
           // Inline code
           return (
             <code
-              className="bg-surface-raised text-primary rounded px-1.5 py-0.5 font-mono text-sm"
+              className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[0.875em] text-foreground"
               {...props}
             >
               {children}
@@ -77,100 +73,100 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
           )
         },
 
-        // Skip default pre rendering since CodeSnippet handles it
+        // Skip default pre rendering since CodeBlock handles it
         pre: ({ children }) => <>{children}</>,
 
         // Headings — include id for in-page anchor navigation
         h1: ({ children }) => {
           const id = slugify(getTextFromChildren(children))
           return (
-            <Text asChild kind="title/xl" className="text-primary mb-3 mt-6 block scroll-mt-4">
-              <h1 id={id}>{children}</h1>
-            </Text>
+            <h1 id={id} className="mb-3 mt-6 block scroll-mt-4 text-2xl font-semibold tracking-tight text-foreground">
+              {children}
+            </h1>
           )
         },
         h2: ({ children }) => {
           const id = slugify(getTextFromChildren(children))
           return (
-            <Text asChild kind="title/lg" className="text-primary mb-2 mt-5 block scroll-mt-4">
-              <h2 id={id}>{children}</h2>
-            </Text>
+            <h2 id={id} className="mb-2 mt-5 block scroll-mt-4 text-xl font-semibold tracking-tight text-foreground">
+              {children}
+            </h2>
           )
         },
         h3: ({ children }) => {
           const id = slugify(getTextFromChildren(children))
           return (
-            <Text asChild kind="title/md" className="text-primary mb-2 mt-4 block scroll-mt-4">
-              <h3 id={id}>{children}</h3>
-            </Text>
+            <h3 id={id} className="mb-2 mt-4 block scroll-mt-4 text-base font-semibold tracking-tight text-foreground">
+              {children}
+            </h3>
           )
         },
         h4: ({ children }) => {
           const id = slugify(getTextFromChildren(children))
           return (
-            <Text asChild kind="title/sm" className="text-primary mb-1 mt-3 block scroll-mt-4">
-              <h4 id={id}>{children}</h4>
-            </Text>
+            <h4 id={id} className="mb-1 mt-3 block scroll-mt-4 text-sm font-semibold text-foreground">
+              {children}
+            </h4>
           )
         },
 
         // Paragraphs
         p: ({ children }) => (
-          <Text
-            asChild
-            kind={compact ? 'body/regular/sm' : 'body/regular/md'}
-            className="text-primary mb-3 block leading-relaxed"
-          >
-            <p>{children}</p>
-          </Text>
+          <p className={`mb-3 block leading-relaxed text-foreground ${compact ? 'text-sm' : 'text-base'}`}>
+            {children}
+          </p>
         ),
 
         // Lists
         ul: ({ children }) => (
-          <ul className="text-primary mb-3 list-outside list-disc space-y-1 pl-5">{children}</ul>
+          <ul className="mb-3 list-outside list-disc space-y-1 pl-5 text-foreground">{children}</ul>
         ),
         ol: ({ children }) => (
-          <ol className="text-primary mb-3 list-outside list-decimal space-y-1 pl-5">{children}</ol>
+          <ol className="mb-3 list-outside list-decimal space-y-1 pl-5 text-foreground">{children}</ol>
         ),
         li: ({ children }) => (
-          <Text asChild kind={compact ? 'body/regular/sm' : 'body/regular/md'}>
-            <li className="text-primary">{children}</li>
-          </Text>
+          <li className={`text-foreground ${compact ? 'text-sm' : 'text-base'}`}>{children}</li>
         ),
 
         // Links — anchor hrefs scroll in-page; external hrefs open new tabs
         a: ({ href, children }) => {
           if (href?.startsWith('#')) {
             return (
-              <Anchor
+              <a
                 href={href}
-                kind="inline"
+                className="text-brand underline underline-offset-2 hover:opacity-80"
                 onClick={(e: React.MouseEvent) => {
                   e.preventDefault()
                   const el = document.getElementById(href.slice(1))
-                  el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                  const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+                  el?.scrollIntoView({ behavior: prefersReducedMotion ? 'auto' : 'smooth', block: 'start' })
                 }}
               >
                 {children}
-              </Anchor>
+              </a>
             )
           }
           return (
-            <Anchor href={href ?? '#'} target="_blank" rel="noopener noreferrer" kind="inline">
+            <a
+              href={href ?? '#'}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-brand underline underline-offset-2 hover:opacity-80"
+            >
               {children}
-            </Anchor>
+            </a>
           )
         },
 
         // Emphasis
         strong: ({ children }) => (
-          <strong className="text-primary font-semibold">{children}</strong>
+          <strong className="font-semibold text-foreground">{children}</strong>
         ),
-        em: ({ children }) => <em className="text-primary italic">{children}</em>,
+        em: ({ children }) => <em className="italic text-foreground">{children}</em>,
 
         // Blockquotes
         blockquote: ({ children }) => (
-          <blockquote className="border-info text-subtle my-3 border-l-4 pl-4 italic">
+          <blockquote className="border-base text-subtle my-3 border-l-2 pl-4 italic leading-relaxed">
             {children}
           </blockquote>
         ),
@@ -180,22 +176,18 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
 
         // Tables (GFM)
         table: ({ children }) => (
-          <div className="my-4 overflow-x-auto">
-            <table className="border-base min-w-full rounded border">{children}</table>
+          <div className="border-base my-4 overflow-x-auto rounded-xl border">
+            <table className="min-w-full">{children}</table>
           </div>
         ),
-        thead: ({ children }) => <thead className="bg-surface-raised">{children}</thead>,
+        thead: ({ children }) => <thead className="bg-muted/50">{children}</thead>,
         tbody: ({ children }) => <tbody>{children}</tbody>,
-        tr: ({ children }) => <tr className="border-base border-b">{children}</tr>,
+        tr: ({ children }) => <tr className="border-base border-b last:border-b-0">{children}</tr>,
         th: ({ children }) => (
-          <Text asChild kind="label/semibold/sm">
-            <th className="text-primary px-3 py-2 text-left">{children}</th>
-          </Text>
+          <th className="px-3 py-2 text-left text-sm font-semibold text-foreground">{children}</th>
         ),
         td: ({ children }) => (
-          <Text asChild kind="body/regular/sm">
-            <td className="text-primary px-3 py-2">{children}</td>
-          </Text>
+          <td className="px-3 py-2 text-sm text-foreground">{children}</td>
         ),
       }),
       [compact]

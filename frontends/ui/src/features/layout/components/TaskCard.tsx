@@ -1,12 +1,9 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * TaskCard Component
  *
  * Row-like card displaying a single task/todo item with:
- * - KUI Checkbox (checked when complete, not clickable)
- * - Task name in label/semibold/md text
+ * - Checkbox (checked when complete, not clickable)
+ * - Task name
  * - Status badge with color based on status
  *
  * SSE Events: artifact.update with type: "todo"
@@ -15,8 +12,11 @@
 'use client'
 
 import { type FC } from 'react'
-import { Flex, Text, Checkbox, Badge } from '@/adapters/ui'
-import { LoadingSpinner } from '@/adapters/ui/icons'
+import { Badge } from '@/components/ui/badge'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Spinner } from '@/components/ui/spinner'
+import { cn } from '@/lib/utils'
+import { motion, fadeRise, springGentle } from '@/components/motion'
 import type { DeepResearchTodo, DeepResearchTodoStatus } from '@/features/chat/types'
 
 interface TaskCardProps {
@@ -25,24 +25,24 @@ interface TaskCardProps {
 }
 
 /**
- * Get badge color based on task status
- * - green: completed
- * - teal: in_progress
- * - yellow: pending
- * - red: stopped (error state)
+ * Get badge classes based on task status
+ * - success (green): completed
+ * - info (blue): in_progress
+ * - warning (amber): pending
+ * - danger (red): stopped (error state)
  */
-const getBadgeColor = (status: DeepResearchTodoStatus): 'green' | 'teal' | 'yellow' | 'red' => {
+const getBadgeClasses = (status: DeepResearchTodoStatus): string => {
   switch (status) {
     case 'completed':
-      return 'green'
+      return 'border-success text-success'
     case 'in_progress':
-      return 'teal'
+      return 'border-info text-info'
     case 'pending':
-      return 'yellow'
+      return 'border-warning text-warning'
     case 'stopped':
-      return 'red'
+      return 'border-error text-error'
     default:
-      return 'yellow'
+      return 'border-warning text-warning'
   }
 }
 
@@ -69,42 +69,36 @@ const getStatusText = (status: DeepResearchTodoStatus): string => {
  */
 export const TaskCard: FC<TaskCardProps> = ({ todo }) => {
   const isComplete = todo.status === 'completed'
-  const badgeColor = getBadgeColor(todo.status)
   const statusText = getStatusText(todo.status)
 
   return (
-    <Flex
-      align="center"
-      gap="3"
-      className={`
-        p-3 rounded-lg border border-base
-        ${isComplete ? 'opacity-70' : ''}
-      `}
-    >
-      {/* Checkbox - checked when complete, always disabled (read-only) */}
-      <Checkbox
-        checked={isComplete}
-        disabled
-        aria-label={`Task: ${todo.content}`}
-      />
-
-      {/* Task Name */}
-      <Text
-        kind="label/semibold/md"
-        className={`flex-1 min-w-0 ${isComplete ? 'line-through text-subtle' : 'text-primary'}`}
+    // Outer motion wrapper handles the mount fade-rise; inner div keeps the
+    // `opacity-70` completed-state class (motion owns inline opacity on its own node)
+    <motion.div variants={fadeRise} initial="hidden" animate="visible" transition={springGentle}>
+      <div
+        className={cn('flex items-center gap-3 rounded-lg border p-3', isComplete && 'opacity-70')}
       >
-        {todo.content}
-      </Text>
+        {/* Checkbox - checked when complete, always disabled (read-only) */}
+        <Checkbox checked={isComplete} disabled aria-label={`Task: ${todo.content}`} />
 
-      {/* Status Badge - with spinner for in_progress */}
-      <Badge color={badgeColor}>
-        <Flex align="center" gap="1">
+        {/* Task Name */}
+        <span
+          className={cn(
+            'min-w-0 flex-1 text-sm font-semibold',
+            isComplete && 'text-muted-foreground line-through'
+          )}
+        >
+          {todo.content}
+        </span>
+
+        {/* Status Badge - with spinner for in_progress */}
+        <Badge variant="outline" className={cn('gap-1', getBadgeClasses(todo.status))}>
           {todo.status === 'in_progress' && (
-            <LoadingSpinner size="small" className="h-3 w-3" aria-label="In progress" />
+            <Spinner size="sm" label="In progress" className="[&_svg]:size-3" />
           )}
           {statusText}
-        </Flex>
-      </Badge>
-    </Flex>
+        </Badge>
+      </div>
+    </motion.div>
   )
 }

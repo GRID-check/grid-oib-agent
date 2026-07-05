@@ -131,6 +131,14 @@ class TestGetCollectionScopeFromContext:
             result = get_collection_scope_from_context()
             assert result == ["oib_knowledge", "proj_x", "s_conv1"]
 
+    def test_double_prefixed_session_collection_is_normalized(self):
+        scope = ["oib_knowledge", "proj_x", "s_s_conv1"]
+        encoded = base64.urlsafe_b64encode(json.dumps(scope).encode()).decode()
+        ctx = _MockContext(encoded)
+        with patch("aiq_agent.knowledge.scoping.Context.get", return_value=ctx):
+            result = get_collection_scope_from_context()
+            assert result == ["oib_knowledge", "proj_x", "s_conv1"]
+
     def test_empty_list(self):
         encoded = base64.urlsafe_b64encode(json.dumps([]).encode()).decode()
         ctx = _MockContext(encoded)

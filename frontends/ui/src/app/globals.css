@@ -1,89 +1,60 @@
-@import 'tailwindcss/theme.css';
-@import 'tailwindcss/preflight.css';
-@import 'tailwindcss/utilities.css';
+/* Layer the Tailwind sub-imports exactly like `@import "tailwindcss"` does.
+   Without `layer(...)` these rules are UNLAYERED and beat every `@layer` rule,
+   so preflight's `border: 0 solid` (currentColor) would override our base
+   border-color and render black borders. */
+@layer theme, base, components, utilities;
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/preflight.css' layer(base);
+@import 'tailwindcss/utilities.css' layer(utilities);
 
-/* KUI Foundations 0.600 — extracted from @kui/foundations-tailwind-plugin.
-   Generated once, frozen as static CSS. No build-time plugin dependency.
-   Contains: component styles, theme tokens, dark mode, density, animations. */
-@import '../styles/kui-generated.css';
+/* GRID design tokens — shadcn vars + legacy semantic vars (see tokens.css). */
+@import '../styles/tokens.css';
+@import 'tw-animate-css';
+
+/* Bind the `dark:` variant to the theme mechanism: providers.tsx toggles the
+   `.dark` class on the root element; light is the default (no class). */
+@custom-variant dark (&:is(.dark *));
+
+/* Tailwind v4's preflight defaults border color to currentColor (near-black text
+   color) instead of v3's gray. Restore the theme hairline as the app-wide default
+   so `border`/`divide-*` without an explicit color never render black. */
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--border);
+  }
+}
 
 /* Layout variables */
 :root {
   --header-height: 3.5rem;
 }
 
-/*
- * KUI sets on .nv-side-panel-content:
- *   --heading-padding-block: spacing-density-xl + spacing*3  (~28px per block side)
- * and .nv-side-panel-heading uses padding-block: var(--heading-padding-block),
- * which makes the title row ~77px. Override the token on docked panels so padding
- * matches the main header height. The bordered heading has a 1px bottom border;
- * spacing*6 matches KUI’s default heading icon size used in the row height math.
- * .nv-side-panel-close uses the same token for vertical position (inherits).
- */
-.nv-side-panel-content.side-panel-dock-under-header {
-  --heading-padding-block: calc(
-    (var(--header-height) - 1px - calc(var(--spacing) * 6)) / 2
-  );
-}
-
-.nv-side-panel-content.side-panel-dock-under-header .nv-side-panel-heading {
-  box-sizing: border-box;
-  min-height: var(--header-height);
-}
-
-/* Bordered panels add border-top on .nv-side-panel-footer; remove for docked app panels. */
-.nv-side-panel-content.side-panel-dock-under-header.nv-side-panel-content--bordered
-  .nv-side-panel-footer {
-  border-top-width: 0;
-  border-top-style: none;
-}
-
-/* =============================================================================
-   Grid brand color theme (unlayered — highest cascade priority)
-
-   Overrides KUI Foundations theme tokens with a clean blue accent that matches
-   the Grid product identity. These unlayered declarations guarantee the brand
-   color resolves correctly for buttons, toggles, spinners, and borders.
-   ============================================================================= */
-
-:root {
-  --color-brand: #2563eb;
-  --color-brand-hover: #1d4ed8;
-  --color-brand-active: #1e40af;
-}
-
-/* Light theme brand tokens */
-:where(:root, .nv-light) {
-  --background-color-interaction-primary-base: var(--color-brand);
-  --background-color-interaction-primary-hover: var(--color-brand-hover);
-  --background-color-interaction-primary-selected: var(--color-brand-active);
-  --border-color-interaction-primary-base: var(--color-brand);
-  --text-color-brand: var(--color-brand);
-  --border-color-brand: var(--color-brand);
-}
-
-/* Dark theme brand tokens */
-.nv-dark {
-  --background-color-interaction-primary-base: var(--color-brand);
-  --background-color-interaction-primary-hover: var(--color-brand-hover);
-  --background-color-interaction-primary-selected: var(--color-brand-active);
-  --border-color-interaction-primary-base: var(--color-brand);
-  --text-color-brand: var(--color-brand);
-  --border-color-brand: var(--color-brand);
-}
-
 /* Custom global styles */
 html,
 body {
   height: 100%;
-  min-width: 768px;
   margin: 0;
   padding: 0;
 }
 
+body {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
 #__next {
   height: 100%;
+}
+
+/* Quiet, brand-tinted text selection */
+::selection {
+  background-color: color-mix(in oklch, var(--primary) 22%, transparent);
 }
 
 /* Smooth scrolling — only when user has no motion preference */
@@ -93,48 +64,26 @@ body {
   }
 }
 
-/* =============================================================================
-   Reduced-motion fallbacks for KUI SidePanel, overlay, and collapsibles.
-
-   KUI's slide animations are gated behind @media (prefers-reduced-motion:
-   no-preference) in kui-generated.css and rely on animation-fill-mode: both
-   to persist the final transform. When animations are disabled (reduce), no
-   fill-mode applies and force-mounted panels stay visible at transform: none.
-   These rules provide the correct end-state transforms directly.
-   ============================================================================= */
+/* Reduced motion: framer-motion is handled globally via <MotionConfig
+   reducedMotion="user"> in providers.tsx; this covers the rest — CSS
+   transitions and tw-animate-css entrance animations collapse to an instant
+   state change instead of moving. */
 @media (prefers-reduced-motion: reduce) {
-  .nv-side-panel-content.nv-side-panel-content--side-left {
-    transform: translate(-100%);
-  }
-  .nv-side-panel-content.nv-side-panel-content--side-left[data-state="open"] {
-    transform: translate(0);
-  }
-
-  .nv-side-panel-content.nv-side-panel-content--side-right {
-    transform: translate(100%);
-  }
-  .nv-side-panel-content.nv-side-panel-content--side-right[data-state="open"] {
-    transform: translate(0);
-  }
-
-  .nv-side-panel-overlay {
-    opacity: 0;
-    pointer-events: none;
-  }
-  .nv-side-panel-overlay[data-state="open"] {
-    opacity: 1;
-    pointer-events: auto;
-  }
-
-  .nv-collapsible-content[data-state="closed"] {
-    height: 0;
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }
 
-/* Focus visible styles for accessibility */
+/* Focus visible styles for accessibility — always a visible 2px ring,
+   offset so it never blends into the control's own edge */
 :focus-visible {
-  outline: 2px solid var(--border-color-interaction-selected);
+  outline: 2px solid var(--ring);
   outline-offset: 2px;
+  border-radius: inherit;
 }
 
 /* Hide scrollbar utility */
@@ -150,14 +99,6 @@ body {
    Theme-aware text color utilities
    Using KUI Foundations theme CSS variables for light/dark theme support
    ============================================================================= */
-
-@utility text-primary {
-  color: var(--text-color-primary);
-}
-
-@utility text-secondary {
-  color: var(--text-color-secondary);
-}
 
 @utility text-subtle {
   color: var(--text-color-subtle);
@@ -195,6 +136,14 @@ body {
   background-color: var(--background-color-interaction-base);
 }
 
+@utility bg-interaction-primary-hover {
+  background-color: var(--background-color-interaction-primary-hover);
+}
+
+@utility bg-interaction-primary-selected {
+  background-color: var(--background-color-interaction-primary-selected);
+}
+
 @utility bg-surface-base {
   background-color: var(--background-color-surface-base);
 }
@@ -205,6 +154,46 @@ body {
 
 @utility bg-surface-sunken {
   background-color: var(--background-color-surface-sunken);
+}
+
+@utility bg-success-subtle {
+  background-color: var(--background-color-feedback-success-subtle);
+}
+
+@utility bg-danger-subtle {
+  background-color: var(--background-color-feedback-danger-subtle);
+}
+
+@utility bg-warning-subtle {
+  background-color: var(--background-color-feedback-warning-subtle);
+}
+
+@utility bg-info-subtle {
+  background-color: var(--background-color-feedback-info-subtle);
+}
+
+@utility bg-success {
+  background-color: var(--text-color-feedback-success);
+}
+
+@utility bg-danger {
+  background-color: var(--text-color-feedback-danger);
+}
+
+@utility bg-warning {
+  background-color: var(--text-color-feedback-warning);
+}
+
+@utility bg-info {
+  background-color: var(--text-color-feedback-info);
+}
+
+@utility bg-input-background {
+  background-color: var(--input-background);
+}
+
+@utility bg-input-dark {
+  background-color: color-mix(in oklch, var(--input) 30%, transparent);
 }
 
 /* Opaque variant for chat bubbles - ensures full opacity to prevent bleed-through in light theme */
@@ -238,6 +227,10 @@ body {
   border-color: var(--border-color-base);
 }
 
+@utility border-l-subtle {
+  border-left-color: var(--border-color-base);
+}
+
 @utility border-error {
   border-color: var(--border-color-feedback-danger);
 }
@@ -250,12 +243,28 @@ body {
   border-left-color: var(--border-color-feedback-success);
 }
 
+@utility border-warning {
+  border-color: var(--border-color-feedback-warning);
+}
+
+@utility border-l-warning {
+  border-left-color: var(--border-color-feedback-warning);
+}
+
 @utility border-info {
   border-color: var(--border-color-feedback-info);
 }
 
-@utility border-warning {
-  border-color: var(--border-color-feedback-warning);
+@utility border-l-info {
+  border-left-color: var(--border-color-feedback-info);
+}
+
+@utility border-danger {
+  border-color: var(--border-color-feedback-danger);
+}
+
+@utility border-l-danger {
+  border-left-color: var(--border-color-feedback-danger);
 }
 
 @utility border-brand {
@@ -270,24 +279,48 @@ body {
   --tw-ring-color: var(--border-color-brand);
 }
 
-/* Constrain spinner SVG inside the research panel toggle tab */
+@utility tracking-display {
+  letter-spacing: -0.04em;
+}
+
+@utility tracking-label {
+  letter-spacing: 0.24em;
+}
+
+@utility scale-press {
+  transform: scale(0.98);
+}
 .research-panel-toggle .nv-spinner svg {
   width: 100%;
 }
 
-/* Global scrollbar styles */
+@utility min-h-dvh {
+  min-height: 100dvh;
+}
+
+@utility z-skip-link {
+  z-index: 100;
+}
+
+/* Global scrollbar styles — thin, trackless, alpha thumb (macOS-like) */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--background-color-accent-gray) transparent;
+}
+
 *::-webkit-scrollbar {
-  width: 8px;
-  background: var(--background-color-surface-overlay);
+  width: 6px;
+  height: 6px;
+  background: transparent;
 }
 
 *::-webkit-scrollbar-track {
-  background: var(--background-color-surface-overlay);
+  background: transparent;
 }
 
 *::-webkit-scrollbar-thumb {
   background-color: var(--background-color-accent-gray);
-  border-radius: 4px;
+  border-radius: 9999px;
 }
 
 *::-webkit-scrollbar-thumb:hover {

@@ -35,6 +35,30 @@ class DeleteFilesRequest(BaseModel):
     file_ids: list[str] = Field(..., description="List of file IDs to delete")
 
 
+class IngestRequest(BaseModel):
+    """Request body for URL-based ingestion."""
+
+    file_ref: str = Field(..., description="Presigned URL or file reference to download")
+    collection: str = Field(..., description="Target collection name")
+    document_id: str | None = Field(None, description="Optional document tracking ID")
+
+
+class GenerateSummaryRequest(BaseModel):
+    """Request body for AI project summary generation."""
+
+    profile_text: str = Field(..., description="Structured project profile prompt view text")
+
+
+class GenerateSummaryResponse(BaseModel):
+    """Response for AI project summary generation."""
+
+    summary: str = Field(..., description="One-sentence generated project summary (empty string on failure)")
+    error: str | None = Field(
+        default=None,
+        description="Failure code when summary generation could not complete (e.g. llm_not_configured, llm_request_failed, llm_response_malformed); None on success",
+    )
+
+
 class UploadResponse(BaseModel):
     """Response for document upload (async operation)."""
 

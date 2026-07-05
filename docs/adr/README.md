@@ -42,13 +42,21 @@ a new ADR. Small clarifications and typo fixes are fine.
 | ADR | Title | Status |
 |-----|-------|--------|
 | [0001](0001-use-architecture-decision-records.md) | Use Architecture Decision Records | Accepted |
-| [0002](0002-outsource-identity-to-workos.md) | Outsource identity to WorkOS | Proposed |
-| [0003](0003-nextjs-bff-and-stateless-python-agent.md) | Next.js BFF + stateless Python agent | Proposed |
-| [0004](0004-tenancy-ownership-and-access-model.md) | Tenancy, ownership & access model | Proposed |
-| [0005](0005-object-storage-for-documents-minio.md) | Object storage for documents (MinIO) | Proposed |
-| [0006](0006-knowledge-collection-scoping.md) | Knowledge collection scoping | Proposed |
-| [0007](0007-no-local-identity-sync.md) | No local identity sync | Proposed |
+| [0002](0002-outsource-identity-to-workos.md) | Outsource identity to WorkOS | Accepted |
+| [0003](0003-nextjs-bff-and-stateless-python-agent.md) | Next.js BFF + stateless Python agent | Accepted |
+| [0004](0004-tenancy-ownership-and-access-model.md) | Tenancy, ownership & access model | Accepted |
+| [0005](0005-object-storage-for-documents-minio.md) | Object storage for documents (MinIO) | Accepted |
+| [0006](0006-knowledge-collection-scoping.md) | Knowledge collection scoping | Accepted |
+| [0007](0007-no-local-identity-sync.md) | No local identity sync | Accepted |
+| [0008](0008-project-and-organization-memory.md) | Project & Organization Memory (single-writer) | Accepted |
+| [0009](0009-websocket-only-chat-transport.md) | WebSocket-only chat transport | Accepted |
+| [0010](0010-llm-agnostic-openai-compatible.md) | LLM-agnostic via OpenAI-compatible endpoints | Accepted |
+| [0011](0011-deletion-pipeline.md) | Deletion pipeline (soft-delete → purge, legal holds) | Accepted |
+| [0012](0012-cards-as-rich-ui-layer.md) | Cards as a general rich-UI presentation layer | Accepted |
+| [0013](0013-base64url-context-headers.md) | base64url-encoded context headers | Accepted |
 
 ## Related documents
 
-- Main design spec: [`../architecture/multitenancy-and-auth-spec.md`](../architecture/multitenancy-and-auth-spec.md)
+- System overview (source of truth): [`../architecture/system-overview.md`](../architecture/system-overview.md)
+- Backend deep-dive: [`../architecture/backend-deep-dive.md`](../architecture/backend-deep-dive.md)
+- Multi-tenancy & auth: [`../architecture/multitenancy-and-auth-spec.md`](../architecture/multitenancy-and-auth-spec.md)

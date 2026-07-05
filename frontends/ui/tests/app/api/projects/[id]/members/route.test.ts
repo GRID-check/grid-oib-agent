@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/lib/auth/require-auth', () => ({
@@ -54,6 +51,13 @@ describe('/api/projects/[id]/members', () => {
         { id: 'user_admin', email: 'admin@example.com', firstName: 'Admin', lastName: 'Person', name: null },
       ],
     })
+    const listOrganizationMemberships = vi.fn().mockResolvedValue({
+      data: [
+        { id: 'om_viewer', userId: 'user_viewer' },
+        { id: 'om_editor', userId: 'user_editor' },
+        { id: 'om_admin', userId: 'user_admin' },
+      ],
+    })
     const listMembershipsForResourceByExternalId = vi
       .fn()
       .mockResolvedValueOnce({
@@ -74,7 +78,7 @@ describe('/api/projects/[id]/members', () => {
       })
 
     mockGetWorkOS.mockReturnValue({
-      userManagement: { listUsers },
+      userManagement: { listUsers, listOrganizationMemberships },
       authorization: { listMembershipsForResourceByExternalId },
     } as never)
 
@@ -83,6 +87,7 @@ describe('/api/projects/[id]/members', () => {
     expect(res.status).toBe(200)
     expect(mockRequireProjectAccess).toHaveBeenCalledWith(session, 'proj_1', 'project:manage')
     expect(listUsers).toHaveBeenCalledWith({ organizationId: 'org_1' })
+    expect(listOrganizationMemberships).toHaveBeenCalledWith({ organizationId: 'org_1' })
     expect(listMembershipsForResourceByExternalId).toHaveBeenNthCalledWith(1, {
       organizationId: 'org_1',
       resourceTypeSlug: 'project',

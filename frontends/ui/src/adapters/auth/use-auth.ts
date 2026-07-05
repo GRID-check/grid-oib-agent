@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * Client-side authentication hook powered by WorkOS AuthKit v4.
  *
@@ -54,7 +51,7 @@ export const useAuth = (): AuthContext => {
 
   const handleSignIn = useCallback(async (): Promise<void> => {
     if (!authRequired) return
-    await getAuth()
+    await getAuth({ ensureSignedIn: true })
   }, [authRequired, getAuth])
 
   const handleSignOut = useCallback(async (): Promise<void> => {

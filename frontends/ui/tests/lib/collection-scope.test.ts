@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 import { describe, it, expect } from 'vitest'
 import { buildCollectionScopeHeader, computeCollectionScope } from '@/lib/collection-scope'
 
@@ -29,6 +26,13 @@ describe('computeCollectionScope', () => {
 
   it('adds conversation corpus with s_ prefix', () => {
     expect(computeCollectionScope(baseSession, { conversationId: 'uuid-123' })).toEqual([
+      'oib_knowledge',
+      's_uuid-123',
+    ])
+  })
+
+  it('does not double-prefix already-prefixed conversation corpus', () => {
+    expect(computeCollectionScope(baseSession, { conversationId: 's_uuid-123' })).toEqual([
       'oib_knowledge',
       's_uuid-123',
     ])

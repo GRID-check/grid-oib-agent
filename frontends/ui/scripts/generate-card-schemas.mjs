@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2026, Grid Agent Contributors. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * Generate the frontend Zod schema (`src/shared/cards/generated.ts`) from the
  * canonical Grid card JSON Schema (`shared/cards/schemas.json`).
@@ -45,11 +42,8 @@ const perTypeDeclarations = orderedDefNames.map((defName) => {
 
 const unionMembers = orderedDefNames.map((defName) => exportName(defName)).join(',\n  ')
 
-const banner = [
-  '// AUTO-GENERATED from shared/cards/schemas.json — do not edit; run `npm run generate:cards`',
-  '// SPDX-FileCopyrightText: Copyright (c) 2026, Grid Agent Contributors. All rights reserved.',
-  '// SPDX-License-Identifier: Apache-2.0',
-].join('\n')
+const banner =
+  '// AUTO-GENERATED from shared/cards/schemas.json — do not edit; run `npm run generate:cards`'
 
 const fileContents = `${banner}
 

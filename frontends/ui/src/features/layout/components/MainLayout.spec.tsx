@@ -1,6 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
+import type { ReactNode } from 'react'
 import { render, screen } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
@@ -65,8 +63,8 @@ vi.mock('../store', () => ({
 }))
 
 // Mock child components
-vi.mock('./AppBar', () => ({
-  AppBar: ({
+vi.mock('./ChatToolbar', () => ({
+  ChatToolbar: ({
     sessionTitle,
     onNewSession,
     isNewSessionDisabled,
@@ -232,9 +230,9 @@ describe('MainLayout', () => {
 
     const { container } = render(<MainLayout />)
 
-    // The chat container should have 40% width when details panel is open
+    // The chat container should share width evenly with the research panel when open
     const chatContainer = container.querySelector('[style*="width"]')
-    expect(chatContainer).toHaveStyle({ width: '40%' })
+    expect(chatContainer).toHaveStyle({ width: '50%' })
   })
 
   test('shows full width when details panel is closed', () => {

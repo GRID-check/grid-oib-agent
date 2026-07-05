@@ -169,10 +169,10 @@ async def shallow_research_workflow(config: ShallowResearchWorkflowConfig, build
     shallow_research_agent_fn = await builder.get_function("shallow_research_agent")
     workflow_id = config.name or config.type
 
-    async def _run(query: str) -> ChatResponse:
+    async def _run(query: str, project_context: str | None = None) -> ChatResponse:
         """Run shallow research on a query string."""
         result = await shallow_research_agent_fn.ainvoke(
-            ShallowResearchAgentState(messages=[HumanMessage(content=query)])
+            ShallowResearchAgentState(messages=[HumanMessage(content=query)], project_context=project_context)
         )
         response_content = result.messages[-1].content
         return _create_chat_response(response_content, response_id="research_response", model=workflow_id)

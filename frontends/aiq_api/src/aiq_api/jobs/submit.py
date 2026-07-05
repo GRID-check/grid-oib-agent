@@ -110,6 +110,39 @@ def _get_parent_trace_context() -> tuple[
     )
 
 
+def _base_collection_name() -> str:
+    """Return the configured base/OIB knowledge collection name.
+
+    Mirrors the env var precedence used elsewhere in the codebase
+    (e.g. ``aiq_agent.oib_sync``): ``OIB_COLLECTION_NAME`` wins over the
+    legacy ``COLLECTION_NAME``, defaulting to ``oib_knowledge``.
+    """
+    return os.environ.get("OIB_COLLECTION_NAME") or os.environ.get("COLLECTION_NAME") or "oib_knowledge"
+
+
+def _derive_project_collection(collection_scope: list[str] | None) -> str | None:
+    """Extract the project collection from a request's collection scope.
+
+    The collection scope contains the base/OIB collection, the project
+    collection, and an ``s_<conversation>`` scoped collection. The project
+    collection is the single remaining entry once those two are excluded.
+    Returns None if no such entry exists (or more than one candidate remains,
+    which indicates an ambiguous scope not worth guessing at).
+    """
+    if not collection_scope:
+        return None
+
+    base_collection = _base_collection_name()
+    candidates = [
+        collection
+        for collection in collection_scope
+        if collection != base_collection and not collection.startswith("s_")
+    ]
+    if len(candidates) == 1:
+        return candidates[0]
+    return None
+
+
 async def submit_agent_job(
     agent_type: str,
     input_text: str,
@@ -121,6 +154,7 @@ async def submit_agent_job(
     data_sources: list[str] | None = None,
     auth_token: str | None = None,
     collection_scope: list[str] | None = None,
+    project_context: str | None = None,
 ) -> str:
     """
     Submit an agent job to the Dask cluster.
@@ -215,6 +249,12 @@ async def submit_agent_job(
 
         collection_scope = get_collection_scope_from_context()
 
+    # Auto-detect project context from NAT context if not explicitly provided.
+    if project_context is None:
+        from aiq_agent.project_context import get_project_context_from_context
+
+        project_context = get_project_context_from_context()
+
     if principal is None:
         principal = _resolve_submission_principal(owner)
     if principal is None:
@@ -223,6 +263,10 @@ async def submit_agent_job(
     job_store = JobStore(scheduler_address=scheduler_address, db_url=db_url)
     resolved_job_id = job_store.ensure_job_id(job_id)
     loop = asyncio.get_running_loop()
+
+    parent_trace_context = _get_parent_trace_context()
+    parent_conversation_id = parent_trace_context[5]
+    project_collection = _derive_project_collection(collection_scope)
 
     try:
         await job_store.submit_job(
@@ -239,14 +283,23 @@ async def submit_agent_job(
                 input_text,
                 agent_config.class_path,
                 agent_config.config_name,
-                *_get_parent_trace_context(),
+                *parent_trace_context,
                 available_documents,
                 data_sources,
                 auth_token,
                 collection_scope,
+                project_context,
             ],
         )
-        await loop.run_in_executor(None, create_job_access, resolved_job_id, principal, db_url)
+        await loop.run_in_executor(
+            None,
+            create_job_access,
+            resolved_job_id,
+            principal,
+            db_url,
+            parent_conversation_id,
+            project_collection,
+        )
     except Exception:
         try:
             await loop.run_in_executor(None, rollback_job_submission, resolved_job_id, db_url)

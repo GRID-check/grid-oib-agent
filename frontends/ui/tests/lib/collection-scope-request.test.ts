@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import {
   buildCollectionScopeFromRequest,
@@ -20,7 +17,9 @@ vi.mock('@/lib/collection-scope', () => ({
   computeCollectionScope: vi.fn((_session, ctx) => {
     const scope: string[] = ['oib_knowledge']
     if (ctx.projectId) scope.push(`proj_${ctx.projectId}`)
-    if (ctx.conversationId) scope.push(`s_${ctx.conversationId}`)
+    if (ctx.conversationId) {
+      scope.push(ctx.conversationId.startsWith('s_') ? ctx.conversationId : `s_${ctx.conversationId}`)
+    }
     return scope
   }),
   buildCollectionScopeHeader: vi.fn((scope) => Buffer.from(JSON.stringify(scope)).toString('base64url')),

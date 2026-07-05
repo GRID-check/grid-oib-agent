@@ -1,6 +1,6 @@
 # ADR-0003: Next.js BFF + stateless Python agent
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-06-30
 - **Deciders:** Grid Agent team
 - **Related:** [ADR-0002](0002-outsource-identity-to-workos.md), [ADR-0004](0004-tenancy-ownership-and-access-model.md), [ADR-0005](0005-object-storage-for-documents-minio.md), [ADR-0006](0006-knowledge-collection-scoping.md), [`../architecture/multitenancy-and-auth-spec.md`](../architecture/multitenancy-and-auth-spec.md)

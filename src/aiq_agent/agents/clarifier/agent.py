@@ -534,6 +534,7 @@ class ClarifierAgent:
             rendered_system_prompt = render_prompt_template(
                 self.system_prompt,
                 clarifier_result=state.clarifier_log,
+                project_context=state.project_context,
                 available_documents=state.available_documents or [],
                 tools=tools_info,
                 tool_names=[t["name"] for t in tools_info],
@@ -624,6 +625,7 @@ class ClarifierAgent:
             for iteration in range(self.max_plan_iterations):
                 rendered_prompt = render_prompt_template(
                     self.plan_generation_prompt,
+                    project_context=state.project_context,
                     clarifier_context=clarifier_log,
                     feedback_history=feedback_history if feedback_history else None,
                 )

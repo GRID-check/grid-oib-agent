@@ -33,7 +33,7 @@ services:
     build:
       context: ../..
       dockerfile: deploy/Dockerfile
-      target: ${BUILD_TARGET:-dev}
+      target: ${BUILD_TARGET:-release}
     container_name: aiq-agent
     env_file:
       - ../.env
@@ -44,11 +44,15 @@ services:
       - NAT_JOB_STORE_DB_URL=${NAT_JOB_STORE_DB_URL:-postgresql+asyncpg://aiq:aiq_dev@postgres:5432/aiq_jobs}
       - AIQ_CHECKPOINT_DB=${AIQ_CHECKPOINT_DB:-postgresql://aiq:aiq_dev@postgres:5432/aiq_checkpoints}
       - AIQ_SUMMARY_DB=${AIQ_SUMMARY_DB:-postgresql+psycopg://aiq:aiq_dev@postgres:5432/aiq_jobs}
+      # Project Memory: the `remember` tool writes via the frontend's internal
+      # API (single-writer separation — the backend never touches grid_app).
+      - FRONTEND_INTERNAL_URL=${FRONTEND_INTERNAL_URL:-http://frontend:3000}
+      - GRID_INTERNAL_API_TOKEN=${GRID_INTERNAL_API_TOKEN:-grid-internal-dev-token}
       # LlamaIndex persistence (used by config_web_default_llamaindex.yml)
       - AIQ_CHROMA_DIR=${AIQ_CHROMA_DIR:-/app/data/chroma_data}
       # Server config
       # Grid OIB config (default)
-      - CONFIG_FILE=${BACKEND_CONFIG:-/app/configs/config_grid_oib.yml}
+      - CONFIG_FILE=${BACKEND_CONFIG:-/app/configs/config_oib_openrouter.yml}
       - HOST=0.0.0.0
       - PORT=8000
       # RAG config
@@ -73,6 +77,8 @@ services:
     networks:
       - aiq-network
     depends_on:
+      aiq-data-permissions:
+        condition: service_completed_successfully
       minio:
         condition: service_healthy
       postgres:
@@ -84,6 +90,14 @@ services:
       retries: 10
       start_period: 30s
     restart: unless-stopped
+
+  aiq-data-permissions:
+    image: alpine:3.20
+    command: ["sh", "-c", "chown -R 1000:1000 /app/data"]
+    volumes:
+      - aiq-data:/app/data
+      - chroma_data:/app/data/chroma_data
+    restart: "no"
 
   minio:
     image: minio/minio:RELEASE.2024-06-29T01-20-47Z
@@ -128,19 +142,27 @@ services:
       - REQUIRE_AUTH=${REQUIRE_AUTH:-false}
       - BACKEND_URL=${BACKEND_URL:-http://aiq-agent:8000}
       - GRID_APP_DATABASE_URL=${GRID_APP_DATABASE_URL:-postgresql://aiq:aiq_dev@postgres:5432/grid_app}
+      # Shared service token for the internal memory endpoint (must match aiq-agent)
+      - GRID_INTERNAL_API_TOKEN=${GRID_INTERNAL_API_TOKEN:-grid-internal-dev-token}
       - WORKOS_CLIENT_ID=${WORKOS_CLIENT_ID}
       - WORKOS_API_KEY=${WORKOS_API_KEY}
-      - WORKOS_REDIRECT_URI=${WORKOS_REDIRECT_URI:-http://localhost:3000/api/auth/callback}
+      - NEXT_PUBLIC_WORKOS_REDIRECT_URI=${NEXT_PUBLIC_WORKOS_REDIRECT_URI:-${WORKOS_REDIRECT_URI:-http://localhost:3000/api/auth/callback}}
       - WORKOS_COOKIE_PASSWORD=${WORKOS_COOKIE_PASSWORD}
       - FILE_UPLOAD_ACCEPTED_TYPES=${FILE_UPLOAD_ACCEPTED_TYPES:-.pdf,.docx,.txt,.md}
       - FILE_UPLOAD_MAX_SIZE_MB=${FILE_UPLOAD_MAX_SIZE_MB:-}
       - FILE_UPLOAD_MAX_FILE_COUNT=${FILE_UPLOAD_MAX_FILE_COUNT:-}
       - FILE_EXPIRATION_CHECK_INTERVAL_HOURS=${FILE_EXPIRATION_CHECK_INTERVAL_HOURS:-}
       - MINIO_ENDPOINT=http://minio:9000
+      # Browser-reachable endpoint used ONLY to sign presigned URLs handed to the
+      # browser (PDF preview/download). Must be a host the browser can resolve --
+      # the internal `minio` hostname above is not. Defaults to the published
+      # localhost port for local dev; set to your public MinIO/S3 URL in prod.
+      - MINIO_PUBLIC_ENDPOINT=${MINIO_PUBLIC_ENDPOINT:-http://localhost:9000}
       - MINIO_ACCESS_KEY=minioadmin
       - MINIO_SECRET_KEY=minioadmin
       - MINIO_BUCKET=grid-documents
       - MINIO_PRESIGNED_URL_TTL_SECONDS=600
+      - PROJECT_PURGE_GRACE_DAYS=${PROJECT_PURGE_GRACE_DAYS:-7}
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
     networks:
@@ -160,6 +182,34 @@ services:
         reservations:
           cpus: '0.1'
           memory: 256M
+    restart: unless-stopped
+
+  purger:
+    image: ${FRONTEND_IMAGE:-nvcr.io/nvidia/blueprint/aiq-frontend:2.0.0}
+    build:
+      context: ../../frontends/ui
+      dockerfile: deploy/Dockerfile
+    container_name: grid-purger
+    command: ["node", "purger/index.js"]
+    environment:
+      - GRID_APP_DATABASE_URL=${GRID_APP_DATABASE_URL:-postgresql://aiq:aiq_dev@postgres:5432/grid_app}
+      - BACKEND_URL=${BACKEND_URL:-http://aiq-agent:8000}
+      - GRID_INTERNAL_API_TOKEN=${GRID_INTERNAL_API_TOKEN:-grid-internal-dev-token}
+      - MINIO_ENDPOINT=http://minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+      - MINIO_BUCKET=grid-documents
+      - WORKOS_API_KEY=${WORKOS_API_KEY}
+      - PURGER_POLL_INTERVAL_MS=${PURGER_POLL_INTERVAL_MS:-60000}
+    networks:
+      - aiq-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      aiq-agent:
+        condition: service_healthy
     restart: unless-stopped
 
   postgres:
@@ -191,6 +241,9 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+      # Crash recovery (fsync of the data dir) can take >1 min on slow disks;
+      # without a start_period the stack fails with "postgres is unhealthy".
+      start_period: 120s
     restart: unless-stopped
 
 volumes:

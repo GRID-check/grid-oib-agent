@@ -325,6 +325,38 @@ class TestChatResearcherAgent:
         assert captured_state["data_sources"] == ["gdrive", "confluence"]
 
     @pytest.mark.asyncio
+    async def test_run_propagates_collection_scope(
+        self,
+        mock_shallow_research,
+        mock_deep_research,
+        mock_clarifier,
+    ):
+        """Test that run() propagates collection_scope to the graph."""
+        captured_state = {}
+
+        async def capturing_intent_classifier(state):
+            captured_state["collection_scope"] = state.collection_scope
+            return {
+                "user_intent": IntentResult(intent="meta", raw=None),
+                "messages": [AIMessage(content="Hello!")],
+            }
+
+        agent = ChatResearcherAgent(
+            intent_classifier_fn=capturing_intent_classifier,
+            shallow_research_fn=mock_shallow_research,
+            deep_research_fn=mock_deep_research,
+            clarifier_fn=mock_clarifier,
+        )
+
+        state = ChatResearcherState(
+            messages=[HumanMessage(content="Hello!")],
+            collection_scope=["oib_knowledge", "proj_project-1", "s_conv-1"],
+        )
+        await agent.run(state, thread_id="test-thread")
+
+        assert captured_state["collection_scope"] == ["oib_knowledge", "proj_project-1", "s_conv-1"]
+
+    @pytest.mark.asyncio
     async def test_run_propagates_none_data_sources(
         self,
         mock_shallow_research,

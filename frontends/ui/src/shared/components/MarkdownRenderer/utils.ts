@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 import type { SupportedLanguage } from './types'
 
 const LANGUAGE_MAP: Record<string, SupportedLanguage> = {

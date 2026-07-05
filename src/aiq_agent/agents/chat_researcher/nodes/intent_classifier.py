@@ -112,6 +112,7 @@ class IntentClassifier:
             current_datetime=current_datetime,
             user_info=user_info,
             tools=self.tools_info,
+            project_context=state.project_context,
         )
         trimmed_conversation = trim_message_history(list(state.messages), max_tokens=self.max_history)
         messages: list[BaseMessage] = [SystemMessage(content=system_content)] + trimmed_conversation

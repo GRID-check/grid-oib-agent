@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest'
 import { useChatStore } from './store'
 import type { Conversation, PendingInteraction, FileCardData } from './types'
@@ -1434,18 +1431,6 @@ describe('useChatStore', () => {
       useChatStore.getState().setCurrentStatus('searching')
 
       expect(useChatStore.getState().currentStatus).toBe('searching')
-    })
-
-    test('addStatusCard adds status message', () => {
-      setupConversation()
-
-      useChatStore.getState().addStatusCard('searching', 'Searching documents...')
-
-      const messages = useChatStore.getState().currentConversation?.messages
-      expect(messages).toHaveLength(1)
-      expect(messages?.[0].messageType).toBe('status')
-      expect(messages?.[0].statusType).toBe('searching')
-      expect(messages?.[0].content).toBe('Searching documents...')
     })
 
     test('addAgentPrompt adds prompt message', () => {

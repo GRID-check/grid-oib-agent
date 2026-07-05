@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * V1 API Proxy Route
  *
@@ -21,19 +18,21 @@
  */
 
 import { NextResponse } from 'next/server'
-import { requireAuthorizedSession } from '@/lib/auth/require-auth'
+import { and, eq } from 'drizzle-orm'
 import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
 import { requireProjectAccess } from '@/lib/authz/projects'
+import { getDb } from '@/lib/db'
+import { projects } from '@/lib/db/schema'
 import type { GridSession, AuthorizedSession } from '@/lib/auth/types'
-
-const isAuthRequired = (): boolean => {
-  return process.env.REQUIRE_AUTH?.toLowerCase() === 'true'
-}
-
-const getBackendUrl = (): string => {
-  const url = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'
-  return url.replace(/\/$/, '')
-}
+import { isAuthzError } from '@/lib/auth-utils'
+import {
+  getBackendUrl,
+  resolveOptionalSession,
+  errorEnvelope,
+  backendErrorEnvelope,
+  handleAuthzError,
+  proxyErrorEnvelope,
+} from '@/lib/backend-proxy'
 
 const buildBackendUrl = (path: string[], searchParams?: URLSearchParams): string => {
   const backendBase = getBackendUrl()
@@ -45,48 +44,12 @@ const buildBackendUrl = (path: string[], searchParams?: URLSearchParams): string
   return url.toString()
 }
 
-const isAuthzError = (error: unknown): boolean => {
-  if (!(error instanceof Error)) return false
-  const message = error.message.toLowerCase()
-  return (
-    message === 'not found' ||
-    message.includes('unauthorized') ||
-    message.includes('forbidden')
-  )
-}
-
 const isRedirectError = (error: unknown): boolean => {
   return error instanceof Error && error.message === 'NEXT_REDIRECT'
 }
 
-const handleAuthzError = (error: unknown): NextResponse => {
-  const status = error instanceof Error && error.message.toLowerCase() === 'not found' ? 404 : 403
-  const code = status === 404 ? 'NOT_FOUND' : 'FORBIDDEN'
-
-  return new NextResponse(
-    JSON.stringify({
-      error: {
-        code,
-        message: error instanceof Error ? error.message : 'Access denied',
-      },
-    }),
-    { status, headers: { 'Content-Type': 'application/json' } }
-  )
-}
-
-const errorResponse = (status: number, code: string, message: string): NextResponse => {
-  return new NextResponse(
-    JSON.stringify({ error: { code, message } }),
-    { status, headers: { 'Content-Type': 'application/json' } }
-  )
-}
-
-async function resolveSession(): Promise<GridSession | null> {
-  if (!isAuthRequired()) {
-    return null
-  }
-  return requireAuthorizedSession()
-}
+const errorResponse = errorEnvelope
+const resolveSession = resolveOptionalSession
 
 function parseQueryContext(searchParams: URLSearchParams): { projectId?: string; conversationId?: string } {
   return {
@@ -116,6 +79,10 @@ function resolveRequestContext(
   }
 }
 
+function normalizeSessionCollectionName(value: string): string {
+  return value.startsWith('s_') ? value : `s_${value}`
+}
+
 async function validateCollectionName(
   path: string[],
   session: GridSession | null,
@@ -133,12 +100,22 @@ async function validateCollectionName(
   }
 
   if (collectionName.startsWith('proj_')) {
-    const projectId = collectionName.slice('proj_'.length)
-    if (!session) {
+    if (!session?.organizationId) {
       return handleAuthzError(new Error('Forbidden'))
     }
     try {
-      await requireProjectAccess(session as AuthorizedSession, projectId, 'project:edit')
+      const db = getDb()
+      const [project] = await db
+        .select({ id: projects.id })
+        .from(projects)
+        .where(and(eq(projects.collectionName, collectionName), eq(projects.organizationId, session.organizationId)))
+        .limit(1)
+
+      if (!project) {
+        return handleAuthzError(new Error('Not found'))
+      }
+
+      await requireProjectAccess(session as AuthorizedSession, project.id, 'project:edit')
     } catch (error) {
       return handleAuthzError(error)
     }
@@ -146,8 +123,7 @@ async function validateCollectionName(
   }
 
   if (collectionName.startsWith('s_')) {
-    const conversationId = collectionName.slice('s_'.length)
-    if (!context.conversationId || context.conversationId !== conversationId) {
+    if (!context.conversationId || normalizeSessionCollectionName(context.conversationId) !== collectionName) {
       return errorResponse(400, 'INVALID_COLLECTION', 'Collection does not match active conversation')
     }
     return null
@@ -185,12 +161,7 @@ export async function GET(
 
     if (!response.ok) {
       const errorText = await response.text()
-      return new NextResponse(
-        JSON.stringify({
-          error: { code: 'BACKEND_ERROR', message: `Backend returned ${response.status}: ${errorText}` },
-        }),
-        { status: response.status, headers: { 'Content-Type': 'application/json' } }
-      )
+      return backendErrorEnvelope(response.status, errorText)
     }
 
     const data = await response.json()
@@ -203,11 +174,7 @@ export async function GET(
       return handleAuthzError(error)
     }
 
-    const message = error instanceof Error ? error.message : 'Unknown error'
-    return new NextResponse(
-      JSON.stringify({ error: { code: 'PROXY_ERROR', message } }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
-    )
+    return proxyErrorEnvelope(error)
   }
 }
 
@@ -262,12 +229,7 @@ export async function POST(
 
     if (!response.ok) {
       const errorText = await response.text()
-      return new NextResponse(
-        JSON.stringify({
-          error: { code: 'BACKEND_ERROR', message: `Backend returned ${response.status}: ${errorText}` },
-        }),
-        { status: response.status, headers: { 'Content-Type': 'application/json' } }
-      )
+      return backendErrorEnvelope(response.status, errorText)
     }
 
     const data = await response.json()
@@ -280,11 +242,7 @@ export async function POST(
       return handleAuthzError(error)
     }
 
-    const message = error instanceof Error ? error.message : 'Unknown error'
-    return new NextResponse(
-      JSON.stringify({ error: { code: 'PROXY_ERROR', message } }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
-    )
+    return proxyErrorEnvelope(error)
   }
 }
 
@@ -326,12 +284,7 @@ export async function DELETE(
 
     if (!response.ok) {
       const errorText = await response.text()
-      return new NextResponse(
-        JSON.stringify({
-          error: { code: 'BACKEND_ERROR', message: `Backend returned ${response.status}: ${errorText}` },
-        }),
-        { status: response.status, headers: { 'Content-Type': 'application/json' } }
-      )
+      return backendErrorEnvelope(response.status, errorText)
     }
 
     if (response.status === 204) {
@@ -348,10 +301,6 @@ export async function DELETE(
       return handleAuthzError(error)
     }
 
-    const message = error instanceof Error ? error.message : 'Unknown error'
-    return new NextResponse(
-      JSON.stringify({ error: { code: 'PROXY_ERROR', message } }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
-    )
+    return proxyErrorEnvelope(error)
   }
 }

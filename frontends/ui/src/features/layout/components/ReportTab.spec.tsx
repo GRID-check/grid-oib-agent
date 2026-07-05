@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 import { render, screen } from '@/test-utils'
 import { vi, describe, test, expect } from 'vitest'
 import { ReportTab } from './ReportTab'
@@ -49,6 +46,7 @@ describe('ReportTab', () => {
         reportContent: '# Report Title\n\nReport content here',
         isStreaming: false,
         currentStatus: null,
+        deepResearchCards: [],
       }
       return selector ? selector(state) : state
     })
@@ -64,6 +62,7 @@ describe('ReportTab', () => {
         reportContent: 'Some content',
         isStreaming: false,
         currentStatus: null,
+        deepResearchCards: [],
       }
       return selector ? selector(state) : state
     })
@@ -79,6 +78,7 @@ describe('ReportTab', () => {
         reportContent: 'Partial content...',
         isStreaming: true,
         currentStatus: 'writing',
+        deepResearchCards: [],
       }
       return selector ? selector(state) : state
     })

@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * Chat Feature Types
  *
@@ -424,6 +421,8 @@ export interface ChatState {
   deepResearchToolCalls: DeepResearchToolCall[]
   /** File artifacts for FilesTab (from artifact.update type: "file" events) */
   deepResearchFiles: DeepResearchFile[]
+  /** Grid response cards attached to the final deep-research report */
+  deepResearchCards: GridCard[]
   /** Whether the full stream data (artifacts, tool calls, etc.) has been loaded for current job */
   deepResearchStreamLoaded: boolean
 
@@ -499,8 +498,6 @@ export interface ChatActions {
   clearThinkingSteps: () => void
   /** Clear report content (for new request) */
   clearReportContent: () => void
-  /** Add a status card message to the conversation */
-  addStatusCard: (type: StatusType, message?: string) => void
   /** Set current status type */
   setCurrentStatus: (status: StatusType | null) => void
   /** Add an agent prompt message to the conversation */
@@ -658,6 +655,8 @@ export interface ChatActions {
   getAgentToolCalls: (agentId: string) => DeepResearchToolCall[]
   /** Add a file artifact (on artifact.update type: "file") */
   addDeepResearchFile: (file: Omit<DeepResearchFile, 'id' | 'timestamp'>) => string
+  /** Validate and set Grid cards from the final deep-research report artifact */
+  setDeepResearchCards: (cards: unknown) => void
 
   // Plan actions (for chat/HITL restore flows)
 

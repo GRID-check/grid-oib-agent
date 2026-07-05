@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 vi.mock('@/lib/auth/require-auth', () => ({
@@ -15,14 +12,36 @@ vi.mock('@/lib/authz/projects', () => ({
   requireProjectAccess: vi.fn(),
 }))
 
+vi.mock('@/lib/db', () => ({
+  getDb: vi.fn(),
+}))
+
 import { GET, POST, DELETE } from '@/app/api/v1/[...path]/route'
 import { requireAuthorizedSession } from '@/lib/auth/require-auth'
 import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
 import { requireProjectAccess } from '@/lib/authz/projects'
+import { getDb } from '@/lib/db'
 
 const mockRequireAuthorizedSession = vi.mocked(requireAuthorizedSession)
 const mockBuildCollectionScopeFromRequest = vi.mocked(buildCollectionScopeFromRequest)
 const mockRequireProjectAccess = vi.mocked(requireProjectAccess)
+const mockGetDb = vi.mocked(getDb)
+
+/**
+ * Mock the drizzle project lookup used by validateCollectionName for
+ * proj_<id> collections: db.select().from().where().limit(1) -> rows.
+ */
+function mockDbProjectLookup(rows: Array<{ id: string }>): void {
+  mockGetDb.mockReturnValue({
+    select: () => ({
+      from: () => ({
+        where: () => ({
+          limit: () => Promise.resolve(rows),
+        }),
+      }),
+    }),
+  } as never)
+}
 
 const baseSession = {
   userId: 'user_1',
@@ -77,6 +96,7 @@ describe('/api/v1/[...path]', () => {
         headerValue: 'encoded-scope',
         projectId: 'proj-1',
         conversationId: 'conv-1',
+        projectCollectionName: undefined,
       })
       const fetchMock = mockFetch()
 
@@ -105,6 +125,7 @@ describe('/api/v1/[...path]', () => {
         headerValue: 'encoded-scope',
         projectId: 'proj-1',
         conversationId: 'conv-1',
+        projectCollectionName: undefined,
       })
       const fetchMock = mockFetch()
 
@@ -130,12 +151,14 @@ describe('/api/v1/[...path]', () => {
     it('attaches scope header for multipart uploads', async () => {
       process.env.REQUIRE_AUTH = 'true'
       mockRequireAuthorizedSession.mockResolvedValue(baseSession)
+      mockDbProjectLookup([{ id: 'proj-1' }])
       mockRequireProjectAccess.mockResolvedValue({ role: 'project-editor' })
       mockBuildCollectionScopeFromRequest.mockResolvedValue({
         scope: ['oib_knowledge', 'proj_proj-1'],
         headerValue: 'encoded-scope',
         projectId: 'proj-1',
         conversationId: undefined,
+        projectCollectionName: undefined,
       })
       const fetchMock = mockFetch()
 
@@ -172,6 +195,7 @@ describe('/api/v1/[...path]', () => {
         headerValue: 'encoded-scope',
         projectId: 'proj-1',
         conversationId: undefined,
+        projectCollectionName: undefined,
       })
       const fetchMock = mockFetch()
 
@@ -200,6 +224,7 @@ describe('/api/v1/[...path]', () => {
         headerValue: 'anon-scope',
         projectId: undefined,
         conversationId: 'conv-1',
+        projectCollectionName: undefined,
       })
       const fetchMock = mockFetch()
 
@@ -219,12 +244,14 @@ describe('/api/v1/[...path]', () => {
     it('allows upload to proj_<id> with project:edit membership', async () => {
       process.env.REQUIRE_AUTH = 'true'
       mockRequireAuthorizedSession.mockResolvedValue(baseSession)
+      mockDbProjectLookup([{ id: 'proj-1' }])
       mockRequireProjectAccess.mockResolvedValue({ role: 'project-editor' })
       mockBuildCollectionScopeFromRequest.mockResolvedValue({
         scope: ['oib_knowledge', 'proj_proj-1'],
         headerValue: 'encoded-scope',
         projectId: 'proj-1',
         conversationId: undefined,
+        projectCollectionName: undefined,
       })
       const fetchMock = mockFetch()
 
@@ -246,6 +273,7 @@ describe('/api/v1/[...path]', () => {
     it('rejects upload to proj_<id> without project:edit membership', async () => {
       process.env.REQUIRE_AUTH = 'true'
       mockRequireAuthorizedSession.mockResolvedValue(baseSession)
+      mockDbProjectLookup([{ id: 'proj-1' }])
       mockRequireProjectAccess.mockRejectedValue(new Error('Not found'))
       const fetchMock = mockFetch()
 
@@ -272,6 +300,7 @@ describe('/api/v1/[...path]', () => {
         headerValue: 'encoded-scope',
         projectId: undefined,
         conversationId: 'conv-1',
+        projectCollectionName: undefined,
       })
       const fetchMock = mockFetch()
 
@@ -297,6 +326,7 @@ describe('/api/v1/[...path]', () => {
         headerValue: 'encoded-scope',
         projectId: undefined,
         conversationId: undefined,
+        projectCollectionName: undefined,
       })
       const fetchMock = mockFetch()
 

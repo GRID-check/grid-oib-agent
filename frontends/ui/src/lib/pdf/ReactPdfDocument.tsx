@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 import React from 'react'
 import { Document, Page, Text, View, StyleSheet, Font, Link } from '@react-pdf/renderer'
 import { marked } from 'marked'
@@ -22,6 +19,18 @@ Font.register({
 // Disable hyphenation — react-pdf's default English hyphenation inserts
 // hyphens into long words (including URLs), making them unusable when copied.
 Font.registerHyphenationCallback((word) => [word])
+
+// PDF palette — derived from the GRID design tokens in src/styles/tokens.css.
+// react-pdf's StyleSheet does not support CSS custom properties, so we keep a
+// small, named, print-safe mapping that mirrors the system colors.
+const PDF_THEME = {
+  ink: '#1d1d1f',
+  hairline: '#d2d2d7',
+  surface: '#f2f2f2',
+  codeSurface: '#f5f5f5',
+  codeBorder: '#d2d2d7',
+  link: '#0071e3',
+}
 
 const styles = StyleSheet.create({
   page: {
@@ -76,26 +85,26 @@ const styles = StyleSheet.create({
     marginTop: 10,
     marginBottom: 10,
     borderWidth: 1,
-    borderColor: '#000000',
+    borderColor: PDF_THEME.hairline,
   },
   tableRow: {
     flexDirection: 'row',
     borderBottomWidth: 1,
-    borderBottomColor: '#000000',
+    borderBottomColor: PDF_THEME.hairline,
     minHeight: 30,
   },
   tableHeaderRow: {
     flexDirection: 'row',
-    backgroundColor: '#f2f2f2',
+    backgroundColor: PDF_THEME.surface,
     borderBottomWidth: 1,
-    borderBottomColor: '#000000',
+    borderBottomColor: PDF_THEME.hairline,
     minHeight: 30,
   },
   tableCell: {
     flex: 1,
     padding: 8,
     borderRightWidth: 1,
-    borderRightColor: '#000000',
+    borderRightColor: PDF_THEME.hairline,
     justifyContent: 'center',
   },
   tableCellLast: {
@@ -107,8 +116,8 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   codeBlock: {
-    backgroundColor: '#f5f5f5',
-    border: '1px solid #cccccc',
+    backgroundColor: PDF_THEME.codeSurface,
+    border: `1px solid ${PDF_THEME.codeBorder}`,
     padding: 10,
     marginTop: 10,
     marginBottom: 10,
@@ -123,7 +132,7 @@ const styles = StyleSheet.create({
   },
   blockquote: {
     borderLeftWidth: 3,
-    borderLeftColor: '#cccccc',
+    borderLeftColor: PDF_THEME.codeBorder,
     paddingLeft: 10,
     marginLeft: 10,
     marginTop: 8,
@@ -132,12 +141,12 @@ const styles = StyleSheet.create({
   },
   hr: {
     borderBottomWidth: 1,
-    borderBottomColor: '#cccccc',
+    borderBottomColor: PDF_THEME.codeBorder,
     marginTop: 10,
     marginBottom: 10,
   },
   link: {
-    color: '#0066cc',
+    color: PDF_THEME.link,
     textDecoration: 'underline',
   },
 })

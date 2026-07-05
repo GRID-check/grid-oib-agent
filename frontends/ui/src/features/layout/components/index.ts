@@ -1,13 +1,9 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * Layout Components Barrel Export
  */
 
 // Main layout components
 export { MainLayout } from './MainLayout'
-export { AppBar } from './AppBar'
 export { SessionsPanel } from './SessionsPanel'
 export { ChatArea } from './ChatArea'
 export { InputArea } from './InputArea'

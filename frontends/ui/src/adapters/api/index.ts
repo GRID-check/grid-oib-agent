@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * API Adapters
  *
@@ -10,17 +7,6 @@
 
 // Configuration
 export { apiConfig, getWebSocketUrl } from './config'
-
-// Chat Client (SSE Streaming)
-export { streamGenerate } from './chat-client'
-export type {
-  StreamGenerateOptions,
-  GenerateStreamCallbacks,
-  GenerateStreamMessage,
-  BackendStatusType,
-  BackendPromptType,
-  GenerateMessageType,
-} from './chat-client'
 
 // WebSocket Client (NAT Protocol)
 export { NATWebSocketClient, createNATWebSocketClient } from './websocket-client'

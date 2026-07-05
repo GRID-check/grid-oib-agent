@@ -1,22 +1,26 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * Application Providers
  *
  * Wraps the application with necessary providers:
  * - AppConfigProvider (runtime server-side config)
- * - ThemeProvider (KUI dark/light mode)
+ * - TooltipProvider / Toaster (shadcn/ui primitives)
  * - AuthKitProvider (WorkOS AuthKit session)
  * - DeepResearchRestorer (checks for active deep research jobs on mount)
  * - ConversationHydrator (loads server-persisted conversations)
+ *
+ * Theme (dark/light) is applied directly to the document element via
+ * useThemeEffect below — it toggles the `.dark` class that the token
+ * stylesheet keys off of. Light is the default (no class). There is no
+ * separate theme provider.
  */
 
 'use client'
 
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { AuthKitProvider } from '@workos-inc/authkit-nextjs/components'
-import { ThemeProvider } from '@/adapters/ui'
+import { MotionConfig } from 'motion/react'
+import { TooltipProvider } from '@/components/ui/tooltip'
+import { Toaster } from '@/components/ui/sonner'
 import { AppConfigProvider, type AppConfig } from '@/shared/context'
 import { useLayoutStore } from '@/features/layout'
 import { useChatStore } from '@/features/chat/store'
@@ -46,27 +50,20 @@ const useThemeEffect = (theme: ThemeMode): void => {
     if (!mounted) return
 
     const root = document.documentElement
-
-    // Remove existing theme classes
-    root.classList.remove('nv-light', 'nv-dark')
+    const applyDark = (isDark: boolean): void => {
+      root.classList.toggle('dark', isDark)
+    }
 
     if (theme === 'system') {
-      // Check system preference
-      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
-      root.classList.add(prefersDark ? 'nv-dark' : 'nv-light')
-
-      // Listen for system theme changes
       const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
-      const handleChange = (e: MediaQueryListEvent): void => {
-        root.classList.remove('nv-light', 'nv-dark')
-        root.classList.add(e.matches ? 'nv-dark' : 'nv-light')
-      }
+      applyDark(mediaQuery.matches)
+
+      const handleChange = (e: MediaQueryListEvent): void => applyDark(e.matches)
       mediaQuery.addEventListener('change', handleChange)
       return () => mediaQuery.removeEventListener('change', handleChange)
-    } else {
-      // Apply explicit theme
-      root.classList.add(theme === 'dark' ? 'nv-dark' : 'nv-light')
     }
+
+    applyDark(theme === 'dark')
   }, [theme, mounted])
 }
 
@@ -133,11 +130,7 @@ const ThemeWrapper = ({ children }: { children: ReactNode }): ReactNode => {
   // Restore per-session data source toggles after initial fetch
   useDataSourceSessionRestore()
 
-  return (
-    <ThemeProvider theme={theme} global defer>
-      {children}
-    </ThemeProvider>
-  )
+  return <>{children}</>
 }
 
 /**
@@ -197,7 +190,14 @@ export const Providers = ({ children, config }: ProvidersProps): ReactNode => {
   return (
     <AppConfigProvider config={config}>
       <AuthKitProvider>
-        {content}
+        {/* reducedMotion="user" disables transform/layout animations for users
+            with prefers-reduced-motion, app-wide. */}
+        <MotionConfig reducedMotion="user">
+          <TooltipProvider delayDuration={200}>
+            {content}
+          </TooltipProvider>
+          <Toaster />
+        </MotionConfig>
       </AuthKitProvider>
     </AppConfigProvider>
   )

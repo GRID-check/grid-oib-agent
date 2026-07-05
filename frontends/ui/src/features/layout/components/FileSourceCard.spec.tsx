@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 import { render, screen } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach, afterEach } from 'vitest'
@@ -42,20 +39,21 @@ describe('FileSourceCard', () => {
     render(<FileSourceCard {...defaultProps} status="available" />)
 
     expect(screen.getByText('Available')).toBeInTheDocument()
-    expect(screen.getByText('✓')).toBeInTheDocument()
   })
 
   test('renders uploading status with spinner', () => {
     render(<FileSourceCard {...defaultProps} status="uploading" />)
 
-    expect(screen.getByText('Uploading...')).toBeInTheDocument()
+    // Text appears twice: visible status span + sr-only spinner label
+    expect(screen.getAllByText('Uploading...').length).toBeGreaterThan(0)
     expect(screen.getByLabelText('Uploading...')).toBeInTheDocument() // Spinner
   })
 
   test('renders ingesting status with spinner', () => {
     render(<FileSourceCard {...defaultProps} status="ingesting" />)
 
-    expect(screen.getByText('Ingesting...')).toBeInTheDocument()
+    // Text appears twice: visible status span + sr-only spinner label
+    expect(screen.getAllByText('Ingesting...').length).toBeGreaterThan(0)
     expect(screen.getByLabelText('Ingesting...')).toBeInTheDocument() // Spinner
   })
 
@@ -63,7 +61,6 @@ describe('FileSourceCard', () => {
     render(<FileSourceCard {...defaultProps} status="error" errorMessage="Upload failed" />)
 
     expect(screen.getByText('Error')).toBeInTheDocument()
-    expect(screen.getByText('✕')).toBeInTheDocument()
     expect(screen.getByText('Upload failed')).toBeInTheDocument()
   })
 
@@ -94,13 +91,13 @@ describe('FileSourceCard', () => {
   test('renders formatted file size when provided', () => {
     render(<FileSourceCard {...defaultProps} fileSize={2048} />)
 
-    expect(screen.getByText('2 KB')).toBeInTheDocument()
+    expect(screen.getByText('2.0 KB')).toBeInTheDocument()
   })
 
   test('renders MB file size correctly', () => {
     render(<FileSourceCard {...defaultProps} fileSize={5242880} />)
 
-    expect(screen.getByText('5 MB')).toBeInTheDocument()
+    expect(screen.getByText('5.0 MB')).toBeInTheDocument()
   })
 
   test('does not render file size when zero', () => {

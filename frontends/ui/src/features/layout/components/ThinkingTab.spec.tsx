@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 import { render, screen } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
@@ -106,7 +103,7 @@ describe('ThinkingTab', () => {
   test('renders segmented control with tabs in correct order', () => {
     render(<ThinkingTab />)
 
-    expect(screen.getAllByRole('radio').map((radio) => radio.textContent)).toEqual([
+    expect(screen.getAllByRole('tab').map((radio) => radio.textContent)).toEqual([
       'Thoughts',
       'Agents',
       'Tools',
@@ -135,12 +132,12 @@ describe('ThinkingTab', () => {
     render(<ThinkingTab />)
 
     // Verify the tab buttons are present (counts are now shown inside each tab, not on buttons)
-    expect(screen.getByRole('radio', { name: /Thoughts/i })).toBeInTheDocument()
-    expect(screen.getByRole('radio', { name: /Agents/i })).toBeInTheDocument()
-    expect(screen.getByRole('radio', { name: /Tools/i })).toBeInTheDocument()
-    expect(screen.getByRole('radio', { name: /Files/i })).toBeInTheDocument()
-    expect(screen.getByRole('radio', { name: /^Read$/i })).toBeInTheDocument()
-    expect(screen.getByRole('radio', { name: /Referenced/i })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /Thoughts/i })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /Agents/i })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /Tools/i })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /Files/i })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /^Read$/i })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /Referenced/i })).toBeInTheDocument()
   })
 
   test('shows read and referenced citation views from the Thinking control group', async () => {
@@ -167,13 +164,13 @@ describe('ThinkingTab', () => {
 
     render(<ThinkingTab />)
 
-    await user.click(screen.getByRole('radio', { name: /^Read$/i }))
+    await user.click(screen.getByRole('tab', { name: /^Read$/i }))
 
     expect(screen.getByText('Sources Read')).toBeInTheDocument()
     expect(screen.getByText('https://read.example')).toBeInTheDocument()
     expect(screen.queryByText('https://referenced.example')).not.toBeInTheDocument()
 
-    await user.click(screen.getByRole('radio', { name: /Referenced/i }))
+    await user.click(screen.getByRole('tab', { name: /Referenced/i }))
 
     expect(screen.getAllByText('Referenced')).toHaveLength(2)
     expect(screen.getByText('https://referenced.example')).toBeInTheDocument()
@@ -185,7 +182,7 @@ describe('ThinkingTab', () => {
 
     render(<ThinkingTab />)
 
-    await user.click(screen.getByRole('radio', { name: /^Read$/i }))
+    await user.click(screen.getByRole('tab', { name: /^Read$/i }))
 
     expect(screen.getByText('No read sources available.')).toBeInTheDocument()
     expect(
@@ -194,7 +191,7 @@ describe('ThinkingTab', () => {
       )
     ).toBeInTheDocument()
 
-    await user.click(screen.getByRole('radio', { name: /Referenced/i }))
+    await user.click(screen.getByRole('tab', { name: /Referenced/i }))
 
     expect(screen.getByText('No referenced sources available.')).toBeInTheDocument()
     expect(

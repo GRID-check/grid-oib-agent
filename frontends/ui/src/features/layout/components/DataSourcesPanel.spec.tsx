@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 import { render, screen } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
@@ -123,15 +120,15 @@ describe('DataSourcesPanel', () => {
   test('renders tab navigation', () => {
     render(<DataSourcesPanel />)
 
-    expect(screen.getByRole('radio', { name: /connections/i })).toBeInTheDocument()
-    expect(screen.getByRole('radio', { name: /files/i })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /connections/i })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /files/i })).toBeInTheDocument()
   })
 
   test('switches to files tab when clicked', async () => {
     const user = userEvent.setup()
     render(<DataSourcesPanel />)
 
-    await user.click(screen.getByRole('radio', { name: /files/i }))
+    await user.click(screen.getByRole('tab', { name: /files/i }))
 
     expect(mockSetDataSourcesPanelTab).toHaveBeenCalledWith('files')
   })

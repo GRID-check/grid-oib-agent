@@ -85,7 +85,7 @@ RUN /app/.venv/bin/python -c "import aiq_api; import knowledge_layer; print('✓
 
 RUN chmod +x /app/deploy/start_web.py \
     && mkdir -p /app/data \
-    && chown -R 1000:1000 /app
+    && chown -R 1000:1000 /app/data
 
 # =============================================================================
 # Stage 2: Development (includes CLI)

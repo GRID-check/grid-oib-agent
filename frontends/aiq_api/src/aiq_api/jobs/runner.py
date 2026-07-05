@@ -252,6 +252,7 @@ async def run_agent_job(
     data_sources: list[str] | None = None,
     auth_token: str | None = None,
     collection_scope: list[str] | None = None,
+    project_context: str | None = None,
 ):
     """
     Dask task to run any registered agent with cancellation support and telemetry.
@@ -286,6 +287,9 @@ async def run_agent_job(
         collection_scope: Optional list of collection names to scope knowledge
             retrieval to. Injected into the worker's request metadata so that
             ``get_collection_scope_from_context()`` returns the correct scope.
+        project_context: Optional project context string to inject into the
+            worker's request metadata so that
+            ``get_project_context_from_context()`` returns the correct context.
     """
 
     # Propagate auth token into the current async task's context so tools
@@ -435,6 +439,18 @@ async def run_agent_job(
                 )
                 context_state.metadata.set(request_attrs)
 
+            if project_context is not None:
+                from aiq_agent.project_context import normalize_project_context
+
+                normalized = normalize_project_context(project_context)
+                if normalized:
+                    request_attrs = context_state.metadata.get()
+                    existing_headers = dict(request_attrs.headers) if request_attrs and request_attrs.headers else {}
+                    request_attrs._request.headers = Headers(
+                        headers={**existing_headers, "x-grid-project-context": normalized}
+                    )
+                    context_state.metadata.set(request_attrs)
+
             workflow_metadata = TraceMetadata(
                 provided_metadata={
                     "workflow_run_id": job_id,
@@ -488,7 +504,8 @@ async def run_agent_job(
 
                     raw_event_store = EventStore(db_url, job_id)
                     event_store = BatchingEventStore(raw_event_store)
-                    callbacks.append(AgentEventCallback(event_store))
+                    agent_event_callback = AgentEventCallback(event_store)
+                    callbacks.append(agent_event_callback)
                     callbacks.append(nat_profiler_callback)
 
                     # Instantiate agent with callbacks
@@ -537,15 +554,31 @@ async def run_agent_job(
                     # Signal event stream completion
                     event_stream.on_complete()
 
+                    # Extract report and update status inside the context manager
+                    # so the UI sees completion before exporter flush and cleanup
+                    report = _extract_result(result)
+
+                    # Generate Grid response cards from the final report and
+                    # re-emit the report artifact with the cards attached.
+                    # Best-effort and additive: card failures never fail the job.
+                    cards = await _generate_grid_cards(llm, input_text, report)
+                    if cards:
+                        agent_event_callback.emit_final_report(report, cards=cards)
+
                     # Flush any buffered events before updating status
                     if hasattr(event_store, "flush"):
                         event_store.flush()
 
-                    # Extract report and update status inside the context manager
-                    # so the UI sees completion before exporter flush and cleanup
-                    report = _extract_result(result)
-                    await job_store.update_status(job_id, JobStatus.SUCCESS, output={"report": report})
-                    logger.info("Job %s completed (report: %d chars)", job_id, len(report))
+                    output: dict[str, Any] = {"report": report}
+                    if cards:
+                        output["cards"] = cards
+                    await job_store.update_status(job_id, JobStatus.SUCCESS, output=output)
+                    logger.info(
+                        "Job %s completed (report: %d chars, cards: %d)",
+                        job_id,
+                        len(report),
+                        len(cards) if cards else 0,
+                    )
 
     except asyncio.CancelledError:
         logger.info("Job %s cancelled", job_id)
@@ -787,6 +820,24 @@ def _get_agent_state_class(agent) -> type | None:
         pass
 
     return None
+
+
+async def _generate_grid_cards(llm: Any, query: str, report: str) -> list[dict] | None:
+    """Generate Grid response cards from the final report.
+
+    Best-effort: logs and returns None on any failure so card generation
+    can never crash or fail the job.
+    """
+    try:
+        from aiq_agent.cards import generate_cards
+
+        cards = await generate_cards(llm, query, report)
+        if cards:
+            logger.info("Generated %d Grid card(s) for deep-research report", len(cards))
+        return cards
+    except Exception as e:
+        logger.warning("Grid card generation failed (non-fatal): %s", e)
+        return None
 
 
 def _extract_result(result: Any) -> str:

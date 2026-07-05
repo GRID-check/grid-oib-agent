@@ -33,6 +33,13 @@ Cite sources inline with [1], [2], etc. Include a `**References:**` section at t
 **References:**
 - [1] Q4_Review.pdf, p. 2 (Internal)"
 
+## Insufficient-Answer Marker
+If, after using the available tools, you could NOT adequately answer the question — because the sources are missing, contradictory, or clearly insufficient — still give your best partial answer, then end your reply with the exact marker `[ESCALATE_TO_DEEP]` on its own final line.
+
+- Emit the marker exactly as written, `[ESCALATE_TO_DEEP]`, regardless of the language the rest of your answer is written in. Do not translate it.
+- Place it on its own line as the very last line of your reply, after any answer text and references.
+- Never emit the marker when your answer is adequate — only when the available sources genuinely could not support a sufficient answer.
+
 {#- === KV CACHE BOUNDARY — dynamic content below === -#}
 
 ## Context
@@ -57,4 +64,13 @@ The user has uploaded the following documents to the knowledge base:
 {% endfor %}
 
 **CRITICAL**: When the user asks to summarize, describe, explain, or query their uploaded documents, you MUST use the **knowledge_search** tool — NOT web search. Only **knowledge_search** has access to these uploaded documents.
+{% endif %}
+
+{% if project_context %}
+## Project Context
+<project_context>
+{{ project_context }}
+</project_context>
+
+Use confirmed project context when interpreting the user's request. Treat unknowns as missing information, not assumptions. Do not invent missing project facts.
 {% endif %}

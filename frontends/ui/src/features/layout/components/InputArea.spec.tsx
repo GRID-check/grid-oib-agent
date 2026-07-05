@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 import { render, screen } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
@@ -16,13 +13,6 @@ let mockDeepResearchOwnerConversationId: string | null = null
 let mockConversationMessages: unknown[] | undefined = []
 
 vi.mock('@/features/chat', () => ({
-  useChat: vi.fn(() => ({
-    sendMessage: mockSendMessage,
-    isStreaming: false,
-    isLoading: false,
-    respondToInteraction: undefined,
-    pendingInteraction: null,
-  })),
   useWebSocketChat: vi.fn(() => ({
     sendMessage: mockSendMessage,
     isStreaming: false,
@@ -113,7 +103,7 @@ vi.mock('@/features/documents', () => ({
   useFileUploadBanners: vi.fn(),
 }))
 
-import { useChat, useWebSocketChat, useIsCurrentSessionBusy } from '@/features/chat'
+import { useWebSocketChat, useIsCurrentSessionBusy } from '@/features/chat'
 import { useFileUpload, useFileDragDrop } from '@/features/documents'
 
 describe('InputArea', () => {
@@ -125,13 +115,6 @@ describe('InputArea', () => {
     mockConversationMessages = []
     // Reset mocks to defaults - clearAllMocks doesn't reset mockReturnValue
     vi.mocked(useIsCurrentSessionBusy).mockReturnValue(false)
-    vi.mocked(useChat).mockReturnValue({
-      sendMessage: mockSendMessage,
-      isStreaming: false,
-      isLoading: false,
-      respondToInteraction: undefined,
-      pendingInteraction: null,
-    } as unknown as ReturnType<typeof useChat>)
     vi.mocked(useWebSocketChat).mockReturnValue({
       sendMessage: mockSendMessage,
       isStreaming: false,
@@ -180,7 +163,7 @@ describe('InputArea', () => {
     expect(screen.getByRole('button', { name: /send message/i })).toBeDisabled()
   })
 
-  test('tabs from the prompt input directly to the send button', async () => {
+  test('all composer controls are keyboard reachable via tab', async () => {
     const user = userEvent.setup()
     render(<InputArea isAuthenticated={true} />)
 
@@ -189,6 +172,17 @@ describe('InputArea', () => {
     expect(input).toHaveFocus()
 
     await user.type(input, 'Hello')
+    await user.tab()
+    expect(
+      screen.getByRole('button', { name: /toggle data sources connections/i })
+    ).toHaveFocus()
+
+    await user.tab()
+    expect(screen.getByRole('button', { name: /open uploaded files/i })).toHaveFocus()
+
+    await user.tab()
+    expect(screen.getByRole('button', { name: /attach files/i })).toHaveFocus()
+
     await user.tab()
     expect(screen.getByRole('button', { name: /send message/i })).toHaveFocus()
   })
@@ -239,13 +233,6 @@ describe('InputArea', () => {
     // InputArea uses useIsCurrentSessionBusy() for disable logic.
     // When isBusy is true (e.g. streaming), input is disabled with "Please wait..." placeholder.
     vi.mocked(useIsCurrentSessionBusy).mockReturnValue(true)
-    vi.mocked(useChat).mockReturnValue({
-      sendMessage: mockSendMessage,
-      isStreaming: true,
-      isLoading: false,
-      respondToInteraction: undefined,
-      pendingInteraction: null,
-    } as unknown as ReturnType<typeof useChat>)
 
     render(<InputArea isAuthenticated={true} connectionMode="sse" />)
 
@@ -255,13 +242,6 @@ describe('InputArea', () => {
 
   test('disables input when session is busy (loading)', () => {
     vi.mocked(useIsCurrentSessionBusy).mockReturnValue(true)
-    vi.mocked(useChat).mockReturnValue({
-      sendMessage: mockSendMessage,
-      isStreaming: false,
-      isLoading: true,
-      respondToInteraction: undefined,
-      pendingInteraction: null,
-    } as unknown as ReturnType<typeof useChat>)
 
     render(<InputArea isAuthenticated={true} connectionMode="sse" />)
 

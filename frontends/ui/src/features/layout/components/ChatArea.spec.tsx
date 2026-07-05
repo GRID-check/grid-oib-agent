@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 import { render, screen } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
@@ -49,16 +46,18 @@ describe('ChatArea', () => {
   test('renders welcome state when not authenticated', () => {
     render(<ChatArea isAuthenticated={false} />)
 
-    expect(screen.getByText('Welcome to Grid')).toBeInTheDocument()
-    expect(screen.getByText(/sign in with your account/i)).toBeInTheDocument()
+    expect(
+      screen.getByText(/grid opens after your organization is verified/i)
+    ).toBeInTheDocument()
+    expect(screen.getByText(/sign in to unlock project-scoped/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /sign in with.*sso/i })).toBeInTheDocument()
   })
 
   test('renders welcome state when authenticated with no messages', () => {
     render(<ChatArea isAuthenticated={true} />)
 
-    expect(screen.getByText('Welcome to Grid')).toBeInTheDocument()
-    expect(screen.getByText(/AI-powered research companion/i)).toBeInTheDocument()
+    expect(screen.getByText(/start with a project/i)).toBeInTheDocument()
+    expect(screen.getByText(/keeps retrieval scoped/i)).toBeInTheDocument()
   })
 
   test('calls onSignIn when sign in button clicked', async () => {
@@ -93,7 +92,7 @@ describe('ChatArea', () => {
     expect(screen.getByTestId('user-message')).toHaveTextContent('Hello world')
   })
 
-  test('renders status messages', () => {
+  test('does not render legacy status messages', () => {
     vi.mocked(useChatStore).mockImplementation((selector?: (s: any) => any) => {
       const state = {
         currentConversation: {
@@ -119,8 +118,8 @@ describe('ChatArea', () => {
 
     render(<ChatArea isAuthenticated={true} />)
 
-    // Status messages render inline with the status type
-    expect(screen.getByRole('status')).toBeInTheDocument()
+    // The dead SSE status transport was removed - status messages are no longer rendered
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
   })
 
   test('renders agent prompts', () => {
@@ -266,7 +265,7 @@ describe('ChatArea', () => {
     render(<ChatArea isAuthenticated={true} />)
 
     // Should show welcome state since assistant messages are filtered out
-    expect(screen.getByText('Welcome to Grid')).toBeInTheDocument()
+    expect(screen.getByText(/start with a project/i)).toBeInTheDocument()
   })
 
   test('renders chat messages area with aria-label', () => {
@@ -291,7 +290,7 @@ describe('ChatArea', () => {
     render(<ChatArea isAuthenticated={true} />)
 
     // Should render welcome state
-    expect(screen.getByText('Welcome to Grid')).toBeInTheDocument()
+    expect(screen.getByText(/start with a project/i)).toBeInTheDocument()
   })
 
   test('renders file upload banners', () => {

@@ -1,10 +1,14 @@
-# NVIDIA AI-Q Blueprint UI
+# Grid UI
 
-A modern research assistant interface built with Next.js, React, TypeScript, TailwindCSS, and NVIDIA KUI Foundations.
+Grid is a project-centered operating system for architects working with OIB building regulations. The UI is organized around projects: each project owns its files, folders, context, collaborators, and Grid assistant conversations.
+
+Chat is an important project feature, but it is not the product frame. The primary workspace is the project overview and file library, with the assistant available wherever project context and documents need to be interpreted.
+
+Built with Next.js, React, TypeScript, TailwindCSS, and NVIDIA KUI Foundations.
 
 ## Overview
 
-The AI-Q Blueprint UI provides an accessible, feature-rich frontend for the AI-Q backend. It features:
+The Grid UI provides an accessible, feature-rich frontend for the AI-Q backend. It features:
 
 - **Next.js** with App Router and Turbopack
 - **React** with TypeScript (strict mode)
@@ -396,7 +400,7 @@ WORKOS_REDIRECT_URI=http://localhost:3000/api/auth/callback
 WORKOS_COOKIE_PASSWORD=$(openssl rand -hex 32)
 ```
 
-Then restart the dev server. The first user without an active organization is redirected to `/onboarding/organization` to create one.
+Then restart the dev server. The first user without an active organization is redirected to `/app/onboarding/organization` to create one.
 
 ### Disabling Authentication
 

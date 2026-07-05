@@ -1,11 +1,9 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * CitationCard Component
  *
  * Non-collapsible card displaying a single citation/source as a clickable link.
- * Shows title/domain and full URL.
+ * Shows a numbered index, the source domain, the captured excerpt (snippet) and
+ * the full URL — so a citation reads as verifiable proof, not a bare hostname.
  *
  * SSE Events:
  * - artifact.update type: "citation_source" - Referenced (discovered during search)
@@ -15,13 +13,15 @@
 'use client'
 
 import { type FC } from 'react'
-import { Flex, Text } from '@/adapters/ui'
-import { Link, Check } from '@/adapters/ui/icons'
+import { Check, Link as LinkIcon } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import type { CitationSource } from '@/features/chat/types'
 
 interface CitationCardProps {
   /** Citation information */
   citation: CitationSource
+  /** 1-based position in the citation list, rendered as a numbered marker. */
+  index?: number
 }
 
 /**
@@ -45,65 +45,70 @@ const getDomain = (url: string): string => {
 }
 
 /**
- * Non-collapsible card showing a citation source as a clickable link.
+ * Non-collapsible card showing a citation source: numbered, with title,
+ * captured snippet and a verifiable link.
  */
-export const CitationCard: FC<CitationCardProps> = ({ citation }) => {
+export const CitationCard: FC<CitationCardProps> = ({ citation, index }) => {
+  const excerpt = citation.content?.trim()
+
   return (
     <a
       href={citation.url}
       target="_blank"
       rel="noopener noreferrer"
-      className="block"
+      className="animate-in fade-in-0 block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
     >
-      <Flex
-        direction="col"
-        className="rounded-lg border overflow-hidden bg-surface-sunken border-base hover:bg-surface-raised-50 transition-colors"
-      >
-        {/* Header */}
-        <Flex align="center" gap="2" className="w-full px-3 py-2">
-          {/* Status Icon - Cited vs Referenced */}
+      <div className="flex gap-3 rounded-lg border bg-card p-3 transition-colors hover:bg-accent">
+        {/* Numbered marker */}
+        {index != null && (
           <span
-            className="shrink-0"
-            style={{
-              color: citation.isCited
-                ? 'var(--text-color-feedback-success)'
-                : 'var(--text-color-subtle)',
-            }}
+            className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-md border bg-muted font-mono text-xs tabular-nums text-muted-foreground"
             aria-hidden="true"
           >
-            {citation.isCited ? (
-              <Check className="h-4 w-4" />
-            ) : (
-              <Link className="h-4 w-4" />
-            )}
+            {index}
           </span>
+        )}
 
-          {/* Citation Title */}
-          <Text
-            kind="label/semibold/sm"
-            className="flex-1 min-w-0 truncate"
-            style={{
-              color: citation.isCited
-                ? 'var(--text-color-feedback-success)'
-                : 'var(--text-color-subtle)',
-            }}
-          >
-            {getDomain(citation.url)}
-          </Text>
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          {/* Header: cited/referenced state + domain + timestamp */}
+          <div className="flex items-center gap-2">
+            <span
+              className={cn(
+                'shrink-0',
+                citation.isCited ? 'text-success' : 'text-muted-foreground'
+              )}
+              aria-hidden="true"
+            >
+              {citation.isCited ? (
+                <Check className="h-4 w-4" />
+              ) : (
+                <LinkIcon className="h-4 w-4" />
+              )}
+            </span>
+            <span
+              className={cn(
+                'min-w-0 flex-1 truncate text-sm font-semibold',
+                citation.isCited ? 'text-success' : 'text-foreground'
+              )}
+            >
+              {getDomain(citation.url)}
+            </span>
+            <span className="shrink-0 text-xs text-muted-foreground">
+              {formatTime(citation.timestamp)}
+            </span>
+          </div>
 
-          {/* Timestamp */}
-          <Text kind="body/regular/xs" className="text-subtle shrink-0">
-            {formatTime(citation.timestamp)}
-          </Text>
-        </Flex>
+          {/* Captured excerpt (previously dropped) */}
+          {excerpt && (
+            <p className="line-clamp-3 text-sm leading-relaxed text-muted-foreground">{excerpt}</p>
+          )}
 
-        {/* Full URL */}
-        <Flex className="px-3 pb-2 border-t border-base">
-          <Text kind="body/regular/sm" className="text-subtle truncate mt-1 break-all">
+          {/* Full URL — traceable source */}
+          <span className="truncate break-all font-mono text-xs text-muted-foreground/80">
             {citation.url}
-          </Text>
-        </Flex>
-      </Flex>
+          </span>
+        </div>
+      </div>
     </a>
   )
 }

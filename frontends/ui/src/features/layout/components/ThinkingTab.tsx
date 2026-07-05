@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * ThinkingTab Component
  *
@@ -25,8 +22,8 @@
 'use client'
 
 import { type FC, useState, useCallback, useMemo } from 'react'
-import { Flex, SegmentedControl, Text } from '@/adapters/ui'
-import { Book } from '@/adapters/ui/icons'
+import { BookOpen } from 'lucide-react'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useChatStore } from '@/features/chat'
 import { ThoughtTracesTab } from './ThoughtTracesTab'
 import { AgentsTab } from './AgentsTab'
@@ -112,45 +109,39 @@ const CitationListView: FC<CitationListViewProps> = ({ filter, citations }) => {
       : 'Sources discovered during research that were not referenced in the final report.'
 
   return (
-    <Flex direction="col" gap="4" className="h-full min-h-0">
-      <Flex direction="col" gap="1" className="shrink-0">
-        <Flex align="center" gap="2">
-          <Text kind="label/semibold/md" className="text-subtle">
-            {headerText}
-          </Text>
+    <div className="flex h-full min-h-0 flex-col gap-4">
+      <div className="flex shrink-0 flex-col gap-1">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold text-muted-foreground">{headerText}</span>
           {filteredCitations.length > 0 && (
-            <Text kind="body/regular/xs" className="text-subtle">
-              {filteredCitations.length}
-            </Text>
+            <span className="text-xs text-muted-foreground">{filteredCitations.length}</span>
           )}
-        </Flex>
-        <Text kind="body/regular/xs" className="text-subtle">
-          {subheadingText}
-        </Text>
-      </Flex>
+        </div>
+        <span className="text-xs text-muted-foreground">{subheadingText}</span>
+      </div>
 
       {isEmpty ? (
-        <Flex direction="col" align="center" justify="center" className="flex-1 py-8 text-center">
-          <Book className="text-subtle mb-3 h-8 w-8" />
-          <Text kind="body/regular/md" className="text-subtle">
+        <div className="flex flex-1 flex-col items-center justify-center py-8 text-center">
+          <BookOpen className="mb-3 h-8 w-8 text-muted-foreground" aria-hidden="true" />
+          <p className="text-sm text-muted-foreground">
             {filter === 'referenced'
               ? 'No referenced sources available.'
               : 'No read sources available.'}
-          </Text>
-          <Text kind="body/regular/sm" className="text-subtle mt-2">
+          </p>
+          <p className="mt-2 text-sm text-muted-foreground">
             {EMPTY_RESEARCH_DETAILS_HELP_TEXT}
-          </Text>
-        </Flex>
+          </p>
+        </div>
       ) : (
-        <Flex direction="col" gap="2" className="min-h-0 flex-1 overflow-y-auto">
-          {filteredCitations.map((citation) => (
+        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
+          {filteredCitations.map((citation, index) => (
             <div key={citation.id} className="shrink-0">
-              <CitationCard citation={citation} />
+              <CitationCard citation={citation} index={index + 1} />
             </div>
           ))}
-        </Flex>
+        </div>
       )}
-    </Flex>
+    </div>
   )
 }
 
@@ -183,22 +174,19 @@ export const ThinkingTab: FC = () => {
   }, [deepResearchToolCalls])
 
   return (
-    <Flex direction="col" gap="4" className="h-full min-h-0">
+    <div className="flex h-full min-h-0 flex-col gap-4">
       {/* Header with sub-tab selector */}
       <div className="shrink-0">
-        <SegmentedControl
-          value={activeSubTab}
-          onValueChange={handleSubTabChange}
-          size="small"
-          items={[
-            { value: 'thoughts', children: 'Thoughts' },
-            { value: 'agents', children: 'Agents' },
-            { value: 'tools', children: 'Tools' },
-            { value: 'files', children: 'Files' },
-            { value: 'read', children: 'Read' },
-            { value: 'referenced', children: 'Referenced' },
-          ]}
-        />
+        <Tabs value={activeSubTab} onValueChange={handleSubTabChange}>
+          <TabsList>
+            <TabsTrigger value="thoughts">Thoughts</TabsTrigger>
+            <TabsTrigger value="agents">Agents</TabsTrigger>
+            <TabsTrigger value="tools">Tools</TabsTrigger>
+            <TabsTrigger value="files">Files</TabsTrigger>
+            <TabsTrigger value="read">Read</TabsTrigger>
+            <TabsTrigger value="referenced">Referenced</TabsTrigger>
+          </TabsList>
+        </Tabs>
       </div>
 
       {/* Sub-tab content */}
@@ -214,6 +202,6 @@ export const ThinkingTab: FC = () => {
           <CitationListView filter="referenced" citations={deepResearchCitations} />
         )}
       </div>
-    </Flex>
+    </div>
   )
 }

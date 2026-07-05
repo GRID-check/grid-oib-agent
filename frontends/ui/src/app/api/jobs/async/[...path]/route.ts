@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * Deep Research API Route Proxy
  *
@@ -29,25 +26,17 @@ import { NextResponse } from 'next/server'
 import { requireAuthorizedSession } from '@/lib/auth/require-auth'
 import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
 import type { GridSession } from '@/lib/auth/types'
-
-const isAuthRequired = (): boolean => {
-  return process.env.REQUIRE_AUTH?.toLowerCase() === 'true'
-}
-
-const isAuthzError = (error: unknown): boolean => {
-  if (!(error instanceof Error)) return false
-  const message = error.message.toLowerCase()
-  return (
-    message === 'not found' ||
-    message.includes('unauthorized') ||
-    message.includes('forbidden')
-  )
-}
-
-const getBackendUrl = (): string => {
-  const url = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'
-  return url.replace(/\/$/, '')
-}
+import { isAuthzError } from '@/lib/auth-utils'
+import {
+  isAuthRequired,
+  getBackendUrl,
+  buildAuthHeaders,
+  backendErrorEnvelope,
+  noResponseBodyEnvelope,
+  handleAuthzError,
+  proxyErrorEnvelope,
+  sseStreamResponse,
+} from '@/lib/backend-proxy'
 
 /**
  * Build the backend URL for deep research API
@@ -90,10 +79,6 @@ async function resolveSessionAndAuth(
   return { session, authHeader }
 }
 
-function buildAuthHeaders(authHeader: string | null): Record<string, string> {
-  return authHeader ? { Authorization: authHeader } : {}
-}
-
 function buildUpstreamUrl(backendUrl: string, searchParams: URLSearchParams): URL {
   const upstreamUrl = new URL(backendUrl)
   searchParams.forEach((value, key) => {
@@ -103,24 +88,6 @@ function buildUpstreamUrl(backendUrl: string, searchParams: URLSearchParams): UR
     }
   })
   return upstreamUrl
-}
-
-function handleAuthzError(error: unknown): NextResponse {
-  const status = error instanceof Error && error.message.toLowerCase() === 'not found' ? 404 : 403
-  const code = status === 404 ? 'NOT_FOUND' : 'FORBIDDEN'
-
-  return new NextResponse(
-    JSON.stringify({
-      error: {
-        code,
-        message: error instanceof Error ? error.message : 'Access denied',
-      },
-    }),
-    {
-      status,
-      headers: { 'Content-Type': 'application/json' },
-    }
-  )
 }
 
 /**
@@ -165,46 +132,19 @@ export async function GET(
       const errorText = await response.text()
       console.error('[Deep Research API] Backend error:', response.status, errorText)
 
-      return new NextResponse(
-        JSON.stringify({
-          error: {
-            code: 'BACKEND_ERROR',
-            message: `Backend returned ${response.status}: ${errorText}`,
-          },
-        }),
-        {
-          status: response.status,
-          headers: { 'Content-Type': 'application/json' },
-        }
-      )
+      return backendErrorEnvelope(response.status, errorText)
     }
 
     // For SSE streams, pass through the response body
     if (isStreamRequest) {
       if (!response.body) {
-        return new NextResponse(
-          JSON.stringify({
-            error: {
-              code: 'NO_RESPONSE_BODY',
-              message: 'Backend returned no SSE stream body',
-            },
-          }),
-          {
-            status: 500,
-            headers: { 'Content-Type': 'application/json' },
-          }
-        )
+        return noResponseBodyEnvelope('Backend returned no SSE stream body')
       }
 
       // Stream the SSE response back to the client
-      return new NextResponse(response.body, {
-        status: 200,
-        headers: {
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache, no-transform',
-          Connection: 'keep-alive',
-          'X-Accel-Buffering': 'no', // Disable nginx buffering
-        },
+      return sseStreamResponse(response.body, {
+        'Cache-Control': 'no-cache, no-transform',
+        'X-Accel-Buffering': 'no', // Disable nginx buffering
       })
     }
 
@@ -218,20 +158,7 @@ export async function GET(
 
     console.error('[Deep Research API] GET error:', error)
 
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-
-    return new NextResponse(
-      JSON.stringify({
-        error: {
-          code: 'PROXY_ERROR',
-          message: errorMessage,
-        },
-      }),
-      {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' },
-      }
-    )
+    return proxyErrorEnvelope(error)
   }
 }
 
@@ -290,18 +217,7 @@ export async function POST(
       const errorText = await response.text()
       console.error('[Deep Research API] Backend error:', response.status, errorText)
 
-      return new NextResponse(
-        JSON.stringify({
-          error: {
-            code: 'BACKEND_ERROR',
-            message: `Backend returned ${response.status}: ${errorText}`,
-          },
-        }),
-        {
-          status: response.status,
-          headers: { 'Content-Type': 'application/json' },
-        }
-      )
+      return backendErrorEnvelope(response.status, errorText)
     }
 
     // Return JSON response
@@ -314,20 +230,7 @@ export async function POST(
 
     console.error('[Deep Research API] POST error:', error)
 
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-
-    return new NextResponse(
-      JSON.stringify({
-        error: {
-          code: 'PROXY_ERROR',
-          message: errorMessage,
-        },
-      }),
-      {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' },
-      }
-    )
+    return proxyErrorEnvelope(error)
   }
 }
 
@@ -369,18 +272,7 @@ export async function DELETE(
       const errorText = await response.text()
       console.error('[Deep Research API] DELETE Backend error:', response.status, errorText)
 
-      return new NextResponse(
-        JSON.stringify({
-          error: {
-            code: 'BACKEND_ERROR',
-            message: `Backend returned ${response.status}: ${errorText}`,
-          },
-        }),
-        {
-          status: response.status,
-          headers: { 'Content-Type': 'application/json' },
-        }
-      )
+      return backendErrorEnvelope(response.status, errorText)
     }
 
     const data = await response.json().catch(() => ({}))
@@ -392,19 +284,6 @@ export async function DELETE(
 
     console.error('[Deep Research API] DELETE error:', error)
 
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-
-    return new NextResponse(
-      JSON.stringify({
-        error: {
-          code: 'PROXY_ERROR',
-          message: errorMessage,
-        },
-      }),
-      {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' },
-      }
-    )
+    return proxyErrorEnvelope(error)
   }
 }

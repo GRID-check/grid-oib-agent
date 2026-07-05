@@ -1,6 +1,6 @@
 # ADR-0002: Outsource identity to WorkOS
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-06-30
 - **Deciders:** Grid Agent team
 - **Related:** [ADR-0003](0003-nextjs-bff-and-stateless-python-agent.md), [ADR-0004](0004-tenancy-ownership-and-access-model.md), [ADR-0007](0007-no-local-identity-sync.md), [`../architecture/multitenancy-and-auth-spec.md`](../architecture/multitenancy-and-auth-spec.md)

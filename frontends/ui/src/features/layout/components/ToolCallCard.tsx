@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * ToolCallCard Component
  *
@@ -14,8 +11,9 @@
 'use client'
 
 import { type FC, useState } from 'react'
-import { Flex, Text, Button } from '@/adapters/ui'
-import { ChevronDown, Check, Close, Clock, LoadingSpinner } from '@/adapters/ui/icons'
+import { Check, ChevronDown, Clock, X } from 'lucide-react'
+import { Spinner } from '@/components/ui/spinner'
+import { cn } from '@/lib/utils'
 
 /** Tool call information from SSE events */
 export interface ToolCallInfo {
@@ -91,46 +89,39 @@ export const ToolCallCard: FC<ToolCallCardProps> = ({ toolCall }) => {
   const canExpand = !isRunning
 
   // Determine text color based on status
-  const textColor = isRunning
-    ? 'var(--text-color-feedback-info)'
+  const statusTextClass = isRunning
+    ? 'text-info'
     : isComplete
-      ? 'var(--text-color-feedback-success)'
+      ? 'text-success'
       : isError
-        ? 'var(--text-color-feedback-danger)'
-        : 'var(--text-color-subtle)'
+        ? 'text-error'
+        : 'text-muted-foreground'
 
   const previewText = getPreviewText(toolCall)
   const hasPreview = previewText.length > 0
 
   return (
-    <Flex
-      direction="col"
-      className="rounded-lg border overflow-hidden bg-surface-sunken border-base"
-    >
+    <div className="flex flex-col overflow-hidden rounded-lg border bg-muted/40">
       {/* Header - always visible */}
-      <Button
-        kind="tertiary"
-        size="small"
+      <button
+        type="button"
         onClick={() => canExpand && setIsExpanded(!isExpanded)}
         aria-expanded={isExpanded}
         aria-controls={`tool-content-${toolCall.id}`}
-        className="w-full justify-start text-left p-0"
+        className="w-full text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/60 disabled:cursor-default"
         disabled={!canExpand}
+        title={!canExpand ? 'Details available when the tool call completes' : undefined}
       >
-        <Flex align="center" gap="2" className="w-full px-3 py-2">
+        <div className="flex w-full items-center gap-2 px-3 py-2">
           {/* Status Icon - spinner when running */}
           {isRunning ? (
-            <LoadingSpinner size="small" className="h-4 w-4 shrink-0" aria-label={`${toolCall.name} is running`} />
+            <Spinner size="sm" label={`${toolCall.name} is running`} className="shrink-0" />
           ) : (
-            <span
-              className="shrink-0"
-              style={{ color: textColor }}
-              aria-hidden="true"
-            >
+            <span className={cn('shrink-0', statusTextClass)} aria-hidden="true">
               {isComplete ? (
                 <Check className="h-4 w-4" />
               ) : isError ? (
-                <Close className="h-4 w-4" />
+                <X className="h-4 w-4" />
               ) : (
                 <Clock className="h-4 w-4" />
               )}
@@ -138,93 +129,80 @@ export const ToolCallCard: FC<ToolCallCardProps> = ({ toolCall }) => {
           )}
 
           {/* Tool Info */}
-          <Flex direction="col" gap="0" className="flex-1 min-w-0">
-            <Text kind="label/semibold/sm" style={{ color: textColor }}>
-              {toolCall.name}
-            </Text>
+          <div className="flex min-w-0 flex-1 flex-col">
+            <span className={cn('text-sm font-semibold', statusTextClass)}>{toolCall.name}</span>
             {toolCall.workflow && (
-              <Text kind="body/regular/xs" className="text-subtle truncate">
+              <span className="truncate text-xs text-muted-foreground">
                 via {toolCall.workflow}
-              </Text>
+              </span>
             )}
-          </Flex>
+          </div>
 
           {/* Timestamp */}
           {toolCall.timestamp && (
-            <Text kind="body/regular/xs" className="text-subtle shrink-0">
+            <span className="shrink-0 text-xs text-muted-foreground">
               {formatTime(toolCall.timestamp)}
-            </Text>
+            </span>
           )}
 
           {/* Expand/collapse icon - hidden when running */}
           {canExpand && (
             <span
-              className={`
-                text-subtle transition-transform duration-200
-                ${isExpanded ? 'rotate-180' : ''}
-              `}
+              className={cn(
+                'text-muted-foreground transition-transform duration-200 motion-reduce:transition-none',
+                isExpanded && 'rotate-180'
+              )}
               aria-hidden="true"
             >
               <ChevronDown className="h-4 w-4" />
             </span>
           )}
-        </Flex>
-      </Button>
+        </div>
+      </button>
 
       {/* Collapsed preview */}
       {!isExpanded && hasPreview && (
-        <Flex className="px-3 pb-2 border-t border-base">
-          <Text kind="body/regular/sm" className="text-subtle truncate mt-1 font-mono">
+        <div className="flex border-t px-3 pb-2">
+          <span className="mt-1 truncate font-mono text-sm text-muted-foreground">
             {previewText}
-          </Text>
-        </Flex>
+          </span>
+        </div>
       )}
 
       {/* Expanded content */}
       {isExpanded && (
-        <Flex
-          id={`tool-content-${toolCall.id}`}
-          direction="col"
-          gap="3"
-          className="px-3 pb-3 border-t border-base"
-        >
+        <div id={`tool-content-${toolCall.id}`} className="flex flex-col gap-3 border-t px-3 pb-3">
           {/* Arguments */}
           {toolCall.arguments && (
-            <Flex direction="col" gap="1" className="mt-2">
-              <Text kind="label/semibold/xs" className="text-subtle uppercase">
+            <div className="mt-2 flex flex-col gap-1">
+              <span className="text-xs font-semibold uppercase text-muted-foreground">
                 Arguments
-              </Text>
-              <pre className="text-xs font-mono bg-surface-raised text-primary p-2 rounded overflow-x-auto">
+              </span>
+              <pre className="overflow-x-auto rounded bg-muted p-2 font-mono text-xs">
                 {formatArguments(toolCall.arguments, true)}
               </pre>
-            </Flex>
+            </div>
           )}
 
           {/* Result */}
           {toolCall.result && (
-            <Flex direction="col" gap="1">
-              <Text kind="label/semibold/xs" className="text-subtle uppercase">
-                Result
-              </Text>
-              <pre className="text-xs font-mono bg-surface-raised text-primary p-2 rounded overflow-x-auto whitespace-pre-wrap max-h-48">
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-semibold uppercase text-muted-foreground">Result</span>
+              <pre className="max-h-48 overflow-x-auto whitespace-pre-wrap rounded bg-muted p-2 font-mono text-xs">
                 {toolCall.result}
               </pre>
-            </Flex>
+            </div>
           )}
 
           {/* Error */}
           {toolCall.error && (
-            <Flex direction="col" gap="1">
-              <Text kind="label/semibold/xs" className="text-error uppercase">
-                Error
-              </Text>
-              <Text kind="body/regular/sm" className="text-error">
-                {toolCall.error}
-              </Text>
-            </Flex>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-semibold uppercase text-error">Error</span>
+              <span className="text-sm text-error">{toolCall.error}</span>
+            </div>
           )}
-        </Flex>
+        </div>
       )}
-    </Flex>
+    </div>
   )
 }

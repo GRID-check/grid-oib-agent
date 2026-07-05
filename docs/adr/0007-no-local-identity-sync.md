@@ -1,6 +1,6 @@
 # ADR-0007: No local identity sync
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-06-30
 - **Deciders:** Grid Agent team
 - **Related:** [ADR-0002](0002-outsource-identity-to-workos.md), [ADR-0004](0004-tenancy-ownership-and-access-model.md), [`../architecture/multitenancy-and-auth-spec.md`](../architecture/multitenancy-and-auth-spec.md)

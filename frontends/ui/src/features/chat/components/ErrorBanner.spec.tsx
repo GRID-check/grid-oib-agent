@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 import { render, screen } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
@@ -59,11 +56,10 @@ describe('ErrorBanner', () => {
       expect(screen.queryByText(/unable to connect to the server/i)).not.toBeInTheDocument()
     })
 
-    test('uses KUI Banner component', () => {
-      const { container } = render(<ErrorBanner code="connection.failed" />)
+    test('renders as an alert', () => {
+      render(<ErrorBanner code="connection.failed" />)
 
-      // KUI Banner renders with specific class structure
-      expect(container.querySelector('[class*="banner"]')).toBeInTheDocument()
+      expect(screen.getByRole('alert')).toBeInTheDocument()
     })
   })
 

@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * ReportTab Component
  *
@@ -15,11 +12,11 @@
 'use client'
 
 import { type FC, type ReactNode } from 'react'
-import { Flex, Text } from '@/adapters/ui'
 import { useShallow } from 'zustand/react/shallow'
-import { Document } from '@/adapters/ui/icons'
+import { FileText } from 'lucide-react'
 import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
 import { useChatStore } from '@/features/chat'
+import { GridCards } from '@/features/grid-cards'
 import { ExportFooter } from './ExportFooter'
 
 interface ReportTabProps {
@@ -33,45 +30,45 @@ interface ReportTabProps {
  * Renders research notes with a subtle preview treatment and the final report at full prominence.
  */
 export const ReportTab: FC<ReportTabProps> = ({ children }) => {
-  const { reportContent, reportContentCategory, isStreaming, currentStatus } =
-    useChatStore(useShallow((s) => ({
-      reportContent: s.reportContent,
-      reportContentCategory: s.reportContentCategory,
-      isStreaming: s.isStreaming,
-      currentStatus: s.currentStatus,
-    })))
+  const { reportContent, reportContentCategory, isStreaming, currentStatus, deepResearchCards } =
+    useChatStore(
+      useShallow((s) => ({
+        reportContent: s.reportContent,
+        reportContentCategory: s.reportContentCategory,
+        isStreaming: s.isStreaming,
+        currentStatus: s.currentStatus,
+        deepResearchCards: s.deepResearchCards,
+      }))
+    )
 
   const reportContentStr = typeof reportContent === 'string' ? reportContent : ''
+  const cards = deepResearchCards ?? []
   const isEmpty = !reportContentStr.trim()
   const isGeneratingReport = isStreaming && currentStatus === 'writing'
   const isResearchNotes = reportContentCategory === 'research_notes'
 
   return (
-    <Flex direction="col" className="h-full">
+    <div className="flex h-full flex-col">
       {/* Scrollable content area */}
-      <Flex direction="col" gap="4" className="flex-1 overflow-y-auto">
+      <div className="flex flex-1 flex-col gap-4 overflow-y-auto">
         {children ? (
           children
         ) : isEmpty ? (
-          <Flex direction="col" align="center" justify="center" className="flex-1 py-8 text-center">
-            <Document className="text-subtle mb-3 h-8 w-8" />
-            <Text kind="body/regular/md" className="text-subtle">
+          <div className="flex flex-1 flex-col items-center justify-center py-8 text-center">
+            <FileText className="mb-3 h-8 w-8 text-muted-foreground" aria-hidden="true" />
+            <p className="text-sm text-muted-foreground">
               Report content will appear here when available.
-            </Text>
-          </Flex>
+            </p>
+          </div>
         ) : isResearchNotes ? (
           /* Research notes: preview treatment */
-          <Flex direction="col" gap="3" className="flex-1">
-            <Flex
-              align="center"
-              gap="2"
-              className="shrink-0 rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 dark:border-yellow-800 dark:bg-yellow-950"
-            >
-              <div className="h-2 w-2 animate-pulse rounded-full bg-yellow-500" />
-              <Text kind="body/regular/sm" className="text-yellow-700 dark:text-yellow-300">
+          <div className="flex flex-1 flex-col gap-3">
+            <div className="flex shrink-0 items-center gap-2 rounded-md border border-warning bg-warning-subtle px-3 py-2">
+              <div className="h-2 w-2 animate-pulse rounded-full bg-warning motion-reduce:animate-none" />
+              <span className="text-sm text-warning">
                 Research notes from agents — final report is still being generated.
-              </Text>
-            </Flex>
+              </span>
+            </div>
             <div className="flex-1 opacity-80">
               <MarkdownRenderer
                 content={reportContentStr}
@@ -79,10 +76,11 @@ export const ReportTab: FC<ReportTabProps> = ({ children }) => {
                 className="max-w-none"
               />
             </div>
-          </Flex>
+          </div>
         ) : (
-          /* Final report: full prominence */
-          <div className="flex-1">
+          /* Final report: full prominence, with Grid cards when available */
+          <div className="flex flex-1 flex-col gap-4">
+            {cards.length > 0 && <GridCards cards={cards} />}
             <MarkdownRenderer
               content={reportContentStr}
               isStreaming={isGeneratingReport}
@@ -90,10 +88,10 @@ export const ReportTab: FC<ReportTabProps> = ({ children }) => {
             />
           </div>
         )}
-      </Flex>
+      </div>
 
       {/* Export footer - only meaningful for the final report */}
       <ExportFooter />
-    </Flex>
+    </div>
   )
 }

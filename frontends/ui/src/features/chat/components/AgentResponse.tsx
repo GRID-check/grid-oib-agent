@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * AgentResponse Component
  *
@@ -12,9 +9,10 @@
 'use client'
 
 import { type FC, useCallback } from 'react'
-import { Flex, Text, Button } from '@/adapters/ui'
+import { ChevronRight } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
 import { useShallow } from 'zustand/react/shallow'
-import { ChevronRight, LoadingSpinner } from '@/adapters/ui/icons'
 import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
 import { formatTime } from '@/shared/utils/format-time'
 import { useLayoutStore } from '@/features/layout/store'
@@ -132,7 +130,7 @@ export const AgentResponse: FC<AgentResponseProps> = ({
   // Inline variant - no box styling (for use inside containers like thinking process)
   if (variant === 'inline') {
     return (
-      <Flex direction="col" gap="2" className="w-full break-words overflow-hidden">
+      <div className="flex w-full flex-col gap-2 overflow-hidden break-words">
         {/* Optional Grid cards rendered before the markdown body */}
         {hasCards && <GridCards cards={cards} />}
 
@@ -141,51 +139,47 @@ export const AgentResponse: FC<AgentResponseProps> = ({
 
         {/* Optional action button */}
         {shouldShowButton && (
-          <Flex align="center" justify="end" className="mt-1">
+          <div className="mt-1 flex items-center justify-end">
             <Button
-              kind="tertiary"
-              size="tiny"
+              variant="ghost"
+              size="sm"
               onClick={handleViewReport}
               disabled={isLoading}
               aria-label={isLoading ? 'Loading...' : buttonText}
               title={error ? `Error: ${error}` : isLoading ? 'Loading...' : buttonText}
             >
-              <Flex align="center" gap="1">
+              <span className="flex items-center gap-1">
                 {isLoading ? (
                   <>
-                    <LoadingSpinner size="small" aria-label="Loading" className="h-3 w-3" />
-                    <Text kind="label/regular/xs">Loading...</Text>
+                    <Spinner size="sm" label="Loading" className="h-3 w-3" />
+                    <span className="text-xs">Loading...</span>
                   </>
                 ) : (
                   <>
-                    <Text kind="label/regular/xs">{buttonText}</Text>
+                    <span className="text-xs">{buttonText}</span>
                     <ChevronRight className="h-3 w-3" aria-hidden="true" />
                   </>
                 )}
-              </Flex>
+              </span>
             </Button>
-          </Flex>
+          </div>
         )}
 
         {/* Timestamp outside content, right-aligned */}
         {timestamp && (
-          <Text kind="body/regular/xs" className="text-subtle mt-1 mr-3 self-end">
+          <span className="text-subtle mr-3 mt-1 self-end text-xs">
             {formatTime(timestamp)}
-          </Text>
+          </span>
         )}
-      </Flex>
+      </div>
     )
   }
 
   // Default variant - with box styling
   return (
-    <Flex justify="start" className="w-full">
-      <Flex direction="col" className="max-w-[85%]">
-        <Flex
-          direction="col"
-          gap="2"
-          className="bg-surface-sunken-opaque border-base rounded-br-xl rounded-tl-xl rounded-tr-xl border p-4 break-words overflow-hidden"
-        >
+    <div className="animate-in fade-in-0 slide-in-from-bottom-1 flex w-full justify-start duration-200">
+      <div className="flex max-w-[85%] flex-col">
+        <div className="flex flex-col gap-2 overflow-hidden break-words rounded-2xl rounded-bl-md bg-card p-4">
           {/* Optional Grid cards rendered before the markdown body */}
           {hasCards && <GridCards cards={cards} />}
 
@@ -194,40 +188,40 @@ export const AgentResponse: FC<AgentResponseProps> = ({
 
           {/* Optional action button stays inside the bubble */}
           {shouldShowButton && (
-            <Flex align="center" justify="end" className="mt-1">
+            <div className="mt-1 flex items-center justify-end">
               <Button
-                kind="tertiary"
-                size="tiny"
+                variant="ghost"
+                size="sm"
                 onClick={handleViewReport}
                 disabled={isLoading}
                 aria-label={isLoading ? 'Loading...' : buttonText}
                 title={error ? `Error: ${error}` : isLoading ? 'Loading...' : buttonText}
               >
-                <Flex align="center" gap="1">
+                <span className="flex items-center gap-1">
                   {isLoading ? (
                     <>
-                      <LoadingSpinner size="small" aria-label="Loading" className="h-3 w-3" />
-                      <Text kind="label/regular/xs">Loading...</Text>
+                      <Spinner size="sm" label="Loading" className="h-3 w-3" />
+                      <span className="text-xs">Loading...</span>
                     </>
                   ) : (
                     <>
-                      <Text kind="label/regular/xs">{buttonText}</Text>
+                      <span className="text-xs">{buttonText}</span>
                       <ChevronRight className="h-3 w-3" aria-hidden="true" />
                     </>
                   )}
-                </Flex>
+                </span>
               </Button>
-            </Flex>
+            </div>
           )}
-        </Flex>
+        </div>
 
         {/* Timestamp outside bubble, right-aligned */}
         {timestamp && (
-          <Text kind="body/regular/xs" className="text-subtle mt-1 mr-3 self-end">
+          <span className="text-subtle mr-3 mt-1 self-end text-xs">
             {formatTime(timestamp)}
-          </Text>
+          </span>
         )}
-      </Flex>
-    </Flex>
+      </div>
+    </div>
   )
 }

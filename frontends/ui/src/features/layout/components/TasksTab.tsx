@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * TasksTab Component
  *
@@ -13,9 +10,9 @@
 'use client'
 
 import { type FC } from 'react'
-import { Flex, Text, ProgressBar } from '@/adapters/ui'
 import { useShallow } from 'zustand/react/shallow'
-import { CheckCircle } from '@/adapters/ui/icons'
+import { CheckCircle2 } from 'lucide-react'
+import { Progress } from '@/components/ui/progress'
 import { useChatStore } from '@/features/chat'
 import { TaskCard } from './TaskCard'
 
@@ -24,13 +21,13 @@ import { TaskCard } from './TaskCard'
  * Uses deepResearchTodos from the store (populated by SSE artifact.update events).
  */
 export const TasksTab: FC = () => {
-  const { deepResearchTodos, deepResearchJobId, currentStatus, isDeepResearchStreaming } =
-    useChatStore(useShallow((s) => ({
+  const { deepResearchTodos, currentStatus, isDeepResearchStreaming } = useChatStore(
+    useShallow((s) => ({
       deepResearchTodos: s.deepResearchTodos,
-      deepResearchJobId: s.deepResearchJobId,
       currentStatus: s.currentStatus,
       isDeepResearchStreaming: s.isDeepResearchStreaming,
-    })))
+    }))
+  )
 
   const isEmpty = deepResearchTodos.length === 0
 
@@ -41,72 +38,58 @@ export const TasksTab: FC = () => {
   const isWritingReport = isDeepResearchStreaming && currentStatus === 'writing'
 
   return (
-    <Flex direction="col" gap="4" className="h-full min-h-0">
+    <div className="flex h-full min-h-0 flex-col gap-4">
       {/* Header with progress indicator */}
-      <Flex direction="col" gap="1" className="shrink-0">
-        <Flex align="center" gap="2">
-          <Text kind="label/semibold/md" className="text-subtle">
-            Tasks
-          </Text>
-          {deepResearchJobId && (
-            <Text kind="body/regular/xs" className="text-tertiary">
-              JobID: {deepResearchJobId}
-            </Text>
-          )}
+      <div className="flex shrink-0 flex-col gap-1">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold text-muted-foreground">Tasks</span>
           {totalCount > 0 && (
-            <Text kind="body/regular/xs" className="text-subtle">
+            <span className="text-xs text-muted-foreground">
               {completedCount}/{totalCount}
-            </Text>
+            </span>
           )}
-        </Flex>
-        <Text kind="body/regular/xs" className="text-subtle">
+        </div>
+        <span className="text-xs text-muted-foreground">
           Research plan breakdown and progress during deep research.
-        </Text>
-      </Flex>
+        </span>
+      </div>
 
       {/* Content */}
       {isEmpty ? (
-        <Flex
-          direction="col"
-          align="center"
-          justify="center"
-          className="flex-1 text-center py-8"
-        >
-          <CheckCircle className="text-subtle mb-3 h-8 w-8" />
-          <Text kind="body/regular/md" className="text-subtle">
-            Research tasks will appear here.
-          </Text>
-          <Text kind="body/regular/sm" className="text-subtle mt-2">
+        <div className="flex flex-1 flex-col items-center justify-center py-8 text-center">
+          <CheckCircle2 className="mb-3 h-8 w-8 text-muted-foreground" aria-hidden="true" />
+          <p className="text-sm text-muted-foreground">Research tasks will appear here.</p>
+          <p className="mt-2 text-sm text-muted-foreground">
             Shows the plan breakdown and progress during deep research.
-          </Text>
-        </Flex>
+          </p>
+        </div>
       ) : (
-        <Flex direction="col" gap="3" className="flex-1 min-h-0 overflow-y-auto">
+        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
           {/* Progress bar showing completion percentage */}
           <div className="shrink-0">
-            <ProgressBar value={progressPercent} aria-label="Task completion progress" />
+            <Progress value={progressPercent} aria-label="Task completion progress" />
           </div>
 
           {/* Writing report indicator */}
           {isWritingReport && (
-            <Flex align="center" gap="2" className="shrink-0 rounded-md bg-blue-50 px-3 py-2 dark:bg-blue-950">
-              <div className="h-2 w-2 animate-pulse rounded-full bg-blue-500" />
-              <Text kind="body/regular/sm" className="text-blue-700 dark:text-blue-300">
+            <div className="flex shrink-0 items-center gap-2 rounded-md bg-info-subtle px-3 py-2">
+              <div className="h-2 w-2 animate-pulse rounded-full bg-info motion-reduce:animate-none" />
+              <span className="text-sm text-info">
                 Writing final report... This may take a few minutes.
-              </Text>
-            </Flex>
+              </span>
+            </div>
           )}
 
           {/* Task list */}
-          <Flex direction="col" gap="2">
+          <div className="flex flex-col gap-2">
             {deepResearchTodos.map((todo) => (
               <div key={todo.id} className="shrink-0">
                 <TaskCard todo={todo} />
               </div>
             ))}
-          </Flex>
-        </Flex>
+          </div>
+        </div>
       )}
-    </Flex>
+    </div>
   )
 }

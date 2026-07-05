@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * FileUploadBanner Component
  *
@@ -13,7 +10,8 @@
 'use client'
 
 import { type FC } from 'react'
-import { Banner, Flex, Text } from '@/adapters/ui'
+import { Info, AlertTriangle, X } from 'lucide-react'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { formatTime } from '@/shared/utils/format-time'
 import type { FileUploadStatusType } from '../types'
 
@@ -74,20 +72,30 @@ export const FileUploadBanner: FC<FileUploadBannerProps> = ({
   // Skip rendering for unknown/legacy types
   if (!content) return null
 
+  const StatusIcon = content.status === 'warning' ? AlertTriangle : Info
+  const showDismiss = content.dismissable && !!onDismiss
+
   return (
-    <Flex direction="col" gap="1" className="w-full">
-      <Banner
-        status={content.status}
-        kind="inline"
-        onClose={content.dismissable ? onDismiss : undefined}
-      >
-        {content.message}
-      </Banner>
+    <div className="flex w-full flex-col gap-1">
+      <Alert variant={content.status} className="relative">
+        <StatusIcon />
+        <AlertDescription className={showDismiss ? 'pr-6' : undefined}>
+          {content.message}
+        </AlertDescription>
+        {showDismiss && (
+          <button
+            type="button"
+            onClick={onDismiss}
+            aria-label="Dismiss"
+            className="text-muted-foreground hover:text-foreground absolute right-3 top-3 rounded-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+          >
+            <X className="h-4 w-4" aria-hidden="true" />
+          </button>
+        )}
+      </Alert>
       {timestamp && (
-        <Text kind="body/regular/xs" className="text-subtle mr-3 self-end">
-          {formatTime(timestamp)}
-        </Text>
+        <span className="text-subtle mr-3 self-end text-xs">{formatTime(timestamp)}</span>
       )}
-    </Flex>
+    </div>
   )
 }

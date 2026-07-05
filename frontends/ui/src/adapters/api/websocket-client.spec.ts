@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { NATMessageType, NATWebSocketClient } from './websocket-client'
 
@@ -312,5 +309,47 @@ describe('NATWebSocketClient URL construction', () => {
 
     expect(MockWebSocket.instances).toHaveLength(2)
     expect(MockWebSocket.instances[1].url).toBe('ws://localhost/websocket?conversationId=conv-2')
+  })
+
+  test('updateProjectId rotates and reconnects with the new projectId in the handshake', async () => {
+    // The project scope is injected on the WS upgrade from the projectId query
+    // param, so a changed projectId must re-open the socket. This is the fix
+    // for the first-load race where the socket connected before the project
+    // store resolved and never carried x-grid-project-context.
+    const client = new NATWebSocketClient({
+      conversationId: 'conv-1',
+      projectId: 'proj-1',
+      websocketUrl: 'ws://localhost/websocket',
+      callbacks: {},
+    })
+
+    await client.connect()
+    expect(MockWebSocket.instances[0].url).toBe(
+      'ws://localhost/websocket?projectId=proj-1&conversationId=conv-1',
+    )
+
+    client.updateProjectId('proj-2')
+    await vi.waitFor(() => expect(MockWebSocket.instances).toHaveLength(2))
+
+    expect(MockWebSocket.instances[1].url).toBe(
+      'ws://localhost/websocket?projectId=proj-2&conversationId=conv-1',
+    )
+  })
+
+  test('updateProjectId is a no-op when the projectId is unchanged', async () => {
+    const client = new NATWebSocketClient({
+      conversationId: 'conv-1',
+      projectId: 'proj-1',
+      websocketUrl: 'ws://localhost/websocket',
+      callbacks: {},
+    })
+
+    await client.connect()
+    expect(MockWebSocket.instances).toHaveLength(1)
+
+    // Same value -> must not rotate (no churn, no extra socket).
+    client.updateProjectId('proj-1')
+    await Promise.resolve()
+    expect(MockWebSocket.instances).toHaveLength(1)
   })
 })

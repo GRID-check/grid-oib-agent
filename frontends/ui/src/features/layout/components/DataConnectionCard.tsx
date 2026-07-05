@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * DataConnectionCard Component
  *
@@ -11,8 +8,9 @@
 'use client'
 
 import { type FC } from 'react'
-import { Flex, Text, Switch } from '@/adapters/ui'
-import { Globe } from '@/adapters/ui/icons'
+import { Globe } from 'lucide-react'
+import { Switch } from '@/components/ui/switch'
+import { cn } from '@/lib/utils'
 import type { DataSource } from '../data-sources'
 
 interface DataConnectionCardProps {
@@ -67,17 +65,16 @@ export const DataConnectionCard: FC<DataConnectionCardProps> = ({
     e.stopPropagation()
   }
 
-  const cardContent = (
-    <Flex
-      align="center"
-      justify="between"
+  return (
+    <div
       role="button"
       tabIndex={isDisabled ? -1 : 0}
       onClick={handleCardClick}
       onKeyDown={handleCardKeyDown}
-      className={`border-base rounded-lg border p-3 transition-colors ${
-        isDisabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:bg-surface-raised-50'
-      }`}
+      className={cn(
+        'flex items-center justify-between rounded-lg border p-3 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50',
+        isDisabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:bg-accent'
+      )}
       aria-pressed={isEnabled}
       aria-disabled={isDisabled}
       aria-label={`${source.name}: ${isEnabled ? 'enabled' : 'disabled'}${isDisabled ? ' (disabled)' : ''}`}
@@ -89,37 +86,43 @@ export const DataConnectionCard: FC<DataConnectionCardProps> = ({
             : undefined
       }
     >
-      <Flex align="center" gap="3" className="min-w-0 flex-1">
-        <Flex
-          align="center"
-          justify="center"
-          className={`h-9 w-9 flex-shrink-0 rounded-lg ${
-            isDisabled ? 'bg-surface-sunken' : 'bg-surface-raised'
-          }`}
+      <div className="flex min-w-0 flex-1 items-center gap-3">
+        <div
+          className={cn(
+            'flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg',
+            isDisabled ? 'bg-muted/50' : 'bg-muted'
+          )}
         >
-          <Globe className={`h-5 w-5 ${isDisabled ? 'text-subtle' : 'text-secondary'}`} />
-        </Flex>
-        <Flex direction="col" className="min-w-0">
-          <Text kind="label/semibold/sm" className={isDisabled ? 'text-subtle' : 'text-primary'}>
+          <Globe
+            className={cn('h-5 w-5', isDisabled ? 'text-muted-foreground' : 'text-foreground')}
+            aria-hidden="true"
+          />
+        </div>
+        <div className="flex min-w-0 flex-col">
+          <span
+            className={cn(
+              'text-sm font-semibold',
+              isDisabled ? 'text-muted-foreground' : 'text-foreground'
+            )}
+          >
             {source.name}
-          </Text>
-          <Text kind="body/regular/xs" className="text-subtle truncate">
-            {source.description}
-          </Text>
-        </Flex>
-      </Flex>
+          </span>
+          <span className="truncate text-xs text-muted-foreground">{source.description}</span>
+        </div>
+      </div>
       {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
       <div className="ml-3 flex-shrink-0" onClick={handleSwitchClick}>
         <Switch
-          size="small"
           checked={isEnabled && isAvailable}
           onCheckedChange={handleToggle}
           disabled={isDisabled}
-          aria-label={isDisabled ? `${source.name} (disabled)` : `${isEnabled ? 'Disable' : 'Enable'} ${source.name}`}
+          aria-label={
+            isDisabled
+              ? `${source.name} (disabled)`
+              : `${isEnabled ? 'Disable' : 'Enable'} ${source.name}`
+          }
         />
       </div>
-    </Flex>
+    </div>
   )
-
-  return cardContent
 }

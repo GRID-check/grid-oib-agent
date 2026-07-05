@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, GRID. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * Root Layout
  *
@@ -13,11 +10,24 @@
 
 import { type ReactNode } from 'react'
 import { type Metadata } from 'next'
+import { Geist, Geist_Mono } from 'next/font/google'
 import { connection } from 'next/server'
 import { Providers } from './providers'
 import type { AppConfig } from '@/shared/context'
 import { getFileUploadConfigFromEnv } from '@/shared/config/file-upload'
 import './globals.css'
+
+const geistSans = Geist({
+  subsets: ['latin'],
+  variable: '--font-geist-sans',
+  display: 'swap',
+})
+
+const geistMono = Geist_Mono({
+  subsets: ['latin'],
+  variable: '--font-geist-mono',
+  display: 'swap',
+})
 
 const isAuthRequired = (): boolean => {
   return process.env.REQUIRE_AUTH?.toLowerCase() === 'true'
@@ -49,15 +59,19 @@ const RootLayout = async ({ children }: RootLayoutProps): Promise<ReactNode> => 
   const config = getAppConfig()
 
   return (
-    <html lang="en" id="style-root" suppressHydrationWarning>
-      <head>
-        {/* CDN SVG icon loader - inlines <svg data-src="..."> elements */}
-        <script
-          src="https://unpkg.com/external-svg-loader@1.6.8/svg-loader.min.js"
-          async
-        />
-      </head>
-      <body className="bg-surface-base">
+    <html
+      lang="en"
+      id="style-root"
+      className={`${geistSans.variable} ${geistMono.variable}`}
+      suppressHydrationWarning
+    >
+      <body className="bg-surface-base font-sans antialiased">
+        <a
+          href="#main-content"
+          className="sr-only focus-visible:not-sr-only focus-visible:fixed focus-visible:top-3 focus-visible:left-3 focus-visible:z-skip-link focus-visible:rounded-full focus-visible:bg-primary focus-visible:px-4 focus-visible:py-2 focus-visible:text-sm focus-visible:font-medium focus-visible:text-primary-foreground focus-visible:shadow-md"
+        >
+          Skip to content
+        </a>
         <Providers config={config}>{children}</Providers>
       </body>
     </html>

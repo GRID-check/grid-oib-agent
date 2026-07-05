@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * Auth Error Page
  *
@@ -12,7 +9,11 @@
 
 import { type ReactNode, Suspense, useEffect } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { Flex, Text, Button, Card, Stack, Spinner } from '@/adapters/ui'
+import { AlertTriangle } from 'lucide-react'
+import { Card, CardContent } from '@/components/ui/card'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
 import { useAppConfig } from '@/shared/context'
 
 const errorMessages: Record<string, string> = {
@@ -42,9 +43,9 @@ const ErrorContent = (): ReactNode => {
   // Show loading while redirecting
   if (!authRequired) {
     return (
-      <Flex align="center" justify="center" className="py-8">
-        <Spinner size="medium" aria-label="Redirecting..." />
-      </Flex>
+      <div className="flex items-center justify-center py-8">
+        <Spinner size="default" label="Redirecting..." />
+      </div>
     )
   }
 
@@ -57,25 +58,22 @@ const ErrorContent = (): ReactNode => {
   }
 
   return (
-    <Stack gap="6" align="center">
-      <Flex direction="col" gap="2" align="center">
-        <Text kind="title/lg" className="text-feedback-danger">
-          Authentication Error
-        </Text>
-        <Text kind="body/regular/md" className="text-secondary text-center">
-          {errorMessage}
-        </Text>
-      </Flex>
+    <div className="flex flex-col items-center gap-6">
+      <Alert variant="destructive">
+        <AlertTriangle />
+        <AlertTitle>Authentication Error</AlertTitle>
+        <AlertDescription>{errorMessage}</AlertDescription>
+      </Alert>
 
-      <Flex gap="3">
-        <Button kind="primary" size="medium" onClick={handleRetry}>
+      <div className="flex gap-3">
+        <Button size="default" onClick={handleRetry}>
           Try Again
         </Button>
-        <Button kind="secondary" size="medium" onClick={handleHome}>
+        <Button variant="secondary" size="default" onClick={handleHome}>
           Go Home
         </Button>
-      </Flex>
-    </Stack>
+      </div>
+    </div>
   )
 }
 
@@ -84,24 +82,21 @@ const ErrorContent = (): ReactNode => {
  */
 const AuthErrorPage = (): ReactNode => {
   return (
-    <Flex
-      direction="col"
-      align="center"
-      justify="center"
-      className="bg-surface-sunken min-h-screen p-8"
-    >
+    <div className="flex min-h-screen flex-col items-center justify-center bg-muted p-8">
       <Card className="w-full max-w-md">
-        <Suspense
-          fallback={
-            <Flex align="center" justify="center" className="py-8">
-              <Spinner size="medium" aria-label="Loading" />
-            </Flex>
-          }
-        >
-          <ErrorContent />
-        </Suspense>
+        <CardContent className="pt-6">
+          <Suspense
+            fallback={
+              <div className="flex items-center justify-center py-8">
+                <Spinner size="default" label="Loading" />
+              </div>
+            }
+          >
+            <ErrorContent />
+          </Suspense>
+        </CardContent>
       </Card>
-    </Flex>
+    </div>
   )
 }
 

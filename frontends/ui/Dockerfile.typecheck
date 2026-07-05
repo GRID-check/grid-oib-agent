@@ -1,0 +1,9 @@
+# Throwaway image: install deps (fast/reliable in Docker) and run the TS typecheck.
+# Build once (deps cached), then `docker run` to get the full tsc error list.
+# Uses a public node image so it needs no registry auth.
+FROM node:22-slim
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --ignore-scripts
+COPY . .
+CMD ["npx", "tsc", "--noEmit"]
