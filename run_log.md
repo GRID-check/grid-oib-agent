@@ -58,3 +58,10 @@ Verification harness: frontend `docker build -f Dockerfile.typecheck` + `docker 
 - **Change:** (1) IMPL: `prompt_utils.load_prompt` now reads with `encoding="utf-8"` — real production bug for UTF-8 prompt templates (German umlauts!) on non-UTF-8 locales. (2) TEST: checkpointer tests now close cached aiosqlite connections before unlink (WinError 32). (3) TEST: stale arg-index after `project_context` was appended to Dask job args (`6957324`) — assertion realigned, forwarding still asserted.
 - **Verified:** `pytest tests/aiq_agent -q` → **944 passed, 0 failed** (from 5/939); ruff + py_compile clean on all touched files.
 - **Pipeline (single-stage, logged):** delegated diagnose+fix to one Fable agent — test-hygiene batch where per-item Sonnet/Fable/Opus split adds no value; rules enforced (no weakened assertions; impl fixed where the product was wrong).
+
+## Cycle 8 — T2 · T2-6 — deletion-pipeline audit — FLAG-NOT-FIX (human's uncommitted WIP)
+
+- **What & why:** re-triage caught a freshly-landed deletion pipeline (purger service, deletion-queue/legal-holds, migration 0009). Destructive + tenancy-sensitive + unreviewed → audited before it can bite.
+- **Finding (Sonnet audit, file:line evidence):** verdict **needs-fixes / not dangerous**. Strong fundamentals (org scoping from trusted rows, SQL grace period, precise MinIO prefixes, idempotent steps, manage-gated enqueue, tests exist). 5 issues, top three: legal-hold TOCTOU race (hold not re-checked at purge-execution time), well-known default internal token accepted by `maintenance.py`, unimplemented entity types poison the queue.
+- **Decision (guardrail):** the pipeline is another session's UNCOMMITTED work-in-progress — modifying or committing someone's in-flight WIP unattended risks clobbering active work. Findings logged verbatim in backlog (T2-6) for the author; no code changed. This is an explicit flag-not-fix cycle.
+- **Pipeline:** Sonnet full audit; Fable judgment = orchestrator applying the don't-touch-WIP guardrail.

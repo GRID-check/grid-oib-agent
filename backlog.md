@@ -11,7 +11,7 @@
 
 ## Tier 2 — Bugs
 
-- **T2-6** [NEW cycle 7 re-triage] Audit the freshly-landed deletion pipeline (purger service in compose, `deletion-queue`/`legal-holds` schemas, migration `0009_deletion_pipeline`, `purger/index.js`) — new tenancy-sensitive destructive-path code that has not been reviewed: check org scoping on every delete, legal-hold enforcement ordering, MinIO object deletion scoping, and that the purger can't cross organizations. Treat findings as tier 1 if scoping gaps found.
+- **T2-6** [AUDITED cycle 8 — FLAGGED for human, code is YOUR UNCOMMITTED WIP so not touched] Deletion pipeline audit verdict: **needs-fixes, not dangerous**. Solid: tenancy (org from trusted DB row), SQL-enforced UTC grace period (GDPR-capped), precise MinIO prefix scoping, idempotent ordered steps, `project:manage` gate, real tests. FIX BEFORE SHIPPING: (1) legal-hold TOCTOU — hold checked only at claim time (`purger/db.js:19-38`), not re-checked inside `purgeProject` before destruction; (2) `GRID_INTERNAL_API_TOKEN` well-known default + `maintenance.py` accepts it (reject the known default outside dev); (3) non-`project` entity types poison the queue (10 futile retries, no alert); (4) deletions list omits `requestedBy` (audit-trail gap); (5) no retry backoff (outage burns all 10 attempts).
 
 - ~~**T2-5**~~ DONE cycle 2 — added `signingS3Client` to the spec's s3 mock; suite 3/3 green; confirmed no other spec mocks `@/lib/s3`.
 - ~~**T2-1**~~ CLOSED cycle 3 — already fixed before this run: `.env` no longer uses `${...}` (warning comment present) AND `config_validation.py:_read_api_key_env()` treats `${...}` literals as unset. Cycle output: ported the warning comment to `.env.example` (regression prevention for new deployments).
