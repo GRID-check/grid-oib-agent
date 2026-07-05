@@ -1,19 +1,19 @@
 <div align="center">
 
-# Grid AIQ
+# Grid
 
-### AI Research Assistant for Austrian Building Regulations
+### AI Compliance Assistant for Austrian Building Regulations
 
-Instantly navigate the **OIB Richtlinien** — Austria's complex building code framework — with a multi-agent AI that searches regulations, interprets requirements, and cites its sources. Built on the **NVIDIA AI-Q Blueprint**.
+Navigate the **OIB Richtlinien** — Austria's building-code framework — with a multi-agent AI that searches regulations, interprets requirements, and **cites its sources**. Project-centric: each building project has its own documents, chat history, and an evolving knowledge memory. Built on the **NVIDIA AI-Q Blueprint** / NeMo Agent Toolkit.
 
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://python.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?logo=typescript&logoColor=white)](https://typescriptlang.org)
-[![Next.js](https://img.shields.io/badge/Next.js-15-000000?logo=next.js&logoColor=white)](https://nextjs.org)
-[![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](https://docker.com)
+[![Next.js 16](https://img.shields.io/badge/Next.js-16-000000?logo=next.js&logoColor=white)](https://nextjs.org)
+[![Tailwind v4](https://img.shields.io/badge/Tailwind-v4-38BDF8?logo=tailwindcss&logoColor=white)](https://tailwindcss.com)
 [![LangGraph](https://img.shields.io/badge/LangGraph-Multi--Agent-1C3C3C)](https://langchain-ai.github.io/langgraph/)
-[![LlamaIndex](https://img.shields.io/badge/LlamaIndex-RAG-7047EB)](https://llamaindex.ai)
 [![ChromaDB](https://img.shields.io/badge/ChromaDB-Vector--Store-F5A623)](https://trychroma.com)
 [![MinIO](https://img.shields.io/badge/MinIO-S3--Storage-C72E49)](https://min.io)
+[![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](https://docker.com)
 
 ---
 
@@ -23,176 +23,175 @@ Instantly navigate the **OIB Richtlinien** — Austria's complex building code f
 
 ---
 
-The OIB Richtlinien are Austria's core building-technical regulations — hundreds of pages covering fire safety, structural integrity, soundproofing, thermal insulation, accessibility, and more. Architects and planners spend hours cross-referencing paragraphs, reconciling updates, and verifying compliance.
+The OIB Richtlinien are Austria's core building-technical regulations — hundreds of pages covering fire safety, structural integrity, soundproofing, thermal insulation, and accessibility. Architects spend hours cross-referencing paragraphs and verifying compliance.
 
-**Grid AIQ answers OIB questions in seconds.** Upload plans, query regulations, and get cited answers — all through a chat interface designed for professionals.
+**Grid answers OIB questions in seconds** — and remembers what it learns about each project. Upload plans, complete a short intake, and get cited answers through a chat interface built for professionals.
 
 ## What It Does
 
 | Capability | For Architects |
 |---|---|
-| **📖 OIB Knowledge Base** | The full OIB Richtlinien (OIB 1–6) are pre-loaded into a vector search index. Ask _"What are the fire resistance requirements for staircases in buildings over 22m?"_ and get the exact paragraph with a citation |
-| **🔍 RAG over Your Documents** | Upload project-specific PDFs (plans, specifications, foreign regulations). **LlamaIndex** chunks them, **ChromaDB** stores embeddings, and every query searches both the OIBs and your files |
-| **🤖 Multi-Agent Research** | A **LangGraph** pipeline classifies intent, clarifies ambiguity, and deploys shallow or deep research — with thinking traces you can inspect |
-| **🌐 Web Search Fallback** | When the OIBs don't cover a topic (e.g., local zoning by-laws, EU directives), the agent falls back to **Tavily** web search for broader context |
-| **📁 Project Management** | Organise documents and chats per building project with **WorkOS FGA** access control. Each project has isolated document collections and conversation history |
-| **⚡ Real-Time Answers** | Results stream via **WebSocket** or **SSE** — no page loads, no waiting. See the agent's reasoning as it happens |
-| **🔄 Human-in-the-Loop** | The agent asks for clarification when a query is ambiguous — ensuring answers are precise, not guessed |
-| **🔐 Enterprise-Grade Auth** | Optional **WorkOS AuthKit** SSO for firms that need role-based access and audit trails |
-| **🏗️ Docker-Compose Deploy** | Five containers, one command. PostgreSQL for state, MinIO for documents, Dask for distributed processing — all pre-configured |
+| **OIB Knowledge Base** | The full OIB Richtlinien (OIB 1–6) are pre-loaded into a vector index. Ask _"fire-resistance requirements for staircases in buildings over 22 m?"_ and get the exact paragraph, cited. |
+| **RAG over Your Documents** | Upload project PDFs (plans, specifications). They are ingested into a **project-scoped** collection and searched alongside the OIBs — never mixed across projects. |
+| **Project & Organization Memory** | Grid records durable findings about a project (decisions, constraints, open questions) as it works, and carries them into every future conversation. Org-wide memory applies across all your projects. Everything is visible and editable on the project page. |
+| **Rich-UI Cards** | When a structured format helps, the agent answers with a typed **card** (legal-basis citation, summary, profile update) instead of plain prose. |
+| **Multi-Agent Research** | A **LangGraph** pipeline classifies intent, clarifies ambiguity, and runs shallow or deep research — with inspectable thinking traces. Deep research runs as an async job with a live progress panel. |
+| **Web Search** | When the OIBs don't cover a topic, the agent can fall back to **Tavily** web search (a toggleable data source you control). |
+| **Project Lifecycle** | Organise documents and chats per project with **WorkOS FGA** access control, plus a grace-period **soft-delete → restore → hard-purge** pipeline with legal holds. |
+| **Real-Time Answers** | Chat streams over **WebSocket**; the agent's reasoning, sources, and cards appear as it works. |
+| **Enterprise Auth** | Optional **WorkOS AuthKit** SSO with organization-scoped, role-based access. |
 
 ## Architecture
 
 ```mermaid
 flowchart TB
-    subgraph Browser["🌐 Browser"]
-        UI["Next.js UI · KUI Design System<br/>Chat · Documents · Projects"]
+    subgraph Browser["Browser"]
+        UI["Next.js 16 UI · shadcn/ui + Tailwind v4<br/>Chat · Documents · Projects · Memory"]
     end
 
-    subgraph Gateway["Tier 1: Node.js Gateway (Port 3000)"]
-        GW["server.js<br/>HTTP + WebSocket Proxy"]
-        BFF["Next.js BFF<br/>Auth · Drizzle · Collection Scoping"]
-        DB[(PostgreSQL 16<br/>Conversations · Projects · Documents)]
+    subgraph Gateway["Tier 1 · Node gateway + BFF (port 3000)"]
+        GW["server.js — HTTP + WebSocket proxy<br/>injects scope + context headers"]
+        BFF["Next.js BFF<br/>Auth · Drizzle · Collection scoping · Memory writes"]
+        DB[(PostgreSQL<br/>grid_app: projects · conversations · documents · memory · deletion queue)]
     end
 
-    subgraph Backend["Tier 2: Python Backend (Port 8000)"]
-        FAST["FastAPI / Uvicorn"]
-        NAT["NAT Framework<br/>NeMo Agent Toolkit"]
-        LG["LangGraph<br/>Intent → Clarifier → Researcher"]
-        LI["LlamaIndex<br/>PDF Chunking · Embedding · Retrieval"]
-        DASK["Dask<br/>Distributed Workers"]
+    subgraph Backend["Tier 2 · Python backend (port 8000)"]
+        FAST["FastAPI (aiq_api plugin)"]
+        NAT["NeMo Agent Toolkit"]
+        LG["LangGraph<br/>intent → clarifier → shallow / deep researcher"]
+        DASK["Dask — async deep-research jobs"]
+        CHROMA["ChromaDB — oib_knowledge + proj_* + mem_*"]
     end
 
     subgraph Storage["Infrastructure"]
-        MINIO["MinIO<br/>OIB PDFs + Project Documents"]
-        CHROMA["ChromaDB<br/>Vector Store · oib_knowledge"]
+        MINIO["MinIO — OIB PDFs + project documents"]
+        PURGER["purger — grace-period hard-delete worker"]
     end
 
     subgraph External["External AI"]
-        KIMI["Kimi API<br/>Moonshot AI — LLM"]
-        OR["OpenRouter<br/>Embeddings"]
-        TAVILY["Tavily<br/>Web Search"]
+        OR["Any OpenAI-compatible LLM + embeddings<br/>(reference: OpenRouter / DeepSeek)"]
+        TAVILY["Tavily — web search"]
     end
 
     Browser <-->|WebSocket| GW
     GW --> BFF
     BFF <--> DB
     BFF -->|HTTP| FAST
-    FAST --> NAT
-    NAT --> LG
-    LG --> DASK
-    LG --> LI
-    LI <--> CHROMA
-    BFF --->|Document Upload| MINIO
-    FAST -.->|/v1/ingest| LI
-    NAT -->|LLM| KIMI
-    NAT -->|Web| TAVILY
-    LI -->|Embed| OR
+    BFF -->|internal write API| BFF
+    FAST --> NAT --> LG --> DASK
+    LG <--> CHROMA
+    BFF -->|upload| MINIO
+    FAST -.->|/v1/ingest| CHROMA
+    PURGER --> DB
+    PURGER --> MINIO
+    NAT -->|LLM| OR
+    NAT -->|web| TAVILY
 
-    style Browser fill:#1a1b2e,stroke:#6c63ff,color:#fff
-    style Gateway fill:#1a2e1a,stroke:#4caf50,color:#fff
-    style Backend fill:#1e1a2e,stroke:#7c4dff,color:#fff
-    style Storage fill:#2e1a1a,stroke:#f44336,color:#fff
-    style External fill:#1a2e2e,stroke:#00bcd4,color:#fff
+    style Browser fill:#141a2e,stroke:#5b8def,color:#fff
+    style Gateway fill:#132a1d,stroke:#3fb27f,color:#fff
+    style Backend fill:#1b1730,stroke:#8a6cff,color:#fff
+    style Storage fill:#2a1a1a,stroke:#e0685b,color:#fff
+    style External fill:#132a2a,stroke:#38bdf8,color:#fff
 ```
 
-The stack uses a **two-tier BFF architecture**: the Next.js layer handles auth, database access, and collection-scope computation (determining which documents to search per request), while the Python backend stays stateless and focuses on AI orchestration. The Node.js gateway (`server.js`) proxies HTTP and WebSocket traffic, enriching each request with user context and scope headers.
+**Two-tier BFF architecture.** The Next.js layer owns auth, the `grid_app` database, and collection-scope computation (which collections to search per request); the Python backend stays stateless and focuses on AI orchestration. The Node gateway (`server.js`) proxies HTTP + WebSocket, enriching each upgrade with the collection scope and the project **context/memory** headers.
+
+Two distinct knowledge systems:
+
+- **Retrieval (RAG)** — the OIB corpus, uploaded documents, and chat attachments, embedded in ChromaDB and searched **on demand**, scoped per request via `X-Grid-Collection-Scope`.
+- **Memory & context** — the intake profile and agent-curated project/org memory, **injected into every turn** as base64url-encoded headers. Memory is written only through a token-guarded internal BFF endpoint, keeping `grid_app` single-writer.
+
+See [`docs/architecture/backend-deep-dive.md`](docs/architecture/backend-deep-dive.md) and [`docs/architecture/project-memory-design.md`](docs/architecture/project-memory-design.md).
 
 ## Quick Start
 
 ```bash
-# 1. Clone and configure API keys
+# 1. Configure API keys
 cp deploy/.env.example deploy/.env
-# Edit deploy/.env — set KIMI_API_KEY, TAVILY_API_KEY, and OPENROUTER_API_KEY
+# Edit deploy/.env — set your LLM/embedding provider key (OPENROUTER_API_KEY for
+# the reference config; any OpenAI-compatible endpoint works) and TAVILY_API_KEY.
+# Also set a real GRID_INTERNAL_API_TOKEN and, for auth, the WORKOS_* values.
 
-# 2. Build and start the full stack (5 containers)
+# 2. Build and start the full stack
 docker compose -f deploy/compose/docker-compose.yaml --env-file deploy/.env up -d --build
 
-# 3. Ingest the pre-loaded OIB knowledge base
+# 3. Ingest the OIB knowledge base
 docker compose -f deploy/compose/docker-compose.yaml --env-file deploy/.env exec aiq-agent python scripts/ingest_oib.py
 
 # 4. Open the UI
 open http://localhost:3000
 ```
 
-> **Zero native dependencies.** Everything runs in Docker — Python backend, Next.js frontend, PostgreSQL 16, MinIO, Dask workers, and ChromaDB.
+> **LLM-agnostic.** Grid runs against **any OpenAI-compatible API** — OpenRouter, a self-hosted vLLM/Ollama server, Azure OpenAI, NVIDIA NIM, etc. The LLM/embedding provider is not baked in: point the `base_url`, `model_name`, and API-key env at your endpoint in the workflow config (`configs/*.yml`) and set `CONFIG_FILE` accordingly. The shipped **reference config** is `configs/config_oib_openrouter.yml` (DeepSeek + embeddings via OpenRouter); the legacy Kimi config (`config_grid_oib.yml`) is not currently maintained.
+
+The stack runs seven Compose services: `postgres`, `minio` (+ `minio-init`), `aiq-agent` (+ a one-shot `aiq-data-permissions`), `frontend`, and the `purger` deletion worker.
 
 ## Tech Stack
 
 | Layer | Technology | Role |
 |---|---|---|
-| **Frontend** | Next.js 15, React 19, TypeScript, KUI | Chat UI for architects |
-| **Backend** | Python 3.11+, FastAPI, Uvicorn | AI endpoint server |
-| **AI Orchestration** | NAT Framework, LangGraph, Dask | Multi-agent pipeline |
-| **RAG** | LlamaIndex, ChromaDB, pdfplumber | PDF → chunks → embeddings → search |
-| **LLM** | Moonshot AI (Kimi) | Reasoning, classification, summaries |
-| **Embeddings** | text-embedding-3-large (OpenRouter) | Semantic search vectors |
-| **Web Search** | Tavily | Context beyond OIB regulations |
-| **Database** | PostgreSQL 16, Drizzle ORM | Conversations, projects, documents |
+| **Frontend** | Next.js 16, React 18, TypeScript, **shadcn/ui + Tailwind v4** | Project-centric chat UI |
+| **Backend** | Python 3.11+, FastAPI, Uvicorn | AI endpoint server (`aiq_api` plugin) |
+| **AI Orchestration** | NeMo Agent Toolkit (NAT), LangGraph, Dask | Multi-agent pipeline + async jobs |
+| **RAG** | ChromaDB, LlamaIndex | Chunking · embeddings · scoped retrieval |
+| **LLM + Embeddings** | **Any OpenAI-compatible endpoint** — reference config: DeepSeek via OpenRouter | Reasoning, classification, cards, embeddings |
+| **Web Search** | Tavily | Context beyond the OIB corpus |
+| **Database** | PostgreSQL, Drizzle ORM | Projects, conversations, documents, memory, deletion queue |
 | **Object Storage** | MinIO (S3-compatible) | OIB PDFs + uploaded documents |
-| **Auth** | WorkOS AuthKit, JWT (RS256) | Enterprise SSO |
-| **Infrastructure** | Docker, Docker Compose | Single-command deployment |
+| **Auth** | WorkOS AuthKit + FGA | Organization-scoped SSO / access control |
+| **Infrastructure** | Docker Compose | Single-command deployment |
 
 ## Project Structure
 
 ```
-├── src/aiq_agent/              # Python backend — FastAPI routes, knowledge layer, OIB sync
-├── sources/                    # NAT data-source packages (knowledge layer, web search)
+├── src/aiq_agent/          # Python backend — LangGraph agents, cards, knowledge & memory layer
+├── sources/                # NAT data-source packages (web search, knowledge layer)
 ├── frontends/
-│   ├── ui/                     # Next.js chat UI — app router, BFF API routes, components
-│   ├── aiq_api/                # Python API client library
-│   ├── cli/                    # aiq-research CLI
-│   └── benchmarks/             # Evaluation harnesses
-├── configs/                    # Workflow configs (config_grid_oib.yml)
-├── deploy/                     # Docker Compose, Dockerfile, env templates
-├── data/oib/                   # OIB Richtlinien PDFs (tracked via Git LFS)
-├── scripts/                    # Utility scripts (ingest_oib.py)
-└── docs/                       # Full documentation
+│   ├── ui/                 # Next.js app — UI, BFF API routes, WS proxy (server.js), purger worker
+│   ├── aiq_api/            # FastAPI front-end plugin (REST routes, async jobs, /v1/ingest)
+│   ├── cli/                # aiq-research CLI
+│   └── benchmarks/         # Evaluation harnesses
+├── configs/                # Workflow configs — config_oib_openrouter.yml is the working one
+├── deploy/                 # Docker Compose, Dockerfile, env templates
+├── data/oib/               # OIB Richtlinien PDFs (Git LFS)
+├── scripts/                # Utility scripts (ingest_oib.py)
+└── docs/                   # Documentation (see docs/architecture/ for the current deep-dives)
 ```
 
 ## Documentation
 
-Every part of the application is documented in [`docs/`](docs/):
+Start with the current architecture deep-dives, then the topic docs:
 
 | Category | Contents |
 |---|---|
-| [User Guides](docs/user-guides/) | [Chat](docs/user-guides/chat.md) · [Projects](docs/user-guides/projects.md) · [Documents](docs/user-guides/documents.md) · [Knowledge Search](docs/user-guides/knowledge-search.md) |
-| [Technical Reference](docs/technical-reference/) | [Architecture](docs/technical-reference/architecture-overview.md) · [Auth](docs/technical-reference/authentication-flow.md) · [Chat Flow](docs/technical-reference/chat-flow.md) · [Collection Scoping](docs/technical-reference/collection-scoping.md) · [Conversation Persistence](docs/technical-reference/conversation-persistence.md) · [Document Ingestion](docs/technical-reference/document-ingestion.md) · [OIB Sync](docs/technical-reference/oib-sync.md) · [WebSocket Gateway](docs/technical-reference/websocket-gateway.md) · [BFF Proxy Pattern](docs/technical-reference/bff-proxy-pattern.md) · [Projects Access Control](docs/technical-reference/projects-access-control.md) · [UI Layout](docs/technical-reference/ui-layout-providers.md) |
-| [Deployment](docs/deployment/) | [Docker Compose](docs/deployment/docker-compose.md) · [Environment Variables](docs/deployment/environment-variables.md) · [Startup Flow](docs/deployment/startup-flow.md) · [Security Config](docs/deployment/security-config.md) |
-| [API Reference](docs/api/) | [BFF Routes](docs/api/bff-routes.md) · [Python Endpoints](docs/api/python-endpoints.md) · [WebSocket Protocol](docs/api/websocket-protocol.md) |
-| [Database](docs/database/) | [Schema](docs/database/schema.md) · [Migrations](docs/database/migrations.md) |
+| **Architecture (current)** | [Backend deep-dive](docs/architecture/backend-deep-dive.md) · [Project Memory design](docs/architecture/project-memory-design.md) · [Overview](docs/architecture/overview.md) · [Multi-tenancy & auth](docs/architecture/multitenancy-and-auth-spec.md) |
+| **Technical Reference** | [Architecture](docs/technical-reference/architecture-overview.md) · [Auth flow](docs/technical-reference/authentication-flow.md) · [Chat flow](docs/technical-reference/chat-flow.md) · [Collection scoping](docs/technical-reference/collection-scoping.md) · [Document ingestion](docs/technical-reference/document-ingestion.md) · [WebSocket gateway](docs/technical-reference/websocket-gateway.md) |
+| **Deployment** | [Docker Compose](docs/deployment/docker-compose.md) · [Environment variables](docs/deployment/environment-variables.md) · [Security config](docs/deployment/security-config.md) |
+| **API Reference** | [BFF routes](docs/api/bff-routes.md) · [Python endpoints](docs/api/python-endpoints.md) · [WebSocket protocol](docs/api/websocket-protocol.md) |
+| **Contributors** | [AGENTS.md](AGENTS.md) — conventions + the Docker verification workflow |
+
+> Some topic docs under `docs/technical-reference/` and `docs/api/` predate recent changes; the `docs/architecture/` deep-dives are the current source of truth.
 
 ## Development
 
-### Prerequisites
+**Prerequisites:** Docker & Docker Compose · Git LFS (`git lfs pull` for OIB PDFs) · API keys (OpenRouter, Tavily; WorkOS for auth).
 
-- Docker & Docker Compose
-- Git LFS (`git lfs pull` for OIB PDFs)
-- API keys: Kimi (Moonshot AI), Tavily, OpenRouter
-
-### Backend (local)
+**Verification.** Host `npm install` is unreliable on this project — run frontend checks in Docker, backend checks via the project venv:
 
 ```bash
-uv run ruff check .
-uv run ruff format --check .
-uv run pytest
+# Frontend typecheck + tests
+cd frontends/ui && docker build -f Dockerfile.typecheck -t grid-tsc . && docker run --rm grid-tsc
+docker run --rm grid-tsc npx vitest run           # test suite
+
+# Backend
+.venv/Scripts/python.exe -m pytest tests/
+.venv/Scripts/ruff.exe check .
 ```
 
-### Frontend (local)
-
-```bash
-cd frontends/ui
-npm install
-npm run lint
-npm run type-check
-npm run test:ci
-npm run dev
-```
-
-See [AGENTS.md](AGENTS.md) for contributor conventions and [docs/](docs/) for detailed guides.
+Note: the UI tsconfig includes test files, so spec type errors block the production `next build`. See [AGENTS.md](AGENTS.md) for the full contributor workflow.
 
 ---
 
 <div align="center">
-  <p>Built on the <a href="https://www.nvidia.com/en-us/ai/">NVIDIA AI-Q Blueprint</a> · <a href="https://langchain-ai.github.io/langgraph/">LangGraph</a> · <a href="https://www.llamaindex.ai/">LlamaIndex</a> · <a href="https://trychroma.com/">ChromaDB</a></p>
+  <p>Built on the <a href="https://www.nvidia.com/en-us/ai/">NVIDIA AI-Q Blueprint</a> · <a href="https://langchain-ai.github.io/langgraph/">LangGraph</a> · <a href="https://trychroma.com/">ChromaDB</a> · <a href="https://workos.com/">WorkOS</a></p>
 </div>

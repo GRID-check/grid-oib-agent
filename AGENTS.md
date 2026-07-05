@@ -16,7 +16,7 @@ This project is Docker-first. Run it via Docker Compose on Windows, macOS, or Li
 | `frontends/debug/` | Debug console mounted at `/debug` |
 | `frontends/cli/` | `aiq-research` CLI |
 | `frontends/benchmarks/` | Evaluation harnesses |
-| `configs/` | Workflow configs — **`config_oib_openrouter.yml` is the working config** (`config_grid_oib.yml`/Kimi is currently broken) |
+| `configs/` | Workflow configs. **LLM-agnostic** — any OpenAI-compatible endpoint (set `base_url`/`model_name`/key per config). **`config_oib_openrouter.yml` is the working reference config** (`config_grid_oib.yml`/Kimi is currently unmaintained) |
 | `deploy/` | Docker Compose assets and environment templates |
 | `docs/architecture/` | Architecture docs (see `backend-deep-dive.md`, `project-memory-design.md`) |
 | `skills/` | API-consumer skill examples |
