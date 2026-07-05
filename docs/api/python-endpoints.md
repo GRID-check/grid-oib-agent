@@ -1,9 +1,10 @@
 # Python Backend API Endpoints
 
-The Python backend is a FastAPI application registered as a NAT (NeMo Agent Toolkit) front-end plugin. Two plugin registrations contribute routes:
+The Python backend is a FastAPI application registered as a NAT (NeMo Agent Toolkit) front-end plugin. A single plugin registration contributes all custom routes:
 
-- **`aiq_api`** (`frontends/aiq_api/src/aiq_api/plugin.py`) — unified API with async job routes, knowledge routes, and OIB admin routes.
-- **`aiq_frontend`** (`src/aiq_agent/fastapi_extensions/register.py`) — knowledge layer API (collections, documents, ingestion).
+- **`aiq_api`** (`frontends/aiq_api/src/aiq_api/plugin.py`) — unified API with async job routes, knowledge routes (collections, documents, ingestion), and OIB admin routes.
+
+(The old duplicate `src/aiq_agent/fastapi_extensions/` front-end was deleted on 2026-07-03, commit `2570b1b`; its `/v1/ingest` route was ported into `aiq_api`.)
 
 ## Knowledge / Collections
 
@@ -11,21 +12,21 @@ These routes manage knowledge collections (logical groupings of documents for re
 
 | Method | Path | Description | Request | Response | Handler |
 |--------|------|-------------|---------|----------|---------|
-| `POST` | `/v1/collections` | Create a collection | `{ name, description?, metadata? }` | `CollectionInfo` (201) | `add_collection_routes` in `aiq_agent.fastapi_extensions.routes.collections` + `aiq_api.routes.collections` |
+| `POST` | `/v1/collections` | Create a collection | `{ name, description?, metadata? }` | `CollectionInfo` (201) | `add_collection_routes` in `aiq_api.routes.collections` |
 | `GET` | `/v1/collections` | List all collections | — | `[CollectionInfo]` | Same |
 | `GET` | `/v1/collections/{name}` | Get collection details | — | `CollectionInfo` (404 if missing) | Same |
 | `DELETE` | `/v1/collections/{name}` | Delete a collection | — | `{ success, collection }` | Same |
 | `GET` | `/v1/knowledge/health` | Check knowledge backend health | — | `{ status, backend }` (503 if unhealthy) | Same |
 
-**Config**: Knowledge backend is configured in the NAT workflow YAML (`knowledge_retrieval` function). Supports `llamaindex` (ChromaDB) and `foundational_rag` backends. Set via `KnowledgeAPIConfig` (`src/aiq_agent/fastapi_extensions/register.py`).
+**Config**: Knowledge backend is configured in the NAT workflow YAML (`knowledge_retrieval` function). Supports `llamaindex` (ChromaDB) and `foundational_rag` backends.
 
-**NAT registration**: `register_knowledge_api()` in `src/aiq_agent/fastapi_extensions/register.py`. Uses `KnowledgeAPIWorker` which calls `_get_ingestor()` on startup to create a shared `BaseIngestor` instance.
+**NAT registration**: knowledge routes are mounted by the `aiq_api` plugin (`frontends/aiq_api/src/aiq_api/plugin.py`), which wires `add_collection_routes`, `add_document_routes`, and `add_ingest_routes` onto the knowledge router.
 
 ## Ingestion
 
 | Method | Path | Description | Request | Response | Handler |
 |--------|------|-------------|---------|----------|---------|
-| `POST` | `/v1/ingest` | Ingest a file from a presigned URL | `{ file_ref, collection, document_id? }` | `{ job_id, status, document_id }` (202) | `add_ingest_routes` in `src/aiq_agent.fastapi_extensions.routes.ingest` |
+| `POST` | `/v1/ingest` | Ingest a file from a presigned URL | `{ file_ref, collection, document_id? }` | `{ job_id, status, document_id }` (202) | `add_ingest_routes` in `aiq_api.routes.ingest` (`frontends/aiq_api/src/aiq_api/routes/ingest.py`) |
 
 Downloads the file from `file_ref` (presigned MinIO URL), saves to a temporary file, infers extension from `Content-Type` or URL path, then submits to the ingestor's `submit_job()`. The BFF upload route (`POST /api/documents/upload`) calls this endpoint after writing to MinIO.
 
@@ -35,7 +36,7 @@ Downloads the file from `file_ref` (presigned MinIO URL), saves to a temporary f
 
 | Method | Path | Description | Request | Response | Handler |
 |--------|------|-------------|---------|----------|---------|
-| `POST` | `/v1/collections/{collection_name}/documents` | Upload documents | `multipart` with `files` | `{ job_id, file_ids, message }` (202) | `add_document_routes` in `aiq_agent.fastapi_extensions.routes.documents` + `aiq_api.routes.documents` |
+| `POST` | `/v1/collections/{collection_name}/documents` | Upload documents | `multipart` with `files` | `{ job_id, file_ids, message }` (202) | `add_document_routes` in `aiq_api.routes.documents` |
 | `GET` | `/v1/collections/{collection_name}/documents` | List documents in a collection | — | `[FileInfo]` | Same |
 | `DELETE` | `/v1/collections/{collection_name}/documents` | Delete files from a collection | `{ file_ids }` | `{ message, successful, failed, total_deleted }` | Same |
 | `GET` | `/v1/documents/{job_id}/status` | Get ingestion job status | — | `IngestionJobStatus` (404 if missing) | Same |

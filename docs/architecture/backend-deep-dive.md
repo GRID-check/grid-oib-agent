@@ -155,8 +155,9 @@ header was never sent → the agent had no project knowledge for that session.
   the handshake re-sends the project scope.
 
 Note: the profile is intentionally **not** embedded into the `proj_*` RAG
-collection — the header text-injection is the only project-knowledge channel by
-design.
+collection — project knowledge reaches the agent only via header text-injection:
+this profile header plus the project-memory digest header (`x-grid-project-memory`,
+see §8).
 
 ## 5. Project summary / fact-sheet
 
@@ -257,14 +258,29 @@ prompt-loading mixin, and an eval-wrapper factory — collapsing the duplication
 without touching the genuinely agent-specific LangGraph node logic. This is a
 refactor that should be verified against a running stack before merge.
 
-### Per-project agent findings store (proposed)
+### Project memory (implemented)
 
-There is no mechanism today for the agent to persist curated findings across
-turns (only conversation checkpoints + RAG). Cleanest design: a `project_findings`
-table (sibling to `projects`), surfaced to the backend as its own header
-(mirroring `x-grid-project-context`) rather than overloading the 4000-char
-`profile_prompt_view`. The backend `knowledge/summary_store.py` is a good storage
-pattern to emulate.
+The agent can now persist curated findings across turns. Full design:
+`docs/architecture/project-memory-design.md`. Key facts:
+
+- **Single-writer**: the `grid_app` DB has exactly one writer, the Next.js BFF.
+  The backend `remember` tool never touches the DB — it POSTs to the internal
+  BFF endpoint `POST /api/internal/memory`
+  (`frontends/ui/src/app/api/internal/memory/route.ts`), authenticated by the
+  shared service token `GRID_INTERNAL_API_TOKEN` (`x-grid-internal-token`
+  header; the route fails closed with 503 when the token is unconfigured).
+  Backend client: `src/aiq_agent/knowledge/project_memory.py` (base URL from
+  `FRONTEND_INTERNAL_URL`, default `http://frontend:3000`).
+- **Two scopes**: the `project_memory` table has a `scope` column —
+  `project` (requires `projectId`) or `organization` (org-wide, requires
+  `organizationId`, `projectId` null).
+- **Read path**: `buildProjectMemoryDigest()`
+  (`frontends/ui/src/lib/projects/memory-service.ts`) merges org-wide +
+  project items (active only; pinned first, then most recently updated,
+  bounded), tags each line with scope/kind/confidence/verification, and the
+  digest rides the WS upgrade as the `x-grid-project-memory` header
+  (`server.js` → `src/aiq_agent/project_context.py`), injected into prompts
+  alongside `x-grid-project-context`.
 
 ## 9. Known issues / open items
 
@@ -301,4 +317,3 @@ The host's `npm install` hangs, so verify in containers:
   target `dev-builder`, NGC auth required) or `docker compose … up -d --build`.
   Runtime-behavioural changes (deep-research cards, agent refactor, research 403)
   must be verified here before merge.
-```

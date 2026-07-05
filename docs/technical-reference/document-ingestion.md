@@ -90,7 +90,7 @@ Body: { projectId: string, file: File }
 
 ## Step 3: Python Ingest Route
 
-**File**: `src/aiq_agent/fastapi_extensions/routes/ingest.py`
+**File**: `frontends/aiq_api/src/aiq_api/routes/ingest.py` (moved from the deleted `src/aiq_agent/fastapi_extensions/` package on 2026-07-03)
 
 ```python
 POST /v1/ingest

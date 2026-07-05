@@ -1,3 +1,5 @@
+> Note (2026-07-05): fastapi_extensions was removed on 2026-07-03; ingest now lives in frontends/aiq_api.
+
 # MinIO Document Upload Redesign — Research Findings
 
 > **Scope:** AI-Q document upload/ingestion flow as found in the `aiq` worktree.  

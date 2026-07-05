@@ -72,7 +72,7 @@ The NAT framework is extended with:
 
 | Component | File | Purpose |
 |-----------|------|---------|
-| Knowledge API routes | `src/aiq_agent/fastapi_extensions/register.py` | Collection CRUD, document management, file ingestion |
+| Knowledge API routes | `frontends/aiq_api/src/aiq_api/routes/` (collections, documents, ingest; mounted by `plugin.py`) | Collection CRUD, document management, file ingestion. (The old `src/aiq_agent/fastapi_extensions/` duplicate was deleted 2026-07-03.) |
 | AIQ API worker | `frontends/aiq_api/` | Async job processing with SSE streaming |
 | Knowledge layer | `sources/knowledge_layer/` | LlamaIndex-backed RAG with ChromaDB |
 | Custom auth utils | `src/aiq_agent/auth/` | JWT extraction, WorkOS token validation |

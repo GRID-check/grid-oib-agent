@@ -1,3 +1,5 @@
+> Note (2026-07-05): fastapi_extensions was removed on 2026-07-03; ingest now lives in frontends/aiq_api.
+
 # Reusing AI-Q machinery for server-side conversation persistence
 
 What already exists in AI-Q that we can reuse, and what we must build new, to get

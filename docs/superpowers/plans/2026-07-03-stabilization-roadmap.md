@@ -1,3 +1,5 @@
+> Note (2026-07-05): fastapi_extensions was removed on 2026-07-03; ingest now lives in frontends/aiq_api.
+
 # GRID Stabilization Roadmap
 
 **Goal:** MVP → stable, coherent product. Correctness first, structure second, visuals third.

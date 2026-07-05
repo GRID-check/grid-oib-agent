@@ -68,7 +68,7 @@ sequenceDiagram
 
 ## Backend ingestion details
 
-- Route: `src/aiq_agent/fastapi_extensions/routes/documents.py`.
+- Route: `frontends/aiq_api/src/aiq_api/routes/documents.py` (was `src/aiq_agent/fastapi_extensions/routes/documents.py`; that package was deleted 2026-07-03).
 - Ingestor: `sources/knowledge_layer/src/llamaindex/adapter.py`.
 - Background job: `_run_ingestion` in the same adapter.
 - Default chunking: 1024 tokens, 128 overlap.
@@ -102,7 +102,7 @@ sequenceDiagram
 
 - `frontends/ui/src/features/documents/hooks/use-file-upload.ts`
 - `frontends/ui/src/features/documents/persistence.ts`
-- `src/aiq_agent/fastapi_extensions/routes/documents.py`
+- `frontends/aiq_api/src/aiq_api/routes/documents.py`
 - `sources/knowledge_layer/src/llamaindex/adapter.py`
 - `src/aiq_agent/knowledge/summary_store.py`
 - `src/aiq_agent/knowledge/factory.py`
