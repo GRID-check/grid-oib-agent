@@ -140,6 +140,11 @@ services:
     container_name: aiq-blueprint-ui
     environment:
       - REQUIRE_AUTH=${REQUIRE_AUTH:-false}
+      # APP_ENV lets the internal memory route distinguish dev from prod: the
+      # well-known dev default GRID_INTERNAL_API_TOKEN is only accepted when
+      # APP_ENV is development/dev/local (NODE_ENV is always 'production' in
+      # the built image, so it cannot be used for this).
+      - APP_ENV=${APP_ENV:-production}
       - BACKEND_URL=${BACKEND_URL:-http://aiq-agent:8000}
       - GRID_APP_DATABASE_URL=${GRID_APP_DATABASE_URL:-postgresql://aiq:aiq_dev@postgres:5432/grid_app}
       # Shared service token for the internal memory endpoint (must match aiq-agent)
