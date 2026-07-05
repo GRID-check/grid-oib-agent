@@ -398,5 +398,23 @@ __all__ = [
 
 
 def validate_cards(raw: list[dict]) -> list[dict]:
-    """Validate a list of raw card dicts and return the validated dicts."""
-    return [_grid_card_adapter.validate_python(item).model_dump(exclude_none=True) for item in raw]
+    """Validate a list of raw card dicts and return the validated dicts.
+
+    Per-card: one malformed card is logged and skipped instead of discarding
+    the whole batch (LLM output regularly contains one bad item among good
+    ones, and cards are a progressive enhancement — never fail the answer).
+    """
+    import logging
+
+    logger = logging.getLogger(__name__)
+    validated: list[dict] = []
+    for item in raw:
+        try:
+            validated.append(_grid_card_adapter.validate_python(item).model_dump(exclude_none=True))
+        except Exception as exc:
+            logger.warning(
+                "Dropping invalid card (type=%s): %s",
+                item.get("type") if isinstance(item, dict) else type(item).__name__,
+                exc,
+            )
+    return validated
