@@ -113,6 +113,14 @@ Verification harness: frontend `docker build -f Dockerfile.typecheck` + `docker 
 - **Pipeline:** Sonnet — full file:line confirmation of DEL-F4 mechanism + test-harness reconnaissance (ground truth, no fix proposed). Opus (orchestrator) — chose reaper-terminalize approach, implemented db.js/index.js/db.spec.mjs, ran Docker verification.
 - **Commit:** `frontends/ui/purger/{db.js,index.js,db.spec.mjs}` only — branch WIP left untouched.
 
+## Cycle 18 — T1/PIN-1 · DEL-F9 — constant-time internal-token compare — `frontends/aiq_api/src/aiq_api/routes/maintenance.py` + `tests/test_maintenance_auth.py`
+
+- **Wrong & why:** `_require_internal_token` (guards the destructive purge endpoint the purger calls) compared the `x-internal-token` header against `GRID_INTERNAL_API_TOKEN` with a plain `!=`, which short-circuits on the first differing byte → response-timing side-channel on the secret. Security-tier, disjoint from the branch WIP.
+- **Change:** `import hmac`; `provided = request.headers.get("x-internal-token") or ""`; `if not hmac.compare_digest(provided, token)` → constant-time, still fails closed on missing header. Behavior-preserving for all accept/reject outcomes. Added `test_maintenance_auth.py` (6 tests) — the guard was entirely untested; locks unset-env→403, dev-default-outside-dev→503, wrong/missing-header→403, and the two accept paths. New file has NO SPDX header (per project rule; legacy NVIDIA headers on old files are grandfathered).
+- **Verified:** `py_compile` + `ruff check` clean on maintenance.py; `pytest test_maintenance_auth.py` → 6 passed (slow ~3:47 due to the aiq_api import chain under the conftest shim, but green).
+- **Pipeline:** exploration = direct grep confirming line 47 `!=` still present + that `_require_internal_token` is the sole internal-token check in Python (the memory endpoint already got constant-time compare in P7); Opus decided compare_digest + fail-closed empty-string coercion and implemented + tested.
+- **Re-triage note:** PIN-1 now down to DEL-F5/F8 (observability: surface `last_error` in the admin deletions list + UI) — those touch `deletions/route.ts` + `recently-deleted.tsx`, disjoint from WIP, candidate for next cycle. T1-2/T1-3 remain human-only (secret rotation / real token value).
+
 ## CLOSING SUMMARY
 
 - **Cycles run:** 16. **Commits:** 11 (through the deletion round-2 + wiring commits this cycle).
