@@ -244,12 +244,20 @@ class ChatResearcherAgent:
                 state.available_documents,
             )
 
+            # Meta/conversational turns are routed through the shallow agent for
+            # persona + the `remember` tool, but they answer from context without
+            # calling research tools — so they capture no sources and must NOT be
+            # held to the research-only "sources required" guard. Everything else
+            # (research) keeps the strict contract.
+            requires_sources = not (state.user_intent is not None and state.user_intent.intent == "meta")
+
             try:
                 shallow_state = ShallowResearchAgentState(
                     messages=trimmed_messages,
                     data_sources=state.data_sources,
                     available_documents=state.available_documents,
                     project_context=state.project_context,
+                    requires_sources=requires_sources,
                 )
                 result = await self.shallow_research_fn(shallow_state)
             except EmptySourceRegistryError as exc:
