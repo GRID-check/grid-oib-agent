@@ -23,7 +23,6 @@ This is the main orchestrator agent that coordinates the full research workflow:
 4. Optional escalation from shallow to deep
 """
 
-import json
 import logging
 from collections.abc import Awaitable
 from collections.abc import Callable
@@ -33,7 +32,6 @@ from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import AIMessage
 from langchain_core.messages import BaseMessage
 from langchain_core.messages import HumanMessage
-from langchain_core.messages import SystemMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END
@@ -45,8 +43,6 @@ from aiq_agent.agents.clarifier.models import ClarifierAgentState
 from aiq_agent.agents.clarifier.models import ClarifierResult
 from aiq_agent.agents.deep_researcher.models import DeepResearchAgentState
 from aiq_agent.agents.shallow_researcher.models import ShallowResearchAgentState
-from aiq_agent.cards.models import validate_cards
-from aiq_agent.cards.prompt import build_card_generation_prompt
 from aiq_agent.common import get_latest_user_query
 from aiq_agent.common.citation_verification import EmptySourceRegistryError
 
@@ -139,7 +135,6 @@ class ChatResearcherAgent:
         deep_research_job_submitter: Callable[[Any], Awaitable[str]] | None = None,
         checkpointer: BaseCheckpointSaver | None = None,
         validate_deep_research_tools_fn: Callable[[list[str] | None], tuple[bool, str]] | None = None,
-        llm: Any | None = None,
     ) -> None:
         """
         Initialize the chat researcher agent.
@@ -155,7 +150,9 @@ class ChatResearcherAgent:
             max_history: Maximum number of messages to keep in history
             deep_research_job_submitter: Optional function to submit deep research as async job
             checkpointer: Optional checkpointer for persistent state (defaults to MemorySaver)
-            llm: Optional LLM for generating structured response cards.
+
+        Cards are emitted by the answering agent via the ``emit_card`` tool, not
+        generated here — this class no longer needs a card LLM.
         """
         self.intent_classifier_fn = intent_classifier_fn
         self.shallow_research_fn = shallow_research_fn
@@ -168,7 +165,6 @@ class ChatResearcherAgent:
         self.deep_research_job_submitter = deep_research_job_submitter
         self.checkpointer = checkpointer
         self.validate_deep_research_tools_fn = validate_deep_research_tools_fn
-        self.llm = llm
 
         self._graph = self._build_graph()
 
@@ -406,8 +402,11 @@ class ChatResearcherAgent:
                 return {"messages": [result.messages[-1]]}
 
         def route_after_orchestration(state: ChatResearcherState) -> str:
-            """From combined orchestration: meta -> END (response already in messages), else by depth."""
-            if state.user_intent and state.user_intent.intent == "meta":
+            """Route by classification: error -> END (canned message already in
+            messages), deep research -> clarifier, everything else (research
+            shallow AND meta/conversational turns) -> shallow agent, which owns
+            the persona and the `remember` tool."""
+            if state.user_intent and state.user_intent.intent == "error":
                 return "END"
             if state.depth_decision and state.depth_decision.decision == "deep":
                 return "clarifier"
@@ -415,6 +414,13 @@ class ChatResearcherAgent:
 
         def should_escalate(state: ChatResearcherState) -> str:
             if not self.enable_escalation:
+                return "END"
+
+            # Conversational (meta) turns are answered by the shallow agent but
+            # must never escalate: the keyword tail-match below could otherwise
+            # misread chit-chat ("I don't have enough information about you...")
+            # as a failed research attempt and launch deep research.
+            if state.user_intent and state.user_intent.intent == "meta":
                 return "END"
 
             # Respect explicit escalation decision from shallow research.
@@ -478,42 +484,6 @@ class ChatResearcherAgent:
 
         return graph.compile(checkpointer=self.checkpointer)
 
-    async def _generate_cards(
-        self, query: str, research_context: str
-    ) -> list[dict[str, Any]] | None:
-        """Generate validated Grid response cards from the research context."""
-        if not self.llm or not query or not research_context:
-            return None
-
-        prompt = build_card_generation_prompt()
-        messages = [
-            SystemMessage(content=prompt),
-            HumanMessage(content=f"Question: {query}\n\nResearch context:\n{research_context}"),
-        ]
-
-        try:
-            response = await self.llm.ainvoke(messages)
-            raw_text = response.content if hasattr(response, "content") else str(response)
-            raw_text = raw_text.strip()
-            if raw_text.startswith("```"):
-                raw_text = raw_text.split("\n", 1)[-1].rsplit("\n```", 1)[0].strip()
-            parsed = json.loads(raw_text)
-            if not isinstance(parsed, list):
-                parsed = [parsed]
-            return validate_cards(parsed)
-        except Exception as e:
-            logger.exception("Card generation failed: %s", e)
-            return None
-
-    @staticmethod
-    def _last_ai_message_text(state: ChatResearcherState | dict[str, Any]) -> str | None:
-        """Return the text of the last non-tool AIMessage in the state."""
-        messages = state.messages if isinstance(state, ChatResearcherState) else state.get("messages", [])
-        for m in reversed(messages):
-            if isinstance(m, AIMessage) and not m.tool_calls:
-                return m.content if isinstance(m.content, str) else str(m.content)
-        return None
-
     async def run(
         self, state: ChatResearcherState | dict[str, Any], thread_id: str | None = None
     ) -> ChatResearcherState:
@@ -540,6 +510,9 @@ class ChatResearcherAgent:
                 "available_documents": state.available_documents,
                 "collection_scope": state.collection_scope,
                 "shallow_result": None,  # reset at turn boundary to avoid stale checkpoint state
+                # Reset like shallow_result: a persisted job id from a previous
+                # deep-research turn would otherwise be read as this turn's job.
+                "deep_research_job_id": None,
                 "skip_clarifier": state.skip_clarifier,
                 "project_context": state.project_context,
             }
@@ -550,34 +523,9 @@ class ChatResearcherAgent:
             logger.info("Query: %s...", str(query)[:100] if query else "")
         result = await self._graph.ainvoke(input_state, config=graph_config)
 
-        # Post-process: generate structured response cards from the final answer.
-        #
-        # Unified across the dict / ChatResearcherState return shapes (the graph
-        # returns a dict; the state object is defensive). Cards are generated for
-        # any turn that produced a real answer -- we no longer hard-gate on
-        # intent == "research" (the old code was inconsistent between the two
-        # branches, and the intent classifier already defaults ambiguous turns
-        # to "research"). We DO skip generation when the turn merely dispatched
-        # an async deep-research job: the "answer" is just the job-submitted
-        # stub, so there is nothing to build cards from -- the real answer (and
-        # its cards) arrives later through the job pipeline.
-        def _get(field: str) -> Any:
-            return getattr(result, field, None) if isinstance(result, ChatResearcherState) else result.get(field)
-
-        def _set(field: str, value: Any) -> None:
-            if isinstance(result, ChatResearcherState):
-                setattr(result, field, value)
-            else:
-                result[field] = value
-
-        job_id = _get("deep_research_job_id")
-        query = _get("original_query") or (messages[-1].content if messages else None)
-        context = self._last_ai_message_text(result)
-        if query and context and not job_id:
-            cards = await self._generate_cards(str(query), context)
-            if cards:
-                _set("cards", cards)
-
+        # Cards are emitted by the answering agent through the `emit_card` tool
+        # into the conversation-scoped CardRegistry and read by the chat
+        # entrypoint after this returns — no post-hoc card-generation call here.
         logger.info("ChatResearcherAgent: Workflow complete")
 
         return result

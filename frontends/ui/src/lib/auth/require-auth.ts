@@ -3,6 +3,8 @@
  */
 
 import { redirect } from 'next/navigation'
+import { NextResponse } from 'next/server'
+import { isAuthzError } from '@/lib/auth-utils'
 import { requireGridSession } from './session'
 import type { AuthorizedSession } from './types'
 
@@ -58,4 +60,27 @@ export async function requireAuthorizedPageSession(): Promise<AuthorizedSession>
     }
     throw error
   }
+}
+
+/**
+ * Map a caught error to a 403 JSON response when it is an authorization
+ * failure (no organization selected, forbidden, unauthorized, not-found);
+ * otherwise return null so the caller falls through to its own handling
+ * (typically rethrow → Next.js 500). Lets API route handlers apply the
+ * no-organization → 403 contract uniformly instead of letting
+ * {@link NoOrganizationError} escape as an opaque 500:
+ *
+ * ```ts
+ * } catch (error) {
+ *   const denied = authzErrorResponse(error)
+ *   if (denied) return denied
+ *   throw error
+ * }
+ * ```
+ */
+export function authzErrorResponse(error: unknown): NextResponse | null {
+  if (isAuthzError(error)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+  return null
 }

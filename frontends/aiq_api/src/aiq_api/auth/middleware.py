@@ -376,6 +376,10 @@ class AuthMiddleware:
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
+            # WebSocket connections are authenticated in
+            # aiq_api.websocket_reconnect.authenticate_websocket_connection,
+            # which validates the handshake Authorization header and binds the
+            # identity per message via user_context().
             await self.app(scope, receive, send)
             return
 

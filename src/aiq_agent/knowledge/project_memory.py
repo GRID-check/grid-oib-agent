@@ -26,6 +26,22 @@ VALID_SCOPES = {"project", "organization"}
 _REQUEST_TIMEOUT_SECONDS = 5
 
 
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Refuse to follow redirects.
+
+    The internal endpoint never redirects; a 3xx means an auth middleware
+    intercepted the call (e.g. AuthKit sending us to a sign-in page). Following
+    it would drop the POST body and the service-token header and surface a
+    misleading downstream error, so fail fast with the original status instead.
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
+        raise urllib.error.HTTPError(req.full_url, code, f"unexpected redirect to {newurl}", headers, fp)
+
+
+_opener = urllib.request.build_opener(_NoRedirectHandler)
+
+
 def _internal_base_url() -> str:
     url = (
         os.environ.get("FRONTEND_INTERNAL_URL")
@@ -87,12 +103,32 @@ def insert_memory_item(
     )
 
     try:
-        with urllib.request.urlopen(request, timeout=_REQUEST_TIMEOUT_SECONDS) as response:
+        with _opener.open(request, timeout=_REQUEST_TIMEOUT_SECONDS) as response:
             body = json.loads(response.read().decode("utf-8"))
             return body.get("item", {}).get("id")
     except urllib.error.HTTPError as exc:
         if exc.code == 404:
             # Unknown project — nothing recorded, not a transport failure.
             return None
-        logger.warning("Internal memory endpoint returned %s", exc.code)
+        if 300 <= exc.code < 400:
+            logger.error(
+                "Internal memory endpoint redirected (%s) — an auth middleware is "
+                "intercepting %s/api/internal/memory. Exclude /api/internal/* from "
+                "the frontend auth proxy (unauthenticatedPaths in proxy.ts).",
+                exc.code,
+                _internal_base_url(),
+            )
+        elif exc.code == 403:
+            logger.error(
+                "Internal memory endpoint rejected the service token (403) — "
+                "GRID_INTERNAL_API_TOKEN mismatch between aiq-agent and frontend."
+            )
+        elif exc.code == 503:
+            logger.error(
+                "Internal memory endpoint disabled (503) — GRID_INTERNAL_API_TOKEN "
+                "is unset, or is the dev default in a non-dev environment "
+                "(set APP_ENV=development on the frontend or configure a real token)."
+            )
+        else:
+            logger.warning("Internal memory endpoint returned %s", exc.code)
         raise

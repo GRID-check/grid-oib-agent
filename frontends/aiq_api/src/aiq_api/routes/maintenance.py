@@ -6,6 +6,7 @@ Guarded by GRID_INTERNAL_API_TOKEN; never exposed to end users.
 All operations are idempotent — re-running on already-deleted data is a no-op.
 """
 
+import hmac
 import logging
 import os
 
@@ -44,7 +45,9 @@ def _require_internal_token(request: Request) -> None:
             app_env,
         )
         raise HTTPException(status_code=503, detail="Internal API disabled")
-    if request.headers.get("x-internal-token") != token:
+    # Constant-time compare: a plain != leaks the token via response timing.
+    provided = request.headers.get("x-internal-token") or ""
+    if not hmac.compare_digest(provided, token):
         raise HTTPException(status_code=403, detail="Forbidden")
 
 

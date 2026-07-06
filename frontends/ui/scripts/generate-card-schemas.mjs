@@ -40,7 +40,14 @@ const perTypeDeclarations = orderedDefNames.map((defName) => {
   return `export const ${exportName(defName)} = ${zodExpr}`
 })
 
-const unionMembers = orderedDefNames.map((defName) => exportName(defName)).join(',\n  ')
+// The discriminated union must contain ONLY the card members (the schema's
+// `oneOf`), never nested sub-structure defs (NormReference, DimensionCheck, …)
+// which have no `type` discriminator. Sub-structure schemas are still emitted
+// as standalone consts above; they just don't belong in the union.
+const cardDefNames = (root.oneOf ?? []).map((entry) => refToDefName(entry.$ref))
+const unionMembers = (cardDefNames.length ? cardDefNames : orderedDefNames)
+  .map((defName) => exportName(defName))
+  .join(',\n  ')
 
 const banner =
   '// AUTO-GENERATED from shared/cards/schemas.json — do not edit; run `npm run generate:cards`'

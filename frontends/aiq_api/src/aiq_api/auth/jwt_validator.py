@@ -248,10 +248,13 @@ class JWTValidator(TokenValidator):
             return (user, None)
 
         except _jwt.ExpiredSignatureError:
-            logger.debug("JWT expired")
+            logger.info("JWT expired")
             return (None, "token_expired")
         except _jwt.InvalidTokenError as exc:
-            logger.debug("JWT invalid: %s", exc)
+            # WARNING, not DEBUG: a rejected token silently downgrades the
+            # caller to an unverified identity, which breaks principal-gated
+            # actions in ways that are otherwise very hard to trace.
+            logger.warning("JWT rejected: %s", exc)
             return (None, "token_invalid")
         except Exception as exc:
             logger.warning("JWT validation error: %s", exc)

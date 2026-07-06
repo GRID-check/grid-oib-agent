@@ -31,17 +31,24 @@ def create_workos_validator() -> JWTValidator:
     the WorkOS issuer and client-specific JWKS URI.
 
     Returns:
-        A :class:`JWTValidator` with issuer ``https://api.workos.com``,
-        audience equal to the client ID, and RS256 signature verification.
+        A :class:`JWTValidator` with the client-scoped WorkOS issuer and RS256
+        signature verification.
 
     Raises:
         KeyError: If ``WORKOS_CLIENT_ID`` is not set in the environment.
     """
     client_id = os.environ["WORKOS_CLIENT_ID"]
     return JWTValidator(
-        issuer_url="https://api.workos.com",
+        # AuthKit access tokens carry the client-scoped issuer (verified via
+        # the OIDC discovery document at
+        # https://api.workos.com/user_management/<client_id>/.well-known/openid-configuration).
+        # A bare "https://api.workos.com" issuer rejects EVERY token.
+        issuer_url=f"https://api.workos.com/user_management/{client_id}",
         jwks_uri=f"https://api.workos.com/sso/jwks/{client_id}",
-        audience=client_id,
+        # AuthKit access tokens have no `aud` claim; enforcing one rejects
+        # every token with MissingRequiredClaim. Identity binding to this
+        # deployment comes from the client-scoped issuer + JWKS instead.
+        audience=None,
         algorithms=["RS256"],
         verify_iss=True,
     )

@@ -30,6 +30,11 @@ const middleware = authkitMiddleware({
       '/api/auth/callback',
       '/api/auth/websocket-scope',
       '/auth/error',
+      // Internal service-to-service endpoints (e.g. the backend agent's
+      // `remember` tool). These carry no WorkOS session cookie; each route
+      // enforces its own shared-token auth (X-Grid-Internal-Token). Without
+      // this entry AuthKit 303-redirects the POST to WorkOS sign-in.
+      '/api/internal/(.*)',
     ],
   },
 })

@@ -27,6 +27,9 @@ from aiq_agent.common import _create_chat_response
 from aiq_agent.common import format_data_source_tools
 from aiq_agent.common import get_checkpointer
 from aiq_agent.common import is_verbose
+from aiq_agent.cards.registry import get_or_create_card_registry
+from aiq_agent.cards.registry import reset_card_registry
+from aiq_agent.cards.registry import set_card_registry
 from aiq_agent.common.citation_verification import get_or_create_session_registry
 from aiq_agent.common.citation_verification import reset_session_registry
 from aiq_agent.common.citation_verification import set_session_registry
@@ -107,9 +110,17 @@ async def intent_classifier(config: IntentClassifierConfig, builder: Builder):
         llm_timeout=config.llm_timeout,
     )
 
+    # Tools that exist outside the data-source registry (e.g. `remember`) must
+    # survive the per-request data-source narrowing below, otherwise the
+    # classifier believes they don't exist and denies the capability to users.
+    from aiq_agent.common import get_all_tool_refs as _registry_refs
+
+    registry_names = set(_registry_refs())
+    non_registry_tools_info = [t for t in tools_info if t["name"] not in registry_names]
+
     async def _run(state: ChatResearcherState) -> dict[str, Any]:
         if state.data_sources is not None:
-            classifier.tools_info = format_data_source_tools(state.data_sources)
+            classifier.tools_info = format_data_source_tools(state.data_sources) + non_registry_tools_info
         return await classifier.run(state)
 
     yield FunctionInfo.from_fn(
@@ -213,16 +224,11 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
     deep_research_fn = await builder.get_function("deep_research_agent")
     clarifier_fn = await builder.get_function("clarifier_agent") if config.enable_clarifier else None
 
-    # Resolve the LLM used for card generation. Most NVIDIA configs define
-    # nemotron_super_llm; alternate configs can provide card_generator_llm.
-    card_generator_llm = None
-    try:
-        card_llm_ref = config.card_generator_llm or LLMRef("nemotron_super_llm")
-        card_generator_llm = await builder.get_llm(
-            card_llm_ref, wrapper_type=LLMFrameworkEnum.LANGCHAIN
-        )
-    except Exception:
-        logger.warning("Could not resolve LLM for card generation", exc_info=True)
+    # Cards are emitted by the answering agent via the `emit_card` tool (see
+    # aiq_agent.cards.register) and read from the conversation-scoped
+    # CardRegistry after the turn — no separate card-generation LLM call.
+    # card_generator_llm remains in the config schema for compatibility but is
+    # no longer used on the sync chat path.
 
     # Get deep research tools for early validation
     deep_research_config = builder.get_function_config("deep_research_agent")
@@ -325,7 +331,6 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         deep_research_job_submitter=deep_research_job_submitter,
         checkpointer=checkpointer,
         validate_deep_research_tools_fn=validate_deep_research_tools,
-        llm=card_generator_llm,
     )
 
     async def _run(query: object) -> ChatResponse:
@@ -473,6 +478,12 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         # fresh per-request registry to prevent anonymous sessions from sharing state.
         session_registry = get_or_create_session_registry(nat_context_conversation_id)
         token = set_session_registry(session_registry)
+        # Bind the conversation-scoped card registry so the `emit_card` tool can
+        # push cards during the turn. Cleared here (registries are reused across
+        # turns of the same conversation) so a card never leaks between turns.
+        card_registry = get_or_create_card_registry(nat_context_conversation_id)
+        card_registry.clear()
+        card_token = set_card_registry(card_registry)
         try:
             state = ChatResearcherState(
                 messages=[HumanMessage(content=query_text)],
@@ -486,6 +497,7 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
             result = await agent.run(state, thread_id=nat_context_conversation_id)
         finally:
             reset_session_registry(token)
+            reset_card_registry(card_token)
 
         if isinstance(result, dict):
             messages = result.get("messages", [])
@@ -497,7 +509,9 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         else:
             response_content = "No response generated."
 
-        cards = getattr(result, "cards", None) or (result.get("cards") if isinstance(result, dict) else None)
+        # Cards come from the emit_card tool via the conversation-scoped
+        # registry — the agent decides, in-context, when a card adds value.
+        cards = card_registry.snapshot()
         deep_research_job_id = (
             getattr(result, "deep_research_job_id", None)
             or (result.get("deep_research_job_id") if isinstance(result, dict) else None)
@@ -516,7 +530,10 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
 
         response = _create_chat_response(response_content, response_id="research_response", model=workflow_id)
         if cards:
+            logger.info("Attaching %d card(s) to ChatResponse", len(cards))
             response.cards = cards
+        else:
+            logger.info("No cards on this turn (cards=%r)", cards)
         if deep_research_job_id:
             response.deep_research_job_id = deep_research_job_id
         return response

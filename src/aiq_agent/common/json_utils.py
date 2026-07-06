@@ -49,18 +49,19 @@ def extract_json(text: str) -> dict[str, Any] | None:
     except json.JSONDecodeError:
         pass
 
-    # Try extracting from markdown code block
-    json_match = re.search(r"```json\s*(.*?)\s*```", text, re.DOTALL)
+    # Try extracting from markdown code block. The closing fence is optional
+    # so a response truncated after the JSON body still parses.
+    json_match = re.search(r"```(?:json)?\s*(\{.*?)\s*(?:```|$)", text, re.DOTALL)
     if json_match:
         try:
             return json.loads(json_match.group(1).strip())
         except json.JSONDecodeError:
             pass
 
-    # Try finding JSON object in text
-    start = text.find("{")
-    if start != -1:
-        # Find matching closing brace
+    # Try each '{' as a candidate start and match braces from there, so stray
+    # braces in surrounding prose don't permanently derail extraction.
+    for start_match in re.finditer(r"\{", text):
+        start = start_match.start()
         depth = 0
         for i, char in enumerate(text[start:]):
             if char == "{":

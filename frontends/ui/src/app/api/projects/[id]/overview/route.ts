@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { requireAuthorizedSession } from '@/lib/auth/require-auth'
+import { authzErrorResponse, requireAuthorizedSession } from '@/lib/auth/require-auth'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { getProjectOverviewData } from '@/lib/projects/overview-query'
 
@@ -20,6 +20,8 @@ export async function GET(
 
     return NextResponse.json(data)
   } catch (error) {
+    const denied = authzErrorResponse(error)
+    if (denied) return denied
     console.error('GET /api/projects/[id]/overview error:', error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Internal server error' },

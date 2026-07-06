@@ -87,9 +87,9 @@ class IntentClassifier:
         except Exception:
             return (
                 "/no_think\n\n"
-                "You are an Orchestrator. Classify intent as 'meta' or 'research'.\n"
-                "If meta, provide 'meta_response'. If research, provide 'research_depth'.\n"
-                "Respond ONLY with JSON."
+                "You are a routing classifier. Classify intent as 'meta' or 'research' "
+                "and provide 'research_depth' ('shallow' or 'deep').\n"
+                "Respond ONLY with the raw JSON object — no prose, no code fences."
             )
 
     async def run(self, state: ChatResearcherState) -> dict[str, Any]:
@@ -135,26 +135,19 @@ class IntentClassifier:
 
             raw_intent = (parsed.get("intent") or "research").strip().lower()
             intent = raw_intent if raw_intent in ("meta", "research") else "research"
-            meta_response = parsed.get("meta_response")
             research_depth = (parsed.get("research_depth") or "shallow").strip().lower()
             depth_reasoning = parsed.get("depth_reasoning") or ""
 
-            update: dict[str, Any] = {
+            # Pure router: no user-facing text is authored here. Meta turns are
+            # handled by the shallow agent (it owns the persona and the
+            # `remember` tool); this node only emits the routing decision.
+            return {
                 "user_intent": IntentResult(intent=intent, raw=parsed),
-            }
-
-            if intent == "meta":
-                meta_text = (
-                    meta_response if isinstance(meta_response, str) and meta_response.strip() else "I'm here to help."
-                )
-                update["messages"] = [AIMessage(content=meta_text)]
-            else:
-                update["depth_decision"] = DepthDecision(
+                "depth_decision": DepthDecision(
                     decision=research_depth if research_depth in ("shallow", "deep") else "shallow",
                     raw_reasoning=str(depth_reasoning),
-                )
-
-            return update
+                ),
+            }
 
         except TimeoutError:
             logger.warning(
@@ -162,7 +155,7 @@ class IntentClassifier:
                 self.llm_timeout,
             )
             return {
-                "user_intent": IntentResult(intent="meta", raw=None),
+                "user_intent": IntentResult(intent="error", raw=None),
                 "messages": [AIMessage(content=_LLM_TIMEOUT_MESSAGE)],
             }
         except Exception as e:
@@ -172,18 +165,18 @@ class IntentClassifier:
                     str(e).split("\n")[0],
                 )
                 return {
-                    "user_intent": IntentResult(intent="meta", raw=None),
+                    "user_intent": IntentResult(intent="error", raw=None),
                     "messages": [AIMessage(content=_LLM_UNAVAILABLE_MESSAGE)],
                 }
             if _is_timeout_error(e):
                 logger.exception("LLM call failed with timeout (e.g. 504 Gateway Time-out): %s", e)
                 return {
-                    "user_intent": IntentResult(intent="meta", raw=None),
+                    "user_intent": IntentResult(intent="error", raw=None),
                     "messages": [AIMessage(content=_LLM_TIMEOUT_MESSAGE)],
                 }
             logger.exception("Error in orchestration: %s", e)
             err_msg = "We couldn't process your request due to a temporary error. Please try again."
             return {
-                "user_intent": IntentResult(intent="meta", raw=None),
+                "user_intent": IntentResult(intent="error", raw=None),
                 "messages": [AIMessage(content=err_msg)],
             }

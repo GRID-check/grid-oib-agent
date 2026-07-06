@@ -22,6 +22,7 @@ vi.mock('next/navigation', () => ({
 import { requireGridSession } from './session'
 import { redirect } from 'next/navigation'
 import {
+  authzErrorResponse,
   NoOrganizationError,
   requireAuthorizedSession,
   requireAuthorizedPageSession,
@@ -87,5 +88,29 @@ describe('require-auth guards', () => {
       'Unauthorized: Grid session required',
     )
     expect(redirect).not.toHaveBeenCalled()
+  })
+})
+
+describe('authzErrorResponse', () => {
+  it('maps a NoOrganizationError to a 403 JSON response', async () => {
+    const res = authzErrorResponse(new NoOrganizationError())
+
+    expect(res).not.toBeNull()
+    expect(res!.status).toBe(403)
+    await expect(res!.json()).resolves.toEqual({ error: 'Forbidden' })
+  })
+
+  it.each([
+    'Unauthorized: Grid session required',
+    'Forbidden: insufficient permissions',
+    'not found',
+  ])('maps authz-style error "%s" to a 403', (message) => {
+    const res = authzErrorResponse(new Error(message))
+    expect(res?.status).toBe(403)
+  })
+
+  it('returns null for a non-authorization error so the caller can rethrow', () => {
+    expect(authzErrorResponse(new Error('database connection reset'))).toBeNull()
+    expect(authzErrorResponse('not an Error instance')).toBeNull()
   })
 })

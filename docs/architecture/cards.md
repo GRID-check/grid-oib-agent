@@ -49,6 +49,37 @@ a renderer** (`features/grid-cards/`). No pipeline surgery. That keeps the set o
 to future types (requirement checklists, comparison tables, applicability panels)
 without re-plumbing generation or transport.
 
+## Card catalog
+
+Three base cards plus ten **schematic** cards — programmatically-drawn technical
+diagrams (SVG kit in `features/grid-cards/schematics/`, Rough.js sketch stroke).
+The schematic cards emit **parameters only**; the renderer draws to scale and does
+any geometry/ratio math. Every required limit carries a `NormReference`; unknown
+values render "fehlende Angabe", never a guess. See
+[ADR-0012](../adr/0012-cards-as-rich-ui-layer.md).
+
+| `type` | Shows | Domain |
+|---|---|---|
+| `summary` | prose overview / key points | any |
+| `legal_basis` | a cited OIB/norm excerpt | any |
+| `project_profile_patch` | a reviewable profile change | intake |
+| `building_section` | to-scale cross-section: storeys, ground line, Fluchtniveau/GK/Hochhaus markers | height / GK |
+| `stair_diagram` | stair drawn to scale + 2R+G comfort + OIB 4 limits | stairs |
+| `dimension_diagram` | door/ramp/corridor/turning-circle/threshold/parking schematic w/ dimension arrows | accessibility |
+| `setback_plan` | top-down parcel + footprint + setback envelopes | site / Abstandsflächen |
+| `egress_diagram` | traced Fluchtweg path, total length vs 40 m | fire / escape |
+| `daylight_incidence` | window section + 45° free-light line + obstruction + glass-area ratio | daylight (OIB 3) |
+| `guardrail_check` | railing elevation, height/opening/gap checks, Kletterschutz band | Absturzsicherung (OIB 4) |
+| `density_check` | parcel + footprint, Bebauungsgrad/GFZ bars | zoning density |
+| `fire_access_plan` | Feuerwehrzufahrt site plan, route/Aufstellfläche/80 m reach | fire access (OIB 2) |
+| `acoustic_check` | direction-aware dB gauges (airborne ↑ / impact ↓) | Schallschutz (OIB 5) |
+
+The card-generation LLM is `card_llm` (config `reasoning_effort: medium`). Adding a
+card type = define the Pydantic model (`cards/models.py`), regenerate the schema
+(`scripts/generate_card_schema.py` → `npm run generate:cards`), add a renderer, and
+wire the `GridCards` dispatcher. Next phases: a 3D massing card (three.js/R3F) and
+the IFC/BIM viewer (`docs/roadmap/ifc-viewer-card-spec.md`).
+
 ## Known rough edges
 
 - Card-generation logic is duplicated between `cards/generate.py` and the inline

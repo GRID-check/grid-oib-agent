@@ -26,10 +26,13 @@ class IntentResult(BaseModel):
     Result of intent classification.
 
     Attributes:
-        intent: Classified intent - either 'meta' (greetings, chit-chat, capabilities)
-                or 'research' (queries requiring data lookup and sources).
+        intent: Classified intent - 'meta' (greetings, chit-chat, capability or
+                memory requests; routed to the assistant agent), 'research'
+                (queries requiring data lookup and sources), or 'error'
+                (classifier-level failure; a canned message is already in state
+                and the turn ends).
         raw: Optional raw classification response from the LLM.
     """
 
-    intent: Literal["meta", "research"]
+    intent: Literal["meta", "research", "error"]
     raw: dict[str, Any] | None = None

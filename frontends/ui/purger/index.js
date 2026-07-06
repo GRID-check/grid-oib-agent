@@ -22,6 +22,7 @@ const {
   markFailed,
   markFailedPermanent,
   markPurged,
+  reapStranded,
   releaseHeld,
 } = require('./db')
 const { createS3Client, deleteMinioPrefix } = require('./minio')
@@ -96,6 +97,17 @@ async function tick() {
   if (running) return
   running = true
   try {
+    // Reap rows a crashed purger stranded in 'purging' on their final attempt
+    // (claimNext can't re-pick them, and they'd never surface to an admin).
+    const reaped = await reapStranded(sql).catch((e) => {
+      console.error('[purger] failed to reap stranded rows:', e)
+      return 0
+    })
+    if (reaped > 0) {
+      console.warn(
+        `[purger] reaped ${reaped} row(s) stranded in 'purging' → 'failed' (see last_error)`,
+      )
+    }
     // Drain everything due, one at a time.
     while (await processOne()) {
       /* keep going */

@@ -122,6 +122,34 @@ async function markFailedPermanent(sql, entryId, message) {
   `
 }
 
+/**
+ * Terminalize rows stranded in 'purging' by a crash on their FINAL attempt.
+ * claimNext's stale-reclaim branch re-picks crashed 'purging' rows, but shares
+ * the `attempts < MAX_ATTEMPTS` guard with the pending branch — so a crash
+ * during the MAX_ATTEMPTS'th purge (attempts already bumped to MAX at claim
+ * time) leaves the row in 'purging' forever: never re-claimed, and invisible to
+ * the admin deletions list, which surfaces only 'pending'/'failed'. Mark such
+ * rows 'failed' so a human sees them instead of silently orphaned external
+ * state. Uses the same 15-minute stale window as claimNext, so a genuinely
+ * in-progress final attempt is never prematurely failed. Existing last_error
+ * (from the preceding attempts) is preserved. Returns the number reaped.
+ */
+async function reapStranded(sql) {
+  const rows = await sql`
+    UPDATE deletion_queue
+    SET status = 'failed',
+        last_error = COALESCE(
+          last_error,
+          'stranded in purging after max attempts (presumed purger crash)'
+        )
+    WHERE status = 'purging'
+      AND attempts >= ${MAX_ATTEMPTS}
+      AND claimed_at < now() - make_interval(mins => ${STALE_CLAIM_MINUTES})
+    RETURNING id
+  `
+  return rows.length
+}
+
 module.exports = {
   claimNext,
   createSql,
@@ -129,6 +157,7 @@ module.exports = {
   markFailed,
   markFailedPermanent,
   markPurged,
+  reapStranded,
   releaseHeld,
   MAX_ATTEMPTS,
 }
