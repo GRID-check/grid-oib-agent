@@ -377,7 +377,7 @@ class ShallowResearcherAgent:
                     sources = registry.all_sources()
                     if not verification.valid_citations and len(sources) == 1:
                         content = _append_minimal_citation(content, sources[0])
-                else:
+                elif state.requires_sources:
                     from aiq_agent.common.tool_validation import validate_tool_availability
 
                     _, available_count, unavailable = validate_tool_availability(
@@ -389,6 +389,17 @@ class ShallowResearcherAgent:
                         "shallow research",
                         unavailable_tools=unavailable,
                         available_count=available_count,
+                    )
+                else:
+                    # Conversational/meta turn: no sources are expected, so an
+                    # empty registry is NOT a failure. Return the assistant's
+                    # answer as-is — there is nothing to cite or verify. The
+                    # research-only "no sources captured" guard must not apply to
+                    # persona/chit-chat turns; the orchestrator signals these via
+                    # requires_sources=False (derived from intent == "meta").
+                    logger.debug(
+                        "Shallow researcher: conversational turn (requires_sources=False); "
+                        "returning answer without citation verification",
                     )
 
                 # Step 2: sanitize report (strip body URLs, shortened URLs, unsafe URLs)

@@ -37,6 +37,12 @@ class ShallowResearchAgentState(BaseModel):
         available_documents: User-uploaded documents with summaries for context.
         collection_name: Knowledge collection name (for fetching documents).
         tool_iterations: Counter for tool-calling iterations.
+        requires_sources: Whether this turn must be grounded in captured sources.
+            True for research turns (an empty source registry is a failure —
+            EmptySourceRegistryError). False for conversational/meta turns, which
+            legitimately answer from persona/project context without any sources;
+            the orchestrator sets this based on the classified intent. Defaults to
+            True so standalone/eval callers keep the strict research contract.
     """
 
     messages: Annotated[list[AnyMessage], add_messages]
@@ -47,3 +53,4 @@ class ShallowResearchAgentState(BaseModel):
     collection_name: str | None = None
     tool_iterations: int = 0
     project_context: str | None = None
+    requires_sources: bool = True

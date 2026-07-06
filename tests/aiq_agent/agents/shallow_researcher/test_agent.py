@@ -478,6 +478,53 @@ class TestShallowResearcherSourceRegistryGating:
         assert agent.source_registry.all_sources() == []
 
     @pytest.mark.asyncio
+    async def test_meta_turn_without_sources_returns_answer(self, mock_llm_provider, mock_llm):
+        """Conversational/meta turns (requires_sources=False) answer from context
+        without capturing sources. An empty registry must NOT raise
+        EmptySourceRegistryError — the persona answer is returned as-is.
+
+        Regression for the (intent=meta, sources=empty) cell: routing meta turns
+        through the shallow agent previously discarded a valid answer and replaced
+        it with a "search tools returned no results" error.
+        """
+        final_response = AIMessage(content="Your project **test 1** is a Neubau, Beherbergung, GK3 building.")
+        mock_llm.ainvoke = AsyncMock(side_effect=[final_response])
+
+        agent = ShallowResearcherAgent(
+            llm_provider=mock_llm_provider,
+            tools=[mcp_time__get_current_time],
+        )
+
+        state = ShallowResearchAgentState(
+            messages=[HumanMessage(content="what do you know about my project")],
+            requires_sources=False,
+        )
+        result = await agent.run(state)
+
+        assert agent.source_registry.all_sources() == []
+        assert "test 1" in result.messages[-1].content
+
+    @pytest.mark.asyncio
+    async def test_research_turn_without_sources_still_raises(self, mock_llm_provider, mock_llm):
+        """Guard the other cell: a research turn (requires_sources=True, the
+        default) that captures no sources still raises EmptySourceRegistryError.
+        """
+        final_response = AIMessage(content="Here is an answer that cites nothing.")
+        mock_llm.ainvoke = AsyncMock(side_effect=[final_response])
+
+        agent = ShallowResearcherAgent(
+            llm_provider=mock_llm_provider,
+            tools=[mcp_time__get_current_time],
+        )
+
+        state = ShallowResearchAgentState(
+            messages=[HumanMessage(content="What time is it in Tokyo?")],
+            requires_sources=True,
+        )
+        with pytest.raises(EmptySourceRegistryError):
+            await agent.run(state)
+
+    @pytest.mark.asyncio
     async def test_registered_group_tool_without_urls_is_captured(self, mock_llm_provider, mock_llm):
         """Registered group child tools without URLs can be non-URL citation sources."""
         populate_from_config(
