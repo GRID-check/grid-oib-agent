@@ -43,6 +43,13 @@ services:
         # oib-seed Dockerfile stage bakes the knowledge base into the image so
         # previews skip re-embedding. Leave empty for live ingestion on boot.
         OIB_SEED_URL: ${OIB_SEED_URL:-}
+        # Credentials for fetching the seed from a PRIVATE S3/MinIO bucket. When
+        # both are set the build signs the download with SigV4 (no public bucket
+        # needed). Set these as Coolify Build Variables (secrets). Leave empty to
+        # fetch an anonymous/presigned URL instead.
+        OIB_SEED_ACCESS_KEY: ${OIB_SEED_ACCESS_KEY:-}
+        OIB_SEED_SECRET_KEY: ${OIB_SEED_SECRET_KEY:-}
+        OIB_SEED_REGION: ${OIB_SEED_REGION:-us-east-1}
     environment:
       - APP_ENV=${APP_ENV:-production}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
