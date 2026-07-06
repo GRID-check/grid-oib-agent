@@ -195,6 +195,12 @@ functions:
   remember:
     _type: project_memory_remember
 
+  # Rich UI cards: the agent calls emit_card mid-answer when a structured
+  # element (legal basis, dimension/stair diagram, summary) adds value. Cards
+  # are validated and delivered alongside the written answer.
+  emit_card:
+    _type: emit_card
+
   intent_classifier:
     _type: intent_classifier
     llm: intent_llm
@@ -220,11 +226,12 @@ functions:
     _type: shallow_research_agent
     llm: shallow_llm
     # Explicit list (replaces registry inheritance) so the non-data-source
-    # `remember` tool is included alongside search/knowledge tools.
+    # `remember` and `emit_card` tools are included alongside search/knowledge.
     tools:
       - web_search_tool
       - knowledge_search
       - remember
+      - emit_card
     verbose: true
     max_llm_turns: 10
     max_tool_iterations: 5
