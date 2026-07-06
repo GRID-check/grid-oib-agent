@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireAuthorizedSession } from '@/lib/auth/require-auth'
+import { authzErrorResponse, requireAuthorizedSession } from '@/lib/auth/require-auth'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { listProjectFolders, createProjectFolder } from '@/lib/projects/folder-service'
 import { z } from 'zod'
@@ -21,6 +21,8 @@ export async function GET(
     const folders = await listProjectFolders(id)
     return NextResponse.json({ folders })
   } catch (error) {
+    const denied = authzErrorResponse(error)
+    if (denied) return denied
     console.error('GET /api/projects/[id]/folders error:', error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Internal server error' },
@@ -59,6 +61,8 @@ export async function POST(
 
     return NextResponse.json({ folder: result.folder }, { status: 201 })
   } catch (error) {
+    const denied = authzErrorResponse(error)
+    if (denied) return denied
     console.error('POST /api/projects/[id]/folders error:', error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Internal server error' },

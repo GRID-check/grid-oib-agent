@@ -6,7 +6,7 @@
 
 import { NextResponse } from 'next/server'
 import { eq } from 'drizzle-orm'
-import { requireAuthorizedSession } from '@/lib/auth/require-auth'
+import { authzErrorResponse, requireAuthorizedSession } from '@/lib/auth/require-auth'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { getDb } from '@/lib/db'
 import { projects } from '@/lib/db/schema'
@@ -42,131 +42,143 @@ export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<Response> {
-  const session = await requireAuthorizedSession()
-  const { id } = await params
+  try {
+    const session = await requireAuthorizedSession()
+    const { id } = await params
 
-  await requireProjectAccess(session, id, 'project:manage')
+    await requireProjectAccess(session, id, 'project:manage')
 
-  const workos = getWorkOS()
+    const workos = getWorkOS()
 
-  const [usersResp, orgMembershipsResp, ...membershipResponses] = await Promise.all([
-    workos.userManagement.listUsers({ organizationId: session.organizationId }),
-    workos.userManagement.listOrganizationMemberships({ organizationId: session.organizationId }),
-    ...PROJECT_ROLE_BY_PERMISSION.map(({ permissionSlug }) =>
-      workos.authorization.listMembershipsForResourceByExternalId({
-        organizationId: session.organizationId,
-        resourceTypeSlug: 'project',
-        externalId: id,
-        permissionSlug,
-        assignment: 'indirect',
-      })
-    ),
-  ])
+    const [usersResp, orgMembershipsResp, ...membershipResponses] = await Promise.all([
+      workos.userManagement.listUsers({ organizationId: session.organizationId }),
+      workos.userManagement.listOrganizationMemberships({ organizationId: session.organizationId }),
+      ...PROJECT_ROLE_BY_PERMISSION.map(({ permissionSlug }) =>
+        workos.authorization.listMembershipsForResourceByExternalId({
+          organizationId: session.organizationId,
+          resourceTypeSlug: 'project',
+          externalId: id,
+          permissionSlug,
+          assignment: 'indirect',
+        })
+      ),
+    ])
 
-  const projectMemberByUserId = new Map<
-    string,
-    { organizationMembershipId: string; userId: string; role: ProjectRole }
-  >()
+    const projectMemberByUserId = new Map<
+      string,
+      { organizationMembershipId: string; userId: string; role: ProjectRole }
+    >()
 
-  const organizationMembersByUserId = new Map(
-    orgMembershipsResp.data.map((membership) => [membership.userId, membership])
-  )
+    const organizationMembersByUserId = new Map(
+      orgMembershipsResp.data.map((membership) => [membership.userId, membership])
+    )
 
-  membershipResponses.forEach((response, index) => {
-    const role = PROJECT_ROLE_BY_PERMISSION[index].role
-    for (const membership of response.data) {
-      const organizationMembership = organizationMembersByUserId.get(membership.userId)
-      projectMemberByUserId.set(membership.userId, {
-        organizationMembershipId: organizationMembership?.id ?? membership.id,
-        userId: membership.userId,
-        role,
-      })
-    }
-  })
+    membershipResponses.forEach((response, index) => {
+      const role = PROJECT_ROLE_BY_PERMISSION[index].role
+      for (const membership of response.data) {
+        const organizationMembership = organizationMembersByUserId.get(membership.userId)
+        projectMemberByUserId.set(membership.userId, {
+          organizationMembershipId: organizationMembership?.id ?? membership.id,
+          userId: membership.userId,
+          role,
+        })
+      }
+    })
 
-  const userById = new Map(usersResp.data.map((user) => [user.id, user]))
+    const userById = new Map(usersResp.data.map((user) => [user.id, user]))
 
-  const members = orgMembershipsResp.data.map((organizationMembership) => {
-    const user = userById.get(organizationMembership.userId)
-    const projectMembership = projectMemberByUserId.get(organizationMembership.userId)
-    return {
-      organizationMembershipId: organizationMembership.id,
-      userId: organizationMembership.userId,
-      email: user?.email ?? null,
-      name:
-        user?.name ||
-        (user?.firstName
-          ? `${user.firstName} ${user.lastName ?? ''}`.trim()
-          : user?.lastName || user?.email || organizationMembership.userId),
-      role: projectMembership?.role ?? null,
-    }
-  })
+    const members = orgMembershipsResp.data.map((organizationMembership) => {
+      const user = userById.get(organizationMembership.userId)
+      const projectMembership = projectMemberByUserId.get(organizationMembership.userId)
+      return {
+        organizationMembershipId: organizationMembership.id,
+        userId: organizationMembership.userId,
+        email: user?.email ?? null,
+        name:
+          user?.name ||
+          (user?.firstName
+            ? `${user.firstName} ${user.lastName ?? ''}`.trim()
+            : user?.lastName || user?.email || organizationMembership.userId),
+        role: projectMembership?.role ?? null,
+      }
+    })
 
-  return NextResponse.json({ members })
+    return NextResponse.json({ members })
+  } catch (error) {
+    const denied = authzErrorResponse(error)
+    if (denied) return denied
+    throw error
+  }
 }
 
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<Response> {
-  const session = await requireAuthorizedSession()
-  const { id } = await params
-
-  await requireProjectAccess(session, id, 'project:manage')
-
-  const body = await request.json().catch(() => null)
-  const parsed = addMemberSchema.safeParse(body)
-
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: 'organizationMembershipId and a valid roleSlug are required.' },
-      { status: 400 },
-    )
-  }
-
-  const { organizationMembershipId, roleSlug } = parsed.data
-  const db = getDb()
-  const workos = getWorkOS()
-
   try {
-    const [project] = await db
-      .select({ workosResourceId: projects.workosResourceId })
-      .from(projects)
-      .where(eq(projects.id, id))
-      .limit(1)
+    const session = await requireAuthorizedSession()
+    const { id } = await params
 
-    if (!project?.workosResourceId) {
-      return NextResponse.json({ error: 'Project resource not found.' }, { status: 404 })
+    await requireProjectAccess(session, id, 'project:manage')
+
+    const body = await request.json().catch(() => null)
+    const parsed = addMemberSchema.safeParse(body)
+
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'organizationMembershipId and a valid roleSlug are required.' },
+        { status: 400 },
+      )
     }
 
-    const assignments = await workos.authorization.listRoleAssignmentsForResource({
-      resourceId: project.workosResourceId,
-    })
+    const { organizationMembershipId, roleSlug } = parsed.data
+    const db = getDb()
+    const workos = getWorkOS()
 
-    await Promise.all(
-      (assignments.data as RoleAssignment[])
-        .filter((assignment) => assignment.organizationMembershipId === organizationMembershipId)
-        .map((assignment) =>
-          workos.authorization.removeRoleAssignment({
-            organizationMembershipId,
-            roleAssignmentId: assignment.id,
-          })
-        )
-    )
+    try {
+      const [project] = await db
+        .select({ workosResourceId: projects.workosResourceId })
+        .from(projects)
+        .where(eq(projects.id, id))
+        .limit(1)
 
-    if (roleSlug) {
-      await workos.authorization.assignRole({
-        organizationMembershipId,
-        resourceExternalId: id,
-        resourceTypeSlug: 'project',
-        roleSlug,
+      if (!project?.workosResourceId) {
+        return NextResponse.json({ error: 'Project resource not found.' }, { status: 404 })
+      }
+
+      const assignments = await workos.authorization.listRoleAssignmentsForResource({
+        resourceId: project.workosResourceId,
       })
-    }
 
-    return new NextResponse(null, { status: 201 })
-  } catch (error) {
-    console.error('[Projects] Failed to assign project role:', error)
-    const message = error instanceof Error ? error.message : 'Unknown error'
-    return NextResponse.json({ error: message }, { status: 500 })
+      await Promise.all(
+        (assignments.data as RoleAssignment[])
+          .filter((assignment) => assignment.organizationMembershipId === organizationMembershipId)
+          .map((assignment) =>
+            workos.authorization.removeRoleAssignment({
+              organizationMembershipId,
+              roleAssignmentId: assignment.id,
+            })
+          )
+      )
+
+      if (roleSlug) {
+        await workos.authorization.assignRole({
+          organizationMembershipId,
+          resourceExternalId: id,
+          resourceTypeSlug: 'project',
+          roleSlug,
+        })
+      }
+
+      return new NextResponse(null, { status: 201 })
+    } catch (error) {
+      console.error('[Projects] Failed to assign project role:', error)
+      const message = error instanceof Error ? error.message : 'Unknown error'
+      return NextResponse.json({ error: message }, { status: 500 })
+    }
+  } catch (err) {
+    const denied = authzErrorResponse(err)
+    if (denied) return denied
+    throw err
   }
 }
