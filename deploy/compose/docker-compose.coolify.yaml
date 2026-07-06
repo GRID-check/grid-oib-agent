@@ -31,7 +31,11 @@
 services:
   aiq-agent:
     build:
-      context: ../..
+      # Paths are relative to the Compose *project directory*, which Coolify sets
+      # to the repo root (Base Directory `/`) via `--project-directory`. So all
+      # build contexts, bind mounts, and the init-db mount below are written
+      # relative to the repo root — NOT to this file's directory.
+      context: .
       dockerfile: deploy/Dockerfile
       target: ${BUILD_TARGET:-release}
       args:
@@ -95,7 +99,7 @@ services:
       # OIB source PDFs (Git LFS). Requires LFS objects to be present at build/
       # deploy time — see the LFS note in docs/deployment/coolify.md. If absent,
       # OIB ingestion fails non-fatally and the app still boots (no OIB KB).
-      - ../../data/oib:/app/data/oib:ro
+      - ./data/oib:/app/data/oib:ro
       - aiq-data:/app/data
       - chroma_data:/app/data/chroma_data
     networks:
@@ -162,7 +166,7 @@ services:
 
   frontend:
     build:
-      context: ../../frontends/ui
+      context: ./frontends/ui
       dockerfile: deploy/Dockerfile
     environment:
       # Exposes this service (port 3000) under a generated https domain and
@@ -207,7 +211,7 @@ services:
 
   purger:
     build:
-      context: ../../frontends/ui
+      context: ./frontends/ui
       dockerfile: deploy/Dockerfile
     command: ["node", "purger/index.js"]
     environment:
@@ -242,8 +246,8 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
       # Creates the aiq_checkpoints + grid_app databases and base tables on
-      # first boot. Relative to THIS compose file's directory (deploy/compose).
-      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+      # first boot. Relative to the project directory (repo root, see note above).
+      - ./deploy/compose/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
     networks:
       - aiq-network
     healthcheck:
