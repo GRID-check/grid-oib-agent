@@ -236,7 +236,12 @@ services:
     restart: unless-stopped
 
   postgres:
-    image: postgres:16-alpine
+    # Custom image bakes in init-db.sql (creates aiq_checkpoints + grid_app on
+    # first boot). Not a bind mount: Coolify pre-creates bind-mount sources as
+    # directories, which breaks single-file mounts. See postgres.Dockerfile.
+    build:
+      context: ./deploy/compose
+      dockerfile: postgres.Dockerfile
     environment:
       POSTGRES_USER: aiq
       POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}
@@ -245,9 +250,6 @@ services:
       - "5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
-      # Creates the aiq_checkpoints + grid_app databases and base tables on
-      # first boot. Relative to the project directory (repo root, see note above).
-      - ./deploy/compose/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
     networks:
       - aiq-network
     healthcheck:
