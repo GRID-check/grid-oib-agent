@@ -17,8 +17,18 @@ export type ProjectProfilePatchCardData = z.infer<typeof projectProfilePatchCard
 
 export function validateGridCards(raw: unknown): GridCard[] {
   if (!Array.isArray(raw)) return []
-  return raw
-    .map((item) => gridCardSchema.safeParse(item))
-    .filter((result): result is { success: true; data: GridCard } => result.success)
-    .map((result) => result.data)
+  const validated: GridCard[] = []
+  for (const item of raw) {
+    const result = gridCardSchema.safeParse(item)
+    if (result.success) {
+      validated.push(result.data)
+    } else {
+      // Cards silently vanishing is the worst failure mode here — always leave
+      // a trace so schema drift between pydantic and zod is diagnosable.
+      const cardType =
+        typeof item === 'object' && item !== null && 'type' in item ? (item as { type: unknown }).type : 'unknown'
+      console.warn('[GridCards] Dropping card that failed schema validation', cardType, result.error.issues)
+    }
+  }
+  return validated
 }
