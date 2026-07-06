@@ -121,6 +121,14 @@ Verification harness: frontend `docker build -f Dockerfile.typecheck` + `docker 
 - **Pipeline:** exploration = direct grep confirming line 47 `!=` still present + that `_require_internal_token` is the sole internal-token check in Python (the memory endpoint already got constant-time compare in P7); Opus decided compare_digest + fail-closed empty-string coercion and implemented + tested.
 - **Re-triage note:** PIN-1 now down to DEL-F5/F8 (observability: surface `last_error` in the admin deletions list + UI) — those touch `deletions/route.ts` + `recently-deleted.tsx`, disjoint from WIP, candidate for next cycle. T1-2/T1-3 remain human-only (secret rotation / real token value).
 
+## Cycle 19 — PIN-1 · DEL-F5/F8 — surface last_error in the admin deletions panel — `api/deletions/route.ts` + `features/projects/components/recently-deleted.tsx`
+
+- **Wrong & why:** the purger writes `last_error` on every failed/held row, but the `/api/deletions` Drizzle projection omitted the column and `recently-deleted.tsx` rendered a fixed "Purge failed — contact support" — an org admin had zero visibility into WHY a purge failed (backend down? MinIO partial? legal hold?), making stuck purges undiagnosable from the UI. Observability gap under PIN-1.
+- **Change:** added `lastError: deletionQueue.lastError` to the list projection; added `lastError: string | null` to the component's `DeletionEntry`; render it (when present, failed rows only) as a wrapped mono `text-destructive/80` line beneath the failure copy. Purely additive; pending rows and the restore flow are unchanged.
+- **Verified:** grid-tsc Docker image `tsc --noEmit` against the full current working tree (src bind-mounted) → DOCKER_EXIT=0, no error output. No existing spec covers these two files (confirmed).
+- **Pipeline:** exploration = direct read of route.ts + recently-deleted.tsx + the drizzle schema (confirmed field name `lastError`); Opus implemented the additive projection + conditional render.
+- **Milestone:** PIN-1's entire code findings list (DEL-F1 through F10) is now closed across cycles 16–19. Remaining PIN-1 = one final clean adversarial re-audit for the "perfect" certification (defer to a dedicated cycle or human), plus the two human-only secret-management items (T1-2/T1-3).
+
 ## CLOSING SUMMARY
 
 - **Cycles run:** 16. **Commits:** 11 (through the deletion round-2 + wiring commits this cycle).
