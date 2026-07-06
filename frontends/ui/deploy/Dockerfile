@@ -16,7 +16,8 @@
 # =============================================================================
 #
 # Multi-stage build for the Next.js frontend application.
-# Uses NVIDIA authorized Ubuntu base image.
+# Public Debian-based Node base (node:22-slim) — no NVIDIA NGC credentials
+# needed. Debian (glibc), not Alpine (musl), to avoid native-module surprises.
 #
 # -----------------------------------------------------------------------------
 # BUILD
@@ -67,15 +68,13 @@
 # =============================================================================
 # Stage 1: Base with Node.js
 # =============================================================================
-FROM nvcr.io/nvidia/base/ubuntu:jammy-20260217 AS base
+# node:22-slim already ships Node 22 on Debian bookworm; we only add curl for
+# the container HEALTHCHECK (ca-certificates is already present in the image).
+FROM node:22-slim AS base
 
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
-    && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 # =============================================================================
@@ -123,7 +122,7 @@ ENV HOSTNAME="0.0.0.0"
 
 RUN groupadd --system --gid 1001 nodejs \
     && useradd --system --uid 1001 --gid nodejs nextjs \
-    && rm -rf /usr/lib/node_modules/npm /usr/bin/npm /usr/bin/npx
+    && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next ./.next

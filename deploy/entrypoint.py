@@ -83,6 +83,46 @@ def _clear_directory_contents(path: Path) -> None:
             child.unlink()
 
 
+def _maybe_restore_oib_seed() -> None:
+    """Restore a baked OIB embedding snapshot into the data dir on first boot.
+
+    The image may carry a pre-generated Chroma snapshot at ``/opt/oib-seed``
+    (see the ``oib-seed`` stage in deploy/Dockerfile). When the persistent data
+    volume is still empty, copy the snapshot into place so the subsequent
+    ``oib_sync`` finds a matching registry and skips re-embedding the entire OIB
+    corpus. Idempotent: once the knowledge base exists — or no seed was baked —
+    this is a no-op. Set ``OIB_FORCE_REINGEST`` to override (it wipes the KB and
+    re-ingests regardless of the seed).
+    """
+    seed_dir = Path(os.environ.get("OIB_SEED_DIR", "/opt/oib-seed"))
+    seed_chroma = seed_dir / "chroma_data"
+    if not seed_chroma.is_dir() or not any(seed_chroma.iterdir()):
+        return  # image built without a seed
+
+    chroma_dir = Path(os.environ.get("AIQ_CHROMA_DIR", "/tmp/chroma_data"))
+    registry = Path(os.environ.get("OIB_REGISTRY_PATH", "data/oib_registry.json"))
+
+    # Already populated (restored earlier or ingested live) — leave it alone.
+    if (chroma_dir / "chroma.sqlite3").exists() or registry.exists():
+        return
+
+    print(f"Restoring baked OIB seed from {seed_dir} ...", flush=True)
+    chroma_dir.mkdir(parents=True, exist_ok=True)
+    for child in seed_chroma.iterdir():
+        dest = chroma_dir / child.name
+        if child.is_dir():
+            shutil.copytree(child, dest, dirs_exist_ok=True)
+        else:
+            shutil.copy2(child, dest)
+
+    seed_registry = seed_dir / "oib_registry.json"
+    if seed_registry.exists():
+        registry.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(seed_registry, registry)
+
+    print("OIB seed restored — ingestion will skip re-embedding.", flush=True)
+
+
 def _run_oib_sync_background() -> None:
     """Run OIB PDF ingestion in the background after the server starts."""
     # The entrypoint process never configures logging, so oib_sync's INFO
@@ -184,6 +224,14 @@ def main() -> int:
     print("  Starting web server...", flush=True)
     print("--------------------------------------------", flush=True)
     print("", flush=True)
+
+    # Restore a baked OIB snapshot (if any) BEFORE the web server accepts
+    # queries and before the background sync runs, so retrieval is ready
+    # immediately and ingestion no-ops instead of re-embedding.
+    try:
+        _maybe_restore_oib_seed()
+    except Exception as exc:  # non-fatal: fall back to live ingestion
+        print(f"OIB seed restore failed (non-fatal): {exc}", flush=True)
 
     web_proc = subprocess.Popen(["python", "/app/deploy/start_web.py"])
 

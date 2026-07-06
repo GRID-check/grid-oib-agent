@@ -14,7 +14,10 @@ general:
     db_url: ${NAT_JOB_STORE_DB_URL:-sqlite+aiosqlite:///./jobs.db}
     expiry_seconds: 86400
     cors:
-      allow_origin_regex: 'http://localhost(:\d+)?|http://127.0.0.1(:\d+)?'
+      # Env-overridable so a deployed instance (e.g. a Coolify preview) can allow
+      # its own https origin. Default keeps local dev working. Set
+      # CORS_ALLOW_ORIGIN_REGEX to a regex matching your frontend origin(s).
+      allow_origin_regex: '${CORS_ALLOW_ORIGIN_REGEX:-http://localhost(:\d+)?|http://127.0.0.1(:\d+)?}'
       allow_methods:
         - GET
         - POST
