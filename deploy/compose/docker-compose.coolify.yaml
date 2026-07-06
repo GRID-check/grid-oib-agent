@@ -1,0 +1,268 @@
+# =============================================================================
+# Grid OIB Agent — Coolify Docker Compose
+# =============================================================================
+#
+# A Coolify-tuned variant of docker-compose.yaml. Deploy this with Coolify's
+# "Docker Compose" build pack (New Resource -> Docker Compose -> this repo).
+# See docs/deployment/coolify.md for the full walkthrough.
+#
+# What differs from the dev compose (deploy/compose/docker-compose.yaml) and WHY:
+#
+#   1. No `container_name:` — Coolify namespaces containers per deployment.
+#      Fixed names collide across per-PR preview environments.
+#   2. No published host `ports:` — the two host-facing services (frontend,
+#      minio) are exposed through Coolify's Traefik proxy via SERVICE_FQDN_*
+#      magic vars instead. Publishing host ports would collide the moment a
+#      second preview tries to bind the same port.
+#   3. Secrets use ${VAR:?} (required — deploy fails if unset) or
+#      ${SERVICE_PASSWORD_*} (Coolify auto-generates, stable per stack).
+#   4. CORS + MINIO_PUBLIC_ENDPOINT + WorkOS redirect derive from the generated
+#      FQDNs, so each preview is self-configuring.
+#
+# Coolify magic variables used here (generated per deployment, consistent
+# across all services in the stack):
+#   SERVICE_FQDN_FRONTEND_3000  -> exposes frontend:3000 under a generated
+#                                  https domain; readable as ${SERVICE_FQDN_FRONTEND}
+#   SERVICE_FQDN_MINIO_9000     -> exposes minio:9000 (S3 API) under a domain;
+#                                  readable as ${SERVICE_FQDN_MINIO}
+#   SERVICE_PASSWORD_POSTGRES / _MINIO / _INTERNALTOKEN -> generated secrets
+# =============================================================================
+
+services:
+  aiq-agent:
+    build:
+      context: ../..
+      dockerfile: deploy/Dockerfile
+      target: ${BUILD_TARGET:-release}
+      args:
+        # URL of the pre-generated OIB seed tarball (see docs §7). When set, the
+        # oib-seed Dockerfile stage bakes the knowledge base into the image so
+        # previews skip re-embedding. Leave empty for live ingestion on boot.
+        OIB_SEED_URL: ${OIB_SEED_URL:-}
+    environment:
+      - APP_ENV=${APP_ENV:-production}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      # ── Secrets (must be provided in Coolify's Environment Variables UI) ──
+      # A single OpenRouter key powers LLMs, embeddings, AND the VLM — nothing
+      # here ever calls a NVIDIA endpoint.
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:?set OPENROUTER_API_KEY}
+      - TAVILY_API_KEY=${TAVILY_API_KEY:?set TAVILY_API_KEY}
+      # Embeddings + VLM route through OpenRouter. LlamaIndex's embedding client
+      # reads NVIDIA_API_KEY as its api_key, so we point it at the OpenRouter key
+      # while base_url stays on OpenRouter. These model/base_url values MUST match
+      # whatever generated the OIB seed (see docs/deployment/coolify.md §6) — a
+      # restored snapshot only works if query embeddings use the same model.
+      - AIQ_EMBED_MODEL=${AIQ_EMBED_MODEL:-openai/text-embedding-3-large}
+      - AIQ_EMBED_BASE_URL=${AIQ_EMBED_BASE_URL:-https://openrouter.ai/api/v1}
+      - AIQ_EMBED_API_KEY=${OPENROUTER_API_KEY}
+      - NVIDIA_API_KEY=${NVIDIA_API_KEY:-${OPENROUTER_API_KEY}}
+      - AIQ_VLM_MODEL=${AIQ_VLM_MODEL:-google/gemma-4-31b-it}
+      - AIQ_VLM_BASE_URL=${AIQ_VLM_BASE_URL:-https://openrouter.ai/api/v1}
+      # ── Databases (single Postgres, three logical DBs; see init-db.sql) ──
+      - NAT_JOB_STORE_DB_URL=postgresql+asyncpg://aiq:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/aiq_jobs
+      - AIQ_CHECKPOINT_DB=postgresql://aiq:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/aiq_checkpoints
+      - AIQ_SUMMARY_DB=postgresql+psycopg://aiq:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/aiq_jobs
+      # ── Single-writer memory bridge to the frontend BFF ──
+      - FRONTEND_INTERNAL_URL=http://frontend:3000
+      - GRID_INTERNAL_API_TOKEN=${SERVICE_PASSWORD_INTERNALTOKEN}
+      # ── Knowledge base (embedded Chroma, persisted to a volume) ──
+      - AIQ_CHROMA_DIR=/app/data/chroma_data
+      - COLLECTION_NAME=${COLLECTION_NAME:-oib_knowledge}
+      - CONFIG_FILE=${BACKEND_CONFIG:-/app/configs/config_oib_openrouter.yml}
+      # Allow the browser-facing frontend origin through the API's CORS filter.
+      - CORS_ALLOW_ORIGIN_REGEX=https://${SERVICE_FQDN_FRONTEND}
+      - HOST=0.0.0.0
+      - PORT=8000
+      - DASK_NWORKERS=${DASK_NWORKERS:-1}
+      - DASK_NTHREADS=${DASK_NTHREADS:-4}
+      # ── Ingestion / document extraction (match deploy/.env) ──
+      # Table + image extraction from PDFs during ingestion. Only exercised when
+      # ingesting live (uploaded docs, or OIB when no seed is baked). VLM-backed.
+      - AIQ_EXTRACT_TABLES=${AIQ_EXTRACT_TABLES:-true}
+      - AIQ_EXTRACT_IMAGES=${AIQ_EXTRACT_IMAGES:-true}
+      # Must stay false with a baked OIB seed — true wipes Chroma + re-embeds all
+      # PDFs on every boot.
+      - OIB_FORCE_REINGEST=${OIB_FORCE_REINGEST:-false}
+      # ── Misc runtime tuning (match deploy/.env) ──
+      - DASK_DISTRIBUTED__LOGGING__DISTRIBUTED=${DASK_DISTRIBUTED__LOGGING__DISTRIBUTED:-warning}
+      - PYTHONWARNINGS=${PYTHONWARNINGS:-ignore}
+      # ── Optional keys (unused by the OpenRouter config; passthrough if set) ──
+      - KIMI_API_KEY=${KIMI_API_KEY:-}
+      - GRID_ADMIN_TOKEN=${GRID_ADMIN_TOKEN:-}
+    expose:
+      - "8000"
+    volumes:
+      # OIB source PDFs (Git LFS). Requires LFS objects to be present at build/
+      # deploy time — see the LFS note in docs/deployment/coolify.md. If absent,
+      # OIB ingestion fails non-fatally and the app still boots (no OIB KB).
+      - ../../data/oib:/app/data/oib:ro
+      - aiq-data:/app/data
+      - chroma_data:/app/data/chroma_data
+    networks:
+      - aiq-network
+    depends_on:
+      aiq-data-permissions:
+        condition: service_completed_successfully
+      minio:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
+    restart: unless-stopped
+
+  aiq-data-permissions:
+    image: alpine:3.20
+    command: ["sh", "-c", "chown -R 1000:1000 /app/data"]
+    volumes:
+      - aiq-data:/app/data
+      - chroma_data:/app/data/chroma_data
+    networks:
+      - aiq-network
+    restart: "no"
+
+  minio:
+    image: minio/minio:RELEASE.2024-06-29T01-20-47Z
+    environment:
+      # SERVICE_FQDN_MINIO_9000 tells Coolify to expose the S3 API (9000) under
+      # a generated https domain — required so the browser can fetch presigned
+      # PDF URLs (the internal `minio` hostname is not browser-reachable).
+      - SERVICE_FQDN_MINIO_9000
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${SERVICE_PASSWORD_MINIO}
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - aiq-network
+    restart: unless-stopped
+
+  minio-init:
+    image: minio/mc:latest
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >
+        mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${SERVICE_PASSWORD_MINIO} &&
+        mc mb local/grid-documents --ignore-existing
+    depends_on:
+      minio:
+        condition: service_healthy
+    networks:
+      - aiq-network
+    restart: "no"
+
+  frontend:
+    build:
+      context: ../../frontends/ui
+      dockerfile: deploy/Dockerfile
+    environment:
+      # Exposes this service (port 3000) under a generated https domain and
+      # makes the FQDN available as ${SERVICE_FQDN_FRONTEND} to the whole stack.
+      - SERVICE_FQDN_FRONTEND_3000
+      - REQUIRE_AUTH=${REQUIRE_AUTH:-false}
+      - APP_ENV=${APP_ENV:-production}
+      - BACKEND_URL=http://aiq-agent:8000
+      - GRID_APP_DATABASE_URL=postgresql://aiq:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/grid_app
+      - GRID_INTERNAL_API_TOKEN=${SERVICE_PASSWORD_INTERNALTOKEN}
+      # WorkOS AuthKit — only consumed when REQUIRE_AUTH=true. Safe to leave the
+      # keys empty for an unauthenticated preview.
+      - WORKOS_CLIENT_ID=${WORKOS_CLIENT_ID:-}
+      - WORKOS_API_KEY=${WORKOS_API_KEY:-}
+      - NEXT_PUBLIC_WORKOS_REDIRECT_URI=https://${SERVICE_FQDN_FRONTEND}/api/auth/callback
+      - WORKOS_COOKIE_PASSWORD=${WORKOS_COOKIE_PASSWORD:-}
+      - FILE_UPLOAD_ACCEPTED_TYPES=${FILE_UPLOAD_ACCEPTED_TYPES:-.pdf,.docx,.txt,.md}
+      - FILE_UPLOAD_MAX_SIZE_MB=${FILE_UPLOAD_MAX_SIZE_MB:-100}
+      - FILE_UPLOAD_MAX_FILE_COUNT=${FILE_UPLOAD_MAX_FILE_COUNT:-10}
+      - FILE_EXPIRATION_CHECK_INTERVAL_HOURS=${FILE_EXPIRATION_CHECK_INTERVAL_HOURS:-0}
+      # Internal (server-side uploads) vs public (browser presigned URLs).
+      - MINIO_ENDPOINT=http://minio:9000
+      - MINIO_PUBLIC_ENDPOINT=https://${SERVICE_FQDN_MINIO}
+      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_SECRET_KEY=${SERVICE_PASSWORD_MINIO}
+      - MINIO_BUCKET=grid-documents
+      - MINIO_PRESIGNED_URL_TTL_SECONDS=600
+      - PROJECT_PURGE_GRACE_DAYS=${PROJECT_PURGE_GRACE_DAYS:-7}
+    expose:
+      - "3000"
+    networks:
+      - aiq-network
+    depends_on:
+      aiq-agent:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  purger:
+    build:
+      context: ../../frontends/ui
+      dockerfile: deploy/Dockerfile
+    command: ["node", "purger/index.js"]
+    environment:
+      - GRID_APP_DATABASE_URL=postgresql://aiq:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/grid_app
+      - BACKEND_URL=http://aiq-agent:8000
+      - GRID_INTERNAL_API_TOKEN=${SERVICE_PASSWORD_INTERNALTOKEN}
+      - MINIO_ENDPOINT=http://minio:9000
+      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_SECRET_KEY=${SERVICE_PASSWORD_MINIO}
+      - MINIO_BUCKET=grid-documents
+      - WORKOS_API_KEY=${WORKOS_API_KEY:-}
+      - PURGER_POLL_INTERVAL_MS=${PURGER_POLL_INTERVAL_MS:-60000}
+    networks:
+      - aiq-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      aiq-agent:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: aiq
+      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}
+      POSTGRES_DB: aiq_jobs
+    expose:
+      - "5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      # Creates the aiq_checkpoints + grid_app databases and base tables on
+      # first boot. Relative to THIS compose file's directory (deploy/compose).
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    networks:
+      - aiq-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aiq -d aiq_jobs && pg_isready -U aiq -d aiq_checkpoints && pg_isready -U aiq -d grid_app"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 120s
+    restart: unless-stopped
+
+volumes:
+  aiq-data:
+    driver: local
+  chroma_data:
+    driver: local
+  minio-data:
+    driver: local
+  postgres-data:
+    driver: local
+
+networks:
+  aiq-network:
+    driver: bridge
