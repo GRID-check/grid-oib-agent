@@ -12,6 +12,7 @@ interface DeletionEntry {
   displayName: string
   purgeAfter: string
   status: 'pending' | 'failed'
+  lastError: string | null
 }
 
 const dateFormatter = new Intl.DateTimeFormat('en-GB', {
@@ -80,6 +81,11 @@ export function RecentlyDeleted() {
                   ? 'Purge failed — contact support'
                   : `Permanently purged after ${dateFormatter.format(new Date(entry.purgeAfter))}`}
               </p>
+              {entry.status === 'failed' && entry.lastError && (
+                <p className="mt-0.5 break-words font-mono text-[11px] text-destructive/80">
+                  {entry.lastError}
+                </p>
+              )}
             </div>
             {entry.status === 'pending' && (
               <Button

@@ -27,6 +27,7 @@ export async function GET(): Promise<Response> {
       requestedAt: deletionQueue.requestedAt,
       purgeAfter: deletionQueue.purgeAfter,
       status: deletionQueue.status,
+      lastError: deletionQueue.lastError,
     })
     .from(deletionQueue)
     .where(
