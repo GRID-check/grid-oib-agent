@@ -12,6 +12,12 @@ tool step, on both the shallow and (future) deep paths.
 
 import json
 import logging
+import types
+import typing
+from typing import Literal
+
+from pydantic import BaseModel
+from pydantic_core import PydanticUndefined
 
 from nat.builder.builder import Builder
 from nat.builder.function_info import FunctionInfo
@@ -20,28 +26,175 @@ from nat.data_models.function import FunctionBaseConfig
 
 logger = logging.getLogger(__name__)
 
+# One worked example per hard-to-nest card, so the model sees the exact shape
+# instead of discovering it through repeated validation failures. Keys are the
+# card ``type`` values; values are validated in the card model tests.
+_CARD_EXAMPLES: dict[str, dict] = {
+    "daylight_incidence": {
+        "type": "daylight_incidence",
+        "title": "Belichtung – freier Lichteinfall (Gästezimmer)",
+        "room_floor_area_m2": 25,
+        "glass_area": {
+            "label": "Lichteintrittsfläche",
+            "value": 3.0,
+            "required": 2.5,
+            "unit": "m²",
+            "comparator": ">=",
+            "status": "pass",
+        },
+        "window_sill_height_m": 0.9,
+        "window_head_height_m": 2.4,
+        "obstruction": None,
+        "reference": {
+            "document": "OIB-Richtlinie 3",
+            "section": "Pkt. 9.1.1",
+            "edition": "Ausgabe Mai 2023",
+        },
+    },
+    "building_section": {
+        "type": "building_section",
+        "title": "Gebäudeschnitt – Höhenprüfung",
+        "storeys": [
+            {"label": "KG", "height_m": 3.0, "below_grade": True},
+            {"label": "EG", "height_m": 3.5},
+            {"label": "1.OG", "height_m": 3.2},
+        ],
+        "markers": [{"label": "Fluchtniveau", "height_m": 9.8, "kind": "fluchtniveau"}],
+        "reference": {
+            "document": "OIB-Richtlinie 2",
+            "section": "Pkt. 2 (Gebäudeklassen)",
+            "edition": "Ausgabe Mai 2023",
+        },
+    },
+}
 
-def _build_tool_description() -> str:
-    """Describe every card type and its fields from the shared schema."""
+
+def _annotation_str(annotation: object, nested: list[type]) -> str:
+    """Render a field annotation as a compact JSON-ish type string.
+
+    Nested pydantic models are shown by name and collected into ``nested`` so
+    their full shape is defined once in a shared "building blocks" section.
+    """
+    origin = typing.get_origin(annotation)
+    args = typing.get_args(annotation)
+
+    if origin in (typing.Union, types.UnionType):
+        non_none = [a for a in args if a is not type(None)]
+        return " | ".join(_annotation_str(a, nested) for a in non_none)
+    if origin in (list, typing.List):  # noqa: UP006
+        return f"[{_annotation_str(args[0], nested)}]"
+    if origin is Literal:
+        return " | ".join(json.dumps(a, ensure_ascii=False) for a in args)
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        if annotation not in nested:
+            nested.append(annotation)
+        return annotation.__name__
+    return {str: "string", float: "number", int: "integer", bool: "boolean"}.get(
+        annotation, getattr(annotation, "__name__", str(annotation))
+    )
+
+
+def _field_constraints(field_info: object) -> list[str]:
+    """Extract human-readable constraints (>0, non-empty, defaults) from a field."""
+    out: list[str] = []
+    for meta in getattr(field_info, "metadata", []) or []:
+        gt = getattr(meta, "gt", None)
+        ge = getattr(meta, "ge", None)
+        min_length = getattr(meta, "min_length", None)
+        if gt is not None:
+            out.append(f"> {gt}")
+        elif ge is not None:
+            out.append(f">= {ge}")
+        if min_length:
+            out.append("non-empty")
+    default = getattr(field_info, "default", PydanticUndefined)
+    if default not in (PydanticUndefined, None) and not field_info.is_required():
+        out.append(f"default {json.dumps(default, ensure_ascii=False)}")
+    return out
+
+
+def _shape(model_cls: type, nested: list[type], *, with_desc: bool) -> str:
+    """Render a model's fields as `{ name*: type (desc; constraints), ... }`."""
+    parts: list[str] = []
+    for field_name, field_info in model_cls.model_fields.items():
+        if field_name == "type":
+            continue
+        req = "*" if field_info.is_required() else ""
+        type_str = _annotation_str(field_info.annotation, nested)
+        notes: list[str] = []
+        if with_desc and field_info.description:
+            notes.append(field_info.description)
+        notes.extend(_field_constraints(field_info))
+        suffix = f" ({'; '.join(notes)})" if notes else ""
+        parts.append(f"{field_name}{req}: {type_str}{suffix}")
+    return "{ " + ", ".join(parts) + " }"
+
+
+def _card_shape(card_cls: type, nested: list[type]) -> str:
+    """The one-line shape spec for a card body (top-level fields, no descriptions)."""
+    return _shape(card_cls, nested, with_desc=False)
+
+
+def _shape_hint_for(card_type: str) -> str | None:
+    """Return the expected shape (plus referenced building blocks) for one card type."""
     from aiq_agent.cards.models import GridCard
 
-    lines: list[str] = []
     for card_cls in GridCard.__args__:
-        type_literal = card_cls.model_fields["type"].annotation
-        # Literal["legal_basis"] -> "legal_basis"
-        type_value = getattr(type_literal, "__args__", ("?",))[0]
-        field_descs: list[str] = []
-        for field_name, field_info in card_cls.model_fields.items():
-            if field_name == "type":
+        type_value = getattr(card_cls.model_fields["type"].annotation, "__args__", ("?",))[0]
+        if type_value != card_type:
+            continue
+        nested: list[type] = []
+        body = _card_shape(card_cls, nested)
+        seen: set[type] = set()
+        blocks: list[str] = []
+        i = 0
+        while i < len(nested):
+            model_cls = nested[i]
+            i += 1
+            if model_cls in seen:
                 continue
-            required = field_info.is_required()
-            desc = field_info.description or field_name
-            field_descs.append(f"{field_name}{'*' if required else ''} ({desc})")
+            seen.add(model_cls)
+            blocks.append(f"{model_cls.__name__} = {_shape(model_cls, nested, with_desc=True)}")
+        hint = f"{card_type}: {body}"
+        if blocks:
+            hint += " where " + "; ".join(blocks)
+        example = _CARD_EXAMPLES.get(card_type)
+        if example:
+            hint += f". Example: {json.dumps(example, ensure_ascii=False)}"
+        return hint
+    return None
+
+
+def _build_tool_description() -> str:
+    """Describe every card type, its exact nested shape, and worked examples."""
+    from aiq_agent.cards.models import GridCard
+
+    nested: list[type] = []
+    card_lines: list[str] = []
+    for card_cls in GridCard.__args__:
+        type_value = getattr(card_cls.model_fields["type"].annotation, "__args__", ("?",))[0]
         doc = (card_cls.__doc__ or "").strip().split("\n")[0]
-        line = f'  - "{type_value}": {doc}'
-        if field_descs:
-            line += f"\n      fields: {', '.join(field_descs)}"
-        lines.append(line)
+        shape = _card_shape(card_cls, nested)
+        card_lines.append(f'  - "{type_value}": {doc}\n      shape: {shape}')
+
+    # Define every shared building block ONCE (with field descriptions), so a
+    # card body can reference e.g. `DimensionCheck` by name without repetition.
+    # `nested` grows while rendering card shapes; expand transitively.
+    seen: set[type] = set()
+    block_lines: list[str] = []
+    i = 0
+    while i < len(nested):
+        model_cls = nested[i]
+        i += 1
+        if model_cls in seen:
+            continue
+        seen.add(model_cls)
+        block_lines.append(f"  {model_cls.__name__} = {_shape(model_cls, nested, with_desc=True)}")
+
+    examples = "\n".join(
+        f"  {type_value}:\n    {json.dumps(payload, ensure_ascii=False)}"
+        for type_value, payload in _CARD_EXAMPLES.items()
+    )
 
     return (
         "Render a rich UI card alongside your answer. Call this when a STRUCTURED element "
@@ -50,9 +203,15 @@ def _build_tool_description() -> str:
         "only when it adds real value; never fabricate fields or references. You may call this "
         "multiple times to attach several cards. The card renders in addition to your normal "
         "written answer, so still write your prose reply.\n\n"
-        "Pass `card_json`: a JSON object with a `type` field (one of the types below) plus that "
-        "type's fields. Fields marked * are required.\n\n"
-        "Card types:\n" + "\n".join(lines)
+        "Pass `card_json`: a JSON object with a `type` field plus that type's fields. Fields "
+        "marked * are required; every other field is optional and may be omitted (do NOT pass "
+        "null for optional objects — omit them). Numbers are plain JSON numbers. For schematic "
+        "cards, supply measured/actual values from the question or project profile and the OIB "
+        "limit in `required`; if a value is unknown, omit it and set that check's status to "
+        "\"needs_input\" — never estimate.\n\n"
+        "Building blocks (reused object shapes):\n" + "\n".join(block_lines) + "\n\n"
+        "Card types:\n" + "\n".join(card_lines) + "\n\n"
+        "Worked examples (copy the nesting exactly):\n" + examples
     )
 
 
@@ -79,9 +238,11 @@ async def emit_card(tool_config: EmitCardConfig, builder: Builder):
             validated = grid_card_adapter.validate_python(payload).model_dump(exclude_none=True)
         except Exception as exc:
             card_type = payload.get("type", "?")
+            hint = _shape_hint_for(card_type)
             return (
                 f"Error: card of type '{card_type}' failed validation: {exc}. "
-                "Check the required fields for this type and try again, or skip the card."
+                + (f"Expected shape — {hint} " if hint else "")
+                + "Fix the fields and try again, or skip the card."
             )
 
         registry = get_card_registry()

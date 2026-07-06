@@ -33,6 +33,7 @@ from aiq_agent.cards.registry import set_card_registry
 from aiq_agent.common.citation_verification import get_or_create_session_registry
 from aiq_agent.common.citation_verification import reset_session_registry
 from aiq_agent.common.citation_verification import set_session_registry
+from aiq_agent.common.nat_converters import ensure_registered as _ensure_nat_converters_registered
 from aiq_agent.observability.otel_header_redaction_exporter import (
     ensure_registered as _ensure_otel_redaction_registered,
 )
@@ -53,6 +54,10 @@ from .utils import _extract_query_and_sources
 logger = logging.getLogger(__name__)
 
 _ensure_otel_redaction_registered()
+# Register a direct ChatResponse -> ChatResponseChunk converter so Grid cards
+# (attached as an extra field on the response) survive NAT's CHAT_STREAM
+# serialization instead of being dropped by the lossy indirect str conversion.
+_ensure_nat_converters_registered()
 
 
 ########################################################
