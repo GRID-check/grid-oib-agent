@@ -109,8 +109,19 @@ RUN /app/.venv/bin/python -c "import aiq_api; import aiq_research_cli; import ai
 # If OIB_SEED_URL is empty the image ships with an empty seed dir and the backend
 # falls back to live ingestion. The tarball must contain `chroma_data/` and
 # `oib_registry.json` at its top level (that is what make_oib_seed.sh produces).
+#
+# Private (non-public) buckets: also pass OIB_SEED_ACCESS_KEY / OIB_SEED_SECRET_KEY
+# (and optionally OIB_SEED_REGION, default us-east-1). When both are set the
+# download is signed with AWS SigV4, so the seed can live in a private S3/MinIO
+# bucket that denies anonymous reads. Leave them empty to fetch anonymously
+# (public object or a presigned URL). These are build-only ARGs, scoped to this
+# throwaway stage — only /opt/oib-seed is COPYed forward, so the credentials
+# never reach the final image's layers or config.
 FROM debian:bookworm-slim AS oib-seed
 ARG OIB_SEED_URL=""
+ARG OIB_SEED_ACCESS_KEY=""
+ARG OIB_SEED_SECRET_KEY=""
+ARG OIB_SEED_REGION="us-east-1"
 WORKDIR /opt/oib-seed
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     curl \
@@ -118,7 +129,15 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
     && rm -rf /var/lib/apt/lists/*
 RUN set -eux; \
     if [ -n "$OIB_SEED_URL" ]; then \
-      curl -fsSL "$OIB_SEED_URL" -o /tmp/seed.tar.gz; \
+      if [ -n "$OIB_SEED_ACCESS_KEY" ] && [ -n "$OIB_SEED_SECRET_KEY" ]; then \
+        echo "Fetching OIB seed with SigV4 auth (private bucket) ..."; \
+        curl -fsSL --aws-sigv4 "aws:amz:${OIB_SEED_REGION}:s3" \
+          --user "${OIB_SEED_ACCESS_KEY}:${OIB_SEED_SECRET_KEY}" \
+          "$OIB_SEED_URL" -o /tmp/seed.tar.gz; \
+      else \
+        echo "Fetching OIB seed anonymously (public or presigned URL) ..."; \
+        curl -fsSL "$OIB_SEED_URL" -o /tmp/seed.tar.gz; \
+      fi; \
       tar -xzf /tmp/seed.tar.gz -C /opt/oib-seed; \
       rm /tmp/seed.tar.gz; \
       echo "Baked OIB seed:"; ls -la /opt/oib-seed; \

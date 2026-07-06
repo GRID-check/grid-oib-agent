@@ -214,6 +214,23 @@ Producing / refreshing the seed:
    Variables). Rebuild → the seed is baked in. Regenerate + re-upload only when
    the OIB corpus changes.
 
+**Private bucket (no public exposure).** The `oib-seed` stage can sign the
+download with AWS SigV4, so the seed can live in a private S3/MinIO bucket that
+denies anonymous reads. Set these additional Build Variables alongside
+`OIB_SEED_URL` (which then points at the private object's S3 URL,
+e.g. `https://minio-api.example.net/grid-seeds/oib-seed.tar.gz`):
+
+| Build Variable | Value |
+| --- | --- |
+| `OIB_SEED_ACCESS_KEY` | S3/MinIO access key (bucket read) |
+| `OIB_SEED_SECRET_KEY` | S3/MinIO secret key |
+| `OIB_SEED_REGION` | S3 region; MinIO default is `us-east-1` (optional) |
+
+When both keys are set the build fetches with `curl --aws-sigv4`; when they are
+empty it falls back to an anonymous GET (public object or a presigned URL). The
+keys are build-only ARGs scoped to the throwaway `oib-seed` stage — only the
+unpacked seed is COPYed forward, so credentials never land in the final image.
+
 If `OIB_SEED_URL` is unset, the image builds without a seed and the first boot
 falls back to live ingestion (embedding spend, as in option C of §5).
 
