@@ -369,7 +369,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   const totalSourcesCount = availableDataSources?.length ?? 0
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col p-4">
+    <div className="mx-auto flex w-full max-w-3xl flex-col p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:p-4 sm:pb-4">
       <div
         className={cn(
           'relative flex flex-col rounded-2xl border bg-card p-4 shadow-sm transition-[box-shadow,border-color] duration-200 ease-out focus-within:ring-2 focus-within:ring-ring/30',

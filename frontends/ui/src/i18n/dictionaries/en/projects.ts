@@ -5,6 +5,13 @@ export const projects = {
     description:
       'Every building project in one calm workspace — documents, members, OIB/RIS research, and chat, grounded together.',
     loading: 'Loading projects…',
+    searchPlaceholder: 'Search projects…',
+    searchAria: 'Search projects by name',
+    noMatch: {
+      title: 'No matching projects',
+      description: 'No project name matches your search.',
+      clear: 'Clear search',
+    },
     empty: {
       title: 'Start your first project',
       description:

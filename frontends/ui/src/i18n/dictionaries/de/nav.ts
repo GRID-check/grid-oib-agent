@@ -7,6 +7,8 @@ export const nav: typeof en.nav = {
   allProjects: 'Grid — alle Projekte',
   collapseSidebar: 'Seitenleiste einklappen',
   expandSidebar: 'Seitenleiste ausklappen',
+  openNavigation: 'Navigation öffnen',
+  closeNavigation: 'Navigation schließen',
   sections: {
     overview: 'Übersicht',
     chat: 'Chat',

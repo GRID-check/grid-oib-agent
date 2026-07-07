@@ -41,7 +41,7 @@ export default async function ProjectLayout({ children, params }: ProjectLayoutP
     .orderBy(asc(projects.name))
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background text-foreground">
+    <div className="flex h-dvh flex-col overflow-hidden bg-background text-foreground md:flex-row">
       <AppSidebar
         projectId={id}
         projects={orgProjects}

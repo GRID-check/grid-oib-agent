@@ -210,10 +210,11 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName }:
       {/* Live upload progress */}
       <ActiveUploads files={activeUploads} onRetry={retryFile} />
 
-      {/* Three-pane layout */}
-      <div className="flex flex-1 overflow-hidden">
+      {/* Three-pane layout — stacks on mobile: folders on top, files below,
+          preview as a full-screen overlay. */}
+      <div className="flex flex-1 flex-col overflow-hidden md:flex-row">
         {/* Folder tree */}
-        <div className="w-60 shrink-0 overflow-y-auto border-r">
+        <div className="max-h-48 w-full shrink-0 overflow-y-auto border-b md:max-h-none md:w-60 md:border-b-0 md:border-r">
           {foldersError ? (
             <PaneLoadError message={t('workspace.foldersLoadError')} onRetry={loadFolders} />
           ) : (
@@ -253,9 +254,9 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName }:
           )}
         </div>
 
-        {/* Preview pane */}
+        {/* Preview pane — full-screen overlay on mobile, docked column on md+ */}
         {selectedFile && (
-          <div className="w-96 shrink-0 overflow-y-auto border-l">
+          <div className="fixed inset-0 z-50 w-full shrink-0 overflow-y-auto bg-background pt-[env(safe-area-inset-top)] md:static md:z-auto md:w-96 md:border-l md:pt-0">
             <FilePreviewPane file={selectedFile} projectId={projectId} onClose={() => setSelectedFileId(null)} />
           </div>
         )}

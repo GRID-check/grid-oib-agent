@@ -13,6 +13,8 @@ There are two upload zones in the UI:
 
 To upload, drag and drop files onto the upload zone or click to browse. Multiple files can be uploaded at once.
 
+The project Files workspace shows folders, the file list, and the preview side by side on desktop. On small screens the panes stack — folders above the file list — and selecting a file opens the preview as a full-screen overlay with a close button.
+
 ### Supported File Types
 
 The accepted file types are configured via `FILE_UPLOAD_ACCEPTED_TYPES` (default: `.pdf,.docx,.txt,.md`).

@@ -273,7 +273,7 @@ export function ProjectIntakeWizard({
 
   if (loading) {
     return (
-      <div className="mx-auto max-w-2xl px-4 py-12">
+      <div className="mx-auto max-w-2xl px-4 py-6 md:py-12">
         <Skeleton className="h-3 w-40" />
         <Skeleton className="mt-4 h-2 w-full" />
         <Skeleton className="mt-8 h-6 w-56" />
@@ -291,7 +291,7 @@ export function ProjectIntakeWizard({
 
   if (error && !definition) {
     return (
-      <div className="mx-auto max-w-2xl px-4 py-12">
+      <div className="mx-auto max-w-2xl px-4 py-6 md:py-12">
         <Alert variant="destructive">
           <AlertDescription className="flex flex-col items-start gap-3">
             <span>{error}</span>
@@ -310,7 +310,7 @@ export function ProjectIntakeWizard({
   const stepTitle = isReview ? t('intake.reviewTitle') : (stage?.title ?? '')
 
   return (
-    <div className="mx-auto max-w-2xl px-4 py-12">
+    <div className="mx-auto max-w-2xl px-4 py-6 md:py-12">
       {/* Header */}
       <header className="mb-8">
         <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">

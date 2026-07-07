@@ -26,7 +26,7 @@ export default async function ProjectMembersPage({ params }: ProjectMembersPageP
   const [project] = await db.select({ name: projects.name }).from(projects).where(eq(projects.id, id)).limit(1)
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-4 py-10 md:px-8">
+    <div className="mx-auto w-full max-w-5xl px-4 py-6 md:px-8 md:py-10">
       <header className="mb-10 flex items-start gap-4 border-b border-border pb-8">
         <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-muted text-primary">
           <Users className="h-6 w-6" aria-hidden />

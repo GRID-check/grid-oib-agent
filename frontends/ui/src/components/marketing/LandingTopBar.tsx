@@ -22,7 +22,7 @@ export const LandingTopBar: FC<LandingTopBarProps> = ({ onSignIn }) => {
     <header className="sticky top-0 z-50 border-b border-border bg-background/80 backdrop-blur-xl">
       <FadeIn
         distance={4}
-        className="mx-auto flex h-14 w-full max-w-5xl items-center justify-between px-6 md:px-8"
+        className="mx-auto flex h-14 w-full max-w-5xl items-center justify-between px-4 sm:px-6 md:px-8"
       >
         <Logo kind="horizontal" size="small" />
         <Button size="sm" onClick={onSignIn}>
