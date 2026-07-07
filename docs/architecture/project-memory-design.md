@@ -148,7 +148,23 @@ Guarantees: **never blocks the answer**, **never crashes the turn** (every path
 is caught and logged), **opt-in** (unset `memory_reflection_llm` → the scheduler
 is a no-op with zero extra LLM cost), and **context-free execution** (all values
 are passed explicitly, so the task is safe after the request context is torn
-down). Deep-research job-stub turns carry no real answer and are skipped.
+down).
+
+Safety limits (see [memory-reflection-audit.md](./memory-reflection-audit.md)):
+- **Project scope only** — the autonomous stage never writes `organization`-scoped
+  memory (org-wide writes poison every project in the tenant and have no
+  write-time authorization gate, so they stay a deliberate human action). It
+  requires a `project_id`; an org-only conversation is skipped.
+- **Substantive answers only** — meta/error/insufficiency and deep-research
+  job-stub turns are skipped (nothing durable to record).
+- **Digest de-duplication** — a finding already present in the shown digest is
+  dropped. This is a soft guard, not the §3.2 consolidation gate (still a
+  follow-up), so it does not catch semantic paraphrase or items outside the
+  bounded digest.
+
+Known follow-ups tracked in the audit: surfacing reflection writes to the user
+(they are currently invisible until the memory panel is manually reloaded), the
+write-time consolidation gate, and a per-conversation rate cap.
 
 ## 4. Provenance & trust — non-negotiable for a compliance product
 

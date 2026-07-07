@@ -59,6 +59,37 @@ _ensure_otel_redaction_registered()
 # serialization instead of being dropped by the lossy indirect str conversion.
 _ensure_nat_converters_registered()
 
+# Canned error/empty answers that must never trigger a memory-reflection pass.
+_REFLECTION_NON_ANSWERS = (
+    "No response generated.",
+    "An error occurred",
+    "The search tools did not return any results",
+)
+
+
+def _reflection_answer_is_substantive(result: object, answer_text: str) -> bool:
+    """Whether a turn's answer is worth running memory reflection on.
+
+    Skips meta/conversational and error turns (by classified intent) and the
+    canned insufficiency/error answers — none carry a durable, project-specific
+    finding, and reflecting on them only risks spurious writes.
+    """
+    from .agent import matches_escalation_keywords
+
+    text = (answer_text or "").strip()
+    if not text or any(text.startswith(prefix) for prefix in _REFLECTION_NON_ANSWERS):
+        return False
+    if matches_escalation_keywords(text):
+        return False
+
+    user_intent = getattr(result, "user_intent", None)
+    if user_intent is None and isinstance(result, dict):
+        user_intent = result.get("user_intent")
+    intent = getattr(user_intent, "intent", None)
+    if intent in {"meta", "error"}:
+        return False
+    return True
+
 
 ########################################################
 # Intent Classifier
@@ -577,19 +608,24 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
 
         # Post-processing phase: kick off memory reflection AFTER the answer is
         # ready. Fire-and-forget — it runs on the event loop without delaying the
-        # response, and a deep-research job stub carries no answer to reflect on.
+        # response. Gated so it only reflects on a substantive research answer:
+        # deep-research job stubs carry no answer; meta/error turns and
+        # insufficiency answers ("I don't have enough information …") have nothing
+        # durable to record and would only invite spurious findings (audit gap).
         if reflection_llm is not None and not deep_research_job_id:
-            from aiq_agent.agents.project_memory.reflection import schedule_memory_reflection
+            answer_text = response_content if isinstance(response_content, str) else str(response_content)
+            if _reflection_answer_is_substantive(result, answer_text):
+                from aiq_agent.agents.project_memory.reflection import schedule_memory_reflection
 
-            schedule_memory_reflection(
-                llm=reflection_llm,
-                query=query_text,
-                answer=response_content if isinstance(response_content, str) else str(response_content),
-                project_id=_reflection_project_id,
-                organization_id=_reflection_org_id,
-                conversation_id=nat_context_conversation_id,
-                memory_digest=_reflection_memory_digest,
-            )
+                schedule_memory_reflection(
+                    llm=reflection_llm,
+                    query=query_text,
+                    answer=answer_text,
+                    project_id=_reflection_project_id,
+                    organization_id=_reflection_org_id,
+                    conversation_id=nat_context_conversation_id,
+                    memory_digest=_reflection_memory_digest,
+                )
 
         return response
 

@@ -29,32 +29,50 @@ class TestSanitizeFindings:
             {"kind": "decision", "content": ""},
             {"kind": "constraint", "content": "Facade must be brick."},
         ]
-        items = R._sanitize_findings(raw, has_project=True, has_organization=True)
+        items = R._sanitize_findings(raw, has_project=True)
         assert len(items) == 1
         assert items[0]["kind"] == "constraint"
         assert items[0]["confidence"] == "medium"  # defaulted
-        assert items[0]["scope"] == "project"  # defaulted
+        assert items[0]["scope"] == "project"  # forced
 
-    def test_project_scope_falls_back_to_organization(self):
-        raw = [{"kind": "preference", "content": "Firm prefers metric drawings.", "scope": "project"}]
-        items = R._sanitize_findings(raw, has_project=False, has_organization=True)
-        assert items and items[0]["scope"] == "organization"
+    def test_org_scope_is_forced_to_project(self):
+        # The autonomous stage NEVER writes org-wide memory (audit finding S1);
+        # a model-proposed organization scope is coerced to project.
+        raw = [{"kind": "preference", "content": "Client prefers metric drawings.", "scope": "organization"}]
+        items = R._sanitize_findings(raw, has_project=True)
+        assert items and items[0]["scope"] == "project"
 
-    def test_project_scope_dropped_when_no_target(self):
+    def test_dropped_when_no_project_in_scope(self):
         raw = [{"kind": "decision", "content": "Anything."}]
-        assert R._sanitize_findings(raw, has_project=False, has_organization=False) == []
+        assert R._sanitize_findings(raw, has_project=False) == []
 
-    def test_org_scope_dropped_without_org(self):
-        raw = [{"kind": "decision", "content": "Anything.", "scope": "organization"}]
-        assert R._sanitize_findings(raw, has_project=True, has_organization=False) == []
+    def test_drops_content_already_in_digest(self):
+        digest = 'PROJECT_MEMORY v1\n- [decision | high | agent] "Client chose a flat roof"'
+        raw = [
+            {"kind": "decision", "content": "Client chose a flat roof."},  # already present
+            {"kind": "constraint", "content": "Budget capped at 2M."},  # new
+        ]
+        items = R._sanitize_findings(raw, has_project=True, memory_digest=digest)
+        assert [i["content"] for i in items] == ["Budget capped at 2M."]
 
     def test_caps_at_max_items(self):
         raw = [{"kind": "derived_fact", "content": f"Fact {i}."} for i in range(20)]
-        items = R._sanitize_findings(raw, has_project=True, has_organization=False)
+        items = R._sanitize_findings(raw, has_project=True)
         assert len(items) == R.MAX_NEW_ITEMS
 
     def test_non_list_returns_empty(self):
-        assert R._sanitize_findings({"findings": []}, has_project=True, has_organization=True) == []
+        assert R._sanitize_findings({"findings": []}, has_project=True) == []
+
+
+class TestContentInDigest:
+    def test_matches_ignoring_case_and_punctuation(self):
+        assert R._content_in_digest("Client chose a flat roof.", '... "client chose a flat roof" ...')
+
+    def test_absent_returns_false(self):
+        assert not R._content_in_digest("Budget capped at 2M.", '"Client chose a flat roof"')
+
+    def test_no_digest_returns_false(self):
+        assert not R._content_in_digest("anything", None)
 
 
 class TestRunMemoryReflection:
@@ -182,6 +200,23 @@ class TestScheduleMemoryReflection:
                 answer="a",
                 project_id=None,
                 organization_id=None,
+                conversation_id="c",
+                memory_digest=None,
+            )
+            is None
+        )
+
+    @pytest.mark.asyncio
+    async def test_org_only_is_noop(self):
+        # No project in scope → the project-only autonomous stage has nothing to
+        # write, even when an organization is known (audit finding S1).
+        assert (
+            R.schedule_memory_reflection(
+                llm=_FakeLLM("{}"),
+                query="q",
+                answer="a",
+                project_id=None,
+                organization_id="org-1",
                 conversation_id="c",
                 memory_digest=None,
             )
