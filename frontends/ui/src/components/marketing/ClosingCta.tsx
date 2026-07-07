@@ -20,7 +20,7 @@ export const ClosingCta: FC<ClosingCtaProps> = ({ onSignIn }) => {
   return (
     <section
       aria-labelledby="closing-cta-heading"
-      className="mx-auto w-full max-w-5xl px-6 py-24 md:px-8 md:py-32"
+      className="mx-auto w-full max-w-5xl px-4 py-16 sm:px-6 sm:py-24 md:px-8 md:py-32"
     >
       <Stagger inView className="mx-auto flex max-w-2xl flex-col items-center text-center">
         <motion.h2

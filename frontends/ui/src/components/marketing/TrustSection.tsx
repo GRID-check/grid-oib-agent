@@ -26,7 +26,7 @@ export const TrustSection: FC = () => {
   const t = useTranslations('landing')
   return (
     <section aria-labelledby="trust-heading" className="border-y border-border bg-muted/30">
-      <div className="mx-auto w-full max-w-5xl px-6 py-24 md:px-8 md:py-32">
+      <div className="mx-auto w-full max-w-5xl px-4 py-16 sm:px-6 sm:py-24 md:px-8 md:py-32">
         <div className="max-w-2xl">
           <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
             {t('trust.eyebrow')}
@@ -42,11 +42,11 @@ export const TrustSection: FC = () => {
           </p>
         </div>
 
-        <Stagger inView className="mt-16 grid gap-6 md:grid-cols-3">
+        <Stagger inView className="mt-10 grid gap-4 sm:mt-16 sm:gap-6 md:grid-cols-3">
           {points.map(({ icon: Icon, key }) => (
             <StaggerItem
               key={key}
-              className="flex flex-col rounded-2xl border border-border bg-card p-8 shadow-sm"
+              className="flex flex-col rounded-2xl border border-border bg-card p-6 shadow-sm sm:p-8"
             >
               <span
                 aria-hidden="true"
