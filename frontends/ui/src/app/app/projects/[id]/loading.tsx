@@ -10,7 +10,7 @@ import { getTranslations } from '@/i18n/server'
 export default async function ProjectSectionLoading(): Promise<JSX.Element> {
   const t = await getTranslations('projects')
   return (
-    <div className="mx-auto w-full max-w-5xl px-4 py-10 md:px-8" aria-busy="true">
+    <div className="mx-auto w-full max-w-5xl px-4 py-6 md:px-8 md:py-10" aria-busy="true">
       <span className="sr-only" role="status">
         {t('section.loading')}
       </span>

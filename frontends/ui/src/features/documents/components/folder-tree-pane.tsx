@@ -104,7 +104,7 @@ export function FolderTreePane({
             onClick={() => startCreate(folder.id)}
             aria-label={t('folders.addSubfolderIn', { name: folder.name })}
             title={t('folders.addSubfolder')}
-            className="shrink-0 rounded-sm p-0.5 opacity-0 transition-opacity hover:bg-background/60 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100"
+            className="shrink-0 rounded-sm p-0.5 transition-opacity hover:bg-background/60 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:opacity-0 md:group-hover:opacity-100"
           >
             <Plus className="size-3.5" aria-hidden />
           </button>

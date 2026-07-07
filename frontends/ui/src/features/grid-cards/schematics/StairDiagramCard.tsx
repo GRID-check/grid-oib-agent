@@ -90,8 +90,9 @@ export const StairDiagramCard: FC<StairDiagramCardProps> = ({
     ? `${n} Stg · ${fmtNum(rise)}/${fmtNum(going)} cm`
     : `${n} Stufen`
 
-  // Dimension one rise + one going on a middle step.
-  const mid = Math.ceil(n / 2)
+  // Dimension one rise + one going on a step in the lower quarter of the
+  // flight, clear of the pitch-line notation that runs through the middle.
+  const mid = Math.min(Math.max(Math.round(n / 4), 1), n)
   const riseX = X((mid - 1) * going) - 12
   const riseTop = Y(mid * rise)
   const riseBottom = Y((mid - 1) * rise)

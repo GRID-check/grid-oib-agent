@@ -5,6 +5,8 @@ export const nav = {
   allProjects: 'Grid — all projects',
   collapseSidebar: 'Collapse sidebar',
   expandSidebar: 'Expand sidebar',
+  openNavigation: 'Open navigation',
+  closeNavigation: 'Close navigation',
   sections: {
     overview: 'Overview',
     chat: 'Chat',

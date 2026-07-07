@@ -94,3 +94,18 @@ export interface EnvelopeComponentData {
   kind: 'wall' | 'roof' | 'floor' | 'window' | 'door'
   u_value: DimensionCheckData
 }
+
+/** One requirement in a checklist, with its verdict and grounding. */
+export interface ChecklistItemData {
+  label: string
+  status: DimStatus
+  detail?: string | null
+  reference?: NormReferenceData | null
+}
+
+/** One criterion compared across options (one value per option). */
+export interface ComparisonRowData {
+  label: string
+  values: string[]
+  highlight_index?: number | null
+}

@@ -153,7 +153,7 @@ export const DataSourcesPanel: FC<DataSourcesPanelProps> = memo(function DataSou
       side="right"
       onClose={closeRightPanel}
       aria-label={t('dataSourcesPanel.title')}
-      className="w-[406px]"
+      className="w-full max-w-[406px]"
       heading={
         <>
           <Globe className="h-5 w-5" aria-hidden="true" />

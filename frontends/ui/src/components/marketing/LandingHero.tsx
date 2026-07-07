@@ -26,9 +26,9 @@ export const LandingHero: FC<LandingHeroProps> = ({ onSignIn }) => {
   return (
     <section
       aria-labelledby="hero-heading"
-      className="mx-auto w-full max-w-5xl px-6 pb-24 pt-20 md:px-8 md:pb-32 md:pt-28"
+      className="mx-auto w-full max-w-5xl px-4 pb-16 pt-12 sm:px-6 sm:pb-24 sm:pt-20 md:px-8 md:pb-32 md:pt-28"
     >
-      <div className="grid items-center gap-16 lg:grid-cols-[1.05fr_0.95fr] lg:gap-20">
+      <div className="grid items-center gap-10 sm:gap-16 lg:grid-cols-[1.05fr_0.95fr] lg:gap-20">
         {/* Copy column */}
         <Stagger className="flex flex-col items-start">
           <motion.p
@@ -43,7 +43,7 @@ export const LandingHero: FC<LandingHeroProps> = ({ onSignIn }) => {
             id="hero-heading"
             variants={fadeRise}
             transition={springGentle}
-            className="mt-5 text-5xl font-semibold tracking-tight text-foreground text-balance md:text-6xl"
+            className="mt-5 text-4xl font-semibold tracking-tight text-foreground text-balance sm:text-5xl md:text-6xl"
           >
             {t('hero.title')}
           </motion.h1>

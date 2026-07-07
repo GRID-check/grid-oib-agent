@@ -1,4 +1,6 @@
 export { GridCards } from './components/GridCards'
 export { SummaryCard } from './components/SummaryCard'
 export { LegalBasisCard } from './components/LegalBasisCard'
+export { RequirementChecklistCard } from './components/RequirementChecklistCard'
+export { ComparisonTableCard } from './components/ComparisonTableCard'
 export type { GridCard, SummaryCardData, LegalBasisCardData } from './types'

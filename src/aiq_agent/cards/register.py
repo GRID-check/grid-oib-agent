@@ -152,6 +152,35 @@ _CARD_EXAMPLES: dict[str, dict] = {
         },
         "reference": {"document": "Wiener Garagengesetz", "section": "§ 48"},
     },
+    "requirement_checklist": {
+        "type": "requirement_checklist",
+        "title": "Anforderungen GK 4 – Brandschutz",
+        "items": [
+            {
+                "label": "Tragende Bauteile REI 60",
+                "status": "pass",
+                "detail": "Stahlbetondecken erfüllen REI 90.",
+                "reference": {"document": "OIB-Richtlinie 2", "section": "Tabelle 1b"},
+            },
+            {
+                "label": "Zweiter Fluchtweg oder Anleiterbarkeit",
+                "status": "needs_input",
+                "detail": "Anleiterbarkeit der Nordfassade noch nicht geklärt.",
+            },
+        ],
+        "reference": {"document": "OIB-Richtlinie 2", "edition": "Ausgabe Mai 2023"},
+    },
+    "comparison_table": {
+        "type": "comparison_table",
+        "title": "GK 4 vs. GK 5 – wesentliche Anforderungen",
+        "options": ["GK 4", "GK 5"],
+        "rows": [
+            {"label": "Fluchtniveau", "values": ["≤ 11 m", "≤ 22 m"], "highlight_index": 0},
+            {"label": "Tragende Bauteile", "values": ["REI 60", "REI 90"], "highlight_index": 0},
+        ],
+        "recommendation": "Mit Fluchtniveau 9,8 m bleibt das Projekt in GK 4.",
+        "reference": {"document": "OIB-Richtlinie 2", "section": "Tabelle 1b", "edition": "Ausgabe Mai 2023"},
+    },
 }
 
 

@@ -35,7 +35,7 @@ export default async function ProfilePage(): Promise<JSX.Element> {
         canManageOrganization={isOrgAdmin(session)}
       />
 
-      <main id="main-content" className="mx-auto w-full max-w-3xl flex-1 px-4 py-10 md:px-8">
+      <main id="main-content" className="mx-auto w-full max-w-3xl flex-1 px-4 py-6 md:px-8 md:py-10">
         <Link
           href="/app/projects"
           className="mb-6 inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"

@@ -21,7 +21,7 @@ export const HowItWorks: FC = () => {
   return (
     <section
       aria-labelledby="how-it-works-heading"
-      className="mx-auto w-full max-w-5xl px-6 py-24 md:px-8 md:py-32"
+      className="mx-auto w-full max-w-5xl px-4 py-16 sm:px-6 sm:py-24 md:px-8 md:py-32"
     >
       <div className="max-w-2xl">
         <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
@@ -40,7 +40,7 @@ export const HowItWorks: FC = () => {
         initial="hidden"
         whileInView="visible"
         viewport={{ once: true, margin: '-64px' }}
-        className="mt-16 grid gap-x-8 gap-y-12 sm:grid-cols-2 lg:grid-cols-4"
+        className="mt-10 grid gap-x-8 gap-y-8 sm:mt-16 sm:grid-cols-2 sm:gap-y-12 lg:grid-cols-4"
       >
         {steps.map(({ title, body }, index) => (
           <motion.li
