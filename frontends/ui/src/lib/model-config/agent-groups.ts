@@ -24,7 +24,11 @@ export interface AgentGroupDefinition {
   id: string
   label: string
   description: string
-  /** Which workflow-config LLMs this group re-points (documentation only). */
+  /**
+   * Names of the workflow-config LLMs (`llms:` block) this group re-points.
+   * Used to resolve the group's "workflow default" model from the backend's
+   * /v1/config/llm-defaults endpoint — keep these exact config keys.
+   */
   configLlmRefs: string[]
   requirements: AgentGroupRequirements
 }
@@ -73,7 +77,7 @@ export const AGENT_GROUPS: AgentGroupDefinition[] = [
     label: 'Memory reflection',
     description:
       'Post-answer background pass that distills durable project memory from a finished turn. Cost-sensitive; runs after every substantive answer when enabled.',
-    configLlmRefs: ['card_llm (memory_reflection_llm)'],
+    configLlmRefs: ['card_llm'],
     requirements: { requiredParameters: [], minContextLength: 32768 },
   },
 ]

@@ -16,6 +16,7 @@ import { requireProjectAccess } from '@/lib/authz/projects'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import {
   BudgetValidationError,
+  clearBudgetPolicy,
   getOrgBudget,
   getScopedBudget,
   listActivePolicies,
@@ -91,6 +92,42 @@ export async function PUT(request: Request): Promise<Response> {
     if (error instanceof BudgetValidationError) {
       return NextResponse.json({ error: error.message }, { status: 422 })
     }
+    const denied = authzErrorResponse(error)
+    if (denied) return denied
+    throw error
+  }
+}
+
+const deleteSchema = z.object({
+  scope: z.enum(['member', 'project']),
+  subjectId: z.string().min(1).max(120),
+})
+
+/** Remove a scoped limit — the subject falls back to the org limits alone. */
+export async function DELETE(request: Request): Promise<Response> {
+  try {
+    const session = await requireAuthorizedSession()
+    const body = await request.json().catch(() => null)
+    const parsed = deleteSchema.safeParse(body)
+    if (!parsed.success) {
+      return NextResponse.json({ error: 'Invalid payload' }, { status: 400 })
+    }
+    const { scope, subjectId } = parsed.data
+    if (scope === 'project') {
+      if (!isOrgAdmin(session)) {
+        await requireProjectAccess(session as AuthorizedSession, subjectId, 'project:manage')
+      }
+    } else if (!isOrgAdmin(session)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+    const removed = await clearBudgetPolicy({
+      organizationId: session.organizationId,
+      scope,
+      subjectId,
+      actorUserId: session.userId,
+    })
+    return NextResponse.json({ removed })
+  } catch (error) {
     const denied = authzErrorResponse(error)
     if (denied) return denied
     throw error

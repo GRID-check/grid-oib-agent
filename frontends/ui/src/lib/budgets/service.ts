@@ -224,6 +224,36 @@ export async function setBudgetPolicy(params: {
   })
 }
 
+/**
+ * Remove a scoped (member/project) policy: supersede the active row without a
+ * replacement, so the subject falls back to the org limits alone. The row
+ * itself stays for the audit trail. Org-scope policies are never removed —
+ * they are replaced (the org always has effective limits, seeded or explicit).
+ */
+export async function clearBudgetPolicy(params: {
+  organizationId: string
+  scope: 'member' | 'project'
+  subjectId: string
+  actorUserId: string
+}): Promise<boolean> {
+  const db = getDb()
+  const [previous] = await db
+    .select()
+    .from(budgetPolicies)
+    .where(
+      and(
+        eq(budgetPolicies.organizationId, params.organizationId),
+        eq(budgetPolicies.scope, params.scope),
+        eq(budgetPolicies.subjectId, params.subjectId),
+        eq(budgetPolicies.status, 'active'),
+      ),
+    )
+    .limit(1)
+  if (!previous) return false
+  await db.update(budgetPolicies).set({ status: 'superseded' }).where(eq(budgetPolicies.id, previous.id))
+  return true
+}
+
 // ---------------------------------------------------------------------------
 // Ledger
 // ---------------------------------------------------------------------------
