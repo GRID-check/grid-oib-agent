@@ -4,7 +4,7 @@ import { requireAuthorizedPageSession } from '@/lib/auth/require-auth'
 import { isOrgAdmin } from '@/lib/authz/organizations'
 import { getDb } from '@/lib/db'
 import { documents, projects } from '@/lib/db/schema'
-import { ProjectCard } from '@/components/projects/project-card'
+import { ProjectsGrid } from '@/components/projects/projects-grid'
 import { CreateProjectDialog } from '@/components/projects/create-project-dialog'
 import { EmptyState } from '@/components/ui/empty-state'
 import { OrgTopbar } from '@/components/shell'
@@ -40,7 +40,9 @@ export default async function ProjectsPage({ searchParams }: ProjectsPageProps):
     .where(eq(documents.organizationId, session.organizationId))
     .groupBy(documents.projectId)
 
-  const docCountByProject = new Map(docCounts.map((row) => [row.projectId, Number(row.total)]))
+  const docCountByProject: Record<string, number> = Object.fromEntries(
+    docCounts.map((row) => [row.projectId, Number(row.total)]),
+  )
 
   const autoOpenCreate = newParam === '1'
 
@@ -72,15 +74,7 @@ export default async function ProjectsPage({ searchParams }: ProjectsPageProps):
               className="min-h-96 justify-center"
             />
           ) : (
-            <div className="grid grid-cols-1 gap-6 animate-in fade-in-0 sm:grid-cols-2 xl:grid-cols-3">
-              {rows.map((project) => (
-                <ProjectCard
-                  key={project.id}
-                  project={project}
-                  docCount={docCountByProject.get(project.id) ?? 0}
-                />
-              ))}
-            </div>
+            <ProjectsGrid projects={rows} docCounts={docCountByProject} />
           )}
         </section>
 

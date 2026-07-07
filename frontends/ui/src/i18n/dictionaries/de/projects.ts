@@ -7,6 +7,13 @@ export const projects: typeof en.projects = {
     description:
       'Jedes Bauprojekt in einem ruhigen Arbeitsbereich — Dokumente, Mitglieder, OIB/RIS-Recherche und Chat, gemeinsam fundiert.',
     loading: 'Projekte werden geladen…',
+    searchPlaceholder: 'Projekte durchsuchen…',
+    searchAria: 'Projekte nach Namen durchsuchen',
+    noMatch: {
+      title: 'Keine passenden Projekte',
+      description: 'Kein Projektname entspricht Ihrer Suche.',
+      clear: 'Suche löschen',
+    },
     empty: {
       title: 'Starten Sie Ihr erstes Projekt',
       description:
