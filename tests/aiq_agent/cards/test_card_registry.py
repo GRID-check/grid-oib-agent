@@ -5,13 +5,11 @@ import json
 import pytest
 
 from aiq_agent.cards.models import grid_card_adapter
-from aiq_agent.cards.registry import (
-    CardRegistry,
-    get_card_registry,
-    get_or_create_card_registry,
-    reset_card_registry,
-    set_card_registry,
-)
+from aiq_agent.cards.registry import CardRegistry
+from aiq_agent.cards.registry import get_card_registry
+from aiq_agent.cards.registry import get_or_create_card_registry
+from aiq_agent.cards.registry import reset_card_registry
+from aiq_agent.cards.registry import set_card_registry
 
 
 def _emit(card_json: str) -> str:

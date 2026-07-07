@@ -62,6 +62,8 @@ describe('/api/auth/websocket-scope', () => {
       header: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9',
       // The route echoes the requested projectId so server.js can scope the socket.
       projectId: 'proj-1',
+      // Anonymous session + MEMORY_REFLECTION_ENABLED unset → reflection off.
+      memoryReflectionEnabled: false,
     })
     expect(mockRequireProjectAccess).not.toHaveBeenCalled()
     expect(mockBuildCollectionScopeFromRequest).toHaveBeenCalledWith(null, {
