@@ -67,6 +67,14 @@ Round 2 (system-wide):
 7. **Provenance (PROV).** Reflection writes are tagged `distillation` so the UI
    distinguishes them from in-turn `agent` writes.
 
+Round 4:
+9. **Runtime enablement gate.** Beyond the `memory_reflection_llm` capability
+   key, each turn is gated by the `memory-reflection` WorkOS feature flag
+   (per-org, evaluated at the WS upgrade, fail-closed) or the
+   `MEMORY_REFLECTION_ENABLED` env fallback for anonymous mode — so reflection
+   can be rolled out per-organization without a redeploy, and stays off by
+   default.
+
 Round 3:
 8. **DB uniqueness backstop (DEDUP).** Migration `0010_project_memory_dedup.sql`
    adds two partial unique indexes on normalized content (one per scope) so a

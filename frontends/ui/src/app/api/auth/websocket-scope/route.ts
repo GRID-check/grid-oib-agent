@@ -12,12 +12,20 @@ import { requireProjectAccess } from '@/lib/authz/projects'
 import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
 import { loadProjectPromptView } from '@/lib/project-profile/prompt-view'
 import { buildProjectMemoryDigest } from '@/lib/projects/memory-service'
+import { isOrgFeatureEnabled, MEMORY_REFLECTION_FLAG } from '@/lib/workos/feature-flags'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { isAuthzError } from '@/lib/auth-utils'
 
 const isAuthRequired = (): boolean => {
   return process.env.REQUIRE_AUTH?.toLowerCase() === 'true'
 }
+
+/**
+ * Fallback for anonymous / non-WorkOS deployments: when no org is in scope the
+ * feature flag can't be evaluated, so honour an env opt-in instead.
+ */
+const memoryReflectionEnvDefault = (): boolean =>
+  process.env.MEMORY_REFLECTION_ENABLED?.toLowerCase() === 'true'
 
 export async function GET(req: Request): Promise<Response> {
   try {
@@ -46,6 +54,14 @@ export async function GET(req: Request): Promise<Response> {
       response.userId = session.userId
       response.accessToken = session.accessToken
     }
+
+    // Gate the async memory-reflection stage on a WorkOS feature flag
+    // ("memory-reflection") evaluated for the caller's org; fall back to the
+    // MEMORY_REFLECTION_ENABLED env opt-in when there is no org (anonymous
+    // mode). Fail-closed. server.js forwards this as x-grid-feature-memory-reflection.
+    response.memoryReflectionEnabled = session?.organizationId
+      ? await isOrgFeatureEnabled(MEMORY_REFLECTION_FLAG, session.organizationId, memoryReflectionEnvDefault())
+      : memoryReflectionEnvDefault()
 
     if (projectId) {
       if (isAuthRequired() && session) {

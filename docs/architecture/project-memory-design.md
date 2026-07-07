@@ -150,6 +150,17 @@ is a no-op with zero extra LLM cost), and **context-free execution** (all values
 are passed explicitly, so the task is safe after the request context is torn
 down).
 
+Enablement (two gates):
+- **Capability** — the config key `memory_reflection_llm` must point at an LLM,
+  or the stage is compiled out entirely (unset by default historically; now set
+  to `card_llm` in `config_oib_openrouter.yml`).
+- **Runtime** — each turn is gated by the `memory-reflection` **WorkOS feature
+  flag**, evaluated per-organization by the BFF at the WS upgrade
+  (`isOrgFeatureEnabled`) and forwarded to the backend as the
+  `x-grid-feature-memory-reflection` header. Anonymous/non-WorkOS deployments
+  fall back to the `MEMORY_REFLECTION_ENABLED` env var. Fail-closed: absent
+  header → off.
+
 Safety limits (see [memory-reflection-audit.md](./memory-reflection-audit.md)):
 - **Project scope only** — the autonomous stage never writes `organization`-scoped
   memory (org-wide writes poison every project in the tenant and have no
