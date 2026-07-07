@@ -34,5 +34,10 @@ export const profile = {
     signOutEverywhere: 'Sign out',
     managedByWorkos: 'Sessions and security factors are managed by WorkOS.',
     unavailable: 'Session details are unavailable while authentication is disabled.',
+    activeSessions: 'Active sessions',
+    activeSessionsDescription: 'Devices and browsers currently signed in to your account. Sign out any you don’t recognize.',
+    securityFactors: 'Sign-in & security',
+    securityFactorsDescription: 'Manage your password and multi-factor authentication.',
+    widgetError: 'Could not load this section. Please refresh and try again.',
   },
 }

@@ -23,6 +23,7 @@ import { useAuth } from '@/adapters/auth/use-auth'
 import { useLayoutStore } from '@/features/layout/store'
 import type { ThemeMode } from '@/features/layout/types'
 import { useTranslations, useLocale, locales, type Locale } from '@/i18n'
+import { AccountWidgets } from './account-widgets'
 
 const THEME_MODES: ThemeMode[] = ['system', 'light', 'dark']
 const THEME_ICONS: Record<ThemeMode, FC<{ className?: string }>> = {
@@ -143,6 +144,9 @@ export const ProfileControls: FC<ProfileControlsProps> = ({ authRequired, email 
           )}
         </CardContent>
       </Card>
+
+      {/* Live WorkOS session + security widgets */}
+      {authRequired && <AccountWidgets />}
     </>
   )
 }

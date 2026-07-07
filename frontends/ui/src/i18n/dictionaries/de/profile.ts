@@ -36,5 +36,10 @@ export const profile: typeof en.profile = {
     signOutEverywhere: 'Abmelden',
     managedByWorkos: 'Sitzungen und Sicherheitsfaktoren werden von WorkOS verwaltet.',
     unavailable: 'Sitzungsdetails sind nicht verfügbar, während die Authentifizierung deaktiviert ist.',
+    activeSessions: 'Aktive Sitzungen',
+    activeSessionsDescription: 'Geräte und Browser, die derzeit bei Ihrem Konto angemeldet sind. Melden Sie alle ab, die Sie nicht kennen.',
+    securityFactors: 'Anmeldung & Sicherheit',
+    securityFactorsDescription: 'Verwalten Sie Ihr Passwort und die Zwei-Faktor-Authentifizierung.',
+    widgetError: 'Dieser Bereich konnte nicht geladen werden. Bitte laden Sie die Seite neu und versuchen Sie es erneut.',
   },
 }
