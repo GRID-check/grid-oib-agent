@@ -20,6 +20,7 @@ import {
   MISSING_LABEL,
   SchematicCanvas,
   SchematicCard,
+  statusColor,
   SvgLabel,
   worstStatus,
 } from './kit'
@@ -88,10 +89,11 @@ export const DensityCheckCard: FC<DensityCheckCardProps> = ({
   const coverageCheck = deriveRatio(coverage, 'Bebauungsgrad', footprintArea, parcelArea, true)
   const densityCheck = deriveRatio(density, 'GFZ', grossFloorArea, parcelArea, false)
 
-  // Parcel box: area-true square-ish rectangle at 4:3.
+  // Parcel box: area-true square-ish rectangle at 4:3, kept compact — the
+  // drawing carries one fact (the area ratio), it should not dominate the card.
   const parcelWm = Math.sqrt((parcelArea * 4) / 3)
   const parcelDm = parcelArea / parcelWm
-  const k = fitScale(parcelWm, parcelDm, 268, 196)
+  const k = fitScale(parcelWm, parcelDm, 220, 148)
   const px = 24
   const py = 24
   const PW = parcelWm * k
@@ -144,6 +146,19 @@ export const DensityCheckCard: FC<DensityCheckCardProps> = ({
             <SvgLabel x={fMidX} y={fMidY + 7} anchor="middle" mono size={8.5}>
               {fmtNum(footprintArea ?? 0)} m²
             </SvgLabel>
+            {coverageCheck.value != null && (
+              <SvgLabel
+                x={fMidX}
+                y={fMidY + 19}
+                anchor="middle"
+                mono
+                size={8.5}
+                weight={600}
+                fill={statusColor(coverageCheck.status)}
+              >
+                {fmtNum(coverageCheck.value)} {coverageCheck.unit}
+              </SvgLabel>
+            )}
           </g>
         ) : (
           <g>

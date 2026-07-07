@@ -192,6 +192,8 @@ interface DimensionArrowProps {
   labelOffset?: number
   fontSize?: number
   dashed?: boolean
+  /** Keep the label horizontal even on a vertical dimension (e.g. long "fehlende Angabe"). */
+  horizontalLabel?: boolean
 }
 
 /**
@@ -210,6 +212,7 @@ export const DimensionArrow: FC<DimensionArrowProps> = ({
   labelOffset = -9,
   fontSize = 10,
   dashed,
+  horizontalLabel,
 }) => {
   const stroke = color ?? (status ? statusColor(status) : 'var(--foreground)')
   const missing = status === 'needs_input'
@@ -231,7 +234,7 @@ export const DimensionArrow: FC<DimensionArrowProps> = ({
 
   const mx = (x1 + x2) / 2 + nx * labelOffset
   const my = (y1 + y2) / 2 + ny * labelOffset
-  const vertical = Math.abs(ux) < 0.35
+  const vertical = Math.abs(ux) < 0.35 && !horizontalLabel
   const transform = vertical ? `rotate(-90 ${mx} ${my})` : undefined
 
   return (

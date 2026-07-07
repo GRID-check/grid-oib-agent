@@ -17,6 +17,7 @@ import { Flame } from 'lucide-react'
 import {
   DimChecksList,
   DimensionArrow,
+  ExtensionLine,
   fitScale,
   fmtDim,
   fmtNum,
@@ -177,23 +178,23 @@ export const FireAccessPlanCard: FC<FireAccessPlanCardProps> = ({
         <line x1={rx + RW} y1={routeTopY} x2={rx + RW} y2={routeBottomY} stroke={routeColor} strokeWidth={1.2} strokeDasharray="6 4" />
         <SvgLabel
           x={rx + RW / 2}
-          y={(routeTopY + routeBottomY) / 2 + 16}
+          y={routeTopY + (routeBottomY - routeTopY) * 0.32}
           anchor="middle"
           size={8}
           weight={600}
           fill={routeColor}
-          transform={`rotate(-90 ${rx + RW / 2} ${(routeTopY + routeBottomY) / 2 + 16})`}
+          transform={`rotate(-90 ${rx + RW / 2} ${routeTopY + (routeBottomY - routeTopY) * 0.32})`}
         >
           ZUFAHRT
         </SvgLabel>
         <DimensionArrow
           x1={rx}
-          y1={routeBottomY - 16}
+          y1={routeBottomY - 12}
           x2={rx + RW}
-          y2={routeBottomY - 16}
+          y2={routeBottomY - 12}
           label={fmtDim(route_width.value, route_width.unit ?? 'm')}
           status={route_width.status}
-          labelOffset={-9}
+          labelOffset={-10}
           fontSize={9}
         />
 
@@ -247,35 +248,39 @@ export const FireAccessPlanCard: FC<FireAccessPlanCardProps> = ({
           fontSize={9}
         />
         {aufstellflaeche.distance_to_facade && (
-          <DimensionArrow
-            x1={ax + AL * 0.16}
-            y1={facadeY}
-            x2={ax + AL * 0.16}
-            y2={ay}
-            label={fmtDim(
-              aufstellflaeche.distance_to_facade.value,
-              aufstellflaeche.distance_to_facade.unit ?? 'm'
-            )}
-            status={aufstellflaeche.distance_to_facade.status}
-            labelOffset={-12}
-            fontSize={8.5}
-          />
+          <g>
+            <ExtensionLine x1={ax} y1={facadeY} x2={ax - 16} y2={facadeY} />
+            <ExtensionLine x1={ax} y1={ay} x2={ax - 16} y2={ay} />
+            <DimensionArrow
+              x1={ax - 12}
+              y1={facadeY}
+              x2={ax - 12}
+              y2={ay}
+              label={fmtDim(
+                aufstellflaeche.distance_to_facade.value,
+                aufstellflaeche.distance_to_facade.unit ?? 'm'
+              )}
+              status={aufstellflaeche.distance_to_facade.status}
+              labelOffset={-12}
+              fontSize={8.5}
+            />
+          </g>
         )}
 
         {/* entrance door tick + reach arrow along the facade */}
         <line x1={doorX - 5} y1={facadeY} x2={doorX + 5} y2={facadeY} stroke="var(--foreground)" strokeWidth={3} strokeLinecap="round" />
-        <SvgLabel x={doorX} y={by + BD - 9} anchor="middle" size={8} weight={600} fill="var(--foreground)">
+        <SvgLabel x={doorX + 8} y={facadeY - 8} size={8} weight={600} fill="var(--foreground)">
           Eingang
         </SvgLabel>
         <DimensionArrow
           x1={ax + AL * 0.4}
-          y1={ay - 6}
+          y1={ay - 4}
           x2={doorX}
-          y2={facadeY + 4}
+          y2={facadeY + 3}
           label={fmtDim(walk_distance_to_entrance.value, walk_distance_to_entrance.unit ?? 'm')}
           status={walk_distance_to_entrance.status}
           dashed
-          labelOffset={-11}
+          labelOffset={13}
           fontSize={9}
         />
 
