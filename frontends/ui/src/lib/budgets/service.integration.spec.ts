@@ -88,6 +88,13 @@ describe.skipIf(!url)('budgets service against live Postgres', () => {
     const userSummary = await getSpendSummary(org, { userId: 'user_1' })
     expect(userSummary.monthUsd).toBeCloseTo(0.00214, 6)
 
+    // Per-member breakdown (the admin member-usage table), spenders first.
+    const { getSpendByMember } = await import('./service')
+    const perMember = await getSpendByMember(org)
+    expect(perMember.map((m) => m.userId)).toEqual(['user_2', 'user_1'])
+    expect(perMember[0].monthUsd).toBeCloseTo(0.01, 6)
+    expect(perMember[1].dayEvents).toBe(1)
+
     // Budget status with seeded defaults: far under €10/day → not blocked.
     const status = await getBudgetStatus(org, 'user_1', null)
     expect(status.blocked).toBe(false)

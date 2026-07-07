@@ -101,9 +101,16 @@ export const organization = {
     saveLimits: 'Save limits',
     limitsSaved: 'Budget limits saved',
     limitsSaveError: 'Could not save the budget limits.',
-    scopedTitle: 'Member & project limits',
+    membersTitle: 'Members — usage & limits',
+    membersDescription:
+      'Spend per member with their optional individual caps. A member limit never exceeds the organization limits and is enforced in addition to them.',
+    colMember: 'Member',
+    limitLabel: 'Limit',
+    setLimit: 'Set limit',
+    noUsageYet: 'no usage yet',
+    scopedTitle: 'Project limits',
     scopedDescription:
-      'Optional caps per member or project. A scoped limit must not exceed the organization limits and is enforced in addition to them.',
+      'Optional caps per project, settable by project admins and org admins. A project limit must not exceed the organization limits and is enforced in addition to them.',
     scopeMember: 'Member',
     scopeProject: 'Project',
     subjectMemberPlaceholder: 'WorkOS user id (user_…)',

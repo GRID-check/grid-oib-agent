@@ -16,7 +16,7 @@
  */
 
 import 'server-only'
-import { and, desc, eq, gte, isNull, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, isNotNull, isNull, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import {
   budgetPolicies,
@@ -334,6 +334,52 @@ export async function getSpendSummary(
     monthUsd: perModel.reduce((total, m) => total + m.monthUsd, 0),
     perModel,
   }
+}
+
+export interface MemberSpend {
+  userId: string
+  dayUsd: number
+  monthUsd: number
+  dayEvents: number
+  monthEvents: number
+}
+
+/**
+ * Windowed spend per member (admin view — the member usage table).
+ * Events without a user id (anonymous mode) are excluded.
+ */
+export async function getSpendByMember(organizationId: string): Promise<MemberSpend[]> {
+  const db = getDb()
+  const dayStartIso = utcDayStart().toISOString()
+  const monthStart = utcMonthStart()
+
+  const rows = await db
+    .select({
+      userId: llmUsageEvents.userId,
+      monthUsd: sql<string>`coalesce(sum(${llmUsageEvents.costUsd}), 0)`,
+      dayUsd: sql<string>`coalesce(sum(${llmUsageEvents.costUsd}) filter (where ${llmUsageEvents.createdAt} >= ${dayStartIso}), 0)`,
+      monthEvents: sql<string>`count(*)`,
+      dayEvents: sql<string>`count(*) filter (where ${llmUsageEvents.createdAt} >= ${dayStartIso})`,
+    })
+    .from(llmUsageEvents)
+    .where(
+      and(
+        eq(llmUsageEvents.organizationId, organizationId),
+        gte(llmUsageEvents.createdAt, monthStart),
+        isNotNull(llmUsageEvents.userId),
+      ),
+    )
+    .groupBy(llmUsageEvents.userId)
+
+  return rows
+    .map((row) => ({
+      userId: row.userId as string,
+      dayUsd: Number.parseFloat(row.dayUsd) || 0,
+      monthUsd: Number.parseFloat(row.monthUsd) || 0,
+      dayEvents: Number.parseInt(row.dayEvents, 10) || 0,
+      monthEvents: Number.parseInt(row.monthEvents, 10) || 0,
+    }))
+    .sort((a, b) => b.monthUsd - a.monthUsd)
 }
 
 // ---------------------------------------------------------------------------

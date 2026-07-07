@@ -256,12 +256,12 @@ export const ModelConfigCard: FC = () => {
           const override = draft[group.id]
           const defaultModel = defaults[group.id]
           return (
-            <li key={group.id} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-3">
-              <div className="min-w-0 flex-1 basis-52">
+            <li key={group.id} className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-x-4">
+              <div className="min-w-0 sm:flex-1">
                 <p className="text-sm font-medium">{group.label}</p>
                 <p className="mt-0.5 text-xs text-muted-foreground">{group.description}</p>
               </div>
-              <div className="flex shrink-0 items-center gap-1.5">
+              <div className="flex w-full min-w-0 items-center gap-1.5 sm:w-auto sm:shrink-0">
                 {override ? (
                   <Badge variant="secondary" className="font-normal">
                     {t('models.overrideBadge')}
@@ -272,7 +272,7 @@ export const ModelConfigCard: FC = () => {
                   </Badge>
                 )}
                 <code
-                  className="max-w-56 truncate rounded bg-muted px-2 py-1 text-xs"
+                  className="min-w-0 flex-1 truncate rounded bg-muted px-2 py-1 text-xs sm:max-w-56 sm:flex-none"
                   title={override ?? defaultModel ?? undefined}
                 >
                   {override ?? defaultModel ?? t('models.defaultModel')}
@@ -333,11 +333,11 @@ export const ModelConfigCard: FC = () => {
               maxLength={500}
             />
           </div>
-          <div className="flex items-center gap-2">
-            <Button onClick={handleSave} disabled={saving}>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <Button className="w-full sm:w-auto" onClick={handleSave} disabled={saving}>
               {saving ? t('models.saving') : t('models.save')}
             </Button>
-            <Button variant="ghost" onClick={() => setDraft(saved)} disabled={saving}>
+            <Button className="w-full sm:w-auto" variant="ghost" onClick={() => setDraft(saved)} disabled={saving}>
               {t('models.discard')}
             </Button>
           </div>
