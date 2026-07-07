@@ -6,6 +6,7 @@ import { Providers } from './providers'
 
 const layoutState = {
   theme: 'dark',
+  setTheme: vi.fn(),
   fetchDataSources: vi.fn(),
   availableDataSources: [] as Array<{ id: string }>,
   setEnabledDataSources: vi.fn(),
@@ -24,7 +25,18 @@ vi.mock('@workos-inc/authkit-nextjs/components', () => ({
 }))
 
 vi.mock('@/features/layout', () => ({
-  useLayoutStore: (selector: (state: typeof layoutState) => unknown) => selector(layoutState),
+  useLayoutStore: Object.assign(
+    (selector: (state: typeof layoutState) => unknown) => selector(layoutState),
+    {
+      getState: () => layoutState,
+      subscribe: () => () => {},
+    }
+  ),
+}))
+
+vi.mock('@/lib/user-preferences/client', () => ({
+  fetchUserPreferences: vi.fn(async () => ({})),
+  patchUserPreferences: vi.fn(async () => true),
 }))
 
 vi.mock('@/features/chat/store', () => ({
@@ -60,7 +72,7 @@ describe('Providers', () => {
 
   test('renders children inside AuthKitProvider', () => {
     const { container } = render(
-      <Providers config={baseConfig}>
+      <Providers config={baseConfig} locale="en">
         <div data-testid="content">content</div>
       </Providers>
     )
@@ -72,7 +84,7 @@ describe('Providers', () => {
     const setIntervalSpy = vi.spyOn(globalThis, 'setInterval')
 
     render(
-      <Providers config={baseConfig}>
+      <Providers config={baseConfig} locale="en">
         <div>content</div>
       </Providers>
     )

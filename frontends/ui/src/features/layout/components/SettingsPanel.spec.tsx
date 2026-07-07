@@ -49,7 +49,7 @@ describe('SettingsPanel', () => {
     render(<SettingsPanel />)
 
     expect(screen.getByText('UI Theme Options')).toBeInTheDocument()
-    expect(screen.getByRole('combobox')).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'UI theme' })).toBeInTheDocument()
   })
 
   test('select trigger reflects current theme', () => {
@@ -66,7 +66,7 @@ describe('SettingsPanel', () => {
 
     render(<SettingsPanel />)
 
-    const trigger = screen.getByRole('combobox')
+    const trigger = screen.getByRole('combobox', { name: 'UI theme' })
     expect(trigger).toHaveTextContent('Dark')
   })
 
@@ -75,7 +75,7 @@ describe('SettingsPanel', () => {
 
     render(<SettingsPanel />)
 
-    await user.click(screen.getByRole('combobox'))
+    await user.click(screen.getByRole('combobox', { name: 'UI theme' }))
     await user.click(screen.getByRole('option', { name: /dark/i }))
 
     expect(mockSetTheme).toHaveBeenCalledWith('dark')

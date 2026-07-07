@@ -5,6 +5,7 @@ import Link from 'next/link'
 
 import { Button } from '@/components/ui/button'
 import { StatusScreen } from '@/components/brand/status-screen'
+import { useTranslations } from '@/i18n'
 
 /**
  * Route-level error boundary. Catches thrown errors (including the plain
@@ -18,6 +19,8 @@ export default function RouteError({
   error: Error & { digest?: string }
   reset: () => void
 }) {
+  const t = useTranslations('errors')
+
   useEffect(() => {
     console.error('[route error]', error)
   }, [error])
@@ -26,22 +29,18 @@ export default function RouteError({
 
   return (
     <StatusScreen
-      code={isAccess ? 'Access' : 'Error'}
-      title={isAccess ? 'You don’t have access to this' : 'Something went wrong'}
-      description={
-        isAccess
-          ? 'This project may have been moved, or your access was changed. Check with a project admin if you think this is a mistake.'
-          : 'An unexpected error occurred. You can try again, or head back to your projects.'
-      }
+      code={isAccess ? t('access.code') : t('appError.code')}
+      title={isAccess ? t('access.title') : t('appError.title')}
+      description={isAccess ? t('access.description') : t('appError.description')}
       actions={
         <>
           {!isAccess && (
             <Button variant="outline" onClick={reset}>
-              Try again
+              {t('appError.action')}
             </Button>
           )}
           <Button asChild>
-            <Link href="/app/projects">Back to projects</Link>
+            <Link href="/app/projects">{t('appError.backAction')}</Link>
           </Button>
         </>
       }
