@@ -178,7 +178,7 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
       onClose={handleClose}
       forceMount
       aria-label={t('sessionsPanel.title')}
-      className="w-[406px]"
+      className="w-full max-w-[406px]"
       heading={
         <>
           <MessageSquareText className="h-4 w-4" aria-hidden="true" />

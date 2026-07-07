@@ -377,12 +377,12 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
 
   if (!isAuthenticated) {
     return (
-      <div className="relative flex flex-1 items-center overflow-hidden p-8">
+      <div className="relative flex flex-1 items-center overflow-hidden px-4 py-6 sm:p-8">
         <div className="pointer-events-none absolute right-[-8rem] top-1/2 h-[560px] w-[560px] -translate-y-1/2 opacity-30">
           <StarfieldAnimation particleCount={260} maxRadius={245} rotationSpeed={0.0005} />
         </div>
         <div className="relative mx-auto grid w-full max-w-6xl grid-cols-1 gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-          <div className="rounded-2xl border bg-muted/30 p-8 shadow-lg">
+          <div className="rounded-2xl border bg-muted/30 p-6 shadow-lg sm:p-8">
             <div className="flex flex-col items-start gap-6">
               <div className="flex h-14 w-14 items-center justify-center rounded-xl border bg-muted text-brand">
                 <Lock className="h-6 w-6" aria-hidden="true" />
@@ -391,7 +391,7 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
                 <span className="text-xs uppercase tracking-label text-muted-foreground">
                   {t('chatArea.secureWorkspace')}
                 </span>
-                <h1 className="max-w-2xl text-4xl font-semibold tracking-display md:text-5xl md:leading-none">
+                <h1 className="max-w-2xl text-3xl font-semibold tracking-display sm:text-4xl md:text-5xl md:leading-none">
                   {t('chatArea.loggedOutTitle')}
                 </h1>
                 <p className="max-w-xl text-sm text-muted-foreground">
@@ -434,18 +434,18 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
   }
 
   return (
-    <div className="relative flex flex-1 items-center overflow-hidden p-8">
+    <div className="relative flex flex-1 items-center overflow-hidden px-4 py-6 sm:p-8">
       <div className="pointer-events-none absolute -right-24 top-10 h-[520px] w-[520px] opacity-25">
         <StarfieldAnimation particleCount={300} maxRadius={230} rotationSpeed={0.001} />
       </div>
       <div className="relative mx-auto grid w-full max-w-6xl grid-cols-1 gap-6 lg:grid-cols-[1.25fr_0.75fr]">
-        <section className="rounded-2xl border bg-muted/30 p-8 shadow-lg">
+        <section className="rounded-2xl border bg-muted/30 p-6 shadow-lg sm:p-8">
           <div className="flex flex-col gap-7">
             <div className="flex max-w-3xl flex-col gap-4">
               <span className="text-xs uppercase tracking-label text-muted-foreground">
                 {t('chatArea.cockpit')}
               </span>
-              <h1 className="text-4xl font-semibold tracking-display md:text-5xl md:leading-none">
+              <h1 className="text-3xl font-semibold tracking-display sm:text-4xl md:text-5xl md:leading-none">
                 {t('chatArea.title')}
               </h1>
               <p className="max-w-2xl text-sm text-muted-foreground">

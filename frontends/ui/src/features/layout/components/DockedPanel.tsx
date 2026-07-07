@@ -64,7 +64,7 @@ export const DockedPanel: FC<DockedPanelProps> = ({
       aria-hidden={!open}
       data-state={open ? 'open' : 'closed'}
       className={cn(
-        'fixed top-[var(--header-height)] z-40 flex h-[calc(100dvh-var(--header-height))] w-[400px] flex-col bg-background',
+        'fixed top-[var(--header-height)] z-40 flex h-[calc(100dvh-var(--header-height))] w-full max-w-[400px] flex-col bg-background',
         side === 'left' ? 'left-0 border-r' : 'right-0 border-l',
         // Slide transition; reduced-motion users get an instant swap
         'transition-transform duration-300 ease-in-out motion-reduce:transition-none',
