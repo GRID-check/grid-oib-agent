@@ -4,6 +4,7 @@ import { Loader2, RotateCcw, XCircle } from 'lucide-react'
 import type { TrackedFile } from '../types'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
+import { useTranslations } from '@/i18n'
 import { formatFileSize } from '@/lib/utils/format-file-size'
 
 interface ActiveUploadsProps {
@@ -17,11 +18,13 @@ interface ActiveUploadsProps {
  * hook but were never rendered on the Files page.
  */
 export function ActiveUploads({ files, onRetry }: ActiveUploadsProps) {
+  const t = useTranslations('files')
+  const tc = useTranslations('common')
   if (files.length === 0) return null
 
   return (
     <div className="border-b bg-muted/30 px-4 py-3">
-      <p className="mb-2 text-xs font-medium uppercase tracking-widest text-muted-foreground">Uploads</p>
+      <p className="mb-2 text-xs font-medium uppercase tracking-widest text-muted-foreground">{t('activeUploads.heading')}</p>
       <ul className="space-y-2">
         {files.map((file) => {
           const isFailed = file.status === 'failed'
@@ -45,7 +48,7 @@ export function ActiveUploads({ files, onRetry }: ActiveUploadsProps) {
                   </span>
                 </div>
                 {isFailed ? (
-                  <p className="truncate text-xs text-destructive">{file.errorMessage ?? 'Upload failed'}</p>
+                  <p className="truncate text-xs text-destructive">{file.errorMessage ?? t('activeUploads.uploadFailed')}</p>
                 ) : (
                   <Progress value={value} className="mt-1.5 h-1" />
                 )}
@@ -59,7 +62,7 @@ export function ActiveUploads({ files, onRetry }: ActiveUploadsProps) {
                   onClick={() => onRetry(file.id)}
                 >
                   <RotateCcw className="size-3.5" aria-hidden />
-                  Retry
+                  {tc('actions.retry')}
                 </Button>
               )}
             </li>

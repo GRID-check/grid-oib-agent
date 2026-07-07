@@ -13,6 +13,7 @@ import { ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { useShallow } from 'zustand/react/shallow'
+import { useTranslations } from '@/i18n'
 import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
 import { formatTime } from '@/shared/utils/format-time'
 import { useLayoutStore } from '@/features/layout/store'
@@ -57,6 +58,7 @@ export const AgentResponse: FC<AgentResponseProps> = ({
   cards,
   conversationId,
 }) => {
+  const t = useTranslations('chat')
   const openRightPanel = useLayoutStore((s) => s.openRightPanel)
   const setResearchPanelTab = useLayoutStore((s) => s.setResearchPanelTab)
   const projectId = useChatStore((s) => s.projectId)
@@ -76,7 +78,7 @@ export const AgentResponse: FC<AgentResponseProps> = ({
   const isJobActive = isDeepResearchActive || deepResearchJobStatus === 'submitted' || deepResearchJobStatus === 'running'
   const isJobComplete = deepResearchJobStatus === 'success' || deepResearchJobStatus === 'failure' || deepResearchJobStatus === 'interrupted'
   const shouldShowButton = showViewReport || (jobId && (isJobActive || isJobComplete))
-  const buttonText = isJobActive ? 'View Progress' : 'View Report'
+  const buttonText = isJobActive ? t('agentResponse.viewProgress') : t('agentResponse.viewReport')
 
   // Check if a different job is currently streaming (in progress)
   const isAnotherJobStreaming = isDeepResearchStreaming && deepResearchJobId && deepResearchJobId !== jobId
@@ -150,14 +152,14 @@ export const AgentResponse: FC<AgentResponseProps> = ({
               size="sm"
               onClick={handleViewReport}
               disabled={isLoading}
-              aria-label={isLoading ? 'Loading...' : buttonText}
-              title={error ? `Error: ${error}` : isLoading ? 'Loading...' : buttonText}
+              aria-label={isLoading ? t('agentResponse.loading') : buttonText}
+              title={error ? t('agentResponse.errorTitle', { message: error }) : isLoading ? t('agentResponse.loading') : buttonText}
             >
               <span className="flex items-center gap-1">
                 {isLoading ? (
                   <>
-                    <Spinner size="sm" label="Loading" className="h-3 w-3" />
-                    <span className="text-xs">Loading...</span>
+                    <Spinner size="sm" label={t('agentResponse.loadingLabel')} className="h-3 w-3" />
+                    <span className="text-xs">{t('agentResponse.loading')}</span>
                   </>
                 ) : (
                   <>
@@ -208,8 +210,8 @@ export const AgentResponse: FC<AgentResponseProps> = ({
                 <span className="flex items-center gap-1">
                   {isLoading ? (
                     <>
-                      <Spinner size="sm" label="Loading" className="h-3 w-3" />
-                      <span className="text-xs">Loading...</span>
+                      <Spinner size="sm" label={t('agentResponse.loadingLabel')} className="h-3 w-3" />
+                      <span className="text-xs">{t('agentResponse.loading')}</span>
                     </>
                   ) : (
                     <>

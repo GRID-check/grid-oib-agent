@@ -15,6 +15,8 @@ import { type FC, useCallback } from 'react'
 import { CheckCircle2, Info, AlertTriangle, XCircle } from 'lucide-react'
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import { useTranslations } from '@/i18n'
+import type { Translator } from '@/i18n'
 import { formatTime } from '@/shared/utils/format-time'
 import { useLayoutStore } from '@/features/layout/store'
 import { useLoadJobData } from '../hooks/use-load-job-data'
@@ -65,6 +67,7 @@ const formatTokens = (count: number): string => {
  */
 const getBannerConfig = (
   bannerType: DeepResearchBannerType,
+  t: Translator,
   stats?: { totalTokens?: number; toolCallCount?: number }
 ): BannerConfig => {
   switch (bannerType) {
@@ -72,51 +75,48 @@ const getBannerConfig = (
       // Build stats suffix for success banner
       const statsParts: string[] = []
       if (stats?.totalTokens && stats.totalTokens > 0) {
-        statsParts.push(`${formatTokens(stats.totalTokens)} tokens`)
+        statsParts.push(t('deepResearch.stats.tokens', { count: formatTokens(stats.totalTokens) }))
       }
       if (stats?.toolCallCount && stats.toolCallCount > 0) {
-        statsParts.push(`${stats.toolCallCount} tool calls`)
+        statsParts.push(t('deepResearch.stats.toolCalls', { count: stats.toolCallCount }))
       }
       const statsText = statsParts.length > 0 ? ` (${statsParts.join(' · ')})` : ''
 
       return {
-        heading: `Report Completed!${statsText}`,
-        subheading: 'Research has finished and a report is ready to view in the research panel.',
-        buttonText: 'View Report',
+        heading: t('deepResearch.success.heading', { stats: statsText }),
+        subheading: t('deepResearch.success.subheading'),
+        buttonText: t('deepResearch.viewReport'),
         buttonTab: 'report',
         status: 'success',
       }
     }
     case 'failure':
       return {
-        heading: 'Report Failed to Complete',
-        subheading:
-          'Something prevented the research report from completing. Check the thinking for details.',
-        buttonText: 'View Thinking',
+        heading: t('deepResearch.failure.heading'),
+        subheading: t('deepResearch.failure.subheading'),
+        buttonText: t('deepResearch.viewThinking'),
         buttonTab: 'thinking',
         status: 'error',
       }
     case 'cancelled':
       return {
-        heading: 'Research Cancelled',
-        subheading:
-          'Research was stopped by user. You can view any partial progress in the research panel.',
-        buttonText: 'View Progress',
+        heading: t('deepResearch.cancelled.heading'),
+        subheading: t('deepResearch.cancelled.subheading'),
+        buttonText: t('deepResearch.viewProgress'),
         buttonTab: 'tasks',
         status: 'warning',
       }
     case 'expired':
       return {
-        heading: 'Report Expired',
-        subheading: 'The report has expired and is no longer available.',
+        heading: t('deepResearch.expired.heading'),
+        subheading: t('deepResearch.expired.subheading'),
         status: 'warning',
       }
     case 'starting':
       return {
-        heading: 'Starting Deep Research',
-        subheading:
-          'Chat is paused while the report is created to prevent generating multiple reports. You can click away while this runs — it may take several minutes.',
-        buttonText: 'View Progress',
+        heading: t('deepResearch.starting.heading'),
+        subheading: t('deepResearch.starting.subheading'),
+        buttonText: t('deepResearch.viewProgress'),
         buttonTab: 'tasks',
         status: 'info',
       }
@@ -133,10 +133,11 @@ export const DeepResearchBanner: FC<DeepResearchBannerProps> = ({
   toolCallCount,
   timestamp,
 }) => {
+  const t = useTranslations('chat')
   const openRightPanel = useLayoutStore((s) => s.openRightPanel)
   const setResearchPanelTab = useLayoutStore((s) => s.setResearchPanelTab)
   const { loadResearchPanelTab } = useLoadJobData()
-  const config = getBannerConfig(bannerType, { totalTokens, toolCallCount })
+  const config = getBannerConfig(bannerType, t, { totalTokens, toolCallCount })
 
   // Job is complete if banner type indicates completion (success, failure, cancelled, expired)
   // 'starting' banner means job is still in progress - don't try to load archived data

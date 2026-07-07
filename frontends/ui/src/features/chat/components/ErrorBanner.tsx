@@ -10,6 +10,7 @@
 import { type FC, useState } from 'react'
 import { ChevronDown, ChevronUp, AlertTriangle, XCircle, X } from 'lucide-react'
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
+import { useTranslations } from '@/i18n'
 import { formatTime } from '@/shared/utils/format-time'
 import type { ErrorCode } from '../types'
 import { getErrorMeta } from '../lib/error-registry'
@@ -39,6 +40,8 @@ export const ErrorBanner: FC<ErrorBannerProps> = ({
   timestamp,
   onDismiss,
 }) => {
+  const t = useTranslations('chat')
+  const tc = useTranslations('common')
   const [isExpanded, setIsExpanded] = useState(false)
   const errorMeta = getErrorMeta(code)
 
@@ -65,7 +68,7 @@ export const ErrorBanner: FC<ErrorBannerProps> = ({
                   aria-controls="error-details"
                   className="inline-flex cursor-pointer items-center gap-1 rounded-xs border-none bg-transparent p-0 text-xs font-medium no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
                 >
-                  {isExpanded ? 'Hide details' : 'Show details'}
+                  {isExpanded ? t('error.hideDetails') : t('error.showDetails')}
                   {isExpanded ? (
                     <ChevronUp className="h-3 w-3" aria-hidden="true" />
                   ) : (
@@ -88,7 +91,7 @@ export const ErrorBanner: FC<ErrorBannerProps> = ({
           <button
             type="button"
             onClick={onDismiss}
-            aria-label="Close"
+            aria-label={tc('actions.close')}
             className="text-muted-foreground hover:text-foreground absolute right-3 top-3 rounded-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
           >
             <X className="h-4 w-4" aria-hidden="true" />

@@ -5,6 +5,7 @@ import type { FolderItem } from './project-file-workspace'
 import { Folder, FolderOpen, Plus } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
+import { useTranslations } from '@/i18n'
 
 interface FolderTreePaneProps {
   folders: FolderItem[]
@@ -27,6 +28,7 @@ export function FolderTreePane({
   onCreateFolder,
   isLoading,
 }: FolderTreePaneProps) {
+  const t = useTranslations('files')
   const [createTarget, setCreateTarget] = useState<CreateTarget>(undefined)
   const [newFolderName, setNewFolderName] = useState('')
 
@@ -72,8 +74,8 @@ export function FolderTreePane({
         onBlur={() => {
           if (!newFolderName.trim()) cancelCreate()
         }}
-        placeholder="Folder name"
-        aria-label="New folder name"
+        placeholder={t('folders.namePlaceholder')}
+        aria-label={t('folders.newFolderName')}
         className="h-8"
       />
     </div>
@@ -100,8 +102,8 @@ export function FolderTreePane({
           </button>
           <button
             onClick={() => startCreate(folder.id)}
-            aria-label={`Add subfolder in ${folder.name}`}
-            title="Add subfolder"
+            aria-label={t('folders.addSubfolderIn', { name: folder.name })}
+            title={t('folders.addSubfolder')}
             className="shrink-0 rounded-sm p-0.5 opacity-0 transition-opacity hover:bg-background/60 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100"
           >
             <Plus className="size-3.5" aria-hidden />
@@ -115,7 +117,7 @@ export function FolderTreePane({
 
   return (
     <div className="flex h-full flex-col gap-1 p-2">
-      <p className="px-2 pb-1 pt-1 text-xs font-medium uppercase tracking-widest text-muted-foreground">Folders</p>
+      <p className="px-2 pb-1 pt-1 text-xs font-medium uppercase tracking-widest text-muted-foreground">{t('folders.heading')}</p>
 
       {/* All Files root */}
       <button
@@ -124,7 +126,7 @@ export function FolderTreePane({
         className={`${rowClass(selectedFolderId === null)} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`}
       >
         <FolderOpen className="size-4 shrink-0" aria-hidden />
-        <span className="truncate">All Files</span>
+        <span className="truncate">{t('folders.allFiles')}</span>
       </button>
 
       {isLoading ? (
@@ -147,7 +149,7 @@ export function FolderTreePane({
           className="mt-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <Plus className="size-4 shrink-0" aria-hidden />
-          <span>New folder</span>
+          <span>{t('folders.newFolder')}</span>
         </button>
       )}
     </div>

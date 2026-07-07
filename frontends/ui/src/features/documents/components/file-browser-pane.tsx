@@ -6,6 +6,7 @@ import { Search, FolderOpen, UploadCloud } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState } from '@/components/ui/empty-state'
+import { useTranslations } from '@/i18n'
 import { formatFileSize } from '@/lib/utils/format-file-size'
 import { DocumentStatusBadge, fileTypeIcon } from './document-status'
 
@@ -28,6 +29,7 @@ export function FileBrowserPane({
   hasFolderSelected,
   uploadControl,
 }: FileBrowserPaneProps) {
+  const t = useTranslations('files')
   const [search, setSearch] = useState('')
 
   const filteredFiles = useMemo(() => {
@@ -61,15 +63,15 @@ export function FileBrowserPane({
         {hasFolderSelected ? (
           <EmptyState
             icon={FolderOpen}
-            title="This folder is empty"
-            description="Upload documents here, or pick another folder from the sidebar."
+            title={t('browser.folderEmptyTitle')}
+            description={t('browser.folderEmptyDescription')}
             action={uploadControl}
           />
         ) : (
           <EmptyState
             icon={UploadCloud}
-            title="No documents yet"
-            description="Add your building's plans, permits and reports. Grid reads them to ground every answer in your project's own documents — not generic guidance."
+            title={t('browser.noDocumentsTitle')}
+            description={t('browser.noDocumentsDescription')}
             action={uploadControl}
           />
         )}
@@ -87,8 +89,8 @@ export function FileBrowserPane({
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search files..."
-            aria-label="Search files"
+            placeholder={t('browser.searchPlaceholder')}
+            aria-label={t('browser.searchLabel')}
             className="pl-8"
           />
         </div>
@@ -98,7 +100,7 @@ export function FileBrowserPane({
       <div className="divide-y">
         {filteredFiles.length === 0 && (
           <div className="px-4 py-12 text-center text-sm text-muted-foreground">
-            No files match &ldquo;{search}&rdquo;
+            {t('browser.noMatch', { query: search })}
           </div>
         )}
         {filteredFiles.map((file) => {
