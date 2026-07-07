@@ -29,6 +29,7 @@ import logging
 PROJECT_CONTEXT_HEADER = "x-grid-project-context"
 PROJECT_MEMORY_HEADER = "x-grid-project-memory"
 PROJECT_ID_HEADER = "x-grid-project-id"
+MEMORY_REFLECTION_FEATURE_HEADER = "x-grid-feature-memory-reflection"
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +122,19 @@ def get_organization_id_from_context() -> str | None:
         return None
     raw = raw.strip()
     return raw or None
+
+
+def get_memory_reflection_enabled_from_context() -> bool:
+    """Whether the async memory-reflection stage is enabled for this request.
+
+    The BFF evaluates the ``memory-reflection`` WorkOS feature flag per-org (or an
+    env fallback) at the WS upgrade and forwards the result as
+    ``x-grid-feature-memory-reflection``. Fails closed: absent/anything-but-'true'
+    header → False, so a missing header (older proxy, non-WS entrypoint) keeps the
+    stage off rather than silently on.
+    """
+    raw = _read_header(MEMORY_REFLECTION_FEATURE_HEADER)
+    return (raw or "").strip().lower() == "true"
 
 
 def get_conversation_id_from_context() -> str | None:

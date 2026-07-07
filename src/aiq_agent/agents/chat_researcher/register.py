@@ -410,9 +410,11 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         _reflection_project_id = None
         _reflection_org_id = None
         _reflection_memory_digest = None
+        _reflection_flag_enabled = False
         try:
             from aiq_agent.project_context import PROJECT_MEMORY_HEADER
             from aiq_agent.project_context import _read_encoded_header
+            from aiq_agent.project_context import get_memory_reflection_enabled_from_context
             from aiq_agent.project_context import get_organization_id_from_context
             from aiq_agent.project_context import get_project_context_from_context
             from aiq_agent.project_context import get_project_id_from_context
@@ -420,6 +422,7 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
 
             _project_context = get_project_context_from_context()
             if reflection_llm is not None:
+                _reflection_flag_enabled = get_memory_reflection_enabled_from_context()
                 _reflection_project_id = get_project_id_from_context()
                 _reflection_org_id = get_organization_id_from_context()
                 _reflection_memory_digest = normalize_project_context(
@@ -612,7 +615,9 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         # deep-research job stubs carry no answer; meta/error turns and
         # insufficiency answers ("I don't have enough information …") have nothing
         # durable to record and would only invite spurious findings (audit gap).
-        if reflection_llm is not None and not deep_research_job_id:
+        # Runtime on/off is the `memory-reflection` WorkOS feature flag (or the
+        # MEMORY_REFLECTION_ENABLED env fallback), forwarded as a request header.
+        if reflection_llm is not None and _reflection_flag_enabled and not deep_research_job_id:
             answer_text = response_content if isinstance(response_content, str) else str(response_content)
             if _reflection_answer_is_substantive(result, answer_text):
                 from aiq_agent.agents.project_memory.reflection import schedule_memory_reflection
