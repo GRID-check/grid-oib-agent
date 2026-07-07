@@ -1,8 +1,9 @@
-import { and, desc, eq, isNull, or } from 'drizzle-orm'
+import { and, desc, eq, isNull, or, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { projectMemory, projects } from '@/lib/db/schema'
 import type {
   NewProjectMemoryItem,
+  ProjectMemoryConfidence,
   ProjectMemoryItem,
 } from '@/lib/db/schema'
 
@@ -24,9 +25,59 @@ const DIGEST_MAX_CHARS = 1800
 /** Max items considered for the digest (pinned first, then most recent). */
 const DIGEST_MAX_ITEMS = 20
 
+const CONFIDENCE_RANK: Record<ProjectMemoryConfidence, number> = { low: 0, medium: 1, high: 2 }
+
+/**
+ * Normalize content for duplicate detection: lowercase, non-alphanumerics
+ * collapsed to single spaces, trimmed. Must stay in lock-step with the SQL
+ * expression in `findActiveDuplicate` so JS and Postgres agree on equality.
+ */
+function normalizeContent(content: string): string {
+  return content
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+}
+
+/**
+ * A normalized-content equality condition (Postgres side of `normalizeContent`).
+ * `btrim(regexp_replace(lower(content), '[^a-z0-9]+', ' ', 'g'))`.
+ */
+function normalizedContentEquals(content: string) {
+  return sql`btrim(regexp_replace(lower(${projectMemory.content}), '[^a-z0-9]+', ' ', 'g')) = ${normalizeContent(content)}`
+}
+
+/**
+ * The write-time de-duplication gate (a pragmatic first slice of design §3.2).
+ * Finds an existing ACTIVE item in the same scope whose content normalizes to
+ * the same string, so a repeated finding updates in place instead of adding a
+ * duplicate row. Scope-exact: project items match the project; org items match
+ * the org and require project_id IS NULL.
+ */
+async function findActiveDuplicate(
+  values: Pick<NewProjectMemoryItem, 'scope' | 'projectId' | 'organizationId' | 'content'>,
+): Promise<ProjectMemoryItem | null> {
+  const db = getDb()
+  const ownerCondition =
+    values.scope === 'organization'
+      ? and(
+          eq(projectMemory.scope, 'organization'),
+          eq(projectMemory.organizationId, values.organizationId),
+          isNull(projectMemory.projectId),
+        )
+      : and(eq(projectMemory.scope, 'project'), eq(projectMemory.projectId, values.projectId as string))
+  const [existing] = await db
+    .select()
+    .from(projectMemory)
+    .where(and(ownerCondition, eq(projectMemory.status, 'active'), normalizedContentEquals(values.content)))
+    .orderBy(desc(projectMemory.updatedAt))
+    .limit(1)
+  return existing ?? null
+}
+
 export async function listProjectMemory(
   projectId: string,
-  options: { includeArchived?: boolean; organizationId?: string } = {},
+  options: { includeArchived?: boolean; organizationId?: string; sourceConversationId?: string } = {},
 ): Promise<ProjectMemoryItem[]> {
   const db = getDb()
 
@@ -54,6 +105,10 @@ export async function listProjectMemory(
   const conditions = [scopeCondition]
   if (!options.includeArchived) {
     conditions.push(eq(projectMemory.status, 'active'))
+  }
+  if (options.sourceConversationId) {
+    // Used by the chat "Grid noted N" chip to show only what this turn recorded.
+    conditions.push(eq(projectMemory.sourceConversationId, options.sourceConversationId))
   }
   return db
     .select()
@@ -83,6 +138,24 @@ export async function listOrganizationMemory(
 
 export async function createProjectMemoryItem(values: NewProjectMemoryItem): Promise<ProjectMemoryItem> {
   const db = getDb()
+
+  // Write-time de-duplication: a repeated finding refreshes the existing row
+  // (recency + best-known confidence) instead of adding a duplicate. This is
+  // the single writer, so an app-level check is race-safe enough here; a DB
+  // uniqueness constraint is a hardening follow-up (design §3.2).
+  const duplicate = await findActiveDuplicate(values)
+  if (duplicate) {
+    const incoming = (values.confidence ?? 'medium') as ProjectMemoryConfidence
+    const best =
+      CONFIDENCE_RANK[incoming] > CONFIDENCE_RANK[duplicate.confidence] ? incoming : duplicate.confidence
+    const [updated] = await db
+      .update(projectMemory)
+      .set({ confidence: best, lastReferencedAt: new Date(), updatedAt: new Date() })
+      .where(eq(projectMemory.id, duplicate.id))
+      .returning()
+    return updated ?? duplicate
+  }
+
   const [item] = await db.insert(projectMemory).values(values).returning()
   return item
 }

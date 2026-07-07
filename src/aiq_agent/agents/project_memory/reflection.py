@@ -196,6 +196,9 @@ async def run_memory_reflection(
                 content=item["content"],
                 confidence=item["confidence"],
                 conversation_id=conversation_id,
+                # Tag reflection writes so the UI can distinguish them from a
+                # deliberate in-turn `remember` ('agent') call.
+                provenance_type="distillation",
             )
         except Exception:
             logger.exception("Memory reflection: failed to record a %s finding", item["kind"])

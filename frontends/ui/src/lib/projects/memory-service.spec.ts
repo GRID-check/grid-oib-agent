@@ -12,6 +12,11 @@ vi.mock('drizzle-orm', () => ({
   or: (...conditions: unknown[]) => ({ op: 'or', conditions }),
   isNull: (col: unknown) => ({ op: 'isNull', col }),
   desc: (col: unknown) => ({ op: 'desc', col }),
+  sql: (strings: TemplateStringsArray, ...values: unknown[]) => ({
+    op: 'sql',
+    strings: Array.from(strings),
+    values,
+  }),
 }))
 
 vi.mock('@/lib/db/schema', () => ({
@@ -37,6 +42,7 @@ vi.mock('@/lib/db/schema', () => ({
 import { getDb } from '@/lib/db'
 import {
   buildProjectMemoryDigest,
+  createProjectMemoryItem,
   deleteProjectMemoryItem,
   formatDigestLines,
   listProjectMemory,
@@ -285,6 +291,66 @@ describe('formatDigestLines', () => {
     // 1800-char budget and is dropped.
     expect(lines).toHaveLength(2)
     expect((digest as string).length).toBeLessThanOrEqual(1800)
+  })
+})
+
+describe('createProjectMemoryItem write-time de-duplication', () => {
+  const mockCreateChain = (existing: unknown | null) => {
+    const limit = vi.fn().mockResolvedValue(existing ? [existing] : [])
+    const orderBy = vi.fn().mockReturnValue({ limit })
+    const selectWhere = vi.fn().mockReturnValue({ orderBy })
+    const from = vi.fn().mockReturnValue({ where: selectWhere })
+
+    const updateReturning = vi.fn().mockResolvedValue([{ id: 'dup-1', confidence: 'high' }])
+    const updateWhere = vi.fn().mockReturnValue({ returning: updateReturning })
+    const set = vi.fn().mockReturnValue({ where: updateWhere })
+    const update = vi.fn().mockReturnValue({ set })
+
+    const insertReturning = vi.fn().mockResolvedValue([{ id: 'new-1' }])
+    const values = vi.fn().mockReturnValue({ returning: insertReturning })
+    const insert = vi.fn().mockReturnValue({ values })
+
+    vi.mocked(getDb).mockReturnValue({
+      select: vi.fn().mockReturnValue({ from }),
+      update,
+      insert,
+    } as any)
+    return { set, values, insert, update }
+  }
+
+  it('inserts when no active duplicate exists', async () => {
+    const { values, set } = mockCreateChain(null)
+
+    const result = await createProjectMemoryItem({
+      scope: 'project',
+      projectId: 'proj-1',
+      organizationId: 'org-1',
+      kind: 'derived_fact',
+      content: 'The roof load is 2 kN/m².',
+    } as any)
+
+    expect(result).toEqual({ id: 'new-1' })
+    expect(values).toHaveBeenCalledTimes(1)
+    expect(set).not.toHaveBeenCalled()
+  })
+
+  it('refreshes the existing row (no insert) when a normalized-equal item exists', async () => {
+    const { values, set, update } = mockCreateChain({ id: 'dup-1', confidence: 'medium' })
+
+    const result = await createProjectMemoryItem({
+      scope: 'project',
+      projectId: 'proj-1',
+      organizationId: 'org-1',
+      kind: 'derived_fact',
+      content: 'the ROOF load is  2 kN/m2!',
+      confidence: 'high',
+    } as any)
+
+    expect(update).toHaveBeenCalledTimes(1)
+    expect(values).not.toHaveBeenCalled()
+    // Higher incoming confidence wins on the refresh.
+    expect(set).toHaveBeenCalledWith(expect.objectContaining({ confidence: 'high' }))
+    expect(result).toEqual({ id: 'dup-1', confidence: 'high' })
   })
 })
 

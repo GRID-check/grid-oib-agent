@@ -104,6 +104,9 @@ class TestRunMemoryReflection:
         assert recorded[0]["scope"] == "project"
         assert recorded[0]["project_id"] == "proj-1"
         assert recorded[0]["kind"] == "decision"
+        # Reflection writes are tagged 'distillation' so the UI can tell them
+        # apart from a deliberate in-turn `remember` ('agent') call.
+        assert recorded[0]["provenance_type"] == "distillation"
         # The existing memory digest and the answer both reach the prompt.
         assert llm.calls, "LLM should have been invoked"
 

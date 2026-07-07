@@ -31,8 +31,14 @@ export async function GET(
 
     const { searchParams } = new URL(request.url)
     const includeArchived = searchParams.get('includeArchived') === 'true'
+    // Optional: scope to a single conversation (the chat "Grid noted N" chip).
+    const sourceConversationId = searchParams.get('conversationId') || undefined
     // Includes the org-wide items that apply to every project in the org.
-    const items = await listProjectMemory(id, { includeArchived, organizationId: session.organizationId })
+    const items = await listProjectMemory(id, {
+      includeArchived,
+      organizationId: session.organizationId,
+      sourceConversationId,
+    })
     return NextResponse.json({ items })
   } catch (error) {
     if (isAuthzError(error)) {

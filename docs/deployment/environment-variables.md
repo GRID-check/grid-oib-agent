@@ -119,6 +119,16 @@ Variables set in `docker-compose.yaml` under `environment:` take precedence over
 
 ---
 
+## Project Memory
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `GRID_INTERNAL_API_TOKEN` | Yes (agent memory) | — | Shared service token authenticating the backend agent's memory writes to the internal BFF endpoint (`POST /api/internal/memory`). Must match between the `aiq-agent` and `frontend` services. Never ship the dev default outside dev. |
+| `memory_reflection_llm` *(NAT config key, not env)* | No | unset | LLM ref in the chat-agent config that enables the async post-answer memory-reflection stage. Unset = reflection disabled (no extra LLM call). See `docs/architecture/project-memory-design.md` §3.5. |
+| `GRID_ALLOW_AGENT_ORG_MEMORY` | No | `false` | When `true`, the internal memory endpoint accepts **agent-authored organization-scoped** writes. Default-deny: org-wide memory reaches every project in the tenant and the service-token endpoint cannot verify the human's org role, so an autonomous/prompt-injected write would poison the tenant (audit finding S1). Leave unset unless you accept that risk; org-wide findings are otherwise a human-only action via the org-memory panel. |
+
+---
+
 ## Application
 
 | Variable | Required | Default | Description |

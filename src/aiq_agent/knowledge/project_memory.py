@@ -43,12 +43,11 @@ _opener = urllib.request.build_opener(_NoRedirectHandler)
 
 
 def _internal_base_url() -> str:
-    url = (
-        os.environ.get("FRONTEND_INTERNAL_URL")
-        or os.environ.get("FRONTEND_URL")
-        or "http://frontend:3000"
-    )
+    url = os.environ.get("FRONTEND_INTERNAL_URL") or os.environ.get("FRONTEND_URL") or "http://frontend:3000"
     return url.rstrip("/")
+
+
+VALID_PROVENANCES = {"agent", "distillation"}
 
 
 def insert_memory_item(
@@ -60,8 +59,13 @@ def insert_memory_item(
     content: str,
     confidence: str = "medium",
     conversation_id: str | None = None,
+    provenance_type: str = "agent",
 ) -> str | None:
     """Record one memory item via the internal BFF endpoint.
+
+    ``provenance_type`` distinguishes how the item was captured: ``agent`` for a
+    deliberate in-turn ``remember`` call, ``distillation`` for the async
+    post-answer reflection stage. It lets the UI label the two differently.
 
     Returns the new item id, or None when the target (project/org) is unknown.
     Raises RuntimeError on configuration problems and urllib errors on
@@ -74,6 +78,8 @@ def insert_memory_item(
         raise ValueError(f"Invalid kind '{kind}'. Must be one of: {sorted(VALID_KINDS)}")
     if confidence not in VALID_CONFIDENCES:
         raise ValueError(f"Invalid confidence '{confidence}'. Must be one of: {sorted(VALID_CONFIDENCES)}")
+    if provenance_type not in VALID_PROVENANCES:
+        provenance_type = "agent"
 
     token = os.environ.get("GRID_INTERNAL_API_TOKEN")
     if not token:
@@ -84,6 +90,7 @@ def insert_memory_item(
         "kind": kind,
         "content": content.strip()[:2000],
         "confidence": confidence,
+        "provenanceType": provenance_type,
     }
     if project_id:
         payload["projectId"] = project_id

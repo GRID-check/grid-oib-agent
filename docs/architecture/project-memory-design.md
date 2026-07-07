@@ -162,9 +162,17 @@ Safety limits (see [memory-reflection-audit.md](./memory-reflection-audit.md)):
   follow-up), so it does not catch semantic paraphrase or items outside the
   bounded digest.
 
-Known follow-ups tracked in the audit: surfacing reflection writes to the user
-(they are currently invisible until the memory panel is manually reloaded), the
-write-time consolidation gate, and a per-conversation rate cap.
+User-informing: both in-turn and reflection writes surface under each answer as a
+"Grid hat sich N gemerkt" chip (a reusable `Chip` primitive + `MemoryNotedChip`,
+fed by `GET /api/projects/{id}/memory?conversationId=…`), labelling in-turn
+(`agent`) vs reflection (`distillation`) provenance.
+
+De-duplication: `createProjectMemoryItem` now runs a write-time normalized-content
+check on every write (both the tool and this stage) — a normalized-equal active
+item is refreshed in place instead of duplicated. This is a pragmatic first slice
+of the §3.2 gate; the embedding/contradiction adjudication and a DB uniqueness
+constraint remain follow-ups. See
+[memory-reflection-audit.md](./memory-reflection-audit.md).
 
 ## 4. Provenance & trust — non-negotiable for a compliance product
 
