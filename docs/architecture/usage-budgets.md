@@ -146,10 +146,12 @@ Enforcement points:
 - **Hoverable**: every segment and legend entry carries a tooltip (model id,
   window spend, request count); the legend below the meters shows per-model
   monthly spend — identity is never color-alone.
-- **Editors**: org daily/monthly EUR limits; scoped member/project limits
-  (subject id + limits) with the active scoped policies listed. v1
-  limitation: member/project subject ids are entered as ids (WorkOS
-  `user_…` / project uuid), not picked from a roster.
+- **Member table**: each active member (WorkOS directory ∪ ledger spenders)
+  with today/month spend (`getSpendByMember`, admin-only `perMember` in the
+  usage API) and their optional individual cap, edited inline via a popover
+  (set / remove). Project limits are managed the same way from a project
+  picker. Mobile-first: rows and forms stack under the `sm` breakpoint and
+  stats carry their own micro-labels.
 
 ## Observability & audit answers
 

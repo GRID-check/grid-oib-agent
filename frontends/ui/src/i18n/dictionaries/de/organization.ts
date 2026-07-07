@@ -103,9 +103,16 @@ export const organization: typeof en.organization = {
     saveLimits: 'Limits speichern',
     limitsSaved: 'Budgetlimits gespeichert',
     limitsSaveError: 'Die Budgetlimits konnten nicht gespeichert werden.',
-    scopedTitle: 'Mitglieder- & Projektlimits',
+    membersTitle: 'Mitglieder — Verbrauch & Limits',
+    membersDescription:
+      'Ausgaben pro Mitglied mit optionalen individuellen Obergrenzen. Ein Mitgliedslimit überschreitet nie die Organisationslimits und gilt zusätzlich zu ihnen.',
+    colMember: 'Mitglied',
+    limitLabel: 'Limit',
+    setLimit: 'Limit festlegen',
+    noUsageYet: 'noch kein Verbrauch',
+    scopedTitle: 'Projektlimits',
     scopedDescription:
-      'Optionale Obergrenzen pro Mitglied oder Projekt. Ein solches Limit darf die Organisationslimits nicht überschreiten und gilt zusätzlich zu ihnen.',
+      'Optionale Obergrenzen pro Projekt, einstellbar durch Projekt- und Organisations-Administratoren. Ein Projektlimit darf die Organisationslimits nicht überschreiten und gilt zusätzlich zu ihnen.',
     scopeMember: 'Mitglied',
     scopeProject: 'Projekt',
     subjectMemberPlaceholder: 'WorkOS-Benutzer-ID (user_…)',

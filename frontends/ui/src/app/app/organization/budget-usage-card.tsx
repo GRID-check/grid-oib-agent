@@ -2,9 +2,12 @@
 
 /**
  * Usage & budgets (ADR-0015): per-model LLM spend as stacked budget meters
- * (today / this month) with a hoverable, color-coded legend, the org limit
- * editor, and member/project limits chosen from real pickers (WorkOS member
- * directory + org projects) instead of raw ids.
+ * (today / this month) with a hoverable color-coded legend, a member table
+ * combining each member's spend with their optional individual cap (inline
+ * editor), org limits, and project limits.
+ *
+ * Mobile-first: rows/forms stack under the `sm` breakpoint, stats carry their
+ * own micro-labels (no table header to lose), and controls go full-width.
  *
  * Viz notes (dataviz method): categorical palette in FIXED slot order with a
  * validated hue sequence for light and dark; color is assigned to a model id
@@ -13,14 +16,15 @@
  * color-alone (legend labels + tooltips); values wear text tokens.
  */
 
-import { type FC, useCallback, useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, Trash2 } from 'lucide-react'
+import { type FC, type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
+import { AlertTriangle, Pencil, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -42,8 +46,17 @@ interface ModelSpend {
   monthEvents: number
 }
 
+interface MemberSpend {
+  userId: string
+  dayUsd: number
+  monthUsd: number
+  dayEvents: number
+  monthEvents: number
+}
+
 interface UsageResponse {
   summary: { dayUsd: number; monthUsd: number; perModel: ModelSpend[] }
+  perMember: MemberSpend[] | null
   orgBudget: { dailyLimitEur: number | null; monthlyLimitEur: number | null; explicit: boolean }
   status: { blocked: boolean; blockedScope: string | null }
   eurPerUsd: number
@@ -69,6 +82,20 @@ interface ProjectDto {
 }
 
 const eur = (value: number): string => `€${value.toFixed(2)}`
+
+const parseLimit = (value: string): number | null => {
+  const trimmed = value.trim()
+  if (trimmed === '') return null
+  const parsed = Number.parseFloat(trimmed.replace(',', '.'))
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null
+}
+
+const policyLimitLabel = (policy: PolicyDto, perDay: string, perMonth: string): string => {
+  const parts: string[] = []
+  if (policy.dailyLimit !== null) parts.push(`${eur(Number.parseFloat(policy.dailyLimit))}/${perDay}`)
+  if (policy.monthlyLimit !== null) parts.push(`${eur(Number.parseFloat(policy.monthlyLimit))}/${perMonth}`)
+  return parts.join(' · ') || '—'
+}
 
 interface Segment {
   key: string
@@ -126,9 +153,9 @@ const BudgetMeter: FC<{
 
   return (
     <div>
-      <div className="flex items-baseline justify-between">
+      <div className="flex items-baseline justify-between gap-2">
         <p className="text-sm font-medium">{title}</p>
-        <p className="text-xs tabular-nums text-muted-foreground">
+        <p className="text-right text-xs tabular-nums text-muted-foreground">
           {limitEur !== null
             ? t('budgets.ofLimit', { spent: eur(totalEur), limit: eur(limitEur) })
             : t('budgets.noLimit', { spent: eur(totalEur) })}
@@ -173,6 +200,130 @@ const BudgetMeter: FC<{
   )
 }
 
+/** Right-aligned mini stat with its own micro-label — table headers can't get
+ * lost when rows stack on mobile. */
+const Stat: FC<{ label: string; children: ReactNode }> = ({ label, children }) => (
+  <div className="flex min-w-14 flex-col items-end">
+    <span className="text-[10px] font-medium uppercase leading-4 text-muted-foreground">{label}</span>
+    <span className="text-sm tabular-nums">{children}</span>
+  </div>
+)
+
+/** Popover editor for one subject's daily/monthly limit (used per member row
+ * and for existing project policies). */
+const LimitEditor: FC<{
+  scope: 'member' | 'project'
+  subjectId: string
+  current: PolicyDto | undefined
+  onSaved: () => Promise<void>
+  trigger: ReactNode
+}> = ({ scope, subjectId, current, onSaved, trigger }) => {
+  const t = useTranslations('organization')
+  const tCommon = useTranslations('common')
+  const [open, setOpen] = useState(false)
+  const [daily, setDaily] = useState('')
+  const [monthly, setMonthly] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    if (open) {
+      setDaily(current?.dailyLimit !== null && current !== undefined ? Number.parseFloat(current.dailyLimit).toString() : '')
+      setMonthly(
+        current?.monthlyLimit !== null && current !== undefined ? Number.parseFloat(current.monthlyLimit).toString() : '',
+      )
+    }
+  }, [open, current])
+
+  const save = async (): Promise<void> => {
+    setBusy(true)
+    try {
+      const res = await fetch('/api/organization/budgets', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scope,
+          subjectId,
+          dailyLimitEur: parseLimit(daily),
+          monthlyLimitEur: parseLimit(monthly),
+        }),
+      })
+      if (res.status === 422) {
+        const body = (await res.json()) as { error?: string }
+        toast.error(body.error ?? t('budgets.policySaveError'))
+        return
+      }
+      if (!res.ok) throw new Error(String(res.status))
+      toast.success(t('budgets.policySaved'))
+      setOpen(false)
+      await onSaved()
+    } catch {
+      toast.error(t('budgets.policySaveError'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const remove = async (): Promise<void> => {
+    setBusy(true)
+    try {
+      const res = await fetch('/api/organization/budgets', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scope, subjectId }),
+      })
+      if (!res.ok) throw new Error(String(res.status))
+      toast.success(t('budgets.policyRemoved'))
+      setOpen(false)
+      await onSaved()
+    } catch {
+      toast.error(t('budgets.policyRemoveError'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>{trigger}</PopoverTrigger>
+      <PopoverContent align="end" className="w-64">
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor={`limit-daily-${subjectId}`}>{t('budgets.dailyLimit')}</Label>
+            <Input
+              id={`limit-daily-${subjectId}`}
+              inputMode="decimal"
+              value={daily}
+              onChange={(e) => setDaily(e.target.value)}
+              placeholder={t('budgets.noLimitPlaceholder')}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor={`limit-monthly-${subjectId}`}>{t('budgets.monthlyLimit')}</Label>
+            <Input
+              id={`limit-monthly-${subjectId}`}
+              inputMode="decimal"
+              value={monthly}
+              onChange={(e) => setMonthly(e.target.value)}
+              placeholder={t('budgets.noLimitPlaceholder')}
+            />
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <Button size="sm" onClick={save} disabled={busy}>
+              {tCommon('actions.save')}
+            </Button>
+            {current && (
+              <Button size="sm" variant="ghost" onClick={remove} disabled={busy}>
+                <Trash2 className="mr-1 size-3.5" aria-hidden />
+                {t('budgets.removePolicy')}
+              </Button>
+            )}
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
 const LoadingSkeleton: FC = () => (
   <div className="flex flex-col gap-5">
     {[0, 1].map((i) => (
@@ -184,7 +335,7 @@ const LoadingSkeleton: FC = () => (
         <Skeleton className="mt-2 h-3 w-full" />
       </div>
     ))}
-    <Skeleton className="h-16 w-full" />
+    <Skeleton className="h-24 w-full" />
   </div>
 )
 
@@ -199,12 +350,7 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
   const [dailyLimit, setDailyLimit] = useState('')
   const [monthlyLimit, setMonthlyLimit] = useState('')
   const [savingLimits, setSavingLimits] = useState(false)
-
-  const [scopedScope, setScopedScope] = useState<'member' | 'project'>('member')
-  const [scopedSubject, setScopedSubject] = useState('')
-  const [scopedDaily, setScopedDaily] = useState('')
-  const [scopedMonthly, setScopedMonthly] = useState('')
-  const [savingScoped, setSavingScoped] = useState(false)
+  const [selectedProject, setSelectedProject] = useState('')
 
   const load = useCallback(async () => {
     try {
@@ -255,27 +401,24 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
     [usage],
   )
 
-  const memberLabel = useCallback(
-    (subjectId: string | null): string => {
-      const member = members.find((m) => m.id === subjectId)
-      if (!member) return subjectId ?? `(${t('budgets.subjectGone')})`
-      return member.name ? `${member.name} (${member.email})` : member.email
-    },
-    [members, t],
-  )
+  /** Directory ∪ ledger: members with spend sorted first, then the rest. */
+  const memberRows = useMemo(() => {
+    const spendByUser = new Map((usage?.perMember ?? []).map((entry) => [entry.userId, entry]))
+    const known = new Set(members.map((member) => member.id))
+    const rows = members.map((member) => ({ member, spend: spendByUser.get(member.id) ?? null }))
+    for (const entry of usage?.perMember ?? []) {
+      if (!known.has(entry.userId)) {
+        rows.push({ member: { id: entry.userId, email: entry.userId, name: null }, spend: entry })
+      }
+    }
+    return rows.sort((a, b) => (b.spend?.monthUsd ?? 0) - (a.spend?.monthUsd ?? 0))
+  }, [members, usage])
 
-  const projectLabel = useCallback(
-    (subjectId: string | null): string =>
-      projects.find((p) => p.id === subjectId)?.name ?? subjectId ?? `(${t('budgets.subjectGone')})`,
-    [projects, t],
+  const memberPolicies = useMemo(
+    () => new Map(policies.filter((p) => p.scope === 'member').map((p) => [p.subjectId, p])),
+    [policies],
   )
-
-  const parseLimit = (value: string): number | null => {
-    const trimmed = value.trim()
-    if (trimmed === '') return null
-    const parsed = Number.parseFloat(trimmed.replace(',', '.'))
-    return Number.isFinite(parsed) && parsed >= 0 ? parsed : null
-  }
+  const projectPolicies = useMemo(() => policies.filter((p) => p.scope === 'project'), [policies])
 
   const saveOrgLimits = useCallback(async () => {
     setSavingLimits(true)
@@ -304,61 +447,13 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
     }
   }, [dailyLimit, monthlyLimit, t, load])
 
-  const saveScopedPolicy = useCallback(async () => {
-    setSavingScoped(true)
-    try {
-      const res = await fetch('/api/organization/budgets', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          scope: scopedScope,
-          subjectId: scopedSubject,
-          dailyLimitEur: parseLimit(scopedDaily),
-          monthlyLimitEur: parseLimit(scopedMonthly),
-        }),
-      })
-      if (res.status === 422) {
-        const body = (await res.json()) as { error?: string }
-        toast.error(body.error ?? t('budgets.policySaveError'))
-        return
-      }
-      if (!res.ok) throw new Error(String(res.status))
-      toast.success(t('budgets.policySaved'))
-      setScopedSubject('')
-      setScopedDaily('')
-      setScopedMonthly('')
-      await load()
-    } catch {
-      toast.error(t('budgets.policySaveError'))
-    } finally {
-      setSavingScoped(false)
-    }
-  }, [scopedScope, scopedSubject, scopedDaily, scopedMonthly, t, load])
-
-  const removePolicy = useCallback(
-    async (policy: PolicyDto) => {
-      try {
-        const res = await fetch('/api/organization/budgets', {
-          method: 'DELETE',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ scope: policy.scope, subjectId: policy.subjectId }),
-        })
-        if (!res.ok) throw new Error(String(res.status))
-        toast.success(t('budgets.policyRemoved'))
-        await load()
-      } catch {
-        toast.error(t('budgets.policyRemoveError'))
-      }
-    },
-    [t, load],
-  )
-
   if (loading || !usage) {
     return <LoadingSkeleton />
   }
 
   const requestsLabel = (count: number): string => t('budgets.tooltipRequests', { count })
-  const subjectOptions = scopedScope === 'member' ? members : projects
+  const projectName = (id: string | null): string =>
+    projects.find((p) => p.id === id)?.name ?? id ?? `(${t('budgets.subjectGone')})`
 
   return (
     <TooltipProvider delayDuration={100}>
@@ -411,11 +506,11 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
                     <TooltipTrigger asChild>
                       <span className="flex cursor-default items-center gap-1.5 text-sm">
                         <span
-                          className="inline-block size-2.5 rounded-[2px]"
+                          className="inline-block size-2.5 shrink-0 rounded-[2px]"
                           style={{ backgroundColor: segment.colorVar }}
                           aria-hidden
                         />
-                        <span className="max-w-56 truncate font-mono text-xs">
+                        <span className="max-w-40 truncate font-mono text-xs sm:max-w-56">
                           {segment.label || t('budgets.otherModels')}
                         </span>
                         <span className="text-xs tabular-nums text-muted-foreground">{eur(segment.monthEur)}</span>
@@ -437,134 +532,160 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
         {isAdmin && (
           <>
             <Separator />
+            {/* Organization limits */}
             <div>
               <p className="text-sm font-medium">{t('budgets.limitsTitle')}</p>
               <p className="mt-0.5 text-xs text-muted-foreground">{t('budgets.limitsDescription')}</p>
-              <div className="mt-3 flex flex-wrap items-end gap-3">
-                <div className="flex flex-col gap-1.5">
+              <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end">
+                <div className="flex flex-1 flex-col gap-1.5 sm:max-w-40">
                   <Label htmlFor="budget-daily">{t('budgets.dailyLimit')}</Label>
                   <Input
                     id="budget-daily"
-                    className="w-36"
                     inputMode="decimal"
                     value={dailyLimit}
                     onChange={(e) => setDailyLimit(e.target.value)}
                     placeholder={t('budgets.noLimitPlaceholder')}
                   />
                 </div>
-                <div className="flex flex-col gap-1.5">
+                <div className="flex flex-1 flex-col gap-1.5 sm:max-w-40">
                   <Label htmlFor="budget-monthly">{t('budgets.monthlyLimit')}</Label>
                   <Input
                     id="budget-monthly"
-                    className="w-36"
                     inputMode="decimal"
                     value={monthlyLimit}
                     onChange={(e) => setMonthlyLimit(e.target.value)}
                     placeholder={t('budgets.noLimitPlaceholder')}
                   />
                 </div>
-                <Button onClick={saveOrgLimits} disabled={savingLimits}>
+                <Button className="w-full sm:w-auto" onClick={saveOrgLimits} disabled={savingLimits}>
                   {t('budgets.saveLimits')}
                 </Button>
               </div>
             </div>
 
             <Separator />
+            {/* Member usage & limits table */}
+            <div>
+              <p className="text-sm font-medium">{t('budgets.membersTitle')}</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">{t('budgets.membersDescription')}</p>
+              <ul className="mt-3 flex flex-col divide-y rounded-lg border">
+                {memberRows.map(({ member, spend }) => {
+                  const policy = memberPolicies.get(member.id)
+                  return (
+                    <li
+                      key={member.id}
+                      className="flex flex-wrap items-center gap-x-4 gap-y-2 px-3 py-2.5 sm:flex-nowrap"
+                    >
+                      <div className="min-w-0 flex-1 basis-full sm:basis-0">
+                        <p className="truncate text-sm">{member.name ?? member.email}</p>
+                        {member.name && <p className="truncate text-xs text-muted-foreground">{member.email}</p>}
+                      </div>
+                      <div className="flex flex-1 items-center justify-between gap-4 sm:flex-none sm:justify-end">
+                        <Stat label={t('budgets.today')}>
+                          {spend ? eur(spend.dayUsd * usage.eurPerUsd) : '—'}
+                        </Stat>
+                        <Stat label={t('budgets.thisMonth')}>
+                          {spend ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="cursor-default">{eur(spend.monthUsd * usage.eurPerUsd)}</span>
+                              </TooltipTrigger>
+                              <TooltipContent>{requestsLabel(spend.monthEvents)}</TooltipContent>
+                            </Tooltip>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </Stat>
+                        <Stat label={t('budgets.limitLabel')}>
+                          {policy ? (
+                            policyLimitLabel(policy, t('budgets.perDay'), t('budgets.perMonth'))
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </Stat>
+                        <LimitEditor
+                          scope="member"
+                          subjectId={member.id}
+                          current={policy}
+                          onSaved={load}
+                          trigger={
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              title={t('budgets.setLimit')}
+                              aria-label={`${t('budgets.setLimit')}: ${member.email}`}
+                            >
+                              <Pencil className="size-3.5 text-muted-foreground" aria-hidden />
+                            </Button>
+                          }
+                        />
+                      </div>
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+
+            <Separator />
+            {/* Project limits */}
             <div>
               <p className="text-sm font-medium">{t('budgets.scopedTitle')}</p>
               <p className="mt-0.5 text-xs text-muted-foreground">{t('budgets.scopedDescription')}</p>
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                <Select
-                  value={scopedScope}
-                  onValueChange={(v) => {
-                    setScopedScope(v as 'member' | 'project')
-                    setScopedSubject('')
-                  }}
-                >
-                  <SelectTrigger className="w-32">
-                    <SelectValue />
+              <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+                <Select value={selectedProject || undefined} onValueChange={setSelectedProject}>
+                  <SelectTrigger className="w-full sm:w-72">
+                    <SelectValue placeholder={t('budgets.selectProject')} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="member">{t('budgets.scopeMember')}</SelectItem>
-                    <SelectItem value="project">{t('budgets.scopeProject')}</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select value={scopedSubject || undefined} onValueChange={setScopedSubject}>
-                  <SelectTrigger className="w-64">
-                    <SelectValue
-                      placeholder={scopedScope === 'member' ? t('budgets.selectMember') : t('budgets.selectProject')}
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {subjectOptions.map((option) => (
-                      <SelectItem key={option.id} value={option.id}>
-                        {'email' in option
-                          ? option.name
-                            ? `${option.name} (${option.email})`
-                            : option.email
-                          : option.name}
+                    {projects.map((project) => (
+                      <SelectItem key={project.id} value={project.id}>
+                        {project.name}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-                <Input
-                  className="w-32"
-                  inputMode="decimal"
-                  value={scopedDaily}
-                  onChange={(e) => setScopedDaily(e.target.value)}
-                  placeholder={t('budgets.dailyLimit')}
-                  aria-label={t('budgets.dailyLimit')}
-                />
-                <Input
-                  className="w-32"
-                  inputMode="decimal"
-                  value={scopedMonthly}
-                  onChange={(e) => setScopedMonthly(e.target.value)}
-                  placeholder={t('budgets.monthlyLimit')}
-                  aria-label={t('budgets.monthlyLimit')}
-                />
-                <Button onClick={saveScopedPolicy} disabled={savingScoped || !scopedSubject}>
-                  {t('budgets.addPolicy')}
-                </Button>
-              </div>
-
-              <div className="mt-4">
-                <p className="text-xs font-medium uppercase text-muted-foreground">{t('budgets.activePolicies')}</p>
-                {policies.length === 0 ? (
-                  <p className="mt-1 text-sm text-muted-foreground">{t('budgets.noPolicies')}</p>
-                ) : (
-                  <ul className="mt-1.5 flex flex-col divide-y rounded-lg border">
-                    {policies.map((policy) => (
-                      <li key={policy.id} className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm">
-                        <Badge variant="outline" className="shrink-0">
-                          {policy.scope === 'member' ? t('budgets.scopeMember') : t('budgets.scopeProject')}
-                        </Badge>
-                        <span className="min-w-0 flex-1 truncate">
-                          {policy.scope === 'member' ? memberLabel(policy.subjectId) : projectLabel(policy.subjectId)}
-                        </span>
-                        <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                          {policy.dailyLimit !== null
-                            ? `${eur(Number.parseFloat(policy.dailyLimit))}/${t('budgets.perDay')}`
-                            : '—'}
-                          {' · '}
-                          {policy.monthlyLimit !== null
-                            ? `${eur(Number.parseFloat(policy.monthlyLimit))}/${t('budgets.perMonth')}`
-                            : '—'}
-                        </span>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          title={t('budgets.removePolicy')}
-                          aria-label={`${t('budgets.removePolicy')}: ${policy.subjectId}`}
-                          onClick={() => removePolicy(policy)}
-                        >
-                          <Trash2 className="size-3.5 text-muted-foreground" aria-hidden />
-                        </Button>
-                      </li>
-                    ))}
-                  </ul>
+                {selectedProject && (
+                  <LimitEditor
+                    scope="project"
+                    subjectId={selectedProject}
+                    current={projectPolicies.find((p) => p.subjectId === selectedProject)}
+                    onSaved={load}
+                    trigger={
+                      <Button variant="outline" className="w-full sm:w-auto">
+                        {t('budgets.setLimit')}
+                      </Button>
+                    }
+                  />
                 )}
               </div>
+              {projectPolicies.length > 0 && (
+                <ul className="mt-3 flex flex-col divide-y rounded-lg border">
+                  {projectPolicies.map((policy) => (
+                    <li key={policy.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2.5">
+                      <span className="min-w-0 flex-1 truncate text-sm">{projectName(policy.subjectId)}</span>
+                      <span className="text-xs tabular-nums text-muted-foreground">
+                        {policyLimitLabel(policy, t('budgets.perDay'), t('budgets.perMonth'))}
+                      </span>
+                      <LimitEditor
+                        scope="project"
+                        subjectId={policy.subjectId as string}
+                        current={policy}
+                        onSaved={load}
+                        trigger={
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            title={t('budgets.setLimit')}
+                            aria-label={`${t('budgets.setLimit')}: ${projectName(policy.subjectId)}`}
+                          >
+                            <Pencil className="size-3.5 text-muted-foreground" aria-hidden />
+                          </Button>
+                        }
+                      />
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           </>
         )}
