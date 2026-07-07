@@ -155,6 +155,8 @@ async def submit_agent_job(
     auth_token: str | None = None,
     collection_scope: list[str] | None = None,
     project_context: str | None = None,
+    model_overrides: dict[str, str] | None = None,
+    usage_context: dict | None = None,
 ) -> str:
     """
     Submit an agent job to the Dask cluster.
@@ -173,6 +175,13 @@ async def submit_agent_job(
         data_sources: Optional list of allowed data sources to enforce in the worker.
         auth_token: Optional auth token to propagate to the Dask worker for
             data sources that require authentication.
+        model_overrides: Optional per-org runtime model overrides
+            (``{agent_group: openrouter_model_id}``). Auto-captured from the
+            submitting request's ``X-Grid-Model-Overrides`` header when not
+            explicitly provided.
+        usage_context: Optional identity + budget snapshot for LLM cost
+            tracking in the worker (see ``capture_usage_context``).
+            Auto-captured from the submitting request when not provided.
 
     Returns:
         The job ID.
@@ -255,6 +264,18 @@ async def submit_agent_job(
 
         project_context = get_project_context_from_context()
 
+    # Auto-detect per-org runtime model overrides if not explicitly provided.
+    if model_overrides is None:
+        from aiq_agent.common import get_model_overrides_from_context
+
+        model_overrides = get_model_overrides_from_context() or None
+
+    # Capture caller identity + remaining budget for cost tracking in the worker.
+    if usage_context is None:
+        from aiq_agent.common.cost_tracking import capture_usage_context
+
+        usage_context = capture_usage_context()
+
     if principal is None:
         principal = _resolve_submission_principal(owner)
     if principal is None:
@@ -289,6 +310,8 @@ async def submit_agent_job(
                 auth_token,
                 collection_scope,
                 project_context,
+                model_overrides,
+                usage_context,
             ],
         )
         await loop.run_in_executor(

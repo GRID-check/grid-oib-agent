@@ -203,6 +203,10 @@ services:
       - MINIO_BUCKET=grid-documents
       - MINIO_PRESIGNED_URL_TTL_SECONDS=600
       - PROJECT_PURGE_GRACE_DAYS=${PROJECT_PURGE_GRACE_DAYS:-7}
+      # OpenRouter model catalog for the org model-config picker/validation.
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:?set OPENROUTER_API_KEY}
+      # Euros per 1 USD for comparing EUR budget limits against USD costs.
+      - GRID_BUDGET_EUR_PER_USD=${GRID_BUDGET_EUR_PER_USD:-0.86}
     expose:
       - "3000"
     networks:

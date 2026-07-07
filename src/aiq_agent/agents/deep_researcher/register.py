@@ -23,12 +23,14 @@ from pydantic import ConfigDict
 from pydantic import Field
 from pydantic import field_validator
 
+from aiq_agent.common import AgentGroup
 from aiq_agent.common import LLMProvider
 from aiq_agent.common import LLMRole
 from aiq_agent.common import VerboseTraceCallback
 from aiq_agent.common import _create_chat_response
 from aiq_agent.common import all_mapped_tools_filtered_out
 from aiq_agent.common import filter_tools_by_sources
+from aiq_agent.common import get_model_overrides_from_context
 from aiq_agent.common import is_verbose
 from nat.builder.builder import Builder
 from nat.builder.framework_enum import LLMFrameworkEnum
@@ -200,21 +202,21 @@ async def deep_research_agent(config: DeepResearchAgentConfig, builder: Builder)
     llm = await builder.get_llm(config.orchestrator_llm, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
 
     provider = LLMProvider()
-    provider.set_default(llm)
+    provider.set_default(llm, group=AgentGroup.DEEP_RESEARCH)
 
-    provider.configure(LLMRole.ORCHESTRATOR, llm)
+    provider.configure(LLMRole.ORCHESTRATOR, llm, group=AgentGroup.DEEP_RESEARCH)
     if config.source_router_llm:
         source_router_llm = await builder.get_llm(config.source_router_llm, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
-        provider.configure(LLMRole.ROUTER, source_router_llm)
+        provider.configure(LLMRole.ROUTER, source_router_llm, group=AgentGroup.DEEP_RESEARCH_ROUTER)
     if config.researcher_llm:
         researcher_llm = await builder.get_llm(config.researcher_llm, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
-        provider.configure(LLMRole.RESEARCHER, researcher_llm)
+        provider.configure(LLMRole.RESEARCHER, researcher_llm, group=AgentGroup.DEEP_RESEARCH)
     if config.planner_llm:
         planner_llm = await builder.get_llm(config.planner_llm, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
-        provider.configure(LLMRole.PLANNER, planner_llm)
+        provider.configure(LLMRole.PLANNER, planner_llm, group=AgentGroup.DEEP_RESEARCH)
     if config.writer_llm:
         writer_llm = await builder.get_llm(config.writer_llm, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
-        provider.configure(LLMRole.REPORT_WRITER, writer_llm)
+        provider.configure(LLMRole.REPORT_WRITER, writer_llm, group=AgentGroup.DEEP_RESEARCH)
 
     verbose = is_verbose(config.verbose)
     callbacks = [VerboseTraceCallback()] if verbose else []
@@ -239,8 +241,15 @@ async def deep_research_agent(config: DeepResearchAgentConfig, builder: Builder)
         try:
             data_sources = state.data_sources
             selected_tools = filter_tools_by_sources(tools, data_sources)
+            # Per-org runtime model overrides (X-Grid-Model-Overrides); identity
+            # check means "no override for deep research" keeps the prebuilt agent.
+            active_provider = provider.with_model_overrides(get_model_overrides_from_context())
             active_agent = agent
-            if sandbox_config is not None or (data_sources is not None and selected_tools != tools):
+            if (
+                active_provider is not provider
+                or sandbox_config is not None
+                or (data_sources is not None and selected_tools != tools)
+            ):
                 # Scope the Modal sandbox to the async job_id when one is in
                 # NAT context (set by aiq_api/jobs/runner.py). Falls back to a
                 # per-request uuid in DeepAgentsRuntime when None.
@@ -252,7 +261,7 @@ async def deep_research_agent(config: DeepResearchAgentConfig, builder: Builder)
                 except Exception:  # noqa: BLE001 - Context may be unavailable in sync/eval paths
                     job_id = None
                 active_agent = DeepResearcherAgent(
-                    llm_provider=provider,
+                    llm_provider=active_provider,
                     tools=selected_tools,
                     verbose=verbose,
                     callbacks=callbacks,

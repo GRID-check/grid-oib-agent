@@ -435,8 +435,9 @@ class TestSubmitDeepResearchJob:
         assert result == "test-job-id"
         mock_job_store.submit_job.assert_called_once()
         job_args = mock_job_store.submit_job.call_args.kwargs["job_args"]
-        # data_sources is fourth-to-last (auth_token, collection_scope, project_context follow)
-        assert job_args[-4] == ["web_search"]
+        # data_sources is sixth-to-last (auth_token, collection_scope,
+        # project_context, model_overrides, usage_context follow)
+        assert job_args[-6] == ["web_search"]
 
     @pytest.mark.asyncio
     async def test_submit_with_custom_job_id(self):

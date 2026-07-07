@@ -172,3 +172,15 @@ Variables set in `docker-compose.yaml` under `environment:` take precedence over
 - **Placeholder values**: The `.env.example` file contains commented-out optional variables. The `.env` file contains actual development keys.
 - **Docker networking**: In Docker Compose, services communicate over the internal `aiq-network` bridge network. Variables like `BACKEND_URL=http://aiq-agent:8000` and `MINIO_ENDPOINT=http://minio:9000` use Docker DNS resolution.
 - **MinIO credentials**: The MinIO credentials are currently hardcoded in `docker-compose.yaml` for all three services that use them. For production, these should be externalized to the `.env` file.
+
+## Model Configuration & Budgets (frontend)
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `OPENROUTER_API_KEY` | No | — | Frontend container: authenticates the OpenRouter model-catalog fetch for the org model-config picker/validation (catalog also works unauthenticated). Same key the backend uses for LLM calls. |
+| `OPENROUTER_BASE_URL` | No | `https://openrouter.ai/api/v1` | Override the catalog endpoint (tests / self-hosted gateways). |
+| `GRID_BUDGET_EUR_PER_USD` | No | `0.86` | Euros per 1 USD used to compare EUR budget limits against the USD costs OpenRouter reports (ADR-0015). |
+
+Org budget defaults (until an admin sets explicit limits): €10/day and
+€100/month — constants in `frontends/ui/src/lib/budgets/service.ts`, not env
+vars. See `docs/architecture/usage-budgets.md`.

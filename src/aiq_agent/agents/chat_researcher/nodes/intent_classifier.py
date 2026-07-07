@@ -119,8 +119,15 @@ class IntentClassifier:
 
         try:
             config = {"callbacks": self.callbacks} if self.callbacks else {}
+            # Resolve per-org runtime model overrides at invocation time — the
+            # classifier instance is shared across requests, so it is never
+            # mutated; the override yields a request-scoped model copy.
+            from aiq_agent.common import AgentGroup
+            from aiq_agent.common import apply_model_override
+
+            llm = apply_model_override(self.llm, AgentGroup.INTENT)
             response = await asyncio.wait_for(
-                self.llm.ainvoke(messages, config=config),
+                llm.ainvoke(messages, config=config),
                 timeout=self.llm_timeout,
             )
 

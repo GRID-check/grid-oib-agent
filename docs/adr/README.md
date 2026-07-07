@@ -54,6 +54,8 @@ a new ADR. Small clarifications and typo fixes are fine.
 | [0011](0011-deletion-pipeline.md) | Deletion pipeline (soft-delete → purge, legal holds) | Accepted |
 | [0012](0012-cards-as-rich-ui-layer.md) | Cards as a general rich-UI presentation layer | Accepted |
 | [0013](0013-base64url-context-headers.md) | base64url-encoded context headers | Accepted |
+| [0014](0014-org-runtime-model-configuration.md) | Org-level runtime model configuration per agent group | Accepted |
+| [0015](0015-llm-budgets-and-usage-ledger.md) | LLM spend limits and the auditable usage ledger | Accepted |
 
 ## Related documents
 

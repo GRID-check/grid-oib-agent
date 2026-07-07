@@ -46,6 +46,23 @@ different models/parameters. Point them all at your endpoint to switch providers
 3. Set the embedder similarly (embeddings must also be OpenAI-compatible).
 4. Set `CONFIG_FILE` to your config and provide the key(s) in `deploy/.env`.
 
+## Runtime per-org model overrides (ADR-0014)
+
+The YAML remains the *default* layer. On top of it, org admins can re-point
+each **agent group** (intent, clarifier, shallow research, deep research,
+deep-research router, memory reflection) at a different OpenRouter model at
+runtime — per tenant, versioned, validated against the OpenRouter catalog,
+no restart. The BFF forwards the active configuration as the
+`x-grid-model-overrides` header on the WS upgrade; the backend applies it
+request-scoped (only the model id changes — `base_url`, keys, `max_tokens`,
+`reasoning_effort` still come from the YAML). Absent/invalid overrides fall
+back to the YAML defaults. See
+[`org-model-configuration.md`](org-model-configuration.md).
+
+Every generation's cost is metered into the `llm_usage_events` ledger and
+bounded by per-org/member/project budgets — see
+[`usage-budgets.md`](usage-budgets.md) (ADR-0015).
+
 ## Caveats
 
 - Prompts are tuned against the reference model; very different models may need
