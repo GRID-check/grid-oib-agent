@@ -51,7 +51,7 @@ without re-plumbing generation or transport.
 
 ## Card catalog
 
-Three base cards plus ten **schematic** cards — programmatically-drawn technical
+Three base cards plus fifteen **schematic** cards — programmatically-drawn technical
 diagrams (SVG kit in `features/grid-cards/schematics/`, Rough.js sketch stroke).
 The schematic cards emit **parameters only**; the renderer draws to scale and does
 any geometry/ratio math. Every required limit carries a `NormReference`; unknown
@@ -73,6 +73,11 @@ values render "fehlende Angabe", never a guess. See
 | `density_check` | parcel + footprint, Bebauungsgrad/GFZ bars | zoning density |
 | `fire_access_plan` | Feuerwehrzufahrt site plan, route/Aufstellfläche/80 m reach | fire access (OIB 2) |
 | `acoustic_check` | direction-aware dB gauges (airborne ↑ / impact ↓) | Schallschutz (OIB 5) |
+| `fire_compartment` | storey plan split into Brandabschnitte, each area vs the max Brandabschnittsfläche | fire compartments (OIB 2) |
+| `thermal_envelope` | building-envelope section + per-component U-value bars | Wärmeschutz (OIB 6) |
+| `energy_performance` | Heizwärmebedarf on the A++–G energy-class ladder + HWB/fGEE bars | Energieausweis (OIB 6) |
+| `elevator_requirement` | served-storey stack + lift shaft, requirement verdict + cabin/door checks | barrier-free lift (OIB 4) |
+| `parking_requirement` | slot grid (required vs provided) + count bars for cars/bikes | Stellplatznachweis (Bauordnung) |
 
 The card-generation LLM is `card_llm` (config `reasoning_effort: medium`). Adding a
 card type = define the Pydantic model (`cards/models.py`), regenerate the schema

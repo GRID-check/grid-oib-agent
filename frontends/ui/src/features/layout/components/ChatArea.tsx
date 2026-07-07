@@ -188,6 +188,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                   {/* Render the message */}
                   <MessageRenderer
                     message={message}
+                    conversationId={currentConversation?.id}
                     onPromptRespond={handlePromptRespond}
                     onFileRetry={handleFileRetry}
                     onErrorDismiss={dismissErrorCard}
@@ -224,6 +225,8 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
  */
 interface MessageRendererProps {
   message: ChatMessage
+  /** Id of the conversation these messages belong to (for the memory chip). */
+  conversationId?: string | null
   onPromptRespond: (promptId: string, response: string) => void
   onFileRetry?: (messageId: string) => void
   onFileCancel?: (messageId: string) => void
@@ -233,6 +236,7 @@ interface MessageRendererProps {
 
 const MessageRenderer: FC<MessageRendererProps> = ({
   message,
+  conversationId,
   onPromptRespond,
   onFileRetry: _onFileRetry,
   onFileCancel: _onFileCancel,
@@ -275,6 +279,7 @@ const MessageRenderer: FC<MessageRendererProps> = ({
           isDeepResearchActive={message.isDeepResearchActive}
           deepResearchJobStatus={message.deepResearchJobStatus}
           cards={message.cards}
+          conversationId={conversationId}
         />
       )
 

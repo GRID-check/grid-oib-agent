@@ -20,6 +20,7 @@ import { GridCards } from '@/features/grid-cards/components/GridCards'
 import type { GridCard } from '@/shared/cards/schemas'
 import { useChatStore } from '../store'
 import { useLoadJobData } from '../hooks'
+import { MemoryNotedChip } from './MemoryNotedChip'
 
 export interface AgentResponseProps {
   /** Response content from the agent */
@@ -38,6 +39,8 @@ export interface AgentResponseProps {
   deepResearchJobStatus?: 'submitted' | 'running' | 'success' | 'failure' | 'interrupted'
   /** Grid cards to render before the response content */
   cards?: GridCard[]
+  /** Conversation this response belongs to (for the "Grid noted N" memory chip) */
+  conversationId?: string | null
 }
 
 /**
@@ -52,9 +55,11 @@ export const AgentResponse: FC<AgentResponseProps> = ({
   isDeepResearchActive = false,
   deepResearchJobStatus,
   cards,
+  conversationId,
 }) => {
   const openRightPanel = useLayoutStore((s) => s.openRightPanel)
   const setResearchPanelTab = useLayoutStore((s) => s.setResearchPanelTab)
+  const projectId = useChatStore((s) => s.projectId)
 
   const { reportContent, deepResearchJobId, isDeepResearchStreaming, deepResearchStreamLoaded } =
     useChatStore(useShallow((s) => ({
@@ -165,6 +170,9 @@ export const AgentResponse: FC<AgentResponseProps> = ({
           </div>
         )}
 
+        {/* Memory chip: what Grid recorded during this turn (in-turn + reflection) */}
+        <MemoryNotedChip projectId={projectId} conversationId={conversationId} />
+
         {/* Timestamp outside content, right-aligned */}
         {timestamp && (
           <span className="text-subtle mr-3 mt-1 self-end text-xs">
@@ -213,6 +221,11 @@ export const AgentResponse: FC<AgentResponseProps> = ({
               </Button>
             </div>
           )}
+        </div>
+
+        {/* Memory chip: what Grid recorded during this turn (in-turn + reflection) */}
+        <div className="mt-1.5 flex justify-start px-1">
+          <MemoryNotedChip projectId={projectId} conversationId={conversationId} />
         </div>
 
         {/* Timestamp outside bubble, right-aligned */}

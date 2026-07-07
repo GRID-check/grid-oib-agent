@@ -610,6 +610,232 @@
       "title": "EgressSegment",
       "type": "object"
     },
+    "ElevatorRequirementCard": {
+      "description": "A barrier-free-elevator (Aufzug) card: requirement + cabin dimensions.\n\nEmit for Aufzug / barrierefreie-Erschlie\u00dfung questions (OIB 4). Draws the\nserved storeys as a stack with a lift shaft, states whether a barrier-free\nlift is required (drives from storey count / arrival level), and checks the\ncabin and door clear dimensions against the accessibility minimums.",
+      "properties": {
+        "cabin_depth": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DimensionCheck"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Kabinentiefe (cm) vs the minimum (>=140)"
+        },
+        "cabin_width": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DimensionCheck"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Kabinenbreite (cm) vs the minimum (>=110)"
+        },
+        "door_width": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DimensionCheck"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "lichte T\u00fcrbreite (cm) vs the minimum (>=90)"
+        },
+        "entrance_level_index": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "0-based index of the entrance level",
+          "title": "Entrance Level Index"
+        },
+        "is_required": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Is a barrier-free lift required? null = unknown",
+          "title": "Is Required"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional clarification",
+          "title": "Note"
+        },
+        "reference": {
+          "$ref": "#/$defs/NormReference",
+          "description": "Source of the lift requirement (OIB 4 / \u00d6NORM B 1600)"
+        },
+        "requirement_note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Why a lift is / isn't required",
+          "title": "Requirement Note"
+        },
+        "storeys_served": {
+          "description": "Number of levels the building has (drawn as a stack)",
+          "exclusiveMinimum": 0,
+          "title": "Storeys Served",
+          "type": "integer"
+        },
+        "title": {
+          "description": "Title, e.g. 'Barrierefreier Aufzug \u2013 Erschlie\u00dfung'",
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "elevator_requirement",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "title",
+        "storeys_served",
+        "reference"
+      ],
+      "title": "ElevatorRequirementCard",
+      "type": "object"
+    },
+    "EnergyPerformanceCard": {
+      "description": "An energy-performance (Energieausweis) card: HWB on the A\u2013G class ladder.\n\nEmit for Energieausweis / Heizw\u00e4rmebedarf questions (OIB 6). Draws the\nA++\u2026G energy-class ladder with the building's class highlighted, and reads\nthe Heizw\u00e4rmebedarf (kWh/m\u00b2a) against the required maximum. fGEE optional.",
+      "properties": {
+        "energy_class": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Energieeffizienzklasse, e.g. 'A', 'B', 'C'",
+          "title": "Energy Class"
+        },
+        "fgee": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DimensionCheck"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Gesamtenergieeffizienzfaktor vs its limit"
+        },
+        "hwb": {
+          "$ref": "#/$defs/DimensionCheck",
+          "description": "Heizw\u00e4rmebedarf kWh/(m\u00b2a) vs the max (lower is better, '<=')"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional clarification",
+          "title": "Note"
+        },
+        "reference": {
+          "$ref": "#/$defs/NormReference",
+          "description": "Source of the HWB requirement (OIB 6)"
+        },
+        "title": {
+          "description": "Title, e.g. 'Energieausweis \u2013 Heizw\u00e4rmebedarf'",
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "energy_performance",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "title",
+        "hwb",
+        "reference"
+      ],
+      "title": "EnergyPerformanceCard",
+      "type": "object"
+    },
+    "EnvelopeComponent": {
+      "description": "One thermal-envelope component with its U-value checked against a limit.",
+      "properties": {
+        "kind": {
+          "description": "Where it sits in the section",
+          "enum": [
+            "wall",
+            "roof",
+            "floor",
+            "window",
+            "door"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "label": {
+          "description": "Component, e.g. 'Au\u00dfenwand', 'Dach', 'Fenster'",
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "u_value": {
+          "$ref": "#/$defs/DimensionCheck",
+          "description": "U-Wert W/(m\u00b2K) vs the max U-value (lower is better, '<=')"
+        }
+      },
+      "required": [
+        "label",
+        "kind",
+        "u_value"
+      ],
+      "title": "EnvelopeComponent",
+      "type": "object"
+    },
     "FireAccessPlanCard": {
       "description": "A fire-brigade access (Feuerwehrzufahrt) site plan schematic.\n\nEmit for fire-access questions (OIB 2 / TRVB). Top-down plan: access route\nfrom the road, the Aufstellfl\u00e4che beside the facade, and the reach distance\nfrom the Aufstellfl\u00e4che to the farthest necessary entrance (typically\n<=80 m). Numeric minimums vary by Land \u2014 always corpus-grounded per check.",
       "properties": {
@@ -716,6 +942,115 @@
         "reference"
       ],
       "title": "FireAccessPlanCard",
+      "type": "object"
+    },
+    "FireCompartment": {
+      "description": "One Brandabschnitt (fire compartment) drawn as a band, area-checked.",
+      "properties": {
+        "area": {
+          "$ref": "#/$defs/DimensionCheck",
+          "description": "Brandabschnittsfl\u00e4che (m\u00b2) vs the max permitted (comparator '<=')"
+        },
+        "label": {
+          "description": "Compartment name, e.g. 'BA 1 \u2013 Wohnungen OG'",
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "use": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Nutzung, e.g. 'Wohnen', 'B\u00fcro', 'Tiefgarage'",
+          "title": "Use"
+        }
+      },
+      "required": [
+        "label",
+        "area"
+      ],
+      "title": "FireCompartment",
+      "type": "object"
+    },
+    "FireCompartmentCard": {
+      "description": "A fire-compartment (Brandabschnitt) plan: a storey split into compartments.\n\nEmit for Brandabschnitt questions (OIB 2): draws the storey outline divided\ninto compartments (width proportional to area) separated by Brandw\u00e4nde, each\nread against the maximum permitted Brandabschnittsfl\u00e4che for its use and\nGeb\u00e4udeklasse. The limit varies by use/GK \u2014 always corpus-grounded.",
+      "properties": {
+        "compartments": {
+          "description": "The compartments on this level, left-to-right",
+          "items": {
+            "$ref": "#/$defs/FireCompartment"
+          },
+          "title": "Compartments",
+          "type": "array"
+        },
+        "gebaeudeklasse": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Geb\u00e4udeklasse driving the area limit",
+          "title": "Gebaeudeklasse"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional clarification",
+          "title": "Note"
+        },
+        "reference": {
+          "$ref": "#/$defs/NormReference",
+          "description": "Source of the max Brandabschnittsfl\u00e4che (OIB 2)"
+        },
+        "storey_label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Which level the plan shows, e.g. '2.OG'",
+          "title": "Storey Label"
+        },
+        "title": {
+          "description": "Title, e.g. 'Brandabschnitte \u2013 Regelgeschoss'",
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "fire_compartment",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "title",
+        "compartments",
+        "reference"
+      ],
+      "title": "FireCompartmentCard",
       "type": "object"
     },
     "GuardrailCheckCard": {
@@ -967,6 +1302,76 @@
         "label"
       ],
       "title": "Obstruction",
+      "type": "object"
+    },
+    "ParkingRequirementCard": {
+      "description": "A parking-provision (Stellplatznachweis) card: required vs provided count.\n\nEmit for Stellplatz / Fahrradabstellplatz questions (Bauordnung /\nStellplatzverordnung). Draws a slot grid \u2014 outline slots for the required\ncount, filled for those provided \u2014 and reads provided against the required\nminimum for cars and, optionally, bicycles.",
+      "properties": {
+        "basis": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How the requirement is derived, e.g. '1 Stpl. je 100 m\u00b2 BGF'",
+          "title": "Basis"
+        },
+        "bicycle_spaces": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DimensionCheck"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Provided vs required Fahrradabstellpl\u00e4tze"
+        },
+        "car_spaces": {
+          "$ref": "#/$defs/DimensionCheck",
+          "description": "Provided vs required Kfz-Stellpl\u00e4tze (comparator '>=')"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional clarification",
+          "title": "Note"
+        },
+        "reference": {
+          "$ref": "#/$defs/NormReference",
+          "description": "Source of the parking requirement (Bauordnung / StPl-VO)"
+        },
+        "title": {
+          "description": "Title, e.g. 'Stellplatznachweis \u2013 Wohnbau'",
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "parking_requirement",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "title",
+        "car_spaces",
+        "reference"
+      ],
+      "title": "ParkingRequirementCard",
       "type": "object"
     },
     "ProjectProfilePatchCard": {
@@ -1352,6 +1757,55 @@
       ],
       "title": "SummaryCard",
       "type": "object"
+    },
+    "ThermalEnvelopeCard": {
+      "description": "A thermal-envelope (W\u00e4rmeschutz) schematic: U-values per building part.\n\nEmit for U-Wert / W\u00e4rmeschutz questions (OIB 6). Draws a simple building\ncross-section with each envelope component highlighted by status, and one\nlimit bar per component reading its U-value against the maximum permitted\n(lower is better). Fills the OIB 6 energy-efficiency domain.",
+      "properties": {
+        "components": {
+          "description": "The envelope components to check",
+          "items": {
+            "$ref": "#/$defs/EnvelopeComponent"
+          },
+          "title": "Components",
+          "type": "array"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional clarification",
+          "title": "Note"
+        },
+        "reference": {
+          "$ref": "#/$defs/NormReference",
+          "description": "Source of the max U-values (OIB 6 / \u00d6NORM B 8110-1)"
+        },
+        "title": {
+          "description": "Title, e.g. 'W\u00e4rmeschutz \u2013 U-Werte der Geb\u00e4udeh\u00fclle'",
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "thermal_envelope",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "title",
+        "components",
+        "reference"
+      ],
+      "title": "ThermalEnvelopeCard",
+      "type": "object"
     }
   },
   "discriminator": {
@@ -1362,13 +1816,18 @@
       "density_check": "#/$defs/DensityCheckCard",
       "dimension_diagram": "#/$defs/DimensionDiagramCard",
       "egress_diagram": "#/$defs/EgressDiagramCard",
+      "elevator_requirement": "#/$defs/ElevatorRequirementCard",
+      "energy_performance": "#/$defs/EnergyPerformanceCard",
       "fire_access_plan": "#/$defs/FireAccessPlanCard",
+      "fire_compartment": "#/$defs/FireCompartmentCard",
       "guardrail_check": "#/$defs/GuardrailCheckCard",
       "legal_basis": "#/$defs/LegalBasisCard",
+      "parking_requirement": "#/$defs/ParkingRequirementCard",
       "project_profile_patch": "#/$defs/ProjectProfilePatchCard",
       "setback_plan": "#/$defs/SetbackPlanCard",
       "stair_diagram": "#/$defs/StairDiagramCard",
-      "summary": "#/$defs/SummaryCard"
+      "summary": "#/$defs/SummaryCard",
+      "thermal_envelope": "#/$defs/ThermalEnvelopeCard"
     },
     "propertyName": "type"
   },
@@ -1411,6 +1870,21 @@
     },
     {
       "$ref": "#/$defs/AcousticCheckCard"
+    },
+    {
+      "$ref": "#/$defs/FireCompartmentCard"
+    },
+    {
+      "$ref": "#/$defs/ThermalEnvelopeCard"
+    },
+    {
+      "$ref": "#/$defs/EnergyPerformanceCard"
+    },
+    {
+      "$ref": "#/$defs/ElevatorRequirementCard"
+    },
+    {
+      "$ref": "#/$defs/ParkingRequirementCard"
     }
   ]
 }

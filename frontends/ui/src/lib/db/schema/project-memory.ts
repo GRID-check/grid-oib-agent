@@ -66,6 +66,11 @@ export const projectMemory = pgTable(
     projectIdx: index('idx_project_memory_project_id').on(table.projectId),
     projectStatusIdx: index('idx_project_memory_project_status').on(table.projectId, table.status),
     orgScopeIdx: index('idx_project_memory_org_scope').on(table.organizationId, table.scope, table.status),
+    // NOTE: two PARTIAL UNIQUE indexes on a normalized-content expression
+    // (uniq_project_memory_{project,org}_content_active) enforce "at most one
+    // active item per scope-owner + normalized content". They are expression +
+    // partial indexes that the drizzle builder can't express, so they live in
+    // migration 0010_project_memory_dedup.sql. See createProjectMemoryItem.
   }),
 )
 
