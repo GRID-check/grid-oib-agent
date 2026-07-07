@@ -173,6 +173,7 @@ export default async function OrganizationPage(): Promise<JSX.Element> {
         canManageSso={perms.includes('widgets:sso:manage')}
         canManageDirectory={perms.includes('widgets:dsync:manage')}
         canManageDomains={perms.includes('widgets:domain-verification:manage')}
+        canManageAuditLogs={perms.includes('widgets:audit-log-streaming:manage')}
       />
     </div>,
   )

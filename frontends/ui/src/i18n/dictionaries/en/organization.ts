@@ -41,6 +41,8 @@ export const organization = {
     directoryDescription: 'Automatically provision and de-provision members from your directory.',
     domains: 'Domain verification',
     domainsDescription: 'Verify domains your organization owns.',
+    auditLogs: 'Audit log streaming',
+    auditLogsDescription: 'Stream audit events to your SIEM or logging provider.',
   },
   notAdmin: {
     title: 'You need admin access',

@@ -43,6 +43,8 @@ export const organization: typeof en.organization = {
     directoryDescription: 'Mitglieder automatisch aus Ihrem Verzeichnis bereitstellen und entfernen.',
     domains: 'Domain-Verifizierung',
     domainsDescription: 'Verifizieren Sie Domains, die Ihrer Organisation gehören.',
+    auditLogs: 'Audit-Log-Streaming',
+    auditLogsDescription: 'Streamen Sie Audit-Ereignisse an Ihr SIEM oder Ihren Logging-Anbieter.',
   },
   notAdmin: {
     title: 'Sie benötigen Administratorrechte',

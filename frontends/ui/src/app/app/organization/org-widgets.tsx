@@ -20,6 +20,7 @@ import {
   AdminPortalSsoConnection,
   DirectorySync,
   AdminPortalDomainVerification,
+  AdminPortalAuditLogStreaming,
 } from '@workos-inc/widgets'
 import '@radix-ui/themes/styles.css'
 
@@ -33,6 +34,7 @@ export interface OrgWidgetsProps {
   canManageSso: boolean
   canManageDirectory: boolean
   canManageDomains: boolean
+  canManageAuditLogs: boolean
 }
 
 export const OrgWidgets = ({
@@ -40,6 +42,7 @@ export const OrgWidgets = ({
   canManageSso,
   canManageDirectory,
   canManageDomains,
+  canManageAuditLogs,
 }: OrgWidgetsProps): React.ReactNode => {
   const t = useTranslations('organization')
   const appearance = useResolvedAppearance()
@@ -51,8 +54,12 @@ export const OrgWidgets = ({
     () => makeWidgetTokenFetcher(['widgets:domain-verification:manage']),
     [],
   )
+  const auditLogsToken = useMemo(
+    () => makeWidgetTokenFetcher(['widgets:audit-log-streaming:manage']),
+    [],
+  )
 
-  const hasAdvanced = canManageSso || canManageDirectory || canManageDomains
+  const hasAdvanced = canManageSso || canManageDirectory || canManageDomains || canManageAuditLogs
 
   return (
     <WorkOsWidgets theme={{ appearance, radius: 'medium', scaling: '100%' }}>
@@ -107,6 +114,18 @@ export const OrgWidgets = ({
               </CardHeader>
               <CardContent>
                 <AdminPortalDomainVerification authToken={domainsToken} />
+              </CardContent>
+            </Card>
+          )}
+
+          {canManageAuditLogs && (
+            <Card>
+              <CardHeader>
+                <CardTitle>{t('advanced.auditLogs')}</CardTitle>
+                <CardDescription>{t('advanced.auditLogsDescription')}</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <AdminPortalAuditLogStreaming authToken={auditLogsToken} />
               </CardContent>
             </Card>
           )}

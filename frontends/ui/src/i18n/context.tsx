@@ -30,6 +30,7 @@ import {
 import { getDictionary, type Dictionary } from './dictionaries'
 import { createTranslator, type Translator } from './translate'
 import { fetchUserPreferences, patchUserPreferences } from '@/lib/user-preferences/client'
+import { fetchOrgDefaultLocale } from '@/lib/organizations/client'
 
 interface I18nContextValue {
   locale: Locale
@@ -75,20 +76,35 @@ export function I18nProvider({ initialLocale, children }: I18nProviderProps): Re
     [applyLocale],
   )
 
-  // On first mount, reconcile with the user's saved preference. This covers a
-  // fresh device where the cookie was never set and the server fell back to the
-  // Accept-Language header.
+  // On first mount, reconcile the active locale with the user's context:
+  //   1. their saved personal preference (cross-device), else
+  //   2. their organization's default language (so a new member starts in the
+  //      org's configured language until they pick their own).
+  // This covers a fresh device where the cookie was never set and the server
+  // fell back to the Accept-Language header.
   useEffect(() => {
     if (hydratedRef.current) return
     hydratedRef.current = true
 
     let cancelled = false
-    void fetchUserPreferences().then((prefs) => {
+    void (async () => {
+      const prefs = await fetchUserPreferences()
       if (cancelled) return
-      if (isLocale(prefs.locale) && prefs.locale !== locale) {
-        applyLocale(prefs.locale)
+
+      if (isLocale(prefs.locale)) {
+        if (prefs.locale !== locale) applyLocale(prefs.locale)
+        return
       }
-    })
+
+      // No personal locale yet — inherit the org default. applyLocale writes the
+      // cookie, so subsequent loads render server-side in this language with no
+      // flash. We intentionally do NOT persist it as a chosen preference, so an
+      // admin changing the org default still reaches members who never picked.
+      const orgLocale = await fetchOrgDefaultLocale()
+      if (cancelled || !isLocale(orgLocale)) return
+      if (orgLocale !== locale) applyLocale(orgLocale)
+    })()
+
     return () => {
       cancelled = true
     }
