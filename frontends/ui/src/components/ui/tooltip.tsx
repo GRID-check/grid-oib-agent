@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils'
 const TooltipProvider = React.forwardRef<
   React.ElementRef<typeof TooltipPrimitive.Provider>,
   React.ComponentPropsWithoutRef<typeof TooltipPrimitive.Provider>
->(({ delayDuration = 0, ...props }, ref) => (
+>(({ delayDuration = 0, ...props }) => (
   <TooltipPrimitive.Provider data-slot="tooltip-provider" delayDuration={delayDuration} {...props} />
 ))
 TooltipProvider.displayName = TooltipPrimitive.Provider.displayName

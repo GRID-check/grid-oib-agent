@@ -82,7 +82,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> },
 ): Promise<Response> {
   try {
-    const session = await requireAuthorizedSession()
+    await requireAuthorizedSession()
     const { id } = await params
     const db = getDb()
 

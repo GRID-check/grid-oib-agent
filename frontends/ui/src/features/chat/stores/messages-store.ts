@@ -10,7 +10,6 @@ import type {
   ErrorCode,
   FileUploadStatusType,
   DeepResearchBannerType,
-  PlanMessage,
   Conversation,
 } from '../types'
 import type { GridCard } from '@/shared/cards/schemas'
@@ -118,11 +117,6 @@ const createNewConversation = (userId: string): Conversation => ({
   createdAt: new Date(),
   updatedAt: new Date(),
 })
-
-const getDefaultEnabledDataSourceIds = (): string[] => {
-  const layoutStore = useLayoutStore.getState()
-  return layoutStore.availableDataSources?.map((source) => source.id) ?? []
-}
 
 const createDeepResearchBannerMessage = (
   bannerType: DeepResearchBannerType,

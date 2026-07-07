@@ -12,6 +12,7 @@
 'use client'
 
 import { type FC, memo, useRef, useEffect, useCallback, useState, useMemo } from 'react'
+import Link from 'next/link'
 import { CheckCircle2, CircleEllipsis, FileText, Folder, Lock, MessageSquare } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { Button } from '@/components/ui/button'
@@ -453,7 +454,7 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
             </div>
 
             <div className="grid grid-cols-1 gap-3 md:grid-cols-[1.1fr_0.9fr]">
-              <a
+              <Link
                 href="/app/projects"
                 className="group rounded-xl border bg-muted p-5 transition hover:-translate-y-0.5 hover:bg-accent"
               >
@@ -466,7 +467,7 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
                     </span>
                   </div>
                 </div>
-              </a>
+              </Link>
               <div className="rounded-xl border bg-muted/30 p-5">
                 <div className="flex flex-col gap-4">
                   <CircleEllipsis className="h-6 w-6 text-brand" aria-hidden="true" />

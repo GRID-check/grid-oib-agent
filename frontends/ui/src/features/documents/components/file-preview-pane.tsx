@@ -18,7 +18,7 @@ interface FilePreviewPaneProps {
 
 const PREVIEW_TYPES = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp', 'image/svg+xml']
 
-export function FilePreviewPane({ file, projectId, onClose }: FilePreviewPaneProps) {
+export function FilePreviewPane({ file, onClose }: FilePreviewPaneProps) {
   const t = useTranslations('files')
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)

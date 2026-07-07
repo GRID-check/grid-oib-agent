@@ -19,7 +19,7 @@ import {
   logCriticalSessionsClear,
   logStorageAvailability,
 } from '../lib/storage-logger'
-import { ensureStorageCapacity, checkStorageHealth } from '../lib/storage-manager'
+import { ensureStorageCapacity } from '../lib/storage-manager'
 import { clearAllDeepResearchSessions } from '../lib/deep-research-session-storage'
 import { hasActiveDeepResearchJob, hasNoUserChatMessages } from '../lib/session-activity'
 
@@ -176,59 +176,11 @@ const createNewConversation = (userId: string): Conversation => ({
   updatedAt: new Date(),
 })
 
-const generateTitle = (content: string): string => {
-  const maxLength = 50
-  const trimmed = content.trim()
-  if (trimmed.length <= maxLength) {
-    return trimmed
-  }
-  return trimmed.substring(0, maxLength) + '...'
-}
-
 const updateConversationInList = (
   conversations: Conversation[],
   updatedConversation: Conversation
 ): Conversation[] => {
   return conversations.map((c) => (c.id === updatedConversation.id ? updatedConversation : c))
-}
-
-const getLatestDeepResearchMessage = (conversation: Conversation): ChatMessage | null => {
-  for (let i = conversation.messages.length - 1; i >= 0; i--) {
-    const message = conversation.messages[i]
-    if (message.messageType === 'agent_response' && message.deepResearchJobId) {
-      return message
-    }
-  }
-  return null
-}
-
-const isCompletedDeepResearchReportMessage = (message: ChatMessage): boolean =>
-  Boolean(
-    !message.deepResearchReportExpired &&
-    message.deepResearchJobId &&
-    message.deepResearchJobStatus === 'success' &&
-    (message.showViewReport || message.reportContent?.trim())
-  )
-
-const patchLatestDeepResearchJobMessage = (
-  conversation: Conversation,
-  jobId: string,
-  patch: Partial<ChatMessage>
-): Conversation => {
-  const messageIndex = [...conversation.messages]
-    .reverse()
-    .findIndex(
-      (message) => message.messageType === 'agent_response' && message.deepResearchJobId === jobId
-    )
-
-  if (messageIndex < 0) return conversation
-
-  const actualIndex = conversation.messages.length - 1 - messageIndex
-  const messages = conversation.messages.map((message, index) =>
-    index === actualIndex ? { ...message, ...patch } : message
-  )
-
-  return { ...conversation, messages }
 }
 
 export const patchConversationMessageById = (
