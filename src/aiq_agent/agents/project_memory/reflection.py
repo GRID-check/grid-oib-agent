@@ -252,15 +252,31 @@ def schedule_memory_reflection(
 
     async def _guarded() -> None:
         try:
-            await run_memory_reflection(
-                llm=llm,
-                query=query,
-                answer=answer,
-                project_id=project_id,
-                organization_id=organization_id,
-                conversation_id=conversation_id,
-                memory_digest=memory_digest,
-            )
+            # Own cost-tracking activation: the turn's tracker is flushed by
+            # the time this fires and the request headers are gone, so the
+            # identity captured at schedule time is passed explicitly. Empty
+            # budget snapshot: a background reflection is never hard-stopped.
+            from aiq_agent.common.cost_tracking import BudgetSnapshot
+            from aiq_agent.common.cost_tracking import track_llm_costs
+
+            with track_llm_costs(
+                identity={
+                    "organization_id": organization_id,
+                    "user_id": None,
+                    "project_id": project_id,
+                    "conversation_id": conversation_id,
+                },
+                budget=BudgetSnapshot(),
+            ):
+                await run_memory_reflection(
+                    llm=llm,
+                    query=query,
+                    answer=answer,
+                    project_id=project_id,
+                    organization_id=organization_id,
+                    conversation_id=conversation_id,
+                    memory_digest=memory_digest,
+                )
         except Exception:
             # A background reflection must never surface as a user-facing failure.
             logger.exception("Memory reflection task failed (non-fatal)")

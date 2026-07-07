@@ -13,6 +13,8 @@ import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
 import { loadProjectPromptView } from '@/lib/project-profile/prompt-view'
 import { buildProjectMemoryDigest } from '@/lib/projects/memory-service'
 import { isOrgFeatureEnabled, MEMORY_REFLECTION_FLAG } from '@/lib/workos/feature-flags'
+import { getActiveModelOverrides } from '@/lib/model-config/service'
+import { getBudgetStatus } from '@/lib/budgets/service'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { isAuthzError } from '@/lib/auth-utils'
 
@@ -62,6 +64,45 @@ export async function GET(req: Request): Promise<Response> {
     response.memoryReflectionEnabled = session?.organizationId
       ? await isOrgFeatureEnabled(MEMORY_REFLECTION_FLAG, session.organizationId, memoryReflectionEnvDefault())
       : memoryReflectionEnvDefault()
+
+    if (session?.organizationId) {
+      // Per-org runtime model overrides (active org_model_configs version) —
+      // forwarded by server.js as x-grid-model-overrides. Best-effort: a
+      // config read failure must not block chat; defaults apply instead.
+      try {
+        const modelOverrides = await getActiveModelOverrides(session.organizationId)
+        if (modelOverrides) {
+          response.modelOverrides = modelOverrides
+        }
+      } catch (error) {
+        console.warn('[WebSocket Scope API] Failed to load model overrides:', error)
+      }
+
+      // Budget enforcement (ADR-0015): refuse the upgrade outright when a
+      // budget scope is already exhausted, otherwise forward the remaining
+      // budget so the backend tracker can stop a runaway turn mid-flight.
+      // Fails OPEN on read errors — a broken budget lookup must not take
+      // chat down; enforcement resumes on the next healthy upgrade.
+      try {
+        const budgetStatus = await getBudgetStatus(session.organizationId, session.userId, projectId ?? null)
+        if (budgetStatus.blocked) {
+          return NextResponse.json(
+            {
+              error: 'Budget exhausted',
+              reason: `The ${budgetStatus.blockedScope} LLM budget is exhausted. An org admin can raise limits under Organization → Usage & budgets.`,
+            },
+            { status: 403 },
+          )
+        }
+        response.budget = {
+          remainingOrgUsd: budgetStatus.remainingOrgUsd,
+          remainingUserUsd: budgetStatus.remainingUserUsd,
+          remainingProjectUsd: budgetStatus.remainingProjectUsd,
+        }
+      } catch (error) {
+        console.warn('[WebSocket Scope API] Failed to compute budget status:', error)
+      }
+    }
 
     if (projectId) {
       if (isAuthRequired() && session) {

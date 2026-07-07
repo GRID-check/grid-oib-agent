@@ -195,26 +195,32 @@ def _load_agent_class(agent_class_path: str) -> type:
 
 async def _create_llm_provider(builder: Any, fn_config: Any) -> tuple[Any, Any]:
     """Create a role-aware LLM provider from a NAT function config."""
+    from aiq_agent.common import AgentGroup
     from aiq_agent.common import LLMProvider
     from aiq_agent.common import LLMRole
     from nat.builder.framework_enum import LLMFrameworkEnum
 
+    # Agent-group tags mirror the sync registrations (deep_researcher/register.py)
+    # so per-org runtime model overrides apply identically to async jobs.
     role_config_attrs = (
-        (LLMRole.ORCHESTRATOR, "orchestrator_llm"),
-        (LLMRole.ROUTER, "source_router_llm"),
-        (LLMRole.PLANNER, "planner_llm"),
-        (LLMRole.RESEARCHER, "researcher_llm"),
-        (LLMRole.REPORT_WRITER, "writer_llm"),
+        (LLMRole.ORCHESTRATOR, "orchestrator_llm", AgentGroup.DEEP_RESEARCH),
+        (LLMRole.ROUTER, "source_router_llm", AgentGroup.DEEP_RESEARCH_ROUTER),
+        (LLMRole.PLANNER, "planner_llm", AgentGroup.DEEP_RESEARCH),
+        (LLMRole.RESEARCHER, "researcher_llm", AgentGroup.DEEP_RESEARCH),
+        (LLMRole.REPORT_WRITER, "writer_llm", AgentGroup.DEEP_RESEARCH),
     )
     llm_cache: dict[Any, Any] = {}
     role_llms = {}
-    for role, config_attr in role_config_attrs:
+    role_groups = {}
+    for role, config_attr, group in role_config_attrs:
         llm_ref = getattr(fn_config, config_attr, None)
         if llm_ref:
             if llm_ref not in llm_cache:
                 llm_cache[llm_ref] = await builder.get_llm(llm_ref, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
             role_llms[role] = llm_cache[llm_ref]
+            role_groups[role] = group
 
+    default_group = AgentGroup.DEEP_RESEARCH
     default_llm = role_llms.get(LLMRole.ORCHESTRATOR)
     if default_llm is None:
         llm_ref = getattr(fn_config, "llm", None)
@@ -222,11 +228,13 @@ async def _create_llm_provider(builder: Any, fn_config: Any) -> tuple[Any, Any]:
             if llm_ref not in llm_cache:
                 llm_cache[llm_ref] = await builder.get_llm(llm_ref, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
             default_llm = llm_cache[llm_ref]
+            if getattr(fn_config, "type", None) == "shallow_research_agent":
+                default_group = AgentGroup.SHALLOW_RESEARCH
 
     provider = LLMProvider()
-    provider.set_default(default_llm)
+    provider.set_default(default_llm, group=default_group)
     for role, llm in role_llms.items():
-        provider.configure(role, llm)
+        provider.configure(role, llm, group=role_groups.get(role))
 
     return provider, default_llm
 
@@ -253,6 +261,8 @@ async def run_agent_job(
     auth_token: str | None = None,
     collection_scope: list[str] | None = None,
     project_context: str | None = None,
+    model_overrides: dict[str, str] | None = None,
+    usage_context: dict | None = None,
 ):
     """
     Dask task to run any registered agent with cancellation support and telemetry.
@@ -290,6 +300,14 @@ async def run_agent_job(
         project_context: Optional project context string to inject into the
             worker's request metadata so that
             ``get_project_context_from_context()`` returns the correct context.
+        model_overrides: Optional per-org runtime model overrides
+            (``{agent_group: openrouter_model_id}``) captured from the
+            submitting request's ``X-Grid-Model-Overrides`` header. Applied to
+            the worker's LLM provider and re-injected into the worker's request
+            metadata so ``get_model_overrides_from_context()`` stays correct.
+        usage_context: Optional identity + budget snapshot captured at submit
+            time (``capture_usage_context()``), used to activate unified LLM
+            cost tracking for the whole job.
     """
 
     # Propagate auth token into the current async task's context so tools
@@ -361,6 +379,21 @@ async def run_agent_job(
                     fn_config = fn_config.model_copy(update={"skills": skills_config, "sandbox": sandbox_config})
 
             provider, llm = await _create_llm_provider(builder, fn_config)
+
+            # Apply per-org runtime model overrides captured at submission time.
+            # Done directly on the provider (not only via the header injection
+            # below) so the override holds regardless of when the agent class
+            # resolves its LLMs relative to context setup.
+            if model_overrides:
+                from aiq_agent.common import LLMRole
+                from aiq_agent.common import sanitize_model_overrides
+
+                sanitized_overrides = sanitize_model_overrides(model_overrides)
+                overridden = provider.with_model_overrides(sanitized_overrides)
+                if overridden is not provider:
+                    provider = overridden
+                    if llm is not None:
+                        llm = provider.get(LLMRole.ORCHESTRATOR)
 
             # Resolve tools: use explicit list or auto-inherit from data_source_registry
             tool_refs = fn_config.tools
@@ -451,6 +484,18 @@ async def run_agent_job(
                     )
                     context_state.metadata.set(request_attrs)
 
+            # Re-inject the model-overrides header so any code that reads
+            # get_model_overrides_from_context() inside the worker sees the
+            # same overrides as the submitting request.
+            if model_overrides:
+                from aiq_agent.common import MODEL_OVERRIDES_HEADER
+
+                request_attrs = context_state.metadata.get()
+                encoded = base64.urlsafe_b64encode(json.dumps(model_overrides).encode()).rstrip(b"=").decode()
+                existing_headers = dict(request_attrs.headers) if request_attrs and request_attrs.headers else {}
+                request_attrs._request.headers = Headers(headers={**existing_headers, MODEL_OVERRIDES_HEADER: encoded})
+                context_state.metadata.set(request_attrs)
+
             workflow_metadata = TraceMetadata(
                 provided_metadata={
                     "workflow_run_id": job_id,
@@ -520,15 +565,27 @@ async def run_agent_job(
                         job_id=job_id,
                     )
 
-                    # Run agent - LLM/tool events will be nested under workflow span
-                    result = await _run_agent(
-                        agent=agent,
-                        input_text=input_text,
-                        monitor=cancellation_monitor,
-                        available_documents=available_documents,
-                        data_sources=data_sources,
-                        event_store=event_store,
-                    )
+                    # Run agent - LLM/tool events will be nested under workflow span.
+                    # Unified LLM cost tracking covers every model call in the job;
+                    # identity/budget were captured at submit time (no live request
+                    # headers exist inside a Dask worker).
+                    from aiq_agent.common.cost_tracking import BudgetSnapshot
+                    from aiq_agent.common.cost_tracking import track_llm_costs
+
+                    _usage = usage_context or {}
+                    with track_llm_costs(
+                        job_id=job_id,
+                        identity=_usage.get("identity") or {},
+                        budget=BudgetSnapshot.from_header(_usage.get("budget_header")) or BudgetSnapshot(),
+                    ):
+                        result = await _run_agent(
+                            agent=agent,
+                            input_text=input_text,
+                            monitor=cancellation_monitor,
+                            available_documents=available_documents,
+                            data_sources=data_sources,
+                            event_store=event_store,
+                        )
 
                     # Emit WORKFLOW_END event for Phoenix
                     context.intermediate_step_manager.push_intermediate_step(

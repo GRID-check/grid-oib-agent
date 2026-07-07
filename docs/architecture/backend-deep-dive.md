@@ -282,6 +282,33 @@ The agent can now persist curated findings across turns. Full design:
   (`server.js` → `src/aiq_agent/project_context.py`), injected into prompts
   alongside `x-grid-project-context`.
 
+## 8b. Runtime model overrides & usage metering (2026-07-07)
+
+Two org-level runtime systems sit on top of the static workflow config —
+full specs in `org-model-configuration.md` (ADR-0014) and
+`usage-budgets.md` (ADR-0015); summary of the backend seams:
+
+- **Model overrides**: `x-grid-model-overrides` (base64url JSON
+  `{agentGroup: openrouterModelId}`) is parsed by
+  `src/aiq_agent/common/model_overrides.py` and applied request-scoped:
+  `LLMProvider.with_model_overrides()` (group-tagged roles; identity when
+  nothing applies) in the shallow/deep/clarifier `_run` closures, plus
+  `apply_model_override()` at the intent-classifier invocation, the
+  clarifier planner, and the reflection scheduling site. Async jobs carry
+  the map through `submit_agent_job` → `jobs/runner.py` (provider + header
+  re-injection). Only the model id changes; params/keys stay from YAML.
+- **Cost capture (DRY)**: `src/aiq_agent/common/cost_tracking.py` installs
+  `GridCostTracker` through LangChain's `register_configure_hook` ContextVar
+  seam — every callback manager configured inside the request picks it up,
+  so agents contain no metering code. Activated in exactly three places:
+  the chat workflow `_run`, the Dask job runner, and the reflection task.
+  Events (model, tokens, OpenRouter `usage.cost`, generation id) POST to
+  the token-guarded `POST /api/internal/usage` (single-writer rule).
+- **Budgets**: `x-grid-budget` carries remaining USD per scope
+  (org/member/project); the tracker raises `BudgetExceededError` before the
+  next LLM call once exhausted (sync path returns a friendly chat response);
+  the BFF refuses the WS upgrade outright when already over.
+
 ## 9. Known issues / open items
 
 - **Research tab 403** — origin is `requireAuthorizedSession()` throwing

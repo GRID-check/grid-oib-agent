@@ -7,7 +7,7 @@
  */
 
 import Link from 'next/link'
-import { ArrowLeft, Building2, Globe, Mail, ShieldAlert, Users } from 'lucide-react'
+import { ArrowLeft, Building2, Cpu, Gauge, Globe, Mail, ShieldAlert, Users } from 'lucide-react'
 import { requireAuthorizedPageSession } from '@/lib/auth/require-auth'
 import { isOrgAdmin } from '@/lib/authz/organizations'
 import { getOrganizationOverview, getOrgSettings, type OrganizationOverview } from '@/lib/organizations/service'
@@ -16,6 +16,8 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/com
 import { getTranslations, getLocale } from '@/i18n/server'
 import { OrgSettingsForm } from './org-settings-form'
 import { OrgWidgets } from './org-widgets'
+import { ModelConfigCard } from './model-config-card'
+import { BudgetUsageCard } from './budget-usage-card'
 
 const isAuthRequired = (): boolean => process.env.REQUIRE_AUTH?.toLowerCase() === 'true'
 
@@ -164,6 +166,34 @@ export default async function OrganizationPage(): Promise<JSX.Element> {
             initialDisplayName={settings.displayName}
             initialDefaultLocale={settings.defaultLocale}
           />
+        </CardContent>
+      </Card>
+
+      {/* Runtime model configuration (ADR-0014) */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Cpu className="size-4 text-muted-foreground" aria-hidden />
+            {t('models.title')}
+          </CardTitle>
+          <CardDescription>{t('models.description')}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <ModelConfigCard />
+        </CardContent>
+      </Card>
+
+      {/* Usage & budgets (ADR-0015) */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Gauge className="size-4 text-muted-foreground" aria-hidden />
+            {t('budgets.title')}
+          </CardTitle>
+          <CardDescription>{t('budgets.description')}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <BudgetUsageCard isAdmin />
         </CardContent>
       </Card>
 

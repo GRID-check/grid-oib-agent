@@ -29,6 +29,7 @@ from aiq_agent.common import VerboseTraceCallback
 from aiq_agent.common import _create_chat_response
 from aiq_agent.common import format_data_source_tools
 from aiq_agent.common import get_checkpointer
+from aiq_agent.common import get_model_overrides_from_context
 from aiq_agent.common import is_verbose
 from aiq_agent.common.citation_verification import get_or_create_session_registry
 from aiq_agent.common.citation_verification import reset_session_registry
@@ -353,6 +354,7 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                     data_sources=state.data_sources,
                     collection_scope=state.collection_scope,
                     project_context=state.project_context,
+                    model_overrides=get_model_overrides_from_context() or None,
                 )
 
             deep_research_job_submitter = _submit_deep_job
@@ -567,7 +569,18 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                 skip_clarifier=skip_clarifier,
                 project_context=_project_context,
             )
-            result = await agent.run(state, thread_id=nat_context_conversation_id)
+            # Unified LLM cost capture + budget enforcement for the whole turn
+            # (every agent/LLM call inside inherits the tracker via LangChain's
+            # configure hook — see aiq_agent/common/cost_tracking.py).
+            from aiq_agent.common.cost_tracking import BudgetExceededError
+            from aiq_agent.common.cost_tracking import track_llm_costs
+
+            try:
+                with track_llm_costs():
+                    result = await agent.run(state, thread_id=nat_context_conversation_id)
+            except BudgetExceededError as budget_error:
+                logger.warning("Turn stopped by budget enforcement: %s", budget_error)
+                return _create_chat_response(str(budget_error), response_id="budget_exceeded", model=workflow_id)
         finally:
             reset_session_registry(token)
             reset_card_registry(card_token)
@@ -621,9 +634,14 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
             answer_text = response_content if isinstance(response_content, str) else str(response_content)
             if _reflection_answer_is_substantive(result, answer_text):
                 from aiq_agent.agents.project_memory.reflection import schedule_memory_reflection
+                from aiq_agent.common import AgentGroup
+                from aiq_agent.common import apply_model_override
 
+                # Applied here — not inside the background task — because the
+                # override header is only readable while the request context is
+                # still live.
                 schedule_memory_reflection(
-                    llm=reflection_llm,
+                    llm=apply_model_override(reflection_llm, AgentGroup.MEMORY_REFLECTION),
                     query=query_text,
                     answer=answer_text,
                     project_id=_reflection_project_id,

@@ -85,6 +85,20 @@
       "when": 1783422281817,
       "tag": "0011_organizations",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1783422282817,
+      "tag": "0012_org_model_config",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1783422283817,
+      "tag": "0013_budgets",
+      "breakpoints": true
     }
   ]
 }
