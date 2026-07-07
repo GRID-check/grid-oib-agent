@@ -14,6 +14,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { CheckCircle2 } from 'lucide-react'
 import { Progress } from '@/components/ui/progress'
 import { useChatStore } from '@/features/chat'
+import { useTranslations } from '@/i18n'
 import { TaskCard } from './TaskCard'
 
 /**
@@ -21,6 +22,7 @@ import { TaskCard } from './TaskCard'
  * Uses deepResearchTodos from the store (populated by SSE artifact.update events).
  */
 export const TasksTab: FC = () => {
+  const t = useTranslations('research')
   const { deepResearchTodos, currentStatus, isDeepResearchStreaming } = useChatStore(
     useShallow((s) => ({
       deepResearchTodos: s.deepResearchTodos,
@@ -42,7 +44,7 @@ export const TasksTab: FC = () => {
       {/* Header with progress indicator */}
       <div className="flex shrink-0 flex-col gap-1">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold text-muted-foreground">Tasks</span>
+          <span className="text-sm font-semibold text-muted-foreground">{t('tasksTab.title')}</span>
           {totalCount > 0 && (
             <span className="text-xs text-muted-foreground">
               {completedCount}/{totalCount}
@@ -50,7 +52,7 @@ export const TasksTab: FC = () => {
           )}
         </div>
         <span className="text-xs text-muted-foreground">
-          Research plan breakdown and progress during deep research.
+          {t('tasksTab.description')}
         </span>
       </div>
 
@@ -58,16 +60,16 @@ export const TasksTab: FC = () => {
       {isEmpty ? (
         <div className="flex flex-1 flex-col items-center justify-center py-8 text-center">
           <CheckCircle2 className="mb-3 h-8 w-8 text-muted-foreground" aria-hidden="true" />
-          <p className="text-sm text-muted-foreground">Research tasks will appear here.</p>
+          <p className="text-sm text-muted-foreground">{t('tasksTab.empty')}</p>
           <p className="mt-2 text-sm text-muted-foreground">
-            Shows the plan breakdown and progress during deep research.
+            {t('tasksTab.emptyHelp')}
           </p>
         </div>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
           {/* Progress bar showing completion percentage */}
           <div className="shrink-0">
-            <Progress value={progressPercent} aria-label="Task completion progress" />
+            <Progress value={progressPercent} aria-label={t('tasksTab.progressAria')} />
           </div>
 
           {/* Writing report indicator */}
@@ -75,7 +77,7 @@ export const TasksTab: FC = () => {
             <div className="flex shrink-0 items-center gap-2 rounded-md bg-info-subtle px-3 py-2">
               <div className="h-2 w-2 animate-pulse rounded-full bg-info motion-reduce:animate-none" />
               <span className="text-sm text-info">
-                Writing final report... This may take a few minutes.
+                {t('tasksTab.writingReport')}
               </span>
             </div>
           )}

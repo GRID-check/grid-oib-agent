@@ -20,6 +20,7 @@ import { cancelJob } from '@/adapters/api'
 import { useChatStore, useLoadJobData } from '@/features/chat'
 import { useAuth } from '@/adapters/auth'
 import { useReducedMotion } from '@/hooks/use-reduced-motion'
+import { useTranslations } from '@/i18n'
 import { useLayoutStore } from '../store'
 import { TasksTab } from './TasksTab'
 import { ThinkingTab } from './ThinkingTab'
@@ -48,6 +49,7 @@ export const ResearchPanel: FC<ResearchPanelProps> = memo(function ResearchPanel
   children,
   isAuthenticated = false,
 }) {
+  const t = useTranslations('research')
   const isOpen = useLayoutStore((s) => s.rightPanel === 'research')
   const researchPanelTab = useLayoutStore((s) => s.researchPanelTab)
   const setResearchPanelTab = useLayoutStore((s) => s.setResearchPanelTab)
@@ -126,8 +128,8 @@ export const ResearchPanel: FC<ResearchPanelProps> = memo(function ResearchPanel
       }, CANCEL_FALLBACK_TIMEOUT_MS)
     } catch (error) {
       console.error('Failed to cancel job:', error)
-      toast.error('Could not stop research', {
-        description: 'The research run may still be running. Please try again.',
+      toast.error(t('researchPanel.couldNotStop'), {
+        description: t('researchPanel.couldNotStopDesc'),
       })
     }
   }, [deepResearchJobId, idToken])
@@ -196,26 +198,26 @@ export const ResearchPanel: FC<ResearchPanelProps> = memo(function ResearchPanel
           'relative z-10 mt-3 flex h-[152px] w-10 shrink-0 items-center justify-center self-start overflow-hidden rounded-l-lg border bg-background outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/60',
           isAuthenticated ? 'cursor-pointer hover:border-brand' : 'cursor-not-allowed opacity-50'
         )}
-        aria-label={isOpen ? 'Close research panel' : 'Open research panel'}
+        aria-label={isOpen ? t('researchPanel.closePanel') : t('researchPanel.openPanel')}
         aria-expanded={isOpen}
         title={
           isAuthenticated
             ? isOpen
-              ? 'Close research panel'
-              : 'Open research panel'
-            : 'Sign in to access research panel'
+              ? t('researchPanel.closePanel')
+              : t('researchPanel.openPanel')
+            : t('researchPanel.signInToAccess')
         }
         data-testid="research-panel-toggle"
       >
         <span className="absolute left-1/2 top-3 flex h-6 w-6 -translate-x-1/2 items-center justify-center">
           {isDeepResearchStreaming ? (
-            <Spinner size="sm" label="Researching" />
+            <Spinner size="sm" label={t('researchPanel.researching')} />
           ) : (
             <Sparkles className="h-6 w-6" aria-hidden="true" />
           )}
         </span>
         <span className="absolute left-1/2 top-[84px] -translate-x-1/2 -rotate-90 whitespace-nowrap text-sm font-semibold">
-          Show Research
+          {t('researchPanel.showResearch')}
         </span>
       </button>
 
@@ -242,9 +244,9 @@ export const ResearchPanel: FC<ResearchPanelProps> = memo(function ResearchPanel
             <div className="flex items-center gap-4">
               <Tabs value={researchPanelTab} onValueChange={handleTabChange}>
                 <TabsList>
-                  <TabsTrigger value="tasks">Tasks</TabsTrigger>
-                  <TabsTrigger value="thinking">Thinking</TabsTrigger>
-                  <TabsTrigger value="report">Report</TabsTrigger>
+                  <TabsTrigger value="tasks">{t('researchPanel.tabTasks')}</TabsTrigger>
+                  <TabsTrigger value="thinking">{t('researchPanel.tabThinking')}</TabsTrigger>
+                  <TabsTrigger value="report">{t('researchPanel.tabReport')}</TabsTrigger>
                 </TabsList>
               </Tabs>
               {/* Stop Researching button - always visible, disabled when not streaming */}
@@ -253,12 +255,12 @@ export const ResearchPanel: FC<ResearchPanelProps> = memo(function ResearchPanel
                 size="sm"
                 onClick={isDeepResearchStreaming ? handleStopResearch : undefined}
                 disabled={!isDeepResearchStreaming}
-                aria-label="Stop researching"
-                title={isDeepResearchStreaming ? 'Stop researching' : 'No active research'}
+                aria-label={t('researchPanel.stopResearching')}
+                title={isDeepResearchStreaming ? t('researchPanel.stopResearching') : t('researchPanel.noActiveResearch')}
                 data-testid="research-panel-stop"
               >
                 <CircleStop className="h-4 w-4" aria-hidden="true" />
-                Stop Researching
+                {t('researchPanel.stopResearchingButton')}
               </Button>
             </div>
             <div className="flex items-center gap-4">
@@ -268,8 +270,8 @@ export const ResearchPanel: FC<ResearchPanelProps> = memo(function ResearchPanel
                 size="icon"
                 className="size-8"
                 onClick={handleClose}
-                aria-label="Close research panel"
-                title="Close research panel"
+                aria-label={t('researchPanel.closePanel')}
+                title={t('researchPanel.closePanel')}
                 data-testid="research-panel-close"
               >
                 <X className="h-4 w-4" aria-hidden="true" />
@@ -281,11 +283,11 @@ export const ResearchPanel: FC<ResearchPanelProps> = memo(function ResearchPanel
           <div className="flex flex-1 flex-col overflow-hidden py-5 pl-6 pr-8">
             {isStreamLoading ? (
               <div className="flex h-full flex-col items-center justify-center gap-4">
-                <Spinner label="Loading research data" />
+                <Spinner label={t('researchPanel.loadingData')} />
                 <span className="text-sm text-muted-foreground">
                   {TABS_REQUIRING_STREAM.includes(researchPanelTab)
-                    ? 'Loading research data...'
-                    : 'Loading report...'}
+                    ? t('researchPanel.loadingDataEllipsis')
+                    : t('researchPanel.loadingReport')}
                 </span>
               </div>
             ) : (

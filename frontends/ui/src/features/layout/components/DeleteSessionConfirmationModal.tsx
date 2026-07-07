@@ -18,6 +18,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { useTranslations } from '@/i18n'
 
 export interface DeleteSessionConfirmationModalProps {
   /** Whether the modal is open */
@@ -40,6 +41,8 @@ export const DeleteSessionConfirmationModal: FC<DeleteSessionConfirmationModalPr
   onConfirm,
   sessionTitle,
 }) => {
+  const t = useTranslations('research')
+  const tc = useTranslations('common')
   const trimmedTitle = sessionTitle?.trim()
   const handleConfirm = () => {
     onConfirm()
@@ -52,29 +55,27 @@ export const DeleteSessionConfirmationModal: FC<DeleteSessionConfirmationModalPr
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <AlertTriangle className="h-5 w-5 text-warning" aria-hidden="true" />
-            <span>Deleting Session</span>
+            <span>{t('deleteModals.session.title')}</span>
           </DialogTitle>
         </DialogHeader>
         <div className="flex flex-col gap-3">
           <p className="text-sm">
-            You are about to delete{' '}
+            {t('deleteModals.aboutToDelete')}{' '}
             {trimmedTitle ? (
               <span className="font-semibold">&ldquo;{trimmedTitle}&rdquo;</span>
             ) : (
-              'this session'
+              t('deleteModals.session.thisSession')
             )}
-            . You will lose all progress and any files you have attached will be removed.
+            {t('deleteModals.lossSuffix')}
           </p>
-          <p className="text-sm">
-            This action cannot be reversed. Are you sure you want to do this?
-          </p>
+          <p className="text-sm">{t('deleteModals.cannotReverse')}</p>
         </div>
         <DialogFooter>
           <DialogClose asChild>
-            <Button variant="ghost">Cancel</Button>
+            <Button variant="ghost">{tc('actions.cancel')}</Button>
           </DialogClose>
           <Button variant="destructive" onClick={handleConfirm}>
-            Delete Session
+            {t('deleteModals.session.confirm')}
           </Button>
         </DialogFooter>
       </DialogContent>

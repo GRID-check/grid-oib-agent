@@ -1,3 +1,5 @@
+'use client'
+
 import Link from 'next/link'
 import { ClipboardList, Database, FileText, HardDrive, MessageSquare, PencilLine, Upload } from 'lucide-react'
 import type { ProjectOverviewData } from '../types'
@@ -9,8 +11,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
 import { formatFileSize } from '@/lib/utils/format-file-size'
-import { getTranslations } from '@/i18n/server'
-import type { Translator } from '@/i18n'
+import { useTranslations, type Translator } from '@/i18n'
 
 interface ProjectOverviewProps {
   data: ProjectOverviewData
@@ -58,8 +59,8 @@ function statusLabel(status: string | null, t: Translator): string {
 
 const dateFormatter = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
 
-export async function ProjectOverview({ data }: ProjectOverviewProps) {
-  const t = await getTranslations('projects')
+export function ProjectOverview({ data }: ProjectOverviewProps) {
+  const t = useTranslations('projects')
   const profile = data.profileDisplay
   const keyFacts = profile?.keyFacts ?? []
   const missingInfo = profile?.missingInfo ?? []

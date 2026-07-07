@@ -17,6 +17,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/utils'
 import { motion, fadeRise, springGentle } from '@/components/motion'
+import { useTranslations } from '@/i18n'
 import type { DeepResearchTodo, DeepResearchTodoStatus } from '@/features/chat/types'
 
 interface TaskCardProps {
@@ -47,20 +48,20 @@ const getBadgeClasses = (status: DeepResearchTodoStatus): string => {
 }
 
 /**
- * Get display text for status badge
+ * Map a status to its translation key, or null for unknown statuses.
  */
-const getStatusText = (status: DeepResearchTodoStatus): string => {
+const getStatusKey = (status: DeepResearchTodoStatus): string | null => {
   switch (status) {
     case 'completed':
-      return 'complete'
+      return 'taskCard.statusComplete'
     case 'in_progress':
-      return 'in progress'
+      return 'taskCard.statusInProgress'
     case 'pending':
-      return 'pending'
+      return 'taskCard.statusPending'
     case 'stopped':
-      return 'stopped'
+      return 'taskCard.statusStopped'
     default:
-      return status
+      return null
   }
 }
 
@@ -68,8 +69,10 @@ const getStatusText = (status: DeepResearchTodoStatus): string => {
  * Card showing a single task's checkbox, name, and status badge.
  */
 export const TaskCard: FC<TaskCardProps> = ({ todo }) => {
+  const t = useTranslations('research')
   const isComplete = todo.status === 'completed'
-  const statusText = getStatusText(todo.status)
+  const statusKey = getStatusKey(todo.status)
+  const statusText = statusKey ? t(statusKey) : todo.status
 
   return (
     // Outer motion wrapper handles the mount fade-rise; inner div keeps the
@@ -79,7 +82,7 @@ export const TaskCard: FC<TaskCardProps> = ({ todo }) => {
         className={cn('flex items-center gap-3 rounded-lg border p-3', isComplete && 'opacity-70')}
       >
         {/* Checkbox - checked when complete, always disabled (read-only) */}
-        <Checkbox checked={isComplete} disabled aria-label={`Task: ${todo.content}`} />
+        <Checkbox checked={isComplete} disabled aria-label={t('taskCard.task', { content: todo.content })} />
 
         {/* Task Name */}
         <span
@@ -94,7 +97,7 @@ export const TaskCard: FC<TaskCardProps> = ({ todo }) => {
         {/* Status Badge - with spinner for in_progress */}
         <Badge variant="outline" className={cn('gap-1', getBadgeClasses(todo.status))}>
           {todo.status === 'in_progress' && (
-            <Spinner size="sm" label="In progress" className="[&_svg]:size-3" />
+            <Spinner size="sm" label={t('taskCard.inProgress')} className="[&_svg]:size-3" />
           )}
           {statusText}
         </Badge>

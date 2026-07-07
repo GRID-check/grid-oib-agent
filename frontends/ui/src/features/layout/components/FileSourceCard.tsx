@@ -15,6 +15,7 @@ import { cn } from '@/lib/utils'
 import { motion, springGentle } from '@/components/motion'
 import { useIsCurrentSessionBusy } from '@/features/chat'
 import { formatFileSize } from '@/lib/utils/format-file-size'
+import { useTranslations } from '@/i18n'
 
 /** File source status types */
 export type FileSourceStatus = 'uploading' | 'ingesting' | 'available' | 'error' | 'deleting'
@@ -43,30 +44,30 @@ export interface FileSourceCardProps {
 /** Status configuration for styling */
 const STATUS_CONFIG: Record<
   FileSourceStatus,
-  { label: string; textClass: string; showSpinner: boolean }
+  { labelKey: string; textClass: string; showSpinner: boolean }
 > = {
   uploading: {
-    label: 'Uploading...',
+    labelKey: 'fileSourceCard.statusUploading',
     textClass: 'text-info',
     showSpinner: true,
   },
   ingesting: {
-    label: 'Ingesting...',
+    labelKey: 'fileSourceCard.statusIngesting',
     textClass: 'text-info',
     showSpinner: true,
   },
   available: {
-    label: 'Available',
+    labelKey: 'fileSourceCard.statusAvailable',
     textClass: 'text-success',
     showSpinner: false,
   },
   error: {
-    label: 'Error',
+    labelKey: 'fileSourceCard.statusError',
     textClass: 'text-error',
     showSpinner: false,
   },
   deleting: {
-    label: 'Deleting...',
+    labelKey: 'fileSourceCard.statusDeleting',
     textClass: 'text-muted-foreground',
     showSpinner: true,
   },
@@ -100,50 +101,51 @@ const computeMsRemaining = (
   return expiresAtMs - Date.now()
 }
 
+/** Expiry state exposed to the component for localized formatting. */
+type ExpiryInfo = { expired: boolean; minutes: number }
+
 /**
- * Format milliseconds remaining into "Expires in H:MM" or the expired label.
+ * Compute expiry state from milliseconds remaining.
  * Returns null when expiration doesn't apply.
  */
-const formatExpiryLabel = (
-  msRemaining: number | null
-): { text: string; expired: boolean } | null => {
+const computeExpiryInfo = (msRemaining: number | null): ExpiryInfo | null => {
   if (msRemaining === null) return null
-  if (msRemaining <= 0) return { text: 'Deletion Pending - Reupload', expired: true }
+  if (msRemaining <= 0) return { expired: true, minutes: 0 }
 
   const totalMinutes = Math.max(1, Math.ceil(msRemaining / 60_000))
-  return { text: `Expires in ${totalMinutes} min`, expired: false }
+  return { expired: false, minutes: totalMinutes }
 }
 
 /**
- * Hook that returns a live expiry label, re-evaluated every minute.
+ * Hook that returns live expiry state, re-evaluated every minute.
  */
-const useExpiryLabel = (
+const useExpiryInfo = (
   uploadedAt: Date | string | null | undefined,
   intervalHours: number,
   active: boolean
-): { text: string; expired: boolean } | null => {
-  const [label, setLabel] = useState<{ text: string; expired: boolean } | null>(() =>
-    active ? formatExpiryLabel(computeMsRemaining(uploadedAt, intervalHours)) : null
+): ExpiryInfo | null => {
+  const [info, setInfo] = useState<ExpiryInfo | null>(() =>
+    active ? computeExpiryInfo(computeMsRemaining(uploadedAt, intervalHours)) : null
   )
 
   useEffect(() => {
     if (!active) {
-      setLabel(null)
+      setInfo(null)
       return
     }
 
     // Compute immediately
-    setLabel(formatExpiryLabel(computeMsRemaining(uploadedAt, intervalHours)))
+    setInfo(computeExpiryInfo(computeMsRemaining(uploadedAt, intervalHours)))
 
     // Re-evaluate every 60 seconds
     const id = setInterval(() => {
-      setLabel(formatExpiryLabel(computeMsRemaining(uploadedAt, intervalHours)))
+      setInfo(computeExpiryInfo(computeMsRemaining(uploadedAt, intervalHours)))
     }, 60_000)
 
     return () => clearInterval(id)
   }, [uploadedAt, intervalHours, active])
 
-  return label
+  return info
 }
 
 /**
@@ -160,9 +162,11 @@ export const FileSourceCard: FC<FileSourceCardProps> = ({
   expirationIntervalHours = 0,
   onDelete,
 }) => {
+  const t = useTranslations('research')
   const config = STATUS_CONFIG[status]
+  const label = t(config.labelKey)
   const isBusy = useIsCurrentSessionBusy()
-  const expiryLabel = useExpiryLabel(uploadedAt, expirationIntervalHours, status === 'available')
+  const expiryInfo = useExpiryInfo(uploadedAt, expirationIntervalHours, status === 'available')
 
   const handleDelete = () => {
     onDelete(id)
@@ -187,7 +191,7 @@ export const FileSourceCard: FC<FileSourceCardProps> = ({
       <div className="flex min-w-0 flex-1 items-center gap-3">
         {/* File Icon or Spinner */}
         {config.showSpinner ? (
-          <Spinner size="sm" label={config.label} />
+          <Spinner size="sm" label={label} />
         ) : (
           <FileText
             className={cn('h-8 w-8', status === 'error' ? 'text-error' : 'text-muted-foreground')}
@@ -229,18 +233,20 @@ export const FileSourceCard: FC<FileSourceCardProps> = ({
               )}
               {status === 'error' && <X className="h-3 w-3 text-error" aria-hidden="true" />}
               <span className={cn(config.showSpinner ? 'text-sm' : 'text-xs', config.textClass)}>
-                {config.label}
+                {label}
               </span>
             </span>
 
             {/* Expiration countdown */}
-            {expiryLabel && (
+            {expiryInfo && (
               <>
                 <span className="text-muted-foreground">•</span>
                 <span
-                  className={cn('text-xs', expiryLabel.expired ? 'text-error' : 'text-warning')}
+                  className={cn('text-xs', expiryInfo.expired ? 'text-error' : 'text-warning')}
                 >
-                  {expiryLabel.text}
+                  {expiryInfo.expired
+                    ? t('fileSourceCard.expiryPending')
+                    : t('fileSourceCard.expiresIn', { minutes: expiryInfo.minutes })}
                 </span>
               </>
             )}
@@ -259,13 +265,17 @@ export const FileSourceCard: FC<FileSourceCardProps> = ({
           className="ml-2 size-8 flex-shrink-0 rounded-full text-muted-foreground opacity-0 transition-opacity duration-200 ease-out hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
           onClick={handleDelete}
           disabled={deleteDisabled}
-          aria-label={deleteDisabled ? `Delete ${title} (disabled)` : `Delete ${title}`}
+          aria-label={
+            deleteDisabled
+              ? t('fileSourceCard.deleteDisabled', { title })
+              : t('fileSourceCard.delete', { title })
+          }
           title={
             isProcessing
-              ? 'Wait for upload to complete'
+              ? t('fileSourceCard.waitUpload')
               : deleteDisabled
-                ? 'Cannot delete files during active operations'
-                : 'Delete file'
+                ? t('fileSourceCard.cannotDeleteBusy')
+                : t('fileSourceCard.deleteFile')
           }
         >
           <Trash2 className="h-4 w-4" aria-hidden="true" />

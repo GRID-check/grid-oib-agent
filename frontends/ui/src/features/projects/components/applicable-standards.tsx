@@ -1,11 +1,12 @@
+'use client'
+
 import Link from 'next/link'
 import { ClipboardCheck, ExternalLink, MessageSquareText } from 'lucide-react'
 import type { ApplicableStandard, ApplicableStatus } from '@/lib/oib/applicable-standards'
 import { Stagger, StaggerItem } from '@/components/motion'
 import { Badge } from '@/components/ui/badge'
 import { EmptyState } from '@/components/ui/empty-state'
-import { getTranslations } from '@/i18n/server'
-import type { Translator } from '@/i18n'
+import { useTranslations, type Translator } from '@/i18n'
 
 interface ApplicableStandardsProps {
   projectId: string
@@ -51,8 +52,8 @@ function askGridHref(projectId: string, standard: ApplicableStandard, t: Transla
  * project, derived from the brief, each with a project-grounded reason, a link to
  * the source, and an "Ask Grid" action. Server-renderable (no client hooks).
  */
-export async function ApplicableStandards({ projectId, standards, briefComplete }: ApplicableStandardsProps) {
-  const t = await getTranslations('projects')
+export function ApplicableStandards({ projectId, standards, briefComplete }: ApplicableStandardsProps) {
+  const t = useTranslations('projects')
   return (
     <section className="space-y-4">
       <div>

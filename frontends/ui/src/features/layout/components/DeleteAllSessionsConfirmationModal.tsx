@@ -18,6 +18,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { useTranslations } from '@/i18n'
 
 export interface DeleteAllSessionsConfirmationModalProps {
   /** Whether the modal is open */
@@ -40,6 +41,8 @@ export const DeleteAllSessionsConfirmationModal: FC<DeleteAllSessionsConfirmatio
   onConfirm,
   count,
 }) => {
+  const t = useTranslations('research')
+  const tc = useTranslations('common')
   const handleConfirm = () => {
     onConfirm()
     onOpenChange(false)
@@ -51,27 +54,27 @@ export const DeleteAllSessionsConfirmationModal: FC<DeleteAllSessionsConfirmatio
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <AlertTriangle className="h-5 w-5 text-warning" aria-hidden="true" />
-            <span>Deleting All Sessions</span>
+            <span>{t('deleteModals.all.title')}</span>
           </DialogTitle>
         </DialogHeader>
         <div className="flex flex-col gap-3">
           <p className="text-sm">
-            You are about to delete{' '}
+            {t('deleteModals.aboutToDelete')}{' '}
             <span className="font-semibold">
-              {count && count > 0 ? `all ${count} sessions` : 'ALL sessions'}
+              {count && count > 0
+                ? t('deleteModals.all.countSessions', { count })
+                : t('deleteModals.all.allSessions')}
             </span>
-            . You will lose all progress and any files you have attached will be removed.
+            {t('deleteModals.lossSuffix')}
           </p>
-          <p className="text-sm">
-            This action cannot be reversed. Are you sure you want to do this?
-          </p>
+          <p className="text-sm">{t('deleteModals.cannotReverse')}</p>
         </div>
         <DialogFooter>
           <DialogClose asChild>
-            <Button variant="ghost">Cancel</Button>
+            <Button variant="ghost">{tc('actions.cancel')}</Button>
           </DialogClose>
           <Button variant="destructive" onClick={handleConfirm}>
-            Delete ALL Sessions
+            {t('deleteModals.all.confirm')}
           </Button>
         </DialogFooter>
       </DialogContent>

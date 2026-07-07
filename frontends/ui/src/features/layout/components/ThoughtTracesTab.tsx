@@ -10,6 +10,7 @@
 
 import { type FC } from 'react'
 import { BrainCircuit } from 'lucide-react'
+import { useTranslations } from '@/i18n'
 import { ThoughtCard, type ThoughtInfo } from './ThoughtCard'
 import { EMPTY_RESEARCH_DETAILS_HELP_TEXT } from './research-empty-state-copy'
 
@@ -24,6 +25,7 @@ interface ThoughtTracesTabProps {
  * Thought traces sub-tab content showing LLM inference activity.
  */
 export const ThoughtTracesTab: FC<ThoughtTracesTabProps> = ({ thoughtTraces = [] }) => {
+  const t = useTranslations('research')
   const isEmpty = thoughtTraces.length === 0
   const streamingCount = thoughtTraces.filter((t) => t.isStreaming).length
 
@@ -32,15 +34,17 @@ export const ThoughtTracesTab: FC<ThoughtTracesTabProps> = ({ thoughtTraces = []
       {/* Header */}
       <div className="flex shrink-0 flex-col gap-1">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold text-muted-foreground">Thought Traces</span>
+          <span className="text-sm font-semibold text-muted-foreground">{t('thoughtTracesTab.title')}</span>
           {thoughtTraces.length > 0 && (
             <span className="text-xs text-muted-foreground">
-              {streamingCount > 0 ? `${streamingCount} running` : `${thoughtTraces.length}`}
+              {streamingCount > 0
+                ? t('thoughtTracesTab.runningCount', { count: streamingCount })
+                : `${thoughtTraces.length}`}
             </span>
           )}
         </div>
         <span className="text-xs text-muted-foreground">
-          LLM chain-of-thought reasoning and inference activity.
+          {t('thoughtTracesTab.description')}
         </span>
       </div>
 
@@ -48,7 +52,7 @@ export const ThoughtTracesTab: FC<ThoughtTracesTabProps> = ({ thoughtTraces = []
       {isEmpty ? (
         <div className="flex flex-1 flex-col items-center justify-center py-8 text-center">
           <BrainCircuit className="mb-3 h-8 w-8 text-muted-foreground" aria-hidden="true" />
-          <p className="text-sm text-muted-foreground">No thought traces available.</p>
+          <p className="text-sm text-muted-foreground">{t('thoughtTracesTab.empty')}</p>
           <p className="mt-2 text-sm text-muted-foreground">
             {EMPTY_RESEARCH_DETAILS_HELP_TEXT}
           </p>

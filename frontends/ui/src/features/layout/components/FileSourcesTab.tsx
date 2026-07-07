@@ -26,6 +26,7 @@ import { sessionHasKnownCollection } from '@/features/documents/persistence'
 import { useChatStore } from '@/features/chat/store'
 import { useLayoutStore } from '../store'
 import { useAppConfig } from '@/shared/context'
+import { useTranslations } from '@/i18n'
 
 interface FileSourcesTabProps {
   /** Callback when a file is deleted */
@@ -37,27 +38,31 @@ const UploadErrorAlert: FC<{ message: string; onClose: () => void; className?: s
   message,
   onClose,
   className,
-}) => (
+}) => {
+  const t = useTranslations('research')
+  return (
   <Alert variant="destructive" className={className}>
     <AlertDescription className="flex w-full items-start justify-between gap-2">
       <span>{message}</span>
       <button
         type="button"
         onClick={onClose}
-        aria-label="Dismiss error"
+        aria-label={t('dismissError')}
         className="shrink-0 rounded-xs opacity-70 transition-opacity hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
       >
         <X className="h-4 w-4" aria-hidden="true" />
       </button>
     </AlertDescription>
   </Alert>
-)
+  )
+}
 
 /**
  * Tab content showing list of uploaded file sources.
  * Connected to the file upload store for real-time updates.
  */
 export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
+  const t = useTranslations('research')
   // Get current conversation and ensureSession for session management
   const currentConversation = useChatStore((state) => state.currentConversation)
   const ensureSession = useChatStore((state) => state.ensureSession)
@@ -142,7 +147,12 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
   const isAwaitingFiles =
     isLoadingFiles || (isThisSessionProcessing && targetFiles.length === 0) || sessionExpectsFiles
 
-  const uploadTargetLabel = isProjectTarget ? 'Project corpus' : 'Private session'
+  const uploadTargetLabel = isProjectTarget
+    ? t('fileSourcesTab.targetProject')
+    : t('fileSourcesTab.targetSession')
+  const uploadTargetLabelLower = isProjectTarget
+    ? t('fileSourcesTab.targetProjectLower')
+    : t('fileSourcesTab.targetSessionLower')
   const uploadDisabled = isUploading || (isProjectTarget && !projectCollectionName)
 
   // Delete confirmation modal state
@@ -215,7 +225,7 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
 
   const uploadTargetControls = projectId ? (
     <div className="flex flex-col gap-2 rounded-xl border bg-muted/40 p-3">
-      <span className="text-xs font-semibold uppercase text-muted-foreground">Upload To</span>
+      <span className="text-xs font-semibold uppercase text-muted-foreground">{t('fileSourcesTab.uploadTo')}</span>
       <div className="flex gap-2">
         <Button
           variant={uploadTarget === 'project' ? 'default' : 'outline'}
@@ -223,22 +233,22 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
           onClick={() => setUploadTarget('project')}
           disabled={!projectCollectionName}
         >
-          Project corpus
+          {t('fileSourcesTab.targetProject')}
         </Button>
         <Button
           variant={uploadTarget === 'session' ? 'default' : 'outline'}
           size="sm"
           onClick={() => setUploadTarget('session')}
         >
-          Private session
+          {t('fileSourcesTab.targetSession')}
         </Button>
       </div>
       <span className="text-xs text-muted-foreground">
         {isProjectTarget
           ? projectCollectionName
-            ? 'Available in this project.'
-            : 'Preparing project corpus...'
-          : 'Only available in this chat session.'}
+            ? t('fileSourcesTab.availableInProject')
+            : t('fileSourcesTab.preparingCorpus')
+          : t('fileSourcesTab.onlyThisSession')}
       </span>
     </div>
   ) : null
@@ -249,8 +259,8 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
     if (isAwaitingFiles) {
       return (
         <div className="flex flex-1 flex-col items-center justify-center gap-2 py-8">
-          <Spinner label="Loading files" />
-          <span className="text-sm text-muted-foreground">Checking for files...</span>
+          <Spinner label={t('fileSourcesTab.loadingFiles')} />
+          <span className="text-sm text-muted-foreground">{t('fileSourcesTab.checkingFiles')}</span>
         </div>
       )
     }
@@ -262,7 +272,7 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
 
         {!knowledgeLayerAvailable && (
           <Alert variant="info" className="mb-6">
-            <AlertDescription>Setup backend to enable files.</AlertDescription>
+            <AlertDescription>{t('fileSourcesTab.setupBackend')}</AlertDescription>
           </Alert>
         )}
 
@@ -270,10 +280,10 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
         {knowledgeLayerAvailable && (
           <div className="flex flex-col gap-1">
             <span className="text-xs font-semibold uppercase text-muted-foreground">
-              No Attached Files
+              {t('fileSourcesTab.noAttachedFiles')}
             </span>
             <span className="text-sm text-muted-foreground">
-              Files uploaded here go to {uploadTargetLabel.toLowerCase()} unless removed.
+              {t('fileSourcesTab.filesGoTo', { target: uploadTargetLabelLower })}
             </span>
           </div>
         )}
@@ -315,7 +325,7 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
 
       <div className="mb-1 flex items-center justify-between">
         <span className="text-xs font-semibold uppercase text-muted-foreground">
-          {uploadTargetLabel} Files ({targetFiles.length})
+          {t('fileSourcesTab.filesCount', { target: uploadTargetLabel, count: targetFiles.length })}
         </span>
         <Button
           variant="ghost"
@@ -324,13 +334,13 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
           disabled={isLoadingFiles || !knowledgeLayerAvailable || uploadDisabled}
           title={
             isLoadingFiles
-              ? 'Loading files...'
+              ? t('fileSourcesTab.loadingFilesEllipsis')
               : knowledgeLayerAvailable
-                ? 'Add files'
-                : 'File upload not available'
+                ? t('fileSourcesTab.addFiles')
+                : t('fileSourcesTab.uploadNotAvailable')
           }
         >
-          + Add File
+          {t('fileSourcesTab.addFile')}
         </Button>
       </div>
 

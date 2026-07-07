@@ -11,6 +11,7 @@ import { type FC } from 'react'
 import { Globe } from 'lucide-react'
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
+import { useTranslations } from '@/i18n'
 import type { DataSource } from '../data-sources'
 
 interface DataConnectionCardProps {
@@ -40,6 +41,7 @@ export const DataConnectionCard: FC<DataConnectionCardProps> = ({
   unavailableReason,
   onToggle,
 }) => {
+  const t = useTranslations('research')
   // Combine availability and busy state
   const isDisabled = !isAvailable || isBusy
 
@@ -77,12 +79,12 @@ export const DataConnectionCard: FC<DataConnectionCardProps> = ({
       )}
       aria-pressed={isEnabled}
       aria-disabled={isDisabled}
-      aria-label={`${source.name}: ${isEnabled ? 'enabled' : 'disabled'}${isDisabled ? ' (disabled)' : ''}`}
+      aria-label={`${source.name}: ${isEnabled ? t('dataConnectionCard.enabled') : t('dataConnectionCard.disabled')}${isDisabled ? ` ${t('dataConnectionCard.disabledParenthetical')}` : ''}`}
       title={
         isBusy
-          ? 'Data source changes disabled during active operations'
+          ? t('dataSources.changesDisabledBusy')
           : !isAvailable
-            ? unavailableReason || "You don't have permission to access this data source"
+            ? unavailableReason || t('dataConnectionCard.noPermission')
             : undefined
       }
     >
@@ -118,8 +120,10 @@ export const DataConnectionCard: FC<DataConnectionCardProps> = ({
           disabled={isDisabled}
           aria-label={
             isDisabled
-              ? `${source.name} (disabled)`
-              : `${isEnabled ? 'Disable' : 'Enable'} ${source.name}`
+              ? t('dataConnectionCard.nameDisabled', { name: source.name })
+              : isEnabled
+                ? t('dataConnectionCard.disableName', { name: source.name })
+                : t('dataConnectionCard.enableName', { name: source.name })
           }
         />
       </div>

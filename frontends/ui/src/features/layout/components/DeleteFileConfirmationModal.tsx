@@ -18,6 +18,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { useTranslations } from '@/i18n'
 
 export interface DeleteFileConfirmationModalProps {
   /** Whether the modal is open */
@@ -40,6 +41,8 @@ export const DeleteFileConfirmationModal: FC<DeleteFileConfirmationModalProps> =
   onConfirm,
   fileName,
 }) => {
+  const t = useTranslations('research')
+  const tc = useTranslations('common')
   const trimmedName = fileName?.trim()
 
   const handleConfirm = () => {
@@ -53,29 +56,27 @@ export const DeleteFileConfirmationModal: FC<DeleteFileConfirmationModalProps> =
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <AlertTriangle className="h-5 w-5 text-warning" aria-hidden="true" />
-            <span>Delete File</span>
+            <span>{t('deleteModals.file.title')}</span>
           </DialogTitle>
         </DialogHeader>
         <div className="flex flex-col gap-3">
           <p className="text-sm">
-            You are about to delete{' '}
+            {t('deleteModals.aboutToDelete')}{' '}
             {trimmedName ? (
               <span className="font-semibold">&ldquo;{trimmedName}&rdquo;</span>
             ) : (
-              'this file'
+              t('deleteModals.file.thisFile')
             )}
-            . This will completely remove it from your session.
+            {t('deleteModals.file.suffix')}
           </p>
-          <p className="text-sm">
-            This action cannot be reversed. Are you sure you want to do this?
-          </p>
+          <p className="text-sm">{t('deleteModals.cannotReverse')}</p>
         </div>
         <DialogFooter>
           <DialogClose asChild>
-            <Button variant="ghost">Cancel</Button>
+            <Button variant="ghost">{tc('actions.cancel')}</Button>
           </DialogClose>
           <Button variant="destructive" onClick={handleConfirm}>
-            Delete File
+            {t('deleteModals.file.confirm')}
           </Button>
         </DialogFooter>
       </DialogContent>

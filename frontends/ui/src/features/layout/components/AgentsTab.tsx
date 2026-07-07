@@ -13,6 +13,7 @@ import { type FC, useMemo } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { Wand2 } from 'lucide-react'
 import { useChatStore } from '@/features/chat'
+import { useTranslations } from '@/i18n'
 import { AgentCard, type AgentInfo } from './AgentCard'
 import { EMPTY_RESEARCH_DETAILS_HELP_TEXT } from './research-empty-state-copy'
 
@@ -21,6 +22,7 @@ import { EMPTY_RESEARCH_DETAILS_HELP_TEXT } from './research-empty-state-copy'
  * Groups tool calls under their parent agents using agent_id.
  */
 export const AgentsTab: FC = () => {
+  const t = useTranslations('research')
   const { deepResearchAgents, deepResearchToolCalls } = useChatStore(
     useShallow((s) => ({
       deepResearchAgents: s.deepResearchAgents,
@@ -54,17 +56,19 @@ export const AgentsTab: FC = () => {
       {/* Header */}
       <div className="flex shrink-0 flex-col gap-1">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold text-muted-foreground">Agents</span>
+          <span className="text-sm font-semibold text-muted-foreground">{t('agentsTab.title')}</span>
           {agentsWithToolCalls.length > 0 && (
             <span className="text-xs text-muted-foreground">
-              {runningCount > 0 ? `${runningCount} running` : `${agentsWithToolCalls.length}`}
+              {runningCount > 0
+                ? t('agentsTab.runningCount', { count: runningCount })
+                : `${agentsWithToolCalls.length}`}
               {agentToolCalls.length > 0 &&
-                ` • ${completedToolCalls}/${agentToolCalls.length} queries`}
+                ` • ${t('agentsTab.queriesProgress', { completed: completedToolCalls, total: agentToolCalls.length })}`}
             </span>
           )}
         </div>
         <span className="text-xs text-muted-foreground">
-          Active planner, researcher, and writer agents executing tasks.
+          {t('agentsTab.description')}
         </span>
       </div>
 
@@ -72,7 +76,7 @@ export const AgentsTab: FC = () => {
       {isEmpty ? (
         <div className="flex flex-1 flex-col items-center justify-center py-8 text-center">
           <Wand2 className="mb-3 h-8 w-8 text-muted-foreground" aria-hidden="true" />
-          <p className="text-sm text-muted-foreground">No agent activity available.</p>
+          <p className="text-sm text-muted-foreground">{t('agentsTab.empty')}</p>
           <p className="mt-2 text-sm text-muted-foreground">
             {EMPTY_RESEARCH_DETAILS_HELP_TEXT}
           </p>

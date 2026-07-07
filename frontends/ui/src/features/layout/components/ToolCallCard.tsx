@@ -14,6 +14,7 @@ import { type FC, useState } from 'react'
 import { Check, ChevronDown, Clock, X } from 'lucide-react'
 import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/utils'
+import { useTranslations } from '@/i18n'
 
 /** Tool call information from SSE events */
 export interface ToolCallInfo {
@@ -80,6 +81,7 @@ const getPreviewText = (toolCall: ToolCallInfo): string => {
  */
 export const ToolCallCard: FC<ToolCallCardProps> = ({ toolCall }) => {
   const [isExpanded, setIsExpanded] = useState(false)
+  const t = useTranslations('research')
 
   const isRunning = toolCall.status === 'running'
   const isComplete = toolCall.status === 'complete'
@@ -110,12 +112,12 @@ export const ToolCallCard: FC<ToolCallCardProps> = ({ toolCall }) => {
         aria-controls={`tool-content-${toolCall.id}`}
         className="w-full text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/60 disabled:cursor-default"
         disabled={!canExpand}
-        title={!canExpand ? 'Details available when the tool call completes' : undefined}
+        title={!canExpand ? t('toolCallCard.detailsWhenComplete') : undefined}
       >
         <div className="flex w-full items-center gap-2 px-3 py-2">
           {/* Status Icon - spinner when running */}
           {isRunning ? (
-            <Spinner size="sm" label={`${toolCall.name} is running`} className="shrink-0" />
+            <Spinner size="sm" label={t('toolCallCard.isRunning', { name: toolCall.name })} className="shrink-0" />
           ) : (
             <span className={cn('shrink-0', statusTextClass)} aria-hidden="true">
               {isComplete ? (
@@ -133,7 +135,7 @@ export const ToolCallCard: FC<ToolCallCardProps> = ({ toolCall }) => {
             <span className={cn('text-sm font-semibold', statusTextClass)}>{toolCall.name}</span>
             {toolCall.workflow && (
               <span className="truncate text-xs text-muted-foreground">
-                via {toolCall.workflow}
+                {t('toolCallCard.via', { workflow: toolCall.workflow })}
               </span>
             )}
           </div>
@@ -176,7 +178,7 @@ export const ToolCallCard: FC<ToolCallCardProps> = ({ toolCall }) => {
           {toolCall.arguments && (
             <div className="mt-2 flex flex-col gap-1">
               <span className="text-xs font-semibold uppercase text-muted-foreground">
-                Arguments
+                {t('toolCallCard.arguments')}
               </span>
               <pre className="overflow-x-auto rounded bg-muted p-2 font-mono text-xs">
                 {formatArguments(toolCall.arguments, true)}
@@ -187,7 +189,7 @@ export const ToolCallCard: FC<ToolCallCardProps> = ({ toolCall }) => {
           {/* Result */}
           {toolCall.result && (
             <div className="flex flex-col gap-1">
-              <span className="text-xs font-semibold uppercase text-muted-foreground">Result</span>
+              <span className="text-xs font-semibold uppercase text-muted-foreground">{t('toolCallCard.result')}</span>
               <pre className="max-h-48 overflow-x-auto whitespace-pre-wrap rounded bg-muted p-2 font-mono text-xs">
                 {toolCall.result}
               </pre>
@@ -197,7 +199,7 @@ export const ToolCallCard: FC<ToolCallCardProps> = ({ toolCall }) => {
           {/* Error */}
           {toolCall.error && (
             <div className="flex flex-col gap-1">
-              <span className="text-xs font-semibold uppercase text-error">Error</span>
+              <span className="text-xs font-semibold uppercase text-error">{t('toolCallCard.error')}</span>
               <span className="text-sm text-error">{toolCall.error}</span>
             </div>
           )}

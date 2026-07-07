@@ -12,6 +12,7 @@ import { type FC, useMemo } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
+import { useTranslations } from '@/i18n'
 import { type DataSource } from '../data-sources'
 import { DataConnectionCard } from './DataConnectionCard'
 import { useLayoutStore } from '../store'
@@ -28,6 +29,8 @@ interface DataConnectionsTabProps {
  * Displays available data sources with enable/disable toggles.
  */
 export const DataConnectionsTab: FC<DataConnectionsTabProps> = ({ enabledSourceIds, onToggle }) => {
+  const t = useTranslations('research')
+  const tc = useTranslations('common')
   const { availableDataSources, dataSourcesLoading, dataSourcesError } = useLayoutStore(
     useShallow((s) => ({
       availableDataSources: s.availableDataSources,
@@ -55,8 +58,8 @@ export const DataConnectionsTab: FC<DataConnectionsTabProps> = ({ enabledSourceI
   if (dataSourcesLoading) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center">
-        <Spinner label="Loading data sources" />
-        <span className="mt-2 text-sm text-muted-foreground">Loading data sources...</span>
+        <Spinner label={t('dataSources.loading')} />
+        <span className="mt-2 text-sm text-muted-foreground">{t('dataSources.loadingEllipsis')}</span>
       </div>
     )
   }
@@ -65,15 +68,15 @@ export const DataConnectionsTab: FC<DataConnectionsTabProps> = ({ enabledSourceI
   if (dataSourcesError) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center py-8">
-        <span className="mb-2 text-sm text-destructive">Unable to load data sources</span>
+        <span className="mb-2 text-sm text-destructive">{t('dataSources.unableToLoad')}</span>
         <span className="mb-4 text-center text-xs text-muted-foreground">{dataSourcesError}</span>
         <Button
           variant="outline"
           size="sm"
           onClick={() => fetchDataSources()}
-          aria-label="Retry loading data sources"
+          aria-label={t('dataSources.retryAria')}
         >
-          Retry
+          {tc('actions.retry')}
         </Button>
       </div>
     )
@@ -83,7 +86,7 @@ export const DataConnectionsTab: FC<DataConnectionsTabProps> = ({ enabledSourceI
   if (displaySources.length === 0) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center py-8">
-        <span className="text-sm text-muted-foreground">No data sources available</span>
+        <span className="text-sm text-muted-foreground">{t('dataSources.none')}</span>
       </div>
     )
   }
@@ -91,7 +94,7 @@ export const DataConnectionsTab: FC<DataConnectionsTabProps> = ({ enabledSourceI
   return (
     <div className="flex flex-1 flex-col overflow-y-auto">
       <span className="mb-3 text-xs font-semibold uppercase text-muted-foreground">
-        Available Sources ({displaySources.length})
+        {t('dataConnectionsTab.availableSources', { count: displaySources.length })}
       </span>
 
       <div className="flex flex-col gap-2">
