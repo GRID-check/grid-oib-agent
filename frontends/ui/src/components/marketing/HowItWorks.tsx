@@ -8,32 +8,16 @@
 
 import { type FC } from 'react'
 import { motion, fadeRise, staggerParent, springGentle } from '@/components/motion'
+import { useTranslations } from '@/i18n'
 
-interface Step {
-  title: string
-  body: string
-}
-
-const steps: Step[] = [
-  {
-    title: 'Create a project',
-    body: 'Set up a workspace for each building. Grid keeps every question, source, and answer scoped to that project.',
-  },
-  {
-    title: 'Add plans & documents',
-    body: 'Upload your plans, permits, and specifications. Grid reads them alongside the OIB-Richtlinien and RIS legal sources.',
-  },
-  {
-    title: 'Ask Grid, get cited answers',
-    body: 'Ask any building-code question in plain language. Every answer is cited to the exact Richtlinie and paragraph you can verify.',
-  },
-  {
-    title: 'Run deep research',
-    body: 'For involved questions, let Grid work through the sources step by step and return a structured, fully referenced brief.',
-  },
-]
+const stepKeys = ['create', 'documents', 'answers', 'research'] as const
 
 export const HowItWorks: FC = () => {
+  const t = useTranslations('landing')
+  const steps = stepKeys.map((key) => ({
+    title: t(`howItWorks.steps.${key}.title`),
+    body: t(`howItWorks.steps.${key}.body`),
+  }))
   return (
     <section
       aria-labelledby="how-it-works-heading"
@@ -41,13 +25,13 @@ export const HowItWorks: FC = () => {
     >
       <div className="max-w-2xl">
         <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-          How it works
+          {t('howItWorks.eyebrow')}
         </p>
         <h2
           id="how-it-works-heading"
           className="mt-4 text-3xl font-semibold tracking-tight text-foreground text-balance md:text-4xl"
         >
-          From plans to a cited answer, without leaving the code.
+          {t('howItWorks.title')}
         </h2>
       </div>
 
