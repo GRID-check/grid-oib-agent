@@ -92,9 +92,8 @@ vector store is bad at). The vector store is a derived index (§5).
 1. **Agent tool `remember(kind, content, confidence)`** — the model calls it mid-turn
    when it learns something durable and project-specific. Primary path. Needs a
    tight prompt policy (§6) so it records signal, not chatter.
-2. **End-of-conversation distillation** (Phase 3) — a summarizer node reads the
-   finished conversation and proposes a handful of findings. Catches what the
-   in-turn tool missed.
+2. **Async post-answer reflection** (implemented) — a background stage in the
+   post-processing phase that catches what the in-turn tool missed. See §3.5.
 3. **User manual add / pin** — from the Project Memory panel (§7).
 4. **Profile graduation, inverse** — accepting a `ProjectProfilePatchCard` can also
    drop a `derived_fact` memory item for provenance.
@@ -124,6 +123,32 @@ Injection format tags each item so the model treats it correctly, e.g.:
 - `last_referenced_at` + salience decay → low-value items sink out of the digest.
 - Superseded/dismissed items are archived (kept for provenance, excluded from serve).
 - Periodic re-summarization collapses many small related items into one.
+
+### 3.5 Async post-answer reflection (the post-processing phase)
+The in-turn `remember` tool depends on the answering agent pausing mid-flow to
+record a finding — which a busy answer often skips. The **reflection stage** is
+the safety net. It runs in the chat entrypoint's *post-processing phase*,
+**scheduled after the answer is already returned** (`schedule_memory_reflection`
+in `agents/project_memory/reflection.py`), so it never adds latency to the reply.
+
+Flow (fire-and-forget background task on the event loop):
+1. The entrypoint captures the turn (query + answer), the project/organization
+   ids, and the existing `x-grid-project-memory` digest **while the request
+   context is live**, then schedules the task and returns the response.
+2. The task prompts a small reflection LLM (`memory_reflection_llm`) with the
+   exchange **and the existing memory digest**, asking for any NEW durable
+   finding not already present — the dedup instruction happens against the digest
+   in-prompt (the §3.2 embed-based consolidation still applies at write time).
+3. Each qualifying finding is validated (kind/scope/confidence vocab, one concise
+   sentence, scope has a writable target) and written through the same
+   token-guarded internal endpoint the `remember` tool uses — `grid_app` stays
+   single-writer; the backend never touches its database.
+
+Guarantees: **never blocks the answer**, **never crashes the turn** (every path
+is caught and logged), **opt-in** (unset `memory_reflection_llm` → the scheduler
+is a no-op with zero extra LLM cost), and **context-free execution** (all values
+are passed explicitly, so the task is safe after the request context is torn
+down). Deep-research job-stub turns carry no real answer and are skipped.
 
 ## 4. Provenance & trust — non-negotiable for a compliance product
 
