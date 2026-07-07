@@ -80,3 +80,17 @@ export interface AcousticCheckItemData {
   check: DimensionCheckData
   reference: NormReferenceData
 }
+
+/** One Brandabschnitt (fire compartment), drawn as a band and area-checked. */
+export interface FireCompartmentData {
+  label: string
+  area: DimensionCheckData
+  use?: string | null
+}
+
+/** One thermal-envelope component with its U-value checked against a limit. */
+export interface EnvelopeComponentData {
+  label: string
+  kind: 'wall' | 'roof' | 'floor' | 'window' | 'door'
+  u_value: DimensionCheckData
+}

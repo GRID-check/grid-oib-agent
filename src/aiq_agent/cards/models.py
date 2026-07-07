@@ -364,6 +364,116 @@ class AcousticCheckCard(BaseModel):
     note: str | None = Field(default=None, description="Optional clarification")
 
 
+# ── Schematic cards (wave 3) ─────────────────────────────────────────────────
+
+
+class FireCompartment(BaseModel):
+    """One Brandabschnitt (fire compartment) drawn as a band, area-checked."""
+
+    label: str = Field(min_length=1, description="Compartment name, e.g. 'BA 1 – Wohnungen OG'")
+    area: DimensionCheck = Field(description="Brandabschnittsfläche (m²) vs the max permitted (comparator '<=')")
+    use: str | None = Field(default=None, description="Nutzung, e.g. 'Wohnen', 'Büro', 'Tiefgarage'")
+
+
+class FireCompartmentCard(BaseModel):
+    """A fire-compartment (Brandabschnitt) plan: a storey split into compartments.
+
+    Emit for Brandabschnitt questions (OIB 2): draws the storey outline divided
+    into compartments (width proportional to area) separated by Brandwände, each
+    read against the maximum permitted Brandabschnittsfläche for its use and
+    Gebäudeklasse. The limit varies by use/GK — always corpus-grounded.
+    """
+
+    type: Literal["fire_compartment"]
+    title: str = Field(min_length=1, description="Title, e.g. 'Brandabschnitte – Regelgeschoss'")
+    storey_label: str | None = Field(default=None, description="Which level the plan shows, e.g. '2.OG'")
+    compartments: list[FireCompartment] = Field(description="The compartments on this level, left-to-right")
+    gebaeudeklasse: str | None = Field(default=None, description="Gebäudeklasse driving the area limit")
+    reference: NormReference = Field(description="Source of the max Brandabschnittsfläche (OIB 2)")
+    note: str | None = Field(default=None, description="Optional clarification")
+
+
+class EnvelopeComponent(BaseModel):
+    """One thermal-envelope component with its U-value checked against a limit."""
+
+    label: str = Field(min_length=1, description="Component, e.g. 'Außenwand', 'Dach', 'Fenster'")
+    kind: Literal["wall", "roof", "floor", "window", "door"] = Field(description="Where it sits in the section")
+    u_value: DimensionCheck = Field(description="U-Wert W/(m²K) vs the max U-value (lower is better, '<=')")
+
+
+class ThermalEnvelopeCard(BaseModel):
+    """A thermal-envelope (Wärmeschutz) schematic: U-values per building part.
+
+    Emit for U-Wert / Wärmeschutz questions (OIB 6). Draws a simple building
+    cross-section with each envelope component highlighted by status, and one
+    limit bar per component reading its U-value against the maximum permitted
+    (lower is better). Fills the OIB 6 energy-efficiency domain.
+    """
+
+    type: Literal["thermal_envelope"]
+    title: str = Field(min_length=1, description="Title, e.g. 'Wärmeschutz – U-Werte der Gebäudehülle'")
+    components: list[EnvelopeComponent] = Field(description="The envelope components to check")
+    reference: NormReference = Field(description="Source of the max U-values (OIB 6 / ÖNORM B 8110-1)")
+    note: str | None = Field(default=None, description="Optional clarification")
+
+
+class EnergyPerformanceCard(BaseModel):
+    """An energy-performance (Energieausweis) card: HWB on the A–G class ladder.
+
+    Emit for Energieausweis / Heizwärmebedarf questions (OIB 6). Draws the
+    A++…G energy-class ladder with the building's class highlighted, and reads
+    the Heizwärmebedarf (kWh/m²a) against the required maximum. fGEE optional.
+    """
+
+    type: Literal["energy_performance"]
+    title: str = Field(min_length=1, description="Title, e.g. 'Energieausweis – Heizwärmebedarf'")
+    hwb: DimensionCheck = Field(description="Heizwärmebedarf kWh/(m²a) vs the max (lower is better, '<=')")
+    energy_class: str | None = Field(default=None, description="Energieeffizienzklasse, e.g. 'A', 'B', 'C'")
+    fgee: DimensionCheck | None = Field(default=None, description="Gesamtenergieeffizienzfaktor vs its limit")
+    reference: NormReference = Field(description="Source of the HWB requirement (OIB 6)")
+    note: str | None = Field(default=None, description="Optional clarification")
+
+
+class ElevatorRequirementCard(BaseModel):
+    """A barrier-free-elevator (Aufzug) card: requirement + cabin dimensions.
+
+    Emit for Aufzug / barrierefreie-Erschließung questions (OIB 4). Draws the
+    served storeys as a stack with a lift shaft, states whether a barrier-free
+    lift is required (drives from storey count / arrival level), and checks the
+    cabin and door clear dimensions against the accessibility minimums.
+    """
+
+    type: Literal["elevator_requirement"]
+    title: str = Field(min_length=1, description="Title, e.g. 'Barrierefreier Aufzug – Erschließung'")
+    storeys_served: int = Field(gt=0, description="Number of levels the building has (drawn as a stack)")
+    entrance_level_index: int | None = Field(default=None, description="0-based index of the entrance level")
+    is_required: bool | None = Field(default=None, description="Is a barrier-free lift required? null = unknown")
+    requirement_note: str | None = Field(default=None, description="Why a lift is / isn't required")
+    cabin_width: DimensionCheck | None = Field(default=None, description="Kabinenbreite (cm) vs the minimum (>=110)")
+    cabin_depth: DimensionCheck | None = Field(default=None, description="Kabinentiefe (cm) vs the minimum (>=140)")
+    door_width: DimensionCheck | None = Field(default=None, description="lichte Türbreite (cm) vs the minimum (>=90)")
+    reference: NormReference = Field(description="Source of the lift requirement (OIB 4 / ÖNORM B 1600)")
+    note: str | None = Field(default=None, description="Optional clarification")
+
+
+class ParkingRequirementCard(BaseModel):
+    """A parking-provision (Stellplatznachweis) card: required vs provided count.
+
+    Emit for Stellplatz / Fahrradabstellplatz questions (Bauordnung /
+    Stellplatzverordnung). Draws a slot grid — outline slots for the required
+    count, filled for those provided — and reads provided against the required
+    minimum for cars and, optionally, bicycles.
+    """
+
+    type: Literal["parking_requirement"]
+    title: str = Field(min_length=1, description="Title, e.g. 'Stellplatznachweis – Wohnbau'")
+    car_spaces: DimensionCheck = Field(description="Provided vs required Kfz-Stellplätze (comparator '>=')")
+    bicycle_spaces: DimensionCheck | None = Field(default=None, description="Provided vs required Fahrradabstellplätze")
+    basis: str | None = Field(default=None, description="How the requirement is derived, e.g. '1 Stpl. je 100 m² BGF'")
+    reference: NormReference = Field(description="Source of the parking requirement (Bauordnung / StPl-VO)")
+    note: str | None = Field(default=None, description="Optional clarification")
+
+
 GridCard = (
     SummaryCard
     | LegalBasisCard
@@ -378,6 +488,11 @@ GridCard = (
     | DensityCheckCard
     | FireAccessPlanCard
     | AcousticCheckCard
+    | FireCompartmentCard
+    | ThermalEnvelopeCard
+    | EnergyPerformanceCard
+    | ElevatorRequirementCard
+    | ParkingRequirementCard
 )
 
 # Discriminated-union adapter. ``grid_card_adapter`` is the canonical public name;
