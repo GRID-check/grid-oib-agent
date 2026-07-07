@@ -127,7 +127,7 @@ export const ProfileControls: FC<ProfileControlsProps> = ({ authRequired, email 
                     {email ? t('security.signedInAs', { email }) : t('security.thisDevice')}
                   </p>
                 </div>
-                <span className="shrink-0 rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                <span className="shrink-0 rounded-full bg-success-subtle px-2 py-0.5 text-xs font-medium text-success">
                   {t('security.thisDevice')}
                 </span>
               </div>

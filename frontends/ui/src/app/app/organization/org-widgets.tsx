@@ -63,6 +63,9 @@ export const OrgWidgets = ({
 
   return (
     <WorkOsWidgets theme={{ appearance, radius: 'medium', scaling: '100%' }}>
+      {/* The provider renders a single wrapper element, so give its cards their
+          own gap to match the page's card rhythm. */}
+      <div className="flex flex-col gap-6">
       {canManageUsers && (
         <Card>
           <CardHeader>
@@ -76,8 +79,8 @@ export const OrgWidgets = ({
       )}
 
       {hasAdvanced && (
-        <section className="flex flex-col gap-2">
-          <div>
+        <section className="flex flex-col gap-6">
+          <div className="space-y-1">
             <h2 className="text-lg font-semibold tracking-tight">{t('advanced.title')}</h2>
             <p className="text-sm text-muted-foreground">{t('advanced.description')}</p>
           </div>
@@ -131,6 +134,7 @@ export const OrgWidgets = ({
           )}
         </section>
       )}
+      </div>
     </WorkOsWidgets>
   )
 }
