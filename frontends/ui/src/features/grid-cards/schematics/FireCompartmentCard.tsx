@@ -71,11 +71,11 @@ export const FireCompartmentCard: FC<FireCompartmentCardProps> = ({
         {known ? (
           sketchRect(x, py, w, PD, `ba-fill-${i}`, {
             strokeWidth: 1.3,
-            stroke: color,
-            fill: color,
+            stroke: `color-mix(in oklch, ${color} 75%, transparent)`,
+            fill: `color-mix(in oklch, ${color} 45%, transparent)`,
             fillStyle: 'hachure',
-            fillWeight: 0.5,
-            hachureGap: 8,
+            fillWeight: 0.45,
+            hachureGap: 11,
           })
         ) : (
           <rect

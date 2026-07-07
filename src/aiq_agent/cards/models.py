@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from pydantic import Field
 from pydantic import TypeAdapter
 from pydantic import field_validator
+from pydantic import model_validator
 
 
 class SummaryCard(BaseModel):
@@ -474,10 +475,86 @@ class ParkingRequirementCard(BaseModel):
     note: str | None = Field(default=None, description="Optional clarification")
 
 
+# ── Structured non-schematic cards ───────────────────────────────────────────
+
+
+class ChecklistItem(BaseModel):
+    """One requirement in a checklist, with its verdict and grounding."""
+
+    label: str = Field(min_length=1, description="The requirement, e.g. 'Zweiter Fluchtweg vorhanden'")
+    status: DimStatus = Field(description="Verdict for this requirement")
+    detail: str | None = Field(default=None, description="Short explanation or the relevant measured value")
+    reference: NormReference | None = Field(default=None, description="Where this requirement comes from")
+
+
+class RequirementChecklistCard(BaseModel):
+    """A requirement checklist: several pass/fail criteria for one question.
+
+    Emit when an answer boils down to a list of criteria read against the
+    project ('Was muss ich für GK 4 erfüllen?', 'Ist das Bauansuchen
+    vollständig?'). Each item carries its own verdict and, where possible, its
+    own norm reference; unknown items use status 'needs_input' — never a guess.
+    """
+
+    type: Literal["requirement_checklist"]
+    title: str = Field(min_length=1, description="Title, e.g. 'Anforderungen GK 4 – Brandschutz'")
+    items: list[ChecklistItem] = Field(min_length=1, description="The requirements, in reading order")
+    reference: NormReference | None = Field(default=None, description="Overall source when items share one")
+    note: str | None = Field(default=None, description="Optional clarification")
+
+
+class ComparisonRow(BaseModel):
+    """One criterion compared across the options (one value per option)."""
+
+    label: str = Field(min_length=1, description="Criterion, e.g. 'max. Brandabschnittsfläche'")
+    values: list[str] = Field(min_length=1, description="One value per option, same order as `options`")
+    highlight_index: int | None = Field(
+        default=None, ge=0, description="0-based index of the option favoured on this criterion, if any"
+    )
+
+
+class ComparisonTableCard(BaseModel):
+    """A side-by-side comparison of a small number of options.
+
+    Emit when the user weighs alternatives (GK 4 vs GK 5, two escape-route
+    variants, Holzbau vs Massivbau requirements). Options are columns, criteria
+    are rows; values are short strings the model already grounded in the
+    answer. Optionally highlight the favoured option per row and name an
+    overall recommendation.
+    """
+
+    type: Literal["comparison_table"]
+    title: str = Field(min_length=1, description="Title, e.g. 'GK 4 vs. GK 5 – Anforderungen'")
+    options: list[str] = Field(min_length=2, description="Column headers, e.g. ['GK 4', 'GK 5']")
+    rows: list[ComparisonRow] = Field(min_length=1, description="The compared criteria")
+    recommendation: str | None = Field(default=None, description="Overall recommendation, if the answer implies one")
+    reference: NormReference | None = Field(default=None, description="Source grounding the compared values")
+    note: str | None = Field(default=None, description="Optional clarification")
+
+    @model_validator(mode="after")
+    def _square_rows(self) -> "ComparisonTableCard":
+        """Pad short rows with '' and truncate long ones to the option count.
+
+        LLM output occasionally mismatches row/column counts; an empty cell is
+        honest ("no value given") while dropping the whole card loses the rest.
+        """
+        n = len(self.options)
+        for row in self.rows:
+            if len(row.values) < n:
+                row.values = row.values + [""] * (n - len(row.values))
+            elif len(row.values) > n:
+                row.values = row.values[:n]
+            if row.highlight_index is not None and row.highlight_index >= n:
+                row.highlight_index = None
+        return self
+
+
 GridCard = (
     SummaryCard
     | LegalBasisCard
     | ProjectProfilePatchCard
+    | RequirementChecklistCard
+    | ComparisonTableCard
     | BuildingSectionCard
     | StairDiagramCard
     | DimensionDiagramCard
@@ -501,11 +578,15 @@ grid_card_adapter = TypeAdapter(Annotated[GridCard, Field(discriminator="type")]
 _grid_card_adapter = grid_card_adapter
 
 __all__ = [
+    "ChecklistItem",
+    "ComparisonRow",
+    "ComparisonTableCard",
     "GridCard",
     "LegalBasisCard",
     "ProjectProfilePatchCard",
     "ProjectProfilePatchOperation",
     "ProjectProfilePatchPreviewItem",
+    "RequirementChecklistCard",
     "SummaryCard",
     "grid_card_adapter",
     "validate_cards",

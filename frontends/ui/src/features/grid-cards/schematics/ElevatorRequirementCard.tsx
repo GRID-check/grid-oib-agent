@@ -2,25 +2,28 @@
  * ElevatorRequirementCard — barrierefreier Aufzug: served storeys as a stack
  * with a lift shaft, the requirement verdict, and cabin/door clearance checks.
  *
- * The building is drawn as N stacked storey bands with a lift shaft on the
- * right running through them and a cabin cab at the entrance level. A pill
- * states whether a barrier-free lift is required. Below, the cabin width/depth
- * and clear door width are read against the accessibility minimums; unknown
- * dimensions read "fehlende Angabe", never a guess.
+ * The building is one contiguous outline with storey separator lines and
+ * generated storey labels (KG/EG/OG from the entrance level); the lift shaft
+ * runs inside it over the full height with the cabin at the entrance level and
+ * a travel arrow above it. The requirement itself is stated as a neutral
+ * info chip ("erforderlich" / "nicht erforderlich") — it is a fact, not a
+ * pass/fail verdict. Below, the cabin width/depth and clear door width are
+ * read against the accessibility minimums; unknown dimensions read
+ * "fehlende Angabe", never a guess.
  */
 
 import { type FC } from 'react'
-import { ArrowUpDown } from 'lucide-react'
+import { ArrowUpDown, CircleHelp } from 'lucide-react'
 import {
   DimChecksList,
   SchematicCanvas,
   SchematicCard,
-  StatusBadge,
   SvgLabel,
   worstStatus,
 } from './kit'
-import { sketchRect } from './rough'
-import type { DimensionCheckData, DimStatus, NormReferenceData } from './types'
+import { cn } from '@/lib/utils'
+import { sketchLine, sketchRect } from './rough'
+import type { DimensionCheckData, NormReferenceData } from './types'
 
 interface ElevatorRequirementCardProps {
   title: string
@@ -33,6 +36,13 @@ interface ElevatorRequirementCardProps {
   door_width?: DimensionCheckData | null
   reference?: NormReferenceData | null
   note?: string | null
+}
+
+/** Storey label relative to the entrance level: 2.KG … EG … 3.OG. */
+const storeyName = (index: number, entrance: number): string => {
+  if (index === entrance) return 'EG'
+  if (index > entrance) return `${index - entrance}.OG`
+  return `${entrance - index}.KG`
 }
 
 export const ElevatorRequirementCard: FC<ElevatorRequirementCardProps> = ({
@@ -48,26 +58,24 @@ export const ElevatorRequirementCard: FC<ElevatorRequirementCardProps> = ({
   note,
 }) => {
   const n = Math.max(1, Math.min(storeysServed, 12))
-  const entrance = entranceIndex ?? 0
+  const entrance = Math.max(0, Math.min(entranceIndex ?? 0, n - 1))
 
-  const bandH = Math.max(16, Math.min(30, 190 / n))
-  const px = 20
-  const bw = 176
-  const shaftW = 40
-  const gap = 4
-  const top = 22
-  const viewW = 300
-  const viewH = top + n * (bandH + gap) + 8
-
-  // Requirement pill maps the boolean to a verdict-style status.
-  const reqStatus: DimStatus | null =
-    isRequired == null ? null : isRequired ? 'warning' : 'pass'
+  const bandH = Math.max(18, Math.min(30, 180 / n))
+  const bx = 64
+  const bw = 180
+  const shaftW = 38
+  const top = 30
+  const buildingH = n * bandH
+  const groundY = top + (n - entrance) * bandH
+  const viewW = 330
+  const viewH = top + buildingH + (entrance > 0 ? 10 : 0) + 22
 
   const checks = [cabinWidth, cabinDepth, doorWidth].filter(
     (c): c is DimensionCheckData => c != null
   )
 
-  const shaftX = px + bw - shaftW - 6
+  const shaftX = bx + bw - shaftW - 14
+  const info = 'var(--text-color-feedback-info)'
 
   return (
     <SchematicCard
@@ -78,15 +86,22 @@ export const ElevatorRequirementCard: FC<ElevatorRequirementCardProps> = ({
       note={note}
       reference={reference}
     >
-      <div className="flex items-center gap-2 text-xs">
+      <div className="flex flex-wrap items-center gap-2 text-xs">
         <span className="text-muted-foreground">Barrierefreier Aufzug:</span>
-        {reqStatus ? (
-          <span className="inline-flex items-center gap-1 font-medium text-foreground">
-            {isRequired ? 'erforderlich' : 'nicht erforderlich'}
-            <StatusBadge status={reqStatus} />
+        {isRequired == null ? (
+          <span className="inline-flex items-center gap-1 italic text-muted-foreground">
+            <CircleHelp className="size-3.5" aria-hidden="true" />
+            Angabe fehlt
           </span>
         ) : (
-          <span className="italic text-muted-foreground">Angabe fehlt</span>
+          <span
+            className={cn(
+              'inline-flex shrink-0 items-center rounded-full px-2 py-0.5 font-medium',
+              isRequired ? 'bg-info-subtle text-info' : 'bg-muted text-muted-foreground'
+            )}
+          >
+            {isRequired ? 'erforderlich' : 'nicht erforderlich'}
+          </span>
         )}
       </div>
       {requirementNote && (
@@ -94,20 +109,37 @@ export const ElevatorRequirementCard: FC<ElevatorRequirementCardProps> = ({
       )}
 
       <SchematicCanvas viewW={viewW} viewH={viewH} minWidth={300} label={title}>
-        {/* storey stack, top storey first */}
+        {/* one contiguous building outline */}
+        {sketchRect(bx, top, bw, buildingH, 'lift-building', { strokeWidth: 1.5 })}
+
+        {/* storey bands: separators, entrance tint, generated labels */}
         {[...Array(n)].map((_, row) => {
-          // row 0 at the top → storey index counts down from the top.
-          const storeyIdx = n - 1 - row
-          const y = top + row * (bandH + gap)
+          const storeyIdx = n - 1 - row // row 0 at the top
+          const y = top + row * bandH
           const isEntrance = storeyIdx === entrance
           return (
             <g key={`st-${row}`}>
-              {sketchRect(px, y, bw, bandH, `st-${row}`, {
-                strokeWidth: 1.2,
-                fill: isEntrance ? 'color-mix(in oklch, var(--foreground) 6%, transparent)' : undefined,
-              })}
               {isEntrance && (
-                <SvgLabel x={px + 8} y={y + bandH / 2} weight={600} size={9}>
+                <rect
+                  x={bx + 1.5}
+                  y={y + 1}
+                  width={bw - 3}
+                  height={bandH - 2}
+                  fill="color-mix(in oklch, var(--foreground) 5%, transparent)"
+                />
+              )}
+              {row > 0 && sketchLine(bx, y, bx + bw, y, `lift-slab-${row}`, { strokeWidth: 0.9 })}
+              <SvgLabel
+                x={bx + 9}
+                y={y + bandH / 2}
+                weight={isEntrance ? 600 : 500}
+                size={9}
+                fill={isEntrance ? 'var(--foreground)' : 'var(--muted-foreground)'}
+              >
+                {storeyName(storeyIdx, entrance)}
+              </SvgLabel>
+              {isEntrance && (
+                <SvgLabel x={bx + 38} y={y + bandH / 2} size={8} italic>
                   Zugangsebene
                 </SvgLabel>
               )}
@@ -115,34 +147,86 @@ export const ElevatorRequirementCard: FC<ElevatorRequirementCardProps> = ({
           )
         })}
 
-        {/* lift shaft through the full height */}
+        {/* ground line at the entrance level, with hatch ticks */}
+        <line
+          x1={bx - 26}
+          y1={groundY}
+          x2={bx + bw + 26}
+          y2={groundY}
+          stroke="var(--foreground)"
+          strokeWidth={1.4}
+        />
+        {Array.from({ length: 4 }, (_, i) => (
+          <line
+            key={`gl-${i}`}
+            x1={bx - 22 + i * 7}
+            y1={groundY}
+            x2={bx - 27 + i * 7}
+            y2={groundY + 6}
+            stroke="var(--muted-foreground)"
+            strokeWidth={0.8}
+            opacity={0.55}
+          />
+        ))}
+        {Array.from({ length: 4 }, (_, i) => (
+          <line
+            key={`gr-${i}`}
+            x1={bx + bw + 6 + i * 7}
+            y1={groundY}
+            x2={bx + bw + 1 + i * 7}
+            y2={groundY + 6}
+            stroke="var(--muted-foreground)"
+            strokeWidth={0.8}
+            opacity={0.55}
+          />
+        ))}
+
+        {/* lift shaft inside the building, full height */}
         <rect
           x={shaftX}
           y={top}
           width={shaftW}
-          height={n * (bandH + gap) - gap}
-          fill="color-mix(in oklch, var(--text-color-feedback-info) 10%, transparent)"
-          stroke="var(--text-color-feedback-info)"
-          strokeWidth={1.2}
+          height={buildingH}
+          fill={`color-mix(in oklch, ${info} 8%, transparent)`}
+          stroke={info}
+          strokeWidth={1.1}
         />
         {/* cabin at the entrance level */}
         {(() => {
-          const row = n - 1 - entrance
-          const y = top + row * (bandH + gap)
+          const y = top + (n - 1 - entrance) * bandH
           return (
-            <rect
-              x={shaftX + 5}
-              y={y + 3}
-              width={shaftW - 10}
-              height={bandH - 6}
-              fill="var(--card)"
-              stroke="var(--text-color-feedback-info)"
-              strokeWidth={1.4}
-            />
+            <g>
+              <rect
+                x={shaftX + 5}
+                y={y + 3}
+                width={shaftW - 10}
+                height={bandH - 6}
+                fill="var(--card)"
+                stroke={info}
+                strokeWidth={1.4}
+              />
+              {/* travel arrow above the cabin */}
+              {entrance < n - 1 && (
+                <g stroke={info} strokeWidth={1.1} opacity={0.8}>
+                  <line x1={shaftX + shaftW / 2} y1={y - 4} x2={shaftX + shaftW / 2} y2={top + 8} />
+                  <path
+                    d={`M ${shaftX + shaftW / 2 - 3.5} ${top + 12} L ${shaftX + shaftW / 2} ${top + 6} L ${shaftX + shaftW / 2 + 3.5} ${top + 12}`}
+                    fill="none"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </g>
+              )}
+            </g>
           )
         })()}
-        <SvgLabel x={shaftX + shaftW / 2} y={top - 10} anchor="middle" fill="var(--text-color-feedback-info)" size={9}>
+        <SvgLabel x={shaftX + shaftW / 2} y={top - 10} anchor="middle" fill={info} size={9} weight={600}>
           Aufzug
+        </SvgLabel>
+
+        {/* storey count, bottom left */}
+        <SvgLabel x={bx} y={top + buildingH + 14} size={8.5}>
+          {n} Geschosse erschlossen
         </SvgLabel>
       </SchematicCanvas>
 

@@ -3,6 +3,8 @@ import type { GridCard } from '@/shared/cards/schemas'
 import { SummaryCard } from './SummaryCard'
 import { LegalBasisCard } from './LegalBasisCard'
 import { ProjectProfilePatchCard } from './ProjectProfilePatchCard'
+import { RequirementChecklistCard } from './RequirementChecklistCard'
+import { ComparisonTableCard } from './ComparisonTableCard'
 import { BuildingSectionCard } from '../schematics/BuildingSectionCard'
 import { StairDiagramCard } from '../schematics/StairDiagramCard'
 import { DimensionDiagramCard } from '../schematics/DimensionDiagramCard'
@@ -28,8 +30,9 @@ interface GridCardsProps {
 }
 
 /**
- * Renders a list of Grid cards in a vertical stack: summary / legal_basis /
- * project_profile_patch plus the fifteen schematic cards (building_section,
+ * Renders a list of Grid cards in a vertical stack: the structured cards
+ * (summary, legal_basis, project_profile_patch, requirement_checklist,
+ * comparison_table) plus the fifteen schematic cards (building_section,
  * stair_diagram, dimension_diagram, setback_plan, egress_diagram,
  * daylight_incidence, guardrail_check, density_check, fire_access_plan,
  * acoustic_check, fire_compartment, thermal_envelope, energy_performance,
@@ -57,6 +60,34 @@ export const GridCards: FC<GridCardsProps> = ({ cards, projectId }) => {
           return (
             <FadeIn key={key} distance={6}>
               <LegalBasisCard {...card} />
+            </FadeIn>
+          )
+        }
+
+        if (card.type === 'requirement_checklist') {
+          return (
+            <FadeIn key={key} distance={6}>
+              <RequirementChecklistCard
+                title={card.title}
+                items={card.items ?? []}
+                reference={card.reference}
+                note={card.note}
+              />
+            </FadeIn>
+          )
+        }
+
+        if (card.type === 'comparison_table') {
+          return (
+            <FadeIn key={key} distance={6}>
+              <ComparisonTableCard
+                title={card.title}
+                options={card.options ?? []}
+                rows={card.rows ?? []}
+                recommendation={card.recommendation}
+                reference={card.reference}
+                note={card.note}
+              />
             </FadeIn>
           )
         }

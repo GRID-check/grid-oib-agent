@@ -2,9 +2,11 @@
  * ParkingRequirementCard — Stellplatznachweis: provided vs required parking
  * shown as a slot grid plus a limit bar (Bauordnung / Stellplatzverordnung).
  *
- * Each check draws a grid of slot glyphs: outline slots for the required
- * minimum, status-filled slots for those provided (extra provided slots read
- * as a surplus). A LimitBar reads provided against required (more is better).
+ * Each check draws a grid of slot glyphs: provided slots are filled neutral
+ * (they exist — existence is not a verdict), missing slots are dashed
+ * danger-coloured gaps, surplus slots beyond the requirement are tinted
+ * success. A caption states the count in words ("12 von 14 nachgewiesen — 2
+ * fehlen") and a LimitBar reads provided against required (more is better).
  * Cars are always shown; bicycles when supplied. Unknown counts render an
  * empty track and "fehlende Angabe" — never a guessed number.
  */
@@ -31,16 +33,19 @@ interface ParkingRequirementCardProps {
   note?: string | null
 }
 
-const COLS = 10
-const CELL = 22
-const PAD = 6
+const COLS = 14
+const CELL = 15
+const PAD = 3
+const SLOT_CAP = 70
 
-/** One labelled slot grid: outline = required, filled = provided. */
+/**
+ * One slot grid: filled neutral = provided, dashed danger = missing against
+ * the requirement, success-tinted = surplus beyond it.
+ */
 const SlotGrid: FC<{ check: DimensionCheckData }> = ({ check }) => {
   const provided = check.value ?? null
   const required = check.required ?? null
-  const total = Math.min(Math.max(provided ?? 0, required ?? 0), 60)
-  const color = statusColor(check.status)
+  const total = Math.min(Math.max(provided ?? 0, required ?? 0), SLOT_CAP)
 
   if (provided == null && required == null) {
     return (
@@ -53,6 +58,8 @@ const SlotGrid: FC<{ check: DimensionCheckData }> = ({ check }) => {
   const rows = Math.max(1, Math.ceil(total / COLS))
   const viewW = COLS * CELL + PAD * 2
   const viewH = rows * CELL + PAD * 2
+  const success = statusColor('pass')
+  const danger = statusColor('fail')
   const cells: ReactNode[] = []
   for (let i = 0; i < total; i += 1) {
     const cx = PAD + (i % COLS) * CELL
@@ -62,27 +69,44 @@ const SlotGrid: FC<{ check: DimensionCheckData }> = ({ check }) => {
     cells.push(
       <rect
         key={i}
-        x={cx + 2}
-        y={cy + 2}
-        width={CELL - 6}
-        height={CELL - 6}
-        rx={2.5}
-        fill={filled ? color : 'none'}
-        fillOpacity={surplus ? 0.4 : 1}
-        stroke={filled ? color : 'var(--muted-foreground)'}
-        strokeWidth={1.1}
+        x={cx + 1.5}
+        y={cy + 1.5}
+        width={CELL - 4}
+        height={CELL - 4}
+        rx={2}
+        fill={
+          filled
+            ? surplus
+              ? `color-mix(in oklch, ${success} 45%, transparent)`
+              : 'color-mix(in oklch, var(--foreground) 55%, transparent)'
+            : 'none'
+        }
+        stroke={filled ? (surplus ? success : 'var(--foreground)') : danger}
+        strokeOpacity={filled ? 0.65 : 0.9}
+        strokeWidth={1}
         strokeDasharray={filled ? undefined : '3 2'}
       />
     )
   }
 
   return (
-    <div className="flex flex-col gap-1.5">
-      <SchematicCanvas viewW={viewW} viewH={viewH} minWidth={Math.min(viewW, 240)} label={check.label}>
-        {cells}
-      </SchematicCanvas>
-    </div>
+    <SchematicCanvas viewW={viewW} viewH={viewH} minWidth={Math.min(viewW, 240)} label={check.label}>
+      {cells}
+    </SchematicCanvas>
   )
+}
+
+/** "12 von 14 nachgewiesen — 2 fehlen" / "28 nachgewiesen (Überschuss +4)". */
+const countCaption = (check: DimensionCheckData): string | null => {
+  const provided = check.value ?? null
+  const required = check.required ?? null
+  if (provided == null || required == null) return null
+  const overflow = Math.max(provided, required) > SLOT_CAP ? ' (Ausschnitt)' : ''
+  if (provided < required)
+    return `${fmtNum(provided)} von ${fmtNum(required)} nachgewiesen — ${fmtNum(required - provided)} fehlen${overflow}`
+  if (provided > required)
+    return `${fmtNum(provided)} nachgewiesen — Überschuss +${fmtNum(provided - required)}${overflow}`
+  return `${fmtNum(provided)} von ${fmtNum(required)} nachgewiesen${overflow}`
 }
 
 const withDefaults = (check: DimensionCheckData, fallbackLabel: string): DimensionCheckData => ({
@@ -118,22 +142,26 @@ export const ParkingRequirementCard: FC<ParkingRequirementCardProps> = ({
         </p>
       )}
 
-      <div className="flex flex-col gap-1.5">
-        <p className="text-xs font-medium text-foreground">{car.label}</p>
-        <SlotGrid check={car} />
-        <LimitBar check={car} />
-      </div>
-
-      {bike && (
-        <div className="flex flex-col gap-1.5">
-          <p className="text-xs font-medium text-foreground">{bike.label}</p>
-          <SlotGrid check={bike} />
-          <LimitBar check={bike} />
-        </div>
-      )}
+      {[car, ...(bike ? [bike] : [])].map((check, i) => {
+        const caption = countCaption(check)
+        return (
+          <div key={`grid-${i}`} className="flex flex-col gap-1.5">
+            <div className="flex items-baseline justify-between gap-3">
+              <p className="text-xs font-medium text-foreground">{check.label}</p>
+              {caption && (
+                <p className="text-[11px]" style={{ color: statusColor(check.status) }}>
+                  {caption}
+                </p>
+              )}
+            </div>
+            <SlotGrid check={check} />
+            <LimitBar check={check} />
+          </div>
+        )
+      })}
 
       <p className="text-[11px] text-muted-foreground">
-        Gefüllt = nachgewiesen{car.required != null ? `, gestrichelt = gefordert (${fmtNum(car.required)})` : ''}.
+        Gefüllt = nachgewiesen, gestrichelt = fehlend gegenüber der Anforderung.
       </p>
     </SchematicCard>
   )

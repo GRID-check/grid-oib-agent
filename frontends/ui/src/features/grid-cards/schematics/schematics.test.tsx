@@ -372,8 +372,9 @@ describe('DensityCheckCard', () => {
     )
 
     expect(screen.getByText('Grundstück 800 m²')).toBeInTheDocument()
-    // Renderer-derived ratios: 240/800 → 30 %, 720/800 → 0.9 GFZ, both within limits.
-    expect(screen.getByText(/^30 %/)).toBeInTheDocument()
+    // Renderer-derived ratios: 240/800 → 30 %, 720/800 → 0.9 GFZ, both within
+    // limits. The coverage ratio appears twice: in the plan and on its bar.
+    expect(screen.getAllByText(/^30 %/).length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText(/^0,9/)).toBeInTheDocument()
     expect(screen.getByText('erfüllt')).toBeInTheDocument()
     expect(screen.getByText(/720 m²/)).toBeInTheDocument()
@@ -553,8 +554,10 @@ describe('ThermalEnvelopeCard', () => {
       />
     )
 
-    expect(screen.getByText('Gebäudehülle')).toBeInTheDocument()
-    expect(screen.getAllByText('Außenwand').length).toBeGreaterThanOrEqual(1)
+    // Each checked component gets a status callout in the section plus its
+    // limit bar below.
+    expect(screen.getAllByText('Außenwand').length).toBeGreaterThanOrEqual(2)
+    expect(screen.getAllByText('Dach').length).toBeGreaterThanOrEqual(2)
     expect(screen.getByText('nicht erfüllt')).toBeInTheDocument()
     expect(screen.getByText('OIB-Richtlinie 6')).toBeInTheDocument()
   })
