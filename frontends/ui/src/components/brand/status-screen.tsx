@@ -19,7 +19,7 @@ export function StatusScreen({ code, title, description, actions, className }: S
   return (
     <div
       className={cn(
-        'flex min-h-screen flex-col items-center justify-center bg-background px-6 text-center',
+        'flex min-h-dvh flex-col items-center justify-center bg-background px-6 text-center',
         className,
       )}
     >

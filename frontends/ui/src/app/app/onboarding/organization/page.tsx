@@ -66,7 +66,7 @@ const OrganizationOnboardingPage = (): ReactNode => {
   })
 
   return (
-    <main id="main-content" className="relative min-h-dvh overflow-hidden bg-muted p-6 md:p-10">
+    <main id="main-content" className="relative min-h-dvh overflow-hidden bg-muted p-4 sm:p-6 md:p-10">
       <div className="pointer-events-none absolute -right-28 top-8 h-[640px] w-[640px] opacity-25">
         <StarfieldAnimation particleCount={260} maxRadius={270} rotationSpeed={0.001} />
       </div>
@@ -78,7 +78,7 @@ const OrganizationOnboardingPage = (): ReactNode => {
             <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
               {t('intro.eyebrow')}
             </span>
-            <h1 className="text-4xl font-semibold tracking-display md:text-5xl md:leading-none">
+            <h1 className="text-3xl font-semibold tracking-display sm:text-4xl md:text-5xl md:leading-none">
               {t('intro.title')}
             </h1>
             <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">

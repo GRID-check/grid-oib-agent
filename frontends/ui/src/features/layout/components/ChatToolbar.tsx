@@ -68,11 +68,11 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
             title={!isAuthenticated ? t('chatToolbar.signInToView') : t('chatToolbar.toggleSessions')}
           >
             <MessageSquareText className="h-4 w-4" aria-hidden="true" />
-            <span className="text-sm font-semibold">{t('chatToolbar.sessions')}</span>
+            <span className="hidden text-sm font-semibold sm:inline">{t('chatToolbar.sessions')}</span>
           </Button>
           {sessionTitle ? <Separator orientation="vertical" className="h-5" /> : null}
           {sessionTitle ? (
-            <span className="hidden max-w-[520px] truncate text-sm text-muted-foreground md:block">
+            <span className="hidden max-w-[520px] truncate text-sm font-medium text-foreground md:block">
               {sessionTitle}
             </span>
           ) : null}
@@ -86,7 +86,7 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
           title={!isAuthenticated ? t('chatToolbar.signInToManage') : t('chatToolbar.addSources')}
         >
           <Globe className="h-4 w-4" aria-hidden="true" />
-          <span className="text-sm">{t('chatToolbar.sources')}</span>
+          <span className="hidden text-sm sm:inline">{t('chatToolbar.sources')}</span>
         </Button>
       </div>
     </header>

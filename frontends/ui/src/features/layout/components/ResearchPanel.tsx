@@ -19,6 +19,7 @@ import { cn } from '@/lib/utils'
 import { cancelJob } from '@/adapters/api'
 import { useChatStore, useLoadJobData } from '@/features/chat'
 import { useAuth } from '@/adapters/auth'
+import { useIsMobile } from '@/hooks/use-is-mobile'
 import { useReducedMotion } from '@/hooks/use-reduced-motion'
 import { useTranslations } from '@/i18n'
 import { useLayoutStore } from '../store'
@@ -61,6 +62,7 @@ export const ResearchPanel: FC<ResearchPanelProps> = memo(function ResearchPanel
   const { idToken } = useAuth()
 
   const prefersReducedMotion = useReducedMotion()
+  const isMobile = useIsMobile()
   const cancelFallbackRef = useRef<NodeJS.Timeout | null>(null)
   const pendingTabLoadRef = useRef<{ jobId: string; tab: ResearchPanelTab } | null>(null)
 
@@ -183,11 +185,13 @@ export const ResearchPanel: FC<ResearchPanelProps> = memo(function ResearchPanel
     <div
       className="relative flex h-full"
       style={{
-        width: isOpen ? 'calc(50% + 40px)' : '40px',
-        minWidth: isOpen ? 'calc(50% + 40px)' : '40px',
+        // Mobile: the open panel takes the whole viewport width (the chat
+        // column collapses to 0% in MainLayout); desktop keeps the 50% split.
+        width: isOpen ? (isMobile ? '100%' : 'calc(50% + 40px)') : '40px',
+        minWidth: isOpen ? (isMobile ? '100%' : 'calc(50% + 40px)') : '40px',
         transition: prefersReducedMotion
           ? 'none'
-          : 'width 600ms ease-in-out, min-width 600ms ease-in-out',
+          : 'width 300ms ease-in-out, min-width 300ms ease-in-out',
       }}
     >
       {/* Toggle Tag Button - protruding from left side, always visible */}
@@ -236,12 +240,12 @@ export const ResearchPanel: FC<ResearchPanelProps> = memo(function ResearchPanel
               ? 'none'
               : isOpen
                 ? 'opacity 100ms ease-in-out, visibility 0ms'
-                : 'opacity 100ms ease-in-out 500ms, visibility 0ms 600ms',
+                : 'opacity 100ms ease-in-out 200ms, visibility 0ms 300ms',
           }}
         >
           {/* Header with tabs and close button */}
-          <div className="flex shrink-0 items-center justify-between border-b py-4 pl-6 pr-8">
-            <div className="flex items-center gap-4">
+          <div className="flex shrink-0 items-center justify-between gap-2 border-b py-3 pl-3 pr-3 sm:py-4 sm:pl-6 sm:pr-8">
+            <div className="flex min-w-0 items-center gap-2 sm:gap-4">
               <Tabs value={researchPanelTab} onValueChange={handleTabChange}>
                 <TabsList>
                   <TabsTrigger value="tasks">{t('researchPanel.tabTasks')}</TabsTrigger>
@@ -260,7 +264,7 @@ export const ResearchPanel: FC<ResearchPanelProps> = memo(function ResearchPanel
                 data-testid="research-panel-stop"
               >
                 <CircleStop className="h-4 w-4" aria-hidden="true" />
-                {t('researchPanel.stopResearchingButton')}
+                <span className="hidden sm:inline">{t('researchPanel.stopResearchingButton')}</span>
               </Button>
             </div>
             <div className="flex items-center gap-4">
@@ -280,7 +284,7 @@ export const ResearchPanel: FC<ResearchPanelProps> = memo(function ResearchPanel
           </div>
 
           {/* Content Area - each tab manages its own scrolling and footer */}
-          <div className="flex flex-1 flex-col overflow-hidden py-5 pl-6 pr-8">
+          <div className="flex flex-1 flex-col overflow-hidden px-4 py-4 sm:py-5 sm:pl-6 sm:pr-8">
             {isStreamLoading ? (
               <div className="flex h-full flex-col items-center justify-center gap-4">
                 <Spinner label={t('researchPanel.loadingData')} />

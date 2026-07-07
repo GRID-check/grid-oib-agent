@@ -327,7 +327,7 @@ export function ProjectMembersForm({ projectId, canManage }: ProjectMembersFormP
               return (
                 <div
                   key={member.organizationMembershipId}
-                  className="flex items-center justify-between gap-4 px-6 py-3.5 transition-colors duration-200 ease-out hover:bg-accent/40"
+                  className="flex flex-col gap-3 px-4 py-3.5 transition-colors duration-200 ease-out hover:bg-accent/40 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-6"
                 >
                   <div className="flex min-w-0 items-center gap-3">
                     <Avatar className="size-9">
@@ -344,7 +344,7 @@ export function ProjectMembersForm({ projectId, canManage }: ProjectMembersFormP
                   </div>
 
                   {canManage ? (
-                    <div className="flex min-w-[220px] items-center justify-end gap-3">
+                    <div className="flex items-center justify-end gap-3 sm:min-w-[220px]">
                       {isUpdating && (
                         <span className="text-xs uppercase tracking-widest text-muted-foreground">
                           {t('roster.saving')}
@@ -361,7 +361,7 @@ export function ProjectMembersForm({ projectId, canManage }: ProjectMembersFormP
                         disabled={isUpdating}
                       >
                         <SelectTrigger
-                          className="w-[180px]"
+                          className="w-full sm:w-[180px]"
                           aria-label={t('roster.roleForMember', { name: member.name })}
                         >
                           <SelectValue />

@@ -9,7 +9,7 @@
  */
 
 import { type ReactNode } from 'react'
-import { type Metadata } from 'next'
+import { type Metadata, type Viewport } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
 import { connection } from 'next/server'
 import { Providers } from './providers'
@@ -33,6 +33,16 @@ const geistMono = Geist_Mono({
 
 const isAuthRequired = (): boolean => {
   return process.env.REQUIRE_AUTH?.toLowerCase() === 'true'
+}
+
+/**
+ * Mobile-first viewport: edge-to-edge rendering on notched devices
+ * (safe-area insets are handled per-surface with env() padding).
+ */
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
 }
 
 export const metadata: Metadata = {

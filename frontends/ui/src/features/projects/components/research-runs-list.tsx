@@ -183,7 +183,7 @@ export function ResearchRunsList({ projectId, projectCollection }: ResearchRunsL
           return (
             <StaggerItem
               key={job.job_id}
-              className="flex items-center justify-between gap-4 px-6 py-3.5 transition-colors duration-200 ease-out hover:bg-accent/40"
+              className="flex flex-wrap items-center justify-between gap-3 px-4 py-3.5 transition-colors duration-200 ease-out hover:bg-accent/40 sm:gap-4 sm:px-6"
             >
               <div className="flex min-w-0 items-center gap-4">
                 <Badge variant={STATUS_BADGE_VARIANT[job.status] ?? 'secondary'}>

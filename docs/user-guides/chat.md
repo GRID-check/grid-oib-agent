@@ -2,6 +2,8 @@
 
 The chat interface supports two communication modes: SSE (Server-Sent Events) streaming for simple conversations, and WebSocket for real-time interaction with full HITL (human-in-the-loop) support.
 
+On small screens (below the `md` breakpoint) the chat is mobile-first: the sessions and data-sources panels open as full-width overlays capped at their desktop width, the research panel takes over the whole viewport while open, and the project sidebar is replaced by a top bar with a navigation drawer.
+
 ## Starting a conversation
 
 Click **New Session** in the sessions panel (left sidebar) to start a fresh conversation. Type your message in the input area at the bottom of the screen and press Enter. The first user message sets the conversation title (truncated to 50 characters).

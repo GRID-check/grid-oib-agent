@@ -75,7 +75,7 @@ export function ProjectOverview({ data }: ProjectOverviewProps) {
   }
 
   return (
-    <Stagger className="mx-auto w-full max-w-5xl space-y-10 px-4 py-10 md:px-8">
+    <Stagger className="mx-auto w-full max-w-5xl space-y-8 px-4 py-6 md:space-y-10 md:px-8 md:py-10">
       {/* Header */}
       <StaggerItem>
       <header className="flex flex-wrap items-end justify-between gap-4">
@@ -192,7 +192,7 @@ export function ProjectOverview({ data }: ProjectOverviewProps) {
 
       {/* Stats */}
       <StaggerItem>
-      <section className="grid grid-cols-2 gap-5 sm:grid-cols-3">
+      <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-5">
         <div className="rounded-2xl border bg-card p-6 shadow-xs transition-shadow duration-200 ease-out hover:shadow-sm">
           <div className="flex size-9 items-center justify-center rounded-xl bg-muted text-primary">
             <FileText className="size-4" aria-hidden />
@@ -241,7 +241,7 @@ export function ProjectOverview({ data }: ProjectOverviewProps) {
         {hasDocuments ? (
           <div className="divide-y divide-border overflow-hidden rounded-2xl border bg-card shadow-xs">
             {data.recentDocuments.map((doc) => (
-              <div key={doc.id} className="flex items-center justify-between gap-4 px-6 py-3.5 transition-colors duration-200 ease-out hover:bg-muted/40">
+              <div key={doc.id} className="flex items-center justify-between gap-3 px-4 py-3.5 transition-colors duration-200 ease-out hover:bg-muted/40 sm:gap-4 sm:px-6">
                 <div className="flex min-w-0 items-center gap-3">
                   <FileText className="size-4 shrink-0 text-muted-foreground" aria-hidden />
                   <span className="truncate text-sm">{doc.filename}</span>
