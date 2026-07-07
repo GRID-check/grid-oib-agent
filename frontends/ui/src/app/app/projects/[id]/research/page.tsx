@@ -31,7 +31,7 @@ export default async function ProjectResearchPage({ params }: ProjectResearchPag
   }
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-4 py-10 md:px-8">
+    <div className="mx-auto w-full max-w-5xl px-4 py-6 md:px-8 md:py-10">
       <header className="flex items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">{t('runsPage.title')}</h1>

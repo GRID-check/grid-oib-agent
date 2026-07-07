@@ -80,7 +80,7 @@ const ErrorContent = (): ReactNode => {
 const AuthErrorPage = (): ReactNode => {
   const t = useTranslations('errors')
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-muted p-8">
+    <div className="flex min-h-dvh flex-col items-center justify-center bg-muted p-4 sm:p-8">
       <Card className="w-full max-w-md">
         <CardContent className="pt-6">
           <Suspense

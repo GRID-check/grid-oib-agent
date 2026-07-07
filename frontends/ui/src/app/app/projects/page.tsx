@@ -53,7 +53,7 @@ export default async function ProjectsPage({ searchParams }: ProjectsPageProps):
         canManageOrganization={isOrgAdmin(session)}
       />
 
-      <main id="main-content" className="mx-auto w-full max-w-5xl flex-1 px-4 py-10 md:px-8">
+      <main id="main-content" className="mx-auto w-full max-w-5xl flex-1 px-4 py-6 md:px-8 md:py-10">
         <header className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-end">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">{t('list.heading')}</h1>
