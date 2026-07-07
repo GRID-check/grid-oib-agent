@@ -4,9 +4,9 @@ import Link from 'next/link'
 import { ClipboardCheck, ExternalLink, MessageSquareText } from 'lucide-react'
 import type { ApplicableStandard, ApplicableStatus } from '@/lib/oib/applicable-standards'
 import { Stagger, StaggerItem } from '@/components/motion'
-import { Badge } from '@/components/ui/badge'
 import { EmptyState } from '@/components/ui/empty-state'
 import { useTranslations, type Translator } from '@/i18n'
+import { ApplicabilityChip, OibCodeChip } from './standard-chips'
 
 interface ApplicableStandardsProps {
   projectId: string
@@ -15,21 +15,7 @@ interface ApplicableStandardsProps {
   briefComplete: boolean
 }
 
-type BadgeVariant = 'info' | 'secondary' | 'warning'
-
-/** Map an applicability verdict to the design-language badge token. */
-function statusVariant(status: ApplicableStatus): BadgeVariant {
-  switch (status) {
-    case 'required':
-      return 'info'
-    case 'check':
-      return 'warning'
-    case 'likely':
-    default:
-      return 'secondary'
-  }
-}
-
+/** The localized verdict label ("required" -> "Required" / "Erforderlich"). */
 function statusLabel(status: ApplicableStatus, t: Translator): string {
   if (status === 'required' || status === 'check' || status === 'likely') {
     return t(`applicableStandards.status.${status}`)
@@ -50,7 +36,7 @@ function askGridHref(projectId: string, standard: ApplicableStandard, t: Transla
 /**
  * Compliance-orientation panel: which OIB-Richtlinien are relevant to this
  * project, derived from the brief, each with a project-grounded reason, a link to
- * the source, and an "Ask Grid" action. Server-renderable (no client hooks).
+ * the source, and an "Ask Grid" action.
  */
 export function ApplicableStandards({ projectId, standards, briefComplete }: ApplicableStandardsProps) {
   const t = useTranslations('projects')
@@ -79,9 +65,7 @@ export function ApplicableStandards({ projectId, standards, briefComplete }: App
             >
               {/* Left: code + title + reason */}
               <div className="flex min-w-0 gap-3">
-                <Badge variant="outline" className="mt-0.5 shrink-0 font-mono">
-                  {standard.code}
-                </Badge>
+                <OibCodeChip code={standard.code} className="mt-0.5" />
                 <div className="min-w-0">
                   <p className="text-sm font-medium">{standard.titleEn}</p>
                   <p className="text-xs text-muted-foreground">{standard.titleDe}</p>
@@ -91,7 +75,10 @@ export function ApplicableStandards({ projectId, standards, briefComplete }: App
 
               {/* Right: status + quiet actions */}
               <div className="flex shrink-0 items-center gap-3 sm:pt-0.5">
-                <Badge variant={statusVariant(standard.status)}>{statusLabel(standard.status, t)}</Badge>
+                <ApplicabilityChip
+                  status={standard.status}
+                  label={statusLabel(standard.status, t)}
+                />
                 <a
                   href={standard.oibUrl}
                   target="_blank"

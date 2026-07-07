@@ -30,25 +30,29 @@ export const AccountWidgets = (): React.ReactNode => {
 
   return (
     <WorkOsWidgets theme={{ appearance, radius: 'medium', scaling: '100%' }}>
-      <Card>
-        <CardHeader>
-          <CardTitle>{t('security.activeSessions')}</CardTitle>
-          <CardDescription>{t('security.activeSessionsDescription')}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <UserSessions authToken={fetchWidgetToken} />
-        </CardContent>
-      </Card>
+      {/* The provider renders a single wrapper element, so give its cards their
+          own gap to match the page's card rhythm. */}
+      <div className="flex flex-col gap-6">
+        <Card>
+          <CardHeader>
+            <CardTitle>{t('security.activeSessions')}</CardTitle>
+            <CardDescription>{t('security.activeSessionsDescription')}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <UserSessions authToken={fetchWidgetToken} />
+          </CardContent>
+        </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{t('security.securityFactors')}</CardTitle>
-          <CardDescription>{t('security.securityFactorsDescription')}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <UserSecurity authToken={fetchWidgetToken} />
-        </CardContent>
-      </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>{t('security.securityFactors')}</CardTitle>
+            <CardDescription>{t('security.securityFactorsDescription')}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <UserSecurity authToken={fetchWidgetToken} />
+          </CardContent>
+        </Card>
+      </div>
     </WorkOsWidgets>
   )
 }
