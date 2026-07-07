@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { Check, Globe, LogOut, Monitor, Moon, Sun, UserRound } from 'lucide-react'
+import { Building2, Check, Globe, LogOut, Monitor, Moon, Sun, UserRound } from 'lucide-react'
 
 import { useAuth } from '@/adapters/auth/use-auth'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -35,6 +35,8 @@ export interface SidebarUserMenuProps {
   menuAlign?: 'start' | 'end'
   /** Hide the name label next to the avatar (compact avatar-only trigger). */
   compact?: boolean
+  /** Show the org-management entry (org admins only). */
+  canManageOrganization?: boolean
 }
 
 const THEME_ICONS: Record<ThemeMode, React.ComponentType<{ className?: string }>> = {
@@ -50,6 +52,7 @@ export function SidebarUserMenu({
   menuSide = 'top',
   menuAlign = 'start',
   compact = false,
+  canManageOrganization = false,
 }: SidebarUserMenuProps) {
   const { signOut } = useAuth()
   const theme = useLayoutStore((s) => s.theme)
@@ -101,6 +104,14 @@ export function SidebarUserMenu({
             {t('userMenu.profile')}
           </Link>
         </DropdownMenuItem>
+        {canManageOrganization && (
+          <DropdownMenuItem asChild className="gap-2">
+            <Link href="/app/organization">
+              <Building2 className="size-4 text-muted-foreground" aria-hidden />
+              {t('userMenu.organization')}
+            </Link>
+          </DropdownMenuItem>
+        )}
         <DropdownMenuSeparator />
         <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">{tc('theme.label')}</DropdownMenuLabel>
         {THEME_MODES.map((mode) => {

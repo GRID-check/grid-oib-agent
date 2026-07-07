@@ -17,6 +17,7 @@ export const nav = {
     defaultUser: 'Default User',
     authNotConfigured: 'Authentication not configured',
     profile: 'Profile',
+    organization: 'Organization',
     settings: 'Settings',
   },
 }

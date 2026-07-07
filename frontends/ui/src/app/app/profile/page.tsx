@@ -10,6 +10,7 @@
 import Link from 'next/link'
 import { ArrowLeft, Building2, UserRound } from 'lucide-react'
 import { requireAuthorizedPageSession } from '@/lib/auth/require-auth'
+import { isOrgAdmin } from '@/lib/authz/organizations'
 import { OrgTopbar } from '@/components/shell'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
@@ -31,6 +32,7 @@ export default async function ProfilePage(): Promise<JSX.Element> {
         user={{ name: session.name, email: session.email }}
         authRequired={isAuthRequired()}
         heading={t('title')}
+        canManageOrganization={isOrgAdmin(session)}
       />
 
       <main id="main-content" className="mx-auto w-full max-w-3xl flex-1 px-4 py-10 md:px-8">

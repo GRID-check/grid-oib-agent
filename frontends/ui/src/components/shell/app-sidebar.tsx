@@ -57,6 +57,8 @@ export interface AppSidebarProps {
    * dead-ends in a permission error.
    */
   canManageMembers?: boolean
+  /** Whether the current user can manage the organization (org admin). */
+  canManageOrganization?: boolean
 }
 
 export function AppSidebar({
@@ -65,6 +67,7 @@ export function AppSidebar({
   user,
   authRequired,
   canManageMembers = true,
+  canManageOrganization = false,
 }: AppSidebarProps) {
   const pathname = usePathname() ?? ''
   const base = `/app/projects/${projectId}`
@@ -226,7 +229,12 @@ export function AppSidebar({
 
       {/* Footer: user + settings */}
       <div className={cn('border-t border-border', collapsed ? 'flex justify-center p-2' : 'p-3')}>
-        <SidebarUserMenu user={user} authRequired={authRequired} compact={collapsed} />
+        <SidebarUserMenu
+          user={user}
+          authRequired={authRequired}
+          compact={collapsed}
+          canManageOrganization={canManageOrganization}
+        />
       </div>
     </aside>
   )

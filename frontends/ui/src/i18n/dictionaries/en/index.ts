@@ -18,6 +18,7 @@ import { files } from './files'
 import { research } from './research'
 import { members } from './members'
 import { onboarding } from './onboarding'
+import { organization } from './organization'
 
 export const en = {
   common,
@@ -32,4 +33,5 @@ export const en = {
   research,
   members,
   onboarding,
+  organization,
 } as const

@@ -1,6 +1,7 @@
 import { and, asc, count, eq, isNull } from 'drizzle-orm'
 import { FolderOpen } from 'lucide-react'
 import { requireAuthorizedPageSession } from '@/lib/auth/require-auth'
+import { isOrgAdmin } from '@/lib/authz/organizations'
 import { getDb } from '@/lib/db'
 import { documents, projects } from '@/lib/db/schema'
 import { ProjectCard } from '@/components/projects/project-card'
@@ -49,6 +50,7 @@ export default async function ProjectsPage({ searchParams }: ProjectsPageProps):
         user={{ name: session.name, email: session.email }}
         authRequired={isAuthRequired()}
         heading={t('list.heading')}
+        canManageOrganization={isOrgAdmin(session)}
       />
 
       <main id="main-content" className="mx-auto w-full max-w-5xl flex-1 px-4 py-10 md:px-8">
