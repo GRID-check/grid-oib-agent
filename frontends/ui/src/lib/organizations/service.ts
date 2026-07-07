@@ -75,6 +75,29 @@ export async function getOrganizationOverview(organizationId: string): Promise<O
   }
 }
 
+export interface OrganizationMember {
+  /** WorkOS user id (`user_…`) — the budget-policy subject id. */
+  id: string
+  email: string
+  name: string | null
+}
+
+/**
+ * Active members of an org (first page, admin pickers). WorkOS is the source
+ * of truth; capped at PAGE_LIMIT like the overview counts.
+ */
+export async function listOrganizationMembers(organizationId: string): Promise<OrganizationMember[]> {
+  const workos = getWorkOS()
+  const users = await workos.userManagement.listUsers({ organizationId, limit: PAGE_LIMIT })
+  return users.data
+    .map((user) => ({
+      id: user.id,
+      email: user.email,
+      name: [user.firstName, user.lastName].filter(Boolean).join(' ') || null,
+    }))
+    .sort((a, b) => a.email.localeCompare(b.email))
+}
+
 function toSettings(row: Organization | undefined): OrgSettings {
   return {
     displayName: row?.displayName ?? null,

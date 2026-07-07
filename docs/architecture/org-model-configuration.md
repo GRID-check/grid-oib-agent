@@ -64,6 +64,12 @@ org_model_configs                      org_model_config_versions
 | POST | `/api/organization/model-config/versions/{id}/activate` | rollback / re-activate; `{id}='none'` → defaults |
 | GET | `/api/organization/model-config/models?group&q` | capability-filtered catalog search |
 
+Workflow defaults shown in the UI come from the backend:
+`GET /v1/config/llm-defaults` (aiq_api `routes/config_info.py`, internal-token
+guarded) reports each named LLM's model from the loaded YAML; the BFF maps it
+through `configLlmRefs` (`backend-defaults.ts`, 5-minute cache, fail-soft to a
+generic label) so admins see exactly what a reset returns to.
+
 OpenRouter catalog client: `frontends/ui/src/lib/model-config/openrouter.ts`
 — `GET {OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}/models`, 5-minute
 in-memory cache, optional `OPENROUTER_API_KEY` bearer.

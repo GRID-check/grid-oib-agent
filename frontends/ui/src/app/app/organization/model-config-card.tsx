@@ -3,15 +3,15 @@
 /**
  * Org-admin editor for runtime model configuration (ADR-0014).
  *
- * Per agent group: shows the current override (or "workflow default") and a
- * search picker that only lists models passing the group's capability
- * requirements (server-filtered via /api/organization/model-config/models).
- * Saving creates a new immutable version; the history panel lists versions
- * and offers one-click rollback (activate).
+ * Per agent group: the effective model — an override or the actual workflow
+ * default (resolved from the backend's loaded YAML) — with a searchable
+ * picker (Popover) that only lists models passing the group's capability
+ * requirements, and a per-group reset back to the default. Saving creates a
+ * new immutable version; the history panel offers one-click rollback.
  */
 
 import { type FC, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronDown, History, RotateCcw } from 'lucide-react'
+import { ChevronDown, History, RotateCcw, Search } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Badge } from '@/components/ui/badge'
@@ -19,6 +19,9 @@ import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Separator } from '@/components/ui/separator'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
 import { useTranslations } from '@/i18n'
 
@@ -47,7 +50,7 @@ interface VersionDto {
 }
 
 const formatContext = (tokens: number): string =>
-  tokens >= 1000 ? `${Math.round(tokens / 1024)}k` : String(tokens)
+  tokens >= 1024 ? `${Math.round(tokens / 1024)}k` : String(tokens)
 
 /** USD per million tokens, from the catalog's per-token price. */
 const perMillion = (perToken: number): string => `$${(perToken * 1_000_000).toFixed(2)}`
@@ -55,12 +58,11 @@ const perMillion = (perToken: number): string => `$${(perToken * 1_000_000).toFi
 const ModelPicker: FC<{
   group: AgentGroupDto
   onPick: (modelId: string) => void
-  onClose: () => void
-}> = ({ group, onPick, onClose }) => {
+}> = ({ group, onPick }) => {
   const t = useTranslations('organization')
   const [query, setQuery] = useState('')
   const [models, setModels] = useState<ModelDto[] | null>(null)
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const search = useCallback(
@@ -90,23 +92,25 @@ const ModelPicker: FC<{
   }
 
   return (
-    <div className="mt-2 rounded-md border bg-background p-3">
-      <div className="flex items-center gap-2">
+    <div className="flex w-80 max-w-[calc(100vw-3rem)] flex-col">
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-2.5 top-2.5 size-4 text-muted-foreground" aria-hidden />
         <Input
           autoFocus
+          className="pl-8"
           value={query}
           onChange={(e) => onQueryChange(e.target.value)}
           placeholder={t('models.searchPlaceholder')}
           aria-label={t('models.searchPlaceholder')}
         />
-        <Button variant="ghost" size="sm" onClick={onClose}>
-          ✕
-        </Button>
       </div>
-      <div className="mt-2 max-h-56 overflow-y-auto" role="listbox">
-        {loading && <Spinner className="mx-auto my-4" />}
-        {!loading && models && models.length === 0 && (
-          <p className="px-2 py-3 text-sm text-muted-foreground">{t('models.noResults')}</p>
+      <div className="mt-2 max-h-64 overflow-y-auto" role="listbox">
+        {loading && <Spinner className="mx-auto my-6" />}
+        {!loading && models === null && (
+          <p className="px-2 py-4 text-sm text-destructive">{t('models.loadError')}</p>
+        )}
+        {!loading && models?.length === 0 && (
+          <p className="px-2 py-4 text-sm text-muted-foreground">{t('models.noResults')}</p>
         )}
         {!loading &&
           models?.map((model) => (
@@ -115,13 +119,13 @@ const ModelPicker: FC<{
               type="button"
               role="option"
               aria-selected="false"
-              className="flex w-full items-baseline justify-between gap-3 rounded px-2 py-1.5 text-left text-sm hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
+              className="flex w-full flex-col gap-0.5 rounded-md px-2 py-1.5 text-left hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
               onClick={() => onPick(model.id)}
             >
-              <span className="truncate font-mono">{model.id}</span>
-              <span className="shrink-0 text-xs text-muted-foreground">
-                {t('models.contextWindow')} {formatContext(model.contextLength)} ·{' '}
-                {perMillion(model.promptPrice)} / {perMillion(model.completionPrice)}
+              <span className="truncate font-mono text-sm">{model.id}</span>
+              <span className="text-xs text-muted-foreground">
+                {t('models.contextWindow')} {formatContext(model.contextLength)} · {perMillion(model.promptPrice)} in
+                · {perMillion(model.completionPrice)} out / M tokens
               </span>
             </button>
           ))}
@@ -133,6 +137,7 @@ const ModelPicker: FC<{
 export const ModelConfigCard: FC = () => {
   const t = useTranslations('organization')
   const [groups, setGroups] = useState<AgentGroupDto[]>([])
+  const [defaults, setDefaults] = useState<Record<string, string | null>>({})
   const [saved, setSaved] = useState<Record<string, string>>({})
   const [draft, setDraft] = useState<Record<string, string>>({})
   const [pickerGroup, setPickerGroup] = useState<string | null>(null)
@@ -150,9 +155,11 @@ export const ModelConfigCard: FC = () => {
       if (!res.ok) throw new Error(String(res.status))
       const body = (await res.json()) as {
         agentGroups: AgentGroupDto[]
+        defaults: Record<string, string | null>
         activeVersion: VersionDto | null
       }
       setGroups(body.agentGroups)
+      setDefaults(body.defaults ?? {})
       const flat: Record<string, string> = {}
       for (const [groupId, value] of Object.entries(body.activeVersion?.overrides ?? {})) {
         if (value?.model) flat[groupId] = value.model
@@ -227,27 +234,54 @@ export const ModelConfigCard: FC = () => {
   )
 
   if (loading) {
-    return <Spinner className="mx-auto my-6" />
+    return (
+      <div className="flex flex-col gap-3">
+        {Array.from({ length: 4 }, (_, i) => (
+          <div key={i} className="flex items-center justify-between gap-4 py-2">
+            <div className="flex flex-col gap-1.5">
+              <Skeleton className="h-4 w-40" />
+              <Skeleton className="h-3 w-72" />
+            </div>
+            <Skeleton className="h-8 w-52" />
+          </div>
+        ))}
+      </div>
+    )
   }
 
   return (
     <div className="flex flex-col gap-4">
       <ul className="flex flex-col divide-y">
-        {groups.map((group) => (
-          <li key={group.id} className="py-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="min-w-0">
+        {groups.map((group) => {
+          const override = draft[group.id]
+          const defaultModel = defaults[group.id]
+          return (
+            <li key={group.id} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-3">
+              <div className="min-w-0 flex-1 basis-52">
                 <p className="text-sm font-medium">{group.label}</p>
                 <p className="mt-0.5 text-xs text-muted-foreground">{group.description}</p>
               </div>
-              <div className="flex shrink-0 items-center gap-2">
-                <code className="rounded bg-muted px-2 py-1 text-xs">
-                  {draft[group.id] ?? t('models.defaultModel')}
+              <div className="flex shrink-0 items-center gap-1.5">
+                {override ? (
+                  <Badge variant="secondary" className="font-normal">
+                    {t('models.overrideBadge')}
+                  </Badge>
+                ) : (
+                  <Badge variant="outline" className="font-normal text-muted-foreground">
+                    {t('models.defaultBadge')}
+                  </Badge>
+                )}
+                <code
+                  className="max-w-56 truncate rounded bg-muted px-2 py-1 text-xs"
+                  title={override ?? defaultModel ?? undefined}
+                >
+                  {override ?? defaultModel ?? t('models.defaultModel')}
                 </code>
-                {draft[group.id] && (
+                {override && (
                   <Button
                     variant="ghost"
                     size="sm"
+                    title={t('models.resetToDefault')}
                     aria-label={`${t('models.resetToDefault')}: ${group.label}`}
                     onClick={() =>
                       setDraft((prev) => {
@@ -260,44 +294,57 @@ export const ModelConfigCard: FC = () => {
                     <RotateCcw className="size-3.5" aria-hidden />
                   </Button>
                 )}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setPickerGroup((current) => (current === group.id ? null : group.id))}
+                <Popover
+                  open={pickerGroup === group.id}
+                  onOpenChange={(open) => setPickerGroup(open ? group.id : null)}
                 >
-                  {t('models.change')}
-                </Button>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" size="sm">
+                      {t('models.change')}
+                      <ChevronDown className="ml-1 size-3.5" aria-hidden />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent align="end" className="w-auto p-3">
+                    <ModelPicker
+                      group={group}
+                      onPick={(modelId) => {
+                        setDraft((prev) => ({ ...prev, [group.id]: modelId }))
+                        setPickerGroup(null)
+                      }}
+                    />
+                  </PopoverContent>
+                </Popover>
               </div>
-            </div>
-            {pickerGroup === group.id && (
-              <ModelPicker
-                group={group}
-                onClose={() => setPickerGroup(null)}
-                onPick={(modelId) => {
-                  setDraft((prev) => ({ ...prev, [group.id]: modelId }))
-                  setPickerGroup(null)
-                }}
-              />
-            )}
-          </li>
-        ))}
+            </li>
+          )
+        })}
       </ul>
 
-      <div className="flex flex-col gap-2">
-        <Label htmlFor="model-config-comment">{t('models.comment')}</Label>
-        <Input
-          id="model-config-comment"
-          value={comment}
-          onChange={(e) => setComment(e.target.value)}
-          placeholder={t('models.commentPlaceholder')}
-          maxLength={500}
-        />
-      </div>
-      <div>
-        <Button onClick={handleSave} disabled={!dirty || saving}>
-          {saving ? t('models.saving') : t('models.save')}
-        </Button>
-      </div>
+      {dirty && (
+        <div className="flex flex-col gap-3 rounded-lg border bg-muted/40 p-4">
+          <p className="text-sm text-muted-foreground">{t('models.unsavedChanges')}</p>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="model-config-comment">{t('models.comment')}</Label>
+            <Input
+              id="model-config-comment"
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+              placeholder={t('models.commentPlaceholder')}
+              maxLength={500}
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <Button onClick={handleSave} disabled={saving}>
+              {saving ? t('models.saving') : t('models.save')}
+            </Button>
+            <Button variant="ghost" onClick={() => setDraft(saved)} disabled={saving}>
+              {t('models.discard')}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      <Separator />
 
       <Collapsible
         open={historyOpen}
@@ -306,34 +353,32 @@ export const ModelConfigCard: FC = () => {
           if (open && versions === null) void loadVersions()
         }}
       >
-        <CollapsibleTrigger className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+        <CollapsibleTrigger className="flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground">
           <History className="size-4" aria-hidden />
           {t('models.history')}
           <ChevronDown className="size-3.5" aria-hidden />
         </CollapsibleTrigger>
         <CollapsibleContent>
           <div className="mt-3 flex flex-col gap-2">
+            {versions === null && <Spinner className="mx-auto my-4" />}
             {versions !== null && versions.length === 0 && (
               <p className="text-sm text-muted-foreground">{t('models.historyEmpty')}</p>
             )}
-            {versions !== null && versions.length > 0 && (
+            {versions !== null && versions.length > 0 && activeVersionId !== null && (
               <Button variant="outline" size="sm" className="self-start" onClick={() => handleActivate('none')}>
+                <RotateCcw className="mr-1.5 size-3.5" aria-hidden />
                 {t('models.useDefaults')}
               </Button>
             )}
             {versions?.map((version) => (
-              <div key={version.id} className="rounded-md border p-3 text-sm">
+              <div key={version.id} className="rounded-lg border p-3 text-sm">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="font-medium">
+                  <span className="flex items-center gap-2 font-medium">
                     {t('models.version')} {version.version}
-                    {version.id === activeVersionId && (
-                      <Badge className="ml-2" variant="secondary">
-                        {t('models.activeBadge')}
-                      </Badge>
-                    )}
+                    {version.id === activeVersionId && <Badge variant="secondary">{t('models.activeBadge')}</Badge>}
                   </span>
                   <span className="text-xs text-muted-foreground">
-                    {new Date(version.createdAt).toLocaleString()} · {version.createdBy}
+                    {new Date(version.createdAt).toLocaleString()}
                   </span>
                 </div>
                 {version.comment && <p className="mt-1 text-xs text-muted-foreground">{version.comment}</p>}

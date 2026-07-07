@@ -108,3 +108,9 @@ The `AuthMiddleware` (`frontends/aiq_api/src/aiq_api/auth/middleware.py`) wraps 
 | `ws`/`wss` | `/websocket` | Real-time bidirectional chat with HITL support. Uses NAT's `WebSocketMessageHandler` protocol. The `ReconnectableWebSocketMessageHandler` in `aiq_api.websocket_reconnect` monkey-patches NAT to support HITL reconnection after network interruption. |
 
 WebSocket auth mirrors the HTTP middleware: `authenticate_websocket_connection()` validates the handshake token using the same validator chain. Per-message token expiry checks reject work under expired handshake JWTs with `auth_expired` error messages.
+
+## Configuration introspection
+
+| Method | Path | Description | Request | Response | Handler |
+|--------|------|-------------|---------|----------|---------|
+| GET | `/v1/config/llm-defaults` | Model name per named LLM in the loaded workflow YAML; the BFF resolves these into per-agent-group "workflow defaults" for the org model-config UI (ADR-0014). Guarded by `x-grid-internal-token` when `GRID_INTERNAL_API_TOKEN` is set. | — | `{ llms: {name: model} }` | `routes/config_info.py` |

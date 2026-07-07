@@ -2,8 +2,9 @@
 
 /**
  * Usage & budgets (ADR-0015): per-model LLM spend as stacked budget meters
- * (today / this month) with a hoverable, color-coded legend, plus the limit
- * editors (org limits; member/project scoped limits).
+ * (today / this month) with a hoverable, color-coded legend, the org limit
+ * editor, and member/project limits chosen from real pickers (WorkOS member
+ * directory + org projects) instead of raw ids.
  *
  * Viz notes (dataviz method): categorical palette in FIXED slot order with a
  * validated hue sequence for light and dark; color is assigned to a model id
@@ -13,7 +14,7 @@
  */
 
 import { type FC, useCallback, useEffect, useMemo, useState } from 'react'
-import { AlertTriangle } from 'lucide-react'
+import { AlertTriangle, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Badge } from '@/components/ui/badge'
@@ -21,7 +22,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Spinner } from '@/components/ui/spinner'
+import { Separator } from '@/components/ui/separator'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useTranslations } from '@/i18n'
 
@@ -53,6 +55,17 @@ interface PolicyDto {
   subjectId: string | null
   dailyLimit: string | null
   monthlyLimit: string | null
+}
+
+interface MemberDto {
+  id: string
+  email: string
+  name: string | null
+}
+
+interface ProjectDto {
+  id: string
+  name: string
 }
 
 const eur = (value: number): string => `€${value.toFixed(2)}`
@@ -115,7 +128,7 @@ const BudgetMeter: FC<{
     <div>
       <div className="flex items-baseline justify-between">
         <p className="text-sm font-medium">{title}</p>
-        <p className="text-xs text-muted-foreground">
+        <p className="text-xs tabular-nums text-muted-foreground">
           {limitEur !== null
             ? t('budgets.ofLimit', { spent: eur(totalEur), limit: eur(limitEur) })
             : t('budgets.noLimit', { spent: eur(totalEur) })}
@@ -160,10 +173,27 @@ const BudgetMeter: FC<{
   )
 }
 
+const LoadingSkeleton: FC = () => (
+  <div className="flex flex-col gap-5">
+    {[0, 1].map((i) => (
+      <div key={i}>
+        <div className="flex justify-between">
+          <Skeleton className="h-4 w-24" />
+          <Skeleton className="h-3 w-28" />
+        </div>
+        <Skeleton className="mt-2 h-3 w-full" />
+      </div>
+    ))}
+    <Skeleton className="h-16 w-full" />
+  </div>
+)
+
 export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
   const t = useTranslations('organization')
   const [usage, setUsage] = useState<UsageResponse | null>(null)
   const [policies, setPolicies] = useState<PolicyDto[]>([])
+  const [members, setMembers] = useState<MemberDto[]>([])
+  const [projects, setProjects] = useState<ProjectDto[]>([])
   const [loading, setLoading] = useState(true)
 
   const [dailyLimit, setDailyLimit] = useState('')
@@ -177,7 +207,6 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
   const [savingScoped, setSavingScoped] = useState(false)
 
   const load = useCallback(async () => {
-    setLoading(true)
     try {
       const [usageRes, budgetsRes] = await Promise.all([
         fetch('/api/organization/usage'),
@@ -204,6 +233,19 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
     void load()
   }, [load])
 
+  // Pickers (admin only): the member directory and org projects, best-effort.
+  useEffect(() => {
+    if (!isAdmin) return
+    fetch('/api/organization/members')
+      .then(async (res) => (res.ok ? ((await res.json()) as { members: MemberDto[] }).members : []))
+      .then(setMembers)
+      .catch(() => setMembers([]))
+    fetch('/api/projects')
+      .then(async (res) => (res.ok ? ((await res.json()) as ProjectDto[]) : []))
+      .then((rows) => setProjects(rows.map((row) => ({ id: row.id, name: row.name }))))
+      .catch(() => setProjects([]))
+  }, [isAdmin])
+
   const daySegments = useMemo(
     () => (usage ? buildSegments(usage.summary.perModel, usage.eurPerUsd, 'day') : []),
     [usage],
@@ -211,6 +253,21 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
   const monthSegments = useMemo(
     () => (usage ? buildSegments(usage.summary.perModel, usage.eurPerUsd, 'month') : []),
     [usage],
+  )
+
+  const memberLabel = useCallback(
+    (subjectId: string | null): string => {
+      const member = members.find((m) => m.id === subjectId)
+      if (!member) return subjectId ?? `(${t('budgets.subjectGone')})`
+      return member.name ? `${member.name} (${member.email})` : member.email
+    },
+    [members, t],
+  )
+
+  const projectLabel = useCallback(
+    (subjectId: string | null): string =>
+      projects.find((p) => p.id === subjectId)?.name ?? subjectId ?? `(${t('budgets.subjectGone')})`,
+    [projects, t],
   )
 
   const parseLimit = (value: string): number | null => {
@@ -255,7 +312,7 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           scope: scopedScope,
-          subjectId: scopedSubject.trim(),
+          subjectId: scopedSubject,
           dailyLimitEur: parseLimit(scopedDaily),
           monthlyLimitEur: parseLimit(scopedMonthly),
         }),
@@ -278,11 +335,30 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
     }
   }, [scopedScope, scopedSubject, scopedDaily, scopedMonthly, t, load])
 
+  const removePolicy = useCallback(
+    async (policy: PolicyDto) => {
+      try {
+        const res = await fetch('/api/organization/budgets', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ scope: policy.scope, subjectId: policy.subjectId }),
+        })
+        if (!res.ok) throw new Error(String(res.status))
+        toast.success(t('budgets.policyRemoved'))
+        await load()
+      } catch {
+        toast.error(t('budgets.policyRemoveError'))
+      }
+    },
+    [t, load],
+  )
+
   if (loading || !usage) {
-    return <Spinner className="mx-auto my-6" />
+    return <LoadingSkeleton />
   }
 
   const requestsLabel = (count: number): string => t('budgets.tooltipRequests', { count })
+  const subjectOptions = scopedScope === 'member' ? members : projects
 
   return (
     <TooltipProvider delayDuration={100}>
@@ -342,7 +418,7 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
                         <span className="max-w-56 truncate font-mono text-xs">
                           {segment.label || t('budgets.otherModels')}
                         </span>
-                        <span className="text-xs text-muted-foreground">{eur(segment.monthEur)}</span>
+                        <span className="text-xs tabular-nums text-muted-foreground">{eur(segment.monthEur)}</span>
                       </span>
                     </TooltipTrigger>
                     <TooltipContent>
@@ -360,7 +436,8 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
 
         {isAdmin && (
           <>
-            <div className="border-t pt-4">
+            <Separator />
+            <div>
               <p className="text-sm font-medium">{t('budgets.limitsTitle')}</p>
               <p className="mt-0.5 text-xs text-muted-foreground">{t('budgets.limitsDescription')}</p>
               <div className="mt-3 flex flex-wrap items-end gap-3">
@@ -392,11 +469,18 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
               </div>
             </div>
 
-            <div className="border-t pt-4">
+            <Separator />
+            <div>
               <p className="text-sm font-medium">{t('budgets.scopedTitle')}</p>
               <p className="mt-0.5 text-xs text-muted-foreground">{t('budgets.scopedDescription')}</p>
-              <div className="mt-3 flex flex-wrap items-end gap-3">
-                <Select value={scopedScope} onValueChange={(v) => setScopedScope(v as 'member' | 'project')}>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <Select
+                  value={scopedScope}
+                  onValueChange={(v) => {
+                    setScopedScope(v as 'member' | 'project')
+                    setScopedSubject('')
+                  }}
+                >
                   <SelectTrigger className="w-32">
                     <SelectValue />
                   </SelectTrigger>
@@ -405,22 +489,31 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
                     <SelectItem value="project">{t('budgets.scopeProject')}</SelectItem>
                   </SelectContent>
                 </Select>
-                <Input
-                  className="w-64"
-                  value={scopedSubject}
-                  onChange={(e) => setScopedSubject(e.target.value)}
-                  placeholder={
-                    scopedScope === 'member'
-                      ? t('budgets.subjectMemberPlaceholder')
-                      : t('budgets.subjectProjectPlaceholder')
-                  }
-                />
+                <Select value={scopedSubject || undefined} onValueChange={setScopedSubject}>
+                  <SelectTrigger className="w-64">
+                    <SelectValue
+                      placeholder={scopedScope === 'member' ? t('budgets.selectMember') : t('budgets.selectProject')}
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {subjectOptions.map((option) => (
+                      <SelectItem key={option.id} value={option.id}>
+                        {'email' in option
+                          ? option.name
+                            ? `${option.name} (${option.email})`
+                            : option.email
+                          : option.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <Input
                   className="w-32"
                   inputMode="decimal"
                   value={scopedDaily}
                   onChange={(e) => setScopedDaily(e.target.value)}
                   placeholder={t('budgets.dailyLimit')}
+                  aria-label={t('budgets.dailyLimit')}
                 />
                 <Input
                   className="w-32"
@@ -428,28 +521,45 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
                   value={scopedMonthly}
                   onChange={(e) => setScopedMonthly(e.target.value)}
                   placeholder={t('budgets.monthlyLimit')}
+                  aria-label={t('budgets.monthlyLimit')}
                 />
-                <Button onClick={saveScopedPolicy} disabled={savingScoped || !scopedSubject.trim()}>
+                <Button onClick={saveScopedPolicy} disabled={savingScoped || !scopedSubject}>
                   {t('budgets.addPolicy')}
                 </Button>
               </div>
-              <div className="mt-3">
+
+              <div className="mt-4">
                 <p className="text-xs font-medium uppercase text-muted-foreground">{t('budgets.activePolicies')}</p>
                 {policies.length === 0 ? (
                   <p className="mt-1 text-sm text-muted-foreground">{t('budgets.noPolicies')}</p>
                 ) : (
-                  <ul className="mt-1 flex flex-col gap-1">
+                  <ul className="mt-1.5 flex flex-col divide-y rounded-lg border">
                     {policies.map((policy) => (
-                      <li key={policy.id} className="flex flex-wrap items-center gap-2 text-sm">
-                        <Badge variant="outline">
+                      <li key={policy.id} className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm">
+                        <Badge variant="outline" className="shrink-0">
                           {policy.scope === 'member' ? t('budgets.scopeMember') : t('budgets.scopeProject')}
                         </Badge>
-                        <code className="truncate text-xs">{policy.subjectId}</code>
-                        <span className="text-xs text-muted-foreground">
-                          {policy.dailyLimit !== null ? `${eur(Number.parseFloat(policy.dailyLimit))}/d` : '—'}
-                          {' · '}
-                          {policy.monthlyLimit !== null ? `${eur(Number.parseFloat(policy.monthlyLimit))}/m` : '—'}
+                        <span className="min-w-0 flex-1 truncate">
+                          {policy.scope === 'member' ? memberLabel(policy.subjectId) : projectLabel(policy.subjectId)}
                         </span>
+                        <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                          {policy.dailyLimit !== null
+                            ? `${eur(Number.parseFloat(policy.dailyLimit))}/${t('budgets.perDay')}`
+                            : '—'}
+                          {' · '}
+                          {policy.monthlyLimit !== null
+                            ? `${eur(Number.parseFloat(policy.monthlyLimit))}/${t('budgets.perMonth')}`
+                            : '—'}
+                        </span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          title={t('budgets.removePolicy')}
+                          aria-label={`${t('budgets.removePolicy')}: ${policy.subjectId}`}
+                          onClick={() => removePolicy(policy)}
+                        >
+                          <Trash2 className="size-3.5 text-muted-foreground" aria-hidden />
+                        </Button>
                       </li>
                     ))}
                   </ul>

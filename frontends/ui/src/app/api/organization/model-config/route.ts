@@ -12,6 +12,7 @@ import { z } from 'zod'
 import { authzErrorResponse, requireAuthorizedSession } from '@/lib/auth/require-auth'
 import { isOrgAdmin } from '@/lib/authz/organizations'
 import { AGENT_GROUPS, AGENT_GROUP_IDS, OPENROUTER_MODEL_ID_PATTERN } from '@/lib/model-config/agent-groups'
+import { getGroupDefaults } from '@/lib/model-config/backend-defaults'
 import { fetchModelCatalog, validateOverrides } from '@/lib/model-config/openrouter'
 import { createAndActivateVersion, getOrgModelConfig } from '@/lib/model-config/service'
 
@@ -21,9 +22,15 @@ export async function GET(): Promise<Response> {
     if (!isOrgAdmin(session)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
-    const config = await getOrgModelConfig(session.organizationId)
+    const [config, defaults] = await Promise.all([
+      getOrgModelConfig(session.organizationId),
+      // Workflow-default model per group, from the backend's loaded YAML
+      // (best-effort — nulls when the backend is unreachable).
+      getGroupDefaults(),
+    ])
     return NextResponse.json({
       agentGroups: AGENT_GROUPS,
+      defaults,
       activeVersion: config.activeVersion,
       updatedBy: config.updatedBy,
       updatedAt: config.updatedAt,

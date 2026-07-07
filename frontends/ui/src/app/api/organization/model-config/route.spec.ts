@@ -13,6 +13,10 @@ vi.mock('@/lib/auth/require-auth', () => ({
   authzErrorResponse: vi.fn().mockReturnValue(null),
 }))
 
+vi.mock('@/lib/model-config/backend-defaults', () => ({
+  getGroupDefaults: vi.fn().mockResolvedValue({ deep_research: 'deepseek/deepseek-v4-flash' }),
+}))
+
 vi.mock('@/lib/model-config/service', () => ({
   getOrgModelConfig: vi.fn().mockResolvedValue({ activeVersion: null, updatedBy: null, updatedAt: null }),
   createAndActivateVersion: vi.fn().mockImplementation(async (params: Record<string, unknown>) => ({
@@ -61,11 +65,12 @@ describe('/api/organization/model-config', () => {
     expect((await GET()).status).toBe(403)
   })
 
-  it('GET returns the agent-group registry for admins', async () => {
+  it('GET returns the agent-group registry with workflow defaults for admins', async () => {
     const res = await GET()
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.agentGroups.map((g: { id: string }) => g.id)).toContain('deep_research')
+    expect(body.defaults.deep_research).toBe('deepseek/deepseek-v4-flash')
   })
 
   it('PUT rejects non-admins before validation', async () => {
