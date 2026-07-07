@@ -268,6 +268,10 @@ export async function getSpendSummary(
   const db = getDb()
   const dayStart = utcDayStart()
   const monthStart = utcMonthStart()
+  // Raw `sql` fragments bypass drizzle's column-type mapping, and the
+  // postgres-js driver rejects Date instances for inferred parameters — pass
+  // ISO strings there (the typed gte() below handles the Date itself).
+  const dayStartIso = dayStart.toISOString()
 
   const conditions = [eq(llmUsageEvents.organizationId, organizationId), gte(llmUsageEvents.createdAt, monthStart)]
   if (filter.userId) conditions.push(eq(llmUsageEvents.userId, filter.userId))
@@ -277,9 +281,9 @@ export async function getSpendSummary(
     .select({
       model: sql<string>`coalesce(${llmUsageEvents.model}, 'unknown')`,
       monthUsd: sql<string>`coalesce(sum(${llmUsageEvents.costUsd}), 0)`,
-      dayUsd: sql<string>`coalesce(sum(${llmUsageEvents.costUsd}) filter (where ${llmUsageEvents.createdAt} >= ${dayStart}), 0)`,
+      dayUsd: sql<string>`coalesce(sum(${llmUsageEvents.costUsd}) filter (where ${llmUsageEvents.createdAt} >= ${dayStartIso}), 0)`,
       monthEvents: sql<string>`count(*)`,
-      dayEvents: sql<string>`count(*) filter (where ${llmUsageEvents.createdAt} >= ${dayStart})`,
+      dayEvents: sql<string>`count(*) filter (where ${llmUsageEvents.createdAt} >= ${dayStartIso})`,
     })
     .from(llmUsageEvents)
     .where(and(...conditions))
