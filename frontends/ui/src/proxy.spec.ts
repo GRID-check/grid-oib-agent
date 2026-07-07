@@ -21,9 +21,11 @@ describe('AuthKit v4 proxy', () => {
         middlewareAuth: expect.objectContaining({
           unauthenticatedPaths: [
             '/',
+            '/api/healthz',
             '/api/auth/callback',
             '/api/auth/websocket-scope',
             '/auth/error',
+            '/api/internal/(.*)',
           ],
         }),
       })

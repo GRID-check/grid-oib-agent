@@ -179,6 +179,16 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
+    # Liveness for the frontend web server. Hits the dependency-free
+    # /api/healthz (not `/`, a full SSR render, and not /api/health, which
+    # proxies the backend). start_period covers the drizzle-kit migrate that
+    # runs before the server starts listening.
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/healthz"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
     deploy:
       resources:
         limits:
