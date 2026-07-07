@@ -159,7 +159,7 @@ export const MainLayout: FC<MainLayoutProps> = ({ isAuthenticated = false, onSig
             // than squeezing it into a cramped column. On mobile the panel
             // takes the full viewport instead, so chat collapses away.
             width: isResearchPanelOpen ? (isMobile ? '0%' : '50%') : '100%',
-            transition: prefersReducedMotion ? 'none' : 'width 600ms ease-in-out',
+            transition: prefersReducedMotion ? 'none' : 'width 300ms ease-in-out',
           }}
         >
           {/* Chat Area - Scrollable */}

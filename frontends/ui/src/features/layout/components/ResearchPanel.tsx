@@ -191,7 +191,7 @@ export const ResearchPanel: FC<ResearchPanelProps> = memo(function ResearchPanel
         minWidth: isOpen ? (isMobile ? '100%' : 'calc(50% + 40px)') : '40px',
         transition: prefersReducedMotion
           ? 'none'
-          : 'width 600ms ease-in-out, min-width 600ms ease-in-out',
+          : 'width 300ms ease-in-out, min-width 300ms ease-in-out',
       }}
     >
       {/* Toggle Tag Button - protruding from left side, always visible */}
@@ -240,7 +240,7 @@ export const ResearchPanel: FC<ResearchPanelProps> = memo(function ResearchPanel
               ? 'none'
               : isOpen
                 ? 'opacity 100ms ease-in-out, visibility 0ms'
-                : 'opacity 100ms ease-in-out 500ms, visibility 0ms 600ms',
+                : 'opacity 100ms ease-in-out 200ms, visibility 0ms 300ms',
           }}
         >
           {/* Header with tabs and close button */}

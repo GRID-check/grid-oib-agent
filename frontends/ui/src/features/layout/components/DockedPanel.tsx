@@ -64,7 +64,9 @@ export const DockedPanel: FC<DockedPanelProps> = ({
       aria-hidden={!open}
       data-state={open ? 'open' : 'closed'}
       className={cn(
-        'fixed top-[var(--header-height)] z-40 flex h-[calc(100dvh-var(--header-height))] w-full max-w-[400px] flex-col bg-background',
+        // Mobile docks under the h-14 top bar; desktop has no global header —
+        // panels align to the bottom edge of the h-12 chat toolbar instead.
+        'fixed top-[var(--header-height)] z-40 flex h-[calc(100dvh-var(--header-height))] w-full max-w-[400px] flex-col bg-background md:top-12 md:h-[calc(100dvh-3rem)]',
         side === 'left' ? 'left-0 border-r' : 'right-0 border-l',
         // Slide transition; reduced-motion users get an instant swap
         'transition-transform duration-300 ease-in-out motion-reduce:transition-none',

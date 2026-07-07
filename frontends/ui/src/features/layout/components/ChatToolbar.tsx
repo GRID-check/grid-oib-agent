@@ -72,7 +72,7 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
           </Button>
           {sessionTitle ? <Separator orientation="vertical" className="h-5" /> : null}
           {sessionTitle ? (
-            <span className="hidden max-w-[520px] truncate text-sm text-muted-foreground md:block">
+            <span className="hidden max-w-[520px] truncate text-sm font-medium text-foreground md:block">
               {sessionTitle}
             </span>
           ) : null}
