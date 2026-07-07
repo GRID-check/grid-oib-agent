@@ -334,6 +334,34 @@ describe('createProjectMemoryItem write-time de-duplication', () => {
     expect(set).not.toHaveBeenCalled()
   })
 
+  it('treats a concurrent unique-violation (23505) as a duplicate and returns the winner', async () => {
+    // First de-dup check finds nothing; the insert loses a race and throws
+    // 23505; the second de-dup check finds the winning row.
+    const limit = vi
+      .fn()
+      .mockResolvedValueOnce([]) // pre-insert check: no duplicate
+      .mockResolvedValueOnce([{ id: 'winner-1' }]) // post-violation re-check
+    const orderBy = vi.fn().mockReturnValue({ limit })
+    const selectWhere = vi.fn().mockReturnValue({ orderBy })
+    const from = vi.fn().mockReturnValue({ where: selectWhere })
+    const insertReturning = vi.fn().mockRejectedValue(Object.assign(new Error('dup'), { code: '23505' }))
+    const values = vi.fn().mockReturnValue({ returning: insertReturning })
+    vi.mocked(getDb).mockReturnValue({
+      select: vi.fn().mockReturnValue({ from }),
+      insert: vi.fn().mockReturnValue({ values }),
+    } as any)
+
+    const result = await createProjectMemoryItem({
+      scope: 'project',
+      projectId: 'proj-1',
+      organizationId: 'org-1',
+      kind: 'derived_fact',
+      content: 'Racy content.',
+    } as any)
+
+    expect(result).toEqual({ id: 'winner-1' })
+  })
+
   it('refreshes the existing row (no insert) when a normalized-equal item exists', async () => {
     const { values, set, update } = mockCreateChain({ id: 'dup-1', confidence: 'medium' })
 

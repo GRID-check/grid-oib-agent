@@ -156,8 +156,19 @@ export async function createProjectMemoryItem(values: NewProjectMemoryItem): Pro
     return updated ?? duplicate
   }
 
-  const [item] = await db.insert(projectMemory).values(values).returning()
-  return item
+  try {
+    const [item] = await db.insert(projectMemory).values(values).returning()
+    return item
+  } catch (err) {
+    // Race backstop: a concurrent write may have inserted the same normalized
+    // content between our check and this insert, tripping the partial unique
+    // index (migration 0010). Treat that as a duplicate and return the winner.
+    if ((err as { code?: string } | null)?.code === '23505') {
+      const winner = await findActiveDuplicate(values)
+      if (winner) return winner
+    }
+    throw err
+  }
 }
 
 /**

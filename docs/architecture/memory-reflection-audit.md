@@ -67,10 +67,16 @@ Round 2 (system-wide):
 7. **Provenance (PROV).** Reflection writes are tagged `distillation` so the UI
    distinguishes them from in-turn `agent` writes.
 
+Round 3:
+8. **DB uniqueness backstop (DEDUP).** Migration `0010_project_memory_dedup.sql`
+   adds two partial unique indexes on normalized content (one per scope) so a
+   concurrent race cannot create a duplicate; `createProjectMemoryItem` catches
+   the `23505` violation and returns the winning row.
+
 ## Follow-ups (require product decisions / larger surface)
-- **DEDUP hardening**: the §3.2 embed/contradiction consolidation gate, a DB
-  uniqueness constraint on `project_memory`, and a per-project row cap. (The
-  app-level normalized dedup covers the single-writer path today.)
+- **DEDUP hardening**: the §3.2 embed/contradiction consolidation gate (semantic
+  paraphrase, not just normalized-equal) and a per-project row cap. (Normalized
+  dedup + the DB unique index cover exact/near-exact duplicates today.)
 - **INFORM polish**: live memory-panel refresh/badge when the panel is open.
 - **S1 (remember tool)**: a proper org-admin permission gate (with role
   propagation) so org writes can be *enabled* safely rather than all-or-nothing.

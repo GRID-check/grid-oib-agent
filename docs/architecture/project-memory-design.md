@@ -167,11 +167,12 @@ User-informing: both in-turn and reflection writes surface under each answer as 
 fed by `GET /api/projects/{id}/memory?conversationId=…`), labelling in-turn
 (`agent`) vs reflection (`distillation`) provenance.
 
-De-duplication: `createProjectMemoryItem` now runs a write-time normalized-content
+De-duplication: `createProjectMemoryItem` runs a write-time normalized-content
 check on every write (both the tool and this stage) — a normalized-equal active
-item is refreshed in place instead of duplicated. This is a pragmatic first slice
-of the §3.2 gate; the embedding/contradiction adjudication and a DB uniqueness
-constraint remain follow-ups. See
+item is refreshed in place instead of duplicated — backed by two partial UNIQUE
+indexes on normalized content (migration `0010_project_memory_dedup.sql`) that
+close the race window. This is a pragmatic slice of the §3.2 gate; semantic
+(paraphrase) consolidation and contradiction adjudication remain follow-ups. See
 [memory-reflection-audit.md](./memory-reflection-audit.md).
 
 ## 4. Provenance & trust — non-negotiable for a compliance product
