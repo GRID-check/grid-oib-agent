@@ -13,6 +13,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { CreateProjectForm } from './create-project-form'
+import { useTranslations } from '@/i18n'
 
 interface CreateProjectDialogProps {
   /** Open on mount — wired to `/app/projects?new=1` from the project switcher. */
@@ -24,10 +25,11 @@ interface CreateProjectDialogProps {
 
 export function CreateProjectDialog({
   defaultOpen = false,
-  label = 'New project',
+  label,
   variant = 'default',
   size = 'default',
 }: CreateProjectDialogProps): JSX.Element {
+  const t = useTranslations('projects')
   const [open, setOpen] = useState(defaultOpen)
 
   return (
@@ -35,16 +37,13 @@ export function CreateProjectDialog({
       <DialogTrigger asChild>
         <Button variant={variant} size={size}>
           <Plus className="size-4" />
-          {label}
+          {label ?? t('dialog.newProject')}
         </Button>
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Create a project</DialogTitle>
-          <DialogDescription>
-            A project is a focused workspace for one building — its documents, members, research,
-            and chat context stay together.
-          </DialogDescription>
+          <DialogTitle>{t('dialog.title')}</DialogTitle>
+          <DialogDescription>{t('dialog.description')}</DialogDescription>
         </DialogHeader>
         <CreateProjectForm />
       </DialogContent>

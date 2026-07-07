@@ -1,2 +1,60 @@
 /** members namespace — populated during component i18n. */
-export const members = {}
+export const members = {
+  header: {
+    eyebrow: 'Access',
+    title: '{name} members',
+    projectFallback: 'Project',
+    descriptionManage:
+      'Grant organization members access to this project by assigning a project role, or set no access to remove them.',
+    descriptionReadOnly:
+      'Everyone with access to this project. Only project admins can change roles or add members.',
+  },
+  roles: {
+    'project-viewer': 'Viewer',
+    'project-editor': 'Editor',
+    'project-admin': 'Admin',
+  },
+  validation: {
+    emailRequired: 'Email is required',
+    emailInvalid: 'Enter a valid email address',
+  },
+  errors: {
+    loadFailed: 'Failed to load members',
+    updateFailed: 'Failed to update role',
+    loadTitle: "Couldn't load members",
+    actionTitle: 'Access update failed',
+  },
+  invite: {
+    title: 'Add a member',
+    description: 'Grant an existing organization member access to this project.',
+    emailLabel: 'Email',
+    emailPlaceholder: 'name@studio.at',
+    roleLabel: 'Role',
+    submit: 'Add member',
+    notFound:
+      'No organization member uses that email. They need to join the organization before they can be added to this project.',
+    success: '{name} now has {role} access to this project.',
+  },
+  readOnly: {
+    title: 'Read-only access',
+    description:
+      'You can see everyone on this project. Only project admins can change roles or add members.',
+  },
+  roster: {
+    title: 'Members',
+    counts: '{active} with access · {total} in organization',
+    searchPlaceholder: 'Search by name or email',
+    searchAria: 'Search project members',
+    saving: 'saving',
+    roleForMember: 'Project role for {name}',
+    noAccessOption: 'No project access',
+    noAccess: 'No access',
+    emptyTitle: 'No members yet',
+    emptyDescription:
+      'Organization members you add will appear here with their project role.',
+    noMatchTitle: 'No matching members',
+    noMatchDescription: 'No one matches your search. Clear it to see the full roster.',
+    clearSearch: 'Clear search',
+  },
+  tryAgain: 'Try again',
+}

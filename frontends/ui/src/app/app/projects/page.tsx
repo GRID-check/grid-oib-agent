@@ -8,6 +8,7 @@ import { CreateProjectDialog } from '@/components/projects/create-project-dialog
 import { EmptyState } from '@/components/ui/empty-state'
 import { OrgTopbar } from '@/components/shell'
 import { RecentlyDeleted } from '@/features/projects/components/recently-deleted'
+import { getTranslations } from '@/i18n/server'
 
 const isAuthRequired = (): boolean => process.env.REQUIRE_AUTH?.toLowerCase() === 'true'
 
@@ -18,6 +19,7 @@ interface ProjectsPageProps {
 export default async function ProjectsPage({ searchParams }: ProjectsPageProps): Promise<JSX.Element> {
   const session = await requireAuthorizedPageSession()
   const { new: newParam } = await searchParams
+  const t = await getTranslations('projects')
   const db = getDb()
 
   const rows = await db
@@ -46,17 +48,14 @@ export default async function ProjectsPage({ searchParams }: ProjectsPageProps):
       <OrgTopbar
         user={{ name: session.name, email: session.email }}
         authRequired={isAuthRequired()}
-        heading="Projects"
+        heading={t('list.heading')}
       />
 
       <main id="main-content" className="mx-auto w-full max-w-5xl flex-1 px-4 py-10 md:px-8">
         <header className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-end">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Projects</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Every building project in one calm workspace — documents, members, OIB/RIS research,
-              and chat, grounded together.
-            </p>
+            <h1 className="text-2xl font-semibold tracking-tight">{t('list.heading')}</h1>
+            <p className="mt-1 text-sm text-muted-foreground">{t('list.description')}</p>
           </div>
           <CreateProjectDialog defaultOpen={autoOpenCreate} />
         </header>
@@ -65,9 +64,9 @@ export default async function ProjectsPage({ searchParams }: ProjectsPageProps):
           {rows.length === 0 ? (
             <EmptyState
               icon={FolderOpen}
-              title="Start your first project"
-              description="Grid is an OIB/RIS building-compliance copilot. Create a project to bring its documents, members, and research into one workspace — then ask Grid questions grounded in Austrian building law."
-              action={<CreateProjectDialog label="Create your first project" />}
+              title={t('list.empty.title')}
+              description={t('list.empty.description')}
+              action={<CreateProjectDialog label={t('list.empty.action')} />}
               className="min-h-96 justify-center"
             />
           ) : (

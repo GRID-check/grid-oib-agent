@@ -4,6 +4,8 @@ import type { ApplicableStandard, ApplicableStatus } from '@/lib/oib/applicable-
 import { Stagger, StaggerItem } from '@/components/motion'
 import { Badge } from '@/components/ui/badge'
 import { EmptyState } from '@/components/ui/empty-state'
+import { getTranslations } from '@/i18n/server'
+import type { Translator } from '@/i18n'
 
 interface ApplicableStandardsProps {
   projectId: string
@@ -27,13 +29,20 @@ function statusVariant(status: ApplicableStatus): BadgeVariant {
   }
 }
 
-function statusLabel(status: ApplicableStatus): string {
-  return status.charAt(0).toUpperCase() + status.slice(1)
+function statusLabel(status: ApplicableStatus, t: Translator): string {
+  if (status === 'required' || status === 'check' || status === 'likely') {
+    return t(`applicableStandards.status.${status}`)
+  }
+  const fallback = String(status)
+  return fallback.charAt(0).toUpperCase() + fallback.slice(1)
 }
 
 /** Build the deep link that prefills the chat composer with a question about a Richtlinie. */
-function askGridHref(projectId: string, standard: ApplicableStandard): string {
-  const question = `Which requirements of ${standard.code} (${standard.titleEn}) apply to this project?`
+function askGridHref(projectId: string, standard: ApplicableStandard, t: Translator): string {
+  const question = t('applicableStandards.askQuestion', {
+    code: standard.code,
+    title: standard.titleEn,
+  })
   return `/app/projects/${projectId}/chat?ask=${encodeURIComponent(question)}`
 }
 
@@ -42,19 +51,20 @@ function askGridHref(projectId: string, standard: ApplicableStandard): string {
  * project, derived from the brief, each with a project-grounded reason, a link to
  * the source, and an "Ask Grid" action. Server-renderable (no client hooks).
  */
-export function ApplicableStandards({ projectId, standards, briefComplete }: ApplicableStandardsProps) {
+export async function ApplicableStandards({ projectId, standards, briefComplete }: ApplicableStandardsProps) {
+  const t = await getTranslations('projects')
   return (
     <section className="space-y-4">
       <div>
         <h2 className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-          Applicable standards
+          {t('applicableStandards.heading')}
         </h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          OIB-Richtlinien relevant to this project, based on the brief.
+          {t('applicableStandards.description')}
         </p>
         {!briefComplete && (
           <p className="mt-1 text-xs text-muted-foreground">
-            Complete the project brief for applicability tailored to this building.
+            {t('applicableStandards.briefIncomplete')}
           </p>
         )}
       </div>
@@ -80,26 +90,26 @@ export function ApplicableStandards({ projectId, standards, briefComplete }: App
 
               {/* Right: status + quiet actions */}
               <div className="flex shrink-0 items-center gap-3 sm:pt-0.5">
-                <Badge variant={statusVariant(standard.status)}>{statusLabel(standard.status)}</Badge>
+                <Badge variant={statusVariant(standard.status)}>{statusLabel(standard.status, t)}</Badge>
                 <a
                   href={standard.oibUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
-                  aria-label={`Open the source for ${standard.code}`}
-                  title="Open the OIB source"
+                  aria-label={t('applicableStandards.sourceAria', { code: standard.code })}
+                  title={t('applicableStandards.sourceTitle')}
                 >
                   <ExternalLink className="size-3.5" aria-hidden />
-                  Source
+                  {t('applicableStandards.source')}
                 </a>
                 <Link
-                  href={askGridHref(projectId, standard)}
+                  href={askGridHref(projectId, standard, t)}
                   className="inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
-                  aria-label={`Ask Grid about ${standard.code}`}
-                  title="Ask Grid about this Richtlinie"
+                  aria-label={t('applicableStandards.askGridAria', { code: standard.code })}
+                  title={t('applicableStandards.askGridTitle')}
                 >
                   <MessageSquareText className="size-3.5" aria-hidden />
-                  Ask Grid
+                  {t('applicableStandards.askGrid')}
                 </Link>
               </div>
             </StaggerItem>
@@ -108,15 +118,12 @@ export function ApplicableStandards({ projectId, standards, briefComplete }: App
       ) : (
         <EmptyState
           icon={ClipboardCheck}
-          title="No applicable standards yet"
-          description="Complete the project brief so Grid can work out which OIB-Richtlinien apply to this building."
+          title={t('applicableStandards.emptyTitle')}
+          description={t('applicableStandards.emptyDescription')}
         />
       )}
 
-      <p className="text-xs text-muted-foreground">
-        Orientation only — not legal advice. Confirm applicability against the current Bauordnung and
-        the authority having jurisdiction.
-      </p>
+      <p className="text-xs text-muted-foreground">{t('applicableStandards.disclaimer')}</p>
     </section>
   )
 }

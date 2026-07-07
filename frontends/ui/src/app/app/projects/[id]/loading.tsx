@@ -1,4 +1,5 @@
 import { Skeleton } from '@/components/ui/skeleton'
+import { getTranslations } from '@/i18n/server'
 
 /**
  * Content-area loading state for all project sections (Overview, Files,
@@ -6,11 +7,12 @@ import { Skeleton } from '@/components/ui/skeleton'
  * navigations, so this only fills the swapped content pane — the user keeps
  * their navigation context while the server page resolves.
  */
-export default function ProjectSectionLoading(): JSX.Element {
+export default async function ProjectSectionLoading(): Promise<JSX.Element> {
+  const t = await getTranslations('projects')
   return (
     <div className="mx-auto w-full max-w-5xl px-4 py-10 md:px-8" aria-busy="true">
       <span className="sr-only" role="status">
-        Loading…
+        {t('section.loading')}
       </span>
       <div className="space-y-2">
         <Skeleton className="h-7 w-56 max-w-full" />
