@@ -190,6 +190,179 @@
       "title": "BuildingSectionCard",
       "type": "object"
     },
+    "ChecklistItem": {
+      "description": "One requirement in a checklist, with its verdict and grounding.",
+      "properties": {
+        "detail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Short explanation or the relevant measured value",
+          "title": "Detail"
+        },
+        "label": {
+          "description": "The requirement, e.g. 'Zweiter Fluchtweg vorhanden'",
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "reference": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NormReference"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Where this requirement comes from"
+        },
+        "status": {
+          "description": "Verdict for this requirement",
+          "enum": [
+            "pass",
+            "fail",
+            "warning",
+            "needs_input"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "status"
+      ],
+      "title": "ChecklistItem",
+      "type": "object"
+    },
+    "ComparisonRow": {
+      "description": "One criterion compared across the options (one value per option).",
+      "properties": {
+        "highlight_index": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "0-based index of the option favoured on this criterion, if any",
+          "title": "Highlight Index"
+        },
+        "label": {
+          "description": "Criterion, e.g. 'max. Brandabschnittsfl\u00e4che'",
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "values": {
+          "description": "One value per option, same order as `options`",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Values",
+          "type": "array"
+        }
+      },
+      "required": [
+        "label",
+        "values"
+      ],
+      "title": "ComparisonRow",
+      "type": "object"
+    },
+    "ComparisonTableCard": {
+      "description": "A side-by-side comparison of a small number of options.\n\nEmit when the user weighs alternatives (GK 4 vs GK 5, two escape-route\nvariants, Holzbau vs Massivbau requirements). Options are columns, criteria\nare rows; values are short strings the model already grounded in the\nanswer. Optionally highlight the favoured option per row and name an\noverall recommendation.",
+      "properties": {
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional clarification",
+          "title": "Note"
+        },
+        "options": {
+          "description": "Column headers, e.g. ['GK 4', 'GK 5']",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 2,
+          "title": "Options",
+          "type": "array"
+        },
+        "recommendation": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Overall recommendation, if the answer implies one",
+          "title": "Recommendation"
+        },
+        "reference": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NormReference"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Source grounding the compared values"
+        },
+        "rows": {
+          "description": "The compared criteria",
+          "items": {
+            "$ref": "#/$defs/ComparisonRow"
+          },
+          "minItems": 1,
+          "title": "Rows",
+          "type": "array"
+        },
+        "title": {
+          "description": "Title, e.g. 'GK 4 vs. GK 5 \u2013 Anforderungen'",
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "comparison_table",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "title",
+        "options",
+        "rows"
+      ],
+      "title": "ComparisonTableCard",
+      "type": "object"
+    },
     "DaylightIncidenceCard": {
       "description": "A daylight (Belichtung) schematic: the 45\u00b0 free-light line vs obstructions.\n\nEmit for daylight/Belichtung questions (OIB 3). Draws a window section, the\n45\u00b0 free-light-incidence line from the window's lower edge, any obstruction,\nand a glass-area-vs-floor-area check. The renderer does the 45\u00b0 geometry \u2014\nthe model supplies distances/heights only.",
       "properties": {
@@ -1467,6 +1640,63 @@
       "title": "ProjectProfilePatchPreviewItem",
       "type": "object"
     },
+    "RequirementChecklistCard": {
+      "description": "A requirement checklist: several pass/fail criteria for one question.\n\nEmit when an answer boils down to a list of criteria read against the\nproject ('Was muss ich f\u00fcr GK 4 erf\u00fcllen?', 'Ist das Bauansuchen\nvollst\u00e4ndig?'). Each item carries its own verdict and, where possible, its\nown norm reference; unknown items use status 'needs_input' \u2014 never a guess.",
+      "properties": {
+        "items": {
+          "description": "The requirements, in reading order",
+          "items": {
+            "$ref": "#/$defs/ChecklistItem"
+          },
+          "minItems": 1,
+          "title": "Items",
+          "type": "array"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional clarification",
+          "title": "Note"
+        },
+        "reference": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NormReference"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Overall source when items share one"
+        },
+        "title": {
+          "description": "Title, e.g. 'Anforderungen GK 4 \u2013 Brandschutz'",
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "requirement_checklist",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "title",
+        "items"
+      ],
+      "title": "RequirementChecklistCard",
+      "type": "object"
+    },
     "SectionMarker": {
       "description": "A horizontal reference line at a given height in the section.",
       "properties": {
@@ -1812,6 +2042,7 @@
     "mapping": {
       "acoustic_check": "#/$defs/AcousticCheckCard",
       "building_section": "#/$defs/BuildingSectionCard",
+      "comparison_table": "#/$defs/ComparisonTableCard",
       "daylight_incidence": "#/$defs/DaylightIncidenceCard",
       "density_check": "#/$defs/DensityCheckCard",
       "dimension_diagram": "#/$defs/DimensionDiagramCard",
@@ -1824,6 +2055,7 @@
       "legal_basis": "#/$defs/LegalBasisCard",
       "parking_requirement": "#/$defs/ParkingRequirementCard",
       "project_profile_patch": "#/$defs/ProjectProfilePatchCard",
+      "requirement_checklist": "#/$defs/RequirementChecklistCard",
       "setback_plan": "#/$defs/SetbackPlanCard",
       "stair_diagram": "#/$defs/StairDiagramCard",
       "summary": "#/$defs/SummaryCard",
@@ -1840,6 +2072,12 @@
     },
     {
       "$ref": "#/$defs/ProjectProfilePatchCard"
+    },
+    {
+      "$ref": "#/$defs/RequirementChecklistCard"
+    },
+    {
+      "$ref": "#/$defs/ComparisonTableCard"
     },
     {
       "$ref": "#/$defs/BuildingSectionCard"
