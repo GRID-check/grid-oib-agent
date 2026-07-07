@@ -10,12 +10,14 @@ import { type FC } from 'react'
 import { Logo } from '@/components/brand/logo'
 import { Button } from '@/components/ui/button'
 import { FadeIn } from '@/components/motion'
+import { useTranslations } from '@/i18n'
 
 interface LandingTopBarProps {
   onSignIn?: () => void
 }
 
 export const LandingTopBar: FC<LandingTopBarProps> = ({ onSignIn }) => {
+  const t = useTranslations('landing')
   return (
     <header className="sticky top-0 z-50 border-b border-border bg-background/80 backdrop-blur-xl">
       <FadeIn
@@ -24,7 +26,7 @@ export const LandingTopBar: FC<LandingTopBarProps> = ({ onSignIn }) => {
       >
         <Logo kind="horizontal" size="small" />
         <Button size="sm" onClick={onSignIn}>
-          Sign in
+          {t('topBar.signIn')}
         </Button>
       </FadeIn>
     </header>

@@ -10,6 +10,7 @@
 
 import { type ChangeEvent, type FC, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { CheckCircle2, FileText, Loader2, Upload, XCircle } from 'lucide-react'
+import { useTranslations } from '@/i18n'
 import { useDocumentsStore } from '../store'
 import { useIsCurrentSessionBusy } from '@/features/chat'
 import { useFileDragDrop } from '../hooks/use-file-drag-drop'
@@ -59,6 +60,7 @@ export const FileUploadZone: FC<FileUploadZoneProps> = ({
   isUploading = false,
   label,
 }) => {
+  const t = useTranslations('files')
   // Check if current session is busy with operations
   const isBusy = useIsCurrentSessionBusy()
   const targetCollectionName = collectionName ?? sessionId
@@ -167,12 +169,12 @@ export const FileUploadZone: FC<FileUploadZoneProps> = ({
         />
         <Upload className="h-6 w-6 text-muted-foreground" aria-hidden />
         <p className="text-sm text-muted-foreground">
-          <span className="font-medium text-primary">Click to upload</span> or drag and drop
+          <span className="font-medium text-primary">{t('uploadZone.clickToUpload')}</span>{t('uploadZone.orDragAndDrop')}
         </p>
         <p className="text-xs text-muted-foreground">
-          <span>Up to {Math.round(maxFileSize / (1024 * 1024))} MB</span>
+          <span>{t('uploadZone.maxSize', { size: Math.round(maxFileSize / (1024 * 1024)) })}</span>
           <span> · </span>
-          <span>Accepts: {acceptedTypes}</span>
+          <span>{t('uploadZone.accepts', { types: acceptedTypes })}</span>
         </p>
       </motion.div>
 

@@ -24,22 +24,24 @@ import {
 
 import { Logo } from '@/components/brand/logo'
 import { AnimatePresence, easeQuiet, motion, springSnappy } from '@/components/motion'
+import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { ProjectSwitcher, type ProjectSwitcherProject } from './project-switcher'
 import { SidebarUserMenu, type SidebarUser } from './sidebar-user-menu'
 
 interface NavItem {
-  label: string
+  /** i18n key under `nav.sections` and stable React key. */
+  key: 'overview' | 'chat' | 'files' | 'research' | 'members'
   segment: string | null // null = the project root (Overview)
   icon: React.ComponentType<{ className?: string }>
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { label: 'Overview', segment: null, icon: LayoutDashboard },
-  { label: 'Chat', segment: 'chat', icon: MessageSquare },
-  { label: 'Files', segment: 'files', icon: FolderOpen },
-  { label: 'Research', segment: 'research', icon: FlaskConical },
-  { label: 'Members', segment: 'members', icon: Users },
+  { key: 'overview', segment: null, icon: LayoutDashboard },
+  { key: 'chat', segment: 'chat', icon: MessageSquare },
+  { key: 'files', segment: 'files', icon: FolderOpen },
+  { key: 'research', segment: 'research', icon: FlaskConical },
+  { key: 'members', segment: 'members', icon: Users },
 ]
 
 const COLLAPSE_STORAGE_KEY = 'grid.sidebar.collapsed'
@@ -55,6 +57,8 @@ export interface AppSidebarProps {
    * dead-ends in a permission error.
    */
   canManageMembers?: boolean
+  /** Whether the current user can manage the organization (org admin). */
+  canManageOrganization?: boolean
 }
 
 export function AppSidebar({
@@ -63,9 +67,11 @@ export function AppSidebar({
   user,
   authRequired,
   canManageMembers = true,
+  canManageOrganization = false,
 }: AppSidebarProps) {
   const pathname = usePathname() ?? ''
   const base = `/app/projects/${projectId}`
+  const t = useTranslations('nav')
   const [collapsed, setCollapsed] = React.useState(false)
 
   // Restore the persisted rail state after mount (avoids SSR hydration mismatch).
@@ -99,7 +105,7 @@ export function AppSidebar({
         'flex h-screen shrink-0 flex-col border-r border-border bg-surface-sunken transition-[width] duration-200 ease-out',
         collapsed ? 'w-14' : 'w-60',
       )}
-      aria-label="Project navigation"
+      aria-label={t('projectNavigation')}
     >
       {/* Wordmark + collapse toggle */}
       <div
@@ -110,7 +116,7 @@ export function AppSidebar({
       >
         <Link
           href="/app/projects"
-          aria-label="Grid — all projects"
+          aria-label={t('allProjects')}
           className="rounded-md focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
         >
           <Logo kind={collapsed ? 'logo-only' : 'horizontal'} size="small" />
@@ -119,7 +125,7 @@ export function AppSidebar({
           <button
             type="button"
             onClick={toggleCollapsed}
-            aria-label="Collapse sidebar"
+            aria-label={t('collapseSidebar')}
             className="flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors duration-200 ease-out hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
           >
             <motion.span
@@ -140,7 +146,7 @@ export function AppSidebar({
           <button
             type="button"
             onClick={toggleCollapsed}
-            aria-label="Expand sidebar"
+            aria-label={t('expandSidebar')}
             className="flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors duration-200 ease-out hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
           >
             <motion.span
@@ -167,7 +173,7 @@ export function AppSidebar({
           'flex flex-1 flex-col gap-1 overflow-y-auto pt-2',
           collapsed ? 'px-2' : 'px-3',
         )}
-        aria-label="Project sections"
+        aria-label={t('projectSections')}
       >
         {navItems.map((item) => {
           const href = item.segment ? `${base}/${item.segment}` : base
@@ -175,10 +181,10 @@ export function AppSidebar({
           const Icon = item.icon
           return (
             <Link
-              key={item.label}
+              key={item.key}
               href={href}
               aria-current={active ? 'page' : undefined}
-              title={collapsed ? item.label : undefined}
+              title={collapsed ? t(`sections.${item.key}`) : undefined}
               className={cn(
                 'relative flex h-9 shrink-0 items-center gap-3 rounded-lg text-sm transition-colors duration-200 ease-out',
                 'focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none',
@@ -212,7 +218,7 @@ export function AppSidebar({
                     exit={{ opacity: 0, x: -4 }}
                     transition={{ ...easeQuiet, duration: 0.15 }}
                   >
-                    {item.label}
+                    {t(`sections.${item.key}`)}
                   </motion.span>
                 )}
               </AnimatePresence>
@@ -223,7 +229,12 @@ export function AppSidebar({
 
       {/* Footer: user + settings */}
       <div className={cn('border-t border-border', collapsed ? 'flex justify-center p-2' : 'p-3')}>
-        <SidebarUserMenu user={user} authRequired={authRequired} compact={collapsed} />
+        <SidebarUserMenu
+          user={user}
+          authRequired={authRequired}
+          compact={collapsed}
+          canManageOrganization={canManageOrganization}
+        />
       </div>
     </aside>
   )

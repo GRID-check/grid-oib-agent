@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button'
 import { useChatStore, useIsCurrentSessionBusy } from '@/features/chat'
 import { downloadAsMarkdown } from '@/utils/download-as-markdown'
 import { useDownloadPdfRoute } from '@/hooks/use-download-pdf'
+import { useTranslations } from '@/i18n'
 
 interface ExportFooterProps {
   /** Whether to disable export buttons (e.g., when no content) */
@@ -25,6 +26,7 @@ interface ExportFooterProps {
  * Only renders when there's content to export.
  */
 export const ExportFooter: FC<ExportFooterProps> = ({ disabled }) => {
+  const t = useTranslations('research')
   const reportContent = useChatStore((state) => state.reportContent)
   const conversationTitle = useChatStore((state) => state.currentConversation?.title)
   const {
@@ -47,10 +49,10 @@ export const ExportFooter: FC<ExportFooterProps> = ({ disabled }) => {
   const isExportDisabled = disabled || !hasContent || isDeepResearchInProgress
 
   const tooltipContent = isDeepResearchInProgress
-    ? 'Export will be available when research is complete'
+    ? t('export.availableWhenComplete')
     : hasContent
-      ? 'Export report'
-      : 'No content to export'
+      ? t('export.exportReport')
+      : t('export.noContent')
 
   const handleExportMarkdown = useCallback(() => {
     if (isExportDisabled) return
@@ -81,7 +83,7 @@ export const ExportFooter: FC<ExportFooterProps> = ({ disabled }) => {
             <button
               type="button"
               onClick={clearExportError}
-              aria-label="Dismiss error"
+              aria-label={t('dismissError')}
               className="shrink-0 rounded-xs opacity-70 transition-opacity hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
             >
               <X className="h-4 w-4" aria-hidden="true" />
@@ -96,12 +98,14 @@ export const ExportFooter: FC<ExportFooterProps> = ({ disabled }) => {
           onClick={handleExportMarkdown}
           disabled={isExportDisabled}
           aria-label={
-            isExportDisabled ? `Export as Markdown (${tooltipContent})` : 'Export as Markdown'
+            isExportDisabled
+              ? t('export.asMarkdownDisabled', { reason: tooltipContent })
+              : t('export.asMarkdown')
           }
           title={tooltipContent}
         >
           <Download aria-hidden="true" />
-          Markdown
+          {t('export.markdown')}
         </Button>
         <Button
           size="sm"
@@ -109,15 +113,15 @@ export const ExportFooter: FC<ExportFooterProps> = ({ disabled }) => {
           disabled={isExportDisabled || isPdfLoading}
           aria-label={
             isPdfLoading
-              ? 'Generating PDF...'
+              ? t('export.generatingPdf')
               : isExportDisabled
-                ? `Export as PDF (${tooltipContent})`
-                : 'Export as PDF'
+                ? t('export.asPdfDisabled', { reason: tooltipContent })
+                : t('export.asPdf')
           }
-          title={isPdfLoading ? 'Generating PDF...' : tooltipContent}
+          title={isPdfLoading ? t('export.generatingPdf') : tooltipContent}
         >
           <Download aria-hidden="true" />
-          {isPdfLoading ? 'Generating...' : 'PDF'}
+          {isPdfLoading ? t('export.generating') : t('export.pdf')}
         </Button>
       </div>
     </div>

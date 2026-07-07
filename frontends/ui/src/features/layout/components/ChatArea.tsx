@@ -12,6 +12,7 @@
 'use client'
 
 import { type FC, memo, useRef, useEffect, useCallback, useState, useMemo } from 'react'
+import Link from 'next/link'
 import { CheckCircle2, CircleEllipsis, FileText, Folder, Lock, MessageSquare } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { Button } from '@/components/ui/button'
@@ -28,6 +29,7 @@ import {
 import type { ChatMessage } from '@/features/chat'
 import { AnimatePresence, motion, fadeRise, springGentle } from '@/components/motion'
 import { StarfieldAnimation } from '@/shared/components/StarfieldAnimation'
+import { useTranslations } from '@/i18n'
 
 interface ChatAreaProps {
   /** Whether the user is authenticated */
@@ -55,6 +57,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   const respondToPrompt = useChatStore((s) => s.respondToPrompt)
   const getThinkingStepsForMessage = useChatStore((s) => s.getThinkingStepsForMessage)
   const dismissErrorCard = useChatStore((s) => s.dismissErrorCard)
+  const t = useTranslations('research')
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   const messages = currentConversation?.messages
@@ -139,7 +142,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   }, [])
 
   return (
-    <div className="scrollbar-hide flex flex-1 flex-col overflow-y-auto" aria-label="Chat messages">
+    <div className="scrollbar-hide flex flex-1 flex-col overflow-y-auto" aria-label={t('chatArea.ariaMessages')}>
       {isEmpty ? (
         <WelcomeState isAuthenticated={isAuthenticated} onSignIn={onSignIn} />
       ) : (
@@ -365,10 +368,11 @@ interface WelcomeStateProps {
 }
 
 const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn }) => {
+  const t = useTranslations('research')
   const prompts = [
-    'Compare OIB 2 fire resistance duties across building classes.',
-    'Summarize accessibility requirements for a public retrofit.',
-    'Find contradictions between uploaded plans and OIB guidance.',
+    t('chatArea.prompt1'),
+    t('chatArea.prompt2'),
+    t('chatArea.prompt3'),
   ]
 
   if (!isAuthenticated) {
@@ -385,30 +389,32 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
               </div>
               <div className="flex flex-col gap-3">
                 <span className="text-xs uppercase tracking-label text-muted-foreground">
-                  secure workspace
+                  {t('chatArea.secureWorkspace')}
                 </span>
                 <h1 className="max-w-2xl text-4xl font-semibold tracking-display md:text-5xl md:leading-none">
-                  Grid opens after your organization is verified.
+                  {t('chatArea.loggedOutTitle')}
                 </h1>
                 <p className="max-w-xl text-sm text-muted-foreground">
-                  Sign in to unlock project-scoped OIB research, document ingestion, and member
-                  access controls.
+                  {t('chatArea.loggedOutBody')}
                 </p>
               </div>
               <Button
                 size="lg"
                 onClick={onSignIn}
-                aria-label="Sign in with SSO"
+                aria-label={t('chatArea.signInSso')}
                 className="transition active:scale-press"
               >
-                Sign in with SSO
+                {t('chatArea.signInSso')}
               </Button>
             </div>
           </div>
 
           <div className="grid content-end gap-4">
-            {['WorkOS authentication', 'Project-scoped retrieval', 'Role-based access'].map(
-              (item, index) => (
+            {[
+              t('chatArea.featureWorkos'),
+              t('chatArea.featureRetrieval'),
+              t('chatArea.featureRbac'),
+            ].map((item, index) => (
                 <div
                   key={item}
                   className="animate-in fade-in-0 slide-in-from-bottom-2 rounded-xl border bg-muted/30 p-5 transition-all duration-200 ease-out fill-mode-backwards hover:-translate-y-0.5 hover:bg-muted/50"
@@ -437,39 +443,38 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
           <div className="flex flex-col gap-7">
             <div className="flex max-w-3xl flex-col gap-4">
               <span className="text-xs uppercase tracking-label text-muted-foreground">
-                OIB research cockpit
+                {t('chatArea.cockpit')}
               </span>
               <h1 className="text-4xl font-semibold tracking-display md:text-5xl md:leading-none">
-                Start with a project, then ask for cited building-code reasoning.
+                {t('chatArea.title')}
               </h1>
               <p className="max-w-2xl text-sm text-muted-foreground">
-                Grid keeps retrieval scoped to the selected workspace and turns long guideline
-                documents into traceable decisions.
+                {t('chatArea.body')}
               </p>
             </div>
 
             <div className="grid grid-cols-1 gap-3 md:grid-cols-[1.1fr_0.9fr]">
-              <a
+              <Link
                 href="/app/projects"
                 className="group rounded-xl border bg-muted p-5 transition hover:-translate-y-0.5 hover:bg-accent"
               >
                 <div className="flex flex-col gap-4">
                   <Folder className="h-6 w-6 text-brand" aria-hidden="true" />
                   <div className="flex flex-col gap-1">
-                    <span className="text-sm font-semibold">Open projects</span>
+                    <span className="text-sm font-semibold">{t('chatArea.openProjects')}</span>
                     <span className="text-sm text-muted-foreground">
-                      Create workspaces, manage documents, and invite roles.
+                      {t('chatArea.openProjectsDesc')}
                     </span>
                   </div>
                 </div>
-              </a>
+              </Link>
               <div className="rounded-xl border bg-muted/30 p-5">
                 <div className="flex flex-col gap-4">
                   <CircleEllipsis className="h-6 w-6 text-brand" aria-hidden="true" />
                   <div className="flex flex-col gap-1">
-                    <span className="text-sm font-semibold">Select context</span>
+                    <span className="text-sm font-semibold">{t('chatArea.selectContext')}</span>
                     <span className="text-sm text-muted-foreground">
-                      Use the workspace selector before running analysis.
+                      {t('chatArea.selectContextDesc')}
                     </span>
                   </div>
                 </div>

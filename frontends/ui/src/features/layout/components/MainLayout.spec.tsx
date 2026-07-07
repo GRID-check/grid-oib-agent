@@ -1,4 +1,3 @@
-import type { ReactNode } from 'react'
 import { render, screen } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'

@@ -15,6 +15,8 @@
 
 import { File, FileText, Image as ImageIcon, type LucideIcon } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { useTranslations } from '@/i18n'
+import type { Translator } from '@/i18n'
 import { cn } from '@/lib/utils'
 
 /** Pick a lucide icon that reflects the file's type. */
@@ -49,27 +51,29 @@ const STATUS_VARIANT: Record<string, StatusVariant> = {
   error: 'destructive',
 }
 
-const STATUS_LABEL: Record<string, string> = {
-  ready: 'Ready',
-  uploaded: 'Ready',
-  ingested: 'Ready',
-  success: 'Ready',
-  completed: 'Ready',
-  ingesting: 'Processing',
-  pending: 'Processing',
-  processing: 'Processing',
-  uploading: 'Uploading',
-  failed: 'Failed',
-  error: 'Failed',
+const STATUS_LABEL_KEY: Record<string, string> = {
+  ready: 'status.ready',
+  uploaded: 'status.ready',
+  ingested: 'status.ready',
+  success: 'status.ready',
+  completed: 'status.ready',
+  ingesting: 'status.processing',
+  pending: 'status.processing',
+  processing: 'status.processing',
+  uploading: 'status.uploading',
+  failed: 'status.failed',
+  error: 'status.failed',
 }
 
 export function documentStatusVariant(status: string | null | undefined): StatusVariant {
   return STATUS_VARIANT[(status ?? '').toLowerCase()] ?? 'secondary'
 }
 
-export function documentStatusLabel(status: string | null | undefined): string {
+export function documentStatusLabel(status: string | null | undefined, t: Translator): string {
   const key = (status ?? '').toLowerCase()
-  return STATUS_LABEL[key] ?? (status ? status.charAt(0).toUpperCase() + status.slice(1) : 'Unknown')
+  const labelKey = STATUS_LABEL_KEY[key]
+  if (labelKey) return t(labelKey)
+  return status ? status.charAt(0).toUpperCase() + status.slice(1) : t('status.unknown')
 }
 
 interface DocumentStatusBadgeProps {
@@ -78,9 +82,10 @@ interface DocumentStatusBadgeProps {
 }
 
 export function DocumentStatusBadge({ status, className }: DocumentStatusBadgeProps) {
+  const t = useTranslations('files')
   return (
     <Badge variant={documentStatusVariant(status)} className={cn('shrink-0', className)}>
-      {documentStatusLabel(status)}
+      {documentStatusLabel(status, t)}
     </Badge>
   )
 }

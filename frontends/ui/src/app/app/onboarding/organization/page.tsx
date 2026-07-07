@@ -19,21 +19,23 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Spinner } from '@/components/ui/spinner'
 import { Logo } from '@/components/brand/logo'
 import { StarfieldAnimation } from '@/shared/components/StarfieldAnimation'
-
-const organizationSchema = z.object({
-  name: z.string().trim().min(1, 'Organization name is required.'),
-})
-
-const SETUP_STEPS = [
-  'Create your organization',
-  'Make you the workspace admin',
-  'Open Grid and your first project',
-]
+import { useTranslations } from '@/i18n'
 
 const OrganizationOnboardingPage = (): ReactNode => {
+  const t = useTranslations('onboarding')
   const router = useRouter()
   const [error, setError] = useState<string | null>(null)
   const [status, setStatus] = useState<'idle' | 'success'>('idle')
+
+  const organizationSchema = z.object({
+    name: z.string().trim().min(1, t('validation.nameRequired')),
+  })
+
+  const SETUP_STEPS = [
+    t('steps.createOrg'),
+    t('steps.makeAdmin'),
+    t('steps.openProject'),
+  ]
 
   const form = useAppForm({
     defaultValues: { name: '' },
@@ -50,7 +52,7 @@ const OrganizationOnboardingPage = (): ReactNode => {
 
         if (!response.ok) {
           const data = await response.json().catch(() => ({}))
-          throw new Error(data.error || 'Failed to create organization.')
+          throw new Error(data.error || t('errors.createFailed'))
         }
 
         // A deliberate "workspace ready" beat before entering the workspace,
@@ -58,7 +60,7 @@ const OrganizationOnboardingPage = (): ReactNode => {
         setStatus('success')
         setTimeout(() => router.replace('/app/projects'), 1400)
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Something went wrong.')
+        setError(err instanceof Error ? err.message : t('errors.generic'))
       }
     },
   })
@@ -74,22 +76,21 @@ const OrganizationOnboardingPage = (): ReactNode => {
           <Logo kind="horizontal" size="large" />
           <div className="flex max-w-2xl flex-col gap-4">
             <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-              first workspace
+              {t('intro.eyebrow')}
             </span>
             <h1 className="text-4xl font-semibold tracking-display md:text-5xl md:leading-none">
-              Set your organization before Grid handles project data.
+              {t('intro.title')}
             </h1>
             <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
-              Your organization is the private boundary for your building projects — documents,
-              members, and OIB/RIS research all live inside it. You become its admin.
+              {t('intro.description')}
             </p>
           </div>
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             {[
-              { icon: Lock, label: 'Private tenant' },
-              { icon: Users, label: 'Admin access' },
-              { icon: Folder, label: 'Projects ready' },
+              { icon: Lock, label: t('features.privateTenant') },
+              { icon: Users, label: t('features.adminAccess') },
+              { icon: Folder, label: t('features.projectsReady') },
             ].map(({ icon: Icon, label }) => (
               <div key={label} className="rounded-2xl border bg-card p-5 shadow-xs">
                 <Icon className="mb-3 h-5 w-5 text-primary" />
@@ -104,12 +105,10 @@ const OrganizationOnboardingPage = (): ReactNode => {
             <div className="flex flex-col gap-6" role="status" aria-live="polite">
               <div className="flex flex-col gap-2">
                 <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-                  workspace ready
+                  {t('success.eyebrow')}
                 </span>
-                <h2 className="text-lg font-semibold">You&rsquo;re all set</h2>
-                <p className="text-sm text-muted-foreground">
-                  Your organization is created and you&rsquo;re the admin.
-                </p>
+                <h2 className="text-lg font-semibold">{t('success.title')}</h2>
+                <p className="text-sm text-muted-foreground">{t('success.description')}</p>
               </div>
 
               <div className="flex flex-col gap-3 border-t pt-5">
@@ -123,24 +122,22 @@ const OrganizationOnboardingPage = (): ReactNode => {
 
               <div className="flex items-center gap-2 border-t pt-5 text-sm text-muted-foreground">
                 <Spinner size="sm" />
-                Taking you to your projects…
+                {t('success.redirecting')}
               </div>
             </div>
           ) : (
             <>
               <div className="flex flex-col gap-2">
                 <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-                  organization setup
+                  {t('form.eyebrow')}
                 </span>
-                <h2 className="text-lg font-semibold">Name your organization</h2>
-                <p className="text-sm text-muted-foreground">
-                  Use your office, practice, or client organization name.
-                </p>
+                <h2 className="text-lg font-semibold">{t('form.title')}</h2>
+                <p className="text-sm text-muted-foreground">{t('form.description')}</p>
               </div>
 
               {error && (
                 <Alert variant="destructive">
-                  <AlertTitle>Organization setup failed</AlertTitle>
+                  <AlertTitle>{t('errors.title')}</AlertTitle>
                   <AlertDescription>{error}</AlertDescription>
                 </Alert>
               )}
@@ -157,15 +154,15 @@ const OrganizationOnboardingPage = (): ReactNode => {
                   <form.AppField name="name">
                     {(field) => (
                       <field.TextField
-                        label="Organization name"
-                        placeholder="Grid Bauphysik Vienna"
+                        label={t('form.nameLabel')}
+                        placeholder={t('form.namePlaceholder')}
                         autoFocus
                       />
                     )}
                   </form.AppField>
                   <form.AppForm>
                     <form.SubmitButton size="lg" className="w-full transition active:scale-press">
-                      Create organization
+                      {t('form.submit')}
                     </form.SubmitButton>
                   </form.AppForm>
                 </div>

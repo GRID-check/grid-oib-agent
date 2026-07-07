@@ -11,15 +11,17 @@
 
 import { type FC } from 'react'
 import { Scale, ExternalLink } from 'lucide-react'
+import { useTranslations } from '@/i18n'
 
 export const LegalBasisCardMock: FC = () => {
+  const t = useTranslations('landing')
   return (
     <div aria-hidden="true" className="relative">
       {/* Secondary card peeking behind — depth without gradients */}
       <div className="absolute -right-3 -top-3 hidden h-full w-full rounded-2xl border border-border bg-card shadow-sm sm:block">
         <div className="flex items-center gap-1.5 p-5 text-xs font-medium uppercase tracking-widest text-muted-foreground/60">
           <Scale className="size-3.5" />
-          <span>Legal basis</span>
+          <span>{t('card.legalBasis')}</span>
           <span className="ml-auto rounded-md border border-border px-2 py-0.5 font-mono normal-case tracking-normal">
             § 3.2
           </span>
@@ -31,7 +33,7 @@ export const LegalBasisCardMock: FC = () => {
         {/* Eyebrow — marks this as a citation, not a message */}
         <div className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-widest text-muted-foreground">
           <Scale className="size-3.5" />
-          <span>Legal basis</span>
+          <span>{t('card.legalBasis')}</span>
         </div>
 
         {/* Header: Richtlinie + § reference */}
@@ -56,18 +58,16 @@ export const LegalBasisCardMock: FC = () => {
 
         {/* Plain-language summary */}
         <p className="max-w-prose text-sm leading-relaxed text-foreground">
-          For this project&rsquo;s building class, load-bearing elements must maintain their
-          fire resistance for the required period, and the layout must limit the spread of
-          fire and smoke between compartments.
+          {t('card.summary')}
         </p>
 
         {/* Verifiable primary source (static, non-interactive in the mock) */}
         <div className="flex items-center justify-between border-t border-border pt-4">
           <span className="inline-flex items-center gap-1.5 text-xs font-medium text-primary">
             <ExternalLink className="size-3.5" />
-            View OIB-Richtlinie 2
+            {t('card.viewSource')}
           </span>
-          <span className="font-mono text-xs text-muted-foreground/60">Verified source</span>
+          <span className="font-mono text-xs text-muted-foreground/60">{t('card.verifiedSource')}</span>
         </div>
       </div>
     </div>

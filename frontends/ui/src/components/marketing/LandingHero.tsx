@@ -14,6 +14,7 @@ import { type FC } from 'react'
 import { ArrowRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Stagger, StaggerItem, motion, fadeRise, springGentle } from '@/components/motion'
+import { useTranslations } from '@/i18n'
 import { LegalBasisCardMock } from './LegalBasisCardMock'
 
 interface LandingHeroProps {
@@ -21,6 +22,7 @@ interface LandingHeroProps {
 }
 
 export const LandingHero: FC<LandingHeroProps> = ({ onSignIn }) => {
+  const t = useTranslations('landing')
   return (
     <section
       aria-labelledby="hero-heading"
@@ -34,7 +36,7 @@ export const LandingHero: FC<LandingHeroProps> = ({ onSignIn }) => {
             transition={springGentle}
             className="text-xs font-medium uppercase tracking-widest text-muted-foreground"
           >
-            OIB &amp; RIS compliance copilot for Austrian architects
+            {t('hero.eyebrow')}
           </motion.p>
 
           <motion.h1
@@ -43,7 +45,7 @@ export const LandingHero: FC<LandingHeroProps> = ({ onSignIn }) => {
             transition={springGentle}
             className="mt-5 text-5xl font-semibold tracking-tight text-foreground text-balance md:text-6xl"
           >
-            Every answer, grounded in the building code.
+            {t('hero.title')}
           </motion.h1>
 
           <motion.p
@@ -51,19 +53,16 @@ export const LandingHero: FC<LandingHeroProps> = ({ onSignIn }) => {
             transition={springGentle}
             className="mt-6 max-w-xl text-base leading-relaxed text-muted-foreground md:text-lg"
           >
-            Grid answers building-compliance questions for each of your projects — grounded in
-            the OIB-Richtlinien and Austrian legal sources from RIS. Every answer is scoped to
-            the project at hand and cited to the exact Richtlinie and paragraph, so you can
-            verify it against the code itself.
+            {t('hero.subtitle')}
           </motion.p>
 
           <StaggerItem className="mt-10 flex flex-wrap items-center gap-4">
             <Button size="lg" onClick={onSignIn}>
-              Sign in
+              {t('hero.signIn')}
               <ArrowRight aria-hidden="true" />
             </Button>
             <span className="text-sm text-muted-foreground">
-              Single sign-on for your practice
+              {t('hero.sso')}
             </span>
           </StaggerItem>
         </Stagger>

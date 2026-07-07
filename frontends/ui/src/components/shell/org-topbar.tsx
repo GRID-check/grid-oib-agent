@@ -17,9 +17,11 @@ export interface OrgTopbarProps {
   authRequired: boolean
   /** Optional context label shown next to the wordmark (e.g. "Projects"). */
   heading?: string
+  /** Show the org-management entry in the user menu (org admins only). */
+  canManageOrganization?: boolean
 }
 
-export function OrgTopbar({ user, authRequired, heading }: OrgTopbarProps) {
+export function OrgTopbar({ user, authRequired, heading, canManageOrganization }: OrgTopbarProps) {
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-background/80 backdrop-blur-xl">
       <FadeIn
@@ -47,6 +49,7 @@ export function OrgTopbar({ user, authRequired, heading }: OrgTopbarProps) {
           menuSide="bottom"
           menuAlign="end"
           compact
+          canManageOrganization={canManageOrganization}
         />
       </FadeIn>
     </header>

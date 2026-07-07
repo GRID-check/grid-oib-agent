@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
 import { motion, springSnappy } from '@/components/motion'
 import type { Project } from '@/lib/db/schema'
+import { useTranslations } from '@/i18n'
 
 interface ProjectCardProps {
   project: Project
@@ -17,23 +18,25 @@ const formatDate = (date: Date) =>
   new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric', year: 'numeric' }).format(date)
 
 export function ProjectCard({ project, docCount = 0 }: ProjectCardProps): JSX.Element {
-  const summary =
-    project.profileDisplay?.summary?.trim() ||
-    'OIB/RIS building-compliance workspace. Add documents and a brief to ground Grid.'
+  const t = useTranslations('projects')
+  const summary = project.profileDisplay?.summary?.trim() || t('card.summaryFallback')
 
   const activityDate = project.profileUpdatedAt ?? project.createdAt
   const activityLabel = project.profileUpdatedAt
-    ? `Updated ${formatDate(activityDate)}`
-    : `Created ${formatDate(activityDate)}`
+    ? t('card.updated', { date: formatDate(activityDate) })
+    : t('card.created', { date: formatDate(activityDate) })
 
   const isActive = docCount > 0
-  const docLabel = `${docCount} ${docCount === 1 ? 'document' : 'documents'}`
+  const docLabel = t('card.docLabel', {
+    count: docCount,
+    unit: docCount === 1 ? t('card.document') : t('card.documents'),
+  })
 
   return (
     <Link
       href={`/app/projects/${project.id}`}
       className="group block h-full rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-      aria-label={`Open ${project.name}`}
+      aria-label={t('card.open', { name: project.name })}
     >
       <motion.div
         className="h-full"
@@ -47,7 +50,7 @@ export function ProjectCard({ project, docCount = 0 }: ProjectCardProps): JSX.El
               <Folder className="size-4" />
             </div>
             <Badge variant={isActive ? 'success' : 'secondary'}>
-              {isActive ? 'Active' : 'Draft'}
+              {isActive ? t('card.active') : t('card.draft')}
             </Badge>
           </div>
 

@@ -14,6 +14,7 @@ import { type FC, useState } from 'react'
 import { ChevronDown, FileText } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
+import { useTranslations } from '@/i18n'
 
 /** File artifact information from SSE events */
 export interface FileInfo {
@@ -61,6 +62,7 @@ const isMarkdownFile = (filename: string): boolean => {
  */
 export const FileCard: FC<FileCardProps> = ({ file }) => {
   const [isExpanded, setIsExpanded] = useState(false)
+  const t = useTranslations('research')
 
   // Content preview (first 100 chars)
   const contentPreview = file.content
@@ -93,7 +95,7 @@ export const FileCard: FC<FileCardProps> = ({ file }) => {
           {/* Line count */}
           {file.content && (
             <span className="shrink-0 text-xs text-muted-foreground">
-              {file.content.split('\n').length} lines
+              {t('fileCard.lines', { count: file.content.split('\n').length })}
             </span>
           )}
 
@@ -133,7 +135,7 @@ export const FileCard: FC<FileCardProps> = ({ file }) => {
           {file.content && (
             <div className="mt-2 flex flex-col gap-1">
               <span className="text-xs font-semibold uppercase text-muted-foreground">
-                Content
+                {t('fileCard.content')}
               </span>
               {shouldRenderMarkdown ? (
                 <div className="max-h-96 overflow-auto rounded bg-muted p-2">

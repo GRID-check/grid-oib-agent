@@ -18,6 +18,7 @@ import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
 import { downloadAsMarkdown } from '@/utils/download-as-markdown'
 import { useDownloadPdfRoute } from '@/hooks/use-download-pdf'
 import { useIsCurrentSessionBusy } from '@/features/chat'
+import { useTranslations } from '@/i18n'
 
 interface ReportCardProps {
   /** Report content in markdown format */
@@ -46,6 +47,7 @@ export const ReportCard: FC<ReportCardProps> = ({
   isDraft = false,
   isStreaming: _isStreaming = false, // Deprecated - kept for backward compatibility but not used
 }) => {
+  const t = useTranslations('research')
   const { downloadPdf, isLoading: isPdfLoading } = useDownloadPdfRoute()
 
   const hasContent = content.trim().length > 0
@@ -59,10 +61,10 @@ export const ReportCard: FC<ReportCardProps> = ({
   const isExportDisabled = !hasContent || isDeepResearchInProgress
 
   const tooltipContent = isDeepResearchInProgress
-    ? 'Export will be available when research is complete'
+    ? t('export.availableWhenComplete')
     : hasContent
-      ? 'Export report'
-      : 'No content to export'
+      ? t('export.exportReport')
+      : t('export.noContent')
 
   const handleExportMarkdown = useCallback(() => {
     if (isExportDisabled) return
@@ -79,10 +81,10 @@ export const ReportCard: FC<ReportCardProps> = ({
       <div className="flex h-full flex-col items-center justify-center py-8 text-center">
         <FileText className="mb-3 h-8 w-8 text-muted-foreground" aria-hidden="true" />
         <p className="text-sm text-muted-foreground">
-          The report will appear here once research is complete.
+          {t('reportCard.reportWhenComplete')}
         </p>
         <p className="mt-2 text-sm text-muted-foreground">
-          You can export it as Markdown or PDF.
+          {t('reportCard.exportAsMdPdf')}
         </p>
       </div>
     )
@@ -96,12 +98,12 @@ export const ReportCard: FC<ReportCardProps> = ({
           {title && <span className="text-sm font-semibold">{title}</span>}
           {isDraft && (
             <span className="rounded border border-warning px-2 py-0.5 text-xs text-warning">
-              Draft
+              {t('reportCard.draft')}
             </span>
           )}
         </div>
         <span className="text-xs text-muted-foreground">
-          {wordCount.toLocaleString()} words
+          {t('reportCard.words', { count: wordCount.toLocaleString() })}
         </span>
       </div>
 
@@ -118,12 +120,14 @@ export const ReportCard: FC<ReportCardProps> = ({
           onClick={handleExportMarkdown}
           disabled={isExportDisabled}
           aria-label={
-            isExportDisabled ? `Export as Markdown (${tooltipContent})` : 'Export as Markdown'
+            isExportDisabled
+              ? t('export.asMarkdownDisabled', { reason: tooltipContent })
+              : t('export.asMarkdown')
           }
           title={tooltipContent}
         >
           <Download aria-hidden="true" />
-          Markdown
+          {t('export.markdown')}
         </Button>
         <Button
           size="sm"
@@ -131,15 +135,15 @@ export const ReportCard: FC<ReportCardProps> = ({
           disabled={isExportDisabled || isPdfLoading}
           aria-label={
             isPdfLoading
-              ? 'Generating PDF...'
+              ? t('export.generatingPdf')
               : isExportDisabled
-                ? `Export as PDF (${tooltipContent})`
-                : 'Export as PDF'
+                ? t('export.asPdfDisabled', { reason: tooltipContent })
+                : t('export.asPdf')
           }
-          title={isPdfLoading ? 'Generating PDF...' : tooltipContent}
+          title={isPdfLoading ? t('export.generatingPdf') : tooltipContent}
         >
           <Download aria-hidden="true" />
-          {isPdfLoading ? 'Generating...' : 'PDF'}
+          {isPdfLoading ? t('export.generating') : t('export.pdf')}
         </Button>
       </div>
     </div>

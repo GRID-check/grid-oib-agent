@@ -12,6 +12,8 @@
 import { type FC } from 'react'
 import { Info, AlertTriangle, X } from 'lucide-react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { useTranslations } from '@/i18n'
+import type { Translator } from '@/i18n'
 import { formatTime } from '@/shared/utils/format-time'
 import type { FileUploadStatusType } from '../types'
 
@@ -37,19 +39,17 @@ interface BannerContent {
  * Returns null for unknown/legacy types (e.g. 'ingested' from persisted conversations)
  * so the component can skip rendering them.
  */
-const getBannerContent = (type: FileUploadStatusType): BannerContent | null => {
+const getBannerContent = (type: FileUploadStatusType, t: Translator): BannerContent | null => {
   switch (type) {
     case 'uploaded':
       return {
-        message:
-          'File is uploading and ingesting. Until completion, a file cannot be included in queries.',
+        message: t('fileUpload.uploading'),
         status: 'info',
         dismissable: true,
       }
     case 'pending_warning':
       return {
-        message:
-          'Files are pending! Wait until they are ready or send your query again to continue WITHOUT those files.',
+        message: t('fileUpload.pendingWarning'),
         status: 'warning',
         dismissable: false,
       }
@@ -67,7 +67,8 @@ export const FileUploadBanner: FC<FileUploadBannerProps> = ({
   timestamp,
   onDismiss,
 }) => {
-  const content = getBannerContent(type)
+  const t = useTranslations('chat')
+  const content = getBannerContent(type, t)
 
   // Skip rendering for unknown/legacy types
   if (!content) return null
@@ -86,7 +87,7 @@ export const FileUploadBanner: FC<FileUploadBannerProps> = ({
           <button
             type="button"
             onClick={onDismiss}
-            aria-label="Dismiss"
+            aria-label={t('actions.dismiss')}
             className="text-muted-foreground hover:text-foreground absolute right-3 top-3 rounded-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
           >
             <X className="h-4 w-4" aria-hidden="true" />

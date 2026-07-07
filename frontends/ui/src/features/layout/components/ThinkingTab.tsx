@@ -25,6 +25,7 @@ import { type FC, useState, useCallback, useMemo } from 'react'
 import { BookOpen } from 'lucide-react'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useChatStore } from '@/features/chat'
+import { useTranslations } from '@/i18n'
 import { ThoughtTracesTab } from './ThoughtTracesTab'
 import { AgentsTab } from './AgentsTab'
 import { ToolCallsTab } from './ToolCallsTab'
@@ -90,6 +91,7 @@ interface CitationListViewProps {
  * the rest of the replayed stream details instead of living in a separate tab.
  */
 const CitationListView: FC<CitationListViewProps> = ({ filter, citations }) => {
+  const t = useTranslations('research')
   const filteredCitations = useMemo(() => {
     const matchingCitations =
       filter === 'referenced'
@@ -102,11 +104,9 @@ const CitationListView: FC<CitationListViewProps> = ({ filter, citations }) => {
   }, [citations, filter])
 
   const isEmpty = filteredCitations.length === 0
-  const headerText = filter === 'referenced' ? 'Referenced' : 'Sources Read'
+  const headerText = filter === 'referenced' ? t('thinkingTab.referenced') : t('thinkingTab.sourcesRead')
   const subheadingText =
-    filter === 'referenced'
-      ? 'Sources referenced in the final report.'
-      : 'Sources discovered during research that were not referenced in the final report.'
+    filter === 'referenced' ? t('thinkingTab.referencedSub') : t('thinkingTab.readSub')
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
@@ -125,8 +125,8 @@ const CitationListView: FC<CitationListViewProps> = ({ filter, citations }) => {
           <BookOpen className="mb-3 h-8 w-8 text-muted-foreground" aria-hidden="true" />
           <p className="text-sm text-muted-foreground">
             {filter === 'referenced'
-              ? 'No referenced sources available.'
-              : 'No read sources available.'}
+              ? t('thinkingTab.noReferenced')
+              : t('thinkingTab.noRead')}
           </p>
           <p className="mt-2 text-sm text-muted-foreground">
             {EMPTY_RESEARCH_DETAILS_HELP_TEXT}
@@ -150,6 +150,7 @@ const CitationListView: FC<CitationListViewProps> = ({ filter, citations }) => {
  * Consumes dedicated state arrays from the chat store.
  */
 export const ThinkingTab: FC = () => {
+  const t = useTranslations('research')
   const deepResearchLLMSteps = useChatStore((state) => state.deepResearchLLMSteps)
   const deepResearchToolCalls = useChatStore((state) => state.deepResearchToolCalls)
   const deepResearchCitations = useChatStore((state) => state.deepResearchCitations)
@@ -179,12 +180,12 @@ export const ThinkingTab: FC = () => {
       <div className="shrink-0">
         <Tabs value={activeSubTab} onValueChange={handleSubTabChange}>
           <TabsList>
-            <TabsTrigger value="thoughts">Thoughts</TabsTrigger>
-            <TabsTrigger value="agents">Agents</TabsTrigger>
-            <TabsTrigger value="tools">Tools</TabsTrigger>
-            <TabsTrigger value="files">Files</TabsTrigger>
-            <TabsTrigger value="read">Read</TabsTrigger>
-            <TabsTrigger value="referenced">Referenced</TabsTrigger>
+            <TabsTrigger value="thoughts">{t('thinkingTab.tabThoughts')}</TabsTrigger>
+            <TabsTrigger value="agents">{t('thinkingTab.tabAgents')}</TabsTrigger>
+            <TabsTrigger value="tools">{t('thinkingTab.tabTools')}</TabsTrigger>
+            <TabsTrigger value="files">{t('thinkingTab.tabFiles')}</TabsTrigger>
+            <TabsTrigger value="read">{t('thinkingTab.tabRead')}</TabsTrigger>
+            <TabsTrigger value="referenced">{t('thinkingTab.tabReferenced')}</TabsTrigger>
           </TabsList>
         </Tabs>
       </div>

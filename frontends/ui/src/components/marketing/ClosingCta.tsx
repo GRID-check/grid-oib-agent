@@ -9,12 +9,14 @@ import { type FC } from 'react'
 import { ArrowRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Stagger, StaggerItem, motion, fadeRise, springGentle } from '@/components/motion'
+import { useTranslations } from '@/i18n'
 
 interface ClosingCtaProps {
   onSignIn?: () => void
 }
 
 export const ClosingCta: FC<ClosingCtaProps> = ({ onSignIn }) => {
+  const t = useTranslations('landing')
   return (
     <section
       aria-labelledby="closing-cta-heading"
@@ -27,19 +29,18 @@ export const ClosingCta: FC<ClosingCtaProps> = ({ onSignIn }) => {
           transition={springGentle}
           className="text-3xl font-semibold tracking-tight text-foreground text-balance md:text-4xl"
         >
-          Answer your next building-code question with confidence.
+          {t('closing.title')}
         </motion.h2>
         <motion.p
           variants={fadeRise}
           transition={springGentle}
           className="mt-5 max-w-xl text-base leading-relaxed text-muted-foreground"
         >
-          Sign in to create a project, add your documents, and get answers cited to the exact
-          OIB-Richtlinie.
+          {t('closing.subtitle')}
         </motion.p>
         <StaggerItem className="mt-10">
           <Button size="lg" onClick={onSignIn}>
-            Sign in
+            {t('closing.signIn')}
             <ArrowRight aria-hidden="true" />
           </Button>
         </StaggerItem>

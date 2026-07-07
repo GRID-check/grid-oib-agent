@@ -1,0 +1,65 @@
+/** files namespace — populated during component i18n. */
+export const files = {
+  uploadZone: {
+    clickToUpload: 'Click to upload',
+    orDragAndDrop: ' or drag and drop',
+    maxSize: 'Up to {size} MB',
+    accepts: 'Accepts: {types}',
+  },
+  activeUploads: {
+    heading: 'Uploads',
+    uploadFailed: 'Upload failed',
+  },
+  status: {
+    ready: 'Ready',
+    processing: 'Processing',
+    uploading: 'Uploading',
+    failed: 'Failed',
+    unknown: 'Unknown',
+  },
+  preview: {
+    closePreview: 'Close preview',
+    loadFailed: "Preview couldn't be loaded. You can still download the file below.",
+    tryAgain: 'Try again',
+    noInlinePreview:
+      'No inline preview for this file type. Download it to view the full document.',
+    status: 'Status',
+    type: 'Type',
+    size: 'Size',
+    unknownType: 'Unknown',
+    download: 'Download',
+  },
+  browser: {
+    folderEmptyTitle: 'This folder is empty',
+    folderEmptyDescription: 'Upload documents here, or pick another folder from the sidebar.',
+    noDocumentsTitle: 'No documents yet',
+    noDocumentsDescription:
+      "Add your building's plans, permits and reports. Grid reads them to ground every answer in your project's own documents — not generic guidance.",
+    searchPlaceholder: 'Search files...',
+    searchLabel: 'Search files',
+    noMatch: 'No files match “{query}”',
+  },
+  folders: {
+    heading: 'Folders',
+    namePlaceholder: 'Folder name',
+    newFolderName: 'New folder name',
+    addSubfolderIn: 'Add subfolder in {name}',
+    addSubfolder: 'Add subfolder',
+    allFiles: 'All Files',
+    newFolder: 'New folder',
+  },
+  workspace: {
+    corpusSubtitle: 'Project corpus — these documents ground Grid’s answers',
+    uploadDocuments: 'Upload documents',
+    uploadProblem: 'Upload problem',
+    dismissError: 'Dismiss error',
+    createFolderError: 'Could not create folder. Please try again.',
+    foldersLoadError: "Folders couldn't be loaded.",
+    documentsLoadError: "Documents couldn't be loaded.",
+    tryAgain: 'Try again',
+  },
+  upload: {
+    uploading: 'Uploading…',
+    upload: 'Upload',
+  },
+}

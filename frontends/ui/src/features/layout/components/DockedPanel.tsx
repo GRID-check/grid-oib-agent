@@ -16,6 +16,7 @@ import { type FC, type ReactNode } from 'react'
 import { X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { useTranslations } from '@/i18n'
 
 interface DockedPanelProps {
   /** Whether the panel is open */
@@ -54,6 +55,7 @@ export const DockedPanel: FC<DockedPanelProps> = ({
   className,
   children,
 }) => {
+  const t = useTranslations('research')
   if (!open && !forceMount) return null
 
   return (
@@ -79,8 +81,8 @@ export const DockedPanel: FC<DockedPanelProps> = ({
           size="icon"
           className="size-8"
           onClick={onClose}
-          aria-label="Close panel"
-          title="Close panel"
+          aria-label={t('dockedPanel.closePanel')}
+          title={t('dockedPanel.closePanel')}
         >
           <X className="h-4 w-4" aria-hidden="true" />
         </Button>

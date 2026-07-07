@@ -10,6 +10,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
 import { EmptyState } from '@/components/ui/empty-state'
 import { listResearchRuns, type ResearchRun } from '@/adapters/api/research-runs-client'
+import { useTranslations } from '@/i18n'
 
 const DEFAULT_LIMIT = 50
 
@@ -27,16 +28,9 @@ const STATUS_BADGE_VARIANT: Record<string, NonNullable<BadgeProps['variant']>> =
   cancelled: 'secondary',
 }
 
-/** Short, human hint shown on the right of a row when there's no report to open yet. */
-const STATUS_HINT: Record<string, string> = {
-  running: 'Report pending',
-  submitted: 'Report pending',
-  pending: 'Report pending',
-  failed: 'No report',
-  cancelled: 'No report',
-}
-
 const capitalize = (value: string): string => value.charAt(0).toUpperCase() + value.slice(1)
+
+const KNOWN_STATUSES = ['running', 'submitted', 'pending', 'completed', 'failed', 'cancelled']
 
 const shortJobId = (jobId: string): string => jobId.slice(0, 8)
 
@@ -82,8 +76,22 @@ const formatRelativeTime = (isoDate: string): string => {
 }
 
 export function ResearchRunsList({ projectId, projectCollection }: ResearchRunsListProps): JSX.Element {
+  const t = useTranslations('projects')
   const [jobs, setJobs] = useState<ResearchRun[] | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  const statusLabel = (status: string): string =>
+    KNOWN_STATUSES.includes(status) ? t(`researchRuns.status.${status}`) : capitalize(status)
+
+  const statusHint = (status: string): string => {
+    if (status === 'running' || status === 'submitted' || status === 'pending') {
+      return t('researchRuns.hint.reportPending')
+    }
+    if (status === 'failed' || status === 'cancelled') {
+      return t('researchRuns.hint.noReport')
+    }
+    return ''
+  }
 
   const load = useCallback(
     (signal: { cancelled: boolean }) => {
@@ -97,7 +105,7 @@ export function ResearchRunsList({ projectId, projectCollection }: ResearchRunsL
         })
         .catch((err: unknown) => {
           if (signal.cancelled) return
-          setError(err instanceof Error ? err.message : 'Failed to load research runs')
+          setError(err instanceof Error ? err.message : t('researchRuns.loadError'))
         })
     },
     [projectCollection],
@@ -115,7 +123,7 @@ export function ResearchRunsList({ projectId, projectCollection }: ResearchRunsL
     return (
       <Alert variant="destructive" className="mt-8">
         <AlertCircle />
-        <AlertTitle>Couldn&apos;t load research runs</AlertTitle>
+        <AlertTitle>{t('researchRuns.errorTitle')}</AlertTitle>
         <AlertDescription className="flex flex-col items-start gap-3">
           <span>{error}</span>
           <Button
@@ -126,7 +134,7 @@ export function ResearchRunsList({ projectId, projectCollection }: ResearchRunsL
               load(signal)
             }}
           >
-            Try again
+            {t('researchRuns.tryAgain')}
           </Button>
         </AlertDescription>
       </Alert>
@@ -156,11 +164,11 @@ export function ResearchRunsList({ projectId, projectCollection }: ResearchRunsL
       <EmptyState
         className="mt-8"
         icon={Telescope}
-        title="No research runs yet"
-        description="Deep research runs appear here once you ask Grid an involved question in Chat — it works the OIB/RIS sources and returns a cited report you can revisit."
+        title={t('researchRuns.emptyTitle')}
+        description={t('researchRuns.emptyDescription')}
         action={
           <Button asChild>
-            <Link href={`/app/projects/${projectId}/chat`}>Start a run in Chat</Link>
+            <Link href={`/app/projects/${projectId}/chat`}>{t('researchRuns.emptyAction')}</Link>
           </Button>
         }
       />
@@ -179,7 +187,7 @@ export function ResearchRunsList({ projectId, projectCollection }: ResearchRunsL
             >
               <div className="flex min-w-0 items-center gap-4">
                 <Badge variant={STATUS_BADGE_VARIANT[job.status] ?? 'secondary'}>
-                  {capitalize(job.status)}
+                  {statusLabel(job.status)}
                 </Badge>
                 <div className="flex min-w-0 flex-col gap-0.5">
                   <span className="font-mono text-xs text-muted-foreground">
@@ -194,13 +202,13 @@ export function ResearchRunsList({ projectId, projectCollection }: ResearchRunsL
               {isCompleted ? (
                 <Button asChild size="sm" className="shrink-0">
                   <Link href={`/app/projects/${projectId}/chat?job=${job.job_id}`}>
-                    View report
+                    {t('researchRuns.viewReport')}
                     <ArrowRight />
                   </Link>
                 </Button>
               ) : (
                 <span className="shrink-0 text-xs text-muted-foreground">
-                  {STATUS_HINT[job.status] ?? ''}
+                  {statusHint(job.status)}
                 </span>
               )}
             </StaggerItem>

@@ -1,7 +1,8 @@
 'use client'
 
 import * as React from 'react'
-import { Check, LogOut, Monitor, Moon, Sun } from 'lucide-react'
+import Link from 'next/link'
+import { Building2, Check, Globe, LogOut, Monitor, Moon, Sun, UserRound } from 'lucide-react'
 
 import { useAuth } from '@/adapters/auth/use-auth'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -16,6 +17,7 @@ import {
 import { motion, springSnappy } from '@/components/motion'
 import { useLayoutStore } from '@/features/layout/store'
 import type { ThemeMode } from '@/features/layout/types'
+import { useTranslations, useLocale, locales } from '@/i18n'
 import { cn } from '@/lib/utils'
 
 export interface SidebarUser {
@@ -33,13 +35,16 @@ export interface SidebarUserMenuProps {
   menuAlign?: 'start' | 'end'
   /** Hide the name label next to the avatar (compact avatar-only trigger). */
   compact?: boolean
+  /** Show the org-management entry (org admins only). */
+  canManageOrganization?: boolean
 }
 
-const THEME_OPTIONS: Array<{ mode: ThemeMode; label: string; icon: React.ComponentType<{ className?: string }> }> = [
-  { mode: 'system', label: 'System', icon: Monitor },
-  { mode: 'light', label: 'Light', icon: Sun },
-  { mode: 'dark', label: 'Dark', icon: Moon },
-]
+const THEME_ICONS: Record<ThemeMode, React.ComponentType<{ className?: string }>> = {
+  system: Monitor,
+  light: Sun,
+  dark: Moon,
+}
+const THEME_MODES: ThemeMode[] = ['system', 'light', 'dark']
 
 export function SidebarUserMenu({
   user,
@@ -47,12 +52,16 @@ export function SidebarUserMenu({
   menuSide = 'top',
   menuAlign = 'start',
   compact = false,
+  canManageOrganization = false,
 }: SidebarUserMenuProps) {
   const { signOut } = useAuth()
   const theme = useLayoutStore((s) => s.theme)
   const setTheme = useLayoutStore((s) => s.setTheme)
+  const t = useTranslations('nav')
+  const tc = useTranslations('common')
+  const { locale, setLocale, localeNames } = useLocale()
 
-  const displayName = user?.name || user?.email || 'Default User'
+  const displayName = user?.name || user?.email || t('userMenu.defaultUser')
   const initial = String(displayName).charAt(0).toUpperCase()
 
   return (
@@ -64,7 +73,7 @@ export function SidebarUserMenu({
           'focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none',
           compact ? 'w-auto rounded-full p-1' : 'h-9 w-full rounded-lg px-2',
         )}
-        aria-label={`User menu for ${displayName}`}
+        aria-label={t('userMenu.label', { name: displayName })}
       >
         <motion.span className="flex shrink-0" whileTap={{ scale: 0.95 }} transition={springSnappy}>
           <Avatar className="size-6">
@@ -84,17 +93,44 @@ export function SidebarUserMenu({
               <span className="text-xs font-normal text-muted-foreground">{user.email}</span>
             )}
             {!authRequired && (
-              <span className="text-xs font-normal text-muted-foreground">Authentication not configured</span>
+              <span className="text-xs font-normal text-muted-foreground">{t('userMenu.authNotConfigured')}</span>
             )}
           </div>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
-        <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">Theme</DropdownMenuLabel>
-        {THEME_OPTIONS.map(({ mode, label, icon: Icon }) => (
-          <DropdownMenuItem key={mode} onSelect={(e) => { e.preventDefault(); setTheme(mode) }} className="gap-2">
-            <Icon className="size-4 text-muted-foreground" aria-hidden />
-            <span className="flex-1">{label}</span>
-            {theme === mode && <Check className="size-4" aria-hidden />}
+        <DropdownMenuItem asChild className="gap-2">
+          <Link href="/app/profile">
+            <UserRound className="size-4 text-muted-foreground" aria-hidden />
+            {t('userMenu.profile')}
+          </Link>
+        </DropdownMenuItem>
+        {canManageOrganization && (
+          <DropdownMenuItem asChild className="gap-2">
+            <Link href="/app/organization">
+              <Building2 className="size-4 text-muted-foreground" aria-hidden />
+              {t('userMenu.organization')}
+            </Link>
+          </DropdownMenuItem>
+        )}
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">{tc('theme.label')}</DropdownMenuLabel>
+        {THEME_MODES.map((mode) => {
+          const Icon = THEME_ICONS[mode]
+          return (
+            <DropdownMenuItem key={mode} onSelect={(e) => { e.preventDefault(); setTheme(mode) }} className="gap-2">
+              <Icon className="size-4 text-muted-foreground" aria-hidden />
+              <span className="flex-1">{tc(`theme.${mode}`)}</span>
+              {theme === mode && <Check className="size-4" aria-hidden />}
+            </DropdownMenuItem>
+          )
+        })}
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">{tc('language.label')}</DropdownMenuLabel>
+        {locales.map((code) => (
+          <DropdownMenuItem key={code} onSelect={(e) => { e.preventDefault(); setLocale(code) }} className="gap-2">
+            <Globe className="size-4 text-muted-foreground" aria-hidden />
+            <span className="flex-1">{localeNames[code]}</span>
+            {locale === code && <Check className="size-4" aria-hidden />}
           </DropdownMenuItem>
         ))}
         {authRequired && (
@@ -102,7 +138,7 @@ export function SidebarUserMenu({
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={() => signOut()} className="gap-2">
               <LogOut className="size-4 text-muted-foreground" aria-hidden />
-              Sign out
+              {tc('actions.signOut')}
             </DropdownMenuItem>
           </>
         )}

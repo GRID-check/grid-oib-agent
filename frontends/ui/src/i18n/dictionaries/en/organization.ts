@@ -1,0 +1,52 @@
+/** The organization management page (admin). */
+export const organization = {
+  title: 'Organization',
+  subtitle: 'Manage your organization, its members, and access.',
+  backToApp: 'Back to projects',
+  overview: {
+    title: 'Overview',
+    description: 'Your organization at a glance.',
+    name: 'Name',
+    id: 'Organization ID',
+    domains: 'Domains',
+    noDomains: 'No verified domains',
+    created: 'Created',
+    members: 'Members',
+    membersCapped: '{count}+',
+    pendingInvites: 'Pending invitations',
+  },
+  settings: {
+    title: 'Organization settings',
+    description: 'Grid-specific settings for your organization.',
+    displayName: 'Display name',
+    displayNameHint: 'Shown inside Grid. Leave blank to use the WorkOS organization name.',
+    displayNamePlaceholder: 'e.g. Acme Architektur GmbH',
+    defaultLocale: 'Default language for new members',
+    defaultLocaleHint: 'New members start in this language until they choose their own.',
+    save: 'Save changes',
+    saving: 'Saving…',
+    saved: 'Organization settings saved',
+    saveError: 'Could not save organization settings. Please try again.',
+  },
+  members: {
+    title: 'Members',
+    description: 'Invite people, assign roles, and manage who has access.',
+  },
+  advanced: {
+    title: 'Advanced',
+    description: 'Enterprise access controls. Only options your role can manage are shown.',
+    sso: 'Single Sign-On (SSO)',
+    ssoDescription: 'Connect an identity provider so members sign in with your IdP.',
+    directory: 'Directory Sync (SCIM)',
+    directoryDescription: 'Automatically provision and de-provision members from your directory.',
+    domains: 'Domain verification',
+    domainsDescription: 'Verify domains your organization owns.',
+    auditLogs: 'Audit log streaming',
+    auditLogsDescription: 'Stream audit events to your SIEM or logging provider.',
+  },
+  notAdmin: {
+    title: 'You need admin access',
+    description:
+      'Only organization admins can manage the organization. Ask an admin if you need access.',
+  },
+}

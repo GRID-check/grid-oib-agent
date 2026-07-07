@@ -27,6 +27,9 @@ const middleware = authkitMiddleware({
       // Public marketing landing. AuthKit compiles these paths with
       // path-to-regexp (anchored), so '/' matches only the root.
       '/',
+      // Liveness probe — must return 200 even when auth is required, so the
+      // container / Coolify / Traefik health check never redirects to login.
+      '/api/healthz',
       '/api/auth/callback',
       '/api/auth/websocket-scope',
       '/auth/error',
@@ -54,7 +57,13 @@ export const config = {
      *
      * API auth routes are allow-listed via middlewareAuth.unauthenticatedPaths
      * so AuthKit can complete the OAuth callback without a session.
+     *
+     * `api/healthz` is excluded from the matcher entirely: the liveness probe
+     * must answer 200 purely on "is the Node server up", independent of AuthKit
+     * (which otherwise throws on every request when WORKOS_REDIRECT_URI is
+     * unset/misconfigured — turning a config gap into a container that never
+     * goes healthy).
      */
-    '/((?!_next/static|_next/image|favicon.ico|public).*)',
+    '/((?!_next/static|_next/image|favicon.ico|public|api/healthz).*)',
   ],
 }

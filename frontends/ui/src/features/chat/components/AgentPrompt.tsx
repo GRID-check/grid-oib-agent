@@ -13,6 +13,7 @@
 import { type FC, useCallback } from 'react'
 import { MessageSquare } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { useTranslations } from '@/i18n'
 import { formatTime } from '@/shared/utils/format-time'
 import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
 import { useChatStore } from '../store'
@@ -59,6 +60,7 @@ export const AgentPrompt: FC<AgentPromptProps> = ({
   response,
   timestamp,
 }) => {
+  const t = useTranslations('chat')
   const respondToInteractionFn = useChatStore((state) => state.respondToInteractionFn)
   const isApprovalPrompt = APPROVAL_PROMPT_RE.test(content)
   const showApprovalButtons = isApprovalPrompt && !isResponded && !!respondToInteractionFn
@@ -79,7 +81,7 @@ export const AgentPrompt: FC<AgentPromptProps> = ({
           <div className={`flex items-center gap-2 ${isResponded ? 'opacity-75' : ''}`}>
             <MessageSquare className="h-5 w-5 text-muted-foreground" />
             <span className="text-sm font-semibold text-muted-foreground">
-              {isResponded ? 'Agent received your input' : 'Agent needs your input'}
+              {isResponded ? t('agentPrompt.receivedInput') : t('agentPrompt.needsInput')}
             </span>
           </div>
 
@@ -98,17 +100,17 @@ export const AgentPrompt: FC<AgentPromptProps> = ({
                 variant="outline"
                 size="sm"
                 onClick={handleReject}
-                aria-label="Reject plan"
+                aria-label={t('agentPrompt.rejectPlan')}
               >
-                Reject
+                {t('agentPrompt.reject')}
               </Button>
               <Button
                 variant="default"
                 size="sm"
                 onClick={handleApprove}
-                aria-label="Approve plan"
+                aria-label={t('agentPrompt.approvePlan')}
               >
-                Approve
+                {t('agentPrompt.approve')}
               </Button>
             </div>
           )}
@@ -151,13 +153,14 @@ const OptionsList: FC<{ options: string[] }> = ({ options }) => {
  * Display the user's response after submission
  */
 const ResponseDisplay: FC<{ response?: string }> = ({ response }) => {
+  const t = useTranslations('chat')
   if (!response) return null
 
   return (
     <div className="flex items-center gap-2 rounded-xl bg-muted/50 px-3 py-2">
       <MessageSquare className="text-subtle h-4 w-4" />
       <span className="text-subtle text-sm">
-        Your response: <span className="text-primary">{response}</span>
+        {t('agentPrompt.yourResponse')} <span className="text-primary">{response}</span>
       </span>
     </div>
   )

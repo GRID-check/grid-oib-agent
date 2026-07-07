@@ -1,0 +1,69 @@
+import type { en } from '../en'
+
+/** files namespace — populated during component i18n. */
+export const files: typeof en.files = {
+  uploadZone: {
+    clickToUpload: 'Zum Hochladen klicken',
+    orDragAndDrop: ' oder per Drag-and-drop ablegen',
+    maxSize: 'Bis zu {size} MB',
+    accepts: 'Zulässig: {types}',
+  },
+  activeUploads: {
+    heading: 'Uploads',
+    uploadFailed: 'Upload fehlgeschlagen',
+  },
+  status: {
+    ready: 'Bereit',
+    processing: 'Wird verarbeitet',
+    uploading: 'Wird hochgeladen',
+    failed: 'Fehlgeschlagen',
+    unknown: 'Unbekannt',
+  },
+  preview: {
+    closePreview: 'Vorschau schließen',
+    loadFailed:
+      'Die Vorschau konnte nicht geladen werden. Sie können die Datei unten trotzdem herunterladen.',
+    tryAgain: 'Erneut versuchen',
+    noInlinePreview:
+      'Für diesen Dateityp gibt es keine Inline-Vorschau. Laden Sie sie herunter, um das vollständige Dokument anzusehen.',
+    status: 'Status',
+    type: 'Typ',
+    size: 'Größe',
+    unknownType: 'Unbekannt',
+    download: 'Herunterladen',
+  },
+  browser: {
+    folderEmptyTitle: 'Dieser Ordner ist leer',
+    folderEmptyDescription:
+      'Laden Sie hier Dokumente hoch oder wählen Sie einen anderen Ordner in der Seitenleiste.',
+    noDocumentsTitle: 'Noch keine Dokumente',
+    noDocumentsDescription:
+      'Fügen Sie die Pläne, Genehmigungen und Berichte Ihres Gebäudes hinzu. Grid liest sie, um jede Antwort in den eigenen Dokumenten Ihres Projekts zu verankern – nicht in allgemeinen Hinweisen.',
+    searchPlaceholder: 'Dateien durchsuchen …',
+    searchLabel: 'Dateien durchsuchen',
+    noMatch: 'Keine Dateien entsprechen „{query}“',
+  },
+  folders: {
+    heading: 'Ordner',
+    namePlaceholder: 'Ordnername',
+    newFolderName: 'Name des neuen Ordners',
+    addSubfolderIn: 'Unterordner in {name} hinzufügen',
+    addSubfolder: 'Unterordner hinzufügen',
+    allFiles: 'Alle Dateien',
+    newFolder: 'Neuer Ordner',
+  },
+  workspace: {
+    corpusSubtitle: 'Projektkorpus – diese Dokumente untermauern Grids Antworten',
+    uploadDocuments: 'Dokumente hochladen',
+    uploadProblem: 'Upload-Problem',
+    dismissError: 'Fehler ausblenden',
+    createFolderError: 'Ordner konnte nicht erstellt werden. Bitte versuchen Sie es erneut.',
+    foldersLoadError: 'Ordner konnten nicht geladen werden.',
+    documentsLoadError: 'Dokumente konnten nicht geladen werden.',
+    tryAgain: 'Erneut versuchen',
+  },
+  upload: {
+    uploading: 'Wird hochgeladen …',
+    upload: 'Hochladen',
+  },
+}

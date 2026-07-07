@@ -10,6 +10,7 @@
 
 import { type FC } from 'react'
 import { Wrench } from 'lucide-react'
+import { useTranslations } from '@/i18n'
 import { ToolCallCard, type ToolCallInfo } from './ToolCallCard'
 import { EMPTY_RESEARCH_DETAILS_HELP_TEXT } from './research-empty-state-copy'
 
@@ -24,6 +25,7 @@ interface ToolCallsTabProps {
  * Tool calls sub-tab content showing tool invocations and results.
  */
 export const ToolCallsTab: FC<ToolCallsTabProps> = ({ toolCalls = [] }) => {
+  const t = useTranslations('research')
   const isEmpty = toolCalls.length === 0
   const runningCount = toolCalls.filter((tc) => tc.status === 'running').length
   const completedCount = toolCalls.filter((tc) => tc.status === 'complete').length
@@ -33,17 +35,17 @@ export const ToolCallsTab: FC<ToolCallsTabProps> = ({ toolCalls = [] }) => {
       {/* Header */}
       <div className="flex shrink-0 flex-col gap-1">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold text-muted-foreground">Tool Calls</span>
+          <span className="text-sm font-semibold text-muted-foreground">{t('toolCallsTab.title')}</span>
           {toolCalls.length > 0 && (
             <span className="text-xs text-muted-foreground">
               {runningCount > 0
-                ? `${runningCount} running`
+                ? t('toolCallsTab.runningCount', { count: runningCount })
                 : `${completedCount}/${toolCalls.length}`}
             </span>
           )}
         </div>
         <span className="text-xs text-muted-foreground">
-          Web searches, file operations, and other tool invocations.
+          {t('toolCallsTab.description')}
         </span>
       </div>
 
@@ -53,7 +55,7 @@ export const ToolCallsTab: FC<ToolCallsTabProps> = ({ toolCalls = [] }) => {
           <span data-testid="toolcalls-empty-icon" className="mb-3 h-8 w-8 text-muted-foreground">
             <Wrench className="h-8 w-8" aria-hidden="true" />
           </span>
-          <p className="text-sm text-muted-foreground">No tool calls available.</p>
+          <p className="text-sm text-muted-foreground">{t('toolCallsTab.empty')}</p>
           <p className="mt-2 text-sm text-muted-foreground">
             {EMPTY_RESEARCH_DETAILS_HELP_TEXT}
           </p>

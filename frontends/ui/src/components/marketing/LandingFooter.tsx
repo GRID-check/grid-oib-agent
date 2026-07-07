@@ -5,19 +5,21 @@
 
 import { type FC } from 'react'
 import { Logo } from '@/components/brand/logo'
+import { useTranslations } from '@/i18n'
 
 export const LandingFooter: FC = () => {
+  const t = useTranslations('landing')
   return (
     <footer className="border-t border-border">
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-6 py-12 md:flex-row md:items-center md:justify-between md:px-8">
         <div className="flex flex-col gap-2">
           <Logo kind="horizontal" size="small" />
           <p className="text-xs leading-relaxed text-muted-foreground">
-            Building-compliance answers for Austrian architects, grounded in the code.
+            {t('footer.description')}
           </p>
         </div>
         <p className="text-xs leading-relaxed text-muted-foreground">
-          Sources: OIB-Richtlinien &middot; RIS &middot; your project documents
+          {t('footer.sources')}
         </p>
       </div>
     </footer>

@@ -5,6 +5,7 @@ import { Globe, MessageSquareText } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { useAuth } from '@/adapters/auth'
+import { useTranslations } from '@/i18n'
 import { useLayoutStore } from '../store'
 
 interface ChatToolbarProps {
@@ -19,6 +20,7 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
   isNewSessionDisabled = false,
 }) {
   const { isAuthenticated } = useAuth()
+  const t = useTranslations('research')
   const toggleSessionsPanel = useLayoutStore((s) => s.toggleSessionsPanel)
 
   const handleMenuClick = useCallback(() => {
@@ -46,27 +48,27 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
             size="sm"
             onClick={handleNewSessionClick}
             disabled={!isAuthenticated || isNewSessionDisabled}
-            aria-label="Create new session"
+            aria-label={t('chatToolbar.createNewSession')}
             title={
               !isAuthenticated
-                ? 'Sign in to create sessions'
+                ? t('chatToolbar.signInToCreate')
                 : isNewSessionDisabled
-                  ? 'Cannot create a new session while the current session is active'
-                  : 'Create new session'
+                  ? t('chatToolbar.cannotCreateActive')
+                  : t('chatToolbar.createNewSession')
             }
           >
-            New chat
+            {t('chatToolbar.newChat')}
           </Button>
           <Button
             variant="ghost"
             size="sm"
             onClick={handleMenuClick}
             disabled={!isAuthenticated}
-            aria-label="Toggle sessions sidebar"
-            title={!isAuthenticated ? 'Sign in to view sessions' : 'Toggle sessions sidebar'}
+            aria-label={t('chatToolbar.toggleSessions')}
+            title={!isAuthenticated ? t('chatToolbar.signInToView') : t('chatToolbar.toggleSessions')}
           >
             <MessageSquareText className="h-4 w-4" aria-hidden="true" />
-            <span className="text-sm font-semibold">Sessions</span>
+            <span className="text-sm font-semibold">{t('chatToolbar.sessions')}</span>
           </Button>
           {sessionTitle ? <Separator orientation="vertical" className="h-5" /> : null}
           {sessionTitle ? (
@@ -80,11 +82,11 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
           size="sm"
           onClick={handleAddSourcesClick}
           disabled={!isAuthenticated}
-          aria-label="Add data sources"
-          title={!isAuthenticated ? 'Sign in to manage data sources' : 'Add data sources'}
+          aria-label={t('chatToolbar.addSources')}
+          title={!isAuthenticated ? t('chatToolbar.signInToManage') : t('chatToolbar.addSources')}
         >
           <Globe className="h-4 w-4" aria-hidden="true" />
-          <span className="text-sm">Sources</span>
+          <span className="text-sm">{t('chatToolbar.sources')}</span>
         </Button>
       </div>
     </header>

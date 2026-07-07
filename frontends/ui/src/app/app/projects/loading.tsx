@@ -1,4 +1,5 @@
 import { Skeleton } from '@/components/ui/skeleton'
+import { getTranslations } from '@/i18n/server'
 
 /**
  * Route-level loading state for the projects list. The page is a server
@@ -6,11 +7,12 @@ import { Skeleton } from '@/components/ui/skeleton'
  * Mirrors the real page's topbar + header + card-grid geometry to avoid a
  * layout jump when content arrives.
  */
-export default function ProjectsLoading(): JSX.Element {
+export default async function ProjectsLoading(): Promise<JSX.Element> {
+  const t = await getTranslations('projects')
   return (
     <div className="flex min-h-dvh flex-col bg-background text-foreground" aria-busy="true">
       <span className="sr-only" role="status">
-        Loading projects…
+        {t('list.loading')}
       </span>
       {/* Topbar placeholder */}
       <div className="flex h-14 items-center justify-between border-b border-border px-4 md:px-8">

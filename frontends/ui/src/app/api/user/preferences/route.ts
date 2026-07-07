@@ -48,21 +48,34 @@ export async function POST(request: Request): Promise<Response> {
       )
     }
 
-    const { prefs } = parsed.data
+    const { prefs: patch } = parsed.data
     const db = getDb()
+
+    // Merge the patch into any existing prefs so callers can update a single
+    // key (e.g. locale) without clobbering the rest (e.g. theme, active project).
+    const [existing] = await db
+      .select({ prefs: userPreferences.prefs })
+      .from(userPreferences)
+      .where(eq(userPreferences.workosUserId, session.userId))
+      .limit(1)
+
+    const merged = {
+      ...((existing?.prefs as Record<string, unknown> | undefined) ?? {}),
+      ...patch,
+    }
 
     await db
       .insert(userPreferences)
       .values({
         workosUserId: session.userId,
-        prefs,
+        prefs: merged,
       })
       .onConflictDoUpdate({
         target: userPreferences.workosUserId,
-        set: { prefs },
+        set: { prefs: merged },
       })
 
-    return NextResponse.json({ prefs })
+    return NextResponse.json({ prefs: merged })
   } catch (error) {
     const denied = authzErrorResponse(error)
     if (denied) return denied

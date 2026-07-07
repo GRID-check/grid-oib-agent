@@ -25,12 +25,20 @@ import { AppConfigProvider, type AppConfig } from '@/shared/context'
 import { useLayoutStore } from '@/features/layout'
 import { useChatStore } from '@/features/chat/store'
 import type { ThemeMode } from '@/features/layout'
+import { I18nProvider, type Locale } from '@/i18n'
+import { fetchUserPreferences, patchUserPreferences } from '@/lib/user-preferences/client'
 
 interface ProvidersProps {
   children: ReactNode
   /** Runtime configuration from server-side environment variables */
   config: AppConfig
+  /** Locale resolved server-side (cookie / Accept-Language). */
+  locale: Locale
 }
+
+const THEME_MODES: ReadonlySet<string> = new Set(['system', 'light', 'dark'])
+const isThemeMode = (value: unknown): value is ThemeMode =>
+  typeof value === 'string' && THEME_MODES.has(value)
 
 /**
  * Applies theme classes directly to the document element.
@@ -114,6 +122,42 @@ const useDataSourceSessionRestore = (): void => {
 }
 
 /**
+ * Syncs the user's theme preference with the server.
+ *
+ * On mount, hydrates the layout store from the user's saved theme (so the
+ * choice follows them across devices). Thereafter, persists any theme change
+ * back to the user's preferences. Both directions fail soft — with auth
+ * disabled the endpoint 401s and theme simply stays in localStorage.
+ */
+const useThemePreferenceSync = (): void => {
+  const setTheme = useLayoutStore((state) => state.setTheme)
+  const hydratedRef = useRef(false)
+
+  useEffect(() => {
+    let cancelled = false
+    void fetchUserPreferences()
+      .then((prefs) => {
+        if (!cancelled && isThemeMode(prefs.theme)) {
+          setTheme(prefs.theme)
+        }
+      })
+      .finally(() => {
+        hydratedRef.current = true
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [setTheme])
+
+  useEffect(() => {
+    return useLayoutStore.subscribe((state, prev) => {
+      if (!hydratedRef.current || state.theme === prev.theme) return
+      void patchUserPreferences({ theme: state.theme })
+    })
+  }, [])
+}
+
+/**
  * Theme wrapper that syncs with layout store.
  * Applies theme classes directly to document for instant updates.
  * Uses defer prop to prevent hydration mismatches.
@@ -123,6 +167,9 @@ const ThemeWrapper = ({ children }: { children: ReactNode }): ReactNode => {
 
   // Apply theme classes directly to document
   useThemeEffect(theme)
+
+  // Persist/hydrate theme against the signed-in user
+  useThemePreferenceSync()
 
   // Initialize data sources
   useDataSourcesInit()
@@ -176,7 +223,7 @@ const useConversationsInit = (): void => {
   }, [])
 }
 
-export const Providers = ({ children, config }: ProvidersProps): ReactNode => {
+export const Providers = ({ children, config, locale }: ProvidersProps): ReactNode => {
   const content = (
     <ThemeWrapper>
       <DeepResearchRestorer>
@@ -189,16 +236,18 @@ export const Providers = ({ children, config }: ProvidersProps): ReactNode => {
 
   return (
     <AppConfigProvider config={config}>
-      <AuthKitProvider>
-        {/* reducedMotion="user" disables transform/layout animations for users
-            with prefers-reduced-motion, app-wide. */}
-        <MotionConfig reducedMotion="user">
-          <TooltipProvider delayDuration={200}>
-            {content}
-          </TooltipProvider>
-          <Toaster />
-        </MotionConfig>
-      </AuthKitProvider>
+      <I18nProvider initialLocale={locale}>
+        <AuthKitProvider>
+          {/* reducedMotion="user" disables transform/layout animations for users
+              with prefers-reduced-motion, app-wide. */}
+          <MotionConfig reducedMotion="user">
+            <TooltipProvider delayDuration={200}>
+              {content}
+            </TooltipProvider>
+            <Toaster />
+          </MotionConfig>
+        </AuthKitProvider>
+      </I18nProvider>
     </AppConfigProvider>
   )
 }
