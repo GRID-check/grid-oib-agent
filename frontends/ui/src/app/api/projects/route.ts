@@ -11,6 +11,7 @@ import { authzErrorResponse, requireAuthorizedSession } from '@/lib/auth/require
 import { getDb } from '@/lib/db'
 import { getWorkOS } from '@/lib/workos/client'
 import { projects } from '@/lib/db/schema'
+import { recordAuditEvent } from '@/lib/audit/service'
 import { z } from 'zod'
 
 const createProjectSchema = z.object({
@@ -88,6 +89,15 @@ export async function POST(request: Request): Promise<Response> {
         roleSlug: 'project-admin',
       })
 
+      await recordAuditEvent({
+        organizationId: session.organizationId,
+        actor: { userId: session.userId, email: session.email },
+        action: 'project.created',
+        targetType: 'project',
+        targetId: project.id,
+        metadata: { name },
+        request,
+      })
       return NextResponse.json(project, { status: 201 })
     } catch (error) {
       console.error('[Projects] Failed to create project:', error)

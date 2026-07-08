@@ -7,6 +7,7 @@ import { requireAuthorizedPageSession } from '@/lib/auth/require-auth'
 import { getDb } from '@/lib/db'
 import { getWorkOS } from '@/lib/workos/client'
 import { projects } from '@/lib/db/schema'
+import { recordAuditEvent } from '@/lib/audit/service'
 
 export interface CreateProjectState {
   error?: string
@@ -56,6 +57,15 @@ export async function createProject(_prevState: CreateProjectState, formData: Fo
       resourceExternalId: project.id,
       resourceTypeSlug: 'project',
       roleSlug: 'project-admin',
+    })
+
+    await recordAuditEvent({
+      organizationId: session.organizationId,
+      actor: { userId: session.userId, email: session.email },
+      action: 'project.created',
+      targetType: 'project',
+      targetId: project.id,
+      metadata: { name: trimmed },
     })
   } catch (error) {
     console.error('[createProject] Failed to create project:', error)

@@ -77,11 +77,16 @@ only ever attached to platform-org roles, never to tenant roles.
 
 The app emits every privileged admin action as a **WorkOS Audit Log event**
 (`frontends/ui/src/lib/audit/service.ts`) — no app-side audit table.
-Actions emitted: `org.created`, `org.settings.updated`, `budget.policy.set`,
-`budget.policy.cleared`, `model_config.version.activated`,
-`compliance.hold.created`, `compliance.hold.released`,
-`platform.access.break_glass` (break-glass lands in the GRID Platform org's
-trail, throttled to once per actor per hour).
+Actions emitted (registry: `AUDIT_ACTIONS` in that file): `org.created`,
+`org.settings.updated`, `budget.policy.set`, `budget.policy.cleared`,
+`model_config.version.activated`, `compliance.hold.created`,
+`compliance.hold.released`, `platform.access.break_glass` (lands in the GRID
+Platform org's trail, throttled to once per actor per hour),
+`project.created`, `project.deleted`, `project.restored`,
+`project.role.assigned`, `project.role.removed` (FGA access-control
+changes), `document.uploaded` (data provenance). Deliberately NOT audited:
+high-frequency content activity (memory items, profile edits, conversation
+messages, renames, user preferences) — it would drown the admin trail.
 
 - **Provision the event schemas** (validates incoming events; also creates
   the actions): `WORKOS_API_KEY=sk_… npm run provision:audit-schemas`

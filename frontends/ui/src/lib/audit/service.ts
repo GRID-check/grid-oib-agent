@@ -29,6 +29,12 @@ export const AUDIT_ACTIONS = [
   'compliance.hold.created',
   'compliance.hold.released',
   'platform.access.break_glass',
+  'project.created',
+  'project.deleted',
+  'project.restored',
+  'project.role.assigned',
+  'project.role.removed',
+  'document.uploaded',
 ] as const
 export type AuditAction = (typeof AUDIT_ACTIONS)[number]
 

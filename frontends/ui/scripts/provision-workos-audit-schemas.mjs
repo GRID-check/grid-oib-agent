@@ -64,6 +64,35 @@ const SCHEMAS = [
     targets: [{ type: 'platform' }],
     metadata: { activeOrganizationId: 'org_x' },
   },
+  {
+    action: 'project.created',
+    targets: [{ type: 'project' }],
+    metadata: { name: 'Example Project' },
+  },
+  {
+    action: 'project.deleted',
+    targets: [{ type: 'project' }],
+    metadata: { name: 'Example Project', purgeAfter: '2026-07-15T00:00:00.000Z' },
+  },
+  {
+    action: 'project.restored',
+    targets: [{ type: 'project' }],
+  },
+  {
+    action: 'project.role.assigned',
+    targets: [{ type: 'project' }],
+    metadata: { organizationMembershipId: 'om_x', roleSlug: 'project-editor' },
+  },
+  {
+    action: 'project.role.removed',
+    targets: [{ type: 'project' }],
+    metadata: { organizationMembershipId: 'om_x', roleSlug: 'none' },
+  },
+  {
+    action: 'document.uploaded',
+    targets: [{ type: 'document' }],
+    metadata: { projectId: 'uuid', filename: 'plan.pdf', fileSize: 1024 },
+  },
 ]
 
 const apiKey = process.env.WORKOS_API_KEY

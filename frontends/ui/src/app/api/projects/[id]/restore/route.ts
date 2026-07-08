@@ -10,9 +10,10 @@ import { authzErrorResponse, requireAuthorizedSession } from '@/lib/auth/require
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { getDb } from '@/lib/db'
 import { deletionQueue, projects } from '@/lib/db/schema'
+import { recordAuditEvent } from '@/lib/audit/service'
 
 export async function POST(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<Response> {
   try {
@@ -62,6 +63,14 @@ export async function POST(
       )
     }
 
+    await recordAuditEvent({
+      organizationId: session.organizationId,
+      actor: { userId: session.userId, email: session.email },
+      action: 'project.restored',
+      targetType: 'project',
+      targetId: id,
+      request,
+    })
     return NextResponse.json({ status: 'restored' })
   } catch (error) {
     const denied = authzErrorResponse(error)

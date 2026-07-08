@@ -11,9 +11,10 @@ import { requireProjectAccess } from '@/lib/authz/projects'
 import { getDb } from '@/lib/db'
 import { getWorkOS } from '@/lib/workos/client'
 import { projects } from '@/lib/db/schema'
+import { recordAuditEvent } from '@/lib/audit/service'
 
 export async function DELETE(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string; assignmentId: string }> },
 ): Promise<Response> {
   try {
@@ -51,6 +52,15 @@ export async function DELETE(
         roleAssignmentId: assignment.id,
       })
 
+      await recordAuditEvent({
+        organizationId: session.organizationId,
+        actor: { userId: session.userId, email: session.email },
+        action: 'project.role.removed',
+        targetType: 'project',
+        targetId: id,
+        metadata: { organizationMembershipId: assignment.organizationMembershipId, roleSlug: 'none' },
+        request,
+      })
       return new NextResponse(null, { status: 204 })
     } catch (error) {
       console.error('[Projects] Failed to remove project role assignment:', error)
