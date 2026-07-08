@@ -48,13 +48,43 @@ describe('project profile prompt view', () => {
   })
 
   it('builds a stored display projection without calling AI-Q', () => {
+    // Keys outside the intake definition fall back to humanized labels.
     const display = buildProjectProfileDisplay(profile)
     expect(display.keyFacts).toEqual([
-      { label: 'floors above', value: '5' },
-      { label: 'protected zone', value: 'Yes' },
-      { label: 'use', value: 'beherbergung' },
+      { label: 'Floors above', value: '5' },
+      { label: 'Protected zone', value: 'Yes' },
+      { label: 'Use', value: 'beherbergung' },
     ])
-    expect(display.missingInfo).toEqual(['building_class'])
+    expect(display.missingInfo).toEqual(['Building class'])
+  })
+
+  it('uses intake question and option labels for known fact keys', () => {
+    const intakeProfile: ProjectProfile = {
+      facts: {
+        gebaeudeklasse: {
+          value: 'GK4',
+          confidence: 'confirmed',
+          source: 'onboarding',
+          updatedAt: '2026-07-02T00:00:00.000Z',
+        },
+        hauptnutzung: {
+          value: 'wohnen',
+          confidence: 'confirmed',
+          source: 'onboarding',
+          updatedAt: '2026-07-02T00:00:00.000Z',
+        },
+      },
+      goals: {},
+      unknowns: ['fluchtniveau'],
+      assumptions: {},
+    }
+    const display = buildProjectProfileDisplay(intakeProfile)
+    // Intake (stage) order, not alphabetical: main use before building class.
+    expect(display.keyFacts).toEqual([
+      { label: 'Main use', value: 'Residential' },
+      { label: 'Building class', value: 'GK4' },
+    ])
+    expect(display.missingInfo).toEqual(['Escape level'])
   })
 
   it('applies safe add and replace patches only under profile paths', () => {

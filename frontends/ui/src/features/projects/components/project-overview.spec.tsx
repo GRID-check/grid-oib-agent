@@ -21,6 +21,7 @@ const mockData: ProjectOverviewData = {
   collectionName: 'proj-1-collection',
   createdAt: '2026-01-01T00:00:00.000Z',
   profileDisplay: null,
+  profile: null,
   applicableStandards: [],
   briefComplete: false,
   documentCount: 0,
@@ -61,20 +62,62 @@ describe('ProjectOverview', () => {
     expect(screen.getByText(/No files yet/i)).toBeDefined()
   })
 
-  it('renders key facts when profile display exists', () => {
-    const dataWithProfile = {
+  it('renders grouped, human-labelled facts from the raw profile', () => {
+    const dataWithProfile: ProjectOverviewData = {
       ...mockData,
-      profileDisplay: {
-        title: 'Test',
-        summary: 'A test project',
-        keyFacts: [
-          { label: 'Type', value: 'Residential' },
-          { label: 'Location', value: 'Berlin' },
-        ],
+      profileDisplay: { title: 'Test', summary: 'A test project', keyFacts: [], missingInfo: [] },
+      profile: {
+        facts: {
+          hauptnutzung: {
+            value: 'wohnen',
+            confidence: 'confirmed',
+            source: 'onboarding',
+            updatedAt: '2026-01-01T00:00:00.000Z',
+          },
+          gebaeudeklasse: {
+            value: 'GK4',
+            confidence: 'confirmed',
+            source: 'onboarding',
+            updatedAt: '2026-01-01T00:00:00.000Z',
+          },
+        },
+        goals: {},
+        unknowns: ['fluchtniveau'],
+        assumptions: {},
       },
     }
     render(<ProjectOverview data={dataWithProfile} />)
+    expect(screen.getByText('A test project')).toBeDefined()
+    // Intake labels, not raw keys/enum values.
+    expect(screen.getByText('Main use')).toBeDefined()
     expect(screen.getByText('Residential')).toBeDefined()
-    expect(screen.getByText('Berlin')).toBeDefined()
+    expect(screen.getByText('GK4')).toBeDefined()
+    // The open unknown links back into the wizard.
+    expect(screen.getByRole('link', { name: 'Escape level' })).toBeDefined()
+  })
+
+  it('offers confirm/dismiss for agent-suggested assumptions', () => {
+    const dataWithAssumption: ProjectOverviewData = {
+      ...mockData,
+      profileDisplay: { title: 'Test', summary: '', keyFacts: [], missingInfo: [] },
+      profile: {
+        facts: {},
+        goals: {},
+        unknowns: [],
+        assumptions: {
+          widmung: {
+            value: 'bauland',
+            status: 'unconfirmed',
+            reason: 'Suggested from the uploaded development plan.',
+            source: 'agent_suggested',
+            updatedAt: '2026-01-01T00:00:00.000Z',
+          },
+        },
+      },
+    }
+    render(<ProjectOverview data={dataWithAssumption} />)
+    expect(screen.getByText('Building land (Bauland)')).toBeDefined()
+    expect(screen.getByRole('button', { name: 'Confirm' })).toBeDefined()
+    expect(screen.getByRole('button', { name: 'Dismiss' })).toBeDefined()
   })
 })

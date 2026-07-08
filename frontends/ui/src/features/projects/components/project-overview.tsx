@@ -1,9 +1,10 @@
 'use client'
 
 import Link from 'next/link'
-import { ClipboardList, Database, FileText, HardDrive, MessageSquare, PencilLine, Upload } from 'lucide-react'
+import { Database, FileText, HardDrive, MessageSquare, Upload } from 'lucide-react'
 import type { ProjectOverviewData } from '../types'
 import { ApplicableStandards } from './applicable-standards'
+import { ProjectBrief } from './project-brief'
 import { ProjectDangerZone } from './project-danger-zone'
 import { ProjectMemoryPanel } from './project-memory-panel'
 import { Stagger, StaggerItem } from '@/components/motion'
@@ -62,9 +63,6 @@ const dateFormatter = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 
 export function ProjectOverview({ data }: ProjectOverviewProps) {
   const t = useTranslations('projects')
   const profile = data.profileDisplay
-  const keyFacts = profile?.keyFacts ?? []
-  const missingInfo = profile?.missingInfo ?? []
-  const summary = profile?.summary?.trim()
   const hasDocuments = data.documentCount > 0
 
   let createdLabel = ''
@@ -106,74 +104,12 @@ export function ProjectOverview({ data }: ProjectOverviewProps) {
 
       {/* Project Brief — the architect-owned context Grid works from. Never blank. */}
       <StaggerItem>
-      {profile ? (
-        <section className="rounded-2xl border bg-card p-6 shadow-sm">
-          <div className="flex items-center justify-between gap-4">
-            <h2 className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-              {t('overview.brief.heading')}
-            </h2>
-            <Link
-              href={`/app/projects/${data.id}/intake`}
-              className="inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
-            >
-              <PencilLine className="size-3.5" aria-hidden />
-              {t('overview.brief.edit')}
-            </Link>
-          </div>
-
-          {summary && <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{summary}</p>}
-
-          {keyFacts.length > 0 ? (
-            <dl className="mt-4 grid grid-cols-2 gap-x-8 gap-y-3 sm:grid-cols-3">
-              {keyFacts.map((fact, i) => (
-                <div key={i}>
-                  <dt className="text-xs text-muted-foreground">{fact.label}</dt>
-                  <dd className="mt-0.5 text-sm font-medium">{fact.value}</dd>
-                </div>
-              ))}
-            </dl>
-          ) : (
-            !summary && (
-              <p className="mt-3 text-sm text-muted-foreground">
-                {t('overview.brief.startedNoDetailsBefore')}
-                <Link
-                  href={`/app/projects/${data.id}/intake`}
-                  className="font-medium text-foreground underline-offset-4 hover:underline"
-                >
-                  {t('overview.brief.completeBrief')}
-                </Link>
-                {t('overview.brief.startedNoDetailsAfter')}
-              </p>
-            )
-          )}
-
-          {missingInfo.length > 0 && (
-            <div className="mt-5 border-t pt-4">
-              <p className="text-xs text-muted-foreground">
-                {t('overview.brief.missingPrefix', { info: missingInfo.join(' · ') })}
-                {' — '}
-                <Link
-                  href={`/app/projects/${data.id}/intake`}
-                  className="font-medium text-foreground underline-offset-4 hover:underline"
-                >
-                  {t('overview.brief.completeBriefLower')}
-                </Link>
-              </p>
-            </div>
-          )}
-        </section>
-      ) : (
-        <EmptyState
-          icon={ClipboardList}
-          title={t('overview.brief.emptyTitle')}
-          description={t('overview.brief.emptyDescription')}
-          action={
-            <Button asChild>
-              <Link href={`/app/projects/${data.id}/intake`}>{t('overview.brief.emptyAction')}</Link>
-            </Button>
-          }
+        <ProjectBrief
+          projectId={data.id}
+          profile={data.profile}
+          summary={profile?.summary}
+          briefStarted={profile != null}
         />
-      )}
       </StaggerItem>
 
       {/* Applicable OIB standards — derived from the brief, orientation only. */}

@@ -3,7 +3,12 @@
 // wizard can build its profile through the exact same engine that chat-driven
 // profile edits (ProjectProfilePatchCard) use — a single source of truth for how
 // a ProjectProfile is shaped and validated.
-import { ProjectProfilePatchOperationSchema, ProjectProfileSchema, safePatchPath } from './types'
+import {
+  ProjectPrimitiveValueSchema,
+  ProjectProfilePatchOperationSchema,
+  ProjectProfileSchema,
+  safePatchPath,
+} from './types'
 import type { ProjectProfile, ProjectProfilePatchOperation } from './types'
 
 const UNSAFE_POINTER_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor'])
@@ -90,6 +95,66 @@ function applyArrayOperation(parent: unknown[], key: string, operation: ProjectP
   }
 
   parent[index] = operation.value
+}
+
+/**
+ * Normalize agent/user-friendly patch operations into schema-valid ones.
+ *
+ * The agent's ProjectProfilePatchCard proposes bare values ("GK4") because the
+ * model cannot know write-time provenance. On accept, a bare value written to
+ * `/facts/<key>` is wrapped into a full {@link ProjectFact} with
+ * `source: 'user_confirmed'` (accepting the card IS the confirmation), and a
+ * bare value written to `/assumptions/<key>` becomes an unconfirmed
+ * agent-suggested {@link ProjectAssumption}. Already-complete objects and every
+ * other path pass through untouched.
+ */
+export function normalizeProfilePatchOperations(
+  patch: ProjectProfilePatchOperation[],
+  now: string = new Date().toISOString(),
+): ProjectProfilePatchOperation[] {
+  return patch.map((operation) => {
+    if (operation.op === 'remove') return operation
+
+    const factKey = matchTopLevelKey(operation.path, 'facts')
+    if (factKey && isBareValue(operation.value)) {
+      return {
+        ...operation,
+        value: { value: operation.value, confidence: 'confirmed', source: 'user_confirmed', updatedAt: now },
+      }
+    }
+
+    const assumptionKey = matchTopLevelKey(operation.path, 'assumptions')
+    if (assumptionKey && isBareValue(operation.value)) {
+      return {
+        ...operation,
+        value: { value: operation.value, status: 'unconfirmed', reason: '', source: 'agent_suggested', updatedAt: now },
+      }
+    }
+
+    return operation
+  })
+}
+
+/**
+ * Drop unknowns that have since been answered: once a fact exists under the
+ * same key, "Grid still doesn't know X" is stale. Also dedupes the list.
+ */
+export function pruneResolvedUnknowns(profile: ProjectProfile): ProjectProfile {
+  const unknowns = [...new Set(profile.unknowns)].filter((key) => !(key in profile.facts))
+  if (unknowns.length === profile.unknowns.length) return profile
+  return { ...profile, unknowns }
+}
+
+/** `/facts/<key>` (exactly one segment below the section) → `<key>`, else null. */
+function matchTopLevelKey(path: string, section: 'facts' | 'assumptions'): string | null {
+  const parts = path.split('/')
+  if (parts.length !== 3 || parts[1] !== section || !parts[2] || parts[2] === '-') return null
+  return decodeJsonPointerSegment(parts[2])
+}
+
+/** A raw primitive/array value, as opposed to an already-shaped fact/assumption object. */
+function isBareValue(value: unknown): boolean {
+  return ProjectPrimitiveValueSchema.safeParse(value).success
 }
 
 function assertSafePath(path: string): void {

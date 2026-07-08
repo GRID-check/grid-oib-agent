@@ -247,11 +247,16 @@ export const projects = {
     brief: {
       heading: 'Project Brief',
       edit: 'Edit brief',
+      captured: '{answered} of {total} captured',
+      focus: 'Focus',
       startedNoDetailsBefore: 'The brief has been started but no details are captured yet. ',
       completeBrief: 'Complete the brief',
       startedNoDetailsAfter: ' so Grid can ground its answers.',
-      missingPrefix: "Grid still doesn't know: {info}",
-      completeBriefLower: 'complete the brief',
+      missingHeading: "Grid still doesn't know",
+      assumptionsHeading: 'Suggested by Grid — confirm to make it a project fact',
+      assumptionConfirm: 'Confirm',
+      assumptionDismiss: 'Dismiss',
+      assumptionError: 'Could not update the brief. Please try again.',
       emptyTitle: 'Set up the project brief',
       emptyDescription:
         "Tell Grid about this building — use, class, storeys and goals. A complete brief lets Grid ground every answer in your project's real context.",

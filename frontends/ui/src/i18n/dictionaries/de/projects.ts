@@ -253,12 +253,17 @@ export const projects: typeof en.projects = {
     brief: {
       heading: 'Projekt-Briefing',
       edit: 'Briefing bearbeiten',
+      captured: '{answered} von {total} erfasst',
+      focus: 'Fokus',
       startedNoDetailsBefore:
         'Das Briefing wurde begonnen, aber es sind noch keine Details erfasst. ',
       completeBrief: 'Briefing vervollständigen',
       startedNoDetailsAfter: ', damit Grid seine Antworten fundieren kann.',
-      missingPrefix: 'Grid weiß weiterhin nicht: {info}',
-      completeBriefLower: 'Briefing vervollständigen',
+      missingHeading: 'Grid weiß noch nicht',
+      assumptionsHeading: 'Von Grid vorgeschlagen — bestätigen, um es als Projektfakt zu übernehmen',
+      assumptionConfirm: 'Bestätigen',
+      assumptionDismiss: 'Verwerfen',
+      assumptionError: 'Das Briefing konnte nicht aktualisiert werden. Bitte erneut versuchen.',
       emptyTitle: 'Projekt-Briefing einrichten',
       emptyDescription:
         'Erzählen Sie Grid von diesem Gebäude — Nutzung, Klasse, Geschosse und Ziele. Ein vollständiges Briefing lässt Grid jede Antwort im realen Kontext Ihres Projekts fundieren.',

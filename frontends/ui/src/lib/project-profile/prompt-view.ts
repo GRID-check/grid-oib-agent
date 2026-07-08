@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { projects } from '@/lib/db/schema'
+import { buildProjectBriefView } from './brief-view'
 import { ProjectProfileSchema } from './types'
 import type { ProjectPrimitiveValue, ProjectProfile, ProjectProfileDisplay } from './types'
 
@@ -83,17 +84,17 @@ export function buildProjectProfileDisplay(
   previousSummary = '',
 ): ProjectProfileDisplay {
   const normalized = ProjectProfileSchema.parse(profile)
+  const brief = buildProjectBriefView(normalized)
 
   return {
     title: 'Project profile',
     summary: previousSummary,
-    keyFacts: Object.keys(normalized.facts)
-      .sort()
-      .map((key) => ({
-        label: key.replaceAll('_', ' '),
-        value: formatDisplayValue(normalized.facts[key].value),
-      })),
-    missingInfo: [...normalized.unknowns].sort(),
+    // Human-readable, intake-ordered: question labels ("Building class") and
+    // option labels ("Residential") instead of raw keys/enum values.
+    keyFacts: brief.groups.flatMap((group) =>
+      group.facts.map((fact) => ({ label: fact.label, value: fact.value })),
+    ),
+    missingInfo: brief.missing.map((item) => item.label),
   }
 }
 
@@ -115,14 +116,4 @@ function isSafePromptToken(value: string): boolean {
 
 function escapeLineSeparator(value: string): string {
   return `\\u${value.charCodeAt(0).toString(16).padStart(4, '0')}`
-}
-
-function formatDisplayValue(value: ProjectPrimitiveValue): string {
-  if (value === null) return ''
-
-  if (typeof value === 'boolean') {
-    return value ? 'Yes' : 'No'
-  }
-
-  return String(value)
 }

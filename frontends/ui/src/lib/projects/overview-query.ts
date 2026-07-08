@@ -73,6 +73,7 @@ export async function getProjectOverviewData(
           keyFacts: project.profileDisplay?.keyFacts ?? [],
         }
       : null,
+    profile: project.profile ?? null,
     applicableStandards,
     briefComplete,
     documentCount: stats?.count ?? 0,

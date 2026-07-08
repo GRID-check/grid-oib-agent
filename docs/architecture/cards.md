@@ -64,7 +64,7 @@ values render "fehlende Angabe", never a guess. See
 |---|---|---|
 | `summary` | prose overview / key points | any |
 | `legal_basis` | a cited OIB/norm excerpt | any |
-| `project_profile_patch` | a reviewable profile change | intake |
+| `project_profile_patch` | a proposed Project Brief update (hard facts / assumptions) — Accept applies it via `POST /api/projects/{id}/profile/patches`, which wraps bare values with `user_confirmed` provenance and retires answered unknowns | intake / brief |
 | `requirement_checklist` | pass/fail criteria list, per-item verdict + reference | any |
 | `comparison_table` | options as columns, criteria as rows, optional per-row highlight + recommendation | any |
 | `building_section` | to-scale cross-section: storeys, ground line, Fluchtniveau/GK/Hochhaus markers | height / GK |

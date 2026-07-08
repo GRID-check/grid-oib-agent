@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { motion, springGentle } from '@/components/motion'
+import { useTranslations } from '@/i18n'
 
 interface PreviewItem {
   label: string
@@ -19,6 +20,11 @@ interface ProjectProfilePatchCardProps {
   projectId?: string | null
 }
 
+/**
+ * Agent-proposed update to the project brief. The change is applied only when
+ * the user accepts — the agent can never silently rewrite a project fact
+ * (docs/architecture/project-memory-design.md §11.7: propose, never auto-apply).
+ */
 export function ProjectProfilePatchCard({
   title,
   rationale,
@@ -26,13 +32,14 @@ export function ProjectProfilePatchCard({
   patch,
   projectId,
 }: ProjectProfilePatchCardProps) {
+  const t = useTranslations('chat')
   const [status, setStatus] = useState<'pending' | 'accepted' | 'rejected'>('pending')
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   const handleAccept = async () => {
     if (!projectId) {
-      setError('Project ID required to apply changes.')
+      setError(t('profilePatchCard.noProject'))
       return
     }
     setError(null)
@@ -45,13 +52,13 @@ export function ProjectProfilePatchCard({
       })
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
-        throw new Error(body.error || `Failed (${res.status})`)
+        throw new Error(body.error || `${t('profilePatchCard.applyFailed')} (${res.status})`)
       }
       setIsSubmitting(false)
       setStatus('accepted')
     } catch (e) {
       setIsSubmitting(false)
-      setError(e instanceof Error ? e.message : 'Failed to apply patch')
+      setError(e instanceof Error ? e.message : t('profilePatchCard.applyFailed'))
     }
   }
 
@@ -64,7 +71,7 @@ export function ProjectProfilePatchCard({
     return (
       <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} transition={springGentle}>
         <Card className="gap-2 border-l-2 border-l-success p-5 shadow-xs">
-          <p className="text-sm text-foreground">Project context updated.</p>
+          <p className="text-sm text-foreground">{t('profilePatchCard.accepted')}</p>
         </Card>
       </motion.div>
     )
@@ -74,7 +81,7 @@ export function ProjectProfilePatchCard({
     return (
       <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} transition={springGentle}>
         <Card className="gap-2 border-l-2 border-l-subtle p-5 shadow-xs">
-          <p className="text-sm text-muted-foreground">Changes discarded.</p>
+          <p className="text-sm text-muted-foreground">{t('profilePatchCard.rejected')}</p>
         </Card>
       </motion.div>
     )
@@ -89,9 +96,9 @@ export function ProjectProfilePatchCard({
         <table className="w-full border-collapse text-sm">
           <thead>
             <tr className="border-b border-border text-muted-foreground">
-              <th scope="col" className="py-1 pr-2 text-left font-medium">Field</th>
-              <th scope="col" className="p-1 text-left font-medium">Before</th>
-              <th scope="col" className="pl-2 text-left font-medium">After</th>
+              <th scope="col" className="py-1 pr-2 text-left font-medium">{t('profilePatchCard.field')}</th>
+              <th scope="col" className="p-1 text-left font-medium">{t('profilePatchCard.before')}</th>
+              <th scope="col" className="pl-2 text-left font-medium">{t('profilePatchCard.after')}</th>
             </tr>
           </thead>
           <tbody>
@@ -110,7 +117,7 @@ export function ProjectProfilePatchCard({
 
       <div className="flex items-center gap-2">
         {!projectId && (
-          <p className="text-xs text-muted-foreground">Project ID required to apply changes.</p>
+          <p className="text-xs text-muted-foreground">{t('profilePatchCard.noProject')}</p>
         )}
         <Button
           type="button"
@@ -118,10 +125,10 @@ export function ProjectProfilePatchCard({
           onClick={handleAccept}
           disabled={!projectId || isSubmitting}
         >
-          {isSubmitting ? 'Applying...' : 'Accept'}
+          {isSubmitting ? t('profilePatchCard.applying') : t('profilePatchCard.accept')}
         </Button>
         <Button type="button" variant="outline" size="sm" onClick={handleReject}>
-          Reject
+          {t('profilePatchCard.reject')}
         </Button>
       </div>
     </Card>

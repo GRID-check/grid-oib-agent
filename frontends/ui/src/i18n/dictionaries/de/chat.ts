@@ -21,6 +21,18 @@ export const chat: typeof en.chat = {
     loadingLabel: 'Wird geladen',
     errorTitle: 'Fehler: {message}',
   },
+  profilePatchCard: {
+    accept: 'Übernehmen',
+    applying: 'Wird übernommen …',
+    reject: 'Ablehnen',
+    accepted: 'Projekt-Briefing aktualisiert.',
+    rejected: 'Änderungen verworfen.',
+    noProject: 'Öffnen Sie diesen Chat aus einem Projekt, um Briefing-Änderungen zu übernehmen.',
+    field: 'Feld',
+    before: 'Vorher',
+    after: 'Nachher',
+    applyFailed: 'Änderung konnte nicht übernommen werden',
+  },
   thinking: {
     inProgress: 'Denkvorgang läuft',
     working: 'Antwort wird erstellt …',

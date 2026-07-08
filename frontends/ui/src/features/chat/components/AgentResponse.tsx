@@ -139,7 +139,7 @@ export const AgentResponse: FC<AgentResponseProps> = ({
     return (
       <div className="flex w-full flex-col gap-2 overflow-hidden break-words">
         {/* Optional Grid cards rendered before the markdown body */}
-        {hasCards && <GridCards cards={cards} />}
+        {hasCards && <GridCards cards={cards} projectId={projectId} />}
 
         {/* Response Content rendered as markdown */}
         <MarkdownRenderer content={content} />
@@ -191,7 +191,7 @@ export const AgentResponse: FC<AgentResponseProps> = ({
       <div className="flex max-w-[85%] flex-col">
         <div className="flex flex-col gap-2 overflow-hidden break-words rounded-2xl rounded-bl-md bg-card p-4">
           {/* Optional Grid cards rendered before the markdown body */}
-          {hasCards && <GridCards cards={cards} />}
+          {hasCards && <GridCards cards={cards} projectId={projectId} />}
 
           {/* Response Content rendered as markdown */}
           <MarkdownRenderer content={content} />
