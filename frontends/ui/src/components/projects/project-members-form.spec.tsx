@@ -1,4 +1,5 @@
-import { render, screen, waitFor } from '@/test-utils'
+import { render, screen, waitFor, within } from '@/test-utils'
+import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
 import { ProjectMembersForm } from './project-members-form'
 
@@ -12,6 +13,7 @@ const members = [
     userId: 'user_1',
     email: 'ada@studio.at',
     name: 'Ada Lovelace',
+    profilePictureUrl: 'https://cdn.example.com/ada.png',
     role: 'project-admin',
   },
   {
@@ -19,6 +21,7 @@ const members = [
     userId: 'user_2',
     email: 'grace@studio.at',
     name: 'Grace Hopper',
+    profilePictureUrl: null,
     role: null,
   },
 ]
@@ -53,6 +56,48 @@ describe('ProjectMembersForm', () => {
     // roles are shown as static badges; members without access read "No access"
     expect(screen.getByText('Admin')).toBeDefined()
     expect(screen.getByText('No access')).toBeDefined()
+  })
+
+  test('suggests the org roster on focus, members without access first', async () => {
+    const user = userEvent.setup()
+    render(<ProjectMembersForm projectId="p1" canManage />)
+
+    await user.click(await screen.findByLabelText('Member'))
+
+    const listbox = screen.getByRole('listbox')
+    const options = within(listbox).getAllByRole('option')
+    expect(options.length).toBe(2)
+    expect(options[0].textContent).toContain('Grace Hopper')
+    expect(options[0].textContent).toContain('No access')
+    expect(options[1].textContent).toContain('Ada Lovelace')
+    expect(options[1].textContent).toContain('Admin')
+  })
+
+  test('filters suggestions as you type and fills the email on pick', async () => {
+    const user = userEvent.setup()
+    render(<ProjectMembersForm projectId="p1" canManage />)
+
+    const input = await screen.findByLabelText('Member')
+    await user.type(input, 'grace')
+
+    const listbox = screen.getByRole('listbox')
+    expect(within(listbox).queryByText('Ada Lovelace')).toBeNull()
+
+    await user.click(within(listbox).getByRole('option'))
+    expect(input).toHaveValue('grace@studio.at')
+    expect(screen.queryByRole('listbox')).toBeNull()
+  })
+
+  test('supports keyboard selection with arrow keys and Enter', async () => {
+    const user = userEvent.setup()
+    render(<ProjectMembersForm projectId="p1" canManage />)
+
+    const input = await screen.findByLabelText('Member')
+    await user.click(input)
+    await user.keyboard('{ArrowDown}{Enter}')
+
+    expect(input).toHaveValue('ada@studio.at')
+    expect(screen.queryByRole('listbox')).toBeNull()
   })
 
   test('surfaces a load failure with a retry button', async () => {

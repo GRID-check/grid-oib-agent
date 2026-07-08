@@ -36,6 +36,11 @@ function makeParams(id: string): { params: Promise<{ id: string }> } {
   return { params: Promise.resolve({ id }) }
 }
 
+/** WorkOS list calls resolve to an AutoPaginatable; the route drains it via autoPagination(). */
+function paginated<T>(data: T[]): { autoPagination: () => Promise<T[]> } {
+  return { autoPagination: () => Promise.resolve(data) }
+}
+
 describe('/api/projects/[id]/members', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -44,8 +49,8 @@ describe('/api/projects/[id]/members', () => {
   })
 
   it('lists project-resource memberships by effective project permissions and merges user details', async () => {
-    const listUsers = vi.fn().mockResolvedValue({
-      data: [
+    const listUsers = vi.fn().mockResolvedValue(
+      paginated([
         {
           id: 'user_viewer',
           email: 'viewer@example.com',
@@ -70,33 +75,31 @@ describe('/api/projects/[id]/members', () => {
           name: null,
           profilePictureUrl: 'https://cdn.example.com/admin.png',
         },
-      ],
-    })
-    const listOrganizationMemberships = vi.fn().mockResolvedValue({
-      data: [
+      ]),
+    )
+    const listOrganizationMemberships = vi.fn().mockResolvedValue(
+      paginated([
         { id: 'om_viewer', userId: 'user_viewer' },
         { id: 'om_editor', userId: 'user_editor' },
         { id: 'om_admin', userId: 'user_admin' },
-      ],
-    })
+      ]),
+    )
     const listMembershipsForResourceByExternalId = vi
       .fn()
-      .mockResolvedValueOnce({
-        data: [
+      .mockResolvedValueOnce(
+        paginated([
           { id: 'om_viewer', userId: 'user_viewer' },
           { id: 'om_editor', userId: 'user_editor' },
           { id: 'om_admin', userId: 'user_admin' },
-        ],
-      })
-      .mockResolvedValueOnce({
-        data: [
+        ]),
+      )
+      .mockResolvedValueOnce(
+        paginated([
           { id: 'om_editor', userId: 'user_editor' },
           { id: 'om_admin', userId: 'user_admin' },
-        ],
-      })
-      .mockResolvedValueOnce({
-        data: [{ id: 'om_admin', userId: 'user_admin' }],
-      })
+        ]),
+      )
+      .mockResolvedValueOnce(paginated([{ id: 'om_admin', userId: 'user_admin' }]))
 
     mockGetWorkOS.mockReturnValue({
       userManagement: { listUsers, listOrganizationMemberships },

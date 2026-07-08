@@ -50,17 +50,25 @@ export async function GET(
 
     const workos = getWorkOS()
 
-    const [usersResp, orgMembershipsResp, ...membershipResponses] = await Promise.all([
-      workos.userManagement.listUsers({ organizationId: session.organizationId }),
-      workos.userManagement.listOrganizationMemberships({ organizationId: session.organizationId }),
+    // WorkOS list endpoints return 10 items per page by default; autoPagination
+    // walks every page so rosters larger than one page aren't silently truncated.
+    const [users, orgMemberships, ...membershipLists] = await Promise.all([
+      workos.userManagement
+        .listUsers({ organizationId: session.organizationId })
+        .then((page) => page.autoPagination()),
+      workos.userManagement
+        .listOrganizationMemberships({ organizationId: session.organizationId })
+        .then((page) => page.autoPagination()),
       ...PROJECT_ROLE_BY_PERMISSION.map(({ permissionSlug }) =>
-        workos.authorization.listMembershipsForResourceByExternalId({
-          organizationId: session.organizationId,
-          resourceTypeSlug: 'project',
-          externalId: id,
-          permissionSlug,
-          assignment: 'indirect',
-        })
+        workos.authorization
+          .listMembershipsForResourceByExternalId({
+            organizationId: session.organizationId,
+            resourceTypeSlug: 'project',
+            externalId: id,
+            permissionSlug,
+            assignment: 'indirect',
+          })
+          .then((page) => page.autoPagination())
       ),
     ])
 
@@ -70,12 +78,12 @@ export async function GET(
     >()
 
     const organizationMembersByUserId = new Map(
-      orgMembershipsResp.data.map((membership) => [membership.userId, membership])
+      orgMemberships.map((membership) => [membership.userId, membership])
     )
 
-    membershipResponses.forEach((response, index) => {
+    membershipLists.forEach((memberships, index) => {
       const role = PROJECT_ROLE_BY_PERMISSION[index].role
-      for (const membership of response.data) {
+      for (const membership of memberships) {
         const organizationMembership = organizationMembersByUserId.get(membership.userId)
         projectMemberByUserId.set(membership.userId, {
           organizationMembershipId: organizationMembership?.id ?? membership.id,
@@ -85,9 +93,9 @@ export async function GET(
       }
     })
 
-    const userById = new Map(usersResp.data.map((user) => [user.id, user]))
+    const userById = new Map(users.map((user) => [user.id, user]))
 
-    const members = orgMembershipsResp.data.map((organizationMembership) => {
+    const members = orgMemberships.map((organizationMembership) => {
       const user = userById.get(organizationMembership.userId)
       const projectMembership = projectMemberByUserId.get(organizationMembership.userId)
       return {
@@ -147,12 +155,12 @@ export async function POST(
         return NextResponse.json({ error: 'Project resource not found.' }, { status: 404 })
       }
 
-      const assignments = await workos.authorization.listRoleAssignmentsForResource({
-        resourceId: project.workosResourceId,
-      })
+      const assignments = await workos.authorization
+        .listRoleAssignmentsForResource({ resourceId: project.workosResourceId })
+        .then((page) => page.autoPagination())
 
       await Promise.all(
-        (assignments.data as RoleAssignment[])
+        (assignments as RoleAssignment[])
           .filter((assignment) => assignment.organizationMembershipId === organizationMembershipId)
           .map((assignment) =>
             workos.authorization.removeRoleAssignment({
