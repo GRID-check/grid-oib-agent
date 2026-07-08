@@ -405,7 +405,11 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         except ImportError:
             pass
 
-        # Read the X-Grid-Project-Context header from NAT context, if present.
+        # Compose the injected project context: the intake profile (frozen at the
+        # handshake, fine) plus the core-memory digest. The digest header is
+        # frozen for the connection's life, so memory written mid-session would
+        # not reach the agent until a reconnect. Re-fetch a LIVE digest per turn
+        # and fall back to the frozen header value only when the fetch fails.
         _project_context = None
         # Values the async memory-reflection stage needs, captured while the
         # request context is still live (the task runs after this returns).
@@ -414,22 +418,42 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         _reflection_memory_digest = None
         _reflection_flag_enabled = False
         try:
-            from aiq_agent.project_context import PROJECT_MEMORY_HEADER
-            from aiq_agent.project_context import _read_encoded_header
+            from aiq_agent.project_context import compose_project_context
+            from aiq_agent.project_context import get_memory_digest_from_context
             from aiq_agent.project_context import get_memory_reflection_enabled_from_context
             from aiq_agent.project_context import get_organization_id_from_context
-            from aiq_agent.project_context import get_project_context_from_context
+            from aiq_agent.project_context import get_profile_context_from_context
             from aiq_agent.project_context import get_project_id_from_context
-            from aiq_agent.project_context import normalize_project_context
 
-            _project_context = get_project_context_from_context()
+            _profile_context = get_profile_context_from_context()
+            _project_id = get_project_id_from_context()
+            _org_id = get_organization_id_from_context()
+
+            # Live per-turn digest; fall back to the connection-time header value.
+            _memory_digest = get_memory_digest_from_context()
+            if _project_id or _org_id:
+                try:
+                    from aiq_agent.knowledge.project_memory import fetch_memory_digest
+
+                    _live_digest = await asyncio.to_thread(
+                        fetch_memory_digest, project_id=_project_id, organization_id=_org_id
+                    )
+                    # A successful fetch is authoritative even when empty (memory
+                    # may have been cleared); only a failure keeps the header value.
+                    _memory_digest = _live_digest
+                except Exception:
+                    logger.warning(
+                        "Live memory digest fetch failed; using connection-time digest", exc_info=True
+                    )
+
+            _project_context = compose_project_context(_profile_context, _memory_digest)
+
             if reflection_llm is not None:
                 _reflection_flag_enabled = get_memory_reflection_enabled_from_context()
-                _reflection_project_id = get_project_id_from_context()
-                _reflection_org_id = get_organization_id_from_context()
-                _reflection_memory_digest = normalize_project_context(
-                    _read_encoded_header(PROJECT_MEMORY_HEADER), max_chars=2000
-                )
+                _reflection_project_id = _project_id
+                _reflection_org_id = _org_id
+                # Reflect against the digest the agent actually saw this turn.
+                _reflection_memory_digest = _memory_digest
         except ImportError:
             pass
 

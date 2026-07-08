@@ -15,6 +15,7 @@ import json
 import logging
 import os
 import urllib.error
+import urllib.parse
 import urllib.request
 
 logger = logging.getLogger(__name__)
@@ -48,6 +49,49 @@ def _internal_base_url() -> str:
 
 
 VALID_PROVENANCES = {"agent", "distillation"}
+
+
+def fetch_memory_digest(
+    *,
+    project_id: str | None,
+    organization_id: str | None,
+) -> str | None:
+    """Fetch the CURRENT core-memory digest via the internal BFF endpoint.
+
+    The digest normally rides the ``x-grid-project-memory`` header set on the WS
+    upgrade, but that header is frozen for the connection's life — memory written
+    mid-session never reaches the agent until a reconnect. Calling this at the
+    start of a turn re-serves the up-to-date digest.
+
+    Returns the digest string, or ``None`` when there is no active memory (a valid
+    empty result). Raises RuntimeError on configuration problems and urllib errors
+    on transport failures, so the caller can fall back to the frozen header digest
+    instead of dropping memory entirely. Blocking; call via ``asyncio.to_thread``.
+    """
+    if not project_id and not organization_id:
+        return None
+
+    token = os.environ.get("GRID_INTERNAL_API_TOKEN")
+    if not token:
+        raise RuntimeError("GRID_INTERNAL_API_TOKEN is not configured")
+
+    params = {}
+    if project_id:
+        params["projectId"] = project_id
+    if organization_id:
+        params["organizationId"] = organization_id
+    query = urllib.parse.urlencode(params)
+
+    request = urllib.request.Request(
+        f"{_internal_base_url()}/api/internal/memory/digest?{query}",
+        headers={"X-Grid-Internal-Token": token},
+        method="GET",
+    )
+
+    with _opener.open(request, timeout=_REQUEST_TIMEOUT_SECONDS) as response:
+        body = json.loads(response.read().decode("utf-8"))
+    digest = body.get("digest")
+    return digest if isinstance(digest, str) and digest.strip() else None
 
 
 def insert_memory_item(
