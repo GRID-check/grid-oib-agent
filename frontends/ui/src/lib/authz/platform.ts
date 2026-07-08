@@ -23,6 +23,7 @@
 
 import 'server-only'
 import { getWorkOS } from '@/lib/workos/client'
+import { recordAuditEvent } from '@/lib/audit/service'
 import { PLATFORM_PERMISSIONS } from './permissions'
 import type { GridSession } from '@/lib/auth/types'
 
@@ -38,6 +39,34 @@ const MEMBERSHIP_CACHE_MAX_ENTRIES = 500
 
 let platformOrgCache: { fetchedAt: number; organizationId: string | null } | null = null
 const membershipCache = new Map<string, { fetchedAt: number; isOwner: boolean }>()
+
+// Break-glass access is evaluated on every authz check; audit it at most
+// once per actor per hour so the trail shows env-var access without flooding.
+const BREAK_GLASS_AUDIT_INTERVAL_MS = 60 * 60 * 1000
+const breakGlassAuditedAt = new Map<string, number>()
+
+async function auditBreakGlassUse(session: GridSession): Promise<void> {
+  const last = breakGlassAuditedAt.get(session.userId)
+  if (last && Date.now() - last < BREAK_GLASS_AUDIT_INTERVAL_MS) return
+  breakGlassAuditedAt.set(session.userId, Date.now())
+  console.warn(
+    `[Platform Authz] break-glass platform access granted to ${session.email} via GRID_PLATFORM_OWNER_EMAILS`,
+  )
+  // WorkOS audit events are org-scoped — break-glass lands in the platform
+  // org's trail. During true first-run (no platform org yet) only the log
+  // line above exists; the runbook says to clear the allowlist afterwards.
+  const platformOrgId = await getPlatformOrganizationId()
+  if (platformOrgId) {
+    await recordAuditEvent({
+      organizationId: platformOrgId,
+      actor: { userId: session.userId, email: session.email },
+      action: 'platform.access.break_glass',
+      targetType: 'platform',
+      targetId: platformOrgId,
+      metadata: { activeOrganizationId: session.organizationId },
+    })
+  }
+}
 
 /** Resolve (and cache) the platform organization's WorkOS id. */
 export async function getPlatformOrganizationId(): Promise<string | null> {
@@ -97,8 +126,9 @@ async function hasPlatformMembership(userId: string, platformOrgId: string): Pro
 export async function isPlatformOwner(session: GridSession | null): Promise<boolean> {
   if (!session) return false
 
-  // Break-glass bootstrap for fresh environments.
+  // Break-glass bootstrap for fresh environments — always audited.
   if (session.email && bootstrapEmails().includes(session.email.toLowerCase())) {
+    await auditBreakGlassUse(session)
     return true
   }
 
@@ -137,4 +167,5 @@ export async function requirePlatformOwner(session: GridSession | null): Promise
 export function _clearPlatformCaches(): void {
   platformOrgCache = null
   membershipCache.clear()
+  breakGlassAuditedAt.clear()
 }

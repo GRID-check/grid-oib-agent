@@ -102,8 +102,11 @@ a child of Organization — semantically upside down — and was rejected.
   behavior; a first-class switcher is the natural next step).
 - Platform-level org lifecycle actions (suspend, limits) on the dashboard —
   `platform:organizations:manage` is provisioned but unused in v1.
-- App-side audit log for role/permission changes (WorkOS audit logs cover
-  the identity side).
+- ~~App-side audit log~~ RESOLVED natively: privileged admin actions are
+  emitted as WorkOS Audit Log events (`lib/audit/service.ts`); viewing,
+  export, and SIEM streaming are WorkOS-native (Admin Portal
+  `intent: 'audit_logs'`, audit-log-streaming widget). A local audit table
+  was deliberately rejected in favor of the native product.
 
 ## References
 

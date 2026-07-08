@@ -22,6 +22,7 @@ import {
   listActivePolicies,
   setBudgetPolicy,
 } from '@/lib/budgets/service'
+import { recordAuditEvent } from '@/lib/audit/service'
 
 export async function GET(): Promise<Response> {
   try {
@@ -87,6 +88,15 @@ export async function PUT(request: Request): Promise<Response> {
       actorUserId: session.userId,
       note: note ?? null,
     })
+    await recordAuditEvent({
+      organizationId: session.organizationId,
+      actor: { userId: session.userId, email: session.email },
+      action: 'budget.policy.set',
+      targetType: 'budget_policy',
+      targetId: policy.id,
+      metadata: { scope, subjectId, dailyLimitEur, monthlyLimitEur },
+      request,
+    })
     return NextResponse.json({ policy }, { status: 201 })
   } catch (error) {
     if (error instanceof BudgetValidationError) {
@@ -126,6 +136,17 @@ export async function DELETE(request: Request): Promise<Response> {
       subjectId,
       actorUserId: session.userId,
     })
+    if (removed) {
+      await recordAuditEvent({
+        organizationId: session.organizationId,
+        actor: { userId: session.userId, email: session.email },
+        action: 'budget.policy.cleared',
+        targetType: 'budget_policy',
+        targetId: subjectId,
+        metadata: { scope, subjectId },
+        request,
+      })
+    }
     return NextResponse.json({ removed })
   } catch (error) {
     const denied = authzErrorResponse(error)

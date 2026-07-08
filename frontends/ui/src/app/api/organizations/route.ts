@@ -9,6 +9,7 @@
 import { NextResponse } from 'next/server'
 import { refreshSession } from '@workos-inc/authkit-nextjs'
 import { getWorkOS } from '@/lib/workos/client'
+import { recordAuditEvent } from '@/lib/audit/service'
 import { z } from 'zod'
 
 const createOrganizationSchema = z.object({
@@ -69,6 +70,15 @@ export const POST = async (request: Request): Promise<Response> => {
 
     await refreshSession({ organizationId: organization.id, ensureSignedIn: true })
 
+    await recordAuditEvent({
+      organizationId: organization.id,
+      actor: { userId: session.user.id, email: session.user.email },
+      action: 'org.created',
+      targetType: 'organization',
+      targetId: organization.id,
+      metadata: { name },
+      request,
+    })
     return NextResponse.json({ organizationId: organization.id })
   } catch (error) {
     // Log the full error server-side; never leak provider internals to the

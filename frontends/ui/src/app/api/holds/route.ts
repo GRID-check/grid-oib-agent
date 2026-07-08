@@ -10,6 +10,7 @@ import { authzErrorResponse, requireAuthorizedSession } from '@/lib/auth/require
 import { canManageCompliance } from '@/lib/authz/organizations'
 import { getDb } from '@/lib/db'
 import { legalHolds } from '@/lib/db/schema'
+import { recordAuditEvent } from '@/lib/audit/service'
 import { z } from 'zod'
 
 const createHoldSchema = z.object({
@@ -68,6 +69,15 @@ export async function POST(request: Request): Promise<Response> {
       })
       .returning()
 
+    await recordAuditEvent({
+      organizationId: session.organizationId,
+      actor: { userId: session.userId, email: session.email },
+      action: 'compliance.hold.created',
+      targetType: 'legal_hold',
+      targetId: hold.id,
+      metadata: { entityType: parsed.data.entityType, entityId: parsed.data.entityId },
+      request,
+    })
     return NextResponse.json(hold, { status: 201 })
   } catch (error) {
     const denied = authzErrorResponse(error)

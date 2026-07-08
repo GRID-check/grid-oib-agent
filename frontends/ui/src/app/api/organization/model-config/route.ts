@@ -15,6 +15,7 @@ import { AGENT_GROUPS, AGENT_GROUP_IDS, OPENROUTER_MODEL_ID_PATTERN } from '@/li
 import { getGroupDefaults } from '@/lib/model-config/backend-defaults'
 import { fetchModelCatalog, validateOverrides } from '@/lib/model-config/openrouter'
 import { createAndActivateVersion, getOrgModelConfig } from '@/lib/model-config/service'
+import { recordAuditEvent } from '@/lib/audit/service'
 
 export async function GET(): Promise<Response> {
   try {
@@ -88,6 +89,15 @@ export async function PUT(request: Request): Promise<Response> {
       modelSnapshot: validation.snapshot,
       comment: parsed.data.comment ?? null,
       actorUserId: session.userId,
+    })
+    await recordAuditEvent({
+      organizationId: session.organizationId,
+      actor: { userId: session.userId, email: session.email },
+      action: 'model_config.version.activated',
+      targetType: 'model_config_version',
+      targetId: version.id,
+      metadata: flat,
+      request,
     })
     return NextResponse.json({ activeVersion: version }, { status: 201 })
   } catch (error) {

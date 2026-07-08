@@ -7,8 +7,9 @@ import { NextResponse } from 'next/server'
 import { authzErrorResponse, requireAuthorizedSession } from '@/lib/auth/require-auth'
 import { canManageModels } from '@/lib/authz/organizations'
 import { activateVersion } from '@/lib/model-config/service'
+import { recordAuditEvent } from '@/lib/audit/service'
 
-export async function POST(_request: Request, { params }: { params: Promise<{ id: string }> }): Promise<Response> {
+export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }): Promise<Response> {
   try {
     const session = await requireAuthorizedSession()
     if (!canManageModels(session)) {
@@ -23,6 +24,15 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
       organizationId: session.organizationId,
       versionId,
       actorUserId: session.userId,
+    })
+    await recordAuditEvent({
+      organizationId: session.organizationId,
+      actor: { userId: session.userId, email: session.email },
+      action: 'model_config.version.activated',
+      targetType: 'model_config_version',
+      targetId: versionId,
+      metadata: versionId === null ? { reset: true } : { rollback: true },
+      request,
     })
     return NextResponse.json({ activeVersion: version })
   } catch (error) {

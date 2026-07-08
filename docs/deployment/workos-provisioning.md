@@ -72,6 +72,26 @@ only ever attached to platform-org roles, never to tenant roles.
      environment (Coolify) — org creation becomes platform-team-only and
      onboarding shows the invite-only notice up front.
 
+### 5. Audit Logs (native WorkOS product)
+
+The app emits every privileged admin action as a **WorkOS Audit Log event**
+(`frontends/ui/src/lib/audit/service.ts`) — no app-side audit table.
+Actions emitted: `org.created`, `org.settings.updated`, `budget.policy.set`,
+`budget.policy.cleared`, `model_config.version.activated`,
+`compliance.hold.created`, `compliance.hold.released`,
+`platform.access.break_glass` (break-glass lands in the GRID Platform org's
+trail, throttled to once per actor per hour).
+
+- **Provision the event schemas** (validates incoming events; also creates
+  the actions): `WORKOS_API_KEY=sk_… npm run provision:audit-schemas`
+  (from `frontends/ui`; idempotent — rerunning adds identical versions).
+  ⚠️ Not yet run against Staging — run it once before expecting events.
+- **Viewing** is native: the org page's "View audit logs" opens the WorkOS
+  Admin Portal audit-logs viewer (`adminPortal.generateLink`,
+  `intent: 'audit_logs'`); exports (CSV) and SIEM **streaming** (Datadog,
+  Splunk, S3, …) are configured via the existing audit-log-streaming widget
+  (`widgets:audit-log-streaming:manage` on the Admin role).
+
 ## Replay into a fresh environment (e.g. Production)
 
 Via the WorkOS dashboard (or the management API):
@@ -86,6 +106,8 @@ Via the WorkOS dashboard (or the management API):
    permissions.
 5. Add the owner's user to GRID Platform with that role.
 6. Add the production web origin to AuthKit CORS and redirect URIs.
+7. Provision the Audit Log schemas: `WORKOS_API_KEY=<prod key> npm run
+   provision:audit-schemas` (from `frontends/ui`).
 
 Bootstrap alternative: set `GRID_PLATFORM_OWNER_EMAILS=<owner email>` until
 steps 3–5 are done, then clear it.
