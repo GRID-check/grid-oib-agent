@@ -53,13 +53,24 @@ only ever attached to platform-org roles, never to tenant roles.
 - The owner (biglmatthias@gmail.com, `user_01KEF12GR7XHBQXA5M42R9VC48`)
   holds a GRID Platform membership with that role.
 
-### 4. AuthKit / environment settings (pre-existing, verified)
+### 4. AuthKit / environment settings
 
 - CORS web origins: `https://grid-dev.bigls.net`, `https://grid.bigls.net`
-  (required for WorkOS widgets).
-- Sign-up: open, email verification required; password + Google + GitHub +
-  Microsoft + Apple. MFA off. No JWT template (default claims carry
+  (required for WorkOS widgets) — pre-existing, verified.
+- Auth methods: password + Google + GitHub + Microsoft + Apple; email
+  verification required; MFA off. No JWT template (default claims carry
   role/permissions per active org — exactly what the app reads).
+- **Sign-up: decided posture is INVITE-ONLY EVERYTHING** (platform owner
+  decision, 2026-07-08). Two switches, one per layer:
+  1. **WorkOS-native**: AuthKit → Authentication → *Allow sign-ups* **OFF**.
+     Accounts are then created only via invitations (users-table widget) or
+     verified-domain auto-join. ⚠️ Not yet applied — flip it in the
+     dashboard (or via the management API `updateAuthkitSettings`,
+     `allowSignUp: false`) for Staging, and again when Production is
+     provisioned.
+  2. **App-side**: `GRID_DISABLE_SELF_SERVE_ORGS=true` in the deploy
+     environment (Coolify) — org creation becomes platform-team-only and
+     onboarding shows the invite-only notice up front.
 
 ## Replay into a fresh environment (e.g. Production)
 
@@ -99,6 +110,7 @@ steps 3–5 are done, then clear it.
 | Who can create an ORGANIZATION | **App-side** (`GRID_DISABLE_SELF_SERVE_ORGS`) | WorkOS has no org-creation gate — orgs are created by our API. `true` = only the platform team creates orgs; onboarding shows the invite-only notice up front. |
 | Platform tier / cross-org access | **App-side on WorkOS primitives** | The GRID Platform org + org-scoped role (this runbook); resolution logic in `lib/authz/platform.ts`. |
 
-Recommended enterprise posture: verified-domain auto-join for known customer
-domains, invitations otherwise, `GRID_DISABLE_SELF_SERVE_ORGS=true`, and the
-waitlist enabled if public interest should queue rather than bounce.
+Decided posture (see §4): invite-only everything — `allowSignUp` off,
+`GRID_DISABLE_SELF_SERVE_ORGS=true`. Verified-domain auto-join stays
+available for known customer domains; the waitlist remains an option if
+public interest should queue rather than bounce.
