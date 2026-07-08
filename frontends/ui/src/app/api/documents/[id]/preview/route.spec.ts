@@ -10,6 +10,10 @@ vi.mock('@/lib/auth/require-auth', () => ({
   }),
 }))
 
+vi.mock('@/lib/authz/projects', () => ({
+  requireProjectAccess: vi.fn().mockResolvedValue({ role: 'project-admin' }),
+}))
+
 vi.mock('@/lib/db', () => ({
   getDb: vi.fn(),
 }))

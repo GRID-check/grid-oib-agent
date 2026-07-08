@@ -1,47 +1,12 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { eq } from 'drizzle-orm'
-import { authzErrorResponse, requireAuthorizedSession } from '@/lib/auth/require-auth'
-import { getDb } from '@/lib/db'
-import { documents } from '@/lib/db/schema'
-import { reconcileDocumentStatuses } from '@/lib/documents/reconcile-status'
+/**
+ * Document status API — read one document's ingestion status (lazily
+ * reconciled with the backend).
+ * Thin handler; all logic lives in `@/lib/documents/service`.
+ */
 
-export async function GET(
-  _request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-): Promise<Response> {
-  try {
-    const session = await requireAuthorizedSession()
-    const { id } = await params
-    const db = getDb()
+import { apiRoute } from '@/lib/api/handler'
+import { getDocumentStatus } from '@/lib/documents/service'
 
-    const [row] = await db
-      .select()
-      .from(documents)
-      .where(eq(documents.id, id))
-      .limit(1)
+type Params = { id: string }
 
-    if (!row || row.organizationId !== session.organizationId) {
-      return NextResponse.json({ error: 'Not found' }, { status: 404 })
-    }
-
-    // Pending rows are lazily reconciled with the backend's ingestion state;
-    // without this they would stay 'pending' forever (no completion callback).
-    const [reconciled] = await reconcileDocumentStatuses([row])
-
-    return NextResponse.json({
-      id: reconciled.id,
-      status: reconciled.status,
-      filename: reconciled.filename,
-      fileSize: reconciled.fileSize,
-      contentType: reconciled.contentType,
-      collectionName: reconciled.collectionName,
-      errorMessage: reconciled.errorMessage,
-      createdAt: reconciled.createdAt,
-      updatedAt: reconciled.updatedAt,
-    })
-  } catch (error) {
-    const denied = authzErrorResponse(error)
-    if (denied) return denied
-    throw error
-  }
-}
+export const GET = apiRoute<Params>(async ({ session, params }) => getDocumentStatus(session, params.id))
