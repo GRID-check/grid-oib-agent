@@ -123,6 +123,105 @@ export async function softDeleteProjectAndEnqueue(
   })
 }
 
+/** The profile columns of a project row (the shape the profile API returns). */
+export type ProjectProfileState = Pick<
+  Project,
+  'profile' | 'profileVersion' | 'profilePromptView' | 'profileDisplay' | 'profileUpdatedAt'
+>
+
+const profileColumns = {
+  profile: projects.profile,
+  profileVersion: projects.profileVersion,
+  profilePromptView: projects.profilePromptView,
+  profileDisplay: projects.profileDisplay,
+  profileUpdatedAt: projects.profileUpdatedAt,
+}
+
+export async function findProjectProfileInOrg(
+  projectId: string,
+  organizationId: string,
+): Promise<ProjectProfileState | null> {
+  const db = getDb()
+  const [row] = await db
+    .select(profileColumns)
+    .from(projects)
+    .where(
+      and(eq(projects.id, projectId), eq(projects.organizationId, organizationId), isNull(projects.deletedAt)),
+    )
+    .limit(1)
+  return row ?? null
+}
+
+/**
+ * Optimistic-concurrency profile write: applies `values` only while the
+ * stored profile_version still equals `expectedVersion`. Returns null when a
+ * concurrent writer bumped the version first (the service maps this to 409).
+ */
+export async function updateProjectProfileIfVersion(
+  projectId: string,
+  organizationId: string,
+  expectedVersion: number,
+  values: ProjectProfileState,
+): Promise<ProjectProfileState | null> {
+  const db = getDb()
+  const [row] = await db
+    .update(projects)
+    .set(values)
+    .where(
+      and(
+        eq(projects.id, projectId),
+        eq(projects.organizationId, organizationId),
+        isNull(projects.deletedAt),
+        eq(projects.profileVersion, expectedVersion),
+      ),
+    )
+    .returning(profileColumns)
+  return row ?? null
+}
+
+/**
+ * Persist a generated summary onto profile_display.summary. No-op when the
+ * project has no display yet — a summary alone cannot create a display.
+ */
+export async function setProjectProfileSummaryInOrg(
+  projectId: string,
+  organizationId: string,
+  summary: string,
+): Promise<void> {
+  const db = getDb()
+  const scope = and(
+    eq(projects.id, projectId),
+    eq(projects.organizationId, organizationId),
+    isNull(projects.deletedAt),
+  )
+  const [current] = await db
+    .select({ profileDisplay: projects.profileDisplay })
+    .from(projects)
+    .where(scope)
+    .limit(1)
+  if (!current?.profileDisplay) return
+  await db
+    .update(projects)
+    .set({ profileDisplay: { ...current.profileDisplay, summary } })
+    .where(scope)
+}
+
+/** The WorkOS FGA resource id backing a project, or null when unregistered. */
+export async function findProjectWorkosResourceId(
+  projectId: string,
+  organizationId: string,
+): Promise<string | null> {
+  const db = getDb()
+  const [row] = await db
+    .select({ workosResourceId: projects.workosResourceId })
+    .from(projects)
+    .where(
+      and(eq(projects.id, projectId), eq(projects.organizationId, organizationId), isNull(projects.deletedAt)),
+    )
+    .limit(1)
+  return row?.workosResourceId ?? null
+}
+
 /**
  * Restore a soft-deleted project while its deletion-queue row is still
  * 'pending' AND unclaimed. `markFailed` returns a partially-purged row to

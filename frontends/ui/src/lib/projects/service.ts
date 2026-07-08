@@ -14,8 +14,19 @@ import { recordAuditEvent } from '@/lib/audit/service'
 import { computePurgeAfter, projectGraceDays } from '@/lib/deletion/policy'
 import { BadRequestError, ConflictError, NotFoundError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
-import type { Project } from '@/lib/db/schema'
+import type {
+  Project,
+  ProjectMemoryConfidence,
+  ProjectMemoryItem,
+  ProjectMemoryKind,
+} from '@/lib/db/schema'
 import { getProjectOverviewData } from './overview-query'
+import {
+  createProjectMemoryItem,
+  deleteProjectMemoryItem,
+  listProjectMemory,
+  updateProjectMemoryItem,
+} from './memory-service'
 import {
   findProjectInOrg,
   insertProject,
@@ -157,4 +168,70 @@ export async function getProjectOverview(session: AuthorizedSession, projectId: 
   const data = await getProjectOverviewData(projectId, session.organizationId)
   if (!data) throw new NotFoundError('Project not found')
   return data
+}
+
+/** The fields a member may edit on an existing memory item. */
+export type ProjectMemoryItemPatch = Partial<
+  Pick<ProjectMemoryItem, 'content' | 'kind' | 'status' | 'confidence' | 'verification' | 'pinned'>
+>
+
+/**
+ * List a project's memory items, including the org-wide items that apply to
+ * every project in the org.
+ */
+export async function getProjectMemory(
+  session: AuthorizedSession,
+  projectId: string,
+  options: { includeArchived?: boolean; sourceConversationId?: string } = {},
+): Promise<ProjectMemoryItem[]> {
+  await requireProjectAccess(session, projectId, 'project:view')
+  return listProjectMemory(projectId, { ...options, organizationId: session.organizationId })
+}
+
+/** Manually add a memory item — user-authored and user-confirmed by definition. */
+export async function addProjectMemoryItem(
+  session: AuthorizedSession,
+  projectId: string,
+  input: {
+    kind: ProjectMemoryKind
+    content: string
+    confidence?: ProjectMemoryConfidence
+    pinned?: boolean
+  },
+): Promise<ProjectMemoryItem> {
+  await requireProjectAccess(session, projectId, 'project:edit')
+  return createProjectMemoryItem({
+    scope: 'project',
+    projectId,
+    organizationId: session.organizationId,
+    kind: input.kind,
+    content: input.content,
+    confidence: input.confidence ?? 'medium',
+    pinned: input.pinned ?? false,
+    provenanceType: 'user',
+    verification: 'user_confirmed',
+    createdBy: session.userId,
+  })
+}
+
+export async function editProjectMemoryItem(
+  session: AuthorizedSession,
+  projectId: string,
+  itemId: string,
+  patch: ProjectMemoryItemPatch,
+): Promise<ProjectMemoryItem> {
+  await requireProjectAccess(session, projectId, 'project:edit')
+  const item = await updateProjectMemoryItem({ projectId }, itemId, patch)
+  if (!item) throw new NotFoundError()
+  return item
+}
+
+export async function removeProjectMemoryItem(
+  session: AuthorizedSession,
+  projectId: string,
+  itemId: string,
+): Promise<void> {
+  await requireProjectAccess(session, projectId, 'project:edit')
+  const deleted = await deleteProjectMemoryItem({ projectId }, itemId)
+  if (!deleted) throw new NotFoundError()
 }

@@ -1,6 +1,8 @@
 import { eq, and } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { projectFolders } from '@/lib/db/schema'
+import { requireProjectAccess } from '@/lib/authz/projects'
+import type { AuthorizedSession } from '@/lib/auth/types'
 import { validateFolderName, buildFolderPath } from './folders'
 
 export interface CreateFolderInput {
@@ -31,7 +33,11 @@ export function toFolderRow(row: typeof projectFolders.$inferSelect): FolderRow 
   }
 }
 
-export async function listProjectFolders(projectId: string): Promise<FolderRow[]> {
+export async function listProjectFolders(
+  projectId: string,
+  session: AuthorizedSession,
+): Promise<FolderRow[]> {
+  await requireProjectAccess(session, projectId, 'project:view')
   const db = getDb()
   const rows = await db
     .select()
@@ -43,7 +49,9 @@ export async function listProjectFolders(projectId: string): Promise<FolderRow[]
 
 export async function createProjectFolder(
   input: CreateFolderInput,
+  session: AuthorizedSession,
 ): Promise<{ ok: true; folder: FolderRow } | { ok: false; error: string }> {
+  await requireProjectAccess(session, input.projectId, 'project:edit')
   const validation = validateFolderName(input.name)
   if (!validation.ok) {
     return { ok: false, error: validation.error! }
