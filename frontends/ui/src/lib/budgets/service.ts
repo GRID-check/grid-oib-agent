@@ -382,6 +382,46 @@ export async function getSpendByMember(organizationId: string): Promise<MemberSp
     .sort((a, b) => b.monthUsd - a.monthUsd)
 }
 
+export interface OrganizationSpend {
+  organizationId: string
+  dayUsd: number
+  monthUsd: number
+  dayEvents: number
+  monthEvents: number
+}
+
+/**
+ * Windowed spend per organization across the WHOLE platform (platform-tier
+ * dashboards only — caller must hold `platform:usage:view`, ADR-0016).
+ */
+export async function getSpendAcrossOrganizations(): Promise<OrganizationSpend[]> {
+  const db = getDb()
+  const dayStartIso = utcDayStart().toISOString()
+  const monthStart = utcMonthStart()
+
+  const rows = await db
+    .select({
+      organizationId: llmUsageEvents.organizationId,
+      monthUsd: sql<string>`coalesce(sum(${llmUsageEvents.costUsd}), 0)`,
+      dayUsd: sql<string>`coalesce(sum(${llmUsageEvents.costUsd}) filter (where ${llmUsageEvents.createdAt} >= ${dayStartIso}), 0)`,
+      monthEvents: sql<string>`count(*)`,
+      dayEvents: sql<string>`count(*) filter (where ${llmUsageEvents.createdAt} >= ${dayStartIso})`,
+    })
+    .from(llmUsageEvents)
+    .where(gte(llmUsageEvents.createdAt, monthStart))
+    .groupBy(llmUsageEvents.organizationId)
+
+  return rows
+    .map((row) => ({
+      organizationId: row.organizationId,
+      dayUsd: Number.parseFloat(row.dayUsd) || 0,
+      monthUsd: Number.parseFloat(row.monthUsd) || 0,
+      dayEvents: Number.parseInt(row.dayEvents, 10) || 0,
+      monthEvents: Number.parseInt(row.monthEvents, 10) || 0,
+    }))
+    .sort((a, b) => b.monthUsd - a.monthUsd)
+}
+
 // ---------------------------------------------------------------------------
 // Enforcement snapshot
 // ---------------------------------------------------------------------------

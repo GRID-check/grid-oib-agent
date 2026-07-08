@@ -7,14 +7,14 @@
 
 import { NextResponse } from 'next/server'
 import { authzErrorResponse, requireAuthorizedSession } from '@/lib/auth/require-auth'
-import { isOrgAdmin } from '@/lib/authz/organizations'
+import { canManageBudgets } from '@/lib/authz/organizations'
 import { eurPerUsd, getBudgetStatus, getOrgBudget, getSpendByMember, getSpendSummary } from '@/lib/budgets/service'
 
 export async function GET(request: Request): Promise<Response> {
   try {
     const session = await requireAuthorizedSession()
     const { searchParams } = new URL(request.url)
-    const admin = isOrgAdmin(session)
+    const admin = canManageBudgets(session)
 
     const filter: { userId?: string; projectId?: string } = {}
     if (admin) {

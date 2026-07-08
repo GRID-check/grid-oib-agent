@@ -9,7 +9,7 @@
 
 'use client'
 
-import { type ReactNode, useState } from 'react'
+import { type ReactNode, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { z } from 'zod'
 import { CheckCircle2, Folder, Lock, Users } from 'lucide-react'
@@ -26,9 +26,18 @@ const OrganizationOnboardingPage = (): ReactNode => {
   const router = useRouter()
   const [error, setError] = useState<string | null>(null)
   const [status, setStatus] = useState<'idle' | 'success'>('idle')
+  const [selfServeDisabled, setSelfServeDisabled] = useState(false)
+
+  // Surface the invite-only policy BEFORE the user types anything.
+  useEffect(() => {
+    fetch('/api/organizations')
+      .then(async (res) => (res.ok ? ((await res.json()) as { selfServeDisabled?: boolean }) : {}))
+      .then((policy) => setSelfServeDisabled(Boolean(policy.selfServeDisabled)))
+      .catch(() => {})
+  }, [])
 
   const organizationSchema = z.object({
-    name: z.string().trim().min(1, t('validation.nameRequired')),
+    name: z.string().trim().min(1, t('validation.nameRequired')).max(100, t('validation.nameTooLong')),
   })
 
   const SETUP_STEPS = [
@@ -51,8 +60,11 @@ const OrganizationOnboardingPage = (): ReactNode => {
         })
 
         if (!response.ok) {
-          const data = await response.json().catch(() => ({}))
-          throw new Error(data.error || t('errors.createFailed'))
+          const data = (await response.json().catch(() => ({}))) as { error?: string }
+          // The API returns stable error codes, never raw provider messages —
+          // translate them here.
+          if (data.error === 'self-serve-disabled') throw new Error(t('errors.selfServeDisabled'))
+          throw new Error(t('errors.createFailed'))
         }
 
         // A deliberate "workspace ready" beat before entering the workspace,
@@ -83,6 +95,9 @@ const OrganizationOnboardingPage = (): ReactNode => {
             </h1>
             <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
               {t('intro.description')}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              {t('intro.invitedHint')}
             </p>
           </div>
 
@@ -135,6 +150,13 @@ const OrganizationOnboardingPage = (): ReactNode => {
                 <p className="text-sm text-muted-foreground">{t('form.description')}</p>
               </div>
 
+              {selfServeDisabled && (
+                <Alert>
+                  <AlertTitle>{t('inviteOnly.title')}</AlertTitle>
+                  <AlertDescription>{t('inviteOnly.description')}</AlertDescription>
+                </Alert>
+              )}
+
               {error && (
                 <Alert variant="destructive">
                   <AlertTitle>{t('errors.title')}</AlertTitle>
@@ -142,6 +164,7 @@ const OrganizationOnboardingPage = (): ReactNode => {
                 </Alert>
               )}
 
+              {!selfServeDisabled && (
               <form
                 onSubmit={(event) => {
                   event.preventDefault()
@@ -167,6 +190,7 @@ const OrganizationOnboardingPage = (): ReactNode => {
                   </form.AppForm>
                 </div>
               </form>
+              )}
 
               <div className="flex flex-col gap-3 border-t pt-5">
                 {SETUP_STEPS.map((item, index) => (

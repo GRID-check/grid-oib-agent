@@ -10,7 +10,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { authzErrorResponse, requireAuthorizedSession } from '@/lib/auth/require-auth'
-import { isOrgAdmin } from '@/lib/authz/organizations'
+import { canManageModels } from '@/lib/authz/organizations'
 import { AGENT_GROUPS, AGENT_GROUP_IDS, OPENROUTER_MODEL_ID_PATTERN } from '@/lib/model-config/agent-groups'
 import { getGroupDefaults } from '@/lib/model-config/backend-defaults'
 import { fetchModelCatalog, validateOverrides } from '@/lib/model-config/openrouter'
@@ -19,7 +19,7 @@ import { createAndActivateVersion, getOrgModelConfig } from '@/lib/model-config/
 export async function GET(): Promise<Response> {
   try {
     const session = await requireAuthorizedSession()
-    if (!isOrgAdmin(session)) {
+    if (!canManageModels(session)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
     const [config, defaults] = await Promise.all([
@@ -53,7 +53,7 @@ const putSchema = z.object({
 export async function PUT(request: Request): Promise<Response> {
   try {
     const session = await requireAuthorizedSession()
-    if (!isOrgAdmin(session)) {
+    if (!canManageModels(session)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 

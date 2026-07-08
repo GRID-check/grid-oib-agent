@@ -2,14 +2,21 @@
 export const onboarding = {
   validation: {
     nameRequired: 'Organization name is required.',
+    nameTooLong: 'Organization name must be at most 100 characters.',
   },
   steps: {
     createOrg: 'Create your organization',
     makeAdmin: 'Make you the workspace admin',
     openProject: 'Open Grid and your first project',
   },
+  inviteOnly: {
+    title: 'This platform is invite-only',
+    description:
+      'New organizations are created by the platform team. Ask your organization\u2019s admin for an invitation \u2014 once invited, you\u2019ll land directly in their workspace.',
+  },
   errors: {
     createFailed: 'Failed to create organization.',
+    selfServeDisabled: 'Creating new organizations is disabled on this platform. Ask your administrator for an invitation.',
     generic: 'Something went wrong.',
     title: 'Organization setup failed',
   },
@@ -18,6 +25,8 @@ export const onboarding = {
     title: 'Set your organization before Grid handles project data.',
     description:
       'Your organization is the private boundary for your building projects — documents, members, and OIB/RIS research all live inside it. You become its admin.',
+    invitedHint:
+      'Expecting to join an existing organization? Ask its admin for an invitation instead — invited members never see this step.',
   },
   features: {
     privateTenant: 'Private tenant',

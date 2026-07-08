@@ -1,7 +1,7 @@
 import { and, asc, count, eq, isNull } from 'drizzle-orm'
 import { FolderOpen } from 'lucide-react'
 import { requireAuthorizedPageSession } from '@/lib/auth/require-auth'
-import { isOrgAdmin } from '@/lib/authz/organizations'
+import { getNavFlags } from '@/lib/authz/nav'
 import { getDb } from '@/lib/db'
 import { documents, projects } from '@/lib/db/schema'
 import { ProjectsGrid } from '@/components/projects/projects-grid'
@@ -19,6 +19,7 @@ interface ProjectsPageProps {
 
 export default async function ProjectsPage({ searchParams }: ProjectsPageProps): Promise<JSX.Element> {
   const session = await requireAuthorizedPageSession()
+  const navFlags = await getNavFlags(session)
   const { new: newParam } = await searchParams
   const t = await getTranslations('projects')
   const db = getDb()
@@ -52,7 +53,8 @@ export default async function ProjectsPage({ searchParams }: ProjectsPageProps):
         user={{ name: session.name, email: session.email }}
         authRequired={isAuthRequired()}
         heading={t('list.heading')}
-        canManageOrganization={isOrgAdmin(session)}
+        canManageOrganization={navFlags.canManageOrganization}
+        canManagePlatform={navFlags.canManagePlatform}
       />
 
       <main id="main-content" className="mx-auto w-full max-w-5xl flex-1 px-4 py-6 md:px-8 md:py-10">

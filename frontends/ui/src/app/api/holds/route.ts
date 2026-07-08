@@ -7,6 +7,7 @@
 import { NextResponse } from 'next/server'
 import { and, desc, eq, isNull } from 'drizzle-orm'
 import { authzErrorResponse, requireAuthorizedSession } from '@/lib/auth/require-auth'
+import { canManageCompliance } from '@/lib/authz/organizations'
 import { getDb } from '@/lib/db'
 import { legalHolds } from '@/lib/db/schema'
 import { z } from 'zod'
@@ -20,7 +21,7 @@ const createHoldSchema = z.object({
 export async function GET(): Promise<Response> {
   try {
     const session = await requireAuthorizedSession()
-    if (session.role !== 'admin') {
+    if (!canManageCompliance(session)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
@@ -47,7 +48,7 @@ export async function GET(): Promise<Response> {
 export async function POST(request: Request): Promise<Response> {
   try {
     const session = await requireAuthorizedSession()
-    if (session.role !== 'admin') {
+    if (!canManageCompliance(session)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 

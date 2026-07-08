@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { and, eq, isNull } from 'drizzle-orm'
 import { authzErrorResponse, requireAuthorizedSession } from '@/lib/auth/require-auth'
+import { canManageCompliance } from '@/lib/authz/organizations'
 import { getDb } from '@/lib/db'
 import { legalHolds } from '@/lib/db/schema'
 
@@ -10,7 +11,7 @@ export async function POST(
 ): Promise<Response> {
   try {
     const session = await requireAuthorizedSession()
-    if (session.role !== 'admin') {
+    if (!canManageCompliance(session)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
     const { id } = await params

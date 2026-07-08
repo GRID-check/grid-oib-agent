@@ -7,9 +7,15 @@
  * grants the requested widget scopes the caller actually holds.
  */
 
-/** Returns a function that fetches a fresh widget token for the given scopes. */
-export function makeWidgetTokenFetcher(scopes: string[] = []): () => Promise<string> {
-  const query = scopes.map((s) => `scope=${encodeURIComponent(s)}`).join('&')
+/**
+ * Returns a function that fetches a fresh widget token for the given scopes.
+ * `org: 'platform'` mints against the GRID Platform organization instead of
+ * the session's active org (platform owner only — the route enforces it).
+ */
+export function makeWidgetTokenFetcher(scopes: string[] = [], org?: 'platform'): () => Promise<string> {
+  const params = scopes.map((s) => `scope=${encodeURIComponent(s)}`)
+  if (org) params.push(`org=${org}`)
+  const query = params.join('&')
   const url = query ? `/api/widgets/token?${query}` : '/api/widgets/token'
 
   return async () => {

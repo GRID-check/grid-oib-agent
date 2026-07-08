@@ -7,14 +7,14 @@
 
 import { NextResponse } from 'next/server'
 import { authzErrorResponse, requireAuthorizedSession } from '@/lib/auth/require-auth'
-import { isOrgAdmin } from '@/lib/authz/organizations'
+import { canManageModels } from '@/lib/authz/organizations'
 import { getAgentGroup } from '@/lib/model-config/agent-groups'
 import { fetchModelCatalog, searchModelsForGroup } from '@/lib/model-config/openrouter'
 
 export async function GET(request: Request): Promise<Response> {
   try {
     const session = await requireAuthorizedSession()
-    if (!isOrgAdmin(session)) {
+    if (!canManageModels(session)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
     const { searchParams } = new URL(request.url)

@@ -1,0 +1,104 @@
+# WorkOS Provisioning Runbook
+
+> What must exist in a WorkOS environment for GRID's authorization model
+> (ADR-0016) to work, what is already provisioned where, and how to replay
+> it (e.g. into Production). The app degrades gracefully when pieces are
+> missing (legacy `admin` back-compat, break-glass env allowlist), but this
+> is the intended steady state.
+
+## Provisioned state (Staging — done 2026-07-08)
+
+The Staging environment (`environment_01KEF0YG238CSMNF731TEG010E`) is the
+one the deployed app uses (its orgs include "GRID Test"). Everything below
+already exists there. **Production is empty and needs the same replay
+before go-live.**
+
+### 1. Organization-tier permissions (resource type: Organization)
+
+| Slug | Meaning |
+|---|---|
+| `org:settings:manage` | Org settings (name, locale, defaults); org page shell |
+| `org:models:manage` | Runtime AI model configuration (ADR-0014) |
+| `org:budgets:manage` | LLM budgets + org-wide usage (ADR-0015) |
+| `org:compliance:manage` | Legal holds + deletion queue |
+
+Attached to the environment **Admin** role (which keeps its six
+`widgets:*` permissions). The **Member** role has none — members rely on
+project-level FGA roles.
+
+### 2. Platform-tier permissions (resource type: Organization)
+
+| Slug | Meaning |
+|---|---|
+| `platform:organizations:view` | See every org: directory, members, activity |
+| `platform:organizations:manage` | Administer any org (reserved, unused in v1) |
+| `platform:usage:view` | Cross-org LLM usage/spend |
+| `platform:settings:manage` | Platform-wide settings (reserved) |
+
+They live on the Organization resource type because WorkOS permissions
+attach to resource types and **Organization is the immutable topology
+root** — a type above it is rejected by the API (see ADR-0016). They are
+only ever attached to platform-org roles, never to tenant roles.
+
+### 3. The platform organization + exclusive role
+
+- Organization **"GRID Platform"**, external id **`grid-platform`**
+  (Staging id: `org_01KX06QQJN3KA25R9G2PNFBGXV`). The app resolves it by
+  external id (`GRID_PLATFORM_ORG_EXTERNAL_ID`).
+- **Org-scoped role** `org-platform-owner` ("Platform Owner") **created
+  inside that org only** — WorkOS org-scoped roles cannot be assigned in
+  any other organization, which is the exclusivity guarantee. Permissions:
+  the four `platform:*` + all five admin widget scopes (so platform-org
+  widgets work on the platform dashboard).
+- The owner (biglmatthias@gmail.com, `user_01KEF12GR7XHBQXA5M42R9VC48`)
+  holds a GRID Platform membership with that role.
+
+### 4. AuthKit / environment settings (pre-existing, verified)
+
+- CORS web origins: `https://grid-dev.bigls.net`, `https://grid.bigls.net`
+  (required for WorkOS widgets).
+- Sign-up: open, email verification required; password + Google + GitHub +
+  Microsoft + Apple. MFA off. No JWT template (default claims carry
+  role/permissions per active org — exactly what the app reads).
+
+## Replay into a fresh environment (e.g. Production)
+
+Via the WorkOS dashboard (or the management API):
+
+1. Create the nine permissions from tables 1 + 2 (resource type
+   Organization, same slugs).
+2. Edit the **Admin** role: add the four `org:*` permissions (keep the
+   `widgets:*` ones).
+3. Create organization **GRID Platform** with external id `grid-platform`.
+4. Inside that organization, create the **org-scoped** role
+   `org-platform-owner` with the four `platform:*` + five `widgets:*`
+   permissions.
+5. Add the owner's user to GRID Platform with that role.
+6. Add the production web origin to AuthKit CORS and redirect URIs.
+
+Bootstrap alternative: set `GRID_PLATFORM_OWNER_EMAILS=<owner email>` until
+steps 3–5 are done, then clear it.
+
+## How the app consumes this
+
+- JWT claims (`role`, `permissions`) per active org → permission registry
+  (`frontends/ui/src/lib/authz/permissions.ts`); legacy `admin` implies all
+  `org:*` (never `platform:*`).
+- Platform owner: `lib/authz/platform.ts` — platform-org membership with
+  `org-platform-owner` (cached lookup) or the break-glass allowlist.
+- Custom roles: create any role in WorkOS with a subset of `org:*` /
+  `widgets:*` permissions and it works immediately — code never checks role
+  names except the documented `admin` back-compat.
+
+## Sign-up policy — what is native WorkOS vs. app-side
+
+| Control | Where | How |
+|---|---|---|
+| Who can create an ACCOUNT | **WorkOS (native)** | AuthKit → `allowSignUp` off = invite-only accounts; or enable the **waitlist** (approve/deny each entry). Auth methods (password/Google/GitHub/Microsoft/Apple), email verification, MFA, password policy are all native settings. |
+| Joining an existing org | **WorkOS (native)** | Invitations (users-table widget) and **domain auto-join** (verify the org's email domain; users signing up with that domain land in the org via JIT provisioning instead of the onboarding screen). |
+| Who can create an ORGANIZATION | **App-side** (`GRID_DISABLE_SELF_SERVE_ORGS`) | WorkOS has no org-creation gate — orgs are created by our API. `true` = only the platform team creates orgs; onboarding shows the invite-only notice up front. |
+| Platform tier / cross-org access | **App-side on WorkOS primitives** | The GRID Platform org + org-scoped role (this runbook); resolution logic in `lib/authz/platform.ts`. |
+
+Recommended enterprise posture: verified-domain auto-join for known customer
+domains, invitations otherwise, `GRID_DISABLE_SELF_SERVE_ORGS=true`, and the
+waitlist enabled if public interest should queue rather than bounce.

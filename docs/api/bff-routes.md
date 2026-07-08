@@ -140,6 +140,15 @@ Source: `frontends/ui/src/app/api/organizations/route.ts`
 
 Sources: `frontends/ui/src/app/api/organization/{model-config,budgets,usage}/…`
 
+### Platform tier (platform owner only, ADR-0016)
+
+| Method | Path | Auth | Description | Response |
+|--------|------|------|-------------|----------|
+| `GET` | `/api/platform/overview` | Platform owner | Cross-org directory (WorkOS) joined with Grid stats: project counts + LLM spend per org from the usage ledger, plus totals. | `{ organizations, totals, eurPerUsd }` |
+| `GET` | `/api/widgets/token?org=platform&scope=…` | Platform owner | Widget token minted against the GRID Platform organization (platform dashboard widgets). | `{ token }` |
+
+`POST /api/organizations` now returns stable error codes (`self-serve-disabled` 403 when `GRID_DISABLE_SELF_SERVE_ORGS=true`, `create-failed` 500) — never raw provider messages. Org routes are permission-gated per area (`org:models:manage`, `org:budgets:manage`, `org:compliance:manage`; see `lib/authz/permissions.ts`).
+
 ### Internal service endpoints (service token, not user-facing)
 
 | Method | Path | Auth | Description |

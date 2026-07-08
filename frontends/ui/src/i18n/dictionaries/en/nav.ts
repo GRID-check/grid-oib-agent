@@ -20,6 +20,7 @@ export const nav = {
     authNotConfigured: 'Authentication not configured',
     profile: 'Profile',
     organization: 'Organization',
+    platform: 'Platform',
     settings: 'Settings',
   },
 }

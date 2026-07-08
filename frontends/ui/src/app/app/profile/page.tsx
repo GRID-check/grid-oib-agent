@@ -10,7 +10,7 @@
 import Link from 'next/link'
 import { ArrowLeft, Building2, UserRound } from 'lucide-react'
 import { requireAuthorizedPageSession } from '@/lib/auth/require-auth'
-import { isOrgAdmin } from '@/lib/authz/organizations'
+import { getNavFlags } from '@/lib/authz/nav'
 import { OrgTopbar } from '@/components/shell'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
@@ -21,6 +21,7 @@ const isAuthRequired = (): boolean => process.env.REQUIRE_AUTH?.toLowerCase() ==
 
 export default async function ProfilePage(): Promise<JSX.Element> {
   const session = await requireAuthorizedPageSession()
+  const navFlags = await getNavFlags(session)
   const t = await getTranslations('profile')
 
   const displayName = session.name || session.email || t('account.noName')
@@ -32,7 +33,8 @@ export default async function ProfilePage(): Promise<JSX.Element> {
         user={{ name: session.name, email: session.email }}
         authRequired={isAuthRequired()}
         heading={t('title')}
-        canManageOrganization={isOrgAdmin(session)}
+        canManageOrganization={navFlags.canManageOrganization}
+        canManagePlatform={navFlags.canManagePlatform}
       />
 
       <main id="main-content" className="mx-auto w-full max-w-3xl flex-1 px-4 py-6 md:px-8 md:py-10">

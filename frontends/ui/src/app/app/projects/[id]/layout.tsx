@@ -2,7 +2,7 @@ import { and, asc, eq, isNull } from 'drizzle-orm'
 import { notFound } from 'next/navigation'
 import { requireAuthorizedPageSession } from '@/lib/auth/require-auth'
 import { requireProjectAccess } from '@/lib/authz/projects'
-import { isOrgAdmin } from '@/lib/authz/organizations'
+import { getNavFlags } from '@/lib/authz/nav'
 import { getDb } from '@/lib/db'
 import { projects } from '@/lib/db/schema'
 import { AppSidebar } from '@/components/shell'
@@ -16,6 +16,7 @@ interface ProjectLayoutProps {
 
 export default async function ProjectLayout({ children, params }: ProjectLayoutProps): Promise<JSX.Element> {
   const session = await requireAuthorizedPageSession()
+  const navFlags = await getNavFlags(session)
   const { id } = await params
   const { role } = await requireProjectAccess(session, id, 'project:view')
   const db = getDb()
@@ -48,7 +49,8 @@ export default async function ProjectLayout({ children, params }: ProjectLayoutP
         user={{ name: session.name, email: session.email }}
         authRequired={isAuthRequired()}
         canManageMembers={role === 'project-admin'}
-        canManageOrganization={isOrgAdmin(session)}
+        canManageOrganization={navFlags.canManageOrganization}
+        canManagePlatform={navFlags.canManagePlatform}
       />
       <main id="main-content" className="min-w-0 flex-1 overflow-y-auto bg-background">
         {children}

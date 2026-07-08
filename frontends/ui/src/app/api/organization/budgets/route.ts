@@ -11,7 +11,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { authzErrorResponse, requireAuthorizedSession } from '@/lib/auth/require-auth'
-import { isOrgAdmin } from '@/lib/authz/organizations'
+import { canManageBudgets } from '@/lib/authz/organizations'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import {
@@ -34,7 +34,7 @@ export async function GET(): Promise<Response> {
       organization: orgBudget,
       ownMemberLimit: ownBudget,
     }
-    if (isOrgAdmin(session)) {
+    if (canManageBudgets(session)) {
       response.policies = await listActivePolicies(session.organizationId)
     }
     return NextResponse.json(response)
@@ -71,10 +71,10 @@ export async function PUT(request: Request): Promise<Response> {
         return NextResponse.json({ error: 'project scope requires subjectId' }, { status: 400 })
       }
       // Project admins may manage their own project's budget; org admins any.
-      if (!isOrgAdmin(session)) {
+      if (!canManageBudgets(session)) {
         await requireProjectAccess(session as AuthorizedSession, subjectId, 'project:manage')
       }
-    } else if (!isOrgAdmin(session)) {
+    } else if (!canManageBudgets(session)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
@@ -114,10 +114,10 @@ export async function DELETE(request: Request): Promise<Response> {
     }
     const { scope, subjectId } = parsed.data
     if (scope === 'project') {
-      if (!isOrgAdmin(session)) {
+      if (!canManageBudgets(session)) {
         await requireProjectAccess(session as AuthorizedSession, subjectId, 'project:manage')
       }
-    } else if (!isOrgAdmin(session)) {
+    } else if (!canManageBudgets(session)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
     const removed = await clearBudgetPolicy({

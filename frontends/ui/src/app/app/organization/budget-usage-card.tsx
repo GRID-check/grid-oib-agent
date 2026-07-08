@@ -30,6 +30,7 @@ import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useTranslations } from '@/i18n'
+import { formatEur as eur } from '@/lib/format'
 
 /** Validated categorical palette (dataviz reference instance); slot order is
  * the CVD-safety mechanism — never reorder or cycle. */
@@ -80,8 +81,6 @@ interface ProjectDto {
   id: string
   name: string
 }
-
-const eur = (value: number): string => `€${value.toFixed(2)}`
 
 const parseLimit = (value: string): number | null => {
   const trimmed = value.trim()

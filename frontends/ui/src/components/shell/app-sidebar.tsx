@@ -66,6 +66,8 @@ export interface AppSidebarProps {
   canManageMembers?: boolean
   /** Whether the current user can manage the organization (org admin). */
   canManageOrganization?: boolean
+  /** Whether the current user is the platform owner (ADR-0016). */
+  canManagePlatform?: boolean
 }
 
 export function AppSidebar({
@@ -75,6 +77,7 @@ export function AppSidebar({
   authRequired,
   canManageMembers = true,
   canManageOrganization = false,
+  canManagePlatform = false,
 }: AppSidebarProps) {
   const pathname = usePathname() ?? ''
   const base = `/app/projects/${projectId}`
@@ -260,6 +263,7 @@ export function AppSidebar({
                 authRequired={authRequired}
                 compact={false}
                 canManageOrganization={canManageOrganization}
+            canManagePlatform={canManagePlatform}
               />
             </div>
           </div>
@@ -344,6 +348,7 @@ export function AppSidebar({
             authRequired={authRequired}
             compact={collapsed}
             canManageOrganization={canManageOrganization}
+            canManagePlatform={canManagePlatform}
           />
         </div>
       </aside>

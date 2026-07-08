@@ -19,6 +19,7 @@ import { research } from './research'
 import { members } from './members'
 import { onboarding } from './onboarding'
 import { organization } from './organization'
+import { platform } from './platform'
 import type { Dictionary } from '../index'
 
 export const de: Dictionary = {
@@ -35,4 +36,5 @@ export const de: Dictionary = {
   members,
   onboarding,
   organization,
+  platform,
 }

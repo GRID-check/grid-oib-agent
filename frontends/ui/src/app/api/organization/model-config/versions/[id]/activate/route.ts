@@ -5,13 +5,13 @@
 
 import { NextResponse } from 'next/server'
 import { authzErrorResponse, requireAuthorizedSession } from '@/lib/auth/require-auth'
-import { isOrgAdmin } from '@/lib/authz/organizations'
+import { canManageModels } from '@/lib/authz/organizations'
 import { activateVersion } from '@/lib/model-config/service'
 
 export async function POST(_request: Request, { params }: { params: Promise<{ id: string }> }): Promise<Response> {
   try {
     const session = await requireAuthorizedSession()
-    if (!isOrgAdmin(session)) {
+    if (!canManageModels(session)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
     const { id } = await params
