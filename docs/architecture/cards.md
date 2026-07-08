@@ -93,9 +93,12 @@ with realistic fixtures for visual review. Next phases: a 3D massing card
 
 ## Known rough edges
 
-- The legacy post-hoc generation path (`cards/generate.py` / `cards/prompt.py`)
-  is still around next to the `emit_card` tool — candidate for removal once the
-  tool path covers every workflow.
-- Deep-research (async job) answers do not yet carry cards end-to-end.
+- The post-hoc generation path (`cards/generate.py` / `cards/prompt.py`) is
+  deliberately kept next to the `emit_card` tool: async deep-research jobs use
+  it (`jobs/runner.py::_generate_grid_cards`) because the conversation-scoped
+  `CardRegistry` behind `emit_card` does not exist inside a Dask worker.
+- Async deep-research answers carry cards (generated post-hoc from the final
+  report in the job runner); synchronous inline deep research (no Dask) does
+  not yet.
 - A silent card-generation failure is currently indistinguishable from "no cards";
   emission should surface failures.

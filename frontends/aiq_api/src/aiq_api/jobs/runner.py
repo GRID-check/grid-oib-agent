@@ -263,6 +263,8 @@ async def run_agent_job(
     project_context: str | None = None,
     model_overrides: dict[str, str] | None = None,
     usage_context: dict | None = None,
+    user_info: dict | None = None,
+    clarifier_result: str | None = None,
 ):
     """
     Dask task to run any registered agent with cancellation support and telemetry.
@@ -308,6 +310,10 @@ async def run_agent_job(
         usage_context: Optional identity + budget snapshot captured at submit
             time (``capture_usage_context()``), used to activate unified LLM
             cost tracking for the whole job.
+        user_info: Optional user identity dict (name/email) forwarded onto the
+            agent state so prompts render the authenticated-user context.
+        clarifier_result: Optional clarifier dialog log forwarded onto the
+            agent state so prompts render the Clarification Context section.
     """
 
     # Propagate auth token into the current async task's context so tools
@@ -585,6 +591,9 @@ async def run_agent_job(
                             available_documents=available_documents,
                             data_sources=data_sources,
                             event_store=event_store,
+                            user_info=user_info,
+                            clarifier_result=clarifier_result,
+                            project_context=project_context,
                         )
 
                     # Emit WORKFLOW_END event for Phoenix
@@ -771,6 +780,9 @@ async def _run_agent(
     available_documents: list[dict] | None = None,
     data_sources: list[str] | None = None,
     event_store: EventStore | None = None,
+    user_info: dict | None = None,
+    clarifier_result: str | None = None,
+    project_context: str | None = None,
 ) -> Any:
     """
     Run the agent, supporting different run() signatures.
@@ -804,6 +816,17 @@ async def _run_agent(
             state_kwargs = {"messages": [HumanMessage(content=input_text)]}
             if data_sources is not None:
                 state_kwargs["data_sources"] = data_sources
+            # Mirror the synchronous chat path: prompts read these off the
+            # agent state, so async jobs must carry them too. Guarded by
+            # field support so non-research agents keep working unchanged.
+            state_fields = getattr(state_cls, "model_fields", {})
+            for field_name, field_value in (
+                ("user_info", user_info),
+                ("clarifier_result", clarifier_result),
+                ("project_context", project_context),
+            ):
+                if field_value is not None and field_name in state_fields:
+                    state_kwargs[field_name] = field_value
             if available_documents:
                 # Convert dicts to AvailableDocument if the state class expects them
                 try:
@@ -825,6 +848,12 @@ async def _run_agent(
                 state["data_sources"] = data_sources
             if available_documents:
                 state["available_documents"] = available_documents
+            if user_info is not None:
+                state["user_info"] = user_info
+            if clarifier_result is not None:
+                state["clarifier_result"] = clarifier_result
+            if project_context is not None:
+                state["project_context"] = project_context
 
         return await run_with_cancellation(
             agent.run(state),

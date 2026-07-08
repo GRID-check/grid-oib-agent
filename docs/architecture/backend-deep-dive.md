@@ -100,16 +100,20 @@ Card generation is a **second LLM call** (`ChatResearcherAgent._generate_cards`,
 - The result rides `ChatResponse.cards` → monkeypatch → `message.cards` → the
   frontend `validateGridCards` → `GridCards.tsx`.
 
-### The deep-research card gap (still open — see §7)
+### Deep-research cards (async path: closed; sync inline path: open)
 
 With `use_async_deep_research: true` (the working config), any query routed to
 deep research returns the stub `"Deep research job submitted. Job ID: …"`. The
 **real** answer is produced later by `frontends/aiq_api/src/aiq_api/jobs/runner.py`
-(`run_deep_research`), which currently has **no card-generation code**. So
-deep-research answers cannot carry cards yet. Closing this requires generating
-cards from the final report in `jobs/runner.py` and delivering them through the
-job SSE stream (the report artifact) — a change that must be verified against a
-running stack.
+(`run_agent_job`), which now generates cards post-hoc from the final report
+(`_generate_grid_cards` → `aiq_agent.cards.generate_cards`), re-emits the
+report artifact with cards attached over the job SSE stream, and stores
+`{"report", "cards"}` as the job output. Deep research cannot use the
+`emit_card` tool directly: the conversation-scoped `CardRegistry` is bound
+only in the chat request path, not inside a Dask worker. The remaining gap is
+the **synchronous inline** deep-research path (no Dask scheduler configured):
+those answers carry no cards, since the deep agent has no `emit_card` tool
+and no post-hoc generation runs in `deep_research_node`.
 
 ### Removed dead mechanism
 
@@ -257,8 +261,9 @@ no project scope when `session.organizationId` is falsy (anonymous /
   `/v1/jobs/async/*` through the BFF proxy `/api/jobs/async/[...path]` into the
   `ResearchPanel` (Tasks / Thinking / Report tabs).
 
-**Open item**: deep-research answers do not yet carry Grid cards (§3). And the
-research tab can 403 — see §9.
+**Open items**: synchronous inline deep-research answers (no Dask) do not
+carry Grid cards (§3; the async job path generates them post-hoc in the
+runner). And the research tab can 403 — see §9.
 
 ## 8. Backend agent architecture & DRY debt
 

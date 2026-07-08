@@ -198,47 +198,6 @@ class ToolVisibilityMiddleware(AgentMiddleware):
         return await handler(request.override(tools=self._filter_tools(request.tools)))
 
 
-class ToolRetryMiddleware(AgentMiddleware):
-    """Retries failed tool calls with exponential backoff.
-
-    Provides uniform retry coverage for all tools. Some tools (e.g., Tavily)
-    have their own internal retry; this middleware wraps the outer call so
-    tools without retry (knowledge layer, paper search) are also covered.
-    """
-
-    def __init__(
-        self,
-        max_retries: int = 3,
-        backoff_factor: float = 2.0,
-        initial_delay: float = 1.0,
-    ):
-        self.max_retries = max_retries
-        self.backoff_factor = backoff_factor
-        self.initial_delay = initial_delay
-
-    async def awrap_tool_call(self, request, handler):
-        """Retry tool calls on failure with exponential backoff."""
-        delay = self.initial_delay
-        last_exception = None
-        for attempt in range(self.max_retries + 1):
-            try:
-                return await handler(request)
-            except Exception as e:
-                last_exception = e
-                if attempt < self.max_retries:
-                    tool_name = request.tool_call.get("name", "?") if hasattr(request, "tool_call") else "?"
-                    logger.warning(
-                        "Tool %s failed (attempt %d/%d): %s",
-                        tool_name,
-                        attempt + 1,
-                        self.max_retries + 1,
-                        e,
-                    )
-                    await asyncio.sleep(delay)
-                    delay *= self.backoff_factor
-        raise last_exception
-
-
 class SourceRegistryMiddleware(AgentMiddleware):
     """Intercepts tool call results to build a registry of actual sources.
 
@@ -271,6 +230,27 @@ class SourceRegistryMiddleware(AgentMiddleware):
         from aiq_agent.common.citation_verification import get_session_registry
 
         return get_session_registry() or self.registry
+
+    def begin_run(self) -> None:
+        """Reset per-run capture state at the start of a deep research run.
+
+        The middleware instance is shared across runs of a prebuilt agent, so
+        without this reset two kinds of state leak between requests:
+
+        - the instance registry keeps sources from earlier standalone runs
+          (conversation mode uses the session-scoped registry instead, which
+          must NOT be cleared here — it intentionally spans a conversation),
+        - ``_compact_source_keys`` accumulates ResearchNotes locators forever,
+          so the "compact" writer-facing source list is filtered against keys
+          from unrelated earlier runs.
+
+        Mirrors the per-request registry handling in ShallowResearcherAgent.run().
+        """
+        from aiq_agent.common.citation_verification import get_session_registry
+
+        if get_session_registry() is None:
+            self.registry.clear()
+        self._compact_source_keys.clear()
 
     def has_sources(self) -> bool:
         """Return True when the active source registry contains captured sources."""

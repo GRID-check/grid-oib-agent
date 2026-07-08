@@ -435,9 +435,41 @@ class TestSubmitDeepResearchJob:
         assert result == "test-job-id"
         mock_job_store.submit_job.assert_called_once()
         job_args = mock_job_store.submit_job.call_args.kwargs["job_args"]
-        # data_sources is sixth-to-last (auth_token, collection_scope,
-        # project_context, model_overrides, usage_context follow)
-        assert job_args[-6] == ["web_search"]
+        # data_sources is eighth-to-last (auth_token, collection_scope,
+        # project_context, model_overrides, usage_context, user_info,
+        # clarifier_result follow)
+        assert job_args[-8] == ["web_search"]
+
+    @pytest.mark.asyncio
+    async def test_submit_agent_job_passes_user_info_and_clarifier_result(self):
+        """user_info and clarifier_result ride along as structured worker args."""
+        from aiq_api.jobs.submit import submit_agent_job
+
+        mock_job_store = MagicMock()
+        mock_job_store.ensure_job_id.return_value = "test-job-id"
+        mock_job_store.submit_job = AsyncMock(return_value=None)
+
+        with patch.dict(
+            "os.environ",
+            {
+                "NAT_DASK_SCHEDULER_ADDRESS": "tcp://localhost:8786",
+                "NAT_JOB_STORE_DB_URL": "sqlite:///./test.db",
+            },
+        ):
+            with patch("nat.front_ends.fastapi.async_jobs.job_store.JobStore", return_value=mock_job_store):
+                with patch("aiq_api.jobs.submit.get_current_principal", return_value=self.principal):
+                    with patch("aiq_api.jobs.submit.create_job_access"):
+                        await submit_agent_job(
+                            agent_type="deep_researcher",
+                            input_text="test query",
+                            owner="test@example.com",
+                            user_info={"name": "Ada", "email": "ada@example.com"},
+                            clarifier_result="User confirmed scope: OIB 4 only.",
+                        )
+
+        job_args = mock_job_store.submit_job.call_args.kwargs["job_args"]
+        assert job_args[-2] == {"name": "Ada", "email": "ada@example.com"}
+        assert job_args[-1] == "User confirmed scope: OIB 4 only."
 
     @pytest.mark.asyncio
     async def test_submit_with_custom_job_id(self):
@@ -558,6 +590,82 @@ class TestSubmitDeepResearchJob:
 
         mock_job_store.submit_job.assert_called_once()
         rollback_job_submission.assert_called_once_with("test-job-id", "sqlite:///./test.db")
+
+
+class TestRunAgentStateFields:
+    """_run_agent forwards structured context onto state-based agents."""
+
+    @pytest.mark.asyncio
+    async def test_run_agent_sets_deep_research_state_fields(self):
+        """user_info, clarifier_result, and project_context land on the deep state."""
+        from aiq_agent.agents.deep_researcher.models import DeepResearchAgentState
+        from aiq_api.jobs.runner import _run_agent
+
+        captured: dict = {}
+
+        class FakeDeepAgent:
+            async def run(self, state):
+                captured["state"] = state
+                return state
+
+        FakeDeepAgent.__module__ = "aiq_agent.agents.deep_researcher.agent"
+        FakeDeepAgent.__name__ = "DeepResearcherAgent"
+
+        monitor = MagicMock()
+        monitor.is_cancelled = False
+        monitor.start = MagicMock()
+        monitor.stop = AsyncMock()
+
+        await _run_agent(
+            agent=FakeDeepAgent(),
+            input_text="What does OIB 4 require for stair widths?",
+            monitor=monitor,
+            user_info={"name": "Ada", "email": "ada@example.com"},
+            clarifier_result="Scope: residential buildings only.",
+            project_context="facts:\n  building_class: GK3",
+        )
+
+        state = captured["state"]
+        assert isinstance(state, DeepResearchAgentState)
+        assert state.user_info == {"name": "Ada", "email": "ada@example.com"}
+        assert state.clarifier_result == "Scope: residential buildings only."
+        assert state.project_context == "facts:\n  building_class: GK3"
+
+    @pytest.mark.asyncio
+    async def test_run_agent_skips_unsupported_state_fields(self):
+        """Fields absent from a state model are not passed (no validation errors)."""
+        from aiq_agent.agents.shallow_researcher.models import ShallowResearchAgentState
+        from aiq_api.jobs.runner import _run_agent
+
+        captured: dict = {}
+
+        class FakeShallowAgent:
+            async def run(self, state):
+                captured["state"] = state
+                return state
+
+        FakeShallowAgent.__module__ = "aiq_agent.agents.shallow_researcher.agent"
+        FakeShallowAgent.__name__ = "ShallowResearcherAgent"
+
+        monitor = MagicMock()
+        monitor.is_cancelled = False
+        monitor.start = MagicMock()
+        monitor.stop = AsyncMock()
+
+        await _run_agent(
+            agent=FakeShallowAgent(),
+            input_text="quick lookup",
+            monitor=monitor,
+            user_info={"name": "Ada"},
+            clarifier_result="not a shallow field",
+            project_context="facts: {}",
+        )
+
+        state = captured["state"]
+        assert isinstance(state, ShallowResearchAgentState)
+        assert state.user_info == {"name": "Ada"}
+        assert state.project_context == "facts: {}"
+        assert not hasattr(state, "clarifier_result")
 
 
 class TestEventStore:

@@ -16,6 +16,7 @@
 """Tests for the DeepResearcherAgent."""
 
 import asyncio
+import contextlib
 import json
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
@@ -38,12 +39,33 @@ from aiq_agent.agents.deep_researcher.tools.research import researcher_invoke_st
 from aiq_agent.common import LLMProvider
 from aiq_agent.common import LLMRole
 from aiq_agent.common.citation_verification import SourceEntry
+from aiq_agent.common.citation_verification import SourceRegistry
+from aiq_agent.common.citation_verification import reset_session_registry
+from aiq_agent.common.citation_verification import set_session_registry
 
 
 @tool
 def web_search_tool(query: str) -> str:
     """Search the web for information."""
     return f"Results for: {query}"
+
+
+@contextlib.contextmanager
+def seeded_session_registry(*entries: SourceEntry):
+    """Bind a session-scoped SourceRegistry pre-populated with entries.
+
+    run() resets the middleware's per-run capture state (begin_run), so tests
+    that simulate mid-run captured sources must seed the session registry the
+    same way the chat entrypoint binds one per conversation.
+    """
+    registry = SourceRegistry()
+    for entry in entries:
+        registry.add(entry)
+    token = set_session_registry(registry)
+    try:
+        yield registry
+    finally:
+        reset_session_registry(token)
 
 
 def output_markdown_file(markdown: str | None = None) -> dict:
@@ -485,6 +507,42 @@ class TestDeepResearcherAgent:
             assert "all highest-priority routed recommendations' exact `tool_names`" in planner_prompt
             for removed_field in ("assembly_instruction", "selection_mode", "expected_count", "options"):
                 assert removed_field not in planner_prompt
+
+    def test_prompts_carry_grid_oib_domain_grounding(
+        self,
+        mock_llm_provider,
+        real_tool,
+        mock_create_deep_agent,
+    ):
+        """All deep research prompts identify as Grid OIB and anchor regulation citations."""
+        with (
+            patch(
+                "aiq_agent.agents.deep_researcher.factory.create_deep_agent",
+                return_value=mock_create_deep_agent,
+            ) as create,
+            patch(
+                "aiq_agent.agents.deep_researcher.factory.create_agent",
+                return_value=mock_create_deep_agent,
+            ) as create_researcher,
+        ):
+            from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+
+            agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
+            state = DeepResearchAgentState(messages=[HumanMessage(content="OIB 4 stair requirements")])
+
+            agent._build_orchestrator_agent(state)
+
+            kwargs = create.call_args.kwargs
+            subagents = {subagent["name"]: subagent for subagent in kwargs["subagents"]}
+            assert "Grid OIB" in kwargs["system_prompt"]
+            assert "Austrian building regulations" in kwargs["system_prompt"]
+            assert "Grid OIB" in subagents["planner-agent"]["system_prompt"]
+            assert "Bundesland" in subagents["planner-agent"]["system_prompt"]
+            assert "Grid OIB" in subagents["writer-agent"]["system_prompt"]
+            assert "edition/year" in subagents["writer-agent"]["system_prompt"]
+            researcher_prompt = create_researcher.call_args.kwargs["system_prompt"]
+            assert "Grid OIB" in researcher_prompt
+            assert "regulatory anchor" in researcher_prompt
 
     def test_build_orchestrator_omits_skills_when_disabled(
         self,
@@ -1056,8 +1114,8 @@ class TestDeepResearcherAgent:
                 tools=[real_tool],
             )
             state = DeepResearchAgentState(messages=[HumanMessage(content="Quick query")])
-            agent.source_registry_middleware.registry.add(SourceEntry(url="https://example.com"))
-            await agent.run(state)
+            with seeded_session_registry(SourceEntry(url="https://example.com")):
+                await agent.run(state)
 
             mock_llm_provider.get.assert_any_call(LLMRole.PLANNER)
             mock_llm_provider.get.assert_any_call(LLMRole.ROUTER)
@@ -1079,9 +1137,8 @@ class TestDeepResearcherAgent:
             )
 
             state = DeepResearchAgentState(messages=[HumanMessage(content="Compare CUDA vs OpenCL in depth")])
-            agent.source_registry_middleware.registry.add(SourceEntry(url="https://example.com"))
-
-            result = await agent.run(state)
+            with seeded_session_registry(SourceEntry(url="https://example.com")):
+                result = await agent.run(state)
 
             assert result is not None
             assert result.messages is not None
@@ -1099,9 +1156,8 @@ class TestDeepResearcherAgent:
             )
 
             state = DeepResearchAgentState(messages=[])
-            agent.source_registry_middleware.registry.add(SourceEntry(url="https://example.com"))
-
-            result = await agent.run(state)
+            with seeded_session_registry(SourceEntry(url="https://example.com")):
+                result = await agent.run(state)
 
             assert result is not None
 
@@ -1119,9 +1175,8 @@ class TestDeepResearcherAgent:
             )
 
             state = DeepResearchAgentState(messages=[HumanMessage(content="Test query")])
-            agent.source_registry_middleware.registry.add(SourceEntry(url="https://example.com"))
-
-            await agent.run(state)
+            with seeded_session_registry(SourceEntry(url="https://example.com")):
+                await agent.run(state)
 
             # Callbacks should have been passed to ainvoke
             call_kwargs = mock_create_deep_agent.ainvoke.call_args
@@ -1164,9 +1219,8 @@ class TestDeepResearcherAgent:
             )
 
             state = DeepResearchAgentState(messages=[HumanMessage(content="Test")])
-            agent.source_registry_middleware.registry.add(SourceEntry(url="https://example.com"))
-
-            result = await agent.run(state)
+            with seeded_session_registry(SourceEntry(url="https://example.com")):
+                result = await agent.run(state)
 
             # Should handle empty messages
             assert result is not None
@@ -1199,9 +1253,8 @@ class TestDeepResearcherAgent:
             )
 
             state = DeepResearchAgentState(messages=[HumanMessage(content="Original query")])
-            agent.source_registry_middleware.registry.add(SourceEntry(url="https://example.com"))
-
-            result = await agent.run(state)
+            with seeded_session_registry(SourceEntry(url="https://example.com")):
+                result = await agent.run(state)
 
             assert result.messages[0].content == "Original query"
             assert result.messages[1].content == "I'll help with that."
@@ -1209,6 +1262,91 @@ class TestDeepResearcherAgent:
             assert (
                 result.messages[3].content == "Writer markdown [1].\n\n## Sources\n[1] Example: https://example.com\n"
             )
+
+
+class TestPerRunSourceRegistryReset:
+    """run() must not leak captured sources or compact keys across runs."""
+
+    @pytest.fixture
+    def mock_llm(self):
+        llm = MagicMock()
+        llm.ainvoke = AsyncMock()
+        llm.bind_tools = MagicMock(return_value=llm)
+        return llm
+
+    @pytest.fixture
+    def mock_llm_provider(self, mock_llm):
+        provider = LLMProvider()
+        provider.set_default(mock_llm)
+        provider.configure(LLMRole.ORCHESTRATOR, mock_llm)
+        provider.configure(LLMRole.PLANNER, mock_llm)
+        provider.configure(LLMRole.RESEARCHER, mock_llm)
+        provider.configure(LLMRole.REPORT_WRITER, mock_llm)
+        return provider
+
+    def test_begin_run_clears_instance_registry_without_session_registry(self, mock_llm_provider):
+        """Standalone mode: stale sources from a previous run are dropped."""
+        with patch(
+            "aiq_agent.agents.deep_researcher.factory.create_deep_agent",
+            return_value=MagicMock(),
+        ):
+            from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+
+            agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[web_search_tool])
+            middleware = agent.source_registry_middleware
+            middleware.registry.add(SourceEntry(url="https://stale.example.com"))
+            note = MagicMock()
+            note.sources = [MagicMock(locator="https://stale.example.com")]
+            middleware.register_research_note_sources([note])
+
+            middleware.begin_run()
+
+            assert middleware.registry.all_sources() == []
+            assert middleware._compact_source_keys == set()
+
+    def test_begin_run_preserves_session_registry(self, mock_llm_provider):
+        """Conversation mode: the session-scoped registry spans turns and must survive."""
+        with patch(
+            "aiq_agent.agents.deep_researcher.factory.create_deep_agent",
+            return_value=MagicMock(),
+        ):
+            from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+
+            agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[web_search_tool])
+            middleware = agent.source_registry_middleware
+            middleware.registry.add(SourceEntry(url="https://instance.example.com"))
+
+            with seeded_session_registry(SourceEntry(url="https://session.example.com")) as session_registry:
+                middleware.begin_run()
+                assert [s.url for s in session_registry.all_sources()] == ["https://session.example.com"]
+            # Instance registry untouched while a session registry was active.
+            assert [s.url for s in middleware.registry.all_sources()] == ["https://instance.example.com"]
+
+    @pytest.mark.asyncio
+    async def test_second_run_does_not_reuse_first_run_sources(self, mock_llm_provider):
+        """A reused prebuilt agent starts each standalone run with an empty registry."""
+        mock_agent = MagicMock()
+        mock_agent.with_config = MagicMock(return_value=mock_agent)
+        mock_agent.ainvoke = AsyncMock(
+            return_value={
+                "messages": [AIMessage(content="done")],
+                "files": output_markdown_file(),
+            }
+        )
+        with patch(
+            "aiq_agent.agents.deep_researcher.factory.create_deep_agent",
+            return_value=mock_agent,
+        ):
+            from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+            from aiq_agent.common.citation_verification import EmptySourceRegistryError
+
+            agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[web_search_tool])
+            # Simulate sources captured by a previous standalone run.
+            agent.source_registry_middleware.registry.add(SourceEntry(url="https://run-one.example.com"))
+
+            state = DeepResearchAgentState(messages=[HumanMessage(content="Next request")])
+            with pytest.raises(EmptySourceRegistryError):
+                await agent.run(state)
 
 
 class TestFinalMarkdownExtraction:
@@ -1315,11 +1453,11 @@ class TestFinalMarkdownExtraction:
             from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
 
             agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
-            agent.source_registry_middleware.registry.add(SourceEntry(url="https://example.com"))
 
             state = DeepResearchAgentState(messages=[HumanMessage(content="Write a report")])
-            with pytest.raises(ValueError, match="writer-agent did not produce a final Markdown answer"):
-                await agent.run(state)
+            with seeded_session_registry(SourceEntry(url="https://example.com")):
+                with pytest.raises(ValueError, match="writer-agent did not produce a final Markdown answer"):
+                    await agent.run(state)
 
 
 class TestDeepResearcherCitationVerification:
@@ -1368,21 +1506,18 @@ class TestDeepResearcherCitationVerification:
         ):
             agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
 
-            # Pre-populate registry with the matching URL plus an unrelated tool source.
-            agent.source_registry_middleware.registry.add(
-                SourceEntry(
-                    citation_key="weather_observation_tool",
-                    source_type="tool_result",
-                    tool_name="weather_observation_tool",
-                )
-            )
-            agent.source_registry_middleware.registry.add(
-                SourceEntry(url="https://docs.nvidia.com/cuda/", title="CUDA Docs", tool_name="web_search")
-            )
-
             # Force the verifier to report "no valid citations" while leaving the report unchanged,
             # so we can assert post-processing does not synthesize a citation.
             with (
+                # Pre-populate registry with the matching URL plus an unrelated tool source.
+                seeded_session_registry(
+                    SourceEntry(
+                        citation_key="weather_observation_tool",
+                        source_type="tool_result",
+                        tool_name="weather_observation_tool",
+                    ),
+                    SourceEntry(url="https://docs.nvidia.com/cuda/", title="CUDA Docs", tool_name="web_search"),
+                ),
                 patch(
                     "aiq_agent.agents.deep_researcher.agent.verify_citations",
                     return_value=MagicMock(
@@ -1424,11 +1559,11 @@ class TestDeepResearcherCitationVerification:
             return_value=mock_agent,
         ):
             agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
-            agent.source_registry_middleware.registry.add(
-                SourceEntry(url="https://docs.nvidia.com/cuda/", title="CUDA Docs", tool_name="web_search")
-            )
 
             with (
+                seeded_session_registry(
+                    SourceEntry(url="https://docs.nvidia.com/cuda/", title="CUDA Docs", tool_name="web_search")
+                ),
                 patch(
                     "aiq_agent.agents.deep_researcher.agent.verify_citations",
                     return_value=MagicMock(

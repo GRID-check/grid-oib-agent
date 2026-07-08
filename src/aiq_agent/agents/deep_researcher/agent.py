@@ -190,6 +190,10 @@ class DeepResearcherAgent:
         """
         Execute deep research with multi-phase workflow.
         """
+        # Reset per-run capture state on the shared middleware before the run
+        # (stale-source and compact-key leakage across reused agent instances).
+        self.source_registry_middleware.begin_run()
+
         agent = self._build_orchestrator_agent(state)
 
         messages = state.messages

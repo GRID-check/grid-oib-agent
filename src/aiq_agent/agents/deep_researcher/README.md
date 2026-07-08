@@ -9,99 +9,97 @@ The deep agents architecture provides a publication-ready research report genera
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                  DeepResearcherAgent                            │
-│                 (Orchestrator Agent)                            │
-│                  ORCHESTRATOR LLM                               │
-│                                                                 │
-│  Coordinates subagents in a multi-phase research workflow      │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-        ┌─────────────────────┴─────────────────────┐
-        │                                           │
-        ▼                                           ▼
-┌───────────────────────┐             ┌───────────────────────┐
-│     planner-agent     │             │   researcher-agent    │
-│      PLANNER LLM      │             │    RESEARCHER LLM     │
-│                       │             │                       │
-│ Content-driven        │             │ Information gathering │
-│ research planning -   │             │ - executes search     │
-│ iteratively builds    │             │ queries and           │
-│ evidence-grounded     │             │ synthesizes relevant  │
-│ outlines              │             │ content from sources  │
-└───────────────────────┘             └───────────────────────┘
-        │                                           │
-        └─────────────────────┬─────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                       Research Tools                            │
-│  - Tavily Web Search (tavily_web_search)                        │
-│  - Paper search (optional)                                      │
-│  - Custom tools via configuration                               │
-└─────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                  DeepResearcherAgent                             │
+│                 (DeepAgents orchestrator)                        │
+│                    ORCHESTRATOR LLM                              │
+│                                                                  │
+│  Tools: think, get_verified_sources, run_research_batch          │
+│  Delegates to subagents via task(); files live under /shared/    │
+└──────────────────────────────────────────────────────────────────┘
+        │                │                    │                │
+        ▼                ▼                    ▼                ▼
+┌───────────────┐ ┌───────────────┐ ┌──────────────────┐ ┌────────────────┐
+│ source-router │ │ planner-agent │ │ run_research_    │ │  writer-agent  │
+│    -agent     │ │  PLANNER LLM  │ │ batch tool       │ │REPORT_WRITER   │
+│  ROUTER LLM   │ │               │ │ (researcher      │ │      LLM       │
+│               │ │ Plans queries │ │ workers,         │ │                │
+│ Advisory      │ │ via discovery │ │ RESEARCHER LLM,  │ │ Reads /shared/ │
+│ domain/source │ │ searches →    │ │ concurrent,      │ │ plan + notes → │
+│ route →       │ │ ResearchPlan +│ │ structured       │ │ cited Markdown │
+│ /shared/      │ │ /shared/      │ │ ResearchNotes →  │ │ → /shared/     │
+│ source_       │ │ plan.json     │ │ /shared/         │ │ output.md      │
+│ routing.json  │ │               │ │ research_note_*  │ │                │
+└───────────────┘ └───────────────┘ └──────────────────┘ └────────────────┘
 ```
+
+Research source tools (web search, knowledge search, paper search, custom
+tools) are used by the planner (discovery) and researcher workers. Source
+tools with a single string input are upgraded to same-name batch-capable
+wrappers with a shared concurrency limiter
+(`tools/source_tool_batching.py`).
 
 ## Middleware Stack
 
-The orchestrator and subagents use middleware for task management and state persistence:
-
-### Orchestrator Middleware
-
-| Middleware | Purpose |
-|------------|---------|
-| `TodoListMiddleware` | Tracks research tasks and progress |
-| `FilesystemMiddleware` | Manages state persistence with configurable backend |
-| `EmptyContentFixMiddleware` | Handles empty content from subagents |
-| `ModelRetryMiddleware` | Retries model calls with backoff |
-| `SubAgentMiddleware` | Coordinates subagent execution and routing |
-
-### Subagent Middleware
-
-Declarative subagents such as planner-agent and writer-agent receive DeepAgents runtime middleware:
+Built in `factory.py` (`build_common_middleware`), shared by the
+orchestrator and all subagents:
 
 | Middleware | Purpose |
 |------------|---------|
-| `TodoListMiddleware` | Tracks subtasks within the subagent |
-| `FilesystemMiddleware` | Manages subagent-level state |
-| `EmptyContentFixMiddleware` | Handles empty content |
-| `ModelRetryMiddleware` | Retries model calls with backoff |
+| `EmptyContentFixMiddleware` | Replaces empty ToolMessage content (some APIs reject it) |
+| `ToolNameSanitizationMiddleware` | Repairs corrupted/hallucinated tool names |
+| `ToolRetryMiddleware` (langchain) | Retries failed tool calls with backoff |
+| `SourceRegistryMiddleware` | Captures source URLs/citation keys from tool results; feeds `get_verified_sources` and citation verification |
+| `ToolResultPruningMiddleware` | Truncates older tool results to protect the context window |
+| `ModelRetryMiddleware` (langchain) | Retries model calls with backoff |
 
-Isolated researcher workers launched by `run_research_batch` do not use `TodoListMiddleware`; they return structured `ResearchNotes` directly.
+The orchestrator additionally gets DeepAgents runtime middleware
+(TodoList, Filesystem, SubAgents) from `create_deep_agent`. Researcher
+workers are separate `create_agent` runnables with `FilesystemMiddleware`,
+summarization middleware, `PatchToolCallsMiddleware`, and structured
+`ResearchNotes` output — no TodoList. When no sandbox is configured, a
+`ToolVisibilityMiddleware` hides the `execute` tool.
 
 ## Workflow Phases
 
-### Phase 1: Research Planning
+### Phase 1 (optional): Source Routing
 
-The **planner-agent** analyzes the user query and generates a structured research plan:
+The **source-router-agent** (enabled by `enable_source_router`, default
+true) reads the configured source/domain catalog via
+`lookup_source_catalog` and writes an advisory route to
+`/shared/source_routing.json`. The planner treats it as guidance, not a
+constraint.
 
-- Creates 4-6 strategic search queries
-- Maps queries to report sections
-- Builds evidence-grounded outlines through interleaved search and optimization
+### Phase 2: Research Planning
 
-### Phase 2: Iterative Research
+The **planner-agent** runs discovery searches (internal-vs-external
+triage first), then returns a structured `ResearchPlan` — task analysis,
+answer strategy with required components, constraints, and self-contained
+`ResearchQuery` objects — and writes it to `/shared/plan.json`.
 
-The workflow executes configurable research loops (default: 2):
+### Phase 3: Batched Research
 
-1. **researcher-agent** executes search queries via configured tools
-2. Gathers and synthesizes relevant content from available sources
-3. **Orchestrator** creates/updates draft report sections
-4. **Orchestrator** analyzes draft and identifies gaps for follow-up queries
+The orchestrator submits planned queries to the **`run_research_batch`**
+tool (at most `max_research_concurrency` per call). Each query runs a
+researcher worker concurrently; workers return structured `ResearchNotes`
+(findings, sources, gaps, evidence judgment) which the tool persists under
+`/shared/` and registers with the source registry. Failed workers surface
+as tool errors listing only the queries to resubmit.
 
-### Phase 3: Citation Management
+### Phase 4: Final Synthesis
 
-The **orchestrator** catalogs all sources:
+The **writer-agent** reads the plan, all research notes, and the verified
+source list (`get_verified_sources`), then writes the final cited Markdown
+to `/shared/output.md` and returns a short completion marker.
 
-- Numbers citations sequentially
-- Formats references for the final report
+### Phase 5: Deterministic Post-Processing
 
-### Phase 4: Final Report
-
-The **orchestrator** produces the polished report:
-
-- Inline citations with numbered references
-- Structured sections based on the research plan
-- Publication-ready formatting
+`DeepResearcherAgent.run()` extracts `/shared/output.md`, verifies every
+citation against the captured source registry (`verify_citations`,
+controlled by `enable_citation_verification`), sanitizes URLs
+(`sanitize_report`), re-emits the final report through callbacks, and
+replaces the final message content. A run that captured no sources raises
+`EmptySourceRegistryError`.
 
 ## Components
 
@@ -111,8 +109,9 @@ The core deep research agent using the DeepAgents library.
 
 **Location**: `src/aiq_agent/agents/deep_researcher/`
 
-For optional DeepAgents sandbox behavior and v1 operational notes, see
-[`docs/source/architecture/agents/sandbox.md`](../../../../docs/source/architecture/agents/sandbox.md).
+Optional DeepAgents sandbox behavior is configured via the
+`deep_research_sandbox` config (see `deepagents_runtime.py` and
+`configs/config_domain_routing_and_skills.yml` for a working example).
 
 **Configuration:**
 
@@ -141,7 +140,15 @@ functions:
 | `planner_llm` | LLMRef | optional | LLM for planner subagent; falls back to default if unset |
 | `writer_llm` | LLMRef | optional | LLM for final writer subagent; falls back to default if unset |
 | `enable_source_router` | bool | `true` | Enable advisory source routing before planning |
-| `tools` | list | `[]` | Research tools (web search, paper search, etc.) |
+| `enable_citation_verification` | bool | `true` | Verify final citations against the captured source registry; a run with zero captured sources fails with `EmptySourceRegistryError` |
+| `tools` | list | `[]` | Research tools. Empty = inherit all tools from the data source registry. Keep this list evidence-only: interaction tools such as `emit_card`/`remember` belong to the shallow agent, not here — every loaded tool is treated as a citable source |
+| `exclude_tools` | list | `[]` | Tool names to exclude when inheriting from the registry |
+| `skills` | config/ref | unset | Optional `deep_research_skills` assignment of built-in skill collections to `researcher-agent`/`writer-agent` |
+| `sandbox` | config/ref | unset | Optional `deep_research_sandbox` (Modal) backend enabling the `execute` tool |
+| `domain_catalog_path` | str | unset | YAML/JSON domain catalog for the source router |
+| `max_research_concurrency` | int | `6` | Max ResearchQuery items per `run_research_batch` call |
+| `max_concurrent_source_tool_calls` | int | `5` | Shared source-tool concurrency across researcher workers |
+| `max_source_tool_batch_size` | int | `4` | Max inputs per batch-capable source tool call |
 | `verbose` | bool | `true` | Enable detailed logging |
 
 ### Workflow: `deep_research_workflow`
@@ -166,9 +173,14 @@ The agent uses role-based LLM access via `LLMProvider`:
 
 | Role | Usage | Configured By |
 |------|-------|---------------|
-| `ORCHESTRATOR` | Orchestrator, final report generation | `orchestrator_llm` config |
-| `RESEARCHER` | researcher-agent subagent | `researcher_llm` config (optional; falls back to default) |
+| `ORCHESTRATOR` | Orchestrator | `orchestrator_llm` config |
+| `ROUTER` | source-router-agent subagent | `source_router_llm` config (optional; falls back to default) |
 | `PLANNER` | planner-agent subagent | `planner_llm` config (optional; falls back to default) |
+| `RESEARCHER` | researcher workers | `researcher_llm` config (optional; falls back to default) |
+| `REPORT_WRITER` | writer-agent subagent | `writer_llm` config (optional; falls back to default) |
+
+Per-org runtime model overrides (`X-Grid-Model-Overrides`) are applied per
+agent group via `LLMProvider.with_model_overrides` in `register.py`.
 
 ## Configuration Example
 
@@ -229,10 +241,16 @@ The agent loads prompts from `src/aiq_agent/agents/deep_researcher/prompts/`:
 
 | Prompt | Purpose |
 |--------|---------|
+| `orchestrator.j2` | Main orchestrator instructions (workflow steps, delegation templates, clarifier_result, available_documents) |
+| `source_router.j2` | Advisory source routing instructions |
 | `planner.j2` | Instructions for the planning subagent |
-| `researcher.j2` | Instructions for the researcher subagent |
-| `orchestrator.j2` | Main orchestrator instructions (includes current datetime, clarifier_result, available_documents) |
+| `researcher.j2` | Instructions for researcher workers |
+| `writer.j2` | Final synthesis and citation contract for the writer subagent |
+| `source_registry.j2` | Template for the verified source list shown to the writer |
 
+All prompts identify as Grid OIB (Austrian building regulations) and carry
+domain conventions for regulation-anchored citations, while remaining
+usable for general research requests.
 
 ## State and context
 
@@ -240,6 +258,24 @@ The agent loads prompts from `src/aiq_agent/agents/deep_researcher/prompts/`:
 
 - **`clarifier_result`**: When the user goes through the clarifier (plan approval) before deep research, the approved plan or clarification log is passed here and injected into the orchestrator prompt.
 - **`available_documents`**: User-uploaded documents with summaries; injected into subagent prompts for context.
+- **`user_info`**: Authenticated user identity (name/email) rendered into all subagent prompts.
+- **`project_context`**: The project brief (facts/assumptions/unknowns) rendered into all subagent prompts.
+- **`data_sources`**: User-selected data sources; filters the runtime tool set per request.
+
+## Execution paths
+
+- **Synchronous (in-process)**: the chat researcher's `deep_research_node`
+  builds `DeepResearchAgentState` directly and awaits the agent.
+- **Asynchronous (Dask job)**: with `use_async_deep_research: true` and
+  `NAT_DASK_SCHEDULER_ADDRESS` set, the chat workflow submits the job via
+  `aiq_api.jobs.submit.submit_agent_job` and immediately returns the job
+  id. The worker (`aiq_api.jobs.runner`) rebuilds the agent from the NAT
+  config and forwards `user_info`, `clarifier_result`, `project_context`,
+  `available_documents`, and `data_sources` onto the state so both paths
+  render identical prompts. Grid response cards are generated post-hoc from
+  the final report in the job runner (the `emit_card` tool used by the
+  shallow agent requires the chat request's conversation-scoped card
+  registry, which does not exist inside a Dask worker).
 
 
 ## Evaluation

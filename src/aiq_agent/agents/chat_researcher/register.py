@@ -15,6 +15,7 @@
 
 """NAT register function for chat researcher agent."""
 
+import asyncio
 import logging
 from typing import Any
 
@@ -334,8 +335,6 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                         raise RuntimeError("Cannot submit deep research job without messages.")
                     query = state.messages[0].content
                 input_text = query if isinstance(query, str) else str(query)
-                if state.clarifier_result:
-                    input_text = f"{input_text}\n\n## Clarification Context\n{state.clarifier_result}"
 
                 # Serialize available_documents for the Dask worker
                 available_docs = None
@@ -355,6 +354,12 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                     collection_scope=state.collection_scope,
                     project_context=state.project_context,
                     model_overrides=get_model_overrides_from_context() or None,
+                    # Structured fields (not prose-folded into input_text) so the
+                    # worker sets them on DeepResearchAgentState and the deep
+                    # prompts render their dedicated sections, same as the
+                    # synchronous in-process deep research path.
+                    user_info=state.user_info,
+                    clarifier_result=state.clarifier_result,
                 )
 
             deep_research_job_submitter = _submit_deep_job

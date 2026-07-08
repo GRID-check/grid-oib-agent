@@ -255,6 +255,7 @@ class ChatResearcherAgent:
                 shallow_state = ShallowResearchAgentState(
                     messages=trimmed_messages,
                     data_sources=state.data_sources,
+                    user_info=state.user_info,
                     available_documents=state.available_documents,
                     project_context=state.project_context,
                     requires_sources=requires_sources,
