@@ -48,6 +48,7 @@ export const research: typeof en.research = {
     addSources: 'Datenquellen hinzufügen',
     signInToManage: 'Melden Sie sich an, um Datenquellen zu verwalten',
     sources: 'Quellen',
+    research: 'Recherche',
   },
 
   dataSources: {
@@ -239,7 +240,6 @@ export const research: typeof en.research = {
   },
 
   researchPanel: {
-    showResearch: 'Recherche anzeigen',
     closePanel: 'Recherchebereich schließen',
     openPanel: 'Recherchebereich öffnen',
     signInToAccess: 'Melden Sie sich an, um auf den Recherchebereich zuzugreifen',

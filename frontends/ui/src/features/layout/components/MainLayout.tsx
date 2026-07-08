@@ -142,7 +142,9 @@ export const MainLayout: FC<MainLayoutProps> = ({ isAuthenticated = false, onSig
   )
 
   const content = (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-auto overflow-y-hidden md:min-w-[768px]">
+    // h-full pins the chat surface to the viewport: the toolbar stays at the
+    // top, the composer at the bottom, and only the message list scrolls.
+    <div className="flex h-full min-w-0 flex-col overflow-hidden">
       <ChatToolbar
         sessionTitle={currentConversation?.title}
         onNewSession={handleNewSession}
@@ -150,10 +152,10 @@ export const MainLayout: FC<MainLayoutProps> = ({ isAuthenticated = false, onSig
       />
 
       {/* Main Content Area - using explicit widths instead of flex for smoother animation */}
-      <div className="relative flex flex-1 overflow-hidden">
+      <div className="relative flex min-h-0 flex-1 overflow-hidden">
         {/* Center Content: Chat + Input - Responsive to research panel */}
         <div
-          className="flex flex-col overflow-hidden"
+          className="flex min-w-0 flex-col overflow-hidden"
           style={{
             // Balanced split: the research panel informs alongside chat rather
             // than squeezing it into a cramped column. On mobile the panel
@@ -173,8 +175,8 @@ export const MainLayout: FC<MainLayoutProps> = ({ isAuthenticated = false, onSig
           <InputArea isAuthenticated={isAuthenticated} connectionMode="websocket" />
         </div>
 
-        {/* Research Panel (Right) - Pushes content, takes 60% width */}
-        <ResearchPanel isAuthenticated={isAuthenticated} />
+        {/* Research Panel (Right) - Pushes content, shares the width 50/50 */}
+        <ResearchPanel />
       </div>
 
       {/* Overlay Panels - These slide over the content */}
