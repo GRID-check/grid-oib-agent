@@ -1,70 +1,27 @@
-import { NextResponse } from 'next/server'
-import { desc, eq } from 'drizzle-orm'
+/**
+ * Conversations API — list and create conversations for the current
+ * organization. Thin handlers; all logic lives in
+ * `@/lib/conversations/service`.
+ */
+
 import { z } from 'zod'
-import { authzErrorResponse, requireAuthorizedSession } from '@/lib/auth/require-auth'
-import { getDb } from '@/lib/db'
-import { conversations } from '@/lib/db/schema'
+import { apiRoute, parseJsonBody } from '@/lib/api/handler'
+import { createConversation, listConversations } from '@/lib/conversations/service'
 
 const createConversationSchema = z.object({
-  id: z.string().min(1),
+  // Client-generated id; length-capped so user-controlled strings never
+  // reach the database unbounded.
+  id: z.string().min(1).max(128),
   title: z.string().nullable().optional(),
   projectId: z.string().uuid().nullable().optional(),
 })
 
-export async function GET(_request: Request): Promise<Response> {
-  try {
-    const session = await requireAuthorizedSession()
-    const db = getDb()
+export const GET = apiRoute(async ({ session }) => listConversations(session))
 
-    const rows = await db
-      .select()
-      .from(conversations)
-      .where(eq(conversations.organizationId, session.organizationId))
-      .orderBy(desc(conversations.updatedAt))
-
-    return NextResponse.json(rows)
-  } catch (error) {
-    const denied = authzErrorResponse(error)
-    if (denied) return denied
-    throw error
-  }
-}
-
-export async function POST(request: Request): Promise<Response> {
-  try {
-    const session = await requireAuthorizedSession()
-
-    const body = await request.json().catch(() => null)
-    if (!body) {
-      return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
-    }
-
-    const parsed = createConversationSchema.safeParse(body)
-    if (!parsed.success) {
-      return NextResponse.json(
-        { error: 'id is required', issues: parsed.error.issues },
-        { status: 400 },
-      )
-    }
-
-    const { id, title, projectId } = parsed.data
-    const db = getDb()
-
-    const [row] = await db
-      .insert(conversations)
-      .values({
-        id,
-        organizationId: session.organizationId,
-        createdBy: session.userId,
-        title: title ?? null,
-        projectId: projectId ?? null,
-      })
-      .returning()
-
-    return NextResponse.json(row, { status: 201 })
-  } catch (error) {
-    const denied = authzErrorResponse(error)
-    if (denied) return denied
-    throw error
-  }
-}
+export const POST = apiRoute(
+  async ({ session, request }) => {
+    const input = await parseJsonBody(request, createConversationSchema)
+    return createConversation(session, input)
+  },
+  { status: 201 },
+)

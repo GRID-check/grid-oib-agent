@@ -1,0 +1,117 @@
+/**
+ * Conversations service — business logic for the conversations domain.
+ *
+ * Owns authorization: org tenancy is enforced through org-scoped repository
+ * queries, and linking a conversation to a project requires project access
+ * (`requireProjectAccess`). Route handlers stay thin: they validate input
+ * shape and delegate here. Failures are signalled with typed errors from
+ * `@/lib/api/errors` — cross-org lookups surface as `NotFoundError` so
+ * responses never confirm the existence of other tenants' conversations.
+ */
+
+import 'server-only'
+import { requireProjectAccess } from '@/lib/authz/projects'
+import { NotFoundError } from '@/lib/api/errors'
+import type { AuthorizedSession } from '@/lib/auth/types'
+import type { Conversation, Message } from '@/lib/db/schema'
+import {
+  deleteConversationInOrg,
+  findConversationInOrg,
+  insertConversation,
+  insertMessages,
+  listConversationsInOrg,
+  listMessagesForConversation,
+  updateConversationTitleInOrg,
+} from './repository'
+
+export interface CreateConversationInput {
+  id: string
+  title?: string | null
+  projectId?: string | null
+}
+
+export interface CreateMessageInput {
+  id: string
+  role: 'user' | 'assistant' | 'system' | 'tool'
+  content: string
+  metadata?: Record<string, unknown>
+  createdAt?: string
+}
+
+export async function listConversations(session: AuthorizedSession): Promise<Conversation[]> {
+  return listConversationsInOrg(session.organizationId)
+}
+
+export async function getConversation(session: AuthorizedSession, conversationId: string): Promise<Conversation> {
+  const conversation = await findConversationInOrg(conversationId, session.organizationId)
+  if (!conversation) throw new NotFoundError()
+  return conversation
+}
+
+/**
+ * Create a conversation. When the caller links it to a project, they must be
+ * able to see that project — otherwise any org member could attach
+ * conversations to (and probe the existence of) arbitrary project ids.
+ */
+export async function createConversation(
+  session: AuthorizedSession,
+  input: CreateConversationInput,
+): Promise<Conversation> {
+  if (input.projectId) {
+    await requireProjectAccess(session, input.projectId, 'project:view')
+  }
+
+  return insertConversation({
+    id: input.id,
+    organizationId: session.organizationId,
+    createdBy: session.userId,
+    title: input.title ?? null,
+    projectId: input.projectId ?? null,
+  })
+}
+
+export async function updateConversationTitle(
+  session: AuthorizedSession,
+  conversationId: string,
+  title: string,
+): Promise<Conversation> {
+  const conversation = await updateConversationTitleInOrg(conversationId, session.organizationId, title)
+  if (!conversation) throw new NotFoundError()
+  return conversation
+}
+
+/** Delete a conversation. Idempotent: deleting a missing id is a no-op. */
+export async function deleteConversation(session: AuthorizedSession, conversationId: string): Promise<void> {
+  await deleteConversationInOrg(conversationId, session.organizationId)
+}
+
+/** List a conversation's messages, oldest first (404 for cross-org/missing). */
+export async function listConversationMessages(
+  session: AuthorizedSession,
+  conversationId: string,
+): Promise<Message[]> {
+  const conversation = await findConversationInOrg(conversationId, session.organizationId)
+  if (!conversation) throw new NotFoundError()
+  return listMessagesForConversation(conversationId)
+}
+
+/** Append one or more messages to a conversation (404 for cross-org/missing). */
+export async function createConversationMessages(
+  session: AuthorizedSession,
+  conversationId: string,
+  inputs: CreateMessageInput[],
+): Promise<Message[]> {
+  const conversation = await findConversationInOrg(conversationId, session.organizationId)
+  if (!conversation) throw new NotFoundError()
+
+  return insertMessages(
+    inputs.map((input) => ({
+      id: input.id,
+      conversationId,
+      role: input.role,
+      content: input.content,
+      metadata: input.metadata ?? {},
+      createdAt: input.createdAt ? new Date(input.createdAt) : new Date(),
+    })),
+  )
+}
