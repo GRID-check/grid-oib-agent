@@ -7,7 +7,7 @@ import { z } from 'zod'
 import { Lock, Search, UserPlus, Users } from 'lucide-react'
 import { useAppForm } from '@/components/form'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
@@ -29,6 +29,7 @@ interface Member {
   userId: string
   email: string | null
   name: string
+  profilePictureUrl: string | null
   role: ProjectRole | null
 }
 
@@ -330,8 +331,12 @@ export function ProjectMembersForm({ projectId, canManage }: ProjectMembersFormP
                   className="flex flex-col gap-3 px-4 py-3.5 transition-colors duration-200 ease-out hover:bg-accent/40 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-6"
                 >
                   <div className="flex min-w-0 items-center gap-3">
-                    <Avatar className="size-9">
-                      <AvatarFallback className="text-xs font-semibold">
+                    {/* Square with a slight radius to match the WorkOS members widget. */}
+                    <Avatar className="size-9 rounded-md">
+                      {member.profilePictureUrl && (
+                        <AvatarImage src={member.profilePictureUrl} alt="" />
+                      )}
+                      <AvatarFallback className="rounded-md text-xs font-semibold">
                         {initials(member.name)}
                       </AvatarFallback>
                     </Avatar>
