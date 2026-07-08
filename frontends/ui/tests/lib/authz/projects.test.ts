@@ -51,6 +51,7 @@ const baseSession: AuthorizedSession = {
   organizationMembershipId: "om_1",
   role: "viewer",
   permissions: [],
+  featureFlags: null,
 };
 
 describe("requireProjectAccess", () => {

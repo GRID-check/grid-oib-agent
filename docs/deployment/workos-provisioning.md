@@ -98,6 +98,27 @@ messages, renames, user preferences) — it would drown the admin trail.
   Splunk, S3, …) are configured via the existing audit-log-streaming widget
   (`widgets:audit-log-streaming:manage` on the Admin role).
 
+### 6. Feature Flags (native WorkOS product)
+
+Premium/expensive features are gated behind **WorkOS Feature Flags**,
+delivered in the AuthKit JWT `feature_flags` claim (registry:
+`frontends/ui/src/lib/authz/feature-flags.ts`):
+
+| Flag slug | Gates |
+|---|---|
+| `runtime-model-config` | Runtime AI model configuration (org page card + all 4 API routes) |
+| `deep-research` | Deep-research job submission (`POST /api/jobs/async/submit`) |
+
+Rollout order (per environment): 1) create both flags in the WorkOS
+dashboard (Feature Flags — flag create/update events are covered by
+WorkOS's own event log), 2) target the organizations that should have them
+(dashboard, or `workos.featureFlags.addFlagTarget({ slug, targetId:
+'org_…' })`), 3) set `GRID_ENFORCE_FEATURE_FLAGS=true` in the deployment.
+While the env flag is `false` (default) nothing is gated, so existing
+deployments are unaffected. Once enforced, tokens minted before the rollout
+carry no `feature_flags` claim and fail closed — users pick the flags up at
+next sign-in. ⚠️ Not yet created in Staging.
+
 ## Replay into a fresh environment (e.g. Production)
 
 Via the WorkOS dashboard (or the management API):
@@ -114,6 +135,8 @@ Via the WorkOS dashboard (or the management API):
 6. Add the production web origin to AuthKit CORS and redirect URIs.
 7. Provision the Audit Log schemas: `WORKOS_API_KEY=<prod key> npm run
    provision:audit-schemas` (from `frontends/ui`).
+8. Create the two feature flags (§6), target the intended orgs, then set
+   `GRID_ENFORCE_FEATURE_FLAGS=true`.
 
 Bootstrap alternative: set `GRID_PLATFORM_OWNER_EMAILS=<owner email>` until
 steps 3–5 are done, then clear it.

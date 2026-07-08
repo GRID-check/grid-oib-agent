@@ -31,6 +31,7 @@ const session = (overrides: Partial<GridSession> = {}): GridSession => ({
   organizationMembershipId: 'om_1',
   role: 'admin',
   permissions: [],
+  featureFlags: null,
   ...overrides,
 })
 

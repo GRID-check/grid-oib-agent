@@ -24,6 +24,7 @@ const baseSession = {
   organizationMembershipId: 'om_1',
   role: 'member',
   permissions: [] as string[],
+  featureFlags: null,
 }
 
 function createStream(): ReadableStream<Uint8Array> {

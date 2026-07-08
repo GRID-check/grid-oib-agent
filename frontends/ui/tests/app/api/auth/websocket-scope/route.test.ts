@@ -96,6 +96,7 @@ describe('/api/auth/websocket-scope', () => {
       organizationMembershipId: 'om_1',
       role: 'member',
       permissions: [] as string[],
+  featureFlags: null,
     }
     mockGetGridSession.mockResolvedValue(session)
     mockRequireProjectAccess.mockResolvedValue({ role: 'project-viewer' as const })
@@ -125,6 +126,7 @@ describe('/api/auth/websocket-scope', () => {
       organizationMembershipId: 'om_1',
       role: 'member',
       permissions: [] as string[],
+  featureFlags: null,
     }
     mockGetGridSession.mockResolvedValue(session)
     mockRequireProjectAccess.mockRejectedValue(new Error('Not found'))

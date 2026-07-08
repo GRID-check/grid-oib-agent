@@ -25,6 +25,7 @@
 import { NextResponse } from 'next/server'
 import { requireAuthorizedSession } from '@/lib/auth/require-auth'
 import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
+import { FEATURE_FLAGS, requireFeature } from '@/lib/authz/feature-flags'
 import type { GridSession } from '@/lib/auth/types'
 import { isAuthzError } from '@/lib/auth-utils'
 import {
@@ -190,6 +191,14 @@ export async function POST(
     const { session, authHeader } = await resolveSessionAndAuth(req, path)
     const authHeaders = buildAuthHeaders(authHeader)
     console.log('[Deep Research API] POST WorkOS access token present:', !!authHeaders.Authorization)
+
+    // Deep research is flag-gated (expensive workflow). Only the submit
+    // entry point is gated — cancel/stream on running jobs stay available.
+    // Anonymous mode (REQUIRE_AUTH=false) has no session to evaluate.
+    if (path[0] === 'submit' && session) {
+      const gated = requireFeature(session, FEATURE_FLAGS.deepResearch)
+      if (gated) return gated
+    }
 
     const { headerValue } = await buildCollectionScopeFromRequest(session, {
       projectId: typeof parsedBody?.projectId === 'string' ? parsedBody.projectId : undefined,

@@ -6,6 +6,7 @@
 import { NextResponse } from 'next/server'
 import { authzErrorResponse, requireAuthorizedSession } from '@/lib/auth/require-auth'
 import { canManageModels } from '@/lib/authz/organizations'
+import { FEATURE_FLAGS, requireFeature } from '@/lib/authz/feature-flags'
 import { activateVersion } from '@/lib/model-config/service'
 import { recordAuditEvent } from '@/lib/audit/service'
 
@@ -15,6 +16,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (!canManageModels(session)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
+    const gated = requireFeature(session, FEATURE_FLAGS.modelConfiguration)
+    if (gated) return gated
     const { id } = await params
     const versionId = id === 'none' ? null : id
     if (versionId !== null && !/^[0-9a-f-]{36}$/i.test(versionId)) {

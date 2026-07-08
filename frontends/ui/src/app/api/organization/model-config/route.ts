@@ -11,6 +11,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { authzErrorResponse, requireAuthorizedSession } from '@/lib/auth/require-auth'
 import { canManageModels } from '@/lib/authz/organizations'
+import { FEATURE_FLAGS, requireFeature } from '@/lib/authz/feature-flags'
 import { AGENT_GROUPS, AGENT_GROUP_IDS, OPENROUTER_MODEL_ID_PATTERN } from '@/lib/model-config/agent-groups'
 import { getGroupDefaults } from '@/lib/model-config/backend-defaults'
 import { fetchModelCatalog, validateOverrides } from '@/lib/model-config/openrouter'
@@ -23,6 +24,8 @@ export async function GET(): Promise<Response> {
     if (!canManageModels(session)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
+    const gated = requireFeature(session, FEATURE_FLAGS.modelConfiguration)
+    if (gated) return gated
     const [config, defaults] = await Promise.all([
       getOrgModelConfig(session.organizationId),
       // Workflow-default model per group, from the backend's loaded YAML
@@ -57,6 +60,8 @@ export async function PUT(request: Request): Promise<Response> {
     if (!canManageModels(session)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
+    const gated = requireFeature(session, FEATURE_FLAGS.modelConfiguration)
+    if (gated) return gated
 
     const body = await request.json().catch(() => null)
     const parsed = putSchema.safeParse(body)

@@ -10,6 +10,7 @@ import Link from 'next/link'
 import { ArrowLeft, Building2, Cpu, Gauge, Globe, Mail, ScrollText, ShieldAlert, Users } from 'lucide-react'
 import { requireAuthorizedPageSession } from '@/lib/auth/require-auth'
 import { canManageBudgets, canManageModels, canViewAuditLogs, isOrgAdmin } from '@/lib/authz/organizations'
+import { FEATURE_FLAGS, isFeatureEnabled } from '@/lib/authz/feature-flags'
 import { AuditLogButton } from '@/components/audit/audit-log-button'
 import { getNavFlags } from '@/lib/authz/nav'
 import { getOrganizationOverview, getOrgSettings, type OrganizationOverview } from '@/lib/organizations/service'
@@ -55,7 +56,8 @@ export default async function OrganizationPage(): Promise<JSX.Element> {
   // a granular permission (e.g. org:budgets:manage) see just their cards —
   // the UI mirrors the API's permission model (ADR-0016).
   const admin = isOrgAdmin(session)
-  const models = canManageModels(session)
+  // Permission AND feature flag — the card mirrors the API's double gate.
+  const models = canManageModels(session) && isFeatureEnabled(session, FEATURE_FLAGS.modelConfiguration)
   const budgets = canManageBudgets(session)
   const audit = canViewAuditLogs(session)
 

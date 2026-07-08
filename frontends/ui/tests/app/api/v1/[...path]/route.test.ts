@@ -52,6 +52,7 @@ const baseSession = {
   organizationMembershipId: 'om_1',
   role: 'member',
   permissions: [] as string[],
+  featureFlags: null,
 }
 
 function makeParams(path: string[]): { params: Promise<{ path: string[] }> } {
