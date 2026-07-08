@@ -27,8 +27,11 @@ export const members = {
   invite: {
     title: 'Add a member',
     description: 'Grant an existing organization member access to this project.',
-    emailLabel: 'Email',
-    emailPlaceholder: 'name@studio.at',
+    memberLabel: 'Member',
+    searchPlaceholder: 'Search by name or email',
+    suggestionsAria: 'Matching organization members',
+    noSuggestions:
+      'No organization members match. New teammates must join the organization first.',
     roleLabel: 'Role',
     submit: 'Add member',
     notFound:

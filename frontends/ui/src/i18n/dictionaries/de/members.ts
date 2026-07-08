@@ -29,8 +29,11 @@ export const members: typeof en.members = {
   invite: {
     title: 'Mitglied hinzufügen',
     description: 'Gewähren Sie einem bestehenden Organisationsmitglied Zugriff auf dieses Projekt.',
-    emailLabel: 'E-Mail',
-    emailPlaceholder: 'name@studio.at',
+    memberLabel: 'Mitglied',
+    searchPlaceholder: 'Nach Name oder E-Mail suchen',
+    suggestionsAria: 'Passende Organisationsmitglieder',
+    noSuggestions:
+      'Keine Organisationsmitglieder gefunden. Neue Teammitglieder müssen zuerst der Organisation beitreten.',
     roleLabel: 'Rolle',
     submit: 'Mitglied hinzufügen',
     notFound:
