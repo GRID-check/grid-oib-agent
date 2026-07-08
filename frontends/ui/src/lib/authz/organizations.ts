@@ -40,6 +40,11 @@ export function canManageCompliance(session: SessionSlice): boolean {
   return hasPermission(session, ORG_PERMISSIONS.complianceManage)
 }
 
+/** May open the org's audit trail (WorkOS Audit Logs viewer, org-scoped). */
+export function canViewAuditLogs(session: SessionSlice): boolean {
+  return hasPermission(session, ORG_PERMISSIONS.auditView)
+}
+
 /** Widget permissions we allow the UI to request a token for, when held. */
 export const ORG_WIDGET_PERMISSIONS = [
   'widgets:users-table:manage',

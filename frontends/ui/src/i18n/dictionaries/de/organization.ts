@@ -92,6 +92,8 @@ export const organization: typeof en.organization = {
     overLimit: 'Budget ausgeschöpft — neue Anfragen werden blockiert',
     legendTitle: 'Ausgaben nach Modell',
     legendEmpty: 'In diesem Zeitraum wurde noch keine LLM-Nutzung erfasst.',
+    trendTitle: 'Letzte 30 Tage',
+    trendEmpty: 'In den letzten 30 Tagen wurde keine Nutzung erfasst.',
     otherModels: 'Weitere Modelle',
     tooltipRequests: '{count} Anfragen',
     limitsTitle: 'Organisationslimits',
@@ -131,5 +133,12 @@ export const organization: typeof en.organization = {
     perDay: 'Tag',
     perMonth: 'Monat',
     loadError: 'Die Verbrauchsdaten konnten nicht geladen werden.',
+  },
+  audit: {
+    title: 'Audit-Logs',
+    description:
+      'Jede privilegierte Änderung — Budgets, Modellkonfiguration, Einstellungen, Legal Holds — wird im WorkOS-Audit-Trail Ihrer Organisation erfasst. Der Viewer öffnet sich in einem neuen Tab und kann Ereignisse exportieren.',
+    open: 'Audit-Logs ansehen',
+    error: 'Der Audit-Log-Viewer konnte nicht geöffnet werden.',
   },
 }

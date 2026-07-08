@@ -31,13 +31,8 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useTranslations } from '@/i18n'
 import { formatEur as eur } from '@/lib/format'
-
-/** Validated categorical palette (dataviz reference instance); slot order is
- * the CVD-safety mechanism — never reorder or cycle. */
-const SERIES_LIGHT = ['#2a78d6', '#1baf7a', '#eda100', '#008300', '#4a3aa7', '#e34948', '#e87ba4', '#eb6834']
-const SERIES_DARK = ['#3987e5', '#199e70', '#c98500', '#008300', '#9085e9', '#e66767', '#d55181', '#d95926']
-const OTHER_LIGHT = '#767672'
-const OTHER_DARK = '#8f8e89'
+import { SeriesPaletteStyle, SERIES_SLOT_COUNT } from '@/components/charts/palette'
+import { SpendTrendChart, type SpendTrendPoint } from '@/components/charts/spend-trend-chart'
 
 interface ModelSpend {
   model: string
@@ -61,6 +56,8 @@ interface UsageResponse {
   orgBudget: { dailyLimitEur: number | null; monthlyLimitEur: number | null; explicit: boolean }
   status: { blocked: boolean; blockedScope: string | null }
   eurPerUsd: number
+  /** 30-day daily series — present for budget admins only. */
+  dailyTrend?: SpendTrendPoint[] | null
 }
 
 interface PolicyDto {
@@ -123,7 +120,7 @@ function buildSegments(perModel: ModelSpend[], eurPerUsd: number, window: 'day' 
       monthEur: entry.monthUsd * eurPerUsd,
       monthEvents: entry.monthEvents,
     }
-    if (index < SERIES_LIGHT.length) {
+    if (index < SERIES_SLOT_COUNT) {
       segments.push({ key: entry.model, label: entry.model, colorVar: `var(--grid-series-${index + 1})`, ...base })
     } else if (other) {
       other.valueEur += base.valueEur
@@ -457,16 +454,7 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
   return (
     <TooltipProvider delayDuration={100}>
       {/* Validated categorical palette — light default, dark steps under `.dark`. */}
-      <style>{`
-        .grid-usage-viz {
-          ${SERIES_LIGHT.map((hex, i) => `--grid-series-${i + 1}: ${hex};`).join('\n          ')}
-          --grid-series-other: ${OTHER_LIGHT};
-        }
-        .dark .grid-usage-viz {
-          ${SERIES_DARK.map((hex, i) => `--grid-series-${i + 1}: ${hex};`).join('\n          ')}
-          --grid-series-other: ${OTHER_DARK};
-        }
-      `}</style>
+      <SeriesPaletteStyle />
       <div className="grid-usage-viz flex flex-col gap-5">
         {usage.status.blocked && (
           <Badge variant="destructive" className="self-start">
@@ -491,6 +479,21 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
           requestsLabel={requestsLabel}
           monthLabel={t('budgets.thisMonth')}
         />
+
+        {/* 30-day trend (budget admins get the series from the API). */}
+        {usage.dailyTrend && usage.dailyTrend.length > 0 && (
+          <div>
+            <p className="text-xs font-medium uppercase text-muted-foreground">{t('budgets.trendTitle')}</p>
+            <div className="mt-1.5">
+              <SpendTrendChart
+                points={usage.dailyTrend}
+                eurPerUsd={usage.eurPerUsd}
+                requestsLabel={requestsLabel}
+                emptyLabel={t('budgets.trendEmpty')}
+              />
+            </div>
+          </div>
+        )}
 
         {/* Legend — identity is never color-alone; each entry is hoverable. */}
         <div>

@@ -23,9 +23,17 @@ export const platform: typeof en.platform = {
     platformBadge: 'Plattform',
     empty: 'Noch keine Organisationen.',
   },
+  trend: {
+    title: 'Ausgabenverlauf',
+    description: 'Plattformweite LLM-Ausgaben pro Tag der letzten 30 Tage (UTC), aus dem Nutzungsregister.',
+    requests: '{count} Anfragen',
+    empty: 'In den letzten 30 Tagen wurde keine Nutzung erfasst.',
+  },
   team: {
     title: 'Plattform-Team',
     description: 'Mitglieder der GRID-Platform-Organisation. Rollen hier gewähren plattformweiten Zugriff — mit Bedacht einladen.',
+    auditLogs: 'Audit-Logs',
+    auditError: 'Der Audit-Log-Viewer konnte nicht geöffnet werden.',
   },
   notOwner: {
     title: 'Plattform-Zugriff erforderlich',

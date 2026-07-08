@@ -90,6 +90,8 @@ export const organization = {
     overLimit: 'Budget exhausted — new requests are blocked',
     legendTitle: 'Spend by model',
     legendEmpty: 'No LLM usage recorded in this window yet.',
+    trendTitle: 'Last 30 days',
+    trendEmpty: 'No usage recorded in the last 30 days.',
     otherModels: 'Other models',
     tooltipRequests: '{count} requests',
     limitsTitle: 'Organization limits',
@@ -129,5 +131,12 @@ export const organization = {
     perDay: 'day',
     perMonth: 'month',
     loadError: 'Could not load usage data.',
+  },
+  audit: {
+    title: 'Audit logs',
+    description:
+      'Every privileged change — budgets, model configuration, settings, legal holds — is recorded in your organization’s WorkOS audit trail. The viewer opens in a new tab and can export events.',
+    open: 'View audit logs',
+    error: 'Could not open the audit log viewer.',
   },
 }

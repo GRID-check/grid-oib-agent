@@ -12,7 +12,7 @@ import { count, isNull } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { projects } from '@/lib/db/schema'
 import { getWorkOS } from '@/lib/workos/client'
-import { getSpendAcrossOrganizations } from '@/lib/budgets/service'
+import { getDailySpendTrend, getSpendAcrossOrganizations, type DailySpendPoint } from '@/lib/budgets/service'
 import { getPlatformOrganizationId } from '@/lib/authz/platform'
 
 export interface PlatformOrganization {
@@ -30,6 +30,8 @@ export interface PlatformOverview {
   organizations: PlatformOrganization[]
   /** True when more than one page of organizations exists (list shows the first 100). */
   organizationsCapped: boolean
+  /** Platform-wide daily spend, last 30 UTC days (zero-filled). */
+  dailyTrend: DailySpendPoint[]
   totals: {
     organizations: number
     projects: number
@@ -52,11 +54,12 @@ async function projectCountsByOrganization(): Promise<Map<string, number>> {
 /** The full platform overview: every org, biggest month spender first. */
 export async function getPlatformOverview(): Promise<PlatformOverview> {
   const workos = getWorkOS()
-  const [orgList, projectCounts, spend, platformOrgId] = await Promise.all([
+  const [orgList, projectCounts, spend, platformOrgId, dailyTrend] = await Promise.all([
     workos.organizations.listOrganizations({ limit: 100 }),
     projectCountsByOrganization(),
     getSpendAcrossOrganizations(),
     getPlatformOrganizationId(),
+    getDailySpendTrend({ days: 30 }),
   ])
   const spendByOrg = new Map(spend.map((entry) => [entry.organizationId, entry]))
 
@@ -79,6 +82,7 @@ export async function getPlatformOverview(): Promise<PlatformOverview> {
   return {
     organizations,
     organizationsCapped: Boolean(orgList.listMetadata?.after),
+    dailyTrend,
     totals: {
       organizations: organizations.length,
       projects: organizations.reduce((total, org) => total + org.projectCount, 0),

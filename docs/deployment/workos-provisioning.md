@@ -21,6 +21,7 @@ before go-live.**
 | `org:models:manage` | Runtime AI model configuration (ADR-0014) |
 | `org:budgets:manage` | LLM budgets + org-wide usage (ADR-0015) |
 | `org:compliance:manage` | Legal holds + deletion queue |
+| `org:audit:view` | Open the org's native audit-log viewer (Admin Portal). ⚠️ Added after the 2026-07-08 provisioning run — create it in Staging + attach to Admin (until then, legacy-`admin` back-compat covers admins). |
 
 Attached to the environment **Admin** role (which keeps its six
 `widgets:*` permissions). The **Member** role has none — members rely on
@@ -96,9 +97,9 @@ trail, throttled to once per actor per hour).
 
 Via the WorkOS dashboard (or the management API):
 
-1. Create the nine permissions from tables 1 + 2 (resource type
+1. Create the ten permissions from tables 1 + 2 (resource type
    Organization, same slugs).
-2. Edit the **Admin** role: add the four `org:*` permissions (keep the
+2. Edit the **Admin** role: add the five `org:*` permissions (keep the
    `widgets:*` ones).
 3. Create organization **GRID Platform** with external id `grid-platform`.
 4. Inside that organization, create the **org-scoped** role

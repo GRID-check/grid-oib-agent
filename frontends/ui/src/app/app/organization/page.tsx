@@ -7,9 +7,10 @@
  */
 
 import Link from 'next/link'
-import { ArrowLeft, Building2, Cpu, Gauge, Globe, Mail, ShieldAlert, Users } from 'lucide-react'
+import { ArrowLeft, Building2, Cpu, Gauge, Globe, Mail, ScrollText, ShieldAlert, Users } from 'lucide-react'
 import { requireAuthorizedPageSession } from '@/lib/auth/require-auth'
-import { canManageBudgets, canManageModels, isOrgAdmin } from '@/lib/authz/organizations'
+import { canManageBudgets, canManageModels, canViewAuditLogs, isOrgAdmin } from '@/lib/authz/organizations'
+import { AuditLogButton } from '@/components/audit/audit-log-button'
 import { getNavFlags } from '@/lib/authz/nav'
 import { getOrganizationOverview, getOrgSettings, type OrganizationOverview } from '@/lib/organizations/service'
 import { OrgTopbar } from '@/components/shell'
@@ -56,9 +57,10 @@ export default async function OrganizationPage(): Promise<JSX.Element> {
   const admin = isOrgAdmin(session)
   const models = canManageModels(session)
   const budgets = canManageBudgets(session)
+  const audit = canViewAuditLogs(session)
 
   // Users with no org capability at all never see org management.
-  if (!admin && !models && !budgets) {
+  if (!admin && !models && !budgets && !audit) {
     return shell(
       <Card>
         <CardHeader>
@@ -217,6 +219,27 @@ export default async function OrganizationPage(): Promise<JSX.Element> {
         </CardHeader>
         <CardContent>
           <BudgetUsageCard isAdmin={budgets} />
+        </CardContent>
+      </Card>
+
+      )}
+
+      {/* Audit trail — native WorkOS viewer, scoped to THIS organization */}
+      {audit && (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <ScrollText className="size-4 text-muted-foreground" aria-hidden />
+            {t('audit.title')}
+          </CardTitle>
+          <CardDescription>{t('audit.description')}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <AuditLogButton
+            endpoint="/api/organization/audit-portal"
+            label={t('audit.open')}
+            errorMessage={t('audit.error')}
+          />
         </CardContent>
       </Card>
 

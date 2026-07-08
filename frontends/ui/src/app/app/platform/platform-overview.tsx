@@ -22,6 +22,8 @@ import { makeWidgetTokenFetcher } from '@/lib/workos/widget-token'
 import { useResolvedAppearance } from '@/lib/workos/use-widget-appearance'
 import { useLocale, useTranslations } from '@/i18n'
 import { formatEur as eur } from '@/lib/format'
+import { AuditLogButton } from '@/components/audit/audit-log-button'
+import { SpendTrendChart, type SpendTrendPoint } from '@/components/charts/spend-trend-chart'
 
 interface PlatformOrganizationDto {
   id: string
@@ -37,6 +39,7 @@ interface PlatformOrganizationDto {
 interface OverviewDto {
   organizations: PlatformOrganizationDto[]
   organizationsCapped: boolean
+  dailyTrend: SpendTrendPoint[]
   totals: { organizations: number; projects: number; dayUsd: number; monthUsd: number; monthEvents: number }
   eurPerUsd: number
 }
@@ -120,6 +123,22 @@ export const PlatformOverview: FC = () => {
           />
         </div>
 
+        {/* 30-day platform-wide spend trend */}
+        <Card>
+          <CardHeader>
+            <CardTitle>{t('trend.title')}</CardTitle>
+            <CardDescription>{t('trend.description')}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <SpendTrendChart
+              points={overview.dailyTrend ?? []}
+              eurPerUsd={overview.eurPerUsd}
+              requestsLabel={(count) => t('trend.requests', { count })}
+              emptyLabel={t('trend.empty')}
+            />
+          </CardContent>
+        </Card>
+
         {/* Organization directory */}
         <Card>
           <CardHeader>
@@ -175,9 +194,17 @@ export const PlatformOverview: FC = () => {
         {/* Platform team — WorkOS widget scoped to the GRID Platform org */}
         <WorkOsWidgets theme={{ appearance, radius: 'medium', scaling: '100%' }}>
           <Card>
-            <CardHeader>
-              <CardTitle>{t('team.title')}</CardTitle>
-              <CardDescription>{t('team.description')}</CardDescription>
+            <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <CardTitle>{t('team.title')}</CardTitle>
+                <CardDescription className="mt-1.5">{t('team.description')}</CardDescription>
+              </div>
+              {/* Platform trail: break-glass + platform-org admin events. */}
+              <AuditLogButton
+                endpoint="/api/platform/audit-portal"
+                label={t('team.auditLogs')}
+                errorMessage={t('team.auditError')}
+              />
             </CardHeader>
             <CardContent>
               <UsersManagement authToken={makeWidgetTokenFetcher(['widgets:users-table:manage'], 'platform')} />

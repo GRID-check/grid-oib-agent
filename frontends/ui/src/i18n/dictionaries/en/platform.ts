@@ -21,9 +21,17 @@ export const platform = {
     platformBadge: 'Platform',
     empty: 'No organizations yet.',
   },
+  trend: {
+    title: 'Spend trend',
+    description: 'Platform-wide LLM spend per day over the last 30 days (UTC), from the usage ledger.',
+    requests: '{count} requests',
+    empty: 'No usage recorded in the last 30 days.',
+  },
   team: {
     title: 'Platform team',
     description: 'Members of the GRID Platform organization. Roles here grant platform-wide access — invite with care.',
+    auditLogs: 'Audit logs',
+    auditError: 'Could not open the audit log viewer.',
   },
   notOwner: {
     title: 'Platform access required',

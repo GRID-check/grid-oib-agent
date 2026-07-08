@@ -25,6 +25,8 @@ export const ORG_PERMISSIONS = {
   budgetsManage: 'org:budgets:manage',
   /** Manage legal holds and the deletion queue. */
   complianceManage: 'org:compliance:manage',
+  /** View the org's audit trail (native WorkOS Audit Logs viewer/exports). */
+  auditView: 'org:audit:view',
 } as const
 
 /**

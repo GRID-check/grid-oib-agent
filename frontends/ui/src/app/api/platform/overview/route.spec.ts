@@ -35,6 +35,7 @@ vi.mock('@/lib/platform/service', () => ({
         monthEvents: 120,
       },
     ],
+    dailyTrend: [{ day: '2026-07-08', usd: 0.5, events: 12 }],
     totals: { organizations: 1, projects: 3, dayUsd: 0.5, monthUsd: 4.2, monthEvents: 120 },
   }),
 }))
@@ -61,6 +62,7 @@ describe('GET /api/platform/overview', () => {
     const body = await res.json()
     expect(body.totals.organizations).toBe(1)
     expect(body.organizations[0].name).toBe('Tenant')
+    expect(body.dailyTrend).toEqual([{ day: '2026-07-08', usd: 0.5, events: 12 }])
     expect(body.eurPerUsd).toBe(0.86)
   })
 })
