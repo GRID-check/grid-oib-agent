@@ -67,7 +67,19 @@ function successResponse(result: unknown, status: number): Response {
   return NextResponse.json(result, { status })
 }
 
+/**
+ * Next.js control-flow errors (redirect(), notFound()) must propagate to the
+ * framework — converting them to a JSON 500 would break auth redirects.
+ */
+function isNextControlFlowError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false
+  const digest = (error as { digest?: unknown }).digest
+  const marker = typeof digest === 'string' ? digest : error.message
+  return marker === 'NEXT_NOT_FOUND' || marker.startsWith('NEXT_REDIRECT') || marker.startsWith('NEXT_HTTP_ERROR_FALLBACK')
+}
+
 function errorResponse(error: unknown, request: Request): Response {
+  if (isNextControlFlowError(error)) throw error
   if (error instanceof ApiError) {
     const body: Record<string, unknown> = { error: error.message, code: error.code }
     if (error.details !== undefined) body.details = error.details

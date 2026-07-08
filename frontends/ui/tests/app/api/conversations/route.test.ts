@@ -61,7 +61,8 @@ describe('/api/conversations', () => {
         { id: 's_conv_2', organizationId: 'org_1', createdBy: 'user_1', title: 'Chat 2', projectId: null, createdAt: new Date(), updatedAt: new Date() },
       ]
       const whereFn = vi.fn().mockReturnThis()
-      const orderByFn = vi.fn().mockResolvedValue(rows)
+      // The bounded list query chains .orderBy().limit(); limit resolves rows.
+      const orderByFn = vi.fn(() => ({ limit: vi.fn().mockResolvedValue(rows) }))
 
       mockGetDb.mockReturnValue(mockDbChain({
         from: vi.fn(() => ({ where: whereFn, orderBy: orderByFn })),
