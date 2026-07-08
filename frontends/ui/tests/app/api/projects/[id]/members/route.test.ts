@@ -30,6 +30,7 @@ const session = {
   organizationMembershipId: 'om_admin',
   role: 'member',
   permissions: [] as string[],
+  featureFlags: null,
 }
 
 function makeParams(id: string): { params: Promise<{ id: string }> } {

@@ -1,21 +1,48 @@
 /**
  * Organization-level authorization helpers.
  *
- * Org admins are identified by the WorkOS `admin` role (the same role
- * `requireProjectAccess` treats as a project-wide bypass) or by explicitly
- * holding the users-table management permission that the admin role grants.
- * Checking both keeps us correct whether the JWT surfaces the role slug, the
- * permission list, or both.
+ * Built on the permission registry (lib/authz/permissions.ts, ADR-0016):
+ * each surface checks the specific `org:*` permission it needs, so custom
+ * WorkOS roles holding a subset of permissions work without code changes.
+ * The legacy `admin` role and the users-table widget permission keep working
+ * via hasPermission's back-compat rule / the explicit check below.
  */
 
 import type { GridSession } from '@/lib/auth/types'
+import { hasPermission, ORG_PERMISSIONS } from './permissions'
 
 /** The WorkOS widget permission that gates member management. */
 export const USERS_TABLE_MANAGE = 'widgets:users-table:manage'
 
-/** True when the session may administer its organization. */
-export function isOrgAdmin(session: Pick<GridSession, 'role' | 'permissions'>): boolean {
-  return session.role === 'admin' || session.permissions.includes(USERS_TABLE_MANAGE)
+type SessionSlice = Pick<GridSession, 'role' | 'permissions'>
+
+/**
+ * True when the session may administer its organization (settings, members).
+ * Kept as the broad gate for the org page shell; feature areas below use
+ * their granular permission.
+ */
+export function isOrgAdmin(session: SessionSlice): boolean {
+  return hasPermission(session, ORG_PERMISSIONS.settingsManage) || session.permissions.includes(USERS_TABLE_MANAGE)
+}
+
+/** May manage runtime AI model configuration (ADR-0014). */
+export function canManageModels(session: SessionSlice): boolean {
+  return hasPermission(session, ORG_PERMISSIONS.modelsManage)
+}
+
+/** May manage LLM budgets and see org-wide usage (ADR-0015). */
+export function canManageBudgets(session: SessionSlice): boolean {
+  return hasPermission(session, ORG_PERMISSIONS.budgetsManage)
+}
+
+/** May manage legal holds and the deletion queue. */
+export function canManageCompliance(session: SessionSlice): boolean {
+  return hasPermission(session, ORG_PERMISSIONS.complianceManage)
+}
+
+/** May open the org's audit trail (WorkOS Audit Logs viewer, org-scoped). */
+export function canViewAuditLogs(session: SessionSlice): boolean {
+  return hasPermission(session, ORG_PERMISSIONS.auditView)
 }
 
 /** Widget permissions we allow the UI to request a token for, when held. */

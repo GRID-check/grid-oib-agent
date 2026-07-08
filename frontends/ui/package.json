@@ -14,6 +14,7 @@
     "type-check": "tsc --noEmit",
     "db:migrate": "drizzle-kit migrate",
     "generate:cards": "node scripts/generate-card-schemas.mjs",
+    "provision:audit-schemas": "node scripts/provision-workos-audit-schemas.mjs",
     "test": "TZ=UTC vitest --no-watch",
     "test:watch": "TZ=UTC vitest",
     "test:ci": "TZ=UTC vitest run --coverage",

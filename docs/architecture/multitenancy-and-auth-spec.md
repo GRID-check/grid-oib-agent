@@ -830,3 +830,38 @@ flowchart LR
 | ADR‑0007 | No local identity sync | [../adr/0007-no-local-identity-sync.md](../adr/0007-no-local-identity-sync.md) |
 
 > Framework decision: [ADR‑0001 — Use Architecture Decision Records](../adr/0001-use-adrs.md).
+
+
+---
+
+## Addendum (2026-07-08): Permission registry & platform tier (ADR-0016)
+
+The authorization model above is now PERMISSION-driven. Full decision record:
+`docs/adr/0016-platform-tier-and-permission-registry.md`; provisioning state:
+`docs/deployment/workos-provisioning.md`. Summary:
+
+- **Registry**: `frontends/ui/src/lib/authz/permissions.ts` defines the
+  `org:*` and `platform:*` permission slugs (provisioned in WorkOS, delivered
+  via the AuthKit JWT `permissions` claim). Routes/pages check permissions via
+  granular helpers (`canManageModels`, `canManageBudgets`,
+  `canManageCompliance`, `isOrgAdmin`) — never role names. Custom WorkOS
+  roles (e.g. a billing admin holding only `org:budgets:manage`) work with
+  zero code changes; the org page renders exactly the cards the caller's
+  permissions unlock. Back-compat: the legacy `admin` role implies all
+  `org:*` permissions (never `platform:*`).
+- **Platform tier**: a dedicated "GRID Platform" WorkOS organization
+  (external id `grid-platform`) with the ORG-SCOPED role
+  `org-platform-owner`. Org-scoped roles cannot be assigned in other
+  organizations — WorkOS itself enforces the exclusivity. Resolution
+  (`lib/authz/platform.ts`): JWT claims when the platform org is active, a
+  cached membership lookup cross-org, or the break-glass
+  `GRID_PLATFORM_OWNER_EMAILS` allowlist (bootstrap only). WorkOS cannot
+  model a resource type above its Organization root (API-verified), which is
+  why the tier is an organization, not an FGA type.
+- **Platform surface**: `/app/platform` + `GET /api/platform/overview`
+  (cross-org directory + ledger spend), platform-org widget tokens via
+  `/api/widgets/token?org=platform` (users-table scope only).
+- **Sign-up policy**: `GRID_DISABLE_SELF_SERVE_ORGS=true` turns the platform
+  invite-only at the org-creation layer; account-level sign-up control
+  (allowSignUp, waitlist, domain auto-join) is native WorkOS configuration —
+  see the provisioning runbook.

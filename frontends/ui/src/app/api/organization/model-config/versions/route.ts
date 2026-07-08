@@ -2,15 +2,18 @@
 
 import { NextResponse } from 'next/server'
 import { authzErrorResponse, requireAuthorizedSession } from '@/lib/auth/require-auth'
-import { isOrgAdmin } from '@/lib/authz/organizations'
+import { canManageModels } from '@/lib/authz/organizations'
+import { FEATURE_FLAGS, requireFeature } from '@/lib/authz/feature-flags'
 import { getOrgModelConfig, listVersions } from '@/lib/model-config/service'
 
 export async function GET(): Promise<Response> {
   try {
     const session = await requireAuthorizedSession()
-    if (!isOrgAdmin(session)) {
+    if (!canManageModels(session)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
+    const gated = requireFeature(session, FEATURE_FLAGS.modelConfiguration)
+    if (gated) return gated
     const [versions, config] = await Promise.all([
       listVersions(session.organizationId),
       getOrgModelConfig(session.organizationId),

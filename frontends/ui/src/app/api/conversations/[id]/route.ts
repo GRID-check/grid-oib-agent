@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { authzErrorResponse, requireAuthorizedSession } from '@/lib/auth/require-auth'
 import { getDb } from '@/lib/db'
@@ -82,11 +82,15 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> },
 ): Promise<Response> {
   try {
-    await requireAuthorizedSession()
+    const session = await requireAuthorizedSession()
     const { id } = await params
     const db = getDb()
 
-    await db.delete(conversations).where(eq(conversations.id, id))
+    // Tenant isolation in the WHERE clause — deleting by id alone would let
+    // any signed-in user delete another org's conversation by guessing ids.
+    await db
+      .delete(conversations)
+      .where(and(eq(conversations.id, id), eq(conversations.organizationId, session.organizationId)))
 
     return new Response(null, { status: 204 })
   } catch (error) {

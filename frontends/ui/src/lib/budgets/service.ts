@@ -382,6 +382,98 @@ export async function getSpendByMember(organizationId: string): Promise<MemberSp
     .sort((a, b) => b.monthUsd - a.monthUsd)
 }
 
+export interface OrganizationSpend {
+  organizationId: string
+  dayUsd: number
+  monthUsd: number
+  dayEvents: number
+  monthEvents: number
+}
+
+/**
+ * Windowed spend per organization across the WHOLE platform (platform-tier
+ * dashboards only — caller must hold `platform:usage:view`, ADR-0016).
+ */
+export async function getSpendAcrossOrganizations(): Promise<OrganizationSpend[]> {
+  const db = getDb()
+  const dayStartIso = utcDayStart().toISOString()
+  const monthStart = utcMonthStart()
+
+  const rows = await db
+    .select({
+      organizationId: llmUsageEvents.organizationId,
+      monthUsd: sql<string>`coalesce(sum(${llmUsageEvents.costUsd}), 0)`,
+      dayUsd: sql<string>`coalesce(sum(${llmUsageEvents.costUsd}) filter (where ${llmUsageEvents.createdAt} >= ${dayStartIso}), 0)`,
+      monthEvents: sql<string>`count(*)`,
+      dayEvents: sql<string>`count(*) filter (where ${llmUsageEvents.createdAt} >= ${dayStartIso})`,
+    })
+    .from(llmUsageEvents)
+    .where(gte(llmUsageEvents.createdAt, monthStart))
+    .groupBy(llmUsageEvents.organizationId)
+
+  return rows
+    .map((row) => ({
+      organizationId: row.organizationId,
+      dayUsd: Number.parseFloat(row.dayUsd) || 0,
+      monthUsd: Number.parseFloat(row.monthUsd) || 0,
+      dayEvents: Number.parseInt(row.dayEvents, 10) || 0,
+      monthEvents: Number.parseInt(row.monthEvents, 10) || 0,
+    }))
+    .sort((a, b) => b.monthUsd - a.monthUsd)
+}
+
+export interface DailySpendPoint {
+  /** UTC day, `YYYY-MM-DD`. */
+  day: string
+  usd: number
+  events: number
+}
+
+/**
+ * Daily spend series for trend charts — one point per UTC day, zero-filled
+ * so the series is continuous. Org-scoped when `organizationId` is given,
+ * platform-wide otherwise (platform dashboards only).
+ */
+export async function getDailySpendTrend(options: {
+  organizationId?: string
+  days?: number
+} = {}): Promise<DailySpendPoint[]> {
+  const db = getDb()
+  const days = Math.min(Math.max(options.days ?? 30, 1), 90)
+  const start = utcDayStart()
+  start.setUTCDate(start.getUTCDate() - (days - 1))
+  const startIso = start.toISOString()
+
+  const conditions = [gte(llmUsageEvents.createdAt, start)]
+  if (options.organizationId) {
+    conditions.push(eq(llmUsageEvents.organizationId, options.organizationId))
+  }
+  const rows = await db
+    .select({
+      day: sql<string>`to_char(date_trunc('day', ${llmUsageEvents.createdAt} at time zone 'UTC'), 'YYYY-MM-DD')`,
+      usd: sql<string>`coalesce(sum(${llmUsageEvents.costUsd}), 0)`,
+      events: sql<string>`count(*)`,
+    })
+    .from(llmUsageEvents)
+    .where(and(...conditions))
+    .groupBy(sql`1`)
+
+  const byDay = new Map(rows.map((row) => [row.day, row]))
+  const series: DailySpendPoint[] = []
+  const cursor = new Date(startIso)
+  for (let i = 0; i < days; i += 1) {
+    const key = cursor.toISOString().slice(0, 10)
+    const row = byDay.get(key)
+    series.push({
+      day: key,
+      usd: row ? Number.parseFloat(row.usd) || 0 : 0,
+      events: row ? Number.parseInt(row.events, 10) || 0 : 0,
+    })
+    cursor.setUTCDate(cursor.getUTCDate() + 1)
+  }
+  return series
+}
+
 // ---------------------------------------------------------------------------
 // Enforcement snapshot
 // ---------------------------------------------------------------------------

@@ -8,6 +8,7 @@ import { requireProjectAccess } from '@/lib/authz/projects'
 import { s3Client, bucketName, buildMinioKey } from '@/lib/s3'
 import { getDb } from '@/lib/db'
 import { documents, projects, projectFolders } from '@/lib/db/schema'
+import { recordAuditEvent } from '@/lib/audit/service'
 
 const getBackendUrl = (): string => {
   const url = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'
@@ -121,6 +122,17 @@ export async function POST(request: NextRequest): Promise<Response> {
         .where(eq(documents.id, documentId))
     }
 
+    // Data-provenance event: who brought which file into which project.
+    await recordAuditEvent({
+      organizationId: session.organizationId,
+      actor: { userId: session.userId, email: session.email },
+      action: 'document.uploaded',
+      targetType: 'document',
+      targetId: documentId,
+      // Filename is user-controlled — cap it before it reaches the trail.
+      metadata: { projectId, filename: file.name.slice(0, 200), fileSize: file.size },
+      request,
+    })
     return NextResponse.json({
       documentId,
       jobId: ingestJobId,

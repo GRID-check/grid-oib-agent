@@ -9,11 +9,22 @@
 import { NextResponse } from 'next/server'
 import { refreshSession } from '@workos-inc/authkit-nextjs'
 import { getWorkOS } from '@/lib/workos/client'
+import { recordAuditEvent } from '@/lib/audit/service'
 import { z } from 'zod'
 
 const createOrganizationSchema = z.object({
   name: z.string().min(1).max(100).trim(),
 })
+
+/**
+ * Sign-up policy for the onboarding UI: whether self-service organization
+ * creation is enabled. Safe to expose — it only mirrors a deployment flag.
+ */
+export const GET = async (): Promise<Response> => {
+  return NextResponse.json({
+    selfServeDisabled: (process.env.GRID_DISABLE_SELF_SERVE_ORGS ?? '').toLowerCase() === 'true',
+  })
+}
 
 export const POST = async (request: Request): Promise<Response> => {
   const body = await request.json().catch(() => null)
@@ -39,6 +50,13 @@ export const POST = async (request: Request): Promise<Response> => {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  // Enterprise control (ADR-0016): deployments can turn self-service org
+  // creation off, so workspaces only come from the platform owner or via
+  // invitations. Fresh users then see guidance instead of an org form.
+  if ((process.env.GRID_DISABLE_SELF_SERVE_ORGS ?? '').toLowerCase() === 'true') {
+    return NextResponse.json({ error: 'self-serve-disabled' }, { status: 403 })
+  }
+
   const workos = getWorkOS()
 
   try {
@@ -52,10 +70,20 @@ export const POST = async (request: Request): Promise<Response> => {
 
     await refreshSession({ organizationId: organization.id, ensureSignedIn: true })
 
+    await recordAuditEvent({
+      organizationId: organization.id,
+      actor: { userId: session.user.id, email: session.user.email },
+      action: 'org.created',
+      targetType: 'organization',
+      targetId: organization.id,
+      metadata: { name },
+      request,
+    })
     return NextResponse.json({ organizationId: organization.id })
   } catch (error) {
+    // Log the full error server-side; never leak provider internals to the
+    // client (raw WorkOS messages can reference internal configuration).
     console.error('[Organizations] Failed to create organization:', error)
-    const message = error instanceof Error ? error.message : 'Unknown error'
-    return NextResponse.json({ error: message }, { status: 500 })
+    return NextResponse.json({ error: 'create-failed' }, { status: 500 })
   }
 }

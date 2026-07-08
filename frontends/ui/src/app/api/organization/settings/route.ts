@@ -10,6 +10,7 @@ import { z } from 'zod'
 import { authzErrorResponse, requireAuthorizedSession } from '@/lib/auth/require-auth'
 import { isOrgAdmin } from '@/lib/authz/organizations'
 import { getOrgSettings, updateOrgSettings } from '@/lib/organizations/service'
+import { recordAuditEvent } from '@/lib/audit/service'
 import { locales } from '@/i18n/config'
 
 export async function GET(): Promise<Response> {
@@ -45,6 +46,15 @@ export async function PUT(request: Request): Promise<Response> {
     }
 
     const settings = await updateOrgSettings(session.organizationId, parsed.data)
+    await recordAuditEvent({
+      organizationId: session.organizationId,
+      actor: { userId: session.userId, email: session.email },
+      action: 'org.settings.updated',
+      targetType: 'organization',
+      targetId: session.organizationId,
+      metadata: { fields: Object.keys(parsed.data).join(',') },
+      request,
+    })
     return NextResponse.json({ settings })
   } catch (error) {
     const denied = authzErrorResponse(error)

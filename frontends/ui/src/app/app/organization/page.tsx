@@ -7,9 +7,12 @@
  */
 
 import Link from 'next/link'
-import { ArrowLeft, Building2, Cpu, Gauge, Globe, Mail, ShieldAlert, Users } from 'lucide-react'
+import { ArrowLeft, Building2, Cpu, Gauge, Globe, Mail, ScrollText, ShieldAlert, Users } from 'lucide-react'
 import { requireAuthorizedPageSession } from '@/lib/auth/require-auth'
-import { isOrgAdmin } from '@/lib/authz/organizations'
+import { canManageBudgets, canManageModels, canViewAuditLogs, isOrgAdmin } from '@/lib/authz/organizations'
+import { FEATURE_FLAGS, isFeatureEnabled } from '@/lib/authz/feature-flags'
+import { AuditLogButton } from '@/components/audit/audit-log-button'
+import { getNavFlags } from '@/lib/authz/nav'
 import { getOrganizationOverview, getOrgSettings, type OrganizationOverview } from '@/lib/organizations/service'
 import { OrgTopbar } from '@/components/shell'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
@@ -23,6 +26,7 @@ const isAuthRequired = (): boolean => process.env.REQUIRE_AUTH?.toLowerCase() ==
 
 export default async function OrganizationPage(): Promise<JSX.Element> {
   const session = await requireAuthorizedPageSession()
+  const navFlags = await getNavFlags(session)
   const t = await getTranslations('organization')
   const locale = await getLocale()
 
@@ -32,7 +36,8 @@ export default async function OrganizationPage(): Promise<JSX.Element> {
         user={{ name: session.name, email: session.email }}
         authRequired={isAuthRequired()}
         heading={t('title')}
-        canManageOrganization={isOrgAdmin(session)}
+        canManageOrganization={navFlags.canManageOrganization}
+        canManagePlatform={navFlags.canManagePlatform}
       />
       <main id="main-content" className="mx-auto w-full max-w-3xl flex-1 px-4 py-6 md:px-8 md:py-10">
         <Link
@@ -47,8 +52,17 @@ export default async function OrganizationPage(): Promise<JSX.Element> {
     </div>
   )
 
-  // Non-admins never see org management.
-  if (!isOrgAdmin(session)) {
+  // Capability flags: full admins see everything; custom roles holding only
+  // a granular permission (e.g. org:budgets:manage) see just their cards —
+  // the UI mirrors the API's permission model (ADR-0016).
+  const admin = isOrgAdmin(session)
+  // Permission AND feature flag — the card mirrors the API's double gate.
+  const models = canManageModels(session) && isFeatureEnabled(session, FEATURE_FLAGS.modelConfiguration)
+  const budgets = canManageBudgets(session)
+  const audit = canViewAuditLogs(session)
+
+  // Users with no org capability at all never see org management.
+  if (!admin && !models && !budgets && !audit) {
     return shell(
       <Card>
         <CardHeader>
@@ -63,13 +77,16 @@ export default async function OrganizationPage(): Promise<JSX.Element> {
   }
 
   // Live overview is best-effort — never block the page on a WorkOS hiccup.
+  // Admin-only data is only fetched for admins.
   let overview: OrganizationOverview | null = null
-  try {
-    overview = await getOrganizationOverview(session.organizationId)
-  } catch {
-    overview = null
+  if (admin) {
+    try {
+      overview = await getOrganizationOverview(session.organizationId)
+    } catch {
+      overview = null
+    }
   }
-  const settings = await getOrgSettings(session.organizationId)
+  const settings = admin ? await getOrgSettings(session.organizationId) : null
 
   const perms = session.permissions
   const createdLabel = overview
@@ -87,7 +104,8 @@ export default async function OrganizationPage(): Promise<JSX.Element> {
         <p className="mt-1 text-sm text-muted-foreground">{t('subtitle')}</p>
       </header>
 
-      {/* Overview */}
+      {/* Overview (admins only) */}
+      {admin && (
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -102,7 +120,7 @@ export default async function OrganizationPage(): Promise<JSX.Element> {
               <dt className="text-xs font-medium uppercase text-muted-foreground">
                 {t('overview.name')}
               </dt>
-              <dd className="mt-1 text-sm">{settings.displayName || overview?.name || '—'}</dd>
+              <dd className="mt-1 text-sm">{settings?.displayName || overview?.name || '—'}</dd>
             </div>
             <div>
               <dt className="text-xs font-medium uppercase text-muted-foreground">
@@ -155,7 +173,10 @@ export default async function OrganizationPage(): Promise<JSX.Element> {
         </CardContent>
       </Card>
 
-      {/* Grid-side settings */}
+      )}
+
+      {/* Grid-side settings (admins only) */}
+      {admin && settings && (
       <Card>
         <CardHeader>
           <CardTitle>{t('settings.title')}</CardTitle>
@@ -169,7 +190,10 @@ export default async function OrganizationPage(): Promise<JSX.Element> {
         </CardContent>
       </Card>
 
+      )}
+
       {/* Runtime model configuration (ADR-0014) */}
+      {models && (
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -183,7 +207,10 @@ export default async function OrganizationPage(): Promise<JSX.Element> {
         </CardContent>
       </Card>
 
+      )}
+
       {/* Usage & budgets (ADR-0015) */}
+      {budgets && (
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -193,11 +220,35 @@ export default async function OrganizationPage(): Promise<JSX.Element> {
           <CardDescription>{t('budgets.description')}</CardDescription>
         </CardHeader>
         <CardContent>
-          <BudgetUsageCard isAdmin />
+          <BudgetUsageCard isAdmin={budgets} />
         </CardContent>
       </Card>
 
-      {/* WorkOS org widgets */}
+      )}
+
+      {/* Audit trail — native WorkOS viewer, scoped to THIS organization */}
+      {audit && (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <ScrollText className="size-4 text-muted-foreground" aria-hidden />
+            {t('audit.title')}
+          </CardTitle>
+          <CardDescription>{t('audit.description')}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <AuditLogButton
+            endpoint="/api/organization/audit-portal"
+            label={t('audit.open')}
+            errorMessage={t('audit.error')}
+          />
+        </CardContent>
+      </Card>
+
+      )}
+
+      {/* WorkOS org widgets (admins only) */}
+      {admin && (
       <OrgWidgets
         canManageUsers
         canManageSso={perms.includes('widgets:sso:manage')}
@@ -205,6 +256,7 @@ export default async function OrganizationPage(): Promise<JSX.Element> {
         canManageDomains={perms.includes('widgets:domain-verification:manage')}
         canManageAuditLogs={perms.includes('widgets:audit-log-streaming:manage')}
       />
+      )}
     </div>,
   )
 }

@@ -40,6 +40,7 @@ const baseSession: AuthorizedSession = {
   organizationMembershipId: 'om_1',
   role: 'member',
   permissions: [],
+  featureFlags: null,
 }
 
 function mockDbSelect(rows: Array<{ prefs: Record<string, unknown> }>) {

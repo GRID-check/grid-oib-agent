@@ -22,6 +22,7 @@ export const nav: typeof en.nav = {
     authNotConfigured: 'Authentifizierung nicht konfiguriert',
     profile: 'Profil',
     organization: 'Organisation',
+    platform: 'Plattform',
     settings: 'Einstellungen',
   },
 }

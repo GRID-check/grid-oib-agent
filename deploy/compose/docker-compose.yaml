@@ -175,6 +175,11 @@ services:
       # Euros per 1 USD for comparing EUR budget limits against the USD costs
       # OpenRouter reports (docs/architecture/usage-budgets.md).
       - GRID_BUDGET_EUR_PER_USD=${GRID_BUDGET_EUR_PER_USD:-0.86}
+      # Platform tier (ADR-0016): break-glass owner bootstrap, platform-org
+      # external id override, and the self-serve org creation gate.
+      - GRID_PLATFORM_OWNER_EMAILS=${GRID_PLATFORM_OWNER_EMAILS:-}
+      - GRID_PLATFORM_ORG_EXTERNAL_ID=${GRID_PLATFORM_ORG_EXTERNAL_ID:-grid-platform}
+      - GRID_DISABLE_SELF_SERVE_ORGS=${GRID_DISABLE_SELF_SERVE_ORGS:-false}
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
     networks:

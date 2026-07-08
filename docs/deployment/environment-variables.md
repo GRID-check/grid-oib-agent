@@ -184,3 +184,12 @@ Variables set in `docker-compose.yaml` under `environment:` take precedence over
 Org budget defaults (until an admin sets explicit limits): €10/day and
 €100/month — constants in `frontends/ui/src/lib/budgets/service.ts`, not env
 vars. See `docs/architecture/usage-budgets.md`.
+
+## Platform Tier (frontend, ADR-0016)
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `GRID_PLATFORM_OWNER_EMAILS` | No | — | Break-glass bootstrap: comma-separated emails treated as platform owner even without the WorkOS platform-org membership. For first-run in a fresh environment; keep empty in steady state. |
+| `GRID_PLATFORM_ORG_EXTERNAL_ID` | No | `grid-platform` | External id of the GRID Platform organization in WorkOS. |
+| `GRID_DISABLE_SELF_SERVE_ORGS` | No | `false` | `true` makes the platform invite-only: fresh users can no longer self-create organizations (403 `self-serve-disabled`). |
+| `GRID_ENFORCE_FEATURE_FLAGS` | No | `false` | `true` enforces WorkOS feature flags (`runtime-model-config`, `deep-research` — registry: `lib/authz/feature-flags.ts`). Turn on only after the flags exist in WorkOS and orgs are targeted; sessions without the JWT `feature_flags` claim then fail closed until re-login. |

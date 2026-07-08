@@ -11,6 +11,7 @@ import { requireProjectAccess } from '@/lib/authz/projects'
 import { getDb } from '@/lib/db'
 import { projects } from '@/lib/db/schema'
 import { getWorkOS } from '@/lib/workos/client'
+import { recordAuditEvent } from '@/lib/audit/service'
 import { z } from 'zod'
 
 type ProjectRole = 'project-viewer' | 'project-editor' | 'project-admin'
@@ -179,6 +180,16 @@ export async function POST(
         })
       }
 
+      // Access-control change — always audited (role set or fully removed).
+      await recordAuditEvent({
+        organizationId: session.organizationId,
+        actor: { userId: session.userId, email: session.email },
+        action: roleSlug ? 'project.role.assigned' : 'project.role.removed',
+        targetType: 'project',
+        targetId: id,
+        metadata: { organizationMembershipId, roleSlug: roleSlug || 'none' },
+        request,
+      })
       return new NextResponse(null, { status: 201 })
     } catch (error) {
       console.error('[Projects] Failed to assign project role:', error)

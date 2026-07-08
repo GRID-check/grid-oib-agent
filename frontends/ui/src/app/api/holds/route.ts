@@ -7,8 +7,10 @@
 import { NextResponse } from 'next/server'
 import { and, desc, eq, isNull } from 'drizzle-orm'
 import { authzErrorResponse, requireAuthorizedSession } from '@/lib/auth/require-auth'
+import { canManageCompliance } from '@/lib/authz/organizations'
 import { getDb } from '@/lib/db'
 import { legalHolds } from '@/lib/db/schema'
+import { recordAuditEvent } from '@/lib/audit/service'
 import { z } from 'zod'
 
 const createHoldSchema = z.object({
@@ -20,7 +22,7 @@ const createHoldSchema = z.object({
 export async function GET(): Promise<Response> {
   try {
     const session = await requireAuthorizedSession()
-    if (session.role !== 'admin') {
+    if (!canManageCompliance(session)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
@@ -47,7 +49,7 @@ export async function GET(): Promise<Response> {
 export async function POST(request: Request): Promise<Response> {
   try {
     const session = await requireAuthorizedSession()
-    if (session.role !== 'admin') {
+    if (!canManageCompliance(session)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
@@ -67,6 +69,15 @@ export async function POST(request: Request): Promise<Response> {
       })
       .returning()
 
+    await recordAuditEvent({
+      organizationId: session.organizationId,
+      actor: { userId: session.userId, email: session.email },
+      action: 'compliance.hold.created',
+      targetType: 'legal_hold',
+      targetId: hold.id,
+      metadata: { entityType: parsed.data.entityType, entityId: parsed.data.entityId },
+      request,
+    })
     return NextResponse.json(hold, { status: 201 })
   } catch (error) {
     const denied = authzErrorResponse(error)

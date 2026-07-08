@@ -51,17 +51,35 @@ const baseSession: AuthorizedSession = {
   organizationMembershipId: "om_1",
   role: "viewer",
   permissions: [],
+  featureFlags: null,
 };
 
 describe("requireProjectAccess", () => {
-  test("org admins bypass per-project checks", async () => {
+  test("org admins bypass per-project FGA checks but NOT the tenancy check", async () => {
+    mockGetDb.mockReturnValue(
+      mockDbSelect([{ organizationId: "org_1" }]) as never,
+    );
+
     const result = await requireProjectAccess(
       { ...baseSession, role: "admin" },
       "project-1",
     );
 
     expect(result).toEqual({ role: "project-admin" });
-    expect(mockGetDb).not.toHaveBeenCalled();
+    expect(mockGetDb).toHaveBeenCalled();
+    expect(mockGetWorkOS).not.toHaveBeenCalled();
+  });
+
+  test("org admins are denied on another organization's project", async () => {
+    // Regression: the admin fast-path used to return BEFORE the tenancy
+    // check, letting an org-A admin act on an org-B project by id.
+    mockGetDb.mockReturnValue(
+      mockDbSelect([{ organizationId: "org_other" }]) as never,
+    );
+
+    await expect(
+      requireProjectAccess({ ...baseSession, role: "admin" }, "project-1"),
+    ).rejects.toThrow("Not found");
     expect(mockGetWorkOS).not.toHaveBeenCalled();
   });
 

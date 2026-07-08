@@ -7,14 +7,21 @@
 
 import { NextResponse } from 'next/server'
 import { authzErrorResponse, requireAuthorizedSession } from '@/lib/auth/require-auth'
-import { isOrgAdmin } from '@/lib/authz/organizations'
-import { eurPerUsd, getBudgetStatus, getOrgBudget, getSpendByMember, getSpendSummary } from '@/lib/budgets/service'
+import { canManageBudgets } from '@/lib/authz/organizations'
+import {
+  eurPerUsd,
+  getBudgetStatus,
+  getDailySpendTrend,
+  getOrgBudget,
+  getSpendByMember,
+  getSpendSummary,
+} from '@/lib/budgets/service'
 
 export async function GET(request: Request): Promise<Response> {
   try {
     const session = await requireAuthorizedSession()
     const { searchParams } = new URL(request.url)
-    const admin = isOrgAdmin(session)
+    const admin = canManageBudgets(session)
 
     const filter: { userId?: string; projectId?: string } = {}
     if (admin) {
@@ -26,17 +33,19 @@ export async function GET(request: Request): Promise<Response> {
       filter.userId = session.userId
     }
 
-    const [summary, orgBudget, status, perMember] = await Promise.all([
+    const [summary, orgBudget, status, perMember, dailyTrend] = await Promise.all([
       getSpendSummary(session.organizationId, filter),
       getOrgBudget(session.organizationId),
       getBudgetStatus(session.organizationId, session.userId, null),
-      // Member breakdown feeds the admin member-usage table only.
+      // Member breakdown + trend feed the admin dashboard only.
       admin ? getSpendByMember(session.organizationId) : Promise.resolve(null),
+      admin ? getDailySpendTrend({ organizationId: session.organizationId, days: 30 }) : Promise.resolve(null),
     ])
 
     return NextResponse.json({
       summary,
       perMember,
+      dailyTrend,
       orgBudget: {
         dailyLimitEur: orgBudget.dailyLimitEur,
         monthlyLimitEur: orgBudget.monthlyLimitEur,

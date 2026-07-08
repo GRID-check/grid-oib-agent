@@ -10,6 +10,7 @@ const baseSession = {
   organizationMembershipId: 'om_1',
   role: 'member',
   permissions: [],
+  featureFlags: null,
 }
 
 describe('computeCollectionScope', () => {

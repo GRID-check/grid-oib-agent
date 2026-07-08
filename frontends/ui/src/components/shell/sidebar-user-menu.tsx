@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { Building2, Check, Globe, LogOut, Monitor, Moon, Sun, UserRound } from 'lucide-react'
+import { Building2, Check, Globe, LayoutDashboard, LogOut, Monitor, Moon, Sun, UserRound } from 'lucide-react'
 
 import { useAuth } from '@/adapters/auth/use-auth'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -37,6 +37,8 @@ export interface SidebarUserMenuProps {
   compact?: boolean
   /** Show the org-management entry (org admins only). */
   canManageOrganization?: boolean
+  /** Show the platform dashboard entry (platform owner only, ADR-0016). */
+  canManagePlatform?: boolean
 }
 
 const THEME_ICONS: Record<ThemeMode, React.ComponentType<{ className?: string }>> = {
@@ -53,6 +55,7 @@ export function SidebarUserMenu({
   menuAlign = 'start',
   compact = false,
   canManageOrganization = false,
+  canManagePlatform = false,
 }: SidebarUserMenuProps) {
   const { signOut } = useAuth()
   const theme = useLayoutStore((s) => s.theme)
@@ -109,6 +112,14 @@ export function SidebarUserMenu({
             <Link href="/app/organization">
               <Building2 className="size-4 text-muted-foreground" aria-hidden />
               {t('userMenu.organization')}
+            </Link>
+          </DropdownMenuItem>
+        )}
+        {canManagePlatform && (
+          <DropdownMenuItem asChild className="gap-2">
+            <Link href="/app/platform">
+              <LayoutDashboard className="size-4 text-muted-foreground" aria-hidden />
+              {t('userMenu.platform')}
             </Link>
           </DropdownMenuItem>
         )}

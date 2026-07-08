@@ -23,6 +23,7 @@ import {
   isOrgAdmin,
   type OrgWidgetPermission,
 } from '@/lib/authz/organizations'
+import { getPlatformOrganizationId, PlatformAccessDeniedError, requirePlatformOwner } from '@/lib/authz/platform'
 import type { AuthorizedSession } from '@/lib/auth/types'
 
 const ALLOWED = new Set<string>(ORG_WIDGET_PERMISSIONS)
@@ -36,14 +37,31 @@ function grants(session: AuthorizedSession, scope: OrgWidgetPermission): boolean
 export async function GET(request: Request): Promise<Response> {
   try {
     const session = await requireAuthorizedSession()
+    const url = new URL(request.url)
 
-    const requested = new URL(request.url).searchParams.getAll('scope')
-    const scopes = requested
-      .filter((s): s is OrgWidgetPermission => ALLOWED.has(s))
-      .filter((s) => grants(session, s))
+    // `?org=platform` mints the token against the GRID Platform organization
+    // (the platform owner's dashboard widgets). Platform owners hold the
+    // platform-org membership WorkOS requires; the guard rejects everyone
+    // else before any token is created (ADR-0016).
+    let organizationId = session.organizationId
+    let holdsScope = (scope: OrgWidgetPermission): boolean => grants(session, scope)
+    if (url.searchParams.get('org') === 'platform') {
+      await requirePlatformOwner(session)
+      const platformOrgId = await getPlatformOrganizationId()
+      if (!platformOrgId) {
+        return NextResponse.json({ error: 'Platform organization is not provisioned' }, { status: 503 })
+      }
+      organizationId = platformOrgId
+      // The platform dashboard only embeds the users-table widget; keep the
+      // grant that narrow instead of blanket-passing every allowed scope.
+      holdsScope = (scope) => scope === USERS_TABLE_MANAGE
+    }
+
+    const requested = url.searchParams.getAll('scope')
+    const scopes = requested.filter((s): s is OrgWidgetPermission => ALLOWED.has(s)).filter(holdsScope)
 
     const { token } = await getWorkOS().widgets.createToken({
-      organizationId: session.organizationId,
+      organizationId,
       userId: session.userId,
       ...(scopes.length > 0 ? { scopes } : {}),
     })
@@ -54,6 +72,9 @@ export async function GET(request: Request): Promise<Response> {
       { headers: { 'Cache-Control': 'no-store' } },
     )
   } catch (error) {
+    if (error instanceof PlatformAccessDeniedError) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
     const denied = authzErrorResponse(error)
     if (denied) return denied
     throw error

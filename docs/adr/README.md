@@ -56,6 +56,7 @@ a new ADR. Small clarifications and typo fixes are fine.
 | [0013](0013-base64url-context-headers.md) | base64url-encoded context headers | Accepted |
 | [0014](0014-org-runtime-model-configuration.md) | Org-level runtime model configuration per agent group | Accepted |
 | [0015](0015-llm-budgets-and-usage-ledger.md) | LLM spend limits and the auditable usage ledger | Accepted |
+| [0016](0016-platform-tier-and-permission-registry.md) | Platform tier and the permission-driven authorization model | Accepted |
 
 ## Related documents
 

@@ -27,6 +27,7 @@ const session = {
   organizationMembershipId: 'om_1',
   role: 'member' as const,
   permissions: [] as string[],
+  featureFlags: null,
 }
 
 function mockDbChain(overrides: Record<string, unknown> = {}) {

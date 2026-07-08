@@ -11,6 +11,7 @@ import { requireProjectAccess } from '@/lib/authz/projects'
 import { getDb } from '@/lib/db'
 import { deletionQueue, projects } from '@/lib/db/schema'
 import { computePurgeAfter, projectGraceDays } from '@/lib/deletion/policy'
+import { recordAuditEvent } from '@/lib/audit/service'
 import { z } from 'zod'
 
 const updateProjectSchema = z.object({
@@ -146,6 +147,15 @@ export async function DELETE(
         .onConflictDoNothing()
     })
 
+    await recordAuditEvent({
+      organizationId: project.organizationId,
+      actor: { userId: session.userId, email: session.email },
+      action: 'project.deleted',
+      targetType: 'project',
+      targetId: id,
+      metadata: { name: project.name, purgeAfter: purgeAfter.toISOString() },
+      request,
+    })
     return NextResponse.json(
       { status: 'pending', purgeAfter: purgeAfter.toISOString() },
       { status: 202 },

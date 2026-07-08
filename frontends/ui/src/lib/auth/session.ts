@@ -63,6 +63,7 @@ export async function getGridSession(): Promise<GridSession | null> {
     organizationMembershipId,
     role: auth.role ?? (typeof claims.role === 'string' ? claims.role : null),
     permissions: auth.permissions ?? [],
+    featureFlags: auth.featureFlags ?? null,
   }
 }
 
