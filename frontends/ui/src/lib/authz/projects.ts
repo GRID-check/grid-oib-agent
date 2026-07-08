@@ -16,13 +16,11 @@ export async function requireProjectAccess(
   permission: ProjectPermission = "project:view",
   options: { includeDeleted?: boolean } = {},
 ): Promise<{ role: "project-viewer" | "project-editor" | "project-admin" }> {
-  // Org admins bypass per-project checks.
-  if (session.role === "admin") {
-    return { role: "project-admin" };
-  }
-
   // Verify the project belongs to the current org (and is not soft-deleted,
   // unless the caller explicitly needs deleted projects, e.g. restore).
+  // This tenancy check runs for EVERYONE — the org-admin bypass below only
+  // skips the per-project FGA checks. Bypassing it for admins let an org-A
+  // admin act on an org-B project by id (routes query by id downstream).
   const db = getDb();
   const [project] = await db
     .select({
@@ -39,6 +37,11 @@ export async function requireProjectAccess(
     (project.deletedAt && !options.includeDeleted)
   ) {
     throw new Error("Not found");
+  }
+
+  // Org admins bypass per-project FGA checks (but never the tenancy check).
+  if (session.role === "admin") {
+    return { role: "project-admin" };
   }
 
   const workos = getWorkOS();
