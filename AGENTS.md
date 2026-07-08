@@ -79,6 +79,28 @@ Secrets and deployment knobs live in environment variables only (`deploy/.env`).
 | `GRID_ENFORCE_FEATURE_FLAGS` | Default `false`. `true` enforces WorkOS feature flags (registry: `frontends/ui/src/lib/authz/feature-flags.ts`) — flip only after provisioning the flags in WorkOS. |
 | `OPENROUTER_API_KEY` (frontend) | Also passed to the frontend service now: authenticates the OpenRouter model-catalog fetch for the org model-config picker (ADR-0014). |
 
+## BFF architecture (obligation)
+
+The Next.js BFF follows a **repository/service architecture** (ADR-0017,
+`docs/architecture/bff-service-architecture.md`). **Every future service and
+every change to an existing endpoint MUST follow it** — this is not optional:
+
+- **Routes** (`frontends/ui/src/app/api/**/route.ts`) are thin transport
+  adapters declared via the factories in `@/lib/api/handler` (`apiRoute`,
+  `internalApiRoute`, `publicApiRoute`). No bare `export async function GET`,
+  no drizzle/`getDb()` imports, no hand-rolled error responses in routes.
+- **Services** (`frontends/ui/src/lib/<domain>/service.ts`) own business
+  logic and authorization (tenancy + `requireProjectAccess`/permission
+  checks) and throw typed errors from `@/lib/api/errors`.
+- **Repositories** (`frontends/ui/src/lib/<domain>/repository.ts`) are the
+  only modules that query the DB for their domain; `organizationId` scoping
+  lives in the SQL WHERE clause and every list query is bounded.
+- Every endpoint is authenticated through a factory; `publicApiRoute` is for
+  health checks only and anything else needs an ADR.
+
+The projects domain (`lib/projects/repository.ts`, `lib/projects/service.ts`,
+`app/api/projects/**`) is the reference implementation.
+
 ## Knowledge systems
 
 GRID has two distinct "knowledge" systems: **project knowledge** (the intake-wizard profile plus the agent-curated project/org memory, injected as WS headers `x-grid-project-context` and `x-grid-project-memory`; memory writes go through the token-guarded internal BFF endpoint so `grid_app` stays single-writer) and **RAG document knowledge** (MinIO uploads ingested into scoped collections via `/v1/ingest`). See `docs/architecture/backend-deep-dive.md` and `docs/architecture/project-memory-design.md`.

@@ -1,112 +1,22 @@
 /**
- * Projects API
- *
- * Lists and creates projects for the current WorkOS organization.
- * Project access is enforced through WorkOS FGA.
+ * Projects API — list and create projects for the current organization.
+ * Thin handlers; all logic lives in `@/lib/projects/service`.
  */
 
-import { NextResponse } from 'next/server'
-import { and, eq, isNull } from 'drizzle-orm'
-import { authzErrorResponse, requireAuthorizedSession } from '@/lib/auth/require-auth'
-import { getDb } from '@/lib/db'
-import { getWorkOS } from '@/lib/workos/client'
-import { projects } from '@/lib/db/schema'
-import { recordAuditEvent } from '@/lib/audit/service'
 import { z } from 'zod'
+import { apiRoute, parseJsonBody } from '@/lib/api/handler'
+import { createProject, listProjects } from '@/lib/projects/service'
 
 const createProjectSchema = z.object({
   name: z.string().min(1).max(255).trim(),
 })
 
-export async function GET(): Promise<Response> {
-  try {
-    const session = await requireAuthorizedSession()
-    const db = getDb()
+export const GET = apiRoute(async ({ session }) => listProjects(session))
 
-    const rows = await db
-      .select()
-      .from(projects)
-      .where(
-        and(
-          eq(projects.organizationId, session.organizationId),
-          isNull(projects.deletedAt),
-        ),
-      )
-
-    return NextResponse.json(rows)
-  } catch (error) {
-    const denied = authzErrorResponse(error)
-    if (denied) return denied
-    throw error
-  }
-}
-
-export async function POST(request: Request): Promise<Response> {
-  try {
-    const session = await requireAuthorizedSession()
-
-    const body = await request.json().catch(() => null)
-    const parsed = createProjectSchema.safeParse(body)
-
-    if (!parsed.success) {
-      return NextResponse.json(
-        { error: 'Project name is required and must be 1-255 characters.' },
-        { status: 400 },
-      )
-    }
-
-    const { name } = parsed.data
-    const db = getDb()
-    const workos = getWorkOS()
-
-    try {
-      const [project] = await db
-        .insert(projects)
-        .values({
-          organizationId: session.organizationId,
-          name,
-          createdBy: session.userId,
-          collectionName: `proj_${crypto.randomUUID()}`,
-        })
-        .returning()
-
-      const resource = await workos.authorization.createResource({
-        resourceTypeSlug: 'project',
-        externalId: project.id,
-        organizationId: session.organizationId,
-        name,
-      })
-
-      await db
-        .update(projects)
-        .set({ workosResourceId: resource.id })
-        .where(eq(projects.id, project.id))
-
-      await workos.authorization.assignRole({
-        organizationMembershipId: session.organizationMembershipId,
-        resourceExternalId: project.id,
-        resourceTypeSlug: 'project',
-        roleSlug: 'project-admin',
-      })
-
-      await recordAuditEvent({
-        organizationId: session.organizationId,
-        actor: { userId: session.userId, email: session.email },
-        action: 'project.created',
-        targetType: 'project',
-        targetId: project.id,
-        metadata: { name },
-        request,
-      })
-      return NextResponse.json(project, { status: 201 })
-    } catch (error) {
-      console.error('[Projects] Failed to create project:', error)
-      const message = error instanceof Error ? error.message : 'Unknown error'
-      return NextResponse.json({ error: message }, { status: 500 })
-    }
-  } catch (err) {
-    const denied = authzErrorResponse(err)
-    if (denied) return denied
-    throw err
-  }
-}
+export const POST = apiRoute(
+  async ({ session, request }) => {
+    const input = await parseJsonBody(request, createProjectSchema)
+    return createProject(session, input, request)
+  },
+  { status: 201 },
+)
