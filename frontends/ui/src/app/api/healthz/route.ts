@@ -11,16 +11,19 @@
  * Using that as the *frontend's* health check makes a perfectly healthy web
  * container look unhealthy (and stops Traefik from routing to it) any time the
  * backend is slow to boot. Keep the two separate.
+ *
+ * Intentionally unauthenticated (`publicApiRoute`) — a liveness probe.
  */
 
 import { NextResponse } from 'next/server'
+import { publicApiRoute } from '@/lib/api/handler'
 
 // Never statically cached — always executes so the probe reflects a live server.
 export const dynamic = 'force-dynamic'
 
-export function GET(): Response {
-  return NextResponse.json(
+export const GET = publicApiRoute(async () =>
+  NextResponse.json(
     { status: 'ok' },
     { headers: { 'Cache-Control': 'no-store' } },
-  )
-}
+  ),
+)
