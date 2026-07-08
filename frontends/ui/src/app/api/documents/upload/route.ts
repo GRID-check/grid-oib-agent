@@ -113,9 +113,11 @@ export async function POST(request: NextRequest): Promise<Response> {
     }
 
     if (ingestJobId) {
+      // The job id is persisted so status reads can reconcile the row with the
+      // backend's ingestion state (see lib/documents/reconcile-status.ts).
       await db
         .update(documents)
-        .set({ status: 'pending', updatedAt: new Date() })
+        .set({ status: 'pending', metadata: { ingestJobId }, updatedAt: new Date() })
         .where(eq(documents.id, documentId))
     }
 

@@ -79,7 +79,8 @@ Body: { projectId: string, file: File }
 4. **Insert DB row** — Drizzle `documents` table with `status: 'uploaded'`, storing `documentId`, `organizationId`, `projectId`, `createdBy`, `filename`, `minioKey`, `collectionName`, `fileSize`, `contentType`
 5. **Generate presigned GET URL** — `getSignedUrl(s3Client, GetObjectCommand, { expiresIn: MINIO_PRESIGNED_URL_TTL_SECONDS || 600 })`
 6. **Trigger ingestion** — POST to `{BACKEND_URL}/v1/ingest` with `{ file_ref: presignedUrl, collection: collectionName, document_id: documentId }`
-7. **Return response** — `{ documentId, jobId, status: 'pending' | 'uploaded' }`
+7. **Record the job** — on success the row is updated to `status: 'pending'` with `metadata: { ingestJobId }` so status reads can later reconcile the row against the backend job (see Step 5)
+8. **Return response** — `{ documentId, jobId, status: 'pending' | 'uploaded' }`
 
 **MinIO config** (`frontends/ui/src/lib/s3.ts`):
 - Endpoint: `process.env.MINIO_ENDPOINT`
@@ -156,11 +157,30 @@ Session-scoped collections (`s_*`) are automatically reaped by a background thre
 - Updates `TrackedFile` entries in Zustand store based on job status
 
 **BFF status route**: `frontends/ui/src/app/api/documents/[id]/status/route.ts`
-- Reads `documents.status` from Drizzle
+- Reads `documents.status` from Drizzle, reconciling pending rows first (see below)
 - Returns `{ id, status, filename, fileSize, contentType, collectionName, errorMessage, createdAt, updatedAt }`
 
 **Python job status**: `GET /v1/documents/{job_id}/status` (in `documents.py`)
 - Returns `IngestionJobStatus` with per-file progress via `ingestor.get_job_status(job_id)`
+
+### Status reconciliation (BFF)
+
+**File**: `frontends/ui/src/lib/documents/reconcile-status.ts`
+
+Backend ingestion is fire-and-forget from the BFF's perspective — there is no completion
+callback, so the `documents` row would otherwise stay `pending` forever. Instead, the BFF
+reconciles lazily on every read of document rows (`GET /api/documents` list and
+`GET /api/documents/{id}/status`):
+
+1. For each row with an in-flight status (`pending` / `processing` / `ingesting`), query
+   `GET {BACKEND_URL}/v1/documents/{metadata.ingestJobId}/status`
+2. Terminal job → update the row to `completed` or `failed` (+ `errorMessage`) in Postgres
+3. Job unknown (404 — e.g. backend restart wiped the in-memory job registry) or no recorded
+   job id (legacy rows) → fall back to `GET /v1/collections/{collection}/documents` and match
+   by filename: `success` → `completed`, `failed` → `failed`
+4. Backend unreachable → leave the row untouched; the next read retries
+
+The collection file list is fetched at most once per collection per request.
 
 ---
 
