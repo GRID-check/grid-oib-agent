@@ -14,122 +14,32 @@
  *
  * Collection scoping:
  * - Attaches X-Grid-Collection-Scope to every upstream request.
- * - Validates collection_name for collection-scoped routes (e.g. uploads).
+ * - Validates collection_name for collection-scoped routes (e.g. uploads)
+ *   via `@/lib/proxy/collection-authz`.
+ *
+ * This route stays a transport pass-through (see the BFF architecture doc):
+ * no repository/service layer, but authz and scope resolution go through the
+ * shared guards.
  */
 
 import { NextResponse } from 'next/server'
-import { and, eq } from 'drizzle-orm'
 import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
-import { requireProjectAccess } from '@/lib/authz/projects'
-import { getDb } from '@/lib/db'
-import { projects } from '@/lib/db/schema'
-import type { GridSession, AuthorizedSession } from '@/lib/auth/types'
 import { isAuthzError } from '@/lib/auth-utils'
 import {
-  getBackendUrl,
   resolveOptionalSession,
-  errorEnvelope,
   backendErrorEnvelope,
   handleAuthzError,
   proxyErrorEnvelope,
 } from '@/lib/backend-proxy'
-
-const buildBackendUrl = (path: string[], searchParams?: URLSearchParams): string => {
-  const backendBase = getBackendUrl()
-  const pathString = path.join('/')
-  const url = new URL(`${backendBase}/v1/${pathString}`)
-  searchParams?.forEach((value, key) => {
-    url.searchParams.set(key, value)
-  })
-  return url.toString()
-}
+import {
+  parseQueryContext,
+  resolveRequestContext,
+  validateCollectionName,
+} from '@/lib/proxy/collection-authz'
+import { buildProxyUrl } from '@/lib/proxy/proxy-request'
 
 const isRedirectError = (error: unknown): boolean => {
   return error instanceof Error && error.message === 'NEXT_REDIRECT'
-}
-
-const errorResponse = errorEnvelope
-const resolveSession = resolveOptionalSession
-
-function parseQueryContext(searchParams: URLSearchParams): { projectId?: string; conversationId?: string } {
-  return {
-    projectId: searchParams.get('projectId') || undefined,
-    conversationId: searchParams.get('conversationId') || undefined,
-  }
-}
-
-function resolveRequestContext(
-  searchParams: URLSearchParams,
-  parsedBody?: Record<string, unknown>
-): { projectId?: string; conversationId?: string } {
-  const queryContext = parseQueryContext(searchParams)
-
-  if (!parsedBody) {
-    return queryContext
-  }
-
-  return {
-    projectId: typeof parsedBody.projectId === 'string' ? parsedBody.projectId : queryContext.projectId,
-    conversationId:
-      typeof parsedBody.conversationId === 'string'
-        ? parsedBody.conversationId
-        : typeof parsedBody.session_id === 'string'
-          ? parsedBody.session_id
-          : queryContext.conversationId,
-  }
-}
-
-function normalizeSessionCollectionName(value: string): string {
-  return value.startsWith('s_') ? value : `s_${value}`
-}
-
-async function validateCollectionName(
-  path: string[],
-  session: GridSession | null,
-  context: { projectId?: string; conversationId?: string }
-): Promise<Response | null> {
-  if (path.length < 2 || path[0] !== 'collections') {
-    return null
-  }
-
-  const collectionName = path[1]
-  const baseName = process.env.BASE_COLLECTION_NAME || 'oib_knowledge'
-
-  if (collectionName === baseName) {
-    return errorResponse(400, 'INVALID_COLLECTION', 'Uploads to the base corpus are not allowed')
-  }
-
-  if (collectionName.startsWith('proj_')) {
-    if (!session?.organizationId) {
-      return handleAuthzError(new Error('Forbidden'))
-    }
-    try {
-      const db = getDb()
-      const [project] = await db
-        .select({ id: projects.id })
-        .from(projects)
-        .where(and(eq(projects.collectionName, collectionName), eq(projects.organizationId, session.organizationId)))
-        .limit(1)
-
-      if (!project) {
-        return handleAuthzError(new Error('Not found'))
-      }
-
-      await requireProjectAccess(session as AuthorizedSession, project.id, 'project:edit')
-    } catch (error) {
-      return handleAuthzError(error)
-    }
-    return null
-  }
-
-  if (collectionName.startsWith('s_')) {
-    if (!context.conversationId || normalizeSessionCollectionName(context.conversationId) !== collectionName) {
-      return errorResponse(400, 'INVALID_COLLECTION', 'Collection does not match active conversation')
-    }
-    return null
-  }
-
-  return errorResponse(400, 'INVALID_COLLECTION', 'Invalid collection name')
 }
 
 export async function GET(
@@ -139,7 +49,7 @@ export async function GET(
   try {
     const { path } = await params
     const { searchParams } = new URL(req.url)
-    const session = await resolveSession()
+    const session = await resolveOptionalSession()
     const context = parseQueryContext(searchParams)
 
     const validationError = await validateCollectionName(path, session, context)
@@ -150,7 +60,7 @@ export async function GET(
     const { headerValue } = await buildCollectionScopeFromRequest(session, context)
     const authHeaders: Record<string, string> = session ? { Authorization: `Bearer ${session.accessToken}` } : {}
 
-    const response = await fetch(buildBackendUrl(path, searchParams), {
+    const response = await fetch(buildProxyUrl('/v1', path, searchParams), {
       method: 'GET',
       headers: {
         ...authHeaders,
@@ -185,7 +95,7 @@ export async function POST(
   try {
     const { path } = await params
     const { searchParams } = new URL(req.url)
-    const session = await resolveSession()
+    const session = await resolveOptionalSession()
     const contentType = req.headers.get('Content-Type') || 'application/json'
 
     let parsedBody: Record<string, unknown> | undefined
@@ -217,7 +127,7 @@ export async function POST(
     const { headerValue } = await buildCollectionScopeFromRequest(session, context)
     const authHeaders: Record<string, string> = session ? { Authorization: `Bearer ${session.accessToken}` } : {}
 
-    const response = await fetch(buildBackendUrl(path, searchParams), {
+    const response = await fetch(buildProxyUrl('/v1', path, searchParams), {
       method: 'POST',
       headers: {
         ...authHeaders,
@@ -253,7 +163,7 @@ export async function DELETE(
   try {
     const { path } = await params
     const { searchParams } = new URL(req.url)
-    const session = await resolveSession()
+    const session = await resolveOptionalSession()
     const context = parseQueryContext(searchParams)
 
     const validationError = await validateCollectionName(path, session, context)
@@ -272,7 +182,7 @@ export async function DELETE(
       body = undefined
     }
 
-    const response = await fetch(buildBackendUrl(path, searchParams), {
+    const response = await fetch(buildProxyUrl('/v1', path, searchParams), {
       method: 'DELETE',
       headers: {
         ...authHeaders,

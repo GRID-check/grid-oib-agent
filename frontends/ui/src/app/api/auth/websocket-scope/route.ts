@@ -17,10 +17,7 @@ import { getActiveModelOverrides } from '@/lib/model-config/service'
 import { getBudgetStatus } from '@/lib/budgets/service'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { isAuthzError } from '@/lib/auth-utils'
-
-const isAuthRequired = (): boolean => {
-  return process.env.REQUIRE_AUTH?.toLowerCase() === 'true'
-}
+import { isAuthRequired } from '@/lib/backend-proxy'
 
 /**
  * Fallback for anonymous / non-WorkOS deployments: when no org is in scope the
@@ -148,5 +145,4 @@ export async function GET(req: Request): Promise<Response> {
     )
   }
 }
-
 

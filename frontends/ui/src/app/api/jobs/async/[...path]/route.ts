@@ -8,6 +8,9 @@
  * - When REQUIRE_AUTH=true: Forwards idToken cookie to backend for backend authentication
  * - When REQUIRE_AUTH=false: Skips all auth info to ensure anonymous requests
  *
+ * Session/bearer resolution (incl. the `?token=` fallback for EventSource
+ * streams) is shared with the v1 proxy via `@/lib/proxy/proxy-request`.
+ *
  * Handles:
  * - GET /api/jobs/async/agents - List available agents
  * - POST /api/jobs/async/submit - Submit a new job
@@ -23,14 +26,10 @@
  */
 
 import { NextResponse } from 'next/server'
-import { requireAuthorizedSession } from '@/lib/auth/require-auth'
 import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
 import { FEATURE_FLAGS, requireFeature } from '@/lib/authz/feature-flags'
-import type { GridSession } from '@/lib/auth/types'
 import { isAuthzError } from '@/lib/auth-utils'
 import {
-  isAuthRequired,
-  getBackendUrl,
   buildAuthHeaders,
   backendErrorEnvelope,
   noResponseBodyEnvelope,
@@ -38,58 +37,11 @@ import {
   proxyErrorEnvelope,
   sseStreamResponse,
 } from '@/lib/backend-proxy'
+import { parseBodyContext, parseQueryContext } from '@/lib/proxy/collection-authz'
+import { buildProxyUrl, resolveSessionAndBearer } from '@/lib/proxy/proxy-request'
 
-/**
- * Build the backend URL for deep research API
- */
-const buildBackendUrl = (path: string[]): string => {
-  const backendBase = getBackendUrl()
-  const pathString = path.join('/')
-  return `${backendBase}/v1/jobs/async/${pathString}`
-}
-
-/**
- * Resolve the current Grid session and auth header.
- * Returns null session and no header when REQUIRE_AUTH=false.
- */
-async function resolveSessionAndAuth(
-  req: Request,
-  pathSegments: string[]
-): Promise<{ session: GridSession | null; authHeader: string | null }> {
-  if (!isAuthRequired()) {
-    return { session: null, authHeader: null }
-  }
-
-  const session = await requireAuthorizedSession()
-
-  // Only allow query token for stream paths (EventSource can't set headers).
-  // Note: tokens in URLs may appear in server access logs. This is a
-  // server-side route handler — the token is extracted here and forwarded
-  // only via headers, never passed on as a URL to the backend.
-  const allowQueryToken = pathSegments.includes('stream')
-  const rawQueryToken = new URL(req.url).searchParams.get('token')?.trim()
-  const queryToken = allowQueryToken && rawQueryToken ? rawQueryToken : undefined
-
-  const headerToken = req.headers.get('Authorization') || (queryToken ? `Bearer ${queryToken}` : null)
-  const authHeader = headerToken || (session.accessToken ? `Bearer ${session.accessToken}` : null)
-
-  if (queryToken && !authHeader) {
-    console.warn('[Deep Research API] SSE stream using ?token= query fallback (WorkOS session cookie missing)')
-  }
-
-  return { session, authHeader }
-}
-
-function buildUpstreamUrl(backendUrl: string, searchParams: URLSearchParams): URL {
-  const upstreamUrl = new URL(backendUrl)
-  searchParams.forEach((value, key) => {
-    // The token query param is consumed for auth and forwarded via headers.
-    if (key !== 'token') {
-      upstreamUrl.searchParams.set(key, value)
-    }
-  })
-  return upstreamUrl
-}
+const LOG_LABEL = 'Deep Research API'
+const JOBS_BASE_PATH = '/v1/jobs/async'
 
 /**
  * Handle GET requests (status, stream, state, report)
@@ -100,25 +52,23 @@ export async function GET(
 ): Promise<Response> {
   try {
     const { path } = await params
-    const backendUrl = buildBackendUrl(path)
+    const backendUrl = buildProxyUrl(JOBS_BASE_PATH, path)
     const isStreamRequest = path.includes('stream')
     const { searchParams } = new URL(req.url)
 
     console.log('[Deep Research API] GET:', backendUrl, isStreamRequest ? '(SSE)' : '')
 
-    const { session, authHeader } = await resolveSessionAndAuth(req, path)
+    const { session, authHeader } = await resolveSessionAndBearer(req, path, LOG_LABEL)
     const authHeaders = buildAuthHeaders(authHeader)
     console.log('[Deep Research API] WorkOS access token present:', !!authHeaders.Authorization)
 
-    const { headerValue } = await buildCollectionScopeFromRequest(session, {
-      projectId: searchParams.get('projectId') || undefined,
-      conversationId: searchParams.get('conversationId') || undefined,
-    })
+    const { headerValue } = await buildCollectionScopeFromRequest(session, parseQueryContext(searchParams))
 
-    const upstreamUrl = buildUpstreamUrl(backendUrl, searchParams)
+    // The token query param is consumed for auth and forwarded via headers.
+    const upstreamUrl = buildProxyUrl(JOBS_BASE_PATH, path, searchParams, ['token'])
 
     // Forward the request to the backend
-    const response = await fetch(upstreamUrl.toString(), {
+    const response = await fetch(upstreamUrl, {
       method: 'GET',
       headers: {
         ...authHeaders,
@@ -172,7 +122,7 @@ export async function POST(
 ): Promise<Response> {
   try {
     const { path } = await params
-    const backendUrl = buildBackendUrl(path)
+    const backendUrl = buildProxyUrl(JOBS_BASE_PATH, path)
 
     console.log('[Deep Research API] POST:', backendUrl)
 
@@ -188,7 +138,7 @@ export async function POST(
       body = undefined
     }
 
-    const { session, authHeader } = await resolveSessionAndAuth(req, path)
+    const { session, authHeader } = await resolveSessionAndBearer(req, path, LOG_LABEL)
     const authHeaders = buildAuthHeaders(authHeader)
     console.log('[Deep Research API] POST WorkOS access token present:', !!authHeaders.Authorization)
 
@@ -200,15 +150,7 @@ export async function POST(
       if (gated) return gated
     }
 
-    const { headerValue } = await buildCollectionScopeFromRequest(session, {
-      projectId: typeof parsedBody?.projectId === 'string' ? parsedBody.projectId : undefined,
-      conversationId:
-        typeof parsedBody?.conversationId === 'string'
-          ? parsedBody.conversationId
-          : typeof parsedBody?.session_id === 'string'
-            ? parsedBody.session_id
-            : undefined,
-    })
+    const { headerValue } = await buildCollectionScopeFromRequest(session, parseBodyContext(parsedBody))
 
     // Forward the request to the backend
     const response = await fetch(backendUrl, {
@@ -252,23 +194,20 @@ export async function DELETE(
 ): Promise<Response> {
   try {
     const { path } = await params
-    const backendUrl = buildBackendUrl(path)
+    const backendUrl = buildProxyUrl(JOBS_BASE_PATH, path)
     const { searchParams } = new URL(req.url)
 
     console.log('[Deep Research API] DELETE:', backendUrl)
 
-    const { session, authHeader } = await resolveSessionAndAuth(req, path)
+    const { session, authHeader } = await resolveSessionAndBearer(req, path, LOG_LABEL)
     const authHeaders = buildAuthHeaders(authHeader)
     console.log('[Deep Research API] DELETE WorkOS access token present:', !!authHeaders.Authorization)
 
-    const { headerValue } = await buildCollectionScopeFromRequest(session, {
-      projectId: searchParams.get('projectId') || undefined,
-      conversationId: searchParams.get('conversationId') || undefined,
-    })
+    const { headerValue } = await buildCollectionScopeFromRequest(session, parseQueryContext(searchParams))
 
-    const upstreamUrl = buildUpstreamUrl(backendUrl, searchParams)
+    const upstreamUrl = buildProxyUrl(JOBS_BASE_PATH, path, searchParams, ['token'])
 
-    const response = await fetch(upstreamUrl.toString(), {
+    const response = await fetch(upstreamUrl, {
       method: 'DELETE',
       headers: {
         ...authHeaders,

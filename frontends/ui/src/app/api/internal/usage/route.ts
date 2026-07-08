@@ -5,10 +5,9 @@
  * stays single-writer. Token-guarded; not user-facing.
  */
 
-import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { COST_SOURCES } from '@/lib/db/schema'
-import { requireInternalToken } from '@/lib/internal-auth'
+import { internalApiRoute, parseJsonBody } from '@/lib/api/handler'
 import { recordUsageEvents } from '@/lib/budgets/service'
 
 const usageEventSchema = z.object({
@@ -34,22 +33,17 @@ const usageBatchSchema = z.object({
   events: z.array(usageEventSchema).min(1).max(100),
 })
 
-export async function POST(request: Request): Promise<Response> {
-  const denied = requireInternalToken(request, 'Internal Usage API')
-  if (denied) return denied
+export const POST = internalApiRoute(
+  'Internal Usage',
+  async ({ request }) => {
+    const batch = await parseJsonBody(request, usageBatchSchema)
 
-  try {
-    const body = await request.json().catch(() => null)
-    const parsed = usageBatchSchema.safeParse(body)
-    if (!parsed.success) {
-      return NextResponse.json({ error: 'Invalid usage payload' }, { status: 400 })
-    }
-    const batch = parsed.data
     // Anonymous deployments (REQUIRE_AUTH=false) have no org; those events are
     // not attributable to a tenant and are dropped deliberately (documented).
     if (!batch.organizationId) {
-      return NextResponse.json({ recorded: 0, skipped: batch.events.length }, { status: 202 })
+      return { recorded: 0, skipped: batch.events.length }
     }
+
     const recorded = await recordUsageEvents(
       batch.events.map((event) => ({
         organizationId: batch.organizationId as string,
@@ -70,9 +64,7 @@ export async function POST(request: Request): Promise<Response> {
         isByok: event.isByok ?? null,
       })),
     )
-    return NextResponse.json({ recorded }, { status: 202 })
-  } catch (error) {
-    console.error('[Internal Usage API] Error recording usage events:', error)
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 })
-  }
-}
+    return { recorded }
+  },
+  { status: 202 },
+)

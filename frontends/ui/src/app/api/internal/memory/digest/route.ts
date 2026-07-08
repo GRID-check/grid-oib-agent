@@ -1,5 +1,5 @@
-import { NextResponse } from 'next/server'
-import { requireInternalToken } from '@/lib/internal-auth'
+import { z } from 'zod'
+import { internalApiRoute, parseQuery } from '@/lib/api/handler'
 import { buildProjectMemoryDigest } from '@/lib/projects/memory-service'
 
 /**
@@ -17,25 +17,25 @@ import { buildProjectMemoryDigest } from '@/lib/projects/memory-service'
  * another tenant's memory.
  */
 
-export async function GET(request: Request): Promise<Response> {
-  const denied = requireInternalToken(request, 'Internal Memory Digest API')
-  if (denied) return denied
+const digestQuerySchema = z
+  .object({
+    projectId: z.string().optional(),
+    organizationId: z.string().optional(),
+  })
+  // Empty strings behave like absent params (previous `|| undefined` behavior).
+  .transform((query) => ({
+    projectId: query.projectId || undefined,
+    organizationId: query.organizationId || undefined,
+  }))
+  .refine((query) => !!(query.projectId || query.organizationId), {
+    message: 'projectId or organizationId is required',
+  })
 
-  try {
-    const { searchParams } = new URL(request.url)
-    const projectId = searchParams.get('projectId') || undefined
-    const organizationId = searchParams.get('organizationId') || undefined
+export const GET = internalApiRoute('Internal Memory Digest', async ({ request }) => {
+  const { projectId, organizationId } = parseQuery(request, digestQuerySchema)
 
-    if (!projectId && !organizationId) {
-      return NextResponse.json({ error: 'projectId or organizationId is required' }, { status: 400 })
-    }
-
-    const digest = await buildProjectMemoryDigest(projectId, organizationId)
-    // `digest` is null when there is no active memory — a valid empty result,
-    // not an error. The backend treats null as "no memory this turn".
-    return NextResponse.json({ digest }, { status: 200 })
-  } catch (error) {
-    console.error('[Internal Memory Digest API] Error:', error)
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 })
-  }
-}
+  // `digest` is null when there is no active memory — a valid empty result,
+  // not an error. The backend treats null as "no memory this turn".
+  const digest = await buildProjectMemoryDigest(projectId, organizationId)
+  return { digest }
+})
