@@ -22,12 +22,21 @@ export const AuditLogButton: FC<AuditLogButtonProps> = ({ endpoint, label, error
 
   const open = async (): Promise<void> => {
     setLoading(true)
+    // Open the tab SYNCHRONOUSLY inside the click's user activation —
+    // Safari blocks window.open after an await. Navigate it once the
+    // short-lived link arrives; fall back to same-tab if a blocker ate it.
+    const tab = window.open('', '_blank')
     try {
       const res = await fetch(endpoint, { method: 'POST' })
       if (!res.ok) throw new Error(String(res.status))
       const { link } = (await res.json()) as { link: string }
-      window.open(link, '_blank', 'noopener,noreferrer')
+      if (tab) {
+        tab.location.href = link
+      } else {
+        window.location.assign(link)
+      }
     } catch {
+      tab?.close()
       toast.error(errorMessage)
     } finally {
       setLoading(false)

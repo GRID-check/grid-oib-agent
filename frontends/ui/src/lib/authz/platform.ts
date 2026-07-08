@@ -46,9 +46,13 @@ const BREAK_GLASS_AUDIT_INTERVAL_MS = 60 * 60 * 1000
 const breakGlassAuditedAt = new Map<string, number>()
 
 async function auditBreakGlassUse(session: GridSession): Promise<void> {
-  const last = breakGlassAuditedAt.get(session.userId)
+  // Keyed per actor AND active org: an owner hopping across tenant orgs
+  // inside the window leaves one trail entry per org, not one total —
+  // cross-org break-glass access is exactly what must stay visible.
+  const throttleKey = `${session.userId}:${session.organizationId ?? 'none'}`
+  const last = breakGlassAuditedAt.get(throttleKey)
   if (last && Date.now() - last < BREAK_GLASS_AUDIT_INTERVAL_MS) return
-  breakGlassAuditedAt.set(session.userId, Date.now())
+  breakGlassAuditedAt.set(throttleKey, Date.now())
   console.warn(
     `[Platform Authz] break-glass platform access granted to ${session.email} via GRID_PLATFORM_OWNER_EMAILS`,
   )

@@ -97,6 +97,25 @@ export async function recordAuditEvent(input: AuditEventInput): Promise<void> {
 }
 
 /**
+ * The app's trusted origin for portal return URLs. `request.url` derives
+ * from the inbound Host header, which a misconfigured proxy may forward
+ * unvalidated — and WorkOS does not allowlist Admin Portal returnUrls, so a
+ * spoofed Host would become an open redirect out of the portal. The AuthKit
+ * redirect URI env var already pins the real origin per deployment.
+ */
+export function trustedAppOrigin(request: Request): string {
+  const configured = process.env.NEXT_PUBLIC_WORKOS_REDIRECT_URI
+  if (configured) {
+    try {
+      return new URL(configured).origin
+    } catch {
+      // fall through to the request origin
+    }
+  }
+  return new URL(request.url).origin
+}
+
+/**
  * Native audit-log viewer: a short-lived WorkOS Admin Portal link scoped to
  * the organization. Throws on WorkOS errors — callers surface a 502.
  */

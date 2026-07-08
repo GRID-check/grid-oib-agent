@@ -7,7 +7,7 @@
 import { NextResponse } from 'next/server'
 import { getGridSession } from '@/lib/auth/session'
 import { getPlatformOrganizationId, PlatformAccessDeniedError, requirePlatformOwner } from '@/lib/authz/platform'
-import { generateAuditPortalLink } from '@/lib/audit/service'
+import { generateAuditPortalLink, trustedAppOrigin } from '@/lib/audit/service'
 
 export async function POST(request: Request): Promise<Response> {
   const session = await getGridSession()
@@ -24,7 +24,7 @@ export async function POST(request: Request): Promise<Response> {
     // Break-glass owner before provisioning — nothing to link to yet.
     return NextResponse.json({ error: 'platform-org-missing' }, { status: 404 })
   }
-  const returnUrl = new URL('/app/platform', request.url).toString()
+  const returnUrl = `${trustedAppOrigin(request)}/app/platform`
   try {
     const link = await generateAuditPortalLink(platformOrgId, returnUrl)
     return NextResponse.json({ link })

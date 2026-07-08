@@ -23,6 +23,7 @@ vi.mock('@/lib/authz/platform', () => {
 const generateAuditPortalLink = vi.fn()
 vi.mock('@/lib/audit/service', () => ({
   generateAuditPortalLink: (...args: unknown[]) => generateAuditPortalLink(...args),
+  trustedAppOrigin: (request: Request) => new URL(request.url).origin,
 }))
 
 import { POST } from './route'

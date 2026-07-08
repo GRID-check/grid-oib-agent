@@ -11,7 +11,7 @@
 import { NextResponse } from 'next/server'
 import { authzErrorResponse, requireAuthorizedSession } from '@/lib/auth/require-auth'
 import { canViewAuditLogs } from '@/lib/authz/organizations'
-import { generateAuditPortalLink } from '@/lib/audit/service'
+import { generateAuditPortalLink, trustedAppOrigin } from '@/lib/audit/service'
 
 export async function POST(request: Request): Promise<Response> {
   try {
@@ -19,7 +19,7 @@ export async function POST(request: Request): Promise<Response> {
     if (!canViewAuditLogs(session)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
-    const returnUrl = new URL('/app/organization', request.url).toString()
+    const returnUrl = `${trustedAppOrigin(request)}/app/organization`
     try {
       const link = await generateAuditPortalLink(session.organizationId, returnUrl)
       return NextResponse.json({ link })

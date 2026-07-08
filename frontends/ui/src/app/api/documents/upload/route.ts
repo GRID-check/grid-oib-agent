@@ -127,7 +127,8 @@ export async function POST(request: NextRequest): Promise<Response> {
       action: 'document.uploaded',
       targetType: 'document',
       targetId: documentId,
-      metadata: { projectId, filename: file.name, fileSize: file.size },
+      // Filename is user-controlled — cap it before it reaches the trail.
+      metadata: { projectId, filename: file.name.slice(0, 200), fileSize: file.size },
       request,
     })
     return NextResponse.json({

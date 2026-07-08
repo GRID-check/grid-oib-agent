@@ -40,43 +40,48 @@ export const SpendTrendChart: FC<SpendTrendChartProps> = ({ points, eurPerUsd, r
   return (
     <TooltipProvider delayDuration={100}>
       <SeriesPaletteStyle />
-      <div className="grid-usage-viz">
-        <div className="flex justify-end">
-          <span className="text-[10px] font-medium uppercase leading-4 text-muted-foreground">
-            {eur(maxUsd * eurPerUsd)}
-          </span>
-        </div>
-        <div className="flex h-24 items-end gap-[2px] border-b border-border/60" role="img">
-          {points.map((point) => (
-            <Tooltip key={point.day}>
-              {/* Full-height column = hit target bigger than the mark. */}
-              <TooltipTrigger asChild>
-                <div className="flex h-full flex-1 cursor-default items-end">
-                  {point.usd > 0 ? (
-                    <div
-                      className="w-full rounded-t-[3px]"
-                      style={{
-                        backgroundColor: 'var(--grid-series-1)',
-                        height: `${Math.max((point.usd / maxUsd) * 100, 3)}%`,
-                      }}
-                    />
-                  ) : (
-                    <div className="h-px w-full bg-border" />
-                  )}
-                </div>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p className="font-medium">{dateLabel(point.day)}</p>
-                <p className="tabular-nums">
-                  {eur(point.usd * eurPerUsd)} · {requestsLabel(point.events)}
-                </p>
-              </TooltipContent>
-            </Tooltip>
-          ))}
-        </div>
-        <div className="mt-1 flex justify-between text-[10px] font-medium uppercase leading-4 text-muted-foreground">
-          <span>{dateLabel(points[0].day)}</span>
-          <span>{dateLabel(points[points.length - 1].day)}</span>
+      {/* Wide content scrolls in its own container — 30 columns need a
+          width floor to stay hoverable, so narrow viewports pan the chart
+          instead of collapsing bars below usable hit-target size. */}
+      <div className="grid-usage-viz overflow-x-auto">
+        <div className="min-w-[420px]">
+          <div className="flex justify-end">
+            <span className="text-[10px] font-medium uppercase leading-4 text-muted-foreground">
+              {eur(maxUsd * eurPerUsd)}
+            </span>
+          </div>
+          <div className="flex h-24 items-end gap-[2px] border-b border-border/60" role="img">
+            {points.map((point) => (
+              <Tooltip key={point.day}>
+                {/* Full-height column = hit target bigger than the mark. */}
+                <TooltipTrigger asChild>
+                  <div className="flex h-full min-w-[6px] flex-1 cursor-default items-end">
+                    {point.usd > 0 ? (
+                      <div
+                        className="w-full rounded-t-[3px]"
+                        style={{
+                          backgroundColor: 'var(--grid-series-1)',
+                          height: `${Math.max((point.usd / maxUsd) * 100, 3)}%`,
+                        }}
+                      />
+                    ) : (
+                      <div className="h-px w-full bg-border" />
+                    )}
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p className="font-medium">{dateLabel(point.day)}</p>
+                  <p className="tabular-nums">
+                    {eur(point.usd * eurPerUsd)} · {requestsLabel(point.events)}
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+            ))}
+          </div>
+          <div className="mt-1 flex justify-between text-[10px] font-medium uppercase leading-4 text-muted-foreground">
+            <span>{dateLabel(points[0].day)}</span>
+            <span>{dateLabel(points[points.length - 1].day)}</span>
+          </div>
         </div>
       </div>
     </TooltipProvider>

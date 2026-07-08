@@ -12,7 +12,7 @@ vi.mock('@/lib/workos/client', () => ({
   }),
 }))
 
-import { generateAuditPortalLink, recordAuditEvent } from './service'
+import { generateAuditPortalLink, recordAuditEvent, trustedAppOrigin } from './service'
 
 describe('recordAuditEvent (WorkOS-native audit trail)', () => {
   beforeEach(() => {
@@ -73,6 +73,22 @@ describe('recordAuditEvent (WorkOS-native audit trail)', () => {
     ).resolves.toBeUndefined()
     expect(consoleError).toHaveBeenCalled()
     consoleError.mockRestore()
+  })
+})
+
+describe('trustedAppOrigin', () => {
+  it('prefers the configured origin over the (spoofable) request Host', () => {
+    process.env.NEXT_PUBLIC_WORKOS_REDIRECT_URI = 'https://grid.bigls.net/api/auth/callback'
+    try {
+      expect(trustedAppOrigin(new Request('https://evil.example/api/x'))).toBe('https://grid.bigls.net')
+    } finally {
+      delete process.env.NEXT_PUBLIC_WORKOS_REDIRECT_URI
+    }
+  })
+
+  it('falls back to the request origin when unconfigured', () => {
+    delete process.env.NEXT_PUBLIC_WORKOS_REDIRECT_URI
+    expect(trustedAppOrigin(new Request('https://grid.example/api/x'))).toBe('https://grid.example')
   })
 })
 
