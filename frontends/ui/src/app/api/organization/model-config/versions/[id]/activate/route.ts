@@ -3,25 +3,22 @@
  * all overrides with the special id 'none'. Org admins only.
  */
 
-import { NextResponse } from 'next/server'
-import { authzErrorResponse, requireAuthorizedSession } from '@/lib/auth/require-auth'
-import { canManageModels } from '@/lib/authz/organizations'
+import { apiRoute } from '@/lib/api/handler'
+import { BadRequestError } from '@/lib/api/errors'
+import { ORG_PERMISSIONS } from '@/lib/authz/permissions'
 import { FEATURE_FLAGS, requireFeature } from '@/lib/authz/feature-flags'
 import { activateVersion } from '@/lib/model-config/service'
 import { recordAuditEvent } from '@/lib/audit/service'
 
-export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }): Promise<Response> {
-  try {
-    const session = await requireAuthorizedSession()
-    if (!canManageModels(session)) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
+type Params = { id: string }
+
+export const POST = apiRoute<Params>(
+  async ({ session, params, request }) => {
     const gated = requireFeature(session, FEATURE_FLAGS.modelConfiguration)
     if (gated) return gated
-    const { id } = await params
-    const versionId = id === 'none' ? null : id
+    const versionId = params.id === 'none' ? null : params.id
     if (versionId !== null && !/^[0-9a-f-]{36}$/i.test(versionId)) {
-      return NextResponse.json({ error: 'Invalid version id' }, { status: 400 })
+      throw new BadRequestError('Invalid version id')
     }
     const version = await activateVersion({
       organizationId: session.organizationId,
@@ -37,10 +34,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       metadata: versionId === null ? { reset: true } : { rollback: true },
       request,
     })
-    return NextResponse.json({ activeVersion: version })
-  } catch (error) {
-    const denied = authzErrorResponse(error)
-    if (denied) return denied
-    throw error
-  }
-}
+    return { activeVersion: version }
+  },
+  { permission: ORG_PERMISSIONS.modelsManage },
+)

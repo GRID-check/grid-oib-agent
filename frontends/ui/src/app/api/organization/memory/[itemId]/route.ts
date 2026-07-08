@@ -1,7 +1,13 @@
-import { NextResponse } from 'next/server'
+/**
+ * Organization memory item — update or delete a single org-scoped item.
+ * Tenancy comes from the session's organization id (the service scopes the
+ * write in SQL). Thin handlers; logic lives in
+ * `@/lib/projects/memory-service`.
+ */
+
 import { z } from 'zod'
-import { requireAuthorizedSession } from '@/lib/auth/require-auth'
-import { isAuthzError } from '@/lib/auth-utils'
+import { apiRoute, parseJsonBody } from '@/lib/api/handler'
+import { NotFoundError } from '@/lib/api/errors'
 import {
   deleteProjectMemoryItem,
   updateProjectMemoryItem,
@@ -12,6 +18,8 @@ import {
   PROJECT_MEMORY_STATUSES,
   PROJECT_MEMORY_VERIFICATIONS,
 } from '@/lib/db/schema'
+
+type Params = { itemId: string }
 
 const patchOrgMemorySchema = z
   .object({
@@ -24,54 +32,15 @@ const patchOrgMemorySchema = z
   })
   .refine((value) => Object.keys(value).length > 0, { message: 'Empty patch' })
 
-export async function PATCH(
-  request: Request,
-  { params }: { params: Promise<{ itemId: string }> },
-): Promise<Response> {
-  try {
-    const session = await requireAuthorizedSession()
-    const { itemId } = await params
+export const PATCH = apiRoute<Params>(async ({ session, params, request }) => {
+  const patch = await parseJsonBody(request, patchOrgMemorySchema)
+  const item = await updateProjectMemoryItem({ organizationId: session.organizationId }, params.itemId, patch)
+  if (!item) throw new NotFoundError()
+  return { item }
+})
 
-    const body = await request.json().catch(() => null)
-    const parsed = patchOrgMemorySchema.safeParse(body)
-    if (!parsed.success) {
-      return NextResponse.json({ error: 'Invalid memory patch.' }, { status: 400 })
-    }
-
-    const item = await updateProjectMemoryItem({ organizationId: session.organizationId }, itemId, parsed.data)
-    if (!item) {
-      return NextResponse.json({ error: 'Not found' }, { status: 404 })
-    }
-
-    return NextResponse.json({ item })
-  } catch (error) {
-    if (isAuthzError(error)) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
-    console.error('[Org Memory API] PATCH error:', error)
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 })
-  }
-}
-
-export async function DELETE(
-  _request: Request,
-  { params }: { params: Promise<{ itemId: string }> },
-): Promise<Response> {
-  try {
-    const session = await requireAuthorizedSession()
-    const { itemId } = await params
-
-    const deleted = await deleteProjectMemoryItem({ organizationId: session.organizationId }, itemId)
-    if (!deleted) {
-      return NextResponse.json({ error: 'Not found' }, { status: 404 })
-    }
-
-    return new Response(null, { status: 204 })
-  } catch (error) {
-    if (isAuthzError(error)) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
-    console.error('[Org Memory API] DELETE error:', error)
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 })
-  }
-}
+export const DELETE = apiRoute<Params>(async ({ session, params }) => {
+  const deleted = await deleteProjectMemoryItem({ organizationId: session.organizationId }, params.itemId)
+  if (!deleted) throw new NotFoundError()
+  // No body — apiRoute serializes this as a 204.
+})

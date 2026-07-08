@@ -25,6 +25,12 @@ import {
   type BudgetScope,
   type NewLlmUsageEvent,
 } from '@/lib/db/schema'
+import { canManageBudgets } from '@/lib/authz/organizations'
+import { requireProjectAccess } from '@/lib/authz/projects'
+import { findProjectTenancy } from '@/lib/projects/repository'
+import { recordAuditEvent } from '@/lib/audit/service'
+import { BadRequestError, ForbiddenError, UnprocessableError } from '@/lib/api/errors'
+import type { AuthorizedSession } from '@/lib/auth/types'
 
 export const DEFAULT_ORG_DAILY_LIMIT_EUR = 10
 export const DEFAULT_ORG_MONTHLY_LIMIT_EUR = 100
@@ -537,5 +543,199 @@ export async function getBudgetStatus(
     remainingOrgUsd: remainingOrg,
     remainingUserUsd: remainingUser,
     remainingProjectUsd: remainingProject,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Session-facing operations (route handlers delegate here)
+// ---------------------------------------------------------------------------
+
+export interface BudgetOverview {
+  organization: EffectiveBudgetPolicy
+  ownMemberLimit: EffectiveBudgetPolicy | null
+  /** Only present for budget admins: every active member/project policy. */
+  policies?: BudgetPolicy[]
+}
+
+/**
+ * Budget view for the settings page: every member sees the org limits and
+ * their own member limit; budget admins additionally get all active policies.
+ */
+export async function getBudgetOverview(session: AuthorizedSession): Promise<BudgetOverview> {
+  const [organization, ownMemberLimit] = await Promise.all([
+    getOrgBudget(session.organizationId),
+    getScopedBudget(session.organizationId, 'member', session.userId),
+  ])
+  const overview: BudgetOverview = { organization, ownMemberLimit }
+  if (canManageBudgets(session)) {
+    overview.policies = await listActivePolicies(session.organizationId)
+  }
+  return overview
+}
+
+/**
+ * Authorization for policy writes. Org and member scopes: budget admins only.
+ * Project scope: budget admins (with the subject validated against the org)
+ * or that project's admins (requireProjectAccess enforces tenancy + FGA).
+ */
+async function authorizePolicyWrite(
+  session: AuthorizedSession,
+  scope: BudgetScope,
+  subjectId: string | null,
+): Promise<void> {
+  if (scope === 'project') {
+    if (!subjectId) {
+      throw new BadRequestError('project scope requires subjectId')
+    }
+    if (canManageBudgets(session)) {
+      // Admins skip the per-project FGA check, but the subject must still be
+      // a real project of THIS org — never store a foreign or made-up id.
+      const project = await findProjectTenancy(subjectId)
+      if (!project || project.organizationId !== session.organizationId) {
+        throw new BadRequestError('Unknown project')
+      }
+    } else {
+      // Project admins may manage their own project's budget.
+      await requireProjectAccess(session, subjectId, 'project:manage')
+    }
+    return
+  }
+  // TODO: for scope='member' the subjectId is not verified against the
+  // organization's member roster — an admin can store a policy for an
+  // arbitrary user id (it simply never matches spend).
+  if (!canManageBudgets(session)) {
+    throw new ForbiddenError()
+  }
+}
+
+export interface BudgetPolicyInput {
+  scope: BudgetScope
+  subjectId?: string | null
+  dailyLimitEur: number | null
+  monthlyLimitEur: number | null
+  note?: string | null
+}
+
+/** Set a budget policy for the caller's org (authz + validation + audit). */
+export async function saveBudgetPolicy(
+  session: AuthorizedSession,
+  input: BudgetPolicyInput,
+  request: Request,
+): Promise<BudgetPolicy> {
+  const { scope, dailyLimitEur, monthlyLimitEur } = input
+  const subjectId = input.subjectId ?? null
+
+  await authorizePolicyWrite(session, scope, subjectId)
+
+  let policy: BudgetPolicy
+  try {
+    policy = await setBudgetPolicy({
+      organizationId: session.organizationId,
+      scope,
+      subjectId: scope === 'organization' ? null : subjectId,
+      dailyLimitEur,
+      monthlyLimitEur,
+      actorUserId: session.userId,
+      note: input.note ?? null,
+    })
+  } catch (error) {
+    if (error instanceof BudgetValidationError) {
+      throw new UnprocessableError(error.message)
+    }
+    throw error
+  }
+
+  await recordAuditEvent({
+    organizationId: session.organizationId,
+    actor: { userId: session.userId, email: session.email },
+    action: 'budget.policy.set',
+    targetType: 'budget_policy',
+    targetId: policy.id,
+    metadata: { scope, subjectId, dailyLimitEur, monthlyLimitEur },
+    request,
+  })
+  return policy
+}
+
+/** Remove a scoped limit — the subject falls back to the org limits alone. */
+export async function removeBudgetPolicy(
+  session: AuthorizedSession,
+  input: { scope: 'member' | 'project'; subjectId: string },
+  request: Request,
+): Promise<boolean> {
+  const { scope, subjectId } = input
+
+  await authorizePolicyWrite(session, scope, subjectId)
+
+  const removed = await clearBudgetPolicy({
+    organizationId: session.organizationId,
+    scope,
+    subjectId,
+    actorUserId: session.userId,
+  })
+  if (removed) {
+    await recordAuditEvent({
+      organizationId: session.organizationId,
+      actor: { userId: session.userId, email: session.email },
+      action: 'budget.policy.cleared',
+      targetType: 'budget_policy',
+      targetId: subjectId,
+      metadata: { scope, subjectId },
+      request,
+    })
+  }
+  return removed
+}
+
+export interface UsageOverview {
+  summary: SpendSummary
+  perMember: MemberSpend[] | null
+  dailyTrend: DailySpendPoint[] | null
+  orgBudget: { dailyLimitEur: number | null; monthlyLimitEur: number | null; explicit: boolean }
+  status: BudgetStatus
+  eurPerUsd: number
+  scope: { userId?: string; projectId?: string }
+}
+
+/**
+ * Spend summary for the budget UI. Budget admins see the org-wide summary
+ * (optionally narrowed to one member/project); everyone else always gets
+ * their own usage only.
+ */
+export async function getUsageOverview(
+  session: AuthorizedSession,
+  requested: { userId?: string; projectId?: string } = {},
+): Promise<UsageOverview> {
+  const admin = canManageBudgets(session)
+
+  const filter: { userId?: string; projectId?: string } = {}
+  if (admin) {
+    if (requested.userId) filter.userId = requested.userId
+    if (requested.projectId) filter.projectId = requested.projectId
+  } else {
+    filter.userId = session.userId
+  }
+
+  const [summary, orgBudget, status, perMember, dailyTrend] = await Promise.all([
+    getSpendSummary(session.organizationId, filter),
+    getOrgBudget(session.organizationId),
+    getBudgetStatus(session.organizationId, session.userId, null),
+    // Member breakdown + trend feed the admin dashboard only.
+    admin ? getSpendByMember(session.organizationId) : Promise.resolve(null),
+    admin ? getDailySpendTrend({ organizationId: session.organizationId, days: 30 }) : Promise.resolve(null),
+  ])
+
+  return {
+    summary,
+    perMember,
+    dailyTrend,
+    orgBudget: {
+      dailyLimitEur: orgBudget.dailyLimitEur,
+      monthlyLimitEur: orgBudget.monthlyLimitEur,
+      explicit: orgBudget.explicit,
+    },
+    status,
+    eurPerUsd: eurPerUsd(),
+    scope: admin ? filter : { userId: session.userId },
   }
 }

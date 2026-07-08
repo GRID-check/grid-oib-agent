@@ -11,6 +11,8 @@ import { eq } from 'drizzle-orm'
 import { getWorkOS } from '@/lib/workos/client'
 import { getDb } from '@/lib/db'
 import { organizations, type Organization } from '@/lib/db/schema'
+import { recordAuditEvent } from '@/lib/audit/service'
+import type { AuthorizedSession } from '@/lib/auth/types'
 import { defaultLocale, isLocale, type Locale } from '@/i18n/config'
 
 export interface OrganizationOverview {
@@ -157,4 +159,27 @@ export async function updateOrgSettings(
     })
 
   return next
+}
+
+/**
+ * Update the caller's org settings and record the audit trail. The coarse
+ * gate (`org:settings:manage`) is enforced at the route via `apiRoute`'s
+ * `options.permission`.
+ */
+export async function saveOrgSettings(
+  session: AuthorizedSession,
+  patch: OrgSettingsPatch,
+  request: Request,
+): Promise<OrgSettings> {
+  const settings = await updateOrgSettings(session.organizationId, patch)
+  await recordAuditEvent({
+    organizationId: session.organizationId,
+    actor: { userId: session.userId, email: session.email },
+    action: 'org.settings.updated',
+    targetType: 'organization',
+    targetId: session.organizationId,
+    metadata: { fields: Object.keys(patch).join(',') },
+    request,
+  })
+  return settings
 }

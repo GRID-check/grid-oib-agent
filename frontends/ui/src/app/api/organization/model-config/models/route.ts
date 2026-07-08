@@ -5,27 +5,27 @@
  * group's capability requirements ("appropriate models for the task").
  */
 
-import { NextResponse } from 'next/server'
-import { authzErrorResponse, requireAuthorizedSession } from '@/lib/auth/require-auth'
-import { canManageModels } from '@/lib/authz/organizations'
+import { z } from 'zod'
+import { apiRoute, parseQuery } from '@/lib/api/handler'
+import { BadRequestError, ServiceUnavailableError } from '@/lib/api/errors'
+import { ORG_PERMISSIONS } from '@/lib/authz/permissions'
 import { FEATURE_FLAGS, requireFeature } from '@/lib/authz/feature-flags'
 import { getAgentGroup } from '@/lib/model-config/agent-groups'
 import { fetchModelCatalog, searchModelsForGroup } from '@/lib/model-config/openrouter'
 
-export async function GET(request: Request): Promise<Response> {
-  try {
-    const session = await requireAuthorizedSession()
-    if (!canManageModels(session)) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
+const querySchema = z.object({
+  group: z.string().default(''),
+  q: z.string().default(''),
+})
+
+export const GET = apiRoute(
+  async ({ session, request }) => {
     const gated = requireFeature(session, FEATURE_FLAGS.modelConfiguration)
     if (gated) return gated
-    const { searchParams } = new URL(request.url)
-    const groupId = searchParams.get('group') ?? ''
-    const query = searchParams.get('q') ?? ''
+    const { group: groupId, q: query } = parseQuery(request, querySchema)
     const group = getAgentGroup(groupId)
     if (!group) {
-      return NextResponse.json({ error: 'Unknown agent group' }, { status: 400 })
+      throw new BadRequestError('Unknown agent group')
     }
 
     let catalog
@@ -33,13 +33,9 @@ export async function GET(request: Request): Promise<Response> {
       catalog = await fetchModelCatalog()
     } catch (error) {
       console.error('[Model Search API] OpenRouter catalog unavailable:', error)
-      return NextResponse.json({ error: 'OpenRouter model catalog is unavailable' }, { status: 503 })
+      throw new ServiceUnavailableError('OpenRouter model catalog is unavailable')
     }
-    const models = searchModelsForGroup(catalog, groupId, query)
-    return NextResponse.json({ group: group.id, models })
-  } catch (error) {
-    const denied = authzErrorResponse(error)
-    if (denied) return denied
-    throw error
-  }
-}
+    return { group: group.id, models: searchModelsForGroup(catalog, groupId, query) }
+  },
+  { permission: ORG_PERMISSIONS.modelsManage },
+)
