@@ -4,18 +4,19 @@
  * Right-side panel showing Tasks, Thinking, or Report content.
  * Includes top action bar with tabs.
  *
- * This panel PUSHES the chat area (takes 60% width) rather than overlaying it.
+ * This panel PUSHES the chat area (shares the width 50/50) rather than
+ * overlaying it. Opening and closing is driven from the ChatToolbar's
+ * Research toggle; the panel itself only offers a close button.
  */
 
 'use client'
 
 import { type FC, type ReactNode, memo, useCallback, useRef, useEffect } from 'react'
-import { CircleStop, Sparkles, X } from 'lucide-react'
+import { CircleStop, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { cn } from '@/lib/utils'
 import { cancelJob } from '@/adapters/api'
 import { useChatStore, useLoadJobData } from '@/features/chat'
 import { useAuth } from '@/adapters/auth'
@@ -37,25 +38,21 @@ const CANCEL_FALLBACK_TIMEOUT_MS = 5000
 interface ResearchPanelProps {
   /** Content to display in the panel */
   children?: ReactNode
-  /** Whether the user is authenticated */
-  isAuthenticated?: boolean
 }
 
 /**
  * Research panel with tabbed content (Tasks, Thinking, Report).
  * Opens from the right side of the screen, pushing the chat area.
- * Takes 60% of the screen width when open.
+ * Takes half of the screen width when open (full width on mobile).
  */
 export const ResearchPanel: FC<ResearchPanelProps> = memo(function ResearchPanel({
   children,
-  isAuthenticated = false,
 }) {
   const t = useTranslations('research')
   const isOpen = useLayoutStore((s) => s.rightPanel === 'research')
   const researchPanelTab = useLayoutStore((s) => s.researchPanelTab)
   const setResearchPanelTab = useLayoutStore((s) => s.setResearchPanelTab)
   const closeRightPanel = useLayoutStore((s) => s.closeRightPanel)
-  const openRightPanel = useLayoutStore((s) => s.openRightPanel)
   const isDeepResearchStreaming = useChatStore((state) => state.isDeepResearchStreaming)
   const deepResearchJobId = useChatStore((state) => state.deepResearchJobId)
   const { loadResearchPanelTab, isLoading: isStreamLoading } = useLoadJobData()
@@ -136,29 +133,6 @@ export const ResearchPanel: FC<ResearchPanelProps> = memo(function ResearchPanel
     }
   }, [deepResearchJobId, idToken])
 
-  const handleToggle = useCallback(() => {
-    if (!isAuthenticated) return
-
-    if (isOpen) {
-      closeRightPanel()
-    } else {
-      openRightPanel('research')
-
-      if (deepResearchJobId && !isStreamLoading) {
-        void loadResearchPanelTab(deepResearchJobId, researchPanelTab)
-      }
-    }
-  }, [
-    isAuthenticated,
-    isOpen,
-    closeRightPanel,
-    openRightPanel,
-    researchPanelTab,
-    deepResearchJobId,
-    isStreamLoading,
-    loadResearchPanelTab,
-  ])
-
   const handleTabChange = useCallback(
     (value: string) => {
       const tab = value as ResearchPanelTab
@@ -181,56 +155,20 @@ export const ResearchPanel: FC<ResearchPanelProps> = memo(function ResearchPanel
   )
 
   return (
-    // Wrapper: uses flex to keep button visible while panel animates
-    <div
-      className="relative flex h-full"
+    // Wrapper animates its width; the panel content fades in once it lands.
+    <aside
+      className="relative h-full overflow-hidden"
       style={{
         // Mobile: the open panel takes the whole viewport width (the chat
         // column collapses to 0% in MainLayout); desktop keeps the 50% split.
-        width: isOpen ? (isMobile ? '100%' : 'calc(50% + 40px)') : '40px',
-        minWidth: isOpen ? (isMobile ? '100%' : 'calc(50% + 40px)') : '40px',
-        transition: prefersReducedMotion
-          ? 'none'
-          : 'width 300ms ease-in-out, min-width 300ms ease-in-out',
+        width: isOpen ? (isMobile ? '100%' : '50%') : '0%',
+        transition: prefersReducedMotion ? 'none' : 'width 300ms ease-in-out',
       }}
+      aria-hidden={!isOpen}
+      aria-label={t('chatToolbar.research')}
     >
-      {/* Toggle Tag Button - protruding from left side, always visible */}
-      <button
-        onClick={handleToggle}
-        disabled={!isAuthenticated}
-        className={cn(
-          'relative z-10 mt-3 flex h-[152px] w-10 shrink-0 items-center justify-center self-start overflow-hidden rounded-l-lg border bg-background outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/60',
-          isAuthenticated ? 'cursor-pointer hover:border-brand' : 'cursor-not-allowed opacity-50'
-        )}
-        aria-label={isOpen ? t('researchPanel.closePanel') : t('researchPanel.openPanel')}
-        aria-expanded={isOpen}
-        title={
-          isAuthenticated
-            ? isOpen
-              ? t('researchPanel.closePanel')
-              : t('researchPanel.openPanel')
-            : t('researchPanel.signInToAccess')
-        }
-        data-testid="research-panel-toggle"
-      >
-        <span className="absolute left-1/2 top-3 flex h-6 w-6 -translate-x-1/2 items-center justify-center">
-          {isDeepResearchStreaming ? (
-            <Spinner size="sm" label={t('researchPanel.researching')} />
-          ) : (
-            <Sparkles className="h-6 w-6" aria-hidden="true" />
-          )}
-        </span>
-        <span className="absolute left-1/2 top-[84px] -translate-x-1/2 -rotate-90 whitespace-nowrap text-sm font-semibold">
-          {t('researchPanel.showResearch')}
-        </span>
-      </button>
-
-      {/* Outer container: clips content, fills remaining space */}
-      <div
-        className="-ml-px h-full flex-1 overflow-hidden rounded-tl-xl border-l border-t bg-background"
-        aria-hidden={!isOpen}
-      >
-        {/* Inner container: fixed width so content stays stable */}
+      {/* Outer container: clips content while the wrapper animates */}
+      <div className="h-full overflow-hidden border-l bg-background">
         <div
           className="flex h-full w-full flex-col"
           style={{
@@ -304,6 +242,6 @@ export const ResearchPanel: FC<ResearchPanelProps> = memo(function ResearchPanel
           </div>
         </div>
       </div>
-    </div>
+    </aside>
   )
 })

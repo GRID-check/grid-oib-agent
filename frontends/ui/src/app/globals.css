@@ -290,9 +290,6 @@ body {
 @utility scale-press {
   transform: scale(0.98);
 }
-.research-panel-toggle .nv-spinner svg {
-  width: 100%;
-}
 
 @utility min-h-dvh {
   min-height: 100dvh;

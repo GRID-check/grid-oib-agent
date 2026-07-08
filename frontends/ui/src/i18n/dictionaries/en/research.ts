@@ -44,6 +44,7 @@ export const research = {
     addSources: 'Add data sources',
     signInToManage: 'Sign in to manage data sources',
     sources: 'Sources',
+    research: 'Research',
   },
 
   dataSources: {
@@ -231,7 +232,6 @@ export const research = {
   },
 
   researchPanel: {
-    showResearch: 'Show Research',
     closePanel: 'Close research panel',
     openPanel: 'Open research panel',
     signInToAccess: 'Sign in to access research panel',

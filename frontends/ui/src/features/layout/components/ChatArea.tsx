@@ -146,7 +146,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
       {isEmpty ? (
         <WelcomeState isAuthenticated={isAuthenticated} onSignIn={onSignIn} />
       ) : (
-        <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 pb-24 pt-4">
+        <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 pb-6 pt-4">
           <AnimatePresence initial={false}>
             {displayableMessages.map((message, index) => {
               const isUserMessage = message.messageType === 'user' || message.role === 'user'
