@@ -129,6 +129,30 @@ paraphrase and contradictions accumulate silently. Recommend either building the
 consolidation gate or trimming the schema/enum to what is actually implemented so
 the data model does not overstate the system's guarantees.
 
+### F9 — Core digest was frozen for the connection's life; captured memory not served within a session — HIGH — **Fixed**
+
+The digest was injected only as the `x-grid-project-memory` header on the WS
+*handshake*, and the socket is long-lived across turns (rotates only on project
+switch / auth refresh / reload). So anything Grid learned mid-session (`remember`
+tool + reflection) was not re-served to the agent until a reconnect — the design's
+"every conversation starts from everything Grid has already learned" failed
+*within* a session. **Fixed:** a token-guarded internal read endpoint
+(`GET /api/internal/memory/digest`) returns the current digest, and the chat
+entrypoint fetches it at the start of each turn (`fetch_memory_digest` →
+`compose_project_context`), falling back to the frozen header value only when the
+live fetch fails. Server-authoritative — the client never supplies memory text.
+
+### F10 — Overview panel never revalidated; captured-after-load items were invisible — HIGH (the reported symptom) — **Fixed**
+
+`ProjectMemoryPanel` fetched once on mount and only re-fetched when `projectId`
+changed. Memory captured during a chat (out-of-band, via the agent) never
+appeared in the already-open Project Overview until a hard reload — so "some"
+memories (those captured after the page loaded) silently didn't show. **Fixed:**
+the panel now silently revalidates on window focus / tab re-visibility and on a
+30 s interval, pausing while the user is mid-edit so it can't clobber optimistic
+UI. (Org-scope mismatch and umlaut-normalization collisions were investigated and
+ruled out as causes.)
+
 ### F3 — Digest silently truncates with no signal when memory outgrows the budget — MED
 
 `buildProjectMemoryDigest` takes the top 20 rows (`pinned, updatedAt`) and

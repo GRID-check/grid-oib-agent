@@ -81,21 +81,49 @@ def _read_encoded_header(name: str) -> str | None:
         return raw
 
 
+def get_profile_context_from_context() -> str | None:
+    """Read just the intake-profile context (``X-Grid-Project-Context``).
+
+    The profile changes rarely and via a fresh handshake, so the connection-time
+    header value is fine. Memory, by contrast, is re-served per turn (see
+    ``compose_project_context``).
+    """
+    return normalize_project_context(_read_encoded_header(PROJECT_CONTEXT_HEADER))
+
+
+def get_memory_digest_from_context() -> str | None:
+    """Read the memory digest that rode the WS-upgrade header.
+
+    This is the connection-time snapshot; it is frozen for the connection's life.
+    The chat entrypoint re-fetches a live digest each turn and only falls back to
+    this header value when the live fetch is unavailable.
+    """
+    return normalize_project_context(_read_encoded_header(PROJECT_MEMORY_HEADER), max_chars=2000)
+
+
+def compose_project_context(context: str | None, memory: str | None) -> str | None:
+    """Combine intake-profile context and the memory digest into one blob.
+
+    Composed in one place so every caller and prompt template picks memory up
+    transparently as part of the single ``project_context`` value.
+    """
+    if context and memory:
+        return f"{context}\n\n{memory}"
+    return context or memory
+
+
 def get_project_context_from_context() -> str | None:
     """Compose the injected agent context from the request headers.
 
     Combines the intake-profile context (``X-Grid-Project-Context``) with the
-    project memory core digest (``X-Grid-Project-Memory``, see
-    docs/architecture/project-memory-design.md). Composed here so every
-    existing caller and prompt template picks memory up transparently as part
-    of the single ``project_context`` blob.
+    connection-time project memory core digest (``X-Grid-Project-Memory``, see
+    docs/architecture/project-memory-design.md). Used as the fallback when a
+    per-turn live memory fetch is not available.
     """
-    context = normalize_project_context(_read_encoded_header(PROJECT_CONTEXT_HEADER))
-    memory = normalize_project_context(_read_encoded_header(PROJECT_MEMORY_HEADER), max_chars=2000)
-
-    if context and memory:
-        return f"{context}\n\n{memory}"
-    return context or memory
+    return compose_project_context(
+        get_profile_context_from_context(),
+        get_memory_digest_from_context(),
+    )
 
 
 def get_project_id_from_context() -> str | None:

@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { AlertCircle, Brain, Check, Pencil, Pin, PinOff, Plus, Trash2, X } from 'lucide-react'
 import {
   PROJECT_MEMORY_KINDS,
@@ -102,26 +102,59 @@ export function ProjectMemoryPanel({ projectId }: ProjectMemoryPanelProps): JSX.
     item.scope === 'organization' ? `${orgUrl}/${item.id}` : `${baseUrl}/${item.id}`
 
   const load = useCallback(
-    (signal: { cancelled: boolean }) => {
-      setError(null)
+    (signal: { cancelled: boolean }, { silent = false }: { silent?: boolean } = {}) => {
+      // A silent refetch (focus/interval revalidation) must not flash the
+      // skeleton or clear an existing error banner — it only swaps in fresh
+      // items when they arrive. The initial load is non-silent.
+      if (!silent) setError(null)
       requestJson<{ items: MemoryItem[] }>(baseUrl, undefined, t)
         .then((response) => {
           if (signal.cancelled) return
           setItems(response.items)
+          if (silent) setError(null)
         })
         .catch((err: unknown) => {
-          if (signal.cancelled) return
+          if (signal.cancelled || silent) return
           setError(err instanceof Error ? err.message : t('memory.errors.loadFailed'))
         })
     },
     [baseUrl],
   )
 
+  // Initial load.
   useEffect(() => {
     const signal = { cancelled: false }
     load(signal)
     return () => {
       signal.cancelled = true
+    }
+  }, [load])
+
+  // Pause silent revalidation while the user is actively mutating (adding,
+  // editing, deleting, or a request is in flight) so a background refetch never
+  // clobbers optimistic UI or an open editor.
+  const interacting = adding || editingId !== null || busyId !== null || confirmingDeleteId !== null
+  const interactingRef = useRef(interacting)
+  interactingRef.current = interacting
+
+  // Revalidate so memory captured elsewhere (the chat `remember` tool and the
+  // async reflection stage both write out-of-band) shows up without a manual
+  // reload: on window focus / tab re-visibility, and on a slow interval while
+  // the panel is mounted. Silent — never flashes the skeleton.
+  useEffect(() => {
+    const signal = { cancelled: false }
+    const revalidate = () => {
+      if (interactingRef.current) return
+      if (document.visibilityState === 'visible') load(signal, { silent: true })
+    }
+    window.addEventListener('focus', revalidate)
+    document.addEventListener('visibilitychange', revalidate)
+    const interval = window.setInterval(revalidate, 30_000)
+    return () => {
+      signal.cancelled = true
+      window.removeEventListener('focus', revalidate)
+      document.removeEventListener('visibilitychange', revalidate)
+      window.clearInterval(interval)
     }
   }, [load])
 

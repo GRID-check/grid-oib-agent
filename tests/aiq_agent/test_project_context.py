@@ -30,3 +30,17 @@ class TestMemoryReflectionFlag:
         monkeypatch.setattr(pc, "_read_header", fake)
         pc.get_memory_reflection_enabled_from_context()
         assert seen["name"] == pc.MEMORY_REFLECTION_FEATURE_HEADER
+
+
+class TestComposeProjectContext:
+    def test_combines_profile_and_memory(self):
+        assert pc.compose_project_context("PROFILE", "MEMORY") == "PROFILE\n\nMEMORY"
+
+    def test_profile_only(self):
+        assert pc.compose_project_context("PROFILE", None) == "PROFILE"
+
+    def test_memory_only(self):
+        assert pc.compose_project_context(None, "MEMORY") == "MEMORY"
+
+    def test_neither(self):
+        assert pc.compose_project_context(None, None) is None
