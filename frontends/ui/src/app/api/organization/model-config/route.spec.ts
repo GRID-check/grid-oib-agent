@@ -47,6 +47,8 @@ vi.mock('@/lib/model-config/openrouter', async (importOriginal) => {
 import { GET, PUT } from './route'
 import { createAndActivateVersion } from '@/lib/model-config/service'
 
+const get = (): Request => new Request('http://localhost/api/organization/model-config')
+
 const put = (body: unknown): Request =>
   new Request('http://localhost/api/organization/model-config', {
     method: 'PUT',
@@ -62,11 +64,11 @@ describe('/api/organization/model-config', () => {
 
   it('GET rejects non-admins', async () => {
     session.role = 'member'
-    expect((await GET()).status).toBe(403)
+    expect((await GET(get())).status).toBe(403)
   })
 
   it('GET returns the agent-group registry with workflow defaults for admins', async () => {
-    const res = await GET()
+    const res = await GET(get())
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.agentGroups.map((g: { id: string }) => g.id)).toContain('deep_research')

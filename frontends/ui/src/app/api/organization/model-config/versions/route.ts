@@ -1,30 +1,22 @@
 /** Version history of the org's model configuration. Org admins only. */
 
-import { NextResponse } from 'next/server'
-import { authzErrorResponse, requireAuthorizedSession } from '@/lib/auth/require-auth'
-import { canManageModels } from '@/lib/authz/organizations'
+import { apiRoute } from '@/lib/api/handler'
+import { ORG_PERMISSIONS } from '@/lib/authz/permissions'
 import { FEATURE_FLAGS, requireFeature } from '@/lib/authz/feature-flags'
 import { getOrgModelConfig, listVersions } from '@/lib/model-config/service'
 
-export async function GET(): Promise<Response> {
-  try {
-    const session = await requireAuthorizedSession()
-    if (!canManageModels(session)) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
+export const GET = apiRoute(
+  async ({ session }) => {
     const gated = requireFeature(session, FEATURE_FLAGS.modelConfiguration)
     if (gated) return gated
     const [versions, config] = await Promise.all([
       listVersions(session.organizationId),
       getOrgModelConfig(session.organizationId),
     ])
-    return NextResponse.json({
+    return {
       versions,
       activeVersionId: config.activeVersion?.id ?? null,
-    })
-  } catch (error) {
-    const denied = authzErrorResponse(error)
-    if (denied) return denied
-    throw error
-  }
-}
+    }
+  },
+  { permission: ORG_PERMISSIONS.modelsManage },
+)

@@ -42,7 +42,8 @@ describe('/api/conversations/[id]/messages', () => {
       { id: '550e8400-e29b-41d4-a716-446655440000', conversationId: 's_conv_1', role: 'user', content: 'hello', metadata: null, createdAt: new Date() },
       { id: '550e8400-e29b-41d4-a716-446655440001', conversationId: 's_conv_1', role: 'assistant', content: 'hi there', metadata: null, createdAt: new Date() },
     ]
-    const orderByFn = vi.fn().mockResolvedValue(messages)
+    // The bounded message query chains .orderBy().limit(); limit resolves rows.
+    const orderByFn = vi.fn(() => ({ limit: vi.fn().mockResolvedValue(messages) }))
 
     // First call: verify conversation exists
     const convLimitFn = vi.fn().mockResolvedValue([{ id: 's_conv_1', organizationId: 'org_1' }])

@@ -1,18 +1,19 @@
-import { NextResponse } from 'next/server'
+/**
+ * Project memory item API — edit or delete a single memory item.
+ * Thin handlers; authz and logic live in `@/lib/projects/service`.
+ */
+
 import { z } from 'zod'
-import { requireAuthorizedSession } from '@/lib/auth/require-auth'
-import { requireProjectAccess } from '@/lib/authz/projects'
-import { isAuthzError } from '@/lib/auth-utils'
-import {
-  deleteProjectMemoryItem,
-  updateProjectMemoryItem,
-} from '@/lib/projects/memory-service'
+import { apiRoute, parseJsonBody } from '@/lib/api/handler'
+import { editProjectMemoryItem, removeProjectMemoryItem } from '@/lib/projects/service'
 import {
   PROJECT_MEMORY_CONFIDENCES,
   PROJECT_MEMORY_KINDS,
   PROJECT_MEMORY_STATUSES,
   PROJECT_MEMORY_VERIFICATIONS,
 } from '@/lib/db/schema'
+
+type Params = { id: string; itemId: string }
 
 const patchMemorySchema = z
   .object({
@@ -25,58 +26,11 @@ const patchMemorySchema = z
   })
   .refine((value) => Object.keys(value).length > 0, { message: 'Empty patch' })
 
-export async function PATCH(
-  request: Request,
-  { params }: { params: Promise<{ id: string; itemId: string }> },
-): Promise<Response> {
-  try {
-    const session = await requireAuthorizedSession()
-    const { id, itemId } = await params
+export const PATCH = apiRoute<Params>(async ({ session, params, request }) => {
+  const patch = await parseJsonBody(request, patchMemorySchema)
+  return { item: await editProjectMemoryItem(session, params.id, params.itemId, patch) }
+})
 
-    await requireProjectAccess(session, id, 'project:edit')
-
-    const body = await request.json().catch(() => null)
-    const parsed = patchMemorySchema.safeParse(body)
-    if (!parsed.success) {
-      return NextResponse.json({ error: 'Invalid memory patch.' }, { status: 400 })
-    }
-
-    const item = await updateProjectMemoryItem({ projectId: id }, itemId, parsed.data)
-    if (!item) {
-      return NextResponse.json({ error: 'Not found' }, { status: 404 })
-    }
-
-    return NextResponse.json({ item })
-  } catch (error) {
-    if (isAuthzError(error)) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
-    console.error('[Project Memory API] PATCH error:', error)
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 })
-  }
-}
-
-export async function DELETE(
-  _request: Request,
-  { params }: { params: Promise<{ id: string; itemId: string }> },
-): Promise<Response> {
-  try {
-    const session = await requireAuthorizedSession()
-    const { id, itemId } = await params
-
-    await requireProjectAccess(session, id, 'project:edit')
-
-    const deleted = await deleteProjectMemoryItem({ projectId: id }, itemId)
-    if (!deleted) {
-      return NextResponse.json({ error: 'Not found' }, { status: 404 })
-    }
-
-    return new Response(null, { status: 204 })
-  } catch (error) {
-    if (isAuthzError(error)) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
-    console.error('[Project Memory API] DELETE error:', error)
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 })
-  }
-}
+export const DELETE = apiRoute<Params>(async ({ session, params }) => {
+  await removeProjectMemoryItem(session, params.id, params.itemId)
+})

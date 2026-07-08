@@ -8,28 +8,20 @@
  * POST (not GET) because each call mints a fresh single-use portal session.
  */
 
-import { NextResponse } from 'next/server'
-import { authzErrorResponse, requireAuthorizedSession } from '@/lib/auth/require-auth'
-import { canViewAuditLogs } from '@/lib/authz/organizations'
+import { apiRoute } from '@/lib/api/handler'
+import { UpstreamError } from '@/lib/api/errors'
+import { ORG_PERMISSIONS } from '@/lib/authz/permissions'
 import { generateAuditPortalLink, trustedAppOrigin } from '@/lib/audit/service'
 
-export async function POST(request: Request): Promise<Response> {
-  try {
-    const session = await requireAuthorizedSession()
-    if (!canViewAuditLogs(session)) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
+export const POST = apiRoute(
+  async ({ session, request }) => {
     const returnUrl = `${trustedAppOrigin(request)}/app/organization`
     try {
-      const link = await generateAuditPortalLink(session.organizationId, returnUrl)
-      return NextResponse.json({ link })
+      return { link: await generateAuditPortalLink(session.organizationId, returnUrl) }
     } catch (error) {
       console.error('[Audit Portal] WorkOS link generation failed:', error)
-      return NextResponse.json({ error: 'portal-unavailable' }, { status: 502 })
+      throw new UpstreamError('portal-unavailable')
     }
-  } catch (error) {
-    const denied = authzErrorResponse(error)
-    if (denied) return denied
-    throw error
-  }
-}
+  },
+  { permission: ORG_PERMISSIONS.auditView },
+)

@@ -2,6 +2,36 @@
 
 All BFF (Backend-for-Frontend) routes are under `frontends/ui/src/app/api/`. They proxy to the Python backend, handle auth, and inject collection scope headers.
 
+## Architecture & error contract (ADR-0017)
+
+Every route is declared through a factory from `@/lib/api/handler`
+(`apiRoute` / `internalApiRoute` / `publicApiRoute`) and delegates to a
+domain service + repository (see
+`docs/architecture/bff-service-architecture.md`). Error responses share one
+envelope:
+
+```json
+{ "error": "<message>", "code": "<CODE>", "details": <optional> }
+```
+
+Common codes: `BAD_REQUEST` (400, zod issues in `details`), `FORBIDDEN`
+(403), `NOT_FOUND` (404 — also used for denied access so responses never
+confirm a resource exists), `CONFLICT` (409), `UNPROCESSABLE` (422),
+`UPSTREAM_ERROR` (502), `SERVICE_UNAVAILABLE` (503), `INTERNAL` (500, no
+internal details leaked).
+
+Security behavior as of the ADR-0017 refactor:
+
+- Document list/download/preview/status enforce `project:view` FGA, not just
+  org membership; filenames are sanitized (RFC 5987) before
+  `Content-Disposition` on presigned URLs.
+- `POST /api/conversations` validates a supplied `projectId` via
+  `project:view` FGA; message roles are restricted to
+  `user|assistant|system|tool`.
+- `PUT /api/organization/settings` requires `org:settings:manage`.
+- List endpoints are bounded (projects 500, conversations 200, messages
+  1000, documents 500, holds/deletions 200).
+
 ## Auth
 
 | Method | Path | Auth | Description | Request | Response |
@@ -54,7 +84,7 @@ Source: `frontends/ui/src/app/api/conversations/route.ts`, `frontends/ui/src/app
 | `POST` | `/api/projects` | Required | Create a project. Inserts DB row + creates WorkOS FGA resource + assigns creator as `project-admin`. | `{ name }` | `{ id, name, collectionName, ... }` (201) |
 | `GET` | `/api/projects/{id}` | Required | Get project details. Checks `project:view` FGA permission. | — | `{ id, name, collectionName, ... }` |
 | `PATCH` | `/api/projects/{id}` | Required | Rename a project. Checks `project:manage` FGA permission. | `{ name }` | `{ id, name, ... }` |
-| `DELETE` | `/api/projects/{id}` | Required | Delete a project. Checks `project:manage` FGA permission. Removes WorkOS FGA resource + DB row. | — | `204 No Content` |
+| `DELETE` | `/api/projects/{id}` | Required | Soft-delete a project (name confirmation) and enqueue the purge after the grace period (ADR-0011). Checks `project:manage`. | `{ confirmName }` | `{ status: 'pending', purgeAfter }` (202) |
 | `GET` | `/api/projects/{id}/members` | Required | List project members. Checks `project:manage`. Merges FGA role assignments with WorkOS user list. | — | `{ members: [{ organizationMembershipId, userId, email, name, role }] }` |
 | `POST` | `/api/projects/{id}/members` | Required | Add a member. Checks `project:manage`. Assigns a project-level FGA role. | `{ organizationMembershipId, roleSlug }` | `201 No Content` |
 | `DELETE` | `/api/projects/{id}/members/{assignmentId}` | Required | Remove a member. Checks `project:manage`. Removes WorkOS FGA role assignment. | — | `204 No Content` |
@@ -65,10 +95,11 @@ Source: `frontends/ui/src/app/api/projects/route.ts`, `frontends/ui/src/app/api/
 
 | Method | Path | Auth | Description | Request Body / Params | Response |
 |--------|------|------|-------------|-----------------------|----------|
-| `GET` | `/api/documents` | Required | List documents for a project. Requires `projectId` query param. Filters by org. | `?projectId=` | `{ documents: [{ id, filename, fileSize, contentType, status, ... }] }` |
+| `GET` | `/api/documents` | Required | List documents for a project. Requires `projectId` query param. Checks `project:view` FGA. | `?projectId=` | `{ documents: [{ id, filename, fileSize, contentType, status, ... }] }` |
 | `POST` | `/api/documents/upload` | Required | Upload a file. Checks `project:edit` FGA. Writes to MinIO, creates DB row, triggers ingestion via `POST /v1/ingest` on Python backend. | `multipart/form-data` with `projectId` + `file` | `{ documentId, jobId?, status, filename }` |
-| `GET` | `/api/documents/{id}/download` | Required | Get a presigned download URL for a document. Verifies org ownership. | — | `{ downloadUrl, filename, contentType, fileSize }` |
-| `GET` | `/api/documents/{id}/status` | Required | Get document ingestion status. Verifies org ownership. | — | `{ id, status, filename, fileSize, errorMessage?, createdAt, updatedAt }` |
+| `GET` | `/api/documents/{id}/download` | Required | Get a presigned download URL for a document. Verifies org ownership + `project:view` FGA. | — | `{ downloadUrl, filename, contentType, fileSize }` |
+| `GET` | `/api/documents/{id}/preview` | Required | Presigned inline preview URL (PDF/image types only; 415 otherwise). Verifies org ownership + `project:view` FGA. | — | `{ url, contentType, filename }` |
+| `GET` | `/api/documents/{id}/status` | Required | Get document ingestion status. Verifies org ownership + `project:view` FGA. | — | `{ id, status, filename, fileSize, errorMessage?, createdAt, updatedAt }` |
 
 Document upload stores files in MinIO at key `{orgId}/{projectId}/{documentId}/{filename}`. Presigned URLs expire after `MINIO_PRESIGNED_URL_TTL_SECONDS` (default 600s). Ingestion is best-effort: if the backend call fails, the document remains in `uploaded` status.
 

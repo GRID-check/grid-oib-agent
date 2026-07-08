@@ -1,101 +1,26 @@
-import { NextResponse } from 'next/server'
-import { and, eq } from 'drizzle-orm'
+/**
+ * Conversation detail API — read, rename, and delete a single conversation.
+ * Thin handlers; all logic lives in `@/lib/conversations/service`.
+ */
+
 import { z } from 'zod'
-import { authzErrorResponse, requireAuthorizedSession } from '@/lib/auth/require-auth'
-import { getDb } from '@/lib/db'
-import { conversations } from '@/lib/db/schema'
+import { apiRoute, parseJsonBody } from '@/lib/api/handler'
+import { deleteConversation, getConversation, updateConversationTitle } from '@/lib/conversations/service'
+
+type Params = { id: string }
 
 const updateConversationSchema = z.object({
   title: z.string().min(1),
 })
 
-export async function GET(
-  _request: Request,
-  { params }: { params: Promise<{ id: string }> },
-): Promise<Response> {
-  try {
-    const session = await requireAuthorizedSession()
-    const { id } = await params
-    const db = getDb()
+export const GET = apiRoute<Params>(async ({ session, params }) => getConversation(session, params.id))
 
-    const [row] = await db
-      .select()
-      .from(conversations)
-      .where(eq(conversations.id, id))
-      .limit(1)
+export const PATCH = apiRoute<Params>(async ({ session, params, request }) => {
+  const { title } = await parseJsonBody(request, updateConversationSchema)
+  return updateConversationTitle(session, params.id, title)
+})
 
-    if (!row || row.organizationId !== session.organizationId) {
-      return NextResponse.json({ error: 'Not found' }, { status: 404 })
-    }
-
-    return NextResponse.json(row)
-  } catch (error) {
-    const denied = authzErrorResponse(error)
-    if (denied) return denied
-    throw error
-  }
-}
-
-export async function PATCH(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> },
-): Promise<Response> {
-  try {
-    const session = await requireAuthorizedSession()
-    const { id } = await params
-
-    const body = await request.json().catch(() => null)
-    if (!body) {
-      return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
-    }
-
-    const parsed = updateConversationSchema.safeParse(body)
-    if (!parsed.success) {
-      return NextResponse.json(
-        { error: 'title is required', issues: parsed.error.issues },
-        { status: 400 },
-      )
-    }
-
-    const db = getDb()
-
-    const [row] = await db
-      .update(conversations)
-      .set({ title: parsed.data.title, updatedAt: new Date() })
-      .where(eq(conversations.id, id))
-      .returning()
-
-    if (!row || row.organizationId !== session.organizationId) {
-      return NextResponse.json({ error: 'Not found' }, { status: 404 })
-    }
-
-    return NextResponse.json(row)
-  } catch (error) {
-    const denied = authzErrorResponse(error)
-    if (denied) return denied
-    throw error
-  }
-}
-
-export async function DELETE(
-  _request: Request,
-  { params }: { params: Promise<{ id: string }> },
-): Promise<Response> {
-  try {
-    const session = await requireAuthorizedSession()
-    const { id } = await params
-    const db = getDb()
-
-    // Tenant isolation in the WHERE clause — deleting by id alone would let
-    // any signed-in user delete another org's conversation by guessing ids.
-    await db
-      .delete(conversations)
-      .where(and(eq(conversations.id, id), eq(conversations.organizationId, session.organizationId)))
-
-    return new Response(null, { status: 204 })
-  } catch (error) {
-    const denied = authzErrorResponse(error)
-    if (denied) return denied
-    throw error
-  }
-}
+export const DELETE = apiRoute<Params>(async ({ session, params }) => {
+  await deleteConversation(session, params.id)
+  return null
+})

@@ -1,16 +1,17 @@
 /**
  * Org model configuration (runtime model per agent group).
  *
- * GET — org admins only; the active version + agent-group registry.
- * PUT — org admins only; validates every chosen model against the live
- *       OpenRouter catalog + the group's capability requirements, then writes
- *       a new immutable version and activates it.
+ * GET — `org:models:manage` holders only; the active version + agent-group
+ *       registry.
+ * PUT — validates every chosen model against the live OpenRouter catalog +
+ *       the group's capability requirements, then writes a new immutable
+ *       version and activates it.
  */
 
-import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import { authzErrorResponse, requireAuthorizedSession } from '@/lib/auth/require-auth'
-import { canManageModels } from '@/lib/authz/organizations'
+import { apiRoute, parseJsonBody } from '@/lib/api/handler'
+import { ServiceUnavailableError, UnprocessableError } from '@/lib/api/errors'
+import { ORG_PERMISSIONS } from '@/lib/authz/permissions'
 import { FEATURE_FLAGS, requireFeature } from '@/lib/authz/feature-flags'
 import { AGENT_GROUPS, AGENT_GROUP_IDS, OPENROUTER_MODEL_ID_PATTERN } from '@/lib/model-config/agent-groups'
 import { getGroupDefaults } from '@/lib/model-config/backend-defaults'
@@ -18,12 +19,8 @@ import { fetchModelCatalog, validateOverrides } from '@/lib/model-config/openrou
 import { createAndActivateVersion, getOrgModelConfig } from '@/lib/model-config/service'
 import { recordAuditEvent } from '@/lib/audit/service'
 
-export async function GET(): Promise<Response> {
-  try {
-    const session = await requireAuthorizedSession()
-    if (!canManageModels(session)) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
+export const GET = apiRoute(
+  async ({ session }) => {
     const gated = requireFeature(session, FEATURE_FLAGS.modelConfiguration)
     if (gated) return gated
     const [config, defaults] = await Promise.all([
@@ -32,19 +29,16 @@ export async function GET(): Promise<Response> {
       // (best-effort — nulls when the backend is unreachable).
       getGroupDefaults(),
     ])
-    return NextResponse.json({
+    return {
       agentGroups: AGENT_GROUPS,
       defaults,
       activeVersion: config.activeVersion,
       updatedBy: config.updatedBy,
       updatedAt: config.updatedAt,
-    })
-  } catch (error) {
-    const denied = authzErrorResponse(error)
-    if (denied) return denied
-    throw error
-  }
-}
+    }
+  },
+  { permission: ORG_PERMISSIONS.modelsManage },
+)
 
 const putSchema = z.object({
   overrides: z.record(
@@ -54,20 +48,12 @@ const putSchema = z.object({
   comment: z.string().trim().max(500).nullable().optional(),
 })
 
-export async function PUT(request: Request): Promise<Response> {
-  try {
-    const session = await requireAuthorizedSession()
-    if (!canManageModels(session)) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
+export const PUT = apiRoute(
+  async ({ session, request }) => {
     const gated = requireFeature(session, FEATURE_FLAGS.modelConfiguration)
     if (gated) return gated
 
-    const body = await request.json().catch(() => null)
-    const parsed = putSchema.safeParse(body)
-    if (!parsed.success) {
-      return NextResponse.json({ error: 'Invalid model configuration payload' }, { status: 400 })
-    }
+    const input = await parseJsonBody(request, putSchema)
 
     // Server-side revalidation against the live catalog — the picker UI is
     // never trusted. A catalog outage rejects the save (503) rather than
@@ -77,22 +63,19 @@ export async function PUT(request: Request): Promise<Response> {
       catalog = await fetchModelCatalog()
     } catch (error) {
       console.error('[Model Config API] OpenRouter catalog unavailable:', error)
-      return NextResponse.json(
-        { error: 'OpenRouter model catalog is unavailable; try again later' },
-        { status: 503 },
-      )
+      throw new ServiceUnavailableError('OpenRouter model catalog is unavailable; try again later')
     }
-    const flat = Object.fromEntries(Object.entries(parsed.data.overrides).map(([g, v]) => [g, v.model]))
+    const flat = Object.fromEntries(Object.entries(input.overrides).map(([g, v]) => [g, v.model]))
     const validation = validateOverrides(catalog, flat)
     if (!validation.ok) {
-      return NextResponse.json({ error: 'Model validation failed', details: validation.errors }, { status: 422 })
+      throw new UnprocessableError('Model validation failed', validation.errors)
     }
 
     const version = await createAndActivateVersion({
       organizationId: session.organizationId,
-      overrides: parsed.data.overrides,
+      overrides: input.overrides,
       modelSnapshot: validation.snapshot,
-      comment: parsed.data.comment ?? null,
+      comment: input.comment ?? null,
       actorUserId: session.userId,
     })
     await recordAuditEvent({
@@ -104,10 +87,7 @@ export async function PUT(request: Request): Promise<Response> {
       metadata: flat,
       request,
     })
-    return NextResponse.json({ activeVersion: version }, { status: 201 })
-  } catch (error) {
-    const denied = authzErrorResponse(error)
-    if (denied) return denied
-    throw error
-  }
-}
+    return { activeVersion: version }
+  },
+  { permission: ORG_PERMISSIONS.modelsManage, status: 201 },
+)

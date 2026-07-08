@@ -1,112 +1,36 @@
-import { NextResponse } from 'next/server'
-import { asc, eq } from 'drizzle-orm'
+/**
+ * Conversation messages API — list a conversation's history and append
+ * messages (single object or batch array; both return an array). Thin
+ * handlers; all logic lives in `@/lib/conversations/service`.
+ */
+
 import { z } from 'zod'
-import { authzErrorResponse, requireAuthorizedSession } from '@/lib/auth/require-auth'
-import { getDb } from '@/lib/db'
-import { conversations, messages } from '@/lib/db/schema'
+import { apiRoute, parseJsonBody } from '@/lib/api/handler'
+import { createConversationMessages, listConversationMessages } from '@/lib/conversations/service'
 
-export async function GET(
-  _request: Request,
-  { params }: { params: Promise<{ id: string }> },
-): Promise<Response> {
-  try {
-    const session = await requireAuthorizedSession()
-    const { id } = await params
-    const db = getDb()
-
-    const [conv] = await db
-      .select()
-      .from(conversations)
-      .where(eq(conversations.id, id))
-      .limit(1)
-
-    if (!conv || conv.organizationId !== session.organizationId) {
-      return NextResponse.json({ error: 'Not found' }, { status: 404 })
-    }
-
-    const rows = await db
-      .select()
-      .from(messages)
-      .where(eq(messages.conversationId, id))
-      .orderBy(asc(messages.createdAt))
-
-    return NextResponse.json(rows)
-  } catch (error) {
-    const denied = authzErrorResponse(error)
-    if (denied) return denied
-    throw error
-  }
-}
+type Params = { id: string }
 
 const createMessageSchema = z.object({
-  id: z.string().min(1),
-  role: z.string().min(1),
+  // Client-generated id; length-capped so user-controlled strings never
+  // reach the database unbounded.
+  id: z.string().min(1).max(128),
+  role: z.enum(['user', 'assistant', 'system', 'tool']),
   content: z.string(),
-  messageType: z.string().optional(),
-  metadata: z.any().optional(),
+  metadata: z.record(z.unknown()).optional(),
+  // Kept as a plain string: the chat store sends both ISO strings and
+  // `String(Date)` output, which `.datetime()` would reject.
   createdAt: z.string().optional(),
 })
 
-export async function POST(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> },
-): Promise<Response> {
-  try {
-    const session = await requireAuthorizedSession()
-    const { id } = await params
-    const db = getDb()
+const createMessagesSchema = z.union([createMessageSchema, z.array(createMessageSchema).min(1)])
 
-    const [conv] = await db
-      .select()
-      .from(conversations)
-      .where(eq(conversations.id, id))
-      .limit(1)
+export const GET = apiRoute<Params>(async ({ session, params }) => listConversationMessages(session, params.id))
 
-    if (!conv || conv.organizationId !== session.organizationId) {
-      return NextResponse.json({ error: 'Not found' }, { status: 404 })
-    }
-
-    const body = await request.json().catch(() => null)
-    if (!body) {
-      return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
-    }
-
-    const messagesArray = Array.isArray(body) ? body : [body]
-    const parsed: z.infer<typeof createMessageSchema>[] = []
-
-    for (const msg of messagesArray) {
-      const result = createMessageSchema.safeParse(msg)
-      if (!result.success) {
-        return NextResponse.json(
-          { error: 'Invalid message', issues: result.error.issues },
-          { status: 400 },
-        )
-      }
-      parsed.push(result.data)
-    }
-
-    if (parsed.length === 0) {
-      return NextResponse.json({ error: 'No valid messages' }, { status: 400 })
-    }
-
-    const rows = await db
-      .insert(messages)
-      .values(
-        parsed.map((m) => ({
-          id: m.id,
-          conversationId: id,
-          role: m.role,
-          content: m.content,
-          metadata: m.metadata ?? {},
-          createdAt: m.createdAt ? new Date(m.createdAt) : new Date(),
-        }))
-      )
-      .returning()
-
-    return NextResponse.json(rows, { status: 201 })
-  } catch (error) {
-    const denied = authzErrorResponse(error)
-    if (denied) return denied
-    throw error
-  }
-}
+export const POST = apiRoute<Params>(
+  async ({ session, params, request }) => {
+    const body = await parseJsonBody(request, createMessagesSchema)
+    const inputs = Array.isArray(body) ? body : [body]
+    return createConversationMessages(session, params.id, inputs)
+  },
+  { status: 201 },
+)
