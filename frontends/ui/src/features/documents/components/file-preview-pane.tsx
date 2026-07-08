@@ -5,6 +5,7 @@ import type { FileItem } from './project-file-workspace'
 import { Download, FileQuestion, RotateCcw, X } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button, buttonVariants } from '@/components/ui/button'
+import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { formatFileSize } from '@/lib/utils/format-file-size'
 import { DocumentStatusBadge, fileTypeIcon } from './document-status'
@@ -17,7 +18,8 @@ interface FilePreviewPaneProps {
 
 const PREVIEW_TYPES = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp', 'image/svg+xml']
 
-export function FilePreviewPane({ file, projectId, onClose }: FilePreviewPaneProps) {
+export function FilePreviewPane({ file, onClose }: FilePreviewPaneProps) {
+  const t = useTranslations('files')
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [previewFailed, setPreviewFailed] = useState(false)
@@ -58,7 +60,7 @@ export function FilePreviewPane({ file, projectId, onClose }: FilePreviewPanePro
           <h3 className="truncate text-sm font-semibold text-foreground">{file.filename}</h3>
         </div>
         {onClose && (
-          <Button variant="ghost" size="icon" className="size-7 shrink-0" onClick={onClose} aria-label="Close preview">
+          <Button variant="ghost" size="icon" className="size-7 shrink-0" onClick={onClose} aria-label={t('preview.closePreview')}>
             <X className="size-4" />
           </Button>
         )}
@@ -83,29 +85,29 @@ export function FilePreviewPane({ file, projectId, onClose }: FilePreviewPanePro
         )}
         {canPreview && !isLoading && previewFailed && (
           <PreviewMessage
-            message="Preview couldn't be loaded. You can still download the file below."
+            message={t('preview.loadFailed')}
             action={
               <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={loadPreview}>
                 <RotateCcw className="size-3.5" aria-hidden />
-                Try again
+                {t('preview.tryAgain')}
               </Button>
             }
           />
         )}
         {!canPreview && (
-          <PreviewMessage message="No inline preview for this file type. Download it to view the full document." />
+          <PreviewMessage message={t('preview.noInlinePreview')} />
         )}
       </div>
 
       {/* Metadata */}
       <div className="space-y-2.5 border-t px-4 py-3">
-        <MetaRow label="Status">
+        <MetaRow label={t('preview.status')}>
           <DocumentStatusBadge status={file.status} />
         </MetaRow>
-        <MetaRow label="Type">
-          <span className="font-mono text-xs text-foreground">{file.contentType ?? 'Unknown'}</span>
+        <MetaRow label={t('preview.type')}>
+          <span className="font-mono text-xs text-foreground">{file.contentType ?? t('preview.unknownType')}</span>
         </MetaRow>
-        <MetaRow label="Size">
+        <MetaRow label={t('preview.size')}>
           <span className="text-xs font-medium tabular-nums text-foreground">{formatFileSize(file.fileSize)}</span>
         </MetaRow>
       </div>
@@ -117,7 +119,7 @@ export function FilePreviewPane({ file, projectId, onClose }: FilePreviewPanePro
           className={cn(buttonVariants({ variant: 'outline' }), 'w-full gap-2')}
         >
           <Download className="size-4" aria-hidden />
-          Download
+          {t('preview.download')}
         </a>
       </div>
     </div>

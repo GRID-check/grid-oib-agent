@@ -254,6 +254,29 @@ const startServer = async () => {
               'utf8'
             ).toString('base64url')
           }
+          // Feature flag: whether the async memory-reflection stage is enabled
+          // for this caller (WorkOS flag per-org, or the env fallback). Always
+          // forwarded so the backend fails closed when the header is absent.
+          req.headers['x-grid-feature-memory-reflection'] = result.data?.memoryReflectionEnabled
+            ? 'true'
+            : 'false'
+          // Per-org runtime model overrides ({agentGroup: openrouterModelId},
+          // from the org's active model-config version) and the remaining LLM
+          // budget snapshot. Both are JSON → base64url-encoded like the other
+          // structured headers; decoded in aiq_agent (model_overrides.py /
+          // cost_tracking.py). Absent header = workflow defaults / no cap.
+          if (result.data?.modelOverrides) {
+            req.headers['x-grid-model-overrides'] = Buffer.from(
+              JSON.stringify(result.data.modelOverrides),
+              'utf8'
+            ).toString('base64url')
+          }
+          if (result.data?.budget) {
+            req.headers['x-grid-budget'] = Buffer.from(
+              JSON.stringify(result.data.budget),
+              'utf8'
+            ).toString('base64url')
+          }
         } else if (result.status === 401 || result.status === 403) {
           const statusText = result.status === 401 ? 'Unauthorized' : 'Forbidden'
           try {

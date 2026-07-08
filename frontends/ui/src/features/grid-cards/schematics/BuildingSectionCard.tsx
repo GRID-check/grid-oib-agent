@@ -172,7 +172,7 @@ export const BuildingSectionCard: FC<BuildingSectionCardProps> = ({
           strokeWidth={1.5}
         />
         {groundTicks}
-        <SvgLabel x={40} y={groundY - 8} mono size={9}>
+        <SvgLabel x={318} y={groundY - 8} anchor="end" mono size={9}>
           ±0,00
         </SvgLabel>
 

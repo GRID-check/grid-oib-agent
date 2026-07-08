@@ -17,6 +17,7 @@ import { Check, ChevronDown, Clock, FileText, Pencil, Search, Wand2, X } from 'l
 import { Checkbox } from '@/components/ui/checkbox'
 import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/utils'
+import { useTranslations } from '@/i18n'
 import type { DeepResearchToolCall } from '@/features/chat/types'
 
 /** Maximum characters for truncated query display */
@@ -148,6 +149,7 @@ const dedupeToolCalls = (toolCalls: DeepResearchToolCall[]): DeepResearchToolCal
  */
 export const AgentCard: FC<AgentCardProps> = ({ agent, defaultExpanded = true }) => {
   const [isExpanded, setIsExpanded] = useState(defaultExpanded)
+  const t = useTranslations('research')
 
   const isRunning = agent.status === 'running'
   const isComplete = agent.status === 'complete'
@@ -173,8 +175,11 @@ export const AgentCard: FC<AgentCardProps> = ({ agent, defaultExpanded = true })
 
   const toolCountLabel =
     searchToolCalls.length > 0
-      ? `${searchToolCalls.filter((tc) => tc.status === 'complete').length}/${searchToolCalls.length} queries`
-      : `${completedToolCalls.length}/${toolCalls.length} tools`
+      ? t('agentCard.queriesCount', {
+          completed: searchToolCalls.filter((tc) => tc.status === 'complete').length,
+          total: searchToolCalls.length,
+        })
+      : t('agentCard.toolsCount', { completed: completedToolCalls.length, total: toolCalls.length })
 
   return (
     <div className="flex flex-col overflow-hidden rounded-lg border bg-muted/40">
@@ -186,12 +191,12 @@ export const AgentCard: FC<AgentCardProps> = ({ agent, defaultExpanded = true })
         aria-controls={`agent-content-${agent.id}`}
         className="w-full text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/60 disabled:cursor-default"
         disabled={!canExpand}
-        title={!canExpand && isRunning ? 'Details available when the agent completes' : undefined}
+        title={!canExpand && isRunning ? t('agentCard.detailsWhenComplete') : undefined}
       >
         <div className="flex w-full items-center gap-2 px-3 py-2">
           {/* Status Icon - spinner when running */}
           {isRunning ? (
-            <Spinner size="sm" label={`${agent.name} is running`} className="shrink-0" />
+            <Spinner size="sm" label={t('agentCard.isRunning', { name: agent.name })} className="shrink-0" />
           ) : (
             <span className={cn('shrink-0', statusTextClass)} aria-hidden="true">
               {isComplete ? (
@@ -221,7 +226,7 @@ export const AgentCard: FC<AgentCardProps> = ({ agent, defaultExpanded = true })
             </span>
           ) : agent.startedAt ? (
             <span className="shrink-0 text-xs text-muted-foreground">
-              Started: {formatTime(agent.startedAt)}
+              {t('agentCard.started', { time: formatTime(agent.startedAt) })}
             </span>
           ) : null}
 
@@ -269,7 +274,7 @@ export const AgentCard: FC<AgentCardProps> = ({ agent, defaultExpanded = true })
                     className={cn('flex items-start gap-2 py-1', isToolComplete && 'opacity-70')}
                   >
                     {isToolRunning ? (
-                      <Spinner size="sm" label="Running" className="mt-0.5 shrink-0" />
+                      <Spinner size="sm" label={t('agentCard.running')} className="mt-0.5 shrink-0" />
                     ) : (
                       <Checkbox
                         checked={isToolComplete}

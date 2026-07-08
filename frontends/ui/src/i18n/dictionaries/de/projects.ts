@@ -1,0 +1,281 @@
+import type { en } from '../en'
+
+/** projects namespace — populated during component i18n. */
+export const projects: typeof en.projects = {
+  list: {
+    heading: 'Projekte',
+    description:
+      'Jedes Bauprojekt in einem ruhigen Arbeitsbereich — Dokumente, Mitglieder, OIB/RIS-Recherche und Chat, gemeinsam fundiert.',
+    loading: 'Projekte werden geladen…',
+    searchPlaceholder: 'Projekte durchsuchen…',
+    searchAria: 'Projekte nach Namen durchsuchen',
+    noMatch: {
+      title: 'Keine passenden Projekte',
+      description: 'Kein Projektname entspricht Ihrer Suche.',
+      clear: 'Suche löschen',
+    },
+    empty: {
+      title: 'Starten Sie Ihr erstes Projekt',
+      description:
+        'Grid ist ein Copilot für die OIB/RIS-Baukonformität. Legen Sie ein Projekt an, um dessen Dokumente, Mitglieder und Recherche in einem Arbeitsbereich zu bündeln — und stellen Sie Grid Fragen, fundiert im österreichischen Baurecht.',
+      action: 'Erstellen Sie Ihr erstes Projekt',
+    },
+  },
+  section: {
+    loading: 'Wird geladen…',
+  },
+  card: {
+    summaryFallback:
+      'Arbeitsbereich für OIB/RIS-Baukonformität. Fügen Sie Dokumente und ein Briefing hinzu, um Grid zu fundieren.',
+    updated: 'Aktualisiert {date}',
+    created: 'Erstellt {date}',
+    active: 'Aktiv',
+    draft: 'Entwurf',
+    document: 'Dokument',
+    documents: 'Dokumente',
+    docLabel: '{count} {unit}',
+    open: '{name} öffnen',
+  },
+  dialog: {
+    newProject: 'Neues Projekt',
+    title: 'Projekt erstellen',
+    description:
+      'Ein Projekt ist ein fokussierter Arbeitsbereich für ein Gebäude — dessen Dokumente, Mitglieder, Recherche und Chat-Kontext bleiben zusammen.',
+  },
+  form: {
+    nameRequired: 'Der Projektname ist erforderlich.',
+    nameTooLong: 'Der Projektname darf höchstens 255 Zeichen lang sein.',
+    createError:
+      'Wir konnten dieses Projekt gerade nicht erstellen. Bitte versuchen Sie es in einem Moment erneut.',
+    nameLabel: 'Projektname',
+    namePlaceholder: 'OIB-Brandschutzprüfung',
+    templateLabel: 'Mit einer Vorlage beginnen',
+    footnote:
+      'Erstellen Sie einen fokussierten Arbeitsbereich für Dokumente, Retrieval, Mitglieder und Chat, fundiert im OIB/RIS-Korpus.',
+    submit: 'Projekt erstellen',
+  },
+  applicableStandards: {
+    heading: 'Anwendbare Standards',
+    description: 'OIB-Richtlinien, die auf Basis des Briefings für dieses Projekt relevant sind.',
+    briefIncomplete:
+      'Vervollständigen Sie das Projekt-Briefing für eine auf dieses Gebäude zugeschnittene Anwendbarkeit.',
+    status: {
+      required: 'Erforderlich',
+      check: 'Prüfen',
+      likely: 'Wahrscheinlich',
+    },
+    askQuestion: 'Welche Anforderungen von {code} ({title}) gelten für dieses Projekt?',
+    source: 'Quelle',
+    sourceAria: 'Quelle für {code} öffnen',
+    sourceTitle: 'OIB-Quelle öffnen',
+    askGrid: 'Grid fragen',
+    askGridAria: 'Grid zu {code} fragen',
+    askGridTitle: 'Grid zu dieser Richtlinie fragen',
+    emptyTitle: 'Noch keine anwendbaren Standards',
+    emptyDescription:
+      'Vervollständigen Sie das Projekt-Briefing, damit Grid ermitteln kann, welche OIB-Richtlinien auf dieses Gebäude zutreffen.',
+    disclaimer:
+      'Nur zur Orientierung — keine Rechtsberatung. Prüfen Sie die Anwendbarkeit anhand der aktuellen Bauordnung und der zuständigen Behörde.',
+  },
+  dangerZone: {
+    deleteSuccess:
+      'Projekt gelöscht. Es kann während der Kulanzfrist über „Kürzlich gelöscht“ wiederhergestellt werden.',
+    deleteError: 'Projekt konnte nicht gelöscht werden.',
+    heading: 'Gefahrenzone',
+    description:
+      'Das Löschen eines Projekts entfernt dessen Dokumente, Chats, Rechercheverlauf und Wissensdatenbank überall. Für eine begrenzte Kulanzfrist wiederherstellbar, danach endgültig gelöscht.',
+    deleteButton: 'Projekt löschen',
+    dialogTitle: 'Projekt löschen',
+    dialogDescriptionBefore: 'Dies löscht ',
+    dialogDescriptionAfter:
+      ' und alle zugehörigen Daten in der gesamten App: Dateien, Chats, Rechercheläufe und die Wissensdatenbank.',
+    confirmLabel: 'Projekt löschen',
+  },
+  recentlyDeleted: {
+    restoreSuccess: '„{name}“ wiederhergestellt.',
+    restoreError: 'Wiederherstellung fehlgeschlagen.',
+    heading: 'Kürzlich gelöscht',
+    purgeFailed: 'Löschung fehlgeschlagen — Support kontaktieren',
+    purgeAfter: 'Endgültig gelöscht nach {date}',
+    restore: 'Wiederherstellen',
+  },
+  researchRuns: {
+    hint: {
+      reportPending: 'Bericht ausstehend',
+      noReport: 'Kein Bericht',
+    },
+    status: {
+      running: 'Läuft',
+      submitted: 'Übermittelt',
+      pending: 'Ausstehend',
+      completed: 'Abgeschlossen',
+      failed: 'Fehlgeschlagen',
+      cancelled: 'Abgebrochen',
+    },
+    loadError: 'Rechercheläufe konnten nicht geladen werden',
+    errorTitle: 'Rechercheläufe konnten nicht geladen werden',
+    tryAgain: 'Erneut versuchen',
+    emptyTitle: 'Noch keine Rechercheläufe',
+    emptyDescription:
+      'Tiefe Rechercheläufe erscheinen hier, sobald Sie Grid im Chat eine komplexe Frage stellen — es durchsucht die OIB/RIS-Quellen und liefert einen belegten Bericht, den Sie erneut aufrufen können.',
+    emptyAction: 'Einen Lauf im Chat starten',
+    viewReport: 'Bericht ansehen',
+  },
+  intake: {
+    validation: {
+      selectOption: 'Wählen Sie eine Option, um fortzufahren.',
+      selectAtLeastOne: 'Wählen Sie mindestens eine Option.',
+      chooseYesNo: 'Wählen Sie Ja oder Nein.',
+      enterNumber: 'Geben Sie eine Zahl ein.',
+      required: 'Dieses Feld ist erforderlich.',
+    },
+    errors: {
+      loadFailed: 'Wir konnten die Projektfragen nicht laden.',
+      saveConflict:
+        'Dieses Briefing wurde an anderer Stelle geändert. Bitte aktualisieren Sie und versuchen Sie es erneut.',
+      saveFailed: 'Wir konnten das Projekt-Briefing nicht speichern. Bitte versuchen Sie es erneut.',
+    },
+    tryAgain: 'Erneut versuchen',
+    draftSaved: 'Entwurf gespeichert',
+    eyebrowEdit: 'Projekt-Briefing bearbeiten',
+    eyebrowCreate: 'Projekteinrichtung',
+    titleFallback: 'Erzählen Sie Grid von diesem Projekt',
+    subtitle:
+      'Etwa 2 Minuten. Grid nutzt dieses Briefing, um jede Antwort zu fundieren — und um zu zeigen, welche OIB-Richtlinien auf dieses Gebäude zutreffen.',
+    progressAria: 'Fortschritt',
+    reviewTitle: 'Prüfen & bestätigen',
+    reviewStep: 'Prüfen',
+    reviewDescription:
+      'Bestätigen Sie, was Grid über dieses Projekt verstanden hat, bevor Sie speichern.',
+    back: 'Zurück',
+    stepCounter: 'Schritt {current} von {total}',
+    saving: 'Wird gespeichert…',
+    saveChanges: 'Änderungen speichern',
+    saveAndSee: 'Speichern & meine Standards ansehen',
+    next: 'Weiter',
+    unknownsTitle: 'Grid wird weiterhin nicht wissen',
+    unknownsHint:
+      'Sie können jetzt speichern und dies später ergänzen — Grid markiert diese Punkte als offene Fragen.',
+    edit: 'Bearbeiten',
+    optional: '(optional)',
+    yes: 'Ja',
+    no: 'Nein',
+    selectPlaceholder: 'Auswählen…',
+  },
+  memory: {
+    kinds: {
+      decision: 'Entscheidungen',
+      constraint: 'Einschränkungen',
+      open_question: 'Offene Fragen',
+      derived_fact: 'Abgeleitete Fakten',
+      preference: 'Präferenzen',
+    },
+    kindSingular: {
+      decision: 'Entscheidung',
+      constraint: 'Einschränkung',
+      open_question: 'Offene Frage',
+      derived_fact: 'Abgeleiteter Fakt',
+      preference: 'Präferenz',
+    },
+    verification: {
+      unverified: 'nicht verifiziert',
+      source_grounded: 'quellenbasiert',
+      user_confirmed: 'von Ihnen bestätigt',
+    },
+    provenance: {
+      user: 'von Ihnen hinzugefügt',
+      grid: 'von Grid notiert',
+    },
+    time: {
+      justNow: 'gerade eben',
+      minutesAgo: 'vor {count} Min.',
+      hoursAgo: 'vor {count} Std.',
+      daysAgo: 'vor {count} T.',
+    },
+    errors: {
+      requestFailed: 'Anfrage fehlgeschlagen ({status})',
+      loadFailed: 'Projektspeicher konnte nicht geladen werden',
+      updateFailed: 'Aktualisierung fehlgeschlagen',
+      deleteFailed: 'Löschen fehlgeschlagen',
+      addFailed: 'Speichereintrag konnte nicht hinzugefügt werden',
+      title: 'Beim Projektspeicher ist etwas schiefgelaufen',
+    },
+    heading: 'Projektspeicher',
+    description: 'Was Grid über dieses Projekt gelernt hat — bearbeitbar.',
+    addMemory: 'Eintrag hinzufügen',
+    kindAria: 'Art des Eintrags',
+    scopeAria: 'Geltungsbereich des Eintrags',
+    scopeProject: 'Dieses Projekt',
+    scopeOrganization: 'Alle meine Projekte',
+    addPlaceholder: 'Eine prägnante, in sich geschlossene Erkenntnis zu diesem Projekt…',
+    cancel: 'Abbrechen',
+    add: 'Hinzufügen',
+    tryAgain: 'Erneut versuchen',
+    emptyTitle: 'Noch nichts erfasst',
+    emptyDescription:
+      'Grid hat zu diesem Projekt noch nichts erfasst. Das geschieht, während Sie chatten — oder fügen Sie selbst etwas hinzu.',
+    orgWide: 'organisationsweit',
+    confidence: 'Konfidenz {confidence}',
+    save: 'Speichern',
+    pinned: 'Angeheftet',
+    remove: 'Entfernen',
+    removeConfirm: 'Entfernen?',
+    cancelRemovalAria: 'Entfernen abbrechen',
+    cancelTitle: 'Abbrechen',
+    unpin: 'Lösen',
+    pin: 'Anheften',
+    unpinTitle: 'Lösen — nicht mehr immer einbeziehen',
+    pinTitle: 'Anheften — immer in den Kontext einbeziehen',
+    confirm: 'Bestätigen',
+    confirmTitle: 'Bestätigen — als korrekt markieren',
+    edit: 'Bearbeiten',
+    editTitle: 'Bearbeiten',
+    removeAria: 'Entfernen',
+    removeTitle: 'Aus dem Speicher entfernen',
+  },
+  overview: {
+    docStatus: {
+      unknown: 'Unbekannt',
+      uploaded: 'Hochgeladen',
+      ready: 'Bereit',
+      ingested: 'Eingelesen',
+      success: 'Erfolgreich',
+      pending: 'Ausstehend',
+      ingesting: 'Wird eingelesen',
+      processing: 'Wird verarbeitet',
+      uploading: 'Wird hochgeladen',
+      failed: 'Fehlgeschlagen',
+    },
+    workspaceCreated: 'Projekt-Arbeitsbereich · erstellt {date}',
+    workspace: 'Projekt-Arbeitsbereich',
+    askGrid: 'Grid fragen',
+    uploadFiles: 'Dateien hochladen',
+    brief: {
+      heading: 'Projekt-Briefing',
+      edit: 'Briefing bearbeiten',
+      startedNoDetailsBefore:
+        'Das Briefing wurde begonnen, aber es sind noch keine Details erfasst. ',
+      completeBrief: 'Briefing vervollständigen',
+      startedNoDetailsAfter: ', damit Grid seine Antworten fundieren kann.',
+      missingPrefix: 'Grid weiß weiterhin nicht: {info}',
+      completeBriefLower: 'Briefing vervollständigen',
+      emptyTitle: 'Projekt-Briefing einrichten',
+      emptyDescription:
+        'Erzählen Sie Grid von diesem Gebäude — Nutzung, Klasse, Geschosse und Ziele. Ein vollständiges Briefing lässt Grid jede Antwort im realen Kontext Ihres Projekts fundieren.',
+      emptyAction: 'Projektkontext einrichten',
+    },
+    stats: {
+      files: 'Dateien',
+      totalSize: 'Gesamtgröße',
+      knowledgeBase: 'Wissensdatenbank',
+    },
+    recentFiles: {
+      heading: 'Zuletzt verwendete Dateien',
+      viewAll: 'Alle ansehen',
+      emptyTitle: 'Noch keine Dateien',
+      emptyDescription:
+        'Laden Sie Baudokumente hoch — Pläne, Berichte, Auszüge der Bauordnung — damit Grid Ihr Projekt in seinen Antworten zitieren kann.',
+      emptyAction: 'Dateien hochladen',
+    },
+  },
+}

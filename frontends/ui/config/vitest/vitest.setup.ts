@@ -28,6 +28,22 @@ vi.mock('@workos-inc/authkit-nextjs/components', () => ({
   })),
 }))
 
+// Provide a request-scope-free stub for `next/headers` so Server Components
+// that resolve the request locale via `@/i18n/server` (getTranslations → cookies)
+// can be rendered directly in unit tests. With no cookie/header present the i18n
+// layer falls back to the default locale (English), which is what string
+// assertions in these tests expect.
+vi.mock('next/headers', () => ({
+  cookies: async () => ({
+    get: () => undefined,
+    getAll: () => [],
+    has: () => false,
+    set: () => {},
+    delete: () => {},
+  }),
+  headers: async () => new Headers(),
+}))
+
 // Prevent external-svg-loader timer from firing after test environment teardown.
 // The library schedules a setTimeout that accesses `document`, which no longer
 // exists once happy-dom cleans up, causing "ReferenceError: document is not defined".

@@ -28,6 +28,8 @@ import {
 } from '@/lib/project-profile/intake-definition'
 import type { ProjectIntakeDefinition, ProjectIntakeQuestion } from '@/lib/project-profile/intake-definition'
 import type { ProjectPrimitiveValue, ProjectProfile } from '@/lib/project-profile/types'
+import { useTranslations } from '@/i18n'
+import type { Translator } from '@/i18n'
 
 interface ProjectIntakeWizardProps {
   projectId: string
@@ -59,18 +61,18 @@ function isQuestionValid(question: ProjectIntakeQuestion, answers: Answers): boo
   }
 }
 
-function validationMessage(question: ProjectIntakeQuestion): string {
+function validationMessage(question: ProjectIntakeQuestion, t: Translator): string {
   switch (question.type) {
     case 'single_select':
-      return 'Select an option to continue.'
+      return t('intake.validation.selectOption')
     case 'multi_select':
-      return 'Select at least one option.'
+      return t('intake.validation.selectAtLeastOne')
     case 'boolean':
-      return 'Choose Yes or No.'
+      return t('intake.validation.chooseYesNo')
     case 'number':
-      return 'Enter a number.'
+      return t('intake.validation.enterNumber')
     default:
-      return 'This field is required.'
+      return t('intake.validation.required')
   }
 }
 
@@ -80,6 +82,7 @@ export function ProjectIntakeWizard({
   mode = 'create',
   initialProfile = null,
 }: ProjectIntakeWizardProps) {
+  const t = useTranslations('projects')
   const router = useRouter()
   const [definition, setDefinition] = useState<ProjectIntakeDefinition | null>(null)
   const [loading, setLoading] = useState(true)
@@ -127,7 +130,7 @@ export function ProjectIntakeWizard({
       })
       .catch(() => {
         if (cancelled) return
-        setError('We could not load the project questions.')
+        setError(t('intake.errors.loadFailed'))
         setLoading(false)
       })
     return () => {
@@ -229,7 +232,7 @@ export function ProjectIntakeWizard({
       })
       if (!res.ok) {
         if (res.status === 409) {
-          throw new Error('This brief was changed elsewhere. Please refresh and try again.')
+          throw new Error(t('intake.errors.saveConflict'))
         }
         throw new Error('Failed to save')
       }
@@ -259,14 +262,18 @@ export function ProjectIntakeWizard({
       router.push(`/app/projects/${projectId}`)
       router.refresh()
     } catch (e) {
-      setError(e instanceof Error && e.message.includes('refresh') ? e.message : 'We could not save the project brief. Please try again.')
+      setError(
+        e instanceof Error && e.message === t('intake.errors.saveConflict')
+          ? e.message
+          : t('intake.errors.saveFailed'),
+      )
       setSaving(false)
     }
   }, [definition, answers, projectId, projectName, router, STORAGE_KEY])
 
   if (loading) {
     return (
-      <div className="mx-auto max-w-2xl px-4 py-12">
+      <div className="mx-auto max-w-2xl px-4 py-6 md:py-12">
         <Skeleton className="h-3 w-40" />
         <Skeleton className="mt-4 h-2 w-full" />
         <Skeleton className="mt-8 h-6 w-56" />
@@ -284,12 +291,12 @@ export function ProjectIntakeWizard({
 
   if (error && !definition) {
     return (
-      <div className="mx-auto max-w-2xl px-4 py-12">
+      <div className="mx-auto max-w-2xl px-4 py-6 md:py-12">
         <Alert variant="destructive">
           <AlertDescription className="flex flex-col items-start gap-3">
             <span>{error}</span>
             <Button variant="outline" size="sm" onClick={retryLoad}>
-              Try again
+              {t('intake.tryAgain')}
             </Button>
           </AlertDescription>
         </Alert>
@@ -300,26 +307,23 @@ export function ProjectIntakeWizard({
   if (!definition) return null
 
   const progress = ((currentStep + 1) / totalSteps) * 100
-  const stepTitle = isReview ? 'Review & confirm' : (stage?.title ?? '')
+  const stepTitle = isReview ? t('intake.reviewTitle') : (stage?.title ?? '')
 
   return (
-    <div className="mx-auto max-w-2xl px-4 py-12">
+    <div className="mx-auto max-w-2xl px-4 py-6 md:py-12">
       {/* Header */}
       <header className="mb-8">
         <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-          {isEdit ? 'Edit project brief' : 'Project setup'}
+          {isEdit ? t('intake.eyebrowEdit') : t('intake.eyebrowCreate')}
         </p>
         <h1 className="mt-1 text-2xl font-semibold tracking-tight">
-          {projectName ?? 'Tell Grid about this project'}
+          {projectName ?? t('intake.titleFallback')}
         </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          About 2 minutes. Grid uses this brief to ground every answer — and to show which OIB
-          Richtlinien apply to this building.
-        </p>
+        <p className="mt-1 text-sm text-muted-foreground">{t('intake.subtitle')}</p>
       </header>
 
       {/* Stepper */}
-      <nav aria-label="Progress" className="mb-6">
+      <nav aria-label={t('intake.progressAria')} className="mb-6">
         <ol className="flex items-center gap-1.5">
           {stages.map((s, i) => {
             const state = i < currentStep ? 'complete' : i === currentStep ? 'current' : 'upcoming'
@@ -369,7 +373,7 @@ export function ProjectIntakeWizard({
                 isReview ? 'font-medium text-foreground' : 'text-muted-foreground',
               )}
             >
-              Review
+              {t('intake.reviewStep')}
             </span>
           </li>
         </ol>
@@ -385,7 +389,7 @@ export function ProjectIntakeWizard({
           )}
           aria-live="polite"
         >
-          Draft saved
+          {t('intake.draftSaved')}
         </span>
       </div>
 
@@ -423,9 +427,7 @@ export function ProjectIntakeWizard({
             <p className="mt-1 text-sm text-muted-foreground">{stage.description}</p>
           )}
           {isReview && (
-            <p className="mt-1 text-sm text-muted-foreground">
-              Confirm what Grid understood about this project before saving.
-            </p>
+            <p className="mt-1 text-sm text-muted-foreground">{t('intake.reviewDescription')}</p>
           )}
         </div>
 
@@ -442,7 +444,7 @@ export function ProjectIntakeWizard({
                 key={q.id}
                 question={q}
                 value={answers[q.id]}
-                error={touched.has(q.id) && !isQuestionValid(q, answers) ? validationMessage(q) : null}
+                error={touched.has(q.id) && !isQuestionValid(q, answers) ? validationMessage(q, t) : null}
                 onChange={(v) => setAnswer(q.id, v)}
               />
             ))}
@@ -465,21 +467,25 @@ export function ProjectIntakeWizard({
           onClick={() => goToStep(currentStep - 1)}
           disabled={currentStep === 0 || saving}
         >
-          Back
+          {t('intake.back')}
         </Button>
 
         <span className="text-xs text-muted-foreground">
-          Step {currentStep + 1} of {totalSteps}
+          {t('intake.stepCounter', { current: currentStep + 1, total: totalSteps })}
         </span>
 
         {isReview ? (
           <Button type="submit" disabled={saving}>
             {saving && <Loader2 className="size-4 animate-spin" aria-hidden />}
-            {saving ? 'Saving…' : isEdit ? 'Save changes' : 'Save & see my standards'}
+            {saving
+              ? t('intake.saving')
+              : isEdit
+                ? t('intake.saveChanges')
+                : t('intake.saveAndSee')}
           </Button>
         ) : (
           <Button type="submit" disabled={saving}>
-            {currentStep === reviewStep - 1 ? 'Review' : 'Next'}
+            {currentStep === reviewStep - 1 ? t('intake.reviewStep') : t('intake.next')}
           </Button>
         )}
       </div>
@@ -497,6 +503,7 @@ function ReviewStep({
   answers: Answers
   onEditStage: (stageIndex: number) => void
 }) {
+  const t = useTranslations('projects')
   const unknowns = useMemo(() => buildIntakeProfile(answers, definition).unknowns, [answers, definition])
 
   return (
@@ -518,7 +525,7 @@ function ReviewStep({
                   className="inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
                 >
                   <PencilLine className="size-3" aria-hidden />
-                  Edit
+                  {t('intake.edit')}
                 </button>
               </div>
               <dl className="mt-3 grid grid-cols-1 gap-x-8 gap-y-2 sm:grid-cols-2">
@@ -544,14 +551,12 @@ function ReviewStep({
       {unknowns.length > 0 && (
         <div className="rounded-2xl bg-muted/50 p-5">
           <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-            Grid still won&apos;t know
+            {t('intake.unknownsTitle')}
           </p>
           <p className="mt-1.5 text-sm text-muted-foreground">
             {unknowns.map((u) => u.replaceAll('_', ' ')).join(' · ')}
           </p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            You can save now and fill these in later — Grid will flag them as open questions.
-          </p>
+          <p className="mt-1 text-xs text-muted-foreground">{t('intake.unknownsHint')}</p>
         </div>
       )}
     </div>
@@ -569,13 +574,16 @@ function QuestionField({
   error: string | null
   onChange: (value: ProjectPrimitiveValue) => void
 }) {
+  const t = useTranslations('projects')
   const id = `q-${question.id}`
   const describedBy = error ? `${id}-error` : question.help ? `${id}-help` : undefined
 
   const labelContent = (
     <>
       {question.label}
-      {question.optional && <span className="ml-1 font-normal text-muted-foreground">(optional)</span>}
+      {question.optional && (
+        <span className="ml-1 font-normal text-muted-foreground">{t('intake.optional')}</span>
+      )}
     </>
   )
 
@@ -645,7 +653,7 @@ function QuestionField({
                     onChange={() => onChange(boolVal)}
                     className="h-4 w-4 accent-primary"
                   />
-                  {opt === 'true' ? 'Yes' : 'No'}
+                  {opt === 'true' ? t('intake.yes') : t('intake.no')}
                 </label>
               )
             })}
@@ -662,7 +670,7 @@ function QuestionField({
           {help}
           <Select value={typeof value === 'string' ? value : ''} onValueChange={(v) => onChange(v)}>
             <SelectTrigger id={id} className="w-full" aria-invalid={error ? true : undefined} aria-describedby={describedBy}>
-              <SelectValue placeholder="Select…" />
+              <SelectValue placeholder={t('intake.selectPlaceholder')} />
             </SelectTrigger>
             <SelectContent>
               {(question.options ?? []).map((opt) => (

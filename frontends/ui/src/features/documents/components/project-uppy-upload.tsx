@@ -3,6 +3,7 @@
 import { useRef } from 'react'
 import { Loader2, Upload } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { useTranslations } from '@/i18n'
 import { DEFAULT_ACCEPTED_FILE_TYPES } from '../constants'
 
 interface ProjectUppyUploadProps {
@@ -27,9 +28,11 @@ export function ProjectUppyUpload({
   isUploading,
   variant = 'default',
   size = 'sm',
-  label = 'Upload',
+  label,
 }: ProjectUppyUploadProps) {
+  const t = useTranslations('files')
   const inputRef = useRef<HTMLInputElement>(null)
+  const buttonLabel = label ?? t('upload.upload')
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const fileList = e.target.files
@@ -59,7 +62,7 @@ export function ProjectUppyUpload({
         className="gap-2"
       >
         {isUploading ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Upload className="size-4" aria-hidden />}
-        {isUploading ? 'Uploading…' : label}
+        {isUploading ? t('upload.uploading') : buttonLabel}
       </Button>
     </>
   )

@@ -35,10 +35,13 @@ import logging
 
 from pydantic import Field
 
+from aiq_agent.common import AgentGroup
 from aiq_agent.common import LLMProvider
 from aiq_agent.common import VerboseTraceCallback
 from aiq_agent.common import all_mapped_tools_filtered_out
+from aiq_agent.common import apply_model_override
 from aiq_agent.common import filter_tools_by_sources
+from aiq_agent.common import get_model_overrides_from_context
 from aiq_agent.common import is_verbose
 from nat.builder.builder import Builder
 from nat.builder.context import Context
@@ -159,7 +162,7 @@ async def clarifier_agent(config: ClarifierConfig, builder: Builder):
         tools = [t for t in tools if getattr(t, "name", "") not in excluded]
 
     provider = LLMProvider()
-    provider.set_default(llm)
+    provider.set_default(llm, group=AgentGroup.CLARIFIER)
 
     verbose = is_verbose(config.verbose)
     callbacks = [VerboseTraceCallback(log_reasoning=True, max_chars=config.log_response_max_chars)] if verbose else []
@@ -212,16 +215,24 @@ async def clarifier_agent(config: ClarifierConfig, builder: Builder):
         """
         data_sources = state.data_sources
         selected_tools = filter_tools_by_sources(tools, data_sources)
+        # Per-org runtime model overrides (X-Grid-Model-Overrides). The clarifier
+        # builds its graph in __init__, so an override requires constructing a
+        # request-scoped agent (same shape as the data-source rebuild below).
+        # The planner LLM belongs to the same `clarifier` agent group.
+        model_overrides = get_model_overrides_from_context()
+        active_provider = provider.with_model_overrides(model_overrides)
         active_agent = agent
-        if data_sources is not None and selected_tools != tools:
+        if active_provider is not provider or (data_sources is not None and selected_tools != tools):
             active_agent = ClarifierAgent(
-                llm_provider=provider,
+                llm_provider=active_provider,
                 tools=selected_tools,
                 user_prompt_callback=user_prompt_callback,
                 max_turns=config.max_turns,
                 enable_plan_approval=config.enable_plan_approval,
                 max_plan_iterations=config.max_plan_iterations,
-                planner_llm=planner_llm,
+                planner_llm=apply_model_override(planner_llm, AgentGroup.CLARIFIER, model_overrides)
+                if planner_llm is not None
+                else None,
                 log_response_max_chars=config.log_response_max_chars,
                 verbose=verbose,
                 callbacks=callbacks,

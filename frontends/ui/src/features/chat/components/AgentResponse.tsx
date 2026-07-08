@@ -13,6 +13,7 @@ import { ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { useShallow } from 'zustand/react/shallow'
+import { useTranslations } from '@/i18n'
 import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
 import { formatTime } from '@/shared/utils/format-time'
 import { useLayoutStore } from '@/features/layout/store'
@@ -20,6 +21,7 @@ import { GridCards } from '@/features/grid-cards/components/GridCards'
 import type { GridCard } from '@/shared/cards/schemas'
 import { useChatStore } from '../store'
 import { useLoadJobData } from '../hooks'
+import { MemoryNotedChip } from './MemoryNotedChip'
 
 export interface AgentResponseProps {
   /** Response content from the agent */
@@ -38,6 +40,8 @@ export interface AgentResponseProps {
   deepResearchJobStatus?: 'submitted' | 'running' | 'success' | 'failure' | 'interrupted'
   /** Grid cards to render before the response content */
   cards?: GridCard[]
+  /** Conversation this response belongs to (for the "Grid noted N" memory chip) */
+  conversationId?: string | null
 }
 
 /**
@@ -52,9 +56,12 @@ export const AgentResponse: FC<AgentResponseProps> = ({
   isDeepResearchActive = false,
   deepResearchJobStatus,
   cards,
+  conversationId,
 }) => {
+  const t = useTranslations('chat')
   const openRightPanel = useLayoutStore((s) => s.openRightPanel)
   const setResearchPanelTab = useLayoutStore((s) => s.setResearchPanelTab)
+  const projectId = useChatStore((s) => s.projectId)
 
   const { reportContent, deepResearchJobId, isDeepResearchStreaming, deepResearchStreamLoaded } =
     useChatStore(useShallow((s) => ({
@@ -71,7 +78,7 @@ export const AgentResponse: FC<AgentResponseProps> = ({
   const isJobActive = isDeepResearchActive || deepResearchJobStatus === 'submitted' || deepResearchJobStatus === 'running'
   const isJobComplete = deepResearchJobStatus === 'success' || deepResearchJobStatus === 'failure' || deepResearchJobStatus === 'interrupted'
   const shouldShowButton = showViewReport || (jobId && (isJobActive || isJobComplete))
-  const buttonText = isJobActive ? 'View Progress' : 'View Report'
+  const buttonText = isJobActive ? t('agentResponse.viewProgress') : t('agentResponse.viewReport')
 
   // Check if a different job is currently streaming (in progress)
   const isAnotherJobStreaming = isDeepResearchStreaming && deepResearchJobId && deepResearchJobId !== jobId
@@ -145,14 +152,14 @@ export const AgentResponse: FC<AgentResponseProps> = ({
               size="sm"
               onClick={handleViewReport}
               disabled={isLoading}
-              aria-label={isLoading ? 'Loading...' : buttonText}
-              title={error ? `Error: ${error}` : isLoading ? 'Loading...' : buttonText}
+              aria-label={isLoading ? t('agentResponse.loading') : buttonText}
+              title={error ? t('agentResponse.errorTitle', { message: error }) : isLoading ? t('agentResponse.loading') : buttonText}
             >
               <span className="flex items-center gap-1">
                 {isLoading ? (
                   <>
-                    <Spinner size="sm" label="Loading" className="h-3 w-3" />
-                    <span className="text-xs">Loading...</span>
+                    <Spinner size="sm" label={t('agentResponse.loadingLabel')} className="h-3 w-3" />
+                    <span className="text-xs">{t('agentResponse.loading')}</span>
                   </>
                 ) : (
                   <>
@@ -164,6 +171,9 @@ export const AgentResponse: FC<AgentResponseProps> = ({
             </Button>
           </div>
         )}
+
+        {/* Memory chip: what Grid recorded during this turn (in-turn + reflection) */}
+        <MemoryNotedChip projectId={projectId} conversationId={conversationId} />
 
         {/* Timestamp outside content, right-aligned */}
         {timestamp && (
@@ -200,8 +210,8 @@ export const AgentResponse: FC<AgentResponseProps> = ({
                 <span className="flex items-center gap-1">
                   {isLoading ? (
                     <>
-                      <Spinner size="sm" label="Loading" className="h-3 w-3" />
-                      <span className="text-xs">Loading...</span>
+                      <Spinner size="sm" label={t('agentResponse.loadingLabel')} className="h-3 w-3" />
+                      <span className="text-xs">{t('agentResponse.loading')}</span>
                     </>
                   ) : (
                     <>
@@ -213,6 +223,11 @@ export const AgentResponse: FC<AgentResponseProps> = ({
               </Button>
             </div>
           )}
+        </div>
+
+        {/* Memory chip: what Grid recorded during this turn (in-turn + reflection) */}
+        <div className="mt-1.5 flex justify-start px-1">
+          <MemoryNotedChip projectId={projectId} conversationId={conversationId} />
         </div>
 
         {/* Timestamp outside bubble, right-aligned */}

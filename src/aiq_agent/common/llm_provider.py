@@ -15,9 +15,13 @@
 
 """LLM Provider for role-based LLM access and A/B testing."""
 
+from collections.abc import Mapping
 from enum import StrEnum
 
 from langchain_core.language_models import BaseChatModel
+
+from aiq_agent.common.model_overrides import AgentGroup
+from aiq_agent.common.model_overrides import override_model
 
 
 class LLMRole(StrEnum):
@@ -64,25 +68,36 @@ class LLMProvider:
     def __init__(self) -> None:
         self._llms: dict[LLMRole, BaseChatModel] = {}
         self._default: BaseChatModel | None = None
+        # Agent-group tags used by with_model_overrides() to apply per-org
+        # runtime model overrides (see aiq_agent.common.model_overrides).
+        self._groups: dict[LLMRole, AgentGroup] = {}
+        self._default_group: AgentGroup | None = None
 
-    def set_default(self, llm: BaseChatModel) -> None:
+    def set_default(self, llm: BaseChatModel, group: AgentGroup | None = None) -> None:
         """
         Set the default LLM for roles that don't have a specific configuration.
 
         Args:
             llm: The LangChain chat model to use as default.
+            group: Optional agent group this default belongs to, making it
+                eligible for per-org runtime model overrides.
         """
         self._default = llm
+        self._default_group = group
 
-    def configure(self, role: LLMRole, llm: BaseChatModel) -> None:
+    def configure(self, role: LLMRole, llm: BaseChatModel, group: AgentGroup | None = None) -> None:
         """
         Configure a specific LLM for a role.
 
         Args:
             role: The semantic role to configure.
             llm: The LangChain chat model to use for this role.
+            group: Optional agent group this role belongs to, making it
+                eligible for per-org runtime model overrides.
         """
         self._llms[role] = llm
+        if group is not None:
+            self._groups[role] = group
 
     def get(self, role: LLMRole) -> BaseChatModel:
         """
@@ -104,6 +119,35 @@ class LLMProvider:
         raise ValueError(
             f"No LLM configured for role '{role}' and no default LLM set. Call set_default() or configure() first."
         )
+
+    def with_model_overrides(self, overrides: Mapping[str, str]) -> "LLMProvider":
+        """Return a provider with per-org model overrides applied per group.
+
+        Returns ``self`` unchanged when no override targets any group this
+        provider was tagged with, so callers can cheaply detect "nothing to
+        do" via an identity check (mirroring the tools-filtering pattern in
+        the agent registrations). The returned provider copies each affected
+        LLM via ``model_copy`` — the original build-time provider is never
+        mutated, keeping overrides strictly request-scoped.
+        """
+        override_groups = {g for g in AgentGroup if g.value in overrides}
+        tagged_groups = {g for g in (self._default_group, *self._groups.values()) if g is not None}
+        if not (override_groups & tagged_groups):
+            return self
+
+        derived = LLMProvider()
+        derived._groups = dict(self._groups)
+        derived._default_group = self._default_group
+
+        def _resolve(llm: BaseChatModel, group: AgentGroup | None) -> BaseChatModel:
+            model_id = overrides.get(group.value) if group is not None else None
+            return override_model(llm, model_id) if model_id else llm
+
+        if self._default is not None:
+            derived._default = _resolve(self._default, self._default_group)
+        for role, llm in self._llms.items():
+            derived._llms[role] = _resolve(llm, self._groups.get(role))
+        return derived
 
     def has_role(self, role: LLMRole) -> bool:
         """Check if a specific LLM is configured for a role."""

@@ -16,6 +16,7 @@ import { type FC, type ReactNode } from 'react'
 import { X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { useTranslations } from '@/i18n'
 
 interface DockedPanelProps {
   /** Whether the panel is open */
@@ -54,6 +55,7 @@ export const DockedPanel: FC<DockedPanelProps> = ({
   className,
   children,
 }) => {
+  const t = useTranslations('research')
   if (!open && !forceMount) return null
 
   return (
@@ -62,7 +64,9 @@ export const DockedPanel: FC<DockedPanelProps> = ({
       aria-hidden={!open}
       data-state={open ? 'open' : 'closed'}
       className={cn(
-        'fixed top-[var(--header-height)] z-40 flex h-[calc(100dvh-var(--header-height))] w-[400px] flex-col bg-background',
+        // Mobile docks under the h-14 top bar; desktop has no global header —
+        // panels align to the bottom edge of the h-12 chat toolbar instead.
+        'fixed top-[var(--header-height)] z-40 flex h-[calc(100dvh-var(--header-height))] w-full max-w-[400px] flex-col bg-background md:top-12 md:h-[calc(100dvh-3rem)]',
         side === 'left' ? 'left-0 border-r' : 'right-0 border-l',
         // Slide transition; reduced-motion users get an instant swap
         'transition-transform duration-300 ease-in-out motion-reduce:transition-none',
@@ -79,8 +83,8 @@ export const DockedPanel: FC<DockedPanelProps> = ({
           size="icon"
           className="size-8"
           onClick={onClose}
-          aria-label="Close panel"
-          title="Close panel"
+          aria-label={t('dockedPanel.closePanel')}
+          title={t('dockedPanel.closePanel')}
         >
           <X className="h-4 w-4" aria-hidden="true" />
         </Button>

@@ -20,9 +20,50 @@ from unittest.mock import MagicMock
 from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
 
+from aiq_agent.agents.chat_researcher.register import _reflection_answer_is_substantive
 from aiq_agent.agents.chat_researcher.utils import _extract_query_and_sources
 from aiq_agent.agents.chat_researcher.utils import _extract_query_from_text
 from aiq_agent.agents.chat_researcher.utils import _extract_text_from_message
+
+
+class _Intent:
+    def __init__(self, intent):
+        self.intent = intent
+
+
+class _State:
+    def __init__(self, intent):
+        self.user_intent = _Intent(intent)
+
+
+class TestReflectionAnswerIsSubstantive:
+    """Gate that keeps memory reflection off meta/error/insufficiency turns."""
+
+    def test_real_research_answer_passes(self):
+        assert _reflection_answer_is_substantive(_State("research"), "The building is Gebäudeklasse 4.")
+
+    def test_meta_intent_skipped(self):
+        assert not _reflection_answer_is_substantive(_State("meta"), "Hello! How can I help?")
+
+    def test_error_intent_skipped(self):
+        assert not _reflection_answer_is_substantive(_State("error"), "Something went wrong.")
+
+    def test_insufficiency_answer_skipped(self):
+        assert not _reflection_answer_is_substantive(
+            _State("research"), "I don't have enough information to answer that."
+        )
+
+    def test_canned_error_answer_skipped(self):
+        assert not _reflection_answer_is_substantive(
+            _State("research"), "An error occurred while researching your question. Please try again."
+        )
+
+    def test_empty_answer_skipped(self):
+        assert not _reflection_answer_is_substantive(_State("research"), "   ")
+
+    def test_works_with_dict_result(self):
+        assert _reflection_answer_is_substantive({"user_intent": _Intent("research")}, "A concrete finding.")
+        assert not _reflection_answer_is_substantive({"user_intent": _Intent("meta")}, "hi there")
 
 
 class TestExtractTextFromMessageString:

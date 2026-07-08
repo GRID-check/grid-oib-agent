@@ -25,6 +25,7 @@ import { AnimatePresence, motion, easeQuiet, springSnappy } from '@/components/m
 import { useWebSocketChat, useChatStore, useIsCurrentSessionBusy } from '@/features/chat'
 import { useLayoutStore } from '../store'
 import { useAppConfig } from '@/shared/context'
+import { useTranslations } from '@/i18n'
 import { useFileUpload, useFileDragDrop, useFileUploadBanners } from '@/features/documents'
 
 /** Connection mode for the chat */
@@ -55,10 +56,11 @@ interface InputAreaProps {
  * - Shows visual indicator
  */
 export const InputArea: FC<InputAreaProps> = memo(function InputArea({
-  placeholder = 'Check data sources and ask a research question...',
+  placeholder,
   isAuthenticated = false,
   connectionMode = 'websocket',
 }) {
+  const t = useTranslations('research')
   const [message, setMessage] = useState('')
 
   // File input ref for attachment button
@@ -224,12 +226,11 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   // Note: isResponseMode is checked before isBusy because the user needs to
   // see the response prompt even when the session is "busy" due to HITL.
   const getPlaceholder = (): string => {
-    if (!isAuthenticated) return 'Sign in to start researching'
-    if (isResearchSessionComplete)
-      return 'Research completed. Create a new session for further questions.'
-    if (isResponseMode) return 'Type your response to the agent...'
-    if (isBusy) return 'Please wait...'
-    return placeholder
+    if (!isAuthenticated) return t('inputArea.signInToStart')
+    if (isResearchSessionComplete) return t('inputArea.researchCompletedNewSession')
+    if (isResponseMode) return t('inputArea.typeResponse')
+    if (isBusy) return t('inputArea.pleaseWait')
+    return placeholder ?? t('inputArea.placeholderDefault')
   }
 
   const handleSubmit = useCallback(async () => {
@@ -269,8 +270,8 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
       console.error('Failed to send message:', error)
       // Restore the message so the user doesn't lose what they typed.
       setMessage(currentMessage)
-      toast.error('Message not sent', {
-        description: 'Something went wrong sending your message. Please try again.',
+      toast.error(t('inputArea.messageNotSent'), {
+        description: t('inputArea.messageNotSentDesc'),
       })
     }
   }, [
@@ -368,7 +369,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   const totalSourcesCount = availableDataSources?.length ?? 0
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col p-4">
+    <div className="mx-auto flex w-full max-w-3xl flex-col p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:p-4 sm:pb-4">
       <div
         className={cn(
           'relative flex flex-col rounded-2xl border bg-card p-4 shadow-sm transition-[box-shadow,border-color] duration-200 ease-out focus-within:ring-2 focus-within:ring-ring/30',
@@ -396,11 +397,11 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                   isUnsupportedDrag ? 'text-error' : 'text-brand'
                 )}
               >
-                {isUnsupportedDrag ? 'Unsupported file type' : 'Drop files to upload'}
+                {isUnsupportedDrag ? t('inputArea.unsupportedFileType') : t('inputArea.dropToUpload')}
               </span>
               {isUnsupportedDrag && (
                 <span className="text-xs text-muted-foreground">
-                  Accepts: {fileUploadConfig.acceptedTypes}
+                  {t('inputArea.accepts', { types: fileUploadConfig.acceptedTypes })}
                 </span>
               )}
             </div>
@@ -416,7 +417,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           placeholder={getPlaceholder()}
           disabled={disabled}
           rows={1}
-          aria-label={isResponseMode ? 'Response input' : 'Chat message input'}
+          aria-label={isResponseMode ? t('inputArea.responseInput') : t('inputArea.chatMessageInput')}
         />
 
         {/* Upload Error Display */}
@@ -435,7 +436,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                   <button
                     type="button"
                     onClick={clearError}
-                    aria-label="Dismiss error"
+                    aria-label={t('dismissError')}
                     className="shrink-0 rounded-full p-1 opacity-70 transition-opacity duration-200 ease-out hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
                   >
                     <X className="h-4 w-4" aria-hidden="true" />
@@ -464,8 +465,8 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                 }
               }}
               disabled={isDisabledByAuth}
-              aria-label="Toggle data sources connections"
-              title="Selected data connections"
+              aria-label={t('inputArea.toggleDataSources')}
+              title={t('inputArea.selectedConnections')}
             >
               <Globe className="size-3" aria-hidden="true" />
               <span className="text-xs font-semibold">
@@ -487,8 +488,8 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                 }
               }}
               disabled={isDisabledByAuth || !knowledgeLayerAvailable}
-              aria-label="Open uploaded files"
-              title={knowledgeLayerAvailable ? 'Available files' : 'File upload not available'}
+              aria-label={t('inputArea.openFiles')}
+              title={knowledgeLayerAvailable ? t('inputArea.availableFiles') : t('inputArea.uploadNotAvailable')}
             >
               <FileText className="size-3" aria-hidden="true" />
               <span className="text-xs font-semibold">{attachedFilesCount}</span>
@@ -512,13 +513,13 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
               className="size-8 rounded-full text-muted-foreground"
               onClick={handleAttachClick}
               disabled={isDisabledByAuth || isUploading || isBusy || !knowledgeLayerAvailable}
-              aria-label="Attach files"
+              aria-label={t('inputArea.attachFiles')}
               title={
                 isBusy
-                  ? 'File upload disabled during active operations'
+                  ? t('inputArea.uploadDisabledBusy')
                   : !knowledgeLayerAvailable
-                    ? 'File upload not available'
-                    : 'Select files to upload'
+                    ? t('inputArea.uploadNotAvailable')
+                    : t('inputArea.selectFiles')
               }
             >
               <Paperclip className="h-4 w-4" aria-hidden="true" />
@@ -532,16 +533,15 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                 <PopoverTrigger asChild>
                   <Button
                     size="sm"
-                    aria-label="Research completed - create new session"
-                    title="Research completed"
+                    aria-label={t('inputArea.researchCompletedAria')}
+                    title={t('inputArea.researchCompleted')}
                   >
                     <SendHorizontal className="h-4 w-4" aria-hidden="true" />
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent side="top" align="end" className="w-auto max-w-xs p-3">
                   <p className="text-sm">
-                    Research completed. For further questions or reports, please create a new
-                    session.
+                    {t('inputArea.researchCompletedPopover')}
                   </p>
                 </PopoverContent>
               </Popover>
@@ -550,16 +550,15 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                 <PopoverTrigger asChild>
                   <Button
                     size="sm"
-                    aria-label="Research in progress - please wait"
-                    title="Research in progress"
+                    aria-label={t('inputArea.researchInProgressAria')}
+                    title={t('inputArea.researchInProgress')}
                   >
                     <SendHorizontal className="h-4 w-4" aria-hidden="true" />
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent side="top" align="end" className="w-auto max-w-xs p-3">
                   <p className="text-sm">
-                    Research is currently in progress. Chat is paused to prevent generating multiple
-                    reports at the same time.
+                    {t('inputArea.researchInProgressPopover')}
                   </p>
                 </PopoverContent>
               </Popover>
@@ -576,8 +575,8 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                   size="sm"
                   onClick={handleSubmit}
                   disabled={!message.trim() || disabled}
-                  aria-label={isResponseMode ? 'Send response' : 'Send message'}
-                  title="Send query"
+                  aria-label={isResponseMode ? t('inputArea.sendResponse') : t('inputArea.sendMessage')}
+                  title={t('inputArea.sendQuery')}
                 >
                   <AnimatePresence mode="popLayout" initial={false}>
                     {isLoading ? (

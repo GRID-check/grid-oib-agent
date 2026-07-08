@@ -15,13 +15,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { useAppConfig } from '@/shared/context'
-
-const errorMessages: Record<string, string> = {
-  Configuration: 'There is a problem with the server configuration.',
-  AccessDenied: 'You do not have permission to access this resource.',
-  Verification: 'The verification link has expired or has already been used.',
-  Default: 'An error occurred during authentication.',
-}
+import { useTranslations } from '@/i18n'
 
 /**
  * Error content that uses useSearchParams (requires Suspense wrapper)
@@ -30,8 +24,11 @@ const ErrorContent = (): ReactNode => {
   const router = useRouter()
   const { authRequired } = useAppConfig()
   const searchParams = useSearchParams()
+  const t = useTranslations('errors')
   const error = searchParams?.get('error') || 'Default'
-  const errorMessage = errorMessages[error] || errorMessages.Default
+  const knownKeys = ['Configuration', 'AccessDenied', 'Verification', 'Default']
+  const messageKey = knownKeys.includes(error) ? error : 'Default'
+  const errorMessage = t(`auth.messages.${messageKey}`)
 
   // Redirect to home if auth is disabled - this page is not needed
   useEffect(() => {
@@ -44,7 +41,7 @@ const ErrorContent = (): ReactNode => {
   if (!authRequired) {
     return (
       <div className="flex items-center justify-center py-8">
-        <Spinner size="default" label="Redirecting..." />
+        <Spinner size="default" label={t('auth.redirecting')} />
       </div>
     )
   }
@@ -61,16 +58,16 @@ const ErrorContent = (): ReactNode => {
     <div className="flex flex-col items-center gap-6">
       <Alert variant="destructive">
         <AlertTriangle />
-        <AlertTitle>Authentication Error</AlertTitle>
+        <AlertTitle>{t('auth.heading')}</AlertTitle>
         <AlertDescription>{errorMessage}</AlertDescription>
       </Alert>
 
       <div className="flex gap-3">
         <Button size="default" onClick={handleRetry}>
-          Try Again
+          {t('auth.tryAgain')}
         </Button>
         <Button variant="secondary" size="default" onClick={handleHome}>
-          Go Home
+          {t('auth.goHome')}
         </Button>
       </div>
     </div>
@@ -81,14 +78,15 @@ const ErrorContent = (): ReactNode => {
  * Auth Error Page
  */
 const AuthErrorPage = (): ReactNode => {
+  const t = useTranslations('errors')
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-muted p-8">
+    <div className="flex min-h-dvh flex-col items-center justify-center bg-muted p-4 sm:p-8">
       <Card className="w-full max-w-md">
         <CardContent className="pt-6">
           <Suspense
             fallback={
               <div className="flex items-center justify-center py-8">
-                <Spinner size="default" label="Loading" />
+                <Spinner size="default" label={t('auth.loading')} />
               </div>
             }
           >

@@ -55,6 +55,12 @@ from .json_utils import extract_json
 from .llm_provider import LLMProvider
 from .llm_provider import LLMRole
 from .message_utils import get_latest_user_query
+from .model_overrides import MODEL_OVERRIDES_HEADER
+from .model_overrides import AgentGroup
+from .model_overrides import apply_model_override
+from .model_overrides import get_model_overrides_from_context
+from .model_overrides import parse_model_overrides
+from .model_overrides import sanitize_model_overrides
 from .prompt_utils import load_prompt
 from .prompt_utils import render_prompt_template
 from .tool_validation import format_tool_unavailability_error
@@ -69,11 +75,17 @@ _postgres_pools: dict[str, AsyncConnectionPool] = {}
 
 __all__ = [
     "DEFAULT_DATA_SOURCES",
+    "AgentGroup",
     "LLMProvider",
+    "MODEL_OVERRIDES_HEADER",
     "LLMRole",
     "SourceRegistry",
     "VerboseTraceCallback",
     "all_mapped_tools_filtered_out",
+    "apply_model_override",
+    "get_model_overrides_from_context",
+    "parse_model_overrides",
+    "sanitize_model_overrides",
     "extract_json",
     "extract_messages_and_sources",
     "filter_tools_by_sources",

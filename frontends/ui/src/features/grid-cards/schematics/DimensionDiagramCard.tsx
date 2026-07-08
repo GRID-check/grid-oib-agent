@@ -185,7 +185,9 @@ const rampTemplate = (dims: DimensionCheckData[]): Template => {
   const riseM = toMetres(heightDim) ?? (Lm * slopePct) / 100
 
   const k = fitScale(Lm, Math.max(riseM, 0.6), 320, 100)
-  const railH = 1.0 * k
+  // Handrail is a hint, not measured geometry — cap it so it never dwarfs a
+  // shallow ramp wedge.
+  const railH = Math.min(1.0 * k, 34)
   const x0 = 44
   const padTop = railH + 30
   const groundY = padTop + Math.max(riseM, 0.6) * k
@@ -238,9 +240,9 @@ const rampTemplate = (dims: DimensionCheckData[]): Template => {
           'ramp-wedge',
           { strokeWidth: 1.4, ...HATCH_LIGHT }
         )}
-        {/* handrail hint */}
-        <g opacity={0.6}>
-          {[0.12, 0.5, 0.88].map((t) => (
+        {/* handrail hint: posts standing on the ramp surface, rail along the slope */}
+        <g opacity={0.45}>
+          {[0.08, 0.31, 0.54, 0.77, 1].map((t) => (
             <line
               key={`post-${t}`}
               x1={xOnRamp(t)}
@@ -252,10 +254,10 @@ const rampTemplate = (dims: DimensionCheckData[]): Template => {
             />
           ))}
           <line
-            x1={xOnRamp(0.12)}
-            y1={yOnRamp(0.12) - railH}
-            x2={xOnRamp(0.88)}
-            y2={yOnRamp(0.88) - railH}
+            x1={xOnRamp(0.08)}
+            y1={yOnRamp(0.08) - railH}
+            x2={xOnRamp(1)}
+            y2={yOnRamp(1) - railH}
             stroke="var(--muted-foreground)"
             strokeWidth={1.2}
           />

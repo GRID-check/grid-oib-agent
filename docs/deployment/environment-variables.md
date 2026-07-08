@@ -119,6 +119,18 @@ Variables set in `docker-compose.yaml` under `environment:` take precedence over
 
 ---
 
+## Project Memory
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `GRID_INTERNAL_API_TOKEN` | Yes (agent memory) | — | Shared service token authenticating the backend agent's memory writes to the internal BFF endpoint (`POST /api/internal/memory`). Must match between the `aiq-agent` and `frontend` services. Never ship the dev default outside dev. |
+| `memory_reflection_llm` *(NAT config key, not env)* | No | unset | LLM ref in the chat-agent config that makes the async post-answer memory-reflection stage **available**. Unset = the stage is compiled out (no extra LLM call ever). Being available is necessary but not sufficient — each turn is still gated at runtime (next two rows). Set in `config_oib_openrouter.yml`. See `docs/architecture/project-memory-design.md` §3.5. |
+| `memory-reflection` *(WorkOS feature flag, not env)* | No | off | Runtime on/off switch for the reflection stage, evaluated **per organization** at the WS upgrade (`isOrgFeatureEnabled`). Create a feature flag with this slug in WorkOS and enable it for the orgs that should get reflection. Fail-closed: if WorkOS/plan/flag is unavailable, the stage stays off. |
+| `MEMORY_REFLECTION_ENABLED` | No | `false` | Fallback runtime switch for **anonymous / non-WorkOS** deployments (no org to evaluate the flag against). `true` turns the reflection stage on globally. Ignored when a WorkOS org is in scope (the feature flag wins). |
+| `GRID_ALLOW_AGENT_ORG_MEMORY` | No | `false` | When `true`, the internal memory endpoint accepts **agent-authored organization-scoped** writes. Default-deny: org-wide memory reaches every project in the tenant and the service-token endpoint cannot verify the human's org role, so an autonomous/prompt-injected write would poison the tenant (audit finding S1). Leave unset unless you accept that risk; org-wide findings are otherwise a human-only action via the org-memory panel. |
+
+---
+
 ## Application
 
 | Variable | Required | Default | Description |
@@ -160,3 +172,15 @@ Variables set in `docker-compose.yaml` under `environment:` take precedence over
 - **Placeholder values**: The `.env.example` file contains commented-out optional variables. The `.env` file contains actual development keys.
 - **Docker networking**: In Docker Compose, services communicate over the internal `aiq-network` bridge network. Variables like `BACKEND_URL=http://aiq-agent:8000` and `MINIO_ENDPOINT=http://minio:9000` use Docker DNS resolution.
 - **MinIO credentials**: The MinIO credentials are currently hardcoded in `docker-compose.yaml` for all three services that use them. For production, these should be externalized to the `.env` file.
+
+## Model Configuration & Budgets (frontend)
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `OPENROUTER_API_KEY` | No | — | Frontend container: authenticates the OpenRouter model-catalog fetch for the org model-config picker/validation (catalog also works unauthenticated). Same key the backend uses for LLM calls. |
+| `OPENROUTER_BASE_URL` | No | `https://openrouter.ai/api/v1` | Override the catalog endpoint (tests / self-hosted gateways). |
+| `GRID_BUDGET_EUR_PER_USD` | No | `0.86` | Euros per 1 USD used to compare EUR budget limits against the USD costs OpenRouter reports (ADR-0015). |
+
+Org budget defaults (until an admin sets explicit limits): €10/day and
+€100/month — constants in `frontends/ui/src/lib/budgets/service.ts`, not env
+vars. See `docs/architecture/usage-budgets.md`.

@@ -5,14 +5,7 @@ import { z } from 'zod'
 import { useAppForm } from '@/components/form'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { createProject } from '@/app/app/projects/actions'
-
-const createProjectSchema = z.object({
-  name: z
-    .string()
-    .trim()
-    .min(1, 'Project name is required.')
-    .max(255, 'Project name must be at most 255 characters.'),
-})
+import { useTranslations } from '@/i18n'
 
 /**
  * First-run accelerators grounded in the Austrian OIB/RIS domain. Selecting one
@@ -25,13 +18,17 @@ const PROJECT_TEMPLATES: Array<{ label: string; name: string }> = [
   { label: 'OIB Brandschutz-Audit', name: 'OIB Brandschutz-Audit' },
 ]
 
-// The server action re-validates and can surface vendor/database exception text.
-// Never show that to an architect — log it, show a calm, actionable message.
-const FRIENDLY_CREATE_ERROR =
-  "We couldn't create this project just now. Please try again in a moment."
-
 export function CreateProjectForm(): JSX.Element {
+  const t = useTranslations('projects')
   const [serverError, setServerError] = useState<string | null>(null)
+
+  const createProjectSchema = z.object({
+    name: z
+      .string()
+      .trim()
+      .min(1, t('form.nameRequired'))
+      .max(255, t('form.nameTooLong')),
+  })
 
   const form = useAppForm({
     defaultValues: { name: '' },
@@ -43,7 +40,9 @@ export function CreateProjectForm(): JSX.Element {
       const result = await createProject({}, formData)
       if (result?.error) {
         console.error('[CreateProjectForm] create failed:', result.error)
-        setServerError(FRIENDLY_CREATE_ERROR)
+        // The server action re-validates and can surface vendor/database exception
+        // text. Never show that to an architect — log it, show a calm message.
+        setServerError(t('form.createError'))
       }
     },
   })
@@ -63,10 +62,10 @@ export function CreateProjectForm(): JSX.Element {
             <form.AppField name="name">
               {(field) => (
                 <field.TextField
-                  label="Project name"
-                  placeholder="OIB fire safety review"
+                  label={t('form.nameLabel')}
+                  placeholder={t('form.namePlaceholder')}
                   autoFocus
-                  aria-label="Project name"
+                  aria-label={t('form.nameLabel')}
                   disabled={isSubmitting}
                 />
               )}
@@ -74,7 +73,7 @@ export function CreateProjectForm(): JSX.Element {
 
             <div className="flex flex-col gap-2">
               <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-                Start from a template
+                {t('form.templateLabel')}
               </span>
               <div className="flex flex-wrap gap-2">
                 {PROJECT_TEMPLATES.map((template) => (
@@ -94,10 +93,7 @@ export function CreateProjectForm(): JSX.Element {
         )}
       </form.Subscribe>
 
-      <p className="text-sm leading-relaxed text-muted-foreground">
-        Create a focused workspace for documents, retrieval, members, and chat grounded in the
-        OIB/RIS corpus.
-      </p>
+      <p className="text-sm leading-relaxed text-muted-foreground">{t('form.footnote')}</p>
 
       {serverError && (
         <Alert variant="destructive">
@@ -107,7 +103,7 @@ export function CreateProjectForm(): JSX.Element {
 
       <div className="flex justify-end pt-1">
         <form.AppForm>
-          <form.SubmitButton className="w-full sm:w-auto">Create project</form.SubmitButton>
+          <form.SubmitButton className="w-full sm:w-auto">{t('form.submit')}</form.SubmitButton>
         </form.AppForm>
       </div>
     </form>

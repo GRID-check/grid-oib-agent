@@ -20,6 +20,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
+import { useTranslations } from '@/i18n'
 
 type ProjectRole = 'project-viewer' | 'project-editor' | 'project-admin'
 
@@ -37,14 +38,7 @@ interface ProjectMembersFormProps {
   canManage: boolean
 }
 
-const ROLE_OPTIONS: Array<{ value: ProjectRole; label: string }> = [
-  { value: 'project-viewer', label: 'Viewer' },
-  { value: 'project-editor', label: 'Editor' },
-  { value: 'project-admin', label: 'Admin' },
-]
-
-const roleLabel = (role: ProjectRole): string =>
-  ROLE_OPTIONS.find((option) => option.value === role)?.label ?? role
+const ROLE_VALUES: ProjectRole[] = ['project-viewer', 'project-editor', 'project-admin']
 
 /** Radix Select items cannot use an empty-string value; sentinel for "no access". */
 const NO_ACCESS = 'none'
@@ -59,12 +53,16 @@ const searchSchema = z.object({
   query: z.string(),
 })
 
-const inviteSchema = z.object({
-  email: z.string().min(1, 'Email is required').email('Enter a valid email address'),
-  roleSlug: z.enum(['project-viewer', 'project-editor', 'project-admin']),
-})
-
 export function ProjectMembersForm({ projectId, canManage }: ProjectMembersFormProps): JSX.Element {
+  const t = useTranslations('members')
+  const roleLabel = (role: ProjectRole): string => t(`roles.${role}`)
+  const roleOptions = ROLE_VALUES.map((value) => ({ value, label: roleLabel(value) }))
+
+  const inviteSchema = z.object({
+    email: z.string().min(1, t('validation.emailRequired')).email(t('validation.emailInvalid')),
+    roleSlug: z.enum(['project-viewer', 'project-editor', 'project-admin']),
+  })
+
   const [members, setMembers] = useState<Member[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [updatingId, setUpdatingId] = useState<string | null>(null)
@@ -89,12 +87,12 @@ export function ProjectMembersForm({ projectId, canManage }: ProjectMembersFormP
     try {
       const response = await fetch(`/api/projects/${projectId}/members`)
       if (!response.ok) {
-        throw new Error('Failed to load members')
+        throw new Error(t('errors.loadFailed'))
       }
       const data = await response.json()
       setMembers(data.members ?? [])
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to load members'
+      const message = err instanceof Error ? err.message : t('errors.loadFailed')
       setLoadError(message)
       toast.error(message)
     } finally {
@@ -119,7 +117,7 @@ export function ProjectMembersForm({ projectId, canManage }: ProjectMembersFormP
 
         if (!response.ok) {
           const data = await response.json().catch(() => ({}))
-          throw new Error(data.error || 'Failed to update role')
+          throw new Error(data.error || t('errors.updateFailed'))
         }
 
         setMembers((prev) =>
@@ -131,7 +129,7 @@ export function ProjectMembersForm({ projectId, canManage }: ProjectMembersFormP
         )
         return true
       } catch (err) {
-        const message = err instanceof Error ? err.message : 'Failed to update role'
+        const message = err instanceof Error ? err.message : t('errors.updateFailed')
         setActionError(message)
         toast.error(message)
         return false
@@ -151,15 +149,15 @@ export function ProjectMembersForm({ projectId, canManage }: ProjectMembersFormP
       const match = membersRef.current.find((member) => (member.email ?? '').toLowerCase() === email)
 
       if (!match) {
-        setInviteError(
-          'No organization member uses that email. They need to join the organization before they can be added to this project.',
-        )
+        setInviteError(t('invite.notFound'))
         return
       }
 
       const ok = await assignRole(match.organizationMembershipId, value.roleSlug)
       if (ok) {
-        toast.success(`${match.name} now has ${roleLabel(value.roleSlug)} access to this project.`)
+        toast.success(
+          t('invite.success', { name: match.name, role: roleLabel(value.roleSlug) }),
+        )
         formApi.reset()
       }
     },
@@ -185,11 +183,11 @@ export function ProjectMembersForm({ projectId, canManage }: ProjectMembersFormP
   if (loadError) {
     return (
       <Alert variant="destructive">
-        <AlertTitle>Couldn&apos;t load members</AlertTitle>
+        <AlertTitle>{t('errors.loadTitle')}</AlertTitle>
         <AlertDescription className="flex flex-col items-start gap-3">
           <span>{loadError}</span>
           <Button variant="outline" size="sm" onClick={() => void load()}>
-            Try again
+            {t('tryAgain')}
           </Button>
         </AlertDescription>
       </Alert>
@@ -212,10 +210,8 @@ export function ProjectMembersForm({ projectId, canManage }: ProjectMembersFormP
               <UserPlus className="h-4 w-4" aria-hidden />
             </div>
             <div className="flex flex-col gap-0.5">
-              <h2 className="text-sm font-semibold">Add a member</h2>
-              <p className="text-sm text-muted-foreground">
-                Grant an existing organization member access to this project.
-              </p>
+              <h2 className="text-sm font-semibold">{t('invite.title')}</h2>
+              <p className="text-sm text-muted-foreground">{t('invite.description')}</p>
             </div>
           </div>
 
@@ -223,10 +219,10 @@ export function ProjectMembersForm({ projectId, canManage }: ProjectMembersFormP
             <inviteForm.AppField name="email">
               {(field) => (
                 <field.TextField
-                  label="Email"
+                  label={t('invite.emailLabel')}
                   type="email"
                   autoComplete="off"
-                  placeholder="name@studio.at"
+                  placeholder={t('invite.emailPlaceholder')}
                   containerClassName="flex-1"
                 />
               )}
@@ -234,8 +230,8 @@ export function ProjectMembersForm({ projectId, canManage }: ProjectMembersFormP
             <inviteForm.AppField name="roleSlug">
               {(field) => (
                 <field.SelectField
-                  label="Role"
-                  options={ROLE_OPTIONS}
+                  label={t('invite.roleLabel')}
+                  options={roleOptions}
                   containerClassName="sm:w-44"
                   triggerClassName="w-full"
                 />
@@ -251,24 +247,21 @@ export function ProjectMembersForm({ projectId, canManage }: ProjectMembersFormP
 
           <div className="flex justify-end">
             <inviteForm.AppForm>
-              <inviteForm.SubmitButton>Add member</inviteForm.SubmitButton>
+              <inviteForm.SubmitButton>{t('invite.submit')}</inviteForm.SubmitButton>
             </inviteForm.AppForm>
           </div>
         </form>
       ) : (
         <Alert>
           <Lock className="h-4 w-4" />
-          <AlertTitle>Read-only access</AlertTitle>
-          <AlertDescription>
-            You can see everyone on this project. Only project admins can change roles or add
-            members.
-          </AlertDescription>
+          <AlertTitle>{t('readOnly.title')}</AlertTitle>
+          <AlertDescription>{t('readOnly.description')}</AlertDescription>
         </Alert>
       )}
 
       {actionError && (
         <Alert variant="destructive">
-          <AlertTitle>Access update failed</AlertTitle>
+          <AlertTitle>{t('errors.actionTitle')}</AlertTitle>
           <AlertDescription>{actionError}</AlertDescription>
         </Alert>
       )}
@@ -280,9 +273,9 @@ export function ProjectMembersForm({ projectId, canManage }: ProjectMembersFormP
               <Users className="h-4 w-4" aria-hidden />
             </div>
             <div className="flex flex-col gap-0.5">
-              <h2 className="text-sm font-semibold">Members</h2>
+              <h2 className="text-sm font-semibold">{t('roster.title')}</h2>
               <p className="text-xs text-muted-foreground">
-                {activeCount} with access · {members.length} in organization
+                {t('roster.counts', { active: activeCount, total: members.length })}
               </p>
             </div>
           </div>
@@ -295,8 +288,8 @@ export function ProjectMembersForm({ projectId, canManage }: ProjectMembersFormP
                   value={field.state.value}
                   onChange={(event) => field.handleChange(event.target.value)}
                   onBlur={field.handleBlur}
-                  placeholder="Search by name or email"
-                  aria-label="Search project members"
+                  placeholder={t('roster.searchPlaceholder')}
+                  aria-label={t('roster.searchAria')}
                   className="pl-9"
                 />
               </div>
@@ -308,22 +301,22 @@ export function ProjectMembersForm({ projectId, canManage }: ProjectMembersFormP
           <EmptyState
             variant="bare"
             icon={Users}
-            title="No members yet"
-            description="Organization members you add will appear here with their project role."
+            title={t('roster.emptyTitle')}
+            description={t('roster.emptyDescription')}
           />
         ) : filteredMembers.length === 0 ? (
           <EmptyState
             variant="bare"
             icon={Search}
-            title="No matching members"
-            description="No one matches your search. Clear it to see the full roster."
+            title={t('roster.noMatchTitle')}
+            description={t('roster.noMatchDescription')}
             action={
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => searchForm.setFieldValue('query', '')}
               >
-                Clear search
+                {t('roster.clearSearch')}
               </Button>
             }
           />
@@ -334,7 +327,7 @@ export function ProjectMembersForm({ projectId, canManage }: ProjectMembersFormP
               return (
                 <div
                   key={member.organizationMembershipId}
-                  className="flex items-center justify-between gap-4 px-6 py-3.5 transition-colors duration-200 ease-out hover:bg-accent/40"
+                  className="flex flex-col gap-3 px-4 py-3.5 transition-colors duration-200 ease-out hover:bg-accent/40 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-6"
                 >
                   <div className="flex min-w-0 items-center gap-3">
                     <Avatar className="size-9">
@@ -351,10 +344,10 @@ export function ProjectMembersForm({ projectId, canManage }: ProjectMembersFormP
                   </div>
 
                   {canManage ? (
-                    <div className="flex min-w-[220px] items-center justify-end gap-3">
+                    <div className="flex items-center justify-end gap-3 sm:min-w-[220px]">
                       {isUpdating && (
                         <span className="text-xs uppercase tracking-widest text-muted-foreground">
-                          saving
+                          {t('roster.saving')}
                         </span>
                       )}
                       <Select
@@ -368,14 +361,14 @@ export function ProjectMembersForm({ projectId, canManage }: ProjectMembersFormP
                         disabled={isUpdating}
                       >
                         <SelectTrigger
-                          className="w-[180px]"
-                          aria-label={`Project role for ${member.name}`}
+                          className="w-full sm:w-[180px]"
+                          aria-label={t('roster.roleForMember', { name: member.name })}
                         >
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value={NO_ACCESS}>No project access</SelectItem>
-                          {ROLE_OPTIONS.map((option) => (
+                          <SelectItem value={NO_ACCESS}>{t('roster.noAccessOption')}</SelectItem>
+                          {roleOptions.map((option) => (
                             <SelectItem key={option.value} value={option.value}>
                               {option.label}
                             </SelectItem>
@@ -388,7 +381,7 @@ export function ProjectMembersForm({ projectId, canManage }: ProjectMembersFormP
                       {roleLabel(member.role)}
                     </Badge>
                   ) : (
-                    <span className="shrink-0 text-xs text-muted-foreground">No access</span>
+                    <span className="shrink-0 text-xs text-muted-foreground">{t('roster.noAccess')}</span>
                   )}
                 </div>
               )

@@ -3,6 +3,7 @@ import { and, eq, desc } from 'drizzle-orm'
 import { authzErrorResponse, requireAuthorizedSession } from '@/lib/auth/require-auth'
 import { getDb } from '@/lib/db'
 import { documents } from '@/lib/db/schema'
+import { reconcileDocumentStatuses } from '@/lib/documents/reconcile-status'
 
 export async function GET(request: NextRequest): Promise<Response> {
   try {
@@ -28,6 +29,7 @@ export async function GET(request: NextRequest): Promise<Response> {
         createdAt: documents.createdAt,
         updatedAt: documents.updatedAt,
         errorMessage: documents.errorMessage,
+        metadata: documents.metadata,
       })
       .from(documents)
       .where(
@@ -38,7 +40,13 @@ export async function GET(request: NextRequest): Promise<Response> {
       )
       .orderBy(desc(documents.createdAt))
 
-    return NextResponse.json({ documents: rows })
+    // Pending rows are lazily reconciled with the backend's ingestion state;
+    // without this they would stay 'pending' forever (no completion callback).
+    const reconciled = await reconcileDocumentStatuses(rows)
+
+    return NextResponse.json({
+      documents: reconciled.map(({ metadata: _metadata, ...row }) => row),
+    })
   } catch (error) {
     const denied = authzErrorResponse(error)
     if (denied) return denied

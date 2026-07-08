@@ -1,15 +1,15 @@
 /**
  * GuardrailCheckCard — OIB 4 Absturzsicherung: a railing elevation to scale.
  *
- * Front elevation of the railing: two posts, a top rail, and a rough.js
- * vertical-hachure infill whose gap is the ACTUAL max opening, so a wide
- * opening is visibly wide. Dimension arrows read rail height, max opening and
- * bottom gap, each coloured by its check status. The ~15–60 cm no-climb band
- * (Kletterschutzbereich) is shaded — danger-tinted when the model reports
- * climbable horizontals inside it. Below the deck a dashed break + arrow
- * surfaces the Absturzhöhe, because it decides whether 100 cm or 110 cm
- * applies; the applicable minimum is echoed next to it. Unknown values render
- * as "fehlende Angabe", never a guessed number.
+ * Front elevation of the railing: two posts, a top rail, and explicit vertical
+ * balusters spaced at the ACTUAL max opening, so a wide opening is visibly
+ * wide and the opening arrow measures a real gap between two bars. Dimension
+ * arrows read rail height, max opening and bottom gap, each coloured by its
+ * check status. The ~15–60 cm no-climb band (Kletterschutzbereich) is shaded —
+ * danger-tinted when the model reports climbable horizontals inside it. Below
+ * the deck a dashed break + arrow surfaces the Absturzhöhe, because it decides
+ * whether 100 cm or 110 cm applies; the applicable minimum is echoed next to
+ * it. Unknown values render as "fehlende Angabe", never a guessed number.
  */
 
 import { type FC } from 'react'
@@ -92,13 +92,17 @@ export const GuardrailCheckCard: FC<GuardrailCheckCardProps> = ({
     ? 'var(--text-color-feedback-danger)'
     : 'var(--text-color-feedback-warning)'
 
-  // Max-opening arrow between two adjacent infill bars near mid-height.
+  // Explicit balusters: bars spaced so each clear gap IS the max opening.
   const infillX0 = x0 + postW
   const infillW = runW * k - 2 * postW
+  const barW = 1.8 * k
   const openPx = opening * k
-  const openIdx = Math.max(1, Math.floor(infillW / openPx / 2))
-  const openX1 = infillX0 + openIdx * openPx
-  const openX2 = Math.min(openX1 + openPx, infillX0 + infillW)
+  const barCount = Math.max(Math.floor((infillW - openPx) / (openPx + barW)), 0)
+  const barXs = Array.from({ length: barCount }, (_, i) => infillX0 + (i + 1) * openPx + i * barW)
+  // Opening arrow between two adjacent bars near the middle of the run.
+  const openIdx = Math.max(Math.floor(barCount / 2) - 1, 0)
+  const openX1 = barCount > 1 ? barXs[openIdx] + barW : infillX0
+  const openX2 = barCount > 1 ? barXs[openIdx + 1] : infillX0 + openPx
   const openY = Y(railH * 0.68)
 
   const checks: DimensionCheckData[] = [
@@ -136,7 +140,14 @@ export const GuardrailCheckCard: FC<GuardrailCheckCardProps> = ({
           height={(bandHi - bandLo) * k}
           fill={`color-mix(in oklch, ${bandColor} 12%, transparent)`}
         />
-        <SvgLabel x={X(runW) + 10} y={(Y(bandHi) + Y(bandLo)) / 2} size={8} fill={bandColor} italic>
+        <SvgLabel
+          x={x0 + runW * k * 0.5}
+          y={Y((bandLo + bandHi) / 2)}
+          anchor="middle"
+          size={8}
+          fill={bandColor}
+          italic
+        >
           Kletterschutz 15–60 cm
         </SvgLabel>
 
@@ -154,22 +165,25 @@ export const GuardrailCheckCard: FC<GuardrailCheckCardProps> = ({
         {sketchRect(X(runW) - postW, Y(railH), postW, railH * k, 'guardrail-post-right', {
           strokeWidth: 1.3,
         })}
-        {sketchRect(x0 - 4, railTopY - railT, runW * k + 8, railT, 'guardrail-toprail', {
+        {sketchRect(x0 - 4, railTopY, runW * k + 8, railT, 'guardrail-toprail', {
           strokeWidth: 1.4,
           fill: 'color-mix(in oklch, var(--foreground) 35%, transparent)',
           fillStyle: 'solid',
         })}
 
-        {/* baluster infill: vertical hachure whose gap IS the max opening */}
-        {sketchRect(infillX0, Y(railH) + railT, infillW, (railH - gap) * k - railT, 'guardrail-infill', {
-          strokeWidth: 1,
-          stroke: 'var(--muted-foreground)',
-          fill: 'color-mix(in oklch, var(--foreground) 70%, transparent)',
-          fillStyle: 'hachure',
-          hachureAngle: 90,
-          hachureGap: openPx,
-          fillWeight: 1,
-        })}
+        {/* baluster infill: explicit vertical bars, gap = max opening to scale */}
+        {barXs.map((barX, i) => (
+          <line
+            key={`bal-${i}`}
+            x1={barX + barW / 2}
+            y1={Y(railH) + railT}
+            x2={barX + barW / 2}
+            y2={Y(gap)}
+            stroke="var(--foreground)"
+            strokeWidth={Math.max(barW, 1.6)}
+            opacity={0.75}
+          />
+        ))}
 
         {/* rail height, measured on the left */}
         <ExtensionLine x1={x0} y1={railTopY} x2={x0 - 32} y2={railTopY} />

@@ -2,16 +2,18 @@ import Link from 'next/link'
 
 import { Button } from '@/components/ui/button'
 import { StatusScreen } from '@/components/brand/status-screen'
+import { getTranslations } from '@/i18n/server'
 
-export default function NotFound() {
+export default async function NotFound() {
+  const t = await getTranslations('errors')
   return (
     <StatusScreen
-      code="404"
-      title="We couldn't find that"
-      description="The page or project you're looking for doesn't exist, or you no longer have access to it."
+      code={t('notFound.code')}
+      title={t('notFound.title')}
+      description={t('notFound.description')}
       actions={
         <Button asChild>
-          <Link href="/app/projects">Back to projects</Link>
+          <Link href="/app/projects">{t('notFound.action')}</Link>
         </Button>
       }
     />

@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm'
 import { authzErrorResponse, requireAuthorizedSession } from '@/lib/auth/require-auth'
 import { getDb } from '@/lib/db'
 import { documents } from '@/lib/db/schema'
+import { reconcileDocumentStatuses } from '@/lib/documents/reconcile-status'
 
 export async function GET(
   _request: NextRequest,
@@ -23,16 +24,20 @@ export async function GET(
       return NextResponse.json({ error: 'Not found' }, { status: 404 })
     }
 
+    // Pending rows are lazily reconciled with the backend's ingestion state;
+    // without this they would stay 'pending' forever (no completion callback).
+    const [reconciled] = await reconcileDocumentStatuses([row])
+
     return NextResponse.json({
-      id: row.id,
-      status: row.status,
-      filename: row.filename,
-      fileSize: row.fileSize,
-      contentType: row.contentType,
-      collectionName: row.collectionName,
-      errorMessage: row.errorMessage,
-      createdAt: row.createdAt,
-      updatedAt: row.updatedAt,
+      id: reconciled.id,
+      status: reconciled.status,
+      filename: reconciled.filename,
+      fileSize: reconciled.fileSize,
+      contentType: reconciled.contentType,
+      collectionName: reconciled.collectionName,
+      errorMessage: reconciled.errorMessage,
+      createdAt: reconciled.createdAt,
+      updatedAt: reconciled.updatedAt,
     })
   } catch (error) {
     const denied = authzErrorResponse(error)

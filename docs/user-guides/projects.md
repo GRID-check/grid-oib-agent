@@ -62,4 +62,6 @@ Source: `frontends/ui/src/lib/authz/projects.ts:7`, `frontends/ui/src/app/api/pr
 
 Use the **Projects** link in the main navigation or go to `/projects`. The projects page shows all projects in your organization as a card grid. Click a project card to view its documents. Use the **All Projects** link in any project's header to return to the list.
 
+On desktop, project sections (Overview, Chat, Files, Research, Members) are reached via the left sidebar rail; on small screens the rail is replaced by a slim top bar whose menu button opens the same navigation as a drawer.
+
 The user's active project ID is stored in user preferences (upserted via `POST /api/user/preferences`).

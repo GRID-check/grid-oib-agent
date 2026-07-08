@@ -19,12 +19,10 @@
 import { type FC, useState, useEffect, useRef } from 'react'
 import { AlertTriangle, X } from 'lucide-react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { useTranslations } from '@/i18n'
 import { useLayoutStore } from '@/features/layout/store'
 import { useDocumentsStore } from '@/features/documents'
 import { useChatStore } from '../store'
-
-const WARNING_MESSAGE =
-  'No data sources selected and no files are available. Responses are more likely to be inaccurate or outdated unless external data sources are added.'
 
 /**
  * Warning banner shown when no data sources or files are available.
@@ -35,6 +33,7 @@ interface NoSourcesBannerProps {
 }
 
 export const NoSourcesBanner: FC<NoSourcesBannerProps> = ({ isAuthenticated = false }) => {
+  const t = useTranslations('chat')
   const [isDismissedByUser, setIsDismissedByUser] = useState(false)
 
   const enabledDataSourceIds = useLayoutStore((state) => state.enabledDataSourceIds)
@@ -75,11 +74,11 @@ export const NoSourcesBanner: FC<NoSourcesBannerProps> = ({ isAuthenticated = fa
     <div className="mx-auto w-full max-w-3xl px-4">
       <Alert variant="warning" className="relative">
         <AlertTriangle />
-        <AlertDescription className="pr-6">{WARNING_MESSAGE}</AlertDescription>
+        <AlertDescription className="pr-6">{t('noSources.warning')}</AlertDescription>
         <button
           type="button"
           onClick={handleDismiss}
-          aria-label="Dismiss"
+          aria-label={t('actions.dismiss')}
           className="text-muted-foreground hover:text-foreground absolute right-3 top-3 rounded-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
         >
           <X className="h-4 w-4" aria-hidden="true" />

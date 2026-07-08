@@ -253,3 +253,34 @@ LangGraph conversation checkpoint tables:
 | `checkpoint_blobs` | Binary state data | `thread_id`, `checkpoint_ns`, `channel`, `version` (composite PK), `type`, `blob` (BYTEA) |
 | `checkpoint_writes` | Pending writes | `thread_id`, `checkpoint_ns`, `checkpoint_id`, `task_id`, `idx` (composite PK), `channel`, `type`, `blob` (BYTEA) |
 | `checkpoint_migrations` | Schema version tracking | `v` (PK) |
+
+## org_model_configs / org_model_config_versions (migration 0012)
+
+Org-level runtime model configuration (ADR-0014). `org_model_configs` holds
+one row per WorkOS org with the pointer to the currently active version
+(`active_version_id`, NULL = workflow YAML defaults) plus `updated_by`.
+`org_model_config_versions` is immutable append-only history: `version`
+(monotonic per org, unique `(organization_id, version)`), `overrides` jsonb
+(`{agentGroup: {model}}`), `model_snapshot` jsonb (OpenRouter catalog
+metadata at validation time), `comment`, `created_by`. Save = insert + repoint;
+rollback = repoint. Schema: `frontends/ui/src/lib/db/schema/org-model-config.ts`.
+
+## budget_policies / llm_usage_events (migration 0013)
+
+LLM budgets and the usage ledger (ADR-0015).
+
+- `budget_policies`: append-only limit configuration with the supersede idiom
+  (`status` active/superseded + `supersedes_id`); `scope`
+  (`organization`/`member`/`project`), `subject_id` (NULL / WorkOS user id /
+  project uuid), `daily_limit`/`monthly_limit` numeric(12,4) in `currency`
+  (EUR), `created_by`, `note`. A hand-written partial-unique index
+  (`uniq_budget_policies_active`, COALESCE on subject) enforces one active
+  policy per (org, scope, subject).
+- `llm_usage_events`: one row per LLM generation — org/user/project/
+  conversation/job attribution, `agent_group` (reserved), `requested_model`
+  vs served `model`, OpenRouter `generation_id`, token counts (incl. cached +
+  reasoning), `cost_usd numeric(14,8)` exactly as OpenRouter reported,
+  `cost_source`, `is_byok`. Append-only; written only via
+  `POST /api/internal/usage`. Indexes on (org,time), (org,user,time),
+  (org,project,time), (org,model,time). Schema:
+  `frontends/ui/src/lib/db/schema/budgets.ts`.

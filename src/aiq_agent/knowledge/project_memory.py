@@ -15,6 +15,7 @@ import json
 import logging
 import os
 import urllib.error
+import urllib.parse
 import urllib.request
 
 logger = logging.getLogger(__name__)
@@ -43,12 +44,54 @@ _opener = urllib.request.build_opener(_NoRedirectHandler)
 
 
 def _internal_base_url() -> str:
-    url = (
-        os.environ.get("FRONTEND_INTERNAL_URL")
-        or os.environ.get("FRONTEND_URL")
-        or "http://frontend:3000"
-    )
+    url = os.environ.get("FRONTEND_INTERNAL_URL") or os.environ.get("FRONTEND_URL") or "http://frontend:3000"
     return url.rstrip("/")
+
+
+VALID_PROVENANCES = {"agent", "distillation"}
+
+
+def fetch_memory_digest(
+    *,
+    project_id: str | None,
+    organization_id: str | None,
+) -> str | None:
+    """Fetch the CURRENT core-memory digest via the internal BFF endpoint.
+
+    The digest normally rides the ``x-grid-project-memory`` header set on the WS
+    upgrade, but that header is frozen for the connection's life — memory written
+    mid-session never reaches the agent until a reconnect. Calling this at the
+    start of a turn re-serves the up-to-date digest.
+
+    Returns the digest string, or ``None`` when there is no active memory (a valid
+    empty result). Raises RuntimeError on configuration problems and urllib errors
+    on transport failures, so the caller can fall back to the frozen header digest
+    instead of dropping memory entirely. Blocking; call via ``asyncio.to_thread``.
+    """
+    if not project_id and not organization_id:
+        return None
+
+    token = os.environ.get("GRID_INTERNAL_API_TOKEN")
+    if not token:
+        raise RuntimeError("GRID_INTERNAL_API_TOKEN is not configured")
+
+    params = {}
+    if project_id:
+        params["projectId"] = project_id
+    if organization_id:
+        params["organizationId"] = organization_id
+    query = urllib.parse.urlencode(params)
+
+    request = urllib.request.Request(
+        f"{_internal_base_url()}/api/internal/memory/digest?{query}",
+        headers={"X-Grid-Internal-Token": token},
+        method="GET",
+    )
+
+    with _opener.open(request, timeout=_REQUEST_TIMEOUT_SECONDS) as response:
+        body = json.loads(response.read().decode("utf-8"))
+    digest = body.get("digest")
+    return digest if isinstance(digest, str) and digest.strip() else None
 
 
 def insert_memory_item(
@@ -60,8 +103,13 @@ def insert_memory_item(
     content: str,
     confidence: str = "medium",
     conversation_id: str | None = None,
+    provenance_type: str = "agent",
 ) -> str | None:
     """Record one memory item via the internal BFF endpoint.
+
+    ``provenance_type`` distinguishes how the item was captured: ``agent`` for a
+    deliberate in-turn ``remember`` call, ``distillation`` for the async
+    post-answer reflection stage. It lets the UI label the two differently.
 
     Returns the new item id, or None when the target (project/org) is unknown.
     Raises RuntimeError on configuration problems and urllib errors on
@@ -74,6 +122,8 @@ def insert_memory_item(
         raise ValueError(f"Invalid kind '{kind}'. Must be one of: {sorted(VALID_KINDS)}")
     if confidence not in VALID_CONFIDENCES:
         raise ValueError(f"Invalid confidence '{confidence}'. Must be one of: {sorted(VALID_CONFIDENCES)}")
+    if provenance_type not in VALID_PROVENANCES:
+        provenance_type = "agent"
 
     token = os.environ.get("GRID_INTERNAL_API_TOKEN")
     if not token:
@@ -84,6 +134,7 @@ def insert_memory_item(
         "kind": kind,
         "content": content.strip()[:2000],
         "confidence": confidence,
+        "provenanceType": provenance_type,
     }
     if project_id:
         payload["projectId"] = project_id

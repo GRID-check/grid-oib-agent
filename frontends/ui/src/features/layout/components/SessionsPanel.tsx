@@ -32,6 +32,7 @@ import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/utils'
 import { motion, fadeRise, staggerParent, springGentle } from '@/components/motion'
+import { useTranslations } from '@/i18n'
 import { useLayoutStore } from '../store'
 import { useChatStore } from '@/features/chat'
 import { checkStorageHealth } from '@/features/chat/lib/storage-manager'
@@ -78,6 +79,7 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
   onDeleteAllSessions,
   onRenameSession,
 }) {
+  const t = useTranslations('research')
   const isSessionsPanelOpen = useLayoutStore((s) => s.isSessionsPanelOpen)
   const setSessionsPanelOpen = useLayoutStore((s) => s.setSessionsPanelOpen)
 
@@ -160,7 +162,14 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
     return sessions.filter((s) => s.title.toLowerCase().includes(query) && s.title.trim() !== '')
   }, [sessions, searchQuery])
 
-  const groupedSessions = useMemo(() => groupSessionsByDate(filteredSessions), [filteredSessions])
+  const groupedSessions = useMemo(
+    () =>
+      groupSessionsByDate(filteredSessions, {
+        today: t('sessionsPanel.today'),
+        yesterday: t('sessionsPanel.yesterday'),
+      }),
+    [filteredSessions, t]
+  )
   const isEmptyState = filteredSessions.length === 0
   return (
     <DockedPanel
@@ -168,22 +177,21 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
       side="left"
       onClose={handleClose}
       forceMount
-      aria-label="Sessions"
-      className="w-[406px]"
+      aria-label={t('sessionsPanel.title')}
+      className="w-full max-w-[406px]"
       heading={
         <>
           <MessageSquareText className="h-4 w-4" aria-hidden="true" />
-          <span>Sessions</span>
+          <span>{t('sessionsPanel.title')}</span>
         </>
       }
       footer={
         <div className="flex flex-col gap-1">
           <p className="text-xs text-muted-foreground">
-            Using {storagePercent}% of browser storage quota
+            {t('sessionsPanel.storageQuota', { percent: storagePercent })}
           </p>
           <p className="text-xs text-muted-foreground">
-            Note: Chat sessions are saved in this browser. Research reports may expire on the
-            server.
+            {t('sessionsPanel.storageNote')}
           </p>
         </div>
       }
@@ -197,15 +205,15 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
             className="text-destructive hover:text-destructive"
             onClick={handleDeleteAllClick}
             disabled={anySessionBusy}
-            aria-label={anySessionBusy ? 'Delete all sessions (disabled)' : 'Delete all sessions'}
+            aria-label={anySessionBusy ? t('sessionsPanel.deleteAllDisabled') : t('sessionsPanel.deleteAll')}
             title={
               anySessionBusy
-                ? 'Cannot delete while operations are in progress'
-                : 'Delete all sessions'
+                ? t('sessionsPanel.cannotDeleteBusy')
+                : t('sessionsPanel.deleteAll')
             }
           >
             <Trash2 className="h-4 w-4" aria-hidden="true" />
-            <span className="text-sm">Delete All</span>
+            <span className="text-sm">{t('sessionsPanel.deleteAllButton')}</span>
           </Button>
           <Button
             variant="ghost"
@@ -214,17 +222,17 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
             disabled={isNavigationBlocked}
             aria-label={
               isNavigationBlocked
-                ? 'Start new session (disabled during active operations)'
-                : 'Start new session'
+                ? t('sessionsPanel.newSessionDisabled')
+                : t('sessionsPanel.startNewSession')
             }
             title={
               isNavigationBlocked
-                ? 'Cannot create new session while current session is active'
-                : 'Start new session'
+                ? t('sessionsPanel.cannotCreateActive')
+                : t('sessionsPanel.startNewSession')
             }
           >
             <Plus className="h-4 w-4" aria-hidden="true" />
-            <span className="text-sm font-semibold">New Session</span>
+            <span className="text-sm font-semibold">{t('sessionsPanel.newSessionButton')}</span>
           </Button>
         </div>
       )}
@@ -235,9 +243,9 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
           type="text"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Search sessions..."
+          placeholder={t('sessionsPanel.searchPlaceholder')}
           className="h-9 w-full rounded-md border bg-background pl-8 pr-3 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
-          aria-label="Search sessions"
+          aria-label={t('sessionsPanel.searchAria')}
         />
       </div>
 
@@ -273,11 +281,11 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
         {isEmptyState && (
           <div className="flex flex-1 flex-col items-center justify-center py-8">
             <span className="text-sm text-muted-foreground">
-              {searchQuery.trim() ? 'No matching sessions' : 'No sessions yet'}
+              {searchQuery.trim() ? t('sessionsPanel.noMatching') : t('sessionsPanel.noSessions')}
             </span>
             {!searchQuery.trim() && (
               <Button variant="outline" size="sm" onClick={handleNewSession} className="mt-4">
-                Start a new session
+                {t('sessionsPanel.startNewSessionButton')}
               </Button>
             )}
           </div>
@@ -328,6 +336,7 @@ const SessionItem: FC<SessionItemProps> = ({
   onDelete,
   onRename,
 }) => {
+  const t = useTranslations('research')
   const [isHovered, setIsHovered] = useState(false)
   const [isFocused, setIsFocused] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
@@ -426,7 +435,9 @@ const SessionItem: FC<SessionItemProps> = ({
         isSelected ? 'border-accent-primary bg-muted' : 'bg-transparent hover:bg-accent'
       )}
       aria-label={
-        isBusy ? `Session: ${session.title} (processing in progress)` : `Session: ${session.title}`
+        isBusy
+          ? t('sessionsPanel.sessionLabelBusy', { title: session.title })
+          : t('sessionsPanel.sessionLabel', { title: session.title })
       }
       aria-disabled={isBusy}
     >
@@ -440,7 +451,7 @@ const SessionItem: FC<SessionItemProps> = ({
           onBlur={handleInputBlur}
           onClick={(e) => e.stopPropagation()}
           className="h-8 min-w-0 flex-1 rounded border border-accent-primary bg-background px-2 py-1 text-sm outline-none"
-          aria-label="Edit session title"
+          aria-label={t('sessionsPanel.editTitle')}
         />
       ) : (
         <>
@@ -458,12 +469,14 @@ const SessionItem: FC<SessionItemProps> = ({
                 onClick={handleEditClick}
                 disabled={isBusy || isSessionActive}
                 aria-label={
-                  isBusy || isSessionActive ? 'Rename session (disabled)' : 'Rename session'
+                  isBusy || isSessionActive
+                    ? t('sessionsPanel.renameDisabled')
+                    : t('sessionsPanel.rename')
                 }
                 title={
                   isBusy || isSessionActive
-                    ? 'Cannot rename while operations are in progress'
-                    : 'Rename session'
+                    ? t('sessionsPanel.cannotRenameBusy')
+                    : t('sessionsPanel.rename')
                 }
               >
                 <Pencil className="h-4 w-4" aria-hidden="true" />
@@ -475,12 +488,14 @@ const SessionItem: FC<SessionItemProps> = ({
                 onClick={handleDeleteClick}
                 disabled={isBusy || isSessionActive}
                 aria-label={
-                  isBusy || isSessionActive ? 'Delete session (disabled)' : 'Delete session'
+                  isBusy || isSessionActive
+                    ? t('sessionsPanel.deleteDisabled')
+                    : t('sessionsPanel.deleteSession')
                 }
                 title={
                   isBusy || isSessionActive
-                    ? 'Cannot delete while operations are in progress'
-                    : 'Delete session'
+                    ? t('sessionsPanel.cannotDeleteBusy')
+                    : t('sessionsPanel.deleteSession')
                 }
               >
                 <Trash2 className="h-4 w-4" aria-hidden="true" />
@@ -497,34 +512,52 @@ const SessionStatusIcon: FC<{ session: Session; isSessionActive: boolean }> = ({
   session,
   isSessionActive,
 }) => {
+  const t = useTranslations('research')
   const isActive = isSessionActive || session.hasActiveDeepResearch
 
   if (isActive) {
-    return <Spinner size="sm" label="Session active" className="shrink-0 text-accent-primary" />
+    return (
+      <Spinner
+        size="sm"
+        label={t('sessionsPanel.sessionActive')}
+        className="shrink-0 text-accent-primary"
+      />
+    )
   }
 
   if (session.hasExpiredReport) {
     return (
       <CircleEllipsis
         className="h-4 w-4 shrink-0 text-muted-foreground"
-        aria-label="Report expired"
+        aria-label={t('sessionsPanel.reportExpired')}
       />
     )
   }
 
   if (session.hasCompletedReport) {
-    return <FileCheck2 className="h-4 w-4 shrink-0 text-success" aria-label="Report completed" />
+    return (
+      <FileCheck2
+        className="h-4 w-4 shrink-0 text-success"
+        aria-label={t('sessionsPanel.reportCompleted')}
+      />
+    )
   }
 
   return (
-    <MessageSquare className="h-4 w-4 shrink-0 text-muted-foreground" aria-label="Chat session" />
+    <MessageSquare
+      className="h-4 w-4 shrink-0 text-muted-foreground"
+      aria-label={t('sessionsPanel.chatSession')}
+    />
   )
 }
 
 /**
  * Groups sessions by relative date labels (Today, Yesterday, or date string)
  */
-const groupSessionsByDate = (sessions: Session[]): Record<string, Session[]> => {
+const groupSessionsByDate = (
+  sessions: Session[],
+  labels: { today: string; yesterday: string }
+): Record<string, Session[]> => {
   const groups: Record<string, Session[]> = {}
   const today = new Date()
   const yesterday = new Date(today)
@@ -535,9 +568,9 @@ const groupSessionsByDate = (sessions: Session[]): Record<string, Session[]> => 
     let label: string
 
     if (isSameDay(sessionDate, today) && session.title.trim()) {
-      label = 'Today'
+      label = labels.today
     } else if (isSameDay(sessionDate, yesterday)) {
-      label = 'Yesterday'
+      label = labels.yesterday
     } else {
       label = sessionDate.toLocaleDateString('en-US', {
         month: 'short',

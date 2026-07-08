@@ -44,6 +44,43 @@ class TestValidateCards:
             {"type": "legal_basis", "law": "OIB Richtlinie 3"},
         ]
 
+    def test_accepts_requirement_checklist(self):
+        raw = [
+            {
+                "type": "requirement_checklist",
+                "title": "Anforderungen GK 4",
+                "items": [
+                    {"label": "Tragende Bauteile REI 60", "status": "pass"},
+                    {"label": "Zweiter Fluchtweg", "status": "needs_input"},
+                ],
+            }
+        ]
+        result = validate_cards(raw)
+        assert result == raw
+
+    def test_checklist_requires_items(self):
+        raw = [{"type": "requirement_checklist", "title": "Leer", "items": []}]
+        assert validate_cards(raw) == []
+
+    def test_comparison_table_pads_and_truncates_rows(self):
+        raw = [
+            {
+                "type": "comparison_table",
+                "title": "GK 4 vs. GK 5",
+                "options": ["GK 4", "GK 5"],
+                "rows": [
+                    {"label": "kurz", "values": ["nur GK 4"]},
+                    {"label": "lang", "values": ["a", "b", "überzählig"]},
+                    {"label": "highlight außerhalb", "values": ["a", "b"], "highlight_index": 5},
+                ],
+            }
+        ]
+        [card] = validate_cards(raw)
+        assert card["rows"][0]["values"] == ["nur GK 4", ""]
+        assert card["rows"][1]["values"] == ["a", "b"]
+        # An out-of-range highlight is cleared (None) and then dropped from the dump.
+        assert "highlight_index" not in card["rows"][2]
+
     def test_drops_none_fields(self):
         raw = [
             {

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import { useTranslations } from '@/i18n'
 
 interface DeletionEntry {
   id: string
@@ -26,6 +27,7 @@ const dateFormatter = new Intl.DateTimeFormat('en-GB', {
  * non-admins (the API returns 403) or when there is nothing pending.
  */
 export function RecentlyDeleted() {
+  const t = useTranslations('projects')
   const [entries, setEntries] = useState<DeletionEntry[]>([])
   /** Entry currently being restored — disables its button to avoid double-fires. */
   const [restoringId, setRestoringId] = useState<string | null>(null)
@@ -48,14 +50,14 @@ export function RecentlyDeleted() {
         method: 'POST',
       })
       if (res.ok) {
-        toast.success(`Restored "${entry.displayName}".`)
+        toast.success(t('recentlyDeleted.restoreSuccess', { name: entry.displayName }))
         await refresh()
       } else {
         const data = await res.json().catch(() => null)
-        toast.error(data?.error ?? 'Restore failed.')
+        toast.error(data?.error ?? t('recentlyDeleted.restoreError'))
       }
     } catch {
-      toast.error('Restore failed.')
+      toast.error(t('recentlyDeleted.restoreError'))
     } finally {
       setRestoringId(null)
     }
@@ -66,7 +68,7 @@ export function RecentlyDeleted() {
   return (
     <section className="mt-8">
       <h2 className="text-sm font-semibold text-muted-foreground">
-        Recently deleted
+        {t('recentlyDeleted.heading')}
       </h2>
       <ul className="mt-2 flex flex-col gap-2">
         {entries.map((entry) => (
@@ -78,8 +80,10 @@ export function RecentlyDeleted() {
               <p className="text-sm font-medium">{entry.displayName}</p>
               <p className="text-xs text-muted-foreground">
                 {entry.status === 'failed'
-                  ? 'Purge failed — contact support'
-                  : `Permanently purged after ${dateFormatter.format(new Date(entry.purgeAfter))}`}
+                  ? t('recentlyDeleted.purgeFailed')
+                  : t('recentlyDeleted.purgeAfter', {
+                      date: dateFormatter.format(new Date(entry.purgeAfter)),
+                    })}
               </p>
               {entry.status === 'failed' && entry.lastError && (
                 <p className="mt-0.5 break-words font-mono text-[11px] text-destructive/80">
@@ -97,7 +101,7 @@ export function RecentlyDeleted() {
                 {restoringId === entry.id && (
                   <Loader2 className="size-3.5 animate-spin" aria-hidden />
                 )}
-                Restore
+                {t('recentlyDeleted.restore')}
               </Button>
             )}
           </li>

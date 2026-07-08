@@ -138,7 +138,11 @@ USER nextjs
 
 EXPOSE 3000
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-    CMD curl -f http://localhost:3000/ || exit 1
+# Probe the dependency-free liveness endpoint, not `/`. `/` does a full dynamic
+# SSR render and can be slow on a cold container; `/api/healthz` returns a tiny
+# 200 as soon as the server is listening. The generous start period covers the
+# `drizzle-kit migrate` step that runs before the server starts (see CMD).
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=5 \
+    CMD curl -f http://localhost:3000/api/healthz || exit 1
 
 CMD ["sh", "-c", "node node_modules/drizzle-kit/bin.cjs migrate && node server.js"]

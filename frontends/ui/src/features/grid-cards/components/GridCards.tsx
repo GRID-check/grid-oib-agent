@@ -3,6 +3,8 @@ import type { GridCard } from '@/shared/cards/schemas'
 import { SummaryCard } from './SummaryCard'
 import { LegalBasisCard } from './LegalBasisCard'
 import { ProjectProfilePatchCard } from './ProjectProfilePatchCard'
+import { RequirementChecklistCard } from './RequirementChecklistCard'
+import { ComparisonTableCard } from './ComparisonTableCard'
 import { BuildingSectionCard } from '../schematics/BuildingSectionCard'
 import { StairDiagramCard } from '../schematics/StairDiagramCard'
 import { DimensionDiagramCard } from '../schematics/DimensionDiagramCard'
@@ -13,6 +15,11 @@ import { GuardrailCheckCard } from '../schematics/GuardrailCheckCard'
 import { DensityCheckCard } from '../schematics/DensityCheckCard'
 import { FireAccessPlanCard } from '../schematics/FireAccessPlanCard'
 import { AcousticCheckCard } from '../schematics/AcousticCheckCard'
+import { FireCompartmentCard } from '../schematics/FireCompartmentCard'
+import { ThermalEnvelopeCard } from '../schematics/ThermalEnvelopeCard'
+import { EnergyPerformanceCard } from '../schematics/EnergyPerformanceCard'
+import { ElevatorRequirementCard } from '../schematics/ElevatorRequirementCard'
+import { ParkingRequirementCard } from '../schematics/ParkingRequirementCard'
 import { FadeIn } from '@/components/motion'
 
 interface GridCardsProps {
@@ -23,11 +30,13 @@ interface GridCardsProps {
 }
 
 /**
- * Renders a list of Grid cards in a vertical stack: summary / legal_basis /
- * project_profile_patch plus the ten schematic cards (building_section,
+ * Renders a list of Grid cards in a vertical stack: the structured cards
+ * (summary, legal_basis, project_profile_patch, requirement_checklist,
+ * comparison_table) plus the fifteen schematic cards (building_section,
  * stair_diagram, dimension_diagram, setback_plan, egress_diagram,
  * daylight_incidence, guardrail_check, density_check, fire_access_plan,
- * acoustic_check).
+ * acoustic_check, fire_compartment, thermal_envelope, energy_performance,
+ * elevator_requirement, parking_requirement).
  */
 export const GridCards: FC<GridCardsProps> = ({ cards, projectId }) => {
   if (cards.length === 0) {
@@ -51,6 +60,34 @@ export const GridCards: FC<GridCardsProps> = ({ cards, projectId }) => {
           return (
             <FadeIn key={key} distance={6}>
               <LegalBasisCard {...card} />
+            </FadeIn>
+          )
+        }
+
+        if (card.type === 'requirement_checklist') {
+          return (
+            <FadeIn key={key} distance={6}>
+              <RequirementChecklistCard
+                title={card.title}
+                items={card.items ?? []}
+                reference={card.reference}
+                note={card.note}
+              />
+            </FadeIn>
+          )
+        }
+
+        if (card.type === 'comparison_table') {
+          return (
+            <FadeIn key={key} distance={6}>
+              <ComparisonTableCard
+                title={card.title}
+                options={card.options ?? []}
+                rows={card.rows ?? []}
+                recommendation={card.recommendation}
+                reference={card.reference}
+                note={card.note}
+              />
             </FadeIn>
           )
         }
@@ -210,6 +247,83 @@ export const GridCards: FC<GridCardsProps> = ({ cards, projectId }) => {
                 title={card.title}
                 checks={card.checks ?? []}
                 sound_class={card.sound_class}
+                note={card.note}
+              />
+            </FadeIn>
+          )
+        }
+
+        if (card.type === 'fire_compartment') {
+          return (
+            <FadeIn key={key} distance={6}>
+              <FireCompartmentCard
+                title={card.title}
+                storey_label={card.storey_label}
+                compartments={card.compartments ?? []}
+                gebaeudeklasse={card.gebaeudeklasse}
+                reference={card.reference}
+                note={card.note}
+              />
+            </FadeIn>
+          )
+        }
+
+        if (card.type === 'thermal_envelope') {
+          return (
+            <FadeIn key={key} distance={6}>
+              <ThermalEnvelopeCard
+                title={card.title}
+                components={card.components ?? []}
+                reference={card.reference}
+                note={card.note}
+              />
+            </FadeIn>
+          )
+        }
+
+        if (card.type === 'energy_performance') {
+          return (
+            <FadeIn key={key} distance={6}>
+              <EnergyPerformanceCard
+                title={card.title}
+                hwb={card.hwb}
+                energy_class={card.energy_class}
+                fgee={card.fgee}
+                reference={card.reference}
+                note={card.note}
+              />
+            </FadeIn>
+          )
+        }
+
+        if (card.type === 'elevator_requirement') {
+          return (
+            <FadeIn key={key} distance={6}>
+              <ElevatorRequirementCard
+                title={card.title}
+                storeys_served={card.storeys_served}
+                entrance_level_index={card.entrance_level_index}
+                is_required={card.is_required}
+                requirement_note={card.requirement_note}
+                cabin_width={card.cabin_width}
+                cabin_depth={card.cabin_depth}
+                door_width={card.door_width}
+                reference={card.reference}
+                note={card.note}
+              />
+            </FadeIn>
+          )
+        }
+
+        if (card.type === 'parking_requirement') {
+          return (
+            <FadeIn key={key} distance={6}>
+              <ParkingRequirementCard
+                title={card.title}
+                car_spaces={card.car_spaces}
+                bicycle_spaces={card.bicycle_spaces}
+                basis={card.basis}
+                reference={card.reference}
                 note={card.note}
               />
             </FadeIn>

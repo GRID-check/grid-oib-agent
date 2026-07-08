@@ -20,22 +20,24 @@ Defined in `src/aiq_agent/cards/models.py` as a discriminated union (`GridCard`)
 | `SummaryCard` | A short overview / key points | `title`, `content`, `key_points` |
 | `LegalBasisCard` | An OIB legal-basis citation | `law`, `article`, `section`, `summary`, `original_text` |
 | `ProjectProfilePatchCard` | A proposed change to the project profile | JSON-Patch `ops` (restricted to `/facts`, `/goals`, `/unknowns`, `/assumptions`) + before/after preview |
+| `RequirementChecklistCard` | Several pass/fail criteria for one question, each with verdict + own norm reference | `title`, `items[]` (`label`, `status`, `detail`, `reference`), `reference`, `note` |
+| `ComparisonTableCard` | Side-by-side comparison of a small number of options (columns) across criteria (rows) | `title`, `options[]`, `rows[]` (`label`, `values[]`, `highlight_index`), `recommendation`, `reference`, `note` |
 
 `validate_cards()` validates against the union and drops null fields.
 
 ## How generation works
 
-Card generation is a model-driven step in the chat workflow: after the graph
-produces an answer, `ChatResearcherAgent._generate_cards(query, context)` prompts a
-card LLM (`card_generator_llm`) with a schema-derived system prompt
-(`cards/prompt.py` introspects the union so the prompt stays in sync with the
-models), parses the JSON, and validates it. The result rides `ChatResponse.cards`,
-which the monkeypatched WS handler lifts onto the top-level message so the frontend
-reads it at `message.cards`.
-
-Generation is **skipped when the turn only dispatched an async deep-research job**
-(the answer is just the job stub — cards for the real answer belong to the job
-pipeline).
+Cards are emitted by the answering agent itself via the **`emit_card` tool**
+(`cards/register.py`): mid-turn, with full context, the agent calls the tool
+whenever a structured element communicates better than prose. The tool
+description is derived from the Pydantic union (including nested shapes and
+worked examples per hard-to-nest type — see `_CARD_EXAMPLES`), the card is
+validated against the shared schema, and pushed into the conversation-scoped
+`CardRegistry`. The chat entrypoint snapshots that registry after the turn and
+attaches the cards to `ChatResponse.cards`, which the monkeypatched WS handler
+lifts onto the top-level message so the frontend reads it at `message.cards`.
+(The older post-hoc "re-derive cards from the finished prose" LLM call in
+`cards/generate.py` / `cards/prompt.py` remains as a fallback path.)
 
 ## How cards render
 
@@ -51,7 +53,7 @@ without re-plumbing generation or transport.
 
 ## Card catalog
 
-Three base cards plus ten **schematic** cards — programmatically-drawn technical
+Five structured cards plus fifteen **schematic** cards — programmatically-drawn technical
 diagrams (SVG kit in `features/grid-cards/schematics/`, Rough.js sketch stroke).
 The schematic cards emit **parameters only**; the renderer draws to scale and does
 any geometry/ratio math. Every required limit carries a `NormReference`; unknown
@@ -63,6 +65,8 @@ values render "fehlende Angabe", never a guess. See
 | `summary` | prose overview / key points | any |
 | `legal_basis` | a cited OIB/norm excerpt | any |
 | `project_profile_patch` | a reviewable profile change | intake |
+| `requirement_checklist` | pass/fail criteria list, per-item verdict + reference | any |
+| `comparison_table` | options as columns, criteria as rows, optional per-row highlight + recommendation | any |
 | `building_section` | to-scale cross-section: storeys, ground line, Fluchtniveau/GK/Hochhaus markers | height / GK |
 | `stair_diagram` | stair drawn to scale + 2R+G comfort + OIB 4 limits | stairs |
 | `dimension_diagram` | door/ramp/corridor/turning-circle/threshold/parking schematic w/ dimension arrows | accessibility |
@@ -73,17 +77,25 @@ values render "fehlende Angabe", never a guess. See
 | `density_check` | parcel + footprint, Bebauungsgrad/GFZ bars | zoning density |
 | `fire_access_plan` | Feuerwehrzufahrt site plan, route/Aufstellfläche/80 m reach | fire access (OIB 2) |
 | `acoustic_check` | direction-aware dB gauges (airborne ↑ / impact ↓) | Schallschutz (OIB 5) |
+| `fire_compartment` | storey plan split into Brandabschnitte, each area vs the max Brandabschnittsfläche | fire compartments (OIB 2) |
+| `thermal_envelope` | building-envelope section + per-component U-value bars | Wärmeschutz (OIB 6) |
+| `energy_performance` | Heizwärmebedarf on the A++–G energy-class ladder + HWB/fGEE bars | Energieausweis (OIB 6) |
+| `elevator_requirement` | served-storey stack + lift shaft, requirement verdict + cabin/door checks | barrier-free lift (OIB 4) |
+| `parking_requirement` | slot grid (required vs provided) + count bars for cars/bikes | Stellplatznachweis (Bauordnung) |
 
 The card-generation LLM is `card_llm` (config `reasoning_effort: medium`). Adding a
 card type = define the Pydantic model (`cards/models.py`), regenerate the schema
 (`scripts/generate_card_schema.py` → `npm run generate:cards`), add a renderer, and
-wire the `GridCards` dispatcher. Next phases: a 3D massing card (three.js/R3F) and
-the IFC/BIM viewer (`docs/roadmap/ifc-viewer-card-spec.md`).
+wire the `GridCards` dispatcher. A dev-only gallery at `/dev/cards`
+(`src/app/dev/cards/page.tsx`, 404 outside development) renders every card type
+with realistic fixtures for visual review. Next phases: a 3D massing card
+(three.js/R3F) and the IFC/BIM viewer (`docs/roadmap/ifc-viewer-card-spec.md`).
 
 ## Known rough edges
 
-- Card-generation logic is duplicated between `cards/generate.py` and the inline
-  `ChatResearcherAgent._generate_cards` — candidate for consolidation.
+- The legacy post-hoc generation path (`cards/generate.py` / `cards/prompt.py`)
+  is still around next to the `emit_card` tool — candidate for removal once the
+  tool path covers every workflow.
 - Deep-research (async job) answers do not yet carry cards end-to-end.
 - A silent card-generation failure is currently indistinguishable from "no cards";
   emission should surface failures.

@@ -22,14 +22,15 @@ import aiofiles
 from langchain_core.messages import HumanMessage
 from pydantic import Field
 
+from aiq_agent.cards.registry import get_or_create_card_registry
+from aiq_agent.cards.registry import reset_card_registry
+from aiq_agent.cards.registry import set_card_registry
 from aiq_agent.common import VerboseTraceCallback
 from aiq_agent.common import _create_chat_response
 from aiq_agent.common import format_data_source_tools
 from aiq_agent.common import get_checkpointer
+from aiq_agent.common import get_model_overrides_from_context
 from aiq_agent.common import is_verbose
-from aiq_agent.cards.registry import get_or_create_card_registry
-from aiq_agent.cards.registry import reset_card_registry
-from aiq_agent.cards.registry import set_card_registry
 from aiq_agent.common.citation_verification import get_or_create_session_registry
 from aiq_agent.common.citation_verification import reset_session_registry
 from aiq_agent.common.citation_verification import set_session_registry
@@ -58,6 +59,37 @@ _ensure_otel_redaction_registered()
 # (attached as an extra field on the response) survive NAT's CHAT_STREAM
 # serialization instead of being dropped by the lossy indirect str conversion.
 _ensure_nat_converters_registered()
+
+# Canned error/empty answers that must never trigger a memory-reflection pass.
+_REFLECTION_NON_ANSWERS = (
+    "No response generated.",
+    "An error occurred",
+    "The search tools did not return any results",
+)
+
+
+def _reflection_answer_is_substantive(result: object, answer_text: str) -> bool:
+    """Whether a turn's answer is worth running memory reflection on.
+
+    Skips meta/conversational and error turns (by classified intent) and the
+    canned insufficiency/error answers — none carry a durable, project-specific
+    finding, and reflecting on them only risks spurious writes.
+    """
+    from .agent import matches_escalation_keywords
+
+    text = (answer_text or "").strip()
+    if not text or any(text.startswith(prefix) for prefix in _REFLECTION_NON_ANSWERS):
+        return False
+    if matches_escalation_keywords(text):
+        return False
+
+    user_intent = getattr(result, "user_intent", None)
+    if user_intent is None and isinstance(result, dict):
+        user_intent = result.get("user_intent")
+    intent = getattr(user_intent, "intent", None)
+    if intent in {"meta", "error"}:
+        return False
+    return True
 
 
 ########################################################
@@ -157,6 +189,15 @@ class ChatDeepResearcherConfig(FunctionBaseConfig, name="chat_deepresearcher_age
     card_generator_llm: LLMRef | None = Field(
         default=None,
         description="Optional LLM to use for structured response card generation. Defaults to nemotron_super_llm.",
+    )
+    memory_reflection_llm: LLMRef | None = Field(
+        default=None,
+        description=(
+            "Optional LLM for the async post-answer memory-reflection stage. When set, after each "
+            "answer is returned a background task reviews the turn against the project's existing "
+            "memory and records any durable finding the in-turn `remember` tool missed. Unset "
+            "disables reflection entirely (no extra LLM call)."
+        ),
     )
 
 
@@ -313,6 +354,7 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                     data_sources=state.data_sources,
                     collection_scope=state.collection_scope,
                     project_context=state.project_context,
+                    model_overrides=get_model_overrides_from_context() or None,
                 )
 
             deep_research_job_submitter = _submit_deep_job
@@ -321,6 +363,17 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                 "use_async_deep_research is enabled but NAT_DASK_SCHEDULER_ADDRESS is not set. "
                 "Falling back to synchronous deep research execution."
             )
+
+    # Optional LLM for the async post-answer memory-reflection stage. Built once
+    # at registration; None (unset config) disables reflection with zero cost.
+    reflection_llm = None
+    if config.memory_reflection_llm is not None:
+        try:
+            reflection_llm = await builder.get_llm(
+                config.memory_reflection_llm, wrapper_type=LLMFrameworkEnum.LANGCHAIN
+            )
+        except Exception:
+            logger.warning("Could not build memory_reflection_llm; reflection disabled", exc_info=True)
 
     checkpointer = await get_checkpointer(config.checkpoint_db)
 
@@ -352,12 +405,55 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         except ImportError:
             pass
 
-        # Read the X-Grid-Project-Context header from NAT context, if present.
+        # Compose the injected project context: the intake profile (frozen at the
+        # handshake, fine) plus the core-memory digest. The digest header is
+        # frozen for the connection's life, so memory written mid-session would
+        # not reach the agent until a reconnect. Re-fetch a LIVE digest per turn
+        # and fall back to the frozen header value only when the fetch fails.
         _project_context = None
+        # Values the async memory-reflection stage needs, captured while the
+        # request context is still live (the task runs after this returns).
+        _reflection_project_id = None
+        _reflection_org_id = None
+        _reflection_memory_digest = None
+        _reflection_flag_enabled = False
         try:
-            from aiq_agent.project_context import get_project_context_from_context
+            from aiq_agent.project_context import compose_project_context
+            from aiq_agent.project_context import get_memory_digest_from_context
+            from aiq_agent.project_context import get_memory_reflection_enabled_from_context
+            from aiq_agent.project_context import get_organization_id_from_context
+            from aiq_agent.project_context import get_profile_context_from_context
+            from aiq_agent.project_context import get_project_id_from_context
 
-            _project_context = get_project_context_from_context()
+            _profile_context = get_profile_context_from_context()
+            _project_id = get_project_id_from_context()
+            _org_id = get_organization_id_from_context()
+
+            # Live per-turn digest; fall back to the connection-time header value.
+            _memory_digest = get_memory_digest_from_context()
+            if _project_id or _org_id:
+                try:
+                    from aiq_agent.knowledge.project_memory import fetch_memory_digest
+
+                    _live_digest = await asyncio.to_thread(
+                        fetch_memory_digest, project_id=_project_id, organization_id=_org_id
+                    )
+                    # A successful fetch is authoritative even when empty (memory
+                    # may have been cleared); only a failure keeps the header value.
+                    _memory_digest = _live_digest
+                except Exception:
+                    logger.warning(
+                        "Live memory digest fetch failed; using connection-time digest", exc_info=True
+                    )
+
+            _project_context = compose_project_context(_profile_context, _memory_digest)
+
+            if reflection_llm is not None:
+                _reflection_flag_enabled = get_memory_reflection_enabled_from_context()
+                _reflection_project_id = _project_id
+                _reflection_org_id = _org_id
+                # Reflect against the digest the agent actually saw this turn.
+                _reflection_memory_digest = _memory_digest
         except ImportError:
             pass
 
@@ -443,9 +539,7 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                     )
                 # Base OIB corpus name, resolved from env with a sensible default.
                 base_collection = (
-                    os.environ.get("COLLECTION_NAME")
-                    or os.environ.get("OIB_COLLECTION_NAME")
-                    or "oib_knowledge"
+                    os.environ.get("COLLECTION_NAME") or os.environ.get("OIB_COLLECTION_NAME") or "oib_knowledge"
                 )
                 # Distinct collections to query, preserving order (base first).
                 collections_to_check: list[str] = []
@@ -499,7 +593,18 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                 skip_clarifier=skip_clarifier,
                 project_context=_project_context,
             )
-            result = await agent.run(state, thread_id=nat_context_conversation_id)
+            # Unified LLM cost capture + budget enforcement for the whole turn
+            # (every agent/LLM call inside inherits the tracker via LangChain's
+            # configure hook — see aiq_agent/common/cost_tracking.py).
+            from aiq_agent.common.cost_tracking import BudgetExceededError
+            from aiq_agent.common.cost_tracking import track_llm_costs
+
+            try:
+                with track_llm_costs():
+                    result = await agent.run(state, thread_id=nat_context_conversation_id)
+            except BudgetExceededError as budget_error:
+                logger.warning("Turn stopped by budget enforcement: %s", budget_error)
+                return _create_chat_response(str(budget_error), response_id="budget_exceeded", model=workflow_id)
         finally:
             reset_session_registry(token)
             reset_card_registry(card_token)
@@ -517,9 +622,8 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         # Cards come from the emit_card tool via the conversation-scoped
         # registry — the agent decides, in-context, when a card adds value.
         cards = card_registry.snapshot()
-        deep_research_job_id = (
-            getattr(result, "deep_research_job_id", None)
-            or (result.get("deep_research_job_id") if isinstance(result, dict) else None)
+        deep_research_job_id = getattr(result, "deep_research_job_id", None) or (
+            result.get("deep_research_job_id") if isinstance(result, dict) else None
         )
 
         # Exit after response when --input is provided
@@ -541,6 +645,35 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
             logger.info("No cards on this turn (cards=%r)", cards)
         if deep_research_job_id:
             response.deep_research_job_id = deep_research_job_id
+
+        # Post-processing phase: kick off memory reflection AFTER the answer is
+        # ready. Fire-and-forget — it runs on the event loop without delaying the
+        # response. Gated so it only reflects on a substantive research answer:
+        # deep-research job stubs carry no answer; meta/error turns and
+        # insufficiency answers ("I don't have enough information …") have nothing
+        # durable to record and would only invite spurious findings (audit gap).
+        # Runtime on/off is the `memory-reflection` WorkOS feature flag (or the
+        # MEMORY_REFLECTION_ENABLED env fallback), forwarded as a request header.
+        if reflection_llm is not None and _reflection_flag_enabled and not deep_research_job_id:
+            answer_text = response_content if isinstance(response_content, str) else str(response_content)
+            if _reflection_answer_is_substantive(result, answer_text):
+                from aiq_agent.agents.project_memory.reflection import schedule_memory_reflection
+                from aiq_agent.common import AgentGroup
+                from aiq_agent.common import apply_model_override
+
+                # Applied here — not inside the background task — because the
+                # override header is only readable while the request context is
+                # still live.
+                schedule_memory_reflection(
+                    llm=apply_model_override(reflection_llm, AgentGroup.MEMORY_REFLECTION),
+                    query=query_text,
+                    answer=answer_text,
+                    project_id=_reflection_project_id,
+                    organization_id=_reflection_org_id,
+                    conversation_id=nat_context_conversation_id,
+                    memory_digest=_reflection_memory_digest,
+                )
+
         return response
 
     yield FunctionInfo.from_fn(_run, description="Chat deep researcher with intent routing and escalation.")

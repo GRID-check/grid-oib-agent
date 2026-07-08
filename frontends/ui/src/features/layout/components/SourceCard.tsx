@@ -14,6 +14,7 @@
 import { type FC } from 'react'
 import { Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useTranslations } from '@/i18n'
 
 /** Source information from SSE events */
 export interface SourceInfo {
@@ -60,6 +61,7 @@ const getDomain = (url: string): string => {
  * Card showing a source URL with metadata.
  */
 export const SourceCard: FC<SourceCardProps> = ({ source }) => {
+  const t = useTranslations('research')
   return (
     <a
       href={source.url}
@@ -77,7 +79,7 @@ export const SourceCard: FC<SourceCardProps> = ({ source }) => {
         <div className="flex items-center gap-2">
           {/* Cited indicator */}
           {source.isCited && (
-            <Check className="h-4 w-4 shrink-0 text-success" aria-label="Cited" role="img" />
+            <Check className="h-4 w-4 shrink-0 text-success" aria-label={t('sourceCard.cited')} role="img" />
           )}
 
           {/* Title or domain */}

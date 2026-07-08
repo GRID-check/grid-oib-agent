@@ -1157,8 +1157,6 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
           )
         : []
 
-      const hasSessionFiles = sessionFiles.length > 0
-
       // Keep internal knowledge available for base/project/session corpora even though it is hidden from toggles.
       const dataSourcesForMessage = layoutState.knowledgeLayerAvailable
         ? Array.from(new Set([...enabledDataSources, 'knowledge_layer']))

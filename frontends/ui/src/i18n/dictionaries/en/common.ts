@@ -1,0 +1,40 @@
+/** Shared strings used across many surfaces. */
+export const common = {
+  appName: 'Grid',
+  tagline: 'AI-powered research assistant',
+  actions: {
+    save: 'Save',
+    cancel: 'Cancel',
+    close: 'Close',
+    back: 'Back',
+    retry: 'Retry',
+    delete: 'Delete',
+    confirm: 'Confirm',
+    edit: 'Edit',
+    create: 'Create',
+    signOut: 'Sign out',
+    signIn: 'Sign in',
+    open: 'Open',
+    done: 'Done',
+    skipToContent: 'Skip to content',
+  },
+  states: {
+    loading: 'Loading…',
+    saving: 'Saving…',
+    saved: 'Saved',
+    error: 'Something went wrong',
+    empty: 'Nothing here yet',
+  },
+  theme: {
+    label: 'Theme',
+    system: 'System',
+    light: 'Light',
+    dark: 'Dark',
+    systemAuto: 'System Theme (Auto)',
+  },
+  language: {
+    label: 'Language',
+    english: 'English',
+    german: 'Deutsch',
+  },
+}

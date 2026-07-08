@@ -161,13 +161,24 @@ export const DaylightIncidenceCard: FC<DaylightIncidenceCardProps> = ({
           fillWeight: 0.5,
           hachureGap: 6,
         })}
-        {sketchRect(wallX, padTop, wallW, Y(head) - padTop, 'daylight-lintel', {
+        {/* lintel: a capped stub above the head, not a tower to the canvas top */}
+        {sketchRect(wallX, Y(Math.min(head + 0.6, totalHm - 0.1)), wallW, Y(head) - Y(Math.min(head + 0.6, totalHm - 0.1)), 'daylight-lintel', {
           strokeWidth: 1.4,
           fill: 'color-mix(in oklch, var(--muted-foreground) 50%, transparent)',
           fillStyle: 'hachure',
           fillWeight: 0.5,
           hachureGap: 6,
         })}
+        {/* break line hinting the wall continues */}
+        <line
+          x1={wallX - 4}
+          y1={Y(Math.min(head + 0.6, totalHm - 0.1)) - 3}
+          x2={wallX + wallW + 4}
+          y2={Y(Math.min(head + 0.6, totalHm - 0.1)) - 9}
+          stroke="var(--muted-foreground)"
+          strokeWidth={0.9}
+          opacity={0.6}
+        />
         {/* glazing in the opening */}
         <line
           x1={wallX + wallW / 2}
@@ -260,8 +271,9 @@ export const DaylightIncidenceCard: FC<DaylightIncidenceCardProps> = ({
               }
             )}
             <SvgLabel
-              x={X(obsD) + 6}
+              x={Math.min(X(obsD) + 6, viewW - 10)}
               y={Y(sill + obsH) - 9}
+              anchor="end"
               size={8.5}
               fill="var(--foreground)"
               weight={600}

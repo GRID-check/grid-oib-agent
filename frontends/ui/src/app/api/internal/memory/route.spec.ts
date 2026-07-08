@@ -99,8 +99,40 @@ describe('POST /api/internal/memory', () => {
     )
   })
 
-  it('rejects org-scoped writes for an unknown organization (404)', async () => {
+  it('threads the provenanceType through (distillation from the reflection stage)', async () => {
     vi.stubEnv('GRID_INTERNAL_API_TOKEN', REAL_TOKEN)
+    vi.mocked(createProjectMemoryItemForProject).mockResolvedValue({ id: 'item-d' } as any)
+
+    const response = await POST(
+      makeRequest({ ...validProjectPayload, provenanceType: 'distillation' }, REAL_TOKEN),
+    )
+
+    expect(response.status).toBe(201)
+    expect(createProjectMemoryItemForProject).toHaveBeenCalledWith(
+      PROJECT_ID,
+      expect.objectContaining({ provenanceType: 'distillation' }),
+    )
+  })
+
+  it('denies agent org-scoped writes by default (403), before touching the DB', async () => {
+    vi.stubEnv('GRID_INTERNAL_API_TOKEN', REAL_TOKEN)
+    // GRID_ALLOW_AGENT_ORG_MEMORY unset → default-deny (audit finding S1).
+
+    const response = await POST(
+      makeRequest(
+        { scope: 'organization', organizationId: 'org-1', kind: 'preference', content: 'Prefer metric units.' },
+        REAL_TOKEN,
+      ),
+    )
+
+    expect(response.status).toBe(403)
+    expect(organizationExists).not.toHaveBeenCalled()
+    expect(createProjectMemoryItem).not.toHaveBeenCalled()
+  })
+
+  it('rejects org-scoped writes for an unknown organization (404) when org writes are enabled', async () => {
+    vi.stubEnv('GRID_INTERNAL_API_TOKEN', REAL_TOKEN)
+    vi.stubEnv('GRID_ALLOW_AGENT_ORG_MEMORY', 'true')
     vi.mocked(organizationExists).mockResolvedValue(false)
 
     const response = await POST(
@@ -121,8 +153,9 @@ describe('POST /api/internal/memory', () => {
     expect(createProjectMemoryItem).not.toHaveBeenCalled()
   })
 
-  it('accepts org-scoped writes for a known organization (201)', async () => {
+  it('accepts org-scoped writes for a known organization when explicitly enabled (201)', async () => {
     vi.stubEnv('GRID_INTERNAL_API_TOKEN', REAL_TOKEN)
+    vi.stubEnv('GRID_ALLOW_AGENT_ORG_MEMORY', 'true')
     vi.mocked(organizationExists).mockResolvedValue(true)
     vi.mocked(createProjectMemoryItem).mockResolvedValue({ id: 'item-2' } as any)
 

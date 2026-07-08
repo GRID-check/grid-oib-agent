@@ -66,6 +66,121 @@ _CARD_EXAMPLES: dict[str, dict] = {
             "edition": "Ausgabe Mai 2023",
         },
     },
+    "fire_compartment": {
+        "type": "fire_compartment",
+        "title": "Brandabschnitte – Regelgeschoss",
+        "storey_label": "2.OG",
+        "gebaeudeklasse": "GK 5",
+        "compartments": [
+            {
+                "label": "BA 1",
+                "use": "Wohnen",
+                "area": {
+                    "label": "BA 1",
+                    "value": 1200,
+                    "required": 1600,
+                    "unit": "m²",
+                    "comparator": "<=",
+                    "status": "pass",
+                },
+            },
+            {
+                "label": "BA 2",
+                "use": "Büro",
+                "area": {
+                    "label": "BA 2",
+                    "value": 1850,
+                    "required": 1600,
+                    "unit": "m²",
+                    "comparator": "<=",
+                    "status": "fail",
+                },
+            },
+        ],
+        "reference": {"document": "OIB-Richtlinie 2", "section": "Pkt. 3.1", "edition": "Ausgabe Mai 2023"},
+    },
+    "thermal_envelope": {
+        "type": "thermal_envelope",
+        "title": "Wärmeschutz – U-Werte der Gebäudehülle",
+        "components": [
+            {
+                "label": "Außenwand",
+                "kind": "wall",
+                "u_value": {
+                    "label": "Außenwand",
+                    "value": 0.28,
+                    "required": 0.35,
+                    "unit": "W/(m²K)",
+                    "comparator": "<=",
+                    "status": "pass",
+                },
+            },
+            {
+                "label": "Fenster",
+                "kind": "window",
+                "u_value": {
+                    "label": "Fenster",
+                    "value": 1.4,
+                    "required": 1.4,
+                    "unit": "W/(m²K)",
+                    "comparator": "<=",
+                    "status": "pass",
+                },
+            },
+        ],
+        "reference": {"document": "OIB-Richtlinie 6", "section": "Tabelle 3", "edition": "Ausgabe Mai 2023"},
+    },
+    "parking_requirement": {
+        "type": "parking_requirement",
+        "title": "Stellplatznachweis – Wohnbau",
+        "basis": "1 Stpl. je 100 m² BGF",
+        "car_spaces": {
+            "label": "Kfz-Stellplätze",
+            "value": 8,
+            "required": 10,
+            "unit": "Stpl.",
+            "comparator": ">=",
+            "status": "fail",
+        },
+        "bicycle_spaces": {
+            "label": "Fahrradabstellplätze",
+            "value": 20,
+            "required": 16,
+            "unit": "Stpl.",
+            "comparator": ">=",
+            "status": "pass",
+        },
+        "reference": {"document": "Wiener Garagengesetz", "section": "§ 48"},
+    },
+    "requirement_checklist": {
+        "type": "requirement_checklist",
+        "title": "Anforderungen GK 4 – Brandschutz",
+        "items": [
+            {
+                "label": "Tragende Bauteile REI 60",
+                "status": "pass",
+                "detail": "Stahlbetondecken erfüllen REI 90.",
+                "reference": {"document": "OIB-Richtlinie 2", "section": "Tabelle 1b"},
+            },
+            {
+                "label": "Zweiter Fluchtweg oder Anleiterbarkeit",
+                "status": "needs_input",
+                "detail": "Anleiterbarkeit der Nordfassade noch nicht geklärt.",
+            },
+        ],
+        "reference": {"document": "OIB-Richtlinie 2", "edition": "Ausgabe Mai 2023"},
+    },
+    "comparison_table": {
+        "type": "comparison_table",
+        "title": "GK 4 vs. GK 5 – wesentliche Anforderungen",
+        "options": ["GK 4", "GK 5"],
+        "rows": [
+            {"label": "Fluchtniveau", "values": ["≤ 11 m", "≤ 22 m"], "highlight_index": 0},
+            {"label": "Tragende Bauteile", "values": ["REI 60", "REI 90"], "highlight_index": 0},
+        ],
+        "recommendation": "Mit Fluchtniveau 9,8 m bleibt das Projekt in GK 4.",
+        "reference": {"document": "OIB-Richtlinie 2", "section": "Tabelle 1b", "edition": "Ausgabe Mai 2023"},
+    },
 }
 
 
@@ -208,7 +323,7 @@ def _build_tool_description() -> str:
         "null for optional objects — omit them). Numbers are plain JSON numbers. For schematic "
         "cards, supply measured/actual values from the question or project profile and the OIB "
         "limit in `required`; if a value is unknown, omit it and set that check's status to "
-        "\"needs_input\" — never estimate.\n\n"
+        '"needs_input" — never estimate.\n\n'
         "Building blocks (reused object shapes):\n" + "\n".join(block_lines) + "\n\n"
         "Card types:\n" + "\n".join(card_lines) + "\n\n"
         "Worked examples (copy the nesting exactly):\n" + examples

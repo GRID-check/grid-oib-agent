@@ -56,6 +56,7 @@ from nat.front_ends.fastapi.fastapi_front_end_plugin_worker import FastApiFrontE
 from .jobs.connection_manager import get_connection_manager
 from .jobs.event_store import EventStore
 from .routes.collections import add_collection_routes
+from .routes.config_info import add_config_info_routes
 from .routes.documents import add_document_routes
 from .routes.generate_summary import add_generate_summary_routes
 from .routes.ingest import add_ingest_routes
@@ -212,6 +213,8 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
         add_ingest_routes(knowledge_router)
         add_oib_routes(knowledge_router)
         add_maintenance_routes(knowledge_router)
+        # Workflow-default model names for the org model-config UI (ADR-0014).
+        add_config_info_routes(knowledge_router, self.config.llms)
         app.include_router(knowledge_router)
         logger.info("Knowledge API routes registered")
 

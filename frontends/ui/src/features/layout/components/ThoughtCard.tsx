@@ -17,6 +17,7 @@ import { ChevronDown, MessageSquare } from 'lucide-react'
 import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/utils'
 import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
+import { useTranslations } from '@/i18n'
 
 /** Thought trace information from SSE events */
 export interface ThoughtInfo {
@@ -68,6 +69,7 @@ const getPreviewText = (thought: ThoughtInfo): string => {
  */
 export const ThoughtCard: FC<ThoughtCardProps> = ({ thought }) => {
   const [isExpanded, setIsExpanded] = useState(false)
+  const t = useTranslations('research')
 
   const previewText = getPreviewText(thought)
   const hasPreview = previewText.length > 0
@@ -85,12 +87,12 @@ export const ThoughtCard: FC<ThoughtCardProps> = ({ thought }) => {
         aria-controls={`thought-content-${thought.id}`}
         className="w-full text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/60 disabled:cursor-default"
         disabled={!canExpand}
-        title={!canExpand ? 'Details available when generation completes' : undefined}
+        title={!canExpand ? t('thoughtCard.detailsWhenComplete') : undefined}
       >
         <div className="flex w-full items-center gap-2 px-3 py-2">
           {/* Status Icon - spinner when streaming */}
           {thought.isStreaming ? (
-            <Spinner size="sm" label="Generating" className="shrink-0" />
+            <Spinner size="sm" label={t('thoughtCard.generating')} className="shrink-0" />
           ) : (
             <span className="shrink-0 text-muted-foreground" aria-hidden="true">
               <MessageSquare className="h-4 w-4" />
@@ -109,7 +111,7 @@ export const ThoughtCard: FC<ThoughtCardProps> = ({ thought }) => {
             </span>
             {thought.workflow && (
               <span className="truncate text-sm text-muted-foreground">
-                via {thought.workflow}
+                {t('thoughtCard.via', { workflow: thought.workflow })}
               </span>
             )}
           </div>
@@ -117,7 +119,10 @@ export const ThoughtCard: FC<ThoughtCardProps> = ({ thought }) => {
           {/* Token usage (when not streaming) */}
           {!thought.isStreaming && thought.usage && (
             <span className="shrink-0 text-xs text-muted-foreground">
-              Tokens: {thought.usage.prompt_tokens} in / {thought.usage.completion_tokens} out
+              {t('thoughtCard.tokens', {
+                prompt: thought.usage.prompt_tokens ?? '',
+                completion: thought.usage.completion_tokens ?? '',
+              })}
             </span>
           )}
 
@@ -166,7 +171,7 @@ export const ThoughtCard: FC<ThoughtCardProps> = ({ thought }) => {
           {/* Output content */}
           {thought.content && (
             <div className={cn('flex flex-col gap-1', !thought.thinking && 'mt-2')}>
-              <span className="text-xs font-semibold uppercase text-muted-foreground">Output</span>
+              <span className="text-xs font-semibold uppercase text-muted-foreground">{t('thoughtCard.output')}</span>
               <MarkdownRenderer content={thought.content} compact />
             </div>
           )}

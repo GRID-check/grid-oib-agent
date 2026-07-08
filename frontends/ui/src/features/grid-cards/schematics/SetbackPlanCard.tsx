@@ -179,8 +179,9 @@ export const SetbackPlanCard: FC<SetbackPlanCardProps> = ({
             y2={by}
             label={fmtDim(back.actual_m, 'm')}
             status={back.status}
-            labelOffset={-12}
+            labelOffset={back.actual_m == null ? -14 : -12}
             fontSize={9}
+            horizontalLabel={back.actual_m == null}
           />
         )}
         {front && (
@@ -191,8 +192,9 @@ export const SetbackPlanCard: FC<SetbackPlanCardProps> = ({
             y2={py + PD}
             label={fmtDim(front.actual_m, 'm')}
             status={front.status}
-            labelOffset={-12}
+            labelOffset={front.actual_m == null ? -14 : -12}
             fontSize={9}
+            horizontalLabel={front.actual_m == null}
           />
         )}
 

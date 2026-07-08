@@ -2,6 +2,7 @@ import { and, asc, eq, isNull } from 'drizzle-orm'
 import { notFound } from 'next/navigation'
 import { requireAuthorizedPageSession } from '@/lib/auth/require-auth'
 import { requireProjectAccess } from '@/lib/authz/projects'
+import { isOrgAdmin } from '@/lib/authz/organizations'
 import { getDb } from '@/lib/db'
 import { projects } from '@/lib/db/schema'
 import { AppSidebar } from '@/components/shell'
@@ -40,13 +41,14 @@ export default async function ProjectLayout({ children, params }: ProjectLayoutP
     .orderBy(asc(projects.name))
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background text-foreground">
+    <div className="flex h-dvh flex-col overflow-hidden bg-background text-foreground md:flex-row">
       <AppSidebar
         projectId={id}
         projects={orgProjects}
         user={{ name: session.name, email: session.email }}
         authRequired={isAuthRequired()}
         canManageMembers={role === 'project-admin'}
+        canManageOrganization={isOrgAdmin(session)}
       />
       <main id="main-content" className="min-w-0 flex-1 overflow-y-auto bg-background">
         {children}

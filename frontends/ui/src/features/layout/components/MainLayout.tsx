@@ -15,6 +15,7 @@
 
 import { type FC, useCallback, useMemo } from 'react'
 import { useShallow } from 'zustand/react/shallow'
+import { useIsMobile } from '@/hooks/use-is-mobile'
 import { useReducedMotion } from '@/hooks/use-reduced-motion'
 import { ChatToolbar } from './ChatToolbar'
 import { SessionsPanel } from './SessionsPanel'
@@ -73,6 +74,7 @@ export const MainLayout: FC<MainLayoutProps> = ({ isAuthenticated = false, onSig
   const isResearchPanelOpen = useLayoutStore((s) => s.rightPanel === 'research')
   const openRightPanel = useLayoutStore((s) => s.openRightPanel)
   const prefersReducedMotion = useReducedMotion()
+  const isMobile = useIsMobile()
 
   // Deep research SSE hook - manages connection when deep research starts
   useDeepResearch()
@@ -140,7 +142,9 @@ export const MainLayout: FC<MainLayoutProps> = ({ isAuthenticated = false, onSig
   )
 
   const content = (
-    <div className="flex min-h-0 min-w-[768px] flex-1 flex-col overflow-x-auto overflow-y-hidden">
+    // h-full pins the chat surface to the viewport: the toolbar stays at the
+    // top, the composer at the bottom, and only the message list scrolls.
+    <div className="flex h-full min-w-0 flex-col overflow-hidden">
       <ChatToolbar
         sessionTitle={currentConversation?.title}
         onNewSession={handleNewSession}
@@ -148,15 +152,16 @@ export const MainLayout: FC<MainLayoutProps> = ({ isAuthenticated = false, onSig
       />
 
       {/* Main Content Area - using explicit widths instead of flex for smoother animation */}
-      <div className="relative flex flex-1 overflow-hidden">
+      <div className="relative flex min-h-0 flex-1 overflow-hidden">
         {/* Center Content: Chat + Input - Responsive to research panel */}
         <div
-          className="flex flex-col overflow-hidden"
+          className="flex min-w-0 flex-col overflow-hidden"
           style={{
             // Balanced split: the research panel informs alongside chat rather
-            // than squeezing it into a cramped column.
-            width: isResearchPanelOpen ? '50%' : '100%',
-            transition: prefersReducedMotion ? 'none' : 'width 600ms ease-in-out',
+            // than squeezing it into a cramped column. On mobile the panel
+            // takes the full viewport instead, so chat collapses away.
+            width: isResearchPanelOpen ? (isMobile ? '0%' : '50%') : '100%',
+            transition: prefersReducedMotion ? 'none' : 'width 300ms ease-in-out',
           }}
         >
           {/* Chat Area - Scrollable */}
@@ -170,8 +175,8 @@ export const MainLayout: FC<MainLayoutProps> = ({ isAuthenticated = false, onSig
           <InputArea isAuthenticated={isAuthenticated} connectionMode="websocket" />
         </div>
 
-        {/* Research Panel (Right) - Pushes content, takes 60% width */}
-        <ResearchPanel isAuthenticated={isAuthenticated} />
+        {/* Research Panel (Right) - Pushes content, shares the width 50/50 */}
+        <ResearchPanel />
       </div>
 
       {/* Overlay Panels - These slide over the content */}

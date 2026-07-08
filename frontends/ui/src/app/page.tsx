@@ -15,14 +15,18 @@ import { useAuth } from '@/adapters/auth'
 import { Landing } from '@/components/marketing'
 import { Logo } from '@/components/brand/logo'
 import { Spinner } from '@/components/ui/spinner'
+import { useTranslations } from '@/i18n'
 
-const BrandedLoading = (): ReactNode => (
-  <div className="flex min-h-dvh flex-col items-center justify-center gap-4 bg-background text-foreground">
-    <Logo kind="horizontal" size="large" />
-    <Spinner size="sm" className="text-muted-foreground" />
-    <span className="sr-only">Loading your workspace…</span>
-  </div>
-)
+const BrandedLoading = (): ReactNode => {
+  const t = useTranslations('landing')
+  return (
+    <div className="flex min-h-dvh flex-col items-center justify-center gap-4 bg-background text-foreground">
+      <Logo kind="horizontal" size="large" />
+      <Spinner size="sm" className="text-muted-foreground" />
+      <span className="sr-only">{t('loading.workspace')}</span>
+    </div>
+  )
+}
 
 const HomeContent = (): ReactNode => {
   const { isAuthenticated, signIn, isLoading } = useAuth()

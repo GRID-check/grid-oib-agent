@@ -9,12 +9,14 @@
  */
 
 import { type ReactNode } from 'react'
-import { type Metadata } from 'next'
+import { type Metadata, type Viewport } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
 import { connection } from 'next/server'
 import { Providers } from './providers'
 import type { AppConfig } from '@/shared/context'
 import { getFileUploadConfigFromEnv } from '@/shared/config/file-upload'
+import { getLocale } from '@/i18n/server'
+import { getDictionary } from '@/i18n'
 import './globals.css'
 
 const geistSans = Geist({
@@ -31,6 +33,16 @@ const geistMono = Geist_Mono({
 
 const isAuthRequired = (): boolean => {
   return process.env.REQUIRE_AUTH?.toLowerCase() === 'true'
+}
+
+/**
+ * Mobile-first viewport: edge-to-edge rendering on notched devices
+ * (safe-area insets are handled per-surface with env() padding).
+ */
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
 }
 
 export const metadata: Metadata = {
@@ -57,10 +69,12 @@ interface RootLayoutProps {
 const RootLayout = async ({ children }: RootLayoutProps): Promise<ReactNode> => {
   await connection()
   const config = getAppConfig()
+  const locale = await getLocale()
+  const t = getDictionary(locale).common
 
   return (
     <html
-      lang="en"
+      lang={locale}
       id="style-root"
       className={`${geistSans.variable} ${geistMono.variable}`}
       suppressHydrationWarning
@@ -70,9 +84,11 @@ const RootLayout = async ({ children }: RootLayoutProps): Promise<ReactNode> => 
           href="#main-content"
           className="sr-only focus-visible:not-sr-only focus-visible:fixed focus-visible:top-3 focus-visible:left-3 focus-visible:z-skip-link focus-visible:rounded-full focus-visible:bg-primary focus-visible:px-4 focus-visible:py-2 focus-visible:text-sm focus-visible:font-medium focus-visible:text-primary-foreground focus-visible:shadow-md"
         >
-          Skip to content
+          {t.actions.skipToContent}
         </a>
-        <Providers config={config}>{children}</Providers>
+        <Providers config={config} locale={locale}>
+          {children}
+        </Providers>
       </body>
     </html>
   )

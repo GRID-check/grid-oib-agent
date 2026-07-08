@@ -11,6 +11,7 @@ import { ProjectUppyUpload } from './project-uppy-upload'
 import { ActiveUploads } from './active-uploads'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import { useTranslations } from '@/i18n'
 
 interface ProjectFileWorkspaceProps {
   projectId: string
@@ -36,6 +37,7 @@ export interface FileItem {
 }
 
 export function ProjectFileWorkspace({ projectId, projectName, collectionName }: ProjectFileWorkspaceProps) {
+  const t = useTranslations('files')
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null)
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null)
   const [folders, setFolders] = useState<FolderItem[]>([])
@@ -159,11 +161,11 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName }:
         const data = await res.json()
         setFolders((prev) => [...prev, data.folder])
       } else {
-        toast.error('Could not create folder. Please try again.')
+        toast.error(t('workspace.createFolderError'))
       }
       return res.ok
     },
-    [projectId]
+    [projectId, t]
   )
 
   return (
@@ -174,7 +176,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName }:
           <h2 className="truncate text-sm font-semibold text-foreground">{projectName}</h2>
           <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <ShieldCheck className="size-3.5 shrink-0" aria-hidden />
-            Project corpus — these documents ground Grid&rsquo;s answers
+            {t('workspace.corpusSubtitle')}
           </p>
         </div>
         <ProjectUppyUpload
@@ -190,14 +192,14 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName }:
         <div className="border-b px-4 py-3">
           <Alert variant="destructive">
             <AlertCircle className="size-4" />
-            <AlertTitle>Upload problem</AlertTitle>
+            <AlertTitle>{t('workspace.uploadProblem')}</AlertTitle>
             <AlertDescription>{error}</AlertDescription>
             <Button
               variant="ghost"
               size="icon"
               className="absolute right-2 top-2 size-6"
               onClick={clearError}
-              aria-label="Dismiss error"
+              aria-label={t('workspace.dismissError')}
             >
               <X className="size-4" />
             </Button>
@@ -208,12 +210,13 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName }:
       {/* Live upload progress */}
       <ActiveUploads files={activeUploads} onRetry={retryFile} />
 
-      {/* Three-pane layout */}
-      <div className="flex flex-1 overflow-hidden">
+      {/* Three-pane layout — stacks on mobile: folders on top, files below,
+          preview as a full-screen overlay. */}
+      <div className="flex flex-1 flex-col overflow-hidden md:flex-row">
         {/* Folder tree */}
-        <div className="w-60 shrink-0 overflow-y-auto border-r">
+        <div className="max-h-48 w-full shrink-0 overflow-y-auto border-b md:max-h-none md:w-60 md:border-b-0 md:border-r">
           {foldersError ? (
-            <PaneLoadError message="Folders couldn't be loaded." onRetry={loadFolders} />
+            <PaneLoadError message={t('workspace.foldersLoadError')} onRetry={loadFolders} />
           ) : (
             <FolderTreePane
               folders={folders}
@@ -228,7 +231,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName }:
         {/* File browser */}
         <div className="flex-1 overflow-y-auto">
           {filesError ? (
-            <PaneLoadError message="Documents couldn't be loaded." onRetry={loadFiles} />
+            <PaneLoadError message={t('workspace.documentsLoadError')} onRetry={loadFiles} />
           ) : (
             <FileBrowserPane
               files={filteredFiles}
@@ -244,16 +247,16 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName }:
                   isUploading={isUploading}
                   variant="default"
                   size="default"
-                  label="Upload documents"
+                  label={t('workspace.uploadDocuments')}
                 />
               }
             />
           )}
         </div>
 
-        {/* Preview pane */}
+        {/* Preview pane — full-screen overlay on mobile, docked column on md+ */}
         {selectedFile && (
-          <div className="w-96 shrink-0 overflow-y-auto border-l">
+          <div className="fixed inset-0 z-50 w-full shrink-0 overflow-y-auto bg-background pt-[env(safe-area-inset-top)] md:static md:z-auto md:w-96 md:border-l md:pt-0">
             <FilePreviewPane file={selectedFile} projectId={projectId} onClose={() => setSelectedFileId(null)} />
           </div>
         )}
@@ -264,13 +267,14 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName }:
 
 /** Inline pane-level load failure with a retry affordance. */
 function PaneLoadError({ message, onRetry }: { message: string; onRetry: () => void }) {
+  const t = useTranslations('files')
   return (
     <div className="flex h-full flex-col items-center justify-center gap-3 px-6 py-10 text-center">
       <AlertCircle className="size-5 text-destructive" aria-hidden />
       <p className="text-sm text-muted-foreground text-balance">{message}</p>
       <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={onRetry}>
         <RotateCcw className="size-3.5" aria-hidden />
-        Try again
+        {t('workspace.tryAgain')}
       </Button>
     </div>
   )

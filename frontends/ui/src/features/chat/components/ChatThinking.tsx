@@ -15,6 +15,8 @@ import { ChevronDown, CheckCircle2, AlertTriangle, Clock } from 'lucide-react'
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible'
 import { motion } from '@/components/motion'
 import { Spinner } from '@/components/ui/spinner'
+import { useTranslations } from '@/i18n'
+import type { Translator } from '@/i18n'
 import { formatTime } from '@/shared/utils/format-time'
 import type { ThinkingStep } from '../types'
 
@@ -36,10 +38,10 @@ export interface ChatThinkingProps {
 /**
  * Format data source ID to display name
  */
-const formatDataSourceName = (sourceId: string): string => {
+const formatDataSourceName = (sourceId: string, t: Translator): string => {
   // Handle special cases
-  if (sourceId === 'web_search') return 'Web Search'
-  if (sourceId === 'knowledge_layer') return 'Files'
+  if (sourceId === 'web_search') return t('thinking.dataSource.webSearch')
+  if (sourceId === 'knowledge_layer') return t('thinking.dataSource.files')
 
   // Convert snake_case to Title Case
   return sourceId
@@ -59,10 +61,11 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
   enabledDataSources = [],
   messageFiles = [],
 }) => {
+  const t = useTranslations('chat')
   // Prepare data sources summary (exclude knowledge_layer as we'll show files separately)
   const dataSourcesDisplay = enabledDataSources
     .filter((source) => source !== 'knowledge_layer')
-    .map(formatDataSourceName)
+    .map((source) => formatDataSourceName(source, t))
     .join(', ')
 
   const hasDataSources = dataSourcesDisplay.length > 0
@@ -80,20 +83,20 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
           <button
             type="button"
             className="group flex w-full cursor-pointer items-center justify-between rounded-2xl px-4 pb-4 pt-3 text-left outline-none transition-colors duration-200 ease-out focus-visible:ring-2 focus-visible:ring-ring/60"
-            aria-label={`Show thinking steps (${steps.length})`}
+            aria-label={t('thinking.showThinkingSteps', { count: steps.length })}
           >
             {/* Left: status indicator */}
             <span className="flex items-center gap-2">
               {isThinking ? (
                 <>
-                  <Spinner size="sm" label="Thinking in progress" />
+                  <Spinner size="sm" label={t('thinking.inProgress')} />
                   {/* Gentle opacity pulse — a genuine loading state, so a loop is OK */}
                   <motion.span
                     className="text-sm font-semibold text-foreground"
                     animate={{ opacity: [0.4, 1, 0.4] }}
                     transition={{ repeat: Infinity, duration: 1.6, ease: 'easeInOut' }}
                   >
-                    Working on a response...
+                    {t('thinking.working')}
                   </motion.span>
                 </>
               ) : isWaiting ? (
@@ -102,7 +105,7 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
                     <Clock className="h-5 w-5" />
                   </span>
                   <span className="text-foreground text-sm font-semibold">
-                    Waiting for response
+                    {t('thinking.waiting')}
                   </span>
                 </>
               ) : isInterrupted ? (
@@ -111,7 +114,7 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
                     <AlertTriangle className="h-5 w-5" />
                   </span>
                   <span className="text-foreground text-sm font-semibold">
-                    Interrupted
+                    {t('thinking.interrupted')}
                   </span>
                 </>
               ) : (
@@ -120,7 +123,7 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
                     <CheckCircle2 className="h-5 w-5" />
                   </span>
                   <span className="text-foreground text-sm font-semibold">
-                    Done
+                    {t('thinking.done')}
                   </span>
                 </>
               )}
@@ -129,7 +132,7 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
             {/* Right: toggle indicator */}
             <span className="flex items-center gap-1">
               <span className="text-xs text-muted-foreground">
-                {`Show thinking (${steps.length})`}
+                {t('thinking.showThinking', { count: steps.length })}
               </span>
               <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
             </span>
@@ -140,7 +143,7 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
           <div
             className="border-base flex flex-col border-t px-4 pb-4 pt-4"
             role="list"
-            aria-label="Thinking steps"
+            aria-label={t('thinking.stepsLabel')}
           >
             {/* Thinking Steps: 3 levels — Workflow (0) | Function Start/Complete (1) | model/tool (2) */}
             {steps.map((step) => {
@@ -174,7 +177,7 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
       {(hasDataSources || hasFiles) && (
         <div className="border-base flex flex-col border-t px-4 pb-5 pt-3">
           <span className="mb-1 text-sm font-semibold text-foreground">
-            Selected Data Sources:
+            {t('thinking.selectedDataSources')}
           </span>
           {hasDataSources && (
             <span className="text-sm text-foreground">{dataSourcesDisplay}</span>

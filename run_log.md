@@ -151,3 +151,29 @@ Verification harness: frontend `docker build -f Dockerfile.typecheck` + `docker 
 - **#1 thing for a human to look at first:** the deletion pipeline's remaining DEL-F4 (a crashed 10th purge attempt strands a row in 'purging', invisible to admins) + add DEL-F10 db.js tests before trusting the pipeline in production.
 - **Security items FLAGGED not fixed (need human):** T1-2 rotate live secrets in deploy/.env; T1-3 set a real GRID_INTERNAL_API_TOKEN (dev default now refused outside dev, but still must be set); M2 org-admin permission for org-wide memory writes.
 - **Needs one live runtime pass (RUNTIME-SMOKE):** WS project-knowledge + shallow cards + PDF preview/download + research-tab 403 code + escalation-marker compliance + deletion end-to-end.
+
+## Session — card-quality + async memory-reflection (branch `claude/card-quality-memory-review-0vcn7t`, Opus 4.8)
+
+- **User ask:** the schematic cards are strong but under-used; reflect on the memory system's post-processing phase and what this session gained, then add ≥5 new quality cards that provide real value. Mid-session clarification: add an **async reflection stage** to the post-processing phase that reviews memories AFTER the answer is delivered so it adds no latency.
+
+### What was gained (the review)
+- The card layer is genuinely a first-class output now: `emit_card` tool → conversation-scoped `CardRegistry` → attached to `ChatResponse` post-turn; schema is single-sourced from the Pydantic models (`scripts/generate_card_schema.py` → `shared/cards/schemas.json` → `npm run generate:cards` → Zod). Adding a card = model + renderer, no pipeline surgery — exactly as ADR-0012 intended. Coverage was OIB 2/3/4/5 + zoning; **OIB 6 (energy) was entirely uncovered** and several core OIB 2/4 checks (fire compartments, lift, parking) were missing.
+- Memory: the in-turn `remember` tool is the only capture path in code; the design doc's "Phase 3 end-of-conversation distillation" was still unbuilt. That's the gap the user pointed at.
+
+### Shipped — 5 new quality cards (backend model + Zod + renderer + dispatcher + tests + docs)
+- `fire_compartment` (Brandabschnitte, OIB 2) — storey plan split into area-proportional compartments with Brandwand separators, each vs the max Brandabschnittsfläche.
+- `thermal_envelope` (Wärmeschutz U-Werte, OIB 6) — envelope section + per-component U-value limit bars. **Opens the OIB 6 domain.**
+- `energy_performance` (Energieausweis, OIB 6) — HWB on the A++–G class ladder + HWB/fGEE bars.
+- `elevator_requirement` (barrierefreier Aufzug, OIB 4) — served-storey stack + lift shaft, requirement verdict + cabin/door checks.
+- `parking_requirement` (Stellplatznachweis, Bauordnung) — required-vs-provided slot grid + count bars for cars/bikes.
+- Catalog now 3 base + 15 schematic cards. Worked examples added for the nested ones so the model emits them first-try.
+
+### Shipped — async post-answer memory reflection (the post-processing phase)
+- New `agents/project_memory/reflection.py`: `schedule_memory_reflection()` fires a guarded background task AFTER `_run` builds the `ChatResponse`, so it never delays the reply. It prompts an optional `memory_reflection_llm` with the turn + the existing `x-grid-project-memory` digest, asks for NEW durable findings only (dedup in-prompt), validates vocab/scope, and writes via the same token-guarded internal endpoint the `remember` tool uses (grid_app stays single-writer).
+- Guarantees: never blocks, never crashes the turn, opt-in (unset LLM = no-op, zero cost), context-free execution (all ids/text captured while context is live and passed explicitly). Deep-research job stubs are skipped.
+- Docs: `project-memory-design.md` §3.5 added; §3.1 capture-path #2 now points to it. `cards.md` catalog extended.
+
+### Verified
+- Backend: ruff + `py_compile` clean; `pytest tests/aiq_agent/cards` + `tests/aiq_agent/agents/project_memory` + `tests/aiq_agent/agents/chat_researcher` → 66 + 140 green (incl. 5 new card examples, 16 new reflection tests).
+- Frontend: `tsc --noEmit` exit 0; `vitest` grid-cards schematics 19/19 (5 new). Zod regenerated from the Pydantic schema (host `node_modules` restored via `npm install json-schema-to-zod` to run the codegen).
+- **Left for a human:** wire `memory_reflection_llm` in a live config (e.g. `config_oib_openrouter.yml`) to turn the reflection stage on; it ships disabled by default.

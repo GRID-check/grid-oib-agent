@@ -66,10 +66,14 @@ Secrets and deployment knobs live in environment variables only (`deploy/.env`).
 | Variable | Purpose |
 |----------|---------|
 | `GRID_INTERNAL_API_TOKEN` | Shared token for the internal BFF API (e.g. `POST /api/internal/memory`). Must match between the frontend and aiq-agent services. **Never ship the dev default.** |
+| `GRID_ALLOW_AGENT_ORG_MEMORY` | Default `false`. When `true`, the internal memory endpoint accepts agent-authored **organization-scoped** writes. Default-deny protects against tenant-wide memory poisoning (audit finding S1); org-wide findings are otherwise a human-only action. |
+| `MEMORY_REFLECTION_ENABLED` | Default `false`. Anonymous/non-WorkOS fallback that turns the async memory-reflection stage on. With WorkOS, the per-org `memory-reflection` feature flag controls it instead. Also requires `memory_reflection_llm` set in the workflow config. |
 | `FRONTEND_INTERNAL_URL` | Backend→frontend base URL on the compose network (default `http://frontend:3000`) |
 | `MINIO_ENDPOINT` | Internal MinIO endpoint (backend-consumed presigns/uploads) |
 | `MINIO_PUBLIC_ENDPOINT` | Browser-reachable MinIO endpoint for presigned preview/download URLs (dev default `http://localhost:9000`) |
 | `PROJECT_PURGE_GRACE_DAYS` | Grace period before soft-deleted projects are hard-purged |
+| `GRID_BUDGET_EUR_PER_USD` | Default `0.86`. Euros per 1 USD for comparing EUR budget limits against the USD costs OpenRouter reports (ADR-0015). Frontend service. |
+| `OPENROUTER_API_KEY` (frontend) | Also passed to the frontend service now: authenticates the OpenRouter model-catalog fetch for the org model-config picker (ADR-0014). |
 
 ## Knowledge systems
 

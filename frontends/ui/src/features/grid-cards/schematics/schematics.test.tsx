@@ -18,6 +18,11 @@ import { GuardrailCheckCard } from './GuardrailCheckCard'
 import { DensityCheckCard } from './DensityCheckCard'
 import { FireAccessPlanCard } from './FireAccessPlanCard'
 import { AcousticCheckCard } from './AcousticCheckCard'
+import { FireCompartmentCard } from './FireCompartmentCard'
+import { ThermalEnvelopeCard } from './ThermalEnvelopeCard'
+import { EnergyPerformanceCard } from './EnergyPerformanceCard'
+import { ElevatorRequirementCard } from './ElevatorRequirementCard'
+import { ParkingRequirementCard } from './ParkingRequirementCard'
 
 describe('BuildingSectionCard', () => {
   it('draws storeys, ground datum, and threshold markers with the norm footer', () => {
@@ -367,8 +372,9 @@ describe('DensityCheckCard', () => {
     )
 
     expect(screen.getByText('Grundstück 800 m²')).toBeInTheDocument()
-    // Renderer-derived ratios: 240/800 → 30 %, 720/800 → 0.9 GFZ, both within limits.
-    expect(screen.getByText(/^30 %/)).toBeInTheDocument()
+    // Renderer-derived ratios: 240/800 → 30 %, 720/800 → 0.9 GFZ, both within
+    // limits. The coverage ratio appears twice: in the plan and on its bar.
+    expect(screen.getAllByText(/^30 %/).length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText(/^0,9/)).toBeInTheDocument()
     expect(screen.getByText('erfüllt')).toBeInTheDocument()
     expect(screen.getByText(/720 m²/)).toBeInTheDocument()
@@ -494,5 +500,148 @@ describe('AcousticCheckCard', () => {
     expect(screen.getByText('nicht erfüllt')).toBeInTheDocument()
     expect(screen.getByText('OIB-Richtlinie 5')).toBeInTheDocument()
     expect(screen.getByText(/ÖNORM B 8115-2/)).toBeInTheDocument()
+  })
+})
+
+describe('FireCompartmentCard', () => {
+  it('draws each compartment, flags an oversized one, and lists the area checks', () => {
+    render(
+      <FireCompartmentCard
+        title="Brandabschnitte – Regelgeschoss"
+        storey_label="2.OG"
+        gebaeudeklasse="GK 5"
+        compartments={[
+          {
+            label: 'BA 1',
+            use: 'Wohnen',
+            area: { label: 'BA 1', value: 1200, required: 1600, unit: 'm²', comparator: '<=', status: 'pass' },
+          },
+          {
+            label: 'BA 2',
+            use: 'Büro',
+            area: { label: 'BA 2', value: 1850, required: 1600, unit: 'm²', comparator: '<=', status: 'fail' },
+          },
+        ]}
+        reference={{ document: 'OIB-Richtlinie 2', section: 'Pkt. 3.1', edition: 'Ausgabe Mai 2023' }}
+      />
+    )
+
+    expect(screen.getByText('Geschoss 2.OG · GK 5')).toBeInTheDocument()
+    expect(screen.getAllByText('BA 1').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getByText('nicht erfüllt')).toBeInTheDocument()
+    expect(screen.getByText('OIB-Richtlinie 2')).toBeInTheDocument()
+  })
+})
+
+describe('ThermalEnvelopeCard', () => {
+  it('reads each component U-value against its limit and flags a failing wall', () => {
+    render(
+      <ThermalEnvelopeCard
+        title="Wärmeschutz – U-Werte der Gebäudehülle"
+        components={[
+          {
+            label: 'Außenwand',
+            kind: 'wall',
+            u_value: { label: 'Außenwand', value: 0.4, required: 0.35, unit: 'W/(m²K)', comparator: '<=', status: 'fail' },
+          },
+          {
+            label: 'Dach',
+            kind: 'roof',
+            u_value: { label: 'Dach', value: 0.18, required: 0.2, unit: 'W/(m²K)', comparator: '<=', status: 'pass' },
+          },
+        ]}
+        reference={{ document: 'OIB-Richtlinie 6', section: 'Tabelle 3', edition: 'Ausgabe Mai 2023' }}
+      />
+    )
+
+    // Each checked component gets a status callout in the section plus its
+    // limit bar below.
+    expect(screen.getAllByText('Außenwand').length).toBeGreaterThanOrEqual(2)
+    expect(screen.getAllByText('Dach').length).toBeGreaterThanOrEqual(2)
+    expect(screen.getByText('nicht erfüllt')).toBeInTheDocument()
+    expect(screen.getByText('OIB-Richtlinie 6')).toBeInTheDocument()
+  })
+})
+
+describe('EnergyPerformanceCard', () => {
+  it('places the HWB on the class ladder and reads it against the limit', () => {
+    render(
+      <EnergyPerformanceCard
+        title="Energieausweis – Heizwärmebedarf"
+        energy_class="B"
+        hwb={{
+          label: 'Heizwärmebedarf (HWB)',
+          value: 42,
+          required: 54.4,
+          unit: 'kWh/m²a',
+          comparator: '<=',
+          status: 'pass',
+        }}
+        reference={{ document: 'OIB-Richtlinie 6', section: 'Pkt. 4', edition: 'Ausgabe Mai 2023' }}
+      />
+    )
+
+    expect(screen.getByText('A++')).toBeInTheDocument()
+    expect(screen.getByText('G')).toBeInTheDocument()
+    expect(screen.getByText(/HWB 42/)).toBeInTheDocument()
+    expect(screen.getByText('erfüllt')).toBeInTheDocument()
+    expect(screen.getByText('OIB-Richtlinie 6')).toBeInTheDocument()
+  })
+})
+
+describe('ElevatorRequirementCard', () => {
+  it('states the requirement and checks the cabin dimensions', () => {
+    render(
+      <ElevatorRequirementCard
+        title="Barrierefreier Aufzug – Erschließung"
+        storeys_served={5}
+        entrance_level_index={0}
+        is_required={true}
+        requirement_note="Mehr als zwei oberirdische Geschoße → barrierefreier Aufzug erforderlich."
+        cabin_width={{ label: 'Kabinenbreite', value: 110, required: 110, unit: 'cm', comparator: '>=', status: 'pass' }}
+        cabin_depth={{ label: 'Kabinentiefe', value: null, required: 140, unit: 'cm', comparator: '>=', status: 'needs_input' }}
+        reference={{ document: 'OIB-Richtlinie 4', section: 'Pkt. 2.3', edition: 'Ausgabe Mai 2023' }}
+      />
+    )
+
+    expect(screen.getByText('erforderlich')).toBeInTheDocument()
+    expect(screen.getByText('Zugangsebene')).toBeInTheDocument()
+    expect(screen.getByText('Kabinenbreite')).toBeInTheDocument()
+    expect(screen.getByText('fehlende Angabe')).toBeInTheDocument()
+    expect(screen.getByText('OIB-Richtlinie 4')).toBeInTheDocument()
+  })
+})
+
+describe('ParkingRequirementCard', () => {
+  it('reads provided car spaces against the required minimum', () => {
+    render(
+      <ParkingRequirementCard
+        title="Stellplatznachweis – Wohnbau"
+        basis="1 Stpl. je 100 m² BGF"
+        car_spaces={{
+          label: 'Kfz-Stellplätze',
+          value: 8,
+          required: 10,
+          unit: 'Stpl.',
+          comparator: '>=',
+          status: 'fail',
+        }}
+        bicycle_spaces={{
+          label: 'Fahrradabstellplätze',
+          value: 20,
+          required: 16,
+          unit: 'Stpl.',
+          comparator: '>=',
+          status: 'pass',
+        }}
+        reference={{ document: 'Wiener Garagengesetz', section: '§ 48' }}
+      />
+    )
+
+    expect(screen.getAllByText('Kfz-Stellplätze').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('Fahrradabstellplätze').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getByText(/1 Stpl. je 100 m² BGF/)).toBeInTheDocument()
+    expect(screen.getByText('nicht erfüllt')).toBeInTheDocument()
+    expect(screen.getByText('Wiener Garagengesetz')).toBeInTheDocument()
   })
 })

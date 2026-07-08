@@ -17,6 +17,7 @@ import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/adapters/auth'
+import { useTranslations } from '@/i18n'
 import { useLayoutStore } from '../store'
 import { useIsCurrentSessionBusy, useChatStore } from '@/features/chat'
 import type { DataSource } from '../data-sources'
@@ -42,6 +43,8 @@ export const DataSourcesPanel: FC<DataSourcesPanelProps> = memo(function DataSou
   onDeleteFile,
 }) {
   const { idToken, authRequired } = useAuth()
+  const t = useTranslations('research')
+  const tc = useTranslations('common')
   const saveDataSourcesToConversation = useChatStore(
     (state) => state.saveDataSourcesToConversation
   )
@@ -149,23 +152,25 @@ export const DataSourcesPanel: FC<DataSourcesPanelProps> = memo(function DataSou
       open={isOpen}
       side="right"
       onClose={closeRightPanel}
-      aria-label="Data Sources"
-      className="w-[406px]"
+      aria-label={t('dataSourcesPanel.title')}
+      className="w-full max-w-[406px]"
       heading={
         <>
           <Globe className="h-5 w-5" aria-hidden="true" />
-          <span>Data Sources</span>
+          <span>{t('dataSourcesPanel.title')}</span>
         </>
       }
       footer={
         dataSourcesPanelTab === 'connections' ? (
           <p className="text-xs text-muted-foreground">
-            {enabledAvailableCount} of {availableCount} available connections enabled. Enabled
-            connections will be available to the AI assistant.
+            {t('dataSourcesPanel.footerConnections', {
+              enabled: enabledAvailableCount,
+              available: availableCount,
+            })}
           </p>
         ) : (
           <p className="text-left text-xs text-muted-foreground">
-            Attached files will be always available to agents until deleted.
+            {t('dataSourcesPanel.footerFiles')}
           </p>
         )
       }
@@ -173,8 +178,8 @@ export const DataSourcesPanel: FC<DataSourcesPanelProps> = memo(function DataSou
       {/* Tab Navigation */}
       <Tabs value={dataSourcesPanelTab} onValueChange={handleTabChange} className="mb-4">
         <TabsList className="w-full">
-          <TabsTrigger value="connections">Connections</TabsTrigger>
-          <TabsTrigger value="files">Files</TabsTrigger>
+          <TabsTrigger value="connections">{t('dataSourcesPanel.tabConnections')}</TabsTrigger>
+          <TabsTrigger value="files">{t('dataSourcesPanel.tabFiles')}</TabsTrigger>
         </TabsList>
       </Tabs>
 
@@ -187,15 +192,15 @@ export const DataSourcesPanel: FC<DataSourcesPanelProps> = memo(function DataSou
             <Alert variant={!authRequired ? 'info' : 'warning'} className="mb-6">
               <AlertDescription>
                 {!authRequired
-                  ? 'Enable authentication to access additional data sources.'
-                  : 'Sign in to access additional data sources.'}
+                  ? t('dataSourcesPanel.enableAuthBanner')
+                  : t('dataSourcesPanel.signInBanner')}
               </AlertDescription>
             </Alert>
           )}
 
           {/* All Connections Toggle */}
           <span className="mb-3 text-xs font-semibold uppercase text-muted-foreground">
-            All Connections
+            {t('dataSourcesPanel.allConnections')}
           </span>
           <div
             role="button"
@@ -215,12 +220,16 @@ export const DataSourcesPanel: FC<DataSourcesPanelProps> = memo(function DataSou
             aria-disabled={isBusy}
             aria-label={
               isBusy
-                ? 'All available connections (disabled during operations)'
-                : `All available connections: ${allAvailableEnabled ? 'enabled' : 'disabled'}`
+                ? t('dataSourcesPanel.allAvailableDisabledOps')
+                : t('dataSourcesPanel.allAvailableState', {
+                    state: allAvailableEnabled
+                      ? t('dataConnectionCard.enabled')
+                      : t('dataConnectionCard.disabled'),
+                  })
             }
-            title={isBusy ? 'Data source changes disabled during active operations' : undefined}
+            title={isBusy ? t('dataSources.changesDisabledBusy') : undefined}
           >
-            <span className="text-sm font-semibold">Disable / Enable All</span>
+            <span className="text-sm font-semibold">{t('dataSourcesPanel.disableEnableAll')}</span>
             {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
             <div onClick={(e) => e.stopPropagation()}>
               <Switch
@@ -229,10 +238,10 @@ export const DataSourcesPanel: FC<DataSourcesPanelProps> = memo(function DataSou
                 disabled={isBusy}
                 aria-label={
                   isBusy
-                    ? 'Toggle all connections (disabled)'
+                    ? t('dataSourcesPanel.toggleAllDisabled')
                     : allAvailableEnabled
-                      ? 'Disable all connections'
-                      : 'Enable all connections'
+                      ? t('dataSourcesPanel.disableAll')
+                      : t('dataSourcesPanel.enableAll')
                 }
               />
             </div>
@@ -240,29 +249,29 @@ export const DataSourcesPanel: FC<DataSourcesPanelProps> = memo(function DataSou
 
           {/* Individual Connections */}
           <span className="mb-3 text-xs font-semibold uppercase text-muted-foreground">
-            Individual Connections ({displaySources.length})
+            {t('dataSourcesPanel.individualConnections', { count: displaySources.length })}
           </span>
 
           {dataSourcesLoading ? (
             <div className="flex items-center justify-center py-8">
-              <Spinner label="Loading data sources" />
+              <Spinner label={t('dataSources.loading')} />
             </div>
           ) : dataSourcesError ? (
             <div className="flex flex-col items-center py-4">
-              <span className="mb-2 text-sm text-destructive">Unable to load data sources</span>
+              <span className="mb-2 text-sm text-destructive">{t('dataSources.unableToLoad')}</span>
               <span className="mb-3 text-xs text-muted-foreground">{dataSourcesError}</span>
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => fetchDataSources()}
-                aria-label="Retry loading data sources"
+                aria-label={t('dataSources.retryAria')}
               >
-                Retry
+                {tc('actions.retry')}
               </Button>
             </div>
           ) : displaySources.length === 0 ? (
             <div className="flex flex-col items-center py-4">
-              <span className="text-sm text-muted-foreground">No data sources available</span>
+              <span className="text-sm text-muted-foreground">{t('dataSources.none')}</span>
             </div>
           ) : (
             <div className="flex flex-col gap-2">
@@ -276,7 +285,7 @@ export const DataSourcesPanel: FC<DataSourcesPanelProps> = memo(function DataSou
                     isAvailable={isSourceAvailable}
                     isBusy={isBusy}
                     unavailableReason={
-                      !isSourceAvailable ? 'Sign in required to access this data source' : undefined
+                      !isSourceAvailable ? t('dataSourcesPanel.signInRequiredSource') : undefined
                     }
                     onToggle={handleToggle}
                   />

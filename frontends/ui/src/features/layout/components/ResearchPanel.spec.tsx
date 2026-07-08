@@ -99,22 +99,21 @@ describe('ResearchPanel', () => {
   })
 
   describe('panel visibility', () => {
-    test('renders when rightPanel is "research"', () => {
+    test('renders content when rightPanel is "research"', () => {
       mockRightPanel = 'research'
 
-      render(<ResearchPanel isAuthenticated={true} />)
+      render(<ResearchPanel />)
 
-      // Panel should be visible - toggle button and close button should be present
-      expect(screen.getByTestId('research-panel-toggle')).toBeInTheDocument()
       expect(screen.getByTestId('research-panel-close')).toBeInTheDocument()
+      expect(screen.getByTestId('tasks-tab')).toBeInTheDocument()
     })
 
     test('is hidden when rightPanel is null', () => {
       mockRightPanel = null
 
-      const { container } = render(<ResearchPanel isAuthenticated={true} />)
+      const { container } = render(<ResearchPanel />)
 
-      // Find the outer container with aria-hidden
+      // The panel wrapper collapses and is marked hidden from AT
       const outerPanel = container.querySelector('[aria-hidden="true"]')
       expect(outerPanel).toBeInTheDocument()
     })
@@ -122,7 +121,7 @@ describe('ResearchPanel', () => {
 
   describe('tab navigation', () => {
     test('renders all tab options', () => {
-      render(<ResearchPanel isAuthenticated={true} />)
+      render(<ResearchPanel />)
 
       expect(screen.getByText('Tasks')).toBeInTheDocument()
       expect(screen.getByText('Thinking')).toBeInTheDocument()
@@ -134,7 +133,7 @@ describe('ResearchPanel', () => {
     test('calls setResearchPanelTab when tab is clicked', async () => {
       const user = userEvent.setup()
 
-      render(<ResearchPanel isAuthenticated={true} />)
+      render(<ResearchPanel />)
 
       await user.click(screen.getByText('Thinking'))
       expect(mockSetResearchPanelTab).toHaveBeenCalledWith('thinking')
@@ -147,7 +146,7 @@ describe('ResearchPanel', () => {
       mockDeepResearchJobId = 'job-123'
       const user = userEvent.setup()
 
-      render(<ResearchPanel isAuthenticated={true} />)
+      render(<ResearchPanel />)
 
       await user.click(screen.getByText('Report'))
 
@@ -159,7 +158,7 @@ describe('ResearchPanel', () => {
       mockIsLoadJobDataLoading = true
       const user = userEvent.setup()
 
-      const { rerender } = render(<ResearchPanel isAuthenticated={true} />)
+      const { rerender } = render(<ResearchPanel />)
 
       await user.click(screen.getByText('Report'))
 
@@ -167,7 +166,7 @@ describe('ResearchPanel', () => {
       expect(mockLoadResearchPanelTab).not.toHaveBeenCalled()
 
       mockIsLoadJobDataLoading = false
-      rerender(<ResearchPanel isAuthenticated={true}>Reloaded</ResearchPanel>)
+      rerender(<ResearchPanel>Reloaded</ResearchPanel>)
 
       await vi.waitFor(() => {
         expect(mockLoadResearchPanelTab).toHaveBeenCalledWith('job-123', 'report')
@@ -178,7 +177,7 @@ describe('ResearchPanel', () => {
       const tabs = ['tasks', 'thinking', 'report'] as const
       for (const tab of tabs) {
         mockResearchPanelTab = tab
-        const { unmount } = render(<ResearchPanel isAuthenticated={true} />)
+        const { unmount } = render(<ResearchPanel />)
         expect(screen.getByTestId(`${tab}-tab`)).toBeInTheDocument()
         unmount()
       }
@@ -187,7 +186,7 @@ describe('ResearchPanel', () => {
 
   describe('close button', () => {
     test('renders close button', () => {
-      render(<ResearchPanel isAuthenticated={true} />)
+      render(<ResearchPanel />)
 
       expect(screen.getByTestId('research-panel-close')).toBeInTheDocument()
     })
@@ -195,7 +194,7 @@ describe('ResearchPanel', () => {
     test('calls closeRightPanel when close button clicked', async () => {
       const user = userEvent.setup()
 
-      render(<ResearchPanel isAuthenticated={true} />)
+      render(<ResearchPanel />)
 
       await user.click(screen.getByTestId('research-panel-close'))
 
@@ -207,7 +206,7 @@ describe('ResearchPanel', () => {
     test('is always rendered', () => {
       mockIsDeepResearchStreaming = false
 
-      render(<ResearchPanel isAuthenticated={true} />)
+      render(<ResearchPanel />)
 
       expect(screen.getByTestId('research-panel-stop')).toBeInTheDocument()
     })
@@ -215,7 +214,7 @@ describe('ResearchPanel', () => {
     test('is disabled when not streaming', () => {
       mockIsDeepResearchStreaming = false
 
-      render(<ResearchPanel isAuthenticated={true} />)
+      render(<ResearchPanel />)
 
       expect(screen.getByTestId('research-panel-stop')).toBeDisabled()
     })
@@ -223,29 +222,9 @@ describe('ResearchPanel', () => {
     test('is enabled when streaming', () => {
       mockIsDeepResearchStreaming = true
 
-      render(<ResearchPanel isAuthenticated={true} />)
+      render(<ResearchPanel />)
 
       expect(screen.getByTestId('research-panel-stop')).not.toBeDisabled()
-    })
-  })
-
-  describe('streaming indicator', () => {
-    test('shows spinner in toggle tag when streaming', () => {
-      mockIsDeepResearchStreaming = true
-
-      render(<ResearchPanel isAuthenticated={true} />)
-
-      // Spinner is now in the toggle tag button
-      expect(screen.getByLabelText('Researching')).toBeInTheDocument()
-    })
-
-    test('shows generate icon when not streaming', () => {
-      mockIsDeepResearchStreaming = false
-
-      render(<ResearchPanel isAuthenticated={true} />)
-
-      // When not streaming, the generate icon is shown instead of spinner
-      expect(screen.queryByLabelText('Researching')).not.toBeInTheDocument()
     })
   })
 
@@ -254,7 +233,7 @@ describe('ResearchPanel', () => {
       mockResearchPanelTab = 'report'
 
       render(
-        <ResearchPanel isAuthenticated={true}>
+        <ResearchPanel>
           <div data-testid="custom-content">Custom Content</div>
         </ResearchPanel>
       )
@@ -265,53 +244,13 @@ describe('ResearchPanel', () => {
 
   describe('segmented control groups', () => {
     test('has all tab options', () => {
-      render(<ResearchPanel isAuthenticated={true} />)
+      render(<ResearchPanel />)
 
       expect(screen.getByText('Tasks')).toBeInTheDocument()
       expect(screen.getByText('Thinking')).toBeInTheDocument()
       expect(screen.getByText('Report')).toBeInTheDocument()
       expect(screen.queryByText('Plan')).not.toBeInTheDocument()
       expect(screen.queryByText('Citations')).not.toBeInTheDocument()
-    })
-  })
-
-  describe('toggle tag button', () => {
-    test('renders toggle tag button', () => {
-      render(<ResearchPanel isAuthenticated={true} />)
-
-      // The toggle tag button has a specific data-testid
-      expect(screen.getByTestId('research-panel-toggle')).toBeInTheDocument()
-      expect(screen.getByText('Show Research')).toBeInTheDocument()
-    })
-
-    test('closes panel when tag clicked while open', async () => {
-      mockRightPanel = 'research'
-      const user = userEvent.setup()
-
-      render(<ResearchPanel isAuthenticated={true} />)
-
-      await user.click(screen.getByTestId('research-panel-toggle'))
-
-      expect(mockCloseRightPanel).toHaveBeenCalled()
-    })
-
-    test('toggle button is disabled when not authenticated', () => {
-      render(<ResearchPanel isAuthenticated={false} />)
-
-      const toggleButton = screen.getByTestId('research-panel-toggle')
-      expect(toggleButton).toBeDisabled()
-      expect(toggleButton).toHaveAttribute('title', 'Sign in to access research panel')
-    })
-
-    test('toggle button does not trigger action when not authenticated', async () => {
-      mockRightPanel = null
-      const user = userEvent.setup()
-
-      render(<ResearchPanel isAuthenticated={false} />)
-
-      await user.click(screen.getByTestId('research-panel-toggle'))
-
-      expect(mockOpenRightPanel).not.toHaveBeenCalled()
     })
   })
 })

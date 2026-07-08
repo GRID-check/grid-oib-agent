@@ -4,22 +4,25 @@
  * Right-side panel showing Tasks, Thinking, or Report content.
  * Includes top action bar with tabs.
  *
- * This panel PUSHES the chat area (takes 60% width) rather than overlaying it.
+ * This panel PUSHES the chat area (shares the width 50/50) rather than
+ * overlaying it. Opening and closing is driven from the ChatToolbar's
+ * Research toggle; the panel itself only offers a close button.
  */
 
 'use client'
 
 import { type FC, type ReactNode, memo, useCallback, useRef, useEffect } from 'react'
-import { CircleStop, Sparkles, X } from 'lucide-react'
+import { CircleStop, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { cn } from '@/lib/utils'
 import { cancelJob } from '@/adapters/api'
 import { useChatStore, useLoadJobData } from '@/features/chat'
 import { useAuth } from '@/adapters/auth'
+import { useIsMobile } from '@/hooks/use-is-mobile'
 import { useReducedMotion } from '@/hooks/use-reduced-motion'
+import { useTranslations } from '@/i18n'
 import { useLayoutStore } from '../store'
 import { TasksTab } from './TasksTab'
 import { ThinkingTab } from './ThinkingTab'
@@ -35,30 +38,28 @@ const CANCEL_FALLBACK_TIMEOUT_MS = 5000
 interface ResearchPanelProps {
   /** Content to display in the panel */
   children?: ReactNode
-  /** Whether the user is authenticated */
-  isAuthenticated?: boolean
 }
 
 /**
  * Research panel with tabbed content (Tasks, Thinking, Report).
  * Opens from the right side of the screen, pushing the chat area.
- * Takes 60% of the screen width when open.
+ * Takes half of the screen width when open (full width on mobile).
  */
 export const ResearchPanel: FC<ResearchPanelProps> = memo(function ResearchPanel({
   children,
-  isAuthenticated = false,
 }) {
+  const t = useTranslations('research')
   const isOpen = useLayoutStore((s) => s.rightPanel === 'research')
   const researchPanelTab = useLayoutStore((s) => s.researchPanelTab)
   const setResearchPanelTab = useLayoutStore((s) => s.setResearchPanelTab)
   const closeRightPanel = useLayoutStore((s) => s.closeRightPanel)
-  const openRightPanel = useLayoutStore((s) => s.openRightPanel)
   const isDeepResearchStreaming = useChatStore((state) => state.isDeepResearchStreaming)
   const deepResearchJobId = useChatStore((state) => state.deepResearchJobId)
   const { loadResearchPanelTab, isLoading: isStreamLoading } = useLoadJobData()
   const { idToken } = useAuth()
 
   const prefersReducedMotion = useReducedMotion()
+  const isMobile = useIsMobile()
   const cancelFallbackRef = useRef<NodeJS.Timeout | null>(null)
   const pendingTabLoadRef = useRef<{ jobId: string; tab: ResearchPanelTab } | null>(null)
 
@@ -126,34 +127,11 @@ export const ResearchPanel: FC<ResearchPanelProps> = memo(function ResearchPanel
       }, CANCEL_FALLBACK_TIMEOUT_MS)
     } catch (error) {
       console.error('Failed to cancel job:', error)
-      toast.error('Could not stop research', {
-        description: 'The research run may still be running. Please try again.',
+      toast.error(t('researchPanel.couldNotStop'), {
+        description: t('researchPanel.couldNotStopDesc'),
       })
     }
   }, [deepResearchJobId, idToken])
-
-  const handleToggle = useCallback(() => {
-    if (!isAuthenticated) return
-
-    if (isOpen) {
-      closeRightPanel()
-    } else {
-      openRightPanel('research')
-
-      if (deepResearchJobId && !isStreamLoading) {
-        void loadResearchPanelTab(deepResearchJobId, researchPanelTab)
-      }
-    }
-  }, [
-    isAuthenticated,
-    isOpen,
-    closeRightPanel,
-    openRightPanel,
-    researchPanelTab,
-    deepResearchJobId,
-    isStreamLoading,
-    loadResearchPanelTab,
-  ])
 
   const handleTabChange = useCallback(
     (value: string) => {
@@ -177,54 +155,20 @@ export const ResearchPanel: FC<ResearchPanelProps> = memo(function ResearchPanel
   )
 
   return (
-    // Wrapper: uses flex to keep button visible while panel animates
-    <div
-      className="relative flex h-full"
+    // Wrapper animates its width; the panel content fades in once it lands.
+    <aside
+      className="relative h-full overflow-hidden"
       style={{
-        width: isOpen ? 'calc(50% + 40px)' : '40px',
-        minWidth: isOpen ? 'calc(50% + 40px)' : '40px',
-        transition: prefersReducedMotion
-          ? 'none'
-          : 'width 600ms ease-in-out, min-width 600ms ease-in-out',
+        // Mobile: the open panel takes the whole viewport width (the chat
+        // column collapses to 0% in MainLayout); desktop keeps the 50% split.
+        width: isOpen ? (isMobile ? '100%' : '50%') : '0%',
+        transition: prefersReducedMotion ? 'none' : 'width 300ms ease-in-out',
       }}
+      aria-hidden={!isOpen}
+      aria-label={t('chatToolbar.research')}
     >
-      {/* Toggle Tag Button - protruding from left side, always visible */}
-      <button
-        onClick={handleToggle}
-        disabled={!isAuthenticated}
-        className={cn(
-          'relative z-10 mt-3 flex h-[152px] w-10 shrink-0 items-center justify-center self-start overflow-hidden rounded-l-lg border bg-background outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/60',
-          isAuthenticated ? 'cursor-pointer hover:border-brand' : 'cursor-not-allowed opacity-50'
-        )}
-        aria-label={isOpen ? 'Close research panel' : 'Open research panel'}
-        aria-expanded={isOpen}
-        title={
-          isAuthenticated
-            ? isOpen
-              ? 'Close research panel'
-              : 'Open research panel'
-            : 'Sign in to access research panel'
-        }
-        data-testid="research-panel-toggle"
-      >
-        <span className="absolute left-1/2 top-3 flex h-6 w-6 -translate-x-1/2 items-center justify-center">
-          {isDeepResearchStreaming ? (
-            <Spinner size="sm" label="Researching" />
-          ) : (
-            <Sparkles className="h-6 w-6" aria-hidden="true" />
-          )}
-        </span>
-        <span className="absolute left-1/2 top-[84px] -translate-x-1/2 -rotate-90 whitespace-nowrap text-sm font-semibold">
-          Show Research
-        </span>
-      </button>
-
-      {/* Outer container: clips content, fills remaining space */}
-      <div
-        className="-ml-px h-full flex-1 overflow-hidden rounded-tl-xl border-l border-t bg-background"
-        aria-hidden={!isOpen}
-      >
-        {/* Inner container: fixed width so content stays stable */}
+      {/* Outer container: clips content while the wrapper animates */}
+      <div className="h-full overflow-hidden border-l bg-background">
         <div
           className="flex h-full w-full flex-col"
           style={{
@@ -234,17 +178,17 @@ export const ResearchPanel: FC<ResearchPanelProps> = memo(function ResearchPanel
               ? 'none'
               : isOpen
                 ? 'opacity 100ms ease-in-out, visibility 0ms'
-                : 'opacity 100ms ease-in-out 500ms, visibility 0ms 600ms',
+                : 'opacity 100ms ease-in-out 200ms, visibility 0ms 300ms',
           }}
         >
           {/* Header with tabs and close button */}
-          <div className="flex shrink-0 items-center justify-between border-b py-4 pl-6 pr-8">
-            <div className="flex items-center gap-4">
+          <div className="flex shrink-0 items-center justify-between gap-2 border-b py-3 pl-3 pr-3 sm:py-4 sm:pl-6 sm:pr-8">
+            <div className="flex min-w-0 items-center gap-2 sm:gap-4">
               <Tabs value={researchPanelTab} onValueChange={handleTabChange}>
                 <TabsList>
-                  <TabsTrigger value="tasks">Tasks</TabsTrigger>
-                  <TabsTrigger value="thinking">Thinking</TabsTrigger>
-                  <TabsTrigger value="report">Report</TabsTrigger>
+                  <TabsTrigger value="tasks">{t('researchPanel.tabTasks')}</TabsTrigger>
+                  <TabsTrigger value="thinking">{t('researchPanel.tabThinking')}</TabsTrigger>
+                  <TabsTrigger value="report">{t('researchPanel.tabReport')}</TabsTrigger>
                 </TabsList>
               </Tabs>
               {/* Stop Researching button - always visible, disabled when not streaming */}
@@ -253,12 +197,12 @@ export const ResearchPanel: FC<ResearchPanelProps> = memo(function ResearchPanel
                 size="sm"
                 onClick={isDeepResearchStreaming ? handleStopResearch : undefined}
                 disabled={!isDeepResearchStreaming}
-                aria-label="Stop researching"
-                title={isDeepResearchStreaming ? 'Stop researching' : 'No active research'}
+                aria-label={t('researchPanel.stopResearching')}
+                title={isDeepResearchStreaming ? t('researchPanel.stopResearching') : t('researchPanel.noActiveResearch')}
                 data-testid="research-panel-stop"
               >
                 <CircleStop className="h-4 w-4" aria-hidden="true" />
-                Stop Researching
+                <span className="hidden sm:inline">{t('researchPanel.stopResearchingButton')}</span>
               </Button>
             </div>
             <div className="flex items-center gap-4">
@@ -268,8 +212,8 @@ export const ResearchPanel: FC<ResearchPanelProps> = memo(function ResearchPanel
                 size="icon"
                 className="size-8"
                 onClick={handleClose}
-                aria-label="Close research panel"
-                title="Close research panel"
+                aria-label={t('researchPanel.closePanel')}
+                title={t('researchPanel.closePanel')}
                 data-testid="research-panel-close"
               >
                 <X className="h-4 w-4" aria-hidden="true" />
@@ -278,14 +222,14 @@ export const ResearchPanel: FC<ResearchPanelProps> = memo(function ResearchPanel
           </div>
 
           {/* Content Area - each tab manages its own scrolling and footer */}
-          <div className="flex flex-1 flex-col overflow-hidden py-5 pl-6 pr-8">
+          <div className="flex flex-1 flex-col overflow-hidden px-4 py-4 sm:py-5 sm:pl-6 sm:pr-8">
             {isStreamLoading ? (
               <div className="flex h-full flex-col items-center justify-center gap-4">
-                <Spinner label="Loading research data" />
+                <Spinner label={t('researchPanel.loadingData')} />
                 <span className="text-sm text-muted-foreground">
                   {TABS_REQUIRING_STREAM.includes(researchPanelTab)
-                    ? 'Loading research data...'
-                    : 'Loading report...'}
+                    ? t('researchPanel.loadingDataEllipsis')
+                    : t('researchPanel.loadingReport')}
                 </span>
               </div>
             ) : (
@@ -298,6 +242,6 @@ export const ResearchPanel: FC<ResearchPanelProps> = memo(function ResearchPanel
           </div>
         </div>
       </div>
-    </div>
+    </aside>
   )
 })
