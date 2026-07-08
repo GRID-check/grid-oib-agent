@@ -19,6 +19,18 @@ export const chat = {
     loadingLabel: 'Loading',
     errorTitle: 'Error: {message}',
   },
+  profilePatchCard: {
+    accept: 'Accept',
+    applying: 'Applying...',
+    reject: 'Reject',
+    accepted: 'Project brief updated.',
+    rejected: 'Changes discarded.',
+    noProject: 'Open this chat from a project to apply brief changes.',
+    field: 'Field',
+    before: 'Before',
+    after: 'After',
+    applyFailed: 'Failed to apply the change',
+  },
   thinking: {
     inProgress: 'Thinking in progress',
     working: 'Working on a response...',

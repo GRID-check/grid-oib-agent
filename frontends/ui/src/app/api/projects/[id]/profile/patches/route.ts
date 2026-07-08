@@ -7,6 +7,7 @@ import { isAuthzError } from '@/lib/auth-utils'
 import { getDb } from '@/lib/db'
 import { projects } from '@/lib/db/schema'
 import { applyProjectProfilePatch, invalidateProjectPromptViewCache } from '@/lib/project-profile/prompt-view'
+import { normalizeProfilePatchOperations, pruneResolvedUnknowns } from '@/lib/project-profile/patch-engine'
 import { ProjectProfilePatchOperationSchema } from '@/lib/project-profile/types'
 import { buildProfileUpdate, toProfileResponse } from '../route'
 
@@ -48,7 +49,11 @@ export async function POST(
 
     let profile
     try {
-      profile = applyProjectProfilePatch(current.profile, parsed.data.patch)
+      // Agent-proposed patches carry bare values; wrap them with provenance
+      // (accepting the card is the user confirmation), then retire any
+      // unknowns the patch just answered.
+      const normalized = normalizeProfilePatchOperations(parsed.data.patch)
+      profile = pruneResolvedUnknowns(applyProjectProfilePatch(current.profile, normalized))
     } catch (error) {
       return NextResponse.json({ error: error instanceof Error ? error.message : 'Invalid project profile patch.' }, { status: 400 })
     }

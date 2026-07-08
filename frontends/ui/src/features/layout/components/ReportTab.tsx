@@ -32,7 +32,7 @@ interface ReportTabProps {
  */
 export const ReportTab: FC<ReportTabProps> = ({ children }) => {
   const t = useTranslations('research')
-  const { reportContent, reportContentCategory, isStreaming, currentStatus, deepResearchCards } =
+  const { reportContent, reportContentCategory, isStreaming, currentStatus, deepResearchCards, projectId } =
     useChatStore(
       useShallow((s) => ({
         reportContent: s.reportContent,
@@ -40,6 +40,7 @@ export const ReportTab: FC<ReportTabProps> = ({ children }) => {
         isStreaming: s.isStreaming,
         currentStatus: s.currentStatus,
         deepResearchCards: s.deepResearchCards,
+        projectId: s.projectId,
       }))
     )
 
@@ -82,7 +83,7 @@ export const ReportTab: FC<ReportTabProps> = ({ children }) => {
         ) : (
           /* Final report: full prominence, with Grid cards when available */
           <div className="flex flex-1 flex-col gap-4">
-            {cards.length > 0 && <GridCards cards={cards} />}
+            {cards.length > 0 && <GridCards cards={cards} projectId={projectId} />}
             <MarkdownRenderer
               content={reportContentStr}
               isStreaming={isGeneratingReport}

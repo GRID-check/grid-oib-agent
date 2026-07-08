@@ -152,6 +152,16 @@ _CARD_EXAMPLES: dict[str, dict] = {
         },
         "reference": {"document": "Wiener Garagengesetz", "section": "§ 48"},
     },
+    "project_profile_patch": {
+        "type": "project_profile_patch",
+        "title": "Projektkontext aktualisieren: Fluchtniveau",
+        "rationale": (
+            "Sie haben angegeben, dass das oberste Fluchtniveau bei 25 m liegt — damit ist das "
+            "Gebäude ein Hochhaus (> 22 m) und OIB-Richtlinie 2.3 wird anwendbar."
+        ),
+        "patch": [{"op": "add", "path": "/facts/fluchtniveau", "value": ">22m"}],
+        "preview": [{"label": "Escape level", "before": "11–22m", "after": "> 22m"}],
+    },
     "requirement_checklist": {
         "type": "requirement_checklist",
         "title": "Anforderungen GK 4 – Brandschutz",

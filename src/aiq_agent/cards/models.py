@@ -34,12 +34,43 @@ class LegalBasisCard(BaseModel):
     original_text: str | None = Field(default=None, description="Literal excerpt from the source, if available")
 
 
+# Canonical project-profile fact keys (mirrors the intake definition in
+# frontends/ui/src/lib/project-profile/intake-definition.ts). Included in the
+# emit_card guidance so the model patches known keys with valid values instead
+# of inventing near-duplicates ("building_class" vs "gebaeudeklasse").
+PROFILE_FACT_VOCABULARY = (
+    "hauptnutzung: wohnen|buero|beherbergung|versammlung|gesundheit|landwirtschaft|produzierend|lager|sonstiges; "
+    "gebaeudeklasse: GK1|GK2|GK3|GK4|GK5; "
+    "fluchtniveau: <=7m|7-11m|11-22m|>22m; "
+    "bestand_neubau: bestand|neubau|zu_und_umbau; "
+    "widmung: bauland|verkehrsflaeche|freiland|kerngebiet|gemischt; "
+    "bauweise: offen|gekuppelt|geschlossen; "
+    "sicherheitskategorie: low|medium|high; "
+    "bestandsalter: <10|10-30|30-50|>50; "
+    "geschosse_oberirdisch / geschosse_unterirdisch / anzahl_betten / anzahl_einheiten: number; "
+    "grundgrenze / fluchtlinie / schutzzone / abweichender_bebauungsplan: boolean; "
+    "hohe_gebaeude_details: free text"
+)
+
+
 class ProjectProfilePatchOperation(BaseModel):
     """A JSON Patch operation targeting a project profile section."""
 
     op: Literal["add", "replace", "remove"]
-    path: str
-    value: Any = None
+    path: str = Field(
+        description=(
+            'For a confirmed hard fact use "/facts/<key>" with op "add" (works for both new and changed '
+            'values). For an uncertain inference use "/assumptions/<key>". Known fact keys and values: '
+            + PROFILE_FACT_VOCABULARY
+        )
+    )
+    value: Any = Field(
+        default=None,
+        description=(
+            "The PLAIN value only (e.g. \"GK4\", 3, true) — never wrap it in an object; the app adds "
+            "provenance metadata when the user accepts."
+        ),
+    )
 
     @field_validator("path")
     @classmethod
@@ -62,13 +93,17 @@ class ProjectProfilePatchPreviewItem(BaseModel):
 
 
 class ProjectProfilePatchCard(BaseModel):
-    """A reviewable patch (add/replace/remove) against a project profile."""
+    """Propose an update to the project brief (hard project facts) — applied only if the user accepts."""
 
     type: Literal["project_profile_patch"] = "project_profile_patch"
-    title: str
-    rationale: str
+    title: str = Field(description='Short action title, e.g. "Projektkontext aktualisieren: Fluchtniveau"')
+    rationale: str = Field(
+        description="One or two sentences: what was learned in this conversation and why it changes the brief"
+    )
     patch: list[ProjectProfilePatchOperation]
-    preview: list[ProjectProfilePatchPreviewItem]
+    preview: list[ProjectProfilePatchPreviewItem] = Field(
+        description='One row per changed field; use "—" for before when the fact was previously unknown'
+    )
 
 
 # ── Schematic cards: shared sub-structures ───────────────────────────────────

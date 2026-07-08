@@ -161,11 +161,32 @@ see §8).
 
 ## 5. Project summary / fact-sheet
 
-The Project Overview "Project Brief" panel (`project-overview.tsx`) renders three
-parts from `projects.profile_display`:
-- `summary` — an AI-generated prose description.
-- `keyFacts` — a deterministic `<dl>` derived from `profile.facts`.
-- `missingInfo` — the profile's unknowns.
+The Project Overview "Project Brief" panel (`project-brief.tsx`, mounted by
+`project-overview.tsx`) renders the AI `summary` from `projects.profile_display`
+plus a fact sheet derived **at render time from the raw `projects.profile`** via
+`buildProjectBriefView` (`lib/project-profile/brief-view.ts`): facts grouped in
+intake-stage order with question/option labels ("Main use: Residential", not
+"hauptnutzung: wohnen"), goal focus areas, unanswered questions as links back
+into the wizard, a completeness count, and agent-suggested `assumptions` with
+confirm/dismiss actions (confirm graduates the value into a `user_confirmed`
+fact through the same patches endpoint the agent's `project_profile_patch`
+cards use). `buildProjectProfileDisplay` (the stored `profile_display`
+projection) uses the same labels.
+
+### Agent-driven brief updates (project_profile_patch)
+
+The agent keeps the brief current by emitting a `project_profile_patch` card
+(via `emit_card`) whenever the conversation establishes a durable hard fact —
+the shallow-researcher prompt has an explicit "Keeping the Project Brief
+current" policy, and the card model carries the canonical fact-key vocabulary
+(`PROFILE_FACT_VOCABULARY` in `cards/models.py`, mirroring the intake
+definition). The card only proposes: the user's Accept posts the JSON-Patch to
+`POST /api/projects/{id}/profile/patches`, which normalizes bare values into
+full fact objects (`source: 'user_confirmed'` — accepting IS the confirmation),
+applies them through the shared patch engine, and prunes unknowns the patch
+just answered. `GridCards` receives the chat store's `projectId` in both the
+chat bubble (`AgentResponse.tsx`) and the research report (`ReportTab.tsx`), so
+Accept is live wherever the card renders.
 
 Summary generation: the intake wizard fires
 `POST /api/projects/{id}/generate-summary` → backend `/v1/generate-summary`

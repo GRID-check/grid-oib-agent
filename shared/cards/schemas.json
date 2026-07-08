@@ -1548,7 +1548,7 @@
       "type": "object"
     },
     "ProjectProfilePatchCard": {
-      "description": "A reviewable patch (add/replace/remove) against a project profile.",
+      "description": "Propose an update to the project brief (hard project facts) \u2014 applied only if the user accepts.",
       "properties": {
         "patch": {
           "items": {
@@ -1558,6 +1558,7 @@
           "type": "array"
         },
         "preview": {
+          "description": "One row per changed field; use \"\u2014\" for before when the fact was previously unknown",
           "items": {
             "$ref": "#/$defs/ProjectProfilePatchPreviewItem"
           },
@@ -1565,10 +1566,12 @@
           "type": "array"
         },
         "rationale": {
+          "description": "One or two sentences: what was learned in this conversation and why it changes the brief",
           "title": "Rationale",
           "type": "string"
         },
         "title": {
+          "description": "Short action title, e.g. \"Projektkontext aktualisieren: Fluchtniveau\"",
           "title": "Title",
           "type": "string"
         },
@@ -1601,11 +1604,13 @@
           "type": "string"
         },
         "path": {
+          "description": "For a confirmed hard fact use \"/facts/<key>\" with op \"add\" (works for both new and changed values). For an uncertain inference use \"/assumptions/<key>\". Known fact keys and values: hauptnutzung: wohnen|buero|beherbergung|versammlung|gesundheit|landwirtschaft|produzierend|lager|sonstiges; gebaeudeklasse: GK1|GK2|GK3|GK4|GK5; fluchtniveau: <=7m|7-11m|11-22m|>22m; bestand_neubau: bestand|neubau|zu_und_umbau; widmung: bauland|verkehrsflaeche|freiland|kerngebiet|gemischt; bauweise: offen|gekuppelt|geschlossen; sicherheitskategorie: low|medium|high; bestandsalter: <10|10-30|30-50|>50; geschosse_oberirdisch / geschosse_unterirdisch / anzahl_betten / anzahl_einheiten: number; grundgrenze / fluchtlinie / schutzzone / abweichender_bebauungsplan: boolean; hohe_gebaeude_details: free text",
           "title": "Path",
           "type": "string"
         },
         "value": {
           "default": null,
+          "description": "The PLAIN value only (e.g. \"GK4\", 3, true) \u2014 never wrap it in an object; the app adds provenance metadata when the user accepts.",
           "title": "Value"
         }
       },
