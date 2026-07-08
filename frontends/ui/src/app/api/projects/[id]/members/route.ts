@@ -94,6 +94,7 @@ export async function GET(
         organizationMembershipId: organizationMembership.id,
         userId: organizationMembership.userId,
         email: user?.email ?? null,
+        profilePictureUrl: user?.profilePictureUrl ?? null,
         name:
           user?.name ||
           (user?.firstName

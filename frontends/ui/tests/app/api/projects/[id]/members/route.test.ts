@@ -46,9 +46,30 @@ describe('/api/projects/[id]/members', () => {
   it('lists project-resource memberships by effective project permissions and merges user details', async () => {
     const listUsers = vi.fn().mockResolvedValue({
       data: [
-        { id: 'user_viewer', email: 'viewer@example.com', firstName: 'View', lastName: 'Only', name: null },
-        { id: 'user_editor', email: 'editor@example.com', firstName: null, lastName: null, name: 'Editor Person' },
-        { id: 'user_admin', email: 'admin@example.com', firstName: 'Admin', lastName: 'Person', name: null },
+        {
+          id: 'user_viewer',
+          email: 'viewer@example.com',
+          firstName: 'View',
+          lastName: 'Only',
+          name: null,
+          profilePictureUrl: 'https://cdn.example.com/viewer.png',
+        },
+        {
+          id: 'user_editor',
+          email: 'editor@example.com',
+          firstName: null,
+          lastName: null,
+          name: 'Editor Person',
+          profilePictureUrl: null,
+        },
+        {
+          id: 'user_admin',
+          email: 'admin@example.com',
+          firstName: 'Admin',
+          lastName: 'Person',
+          name: null,
+          profilePictureUrl: 'https://cdn.example.com/admin.png',
+        },
       ],
     })
     const listOrganizationMemberships = vi.fn().mockResolvedValue({
@@ -117,6 +138,7 @@ describe('/api/projects/[id]/members', () => {
           userId: 'user_viewer',
           email: 'viewer@example.com',
           name: 'View Only',
+          profilePictureUrl: 'https://cdn.example.com/viewer.png',
           role: 'project-viewer',
         },
         {
@@ -124,6 +146,7 @@ describe('/api/projects/[id]/members', () => {
           userId: 'user_editor',
           email: 'editor@example.com',
           name: 'Editor Person',
+          profilePictureUrl: null,
           role: 'project-editor',
         },
         {
@@ -131,6 +154,7 @@ describe('/api/projects/[id]/members', () => {
           userId: 'user_admin',
           email: 'admin@example.com',
           name: 'Admin Person',
+          profilePictureUrl: 'https://cdn.example.com/admin.png',
           role: 'project-admin',
         },
       ],
