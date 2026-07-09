@@ -39,9 +39,23 @@ tools with a single string input are upgraded to same-name batch-capable
 wrappers with a shared concurrency limiter
 (`tools/source_tool_batching.py`).
 
+## Run lifecycle (ADR-0018)
+
+The agent instance holds only immutable configuration (LLM provider, tool
+list, prompts, concurrency knobs). Everything a run mutates — the
+`SourceRegistryMiddleware`, the batch/throttle tool wrappers with their
+concurrency limiter, the middleware stacks, and the graph — is built fresh
+per run by `DeepResearcherAgent._prepare_run()` into a
+`DeepResearchRunArtifacts` bundle. No run can observe another run's
+captured sources, compact citation keys, or throttle state; cross-turn
+source continuity in conversation mode lives in the session-scoped
+registry bound by the chat entrypoint. Anything new that a run can mutate
+belongs in `DeepResearchRunArtifacts`, never on the agent instance. See
+[ADR-0018](../../../../docs/adr/0018-per-run-state-for-deep-research.md).
+
 ## Middleware Stack
 
-Built in `factory.py` (`build_common_middleware`), shared by the
+Built per run in `factory.py` (`build_common_middleware`), shared by the
 orchestrator and all subagents:
 
 | Middleware | Purpose |

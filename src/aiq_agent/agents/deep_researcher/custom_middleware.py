@@ -217,6 +217,12 @@ class SourceRegistryMiddleware(AgentMiddleware):
 
     The registry is also used by verify_citations() to strip fabricated,
     stale, or intermediate-artifact citations from the final report.
+
+    A fresh instance is constructed for every deep research run
+    (``DeepResearcherAgent._prepare_run``, ADR-0018), so the instance
+    registry and the compact ResearchNotes key set are run-scoped by
+    construction. In conversation mode the session-scoped registry (bound by
+    the chat entrypoint) still spans turns via ``active_registry()``.
     """
 
     def __init__(self, source_tool_names: set[str] | None = None) -> None:
@@ -230,27 +236,6 @@ class SourceRegistryMiddleware(AgentMiddleware):
         from aiq_agent.common.citation_verification import get_session_registry
 
         return get_session_registry() or self.registry
-
-    def begin_run(self) -> None:
-        """Reset per-run capture state at the start of a deep research run.
-
-        The middleware instance is shared across runs of a prebuilt agent, so
-        without this reset two kinds of state leak between requests:
-
-        - the instance registry keeps sources from earlier standalone runs
-          (conversation mode uses the session-scoped registry instead, which
-          must NOT be cleared here — it intentionally spans a conversation),
-        - ``_compact_source_keys`` accumulates ResearchNotes locators forever,
-          so the "compact" writer-facing source list is filtered against keys
-          from unrelated earlier runs.
-
-        Mirrors the per-request registry handling in ShallowResearcherAgent.run().
-        """
-        from aiq_agent.common.citation_verification import get_session_registry
-
-        if get_session_registry() is None:
-            self.registry.clear()
-        self._compact_source_keys.clear()
 
     def has_sources(self) -> bool:
         """Return True when the active source registry contains captured sources."""

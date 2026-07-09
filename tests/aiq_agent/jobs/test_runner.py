@@ -1666,7 +1666,7 @@ class TestAsyncJobRunnerAgentFactory:
                     )
                 ]
             )
-            agent._build_orchestrator_agent(state)
+            agent._prepare_run(state)
 
         kwargs = create.call_args.kwargs
         assert "skills" not in kwargs
@@ -1725,7 +1725,7 @@ class TestAsyncJobRunnerAgentFactory:
                 job_id="async-job-123",
             )
             state = DeepResearchAgentState(messages=[HumanMessage(content="Research without tools")])
-            agent._build_orchestrator_agent(state)
+            agent._prepare_run(state)
 
         tool_names = [tool.name for tool in create.call_args.kwargs["tools"]]
         assert tool_names == ["think", "get_verified_sources", "run_research_batch"]
