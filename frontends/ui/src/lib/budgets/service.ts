@@ -20,6 +20,7 @@
 
 import 'server-only'
 import type { BudgetPolicy, BudgetScope, NewLlmUsageEvent } from '@/lib/db/schema'
+import { getCached, invalidateCached } from '@/lib/cache'
 import { canManageBudgets } from '@/lib/authz/organizations'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { findProjectTenancy } from '@/lib/projects/repository'
@@ -165,7 +166,7 @@ export async function setBudgetPolicy(params: {
     }
   }
 
-  return repository.insertPolicySuperseding({
+  const inserted = await repository.insertPolicySuperseding({
     organizationId,
     scope,
     subjectId,
@@ -174,6 +175,8 @@ export async function setBudgetPolicy(params: {
     createdBy: params.actorUserId,
     note: params.note ?? null,
   })
+  await invalidateLimitsCache(organizationId, scope, subjectId)
+  return inserted
 }
 
 /**
@@ -188,7 +191,11 @@ export async function clearBudgetPolicy(params: {
   subjectId: string
   actorUserId: string
 }): Promise<boolean> {
-  return repository.supersedeActivePolicy(params.organizationId, params.scope, params.subjectId)
+  const removed = await repository.supersedeActivePolicy(params.organizationId, params.scope, params.subjectId)
+  if (removed) {
+    await invalidateLimitsCache(params.organizationId, params.scope, params.subjectId)
+  }
+  return removed
 }
 
 // ---------------------------------------------------------------------------
@@ -302,6 +309,44 @@ function remainingUsd(limits: BudgetLimits, spend: SpendTotals): number | null {
 }
 
 /**
+ * Policy LIMITS for the enforcement path, via the shared cache
+ * (write-invalidate on policy writes, ADR-0020). Only the numeric limits are
+ * cached — policy rows with their audit fields stay uncached in the
+ * settings/admin reads.
+ */
+const LIMITS_CACHE_TTL_MS = 5 * 60 * 1000
+
+const limitsCacheKey = (organizationId: string, scope: BudgetScope, subjectId: string | null): string =>
+  `budgetlimits:${organizationId}:${scope}:${subjectId ?? ''}`
+
+async function getCachedOrgLimits(organizationId: string): Promise<BudgetLimits> {
+  return getCached(limitsCacheKey(organizationId, 'organization', null), LIMITS_CACHE_TTL_MS, async () => {
+    const org = await getOrgBudget(organizationId)
+    return { dailyLimitEur: org.dailyLimitEur, monthlyLimitEur: org.monthlyLimitEur }
+  })
+}
+
+async function getCachedScopedLimits(
+  organizationId: string,
+  scope: 'member' | 'project',
+  subjectId: string,
+): Promise<BudgetLimits | null> {
+  return getCached(limitsCacheKey(organizationId, scope, subjectId), LIMITS_CACHE_TTL_MS, async () => {
+    const scoped = await getScopedBudget(organizationId, scope, subjectId)
+    if (!scoped) return null
+    return { dailyLimitEur: scoped.dailyLimitEur, monthlyLimitEur: scoped.monthlyLimitEur }
+  })
+}
+
+async function invalidateLimitsCache(
+  organizationId: string,
+  scope: BudgetScope,
+  subjectId: string | null,
+): Promise<void> {
+  await invalidateCached(limitsCacheKey(organizationId, scope, subjectId))
+}
+
+/**
  * The enforcement snapshot forwarded to the backend as `X-Grid-Budget` on the
  * WS upgrade, and used to refuse the upgrade outright when already exhausted.
  */
@@ -314,10 +359,10 @@ export async function getBudgetStatus(
   // org spend first, then the scoped spend aggregations only where a policy
   // actually exists.
   const [orgBudget, orgSpend, memberBudget, projectBudget] = await Promise.all([
-    getOrgBudget(organizationId),
+    getCachedOrgLimits(organizationId),
     getSpendTotals(organizationId),
-    userId ? getScopedBudget(organizationId, 'member', userId) : Promise.resolve(null),
-    projectId ? getScopedBudget(organizationId, 'project', projectId) : Promise.resolve(null),
+    userId ? getCachedScopedLimits(organizationId, 'member', userId) : Promise.resolve(null),
+    projectId ? getCachedScopedLimits(organizationId, 'project', projectId) : Promise.resolve(null),
   ])
   const remainingOrg = remainingUsd(orgBudget, orgSpend)
 

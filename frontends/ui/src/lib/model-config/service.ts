@@ -10,11 +10,16 @@
 import 'server-only'
 import { and, desc, eq } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
+import { getCached, invalidateCached } from '@/lib/cache'
 import {
   orgModelConfigs,
   orgModelConfigVersions,
   type OrgModelConfigVersion,
 } from '@/lib/db/schema'
+
+const OVERRIDES_CACHE_TTL_MS = 5 * 60 * 1000
+
+const overridesCacheKey = (organizationId: string): string => `modeloverrides:${organizationId}`
 
 export interface ModelOverrides {
   [agentGroupId: string]: { model: string }
@@ -47,17 +52,20 @@ export async function getOrgModelConfig(organizationId: string): Promise<OrgMode
 
 /**
  * The flat `{group: modelId}` map the runtime header carries, or null when
- * the org runs on workflow defaults. Read on every WS upgrade — keep cheap.
+ * the org runs on workflow defaults. Read on every WS upgrade — cached
+ * (write-invalidate: config saves/rollbacks drop the entry, ADR-0020).
  */
 export async function getActiveModelOverrides(organizationId: string): Promise<Record<string, string> | null> {
-  const { activeVersion } = await getOrgModelConfig(organizationId)
-  if (!activeVersion) return null
-  const overrides = activeVersion.overrides as ModelOverrides
-  const flat: Record<string, string> = {}
-  for (const [group, value] of Object.entries(overrides ?? {})) {
-    if (value && typeof value.model === 'string') flat[group] = value.model
-  }
-  return Object.keys(flat).length > 0 ? flat : null
+  return getCached(overridesCacheKey(organizationId), OVERRIDES_CACHE_TTL_MS, async () => {
+    const { activeVersion } = await getOrgModelConfig(organizationId)
+    if (!activeVersion) return null
+    const overrides = activeVersion.overrides as ModelOverrides
+    const flat: Record<string, string> = {}
+    for (const [group, value] of Object.entries(overrides ?? {})) {
+      if (value && typeof value.model === 'string') flat[group] = value.model
+    }
+    return Object.keys(flat).length > 0 ? flat : null
+  })
 }
 
 export async function listVersions(organizationId: string, limit = 50): Promise<OrgModelConfigVersion[]> {
@@ -113,6 +121,9 @@ export async function createAndActivateVersion(params: {
       })
 
     return inserted
+  }).then(async (inserted) => {
+    await invalidateCached(overridesCacheKey(params.organizationId))
+    return inserted
   })
 }
 
@@ -153,5 +164,6 @@ export async function activateVersion(params: {
       target: orgModelConfigs.organizationId,
       set: { activeVersionId: params.versionId, updatedBy: params.actorUserId, updatedAt: new Date() },
     })
+  await invalidateCached(overridesCacheKey(params.organizationId))
   return version
 }

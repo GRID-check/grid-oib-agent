@@ -8,9 +8,9 @@ vi.mock('./client', () => ({
 
 import { _clearFeatureFlagCache, isOrgFeatureEnabled, MEMORY_REFLECTION_FLAG } from './feature-flags'
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.stubEnv('WORKOS_API_KEY', 'sk_test')
-  _clearFeatureFlagCache()
+  await _clearFeatureFlagCache('org-1')
   listOrganizationFeatureFlags.mockReset()
 })
 

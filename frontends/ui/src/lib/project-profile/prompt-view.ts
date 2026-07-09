@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { projects } from '@/lib/db/schema'
+import { getCached, invalidateCached } from '@/lib/cache'
 import { buildProjectBriefView } from './brief-view'
 import { ProjectProfileSchema } from './types'
 import type { ProjectPrimitiveValue, ProjectProfile, ProjectProfileDisplay } from './types'
@@ -10,32 +11,31 @@ import type { ProjectPrimitiveValue, ProjectProfile, ProjectProfileDisplay } fro
 // patch-engine module so the intake wizard can share it.
 export { applyProjectProfilePatch, emptyProjectProfile } from './patch-engine'
 
-const promptViewCache = new Map<string, { data: string | null; timestamp: number }>()
 const PROMPT_VIEW_CACHE_TTL_MS = 5 * 60 * 1000
 
+/**
+ * Cached read of the project-context prompt view injected into the agent on
+ * every WS upgrade. Backed by the shared cache (ADR-0020), so a profile edit
+ * on one replica invalidates for all replicas — the per-process Map this
+ * replaces served stale project context for up to 5 minutes after an edit.
+ */
 export async function loadProjectPromptView(projectId: string | undefined): Promise<string | null> {
   if (!projectId) return null
 
-  const cached = promptViewCache.get(projectId)
-  if (cached && Date.now() - cached.timestamp < PROMPT_VIEW_CACHE_TTL_MS) {
-    return cached.data
-  }
-
-  const db = getDb()
-  const [project] = await db
-    .select({ profilePromptView: projects.profilePromptView })
-    .from(projects)
-    .where(eq(projects.id, projectId))
-    .limit(1)
-  const promptView = project?.profilePromptView?.trim()
-  const result = promptView || null
-
-  promptViewCache.set(projectId, { data: result, timestamp: Date.now() })
-  return result
+  return getCached(`promptview:${projectId}`, PROMPT_VIEW_CACHE_TTL_MS, async () => {
+    const db = getDb()
+    const [project] = await db
+      .select({ profilePromptView: projects.profilePromptView })
+      .from(projects)
+      .where(eq(projects.id, projectId))
+      .limit(1)
+    const promptView = project?.profilePromptView?.trim()
+    return promptView || null
+  })
 }
 
-export function invalidateProjectPromptViewCache(projectId: string): void {
-  promptViewCache.delete(projectId)
+export async function invalidateProjectPromptViewCache(projectId: string): Promise<void> {
+  await invalidateCached(`promptview:${projectId}`)
 }
 
 export function buildProjectPromptView(profile: ProjectProfile): string {

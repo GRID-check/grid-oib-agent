@@ -88,6 +88,10 @@ Variables set in `docker-compose.yaml` under `environment:` take precedence over
 | `AIQ_INGEST_MAX_WORKERS` | No | `2` | Max concurrent ingestion jobs per backend process; excess uploads queue as PENDING instead of each spawning a thread against the embedding API and the embedded Chroma store. |
 | `GRID_MAX_ACTIVE_JOBS` | No | `8` | Admission control: max non-terminal async research jobs accepted across all orgs. Beyond the cap, REST submits get 429 (+Retry-After) and chat answers with a friendly "queue full" message. `0` disables. |
 | `GRID_MAX_ACTIVE_JOBS_PER_ORG` | No | `3` | Admission control: max non-terminal async research jobs per organization, so one tenant cannot occupy the whole cluster. `0` disables. |
+| `REDIS_URL` | No | unset (compose: `redis://dragonfly:6379/0`) | Redis-protocol URL of the shared cache (Dragonfly, ADR-0020). Consumed by BOTH the frontend (read-through caches, WS rate limiter) and the backend (citation-registry snapshots). Unset = per-process in-memory fallback. |
+| `GRID_WS_UPGRADE_RATE_LIMIT` | No | `30` | Max WebSocket upgrades per client IP per minute at the gateway. Counters live in the shared cache so the limit holds across replicas; fails open. `0` disables. |
+| `GRID_CITATION_REGISTRY_TTL_SECONDS` | No | `86400` | TTL of per-conversation citation-source snapshots in the shared cache (lets a conversation keep prior-turn sources across restarts/replicas). |
+| `AIQ_LISTEN_DB_URL` | No | job-store URL | Direct (non-pooled) Postgres URL for SSE LISTEN/NOTIFY. Set explicitly when a PgBouncer fronts the pooled DSNs — transaction pooling breaks LISTEN. |
 | `AIQ_QUERY_EMBED_CACHE_SIZE` | No | `512` | Max query embeddings kept in the retriever's LRU (one query is embedded once and reused across the per-collection fan-out). |
 | `AIQ_STATIC_RESULT_CACHE_COLLECTIONS` | No | `oib_knowledge` | Comma-separated collections whose retrieval results may be cached (static corpora only — never project/session collections). |
 | `AIQ_STATIC_RESULT_CACHE_TTL_SECONDS` | No | `3600` | TTL for cached static-collection retrieval results; in-process writes invalidate immediately via a collection version. |

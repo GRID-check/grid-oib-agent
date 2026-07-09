@@ -105,8 +105,8 @@ describe('validateOverrides', () => {
 })
 
 describe('fetchModelCatalog', () => {
-  afterEach(() => {
-    _clearCatalogCache()
+  afterEach(async () => {
+    await _clearCatalogCache()
     vi.unstubAllGlobals()
   })
 

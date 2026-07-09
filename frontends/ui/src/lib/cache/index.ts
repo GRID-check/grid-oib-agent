@@ -65,9 +65,68 @@ class InProcessStore implements CacheStore {
   }
 }
 
-let store: CacheStore = new InProcessStore()
+/**
+ * Redis-protocol store (Dragonfly). Wraps every operation in try/catch at the
+ * call sites below, and additionally keeps timeouts tight here so a cache
+ * outage degrades to loader calls instead of hanging requests.
+ */
+class RedisStore implements CacheStore {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private client: any
 
-/** Swap the backing store (used by the Redis/Dragonfly wiring and by tests). */
+  constructor(url: string) {
+    // Lazy require keeps ioredis out of bundles that never set REDIS_URL.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const IORedis = require('ioredis')
+    this.client = new IORedis(url, {
+      connectTimeout: 1000,
+      commandTimeout: 500,
+      maxRetriesPerRequest: 1,
+      enableOfflineQueue: false,
+      lazyConnect: false,
+    })
+    this.client.on('error', (error: unknown) => {
+      console.warn('[cache] redis store error:', error)
+    })
+  }
+
+  async get(key: string): Promise<string | null> {
+    return this.client.get(key)
+  }
+
+  async set(key: string, value: string, ttlMs: number): Promise<void> {
+    await this.client.set(key, value, 'PX', Math.max(1, Math.round(ttlMs)))
+  }
+
+  async delete(key: string): Promise<void> {
+    await this.client.del(key)
+  }
+
+  async deletePrefix(prefix: string): Promise<void> {
+    let cursor = '0'
+    do {
+      const [next, keys] = await this.client.scan(cursor, 'MATCH', `${prefix}*`, 'COUNT', 200)
+      if (keys.length > 0) await this.client.del(...keys)
+      cursor = next
+    } while (cursor !== '0')
+  }
+}
+
+const createDefaultStore = (): CacheStore => {
+  const url = process.env.REDIS_URL
+  if (url) {
+    try {
+      return new RedisStore(url)
+    } catch (error) {
+      console.warn('[cache] failed to initialize redis store, using in-process cache:', error)
+    }
+  }
+  return new InProcessStore()
+}
+
+let store: CacheStore = createDefaultStore()
+
+/** Swap the backing store (tests). */
 export function setCacheStore(next: CacheStore): void {
   store = next
 }

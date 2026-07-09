@@ -613,6 +613,16 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         finally:
             reset_session_registry(token)
             reset_card_registry(card_token)
+            # Persist the turn's captured citation sources to the shared cache
+            # (ADR-0020) so the conversation keeps prior-turn sources after a
+            # restart or on another replica. Best-effort, off the event loop.
+            if nat_context_conversation_id:
+                try:
+                    from aiq_agent.common.citation_verification import persist_session_registry
+
+                    await asyncio.to_thread(persist_session_registry, nat_context_conversation_id)
+                except Exception:
+                    logger.debug("Citation registry persistence failed (non-fatal)", exc_info=True)
 
         if isinstance(result, dict):
             messages = result.get("messages", [])

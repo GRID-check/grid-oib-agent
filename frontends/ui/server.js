@@ -40,6 +40,71 @@ const BACKEND_HTTP_URL = getBackendUrl()
 const BACKEND_WS_URL = getBackendWsUrl()
 const NEXT_INTERNAL_URL = process.env.NEXT_INTERNAL_URL || 'http://localhost:3001'
 
+// ── WS-upgrade rate limiter (ADR-0020) ──
+// Every upgrade triggers session resolution, FGA checks, and budget reads in
+// the BFF, so a reconnect storm amplifies straight into WorkOS and Postgres.
+// Fixed window per client IP; counters live in the shared cache (Dragonfly)
+// so the limit holds across replicas, with a per-process fallback. Fails
+// open — a cache outage must never take chat down. 0 disables.
+const WS_RATE_LIMIT = parseInt(process.env.GRID_WS_UPGRADE_RATE_LIMIT || '30', 10)
+const WS_RATE_WINDOW_SECONDS = 60
+
+let rateLimitRedis = null
+if (process.env.REDIS_URL && WS_RATE_LIMIT > 0) {
+  try {
+    const IORedis = require('ioredis')
+    rateLimitRedis = new IORedis(process.env.REDIS_URL, {
+      connectTimeout: 1000,
+      commandTimeout: 500,
+      maxRetriesPerRequest: 1,
+      enableOfflineQueue: false,
+    })
+    rateLimitRedis.on('error', (error) => {
+      console.warn('[Gateway] rate-limit cache error:', error.message)
+    })
+  } catch (error) {
+    console.warn('[Gateway] shared rate limiter unavailable, using per-process fallback:', error.message)
+  }
+}
+
+const localRateWindows = new Map()
+
+const getClientKey = (req) => {
+  const forwarded = req.headers['x-forwarded-for']
+  if (typeof forwarded === 'string' && forwarded.length > 0) {
+    return forwarded.split(',')[0].trim()
+  }
+  return req.socket?.remoteAddress || 'unknown'
+}
+
+async function wsUpgradeAllowed(clientKey) {
+  if (WS_RATE_LIMIT <= 0) return true
+  const windowId = Math.floor(Date.now() / (WS_RATE_WINDOW_SECONDS * 1000))
+  const key = `ratelimit:ws:${clientKey}:${windowId}`
+  if (rateLimitRedis) {
+    try {
+      const results = await rateLimitRedis
+        .multi()
+        .incr(key)
+        .expire(key, WS_RATE_WINDOW_SECONDS, 'NX')
+        .exec()
+      const count = Number(results?.[0]?.[1] ?? 0)
+      return count <= WS_RATE_LIMIT
+    } catch {
+      return true // fail open
+    }
+  }
+  // Per-process fallback (only sees this process's traffic).
+  if (localRateWindows.size > 10000) localRateWindows.clear()
+  const entry = localRateWindows.get(clientKey)
+  if (!entry || entry.windowId !== windowId) {
+    localRateWindows.set(clientKey, { windowId, count: 1 })
+    return true
+  }
+  entry.count += 1
+  return entry.count <= WS_RATE_LIMIT
+}
+
 // In production, we run Next.js in the same process
 let nextApp = null
 let nextHandle = null
@@ -213,6 +278,14 @@ const startServer = async () => {
 
     // Proxy /websocket to backend
     if (pathname === '/websocket' || pathname.startsWith('/websocket')) {
+      if (!(await wsUpgradeAllowed(getClientKey(req)))) {
+        socket.write(
+          'HTTP/1.1 429 Too Many Requests\r\nRetry-After: 60\r\nConnection: close\r\n\r\n'
+        )
+        socket.destroy()
+        return
+      }
+
       const projectId = normalizeQueryParam(parsedUrl.query.projectId)
       const conversationId = normalizeQueryParam(parsedUrl.query.conversationId)
       req.url = '/websocket' + (parsedUrl.search || '')

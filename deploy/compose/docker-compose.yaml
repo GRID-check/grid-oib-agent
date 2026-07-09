@@ -44,6 +44,12 @@ services:
       - NAT_JOB_STORE_DB_URL=${NAT_JOB_STORE_DB_URL:-postgresql+asyncpg://aiq:aiq_dev@postgres:5432/aiq_jobs}
       - AIQ_CHECKPOINT_DB=${AIQ_CHECKPOINT_DB:-postgresql://aiq:aiq_dev@postgres:5432/aiq_checkpoints}
       - AIQ_SUMMARY_DB=${AIQ_SUMMARY_DB:-postgresql+psycopg://aiq:aiq_dev@postgres:5432/aiq_jobs}
+      # SSE LISTEN/NOTIFY needs a direct Postgres session; set explicitly so a
+      # future PgBouncer in front of the pooled DSNs never breaks job streams.
+      - AIQ_LISTEN_DB_URL=${AIQ_LISTEN_DB_URL:-postgresql://aiq:aiq_dev@postgres:5432/aiq_jobs}
+      # Shared cache (Dragonfly, ADR-0020): citation-registry snapshots and
+      # cross-replica caches. Unset = per-process in-memory fallback.
+      - REDIS_URL=${REDIS_URL:-redis://dragonfly:6379/0}
       # Project Memory: the `remember` tool writes via the frontend's internal
       # API (single-writer separation — the backend never touches grid_app).
       - FRONTEND_INTERNAL_URL=${FRONTEND_INTERNAL_URL:-http://frontend:3000}
@@ -82,6 +88,8 @@ services:
       minio:
         condition: service_healthy
       postgres:
+        condition: service_healthy
+      dragonfly:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
@@ -180,6 +188,11 @@ services:
       - GRID_PLATFORM_OWNER_EMAILS=${GRID_PLATFORM_OWNER_EMAILS:-}
       - GRID_PLATFORM_ORG_EXTERNAL_ID=${GRID_PLATFORM_ORG_EXTERNAL_ID:-grid-platform}
       - GRID_DISABLE_SELF_SERVE_ORGS=${GRID_DISABLE_SELF_SERVE_ORGS:-false}
+      # Shared cache (Dragonfly, ADR-0020): read-through caches (membership,
+      # flags, prompt view, model overrides, budget limits, model catalog) and
+      # the WS-upgrade rate limiter. Unset = per-process in-memory fallback.
+      - REDIS_URL=${REDIS_URL:-redis://dragonfly:6379/0}
+      - GRID_WS_UPGRADE_RATE_LIMIT=${GRID_WS_UPGRADE_RATE_LIMIT:-30}
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
     networks:
@@ -237,6 +250,25 @@ services:
         condition: service_healthy
       aiq-agent:
         condition: service_healthy
+    restart: unless-stopped
+
+  dragonfly:
+    # Redis-protocol shared cache (ADR-0020). Cache semantics only: every
+    # value is reconstructible (read-through caches, rate-limit counters,
+    # citation snapshots), so no persistence volume — cache_mode evicts under
+    # memory pressure instead of failing writes.
+    image: dragonflydb/dragonfly:v1.27.1
+    container_name: aiq-dragonfly
+    command: ["dragonfly", "--proactor_threads=2", "--maxmemory=256mb", "--cache_mode=true", "--dbfilename="]
+    ulimits:
+      memlock: -1
+    networks:
+      - aiq-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "6379", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
     restart: unless-stopped
 
   postgres:
