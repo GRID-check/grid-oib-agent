@@ -1,0 +1,48 @@
+name: PR
+
+# PR hygiene automation. Uses pull_request_target (base-repo context, so it can
+# label and comment on PRs) but NEVER checks out or runs PR code — it only reads
+# the event payload and the base-branch config, so it is safe with the write
+# token.
+on:
+  pull_request_target:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  title:
+    name: Conventional PR title
+    runs-on: ubuntu-latest
+    steps:
+      # The repo uses Conventional Commits and squash-merges the PR title, so
+      # the title must itself be a valid conventional-commit subject.
+      - uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          types: |
+            feat
+            fix
+            docs
+            refactor
+            perf
+            test
+            ci
+            build
+            chore
+            revert
+
+  label:
+    name: Auto-label by path
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/labeler@v5
+        with:
+          sync-labels: true

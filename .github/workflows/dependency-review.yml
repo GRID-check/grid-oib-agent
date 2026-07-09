@@ -1,0 +1,22 @@
+name: Dependency Review
+
+# Blocks PRs that introduce dependencies with known-high vulnerabilities or
+# disallowed licenses (GitHub's dependency-review, backed by the dependency
+# graph — free for private repos). PR-only: it diffs the PR's manifest changes.
+on:
+  pull_request:
+    branches: [develop, "release/**"]
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    name: Review dependency changes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+          comment-summary-in-pr: on-failure
