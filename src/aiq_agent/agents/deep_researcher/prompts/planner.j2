@@ -145,7 +145,7 @@ Do not wrap the file content in markdown fences or add prose outside the JSON.
 {#- === KV CACHE BOUNDARY — dynamic content below === -#}
 
 ## Context
-Current date and time: {{ current_datetime }}
+Current date: {{ current_datetime }}
 {% if user_info and user_info.name %}
 Authenticated user: **{{ user_info.name }}** ({{ user_info.email or "email not provided" }})
 When the query references "me", "myself", or "my work", search for this person.

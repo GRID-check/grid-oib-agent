@@ -102,7 +102,9 @@ class IntentClassifier:
             }
 
         user_info = state.user_info or {}
-        current_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # Date only: a per-second timestamp would defeat provider prompt
+        # caching of the otherwise-static classification prompt.
+        current_datetime = datetime.now().strftime("%Y-%m-%d")
         last_content = messages[-1].content
         query = last_content if isinstance(last_content, str) else str(last_content or "")
 

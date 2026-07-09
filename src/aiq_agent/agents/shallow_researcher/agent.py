@@ -207,8 +207,11 @@ class ShallowResearcherAgent:
             else:
                 logger.debug("ShallowResearcher received no available documents")
 
-            # Render system prompt with current datetime and available documents
-            current_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            # Render system prompt with the current DATE (not time): a
+            # second-precision timestamp made every rendered prompt unique,
+            # defeating provider prompt caching across tool-loop iterations
+            # and turns. Research needs the date, not the wall clock.
+            current_datetime = datetime.now().strftime("%Y-%m-%d")
             rendered_system_prompt = render_prompt_template(
                 self.system_prompt,
                 tools=tools_info,
