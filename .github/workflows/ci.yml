@@ -13,6 +13,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write # coverage sticky comments (same-repo PRs)
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -92,6 +93,15 @@ jobs:
           python -X faulthandler -m pytest frontends/aiq_api/tests/ -v \
             --junitxml=report-aiqapi.xml \
             --cov=frontends/aiq_api/src/aiq_api --cov-report=xml:coverage-aiqapi.xml --cov-report=term
+      - name: Coverage comment (backend)
+        if: github.event_name == 'pull_request' && matrix.python == '3.13'
+        continue-on-error: true # never fail CI on a comment hiccup
+        uses: MishaKav/pytest-coverage-comment@main
+        with:
+          pytest-xml-coverage-path: coverage.xml
+          title: Backend coverage (src/aiq_agent)
+          unique-id-for-comment: backend-coverage
+
       - name: Upload coverage (3.13 only, for Sonar)
         if: matrix.python == '3.13' && always()
         uses: actions/upload-artifact@v4
@@ -122,8 +132,15 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run type-check
-      - run: npm run test:ci
+      # json-summary/json feed the coverage comment; lcov feeds Sonar.
+      - run: npm run test:ci -- --coverage.reporter=json-summary --coverage.reporter=json --coverage.reporter=lcov
       - run: npm run build
+      - name: Coverage comment (frontend)
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: davelosert/vitest-coverage-report-action@v2
+        with:
+          working-directory: frontends/ui
       - name: Upload frontend coverage (for Sonar)
         if: always()
         uses: actions/upload-artifact@v4
