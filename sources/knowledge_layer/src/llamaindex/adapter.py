@@ -41,10 +41,12 @@ Chart extraction uses the VLM to:
 2. Extract structured data (chart type, axis labels, data points, trends)
 """
 
+import asyncio
 import base64
 import logging
 import os
 import threading
+import time
 import uuid
 from datetime import UTC
 from datetime import datetime
@@ -1775,14 +1777,29 @@ class LlamaIndexRetriever(BaseRetriever):
         self._embed_model = None
         self._chroma_client = None
         self._initialized = False
+        self._init_lock = threading.Lock()
+
+        # Rebuilding a VectorStoreIndex per query is pure overhead; cache one
+        # per collection. The short TTL heals the rare delete-and-recreate of
+        # a collection under the same name.
+        self._index_cache: dict[str, tuple[float, Any]] = {}
+        self._index_cache_lock = threading.Lock()
 
         logger.info(f"LlamaIndexRetriever initialized: persist_dir={self.persist_dir}")
 
+    INDEX_CACHE_TTL_SECONDS = 60
+
     def _ensure_initialized(self):
-        """Lazy initialization of components."""
+        """Lazy initialization of components. Thread-safe: retrieval runs off-loop."""
         if self._initialized:
             return
 
+        with self._init_lock:
+            if self._initialized:
+                return
+            self._initialize_components()
+
+    def _initialize_components(self):
         try:
             import chromadb
             from chromadb.config import Settings as ChromaSettings
@@ -1818,6 +1835,29 @@ class LlamaIndexRetriever(BaseRetriever):
                 "Install with: pip install llama-index llama-index-embeddings-nvidia chromadb"
             ) from e
 
+    def _get_index(self, collection_name: str):
+        """Return a cached VectorStoreIndex for the collection, or None if missing."""
+        from llama_index.core import VectorStoreIndex
+        from llama_index.vector_stores.chroma import ChromaVectorStore
+
+        now = time.monotonic()
+        with self._index_cache_lock:
+            cached = self._index_cache.get(collection_name)
+            if cached and now - cached[0] < self.INDEX_CACHE_TTL_SECONDS:
+                return cached[1]
+
+        try:
+            chroma_collection = self._chroma_client.get_collection(name=collection_name)
+        except Exception as e:
+            logger.warning(f"Collection '{collection_name}' not found: {e}")
+            return None
+
+        vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
+        index = VectorStoreIndex.from_vector_store(vector_store)
+        with self._index_cache_lock:
+            self._index_cache[collection_name] = (now, index)
+        return index
+
     async def retrieve(
         self,
         query: str,
@@ -1825,20 +1865,28 @@ class LlamaIndexRetriever(BaseRetriever):
         top_k: int = 10,
         filters: dict[str, Any] | None = None,
     ) -> RetrievalResult:
-        """Retrieve documents matching the query."""
+        """Retrieve documents matching the query.
+
+        The embedding call and the Chroma query are synchronous; they run in a
+        worker thread so a retrieval never stalls the server's event loop (and
+        the per-collection fan-out in the knowledge tool actually parallelizes).
+        """
+        return await asyncio.to_thread(self._retrieve_sync, query, collection_name, top_k, filters)
+
+    def _retrieve_sync(
+        self,
+        query: str,
+        collection_name: str,
+        top_k: int = 10,
+        filters: dict[str, Any] | None = None,
+    ) -> RetrievalResult:
         try:
             self._ensure_initialized()
 
-            from llama_index.core import VectorStoreIndex
-            from llama_index.vector_stores.chroma import ChromaVectorStore
-
             logger.info(f"LlamaIndexRetriever.retrieve: query='{query[:50]}...', collection={collection_name}")
 
-            # Get collection
-            try:
-                chroma_collection = self._chroma_client.get_collection(name=collection_name)
-            except Exception as e:
-                logger.warning(f"Collection '{collection_name}' not found: {e}")
+            index = self._get_index(collection_name)
+            if index is None:
                 return RetrievalResult(
                     chunks=[],
                     query=query,
@@ -1846,10 +1894,6 @@ class LlamaIndexRetriever(BaseRetriever):
                     success=False,
                     error_message=f"Collection '{collection_name}' not found",
                 )
-
-            # Create vector store and index
-            vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
-            index = VectorStoreIndex.from_vector_store(vector_store)
 
             # Create retriever and query
             retriever = index.as_retriever(similarity_top_k=top_k)
