@@ -328,8 +328,10 @@ ingestion is a one-time `scripts/ingest_oib.py` after first boot. → `docs/depl
   remain before it's production-perfect: a crashed final purge attempt can strand
   a row in `purging` invisibly, and the purger SQL lacks unit tests. Only the
   `project` entity type has a registered purger; others are stubbed.
-- **Deep-research cards** — cards render on synchronous answers; delivering them
-  on the async deep-research path is not yet wired end-to-end.
+- **Deep-research cards** — async deep-research jobs generate cards post-hoc
+  from the final report in the job runner and deliver them via the job SSE
+  stream and job output; the synchronous inline deep-research path (no Dask)
+  still returns no cards.
 - **Memory** — Phase 1 (capture + digest + curation). Consolidation/dedup and
   RAG-recall of memory are designed but not built; org-wide memory writes are not
   yet permission-gated to admins.

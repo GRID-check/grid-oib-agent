@@ -198,47 +198,6 @@ class ToolVisibilityMiddleware(AgentMiddleware):
         return await handler(request.override(tools=self._filter_tools(request.tools)))
 
 
-class ToolRetryMiddleware(AgentMiddleware):
-    """Retries failed tool calls with exponential backoff.
-
-    Provides uniform retry coverage for all tools. Some tools (e.g., Tavily)
-    have their own internal retry; this middleware wraps the outer call so
-    tools without retry (knowledge layer, paper search) are also covered.
-    """
-
-    def __init__(
-        self,
-        max_retries: int = 3,
-        backoff_factor: float = 2.0,
-        initial_delay: float = 1.0,
-    ):
-        self.max_retries = max_retries
-        self.backoff_factor = backoff_factor
-        self.initial_delay = initial_delay
-
-    async def awrap_tool_call(self, request, handler):
-        """Retry tool calls on failure with exponential backoff."""
-        delay = self.initial_delay
-        last_exception = None
-        for attempt in range(self.max_retries + 1):
-            try:
-                return await handler(request)
-            except Exception as e:
-                last_exception = e
-                if attempt < self.max_retries:
-                    tool_name = request.tool_call.get("name", "?") if hasattr(request, "tool_call") else "?"
-                    logger.warning(
-                        "Tool %s failed (attempt %d/%d): %s",
-                        tool_name,
-                        attempt + 1,
-                        self.max_retries + 1,
-                        e,
-                    )
-                    await asyncio.sleep(delay)
-                    delay *= self.backoff_factor
-        raise last_exception
-
-
 class SourceRegistryMiddleware(AgentMiddleware):
     """Intercepts tool call results to build a registry of actual sources.
 
@@ -258,6 +217,12 @@ class SourceRegistryMiddleware(AgentMiddleware):
 
     The registry is also used by verify_citations() to strip fabricated,
     stale, or intermediate-artifact citations from the final report.
+
+    A fresh instance is constructed for every deep research run
+    (``DeepResearcherAgent._prepare_run``, ADR-0018), so the instance
+    registry and the compact ResearchNotes key set are run-scoped by
+    construction. In conversation mode the session-scoped registry (bound by
+    the chat entrypoint) still spans turns via ``active_registry()``.
     """
 
     def __init__(self, source_tool_names: set[str] | None = None) -> None:

@@ -217,16 +217,12 @@ class ShallowResearcherAgent:
                 available_documents=[doc.model_dump() for doc in available_documents],
                 project_context=state.project_context,
             )
-            # DEBUG: Log the system prompt (can be removed in production)
             if os.environ.get("DEBUG_PROMPTS"):
                 logger.debug("Rendered system prompt:\n%s", rendered_system_prompt)
 
             system_message = SystemMessage(content=rendered_system_prompt)
 
             processed_history = list(messages)
-
-            if os.environ.get("DEBUG_PROMPTS"):
-                logger.debug("Rendered system prompt:\n%s", rendered_system_prompt)
 
             try:
                 if iterations >= self.max_tool_iterations:
@@ -267,11 +263,16 @@ class ShallowResearcherAgent:
 
         tool_node = ToolNode(self.tools)
 
-        # Per-agent allowlist mirrors the deep researcher: only tools this
-        # agent was loaded with are candidates for source capture. The
-        # data_source_registry then decides which of those are configured
-        # data sources. Having both gates keeps behavior consistent across
-        # agents and safe even if the global registry is ever polluted.
+        # Per-agent allowlist: only tools this agent was loaded with are
+        # candidates for source capture. Unlike the deep researcher — whose
+        # tool set is evidence-only (inherited from the data source registry)
+        # and therefore captures every allowlisted tool — the shallow agent's
+        # tool list may also contain interaction tools such as `emit_card`
+        # and `remember`. Those produce confirmations, not evidence, so the
+        # data_source_registry acts as the second gate here: only tools that
+        # resolve to a configured data source contribute citation sources.
+        # Evidence-bearing MCP/utility tools should be declared under
+        # `data_sources:` (group or exact tool) to become citable.
         source_tool_names = {t.name for t in self.tools}
 
         async def tool_node_with_source_capture(state: ShallowResearchAgentState) -> dict[str, Any]:
@@ -280,15 +281,16 @@ class ShallowResearcherAgent:
             Source capture is gated by two conditions:
 
             1. The tool must be in this agent's loaded tool set
-               (``source_tool_names``) — mirrors the deep researcher's
-               middleware allowlist.
+               (``source_tool_names``).
             2. The tool must resolve to a configured data source via
                :func:`get_source_id_for_tool` (i.e. declared under
                ``data_sources`` in the workflow YAML).
 
-            Tools that fail either check (internal scratchpads, ad-hoc
-            utilities, unregistered MCP servers) are skipped without
-            contributing to the citation registry.
+            The second gate keeps interaction tools (`emit_card`, `remember`)
+            and other non-evidence utilities out of the citation registry —
+            their confirmations would otherwise register as tool-name
+            citation keys via the non-URL fallback and could surface as bogus
+            references on turns where no real research tool succeeded.
             """
             result = await tool_node.ainvoke(state)
             # Resolve registry at call time (not build time) so each request

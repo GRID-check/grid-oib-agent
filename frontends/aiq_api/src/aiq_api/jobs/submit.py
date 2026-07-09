@@ -157,6 +157,8 @@ async def submit_agent_job(
     project_context: str | None = None,
     model_overrides: dict[str, str] | None = None,
     usage_context: dict | None = None,
+    user_info: dict | None = None,
+    clarifier_result: str | None = None,
 ) -> str:
     """
     Submit an agent job to the Dask cluster.
@@ -182,6 +184,12 @@ async def submit_agent_job(
         usage_context: Optional identity + budget snapshot for LLM cost
             tracking in the worker (see ``capture_usage_context``).
             Auto-captured from the submitting request when not provided.
+        user_info: Optional user identity dict (name/email) set on the agent
+            state so worker-side prompts can render the authenticated user,
+            matching the synchronous chat path.
+        clarifier_result: Optional clarifier dialog log set on the agent state
+            so worker-side prompts render the structured Clarification Context
+            section, matching the synchronous chat path.
 
     Returns:
         The job ID.
@@ -312,6 +320,8 @@ async def submit_agent_job(
                 project_context,
                 model_overrides,
                 usage_context,
+                user_info,
+                clarifier_result,
             ],
         )
         await loop.run_in_executor(

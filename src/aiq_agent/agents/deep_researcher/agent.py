@@ -20,6 +20,7 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -36,6 +37,8 @@ from .custom_middleware import SourceRegistryMiddleware
 from .deepagents_runtime import DeepAgentsRuntime
 from .deepagents_runtime import DeepResearchSandboxConfig
 from .deepagents_runtime import DeepResearchSkillsConfig
+from .factory import DeepResearchMiddlewareSet
+from .factory import DeepResearchToolSet
 from .factory import build_deep_research_graph
 from .factory import build_deep_research_middleware_set
 from .factory import build_deep_research_tool_set
@@ -49,6 +52,22 @@ DEFAULT_MAX_RESEARCH_CONCURRENCY = 6
 
 # Path to this agent's directory (for loading prompts)
 AGENT_DIR = Path(__file__).parent
+
+
+@dataclass(frozen=True)
+class DeepResearchRunArtifacts:
+    """Everything one deep research run needs, built fresh per run (ADR-0018).
+
+    The agent instance holds only immutable configuration; anything that
+    accumulates state during a run lives here so concurrent or consecutive
+    runs of the same (possibly shared, prebuilt) agent cannot observe each
+    other's captured sources, compact citation keys, or throttle state.
+    """
+
+    graph: Any
+    source_registry_middleware: SourceRegistryMiddleware
+    tool_set: DeepResearchToolSet
+    middleware_set: DeepResearchMiddlewareSet
 
 
 class DeepResearcherAgent:
@@ -107,30 +126,13 @@ class DeepResearcherAgent:
         self.deepagents_runtime = DeepAgentsRuntime(skills=skills, sandbox=sandbox, job_id=self.job_id)
 
         self._prompts = self._load_prompts()
-        source_tool_names = {tool.name for tool in self.tools}
-        self.source_registry_middleware = SourceRegistryMiddleware(source_tool_names=source_tool_names)
-        self.tool_set = build_deep_research_tool_set(
-            self.tools,
-            source_registry_middleware=self.source_registry_middleware,
-            max_concurrent_source_tool_calls=self.max_concurrent_source_tool_calls,
-            max_source_tool_batch_size=self.max_source_tool_batch_size,
-        )
-        self.middleware_set = build_deep_research_middleware_set(
-            tool_set=self.tool_set,
-            source_registry_middleware=self.source_registry_middleware,
-        )
-
-        self.source_tool_names = self.tool_set.source_tool_names
-        self.tools_info = self.tool_set.tools_info
-        self.non_search_tools = self.tool_set.helper_tools
-        self.all_tools = self.tool_set.all_tools
-        self.research_source_tools = self.tool_set.research_source_tools
-        self.researcher_tools = self.tool_set.researcher_tools
-        self.writer_tools = self.tool_set.writer_tools
-        self.researcher_middleware = self.middleware_set.researcher
-        self.writer_middleware = self.middleware_set.writer
-        self.orchestrator_middleware = self.middleware_set.orchestrator
-        self.middleware = self.researcher_middleware
+        # Immutable, cheap derivations only. All mutable per-run state (the
+        # source registry middleware, tool wrappers, middleware stacks, and
+        # the graph itself) is built per run in _prepare_run() — see
+        # ADR-0018. Constructing it here made the agent instance a hidden
+        # shared-state container across requests.
+        self.source_tool_names = {tool.name for tool in self.tools}
+        self.tools_info = [{"name": tool.name, "description": tool.description} for tool in self.tools]
 
     def _load_prompts(self) -> dict[str, str]:
         """Load all prompts for subagents."""
@@ -142,21 +144,45 @@ class DeepResearcherAgent:
 
         return prompts
 
-    def _build_orchestrator_agent(self, state: DeepResearchAgentState) -> Any:
-        """Build the orchestrator graph for the current state."""
-        return build_deep_research_graph(
+    def _prepare_run(self, state: DeepResearchAgentState) -> DeepResearchRunArtifacts:
+        """Build the graph and all mutable run state for one deep research run.
+
+        Everything that can accumulate data during a run — the source
+        registry middleware (captured sources, compact ResearchNotes keys),
+        the batch/throttle tool wrappers with their concurrency limiter, and
+        the middleware stacks referencing them — is constructed fresh here so
+        no run can observe another run's state (ADR-0018).
+        """
+        source_registry_middleware = SourceRegistryMiddleware(source_tool_names=self.source_tool_names)
+        tool_set = build_deep_research_tool_set(
+            self.tools,
+            source_registry_middleware=source_registry_middleware,
+            max_concurrent_source_tool_calls=self.max_concurrent_source_tool_calls,
+            max_source_tool_batch_size=self.max_source_tool_batch_size,
+        )
+        middleware_set = build_deep_research_middleware_set(
+            tool_set=tool_set,
+            source_registry_middleware=source_registry_middleware,
+        )
+        graph = build_deep_research_graph(
             llm_provider=self.llm_provider,
             state=state,
             prompts=self._prompts,
             tools=self.tools,
             runtime=self.deepagents_runtime,
-            tool_set=self.tool_set,
-            middleware_set=self.middleware_set,
-            source_registry_middleware=self.source_registry_middleware,
+            tool_set=tool_set,
+            middleware_set=middleware_set,
+            source_registry_middleware=source_registry_middleware,
             callbacks=self.callbacks,
             domain_catalog_path=self.domain_catalog_path,
             enable_source_router=self.enable_source_router,
             max_research_concurrency=self.max_research_concurrency,
+        )
+        return DeepResearchRunArtifacts(
+            graph=graph,
+            source_registry_middleware=source_registry_middleware,
+            tool_set=tool_set,
+            middleware_set=middleware_set,
         )
 
     def _extract_final_markdown(self, result: dict | Any) -> str | None:
@@ -190,7 +216,9 @@ class DeepResearcherAgent:
         """
         Execute deep research with multi-phase workflow.
         """
-        agent = self._build_orchestrator_agent(state)
+        run_artifacts = self._prepare_run(state)
+        agent = run_artifacts.graph
+        source_registry_middleware = run_artifacts.source_registry_middleware
 
         messages = state.messages
         if messages:
@@ -209,12 +237,12 @@ class DeepResearcherAgent:
                 raise ValueError("writer-agent did not produce a final Markdown answer")
 
             # Post-process: verify citations against source registry
-            if self.enable_citation_verification and self.source_registry_middleware.has_sources():
-                registry = self.source_registry_middleware.active_registry()
+            if self.enable_citation_verification and source_registry_middleware.has_sources():
+                registry = source_registry_middleware.active_registry()
                 verification = verify_citations(
                     final_message,
                     registry,
-                    reference_sources=self.source_registry_middleware.get_source_entries(mode="compact"),
+                    reference_sources=source_registry_middleware.get_source_entries(mode="compact"),
                 )
                 if verification.removed_citations:
                     removed_details = []

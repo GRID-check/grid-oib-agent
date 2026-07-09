@@ -16,6 +16,7 @@
 """Tests for the DeepResearcherAgent."""
 
 import asyncio
+import contextlib
 import json
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
@@ -38,12 +39,44 @@ from aiq_agent.agents.deep_researcher.tools.research import researcher_invoke_st
 from aiq_agent.common import LLMProvider
 from aiq_agent.common import LLMRole
 from aiq_agent.common.citation_verification import SourceEntry
+from aiq_agent.common.citation_verification import SourceRegistry
+from aiq_agent.common.citation_verification import reset_session_registry
+from aiq_agent.common.citation_verification import set_session_registry
 
 
 @tool
 def web_search_tool(query: str) -> str:
     """Search the web for information."""
     return f"Results for: {query}"
+
+
+# The shared per-run middleware stack (factory.build_common_middleware).
+_COMMON_MIDDLEWARE_CLASSES = {
+    "EmptyContentFixMiddleware",
+    "ToolNameSanitizationMiddleware",
+    "ToolRetryMiddleware",
+    "SourceRegistryMiddleware",
+    "ToolResultPruningMiddleware",
+    "ModelRetryMiddleware",
+}
+
+
+@contextlib.contextmanager
+def seeded_session_registry(*entries: SourceEntry):
+    """Bind a session-scoped SourceRegistry pre-populated with entries.
+
+    run() builds a fresh source registry middleware per run (ADR-0018), so tests
+    that simulate mid-run captured sources must seed the session registry the
+    same way the chat entrypoint binds one per conversation.
+    """
+    registry = SourceRegistry()
+    for entry in entries:
+        registry.add(entry)
+    token = set_session_registry(registry)
+    try:
+        yield registry
+    finally:
+        reset_session_registry(token)
 
 
 def output_markdown_file(markdown: str | None = None) -> dict:
@@ -108,13 +141,22 @@ class TestDeepResearcherAgent:
         return web_search_tool
 
     def _build_batch_tool(self, agent, researcher_runnable, backend=None):
-        return build_research_batch_tool(
+        """Build a batch tool plus the run-scoped middleware it registers into.
+
+        Mirrors _prepare_run(): the source registry middleware is per-run
+        state, so tests construct one alongside the tool (ADR-0018).
+        """
+        from aiq_agent.agents.deep_researcher.custom_middleware import SourceRegistryMiddleware
+
+        source_registry_middleware = SourceRegistryMiddleware(source_tool_names=agent.source_tool_names)
+        batch_tool = build_research_batch_tool(
             researcher_runnable=researcher_runnable,
             backend=backend,
             callbacks=agent.callbacks,
             max_research_concurrency=agent.max_research_concurrency,
-            source_registry_middleware=agent.source_registry_middleware,
+            source_registry_middleware=source_registry_middleware,
         )
+        return batch_tool, source_registry_middleware
 
     def _structured_notes_response(self, query_topic: str = "Research Topic"):
         return {
@@ -351,7 +393,7 @@ class TestDeepResearcherAgent:
             )
             state = DeepResearchAgentState(messages=[HumanMessage(content="Compare revenue growth")])
 
-            agent._build_orchestrator_agent(state)
+            agent._prepare_run(state)
 
             assert create.call_count == 1
             assert create_researcher.call_count == 1
@@ -359,16 +401,15 @@ class TestDeepResearcherAgent:
             kwargs = create.call_args.kwargs
             assert researcher_kwargs["response_format"] is ResearchNotes
             researcher_middleware = researcher_kwargs["middleware"]
-            assert researcher_middleware is not agent.researcher_middleware
             assert not any(m.__class__.__name__ == "TodoListMiddleware" for m in researcher_middleware)
             researcher_skills = [m for m in researcher_middleware if m.__class__.__name__ == "SkillsMiddleware"]
             assert researcher_skills == []
             assert any(m.__class__.__name__ == "FilesystemMiddleware" for m in researcher_middleware)
             assert any(m.__class__.__name__ == "PatchToolCallsMiddleware" for m in researcher_middleware)
-            assert all(m in researcher_middleware for m in agent.researcher_middleware)
+            assert _COMMON_MIDDLEWARE_CLASSES <= {m.__class__.__name__ for m in researcher_middleware}
             assert "skills" not in researcher_kwargs
             assert "backend" not in researcher_kwargs
-            assert all(m in kwargs["middleware"] for m in agent.orchestrator_middleware)
+            assert _COMMON_MIDDLEWARE_CLASSES <= {m.__class__.__name__ for m in kwargs["middleware"]}
             assert any(m.__class__.__name__ == "ToolVisibilityMiddleware" for m in kwargs["middleware"])
             assert "Mandatory skill use" in researcher_kwargs["system_prompt"]
             assert "MUST read that skill's `SKILL.md`" in researcher_kwargs["system_prompt"]
@@ -427,9 +468,12 @@ class TestDeepResearcherAgent:
             assert "skills" not in subagents["planner-agent"]
             assert real_tool.name in {tool.name for tool in subagents["planner-agent"]["tools"]}
             assert "response_format" not in subagents["writer-agent"]
-            assert subagents["writer-agent"]["tools"] == agent.writer_tools
+            assert [tool.name for tool in subagents["writer-agent"]["tools"]] == [
+                "think",
+                "get_verified_sources",
+            ]
             assert real_tool.name not in {tool.name for tool in subagents["writer-agent"]["tools"]}
-            assert all(m in subagents["writer-agent"]["middleware"] for m in agent.writer_middleware)
+            assert _COMMON_MIDDLEWARE_CLASSES <= {m.__class__.__name__ for m in subagents["writer-agent"]["middleware"]}
             assert any(
                 m.__class__.__name__ == "ToolVisibilityMiddleware" for m in subagents["writer-agent"]["middleware"]
             )
@@ -486,6 +530,42 @@ class TestDeepResearcherAgent:
             for removed_field in ("assembly_instruction", "selection_mode", "expected_count", "options"):
                 assert removed_field not in planner_prompt
 
+    def test_prompts_carry_grid_oib_domain_grounding(
+        self,
+        mock_llm_provider,
+        real_tool,
+        mock_create_deep_agent,
+    ):
+        """All deep research prompts identify as Grid OIB and anchor regulation citations."""
+        with (
+            patch(
+                "aiq_agent.agents.deep_researcher.factory.create_deep_agent",
+                return_value=mock_create_deep_agent,
+            ) as create,
+            patch(
+                "aiq_agent.agents.deep_researcher.factory.create_agent",
+                return_value=mock_create_deep_agent,
+            ) as create_researcher,
+        ):
+            from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+
+            agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
+            state = DeepResearchAgentState(messages=[HumanMessage(content="OIB 4 stair requirements")])
+
+            agent._prepare_run(state)
+
+            kwargs = create.call_args.kwargs
+            subagents = {subagent["name"]: subagent for subagent in kwargs["subagents"]}
+            assert "Grid OIB" in kwargs["system_prompt"]
+            assert "Austrian building regulations" in kwargs["system_prompt"]
+            assert "Grid OIB" in subagents["planner-agent"]["system_prompt"]
+            assert "Bundesland" in subagents["planner-agent"]["system_prompt"]
+            assert "Grid OIB" in subagents["writer-agent"]["system_prompt"]
+            assert "edition/year" in subagents["writer-agent"]["system_prompt"]
+            researcher_prompt = create_researcher.call_args.kwargs["system_prompt"]
+            assert "Grid OIB" in researcher_prompt
+            assert "regulatory anchor" in researcher_prompt
+
     def test_build_orchestrator_omits_skills_when_disabled(
         self,
         mock_llm_provider,
@@ -508,20 +588,19 @@ class TestDeepResearcherAgent:
             agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
             state = DeepResearchAgentState(messages=[HumanMessage(content="Compare CUDA vs OpenCL")])
 
-            agent._build_orchestrator_agent(state)
+            agent._prepare_run(state)
 
             assert create.call_count == 1
             assert create_researcher.call_count == 1
             researcher_kwargs = create_researcher.call_args.kwargs
             assert researcher_kwargs["response_format"] is ResearchNotes
             researcher_middleware = researcher_kwargs["middleware"]
-            assert researcher_middleware is not agent.researcher_middleware
             assert not any(m.__class__.__name__ == "TodoListMiddleware" for m in researcher_middleware)
             assert not any(m.__class__.__name__ == "SkillsMiddleware" for m in researcher_middleware)
             assert any(m.__class__.__name__ == "FilesystemMiddleware" for m in researcher_middleware)
             assert any(m.__class__.__name__ == "PatchToolCallsMiddleware" for m in researcher_middleware)
-            assert all(m in researcher_middleware for m in agent.researcher_middleware)
-            assert all(m in create.call_args.kwargs["middleware"] for m in agent.orchestrator_middleware)
+            assert _COMMON_MIDDLEWARE_CLASSES <= {m.__class__.__name__ for m in researcher_middleware}
+            assert _COMMON_MIDDLEWARE_CLASSES <= {m.__class__.__name__ for m in create.call_args.kwargs["middleware"]}
             assert any(
                 m.__class__.__name__ == "ToolVisibilityMiddleware" for m in create.call_args.kwargs["middleware"]
             )
@@ -540,9 +619,12 @@ class TestDeepResearcherAgent:
             assert subagents["planner-agent"]["response_format"] is ResearchPlan
             assert real_tool.name in {tool.name for tool in subagents["planner-agent"]["tools"]}
             assert "response_format" not in subagents["writer-agent"]
-            assert subagents["writer-agent"]["tools"] == agent.writer_tools
+            assert [tool.name for tool in subagents["writer-agent"]["tools"]] == [
+                "think",
+                "get_verified_sources",
+            ]
             assert real_tool.name not in {tool.name for tool in subagents["writer-agent"]["tools"]}
-            assert all(m in subagents["writer-agent"]["middleware"] for m in agent.writer_middleware)
+            assert _COMMON_MIDDLEWARE_CLASSES <= {m.__class__.__name__ for m in subagents["writer-agent"]["middleware"]}
             assert any(
                 m.__class__.__name__ == "ToolVisibilityMiddleware" for m in subagents["writer-agent"]["middleware"]
             )
@@ -578,7 +660,7 @@ class TestDeepResearcherAgent:
             )
             state = DeepResearchAgentState(messages=[HumanMessage(content="Compare CUDA vs OpenCL")])
 
-            agent._build_orchestrator_agent(state)
+            agent._prepare_run(state)
 
             kwargs = create.call_args.kwargs
             prompt = kwargs["system_prompt"]
@@ -595,7 +677,10 @@ class TestDeepResearcherAgent:
             assert subagents["planner-agent"]["response_format"] is ResearchPlan
             assert "/shared/source_routing.json" not in subagents["planner-agent"]["system_prompt"]
             assert real_tool.name in {tool.name for tool in subagents["planner-agent"]["tools"]}
-            assert subagents["writer-agent"]["tools"] == agent.writer_tools
+            assert [tool.name for tool in subagents["writer-agent"]["tools"]] == [
+                "think",
+                "get_verified_sources",
+            ]
             assert LLMRole.ROUTER not in requested_roles
             assert LLMRole.EVIDENCE_JUDGE not in requested_roles
 
@@ -651,9 +736,9 @@ class TestDeepResearcherAgent:
             FileUploadResponse(path=path, error=None) for path, _content in files
         ]
 
-        batch_tool = self._build_batch_tool(agent, fake_runnable, backend=fake_backend)
-        agent.source_registry_middleware.registry.add(SourceEntry(url="https://example.test/opencl", title="OpenCL"))
-        agent.source_registry_middleware.registry.add(SourceEntry(url="https://example.test/unused", title="Unused"))
+        batch_tool, source_mw = self._build_batch_tool(agent, fake_runnable, backend=fake_backend)
+        source_mw.registry.add(SourceEntry(url="https://example.test/opencl", title="OpenCL"))
+        source_mw.registry.add(SourceEntry(url="https://example.test/unused", title="Unused"))
         tool_properties = batch_tool.tool_call_schema.model_json_schema()["properties"]
         assert "runtime" not in tool_properties
         assert "max_concurrency" not in tool_properties
@@ -697,7 +782,7 @@ class TestDeepResearcherAgent:
         persisted_payload = json.loads(persisted_content.decode("utf-8"))
         assert persisted_payload["query_topic"] == "CUDA / OpenCL portability"
         assert persisted_payload["target_components"] == ["programming_model"]
-        compact_sources = agent.source_registry_middleware.get_source_list_text()
+        compact_sources = source_mw.get_source_list_text()
         assert compact_sources is not None
         assert "https://example.test/opencl" in compact_sources
         assert "https://example.test/unused" not in compact_sources
@@ -714,7 +799,7 @@ class TestDeepResearcherAgent:
         fake_runnable = MagicMock()
         fake_runnable.ainvoke = AsyncMock()
         agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
-        batch_tool = self._build_batch_tool(agent, fake_runnable)
+        batch_tool, _source_mw = self._build_batch_tool(agent, fake_runnable)
 
         with pytest.raises(ValueError, match="run_research_batch accepts at most 6 curated queries"):
             await batch_tool.ainvoke(
@@ -745,7 +830,7 @@ class TestDeepResearcherAgent:
         fake_runnable = MagicMock()
         fake_runnable.ainvoke = AsyncMock(return_value=self._structured_notes_response("AI agents overview"))
         agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
-        batch_tool = self._build_batch_tool(agent, fake_runnable)
+        batch_tool, _source_mw = self._build_batch_tool(agent, fake_runnable)
 
         result = await batch_tool.ainvoke(
             {
@@ -780,7 +865,7 @@ class TestDeepResearcherAgent:
         fake_runnable = MagicMock()
         fake_runnable.ainvoke = AsyncMock(return_value=self._structured_notes_response("AI agents survey"))
         agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
-        batch_tool = self._build_batch_tool(agent, fake_runnable)
+        batch_tool, _source_mw = self._build_batch_tool(agent, fake_runnable)
 
         result = await batch_tool.ainvoke(
             {
@@ -866,10 +951,10 @@ class TestDeepResearcherAgent:
         fake_backend.upload_files.side_effect = lambda files: [
             FileUploadResponse(path=path, error=None) for path, _content in files
         ]
-        batch_tool = self._build_batch_tool(agent, FakeResearcherRunnable(), backend=fake_backend)
-        agent.source_registry_middleware.registry.add(SourceEntry(url="https://example.test/good", title="Good"))
-        agent.source_registry_middleware.registry.add(SourceEntry(url="https://example.test/slow", title="Slow"))
-        agent.source_registry_middleware.registry.add(SourceEntry(url="https://example.test/unused", title="Unused"))
+        batch_tool, source_mw = self._build_batch_tool(agent, FakeResearcherRunnable(), backend=fake_backend)
+        source_mw.registry.add(SourceEntry(url="https://example.test/good", title="Good"))
+        source_mw.registry.add(SourceEntry(url="https://example.test/slow", title="Slow"))
+        source_mw.registry.add(SourceEntry(url="https://example.test/unused", title="Unused"))
         query_payloads = [
             {
                 "query": "good query",
@@ -913,7 +998,7 @@ class TestDeepResearcherAgent:
         assert [note.query_topic for note in persisted_notes] == ["Good Query", "Slow Query"]
         assert persisted_files[0][0] == _research_note_path(query_models[0], persisted_notes[0], 1)
         assert persisted_files[1][0] == _research_note_path(query_models[2], persisted_notes[1], 2)
-        compact_sources = agent.source_registry_middleware.get_source_list_text()
+        compact_sources = source_mw.get_source_list_text()
         assert compact_sources is not None
         assert "https://example.test/good" in compact_sources
         assert "https://example.test/slow" in compact_sources
@@ -1056,8 +1141,8 @@ class TestDeepResearcherAgent:
                 tools=[real_tool],
             )
             state = DeepResearchAgentState(messages=[HumanMessage(content="Quick query")])
-            agent.source_registry_middleware.registry.add(SourceEntry(url="https://example.com"))
-            await agent.run(state)
+            with seeded_session_registry(SourceEntry(url="https://example.com")):
+                await agent.run(state)
 
             mock_llm_provider.get.assert_any_call(LLMRole.PLANNER)
             mock_llm_provider.get.assert_any_call(LLMRole.ROUTER)
@@ -1079,9 +1164,8 @@ class TestDeepResearcherAgent:
             )
 
             state = DeepResearchAgentState(messages=[HumanMessage(content="Compare CUDA vs OpenCL in depth")])
-            agent.source_registry_middleware.registry.add(SourceEntry(url="https://example.com"))
-
-            result = await agent.run(state)
+            with seeded_session_registry(SourceEntry(url="https://example.com")):
+                result = await agent.run(state)
 
             assert result is not None
             assert result.messages is not None
@@ -1099,9 +1183,8 @@ class TestDeepResearcherAgent:
             )
 
             state = DeepResearchAgentState(messages=[])
-            agent.source_registry_middleware.registry.add(SourceEntry(url="https://example.com"))
-
-            result = await agent.run(state)
+            with seeded_session_registry(SourceEntry(url="https://example.com")):
+                result = await agent.run(state)
 
             assert result is not None
 
@@ -1119,9 +1202,8 @@ class TestDeepResearcherAgent:
             )
 
             state = DeepResearchAgentState(messages=[HumanMessage(content="Test query")])
-            agent.source_registry_middleware.registry.add(SourceEntry(url="https://example.com"))
-
-            await agent.run(state)
+            with seeded_session_registry(SourceEntry(url="https://example.com")):
+                await agent.run(state)
 
             # Callbacks should have been passed to ainvoke
             call_kwargs = mock_create_deep_agent.ainvoke.call_args
@@ -1164,9 +1246,8 @@ class TestDeepResearcherAgent:
             )
 
             state = DeepResearchAgentState(messages=[HumanMessage(content="Test")])
-            agent.source_registry_middleware.registry.add(SourceEntry(url="https://example.com"))
-
-            result = await agent.run(state)
+            with seeded_session_registry(SourceEntry(url="https://example.com")):
+                result = await agent.run(state)
 
             # Should handle empty messages
             assert result is not None
@@ -1199,9 +1280,8 @@ class TestDeepResearcherAgent:
             )
 
             state = DeepResearchAgentState(messages=[HumanMessage(content="Original query")])
-            agent.source_registry_middleware.registry.add(SourceEntry(url="https://example.com"))
-
-            result = await agent.run(state)
+            with seeded_session_registry(SourceEntry(url="https://example.com")):
+                result = await agent.run(state)
 
             assert result.messages[0].content == "Original query"
             assert result.messages[1].content == "I'll help with that."
@@ -1209,6 +1289,108 @@ class TestDeepResearcherAgent:
             assert (
                 result.messages[3].content == "Writer markdown [1].\n\n## Sources\n[1] Example: https://example.com\n"
             )
+
+
+class TestPerRunIsolation:
+    """Per-run construction (ADR-0018): no run can observe another run's state."""
+
+    @pytest.fixture
+    def mock_llm(self):
+        llm = MagicMock()
+        llm.ainvoke = AsyncMock()
+        llm.bind_tools = MagicMock(return_value=llm)
+        return llm
+
+    @pytest.fixture
+    def mock_llm_provider(self, mock_llm):
+        provider = LLMProvider()
+        provider.set_default(mock_llm)
+        provider.configure(LLMRole.ORCHESTRATOR, mock_llm)
+        provider.configure(LLMRole.PLANNER, mock_llm)
+        provider.configure(LLMRole.RESEARCHER, mock_llm)
+        provider.configure(LLMRole.REPORT_WRITER, mock_llm)
+        return provider
+
+    def test_prepare_run_builds_fresh_artifacts_per_run(self, mock_llm_provider):
+        """Each run gets its own middleware, tool set, and middleware stacks."""
+        mock_agent = MagicMock()
+        mock_agent.with_config = MagicMock(return_value=mock_agent)
+        with patch(
+            "aiq_agent.agents.deep_researcher.factory.create_deep_agent",
+            return_value=mock_agent,
+        ):
+            from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+
+            agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[web_search_tool])
+            state = DeepResearchAgentState(messages=[HumanMessage(content="Request")])
+
+            first = agent._prepare_run(state)
+            second = agent._prepare_run(state)
+
+            assert first.source_registry_middleware is not second.source_registry_middleware
+            assert first.tool_set is not second.tool_set
+            assert first.middleware_set is not second.middleware_set
+            # The agent instance itself holds no per-run capture state anymore.
+            assert not hasattr(agent, "source_registry_middleware")
+
+    def test_prepare_run_middleware_starts_empty_even_after_prior_capture(self, mock_llm_provider):
+        """Sources captured by one run's middleware are invisible to the next run."""
+        mock_agent = MagicMock()
+        mock_agent.with_config = MagicMock(return_value=mock_agent)
+        with patch(
+            "aiq_agent.agents.deep_researcher.factory.create_deep_agent",
+            return_value=mock_agent,
+        ):
+            from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+
+            agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[web_search_tool])
+            state = DeepResearchAgentState(messages=[HumanMessage(content="Request")])
+
+            first = agent._prepare_run(state)
+            first.source_registry_middleware.registry.add(SourceEntry(url="https://run-one.example.com"))
+            note = MagicMock()
+            note.sources = [MagicMock(locator="https://run-one.example.com")]
+            first.source_registry_middleware.register_research_note_sources([note])
+
+            second = agent._prepare_run(state)
+
+            assert second.source_registry_middleware.registry.all_sources() == []
+            assert second.source_registry_middleware._compact_source_keys == set()
+            # And the first run's state is untouched by preparing the second.
+            assert [s.url for s in first.source_registry_middleware.registry.all_sources()] == [
+                "https://run-one.example.com"
+            ]
+
+    @pytest.mark.asyncio
+    async def test_second_run_does_not_reuse_first_run_sources(self, mock_llm_provider):
+        """A reused prebuilt agent starts each standalone run with an empty registry."""
+        mock_agent = MagicMock()
+        mock_agent.with_config = MagicMock(return_value=mock_agent)
+        mock_agent.ainvoke = AsyncMock(
+            return_value={
+                "messages": [AIMessage(content="done")],
+                "files": output_markdown_file(),
+            }
+        )
+        with patch(
+            "aiq_agent.agents.deep_researcher.factory.create_deep_agent",
+            return_value=mock_agent,
+        ):
+            from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+            from aiq_agent.common.citation_verification import EmptySourceRegistryError
+
+            agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[web_search_tool])
+
+            # First run succeeds against a session-scoped registry (conversation mode).
+            state = DeepResearchAgentState(messages=[HumanMessage(content="First request")])
+            with seeded_session_registry(SourceEntry(url="https://run-one.example.com")):
+                await agent.run(state)
+
+            # Second run without a session registry sees none of the first
+            # run's sources: its fresh per-run registry is empty.
+            state = DeepResearchAgentState(messages=[HumanMessage(content="Next request")])
+            with pytest.raises(EmptySourceRegistryError):
+                await agent.run(state)
 
 
 class TestFinalMarkdownExtraction:
@@ -1315,11 +1497,11 @@ class TestFinalMarkdownExtraction:
             from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
 
             agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
-            agent.source_registry_middleware.registry.add(SourceEntry(url="https://example.com"))
 
             state = DeepResearchAgentState(messages=[HumanMessage(content="Write a report")])
-            with pytest.raises(ValueError, match="writer-agent did not produce a final Markdown answer"):
-                await agent.run(state)
+            with seeded_session_registry(SourceEntry(url="https://example.com")):
+                with pytest.raises(ValueError, match="writer-agent did not produce a final Markdown answer"):
+                    await agent.run(state)
 
 
 class TestDeepResearcherCitationVerification:
@@ -1368,21 +1550,18 @@ class TestDeepResearcherCitationVerification:
         ):
             agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
 
-            # Pre-populate registry with the matching URL plus an unrelated tool source.
-            agent.source_registry_middleware.registry.add(
-                SourceEntry(
-                    citation_key="weather_observation_tool",
-                    source_type="tool_result",
-                    tool_name="weather_observation_tool",
-                )
-            )
-            agent.source_registry_middleware.registry.add(
-                SourceEntry(url="https://docs.nvidia.com/cuda/", title="CUDA Docs", tool_name="web_search")
-            )
-
             # Force the verifier to report "no valid citations" while leaving the report unchanged,
             # so we can assert post-processing does not synthesize a citation.
             with (
+                # Pre-populate registry with the matching URL plus an unrelated tool source.
+                seeded_session_registry(
+                    SourceEntry(
+                        citation_key="weather_observation_tool",
+                        source_type="tool_result",
+                        tool_name="weather_observation_tool",
+                    ),
+                    SourceEntry(url="https://docs.nvidia.com/cuda/", title="CUDA Docs", tool_name="web_search"),
+                ),
                 patch(
                     "aiq_agent.agents.deep_researcher.agent.verify_citations",
                     return_value=MagicMock(
@@ -1424,11 +1603,11 @@ class TestDeepResearcherCitationVerification:
             return_value=mock_agent,
         ):
             agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
-            agent.source_registry_middleware.registry.add(
-                SourceEntry(url="https://docs.nvidia.com/cuda/", title="CUDA Docs", tool_name="web_search")
-            )
 
             with (
+                seeded_session_registry(
+                    SourceEntry(url="https://docs.nvidia.com/cuda/", title="CUDA Docs", tool_name="web_search")
+                ),
                 patch(
                     "aiq_agent.agents.deep_researcher.agent.verify_citations",
                     return_value=MagicMock(
