@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core'
+import { index, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core'
 import { projects } from './projects'
 
 export const conversations = pgTable('conversations', {
@@ -10,7 +10,10 @@ export const conversations = pgTable('conversations', {
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-})
+}, (table) => ({
+  orgUpdatedIdx: index('conversations_org_updated_idx').on(table.organizationId, table.updatedAt),
+  projectIdx: index('conversations_project_idx').on(table.projectId),
+}))
 
 export type Conversation = typeof conversations.$inferSelect
 export type NewConversation = typeof conversations.$inferInsert
