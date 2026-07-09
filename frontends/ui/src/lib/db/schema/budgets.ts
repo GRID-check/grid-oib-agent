@@ -1,4 +1,4 @@
-import { boolean, index, integer, numeric, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core'
+import { boolean, date, index, integer, numeric, pgTable, primaryKey, text, timestamp, uuid } from 'drizzle-orm/pg-core'
 
 /**
  * LLM spend limits + auditable usage ledger (ADR-0015,
@@ -118,7 +118,43 @@ export const llmUsageEvents = pgTable(
   }),
 )
 
+/**
+ * `llm_usage_rollups` — write-through daily spend aggregate (ADR-0019).
+ *
+ * One row per (org, UTC day, user, project); maintained in the SAME
+ * transaction as the `llm_usage_events` insert, so it is exact, not a cache.
+ * Budget enforcement reads a handful of rollup rows instead of aggregating
+ * the month's ledger on every WebSocket upgrade. Empty string stands in for
+ * "no user"/"no project" so the composite primary key stays non-null.
+ */
+export const llmUsageRollups = pgTable(
+  'llm_usage_rollups',
+  {
+    organizationId: text('organization_id').notNull(),
+    /** UTC day the spend belongs to. */
+    day: date('day').notNull(),
+    userId: text('user_id').notNull().default(''),
+    projectId: text('project_id').notNull().default(''),
+    costUsd: numeric('cost_usd', { precision: 14, scale: 8 }).notNull().default('0'),
+    events: integer('events').notNull().default(0),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({
+      name: 'llm_usage_rollups_pk',
+      columns: [table.organizationId, table.day, table.userId, table.projectId],
+    }),
+    orgUserDayIdx: index('idx_llm_usage_rollups_org_user_day').on(table.organizationId, table.userId, table.day),
+    orgProjectDayIdx: index('idx_llm_usage_rollups_org_project_day').on(
+      table.organizationId,
+      table.projectId,
+      table.day,
+    ),
+  }),
+)
+
 export type BudgetPolicy = typeof budgetPolicies.$inferSelect
 export type NewBudgetPolicy = typeof budgetPolicies.$inferInsert
 export type LlmUsageEvent = typeof llmUsageEvents.$inferSelect
 export type NewLlmUsageEvent = typeof llmUsageEvents.$inferInsert
+export type LlmUsageRollup = typeof llmUsageRollups.$inferSelect

@@ -21,6 +21,7 @@ import { getDb } from '@/lib/db'
 import {
   budgetPolicies,
   llmUsageEvents,
+  llmUsageRollups,
   type BudgetPolicy,
   type BudgetScope,
   type NewLlmUsageEvent,
@@ -264,11 +265,74 @@ export async function clearBudgetPolicy(params: {
 // Ledger
 // ---------------------------------------------------------------------------
 
+/** UTC calendar day (YYYY-MM-DD) an event belongs to. */
+function utcDayOf(createdAt: Date | undefined): string {
+  return (createdAt ?? new Date()).toISOString().slice(0, 10)
+}
+
+interface RollupIncrement {
+  organizationId: string
+  day: string
+  userId: string
+  projectId: string
+  costUsd: number
+  events: number
+}
+
+function buildRollupIncrements(events: NewLlmUsageEvent[]): RollupIncrement[] {
+  const byKey = new Map<string, RollupIncrement>()
+  for (const event of events) {
+    const day = utcDayOf(event.createdAt ?? undefined)
+    const userId = event.userId ?? ''
+    const projectId = event.projectId ?? ''
+    const key = `${event.organizationId} ${day} ${userId} ${projectId}`
+    const entry = byKey.get(key) ?? {
+      organizationId: event.organizationId,
+      day,
+      userId,
+      projectId,
+      costUsd: 0,
+      events: 0,
+    }
+    entry.costUsd += Number.parseFloat(String(event.costUsd ?? '0')) || 0
+    entry.events += 1
+    byKey.set(key, entry)
+  }
+  return [...byKey.values()]
+}
+
 export async function recordUsageEvents(events: NewLlmUsageEvent[]): Promise<number> {
   if (events.length === 0) return 0
   const db = getDb()
-  const inserted = await db.insert(llmUsageEvents).values(events).returning({ id: llmUsageEvents.id })
-  return inserted.length
+  return db.transaction(async (tx) => {
+    const inserted = await tx.insert(llmUsageEvents).values(events).returning({ id: llmUsageEvents.id })
+
+    // Write-through daily rollup (ADR-0019): incremented in the same
+    // transaction as the ledger insert, so enforcement reads stay exact
+    // without re-aggregating the month's events.
+    for (const increment of buildRollupIncrements(events)) {
+      await tx
+        .insert(llmUsageRollups)
+        .values({
+          organizationId: increment.organizationId,
+          day: increment.day,
+          userId: increment.userId,
+          projectId: increment.projectId,
+          costUsd: increment.costUsd.toFixed(8),
+          events: increment.events,
+        })
+        .onConflictDoUpdate({
+          target: [llmUsageRollups.organizationId, llmUsageRollups.day, llmUsageRollups.userId, llmUsageRollups.projectId],
+          set: {
+            costUsd: sql`${llmUsageRollups.costUsd} + ${increment.costUsd.toFixed(8)}`,
+            events: sql`${llmUsageRollups.events} + ${increment.events}`,
+            updatedAt: new Date(),
+          },
+        })
+    }
+
+    return inserted.length
+  })
 }
 
 export function utcDayStart(now = new Date()): Date {
@@ -339,6 +403,43 @@ export async function getSpendSummary(
     dayUsd: perModel.reduce((total, m) => total + m.dayUsd, 0),
     monthUsd: perModel.reduce((total, m) => total + m.monthUsd, 0),
     perModel,
+  }
+}
+
+export interface SpendTotals {
+  dayUsd: number
+  monthUsd: number
+}
+
+/**
+ * Day/month spend totals from the write-through rollup (ADR-0019) — the
+ * enforcement hot path. Reads a month of daily rollup rows instead of
+ * aggregating the ledger; per-model breakdowns stay on getSpendSummary
+ * (admin views only).
+ */
+export async function getSpendTotals(
+  organizationId: string,
+  filter: { userId?: string; projectId?: string } = {},
+): Promise<SpendTotals> {
+  const db = getDb()
+  const dayStr = utcDayStart().toISOString().slice(0, 10)
+  const monthStr = utcMonthStart().toISOString().slice(0, 10)
+
+  const conditions = [eq(llmUsageRollups.organizationId, organizationId), gte(llmUsageRollups.day, monthStr)]
+  if (filter.userId) conditions.push(eq(llmUsageRollups.userId, filter.userId))
+  if (filter.projectId) conditions.push(eq(llmUsageRollups.projectId, filter.projectId))
+
+  const [row] = await db
+    .select({
+      monthUsd: sql<string>`coalesce(sum(${llmUsageRollups.costUsd}), 0)`,
+      dayUsd: sql<string>`coalesce(sum(${llmUsageRollups.costUsd}) filter (where ${llmUsageRollups.day} = ${dayStr}), 0)`,
+    })
+    .from(llmUsageRollups)
+    .where(and(...conditions))
+
+  return {
+    dayUsd: Number.parseFloat(row?.dayUsd ?? '0') || 0,
+    monthUsd: Number.parseFloat(row?.monthUsd ?? '0') || 0,
   }
 }
 
@@ -493,7 +594,7 @@ export interface BudgetStatus {
   remainingProjectUsd: number | null
 }
 
-function remainingUsd(limits: BudgetLimits, spend: SpendSummary): number | null {
+function remainingUsd(limits: BudgetLimits, spend: SpendTotals): number | null {
   const candidates: number[] = []
   if (limits.dailyLimitEur !== null) candidates.push(eurToUsd(limits.dailyLimitEur) - spend.dayUsd)
   if (limits.monthlyLimitEur !== null) candidates.push(eurToUsd(limits.monthlyLimitEur) - spend.monthUsd)
@@ -515,15 +616,15 @@ export async function getBudgetStatus(
   // actually exists.
   const [orgBudget, orgSpend, memberBudget, projectBudget] = await Promise.all([
     getOrgBudget(organizationId),
-    getSpendSummary(organizationId),
+    getSpendTotals(organizationId),
     userId ? getScopedBudget(organizationId, 'member', userId) : Promise.resolve(null),
     projectId ? getScopedBudget(organizationId, 'project', projectId) : Promise.resolve(null),
   ])
   const remainingOrg = remainingUsd(orgBudget, orgSpend)
 
   const [memberSpend, projectSpend] = await Promise.all([
-    memberBudget && userId ? getSpendSummary(organizationId, { userId }) : Promise.resolve(null),
-    projectBudget && projectId ? getSpendSummary(organizationId, { projectId }) : Promise.resolve(null),
+    memberBudget && userId ? getSpendTotals(organizationId, { userId }) : Promise.resolve(null),
+    projectBudget && projectId ? getSpendTotals(organizationId, { projectId }) : Promise.resolve(null),
   ])
 
   const remainingUser = memberBudget && memberSpend ? remainingUsd(memberBudget, memberSpend) : null
