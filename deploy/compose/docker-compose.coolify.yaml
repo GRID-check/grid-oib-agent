@@ -123,8 +123,10 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
+      # service_started, NOT service_healthy: the cache is optional by design
+      # (fail-open in both tiers) and must never block the stack.
       dragonfly:
-        condition: service_healthy
+        condition: service_started
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 15s
@@ -275,17 +277,33 @@ services:
     # Redis-protocol shared cache (ADR-0020). Cache semantics only: every
     # value is reconstructible, so no persistence volume — cache_mode evicts
     # under memory pressure instead of failing writes.
+    # --force_epoll: Dragonfly defaults to io_uring and CRASHES on boot where
+    # the kernel/seccomp denies it (common on VPS/managed Docker hosts);
+    # epoll is universally available and far above our throughput needs.
     image: dragonflydb/dragonfly:v1.27.1
-    command: ["dragonfly", "--proactor_threads=2", "--maxmemory=256mb", "--cache_mode=true", "--dbfilename="]
+    command:
+      [
+        "dragonfly",
+        "--logtostderr",
+        "--force_epoll",
+        "--proactor_threads=2",
+        "--maxmemory=256mb",
+        "--cache_mode=true",
+        "--dbfilename=",
+      ]
     ulimits:
       memlock: -1
     networks:
       - aiq-network
+    # Observability only — nothing depends_on this being healthy: both app
+    # tiers fail open to in-process caches (ADR-0020), so a broken cache must
+    # never block a deployment.
     healthcheck:
-      test: ["CMD", "redis-cli", "-p", "6379", "ping"]
+      test: ["CMD-SHELL", "redis-cli -p 6379 ping | grep -q PONG"]
       interval: 5s
       timeout: 3s
       retries: 5
+      start_period: 10s
     restart: unless-stopped
 
   postgres:
