@@ -59,6 +59,9 @@ a new ADR. Small clarifications and typo fixes are fine.
 | [0016](0016-platform-tier-and-permission-registry.md) | Platform tier and the permission-driven authorization model | Accepted |
 | [0017](0017-bff-repository-service-architecture.md) | BFF repository/service architecture | Accepted |
 | [0018](0018-per-run-state-for-deep-research.md) | Per-run construction of deep research run state | Accepted |
+| [0019](0019-write-through-usage-rollups.md) | Write-through daily rollups for budget enforcement | Accepted |
+| [0020](0020-dragonfly-shared-cache.md) | Dragonfly as the shared cache tier | Accepted |
+| [0021](0021-db-claimed-research-workers.md) | DB-claimed workers for deep-research execution | Proposed |
 
 ## Related documents
 
