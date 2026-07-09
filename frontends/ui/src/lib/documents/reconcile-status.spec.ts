@@ -27,6 +27,12 @@ const makeRow = (overrides: Record<string, unknown> = {}) => ({
 
 const mockFetch = vi.fn()
 
+const batchResponse = (statuses: Record<string, unknown>) => ({
+  ok: true,
+  status: 200,
+  json: () => Promise.resolve({ statuses }),
+})
+
 describe('reconcileDocumentStatuses', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', mockFetch)
@@ -50,22 +56,18 @@ describe('reconcileDocumentStatuses', () => {
 
   it('marks a row completed when the ingestion job completed', async () => {
     const db = makeDbMock()
-    mockFetch.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: () =>
-        Promise.resolve({
-          job_id: 'job-1',
-          status: 'completed',
-          file_details: [{ file_name: 'plan.pdf', status: 'success' }],
-        }),
-    })
+    mockFetch.mockResolvedValue(
+      batchResponse({
+        'job-1': { status: 'completed', file_details: [{ file_name: 'plan.pdf', status: 'success' }] },
+      })
+    )
 
     const [result] = await reconcileDocumentStatuses([makeRow()])
 
+    expect(mockFetch).toHaveBeenCalledTimes(1)
     expect(mockFetch).toHaveBeenCalledWith(
-      expect.stringContaining('/v1/documents/job-1/status'),
-      expect.any(Object)
+      expect.stringContaining('/v1/documents/status/batch'),
+      expect.objectContaining({ method: 'POST' })
     )
     expect(result.status).toBe('completed')
     expect(result.errorMessage).toBeNull()
@@ -77,17 +79,11 @@ describe('reconcileDocumentStatuses', () => {
 
   it('marks a row failed with the job error message', async () => {
     const db = makeDbMock()
-    mockFetch.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: () =>
-        Promise.resolve({
-          job_id: 'job-1',
-          status: 'failed',
-          error_message: 'embedding service unavailable',
-          file_details: [],
-        }),
-    })
+    mockFetch.mockResolvedValue(
+      batchResponse({
+        'job-1': { status: 'failed', error_message: 'embedding service unavailable', file_details: [] },
+      })
+    )
 
     const [result] = await reconcileDocumentStatuses([makeRow()])
 
@@ -100,16 +96,14 @@ describe('reconcileDocumentStatuses', () => {
 
   it('marks a row failed when the completed job has a single failed file', async () => {
     makeDbMock()
-    mockFetch.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: () =>
-        Promise.resolve({
-          job_id: 'job-1',
+    mockFetch.mockResolvedValue(
+      batchResponse({
+        'job-1': {
           status: 'completed',
           file_details: [{ file_name: 'plan.pdf', status: 'failed', error_message: 'unparseable PDF' }],
-        }),
-    })
+        },
+      })
+    )
 
     const [result] = await reconcileDocumentStatuses([makeRow()])
 
@@ -119,11 +113,7 @@ describe('reconcileDocumentStatuses', () => {
 
   it('leaves a row pending while the job is still in progress', async () => {
     const db = makeDbMock()
-    mockFetch.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: () => Promise.resolve({ job_id: 'job-1', status: 'processing', file_details: [] }),
-    })
+    mockFetch.mockResolvedValue(batchResponse({ 'job-1': { status: 'processing', file_details: [] } }))
 
     const [result] = await reconcileDocumentStatuses([makeRow()])
 
@@ -131,10 +121,10 @@ describe('reconcileDocumentStatuses', () => {
     expect(db.update).not.toHaveBeenCalled()
   })
 
-  it('falls back to the collection file list when the job is unknown (404)', async () => {
+  it('falls back to the collection file list when the job is unknown', async () => {
     const db = makeDbMock()
     mockFetch
-      .mockResolvedValueOnce({ ok: false, status: 404 })
+      .mockResolvedValueOnce(batchResponse({ 'job-1': null }))
       .mockResolvedValueOnce({
         ok: true,
         status: 200,

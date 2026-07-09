@@ -40,6 +40,7 @@ Downloads the file from `file_ref` (presigned MinIO URL), saves to a temporary f
 | `GET` | `/v1/collections/{collection_name}/documents` | List documents in a collection | — | `[FileInfo]` | Same |
 | `DELETE` | `/v1/collections/{collection_name}/documents` | Delete files from a collection | `{ file_ids }` | `{ message, successful, failed, total_deleted }` | Same |
 | `GET` | `/v1/documents/{job_id}/status` | Get ingestion job status | — | `IngestionJobStatus` (404 if missing) | Same |
+| `POST` | `/v1/documents/status/batch` | Get up to 200 ingestion job statuses in one call (used by the BFF document-list reconciliation) | `{ job_ids: [string] }` | `{ statuses: { [job_id]: IngestionJobStatus \| null } }` | Same |
 
 Uploads save files to temp locations and submit async ingestion jobs. Temp files are cleaned up by the ingestion job after processing (`cleanup_files: true` config).
 

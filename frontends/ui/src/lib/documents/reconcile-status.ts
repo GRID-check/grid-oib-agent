@@ -43,10 +43,8 @@ interface TerminalResolution {
 type JobResolution =
   | { kind: 'terminal'; resolution: TerminalResolution }
   | { kind: 'in_progress' }
-  // Job unknown to the backend (404) — fall back to the collection file list.
+  // Job unknown to the backend — fall back to the collection file list.
   | { kind: 'unknown' }
-  // Backend unreachable or errored — leave the row untouched this round.
-  | { kind: 'skip' }
 
 export const extractIngestJobId = (metadata: unknown): string | null => {
   if (metadata && typeof metadata === 'object' && 'ingestJobId' in metadata) {
@@ -56,9 +54,9 @@ export const extractIngestJobId = (metadata: unknown): string | null => {
   return null
 }
 
-const fetchJson = async (url: string): Promise<{ status: number; body: unknown } | null> => {
+const fetchJson = async (url: string, init?: RequestInit): Promise<{ status: number; body: unknown } | null> => {
   try {
-    const response = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
+    const response = await fetch(url, { ...init, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
     if (response.status === 404) return { status: 404, body: null }
     if (!response.ok) return null
     return { status: response.status, body: await response.json() }
@@ -67,16 +65,33 @@ const fetchJson = async (url: string): Promise<{ status: number; body: unknown }
   }
 }
 
-const resolveFromJob = async (jobId: string): Promise<JobResolution> => {
-  const result = await fetchJson(`${getBackendUrl()}/v1/documents/${encodeURIComponent(jobId)}/status`)
-  if (!result) return { kind: 'skip' }
-  if (result.status === 404) return { kind: 'unknown' }
+interface BackendJobStatus {
+  status?: string
+  error_message?: string | null
+  file_details?: Array<{ status?: string; error_message?: string | null }>
+}
 
-  const job = result.body as {
-    status?: string
-    error_message?: string | null
-    file_details?: Array<{ status?: string; error_message?: string | null }>
-  }
+/**
+ * One POST for every in-flight job id instead of one GET per document.
+ * A missing map entry / null value means the backend does not know the job
+ * (→ collection-file-list fallback); a failed batch call skips reconciliation
+ * for this round entirely.
+ */
+const fetchJobStatuses = async (jobIds: string[]): Promise<Map<string, BackendJobStatus | null> | null> => {
+  if (jobIds.length === 0) return new Map()
+  const result = await fetchJson(`${getBackendUrl()}/v1/documents/status/batch`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ job_ids: jobIds }),
+  })
+  if (!result || result.status === 404 || typeof result.body !== 'object' || result.body === null) return null
+
+  const statuses = (result.body as { statuses?: Record<string, BackendJobStatus | null> }).statuses ?? {}
+  return new Map(Object.entries(statuses))
+}
+
+const resolveFromJobStatus = (job: BackendJobStatus | null | undefined): JobResolution => {
+  if (job === undefined || job === null) return { kind: 'unknown' }
 
   if (job.status === 'completed') {
     // A single-file job can complete at the job level while its only file
@@ -146,6 +161,10 @@ export async function reconcileDocumentStatuses<T extends ReconcilableDocument>(
     return cached
   }
 
+  // One batch call for every in-flight job id (previously one GET per row).
+  const jobIds = [...new Set(inFlight.map((row) => extractIngestJobId(row.metadata)).filter((id): id is string => !!id))]
+  const jobStatuses = await fetchJobStatuses(jobIds)
+
   const resolutions = new Map<string, TerminalResolution>()
 
   await Promise.all(
@@ -154,11 +173,13 @@ export async function reconcileDocumentStatuses<T extends ReconcilableDocument>(
       let resolution: TerminalResolution | null = null
 
       if (jobId) {
-        const jobResult = await resolveFromJob(jobId)
+        // Batch call failed → backend unreachable → leave rows untouched.
+        if (jobStatuses === null) return
+        const jobResult = resolveFromJobStatus(jobStatuses.get(jobId))
         if (jobResult.kind === 'terminal') {
           resolution = jobResult.resolution
         } else if (jobResult.kind !== 'unknown') {
-          // in_progress or backend unreachable — nothing to write this round.
+          // in_progress — nothing to write this round.
           return
         }
       }

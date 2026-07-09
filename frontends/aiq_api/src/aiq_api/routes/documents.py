@@ -25,6 +25,8 @@ from fastapi import Depends
 from fastapi import File
 from fastapi import HTTPException
 from fastapi import UploadFile
+from pydantic import BaseModel
+from pydantic import Field
 
 from aiq_agent.knowledge.base import BaseIngestor
 from aiq_agent.knowledge.schema import FileInfo
@@ -35,6 +37,9 @@ from ..models.requests import UploadResponse
 from .collections import _require_ingestor
 
 logger = logging.getLogger(__name__)
+
+# Upper bound on job ids per batch-status request (request validation).
+BATCH_STATUS_MAX_IDS = 200
 
 
 def add_document_routes(router: APIRouter):
@@ -207,3 +212,31 @@ def add_document_routes(router: APIRouter):
         except Exception as e:
             logger.error(f"Failed to get job status: {e}")
             raise HTTPException(status_code=500, detail=str(e))
+
+    class BatchStatusRequest(BaseModel):
+        job_ids: list[str] = Field(default_factory=list, max_length=BATCH_STATUS_MAX_IDS)
+
+    @router.post(
+        "/v1/documents/status/batch",
+        tags=["documents"],
+        summary="Get ingestion job statuses in batch",
+    )
+    async def get_job_statuses_batch(
+        request: BatchStatusRequest,
+        ingestor: BaseIngestor = Depends(_require_ingestor),
+    ) -> dict[str, Any]:
+        """Batch variant of the per-job status endpoint.
+
+        The BFF reconciles every in-flight document row on document-list
+        reads; per-job round-trips made that read O(n) HTTP calls. Unknown
+        or failing job ids map to null (the caller falls back to the
+        collection file list), mirroring the single endpoint's 404.
+        """
+        statuses: dict[str, Any] = {}
+        for job_id in request.job_ids:
+            try:
+                status = ingestor.get_job_status(job_id)
+                statuses[job_id] = status.model_dump(mode="json") if status is not None else None
+            except Exception:
+                statuses[job_id] = None
+        return {"statuses": statuses}
