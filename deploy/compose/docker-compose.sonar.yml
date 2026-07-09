@@ -1,0 +1,68 @@
+# On-demand self-hosted SonarQube (Community Edition) for LOCAL deep scans.
+#
+# WHEN TO USE THIS vs SonarQube Cloud:
+#   - Cloud (default, .github/workflows/sonar.yml): PR/branch analysis +
+#     clean-as-you-code gate, zero maintenance. Best for CI. Code is analyzed
+#     on SonarSource's servers.
+#   - This stack: run Sonar on YOUR machine when you want a private/off-SaaS
+#     deep scan, or to explore rules before wiring the gate. Community Edition
+#     analyzes the MAIN branch only (no PR analysis — that needs Cloud or the
+#     paid Developer Edition), so it is a developer tool, NOT a CI gate, and NOT
+#     something to run always-on on the small production host (it wants ~2-4 GB
+#     RAM + an embedded Elasticsearch + its own Postgres).
+#
+# USAGE:
+#   # Kernel prereq for the embedded Elasticsearch (once per host):
+#   sudo sysctl -w vm.max_map_count=524288
+#
+#   docker compose -f deploy/compose/docker-compose.sonar.yml up -d
+#   # wait for http://localhost:9001 (admin/admin), create a token, then scan:
+#   docker run --rm --network host -v "$PWD:/usr/src" \
+#     -e SONAR_HOST_URL=http://localhost:9001 -e SONAR_TOKEN=<token> \
+#     sonarsource/sonar-scanner-cli
+#   docker compose -f deploy/compose/docker-compose.sonar.yml down   # tear down
+
+services:
+  sonarqube:
+    image: sonarqube:community
+    depends_on:
+      sonar-db:
+        condition: service_healthy
+    environment:
+      SONAR_JDBC_URL: jdbc:postgresql://sonar-db:5432/sonar
+      SONAR_JDBC_USERNAME: sonar
+      SONAR_JDBC_PASSWORD: sonar
+    ports:
+      - "9001:9000" # 9001 on host to avoid clashing with MinIO's 9000
+    volumes:
+      - sonar-data:/opt/sonarqube/data
+      - sonar-extensions:/opt/sonarqube/extensions
+      - sonar-logs:/opt/sonarqube/logs
+    # Elasticsearch inside SonarQube needs a high mmap count and unbounded
+    # memlock; the host sysctl above is still required.
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    restart: unless-stopped
+
+  sonar-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: sonar
+      POSTGRES_PASSWORD: sonar
+      POSTGRES_DB: sonar
+    volumes:
+      - sonar-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sonar -d sonar"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  sonar-data:
+  sonar-extensions:
+  sonar-logs:
+  sonar-db-data:
