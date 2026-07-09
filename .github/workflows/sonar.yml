@@ -1,0 +1,78 @@
+name: SonarQube Cloud
+
+# Static analysis (code smells, cognitive complexity, duplication, bugs,
+# security hotspots, coverage) via SonarQube Cloud. Config: sonar-project.properties.
+#
+# The whole job is gated on the SONAR_TOKEN secret, so it is a no-op until an
+# owner sets the project up (see sonar-project.properties) — it never breaks CI
+# on forks or before setup.
+
+on:
+  push:
+    branches:
+      - develop
+      - "release/**"
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sonar-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sonar:
+    name: Analyze
+    runs-on: ubuntu-latest
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+    steps:
+      - name: Checkout
+        if: env.SONAR_TOKEN != ''
+        uses: actions/checkout@v4
+        with:
+          # Sonar needs full history for accurate new-code detection and blame.
+          fetch-depth: 0
+
+      # --- Python coverage (best-effort; never blocks the smell scan) ---
+      - name: Setup Python
+        if: env.SONAR_TOKEN != ''
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Setup uv
+        if: env.SONAR_TOKEN != ''
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+      - name: Python coverage
+        if: env.SONAR_TOKEN != ''
+        continue-on-error: true
+        run: |
+          uv venv --python 3.13 .venv
+          uv sync --group dev
+          . .venv/bin/activate
+          pytest --cov=src --cov=frontends/aiq_api/src --cov-report=xml:coverage.xml -q || true
+
+      # --- Frontend coverage (best-effort) ---
+      - name: Setup Node
+        if: env.SONAR_TOKEN != ''
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Frontend coverage
+        if: env.SONAR_TOKEN != ''
+        continue-on-error: true
+        working-directory: frontends/ui
+        run: |
+          npm ci
+          npm run test:ci -- --coverage.reporter=lcov --coverage.reporter=text || true
+
+      - name: SonarQube Cloud Scan
+        if: env.SONAR_TOKEN != ''
+        uses: SonarSource/sonarqube-scan-action@v5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: https://sonarcloud.io
