@@ -64,15 +64,40 @@ def create_job_access(
     db_url: str,
     conversation_id: str | None = None,
     project_collection: str | None = None,
+    organization_id: str | None = None,
 ) -> None:
     """Persist the verified owner for a newly created job."""
     with _job_access_connection(db_url) as conn:
         _ensure_job_access_schema(conn, db_url)
         conn.execute(
             _job_access_upsert_sql(db_url),
-            _principal_params(job_id, principal, conversation_id, project_collection),
+            _principal_params(job_id, principal, conversation_id, project_collection, organization_id),
         )
         conn.commit()
+
+
+def count_active_jobs(
+    db_url: str,
+    terminal_statuses: tuple[str, ...],
+    organization_id: str | None = None,
+) -> int:
+    """Count non-terminal, non-expired jobs (admission control).
+
+    Org scoping joins ``job_access.organization_id``, written at submit time;
+    pre-existing rows without it simply don't count toward per-org caps.
+    """
+    with _job_access_connection(db_url) as conn:
+        _ensure_job_access_schema(conn, db_url)
+        placeholders = ", ".join(f":s{i}" for i in range(len(terminal_statuses)))
+        params: dict[str, Any] = {f"s{i}": status for i, status in enumerate(terminal_statuses)}
+        query = (
+            "SELECT count(*) FROM job_info ji JOIN job_access ja ON ja.job_id = ji.job_id "
+            f"WHERE ji.status NOT IN ({placeholders}) AND ji.is_expired IS NOT TRUE"
+        )
+        if organization_id is not None:
+            query += " AND ja.organization_id = :organization_id"
+            params["organization_id"] = organization_id
+        return int(conn.execute(text(query), params).scalar() or 0)
 
 
 def get_job_access(job_id: str, db_url: str) -> dict[str, Any] | None:
@@ -227,6 +252,7 @@ def _job_access_table_sql(db_url: str) -> str:
         "  owner_email VARCHAR,"
         "  conversation_id VARCHAR,"
         "  project_collection VARCHAR,"
+        "  organization_id VARCHAR,"
         f"  created_at {created_at_type}"
         ")"
     )
@@ -246,6 +272,7 @@ def _job_access_add_column_statements(db_url: str) -> list[str]:
         return [
             "ALTER TABLE job_access ADD COLUMN IF NOT EXISTS conversation_id VARCHAR",
             "ALTER TABLE job_access ADD COLUMN IF NOT EXISTS project_collection VARCHAR",
+            "ALTER TABLE job_access ADD COLUMN IF NOT EXISTS organization_id VARCHAR",
         ]
     return []
 
@@ -262,24 +289,29 @@ def _ensure_sqlite_job_access_columns(conn: Connection) -> None:
         conn.execute(text("ALTER TABLE job_access ADD COLUMN conversation_id VARCHAR"))
     if "project_collection" not in existing_columns:
         conn.execute(text("ALTER TABLE job_access ADD COLUMN project_collection VARCHAR"))
+    if "organization_id" not in existing_columns:
+        conn.execute(text("ALTER TABLE job_access ADD COLUMN organization_id VARCHAR"))
 
 
 def _job_access_upsert_sql(db_url: str):
     postgres_upsert = (
         "INSERT INTO job_access "
-        "(job_id, owner_auth_type, owner_subject, owner_email, conversation_id, project_collection) "
-        "VALUES (:job_id, :owner_auth_type, :owner_subject, :owner_email, :conversation_id, :project_collection) "
+        "(job_id, owner_auth_type, owner_subject, owner_email, conversation_id, project_collection, organization_id) "
+        "VALUES (:job_id, :owner_auth_type, :owner_subject, :owner_email, :conversation_id, :project_collection, "
+        ":organization_id) "
         "ON CONFLICT(job_id) DO UPDATE SET "
         "owner_auth_type = excluded.owner_auth_type, "
         "owner_subject = excluded.owner_subject, "
         "owner_email = excluded.owner_email, "
         "conversation_id = excluded.conversation_id, "
-        "project_collection = excluded.project_collection"
+        "project_collection = excluded.project_collection, "
+        "organization_id = excluded.organization_id"
     )
     sqlite_upsert = (
         "INSERT OR REPLACE INTO job_access "
-        "(job_id, owner_auth_type, owner_subject, owner_email, conversation_id, project_collection) "
-        "VALUES (:job_id, :owner_auth_type, :owner_subject, :owner_email, :conversation_id, :project_collection)"
+        "(job_id, owner_auth_type, owner_subject, owner_email, conversation_id, project_collection, organization_id) "
+        "VALUES (:job_id, :owner_auth_type, :owner_subject, :owner_email, :conversation_id, :project_collection, "
+        ":organization_id)"
     )
     return text(postgres_upsert if _is_postgres(db_url) else sqlite_upsert)
 
@@ -289,6 +321,7 @@ def _principal_params(
     principal: Principal,
     conversation_id: str | None = None,
     project_collection: str | None = None,
+    organization_id: str | None = None,
 ) -> dict[str, str | None]:
     return {
         "job_id": job_id,
@@ -297,4 +330,5 @@ def _principal_params(
         "owner_email": principal.email,
         "conversation_id": conversation_id,
         "project_collection": project_collection,
+        "organization_id": organization_id,
     }

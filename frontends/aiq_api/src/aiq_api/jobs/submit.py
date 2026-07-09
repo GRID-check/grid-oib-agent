@@ -27,15 +27,66 @@ import os
 
 from aiq_agent.auth import Principal
 from aiq_agent.auth import get_current_principal
+from aiq_agent.common.job_admission import JobAdmissionError
 from aiq_api.auth import get_current_trace_tags
 
 from ..registry import get_agent_config
 from .access import _make_no_auth_principal
+from .access import count_active_jobs
 from .access import create_job_access
 from .access import rollback_job_submission
 from .runner import run_agent_job
 
 logger = logging.getLogger(__name__)
+
+# @environment_variable GRID_MAX_ACTIVE_JOBS
+# @category Server
+# @type int
+# @default 8
+# @required false
+# Maximum non-terminal async jobs accepted across all organizations
+# (admission control). 0 or negative disables the global cap.
+MAX_ACTIVE_JOBS = int(os.environ.get("GRID_MAX_ACTIVE_JOBS", "8"))
+
+# @environment_variable GRID_MAX_ACTIVE_JOBS_PER_ORG
+# @category Server
+# @type int
+# @default 3
+# @required false
+# Maximum non-terminal async jobs accepted per organization, so one tenant
+# cannot occupy the whole cluster. 0 or negative disables the per-org cap.
+MAX_ACTIVE_JOBS_PER_ORG = int(os.environ.get("GRID_MAX_ACTIVE_JOBS_PER_ORG", "3"))
+
+
+async def _enforce_job_admission(db_url: str, organization_id: str | None) -> None:
+    """Refuse submission when active-job caps are reached (fail-open on errors)."""
+    if MAX_ACTIVE_JOBS <= 0 and MAX_ACTIVE_JOBS_PER_ORG <= 0:
+        return
+
+    from nat.front_ends.fastapi.async_jobs.job_store import JobStatus
+
+    terminal = (JobStatus.SUCCESS.value, JobStatus.FAILURE.value, JobStatus.INTERRUPTED.value)
+    loop = asyncio.get_running_loop()
+    try:
+        if MAX_ACTIVE_JOBS > 0:
+            active = await loop.run_in_executor(None, count_active_jobs, db_url, terminal, None)
+            if active >= MAX_ACTIVE_JOBS:
+                raise JobAdmissionError(
+                    f"Research queue is full ({active} jobs active). Please try again in a few minutes.",
+                )
+        if MAX_ACTIVE_JOBS_PER_ORG > 0 and organization_id:
+            org_active = await loop.run_in_executor(None, count_active_jobs, db_url, terminal, organization_id)
+            if org_active >= MAX_ACTIVE_JOBS_PER_ORG:
+                raise JobAdmissionError(
+                    f"Your organization already has {org_active} research jobs running. "
+                    "Please wait for one to finish before starting another.",
+                )
+    except JobAdmissionError:
+        raise
+    except Exception:
+        # Admission control is protective, not load-bearing: a broken count
+        # must never take research submission down.
+        logger.warning("Job admission check failed; admitting job", exc_info=True)
 
 
 def _resolve_submission_principal(owner: str) -> Principal | None:
@@ -289,6 +340,14 @@ async def submit_agent_job(
     if principal is None:
         raise RuntimeError("Verified current principal required for async job submission")
 
+    organization_id = (usage_context or {}).get("identity", {}).get("organization_id")
+
+    # Admission control: nothing else bounds how many concurrent jobs the
+    # cluster accepts, and each deep-research run fans out multiple
+    # LLM-calling researchers. Caps are best-effort (checked before submit,
+    # no lock) and fail OPEN — a broken count must not take research down.
+    await _enforce_job_admission(db_url, organization_id)
+
     job_store = JobStore(scheduler_address=scheduler_address, db_url=db_url)
     resolved_job_id = job_store.ensure_job_id(job_id)
     loop = asyncio.get_running_loop()
@@ -332,6 +391,7 @@ async def submit_agent_job(
             db_url,
             parent_conversation_id,
             project_collection,
+            organization_id,
         )
     except Exception:
         try:

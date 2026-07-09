@@ -48,6 +48,7 @@ from pydantic import Field
 from aiq_agent.common.data_source_registry import get_all_sources
 from aiq_agent.common.data_source_registry import get_all_tool_refs
 from aiq_agent.common.data_source_registry import get_source_id_for_tool
+from aiq_agent.common.job_admission import JobAdmissionError
 from nat.builder.framework_enum import LLMFrameworkEnum
 
 from ..jobs.access import require_verified_principal
@@ -491,6 +492,8 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
                 data_sources=req.data_sources,
                 auth_token=auth_token,
             )
+        except JobAdmissionError as e:
+            raise HTTPException(429, str(e), headers={"Retry-After": str(e.retry_after_seconds)})
         except RuntimeError as e:
             raise HTTPException(403, str(e))
         except Exception as e:
