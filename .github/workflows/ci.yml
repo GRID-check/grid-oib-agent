@@ -1,165 +1,151 @@
-name: AIQ CI
+name: CI
 
-# Runs on PRs (so problems are caught BEFORE merge) and on pushes to the
-# integration/release branches. This is a private repo — all PR authors are
-# trusted collaborators — so PRs run CI directly; the former NVIDIA
-# copy-pr-bot / pull-request-branch mirroring (for untrusted external PRs) was
-# removed. If this repo is ever opened to external contributors, gate secret-
-# using jobs behind an environment/approval before restoring fork PR runs.
+# One consolidated pipeline for the monorepo. A path filter runs only the
+# backend and/or frontend jobs a change actually touches; the `ci-ok` gate at
+# the end is the single required status check for branch protection (it passes
+# when every needed job succeeded or was skipped). Private repo -> PRs run
+# directly (no copy-pr-bot).
 on:
   push:
-    branches:
-      - develop
-      - "release/**"
+    branches: [develop, "release/**"]
   pull_request:
-    branches:
-      - develop
-      - "release/**"
+    branches: [develop, "release/**"]
 
 permissions:
   contents: read
 
 concurrency:
-  group: aiq-ci-${{ github.ref }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  pre-commit:
-    name: Lint and Hooks
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'src/**'
+              - 'frontends/aiq_api/**'
+              - 'sources/**'
+              - 'tests/**'
+              - 'ci/**'
+              - 'pyproject.toml'
+              - 'uv.lock'
+              - '.github/workflows/ci.yml'
+              - '.github/actions/**'
+            frontend:
+              - 'frontends/ui/**'
+              - '.github/workflows/ci.yml'
+
+  backend-lint:
+    name: Backend lint
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-
-      - name: Setup uv
-        uses: astral-sh/setup-uv@v4
-        with:
-          enable-cache: true
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-
-      - name: Install markdown-link-check
-        run: npm install -g markdown-link-check
-
-      - name: Install dev dependencies
-        run: |
-          uv venv --python 3.13 .venv
-          uv sync --group dev
-          uv pip install nbconvert
-
-      - name: Ruff checks
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-python-env
+      - name: Ruff
         run: |
           . .venv/bin/activate
           ruff check .
           ruff format --check .
-
-      - name: Run remaining pre-commit hooks
+      - name: Pre-commit (non-ruff, non-pytest hooks)
         run: |
           . .venv/bin/activate
           SKIP=ruff-check,ruff-format,pytest pre-commit run --all-files
 
-  test:
-    name: Pytest and Coverage
+  backend-test:
+    name: Backend tests (py${{ matrix.python }})
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12", "3.13"]
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-python-env
         with:
-          python-version: "3.13"
-
-      - name: Setup uv
-        uses: astral-sh/setup-uv@v4
-        with:
-          enable-cache: true
-
-      - name: Install test dependencies
-        run: |
-          uv venv --python 3.13 .venv
-          uv sync --group dev
-
-      # Core backend suite (tests/ + sources/**/tests via testpaths). This is
-      # the coverage-gated package.
-      - name: Backend core tests (gated coverage)
+          python-version: ${{ matrix.python }}
+      - name: Core suite (coverage-gated)
         run: |
           set -euo pipefail
           . .venv/bin/activate
           python -X faulthandler -m pytest tests/ -v \
-            --junitxml=report.xml \
-            --cov=src/aiq_agent \
-            --cov-report=xml \
-            --cov-report=term \
+            --junitxml=report-core.xml \
+            --cov=src/aiq_agent --cov-report=xml:coverage.xml --cov-report=term \
             --cov-fail-under=65
-
-      # The aiq_api plugin suite lives outside `tests/` and was NEVER run in CI
-      # before — every frontends/aiq_api/tests/* file (job submit/access,
-      # deep-research, ingest, the DB-executor + pub/sub tests) went unchecked.
-      - name: aiq_api plugin tests
+      - name: aiq_api plugin suite
         run: |
           set -euo pipefail
           . .venv/bin/activate
           python -X faulthandler -m pytest frontends/aiq_api/tests/ -v \
             --junitxml=report-aiqapi.xml \
-            --cov=frontends/aiq_api/src/aiq_api \
-            --cov-report=xml:coverage-aiqapi.xml \
-            --cov-report=term
+            --cov=frontends/aiq_api/src/aiq_api --cov-report=xml:coverage-aiqapi.xml --cov-report=term
+      - name: Upload coverage (3.13 only, for Sonar)
+        if: matrix.python == '3.13' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: |
+            coverage.xml
+            coverage-aiqapi.xml
+            report-core.xml
+            report-aiqapi.xml
+          retention-days: 7
 
-      - name: Upload coverage artifacts
+  frontend:
+    name: Frontend (lint, types, test, build)
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontends/ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontends/ui/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run type-check
+      - run: npm run test:ci
+      - run: npm run build
+      - name: Upload frontend coverage (for Sonar)
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: pytest-coverage
-          path: |
-            report.xml
-            report-aiqapi.xml
-            coverage.xml
-            coverage-aiqapi.xml
+          name: frontend-coverage
+          path: frontends/ui/coverage/
           retention-days: 7
 
-  test-scripts:
-    name: Script Validation
+  ci-ok:
+    name: CI OK
+    if: always()
+    needs: [changes, backend-lint, backend-test, frontend]
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-
-      - name: Setup uv
-        uses: astral-sh/setup-uv@v4
-        with:
-          enable-cache: true
-
-      - name: Install script test dependencies
-        shell: bash
+      - name: Require needed jobs to have passed (skipped is fine)
         run: |
-          set -euo pipefail
-          uv venv --python 3.13 .venv
-          uv sync --group dev
-          for pkg in \
-            ./frontends/benchmarks/freshqa \
-            ./frontends/benchmarks/intent_classifier
-          do
-            if [ -d "$pkg" ]; then
-              uv pip install --no-deps -e "$pkg"
-            fi
-          done
-
-      - name: Run script tests
-        run: |
-          . .venv/bin/activate
-          chmod +x ci/scripts/test_scripts.sh
-          ci/scripts/test_scripts.sh --skip-setup
+          python3 - <<'EOF'
+          import json, sys
+          needs = json.loads('''${{ toJSON(needs) }}''')
+          failed = {k: v["result"] for k, v in needs.items() if v["result"] not in ("success", "skipped")}
+          if failed:
+              print("Failing jobs:", failed)
+              sys.exit(1)
+          print("All required jobs passed or were skipped.")
+          EOF

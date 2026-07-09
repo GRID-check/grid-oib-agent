@@ -1,0 +1,84 @@
+name: Security
+
+# Always-on security analysis: CodeQL (Python + TS/JS), dependency audits, and
+# secret scanning. Runs on every PR and push to the integration branches, plus
+# a weekly scheduled full scan to catch newly-disclosed advisories in code that
+# has not changed.
+on:
+  push:
+    branches: [develop, "release/**"]
+  pull_request:
+    branches: [develop, "release/**"]
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  codeql:
+    name: CodeQL (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [python, javascript-typescript]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          language: ${{ matrix.language }}
+          queries: security-and-quality
+      # Python and JS/TS are interpreted — CodeQL analyzes source directly, no
+      # build step needed.
+      - name: Analyze
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: /language:${{ matrix.language }}
+
+  dependency-audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-python-env
+      # Informational (does not block merges on transitive advisories); surfaces
+      # in the job log and can be promoted to blocking once the baseline is clean.
+      - name: pip-audit (Python)
+        continue-on-error: true
+        run: |
+          . .venv/bin/activate
+          uv pip install pip-audit
+          pip-audit --strict || true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontends/ui/package-lock.json
+      - name: npm audit (frontend)
+        continue-on-error: true
+        working-directory: frontends/ui
+        run: |
+          npm ci --ignore-scripts
+          npm audit --audit-level=high || true
+
+  secret-scan:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history so gitleaks scans all commits
+      - name: gitleaks
+        run: |
+          docker run --rm -v "${{ github.workspace }}:/repo" \
+            zricethezav/gitleaks:latest detect --source /repo --redact -v

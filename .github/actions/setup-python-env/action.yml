@@ -1,0 +1,27 @@
+name: Setup Python env
+description: Python + uv + a synced dev virtualenv (.venv), shared across jobs.
+
+inputs:
+  python-version:
+    description: Python version to provision.
+    required: false
+    default: "3.13"
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Setup uv
+      uses: astral-sh/setup-uv@v4
+      with:
+        enable-cache: true
+
+    - name: Create venv and sync dev deps
+      shell: bash
+      run: |
+        uv venv --python ${{ inputs.python-version }} .venv
+        uv sync --group dev
