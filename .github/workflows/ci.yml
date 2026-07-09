@@ -1,14 +1,20 @@
 name: AIQ CI
 
-# Trigger: push-only. All PRs (internal and external) are mirrored to
-# pull-request/<N> branches by copy-pr-bot after `/ok to test` approval.
-# Direct pushes to develop or release branches also trigger CI.
+# Runs on PRs (so problems are caught BEFORE merge) and on pushes to the
+# integration/release branches. This is a private repo — all PR authors are
+# trusted collaborators — so PRs run CI directly; the former NVIDIA
+# copy-pr-bot / pull-request-branch mirroring (for untrusted external PRs) was
+# removed. If this repo is ever opened to external contributors, gate secret-
+# using jobs behind an environment/approval before restoring fork PR runs.
 on:
   push:
     branches:
       - develop
       - "release/**"
-      - "pull-request/[0-9]+"
+  pull_request:
+    branches:
+      - develop
+      - "release/**"
 
 permissions:
   contents: read
@@ -82,7 +88,9 @@ jobs:
           uv venv --python 3.13 .venv
           uv sync --group dev
 
-      - name: Run tests with coverage
+      # Core backend suite (tests/ + sources/**/tests via testpaths). This is
+      # the coverage-gated package.
+      - name: Backend core tests (gated coverage)
         run: |
           set -euo pipefail
           . .venv/bin/activate
@@ -90,9 +98,21 @@ jobs:
             --junitxml=report.xml \
             --cov=src/aiq_agent \
             --cov-report=xml \
-            --cov-report=html \
             --cov-report=term \
             --cov-fail-under=65
+
+      # The aiq_api plugin suite lives outside `tests/` and was NEVER run in CI
+      # before — every frontends/aiq_api/tests/* file (job submit/access,
+      # deep-research, ingest, the DB-executor + pub/sub tests) went unchecked.
+      - name: aiq_api plugin tests
+        run: |
+          set -euo pipefail
+          . .venv/bin/activate
+          python -X faulthandler -m pytest frontends/aiq_api/tests/ -v \
+            --junitxml=report-aiqapi.xml \
+            --cov=frontends/aiq_api/src/aiq_api \
+            --cov-report=xml:coverage-aiqapi.xml \
+            --cov-report=term
 
       - name: Upload coverage artifacts
         if: always()
@@ -101,15 +121,11 @@ jobs:
           name: pytest-coverage
           path: |
             report.xml
+            report-aiqapi.xml
             coverage.xml
-            htmlcov/
+            coverage-aiqapi.xml
           retention-days: 7
 
-  # Note: the former helm-lint job was removed (2026-07-05). It looped over
-  # deploy/helm/helm-charts-k8s/*, but the charts were deleted for the MVP
-  # (see deploy/helm/README.md), so the job matched nothing and always passed
-  # green — a false signal. Reinstate a real `helm lint <chart>` job if charts
-  # return.
   test-scripts:
     name: Script Validation
     runs-on: ubuntu-latest
