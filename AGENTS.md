@@ -59,6 +59,8 @@ Host `npm install` is unreliable on this project — run frontend checks in Dock
 
 Note: the UI tsconfig includes test files, so spec type errors block the production `next build`.
 
+**Static analysis (SonarQube Cloud).** `sonar-project.properties` + `.github/workflows/sonar.yml` run Sonar on push/PR. It uses the **clean-as-you-code** gate: smells the repo already carries (notably the `PLR09xx` refactor rules ruff ignores — too-many-arguments/branches/statements) are reported on **new/changed** code only, so we pay the debt down incrementally rather than in a big-bang cleanup. The job is gated on a `SONAR_TOKEN` secret and is a no-op until an owner completes the one-time setup documented in `sonar-project.properties`.
+
 ## Environment variables
 
 Secrets and deployment knobs live in environment variables only (`deploy/.env`). Beyond the LLM API keys, notable variables:
