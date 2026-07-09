@@ -48,6 +48,7 @@ import os
 import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC
 from datetime import datetime
 from pathlib import Path
@@ -597,6 +598,15 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
     # Enable table extraction from PDFs during ingestion.
     DEFAULT_EXTRACT_TABLES = os.environ.get("AIQ_EXTRACT_TABLES", "false").lower() == "true"
 
+    # @environment_variable AIQ_INGEST_MAX_WORKERS
+    # @category Knowledge Layer
+    # @type int
+    # @default 2
+    # @required false
+    # Maximum concurrent ingestion jobs per process. Excess uploads queue
+    # (job status stays PENDING) instead of each spawning a thread.
+    INGEST_MAX_WORKERS = max(1, int(os.environ.get("AIQ_INGEST_MAX_WORKERS", "2")))
+
     # @environment_variable AIQ_EXTRACT_IMAGES
     # @category Knowledge Layer
     # @type bool
@@ -641,6 +651,15 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         self._jobs: dict[str, IngestionJobStatus] = {}
         self._files: dict[str, FileInfo] = {}
         self._lock = threading.RLock()  # RLock allows same thread to acquire multiple times
+
+        # Bounded ingestion pool: a thread per upload gave N concurrent
+        # uploads N threads all embedding against the remote API and writing
+        # into the same embedded Chroma store. Excess jobs queue (status stays
+        # PENDING until a worker picks them up) instead of piling on threads.
+        self._ingest_pool = ThreadPoolExecutor(
+            max_workers=self.INGEST_MAX_WORKERS,
+            thread_name_prefix="llamaindex-ingest",
+        )
 
         # Lazy-loaded components
         self._embed_model = None
@@ -832,13 +851,8 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         with self._lock:
             self._jobs[job_id] = job
 
-        # Run ingestion in background thread
-        thread = threading.Thread(
-            target=self._run_ingestion,
-            args=(job_id, validated_paths, collection_name, job_config),
-            daemon=True,
-        )
-        thread.start()
+        # Run ingestion on the bounded pool; the job stays PENDING while queued.
+        self._ingest_pool.submit(self._run_ingestion, job_id, validated_paths, collection_name, job_config)
 
         logger.info(f"LlamaIndex ingestion job submitted: {job_id}")
         return job_id
