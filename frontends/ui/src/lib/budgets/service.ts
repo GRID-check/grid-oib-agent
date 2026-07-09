@@ -510,25 +510,24 @@ export async function getBudgetStatus(
   userId: string | null,
   projectId: string | null,
 ): Promise<BudgetStatus> {
-  const orgBudget = await getOrgBudget(organizationId)
-  const orgSpend = await getSpendSummary(organizationId)
+  // Two parallel waves instead of up to six serial round-trips: policies and
+  // org spend first, then the scoped spend aggregations only where a policy
+  // actually exists.
+  const [orgBudget, orgSpend, memberBudget, projectBudget] = await Promise.all([
+    getOrgBudget(organizationId),
+    getSpendSummary(organizationId),
+    userId ? getScopedBudget(organizationId, 'member', userId) : Promise.resolve(null),
+    projectId ? getScopedBudget(organizationId, 'project', projectId) : Promise.resolve(null),
+  ])
   const remainingOrg = remainingUsd(orgBudget, orgSpend)
 
-  let remainingUser: number | null = null
-  if (userId) {
-    const memberBudget = await getScopedBudget(organizationId, 'member', userId)
-    if (memberBudget) {
-      remainingUser = remainingUsd(memberBudget, await getSpendSummary(organizationId, { userId }))
-    }
-  }
+  const [memberSpend, projectSpend] = await Promise.all([
+    memberBudget && userId ? getSpendSummary(organizationId, { userId }) : Promise.resolve(null),
+    projectBudget && projectId ? getSpendSummary(organizationId, { projectId }) : Promise.resolve(null),
+  ])
 
-  let remainingProject: number | null = null
-  if (projectId) {
-    const projectBudget = await getScopedBudget(organizationId, 'project', projectId)
-    if (projectBudget) {
-      remainingProject = remainingUsd(projectBudget, await getSpendSummary(organizationId, { projectId }))
-    }
-  }
+  const remainingUser = memberBudget && memberSpend ? remainingUsd(memberBudget, memberSpend) : null
+  const remainingProject = projectBudget && projectSpend ? remainingUsd(projectBudget, projectSpend) : null
 
   const scopes: Array<[BudgetScope, number | null]> = [
     ['organization', remainingOrg],
