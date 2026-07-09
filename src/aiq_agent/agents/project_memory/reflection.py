@@ -30,6 +30,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import weakref
 from typing import Any
 
 from aiq_agent.common.json_utils import extract_json
@@ -215,6 +217,27 @@ async def run_memory_reflection(
 # not garbage-collect a reflection mid-run.
 _background_tasks: set[asyncio.Task] = set()
 
+# Reflections share the event loop with live chat turns. Without a bound, a
+# burst of qualifying turns schedules an unbounded amount of background LLM
+# traffic that competes with in-flight answers. Reflections are a best-effort
+# safety net, so beyond the pending cap they are dropped, not queued.
+_MAX_CONCURRENT_REFLECTIONS = int(os.environ.get("MEMORY_REFLECTION_MAX_CONCURRENCY", "4"))
+_MAX_PENDING_REFLECTIONS = int(os.environ.get("MEMORY_REFLECTION_MAX_PENDING", "16"))
+
+# Semaphores are loop-bound; keyed weakly per loop (chat process and Dask
+# workers run separate loops).
+_reflection_semaphores: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Semaphore] = (
+    weakref.WeakKeyDictionary()
+)
+
+
+def _loop_semaphore(loop: asyncio.AbstractEventLoop) -> asyncio.Semaphore:
+    semaphore = _reflection_semaphores.get(loop)
+    if semaphore is None:
+        semaphore = asyncio.Semaphore(_MAX_CONCURRENT_REFLECTIONS)
+        _reflection_semaphores[loop] = semaphore
+    return semaphore
+
 
 def schedule_memory_reflection(
     *,
@@ -250,6 +273,14 @@ def schedule_memory_reflection(
         logger.debug("Memory reflection skipped: no running event loop")
         return None
 
+    if len(_background_tasks) >= _MAX_PENDING_REFLECTIONS:
+        logger.warning(
+            "Memory reflection skipped: %d reflections already pending (cap %d)",
+            len(_background_tasks),
+            _MAX_PENDING_REFLECTIONS,
+        )
+        return None
+
     async def _guarded() -> None:
         try:
             # Own cost-tracking activation: the turn's tracker is flushed by
@@ -259,24 +290,25 @@ def schedule_memory_reflection(
             from aiq_agent.common.cost_tracking import BudgetSnapshot
             from aiq_agent.common.cost_tracking import track_llm_costs
 
-            with track_llm_costs(
-                identity={
-                    "organization_id": organization_id,
-                    "user_id": None,
-                    "project_id": project_id,
-                    "conversation_id": conversation_id,
-                },
-                budget=BudgetSnapshot(),
-            ):
-                await run_memory_reflection(
-                    llm=llm,
-                    query=query,
-                    answer=answer,
-                    project_id=project_id,
-                    organization_id=organization_id,
-                    conversation_id=conversation_id,
-                    memory_digest=memory_digest,
-                )
+            async with _loop_semaphore(loop):
+                with track_llm_costs(
+                    identity={
+                        "organization_id": organization_id,
+                        "user_id": None,
+                        "project_id": project_id,
+                        "conversation_id": conversation_id,
+                    },
+                    budget=BudgetSnapshot(),
+                ):
+                    await run_memory_reflection(
+                        llm=llm,
+                        query=query,
+                        answer=answer,
+                        project_id=project_id,
+                        organization_id=organization_id,
+                        conversation_id=conversation_id,
+                        memory_digest=memory_digest,
+                    )
         except Exception:
             # A background reflection must never surface as a user-facing failure.
             logger.exception("Memory reflection task failed (non-fatal)")

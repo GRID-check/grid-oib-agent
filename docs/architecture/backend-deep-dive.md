@@ -16,6 +16,11 @@ Docker Compose (`deploy/compose/docker-compose.yaml`):
   scheduler/worker + in-process ChromaDB. Runs the LangGraph workflow and the
   async deep-research jobs.
 - **frontend** — Next.js 16 BFF + a Node WebSocket proxy (`frontends/ui/server.js`).
+- **dragonfly** — Redis-protocol shared cache (ADR-0020): read-through caches
+  (membership, flags, prompt view, model overrides, budget limits, model
+  catalog), the gateway's WS-upgrade rate limiter, and per-conversation
+  citation-registry snapshots. Cache-only semantics; both tiers fail open to
+  in-process fallbacks when it is down or `REDIS_URL` is unset.
 
 The **real** backend front-end plugin is `frontends/aiq_api` (`_type: aiq_api`).
 (The old `src/aiq_agent/fastapi_extensions/` duplicate was deleted 2026-07-03,

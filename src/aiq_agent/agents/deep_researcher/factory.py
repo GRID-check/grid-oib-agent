@@ -428,7 +428,9 @@ def build_deep_research_graph(
         tool_set=tool_set,
         middleware_set=middleware_set,
         domain_catalog_path=domain_catalog_path,
-        current_datetime=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        # Date only: a per-second timestamp made every subagent system prompt
+        # unique, defeating provider prompt caching across a run's many calls.
+        current_datetime=datetime.now().strftime("%Y-%m-%d"),
         max_research_concurrency=max_research_concurrency,
         enable_source_router=enable_source_router,
         backend=runtime.backend,

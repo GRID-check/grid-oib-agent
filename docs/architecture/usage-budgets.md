@@ -116,6 +116,10 @@ Enforcement points:
    refused (403 + reason). Otherwise remaining USD per scope travels as the
    base64url `x-grid-budget` header. Budget *reads* fail open (a broken
    lookup must not take chat down); the *refusal* itself fails closed.
+   Totals come from the write-through `llm_usage_rollups` daily aggregate
+   (ADR-0019, `getSpendTotals`), maintained transactionally with every
+   ledger insert — the upgrade never scans the month's ledger. Per-model /
+   per-member breakdowns (admin views) still read the ledger.
 2. **In-flight** (`GridCostTracker`): cumulative turn spend ≥ remaining →
    `BudgetExceededError` **before the next LLM call starts**; the sync path
    catches it and returns a friendly "budget exhausted" chat response; an

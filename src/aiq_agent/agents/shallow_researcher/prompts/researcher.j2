@@ -65,7 +65,7 @@ If, after using the available tools, you could NOT adequately answer the questio
 {#- === KV CACHE BOUNDARY — dynamic content below === -#}
 
 ## Context
-Current date and time: {{ current_datetime }}
+Current date: {{ current_datetime }}
 {% if user_info %}
 User: {{ user_info.name or "Unknown" }} ({{ user_info.email or "Unknown" }})
 {% endif %}

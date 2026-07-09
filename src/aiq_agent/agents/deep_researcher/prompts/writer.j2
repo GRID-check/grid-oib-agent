@@ -91,7 +91,7 @@ Do not return the full Markdown in your message and do not return JSON unless ex
 {#- === KV CACHE BOUNDARY — dynamic content below === -#}
 
 ## Context
-Current date and time: {{ current_datetime }}
+Current date: {{ current_datetime }}
 {% if user_info and user_info.name %}
 Authenticated user: **{{ user_info.name }}** ({{ user_info.email or "email not provided" }})
 When the request references "me", "myself", or "my work", it means this person.

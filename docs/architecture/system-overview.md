@@ -121,6 +121,7 @@ flowchart TB
 | **minio** | MinIO (S3-compatible) | Object storage for OIB PDFs and uploaded documents (`grid-documents` bucket). |
 | **ChromaDB** | in-process in aiq-agent | Vector store (collections persisted to a volume). Not a separate container. |
 | **purger** | same image as frontend, `node purger/index.js` | Scheduled worker that hard-deletes soft-deleted projects after the grace period. |
+| **dragonfly** | Dragonfly (Redis protocol) | Shared cache (ADR-0020): read-through caches, WS-upgrade rate limiting, citation-registry snapshots. Cache-only; both tiers fail open to in-process fallbacks. |
 | *(one-shot)* | alpine / mc | `aiq-data-permissions` (volume chown) and `minio-init` (bucket create). |
 
 The **gateway (`server.js`)** is the seam that makes the two-tier model work:

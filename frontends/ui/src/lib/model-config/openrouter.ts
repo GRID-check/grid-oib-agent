@@ -14,6 +14,7 @@
  */
 
 import 'server-only'
+import { getCached, invalidateCached } from '@/lib/cache'
 import {
   AGENT_GROUPS,
   getAgentGroup,
@@ -39,13 +40,7 @@ export interface ModelValidationResult {
 }
 
 const CATALOG_TTL_MS = 5 * 60 * 1000
-
-interface CatalogCache {
-  fetchedAt: number
-  models: OpenRouterModel[]
-}
-
-let catalogCache: CatalogCache | null = null
+const CATALOG_CACHE_KEY = 'openrouter:catalog'
 
 function baseUrl(): string {
   return (process.env.OPENROUTER_BASE_URL ?? 'https://openrouter.ai/api/v1').replace(/\/$/, '')
@@ -80,29 +75,27 @@ function parseModel(raw: unknown): OpenRouterModel | null {
 
 /** Fetch (or reuse) the OpenRouter model catalog. Throws on upstream failure. */
 export async function fetchModelCatalog(): Promise<OpenRouterModel[]> {
-  if (catalogCache && Date.now() - catalogCache.fetchedAt < CATALOG_TTL_MS) {
-    return catalogCache.models
-  }
-  const headers: Record<string, string> = { Accept: 'application/json' }
-  const apiKey = process.env.OPENROUTER_API_KEY
-  if (apiKey) headers.Authorization = `Bearer ${apiKey}`
+  return getCached(CATALOG_CACHE_KEY, CATALOG_TTL_MS, async () => {
+    const headers: Record<string, string> = { Accept: 'application/json' }
+    const apiKey = process.env.OPENROUTER_API_KEY
+    if (apiKey) headers.Authorization = `Bearer ${apiKey}`
 
-  const response = await fetch(`${baseUrl()}/models`, { headers, cache: 'no-store' })
-  if (!response.ok) {
-    throw new Error(`OpenRouter model catalog request failed: HTTP ${response.status}`)
-  }
-  const body = (await response.json()) as { data?: unknown[] }
-  const models = (body.data ?? []).map(parseModel).filter((m): m is OpenRouterModel => m !== null)
-  if (models.length === 0) {
-    throw new Error('OpenRouter model catalog response contained no models')
-  }
-  catalogCache = { fetchedAt: Date.now(), models }
-  return models
+    const response = await fetch(`${baseUrl()}/models`, { headers, cache: 'no-store' })
+    if (!response.ok) {
+      throw new Error(`OpenRouter model catalog request failed: HTTP ${response.status}`)
+    }
+    const body = (await response.json()) as { data?: unknown[] }
+    const models = (body.data ?? []).map(parseModel).filter((m): m is OpenRouterModel => m !== null)
+    if (models.length === 0) {
+      throw new Error('OpenRouter model catalog response contained no models')
+    }
+    return models
+  })
 }
 
 /** Test hook. */
-export function _clearCatalogCache(): void {
-  catalogCache = null
+export async function _clearCatalogCache(): Promise<void> {
+  await invalidateCached(CATALOG_CACHE_KEY)
 }
 
 /**

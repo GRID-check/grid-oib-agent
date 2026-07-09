@@ -8,14 +8,12 @@
 
 import { NextResponse } from 'next/server'
 import { getGridSession } from '@/lib/auth/session'
-import { requireProjectAccess } from '@/lib/authz/projects'
 import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
 import { loadProjectPromptView } from '@/lib/project-profile/prompt-view'
 import { buildProjectMemoryDigest } from '@/lib/projects/memory-service'
 import { isOrgFeatureEnabled, MEMORY_REFLECTION_FLAG } from '@/lib/workos/feature-flags'
 import { getActiveModelOverrides } from '@/lib/model-config/service'
 import { getBudgetStatus } from '@/lib/budgets/service'
-import type { AuthorizedSession } from '@/lib/auth/types'
 import { isAuthzError } from '@/lib/auth-utils'
 import { isAuthRequired } from '@/lib/backend-proxy'
 
@@ -102,9 +100,10 @@ export async function GET(req: Request): Promise<Response> {
     }
 
     if (projectId) {
-      if (isAuthRequired() && session) {
-        await requireProjectAccess(session as AuthorizedSession, projectId, 'project:view')
-      }
+      // Access is already enforced: buildCollectionScopeFromRequest ran
+      // requireProjectAccess for this exact (session, projectId) under the
+      // same auth-required condition, so re-checking here only repeated the
+      // tenancy query and FGA round-trips.
       // Residual exposure: when REQUIRE_AUTH is off (anonymous single-tenant
       // deployments) there is no session, so the caller-supplied projectId
       // reaches loadProjectPromptView and the memory digest unchecked. The

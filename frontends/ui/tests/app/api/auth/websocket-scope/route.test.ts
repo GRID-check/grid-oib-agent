@@ -99,7 +99,6 @@ describe('/api/auth/websocket-scope', () => {
   featureFlags: null,
     }
     mockGetGridSession.mockResolvedValue(session)
-    mockRequireProjectAccess.mockResolvedValue({ role: 'project-viewer' as const })
     mockBuildCollectionScopeFromRequest.mockResolvedValue({
       scope: ['oib_knowledge', 'proj_proj-1'],
       headerValue: 'scope-header',
@@ -112,7 +111,14 @@ describe('/api/auth/websocket-scope', () => {
     const res = await GET(req)
 
     expect(res.status).toBe(200)
-    expect(mockRequireProjectAccess).toHaveBeenCalledWith(session, 'proj-1', 'project:view')
+    // Access enforcement lives in buildCollectionScopeFromRequest (covered by
+    // its own tests); the route must delegate with the session and NOT run a
+    // second, redundant check.
+    expect(mockBuildCollectionScopeFromRequest).toHaveBeenCalledWith(session, {
+      projectId: 'proj-1',
+      conversationId: undefined,
+    })
+    expect(mockRequireProjectAccess).not.toHaveBeenCalled()
   })
 
   it('returns 403 on authorization failure', async () => {
@@ -129,7 +135,8 @@ describe('/api/auth/websocket-scope', () => {
   featureFlags: null,
     }
     mockGetGridSession.mockResolvedValue(session)
-    mockRequireProjectAccess.mockRejectedValue(new Error('Not found'))
+    // The access check inside the scope builder rejects (tenancy/FGA denial).
+    mockBuildCollectionScopeFromRequest.mockRejectedValue(new Error('Not found'))
 
     const req = new Request('http://localhost:3000/api/auth/websocket-scope?projectId=proj-1')
     const res = await GET(req)

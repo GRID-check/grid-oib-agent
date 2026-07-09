@@ -85,6 +85,16 @@ Variables set in `docker-compose.yaml` under `environment:` take precedence over
 | `AIQ_VLM_MODEL` | No | `nvidia/nemotron-nano-12b-v2-vl` | VLM model for vision-language tasks. Requires a real NVIDIA API key. |
 | `AIQ_VLM_BASE_URL` | No | `https://integrate.api.nvidia.com/v1` | Base URL for VLM model API. |
 | `AIQ_EMBED_MODEL` | No | `nvidia/llama-nemotron-embed-vl-1b-v2` | Embedding model name. Local override: `openai/text-embedding-3-large`. |
+| `AIQ_INGEST_MAX_WORKERS` | No | `2` | Max concurrent ingestion jobs per backend process; excess uploads queue as PENDING instead of each spawning a thread against the embedding API and the embedded Chroma store. |
+| `GRID_MAX_ACTIVE_JOBS` | No | `8` | Admission control: max non-terminal async research jobs accepted across all orgs. Beyond the cap, REST submits get 429 (+Retry-After) and chat answers with a friendly "queue full" message. `0` disables. |
+| `GRID_MAX_ACTIVE_JOBS_PER_ORG` | No | `3` | Admission control: max non-terminal async research jobs per organization, so one tenant cannot occupy the whole cluster. `0` disables. |
+| `REDIS_URL` | No | unset (compose: `redis://dragonfly:6379/0`) | Redis-protocol URL of the shared cache (Dragonfly, ADR-0020). Consumed by BOTH the frontend (read-through caches, WS rate limiter) and the backend (citation-registry snapshots). Unset = per-process in-memory fallback. |
+| `GRID_WS_UPGRADE_RATE_LIMIT` | No | `30` | Max WebSocket upgrades per client IP per minute at the gateway. Counters live in the shared cache so the limit holds across replicas; fails open. `0` disables. |
+| `GRID_CITATION_REGISTRY_TTL_SECONDS` | No | `86400` | TTL of per-conversation citation-source snapshots in the shared cache (lets a conversation keep prior-turn sources across restarts/replicas). |
+| `AIQ_LISTEN_DB_URL` | No | job-store URL | Direct (non-pooled) Postgres URL for SSE LISTEN/NOTIFY. Set explicitly when a PgBouncer fronts the pooled DSNs — transaction pooling breaks LISTEN. |
+| `AIQ_QUERY_EMBED_CACHE_SIZE` | No | `512` | Max query embeddings kept in the retriever's LRU (one query is embedded once and reused across the per-collection fan-out). |
+| `AIQ_STATIC_RESULT_CACHE_COLLECTIONS` | No | `oib_knowledge` | Comma-separated collections whose retrieval results may be cached (static corpora only — never project/session collections). |
+| `AIQ_STATIC_RESULT_CACHE_TTL_SECONDS` | No | `3600` | TTL for cached static-collection retrieval results; in-process writes invalidate immediately via a collection version. |
 | `AIQ_EMBED_BASE_URL` | No | `https://integrate.api.nvidia.com/v1` | Embedding model API base URL. Local override: `https://openrouter.ai/api/v1`. |
 
 ---
@@ -127,6 +137,8 @@ Variables set in `docker-compose.yaml` under `environment:` take precedence over
 | `memory_reflection_llm` *(NAT config key, not env)* | No | unset | LLM ref in the chat-agent config that makes the async post-answer memory-reflection stage **available**. Unset = the stage is compiled out (no extra LLM call ever). Being available is necessary but not sufficient — each turn is still gated at runtime (next two rows). Set in `config_oib_openrouter.yml`. See `docs/architecture/project-memory-design.md` §3.5. |
 | `memory-reflection` *(WorkOS feature flag, not env)* | No | off | Runtime on/off switch for the reflection stage, evaluated **per organization** at the WS upgrade (`isOrgFeatureEnabled`). Create a feature flag with this slug in WorkOS and enable it for the orgs that should get reflection. Fail-closed: if WorkOS/plan/flag is unavailable, the stage stays off. |
 | `MEMORY_REFLECTION_ENABLED` | No | `false` | Fallback runtime switch for **anonymous / non-WorkOS** deployments (no org to evaluate the flag against). `true` turns the reflection stage on globally. Ignored when a WorkOS org is in scope (the feature flag wins). |
+| `MEMORY_REFLECTION_MAX_CONCURRENCY` | No | `4` | Maximum reflection LLM calls running concurrently per backend process. Reflections share the event loop with live chat turns; this bounds their background LLM traffic. |
+| `MEMORY_REFLECTION_MAX_PENDING` | No | `16` | Maximum reflections pending (scheduled + running) per backend process. Beyond the cap new reflections are dropped with a warning — reflection is a best-effort safety net, never queued unboundedly. |
 | `GRID_ALLOW_AGENT_ORG_MEMORY` | No | `false` | When `true`, the internal memory endpoint accepts **agent-authored organization-scoped** writes. Default-deny: org-wide memory reaches every project in the tenant and the service-token endpoint cannot verify the human's org role, so an autonomous/prompt-injected write would poison the tenant (audit finding S1). Leave unset unless you accept that risk; org-wide findings are otherwise a human-only action via the org-memory panel. |
 
 ---

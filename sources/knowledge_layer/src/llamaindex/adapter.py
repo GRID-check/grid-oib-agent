@@ -41,11 +41,14 @@ Chart extraction uses the VLM to:
 2. Extract structured data (chart type, axis labels, data points, trends)
 """
 
+import asyncio
 import base64
 import logging
 import os
 import threading
+import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC
 from datetime import datetime
 from pathlib import Path
@@ -97,6 +100,27 @@ TTL_CLEANUP_INTERVAL_SECONDS = int(os.environ.get("AIQ_TTL_CLEANUP_INTERVAL_SECO
 
 # Document summarization settings
 SUMMARY_MAX_INPUT_CHARS = 4000  # ~1000 tokens input
+
+# ---------------------------------------------------------------------------
+# In-process collection write versions.
+#
+# The retriever's static-collection result cache keys on this version so any
+# ingestion/deletion in this process invalidates cached results immediately;
+# the cache TTL covers writes from other processes (there are none today —
+# one backend process owns the embedded Chroma store).
+# ---------------------------------------------------------------------------
+_collection_versions: dict[str, int] = {}
+_collection_versions_lock = threading.Lock()
+
+
+def bump_collection_version(collection_name: str) -> None:
+    with _collection_versions_lock:
+        _collection_versions[collection_name] = _collection_versions.get(collection_name, 0) + 1
+
+
+def collection_version(collection_name: str) -> int:
+    with _collection_versions_lock:
+        return _collection_versions.get(collection_name, 0)
 
 
 def _read_api_key_env(name: str) -> str:
@@ -574,6 +598,15 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
     # Enable table extraction from PDFs during ingestion.
     DEFAULT_EXTRACT_TABLES = os.environ.get("AIQ_EXTRACT_TABLES", "false").lower() == "true"
 
+    # @environment_variable AIQ_INGEST_MAX_WORKERS
+    # @category Knowledge Layer
+    # @type int
+    # @default 2
+    # @required false
+    # Maximum concurrent ingestion jobs per process. Excess uploads queue
+    # (job status stays PENDING) instead of each spawning a thread.
+    INGEST_MAX_WORKERS = max(1, int(os.environ.get("AIQ_INGEST_MAX_WORKERS", "2")))
+
     # @environment_variable AIQ_EXTRACT_IMAGES
     # @category Knowledge Layer
     # @type bool
@@ -618,6 +651,15 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         self._jobs: dict[str, IngestionJobStatus] = {}
         self._files: dict[str, FileInfo] = {}
         self._lock = threading.RLock()  # RLock allows same thread to acquire multiple times
+
+        # Bounded ingestion pool: a thread per upload gave N concurrent
+        # uploads N threads all embedding against the remote API and writing
+        # into the same embedded Chroma store. Excess jobs queue (status stays
+        # PENDING until a worker picks them up) instead of piling on threads.
+        self._ingest_pool = ThreadPoolExecutor(
+            max_workers=self.INGEST_MAX_WORKERS,
+            thread_name_prefix="llamaindex-ingest",
+        )
 
         # Lazy-loaded components
         self._embed_model = None
@@ -809,13 +851,8 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         with self._lock:
             self._jobs[job_id] = job
 
-        # Run ingestion in background thread
-        thread = threading.Thread(
-            target=self._run_ingestion,
-            args=(job_id, validated_paths, collection_name, job_config),
-            daemon=True,
-        )
-        thread.start()
+        # Run ingestion on the bounded pool; the job stays PENDING while queued.
+        self._ingest_pool.submit(self._run_ingestion, job_id, validated_paths, collection_name, job_config)
 
         logger.info(f"LlamaIndex ingestion job submitted: {job_id}")
         return job_id
@@ -904,6 +941,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             from aiq_agent.knowledge import clear_collection_summaries
 
             clear_collection_summaries(name)
+            bump_collection_version(name)
 
             logger.info(f"Deleted collection: {name}")
             return True
@@ -1181,6 +1219,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                 results = {"ids": matching_ids}
 
             collection.delete(ids=results["ids"])
+            bump_collection_version(collection_name)
             logger.info(f"Deleted {len(results['ids'])} chunks for file {file_name}")
 
             # Remove all matching tracking entries
@@ -1689,6 +1728,8 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
 
             # Update collection's updated_at timestamp
             self._update_collection_timestamp(collection_name)
+            # Invalidate any cached retrieval results for this collection.
+            bump_collection_version(collection_name)
 
             logger.info(
                 f"LlamaIndex ingestion completed: {job_id} "
@@ -1775,14 +1816,72 @@ class LlamaIndexRetriever(BaseRetriever):
         self._embed_model = None
         self._chroma_client = None
         self._initialized = False
+        self._init_lock = threading.Lock()
+
+        # Rebuilding a VectorStoreIndex per query is pure overhead; cache one
+        # per collection. The short TTL heals the rare delete-and-recreate of
+        # a collection under the same name.
+        self._index_cache: dict[str, tuple[float, Any]] = {}
+        self._index_cache_lock = threading.Lock()
+
+        # Query-embedding LRU: the knowledge tool fans one query out across
+        # every collection in scope, and each retrieval embedded the same
+        # string again through the remote embedding API. Keyed by
+        # (embed model, query) so a model change never serves stale vectors.
+        self._embed_cache: dict[tuple[str, str], list[float]] = {}
+        self._embed_cache_order: list[tuple[str, str]] = []
+        self._embed_cache_lock = threading.Lock()
+
+        # Result cache for static corpora (the shared OIB knowledge base):
+        # identical questions recur across users and conversations, and the
+        # corpus only changes on re-sync. Keyed on the collection write
+        # version, so in-process ingestion invalidates immediately.
+        self._result_cache: dict[tuple[str, int, str, int], tuple[float, RetrievalResult]] = {}
+        self._result_cache_order: list[tuple[str, int, str, int]] = []
+        self._result_cache_lock = threading.Lock()
 
         logger.info(f"LlamaIndexRetriever initialized: persist_dir={self.persist_dir}")
 
+    INDEX_CACHE_TTL_SECONDS = 60
+    # @environment_variable AIQ_QUERY_EMBED_CACHE_SIZE
+    # @category Knowledge Layer
+    # @type int
+    # @default 512
+    # @required false
+    # Maximum cached query embeddings per retriever (LRU).
+    EMBED_CACHE_MAX = int(os.environ.get("AIQ_QUERY_EMBED_CACHE_SIZE", "512"))
+    # @environment_variable AIQ_STATIC_RESULT_CACHE_COLLECTIONS
+    # @category Knowledge Layer
+    # @type str
+    # @default oib_knowledge
+    # @required false
+    # Comma-separated collections whose retrieval results may be cached
+    # (static corpora only — never project/session collections).
+    STATIC_RESULT_CACHE_COLLECTIONS = frozenset(
+        name.strip()
+        for name in os.environ.get("AIQ_STATIC_RESULT_CACHE_COLLECTIONS", "oib_knowledge").split(",")
+        if name.strip()
+    )
+    # @environment_variable AIQ_STATIC_RESULT_CACHE_TTL_SECONDS
+    # @category Knowledge Layer
+    # @type int
+    # @default 3600
+    # @required false
+    # TTL for cached static-collection retrieval results.
+    STATIC_RESULT_CACHE_TTL_SECONDS = int(os.environ.get("AIQ_STATIC_RESULT_CACHE_TTL_SECONDS", "3600"))
+    RESULT_CACHE_MAX = 256
+
     def _ensure_initialized(self):
-        """Lazy initialization of components."""
+        """Lazy initialization of components. Thread-safe: retrieval runs off-loop."""
         if self._initialized:
             return
 
+        with self._init_lock:
+            if self._initialized:
+                return
+            self._initialize_components()
+
+    def _initialize_components(self):
         try:
             import chromadb
             from chromadb.config import Settings as ChromaSettings
@@ -1818,6 +1917,29 @@ class LlamaIndexRetriever(BaseRetriever):
                 "Install with: pip install llama-index llama-index-embeddings-nvidia chromadb"
             ) from e
 
+    def _get_index(self, collection_name: str):
+        """Return a cached VectorStoreIndex for the collection, or None if missing."""
+        from llama_index.core import VectorStoreIndex
+        from llama_index.vector_stores.chroma import ChromaVectorStore
+
+        now = time.monotonic()
+        with self._index_cache_lock:
+            cached = self._index_cache.get(collection_name)
+            if cached and now - cached[0] < self.INDEX_CACHE_TTL_SECONDS:
+                return cached[1]
+
+        try:
+            chroma_collection = self._chroma_client.get_collection(name=collection_name)
+        except Exception as e:
+            logger.warning(f"Collection '{collection_name}' not found: {e}")
+            return None
+
+        vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
+        index = VectorStoreIndex.from_vector_store(vector_store)
+        with self._index_cache_lock:
+            self._index_cache[collection_name] = (now, index)
+        return index
+
     async def retrieve(
         self,
         query: str,
@@ -1825,20 +1947,81 @@ class LlamaIndexRetriever(BaseRetriever):
         top_k: int = 10,
         filters: dict[str, Any] | None = None,
     ) -> RetrievalResult:
-        """Retrieve documents matching the query."""
+        """Retrieve documents matching the query.
+
+        The embedding call and the Chroma query are synchronous; they run in a
+        worker thread so a retrieval never stalls the server's event loop (and
+        the per-collection fan-out in the knowledge tool actually parallelizes).
+        """
+        return await asyncio.to_thread(self._retrieve_sync, query, collection_name, top_k, filters)
+
+    def _embed_query_cached(self, query: str) -> list[float]:
+        """Embed a query once per (model, text); LRU-bounded."""
+        key = (self.embed_model_name, query)
+        with self._embed_cache_lock:
+            if key in self._embed_cache:
+                self._embed_cache_order.remove(key)
+                self._embed_cache_order.append(key)
+                return self._embed_cache[key]
+
+        embedding = self._embed_model.get_query_embedding(query)
+
+        with self._embed_cache_lock:
+            if key not in self._embed_cache:
+                self._embed_cache[key] = embedding
+                self._embed_cache_order.append(key)
+                while len(self._embed_cache_order) > self.EMBED_CACHE_MAX:
+                    evicted = self._embed_cache_order.pop(0)
+                    self._embed_cache.pop(evicted, None)
+        return embedding
+
+    def _cached_static_result(self, key: tuple[str, int, str, int]) -> RetrievalResult | None:
+        with self._result_cache_lock:
+            entry = self._result_cache.get(key)
+            if entry is None:
+                return None
+            cached_at, result = entry
+            if time.monotonic() - cached_at >= self.STATIC_RESULT_CACHE_TTL_SECONDS:
+                self._result_cache.pop(key, None)
+                if key in self._result_cache_order:
+                    self._result_cache_order.remove(key)
+                return None
+            # Deep copy: callers merge/annotate results and must never mutate
+            # the cached object.
+            return result.model_copy(deep=True)
+
+    def _store_static_result(self, key: tuple[str, int, str, int], result: RetrievalResult) -> None:
+        with self._result_cache_lock:
+            self._result_cache[key] = (time.monotonic(), result.model_copy(deep=True))
+            if key in self._result_cache_order:
+                self._result_cache_order.remove(key)
+            self._result_cache_order.append(key)
+            while len(self._result_cache_order) > self.RESULT_CACHE_MAX:
+                evicted = self._result_cache_order.pop(0)
+                self._result_cache.pop(evicted, None)
+
+    def _retrieve_sync(
+        self,
+        query: str,
+        collection_name: str,
+        top_k: int = 10,
+        filters: dict[str, Any] | None = None,
+    ) -> RetrievalResult:
         try:
             self._ensure_initialized()
 
-            from llama_index.core import VectorStoreIndex
-            from llama_index.vector_stores.chroma import ChromaVectorStore
-
             logger.info(f"LlamaIndexRetriever.retrieve: query='{query[:50]}...', collection={collection_name}")
 
-            # Get collection
-            try:
-                chroma_collection = self._chroma_client.get_collection(name=collection_name)
-            except Exception as e:
-                logger.warning(f"Collection '{collection_name}' not found: {e}")
+            cacheable = collection_name in self.STATIC_RESULT_CACHE_COLLECTIONS and not filters
+            cache_key = (collection_name, collection_version(collection_name), query, top_k)
+            if cacheable:
+                cached = self._cached_static_result(cache_key)
+                if cached is not None:
+                    logger.info(f"Static retrieval cache hit for collection {collection_name}")
+                    return cached
+
+            index = self._get_index(collection_name)
+            if index is None:
                 return RetrievalResult(
                     chunks=[],
                     query=query,
@@ -1847,25 +2030,28 @@ class LlamaIndexRetriever(BaseRetriever):
                     error_message=f"Collection '{collection_name}' not found",
                 )
 
-            # Create vector store and index
-            vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
-            index = VectorStoreIndex.from_vector_store(vector_store)
+            from llama_index.core.schema import QueryBundle
 
-            # Create retriever and query
+            # Embed once (LRU) and hand the vector to the retriever, so the
+            # per-collection fan-out of one query hits the embedding API once.
             retriever = index.as_retriever(similarity_top_k=top_k)
-            nodes = retriever.retrieve(query)
+            query_bundle = QueryBundle(query_str=query, embedding=self._embed_query_cached(query))
+            nodes = retriever.retrieve(query_bundle)
 
             # Normalize results to Chunk schema
             chunks = [self.normalize(node) for node in nodes]
 
             logger.info(f"LlamaIndex retrieval returned {len(chunks)} chunks")
 
-            return RetrievalResult(
+            result = RetrievalResult(
                 chunks=chunks,
                 query=query,
                 backend=self.backend_name,
                 success=True,
             )
+            if cacheable:
+                self._store_static_result(cache_key, result)
+            return result
 
         except Exception as e:
             logger.error(f"LlamaIndex retrieval failed: {e}")

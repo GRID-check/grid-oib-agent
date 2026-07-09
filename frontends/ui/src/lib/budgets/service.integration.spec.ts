@@ -1,6 +1,6 @@
 /**
  * Opt-in integration test: runs the REAL budget queries against a REAL
- * Postgres with migrations 0012/0013 applied. Skipped unless
+ * Postgres with migrations 0012/0013/0015 applied. Skipped unless
  * GRID_TEST_DATABASE_URL is set (CI has no database).
  *
  *   GRID_TEST_DATABASE_URL=postgres://user@host:port/grid_app npx vitest run \
@@ -87,6 +87,15 @@ describe.skipIf(!url)('budgets service against live Postgres', () => {
     // Member filter narrows the window.
     const userSummary = await getSpendSummary(org, { userId: 'user_1' })
     expect(userSummary.monthUsd).toBeCloseTo(0.00214, 6)
+
+    // Write-through rollup (ADR-0019) agrees with the ledger aggregation,
+    // org-wide and per member.
+    const { getSpendTotals } = await import('./service')
+    const totals = await getSpendTotals(org)
+    expect(totals.monthUsd).toBeCloseTo(0.01214, 6)
+    expect(totals.dayUsd).toBeCloseTo(0.01214, 6)
+    const userTotals = await getSpendTotals(org, { userId: 'user_1' })
+    expect(userTotals.monthUsd).toBeCloseTo(0.00214, 6)
 
     // Per-member breakdown (the admin member-usage table), spenders first.
     const { getSpendByMember } = await import('./service')

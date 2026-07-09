@@ -73,6 +73,11 @@ services:
       - NAT_JOB_STORE_DB_URL=postgresql+asyncpg://aiq:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/aiq_jobs
       - AIQ_CHECKPOINT_DB=postgresql://aiq:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/aiq_checkpoints
       - AIQ_SUMMARY_DB=postgresql+psycopg://aiq:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/aiq_jobs
+      # SSE LISTEN/NOTIFY needs a direct Postgres session; explicit so a future
+      # PgBouncer in front of the pooled DSNs never breaks job streams.
+      - AIQ_LISTEN_DB_URL=postgresql://aiq:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/aiq_jobs
+      # ── Shared cache (Dragonfly, ADR-0020) ──
+      - REDIS_URL=redis://dragonfly:6379/0
       # ── Single-writer memory bridge to the frontend BFF ──
       - FRONTEND_INTERNAL_URL=http://frontend:3000
       - GRID_INTERNAL_API_TOKEN=${SERVICE_PASSWORD_INTERNALTOKEN}
@@ -117,6 +122,8 @@ services:
       minio:
         condition: service_healthy
       postgres:
+        condition: service_healthy
+      dragonfly:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
@@ -212,6 +219,9 @@ services:
       - GRID_PLATFORM_OWNER_EMAILS=${GRID_PLATFORM_OWNER_EMAILS:-}
       - GRID_PLATFORM_ORG_EXTERNAL_ID=${GRID_PLATFORM_ORG_EXTERNAL_ID:-grid-platform}
       - GRID_DISABLE_SELF_SERVE_ORGS=${GRID_DISABLE_SELF_SERVE_ORGS:-false}
+      # ── Shared cache (Dragonfly, ADR-0020) ──
+      - REDIS_URL=redis://dragonfly:6379/0
+      - GRID_WS_UPGRADE_RATE_LIMIT=${GRID_WS_UPGRADE_RATE_LIMIT:-30}
     expose:
       - "3000"
     networks:
@@ -259,6 +269,23 @@ services:
         condition: service_healthy
       aiq-agent:
         condition: service_healthy
+    restart: unless-stopped
+
+  dragonfly:
+    # Redis-protocol shared cache (ADR-0020). Cache semantics only: every
+    # value is reconstructible, so no persistence volume — cache_mode evicts
+    # under memory pressure instead of failing writes.
+    image: dragonflydb/dragonfly:v1.27.1
+    command: ["dragonfly", "--proactor_threads=2", "--maxmemory=256mb", "--cache_mode=true", "--dbfilename="]
+    ulimits:
+      memlock: -1
+    networks:
+      - aiq-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "6379", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
     restart: unless-stopped
 
   postgres:

@@ -24,7 +24,7 @@ Respond with ONLY the raw JSON object below — no markdown code fences, no expl
 {#- === KV CACHE BOUNDARY — dynamic content below === -#}
 
 ### CONTEXT
-Current Date and Time: {{ current_datetime }}
+Current date: {{ current_datetime }}
 {% if user_info and user_info.name %}
 User: **{{ user_info.name }}** ({{ user_info.email or "email not provided" }})
 {% endif %}

@@ -1,4 +1,4 @@
-import { integer, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core'
+import { index, integer, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core'
 
 import type { ProjectProfile, ProjectProfileDisplay } from '../../project-profile/types'
 
@@ -16,7 +16,9 @@ export const projects = pgTable('projects', {
   profileUpdatedAt: timestamp('profile_updated_at', { withTimezone: true }),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-})
+}, (table) => ({
+  orgIdx: index('projects_org_deleted_created_idx').on(table.organizationId, table.deletedAt, table.createdAt),
+}))
 
 export type Project = typeof projects.$inferSelect
 export type NewProject = typeof projects.$inferInsert

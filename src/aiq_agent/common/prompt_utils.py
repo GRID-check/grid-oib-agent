@@ -20,12 +20,19 @@ Each agent package has a prompts/ directory containing its Jinja2 templates.
 """
 
 import logging
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 import jinja2
 
 logger = logging.getLogger(__name__)
+
+
+@lru_cache(maxsize=256)
+def _compile_template(template: str) -> jinja2.Template:
+    """Compile a template string once; templates are static per process."""
+    return jinja2.Template(template, undefined=jinja2.StrictUndefined)
 
 
 class PromptError(Exception):
@@ -77,7 +84,6 @@ def render_prompt_template(template: str, **kwargs: Any) -> str:
         PromptError: If template rendering fails.
     """
     try:
-        jinja_template = jinja2.Template(template, undefined=jinja2.StrictUndefined)
-        return jinja_template.render(**kwargs)
+        return _compile_template(template).render(**kwargs)
     except jinja2.TemplateError as e:
         raise PromptError(f"Failed to render template: {e}") from e

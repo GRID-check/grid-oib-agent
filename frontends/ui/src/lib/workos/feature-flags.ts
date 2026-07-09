@@ -11,29 +11,19 @@
  */
 
 import { getWorkOS } from './client'
+import { getCached, invalidateCached } from '@/lib/cache'
 
 /** Slug of the flag gating the async post-answer memory-reflection stage. */
 export const MEMORY_REFLECTION_FLAG = 'memory-reflection'
 
 const CACHE_TTL_MS = 30_000
 
-interface CacheEntry {
-  at: number
-  slugs: Set<string>
-}
-
-const orgFlagCache = new Map<string, CacheEntry>()
-
 async function enabledSlugsForOrg(organizationId: string): Promise<Set<string>> {
-  const now = Date.now()
-  const cached = orgFlagCache.get(organizationId)
-  if (cached && now - cached.at < CACHE_TTL_MS) {
-    return cached.slugs
-  }
-  const list = await getWorkOS().featureFlags.listOrganizationFeatureFlags({ organizationId })
-  const slugs = new Set((list.data ?? []).map((flag) => flag.slug))
-  orgFlagCache.set(organizationId, { at: now, slugs })
-  return slugs
+  const slugs = await getCached(`flags:${organizationId}`, CACHE_TTL_MS, async () => {
+    const list = await getWorkOS().featureFlags.listOrganizationFeatureFlags({ organizationId })
+    return (list.data ?? []).map((flag) => flag.slug)
+  })
+  return new Set(slugs)
 }
 
 /**
@@ -56,7 +46,9 @@ export async function isOrgFeatureEnabled(
   }
 }
 
-/** Test hook: clear the per-org flag cache. */
-export function _clearFeatureFlagCache(): void {
-  orgFlagCache.clear()
+/** Test hook: clear a specific org's flag cache entry. */
+export async function _clearFeatureFlagCache(organizationId?: string): Promise<void> {
+  if (organizationId) {
+    await invalidateCached(`flags:${organizationId}`)
+  }
 }

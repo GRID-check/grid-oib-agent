@@ -101,7 +101,7 @@ async function persistProfile(
   })
   if (!updated) throw new ConflictError('Conflict: profile was modified by another request')
 
-  invalidateProjectPromptViewCache(projectId)
+  await invalidateProjectPromptViewCache(projectId)
   return updated
 }
 
@@ -156,7 +156,7 @@ export async function generateProjectSummary(
     await setProjectProfileSummaryInOrg(projectId, session.organizationId, summary)
   }
 
-  invalidateProjectPromptViewCache(projectId)
+  await invalidateProjectPromptViewCache(projectId)
 
   return { summary }
 }

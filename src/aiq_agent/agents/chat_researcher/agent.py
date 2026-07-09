@@ -45,6 +45,7 @@ from aiq_agent.agents.deep_researcher.models import DeepResearchAgentState
 from aiq_agent.agents.shallow_researcher.models import ShallowResearchAgentState
 from aiq_agent.common import get_latest_user_query
 from aiq_agent.common.citation_verification import EmptySourceRegistryError
+from aiq_agent.common.job_admission import JobAdmissionError
 
 try:
     from aiq_api.auth.errors import AuthError as _AuthError
@@ -363,7 +364,13 @@ class ChatResearcherAgent:
         async def deep_research_node(state: ChatResearcherState) -> dict[str, Any]:
             trimmed_messages: list[BaseMessage] = trim_message_history(state.messages, self.max_history)
             if self.deep_research_job_submitter is not None:
-                job_id = await self.deep_research_job_submitter(state)
+                try:
+                    job_id = await self.deep_research_job_submitter(state)
+                except JobAdmissionError as exc:
+                    # Admission control refused the submission (queue full);
+                    # answer with the friendly reason instead of crashing the turn.
+                    logger.info("Deep research submission refused by admission control: %s", exc)
+                    return {"messages": [AIMessage(content=str(exc))]}
                 response = f"Deep research job submitted. Job ID: {job_id}"
                 # Emit the job id as a structured channel value so the frontend
                 # can open the research panel without regex-parsing this prose.

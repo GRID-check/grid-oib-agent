@@ -45,6 +45,8 @@ export const projects = pgTable('projects', {
 | `workos_resource_id` | `text` | UNIQUE | Optional WorkOS FGA resource ID |
 | `created_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
 
+**Indexes:** `projects_org_deleted_created_idx` on `(organization_id, deleted_at, created_at)` — tenant list queries (migration `0014`).
+
 ---
 
 ## conversations
@@ -75,6 +77,8 @@ export const conversations = pgTable('conversations', {
 | `created_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
 | `updated_at` | `timestamptz` | NOT NULL, `defaultNow()` | Updated on message activity |
 
+**Indexes:** `conversations_org_updated_idx` on `(organization_id, updated_at)` — tenant list ordered by activity; `conversations_project_idx` on `(project_id)` — FK lookups/cascades (migration `0014`).
+
 ---
 
 ## messages
@@ -103,6 +107,8 @@ export const messages = pgTable('messages', {
 | `content` | `text` | NOT NULL | Message body |
 | `metadata` | `jsonb` | | Flexible: sources, tool_calls, agent info |
 | `created_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
+
+**Indexes:** `messages_conversation_created_idx` on `(conversation_id, created_at)` — conversation history reads (migration `0014`; Postgres does not auto-index FK columns).
 
 ---
 
@@ -284,3 +290,8 @@ LLM budgets and the usage ledger (ADR-0015).
   `POST /api/internal/usage`. Indexes on (org,time), (org,user,time),
   (org,project,time), (org,model,time). Schema:
   `frontends/ui/src/lib/db/schema/budgets.ts`.
+- `llm_usage_rollups` (migration 0015, ADR-0019): write-through daily spend
+  aggregate — one row per (org, UTC day, user, project; empty string = none),
+  `cost_usd`, `events`. Incremented in the same transaction as every ledger
+  insert; budget enforcement reads these rows instead of aggregating the
+  ledger per WebSocket upgrade. Backfilled from the ledger by the migration.
