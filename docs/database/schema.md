@@ -290,3 +290,8 @@ LLM budgets and the usage ledger (ADR-0015).
   `POST /api/internal/usage`. Indexes on (org,time), (org,user,time),
   (org,project,time), (org,model,time). Schema:
   `frontends/ui/src/lib/db/schema/budgets.ts`.
+- `llm_usage_rollups` (migration 0015, ADR-0019): write-through daily spend
+  aggregate — one row per (org, UTC day, user, project; empty string = none),
+  `cost_usd`, `events`. Incremented in the same transaction as every ledger
+  insert; budget enforcement reads these rows instead of aggregating the
+  ledger per WebSocket upgrade. Backfilled from the ledger by the migration.

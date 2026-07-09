@@ -1,6 +1,9 @@
 /**
  * LLM budgets & usage service (ADR-0015, docs/architecture/usage-budgets.md).
  *
+ * Business logic and authorization only — all DB access lives in
+ * `./repository` (ADR-0017).
+ *
  * Limits are stored in EUR (org seed default: €10/day, €100/month); the
  * ledger stores cost in USD exactly as OpenRouter reports it. Comparison
  * happens here at read time via a deployment-configured conversion rate
@@ -16,22 +19,25 @@
  */
 
 import 'server-only'
-import { and, desc, eq, gte, isNotNull, isNull, sql } from 'drizzle-orm'
-import { getDb } from '@/lib/db'
-import {
-  budgetPolicies,
-  llmUsageEvents,
-  llmUsageRollups,
-  type BudgetPolicy,
-  type BudgetScope,
-  type NewLlmUsageEvent,
-} from '@/lib/db/schema'
+import type { BudgetPolicy, BudgetScope, NewLlmUsageEvent } from '@/lib/db/schema'
 import { canManageBudgets } from '@/lib/authz/organizations'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { findProjectTenancy } from '@/lib/projects/repository'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { BadRequestError, ForbiddenError, UnprocessableError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
+import * as repository from './repository'
+import type {
+  DailySpendRow,
+  MemberSpend,
+  ModelSpend,
+  OrganizationSpend,
+  SpendSummary,
+  SpendTotals,
+} from './repository'
+
+export { utcDayStart, utcMonthStart } from './repository'
+export type { DailySpendRow, MemberSpend, ModelSpend, OrganizationSpend, SpendSummary, SpendTotals }
 
 export const DEFAULT_ORG_DAILY_LIMIT_EUR = 10
 export const DEFAULT_ORG_MONTHLY_LIMIT_EUR = 100
@@ -70,32 +76,9 @@ function toLimits(policy: BudgetPolicy): BudgetLimits {
   }
 }
 
-async function activePolicy(
-  organizationId: string,
-  scope: BudgetScope,
-  subjectId: string | null,
-): Promise<BudgetPolicy | null> {
-  const db = getDb()
-  const subjectCondition =
-    subjectId === null ? isNull(budgetPolicies.subjectId) : eq(budgetPolicies.subjectId, subjectId)
-  const [row] = await db
-    .select()
-    .from(budgetPolicies)
-    .where(
-      and(
-        eq(budgetPolicies.organizationId, organizationId),
-        eq(budgetPolicies.scope, scope),
-        subjectCondition,
-        eq(budgetPolicies.status, 'active'),
-      ),
-    )
-    .limit(1)
-  return row ?? null
-}
-
 /** The org-wide limits: explicit row or the seeded €10/€100 defaults. */
 export async function getOrgBudget(organizationId: string): Promise<EffectiveBudgetPolicy> {
-  const policy = await activePolicy(organizationId, 'organization', null)
+  const policy = await repository.findActivePolicy(organizationId, 'organization', null)
   if (policy) {
     return { scope: 'organization', subjectId: null, explicit: true, policy, ...toLimits(policy) }
   }
@@ -114,30 +97,19 @@ export async function getScopedBudget(
   scope: 'member' | 'project',
   subjectId: string,
 ): Promise<EffectiveBudgetPolicy | null> {
-  const policy = await activePolicy(organizationId, scope, subjectId)
+  const policy = await repository.findActivePolicy(organizationId, scope, subjectId)
   if (!policy) return null
   return { scope, subjectId, explicit: true, policy, ...toLimits(policy) }
 }
 
 /** All active member/project policies of an org (for the settings UI). */
 export async function listActivePolicies(organizationId: string): Promise<BudgetPolicy[]> {
-  const db = getDb()
-  return db
-    .select()
-    .from(budgetPolicies)
-    .where(and(eq(budgetPolicies.organizationId, organizationId), eq(budgetPolicies.status, 'active')))
-    .orderBy(budgetPolicies.scope, budgetPolicies.subjectId)
+  return repository.listActivePolicies(organizationId)
 }
 
 /** Full policy history (audit view). */
 export async function listPolicyHistory(organizationId: string, limit = 100): Promise<BudgetPolicy[]> {
-  const db = getDb()
-  return db
-    .select()
-    .from(budgetPolicies)
-    .where(eq(budgetPolicies.organizationId, organizationId))
-    .orderBy(desc(budgetPolicies.createdAt))
-    .limit(limit)
+  return repository.listPolicyHistory(organizationId, limit)
 }
 
 export class BudgetValidationError extends Error {}
@@ -193,41 +165,14 @@ export async function setBudgetPolicy(params: {
     }
   }
 
-  const db = getDb()
-  return db.transaction(async (tx) => {
-    const subjectCondition =
-      subjectId === null ? isNull(budgetPolicies.subjectId) : eq(budgetPolicies.subjectId, subjectId)
-    const [previous] = await tx
-      .select()
-      .from(budgetPolicies)
-      .where(
-        and(
-          eq(budgetPolicies.organizationId, organizationId),
-          eq(budgetPolicies.scope, scope),
-          subjectCondition,
-          eq(budgetPolicies.status, 'active'),
-        ),
-      )
-      .limit(1)
-    if (previous) {
-      await tx.update(budgetPolicies).set({ status: 'superseded' }).where(eq(budgetPolicies.id, previous.id))
-    }
-    const [inserted] = await tx
-      .insert(budgetPolicies)
-      .values({
-        organizationId,
-        scope,
-        subjectId,
-        dailyLimit: params.dailyLimitEur === null ? null : params.dailyLimitEur.toFixed(4),
-        monthlyLimit: params.monthlyLimitEur === null ? null : params.monthlyLimitEur.toFixed(4),
-        currency: 'EUR',
-        status: 'active',
-        supersedesId: previous?.id ?? null,
-        createdBy: params.actorUserId,
-        note: params.note ?? null,
-      })
-      .returning()
-    return inserted
+  return repository.insertPolicySuperseding({
+    organizationId,
+    scope,
+    subjectId,
+    dailyLimit: params.dailyLimitEur === null ? null : params.dailyLimitEur.toFixed(4),
+    monthlyLimit: params.monthlyLimitEur === null ? null : params.monthlyLimitEur.toFixed(4),
+    createdBy: params.actorUserId,
+    note: params.note ?? null,
   })
 }
 
@@ -243,118 +188,31 @@ export async function clearBudgetPolicy(params: {
   subjectId: string
   actorUserId: string
 }): Promise<boolean> {
-  const db = getDb()
-  const [previous] = await db
-    .select()
-    .from(budgetPolicies)
-    .where(
-      and(
-        eq(budgetPolicies.organizationId, params.organizationId),
-        eq(budgetPolicies.scope, params.scope),
-        eq(budgetPolicies.subjectId, params.subjectId),
-        eq(budgetPolicies.status, 'active'),
-      ),
-    )
-    .limit(1)
-  if (!previous) return false
-  await db.update(budgetPolicies).set({ status: 'superseded' }).where(eq(budgetPolicies.id, previous.id))
-  return true
+  return repository.supersedeActivePolicy(params.organizationId, params.scope, params.subjectId)
 }
 
 // ---------------------------------------------------------------------------
 // Ledger
 // ---------------------------------------------------------------------------
 
-/** UTC calendar day (YYYY-MM-DD) an event belongs to. */
-function utcDayOf(createdAt: Date | undefined): string {
-  return (createdAt ?? new Date()).toISOString().slice(0, 10)
-}
-
-interface RollupIncrement {
-  organizationId: string
-  day: string
-  userId: string
-  projectId: string
-  costUsd: number
-  events: number
-}
-
-function buildRollupIncrements(events: NewLlmUsageEvent[]): RollupIncrement[] {
-  const byKey = new Map<string, RollupIncrement>()
-  for (const event of events) {
-    const day = utcDayOf(event.createdAt ?? undefined)
-    const userId = event.userId ?? ''
-    const projectId = event.projectId ?? ''
-    const key = `${event.organizationId} ${day} ${userId} ${projectId}`
-    const entry = byKey.get(key) ?? {
-      organizationId: event.organizationId,
-      day,
-      userId,
-      projectId,
-      costUsd: 0,
-      events: 0,
-    }
-    entry.costUsd += Number.parseFloat(String(event.costUsd ?? '0')) || 0
-    entry.events += 1
-    byKey.set(key, entry)
-  }
-  return [...byKey.values()]
-}
-
+/**
+ * Append ledger rows; the write-through daily rollup (ADR-0019) is
+ * incremented in the same transaction by the repository.
+ */
 export async function recordUsageEvents(events: NewLlmUsageEvent[]): Promise<number> {
-  if (events.length === 0) return 0
-  const db = getDb()
-  return db.transaction(async (tx) => {
-    const inserted = await tx.insert(llmUsageEvents).values(events).returning({ id: llmUsageEvents.id })
-
-    // Write-through daily rollup (ADR-0019): incremented in the same
-    // transaction as the ledger insert, so enforcement reads stay exact
-    // without re-aggregating the month's events.
-    for (const increment of buildRollupIncrements(events)) {
-      await tx
-        .insert(llmUsageRollups)
-        .values({
-          organizationId: increment.organizationId,
-          day: increment.day,
-          userId: increment.userId,
-          projectId: increment.projectId,
-          costUsd: increment.costUsd.toFixed(8),
-          events: increment.events,
-        })
-        .onConflictDoUpdate({
-          target: [llmUsageRollups.organizationId, llmUsageRollups.day, llmUsageRollups.userId, llmUsageRollups.projectId],
-          set: {
-            costUsd: sql`${llmUsageRollups.costUsd} + ${increment.costUsd.toFixed(8)}`,
-            events: sql`${llmUsageRollups.events} + ${increment.events}`,
-            updatedAt: new Date(),
-          },
-        })
-    }
-
-    return inserted.length
-  })
+  return repository.insertUsageEventsWithRollups(events)
 }
 
-export function utcDayStart(now = new Date()): Date {
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
-}
-
-export function utcMonthStart(now = new Date()): Date {
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
-}
-
-export interface ModelSpend {
-  model: string
-  dayUsd: number
-  monthUsd: number
-  dayEvents: number
-  monthEvents: number
-}
-
-export interface SpendSummary {
-  dayUsd: number
-  monthUsd: number
-  perModel: ModelSpend[]
+/**
+ * Day/month spend totals from the write-through rollup (ADR-0019) — the
+ * enforcement hot path. Per-model breakdowns stay on getSpendSummary
+ * (admin views only).
+ */
+export async function getSpendTotals(
+  organizationId: string,
+  filter: { userId?: string; projectId?: string } = {},
+): Promise<SpendTotals> {
+  return repository.sumRollupTotals(organizationId, filter)
 }
 
 /**
@@ -365,90 +223,7 @@ export async function getSpendSummary(
   organizationId: string,
   filter: { userId?: string; projectId?: string } = {},
 ): Promise<SpendSummary> {
-  const db = getDb()
-  const dayStart = utcDayStart()
-  const monthStart = utcMonthStart()
-  // Raw `sql` fragments bypass drizzle's column-type mapping, and the
-  // postgres-js driver rejects Date instances for inferred parameters — pass
-  // ISO strings there (the typed gte() below handles the Date itself).
-  const dayStartIso = dayStart.toISOString()
-
-  const conditions = [eq(llmUsageEvents.organizationId, organizationId), gte(llmUsageEvents.createdAt, monthStart)]
-  if (filter.userId) conditions.push(eq(llmUsageEvents.userId, filter.userId))
-  if (filter.projectId) conditions.push(eq(llmUsageEvents.projectId, filter.projectId))
-
-  const rows = await db
-    .select({
-      model: sql<string>`coalesce(${llmUsageEvents.model}, 'unknown')`,
-      monthUsd: sql<string>`coalesce(sum(${llmUsageEvents.costUsd}), 0)`,
-      dayUsd: sql<string>`coalesce(sum(${llmUsageEvents.costUsd}) filter (where ${llmUsageEvents.createdAt} >= ${dayStartIso}), 0)`,
-      monthEvents: sql<string>`count(*)`,
-      dayEvents: sql<string>`count(*) filter (where ${llmUsageEvents.createdAt} >= ${dayStartIso})`,
-    })
-    .from(llmUsageEvents)
-    .where(and(...conditions))
-    .groupBy(sql`coalesce(${llmUsageEvents.model}, 'unknown')`)
-
-  const perModel: ModelSpend[] = rows
-    .map((row) => ({
-      model: row.model,
-      dayUsd: Number.parseFloat(row.dayUsd) || 0,
-      monthUsd: Number.parseFloat(row.monthUsd) || 0,
-      dayEvents: Number.parseInt(row.dayEvents, 10) || 0,
-      monthEvents: Number.parseInt(row.monthEvents, 10) || 0,
-    }))
-    .sort((a, b) => b.monthUsd - a.monthUsd)
-
-  return {
-    dayUsd: perModel.reduce((total, m) => total + m.dayUsd, 0),
-    monthUsd: perModel.reduce((total, m) => total + m.monthUsd, 0),
-    perModel,
-  }
-}
-
-export interface SpendTotals {
-  dayUsd: number
-  monthUsd: number
-}
-
-/**
- * Day/month spend totals from the write-through rollup (ADR-0019) — the
- * enforcement hot path. Reads a month of daily rollup rows instead of
- * aggregating the ledger; per-model breakdowns stay on getSpendSummary
- * (admin views only).
- */
-export async function getSpendTotals(
-  organizationId: string,
-  filter: { userId?: string; projectId?: string } = {},
-): Promise<SpendTotals> {
-  const db = getDb()
-  const dayStr = utcDayStart().toISOString().slice(0, 10)
-  const monthStr = utcMonthStart().toISOString().slice(0, 10)
-
-  const conditions = [eq(llmUsageRollups.organizationId, organizationId), gte(llmUsageRollups.day, monthStr)]
-  if (filter.userId) conditions.push(eq(llmUsageRollups.userId, filter.userId))
-  if (filter.projectId) conditions.push(eq(llmUsageRollups.projectId, filter.projectId))
-
-  const [row] = await db
-    .select({
-      monthUsd: sql<string>`coalesce(sum(${llmUsageRollups.costUsd}), 0)`,
-      dayUsd: sql<string>`coalesce(sum(${llmUsageRollups.costUsd}) filter (where ${llmUsageRollups.day} = ${dayStr}), 0)`,
-    })
-    .from(llmUsageRollups)
-    .where(and(...conditions))
-
-  return {
-    dayUsd: Number.parseFloat(row?.dayUsd ?? '0') || 0,
-    monthUsd: Number.parseFloat(row?.monthUsd ?? '0') || 0,
-  }
-}
-
-export interface MemberSpend {
-  userId: string
-  dayUsd: number
-  monthUsd: number
-  dayEvents: number
-  monthEvents: number
+  return repository.aggregateSpendSummary(organizationId, filter)
 }
 
 /**
@@ -456,45 +231,7 @@ export interface MemberSpend {
  * Events without a user id (anonymous mode) are excluded.
  */
 export async function getSpendByMember(organizationId: string): Promise<MemberSpend[]> {
-  const db = getDb()
-  const dayStartIso = utcDayStart().toISOString()
-  const monthStart = utcMonthStart()
-
-  const rows = await db
-    .select({
-      userId: llmUsageEvents.userId,
-      monthUsd: sql<string>`coalesce(sum(${llmUsageEvents.costUsd}), 0)`,
-      dayUsd: sql<string>`coalesce(sum(${llmUsageEvents.costUsd}) filter (where ${llmUsageEvents.createdAt} >= ${dayStartIso}), 0)`,
-      monthEvents: sql<string>`count(*)`,
-      dayEvents: sql<string>`count(*) filter (where ${llmUsageEvents.createdAt} >= ${dayStartIso})`,
-    })
-    .from(llmUsageEvents)
-    .where(
-      and(
-        eq(llmUsageEvents.organizationId, organizationId),
-        gte(llmUsageEvents.createdAt, monthStart),
-        isNotNull(llmUsageEvents.userId),
-      ),
-    )
-    .groupBy(llmUsageEvents.userId)
-
-  return rows
-    .map((row) => ({
-      userId: row.userId as string,
-      dayUsd: Number.parseFloat(row.dayUsd) || 0,
-      monthUsd: Number.parseFloat(row.monthUsd) || 0,
-      dayEvents: Number.parseInt(row.dayEvents, 10) || 0,
-      monthEvents: Number.parseInt(row.monthEvents, 10) || 0,
-    }))
-    .sort((a, b) => b.monthUsd - a.monthUsd)
-}
-
-export interface OrganizationSpend {
-  organizationId: string
-  dayUsd: number
-  monthUsd: number
-  dayEvents: number
-  monthEvents: number
+  return repository.aggregateSpendByMember(organizationId)
 }
 
 /**
@@ -502,31 +239,7 @@ export interface OrganizationSpend {
  * dashboards only — caller must hold `platform:usage:view`, ADR-0016).
  */
 export async function getSpendAcrossOrganizations(): Promise<OrganizationSpend[]> {
-  const db = getDb()
-  const dayStartIso = utcDayStart().toISOString()
-  const monthStart = utcMonthStart()
-
-  const rows = await db
-    .select({
-      organizationId: llmUsageEvents.organizationId,
-      monthUsd: sql<string>`coalesce(sum(${llmUsageEvents.costUsd}), 0)`,
-      dayUsd: sql<string>`coalesce(sum(${llmUsageEvents.costUsd}) filter (where ${llmUsageEvents.createdAt} >= ${dayStartIso}), 0)`,
-      monthEvents: sql<string>`count(*)`,
-      dayEvents: sql<string>`count(*) filter (where ${llmUsageEvents.createdAt} >= ${dayStartIso})`,
-    })
-    .from(llmUsageEvents)
-    .where(gte(llmUsageEvents.createdAt, monthStart))
-    .groupBy(llmUsageEvents.organizationId)
-
-  return rows
-    .map((row) => ({
-      organizationId: row.organizationId,
-      dayUsd: Number.parseFloat(row.dayUsd) || 0,
-      monthUsd: Number.parseFloat(row.monthUsd) || 0,
-      dayEvents: Number.parseInt(row.dayEvents, 10) || 0,
-      monthEvents: Number.parseInt(row.monthEvents, 10) || 0,
-    }))
-    .sort((a, b) => b.monthUsd - a.monthUsd)
+  return repository.aggregateSpendAcrossOrganizations()
 }
 
 export interface DailySpendPoint {
@@ -545,36 +258,22 @@ export async function getDailySpendTrend(options: {
   organizationId?: string
   days?: number
 } = {}): Promise<DailySpendPoint[]> {
-  const db = getDb()
   const days = Math.min(Math.max(options.days ?? 30, 1), 90)
-  const start = utcDayStart()
+  const start = repository.utcDayStart()
   start.setUTCDate(start.getUTCDate() - (days - 1))
-  const startIso = start.toISOString()
 
-  const conditions = [gte(llmUsageEvents.createdAt, start)]
-  if (options.organizationId) {
-    conditions.push(eq(llmUsageEvents.organizationId, options.organizationId))
-  }
-  const rows = await db
-    .select({
-      day: sql<string>`to_char(date_trunc('day', ${llmUsageEvents.createdAt} at time zone 'UTC'), 'YYYY-MM-DD')`,
-      usd: sql<string>`coalesce(sum(${llmUsageEvents.costUsd}), 0)`,
-      events: sql<string>`count(*)`,
-    })
-    .from(llmUsageEvents)
-    .where(and(...conditions))
-    .groupBy(sql`1`)
+  const rows = await repository.aggregateDailySpend({ organizationId: options.organizationId, start })
 
   const byDay = new Map(rows.map((row) => [row.day, row]))
   const series: DailySpendPoint[] = []
-  const cursor = new Date(startIso)
+  const cursor = new Date(start)
   for (let i = 0; i < days; i += 1) {
     const key = cursor.toISOString().slice(0, 10)
     const row = byDay.get(key)
     series.push({
       day: key,
-      usd: row ? Number.parseFloat(row.usd) || 0 : 0,
-      events: row ? Number.parseInt(row.events, 10) || 0 : 0,
+      usd: row?.usd ?? 0,
+      events: row?.events ?? 0,
     })
     cursor.setUTCDate(cursor.getUTCDate() + 1)
   }
