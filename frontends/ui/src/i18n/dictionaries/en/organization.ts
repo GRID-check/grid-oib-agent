@@ -2,6 +2,7 @@
 export const organization = {
   title: 'Organization',
   subtitle: 'Manage your organization, its members, and access.',
+  loading: 'Loading organization…',
   memberSubtitle: 'Your LLM usage and your organization at a glance.',
   backToApp: 'Back to projects',
   overview: {
@@ -28,6 +29,7 @@ export const organization = {
     saving: 'Saving…',
     saved: 'Organization settings saved',
     saveError: 'Could not save organization settings. Please try again.',
+    loadError: 'Could not load organization settings right now. Please refresh to try again.',
   },
   members: {
     title: 'Members',

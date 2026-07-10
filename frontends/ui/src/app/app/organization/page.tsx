@@ -116,7 +116,17 @@ export default async function OrganizationPage(): Promise<JSX.Element> {
       overview = null
     }
   }
-  const settings = admin ? await getOrgSettings(session.organizationId) : null
+  // Grid-side settings are best-effort too — a Grid-DB hiccup must degrade this
+  // one card (a "could not load" note) rather than crash the whole admin page.
+  let settings: Awaited<ReturnType<typeof getOrgSettings>> | null = null
+  let settingsError = false
+  if (admin) {
+    try {
+      settings = await getOrgSettings(session.organizationId)
+    } catch {
+      settingsError = true
+    }
+  }
 
   const perms = session.permissions
   const createdLabel = overview
@@ -206,17 +216,21 @@ export default async function OrganizationPage(): Promise<JSX.Element> {
       )}
 
       {/* Grid-side settings (admins only) */}
-      {admin && settings && (
+      {admin && (settings || settingsError) && (
       <Card>
         <CardHeader>
           <CardTitle>{t('settings.title')}</CardTitle>
           <CardDescription>{t('settings.description')}</CardDescription>
         </CardHeader>
         <CardContent>
-          <OrgSettingsForm
-            initialDisplayName={settings.displayName}
-            initialDefaultLocale={settings.defaultLocale}
-          />
+          {settings ? (
+            <OrgSettingsForm
+              initialDisplayName={settings.displayName}
+              initialDefaultLocale={settings.defaultLocale}
+            />
+          ) : (
+            <p className="text-sm text-muted-foreground">{t('settings.loadError')}</p>
+          )}
         </CardContent>
       </Card>
 

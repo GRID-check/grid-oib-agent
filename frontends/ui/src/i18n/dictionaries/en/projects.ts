@@ -94,6 +94,8 @@ export const projects = {
     purgeFailed: 'Purge failed — contact support',
     purgeAfter: 'Permanently purged after {date}',
     restore: 'Restore',
+    loadError: 'Could not load recently deleted projects.',
+    retry: 'Retry',
   },
   researchRuns: {
     hint: {

@@ -4,6 +4,7 @@ import type { en } from '../en'
 export const organization: typeof en.organization = {
   title: 'Organisation',
   subtitle: 'Verwalten Sie Ihre Organisation, ihre Mitglieder und Zugriffe.',
+  loading: 'Organisation wird geladen…',
   memberSubtitle: 'Ihr LLM-Verbrauch und Ihre Organisation auf einen Blick.',
   backToApp: 'Zurück zu den Projekten',
   overview: {
@@ -30,6 +31,7 @@ export const organization: typeof en.organization = {
     saving: 'Wird gespeichert…',
     saved: 'Organisationseinstellungen gespeichert',
     saveError: 'Die Organisationseinstellungen konnten nicht gespeichert werden. Bitte versuchen Sie es erneut.',
+    loadError: 'Die Organisationseinstellungen konnten gerade nicht geladen werden. Bitte laden Sie die Seite neu.',
   },
   members: {
     title: 'Mitglieder',

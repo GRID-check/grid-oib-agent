@@ -4,7 +4,10 @@ import type { en } from '../en'
 export const platform: typeof en.platform = {
   title: 'Plattform',
   subtitle: 'Organisationsübergreifende Übersicht für den Plattform-Inhaber.',
+  loading: 'Plattform wird geladen…',
   loadError: 'Die Plattform-Übersicht konnte nicht geladen werden.',
+  loadErrorHint: 'Beim Laden der Daten ist ein Fehler aufgetreten. Bitte versuchen Sie es erneut.',
+  retry: 'Erneut versuchen',
   stats: {
     organizations: 'Organisationen',
     projects: 'Projekte',

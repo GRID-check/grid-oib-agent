@@ -2,6 +2,7 @@
 export const profile = {
   title: 'Profile',
   subtitle: 'Manage your account, appearance, and language preferences.',
+  loading: 'Loading profile…',
   backToApp: 'Back to projects',
   savedToast: 'Preferences saved',
   saveError: 'Could not save your preferences. Please try again.',

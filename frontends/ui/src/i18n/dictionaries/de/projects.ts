@@ -99,6 +99,8 @@ export const projects: typeof en.projects = {
     purgeFailed: 'Löschung fehlgeschlagen — Support kontaktieren',
     purgeAfter: 'Endgültig gelöscht nach {date}',
     restore: 'Wiederherstellen',
+    loadError: 'Kürzlich gelöschte Projekte konnten nicht geladen werden.',
+    retry: 'Erneut versuchen',
   },
   researchRuns: {
     hint: {

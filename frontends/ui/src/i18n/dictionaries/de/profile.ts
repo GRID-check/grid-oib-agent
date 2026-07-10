@@ -4,6 +4,7 @@ import type { en } from '../en'
 export const profile: typeof en.profile = {
   title: 'Profil',
   subtitle: 'Verwalten Sie Ihr Konto, das Erscheinungsbild und Ihre Spracheinstellungen.',
+  loading: 'Profil wird geladen…',
   backToApp: 'Zurück zu den Projekten',
   savedToast: 'Einstellungen gespeichert',
   saveError: 'Ihre Einstellungen konnten nicht gespeichert werden. Bitte versuchen Sie es erneut.',
