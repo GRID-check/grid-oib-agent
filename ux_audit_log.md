@@ -280,3 +280,36 @@ this session in Staging + Production, accessType ALL, default-on so the
 enforcement flip doesn't strip shortcuts) PLUS a per-user profile toggle.
 
 ---
+
+## Round 6 — immersion I: "workspace, not website" (user directive)
+
+Three parallel agents (palette/shortcuts foundation on the highest-capability
+model — new subsystem + dual gating; tab titles + presence on Opus). Committed
+in three slices. Everything is polish over EXISTING navigation/capability — no
+new product features.
+
+- **Connection presence** (`63cc859`): subtle status dot + label in the
+  sidebar footer and org-topbar (connected/reconnecting/offline). Source:
+  navigator.onLine + online/offline events + a 20s /api/health ping (WS
+  isConnected is hook-local and the shell renders on non-chat pages, so a
+  global signal is correct; no new endpoint). Debounced anti-flap, ping
+  suspended while tab hidden, role=status + aria-live, motion-reduce aware,
+  EN+DE. 11 tests.
+- **Dynamic tab titles** (`cf40641`): title template '%s — Grid'; project
+  layout injects the project name ('Neubau Wohnbau · Chat — Grid') via server
+  metadata (no flash); deep-research progress in the tab while a job runs
+  ('42% · Research — Grid'), client hook scoped to the chat page that restores
+  the displaced title on complete/unmount. 10 hook tests + 47 regression.
+- **Command palette + keyboard shortcuts** (`cdbbfa2`): ⌘K palette (jump to
+  project / section / new project / org / profile / theme / sign out — grouped,
+  localized, keyboard-navigable, shadcn cmdk); global shortcuts (⌘K, '?'
+  cheatsheet, 'g p'); typing-guarded, single listener, cleaned up.
+  **Dual-gated** as the user required: OUTER WorkOS org flag `keyboard-shortcuts`
+  (created this session in Staging+Production, ALL/default-on; registry +
+  server-mounted /app island — no flag = never shipped, zero listeners); INNER
+  per-user profile toggle (localStorage, default ON, SSR-safe
+  useSyncExternalStore, cross-tab synced) — off = fully inert, clickable UI
+  unaffected. 19 tests incl. a zero-listener-when-off assertion.
+- Full-suite gate: tsc 0; vitest 1648 passed / 3 skipped (was 1531 at
+  baseline).
+
