@@ -19,4 +19,15 @@ substitutes, validated this run: `npm ci` + `npx tsc --noEmit` + `npx vitest run
 in `frontends/ui`; backend `uv sync --extra dev` + `.venv/bin/python -m pytest`
 + `ruff check` / `ruff format --check`. No live-stack testing.
 
+**Baselines (pre-change):**
+- Frontend `tsc --noEmit`: exit 0.
+- Frontend `vitest run`: 1531 passed / 3 skipped, 0 failed.
+- Backend `pytest tests/`: 1187 passed / 3 skipped, 3 failed — 2× helm-render
+  tests (no `helm` binary in this env: environment noise, not code), 1×
+  `test_layered_retrieval.py::TestResolveTargetCollections::test_dedup_preserves_order`
+  (pre-existing real failure: session collection `s_oib_knowledge` appears in the
+  resolved list but the test doesn't expect it — triage in a round).
+- Note: repo venv must be ≥3.12 (`typing.override` in `aiq_api/plugin.py:41`)
+  even though `pyproject.toml` says `>=3.11` — logged as a finding.
+
 ---
