@@ -14,6 +14,13 @@ export const nav = {
     research: 'Research',
     members: 'Members',
   },
+  projectSwitcher: {
+    select: 'Select project',
+    switchCurrent: 'Switch project (current: {name})',
+    projects: 'Projects',
+    allProjects: 'All projects',
+    newProject: 'New project',
+  },
   userMenu: {
     label: 'User menu for {name}',
     defaultUser: 'Default User',

@@ -50,6 +50,12 @@ export const projects: typeof en.projects = {
     nameLabel: 'Projektname',
     namePlaceholder: 'OIB-Brandschutzprüfung',
     templateLabel: 'Mit einer Vorlage beginnen',
+    templates: {
+      neubauWohnbau: { label: 'Neubau Wohnbau', name: 'Neubau Wohnbau' },
+      betriebsbauBrandschutz: { label: 'Betriebsbau Brandschutz', name: 'Betriebsbau — Brandschutz' },
+      sanierungBestand: { label: 'Sanierung Bestand', name: 'Sanierung Bestand' },
+      oibBrandschutzAudit: { label: 'OIB Brandschutz-Audit', name: 'OIB Brandschutz-Audit' },
+    },
     footnote:
       'Erstellen Sie einen fokussierten Arbeitsbereich für Dokumente, Retrieval, Mitglieder und Chat, fundiert im OIB/RIS-Korpus.',
     submit: 'Projekt erstellen',
@@ -267,6 +273,11 @@ export const projects: typeof en.projects = {
       assumptionConfirm: 'Bestätigen',
       assumptionDismiss: 'Verwerfen',
       assumptionError: 'Das Briefing konnte nicht aktualisiert werden. Bitte erneut versuchen.',
+      provenance: {
+        onboarding: 'Im Intake-Assistenten erfasst',
+        user_confirmed: 'Von Ihnen bestätigt',
+        admin_edit: 'Von einer Administratorin bearbeitet',
+      },
       emptyTitle: 'Projekt-Briefing einrichten',
       emptyDescription:
         'Erzählen Sie Grid von diesem Gebäude — Nutzung, Klasse, Geschosse und Ziele. Ein vollständiges Briefing lässt Grid jede Antwort im realen Kontext Ihres Projekts fundieren.',

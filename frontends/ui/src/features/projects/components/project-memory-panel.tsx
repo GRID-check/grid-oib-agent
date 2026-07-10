@@ -19,7 +19,7 @@ import {
 } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
-import { useTranslations } from '@/i18n'
+import { useLocale, useTranslations } from '@/i18n'
 import type { Translator } from '@/i18n'
 
 /**
@@ -52,7 +52,7 @@ function provenanceLabel(provenanceType: string, t: Translator): string {
 }
 
 /** Compact relative time ("2h ago", "3d ago") with a date fallback for older items. */
-function formatWhen(isoDate: string, t: Translator): string {
+function formatWhen(isoDate: string, t: Translator, locale: string): string {
   const date = new Date(isoDate)
   if (Number.isNaN(date.getTime())) return ''
   const seconds = Math.round((Date.now() - date.getTime()) / 1000)
@@ -60,7 +60,7 @@ function formatWhen(isoDate: string, t: Translator): string {
   if (seconds < 3600) return t('memory.time.minutesAgo', { count: Math.round(seconds / 60) })
   if (seconds < 86400) return t('memory.time.hoursAgo', { count: Math.round(seconds / 3600) })
   if (seconds < 86400 * 30) return t('memory.time.daysAgo', { count: Math.round(seconds / 86400) })
-  return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(date)
+  return new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'short', year: 'numeric' }).format(date)
 }
 
 async function requestJson<T>(url: string, init?: RequestInit, t?: Translator): Promise<T> {
@@ -79,6 +79,7 @@ async function requestJson<T>(url: string, init?: RequestInit, t?: Translator): 
 
 export function ProjectMemoryPanel({ projectId }: ProjectMemoryPanelProps): JSX.Element {
   const t = useTranslations('projects')
+  const { locale } = useLocale()
   const [items, setItems] = useState<MemoryItem[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   /** Item currently being mutated — disables its actions to avoid double-fires. */
@@ -429,7 +430,7 @@ export function ProjectMemoryPanel({ projectId }: ProjectMemoryPanelProps): JSX.
                               {' · '}
                               {provenanceLabel(item.provenanceType, t)}
                               {' · '}
-                              {formatWhen(item.updatedAt, t)}
+                              {formatWhen(item.updatedAt, t, locale)}
                             </p>
                           </>
                         )}

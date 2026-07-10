@@ -22,12 +22,8 @@ interface ProjectBriefProps {
   briefStarted: boolean
 }
 
-/** How a fact entered the brief, for the provenance tooltip. */
-const SOURCE_LABELS: Record<string, string> = {
-  onboarding: 'Captured in the intake wizard',
-  user_confirmed: 'Confirmed by you',
-  admin_edit: 'Edited by an admin',
-}
+/** Fact sources with a localized provenance tooltip (under overview.brief.provenance). */
+const PROVENANCE_SOURCES = new Set(['onboarding', 'user_confirmed', 'admin_edit'])
 
 /**
  * Project Brief — the architect-owned context Grid works from. Renders the
@@ -114,7 +110,11 @@ export function ProjectBrief({ projectId, profile, summary, briefStarted }: Proj
                     <dt className="text-xs text-muted-foreground">{fact.label}</dt>
                     <dd
                       className="mt-0.5 text-sm font-medium"
-                      title={SOURCE_LABELS[fact.source] ?? fact.source}
+                      title={
+                        PROVENANCE_SOURCES.has(fact.source)
+                          ? t(`overview.brief.provenance.${fact.source}`)
+                          : fact.source
+                      }
                     >
                       {fact.value}
                     </dd>

@@ -12,7 +12,8 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
 import { formatFileSize } from '@/lib/utils/format-file-size'
-import { useTranslations, type Translator } from '@/i18n'
+import { useLocale, useTranslations, type Translator } from '@/i18n'
+import { useMemo } from 'react'
 
 interface ProjectOverviewProps {
   data: ProjectOverviewData
@@ -64,10 +65,13 @@ function statusLabel(status: string | null, t: Translator): string {
   return status.charAt(0).toUpperCase() + status.slice(1)
 }
 
-const dateFormatter = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
-
 export function ProjectOverview({ data, canManageProject = false }: ProjectOverviewProps) {
   const t = useTranslations('projects')
+  const { locale } = useLocale()
+  const dateFormatter = useMemo(
+    () => new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'short', year: 'numeric' }),
+    [locale],
+  )
   const profile = data.profileDisplay
   const hasDocuments = data.documentCount > 0
 

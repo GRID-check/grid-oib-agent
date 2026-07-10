@@ -47,6 +47,15 @@ export const projects = {
     nameLabel: 'Project name',
     namePlaceholder: 'OIB fire safety review',
     templateLabel: 'Start from a template',
+    templates: {
+      neubauWohnbau: { label: 'New residential build', name: 'New residential build' },
+      betriebsbauBrandschutz: {
+        label: 'Commercial build — fire safety',
+        name: 'Commercial build — fire safety',
+      },
+      sanierungBestand: { label: 'Existing-building renovation', name: 'Existing-building renovation' },
+      oibBrandschutzAudit: { label: 'OIB fire-safety audit', name: 'OIB fire-safety audit' },
+    },
     footnote:
       'Create a focused workspace for documents, retrieval, members, and chat grounded in the OIB/RIS corpus.',
     submit: 'Create project',
@@ -259,6 +268,11 @@ export const projects = {
       assumptionConfirm: 'Confirm',
       assumptionDismiss: 'Dismiss',
       assumptionError: 'Could not update the brief. Please try again.',
+      provenance: {
+        onboarding: 'Captured in the intake wizard',
+        user_confirmed: 'Confirmed by you',
+        admin_edit: 'Edited by an admin',
+      },
       emptyTitle: 'Set up the project brief',
       emptyDescription:
         "Tell Grid about this building — use, class, storeys and goals. A complete brief lets Grid ground every answer in your project's real context.",

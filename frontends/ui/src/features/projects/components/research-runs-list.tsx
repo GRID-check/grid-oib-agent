@@ -10,7 +10,8 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
 import { EmptyState } from '@/components/ui/empty-state'
 import { listResearchRuns, type ResearchRun } from '@/adapters/api/research-runs-client'
-import { useTranslations } from '@/i18n'
+import { useLocale, useTranslations } from '@/i18n'
+import type { Locale } from '@/i18n'
 
 const DEFAULT_LIMIT = 50
 
@@ -34,7 +35,7 @@ const KNOWN_STATUSES = ['running', 'submitted', 'pending', 'completed', 'failed'
 
 const shortJobId = (jobId: string): string => jobId.slice(0, 8)
 
-const formatRelativeTime = (isoDate: string): string => {
+const formatRelativeTime = (isoDate: string, locale: Locale): string => {
   const date = new Date(isoDate)
   if (Number.isNaN(date.getTime())) return isoDate
 
@@ -42,7 +43,7 @@ const formatRelativeTime = (isoDate: string): string => {
   const diffSeconds = Math.round(diffMs / 1000)
   const absSeconds = Math.abs(diffSeconds)
 
-  const rtf = new Intl.RelativeTimeFormat('en', { numeric: 'auto' })
+  const rtf = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' })
 
   const thresholds: Array<[number, Intl.RelativeTimeFormatUnit]> = [
     [60, 'second'],
@@ -77,6 +78,7 @@ const formatRelativeTime = (isoDate: string): string => {
 
 export function ResearchRunsList({ projectId, projectCollection }: ResearchRunsListProps): JSX.Element {
   const t = useTranslations('projects')
+  const { locale } = useLocale()
   const [jobs, setJobs] = useState<ResearchRun[] | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -194,7 +196,7 @@ export function ResearchRunsList({ projectId, projectCollection }: ResearchRunsL
                     {shortJobId(job.job_id)}
                   </span>
                   <span className="text-xs text-muted-foreground">
-                    {formatRelativeTime(job.created_at)}
+                    {formatRelativeTime(job.created_at, locale)}
                   </span>
                 </div>
               </div>

@@ -13,6 +13,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { motion, springSnappy } from '@/components/motion'
+import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 
 export interface ProjectSwitcherProject {
@@ -28,6 +29,7 @@ export interface ProjectSwitcherProps {
 
 export function ProjectSwitcher({ projects, activeProjectId, collapsed }: ProjectSwitcherProps) {
   const router = useRouter()
+  const t = useTranslations('nav')
   const active = projects.find((p) => p.id === activeProjectId)
   const [open, setOpen] = React.useState(false)
 
@@ -39,7 +41,11 @@ export function ProjectSwitcher({ projects, activeProjectId, collapsed }: Projec
           'transition-colors duration-200 ease-out hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none',
           collapsed && 'justify-center px-0',
         )}
-        aria-label={active ? `Switch project (current: ${active.name})` : 'Select project'}
+        aria-label={
+          active
+            ? t('projectSwitcher.switchCurrent', { name: active.name })
+            : t('projectSwitcher.select')
+        }
       >
         <span
           className="flex size-6 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground"
@@ -49,7 +55,7 @@ export function ProjectSwitcher({ projects, activeProjectId, collapsed }: Projec
         </span>
         {!collapsed && (
           <>
-            <span className="min-w-0 flex-1 truncate">{active?.name ?? 'Select project'}</span>
+            <span className="min-w-0 flex-1 truncate">{active?.name ?? t('projectSwitcher.select')}</span>
             <motion.span
               className="flex shrink-0"
               initial={false}
@@ -63,7 +69,7 @@ export function ProjectSwitcher({ projects, activeProjectId, collapsed }: Projec
         )}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" side="bottom" className="w-60">
-        <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">Projects</DropdownMenuLabel>
+        <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">{t('projectSwitcher.projects')}</DropdownMenuLabel>
         {projects.map((project) => (
           <DropdownMenuItem
             key={project.id}
@@ -77,11 +83,11 @@ export function ProjectSwitcher({ projects, activeProjectId, collapsed }: Projec
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={() => router.push('/app/projects')} className="gap-2">
           <FolderKanban className="size-4 text-muted-foreground" aria-hidden />
-          All projects
+          {t('projectSwitcher.allProjects')}
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => router.push('/app/projects?new=1')} className="gap-2">
           <Plus className="size-4 text-muted-foreground" aria-hidden />
-          New project
+          {t('projectSwitcher.newProject')}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

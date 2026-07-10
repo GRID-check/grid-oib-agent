@@ -6,7 +6,8 @@ import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
 import { motion, springSnappy } from '@/components/motion'
 import type { Project } from '@/lib/db/schema'
-import { useTranslations } from '@/i18n'
+import { useLocale, useTranslations } from '@/i18n'
+import { useMemo } from 'react'
 
 interface ProjectCardProps {
   project: Project
@@ -14,11 +15,13 @@ interface ProjectCardProps {
   docCount?: number
 }
 
-const formatDate = (date: Date) =>
-  new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric', year: 'numeric' }).format(date)
-
 export function ProjectCard({ project, docCount = 0 }: ProjectCardProps): JSX.Element {
   const t = useTranslations('projects')
+  const { locale } = useLocale()
+  const formatDate = useMemo(() => {
+    const formatter = new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric', year: 'numeric' })
+    return (date: Date) => formatter.format(date)
+  }, [locale])
   const summary = project.profileDisplay?.summary?.trim() || t('card.summaryFallback')
 
   const activityDate = project.profileUpdatedAt ?? project.createdAt
