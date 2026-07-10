@@ -280,6 +280,29 @@ class TestShallowResearcherAgent:
         assert "exact tool name" in agent.system_prompt
         assert "- [1] mcp_time__get_current_time" in agent.system_prompt
 
+    def test_default_prompt_matches_user_language(self, mock_llm_provider, real_tool):
+        """Default prompt instructs the model to answer in the user's language."""
+        agent = ShallowResearcherAgent(
+            llm_provider=mock_llm_provider,
+            tools=[real_tool],
+        )
+
+        assert "Match the language of the user request" in agent.system_prompt
+        # German questions should get German answers.
+        assert "German" in agent.system_prompt
+
+    def test_default_prompt_keeps_escalate_marker_language_independent(self, mock_llm_provider, real_tool):
+        """Language matching must NOT disturb the literal escalation marker contract."""
+        agent = ShallowResearcherAgent(
+            llm_provider=mock_llm_provider,
+            tools=[real_tool],
+        )
+
+        # The marker stays literal/language-independent alongside the new
+        # language-matching instruction.
+        assert "[ESCALATE_TO_DEEP]" in agent.system_prompt
+        assert "exactly as written" in agent.system_prompt
+
     @pytest.mark.asyncio
     async def test_tool_iterations_incremented_on_tool_calls(self, mock_llm_provider, mock_llm, real_tool):
         """Test tool_iterations counter increments when LLM makes tool calls."""

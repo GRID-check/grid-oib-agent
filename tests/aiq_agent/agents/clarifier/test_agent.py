@@ -630,6 +630,50 @@ class TestClarifierAgentPlanFormatting:
         assert "**Title:** Test Plan" in result
         assert "**Sections:**" in result
 
+    def test_clarification_prompt_localizes_question_text(self, agent):
+        """Clarification prompt tells the model to write questions in the user's language."""
+        prompt = agent.system_prompt
+
+        assert "**Language**" in prompt
+        assert "same language as the user's most recent message" in prompt.lower()
+        # The skip control keyword the backend matches must stay byte-stable.
+        assert "byte-stable" in prompt
+        assert "SKIP_COMMANDS" in prompt
+
+    def test_plan_generation_prompt_localizes_content(self, agent):
+        """Plan-generation prompt localizes title/sections but not the approval envelope."""
+        prompt = agent.plan_generation_prompt
+
+        assert "same language as the user's request" in prompt.lower()
+        # The byte-stable approval envelope contract is documented and must not
+        # be emitted by the model.
+        assert "APPROVAL ENVELOPE" in prompt
+        assert "APPROVAL_KEYWORDS" in prompt
+
+    def test_localization_contract_comments_stay_out_of_rendered_prompts(self, agent):
+        """The byte-stable contract notes are Jinja comments — never sent to the model."""
+        from aiq_agent.common import render_prompt_template
+
+        rendered_clarification = render_prompt_template(
+            agent.system_prompt,
+            project_context=None,
+            available_documents=None,
+            clarifier_result=None,
+        )
+        rendered_plan = render_prompt_template(
+            agent.plan_generation_prompt,
+            project_context=None,
+            clarifier_context=None,
+            feedback_history=None,
+        )
+
+        # Human-facing documentation comments are stripped at render time.
+        assert "SKIP_COMMANDS" not in rendered_clarification
+        assert "APPROVAL ENVELOPE" not in rendered_plan
+        # ...but the localization instruction itself survives into the prompt.
+        assert "**Language**" in rendered_clarification
+        assert "same language as the user's request" in rendered_plan.lower()
+
 
 class TestClarifierAgentPlanApproval:
     """Tests for plan approval workflow."""
