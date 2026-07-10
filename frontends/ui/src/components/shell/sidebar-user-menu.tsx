@@ -37,6 +37,13 @@ export interface SidebarUserMenuProps {
   compact?: boolean
   /** Show the org-management entry (org admins only). */
   canManageOrganization?: boolean
+  /**
+   * Show the organization entry to any org member. The org page serves
+   * capability subsets and a member self-usage view, so it is discoverable
+   * beyond full admins (UX-16). Falls back to {@link canManageOrganization}
+   * for callers that predate this flag.
+   */
+  canViewOrganization?: boolean
   /** Show the platform dashboard entry (platform owner only, ADR-0016). */
   canManagePlatform?: boolean
 }
@@ -55,6 +62,7 @@ export function SidebarUserMenu({
   menuAlign = 'start',
   compact = false,
   canManageOrganization = false,
+  canViewOrganization = false,
   canManagePlatform = false,
 }: SidebarUserMenuProps) {
   const { signOut } = useAuth()
@@ -107,7 +115,7 @@ export function SidebarUserMenu({
             {t('userMenu.profile')}
           </Link>
         </DropdownMenuItem>
-        {canManageOrganization && (
+        {(canViewOrganization || canManageOrganization) && (
           <DropdownMenuItem asChild className="gap-2">
             <Link href="/app/organization">
               <Building2 className="size-4 text-muted-foreground" aria-hidden />

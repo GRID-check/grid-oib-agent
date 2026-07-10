@@ -18,7 +18,9 @@ export default async function ProjectLayout({ children, params }: ProjectLayoutP
   const session = await requireAuthorizedPageSession()
   const navFlags = await getNavFlags(session)
   const { id } = await params
-  const { role } = await requireProjectAccess(session, id, 'project:view')
+  // View access is enough to enter the project shell; per-section controls
+  // (danger zone, member management) are gated inside their own pages.
+  await requireProjectAccess(session, id, 'project:view')
   const db = getDb()
 
   // Soft-deleted projects are gone for everyone — including org admins, who
@@ -48,8 +50,8 @@ export default async function ProjectLayout({ children, params }: ProjectLayoutP
         projects={orgProjects}
         user={{ name: session.name, email: session.email }}
         authRequired={isAuthRequired()}
-        canManageMembers={role === 'project-admin'}
         canManageOrganization={navFlags.canManageOrganization}
+        canViewOrganization={navFlags.canViewOrganization}
         canManagePlatform={navFlags.canManagePlatform}
       />
       <main id="main-content" className="min-w-0 flex-1 overflow-y-auto bg-background">

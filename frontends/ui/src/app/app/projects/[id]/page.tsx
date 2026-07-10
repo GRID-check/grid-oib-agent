@@ -12,7 +12,9 @@ export default async function ProjectPage({ params }: ProjectPageProps): Promise
   const session = await requireAuthorizedPageSession()
   const { id } = await params
 
-  await requireProjectAccess(session, id, 'project:view')
+  // View access gates the page; the derived role tells us whether the user can
+  // also delete (project-admin ⇒ project:manage), which gates the danger zone.
+  const { role } = await requireProjectAccess(session, id, 'project:view')
 
   const data = await getProjectOverviewData(id, session.organizationId)
 
@@ -20,5 +22,5 @@ export default async function ProjectPage({ params }: ProjectPageProps): Promise
     notFound()
   }
 
-  return <ProjectOverview data={data} />
+  return <ProjectOverview data={data} canManageProject={role === 'project-admin'} />
 }

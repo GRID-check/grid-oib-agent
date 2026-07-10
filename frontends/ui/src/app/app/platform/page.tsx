@@ -37,6 +37,7 @@ export default async function PlatformPage(): Promise<JSX.Element> {
         authRequired={isAuthRequired()}
         heading={t('title')}
         canManageOrganization={navFlags.canManageOrganization}
+        canViewOrganization={navFlags.canViewOrganization}
         canManagePlatform={navFlags.canManagePlatform}
       />
       <main id="main-content" className="mx-auto w-full max-w-4xl flex-1 px-4 py-6 md:px-8 md:py-10">

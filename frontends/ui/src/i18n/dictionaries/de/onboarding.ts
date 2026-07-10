@@ -15,6 +15,12 @@ export const onboarding: typeof en.onboarding = {
     title: 'Diese Plattform ist nur auf Einladung zug\u00e4nglich',
     description:
       'Neue Organisationen werden vom Plattform-Team angelegt. Bitten Sie den Administrator Ihrer Organisation um eine Einladung \u2014 danach landen Sie direkt im gemeinsamen Arbeitsbereich.',
+    wrongAccount:
+      'Mit dem falschen Konto angemeldet? Melden Sie sich unten ab und mit dem Konto an, das die Einladung erhalten hat.',
+  },
+  account: {
+    signedInAs: 'Angemeldet als {email}',
+    signedIn: 'Sie sind angemeldet.',
   },
   errors: {
     createFailed: 'Organisation konnte nicht erstellt werden.',

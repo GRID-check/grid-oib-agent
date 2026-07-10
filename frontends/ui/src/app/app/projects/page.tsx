@@ -54,6 +54,7 @@ export default async function ProjectsPage({ searchParams }: ProjectsPageProps):
         authRequired={isAuthRequired()}
         heading={t('list.heading')}
         canManageOrganization={navFlags.canManageOrganization}
+        canViewOrganization={navFlags.canViewOrganization}
         canManagePlatform={navFlags.canManagePlatform}
       />
 

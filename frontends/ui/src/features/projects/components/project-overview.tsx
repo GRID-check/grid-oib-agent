@@ -16,6 +16,12 @@ import { useTranslations, type Translator } from '@/i18n'
 
 interface ProjectOverviewProps {
   data: ProjectOverviewData
+  /**
+   * Whether the current user can delete the project (project:manage). The
+   * danger zone is only rendered when true — a viewer/editor never sees the
+   * type-to-confirm ritual for an action the API will reject.
+   */
+  canManageProject?: boolean
 }
 
 type BadgeVariant = 'success' | 'info' | 'destructive' | 'secondary'
@@ -60,7 +66,7 @@ function statusLabel(status: string | null, t: Translator): string {
 
 const dateFormatter = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
 
-export function ProjectOverview({ data }: ProjectOverviewProps) {
+export function ProjectOverview({ data, canManageProject = false }: ProjectOverviewProps) {
   const t = useTranslations('projects')
   const profile = data.profileDisplay
   const hasDocuments = data.documentCount > 0
@@ -204,10 +210,14 @@ export function ProjectOverview({ data }: ProjectOverviewProps) {
       </section>
       </StaggerItem>
 
-      {/* Danger zone — soft delete with grace-period restore. */}
-      <StaggerItem>
-        <ProjectDangerZone projectId={data.id} projectName={data.name} />
-      </StaggerItem>
+      {/* Danger zone — soft delete with grace-period restore. Only shown to
+          users who can actually delete (project:manage); viewers/editors never
+          see a destructive ritual the API would reject. */}
+      {canManageProject && (
+        <StaggerItem>
+          <ProjectDangerZone projectId={data.id} projectName={data.name} />
+        </StaggerItem>
+      )}
     </Stagger>
   )
 }

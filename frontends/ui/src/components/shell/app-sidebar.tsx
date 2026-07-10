@@ -58,14 +58,15 @@ export interface AppSidebarProps {
   projects: ProjectSwitcherProject[]
   user?: SidebarUser
   authRequired: boolean
-  /**
-   * Whether the current user can manage project members. When false, the
-   * Members section is hidden — viewers/editors never see a nav item that
-   * dead-ends in a permission error.
-   */
-  canManageMembers?: boolean
   /** Whether the current user can manage the organization (org admin). */
   canManageOrganization?: boolean
+  /**
+   * Whether the current user may open the organization page at all. True for
+   * every authenticated org member — the org page serves capability subsets
+   * (budgets/models/audit) and a member self-usage view, so the nav entry is
+   * discoverable even for non-admins (UX-16).
+   */
+  canViewOrganization?: boolean
   /** Whether the current user is the platform owner (ADR-0016). */
   canManagePlatform?: boolean
 }
@@ -75,8 +76,8 @@ export function AppSidebar({
   projects,
   user,
   authRequired,
-  canManageMembers = true,
   canManageOrganization = false,
+  canViewOrganization = false,
   canManagePlatform = false,
 }: AppSidebarProps) {
   const pathname = usePathname() ?? ''
@@ -121,9 +122,10 @@ export function AppSidebar({
     return item.segment ? pathname.startsWith(href) : pathname === base
   }
 
-  const navItems = NAV_ITEMS.filter(
-    (item) => item.segment !== 'members' || canManageMembers,
-  )
+  // Members is shown to every project member: the roster page renders a
+  // dignified read-only view for viewers/editors and full controls for admins,
+  // so the nav item never dead-ends.
+  const navItems = NAV_ITEMS
 
   const activeItem = navItems.find(isActive)
 
@@ -263,7 +265,8 @@ export function AppSidebar({
                 authRequired={authRequired}
                 compact={false}
                 canManageOrganization={canManageOrganization}
-            canManagePlatform={canManagePlatform}
+                canViewOrganization={canViewOrganization}
+                canManagePlatform={canManagePlatform}
               />
             </div>
           </div>
@@ -348,6 +351,7 @@ export function AppSidebar({
             authRequired={authRequired}
             compact={collapsed}
             canManageOrganization={canManageOrganization}
+            canViewOrganization={canViewOrganization}
             canManagePlatform={canManagePlatform}
           />
         </div>

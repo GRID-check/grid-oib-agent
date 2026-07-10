@@ -12,17 +12,21 @@
 import { type ReactNode, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { z } from 'zod'
-import { CheckCircle2, Folder, Lock, Users } from 'lucide-react'
+import { CheckCircle2, Folder, LogOut, Lock, Users } from 'lucide-react'
 import { useAppForm } from '@/components/form'
+import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Spinner } from '@/components/ui/spinner'
 import { Logo } from '@/components/brand/logo'
 import { StarfieldAnimation } from '@/shared/components/StarfieldAnimation'
+import { useAuth } from '@/adapters/auth/use-auth'
 import { useTranslations } from '@/i18n'
 
 const OrganizationOnboardingPage = (): ReactNode => {
   const t = useTranslations('onboarding')
+  const tc = useTranslations('common')
+  const { user, signOut } = useAuth()
   const router = useRouter()
   const [error, setError] = useState<string | null>(null)
   const [status, setStatus] = useState<'idle' | 'success'>('idle')
@@ -153,7 +157,10 @@ const OrganizationOnboardingPage = (): ReactNode => {
               {selfServeDisabled && (
                 <Alert>
                   <AlertTitle>{t('inviteOnly.title')}</AlertTitle>
-                  <AlertDescription>{t('inviteOnly.description')}</AlertDescription>
+                  <AlertDescription>
+                    {t('inviteOnly.description')}
+                    <span className="mt-2 block">{t('inviteOnly.wrongAccount')}</span>
+                  </AlertDescription>
                 </Alert>
               )}
 
@@ -201,6 +208,21 @@ const OrganizationOnboardingPage = (): ReactNode => {
                     <span className="text-sm text-muted-foreground">{item}</span>
                   </div>
                 ))}
+              </div>
+
+              {/* Identity + escape hatch: signed in with the wrong account (or
+                  waiting on an invite) must never be a dead end — always offer
+                  sign-out, in both invite-only and self-serve modes (UX-17). */}
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-5">
+                <span className="min-w-0 truncate text-sm text-muted-foreground">
+                  {user?.email
+                    ? t('account.signedInAs', { email: user.email })
+                    : t('account.signedIn')}
+                </span>
+                <Button type="button" variant="outline" size="sm" onClick={() => signOut()}>
+                  <LogOut className="size-4" aria-hidden />
+                  {tc('actions.signOut')}
+                </Button>
               </div>
             </>
           )}

@@ -34,6 +34,7 @@ export default async function ProfilePage(): Promise<JSX.Element> {
         authRequired={isAuthRequired()}
         heading={t('title')}
         canManageOrganization={navFlags.canManageOrganization}
+        canViewOrganization={navFlags.canViewOrganization}
         canManagePlatform={navFlags.canManagePlatform}
       />
 
