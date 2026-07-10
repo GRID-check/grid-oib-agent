@@ -46,8 +46,9 @@ export const viewport: Viewport = {
 }
 
 export const metadata: Metadata = {
-  title: 'Grid',
-  description: 'AI-powered research assistant',
+  title: 'Grid — OIB Compliance Assistant',
+  description:
+    'AI compliance assistant for Austrian building regulations (OIB Richtlinien) — searches, interprets, and cites building-code requirements.',
   icons: {
     icon: '/favicon.ico',
   },

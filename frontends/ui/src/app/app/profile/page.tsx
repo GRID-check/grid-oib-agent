@@ -15,9 +15,49 @@ import { OrgTopbar } from '@/components/shell'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { getTranslations } from '@/i18n/server'
+import type { Translator } from '@/i18n'
+import { getOrgSettings, getOrganizationOverview } from '@/lib/organizations/service'
 import { ProfileControls } from './profile-controls'
 
 const isAuthRequired = (): boolean => process.env.REQUIRE_AUTH?.toLowerCase() === 'true'
+
+const KNOWN_ROLE_SLUGS = new Set(['org-platform-owner', 'admin', 'member'])
+
+/**
+ * Turn an unknown WorkOS role slug into a readable label: drop an `org-`
+ * prefix and title-case the words (`org-billing-admin` → `Billing Admin`).
+ */
+const humanizeRoleSlug = (slug: string): string =>
+  slug
+    .replace(/^org-/, '')
+    .replace(/[-_]+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, (char) => char.toUpperCase()) || slug
+
+/** Localized role label, falling back to a humanized slug for unknown roles. */
+const roleLabel = (slug: string, t: Translator): string =>
+  KNOWN_ROLE_SLUGS.has(slug) ? t(`account.roles.${slug}`) : humanizeRoleSlug(slug)
+
+/**
+ * Best-effort organization display name. Prefers the Grid-side display name,
+ * falls back to the WorkOS org name, and finally the raw id — never throws, so
+ * a lookup failure degrades gracefully instead of crashing the page.
+ */
+const resolveOrganizationName = async (organizationId: string): Promise<string> => {
+  try {
+    const settings = await getOrgSettings(organizationId)
+    if (settings.displayName) return settings.displayName
+  } catch {
+    // Non-fatal — fall through to the WorkOS lookup.
+  }
+  try {
+    const overview = await getOrganizationOverview(organizationId)
+    if (overview.name) return overview.name
+  } catch {
+    // Non-fatal — fall through to the raw id.
+  }
+  return organizationId
+}
 
 export default async function ProfilePage(): Promise<JSX.Element> {
   const session = await requireAuthorizedPageSession()
@@ -26,6 +66,10 @@ export default async function ProfilePage(): Promise<JSX.Element> {
 
   const displayName = session.name || session.email || t('account.noName')
   const initial = String(displayName).charAt(0).toUpperCase()
+
+  const organizationName = session.organizationId
+    ? await resolveOrganizationName(session.organizationId)
+    : t('account.noOrganization')
 
   return (
     <div className="flex min-h-dvh flex-col bg-background text-foreground">
@@ -94,7 +138,9 @@ export default async function ProfilePage(): Promise<JSX.Element> {
                   </dt>
                   <dd className="mt-1 flex items-center gap-1.5 text-sm">
                     <Building2 className="size-3.5 text-muted-foreground" aria-hidden />
-                    {session.organizationId || t('account.noOrganization')}
+                    <span className="truncate" title={session.organizationId ?? undefined}>
+                      {organizationName}
+                    </span>
                   </dd>
                 </div>
                 {session.role && (
@@ -102,7 +148,9 @@ export default async function ProfilePage(): Promise<JSX.Element> {
                     <dt className="text-xs font-medium uppercase text-muted-foreground">
                       {t('account.role')}
                     </dt>
-                    <dd className="mt-1 text-sm">{session.role}</dd>
+                    <dd className="mt-1 text-sm" title={session.role}>
+                      {roleLabel(session.role, t)}
+                    </dd>
                   </div>
                 )}
               </dl>

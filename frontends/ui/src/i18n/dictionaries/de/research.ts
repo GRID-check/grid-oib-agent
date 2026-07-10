@@ -13,6 +13,13 @@ export const research: typeof en.research = {
       'Deep-Research-Berichte, die Grid für dieses Projekt erstellt hat, neueste zuerst.',
   },
 
+  // Labels for the per-project research-runs list rows (research-runs-list.tsx).
+  runsList: {
+    untitledRun: 'Deep-Research-Durchlauf',
+    sessionLabel: 'Sitzung {id}',
+    viewThinking: 'Denkschritte anzeigen',
+  },
+
   dockedPanel: {
     closePanel: 'Bereich schließen',
   },

@@ -17,6 +17,11 @@ export const profile: typeof en.profile = {
     role: 'Rolle',
     noName: 'Nicht festgelegt',
     noOrganization: 'Keine Organisation',
+    roles: {
+      'org-platform-owner': 'Plattform-Inhaber',
+      admin: 'Administrator',
+      member: 'Mitglied',
+    },
   },
   appearance: {
     title: 'Erscheinungsbild',

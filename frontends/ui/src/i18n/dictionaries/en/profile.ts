@@ -15,6 +15,11 @@ export const profile = {
     role: 'Role',
     noName: 'Not set',
     noOrganization: 'No organization',
+    roles: {
+      'org-platform-owner': 'Platform owner',
+      admin: 'Administrator',
+      member: 'Member',
+    },
   },
   appearance: {
     title: 'Appearance',

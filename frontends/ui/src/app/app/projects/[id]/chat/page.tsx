@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useAuth } from '@/adapters/auth'
 import { MainLayout } from '@/features/layout'
 import { useChatStore, useLoadJobData } from '@/features/chat'
+import type { ResearchPanelTab } from '@/features/layout/types'
 
 interface ProjectChatPageProps {
   params: Promise<{ id: string }>
@@ -17,11 +18,16 @@ const ProjectChatContent = ({ projectId }: { projectId: string }): ReactNode => 
   const setComposerPrefill = useChatStore((s) => s.setComposerPrefill)
 
   // Deep link from the project Research page: /projects/:id/chat?job=<jobId>
-  // loads that job's report into the research panel.
+  // loads that job's report into the research panel. An optional &tab= selects
+  // which panel tab to open — failed runs deep-link to `thinking` so the run
+  // can be diagnosed even though it has no report.
   const searchParams = useSearchParams()
   const router = useRouter()
   const pathname = usePathname()
   const jobId = searchParams?.get('job') ?? null
+  const tabParam = searchParams?.get('tab')
+  const jobTab: ResearchPanelTab =
+    tabParam === 'thinking' || tabParam === 'tasks' ? tabParam : 'report'
   const { loadResearchPanelTab } = useLoadJobData()
   const loadedJobRef = useRef<string | null>(null)
 
@@ -59,8 +65,8 @@ const ProjectChatContent = ({ projectId }: { projectId: string }): ReactNode => 
     // Guard against re-loading the same job across re-renders.
     if (loadedJobRef.current === jobId) return
     loadedJobRef.current = jobId
-    void loadResearchPanelTab(jobId, 'report')
-  }, [isAuthenticated, jobId, loadResearchPanelTab])
+    void loadResearchPanelTab(jobId, jobTab)
+  }, [isAuthenticated, jobId, jobTab, loadResearchPanelTab])
 
   return <MainLayout isAuthenticated={isAuthenticated} onSignIn={signIn} />
 }

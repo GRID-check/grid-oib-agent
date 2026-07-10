@@ -12,6 +12,13 @@ export const research = {
     subtitle: 'Deep research reports Grid has produced for this project, newest first.',
   },
 
+  // Labels for the per-project research-runs list rows (research-runs-list.tsx).
+  runsList: {
+    untitledRun: 'Deep research run',
+    sessionLabel: 'Session {id}',
+    viewThinking: 'View thinking',
+  },
+
   dockedPanel: {
     closePanel: 'Close panel',
   },
