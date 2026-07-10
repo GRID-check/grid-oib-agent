@@ -97,6 +97,20 @@ the maintained path.
 **Flagged for humans (product/security decisions, not unattended-fixable):**
 - **FLAG-1** Anonymous mode (`REQUIRE_AUTH=false`, the documented default) is broken at every server-rendered page/apiRoute — client fakes a Default User, server throws. Either restore an anonymous server path or retire the mode from README/landing. Needs product decision.
 - **FLAG-2** Backend port 8000 published with `REQUIRE_AUTH=false` default + fail-open `/v1/admin/oib/sync` when `GRID_ADMIN_TOKEN` unset + job ownership checks off → any network peer can spend LLM budget and read any job. Security posture decision (compose default hardening) — recommend not publishing 8000 or defaulting auth on.
+  **UPDATE (user-directed research + hardening, this run):** on the actual
+  Coolify deployment, 8000/Postgres/Dragonfly are NOT exposed (no Traefik
+  label, no host port) — only frontend + MinIO S3 (deliberate, presigned
+  URLs). The real reachable hole was the frontend catch-all `/api/v1/[...path]`
+  proxy forwarding unauthenticated `admin/*`+`maintenance/*` to the backend
+  (fail-open sync with unset token). HARDENED: proxy denylists both prefixes
+  (404 before fetch, 5 tests); coolify compose now requires GRID_ADMIN_TOKEN
+  (`:?`), defaults REQUIRE_AUTH=true on both services (also re-enables job
+  ownership checks), sets AIQ_EXTERNAL_HOSTNAMES defense-in-depth, and carries
+  do-not-add-ports warnings; coolify.md updated (firewall note, auth-required
+  posture, preview opt-out). Residual (flagged, future work): MinIO S3 stays
+  public for presigned URLs — closing it needs an authenticated frontend
+  streaming proxy. Dev compose (`docker-compose.yaml`) still publishes 8000
+  for localhost development — unchanged by design.
 - **FLAG-3** No stop/interrupt for normal chat turns; true cancel is blocked upstream (`_running_workflow_task` always None, NeMo-Agent-Toolkit#1744). Frontend-side unlock/timeout is done in-loop (UX-4); real cancellation needs upstream.
 - **FLAG-4** Org switcher / multi-org membership selection absent product-wide (only set at org creation). Design decision.
 - **FLAG-5** Legal-hold invisibility: held projects show "purged after {date}" sailing past forever. Needs product copy/state decision.

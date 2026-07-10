@@ -29,6 +29,10 @@
 # =============================================================================
 
 services:
+  # WARNING: do NOT add a `ports:` mapping to this internal service. Coolify
+  # binds the published host port on the server regardless of Traefik routing,
+  # which would expose the backend (8000) to the public internet. Keep it on
+  # `expose:` only — it stays reachable in-cluster over the aiq-network.
   aiq-agent:
     build:
       # Paths are relative to the Compose *project directory*, which Coolify sets
@@ -104,7 +108,22 @@ services:
       - PYTHONWARNINGS=${PYTHONWARNINGS:-ignore}
       # ── Optional keys (unused by the OpenRouter config; passthrough if set) ──
       - KIMI_API_KEY=${KIMI_API_KEY:-}
-      - GRID_ADMIN_TOKEN=${GRID_ADMIN_TOKEN:-}
+      # ── Auth / admin control-plane ──
+      # Required: gates POST /v1/admin/oib/sync (KB re-ingestion). An empty value
+      # makes routes/oib.py fail OPEN, so the deploy fails fast if it is unset
+      # (matches the :? pattern used for OPENROUTER_API_KEY / TAVILY_API_KEY).
+      - GRID_ADMIN_TOKEN=${GRID_ADMIN_TOKEN:?set GRID_ADMIN_TOKEN}
+      # Default ON for this production compose; kept consistent with the frontend.
+      # REQUIRE_AUTH only gates EXTERNAL requests (Host in AIQ_EXTERNAL_HOSTNAMES);
+      # internal frontend->backend calls are always classified internal, so this
+      # never breaks in-cluster traffic.
+      - REQUIRE_AUTH=${REQUIRE_AUTH:-true}
+      # Defense-in-depth: hostnames the backend treats as external. Bare domain,
+      # comma-separated, no scheme/port — matched against the request Host header
+      # (see auth/middleware.py::_load_external_hostnames). If port 8000 is ever
+      # exposed under this FQDN, those requests hit the path allowlist + auth
+      # instead of being trusted as internal.
+      - AIQ_EXTERNAL_HOSTNAMES=${SERVICE_FQDN_FRONTEND}
     expose:
       - "8000"
     volumes:
@@ -188,7 +207,10 @@ services:
       # Exposes this service (port 3000) under a generated https domain and
       # makes the FQDN available as ${SERVICE_FQDN_FRONTEND} to the whole stack.
       - SERVICE_FQDN_FRONTEND_3000
-      - REQUIRE_AUTH=${REQUIRE_AUTH:-false}
+      # Default ON for this production compose. Set REQUIRE_AUTH=false explicitly
+      # (plus leave the WorkOS keys empty) only for a throwaway unauthenticated
+      # preview. Production requires the WorkOS AuthKit vars below.
+      - REQUIRE_AUTH=${REQUIRE_AUTH:-true}
       - APP_ENV=${APP_ENV:-production}
       - BACKEND_URL=http://aiq-agent:8000
       - GRID_APP_DATABASE_URL=postgresql://aiq:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/grid_app
@@ -273,6 +295,9 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # WARNING: do NOT add a `ports:` mapping to this internal service. Coolify
+  # binds the published host port on the server regardless of Traefik routing,
+  # which would expose the cache (6379) publicly. In-cluster access only.
   dragonfly:
     # Redis-protocol shared cache (ADR-0020). Cache semantics only: every
     # value is reconstructible, so no persistence volume — cache_mode evicts
@@ -306,6 +331,9 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  # WARNING: do NOT add a `ports:` mapping to this internal service. Coolify
+  # binds the published host port on the server regardless of Traefik routing,
+  # which would expose Postgres (5432) publicly. In-cluster access only.
   postgres:
     # Custom image bakes in init-db.sql (creates aiq_checkpoints + grid_app on
     # first boot). Not a bind mount: Coolify pre-creates bind-mount sources as
