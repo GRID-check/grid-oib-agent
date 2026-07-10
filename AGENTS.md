@@ -36,10 +36,15 @@ This project is Docker-first. Run it via Docker Compose on Windows, macOS, or Li
    docker compose -f deploy/compose/docker-compose.yaml --env-file deploy/.env up -d --build
    ```
 
-3. Trigger initial OIB ingestion:
+3. Initial OIB ingestion starts automatically in the background when the `aiq-agent` container boots (`deploy/entrypoint.py`). Watch its progress in the container logs:
+   ```bash
+   docker compose -f deploy/compose/docker-compose.yaml --env-file deploy/.env logs -f aiq-agent
+   ```
+   To re-run ingestion manually (incremental — e.g. after adding PDFs to `data/oib/`):
    ```bash
    docker compose -f deploy/compose/docker-compose.yaml --env-file deploy/.env exec aiq-agent python scripts/ingest_oib.py
    ```
+   The same re-run can be triggered over HTTP via the admin-token-guarded `POST /v1/admin/oib/sync` endpoint.
 
 4. Open the UI at http://localhost:3000.
    The backend API is available at http://localhost:8000.
