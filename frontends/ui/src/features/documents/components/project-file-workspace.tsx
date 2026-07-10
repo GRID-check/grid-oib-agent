@@ -34,6 +34,8 @@ export interface FileItem {
   status: string | null
   folderId: string | null
   createdAt: string
+  /** Server-persisted reason a document is in `failed` status, if any. */
+  errorMessage: string | null
 }
 
 export function ProjectFileWorkspace({ projectId, projectName, collectionName }: ProjectFileWorkspaceProps) {
@@ -65,6 +67,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName }:
           status: d.status,
           folderId: d.folderId ?? null,
           createdAt: d.createdAt,
+          errorMessage: d.errorMessage ?? null,
         }))
         setFiles(docs)
       })
@@ -137,6 +140,15 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName }:
   )
 
   const selectedFile = files.find((f) => f.id === selectedFileId) ?? null
+
+  // After a successful re-ingestion the document is back to 'pending'; reflect
+  // that locally so the badge flips to "Processing" and the dead-end failure UI
+  // clears. Server-side reconciliation resolves the final status on the next read.
+  const handleReingested = useCallback((fileId: string, status: string) => {
+    setFiles((prev) =>
+      prev.map((f) => (f.id === fileId ? { ...f, status, errorMessage: null } : f))
+    )
+  }, [])
 
   // In-flight and failed uploads for this project's corpus only.
   const activeUploads = useMemo(
@@ -257,7 +269,12 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName }:
         {/* Preview pane — full-screen overlay on mobile, docked column on md+ */}
         {selectedFile && (
           <div className="fixed inset-0 z-50 w-full shrink-0 overflow-y-auto bg-background pt-[env(safe-area-inset-top)] md:static md:z-auto md:w-96 md:border-l md:pt-0">
-            <FilePreviewPane file={selectedFile} projectId={projectId} onClose={() => setSelectedFileId(null)} />
+            <FilePreviewPane
+              file={selectedFile}
+              projectId={projectId}
+              onClose={() => setSelectedFileId(null)}
+              onReingested={handleReingested}
+            />
           </div>
         )}
       </div>

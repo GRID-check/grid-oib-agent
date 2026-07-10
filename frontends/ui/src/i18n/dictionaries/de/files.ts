@@ -32,6 +32,12 @@ export const files: typeof en.files = {
     unknownType: 'Unbekannt',
     download: 'Herunterladen',
     downloadFailed: 'Der Download konnte nicht gestartet werden. Bitte versuchen Sie es erneut.',
+    ingestionFailed: 'Verarbeitung fehlgeschlagen',
+    ingestionFailedGeneric: 'Dieses Dokument konnte nicht für die Suche verarbeitet werden.',
+    retryIngestion: 'Verarbeitung erneut starten',
+    retryingIngestion: 'Wird erneut gestartet …',
+    retryIngestionError:
+      'Die Verarbeitung konnte nicht erneut gestartet werden. Bitte versuchen Sie es erneut.',
   },
   browser: {
     folderEmptyTitle: 'Dieser Ordner ist leer',

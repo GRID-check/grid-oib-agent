@@ -29,6 +29,11 @@ export const files = {
     unknownType: 'Unknown',
     download: 'Download',
     downloadFailed: "The download couldn't be started. Please try again.",
+    ingestionFailed: 'Ingestion failed',
+    ingestionFailedGeneric: "This document couldn't be processed for search.",
+    retryIngestion: 'Retry ingestion',
+    retryingIngestion: 'Retrying…',
+    retryIngestionError: "Ingestion couldn't be restarted. Please try again.",
   },
   browser: {
     folderEmptyTitle: 'This folder is empty',

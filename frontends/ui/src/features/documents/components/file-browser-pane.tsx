@@ -106,6 +106,8 @@ export function FileBrowserPane({
         {filteredFiles.map((file) => {
           const Icon = fileTypeIcon(file.contentType, file.filename)
           const isSelected = selectedFileId === file.id
+          const isFailed = file.status === 'failed'
+          const failureReason = isFailed ? file.errorMessage || t('preview.ingestionFailedGeneric') : undefined
           return (
             <button
               key={file.id}
@@ -121,7 +123,13 @@ export function FileBrowserPane({
                 </span>
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium text-foreground">{file.filename}</p>
-                  <p className="text-xs text-muted-foreground tabular-nums">{formatFileSize(file.fileSize)}</p>
+                  {isFailed ? (
+                    <p className="truncate text-xs text-destructive" title={failureReason}>
+                      {failureReason}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground tabular-nums">{formatFileSize(file.fileSize)}</p>
+                  )}
                 </div>
               </div>
               <DocumentStatusBadge status={file.status} />

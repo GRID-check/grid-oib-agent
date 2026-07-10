@@ -45,8 +45,10 @@ import {
   insertDocument,
   setDocumentIngestJob,
   markDocumentIngestFailed,
+  findDocumentInOrg,
 } from './repository'
-import { uploadDocument, INGEST_DISPATCH_FAILED_MESSAGE } from './service'
+import { uploadDocument, reingestDocument, INGEST_DISPATCH_FAILED_MESSAGE } from './service'
+import { ConflictError } from '@/lib/api/errors'
 
 const session = {
   userId: 'user-1',
@@ -131,6 +133,52 @@ describe('uploadDocument ingest dispatch', () => {
       result.documentId,
       INGEST_DISPATCH_FAILED_MESSAGE,
     )
+    expect(setDocumentIngestJob).not.toHaveBeenCalled()
+  })
+})
+
+describe('reingestDocument', () => {
+  const failedDoc = {
+    id: 'doc-99',
+    projectId: 'proj-1',
+    organizationId: 'org-1',
+    status: 'failed',
+    collectionName: 'proj_abc',
+    minioKey: 'org/proj/doc/file.pdf',
+  } as any
+
+  it('happy path: failed -> pending with a fresh job id', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(failedDoc)
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ job_id: 'job-77' }),
+    })
+
+    const result = await reingestDocument(session, 'doc-99')
+
+    expect(result).toEqual({ id: 'doc-99', status: 'pending', jobId: 'job-77' })
+    expect(setDocumentIngestJob).toHaveBeenCalledWith('doc-99', 'job-77')
+    expect(markDocumentIngestFailed).not.toHaveBeenCalled()
+  })
+
+  it('rejects documents that are not in a failed state (409)', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue({ ...failedDoc, status: 'ready' })
+
+    await expect(reingestDocument(session, 'doc-99')).rejects.toBeInstanceOf(ConflictError)
+    expect(mockFetch).not.toHaveBeenCalled()
+    expect(setDocumentIngestJob).not.toHaveBeenCalled()
+  })
+
+  it('dispatch failure re-marks the document failed', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(failedDoc)
+    mockFetch.mockRejectedValue(new Error('network down'))
+
+    const result = await reingestDocument(session, 'doc-99')
+
+    expect(result.status).toBe('failed')
+    expect(result.jobId).toBeNull()
+    expect(markDocumentIngestFailed).toHaveBeenCalledWith('doc-99', INGEST_DISPATCH_FAILED_MESSAGE)
     expect(setDocumentIngestJob).not.toHaveBeenCalled()
   })
 })
