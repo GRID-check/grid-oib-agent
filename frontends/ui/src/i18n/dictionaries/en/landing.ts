@@ -65,6 +65,7 @@ export const landing = {
   footer: {
     description: 'Building-compliance answers for Austrian architects, grounded in the code.',
     sources: 'Sources: OIB-Richtlinien · RIS · your project documents',
+    legalNav: 'Legal',
   },
   card: {
     legalBasis: 'Legal basis',
