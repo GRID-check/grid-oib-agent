@@ -61,6 +61,7 @@ describe('useChatStore', () => {
       currentStatus: null,
       pendingInteraction: null,
       composerPrefill: null,
+      composerDrafts: {},
     })
   })
 
@@ -2209,6 +2210,81 @@ describe('useChatStore', () => {
     })
   })
 
+  describe('composer drafts (per-session)', () => {
+    test('starts empty', () => {
+      expect(useChatStore.getState().composerDrafts).toEqual({})
+      expect(useChatStore.getState().getComposerDraft('conv-1')).toBe('')
+    })
+
+    test('setComposerDraft saves in-progress text per session id', () => {
+      useChatStore.getState().setComposerDraft('conv-1', 'half typed question')
+
+      expect(useChatStore.getState().getComposerDraft('conv-1')).toBe('half typed question')
+      expect(useChatStore.getState().composerDrafts).toEqual({ 'conv-1': 'half typed question' })
+    })
+
+    test('keeps drafts isolated per session (two sessions keep separate drafts)', () => {
+      useChatStore.getState().setComposerDraft('conv-1', 'draft for one')
+      useChatStore.getState().setComposerDraft('conv-2', 'draft for two')
+
+      expect(useChatStore.getState().getComposerDraft('conv-1')).toBe('draft for one')
+      expect(useChatStore.getState().getComposerDraft('conv-2')).toBe('draft for two')
+    })
+
+    test('setComposerDraft with empty string drops the entry (no orphan blank drafts)', () => {
+      useChatStore.getState().setComposerDraft('conv-1', 'something')
+      useChatStore.getState().setComposerDraft('conv-1', '')
+
+      expect(useChatStore.getState().getComposerDraft('conv-1')).toBe('')
+      expect('conv-1' in useChatStore.getState().composerDrafts).toBe(false)
+    })
+
+    test('clearComposerDraft removes exactly one session draft', () => {
+      useChatStore.getState().setComposerDraft('conv-1', 'draft for one')
+      useChatStore.getState().setComposerDraft('conv-2', 'draft for two')
+
+      useChatStore.getState().clearComposerDraft('conv-1')
+
+      expect(useChatStore.getState().getComposerDraft('conv-1')).toBe('')
+      expect(useChatStore.getState().getComposerDraft('conv-2')).toBe('draft for two')
+    })
+
+    test('persists drafts to localStorage so a reload restores them', async () => {
+      useChatStore.setState({ currentUserId: 'user-1' })
+      useChatStore.getState().setComposerDraft('conv-1', 'survives reload')
+
+      await vi.waitFor(() => {
+        const stored = localStorage.getItem(STORAGE_KEY)
+        expect(stored).not.toBeNull()
+        const parsed = JSON.parse(stored!)
+        expect(parsed.state.composerDrafts).toEqual({ 'conv-1': 'survives reload' })
+      })
+    })
+
+    test('deleteConversation drops the deleted session draft', () => {
+      const conv: Conversation = {
+        id: 'conv-1',
+        userId: 'user-1',
+        title: 'Test',
+        messages: [],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }
+      useChatStore.setState({
+        currentUserId: 'user-1',
+        currentConversation: conv,
+        conversations: [conv],
+      })
+      useChatStore.getState().setComposerDraft('conv-1', 'draft to drop')
+      useChatStore.getState().setComposerDraft('conv-2', 'keep me')
+
+      useChatStore.getState().deleteConversation('conv-1')
+
+      expect('conv-1' in useChatStore.getState().composerDrafts).toBe(false)
+      expect(useChatStore.getState().getComposerDraft('conv-2')).toBe('keep me')
+    })
+  })
+
   describe('project scoping (UX-8 cross-project bleed)', () => {
     const makeConv = (id: string, userId: string, projectId?: string | null): Conversation => ({
       id,
@@ -2365,6 +2441,30 @@ describe('useChatStore', () => {
         useChatStore.getState().deleteAllConversations()
 
         expect(useChatStore.getState().conversations.map((c) => c.id)).toEqual(['other-user'])
+      })
+
+      test('drops drafts for exactly the removed sessions, keeping other projects\' drafts', () => {
+        useChatStore.setState({
+          currentUserId: 'user-1',
+          projectId: 'proj-a',
+          conversations: [
+            makeConv('a-1', 'user-1', 'proj-a'),
+            makeConv('legacy', 'user-1', null),
+            makeConv('b-1', 'user-1', 'proj-b'),
+          ],
+          currentConversation: null,
+        })
+        useChatStore.getState().setComposerDraft('a-1', 'in scope')
+        useChatStore.getState().setComposerDraft('legacy', 'legacy in scope')
+        useChatStore.getState().setComposerDraft('b-1', 'other project')
+
+        useChatStore.getState().deleteAllConversations()
+
+        // In-scope sessions (proj-a + unscoped legacy) and their drafts are gone;
+        // the other project's session and its draft are untouched.
+        expect('a-1' in useChatStore.getState().composerDrafts).toBe(false)
+        expect('legacy' in useChatStore.getState().composerDrafts).toBe(false)
+        expect(useChatStore.getState().getComposerDraft('b-1')).toBe('other project')
       })
     })
 

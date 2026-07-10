@@ -37,6 +37,7 @@ export const useChatStore = create<ChatStore>()(
           conversations: state.conversations,
           currentConversation: state.currentConversation,
           pendingInteraction: state.pendingInteraction,
+          composerDrafts: state.composerDrafts,
         }),
         onRehydrateStorage: () => (state) => {
           if (!state || typeof window === 'undefined') return

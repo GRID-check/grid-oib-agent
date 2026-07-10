@@ -400,6 +400,16 @@ export interface ChatState {
    * by the composer. Null when there is nothing to prefill.
    */
   composerPrefill: string | null
+  /**
+   * Per-session composer drafts: the user's own in-progress, unsent text keyed
+   * by conversation id. Distinct from `composerPrefill` (one-shot, external):
+   * a draft is long-lived, survives session switches and reloads (persisted to
+   * the `aiq-chat-store` localStorage namespace), and is cleared only when its
+   * message is sent successfully or its session is removed. Keyed by
+   * conversation id so it is inherently project/user-scoped and never leaks
+   * across contexts.
+   */
+  composerDrafts: Record<string, string>
   /** Content for the Details Panel - Report tab */
   reportContent: string
   /** Category of the current report content (distinguishes intermediate notes from final report) */
@@ -741,6 +751,13 @@ export interface ChatActions {
   setComposerPrefill: (text: string) => void
   /** Read and clear the queued composer prefill; returns null when empty. */
   consumeComposerPrefill: () => string | null
+
+  /** Save (or update) the in-progress composer draft for a session. Passing an empty string drops the entry. */
+  setComposerDraft: (conversationId: string, text: string) => void
+  /** Read the persisted composer draft for a session ('' when none). */
+  getComposerDraft: (conversationId: string) => string
+  /** Drop a session's composer draft (on successful send or session removal). */
+  clearComposerDraft: (conversationId: string) => void
 }
 
 /** Combined chat store type */

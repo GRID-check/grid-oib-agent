@@ -86,6 +86,20 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   const composerPrefill = useChatStore((state) => state.composerPrefill)
   const consumeComposerPrefill = useChatStore((state) => state.consumeComposerPrefill)
 
+  // Per-session composer drafts: the user's own in-progress text, persisted
+  // per conversation id so it survives session switches AND reloads.
+  const getComposerDraft = useChatStore((state) => state.getComposerDraft)
+  const setComposerDraft = useChatStore((state) => state.setComposerDraft)
+  const clearComposerDraft = useChatStore((state) => state.clearComposerDraft)
+
+  // Active session id — the key under which this session's draft is stored.
+  const currentSessionId = currentConversation?.id
+  // Tracks which session's draft is currently loaded into `message`, so the
+  // draft-sync effect only reloads when the ACTIVE session actually changes
+  // (never on every keystroke). Pre-set by handleValueChange when a first
+  // keystroke lazily creates a session, so that id transition doesn't wipe text.
+  const loadedDraftSessionRef = useRef<string | undefined>(undefined)
+
   // Deep research completion state - disables new submissions after research completes
   const deepResearchStatus = useChatStore((state) => state.deepResearchStatus)
   const isDeepResearchStreaming = useChatStore((state) => state.isDeepResearchStreaming)
@@ -243,14 +257,39 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     el.style.height = `${Math.min(el.scrollHeight, TEXTAREA_MAX_HEIGHT_PX)}px`
   }, [message])
 
+  // Per-session draft restore: when the ACTIVE session changes (switching
+  // sessions, or a session being restored after reload/hydration), load that
+  // session's saved draft into the composer. Keyed on the id — typing within a
+  // session never re-triggers this (the ref guard also covers the lazy
+  // ensureSession id transition, which handleValueChange marks as loaded).
+  useEffect(() => {
+    if (loadedDraftSessionRef.current === currentSessionId) return
+    loadedDraftSessionRef.current = currentSessionId
+    setMessage(currentSessionId ? getComposerDraft(currentSessionId) : '')
+  }, [currentSessionId, getComposerDraft])
+
   // Consume a queued composer prefill exactly once: populate the draft, focus
   // the textarea, and move the caret to the end. We never auto-send — the user
   // reviews/edits before submitting. The store clears the flag on read.
+  //
+  // Precedence vs. an existing draft: a prefill fills an EMPTY composer only.
+  // If the session already holds the user's own in-progress text (local or
+  // persisted draft), the prefill is dropped — consumed without applying — so
+  // a deep link or chip can never silently clobber what the user was writing.
   useEffect(() => {
     if (composerPrefill === null || isDisabledByAuth) return
+    const existingDraft = currentSessionId ? getComposerDraft(currentSessionId) : ''
+    const composerHasText = message.trim().length > 0 || existingDraft.trim().length > 0
+    if (composerHasText) {
+      consumeComposerPrefill()
+      return
+    }
     const text = consumeComposerPrefill()
     if (text === null) return
     setMessage(text)
+    // Persist the prefill as the session's draft too, so it survives a reload
+    // just like typed text (only possible once a session exists).
+    if (currentSessionId) setComposerDraft(currentSessionId, text)
     requestAnimationFrame(() => {
       const el = textareaRef.current
       if (!el) return
@@ -258,7 +297,15 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
       const end = el.value.length
       el.setSelectionRange(end, end)
     })
-  }, [composerPrefill, consumeComposerPrefill, isDisabledByAuth])
+  }, [
+    composerPrefill,
+    consumeComposerPrefill,
+    isDisabledByAuth,
+    currentSessionId,
+    getComposerDraft,
+    setComposerDraft,
+    message,
+  ])
 
   // Dynamic placeholder based on state
   // Note: isResponseMode is checked before isBusy because the user needs to
@@ -275,10 +322,14 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   const handleSubmit = useCallback(async () => {
     if (!message.trim() || disabled) return
     const currentMessage = message.trim()
+    // Capture the session up front — the draft is cleared against THIS id on a
+    // successful send, even if the session changes underneath us mid-await.
+    const submittingSessionId = currentConversation?.id
 
     // HITL responses always go through immediately — no file-pending check
     if (isResponseMode && respondToInteraction) {
       setMessage('')
+      if (submittingSessionId) clearComposerDraft(submittingSessionId)
       respondToInteraction(currentMessage)
       return
     }
@@ -305,9 +356,14 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     setMessage('')
     try {
       await sendMessage(currentMessage)
+      // Sent successfully — drop this session's saved draft so it can't
+      // resurface on the next visit. Only on success: a failed send keeps the
+      // draft so nothing the user typed is lost.
+      if (submittingSessionId) clearComposerDraft(submittingSessionId)
     } catch (error) {
       console.error('Failed to send message:', error)
-      // Restore the message so the user doesn't lose what they typed.
+      // Restore the message so the user doesn't lose what they typed. The
+      // persisted draft was never cleared, so it is retained too.
       setMessage(currentMessage)
       toast.error(t('inputArea.messageNotSent'), {
         description: t('inputArea.messageNotSentDesc'),
@@ -323,6 +379,9 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     pendingFilesWarningActive,
     addFileUploadStatusCard,
     removeFileUploadWarning,
+    currentConversation,
+    clearComposerDraft,
+    t,
   ])
 
   const handleKeyDown = useCallback(
@@ -341,13 +400,20 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
 
       // Persist a session as soon as the user starts interacting via typed input.
       // This keeps logo-triggered "new session" drafts out of history until touched.
-      if (!currentConversation && value.trim().length > 0) {
-        ensureSession()
+      let sessionId = currentConversation?.id
+      if (!sessionId && value.trim().length > 0) {
+        sessionId = ensureSession()
+        // ensureSession just activated a brand-new session; mark its id as the
+        // loaded draft so the draft-sync effect doesn't reset the text we set here.
+        if (sessionId) loadedDraftSessionRef.current = sessionId
       }
 
       setMessage(value)
+      // Persist the draft under the active session (once one exists) so it
+      // survives navigating away/back and a reload.
+      if (sessionId) setComposerDraft(sessionId, value)
     },
-    [isDisabledByAuth, currentConversation, ensureSession]
+    [isDisabledByAuth, currentConversation, ensureSession, setComposerDraft]
   )
 
   // Handle attach button click

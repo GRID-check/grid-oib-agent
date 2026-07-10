@@ -64,6 +64,7 @@ type PersistedChatState = {
   conversations: ChatState['conversations']
   currentConversation: ChatState['currentConversation']
   pendingInteraction: ChatState['pendingInteraction']
+  composerDrafts: ChatState['composerDrafts']
 }
 
 type PersistedChatStorageValue = StorageValue<PersistedChatState>
@@ -85,6 +86,7 @@ const prunePersistedChatState = (value: PersistedChatStorageValue): PersistedCha
       conversations,
       currentConversation: currentConversationId as unknown as Conversation | null,
       pendingInteraction: state.pendingInteraction ?? null,
+      composerDrafts: state.composerDrafts ?? {},
     },
   }
 }
@@ -156,6 +158,9 @@ export const createResilientStorage = (): PersistStorage<PersistedChatState> | u
               conversations: [],
               currentConversation: null,
               pendingInteraction: null,
+              // Sessions were just wiped to recover from quota — drop their
+              // drafts too so no orphaned draft outlives its conversation.
+              composerDrafts: {},
             },
           })
 
@@ -585,8 +590,13 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
   },
 
   deleteConversation: (conversationId: string) => {
-    const { currentConversation, conversations, deepResearchJobId, isDeepResearchStreaming } =
-      get()
+    const {
+      currentConversation,
+      conversations,
+      deepResearchJobId,
+      isDeepResearchStreaming,
+      composerDrafts,
+    } = get()
 
     const conversationToDelete = conversations.find((c) => c.id === conversationId)
 
@@ -627,12 +637,21 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
 
     const updatedConversations = conversations.filter((c) => c.id !== conversationId)
 
+    // Drop the removed session's draft so it can't orphan (or resurface if the
+    // id is ever reused).
+    let nextComposerDrafts = composerDrafts
+    if (conversationId in composerDrafts) {
+      nextComposerDrafts = { ...composerDrafts }
+      delete nextComposerDrafts[conversationId]
+    }
+
     const isCurrentWithActiveResearch =
       currentConversation?.id === conversationId && isDeepResearchStreaming
 
     set(
       {
         conversations: updatedConversations,
+        composerDrafts: nextComposerDrafts,
         currentConversation:
           currentConversation?.id === conversationId ? null : currentConversation,
         ...(isCurrentWithActiveResearch && {
@@ -666,6 +685,7 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
       projectId,
       isDeepResearchStreaming,
       deepResearchJobId,
+      composerDrafts,
     } = get()
 
     if (!currentUserId) return
@@ -752,11 +772,19 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
 
     const remainingConversations = conversations.filter((c) => !isInScope(c))
 
+    // Drop drafts for exactly the sessions being removed (the in-scope ones);
+    // drafts of out-of-scope sessions in other projects stay untouched.
+    const removedSessionIds = new Set(userConversations.map((c) => c.id))
+    const nextComposerDrafts = Object.fromEntries(
+      Object.entries(composerDrafts).filter(([id]) => !removedSessionIds.has(id))
+    )
+
     const shouldClearCurrent = currentConversation && isInScope(currentConversation)
 
     set(
       {
         conversations: remainingConversations,
+        composerDrafts: nextComposerDrafts,
         currentConversation: shouldClearCurrent ? null : currentConversation,
         deepResearchJobId: null,
         deepResearchLastEventId: null,
