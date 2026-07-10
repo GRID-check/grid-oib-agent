@@ -234,3 +234,49 @@ Three parallel Opus agents; committed in three slices.
 - Full-suite gate recorded in the commit message.
 
 ---
+
+## Round 4 — localization sweep (UX-22, UX-23)
+
+Three parallel agents; committed in four slices (localization split frontend/
+backend + shell + a security detour the user requested mid-round).
+
+- **UX-23 shell/dates/OIB** (`665d17f`): project switcher, org-topbar aria,
+  brief provenance tooltips localized; all dates/relative-times use the active
+  locale (overview, card, research runs, memory panel) instead of en/en-GB;
+  applicable OIB standards lead with the German title for DE users; template
+  chips moved into dictionaries.
+- **UX-22 backend** (`3301c83`): shallow-researcher + clarifier prompts answer
+  in the user's language (approval envelope byte-stable — it is
+  Python-generated; contracts documented via render-stripped Jinja comments).
+  Fixed backend strings (budget/job-cap/fallbacks) need a locale signal the
+  backend doesn't receive today -> design note
+  `docs/architecture/backend-message-localization.md`, flagged for product.
+- **UX-22 frontend** (`461486e`): ERROR_REGISTRY fully localized (per-code
+  titleKey+messageKey, English fallbacks kept); new `i18n/store-translator`
+  for zustand code (cookie-based locale); deep-research/upload/empty-state
+  strings + AgentResponse variant localized.
+- **Security detour (user-directed, corrects FLAG-2)** (`306a96b`): see the
+  FLAG-2 UPDATE above — Coolify auth-required-by-default + admin control-plane
+  blocked from the public proxy.
+
+## Round 5 — polish: surface existing value (user directive: value-adds, no new features)
+
+Two parallel Opus agents; committed in two slices.
+
+- **UX-24/26 + intake** (`b97924a`): project rename UI (endpoint existed with
+  zero callers; project:manage gated); summary generate/regenerate on the
+  brief (llm_not_configured -> specific message); intake review resolves
+  machine keys to their question labels instead of leaking snake_case.
+- **UX-25 + profile/metadata** (`6b0afb8`): research runs labeled by
+  originating session title (no backend storage added — deliberate), failed
+  runs deep-link to the thinking view; profile shows org display name +
+  humanized role instead of raw ids; on-brand app metadata.
+
+### User directive mid-round: immersion / "workspace not website"
+Next rounds pivot to OS-feel polish (command palette, keyboard shortcuts,
+dynamic tab titles, connection presence, continuity). Per user: keyboard
+shortcuts gated behind a WorkOS feature flag `keyboard-shortcuts` (created
+this session in Staging + Production, accessType ALL, default-on so the
+enforcement flip doesn't strip shortcuts) PLUS a per-user profile toggle.
+
+---
