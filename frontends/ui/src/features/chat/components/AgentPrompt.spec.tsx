@@ -110,6 +110,47 @@ describe('AgentPrompt', () => {
     expect(screen.getByText(/\d{1,2}:\d{2}/)).toBeInTheDocument()
   })
 
+  test('clicking an option submits it as the interaction response', async () => {
+    const user = userEvent.setup()
+    const respond = vi.fn()
+    useChatStore.setState({ respondToInteractionFn: respond })
+
+    render(
+      <AgentPrompt
+        id="prompt-1"
+        type="choice"
+        content="Choose one:"
+        options={['Option A', 'Option B']}
+      />
+    )
+
+    await user.click(screen.getByRole('button', { name: /select option: option b/i }))
+    expect(respond).toHaveBeenCalledTimes(1)
+    expect(respond).toHaveBeenCalledWith('Option B')
+  })
+
+  test('option is keyboard-activatable with Enter', async () => {
+    const user = userEvent.setup()
+    const respond = vi.fn()
+    useChatStore.setState({ respondToInteractionFn: respond })
+
+    render(
+      <AgentPrompt id="prompt-1" type="choice" content="Choose one:" options={['Option A']} />
+    )
+
+    await user.tab()
+    expect(screen.getByRole('button', { name: /select option: option a/i })).toHaveFocus()
+    await user.keyboard('{Enter}')
+    expect(respond).toHaveBeenCalledWith('Option A')
+  })
+
+  test('options render read-only when no response callback is registered', () => {
+    render(<AgentPrompt id="prompt-1" type="choice" content="Choose one:" options={['Option A']} />)
+
+    expect(screen.queryByRole('button', { name: /select option/i })).not.toBeInTheDocument()
+    expect(screen.getByText('Option A')).toBeInTheDocument()
+  })
+
   test('tabs through plan approval actions in DOM order', async () => {
     const user = userEvent.setup()
     useChatStore.setState({ respondToInteractionFn: vi.fn() })

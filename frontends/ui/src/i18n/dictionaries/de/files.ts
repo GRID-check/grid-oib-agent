@@ -68,6 +68,8 @@ export const files: typeof en.files = {
     foldersLoadError: 'Ordner konnten nicht geladen werden.',
     documentsLoadError: 'Dokumente konnten nicht geladen werden.',
     tryAgain: 'Erneut versuchen',
+    dropToUpload: 'Dateien hier ablegen, um sie in dieses Projekt hochzuladen',
+    dropUnsupported: 'Einige Dateien haben einen nicht unterstützten Typ',
   },
   upload: {
     uploading: 'Wird hochgeladen …',

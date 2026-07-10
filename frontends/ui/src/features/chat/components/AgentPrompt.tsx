@@ -91,7 +91,9 @@ export const AgentPrompt: FC<AgentPromptProps> = ({
           </div>
 
           {/* Options list for choice prompts */}
-          {options.length > 0 && !isResponded && <OptionsList options={options} />}
+          {options.length > 0 && !isResponded && (
+            <OptionsList options={options} onSelect={respondToInteractionFn} />
+          )}
 
           {/* Approve/Reject buttons for plan approval prompts */}
           {showApprovalButtons && (
@@ -131,20 +133,47 @@ export const AgentPrompt: FC<AgentPromptProps> = ({
 }
 
 /**
- * Display options for choice prompts (read-only)
+ * Options for choice prompts. When a response callback is available each option
+ * is a focusable button that submits that option as the interaction answer on
+ * click or Enter/Space — matching the immediate-submit behaviour of the inline
+ * approve/reject buttons. Without a callback the options fall back to read-only.
  */
-const OptionsList: FC<{ options: string[] }> = ({ options }) => {
+const OptionsList: FC<{
+  options: string[]
+  onSelect?: ((response: string) => void) | null
+}> = ({ options, onSelect }) => {
+  const t = useTranslations('chat')
   return (
     <div className="flex flex-col gap-1">
-      {options.map((option, index) => (
-        <div
-          key={index}
-          className="flex items-center gap-2 rounded-xl bg-muted/50 px-3 py-2"
-        >
-          <span className="text-subtle text-xs">{index + 1}.</span>
-          <span className="text-sm">{option}</span>
-        </div>
-      ))}
+      {options.map((option, index) => {
+        const content = (
+          <>
+            <span className="text-subtle text-xs">{index + 1}.</span>
+            <span className="text-sm">{option}</span>
+          </>
+        )
+        if (!onSelect) {
+          return (
+            <div
+              key={index}
+              className="flex items-center gap-2 rounded-xl bg-muted/50 px-3 py-2"
+            >
+              {content}
+            </div>
+          )
+        }
+        return (
+          <button
+            key={index}
+            type="button"
+            onClick={() => onSelect(option)}
+            aria-label={t('agentPrompt.selectOption', { option })}
+            className="flex items-center gap-2 rounded-xl bg-muted/50 px-3 py-2 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+          >
+            {content}
+          </button>
+        )
+      })}
     </div>
   )
 }

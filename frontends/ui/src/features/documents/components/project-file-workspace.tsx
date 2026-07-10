@@ -2,8 +2,9 @@
 
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { toast } from 'sonner'
-import { AlertCircle, RotateCcw, ShieldCheck, X } from 'lucide-react'
+import { AlertCircle, RotateCcw, ShieldCheck, Upload, X } from 'lucide-react'
 import { useProjectDocuments } from '../hooks/use-project-documents'
+import { useFileDragDrop } from '../hooks/use-file-drag-drop'
 import { FolderTreePane } from './folder-tree-pane'
 import { FileBrowserPane } from './file-browser-pane'
 import { FilePreviewPane } from './file-preview-pane'
@@ -12,6 +13,7 @@ import { ActiveUploads } from './active-uploads'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { useTranslations } from '@/i18n'
+import { cn } from '@/lib/utils'
 
 interface ProjectFileWorkspaceProps {
   projectId: string
@@ -162,6 +164,30 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName }:
     [trackedFiles, collectionName]
   )
 
+  // Drag-and-drop onto the workspace routes dropped files into the SAME upload
+  // path the button uses (uploadFiles), which already targets the selected folder
+  // via the hook's folderId. Validation/limits stay in uploadFiles; the drag hook
+  // only surfaces a supported/unsupported affordance using the shared AppConfig.
+  const { isDragging, isUnsupportedDrag, dragHandlers } = useFileDragDrop({
+    onDrop: uploadFiles,
+    disabled: isUploading,
+  })
+
+  // Guard against the browser navigating away when a file is dropped outside the
+  // drop zone (e.g. onto a gap in the layout). Prevent the default open-file
+  // behaviour at the window level while this workspace is mounted.
+  useEffect(() => {
+    const prevent = (e: DragEvent) => {
+      e.preventDefault()
+    }
+    window.addEventListener('dragover', prevent)
+    window.addEventListener('drop', prevent)
+    return () => {
+      window.removeEventListener('dragover', prevent)
+      window.removeEventListener('drop', prevent)
+    }
+  }, [])
+
   const handleCreateFolder = useCallback(
     async (name: string, parentId?: string) => {
       const res = await fetch(`/api/projects/${projectId}/folders`, {
@@ -181,7 +207,28 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName }:
   )
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="relative flex h-full flex-col" {...dragHandlers} data-testid="workspace-dropzone">
+      {/* Drag-and-drop overlay — mirrors the chat FileUploadZone affordance. */}
+      {isDragging && (
+        <div
+          className={cn(
+            'pointer-events-none absolute inset-2 z-50 flex flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed text-center',
+            isUnsupportedDrag
+              ? 'border-destructive bg-destructive/5'
+              : 'border-ring bg-primary/5 backdrop-blur-sm'
+          )}
+          data-testid="workspace-drop-overlay"
+        >
+          <Upload
+            className={cn('size-6', isUnsupportedDrag ? 'text-destructive' : 'text-primary')}
+            aria-hidden
+          />
+          <p className={cn('text-sm font-medium', isUnsupportedDrag ? 'text-destructive' : 'text-primary')}>
+            {isUnsupportedDrag ? t('workspace.dropUnsupported') : t('workspace.dropToUpload')}
+          </p>
+        </div>
+      )}
+
       {/* Top action bar */}
       <div className="flex items-center justify-between gap-4 border-b px-4 py-3">
         <div className="min-w-0">

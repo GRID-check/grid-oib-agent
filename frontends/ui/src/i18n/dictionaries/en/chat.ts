@@ -10,6 +10,7 @@ export const chat = {
     reject: 'Reject',
     approvePlan: 'Approve plan',
     rejectPlan: 'Reject plan',
+    selectOption: 'Select option: {option}',
     yourResponse: 'Your response:',
   },
   agentResponse: {

@@ -63,6 +63,8 @@ export const files = {
     foldersLoadError: "Folders couldn't be loaded.",
     documentsLoadError: "Documents couldn't be loaded.",
     tryAgain: 'Try again',
+    dropToUpload: 'Drop files to upload to this project',
+    dropUnsupported: 'Some files are not a supported type',
   },
   upload: {
     uploading: 'Uploading…',

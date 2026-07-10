@@ -12,6 +12,7 @@ export const chat: typeof en.chat = {
     reject: 'Ablehnen',
     approvePlan: 'Plan genehmigen',
     rejectPlan: 'Plan ablehnen',
+    selectOption: 'Option auswählen: {option}',
     yourResponse: 'Ihre Antwort:',
   },
   agentResponse: {
