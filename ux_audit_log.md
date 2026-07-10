@@ -313,3 +313,30 @@ new product features.
 - Full-suite gate: tsc 0; vitest 1648 passed / 3 skipped (was 1531 at
   baseline).
 
+
+## Round 7 — immersion II: continuity & muscle memory
+
+Three parallel Opus agents; committed in three slices. All continuity/polish
+over existing capability.
+
+- **Resume last section per project** (`741119b`): opening a project from the
+  card or switcher lands the user in the section they last used for that
+  project (localStorage map keyed by project id). Destination resolved at the
+  entry point (no Overview-first flicker); deep links never hijacked; explicit
+  Overview visits count so resume never traps; stale entries pruned. 42 tests.
+- **Drag-drop upload + clickable clarifier options** (`02076ce`): the project
+  files workspace accepts drag-and-drop into the SAME upload path the button
+  uses (shared useFileDragDrop + config → identical accepted types/limits,
+  targets the selected folder), overlay affordance + accidental-navigation
+  guard; clarifier multiple-choice options are focusable buttons that submit
+  on click/Enter/Space (approach a, consistent with approve/reject), read-only
+  fallback preserved (EN+DE). 29 tests.
+- **Per-session composer drafts** (`0d76d04`): a half-typed question survives
+  session switches and reload (composerDrafts map in the existing chat-store
+  localStorage namespace, keyed by conversation id — no cross-project/user
+  leakage); cleared on successful send only (failed send keeps the text);
+  prefill never clobbers a non-empty draft; drafts cleaned up on delete /
+  project-scoped delete-all / QuotaExceeded. 148 spec tests.
+- Full-suite gate: tsc 0; vitest 1687 passed / 3 skipped (was 1531 baseline;
+  +156 net new tests across all rounds).
+
