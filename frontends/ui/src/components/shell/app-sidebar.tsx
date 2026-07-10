@@ -33,6 +33,7 @@ import { Logo } from '@/components/brand/logo'
 import { AnimatePresence, easeQuiet, motion, springSnappy } from '@/components/motion'
 import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
+import { ConnectionPresenceIndicator } from './connection-presence-indicator'
 import { ProjectSwitcher, type ProjectSwitcherProject } from './project-switcher'
 import { SidebarUserMenu, type SidebarUser } from './sidebar-user-menu'
 
@@ -259,7 +260,8 @@ export function AppSidebar({
 
             {renderNav('mobile')}
 
-            <div className="border-t border-border p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+            <div className="flex flex-col gap-2 border-t border-border p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+              <ConnectionPresenceIndicator className="px-1" />
               <SidebarUserMenu
                 user={user}
                 authRequired={authRequired}
@@ -344,8 +346,9 @@ export function AppSidebar({
         {/* Section nav */}
         {renderNav('desktop')}
 
-        {/* Footer: user + settings */}
-        <div className={cn('border-t border-border', collapsed ? 'flex justify-center p-2' : 'p-3')}>
+        {/* Footer: connection presence + user + settings */}
+        <div className={cn('flex flex-col gap-2 border-t border-border', collapsed ? 'items-center p-2' : 'p-3')}>
+          <ConnectionPresenceIndicator compact={collapsed} className={collapsed ? undefined : 'px-1'} />
           <SidebarUserMenu
             user={user}
             authRequired={authRequired}

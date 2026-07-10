@@ -20,11 +20,13 @@ import { members } from './members'
 import { onboarding } from './onboarding'
 import { organization } from './organization'
 import { platform } from './platform'
+import { presence } from './presence'
 import type { Dictionary } from '../index'
 
 export const de: Dictionary = {
   common,
   nav,
+  presence,
   profile,
   settings,
   errors,

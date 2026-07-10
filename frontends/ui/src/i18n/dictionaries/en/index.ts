@@ -20,10 +20,12 @@ import { members } from './members'
 import { onboarding } from './onboarding'
 import { organization } from './organization'
 import { platform } from './platform'
+import { presence } from './presence'
 
 export const en = {
   common,
   nav,
+  presence,
   profile,
   settings,
   errors,

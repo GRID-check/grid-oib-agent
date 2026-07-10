@@ -11,6 +11,7 @@ import Link from 'next/link'
 import { Logo } from '@/components/brand/logo'
 import { FadeIn } from '@/components/motion'
 import { getTranslations } from '@/i18n/server'
+import { ConnectionPresenceIndicator } from './connection-presence-indicator'
 import { SidebarUserMenu, type SidebarUser } from './sidebar-user-menu'
 
 export interface OrgTopbarProps {
@@ -48,16 +49,19 @@ export async function OrgTopbar({ user, authRequired, heading, canManageOrganiza
             </>
           )}
         </div>
-        <SidebarUserMenu
-          user={user}
-          authRequired={authRequired}
-          menuSide="bottom"
-          menuAlign="end"
-          compact
-          canManageOrganization={canManageOrganization}
-          canViewOrganization={canViewOrganization}
-          canManagePlatform={canManagePlatform}
-        />
+        <div className="flex items-center gap-3">
+          <ConnectionPresenceIndicator className="hidden sm:inline-flex" />
+          <SidebarUserMenu
+            user={user}
+            authRequired={authRequired}
+            menuSide="bottom"
+            menuAlign="end"
+            compact
+            canManageOrganization={canManageOrganization}
+            canViewOrganization={canViewOrganization}
+            canManagePlatform={canManagePlatform}
+          />
+        </div>
       </FadeIn>
     </header>
   )
