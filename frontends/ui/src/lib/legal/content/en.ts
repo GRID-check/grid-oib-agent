@@ -316,6 +316,13 @@ export const en: LegalContent = {
               'Optional (non-default configuration)',
             ],
             [
+              'OpenAI, Inc. (direct)',
+              'Alternative model configuration; fallback for project-summary generation',
+              'Chat messages, document excerpts, project profile text',
+              'USA',
+              'Optional (only if configured)',
+            ],
+            [
               'Hosting provider',
               'Runs the application, databases and object storage',
               'All application data',
@@ -342,7 +349,25 @@ export const en: LegalContent = {
       {
         heading: 'Optional telemetry (disabled by default)',
         paragraphs: [
-          'The codebase supports optional tracing/monitoring integrations (Datadog RUM, LangSmith, Weights & Biases) which are inactive unless explicitly configured by the operator. If enabled for a deployment, this page will be updated accordingly.',
+          'The codebase supports optional tracing/monitoring integrations which are inactive unless explicitly configured by the operator. If any of them is enabled for a deployment, this page will be updated accordingly, because they would receive the data listed below:',
+        ],
+        list: [
+          'LangSmith (LangChain, USA) — full AI prompts and responses, if tracing is enabled.',
+          'OpenTelemetry/Phoenix trace export — AI request traces, only to an endpoint the operator configures.',
+          'Datadog RUM (USA) — browser performance/usage telemetry, if injected by the deployment.',
+          'Weights & Biases (USA) — evaluation runs; currently not wired to any code path.',
+        ],
+      },
+      {
+        heading: 'Development and build-time services (no user content)',
+        paragraphs: [
+          'The following services are used to build and maintain Grid. They process source code and build artifacts, never your prompts, documents, or account data:',
+        ],
+        list: [
+          'GitHub (USA) — source-code hosting, CI pipelines, security scanning.',
+          'SonarSource / SonarQube Cloud (EU/CH) — static analysis of source code.',
+          'Package registries and base images (PyPI, npm, Docker Hub, NVIDIA NGC, Debian/Node mirrors) — software dependencies fetched at build time.',
+          'Google Fonts — fonts are downloaded once at build time and self-hosted; your browser never contacts Google when using Grid.',
         ],
       },
       {

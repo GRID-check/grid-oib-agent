@@ -313,6 +313,13 @@ export const de: LegalContent = {
               'Optional (Nicht-Standard-Konfiguration)',
             ],
             [
+              'OpenAI, Inc. (direkt)',
+              'Alternative Modellkonfiguration; Fallback für die Projekt-Zusammenfassung',
+              'Chat-Nachrichten, Dokumentauszüge, Projektprofil-Text',
+              'USA',
+              'Optional (nur falls konfiguriert)',
+            ],
+            [
               'Hosting-Anbieter',
               'Betrieb der Anwendung, Datenbanken und des Objektspeichers',
               'Alle Anwendungsdaten',
@@ -339,7 +346,25 @@ export const de: LegalContent = {
       {
         heading: 'Optionale Telemetrie (standardmäßig deaktiviert)',
         paragraphs: [
-          'Die Codebasis unterstützt optionale Tracing-/Monitoring-Integrationen (Datadog RUM, LangSmith, Weights & Biases), die inaktiv sind, solange der Betreiber sie nicht ausdrücklich konfiguriert. Werden sie für ein Deployment aktiviert, wird diese Seite entsprechend aktualisiert.',
+          'Die Codebasis unterstützt optionale Tracing-/Monitoring-Integrationen, die inaktiv sind, solange der Betreiber sie nicht ausdrücklich konfiguriert. Wird eine davon für ein Deployment aktiviert, wird diese Seite entsprechend aktualisiert, denn sie würden die unten genannten Daten erhalten:',
+        ],
+        list: [
+          'LangSmith (LangChain, USA) — vollständige KI-Eingaben und -Antworten, falls Tracing aktiviert wird.',
+          'OpenTelemetry/Phoenix-Trace-Export — KI-Anfrage-Traces, nur an einen vom Betreiber konfigurierten Endpunkt.',
+          'Datadog RUM (USA) — Browser-Performance-/Nutzungstelemetrie, falls vom Deployment eingebunden.',
+          'Weights & Biases (USA) — Evaluierungsläufe; derzeit mit keinem Codepfad verbunden.',
+        ],
+      },
+      {
+        heading: 'Entwicklungs- und Build-Dienste (keine Nutzerinhalte)',
+        paragraphs: [
+          'Die folgenden Dienste werden für Entwicklung und Build von Grid genutzt. Sie verarbeiten Quellcode und Build-Artefakte, niemals Ihre Eingaben, Dokumente oder Kontodaten:',
+        ],
+        list: [
+          'GitHub (USA) — Quellcode-Hosting, CI-Pipelines, Sicherheits-Scans.',
+          'SonarSource / SonarQube Cloud (EU/CH) — statische Analyse des Quellcodes.',
+          'Paket-Registries und Basis-Images (PyPI, npm, Docker Hub, NVIDIA NGC, Debian-/Node-Mirrors) — Software-Abhängigkeiten, die zur Build-Zeit geladen werden.',
+          'Google Fonts — Schriften werden einmalig zur Build-Zeit geladen und selbst gehostet; Ihr Browser kontaktiert bei der Nutzung von Grid niemals Google.',
         ],
       },
       {
