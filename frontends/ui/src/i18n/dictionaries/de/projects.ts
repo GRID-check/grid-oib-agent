@@ -259,9 +259,30 @@ export const projects: typeof en.projects = {
     workspace: 'Projekt-Arbeitsbereich',
     askGrid: 'Grid fragen',
     uploadFiles: 'Dateien hochladen',
+    rename: {
+      action: 'Projekt umbenennen',
+      dialogTitle: 'Projekt umbenennen',
+      dialogDescription:
+        'Geben Sie diesem Projekt einen klaren Namen. Er ist zugleich die zur Bestätigung der Löschung erforderliche Eingabe.',
+      nameLabel: 'Projektname',
+      save: 'Speichern',
+      saving: 'Wird gespeichert…',
+      cancel: 'Abbrechen',
+      success: 'Projekt umbenannt.',
+      error: 'Das Projekt konnte nicht umbenannt werden. Bitte versuchen Sie es erneut.',
+      forbidden: 'Sie haben keine Berechtigung, dieses Projekt umzubenennen.',
+    },
     brief: {
       heading: 'Projekt-Briefing',
       edit: 'Briefing bearbeiten',
+      summaryGenerate: 'Zusammenfassung erstellen',
+      summaryRegenerate: 'Neu erstellen',
+      summaryGenerating: 'Wird erstellt…',
+      summarySuccess: 'Zusammenfassung aktualisiert.',
+      summaryError: 'Die Zusammenfassung konnte nicht erstellt werden. Bitte versuchen Sie es erneut.',
+      summaryLlmNotConfigured:
+        'Die Erstellung der Zusammenfassung ist nicht verfügbar — es ist kein Sprachmodell konfiguriert. Bitten Sie eine Administratorin, eines einzurichten.',
+      summaryForbidden: 'Sie haben keine Berechtigung, die Zusammenfassung zu erstellen.',
       captured: '{answered} von {total} erfasst',
       focus: 'Fokus',
       startedNoDetailsBefore:

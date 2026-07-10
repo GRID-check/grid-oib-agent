@@ -7,6 +7,7 @@ import { ApplicableStandards } from './applicable-standards'
 import { ProjectBrief } from './project-brief'
 import { ProjectDangerZone } from './project-danger-zone'
 import { ProjectMemoryPanel } from './project-memory-panel'
+import { ProjectRenameButton } from './project-rename-button'
 import { Stagger, StaggerItem } from '@/components/motion'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -88,7 +89,12 @@ export function ProjectOverview({ data, canManageProject = false }: ProjectOverv
       <StaggerItem>
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div className="min-w-0">
-          <h1 className="text-2xl font-semibold tracking-tight">{data.name}</h1>
+          <div className="flex min-w-0 items-center gap-1.5">
+            <h1 className="min-w-0 truncate text-2xl font-semibold tracking-tight">{data.name}</h1>
+            {canManageProject && (
+              <ProjectRenameButton projectId={data.id} projectName={data.name} />
+            )}
+          </div>
           <p className="mt-1 text-sm text-muted-foreground">
             {createdLabel
               ? t('overview.workspaceCreated', { date: createdLabel })

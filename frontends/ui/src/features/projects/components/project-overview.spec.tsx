@@ -74,6 +74,16 @@ describe('ProjectOverview', () => {
     expect(screen.getByRole('button', { name: /Delete project/i })).toBeDefined()
   })
 
+  it('hides the rename affordance from users who cannot manage the project', () => {
+    render(<ProjectOverview data={mockData} />)
+    expect(screen.queryByRole('button', { name: /Rename project/i })).toBeNull()
+  })
+
+  it('offers a rename affordance to users who can manage the project', () => {
+    render(<ProjectOverview data={mockData} canManageProject />)
+    expect(screen.getByRole('button', { name: /Rename project/i })).toBeDefined()
+  })
+
   it('renders grouped, human-labelled facts from the raw profile', () => {
     const dataWithProfile: ProjectOverviewData = {
       ...mockData,

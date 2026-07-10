@@ -3,7 +3,8 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { CircleHelp, ClipboardList, PencilLine, Sparkles } from 'lucide-react'
+import { toast } from 'sonner'
+import { CircleHelp, ClipboardList, Loader2, PencilLine, Sparkles } from 'lucide-react'
 import { buildProjectBriefView } from '@/lib/project-profile/brief-view'
 import type { BriefAssumption } from '@/lib/project-profile/brief-view'
 import type { ProjectProfile } from '@/lib/project-profile/types'
@@ -80,8 +81,18 @@ export function ProjectBrief({ projectId, profile, summary, briefStarted }: Proj
         </div>
       </div>
 
-      {/* AI summary prose */}
-      {prose && <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{prose}</p>}
+      {/* AI summary prose, with a generate/regenerate affordance. A failed
+          intake-time generation otherwise leaves the brief permanently prose-less. */}
+      {prose ? (
+        <div className="mt-3">
+          <p className="text-sm leading-relaxed text-muted-foreground">{prose}</p>
+          <SummaryControl projectId={projectId} hasSummary />
+        </div>
+      ) : (
+        <div className="mt-3">
+          <SummaryControl projectId={projectId} hasSummary={false} />
+        </div>
+      )}
 
       {/* Focus areas the architect selected for Grid */}
       {brief.focusAreas.length > 0 && (
@@ -160,6 +171,77 @@ export function ProjectBrief({ projectId, profile, summary, briefStarted }: Proj
         </div>
       )}
     </section>
+  )
+}
+
+/**
+ * Generate / regenerate the AI prose summary on demand. Surfaces the route's
+ * machine-readable failure codes (notably `llm_not_configured`) as localized
+ * messages, and refreshes the server component so the new prose shows on success.
+ */
+function SummaryControl({ projectId, hasSummary }: { projectId: string; hasSummary: boolean }) {
+  const t = useTranslations('projects')
+  const router = useRouter()
+  const [pending, setPending] = useState(false)
+
+  const generate = async () => {
+    setPending(true)
+    try {
+      const res = await fetch(`/api/projects/${projectId}/generate-summary`, { method: 'POST' })
+      if (!res.ok) {
+        throw new Error(
+          res.status === 403
+            ? t('overview.brief.summaryForbidden')
+            : t('overview.brief.summaryError'),
+        )
+      }
+      // The route answers 200 even on generation failure, carrying a diagnostic
+      // `error` code (e.g. no LLM configured) and an empty summary.
+      const data = (await res.json().catch(() => null)) as
+        | { summary?: string; error?: string | null }
+        | null
+      if (data?.error === 'llm_not_configured') {
+        throw new Error(t('overview.brief.summaryLlmNotConfigured'))
+      }
+      if (data?.error || !data?.summary) {
+        throw new Error(t('overview.brief.summaryError'))
+      }
+      toast.success(t('overview.brief.summarySuccess'))
+      router.refresh()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t('overview.brief.summaryError'))
+    } finally {
+      setPending(false)
+    }
+  }
+
+  if (hasSummary) {
+    return (
+      <button
+        type="button"
+        onClick={generate}
+        disabled={pending}
+        className="mt-2 inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-60"
+      >
+        {pending ? (
+          <Loader2 className="size-3 animate-spin" aria-hidden />
+        ) : (
+          <Sparkles className="size-3" aria-hidden />
+        )}
+        {pending ? t('overview.brief.summaryGenerating') : t('overview.brief.summaryRegenerate')}
+      </button>
+    )
+  }
+
+  return (
+    <Button type="button" variant="outline" size="sm" onClick={generate} disabled={pending}>
+      {pending ? (
+        <Loader2 className="size-4 animate-spin" aria-hidden />
+      ) : (
+        <Sparkles className="size-4" aria-hidden />
+      )}
+      {pending ? t('overview.brief.summaryGenerating') : t('overview.brief.summaryGenerate')}
+    </Button>
   )
 }
 

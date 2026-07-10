@@ -6,6 +6,8 @@ import {
   evaluateIntakeCondition,
   flattenIntakeQuestions,
   formatIntakeAnswer,
+  humanizeProfileKey,
+  labelForProfileKey,
   projectIntakeDefinitionV1,
 } from './intake-definition'
 import { ProjectProfileSchema } from './types'
@@ -99,6 +101,23 @@ describe('formatIntakeAnswer', () => {
 
   it('renders a dash for missing answers', () => {
     expect(formatIntakeAnswer(useQuestion, undefined)).toBe('—')
+  })
+})
+
+describe('labelForProfileKey', () => {
+  it('maps a raw fact key back to its intake question label', () => {
+    expect(labelForProfileKey(definition, 'fluchtniveau')).toBe('Escape level')
+    expect(labelForProfileKey(definition, 'hauptnutzung')).toBe('Main use')
+  })
+
+  it('falls back to a title-cased humanization for genuinely unknown keys', () => {
+    expect(labelForProfileKey(definition, 'some_unmapped_key')).toBe('Some Unmapped Key')
+  })
+})
+
+describe('humanizeProfileKey', () => {
+  it('title-cases snake_case keys', () => {
+    expect(humanizeProfileKey('hohe_gebaeude_details')).toBe('Hohe Gebaeude Details')
   })
 })
 

@@ -10,6 +10,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
 import { EmptyState } from '@/components/ui/empty-state'
 import { listResearchRuns, type ResearchRun } from '@/adapters/api/research-runs-client'
+import { conversationsClient } from '@/adapters/api/conversations-client'
 import { useLocale, useTranslations } from '@/i18n'
 import type { Locale } from '@/i18n'
 
@@ -78,9 +79,15 @@ const formatRelativeTime = (isoDate: string, locale: Locale): string => {
 
 export function ResearchRunsList({ projectId, projectCollection }: ResearchRunsListProps): JSX.Element {
   const t = useTranslations('projects')
+  const tr = useTranslations('research')
   const { locale } = useLocale()
   const [jobs, setJobs] = useState<ResearchRun[] | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // conversation_id -> conversation title, resolved best-effort so each run
+  // gets a human-readable label instead of an opaque job-id hash. The original
+  // research query is not stored server-side, so the originating chat session's
+  // title is the closest meaningful identity available end-to-end.
+  const [titles, setTitles] = useState<Record<string, string>>({})
 
   const statusLabel = (status: string): string =>
     KNOWN_STATUSES.includes(status) ? t(`researchRuns.status.${status}`) : capitalize(status)
@@ -95,10 +102,21 @@ export function ResearchRunsList({ projectId, projectCollection }: ResearchRunsL
     return ''
   }
 
+  // Primary row label: the originating session's title when resolvable,
+  // otherwise a session-id or (last resort) generic label. The job-id hash is
+  // demoted to metadata below.
+  const runLabel = (job: ResearchRun): string => {
+    const title = job.conversation_id ? titles[job.conversation_id] : undefined
+    if (title) return title
+    if (job.conversation_id) return tr('runsList.sessionLabel', { id: shortJobId(job.conversation_id) })
+    return tr('runsList.untitledRun')
+  }
+
   const load = useCallback(
     (signal: { cancelled: boolean }) => {
       setJobs(null)
       setError(null)
+      setTitles({})
 
       listResearchRuns({ projectCollection, limit: DEFAULT_LIMIT })
         .then((response) => {
@@ -109,8 +127,27 @@ export function ResearchRunsList({ projectId, projectCollection }: ResearchRunsL
           if (signal.cancelled) return
           setError(err instanceof Error ? err.message : t('researchRuns.loadError'))
         })
+
+      // Best-effort session-title resolution. Failure is non-fatal: rows fall
+      // back to a session-id or job-id label rather than blocking the list.
+      conversationsClient
+        .list(projectId)
+        .then((conversations) => {
+          if (signal.cancelled) return
+          const map: Record<string, string> = {}
+          for (const conversation of conversations) {
+            const title = conversation.title?.trim()
+            if (conversation.id && title) {
+              map[conversation.id] = title
+            }
+          }
+          setTitles(map)
+        })
+        .catch(() => {
+          // Non-fatal — labels degrade gracefully without titles.
+        })
     },
-    [projectCollection],
+    [projectCollection, projectId],
   )
 
   useEffect(() => {
@@ -182,6 +219,8 @@ export function ResearchRunsList({ projectId, projectCollection }: ResearchRunsL
       <Stagger className="divide-y divide-border">
         {jobs.map((job) => {
           const isCompleted = job.status === 'completed'
+          const isFailed = job.status === 'failed'
+          const label = runLabel(job)
           return (
             <StaggerItem
               key={job.job_id}
@@ -192,19 +231,32 @@ export function ResearchRunsList({ projectId, projectCollection }: ResearchRunsL
                   {statusLabel(job.status)}
                 </Badge>
                 <div className="flex min-w-0 flex-col gap-0.5">
-                  <span className="font-mono text-xs text-muted-foreground">
-                    {shortJobId(job.job_id)}
+                  <span className="truncate text-sm font-medium" title={label}>
+                    {label}
                   </span>
-                  <span className="text-xs text-muted-foreground">
-                    {formatRelativeTime(job.created_at, locale)}
+                  <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <span className="font-mono">{shortJobId(job.job_id)}</span>
+                    <span aria-hidden>·</span>
+                    <span>{formatRelativeTime(job.created_at, locale)}</span>
                   </span>
                 </div>
               </div>
 
-              {isCompleted ? (
-                <Button asChild size="sm" className="shrink-0">
-                  <Link href={`/app/projects/${projectId}/chat?job=${job.job_id}`}>
-                    {t('researchRuns.viewReport')}
+              {isCompleted || isFailed ? (
+                <Button
+                  asChild
+                  size="sm"
+                  variant={isCompleted ? 'default' : 'outline'}
+                  className="shrink-0"
+                >
+                  <Link
+                    href={
+                      isCompleted
+                        ? `/app/projects/${projectId}/chat?job=${job.job_id}`
+                        : `/app/projects/${projectId}/chat?job=${job.job_id}&tab=thinking`
+                    }
+                  >
+                    {isCompleted ? t('researchRuns.viewReport') : tr('runsList.viewThinking')}
                     <ArrowRight />
                   </Link>
                 </Button>
