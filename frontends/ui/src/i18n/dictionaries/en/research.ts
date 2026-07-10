@@ -191,6 +191,7 @@ export const research = {
     placeholderDefault: 'Check data sources and ask a research question...',
     signInToStart: 'Sign in to start researching',
     researchCompletedNewSession: 'Research completed. Create a new session for further questions.',
+    researchFailedFollowUp: 'Research didn’t finish. Ask a follow-up or try again.',
     typeResponse: 'Type your response to the agent...',
     pleaseWait: 'Please wait...',
     messageNotSent: 'Message not sent',
@@ -301,6 +302,13 @@ export const research = {
     emptyHelp: 'Shows the plan breakdown and progress during deep research.',
     progressAria: 'Task completion progress',
     writingReport: 'Writing final report... This may take a few minutes.',
+    stalledTitle: 'No progress updates for a while',
+    stalledBody:
+      'Research hasn’t sent an update recently. It may still be running — reconnect to resume the live stream.',
+    connectionLostTitle: 'Connection to the research job lost',
+    connectionLostBody:
+      'We lost the live connection, but the job may still be running on the server. Reconnect to resume, or stop it from the toolbar above.',
+    reconnect: 'Reconnect',
   },
 
   thinkingTab: {

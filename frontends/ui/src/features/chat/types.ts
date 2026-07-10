@@ -440,6 +440,12 @@ export interface ChatState {
   deepResearchCards: GridCard[]
   /** Whether the full stream data (artifacts, tool calls, etc.) has been loaded for current job */
   deepResearchStreamLoaded: boolean
+  /** Live stream is open but has gone quiet (no events for a while) — UX-11a */
+  isDeepResearchStalled: boolean
+  /** SSE retries exhausted: stream is gone but the job may still run server-side — UX-11b */
+  deepResearchConnectionLost: boolean
+  /** Transient reconnect handler registered by useDeepResearch (not persisted) */
+  reconnectDeepResearchFn: (() => void) | null
 
   // Plan state (for chat/HITL restore flows)
   /** Messages for clarification questions, plan previews, and approvals. */
@@ -622,6 +628,12 @@ export interface ChatActions {
   persistDeepResearchToSession: () => void
   /** Complete deep research (clears streaming state, keeps content) */
   completeDeepResearch: () => void
+  /** Mark the live stream as stalled (open but silent) or clear it — UX-11a */
+  setDeepResearchStalled: (stalled: boolean) => void
+  /** Mark the SSE connection as lost (retries exhausted) or clear it — UX-11b */
+  setDeepResearchConnectionLost: (lost: boolean) => void
+  /** Register/clear the reconnect handler surfaced by useDeepResearch */
+  setReconnectDeepResearchFn: (fn: (() => void) | null) => void
   /** Save current deep research progress to conversation (for session switching) */
   saveDeepResearchProgress: () => void
   /** Reconnect to an in-progress job after page refresh (running/submitted only) */

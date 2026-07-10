@@ -417,6 +417,81 @@ describe('InputArea', () => {
     ).toBeInTheDocument()
   })
 
+  test('keeps the composer locked when a persisted message reports success', () => {
+    mockConversationMessages = [
+      {
+        messageType: 'agent_response',
+        deepResearchJobId: 'job-1',
+        deepResearchJobStatus: 'success',
+      },
+    ]
+
+    render(<InputArea isAuthenticated={true} connectionMode="websocket" />)
+
+    expect(screen.getByRole('textbox')).toBeDisabled()
+    expect(
+      screen.getByRole('button', { name: /research completed - create new session/i })
+    ).toBeInTheDocument()
+  })
+
+  test.each(['failure', 'interrupted'] as const)(
+    'unlocks the composer after a %s run so the user can retry or follow up',
+    (status) => {
+      mockDeepResearchStatus = status
+      mockIsDeepResearchStreaming = false
+      mockDeepResearchOwnerConversationId = 'session-1'
+
+      render(<InputArea isAuthenticated={true} connectionMode="websocket" />)
+
+      // Composer is enabled with contextual follow-up guidance...
+      expect(screen.getByRole('textbox')).not.toBeDisabled()
+      expect(
+        screen.getByPlaceholderText('Research didn’t finish. Ask a follow-up or try again.')
+      ).toBeInTheDocument()
+      // ...and the normal send button is shown (no "create new session" lock popover).
+      expect(screen.getByRole('button', { name: /send message/i })).toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: /research completed - create new session/i })
+      ).not.toBeInTheDocument()
+    }
+  )
+
+  test('unlocks the composer when a persisted message reports failure', () => {
+    mockConversationMessages = [
+      {
+        messageType: 'agent_response',
+        deepResearchJobId: 'job-1',
+        deepResearchJobStatus: 'failure',
+      },
+    ]
+
+    render(<InputArea isAuthenticated={true} connectionMode="websocket" />)
+
+    expect(screen.getByRole('textbox')).not.toBeDisabled()
+    expect(
+      screen.getByPlaceholderText('Research didn’t finish. Ask a follow-up or try again.')
+    ).toBeInTheDocument()
+  })
+
+  test('a later success still locks the composer even if an earlier run failed', () => {
+    mockConversationMessages = [
+      {
+        messageType: 'agent_response',
+        deepResearchJobId: 'job-1',
+        deepResearchJobStatus: 'failure',
+      },
+      {
+        messageType: 'agent_response',
+        deepResearchJobId: 'job-2',
+        deepResearchJobStatus: 'success',
+      },
+    ]
+
+    render(<InputArea isAuthenticated={true} connectionMode="websocket" />)
+
+    expect(screen.getByRole('textbox')).toBeDisabled()
+  })
+
   test('shows research in progress send button when deep research is active and streaming', () => {
     vi.mocked(useIsCurrentSessionBusy).mockReturnValue(true)
     mockIsDeepResearchStreaming = true

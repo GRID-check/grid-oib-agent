@@ -38,6 +38,12 @@ export type DeepResearchSlice = {
   deepResearchFiles: DeepResearchFile[]
   deepResearchCards: GridCard[]
   deepResearchStreamLoaded: boolean
+  /** No live SSE events for a while though the stream is still open (UX-11a). */
+  isDeepResearchStalled: boolean
+  /** SSE retries exhausted: the stream is gone but the job may still run server-side (UX-11b). */
+  deepResearchConnectionLost: boolean
+  /** Reconnect handler registered by useDeepResearch so panel components can recover. */
+  reconnectDeepResearchFn: (() => void) | null
   planMessages: PlanMessage[]
   pendingInteraction: PendingInteraction | null
   respondToInteractionFn: ((response: string) => void) | null
@@ -45,6 +51,9 @@ export type DeepResearchSlice = {
   startDeepResearch: (jobId: string, messageId?: string) => void
   updateDeepResearchStatus: (status: DeepResearchJobStatus) => void
   completeDeepResearch: () => void
+  setDeepResearchStalled: (stalled: boolean) => void
+  setDeepResearchConnectionLost: (lost: boolean) => void
+  setReconnectDeepResearchFn: (fn: (() => void) | null) => void
   addDeepResearchCitation: (url: string, content: string, isCited?: boolean) => void
   setDeepResearchTodos: (todos: Array<{ content: string; status: string }>) => void
   stopDeepResearchTodos: () => void
@@ -218,6 +227,9 @@ export const initialDeepResearchState = {
   deepResearchFiles: [] as DeepResearchFile[],
   deepResearchCards: [] as GridCard[],
   deepResearchStreamLoaded: false,
+  isDeepResearchStalled: false,
+  deepResearchConnectionLost: false,
+  reconnectDeepResearchFn: null as (() => void) | null,
   planMessages: [] as PlanMessage[],
   pendingInteraction: null as PendingInteraction | null,
   respondToInteractionFn: null as ((response: string) => void) | null,
@@ -246,6 +258,8 @@ export const createDeepResearchSlice: StateCreator<ChatStore, [["zustand/devtool
         deepResearchFiles: [],
         deepResearchCards: [],
         deepResearchStreamLoaded: false,
+        isDeepResearchStalled: false,
+        deepResearchConnectionLost: false,
       },
       false,
       'startDeepResearch'
@@ -264,10 +278,27 @@ export const createDeepResearchSlice: StateCreator<ChatStore, [["zustand/devtool
     set(
       {
         isDeepResearchStreaming: false,
+        // A terminal outcome supersedes any transient recovery state.
+        isDeepResearchStalled: false,
+        deepResearchConnectionLost: false,
       },
       false,
       'completeDeepResearch'
     )
+  },
+
+  setDeepResearchStalled: (stalled: boolean) => {
+    if (get().isDeepResearchStalled === stalled) return
+    set({ isDeepResearchStalled: stalled }, false, 'setDeepResearchStalled')
+  },
+
+  setDeepResearchConnectionLost: (lost: boolean) => {
+    if (get().deepResearchConnectionLost === lost) return
+    set({ deepResearchConnectionLost: lost }, false, 'setDeepResearchConnectionLost')
+  },
+
+  setReconnectDeepResearchFn: (fn: (() => void) | null) => {
+    set({ reconnectDeepResearchFn: fn }, false, 'setReconnectDeepResearchFn')
   },
 
   addDeepResearchCitation: (url: string, content: string, isCited?: boolean) => {
@@ -545,6 +576,8 @@ export const createDeepResearchSlice: StateCreator<ChatStore, [["zustand/devtool
         deepResearchFiles: [],
         deepResearchCards: [],
         deepResearchStreamLoaded: false,
+        isDeepResearchStalled: false,
+        deepResearchConnectionLost: false,
       },
       false,
       'clearDeepResearch'

@@ -188,3 +188,35 @@ rest per the user's model policy). Committed in three slices.
   baseline; +37 from new round-1/2 tests); backend unchanged this round.
 
 ---
+
+## Round 3 — failure-state surfacing (UX-11, 12, 19, 20, 21)
+
+Three parallel Opus agents; committed in three slices.
+
+- **UX-19** (`7a65c6c`): failed documents stop being dead ends — errorMessage
+  (fetched, previously dropped) now shown in browser rows + preview pane; new
+  `POST /api/documents/[id]/reingest` (project:edit, 409 on non-failed;
+  dispatch logic extracted and shared with upload); "Retry ingestion" button
+  flips local state to pending so existing reconciliation takes over. EN+DE.
+- **UX-20/21** (`d4b1981`): platform overview gets a retryable error card
+  (was: permanent skeleton); org page survives a Grid-DB hiccup (settings
+  card degrades instead of whole-page crash); recently-deleted gates its
+  fetch on the compliance capability, shows a retryable error state, and
+  uses the active locale for dates; auth-error "Try again" actually retries
+  sign-in; `?new=1` no longer sticky; loading.tsx added for org/platform/
+  profile. 3 new specs (8 tests).
+- **UX-11/12** (this commit): dead stall detection wired up — stalled and
+  connection-lost states surface in TasksTab with a working Reconnect
+  (reconnect now forces a fresh EventSource; registered via the store like
+  respondToInteractionFn). SSE retry exhaustion no longer fakes a local
+  failure while the job still runs/bills server-side: Stop stays enabled
+  (cancel is REST, not SSE), only the server's status verdict marks
+  failure. Composer lock after research is success-only — failed/interrupted
+  runs unlock with distinct placeholder copy so users can retry in context;
+  banner actions ("View Thinking") now render for failure/cancelled too.
+  Deviation flagged: transport-level auth-expiry classification collapsed
+  into the recoverable connection-lost state (Reconnect re-attempts with the
+  current token).
+- Full-suite gate recorded in the commit message.
+
+---

@@ -199,6 +199,8 @@ export const research: typeof en.research = {
     signInToStart: 'Melden Sie sich an, um mit der Recherche zu beginnen',
     researchCompletedNewSession:
       'Recherche abgeschlossen. Erstellen Sie für weitere Fragen eine neue Sitzung.',
+    researchFailedFollowUp:
+      'Die Recherche wurde nicht abgeschlossen. Stellen Sie eine Anschlussfrage oder versuchen Sie es erneut.',
     typeResponse: 'Geben Sie Ihre Antwort an den Agenten ein...',
     pleaseWait: 'Bitte warten...',
     messageNotSent: 'Nachricht nicht gesendet',
@@ -311,6 +313,13 @@ export const research: typeof en.research = {
     emptyHelp: 'Zeigt die Aufschlüsselung des Plans und den Fortschritt während der Deep Research.',
     progressAria: 'Fortschritt der Aufgabenerledigung',
     writingReport: 'Finaler Bericht wird geschrieben... Dies kann einige Minuten dauern.',
+    stalledTitle: 'Seit einer Weile keine Fortschrittsupdates',
+    stalledBody:
+      'Die Recherche hat kürzlich kein Update gesendet. Sie läuft möglicherweise noch – stellen Sie die Verbindung wieder her, um den Live-Stream fortzusetzen.',
+    connectionLostTitle: 'Verbindung zum Recherchejob verloren',
+    connectionLostBody:
+      'Die Live-Verbindung wurde unterbrochen, aber der Job läuft möglicherweise noch auf dem Server. Stellen Sie die Verbindung wieder her, um fortzufahren, oder stoppen Sie ihn über die Leiste oben.',
+    reconnect: 'Erneut verbinden',
   },
 
   thinkingTab: {

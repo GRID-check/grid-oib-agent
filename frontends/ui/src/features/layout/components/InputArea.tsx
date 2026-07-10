@@ -105,29 +105,46 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     )
   })
 
-  // Check for completed deep research in conversation messages (persisted state)
-  // This handles the case where ephemeral state has been reset (page refresh, session switch)
-  const hasCompletedDeepResearch = useChatStore((state) => {
+  // Check for a SUCCESSFUL deep research in conversation messages (persisted state).
+  // This handles the case where ephemeral state has been reset (page refresh, session switch).
+  const hasSuccessfulDeepResearch = useChatStore((state) => {
     if (!state.currentConversation?.messages) return false
     return state.currentConversation.messages.some(
       (m) =>
         m.messageType === 'agent_response' &&
         m.deepResearchJobId &&
-        (m.deepResearchJobStatus === 'success' ||
-          m.deepResearchJobStatus === 'failure' ||
+        m.deepResearchJobStatus === 'success'
+    )
+  })
+
+  // Check for a FAILED/INTERRUPTED deep research in conversation messages (persisted state).
+  const hasFailedDeepResearch = useChatStore((state) => {
+    if (!state.currentConversation?.messages) return false
+    return state.currentConversation.messages.some(
+      (m) =>
+        m.messageType === 'agent_response' &&
+        m.deepResearchJobId &&
+        (m.deepResearchJobStatus === 'failure' ||
           m.deepResearchJobStatus === 'interrupted')
     )
   })
 
-  // Research session is complete when:
-  // 1. Ephemeral state shows terminal status AND stream has finished, OR
-  // 2. Persisted message has terminal deep research job status
-  const isResearchSessionComplete =
-    (!isDeepResearchStreaming &&
-      (deepResearchStatus === 'success' ||
-        deepResearchStatus === 'failure' ||
-        deepResearchStatus === 'interrupted')) ||
-    hasCompletedDeepResearch
+  // The composer is locked ONLY after a SUCCESSFUL research run: the finished
+  // report defines the session's context, so follow-up questions belong in a
+  // fresh session (this is the product rationale behind the lock). A failed or
+  // interrupted run produced no report to protect, so the user must be able to
+  // retry or follow up in place — do NOT lock those (UX-12).
+  const isResearchSessionSuccessful =
+    (!isDeepResearchStreaming && deepResearchStatus === 'success') ||
+    hasSuccessfulDeepResearch
+
+  // A terminal failure/interruption that is NOT superseded by a later success.
+  // Drives contextual placeholder copy while keeping the composer unlocked.
+  const isResearchSessionFailed =
+    !isResearchSessionSuccessful &&
+    ((!isDeepResearchStreaming &&
+      (deepResearchStatus === 'failure' || deepResearchStatus === 'interrupted')) ||
+      hasFailedDeepResearch)
 
   // Research session is in progress when:
   // 1. Ephemeral state is streaming, OR
@@ -216,7 +233,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   // 3. Deep research has completed/failed
 
   const isDisabledByAuth = !isAuthenticated
-  const disabled = isDisabledByAuth || (isBusy && !isResponseMode) || isResearchSessionComplete
+  const disabled = isDisabledByAuth || (isBusy && !isResponseMode) || isResearchSessionSuccessful
 
   // Autosize: grow the textarea with content, capped at TEXTAREA_MAX_HEIGHT_PX
   useEffect(() => {
@@ -248,9 +265,10 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   // see the response prompt even when the session is "busy" due to HITL.
   const getPlaceholder = (): string => {
     if (!isAuthenticated) return t('inputArea.signInToStart')
-    if (isResearchSessionComplete) return t('inputArea.researchCompletedNewSession')
+    if (isResearchSessionSuccessful) return t('inputArea.researchCompletedNewSession')
     if (isResponseMode) return t('inputArea.typeResponse')
     if (isBusy) return t('inputArea.pleaseWait')
+    if (isResearchSessionFailed) return t('inputArea.researchFailedFollowUp')
     return placeholder ?? t('inputArea.placeholderDefault')
   }
 
@@ -549,7 +567,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
             {/* Send button - wrapped in Popover when research session is complete/in-progress.
                 Exception: isResponseMode always shows the normal send button so users can
                 submit HITL responses (approve/reject) even during active research. */}
-            {isResearchSessionComplete && !isResponseMode ? (
+            {isResearchSessionSuccessful && !isResponseMode ? (
               <Popover>
                 <PopoverTrigger asChild>
                   <Button

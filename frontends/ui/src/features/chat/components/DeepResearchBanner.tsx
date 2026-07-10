@@ -164,10 +164,13 @@ export const DeepResearchBanner: FC<DeepResearchBannerProps> = ({
     isJobComplete,
   ])
 
-  // Keep archived/error-state banners informational. The report CTA is the
-  // only banner action we keep visible to avoid competing recovery paths.
+  // Surface each completed banner's configured action so the user can act on the
+  // outcome — View Report on success, and View Thinking / View Progress on
+  // failure or cancellation so a failed run can actually be diagnosed (UX-12).
+  // The live "starting" banner stays action-free (its progress is already
+  // streaming into the panel), and "expired" has no action to offer.
   const actions =
-    bannerType === 'success' && config.buttonText ? (
+    bannerType !== 'starting' && config.buttonText && config.buttonTab ? (
       <Button
         variant="outline"
         size="sm"

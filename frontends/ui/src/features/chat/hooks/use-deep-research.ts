@@ -21,8 +21,7 @@ import {
 import { useChatStore } from '../store'
 import { useAuth } from '@/adapters/auth'
 import { useLayoutStore } from '@/features/layout/store'
-import { checkBackendHealthCached } from '@/shared/hooks/use-backend-health'
-import { isLikelyAuthRelatedTransportError, isDeepResearchReplayCompleteMode } from '../lib/transport-auth-signals'
+import { isDeepResearchReplayCompleteMode } from '../lib/transport-auth-signals'
 import { normalizeDeepResearchTodos } from '../lib/deep-research-todos'
 
 /** Timeout in milliseconds before showing a warning (60 seconds) */
@@ -84,7 +83,7 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
 
   // Auth token for authenticated requests
   // Note: idToken is used for backend auth, not accessToken
-  const { idToken, authRequired, error: authError } = useAuth()
+  const { idToken } = useAuth()
 
   // Chat store — reactive state only
   const { deepResearchJobId, isDeepResearchStreaming, deepResearchStatus } =
@@ -118,6 +117,9 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
   const patchConversationMessage = useChatStore((s) => s.patchConversationMessage)
   const addDeepResearchBanner = useChatStore((s) => s.addDeepResearchBanner)
   const setStreamLoaded = useChatStore((s) => s.setStreamLoaded)
+  const setDeepResearchStalled = useChatStore((s) => s.setDeepResearchStalled)
+  const setDeepResearchConnectionLost = useChatStore((s) => s.setDeepResearchConnectionLost)
+  const setReconnectDeepResearchFn = useChatStore((s) => s.setReconnectDeepResearchFn)
 
   /**
    * Check if the current session owns the active deep research stream.
@@ -149,28 +151,6 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
   }, [])
 
   /**
-   * Classify a deep research stream failure as auth-related or generic.
-   * Used when the backend is healthy but the SSE stream errored,
-   * which typically means the auth cookie or token drifted.
-   */
-  const getDeepResearchStreamFailure = useCallback(
-    (message: string, details?: string): { code: string; message: string; details?: string } => {
-      if (!authRequired) {
-        return { code: 'connection.failed', message, details }
-      }
-      if (authError === 'RefreshAccessTokenError' || isLikelyAuthRelatedTransportError(message)) {
-        return {
-          code: 'auth.session_expired',
-          message: 'Your session has expired. Please sign in again to continue.',
-          details,
-        }
-      }
-      return { code: 'connection.failed', message, details }
-    },
-    [authRequired, authError]
-  )
-
-  /**
    * Create and connect to the SSE stream
    */
   /**
@@ -190,6 +170,9 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
 
       activeStepIdsRef.current.clear()
       resetTimeout()
+      // Any (re)connect attempt clears the "connection lost" recovery state; if the
+      // stream fails again onError will set it back.
+      setDeepResearchConnectionLost(false)
 
       // ---------- inline buffer for replay phase ----------
       // bufferReplay=true on page-refresh reconnect: buffer ALL replayed events
@@ -520,47 +503,22 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
             if (buf.active) flushBuffer()
           },
 
-          onError: async (error) => {
+          onError: (error) => {
             console.warn('Deep research SSE error:', error.message)
             if (buf.active) flushBuffer()
             if (!isActiveJob()) return
             const { isDeepResearchStreaming, deepResearchStatus } = useChatStore.getState()
             if (isDeepResearchStreaming && deepResearchStatus !== 'interrupted' && deepResearchStatus !== 'failure') {
-              const backendUp = await checkBackendHealthCached()
-
-              const errorInfo = backendUp
-                ? getDeepResearchStreamFailure(error.message, error.stack)
-                : { code: 'agent.deep_research_failed' as const, message: error.message, details: error.stack }
-
-              console.error(
-                backendUp
-                  ? 'Deep research SSE failed while backend remained reachable:'
-                  : 'Deep research SSE failed (backend unreachable):',
-                error
-              )
-              setCurrentStatus('error')
-
-              const state = useChatStore.getState()
-              const ownerConvId = state.deepResearchOwnerConversationId
-              const messageId = state.activeDeepResearchMessageId
-              const hasReport = Boolean(state.reportContent?.trim())
-
-              if (ownerConvId && messageId) {
-                patchConversationMessage(ownerConvId, messageId, {
-                  content: '',
-                  deepResearchJobStatus: 'failure',
-                  isDeepResearchActive: false,
-                  showViewReport: hasReport,
-                })
-              }
-
-              state.addErrorCard(errorInfo.code as Parameters<typeof state.addErrorCard>[0], errorInfo.message, errorInfo.details)
-              addDeepResearchBanner('failure', jobId, ownerConvId || undefined)
-              stopAllDeepResearchSpinners()
+              // The SSE transport gave up after exhausting its reconnection retries.
+              // This is a lost CONNECTION, not a job failure — the backend job may
+              // still be running (and billing). Do NOT mark it failed/interrupted or
+              // tear down streaming state (that would disable Stop and pretend the job
+              // died). Surface a distinct "connection lost" state that keeps Stop
+              // enabled and offers Reconnect. Only onJobStatus — the server's own
+              // verdict — is allowed to mark the job failed/interrupted.
+              console.error('Deep research SSE connection lost while the job may still be running:', error)
               clientRef.current?.disconnect()
-              setStreamLoaded(true)
-              completeDeepResearch()
-              setStreaming(false)
+              setDeepResearchConnectionLost(true)
             }
           },
 
@@ -582,7 +540,7 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
       addDeepResearchToolCall, completeDeepResearchToolCall, addDeepResearchFile,
       setDeepResearchCards,
       patchConversationMessage, addDeepResearchBanner, setStreaming, setStreamLoaded,
-      getDeepResearchStreamFailure,
+      setDeepResearchConnectionLost,
     ]
   )
 
@@ -600,13 +558,19 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
   }, [])
 
   /**
-   * Reconnect to the SSE stream from the beginning
+   * Reconnect to the SSE stream from the beginning.
+   *
+   * Used by the research panel's recovery notice for BOTH failure modes:
+   * - stalled: the EventSource is still "open" but silent, so we cannot rely on
+   *   isConnected() being false — connect() tears down the stale client and
+   *   rebuilds from scratch.
+   * - connection lost: onError already disconnected; connect() clears the flag.
    */
   const reconnect = useCallback(() => {
-    if (deepResearchJobId && !clientRef.current?.isConnected()) {
-      connectRef.current?.(deepResearchJobId, true)
-    }
-  }, [deepResearchJobId])
+    if (!deepResearchJobId) return
+    setDeepResearchStalled(false)
+    connectRef.current?.(deepResearchJobId, true)
+  }, [deepResearchJobId, setDeepResearchStalled])
 
   /**
    * Cancel the current job (useful for hung jobs)
@@ -727,6 +691,18 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps -- connectRef avoids re-triggering on token refresh; store actions are stable refs
   }, [deepResearchJobId, isDeepResearchStreaming, disconnect, setResearchPanelTab, openRightPanel])
+
+  // Mirror the local stall flag into the store so panel components (TasksTab)
+  // that don't own this hook can render the recovery notice in context.
+  useEffect(() => {
+    setDeepResearchStalled(isTimedOut)
+  }, [isTimedOut, setDeepResearchStalled])
+
+  // Register reconnect so the research panel's recovery notice can trigger it.
+  useEffect(() => {
+    setReconnectDeepResearchFn(reconnect)
+    return () => setReconnectDeepResearchFn(null)
+  }, [reconnect, setReconnectDeepResearchFn])
 
   return {
     isStreaming: isDeepResearchStreaming,
