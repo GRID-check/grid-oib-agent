@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { TypeToConfirmDialog } from '@/components/ui/type-to-confirm-dialog'
-import { useTranslations } from '@/i18n'
+import { useLocale, useTranslations } from '@/i18n'
 
 export interface ProjectDangerZoneProps {
   projectId: string
@@ -14,6 +14,7 @@ export interface ProjectDangerZoneProps {
 
 export function ProjectDangerZone({ projectId, projectName }: ProjectDangerZoneProps) {
   const t = useTranslations('projects')
+  const { locale } = useLocale()
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [pending, setPending] = useState(false)
@@ -26,11 +27,25 @@ export function ProjectDangerZone({ projectId, projectName }: ProjectDangerZoneP
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ confirmName: projectName }),
       })
+      const data = await res.json().catch(() => null)
       if (!res.ok) {
-        const data = await res.json().catch(() => null)
         throw new Error(data?.error ?? t('dangerZone.deleteError'))
       }
-      toast.success(t('dangerZone.deleteSuccess'))
+      // The DELETE response carries the grace deadline (purgeAfter); surface it
+      // as a concrete, locale-formatted date so the toast is honest about how
+      // long the project can still be restored.
+      const purgeAfter = data?.purgeAfter ? new Date(data.purgeAfter) : null
+      toast.success(
+        purgeAfter && !Number.isNaN(purgeAfter.getTime())
+          ? t('dangerZone.deleteSuccess', {
+              date: purgeAfter.toLocaleDateString(locale, {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+              }),
+            })
+          : t('dangerZone.deleteSuccessNoDate'),
+      )
       router.push('/app/projects')
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t('dangerZone.deleteError'))

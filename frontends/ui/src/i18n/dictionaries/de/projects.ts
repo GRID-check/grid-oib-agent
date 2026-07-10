@@ -78,8 +78,9 @@ export const projects: typeof en.projects = {
       'Nur zur Orientierung — keine Rechtsberatung. Prüfen Sie die Anwendbarkeit anhand der aktuellen Bauordnung und der zuständigen Behörde.',
   },
   dangerZone: {
-    deleteSuccess:
-      'Projekt gelöscht. Es kann während der Kulanzfrist über „Kürzlich gelöscht“ wiederhergestellt werden.',
+    deleteSuccess: 'Projekt gelöscht. Ein Organisationsadministrator kann es bis {date} wiederherstellen.',
+    deleteSuccessNoDate:
+      'Projekt gelöscht. Ein Organisationsadministrator kann es während der Kulanzfrist wiederherstellen.',
     deleteError: 'Projekt konnte nicht gelöscht werden.',
     heading: 'Gefahrenzone',
     description:

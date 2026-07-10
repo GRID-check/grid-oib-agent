@@ -31,6 +31,7 @@ export const files: typeof en.files = {
     size: 'Größe',
     unknownType: 'Unbekannt',
     download: 'Herunterladen',
+    downloadFailed: 'Der Download konnte nicht gestartet werden. Bitte versuchen Sie es erneut.',
   },
   browser: {
     folderEmptyTitle: 'Dieser Ordner ist leer',

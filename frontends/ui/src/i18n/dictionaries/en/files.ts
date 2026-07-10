@@ -28,6 +28,7 @@ export const files = {
     size: 'Size',
     unknownType: 'Unknown',
     download: 'Download',
+    downloadFailed: "The download couldn't be started. Please try again.",
   },
   browser: {
     folderEmptyTitle: 'This folder is empty',

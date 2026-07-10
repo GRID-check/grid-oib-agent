@@ -25,6 +25,7 @@ import {
   findFolderPathInProject,
   insertDocument,
   listProjectDocuments,
+  markDocumentIngestFailed,
   setDocumentIngestJob,
   type DocumentListRow,
 } from './repository'
@@ -42,6 +43,13 @@ const PREVIEW_CONTENT_TYPES = [
 ]
 
 const presignTtlSeconds = (): number => Number(process.env.MINIO_PRESIGNED_URL_TTL_SECONDS || 600)
+
+/**
+ * Stored on the document when the backend ingest dispatch never yielded a job.
+ * Persisted server-side (like backend-produced error messages), so it cannot
+ * go through the per-user i18n dictionaries.
+ */
+export const INGEST_DISPATCH_FAILED_MESSAGE = 'Ingestion could not be started'
 
 /**
  * Filenames are user-controlled and end up in the `Content-Disposition` of
@@ -107,7 +115,7 @@ export interface UploadDocumentInput {
 export interface UploadDocumentResult {
   documentId: string
   jobId: string | null
-  status: 'pending' | 'uploaded'
+  status: 'pending' | 'uploaded' | 'failed'
   filename: string
 }
 
@@ -169,6 +177,7 @@ export async function uploadDocument(
   })
 
   let ingestJobId: string | null = null
+  let ingestFailed = false
   try {
     const ingestRes = await fetch(`${getBackendUrl()}/v1/ingest`, {
       method: 'POST',
@@ -183,13 +192,21 @@ export async function uploadDocument(
     if (ingestRes.ok) {
       const ingestResult = await ingestRes.json()
       ingestJobId = ingestResult.job_id ?? null
+    } else {
+      ingestFailed = true
     }
   } catch {
-    // Ingestion call is best-effort; document is already in MinIO + DB
+    // Dispatch never reached the backend — the document is in MinIO + DB but
+    // has no ingest job, so it can never be reconciled to a truthful status.
+    ingestFailed = true
   }
 
   if (ingestJobId) {
     await setDocumentIngestJob(documentId, ingestJobId)
+  } else if (ingestFailed) {
+    // Persist 'failed' so status reads stop rendering an unsearchable document
+    // as a green "Ready" (it would otherwise sit at 'uploaded' forever).
+    await markDocumentIngestFailed(documentId, INGEST_DISPATCH_FAILED_MESSAGE)
   }
 
   // Data-provenance event: who brought which file into which project.
@@ -207,7 +224,7 @@ export async function uploadDocument(
   return {
     documentId,
     jobId: ingestJobId,
-    status: ingestJobId ? 'pending' : 'uploaded',
+    status: ingestJobId ? 'pending' : ingestFailed ? 'failed' : 'uploaded',
     filename: file.name,
   }
 }

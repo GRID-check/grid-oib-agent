@@ -74,8 +74,8 @@ export const projects = {
       'Orientation only — not legal advice. Confirm applicability against the current Bauordnung and the authority having jurisdiction.',
   },
   dangerZone: {
-    deleteSuccess:
-      'Project deleted. It can be restored from "Recently deleted" during the grace period.',
+    deleteSuccess: 'Project deleted. An organization admin can restore it until {date}.',
+    deleteSuccessNoDate: 'Project deleted. An organization admin can restore it during the grace period.',
     deleteError: 'Failed to delete project.',
     heading: 'Danger zone',
     description:
