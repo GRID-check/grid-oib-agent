@@ -1,13 +1,20 @@
+import { type Metadata } from 'next'
 import { eq, and } from 'drizzle-orm'
 import { notFound } from 'next/navigation'
 import { requireAuthorizedPageSession } from '@/lib/auth/require-auth'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { getDb } from '@/lib/db'
 import { projects } from '@/lib/db/schema'
+import { getTranslations } from '@/i18n/server'
 import { ProjectFileWorkspace } from '@/features/documents/components/project-file-workspace'
 
 interface FilesPageProps {
   params: Promise<{ id: string }>
+}
+
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations('nav')
+  return { title: t('sections.files') }
 }
 
 export default async function FilesPage({ params }: FilesPageProps): Promise<JSX.Element> {

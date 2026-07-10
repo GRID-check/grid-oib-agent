@@ -1,3 +1,4 @@
+import { type Metadata } from 'next'
 import { eq } from 'drizzle-orm'
 import { notFound } from 'next/navigation'
 import { requireAuthorizedPageSession } from '@/lib/auth/require-auth'
@@ -6,10 +7,16 @@ import { getDb } from '@/lib/db'
 import { projects } from '@/lib/db/schema'
 import { ProjectProfileSchema } from '@/lib/project-profile/types'
 import type { ProjectProfile } from '@/lib/project-profile/types'
+import { getTranslations } from '@/i18n/server'
 import { ProjectIntakeWizard } from '@/features/projects/components/project-intake-wizard'
 
 interface IntakePageProps {
   params: Promise<{ id: string }>
+}
+
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations('nav')
+  return { title: t('tabTitle.intake') }
 }
 
 export default async function IntakePage({ params }: IntakePageProps): Promise<JSX.Element> {

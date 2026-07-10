@@ -4,7 +4,7 @@ import { type ReactNode, Suspense, useEffect, useRef, use } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useAuth } from '@/adapters/auth'
 import { MainLayout } from '@/features/layout'
-import { useChatStore, useLoadJobData } from '@/features/chat'
+import { useChatStore, useLoadJobData, useDeepResearchTitle } from '@/features/chat'
 import type { ResearchPanelTab } from '@/features/layout/types'
 
 interface ProjectChatPageProps {
@@ -30,6 +30,12 @@ const ProjectChatContent = ({ projectId }: { projectId: string }): ReactNode => 
     tabParam === 'thinking' || tabParam === 'tasks' ? tabParam : 'report'
   const { loadResearchPanelTab } = useLoadJobData()
   const loadedJobRef = useRef<string | null>(null)
+
+  // While a deep-research job streams, reflect its progress in the tab title.
+  // The base "<Project> · Chat — Grid" title comes from route metadata
+  // (chat/layout + the project layout template); this override cleanly hands
+  // that title back when the job completes or the page unmounts.
+  useDeepResearchTitle()
 
   // Deep link from Overview's "Ask Grid" actions: /projects/:id/chat?ask=<question>.
   // Seed the store-backed composer prefill (consumed once by InputArea) and then
