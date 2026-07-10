@@ -96,10 +96,11 @@ export const research = {
     aboutToDelete: 'You are about to delete',
     lossSuffix: '. You will lose all progress and any files you have attached will be removed.',
     all: {
-      title: 'Deleting All Sessions',
-      countSessions: 'all {count} sessions',
-      allSessions: 'ALL sessions',
-      confirm: 'Delete ALL Sessions',
+      title: 'Deleting All Sessions in This Project',
+      countSessions: 'all {count} sessions in this project',
+      allSessions: 'ALL sessions in this project',
+      scopeNote: 'Only sessions in this project are deleted. Your sessions in other projects are not affected.',
+      confirm: 'Delete Project Sessions',
     },
     file: {
       title: 'Delete File',
@@ -255,8 +256,8 @@ export const research = {
     storageQuota: 'Using {percent}% of browser storage quota',
     storageNote:
       'Note: Chat sessions are saved in this browser. Research reports may expire on the server.',
-    deleteAllDisabled: 'Delete all sessions (disabled)',
-    deleteAll: 'Delete all sessions',
+    deleteAllDisabled: 'Delete all sessions in this project (disabled)',
+    deleteAll: 'Delete all sessions in this project',
     cannotDeleteBusy: 'Cannot delete while operations are in progress',
     deleteAllButton: 'Delete All',
     newSessionDisabled: 'Start new session (disabled during active operations)',

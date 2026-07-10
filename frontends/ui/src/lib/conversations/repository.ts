@@ -12,7 +12,7 @@
  */
 
 import 'server-only'
-import { and, asc, desc, eq } from 'drizzle-orm'
+import { and, asc, desc, eq, isNull, or } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { conversations, messages, type Conversation, type Message, type NewMessage } from '@/lib/db/schema'
 
@@ -22,15 +22,29 @@ export const CONVERSATION_LIST_LIMIT = 200
 /** Hard cap for a single conversation's message history. */
 export const MESSAGE_LIST_LIMIT = 1000
 
+/**
+ * List an organization's conversations, optionally scoped to a project.
+ *
+ * Project scoping is deliberately fail-open for legacy rows: conversations
+ * with a NULL `project_id` (created before project stamping) are included in
+ * every project-scoped list so users never lose sight of their history.
+ * Rows stamped with a DIFFERENT project are always excluded.
+ */
 export async function listConversationsInOrg(
   organizationId: string,
-  limit = CONVERSATION_LIST_LIMIT,
+  options: { projectId?: string; limit?: number } = {},
 ): Promise<Conversation[]> {
+  const { projectId, limit = CONVERSATION_LIST_LIMIT } = options
+  const orgScope = eq(conversations.organizationId, organizationId)
   const db = getDb()
   return db
     .select()
     .from(conversations)
-    .where(eq(conversations.organizationId, organizationId))
+    .where(
+      projectId
+        ? and(orgScope, or(eq(conversations.projectId, projectId), isNull(conversations.projectId)))
+        : orgScope,
+    )
     .orderBy(desc(conversations.updatedAt))
     .limit(limit)
 }

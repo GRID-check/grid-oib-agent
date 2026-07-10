@@ -595,7 +595,7 @@ describe('SessionsPanel - Delete Button States', () => {
     render(<SessionsPanel sessions={mockSessions} />)
 
     const deleteAllButton = screen.getByRole('button', {
-      name: /delete all sessions \(disabled\)/i,
+      name: /delete all sessions in this project \(disabled\)/i,
     })
     expect(deleteAllButton).toBeDisabled()
   })
@@ -610,7 +610,9 @@ describe('SessionsPanel - Delete Button States', () => {
 
     render(<SessionsPanel sessions={mockSessions} />)
 
-    const deleteAllButton = screen.getByRole('button', { name: /^delete all sessions$/i })
+    const deleteAllButton = screen.getByRole('button', {
+      name: /^delete all sessions in this project$/i,
+    })
     expect(deleteAllButton).not.toBeDisabled()
   })
 

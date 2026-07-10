@@ -1103,6 +1103,53 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
   },
 
   setProjectId: (projectId: string | null) => {
+    const { currentConversation } = get()
+
+    // Cross-project bleed guard (UX-8): entering a project must never keep
+    // another project's conversation active — a persisted currentConversation
+    // or stale URL would otherwise continue that chat under this project's
+    // WebSocket projectId and retrieve against the wrong corpus. Sessions
+    // without a projectId are unscoped legacy sessions and stay selectable
+    // everywhere (fail-open, see ../lib/project-scope).
+    if (
+      projectId &&
+      currentConversation?.projectId &&
+      currentConversation.projectId !== projectId
+    ) {
+      set(
+        {
+          projectId,
+          currentConversation: null,
+          isStreaming: false,
+          isLoading: false,
+          currentUserMessageId: null,
+          thinkingSteps: [],
+          activeThinkingStepId: null,
+          reportContent: '',
+          reportContentCategory: null,
+          currentStatus: null,
+          planMessages: [],
+          deepResearchCitations: [],
+          deepResearchTodos: [],
+          deepResearchLLMSteps: [],
+          deepResearchAgents: [],
+          deepResearchToolCalls: [],
+          deepResearchFiles: [],
+          deepResearchStreamLoaded: false,
+          deepResearchJobId: null,
+          deepResearchLastEventId: null,
+          isDeepResearchStreaming: false,
+          deepResearchStatus: null,
+          deepResearchOwnerConversationId: null,
+          activeDeepResearchMessageId: null,
+          pendingInteraction: null,
+        },
+        false,
+        'setProjectId:clearCrossProjectConversation'
+      )
+      return
+    }
+
     set({ projectId }, false, 'setProjectId')
   },
 

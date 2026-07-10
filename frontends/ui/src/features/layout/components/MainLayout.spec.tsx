@@ -82,7 +82,13 @@ vi.mock('./ChatToolbar', () => ({
 }))
 
 vi.mock('./SessionsPanel', () => ({
-  SessionsPanel: () => <div data-testid="sessions-panel">Sessions Panel</div>,
+  SessionsPanel: ({ sessions }: { sessions?: Array<{ id: string }> }) => (
+    <div data-testid="sessions-panel">
+      {(sessions ?? []).map((s) => (
+        <div key={s.id} data-testid={`session-item-${s.id}`} />
+      ))}
+    </div>
+  ),
 }))
 
 vi.mock('./ChatArea', () => ({
@@ -232,6 +238,52 @@ describe('MainLayout', () => {
     // The chat container should share width evenly with the research panel when open
     const chatContainer = container.querySelector('[style*="width"]')
     expect(chatContainer).toHaveStyle({ width: '50%' })
+  })
+
+  test('sessions panel only lists the active project\'s sessions (legacy unscoped fail open)', () => {
+    const makeConv = (id: string, projectId?: string | null) => ({
+      id,
+      userId: 'user-1',
+      projectId,
+      title: id,
+      messages: [],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+
+    vi.mocked(useChatStore).mockImplementation((selector?: (s: any) => any) => {
+      const state = {
+        currentConversation: null,
+        currentUserId: 'user-1',
+        projectId: 'proj-a',
+        conversations: [
+          makeConv('in-project', 'proj-a'),
+          makeConv('other-project', 'proj-b'),
+          makeConv('legacy', null),
+          { ...makeConv('other-user', 'proj-a'), userId: 'user-2' },
+        ],
+        getUserConversations: vi.fn(() => []),
+        selectConversation: vi.fn(),
+        startNewSessionDraft: vi.fn(),
+        deleteConversation: vi.fn(),
+        deleteAllConversations: vi.fn(),
+        updateConversationTitle: vi.fn(),
+        isStreaming: false,
+        pendingInteraction: null,
+        isDeepResearchStreaming: false,
+        deepResearchOwnerConversationId: null,
+      }
+      return selector ? selector(state) : state
+    })
+
+    render(<MainLayout isAuthenticated={true} />)
+
+    // Cross-project bleed guard (UX-8): project B's session must NOT appear
+    // in project A's panel; unscoped legacy sessions stay visible.
+    expect(screen.getByTestId('session-item-in-project')).toBeInTheDocument()
+    expect(screen.getByTestId('session-item-legacy')).toBeInTheDocument()
+    expect(screen.queryByTestId('session-item-other-project')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('session-item-other-user')).not.toBeInTheDocument()
   })
 
   test('shows full width when details panel is closed', () => {

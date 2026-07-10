@@ -29,6 +29,7 @@ import {
   hasCompletedDeepResearchReport,
   hasExpiredDeepResearchReport,
 } from '@/features/chat/lib/session-activity'
+import { conversationMatchesProject } from '@/features/chat/lib/project-scope'
 import { useLayoutStore } from '../store'
 import { useSessionUrl } from '@/hooks/use-session-url'
 
@@ -53,6 +54,7 @@ export const MainLayout: FC<MainLayoutProps> = ({ isAuthenticated = false, onSig
     isDeepResearchStreaming,
     deepResearchOwnerConversationId,
     currentUserId,
+    projectId,
   } = useChatStore(
     useShallow((s) => ({
       currentConversation: s.currentConversation,
@@ -62,6 +64,7 @@ export const MainLayout: FC<MainLayoutProps> = ({ isAuthenticated = false, onSig
       isDeepResearchStreaming: s.isDeepResearchStreaming,
       deepResearchOwnerConversationId: s.deepResearchOwnerConversationId,
       currentUserId: s.currentUserId,
+      projectId: s.projectId,
     }))
   )
 
@@ -113,7 +116,9 @@ export const MainLayout: FC<MainLayoutProps> = ({ isAuthenticated = false, onSig
     [deleteConversation, currentConversation?.id, clearSessionUrl]
   )
 
-  // Delete all sessions for the current user
+  // Delete all sessions for the current user in the active project context
+  // (the store scopes the delete to what the panel shows here — see
+  // deleteAllConversations).
   const handleDeleteAllSessions = useCallback(() => {
     deleteAllConversations()
     clearSessionUrl()
@@ -121,9 +126,17 @@ export const MainLayout: FC<MainLayoutProps> = ({ isAuthenticated = false, onSig
 
   const isNavigationBlocked = isStreaming || pendingInteraction !== null
 
+  // Sessions shown in the panel: the current user's sessions in the active
+  // project context. Legacy sessions without a projectId fail open (always
+  // visible) so users never lose sight of pre-scoping history.
   const userConversations = useMemo(
-    () => (currentUserId ? conversations.filter((c) => c.userId === currentUserId) : []),
-    [conversations, currentUserId]
+    () =>
+      currentUserId
+        ? conversations.filter(
+            (c) => c.userId === currentUserId && conversationMatchesProject(c, projectId)
+          )
+        : [],
+    [conversations, currentUserId, projectId]
   )
 
   const sessions = useMemo(

@@ -13,6 +13,7 @@ interface ProjectChatPageProps {
 const ProjectChatContent = ({ projectId }: { projectId: string }): ReactNode => {
   const { isAuthenticated, signIn } = useAuth()
   const setProjectId = useChatStore((s) => s.setProjectId)
+  const loadServerConversations = useChatStore((s) => s.loadServerConversations)
   const setComposerPrefill = useChatStore((s) => s.setComposerPrefill)
 
   // Deep link from the project Research page: /projects/:id/chat?job=<jobId>
@@ -33,8 +34,12 @@ const ProjectChatContent = ({ projectId }: { projectId: string }): ReactNode => 
 
   useEffect(() => {
     setProjectId(projectId)
+    // Hydrate this project's server-side sessions into the store: the
+    // app-wide initial load is org-wide and capped, so a busy org could
+    // otherwise miss this project's conversations in the sessions panel.
+    void loadServerConversations(projectId)
     return () => setProjectId(null)
-  }, [projectId, setProjectId])
+  }, [projectId, setProjectId, loadServerConversations])
 
   useEffect(() => {
     if (!askPrefill || consumedAskRef.current === askPrefill) return

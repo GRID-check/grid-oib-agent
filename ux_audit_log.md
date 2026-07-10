@@ -150,3 +150,41 @@ Residual for later rounds: ERROR_REGISTRY is still EN-only (UX-22); true
 mid-turn cancel still blocked upstream (FLAG-3).
 
 ---
+
+## Round 2 — project scoping + role-aware honesty (UX-8, UX-14..17)
+
+Three parallel agents (session scoping on the highest-capability model; the
+rest per the user's model policy). Committed in three slices.
+
+- **UX-14/16/17** (`9365f08`): danger zone only renders for project-admins
+  (matching the DELETE gate); Members nav shown to all project members (the
+  read-only roster page existed but was hidden from its audience);
+  Organization menu entry visible to every org member via a new
+  `canViewOrganization` nav flag; onboarding/no-org page shows the signed-in
+  email and offers Sign out in both self-serve and invite-only modes, and the
+  invite-only alert now says what to do (EN+DE). Verified: tsc 0,
+  project-overview spec 9/9.
+- **UX-15** (`cc9d6af`): members get a "Your usage" section on the org page
+  (the member self-view API path was dead code); new read-only
+  `GET /api/auth/connection-diagnostics` (deliberately not the gateway-only
+  websocket-scope route, which exposes the access token) lets chat
+  distinguish budget exhaustion from a network outage — distinct localized
+  banner with member vs admin guidance (EN+DE); ErrorBanner gains optional
+  titleKey localization. Verified: touched suites green.
+- **UX-8** (this commit): conversations API takes `?projectId` (service
+  enforces `project:view` on the filter; SQL scopes `org AND (projectId = X
+  OR projectId IS NULL)`); new sessions are stamped with their project;
+  sessions panel lists only the active project's sessions; delete-all is
+  project-scoped with copy that says so (EN+DE + confirmation scopeNote).
+  Null-projectId legacy rows fail OPEN (visible everywhere) so pre-scoping
+  history is never hidden — rule centralized in
+  `features/chat/lib/project-scope.ts` and applied consistently to display,
+  selection/URL-restore guards (stale `?session=` from another project
+  auto-clears), `setProjectId` rehydration guard, and delete-all ("delete
+  exactly what the panel shows"). Tests: +4 route spec, +12 store spec,
+  MainLayout scoping test. Also threads `canViewOrganization` into the org
+  page's own topbar (cross-slice follow-up from UX-16).
+- Full-suite gate: tsc 0; vitest 1568 passed / 3 skipped (was 1531 at
+  baseline; +37 from new round-1/2 tests); backend unchanged this round.
+
+---

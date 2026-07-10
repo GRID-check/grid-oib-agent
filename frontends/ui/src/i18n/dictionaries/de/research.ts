@@ -102,10 +102,12 @@ export const research: typeof en.research = {
     lossSuffix:
       ' zu löschen. Dabei gehen sämtliche Fortschritte verloren und alle von Ihnen angehängten Dateien werden entfernt.',
     all: {
-      title: 'Alle Sitzungen löschen',
-      countSessions: 'alle {count} Sitzungen',
-      allSessions: 'ALLE Sitzungen',
-      confirm: 'ALLE Sitzungen löschen',
+      title: 'Alle Sitzungen dieses Projekts löschen',
+      countSessions: 'alle {count} Sitzungen dieses Projekts',
+      allSessions: 'ALLE Sitzungen dieses Projekts',
+      scopeNote:
+        'Es werden nur Sitzungen dieses Projekts gelöscht. Ihre Sitzungen in anderen Projekten sind nicht betroffen.',
+      confirm: 'Projektsitzungen löschen',
     },
     file: {
       title: 'Datei löschen',
@@ -263,8 +265,8 @@ export const research: typeof en.research = {
     storageQuota: '{percent}% des Browser-Speicherkontingents belegt',
     storageNote:
       'Hinweis: Chat-Sitzungen werden in diesem Browser gespeichert. Rechercheberichte können auf dem Server ablaufen.',
-    deleteAllDisabled: 'Alle Sitzungen löschen (deaktiviert)',
-    deleteAll: 'Alle Sitzungen löschen',
+    deleteAllDisabled: 'Alle Sitzungen dieses Projekts löschen (deaktiviert)',
+    deleteAll: 'Alle Sitzungen dieses Projekts löschen',
     cannotDeleteBusy: 'Löschen nicht möglich, während Vorgänge laufen',
     deleteAllButton: 'Alle löschen',
     newSessionDisabled: 'Neue Sitzung starten (während aktiver Vorgänge deaktiviert)',
