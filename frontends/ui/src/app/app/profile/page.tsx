@@ -10,6 +10,7 @@
 import Link from 'next/link'
 import { ArrowLeft, Building2, UserRound } from 'lucide-react'
 import { requireAuthorizedPageSession } from '@/lib/auth/require-auth'
+import { FEATURE_FLAGS, isFeatureEnabled } from '@/lib/authz/feature-flags'
 import { getNavFlags } from '@/lib/authz/nav'
 import { OrgTopbar } from '@/components/shell'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -157,7 +158,11 @@ export default async function ProfilePage(): Promise<JSX.Element> {
             </CardContent>
           </Card>
 
-          <ProfileControls authRequired={isAuthRequired()} email={session.email} />
+          <ProfileControls
+            authRequired={isAuthRequired()}
+            email={session.email}
+            shortcutsAvailable={isFeatureEnabled(session, FEATURE_FLAGS.keyboardShortcuts)}
+          />
         </div>
       </main>
     </div>

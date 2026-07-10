@@ -8,6 +8,19 @@ describe('feature flags (WorkOS-native, JWT claim)', () => {
     delete process.env.GRID_ENFORCE_FEATURE_FLAGS
   })
 
+  it('registry contains the known flags with their WorkOS slugs', () => {
+    expect(FEATURE_FLAGS.modelConfiguration).toBe('runtime-model-config')
+    expect(FEATURE_FLAGS.deepResearch).toBe('deep-research')
+    expect(FEATURE_FLAGS.keyboardShortcuts).toBe('keyboard-shortcuts')
+  })
+
+  it('enforced: keyboard shortcuts follow the org claim like any other flag', () => {
+    process.env.GRID_ENFORCE_FEATURE_FLAGS = 'true'
+    const flag = FEATURE_FLAGS.keyboardShortcuts
+    expect(isFeatureEnabled({ featureFlags: [flag] }, flag)).toBe(true)
+    expect(isFeatureEnabled({ featureFlags: [] }, flag)).toBe(false)
+  })
+
   it('everything stays enabled while enforcement is off (default)', () => {
     expect(isFeatureEnabled({ featureFlags: null }, FLAG)).toBe(true)
     expect(isFeatureEnabled({ featureFlags: [] }, FLAG)).toBe(true)

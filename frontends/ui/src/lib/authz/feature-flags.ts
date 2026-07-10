@@ -24,6 +24,8 @@ export const FEATURE_FLAGS = {
   modelConfiguration: 'runtime-model-config',
   /** Deep research agent mode — the expensive long-running workflow. */
   deepResearch: 'deep-research',
+  /** Command palette + global keyboard shortcuts (workspace polish). */
+  keyboardShortcuts: 'keyboard-shortcuts',
 } as const
 
 export type KnownFeatureFlag = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
