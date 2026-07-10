@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { motion, springSnappy } from '@/components/motion'
 import { useTranslations } from '@/i18n'
+import { buildProjectHref, readLastProjectSection } from '@/hooks/use-last-project-section'
 import { cn } from '@/lib/utils'
 
 export interface ProjectSwitcherProject {
@@ -73,7 +74,11 @@ export function ProjectSwitcher({ projects, activeProjectId, collapsed }: Projec
         {projects.map((project) => (
           <DropdownMenuItem
             key={project.id}
-            onSelect={() => router.push(`/app/projects/${project.id}`)}
+            // Resume into the section last used for this project (read from
+            // localStorage at click time), else the project root.
+            onSelect={() =>
+              router.push(buildProjectHref(project.id, readLastProjectSection(project.id)))
+            }
             className="gap-2"
           >
             <span className="min-w-0 flex-1 truncate">{project.name}</span>

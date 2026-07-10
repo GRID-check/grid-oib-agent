@@ -7,6 +7,7 @@ import { Card } from '@/components/ui/card'
 import { motion, springSnappy } from '@/components/motion'
 import type { Project } from '@/lib/db/schema'
 import { useLocale, useTranslations } from '@/i18n'
+import { useResumeProjectHref } from '@/hooks/use-last-project-section'
 import { useMemo } from 'react'
 
 interface ProjectCardProps {
@@ -35,9 +36,15 @@ export function ProjectCard({ project, docCount = 0 }: ProjectCardProps): JSX.El
     unit: docCount === 1 ? t('card.document') : t('card.documents'),
   })
 
+  // Resume into the section last used for this project. SSR-safe: renders the
+  // project root on the server and upgrades to the remembered section after
+  // mount, so there's no hydration mismatch and the anchor still supports
+  // open-in-new-tab. Direct deep links never pass through here.
+  const href = useResumeProjectHref(project.id)
+
   return (
     <Link
-      href={`/app/projects/${project.id}`}
+      href={href}
       className="group block h-full rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
       aria-label={t('card.open', { name: project.name })}
     >

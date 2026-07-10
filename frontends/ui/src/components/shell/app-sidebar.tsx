@@ -32,6 +32,7 @@ import {
 import { Logo } from '@/components/brand/logo'
 import { AnimatePresence, easeQuiet, motion, springSnappy } from '@/components/motion'
 import { useTranslations } from '@/i18n'
+import { pruneProjectSections, useRecordProjectSection } from '@/hooks/use-last-project-section'
 import { cn } from '@/lib/utils'
 import { ConnectionPresenceIndicator } from './connection-presence-indicator'
 import { ProjectSwitcher, type ProjectSwitcherProject } from './project-switcher'
@@ -86,6 +87,18 @@ export function AppSidebar({
   const t = useTranslations('nav')
   const [collapsed, setCollapsed] = React.useState(false)
   const [mobileOpen, setMobileOpen] = React.useState(false)
+
+  // "Resume where you left off": remember the section the user is currently on
+  // for this project so entry points (project card / switcher) can land them
+  // back here next time. Records Overview too — an explicit Overview visit is a
+  // real visit and becomes the new memory, so resume never traps the user.
+  useRecordProjectSection(projectId)
+
+  // Keep the memory tidy: drop entries for projects that no longer exist
+  // (deleted, or no longer accessible) whenever the known project set changes.
+  React.useEffect(() => {
+    pruneProjectSections(projects.map((p) => p.id))
+  }, [projects])
 
   // Restore the persisted rail state after mount (avoids SSR hydration mismatch).
   React.useEffect(() => {
