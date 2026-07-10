@@ -192,6 +192,8 @@ export const research: typeof en.research = {
   },
 
   inputArea: {
+    aiDisclosure:
+      'Grid ist ein KI-System. Antworten werden von KI erzeugt und können falsch sein — prüfen Sie sie anhand der zitierten Richtlinie, bevor Sie sich darauf stützen.',
     placeholderDefault: 'Datenquellen prüfen und eine Recherchefrage stellen...',
     signInToStart: 'Melden Sie sich an, um mit der Recherche zu beginnen',
     researchCompletedNewSession:

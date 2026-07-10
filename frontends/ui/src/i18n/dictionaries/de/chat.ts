@@ -5,6 +5,10 @@ export const chat: typeof en.chat = {
   actions: {
     dismiss: 'Schließen',
   },
+  cards: {
+    aiGenerated:
+      'KI-generierte Zitierung — prüfen Sie den Auszug anhand der Primärquelle (OIB / RIS).',
+  },
   agentPrompt: {
     needsInput: 'Der Agent benötigt Ihre Eingabe',
     receivedInput: 'Der Agent hat Ihre Eingabe erhalten',

@@ -20,6 +20,7 @@ import { members } from './members'
 import { onboarding } from './onboarding'
 import { organization } from './organization'
 import { platform } from './platform'
+import { legal } from './legal'
 
 export const en = {
   common,
@@ -36,4 +37,5 @@ export const en = {
   onboarding,
   organization,
   platform,
+  legal,
 } as const

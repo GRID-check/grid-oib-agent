@@ -3,6 +3,10 @@ export const chat = {
   actions: {
     dismiss: 'Dismiss',
   },
+  cards: {
+    aiGenerated:
+      'AI-generated citation — check the excerpt against the primary source (OIB / RIS).',
+  },
   agentPrompt: {
     needsInput: 'Agent needs your input',
     receivedInput: 'Agent received your input',

@@ -8,10 +8,13 @@
  * source can be resolved — a link out to the primary source (OIB / RIS).
  */
 
+'use client'
+
 import { type FC } from 'react'
 import { Scale, ExternalLink } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { useTranslations } from '@/i18n'
 import type { LegalBasisCardData } from '../types'
 
 /**
@@ -42,6 +45,7 @@ export const LegalBasisCard: FC<LegalBasisCardData> = ({
   summary,
   original_text,
 }) => {
+  const t = useTranslations('chat')
   const sourceUrl = resolveSourceUrl(law, section)
 
   return (
@@ -89,6 +93,12 @@ export const LegalBasisCard: FC<LegalBasisCardData> = ({
           {/oib|richtlinie/i.test(law) ? 'View OIB Richtlinie' : 'Verify in RIS'}
         </a>
       )}
+
+      {/* AI-transparency label (EU AI Act Art. 50): the excerpt above is
+          model-generated, not a verbatim copy of the regulation. */}
+      <p className="text-xs leading-relaxed text-muted-foreground">
+        {t('cards.aiGenerated')}
+      </p>
     </Card>
   )
 }

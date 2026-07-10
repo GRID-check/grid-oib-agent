@@ -20,6 +20,7 @@ import { members } from './members'
 import { onboarding } from './onboarding'
 import { organization } from './organization'
 import { platform } from './platform'
+import { legal } from './legal'
 import type { Dictionary } from '../index'
 
 export const de: Dictionary = {
@@ -37,4 +38,5 @@ export const de: Dictionary = {
   onboarding,
   organization,
   platform,
+  legal,
 }
