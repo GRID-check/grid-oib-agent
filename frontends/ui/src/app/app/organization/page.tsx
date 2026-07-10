@@ -61,18 +61,47 @@ export default async function OrganizationPage(): Promise<JSX.Element> {
   const budgets = canManageBudgets(session)
   const audit = canViewAuditLogs(session)
 
-  // Users with no org capability at all never see org management.
+  // Users with no org capability at all can't manage the organization, but the
+  // page must still be worth landing on (the Organization nav entry is now
+  // visible to plain members). The usage API returns a member's own spend for
+  // non-admins, so give them a "Your usage" self-view — the primary way a
+  // budget-capped member can see why chat stopped — alongside a small note that
+  // full org management needs admin access.
   if (!admin && !models && !budgets && !audit) {
     return shell(
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <ShieldAlert className="size-4 text-muted-foreground" aria-hidden />
-            {t('notAdmin.title')}
-          </CardTitle>
-          <CardDescription>{t('notAdmin.description')}</CardDescription>
-        </CardHeader>
-      </Card>,
+      <div className="flex flex-col gap-6">
+        <header>
+          <h1 className="text-2xl font-semibold tracking-tight">{t('title')}</h1>
+          <p className="mt-1 text-sm text-muted-foreground">{t('memberSubtitle')}</p>
+        </header>
+
+        {/* Member self-view of usage (ADR-0015). isAdmin=false hides the
+            admin-only limit editors and member/project tables; the card shows
+            the member's own spend meters and legend. */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Gauge className="size-4 text-muted-foreground" aria-hidden />
+              {t('budgets.memberTitle')}
+            </CardTitle>
+            <CardDescription>{t('budgets.memberDescription')}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <BudgetUsageCard isAdmin={false} />
+          </CardContent>
+        </Card>
+
+        {/* Polite admin-access note — org management lives behind admin caps. */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <ShieldAlert className="size-4 text-muted-foreground" aria-hidden />
+              {t('notAdmin.title')}
+            </CardTitle>
+            <CardDescription>{t('notAdmin.description')}</CardDescription>
+          </CardHeader>
+        </Card>
+      </div>,
     )
   }
 

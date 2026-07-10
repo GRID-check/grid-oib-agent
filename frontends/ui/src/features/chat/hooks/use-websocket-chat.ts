@@ -18,6 +18,7 @@
 
 import { useCallback, useRef, useEffect, useState, useMemo } from 'react'
 import { useShallow } from 'zustand/react/shallow'
+import { useTranslations } from '@/i18n'
 import { useAuth } from '@/adapters/auth'
 import { getTokenExpiration } from '@/adapters/auth/token'
 import {
@@ -309,6 +310,17 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
   const consecutiveAuthExpiredRef = useRef(0)
 
   /**
+   * Guards budget-reason discovery to a single query per failure episode. The
+   * browser cannot read the 403 body the gateway collapses into a bare failed
+   * WS upgrade, so on CONNECTION_FAILED we ask a same-origin BFF endpoint
+   * whether the real cause was budget exhaustion. Set once when we run that
+   * check; reset on a successful `connected` (a new episode) and on unmount so
+   * the diagnostics call can never loop or spam while connection-recovery keeps
+   * re-firing CONNECTION_FAILED.
+   */
+  const budgetDiagnosticsCheckedRef = useRef(false)
+
+  /**
    * Single rotation primitive. Delegates to `client.rotate()` -- an atomic
    * client-side swap that detaches handlers from the old socket before
    * closing it, eliminating the `onclose` race where a late close from
@@ -327,6 +339,33 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
   }, [])
 
   const { user, authRequired, isLoading: authLoading, getAccessToken } = useAuth()
+  const tChat = useTranslations('chat')
+
+  /**
+   * Ask the same-origin diagnostics endpoint whether the WS failure was
+   * actually a budget block the browser couldn't read from the collapsed
+   * upgrade. Returns the localized banner message (admin vs member copy) when
+   * budget-exhausted, or null for any other cause / on error (so the caller
+   * falls back to the generic connection-failed banner). Never throws.
+   */
+  const discoverBudgetFailureMessage = useCallback(async (): Promise<string | null> => {
+    try {
+      const activeProjectId = useChatStore.getState().projectId
+      const query = activeProjectId ? `?projectId=${encodeURIComponent(activeProjectId)}` : ''
+      const res = await fetch(`/api/auth/connection-diagnostics${query}`, {
+        credentials: 'same-origin',
+        headers: { accept: 'application/json' },
+      })
+      if (!res.ok) return null
+      const body = (await res.json()) as { budgetExhausted?: boolean; canManageBudgets?: boolean }
+      if (!body.budgetExhausted) return null
+      return body.canManageBudgets
+        ? tChat('budgetExhausted.adminMessage')
+        : tChat('budgetExhausted.memberMessage')
+    } catch {
+      return null
+    }
+  }, [tChat])
 
   /**
    * Token expiry (seconds since epoch) that authenticates the *current*
@@ -1012,6 +1051,27 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         // on a health check so we can distinguish "backend down" from a
         // likely auth/cookie drift.
         if (errorContent.code === 'CONNECTION_FAILED') {
+          // Reason discovery: the gateway refuses a budget-exhausted upgrade
+          // with a bare failed handshake the browser can't read, so it looks
+          // identical to a network outage here. Ask the diagnostics endpoint
+          // once per failure episode; if it's a budget block, surface the
+          // distinct non-retryable banner instead of "check your network".
+          if (!budgetDiagnosticsCheckedRef.current) {
+            budgetDiagnosticsCheckedRef.current = true
+            const budgetMessage = await discoverBudgetFailureMessage()
+            if (budgetMessage) {
+              addErrorCard('budget.exhausted', budgetMessage)
+              setCurrentStatus(null)
+              setStreaming(false)
+              setLoading(false)
+              clearPendingInteraction()
+              lastSentOutgoingRef.current = null
+              pendingOutgoingRef.current = null
+              clearUnacknowledgedOutgoing()
+              return
+            }
+          }
+
           const backendUp = await checkBackendHealthCached()
 
           const errorInfo = backendUp
@@ -1067,6 +1127,9 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         if (status === 'connected') {
           invalidateHealthCache()
           dismissConnectionErrors()
+          // Fresh, healthy socket -- a later failure is a new episode, so let
+          // budget-reason discovery run again.
+          budgetDiagnosticsCheckedRef.current = false
 
           // Drain any payload buffered by a pre-flight rotation or
           // `auth_expired`. Keeps the UX silent: the user acted once and
@@ -1166,6 +1229,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
     sendOutgoingPayload,
     armStreamingWatchdog,
     clearStreamingWatchdog,
+    discoverBudgetFailureMessage,
   ])
 
   /**
@@ -1222,6 +1286,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
       clearUnacknowledgedOutgoing()
       clearStreamingWatchdog()
       consecutiveAuthExpiredRef.current = 0
+      budgetDiagnosticsCheckedRef.current = false
       pendingRotationRef.current = false
       currentThinkingStepIdRef.current = null
       currentStatusRef.current = null

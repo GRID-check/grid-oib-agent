@@ -12,10 +12,16 @@ import type { ErrorCode } from '../types'
 export interface ErrorMeta {
   /** Alert status */
   status: 'error' | 'warning' | 'info'
-  /** Human-readable title */
+  /** Human-readable title (English fallback when no `titleKey`). */
   title: string
   /** Default message if none provided */
   defaultMessage: string
+  /**
+   * Optional `chat`-namespace i18n key for a localized title. When present the
+   * banner renders `t(titleKey)` instead of the static English `title`. Kept
+   * optional so existing codes keep their current (English) titles unchanged.
+   */
+  titleKey?: string
 }
 
 /**
@@ -83,6 +89,22 @@ export const ERROR_REGISTRY: Record<ErrorCode, ErrorMeta> = {
     status: 'error',
     title: 'Research Data Unavailable',
     defaultMessage: 'Unable to load research data. The job may have expired or been deleted.',
+  },
+
+  // ============================================================
+  // Budget Errors
+  // ============================================================
+  // Distinct from a network outage: the chat WS upgrade was refused because an
+  // applicable LLM budget scope is exhausted. Non-retryable until an admin
+  // raises the limit, so it must not read like a transient connection failure.
+  // Title is localized via `titleKey`; the actionable message (member vs admin)
+  // is supplied by the caller, already localized.
+  'budget.exhausted': {
+    status: 'error',
+    title: 'Budget exhausted',
+    titleKey: 'budgetExhausted.title',
+    defaultMessage:
+      'Your LLM budget is exhausted. You can review your usage under Organization → Usage & budgets.',
   },
 
   // ============================================================

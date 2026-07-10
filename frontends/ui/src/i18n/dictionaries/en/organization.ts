@@ -2,6 +2,7 @@
 export const organization = {
   title: 'Organization',
   subtitle: 'Manage your organization, its members, and access.',
+  memberSubtitle: 'Your LLM usage and your organization at a glance.',
   backToApp: 'Back to projects',
   overview: {
     title: 'Overview',
@@ -83,6 +84,9 @@ export const organization = {
     title: 'Usage & budgets',
     description:
       'LLM spend per model against your organization limits. Costs come from OpenRouter usage accounting; limits are enforced before every request.',
+    memberTitle: 'Your usage',
+    memberDescription:
+      'Your own LLM spend against your organization limits. If a budget is exhausted, chat is paused until an admin raises the limit.',
     today: 'Today',
     thisMonth: 'This month',
     ofLimit: '{spent} of {limit}',

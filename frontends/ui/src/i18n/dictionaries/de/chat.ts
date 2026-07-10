@@ -85,6 +85,13 @@ export const chat: typeof en.chat = {
     showDetails: 'Details anzeigen',
     hideDetails: 'Details ausblenden',
   },
+  budgetExhausted: {
+    title: 'Budget aufgebraucht',
+    memberMessage:
+      'Ihr LLM-Budget ist aufgebraucht, daher können derzeit keine neuen Nachrichten gesendet werden. Ihren eigenen Verbrauch finden Sie unter Organisation → Verbrauch & Budgets. Bitten Sie eine Organisations-Administratorin oder einen -Administrator, Ihr Limit zu erhöhen.',
+    adminMessage:
+      'Das LLM-Budget ist aufgebraucht, daher können derzeit keine neuen Nachrichten gesendet werden. Erhöhen Sie die Limits unter Organisation → Verbrauch & Budgets.',
+  },
   fileUpload: {
     uploading:
       'Die Datei wird hochgeladen und verarbeitet. Bis zum Abschluss kann eine Datei nicht in Abfragen einbezogen werden.',

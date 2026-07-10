@@ -57,6 +57,8 @@ export type ErrorCode =
   | 'agent.workflow_error'
   | 'agent.deep_research_failed'
   | 'agent.deep_research_load_failed'
+  // Budget errors
+  | 'budget.exhausted'
   // System errors
   | 'system.unknown'
 
@@ -229,6 +231,12 @@ export interface Conversation {
   id: string
   /** Owner of this session - used to filter sessions by user */
   userId: string
+  /**
+   * Project this session belongs to. null/undefined marks a legacy unscoped
+   * session which fails OPEN (visible in every project context) — see
+   * `lib/project-scope.ts` for the rule.
+   */
+  projectId?: string | null
   title: string
   messages: ChatMessage[]
   createdAt: Date
@@ -440,19 +448,27 @@ export interface ChatState {
 
 /** Chat actions for Zustand store */
 export interface ChatActions {
-  /** Load conversations from the server and merge with local state */
-  loadServerConversations: () => Promise<void>
+  /**
+   * Load conversations from the server and merge with local state.
+   * Pass a projectId to fetch that project's conversations (plus legacy
+   * unscoped rows) — used when entering a project chat.
+   */
+  loadServerConversations: (projectId?: string) => Promise<void>
   /** Set the current authenticated user ID */
   setCurrentUser: (userId: string | null) => void
-  /** Get conversations filtered by current user */
+  /**
+   * Get conversations filtered by current user AND the active project
+   * context (legacy sessions without a projectId fail open — see
+   * `lib/project-scope.ts`).
+   */
   getUserConversations: () => Conversation[]
-  /** Create a new conversation for the current user */
+  /** Create a new conversation for the current user (stamped with the active projectId) */
   createConversation: () => Conversation
   /** Start a new unsaved session draft; persisted only after first interaction. */
   startNewSessionDraft: () => void
   /** Ensure a session exists, creating one if needed. Returns session ID or undefined if no user. */
   ensureSession: () => string | undefined
-  /** Select a conversation (only if owned by current user) */
+  /** Select a conversation (only if owned by current user and visible in the active project context) */
   selectConversation: (conversationId: string) => void
   /** Add a user message to the current conversation */
   addUserMessage: (
@@ -474,7 +490,11 @@ export interface ChatActions {
   setStreaming: (streaming: boolean) => void
   /** Delete a conversation */
   deleteConversation: (conversationId: string) => void
-  /** Delete all conversations for the current user */
+  /**
+   * Delete all of the current user's conversations in the active project
+   * context — exactly what the sessions panel shows there. Sessions stamped
+   * with a different project are never touched.
+   */
   deleteAllConversations: () => void
   /** Update conversation title */
   updateConversationTitle: (conversationId: string, title: string) => void

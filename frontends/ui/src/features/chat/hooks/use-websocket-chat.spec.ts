@@ -1110,6 +1110,144 @@ describe('useWebSocketChat', () => {
     })
   })
 
+  // --- Budget-exhaustion reason discovery on CONNECTION_FAILED ---
+  // The gateway collapses a budget-exhausted WS upgrade into a bare failed
+  // handshake the browser can't read, so it reaches the hook as a generic
+  // CONNECTION_FAILED. The hook asks /api/auth/connection-diagnostics whether
+  // the real cause was budget exhaustion and swaps in a distinct banner.
+
+  test('surfaces a budget-exhausted banner (member copy) when CONNECTION_FAILED is a budget block', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ budgetExhausted: true, canManageBudgets: false }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    mockCheckBackendHealthCached.mockClear()
+
+    try {
+      renderWebSocketHook()
+
+      await act(async () => {
+        await capturedCallbacks.onError?.({
+          code: 'CONNECTION_FAILED',
+          message: 'Unable to connect to the server. Please check your network connection.',
+        })
+      })
+
+      await waitFor(() => {
+        expect(mockAddErrorCard).toHaveBeenCalledWith(
+          'budget.exhausted',
+          expect.stringContaining('Ask an organization admin'),
+        )
+      })
+      // The budget path short-circuits before the health check and the generic
+      // connection banner.
+      expect(mockCheckBackendHealthCached).not.toHaveBeenCalled()
+      expect(mockAddErrorCard).not.toHaveBeenCalledWith(
+        'connection.failed',
+        expect.anything(),
+        expect.anything(),
+      )
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/auth/connection-diagnostics',
+        expect.objectContaining({ credentials: 'same-origin' }),
+      )
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  test('surfaces admin copy when the budget-exhausted caller can manage budgets', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ budgetExhausted: true, canManageBudgets: true }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    try {
+      renderWebSocketHook()
+
+      await act(async () => {
+        await capturedCallbacks.onError?.({ code: 'CONNECTION_FAILED', message: 'x' })
+      })
+
+      await waitFor(() => {
+        expect(mockAddErrorCard).toHaveBeenCalledWith(
+          'budget.exhausted',
+          expect.stringContaining('Raise the limits'),
+        )
+      })
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  test('falls back to the generic connection banner when diagnostics reports no budget block', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ budgetExhausted: false }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    mockCheckBackendHealthCached.mockResolvedValue(false)
+
+    try {
+      renderWebSocketHook()
+
+      await act(async () => {
+        await capturedCallbacks.onError?.({
+          code: 'CONNECTION_FAILED',
+          message: 'Unable to connect to the server. Please check your network connection.',
+        })
+      })
+
+      await waitFor(() => {
+        expect(mockAddErrorCard).toHaveBeenCalledWith(
+          'connection.failed',
+          'Unable to connect to the server. Please check your network connection.',
+          undefined,
+        )
+      })
+      expect(mockAddErrorCard).not.toHaveBeenCalledWith('budget.exhausted', expect.anything())
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  test('queries budget diagnostics at most once per failure episode', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ budgetExhausted: false }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    try {
+      renderWebSocketHook()
+
+      await act(async () => {
+        await capturedCallbacks.onError?.({ code: 'CONNECTION_FAILED', message: 'x' })
+      })
+      await act(async () => {
+        await capturedCallbacks.onError?.({ code: 'CONNECTION_FAILED', message: 'x' })
+      })
+
+      // Second CONNECTION_FAILED in the same episode must not re-query.
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+
+      // A successful reconnect ends the episode; the next failure re-checks.
+      act(() => {
+        capturedCallbacks.onConnectionChange?.('connected')
+      })
+      await act(async () => {
+        await capturedCallbacks.onError?.({ code: 'CONNECTION_FAILED', message: 'x' })
+      })
+
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   test('respondToInteraction sends response via WebSocket', () => {
     mockWsClient.isConnected.mockReturnValue(true)
     mockStoreState.pendingInteraction = {

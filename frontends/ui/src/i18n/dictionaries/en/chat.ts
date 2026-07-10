@@ -82,6 +82,13 @@ export const chat = {
     showDetails: 'Show details',
     hideDetails: 'Hide details',
   },
+  budgetExhausted: {
+    title: 'Budget exhausted',
+    memberMessage:
+      'Your LLM budget is used up, so new messages can’t be sent right now. You can review your own usage under Organization → Usage & budgets. Ask an organization admin to raise your limit.',
+    adminMessage:
+      'The LLM budget is used up, so new messages can’t be sent right now. Raise the limits under Organization → Usage & budgets.',
+  },
   fileUpload: {
     uploading:
       'File is uploading and ingesting. Until completion, a file cannot be included in queries.',
