@@ -59,6 +59,7 @@ describe('useChatStore', () => {
       reportContent: '',
       currentStatus: null,
       pendingInteraction: null,
+      composerPrefill: null,
     })
   })
 
@@ -2168,6 +2169,42 @@ describe('useChatStore', () => {
       expect(trackingMessage?.isDeepResearchActive).toBe(false)
       expect(updatedMessages.some((m) => m.id === 'starting-banner')).toBe(false)
       expect(failureBanner).toBeTruthy()
+    })
+  })
+
+  describe('composer prefill', () => {
+    test('starts empty', () => {
+      expect(useChatStore.getState().composerPrefill).toBeNull()
+    })
+
+    test('setComposerPrefill queues text for the composer', () => {
+      useChatStore.getState().setComposerPrefill('Ask about OIB 2 fire resistance')
+
+      expect(useChatStore.getState().composerPrefill).toBe('Ask about OIB 2 fire resistance')
+    })
+
+    test('consumeComposerPrefill returns the queued text and clears it (one-shot)', () => {
+      useChatStore.getState().setComposerPrefill('Draft question')
+
+      const first = useChatStore.getState().consumeComposerPrefill()
+      const second = useChatStore.getState().consumeComposerPrefill()
+
+      expect(first).toBe('Draft question')
+      expect(second).toBeNull()
+      expect(useChatStore.getState().composerPrefill).toBeNull()
+    })
+
+    test('consumeComposerPrefill returns null when nothing is queued', () => {
+      expect(useChatStore.getState().consumeComposerPrefill()).toBeNull()
+    })
+
+    test('consumeComposerPrefill preserves an empty-string prefill as a distinct value', () => {
+      // Empty string is a valid (if unusual) prefill and must not be conflated
+      // with "nothing queued" -- consume returns it once, then null.
+      useChatStore.getState().setComposerPrefill('')
+
+      expect(useChatStore.getState().consumeComposerPrefill()).toBe('')
+      expect(useChatStore.getState().consumeComposerPrefill()).toBeNull()
     })
   })
 })

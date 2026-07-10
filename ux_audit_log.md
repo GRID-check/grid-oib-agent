@@ -112,3 +112,41 @@ the maintained path.
 - **Round 8+:** re-audit; continue until below the value bar.
 
 ---
+
+## Round 1 — Tier A: broken core affordances (UX-1..7)
+
+Three parallel implementation agents (disjoint file sets). First wave died on a
+session limit mid-work; relaunched (per user directive: Opus for implementation,
+Sonnet for exploration, Fable only for hardest) and completed from the partial
+trees. Committed in three slices as each verified.
+
+- **UX-6/7** (`1e11e7d`): `deploy/Dockerfile` now copies `scripts/` (documented
+  ingest exec works); README/AGENTS step 3 tells the truth (auto-sync on boot,
+  manual exec + `/v1/admin/oib/sync` as re-runs); `ingest_oib.py` logs progress;
+  CLI defaults to the config that exists, `prog=aiq-research`, and failures exit
+  non-zero with stderr output instead of `os._exit(0)`. Verified: ruff/format
+  clean, py_compile ok, live failure path exit 1, pytest -k 'cli or ingest or
+  oib' 6/6.
+- **UX-1/3/5** (`2055a6f`): Download button fetches `{downloadUrl}` and
+  navigates to the presigned URL (was: browser showed raw JSON); ingest-dispatch
+  failure persists `failed`+errorMessage instead of green "Ready" (new
+  `service.spec.ts`, 3 paths); delete toast shows the real purge date in the
+  active locale and no longer promises the compliance-gated "Recently deleted"
+  panel (EN+DE, `deleteSuccessNoDate` fallback). Verified: tsc 0, vitest
+  documents+projects 241/241.
+- **UX-2/4** (this commit): store-backed composer prefill (`?ask=` now lands in
+  the composer, param cleaned from URL; welcome "chips" are real buttons that
+  prefill; legacy welcome copy replaced with project-aware "Review the brief" /
+  "Upload files", EN+DE). Backend `_run_workflow` catch-all now emits a terminal
+  `workflow_error` ERROR frame (same builder as the auth path, send guarded);
+  frontend maps it to a new `agent.workflow_error` registry entry; plus a 180s
+  streaming-inactivity watchdog (armed on send, reset on every frame, cleared on
+  terminal states) that unlocks the composer/session list and surfaces the
+  existing interrupted banner instead of an eternal spinner. Tests: backend
+  error-frame cases, 3 watchdog + 4 prefill frontend tests.
+- Full-suite gates for this round recorded below the commit.
+
+Residual for later rounds: ERROR_REGISTRY is still EN-only (UX-22); true
+mid-turn cancel still blocked upstream (FLAG-3).
+
+---

@@ -27,6 +27,14 @@ export type MessagesSlice = {
   reportContentCategory: 'research_notes' | 'final_report' | null
   currentStatus: StatusType | null
   projectId: string | null
+  /**
+   * One-shot draft text destined for the chat composer (InputArea). Set by
+   * deep links (`?ask=`) and welcome-screen suggestion chips; consumed exactly
+   * once by the composer, which populates + focuses the textarea and clears
+   * this flag. Store-backed because the composer draft itself lives in
+   * component-local state with no cross-component setter.
+   */
+  composerPrefill: string | null
 
   startAssistantMessage: () => ChatMessage
   appendToAssistantMessage: (content: string) => void
@@ -91,6 +99,10 @@ export type MessagesSlice = {
     stats?: { totalTokens?: number; toolCallCount?: number }
   ) => void
   setProjectId: (projectId: string | null) => void
+  /** Queue text for the composer to pick up (does NOT auto-send). */
+  setComposerPrefill: (text: string) => void
+  /** Read and clear the queued composer prefill; returns null when empty. */
+  consumeComposerPrefill: () => string | null
 }
 
 const generateTitle = (content: string): string => {
@@ -175,6 +187,7 @@ export const initialMessagesState = {
   reportContentCategory: null as 'research_notes' | 'final_report' | null,
   currentStatus: null as StatusType | null,
   projectId: null as string | null,
+  composerPrefill: null as string | null,
 }
 
 export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", never]], [], MessagesSlice> = (set, get) => ({
@@ -1091,5 +1104,16 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
 
   setProjectId: (projectId: string | null) => {
     set({ projectId }, false, 'setProjectId')
+  },
+
+  setComposerPrefill: (text: string) => {
+    set({ composerPrefill: text }, false, 'setComposerPrefill')
+  },
+
+  consumeComposerPrefill: () => {
+    const { composerPrefill } = get()
+    if (composerPrefill === null) return null
+    set({ composerPrefill: null }, false, 'consumeComposerPrefill')
+    return composerPrefill
   },
 })

@@ -28,6 +28,8 @@ vi.mock('@/features/chat', () => ({
       deepResearchStatus: mockDeepResearchStatus,
       isDeepResearchStreaming: mockIsDeepResearchStreaming,
       deepResearchOwnerConversationId: mockDeepResearchOwnerConversationId,
+      composerPrefill: null,
+      consumeComposerPrefill: vi.fn(() => null),
     }
     return selector(state)
   }),

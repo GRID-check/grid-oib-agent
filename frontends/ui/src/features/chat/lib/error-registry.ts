@@ -69,6 +69,11 @@ export const ERROR_REGISTRY: Record<ErrorCode, ErrorMeta> = {
     title: 'Response Interrupted',
     defaultMessage: 'Your previous request was not completed. Please resend your message.',
   },
+  'agent.workflow_error': {
+    status: 'error',
+    title: 'Request Failed',
+    defaultMessage: 'The assistant hit an unexpected error while handling your request. Please try again.',
+  },
   'agent.deep_research_failed': {
     status: 'error',
     title: 'Deep Research Failed',

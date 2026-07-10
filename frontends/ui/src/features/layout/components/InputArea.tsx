@@ -82,6 +82,10 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   const currentConversation = useChatStore((state) => state.currentConversation)
   const ensureSession = useChatStore((state) => state.ensureSession)
 
+  // One-shot composer prefill from deep links (?ask=) and welcome-screen chips.
+  const composerPrefill = useChatStore((state) => state.composerPrefill)
+  const consumeComposerPrefill = useChatStore((state) => state.consumeComposerPrefill)
+
   // Deep research completion state - disables new submissions after research completes
   const deepResearchStatus = useChatStore((state) => state.deepResearchStatus)
   const isDeepResearchStreaming = useChatStore((state) => state.isDeepResearchStreaming)
@@ -221,6 +225,23 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     el.style.height = 'auto'
     el.style.height = `${Math.min(el.scrollHeight, TEXTAREA_MAX_HEIGHT_PX)}px`
   }, [message])
+
+  // Consume a queued composer prefill exactly once: populate the draft, focus
+  // the textarea, and move the caret to the end. We never auto-send — the user
+  // reviews/edits before submitting. The store clears the flag on read.
+  useEffect(() => {
+    if (composerPrefill === null || isDisabledByAuth) return
+    const text = consumeComposerPrefill()
+    if (text === null) return
+    setMessage(text)
+    requestAnimationFrame(() => {
+      const el = textareaRef.current
+      if (!el) return
+      el.focus()
+      const end = el.value.length
+      el.setSelectionRange(end, end)
+    })
+  }, [composerPrefill, consumeComposerPrefill, isDisabledByAuth])
 
   // Dynamic placeholder based on state
   // Note: isResponseMode is checked before isBusy because the user needs to

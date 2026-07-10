@@ -1,7 +1,7 @@
 'use client'
 
 import { type ReactNode, Suspense, useEffect, useRef, use } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useAuth } from '@/adapters/auth'
 import { MainLayout } from '@/features/layout'
 import { useChatStore, useLoadJobData } from '@/features/chat'
@@ -13,28 +13,41 @@ interface ProjectChatPageProps {
 const ProjectChatContent = ({ projectId }: { projectId: string }): ReactNode => {
   const { isAuthenticated, signIn } = useAuth()
   const setProjectId = useChatStore((s) => s.setProjectId)
+  const setComposerPrefill = useChatStore((s) => s.setComposerPrefill)
 
   // Deep link from the project Research page: /projects/:id/chat?job=<jobId>
   // loads that job's report into the research panel.
   const searchParams = useSearchParams()
+  const router = useRouter()
+  const pathname = usePathname()
   const jobId = searchParams?.get('job') ?? null
   const { loadResearchPanelTab } = useLoadJobData()
   const loadedJobRef = useRef<string | null>(null)
 
   // Deep link from Overview's "Ask Grid" actions: /projects/:id/chat?ask=<question>.
-  // The chat composer draft (InputArea's `message`) is held in component-local
-  // useState with no store-backed setter, so there is no clean, low-risk way to
-  // seed it from here without threading new state through a memoized input. Rather
-  // than force a risky change, we leave the param unconsumed — it is harmless, the
-  // link still lands the architect on this project's chat, and prefill can be
-  // wired later once the composer draft is lifted into the chat store.
+  // Seed the store-backed composer prefill (consumed once by InputArea) and then
+  // strip the param from the URL so a refresh/back-nav doesn't re-inject it. The
+  // guard ref keeps this to a single application per distinct question.
   const askPrefill = searchParams?.get('ask') ?? null
-  void askPrefill
+  const consumedAskRef = useRef<string | null>(null)
 
   useEffect(() => {
     setProjectId(projectId)
     return () => setProjectId(null)
   }, [projectId, setProjectId])
+
+  useEffect(() => {
+    if (!askPrefill || consumedAskRef.current === askPrefill) return
+    consumedAskRef.current = askPrefill
+    setComposerPrefill(askPrefill)
+
+    // Remove ?ask= (preserving any other params, e.g. ?job=) without adding a
+    // history entry.
+    const params = new URLSearchParams(searchParams?.toString() ?? '')
+    params.delete('ask')
+    const query = params.toString()
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false })
+  }, [askPrefill, searchParams, pathname, router, setComposerPrefill])
 
   useEffect(() => {
     if (!isAuthenticated || !jobId) return

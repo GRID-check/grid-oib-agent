@@ -38,6 +38,8 @@ from unittest.mock import MagicMock
 import pytest
 
 from aiq_api.websocket_reconnect import ReconnectableWebSocketMessageHandler
+from nat.data_models.api_server import WebSocketMessageStatus
+from nat.data_models.api_server import WebSocketMessageType
 
 
 def _make_handler(
@@ -144,3 +146,74 @@ class TestSendAuthExpiredError:
 
         # Must not raise.
         await handler._send_auth_expired_error("conv-1")
+
+
+class TestRunWorkflowErrorFrame:
+    """A workflow that blows up mid-turn must still notify the client.
+
+    Without a terminal error frame the frontend keeps ``isStreaming=true``
+    forever, leaving the composer and session list permanently locked.
+    """
+
+    @pytest.mark.asyncio
+    async def test_sends_workflow_error_frame_when_workflow_raises(self) -> None:
+        socket = MagicMock()
+        socket.scope = {"headers": []}
+
+        handler = _make_handler(
+            authenticated_user={"type": "internal"},
+            socket=socket,
+        )
+        handler._flow_handler = None
+        handler._step_adaptor = MagicMock()
+        handler._pending_observability_trace = None
+        handler.human_interaction_callback = MagicMock()
+
+        # The workflow session context blows up on enter -- simulates any
+        # non-auth exception raised while running the workflow.
+        session_cm = MagicMock()
+        session_cm.__aenter__ = AsyncMock(side_effect=RuntimeError("kaboom"))
+        session_cm.__aexit__ = AsyncMock(return_value=False)
+        handler._session_manager = MagicMock()
+        handler._session_manager.session = MagicMock(return_value=session_cm)
+
+        # Spy on the frame builder so we can assert on the error we emit.
+        handler.create_websocket_message = AsyncMock()
+
+        await handler._run_workflow(payload=MagicMock(), conversation_id="conv-1")
+
+        handler.create_websocket_message.assert_awaited_once()
+        kwargs = handler.create_websocket_message.await_args.kwargs
+        assert kwargs["message_type"] == WebSocketMessageType.ERROR_MESSAGE
+        assert kwargs["status"] == WebSocketMessageStatus.COMPLETE
+        error = kwargs["data_model"]
+        assert error.code.value == "workflow_error"
+        # Original exception text is preserved for debugging in ``details``.
+        assert "kaboom" in error.details
+
+    @pytest.mark.asyncio
+    async def test_swallows_error_frame_send_failure(self) -> None:
+        # If the socket is already gone, the guarded send must not raise a
+        # second exception out of the workflow runner.
+        socket = MagicMock()
+        socket.scope = {"headers": []}
+
+        handler = _make_handler(
+            authenticated_user={"type": "internal"},
+            socket=socket,
+        )
+        handler._flow_handler = None
+        handler._step_adaptor = MagicMock()
+        handler._pending_observability_trace = None
+        handler.human_interaction_callback = MagicMock()
+
+        session_cm = MagicMock()
+        session_cm.__aenter__ = AsyncMock(side_effect=RuntimeError("kaboom"))
+        session_cm.__aexit__ = AsyncMock(return_value=False)
+        handler._session_manager = MagicMock()
+        handler._session_manager.session = MagicMock(return_value=session_cm)
+
+        handler.create_websocket_message = AsyncMock(side_effect=RuntimeError("socket closed"))
+
+        # Must not raise.
+        await handler._run_workflow(payload=MagicMock(), conversation_id="conv-1")

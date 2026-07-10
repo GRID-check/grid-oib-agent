@@ -54,6 +54,7 @@ export type ErrorCode =
   // Agent errors
   | 'agent.response_failed'
   | 'agent.response_interrupted'
+  | 'agent.workflow_error'
   | 'agent.deep_research_failed'
   | 'agent.deep_research_load_failed'
   // System errors
@@ -385,6 +386,12 @@ export interface ChatState {
   activeThinkingStepId: string | null
   /** Active project ID for scoping (set by project chat page) */
   projectId: string | null
+  /**
+   * One-shot draft text queued for the chat composer (InputArea). Set by deep
+   * links (`?ask=`) and welcome-screen suggestion chips; consumed exactly once
+   * by the composer. Null when there is nothing to prefill.
+   */
+  composerPrefill: string | null
   /** Content for the Details Panel - Report tab */
   reportContent: string
   /** Category of the current report content (distinguishes intermediate notes from final report) */
@@ -697,6 +704,11 @@ export interface ChatActions {
 
   /** Set the active project ID for collection scoping */
   setProjectId: (projectId: string | null) => void
+
+  /** Queue text for the composer to pick up (does NOT auto-send). */
+  setComposerPrefill: (text: string) => void
+  /** Read and clear the queued composer prefill; returns null when empty. */
+  consumeComposerPrefill: () => string | null
 }
 
 /** Combined chat store type */

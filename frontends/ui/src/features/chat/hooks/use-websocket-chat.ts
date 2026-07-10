@@ -135,6 +135,20 @@ const MAX_UNACKNOWLEDGED_OUTGOING_REPLAYS = 1
 const UNACKNOWLEDGED_OUTGOING_ACK_TIMEOUT_MS = 7_000
 
 /**
+ * Overall turn watchdog. The 7s delivery timeout above only covers the gap
+ * before the FIRST backend frame; it is cleared once any frame arrives. After
+ * that, a backend that stalls mid-stream (or dies without sending a terminal
+ * frame) would leave `isStreaming=true` forever -- a spinner that never stops
+ * with the composer and session list locked.
+ *
+ * This watchdog fires when NO frame has arrived for this long while streaming.
+ * It is (re)armed on send and reset on every incoming frame, and cleared on
+ * completion / error / disconnect / HITL pause / unmount. On fire it ends the
+ * turn, marks it interrupted, and surfaces a retryable timeout banner.
+ */
+const STREAMING_INACTIVITY_TIMEOUT_MS = 180_000
+
+/**
  * Map NAT/backend error codes to frontend ErrorCode for consistent UI display.
  * This provides a generic mapping for any backend error.
  */
@@ -148,6 +162,10 @@ const mapNATErrorToErrorCode = (natErrorCode: string): ErrorCode => {
       return 'agent.response_failed'
     case 'CONNECTION_FAILED':
       return 'connection.failed'
+    // Backend catch-all: a workflow raised mid-turn. See
+    // websocket_reconnect.py `_run_workflow`.
+    case 'workflow_error':
+      return 'agent.workflow_error'
     case 'unknown_error':
     default:
       return 'system.unknown'
@@ -264,6 +282,13 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
    */
   const unacknowledgedOutgoingRef = useRef<UnacknowledgedOutgoing | null>(null)
   const unacknowledgedOutgoingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  /**
+   * Overall streaming-inactivity watchdog timer. Armed while a turn is in
+   * flight, reset on every inbound frame, and cleared on any terminal state.
+   * See `STREAMING_INACTIVITY_TIMEOUT_MS`.
+   */
+  const streamingWatchdogTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   /**
    * Set by the soft timer when it fires while streaming; consumed by the
@@ -461,6 +486,67 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
     setStreaming,
   ])
 
+  const clearStreamingWatchdog = useCallback((): void => {
+    if (streamingWatchdogTimeoutRef.current) {
+      clearTimeout(streamingWatchdogTimeoutRef.current)
+      streamingWatchdogTimeoutRef.current = null
+    }
+  }, [])
+
+  /**
+   * Fired when a streaming turn goes silent for too long. End the turn the
+   * same way an interrupt does (complete the open thinking step, reset
+   * streaming/loading/status, clear any HITL prompt), drop the resend buffers
+   * so nothing replays behind the user's back, and surface the existing
+   * timeout banner so the user can retry.
+   */
+  const handleStreamingWatchdogTimeout = useCallback((): void => {
+    clearStreamingWatchdog()
+    // Only act if we're still streaming -- a terminal frame may have landed
+    // in the same tick the timer fired.
+    if (!useChatStore.getState().isStreaming) return
+
+    if (currentThinkingStepIdRef.current) {
+      completeThinkingStep(currentThinkingStepIdRef.current)
+      currentThinkingStepIdRef.current = null
+      currentStatusRef.current = null
+    }
+
+    // Reuse the interrupted-turn banner: warning status, "please resend".
+    addErrorCard(
+      'agent.response_interrupted',
+      'The assistant stopped responding. Please resend your message.',
+    )
+    setCurrentStatus(null)
+    setStreaming(false)
+    setLoading(false)
+    clearPendingInteraction()
+    lastSentOutgoingRef.current = null
+    pendingOutgoingRef.current = null
+    clearUnacknowledgedOutgoing()
+  }, [
+    addErrorCard,
+    clearPendingInteraction,
+    clearStreamingWatchdog,
+    clearUnacknowledgedOutgoing,
+    completeThinkingStep,
+    setCurrentStatus,
+    setLoading,
+    setStreaming,
+  ])
+
+  /**
+   * (Re)arm the watchdog. Called when a turn starts and on every inbound
+   * frame so the deadline is measured from the last sign of life.
+   */
+  const armStreamingWatchdog = useCallback((): void => {
+    clearStreamingWatchdog()
+    streamingWatchdogTimeoutRef.current = setTimeout(
+      handleStreamingWatchdogTimeout,
+      STREAMING_INACTIVITY_TIMEOUT_MS,
+    )
+  }, [clearStreamingWatchdog, handleStreamingWatchdogTimeout])
+
   const handleUnacknowledgedOutgoingTimeout = useCallback((): void => {
     const unacknowledged = unacknowledgedOutgoingRef.current
     if (!unacknowledged) return
@@ -607,6 +693,9 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
           return
         }
         acknowledgeOutgoingDelivery(parentId)
+        // A live frame proves the turn is progressing -- restart the
+        // inactivity deadline from now.
+        armStreamingWatchdog()
 
         // Validate grid cards carried on the response message
         const validatedCards: GridCard[] = validateGridCards(cards)
@@ -705,6 +794,10 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
           )
           // Start deep research SSE streaming bound to this message
           startDeepResearch(jobId, messageId)
+          // Hand off to the deep-research SSE stream: it drives its own
+          // progress signal, so the WS inactivity watchdog must stand down
+          // (no WS frames arrive during deep research).
+          clearStreamingWatchdog()
           // Keep isStreaming=true to block input -- deep research SSE will
           // release it on completion.
           setLoading(false)
@@ -722,6 +815,8 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
 
         // status: "complete" with null text signals task completion
         if (isFinal) {
+          // Turn finished -- stand the inactivity watchdog down.
+          clearStreamingWatchdog()
           // Complete any pending thinking step
           if (currentThinkingStepIdRef.current) {
             completeThinkingStep(currentThinkingStepIdRef.current)
@@ -761,6 +856,8 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         // backend received the outbound message even when NAT uses internal
         // workflow parent IDs that do not match the user-message id.
         clearUnacknowledgedOutgoing()
+        // Progress signal -- restart the inactivity deadline.
+        armStreamingWatchdog()
 
         // Legacy string-content path: synthesize a generic thinking step.
         if (typeof content === 'string') {
@@ -848,12 +945,19 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         const promptType = mapHumanPromptType(prompt.input_type)
         addAgentPrompt(promptType, prompt.text, prompt.options, undefined, promptId, parentId, inputType)
 
-        // Pause streaming while waiting for user response
+        // Pause streaming while waiting for user response. The user may take
+        // arbitrarily long to answer, so stand the inactivity watchdog down.
+        clearStreamingWatchdog()
         setStreaming(false)
         setLoading(false)
       },
 
       onError: async (errorContent: NATErrorContent) => {
+        // Any error resolves the current turn one way or another; stand the
+        // inactivity watchdog down. Paths that keep streaming alive (the
+        // auth_expired rotation below) re-arm it before they return.
+        clearStreamingWatchdog()
+
         // Auth expired mid-workflow: backend contract is `code ===
         // 'user_auth_error'` + `message === 'auth_expired'` (see
         // websocket_reconnect.py `_send_auth_expired_error`). Buffer the
@@ -897,6 +1001,9 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
             pendingOutgoingRef.current = lastSent
           }
           clearUnacknowledgedOutgoing()
+          // The turn stays "in progress" across the rotation, so keep a
+          // deadline running against the fresh socket.
+          armStreamingWatchdog()
           rotateSocket('auth_expired')
           return
         }
@@ -972,6 +1079,9 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
           if (pending && client) {
             pendingOutgoingRef.current = null
             if (sendOutgoingPayload(pending)) {
+              // A buffered turn just went back on the wire -- (re)start the
+              // inactivity deadline for it.
+              armStreamingWatchdog()
               // Match each send path's loading contract: chat sends clear the
               // composer spinner after putting the message on the wire, while
               // HITL answers keep it visible until the backend processes them.
@@ -1022,6 +1132,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
           }
 
           // Reset streaming/loading state if connection dropped mid-request
+          clearStreamingWatchdog()
           setStreaming(false)
           setLoading(false)
           clearPendingInteraction()
@@ -1053,6 +1164,8 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
     acknowledgeOutgoingDelivery,
     clearUnacknowledgedOutgoing,
     sendOutgoingPayload,
+    armStreamingWatchdog,
+    clearStreamingWatchdog,
   ])
 
   /**
@@ -1107,6 +1220,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
       pendingOutgoingRef.current = null
       lastSentOutgoingRef.current = null
       clearUnacknowledgedOutgoing()
+      clearStreamingWatchdog()
       consecutiveAuthExpiredRef.current = 0
       pendingRotationRef.current = false
       currentThinkingStepIdRef.current = null
@@ -1118,6 +1232,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
     createCallbacks,
     refreshAuthBeforeReconnect,
     clearUnacknowledgedOutgoing,
+    clearStreamingWatchdog,
     setStreaming,
     setLoading,
     setCurrentStatus,
@@ -1201,8 +1316,11 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
       // Helper to actually send the message
       const doSend = () => {
         if (sendOutgoingPayload(outgoingPayload)) {
+          // Turn is on the wire -- start the overall inactivity deadline.
+          armStreamingWatchdog()
           setLoading(false)
         } else {
+          clearStreamingWatchdog()
           addErrorCard('connection.failed', 'WebSocket connection failed')
           setStreaming(false)
           setLoading(false)
@@ -1243,6 +1361,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
       } else {
         // Defensive: shouldn't happen because addUserMessage creates a
         // conversation if one is missing.
+        clearStreamingWatchdog()
         addErrorCard('system.unknown', 'No active conversation')
         setStreaming(false)
         setLoading(false)
@@ -1260,6 +1379,8 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
       refreshAuthBeforeReconnect,
       rotateSocket,
       sendOutgoingPayload,
+      armStreamingWatchdog,
+      clearStreamingWatchdog,
       authRequired,
       activeSocketTokenExpiresAt,
     ]
@@ -1312,6 +1433,8 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         if (sendOutgoingPayload(interactionPayload)) {
           setStreaming(true)
           setLoading(true)
+          // HITL answer is on the wire -- resume the inactivity deadline.
+          armStreamingWatchdog()
         } else {
           addErrorCard('connection.failed', 'WebSocket not connected')
         }
@@ -1350,6 +1473,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
       activeSocketTokenExpiresAt,
       rotateSocket,
       sendOutgoingPayload,
+      armStreamingWatchdog,
     ]
   )
 

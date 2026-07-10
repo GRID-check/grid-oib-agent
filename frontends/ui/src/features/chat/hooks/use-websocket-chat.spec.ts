@@ -629,6 +629,129 @@ describe('useWebSocketChat', () => {
     }
   })
 
+  // --- Streaming inactivity watchdog (overall turn timeout) ---
+  // The 7s delivery-ack timeout above only covers the gap before the FIRST
+  // frame. Once a frame lands it is cleared, so a mid-stream stall (or a
+  // backend that dies without a terminal frame) is caught by the 180s
+  // inactivity watchdog instead.
+  const WATCHDOG_MS = 180_000
+
+  test('ends the turn with an interrupted banner when the stream goes silent past the watchdog window', () => {
+    vi.useFakeTimers()
+    try {
+      mockWsClient.isConnected.mockReturnValue(true)
+      const { result } = renderWebSocketHook()
+
+      act(() => {
+        result.current.sendMessage('Question that stalls mid-stream')
+      })
+
+      // First frame arrives: clears the 7s delivery timeout and (re)arms the
+      // inactivity watchdog. Backend then goes silent.
+      mockStoreState.isStreaming = true
+      act(() => {
+        capturedCallbacks.onIntermediateStep?.('Thinking...', 'in_progress', 'internal-step-id')
+      })
+
+      mockSetStreaming.mockClear()
+      mockSetLoading.mockClear()
+      mockAddErrorCard.mockClear()
+      mockWsClient.rotate.mockClear()
+
+      act(() => {
+        vi.advanceTimersByTime(WATCHDOG_MS)
+      })
+
+      expect(mockAddErrorCard).toHaveBeenCalledWith(
+        'agent.response_interrupted',
+        'The assistant stopped responding. Please resend your message.',
+      )
+      expect(mockSetStreaming).toHaveBeenCalledWith(false)
+      expect(mockSetLoading).toHaveBeenCalledWith(false)
+      // The watchdog is not a reconnect path -- it must not rotate the socket.
+      expect(mockWsClient.rotate).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  test('resets the watchdog on every incoming frame so an active stream is never interrupted', () => {
+    vi.useFakeTimers()
+    try {
+      mockWsClient.isConnected.mockReturnValue(true)
+      const { result } = renderWebSocketHook()
+
+      act(() => {
+        result.current.sendMessage('Long but healthy stream')
+      })
+      mockStoreState.isStreaming = true
+
+      // Deliver a frame every 100s -- always inside the 180s window, so the
+      // watchdog keeps getting pushed back and never fires.
+      for (let i = 0; i < 4; i++) {
+        act(() => {
+          capturedCallbacks.onIntermediateStep?.(`step ${i}`, 'in_progress', 'internal-step-id')
+        })
+        act(() => {
+          vi.advanceTimersByTime(100_000)
+        })
+      }
+
+      expect(mockAddErrorCard).not.toHaveBeenCalledWith(
+        'agent.response_interrupted',
+        expect.anything(),
+      )
+
+      // Now the backend goes quiet: after a full window with no frame the
+      // watchdog finally fires.
+      act(() => {
+        vi.advanceTimersByTime(WATCHDOG_MS)
+      })
+      expect(mockAddErrorCard).toHaveBeenCalledWith(
+        'agent.response_interrupted',
+        'The assistant stopped responding. Please resend your message.',
+      )
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  test('clears the watchdog on a final response so a completed turn is never flagged as interrupted', () => {
+    vi.useFakeTimers()
+    try {
+      mockWsClient.isConnected.mockReturnValue(true)
+      const { result } = renderWebSocketHook()
+
+      act(() => {
+        result.current.sendMessage('Quick question')
+      })
+      mockStoreState.isStreaming = true
+
+      act(() => {
+        capturedCallbacks.onIntermediateStep?.('Thinking...', 'in_progress', 'internal-step-id')
+      })
+      // Final response completes the turn and disarms the watchdog.
+      act(() => {
+        capturedCallbacks.onResponse?.('All done.', 'complete', true, 'mock-outbound-message-id')
+      })
+
+      mockAddErrorCard.mockClear()
+
+      // Even though the mocked store still reports isStreaming=true, the timer
+      // was cleared, so advancing well past the window is a no-op.
+      act(() => {
+        vi.advanceTimersByTime(WATCHDOG_MS * 2)
+      })
+
+      expect(mockAddErrorCard).not.toHaveBeenCalledWith(
+        'agent.response_interrupted',
+        expect.anything(),
+      )
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   test('sendMessage keeps knowledge_layer enabled when no visible sources or session files exist', async () => {
     mockWsClient.isConnected.mockReturnValue(true)
 
