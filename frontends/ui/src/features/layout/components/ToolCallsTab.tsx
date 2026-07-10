@@ -12,7 +12,6 @@ import { type FC } from 'react'
 import { Wrench } from 'lucide-react'
 import { useTranslations } from '@/i18n'
 import { ToolCallCard, type ToolCallInfo } from './ToolCallCard'
-import { EMPTY_RESEARCH_DETAILS_HELP_TEXT } from './research-empty-state-copy'
 
 interface ToolCallsTabProps {
   /** Array of tool call info from SSE events */
@@ -57,7 +56,7 @@ export const ToolCallsTab: FC<ToolCallsTabProps> = ({ toolCalls = [] }) => {
           </span>
           <p className="text-sm text-muted-foreground">{t('toolCallsTab.empty')}</p>
           <p className="mt-2 text-sm text-muted-foreground">
-            {EMPTY_RESEARCH_DETAILS_HELP_TEXT}
+            {t('detailsHelp')}
           </p>
         </div>
       ) : (

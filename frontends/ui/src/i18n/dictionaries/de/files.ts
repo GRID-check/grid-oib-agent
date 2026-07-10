@@ -73,4 +73,12 @@ export const files: typeof en.files = {
     uploading: 'Wird hochgeladen …',
     upload: 'Hochladen',
   },
+  errors: {
+    uploadingSkipped:
+      'Es werden {uploading} {fileLabel} hochgeladen, {skipped} übersprungen ({summary})',
+    cannotRetryServerFile:
+      'Vom Server geladene Dateien können nicht erneut versucht werden. Bitte laden Sie die Datei erneut hoch.',
+    fileSingular: 'Datei',
+    filePlural: 'Dateien',
+  },
 }

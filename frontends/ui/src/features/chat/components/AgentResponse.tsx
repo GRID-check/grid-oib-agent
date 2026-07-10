@@ -204,8 +204,8 @@ export const AgentResponse: FC<AgentResponseProps> = ({
                 size="sm"
                 onClick={handleViewReport}
                 disabled={isLoading}
-                aria-label={isLoading ? 'Loading...' : buttonText}
-                title={error ? `Error: ${error}` : isLoading ? 'Loading...' : buttonText}
+                aria-label={isLoading ? t('agentResponse.loading') : buttonText}
+                title={error ? t('agentResponse.errorTitle', { message: error }) : isLoading ? t('agentResponse.loading') : buttonText}
               >
                 <span className="flex items-center gap-1">
                   {isLoading ? (

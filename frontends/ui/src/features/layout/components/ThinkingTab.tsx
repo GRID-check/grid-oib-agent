@@ -31,7 +31,6 @@ import { AgentsTab } from './AgentsTab'
 import { ToolCallsTab } from './ToolCallsTab'
 import { FilesTab } from './FilesTab'
 import { CitationCard } from './CitationCard'
-import { EMPTY_RESEARCH_DETAILS_HELP_TEXT } from './research-empty-state-copy'
 import type { ThoughtInfo } from './ThoughtCard'
 import type { ToolCallInfo } from './ToolCallCard'
 import type {
@@ -129,7 +128,7 @@ const CitationListView: FC<CitationListViewProps> = ({ filter, citations }) => {
               : t('thinkingTab.noRead')}
           </p>
           <p className="mt-2 text-sm text-muted-foreground">
-            {EMPTY_RESEARCH_DETAILS_HELP_TEXT}
+            {t('detailsHelp')}
           </p>
         </div>
       ) : (

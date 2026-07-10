@@ -2,6 +2,11 @@
 export const research = {
   dismissError: 'Dismiss error',
 
+  // Shared empty-state helper shown across the deep-research detail tabs
+  // (Thinking, Thought Traces, Tool Calls, Agents, Files).
+  detailsHelp:
+    'These details appear during active research and may not be available for completed reports.',
+
   runsPage: {
     title: 'Research runs',
     subtitle: 'Deep research reports Grid has produced for this project, newest first.',

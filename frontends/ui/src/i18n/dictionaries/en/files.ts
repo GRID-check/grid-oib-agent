@@ -68,4 +68,10 @@ export const files = {
     uploading: 'Uploading…',
     upload: 'Upload',
   },
+  errors: {
+    uploadingSkipped: 'Uploading {uploading} {fileLabel}, skipped {skipped} ({summary})',
+    cannotRetryServerFile: 'Cannot retry server-loaded files. Please upload the file again.',
+    fileSingular: 'file',
+    filePlural: 'files',
+  },
 }

@@ -10,6 +10,7 @@
 
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { v4 as uuidv4 } from 'uuid'
+import { useTranslations } from '@/i18n'
 import { createDocumentsClient } from '@/adapters/api'
 import { useDocumentsStore } from '../store'
 import { useAuth } from '@/adapters/auth'
@@ -48,6 +49,7 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
   const { collectionName, projectId, folderId, onComplete, onError } = options
 
   const { idToken } = useAuth()
+  const t = useTranslations('files')
   const { fileUpload: fileUploadConfig } = useAppConfig()
   const clientRef = useRef(createDocumentsClient({ authToken: idToken }))
   const previousSessionIdRef = useRef<string | undefined>(undefined)
@@ -166,7 +168,12 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
         const skippedCount = validationResult.fileErrors.length
         const uploadingCount = validFiles.length
         setError(
-          `Uploading ${uploadingCount} file${uploadingCount > 1 ? 's' : ''}, skipped ${skippedCount} (${validationResult.summary})`
+          t('errors.uploadingSkipped', {
+            uploading: uploadingCount,
+            fileLabel: uploadingCount > 1 ? t('errors.filePlural') : t('errors.fileSingular'),
+            skipped: skippedCount,
+            summary: validationResult.summary ?? '',
+          })
         )
       } else {
         clearError()
@@ -302,6 +309,7 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
       setError,
       onError,
       removeRecentlyDeletedIds,
+      t,
     ]
   )
 
@@ -347,14 +355,14 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
       if (!file) return
 
       if (!file.file) {
-        setError('Cannot retry server-loaded files. Please upload the file again.')
+        setError(t('errors.cannotRetryServerFile'))
         return
       }
 
       removeTrackedFile(fileId)
       await uploadFiles([file.file])
     },
-    [trackedFiles, removeTrackedFile, uploadFiles, setError]
+    [trackedFiles, removeTrackedFile, uploadFiles, setError, t]
   )
 
   return {

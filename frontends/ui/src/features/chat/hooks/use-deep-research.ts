@@ -11,6 +11,7 @@
 
 import { useEffect, useRef, useCallback, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
+import { useTranslations } from '@/i18n'
 import {
   createDeepResearchClient,
   cancelJob,
@@ -84,6 +85,8 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
   // Auth token for authenticated requests
   // Note: idToken is used for backend auth, not accessToken
   const { idToken } = useAuth()
+
+  const tChat = useTranslations('chat')
 
   // Chat store — reactive state only
   const { deepResearchJobId, isDeepResearchStreaming, deepResearchStatus } =
@@ -347,7 +350,7 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
                 addErrorCard('agent.deep_research_failed', error)
               } else if (status === 'interrupted' && !isUserCancelled) {
                 const { addErrorCard } = useChatStore.getState()
-                addErrorCard('agent.deep_research_failed', 'Research was interrupted before completion.')
+                addErrorCard('agent.deep_research_failed', tChat('deepResearchErrors.interrupted'))
               }
             }
           },
@@ -540,7 +543,7 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
       addDeepResearchToolCall, completeDeepResearchToolCall, addDeepResearchFile,
       setDeepResearchCards,
       patchConversationMessage, addDeepResearchBanner, setStreaming, setStreamLoaded,
-      setDeepResearchConnectionLost,
+      setDeepResearchConnectionLost, tChat,
     ]
   )
 

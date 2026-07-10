@@ -12,7 +12,6 @@ import { type FC } from 'react'
 import { BrainCircuit } from 'lucide-react'
 import { useTranslations } from '@/i18n'
 import { ThoughtCard, type ThoughtInfo } from './ThoughtCard'
-import { EMPTY_RESEARCH_DETAILS_HELP_TEXT } from './research-empty-state-copy'
 
 interface ThoughtTracesTabProps {
   /** Array of thought traces from SSE events */
@@ -54,7 +53,7 @@ export const ThoughtTracesTab: FC<ThoughtTracesTabProps> = ({ thoughtTraces = []
           <BrainCircuit className="mb-3 h-8 w-8 text-muted-foreground" aria-hidden="true" />
           <p className="text-sm text-muted-foreground">{t('thoughtTracesTab.empty')}</p>
           <p className="mt-2 text-sm text-muted-foreground">
-            {EMPTY_RESEARCH_DETAILS_HELP_TEXT}
+            {t('detailsHelp')}
           </p>
         </div>
       ) : (

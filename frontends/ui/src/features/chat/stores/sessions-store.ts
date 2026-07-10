@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid'
 import { toast } from 'sonner'
+import { getStoreTranslator } from '@/i18n'
 import { createJSONStorage, type StorageValue, type PersistStorage } from 'zustand/middleware'
 import type { StateCreator } from 'zustand'
 import type {
@@ -616,9 +617,9 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
       import('@/adapters/api/deep-research-client').then(({ cancelJob }) => {
         cancelJob(jobIdToCancel!).catch((err) => {
           console.warn('Failed to cancel deep research job on session delete:', err)
-          toast.error('Research run may still be running', {
-            description:
-              'The session was deleted, but its deep-research job could not be stopped on the server.',
+          const t = getStoreTranslator('chat')
+          toast.error(t('sessionActions.researchMayStillRunTitle'), {
+            description: t('sessionActions.researchMayStillRunDescription'),
           })
         })
       })
@@ -717,11 +718,17 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
           )
         })
         if (failedCount > 0) {
+          const t = getStoreTranslator('chat')
           toast.error(
-            `${failedCount} research ${failedCount === 1 ? 'run' : 'runs'} may still be running`,
+            t('sessionActions.researchRunsMayStillRunTitle', {
+              count: failedCount,
+              runLabel:
+                failedCount === 1
+                  ? t('sessionActions.runSingular')
+                  : t('sessionActions.runPlural'),
+            }),
             {
-              description:
-                'Sessions were deleted, but some deep-research jobs could not be stopped on the server.',
+              description: t('sessionActions.researchRunsMayStillRunDescription'),
             }
           )
         }
@@ -900,10 +907,9 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
         .find((m) => meaningfulTypes.has(m.messageType ?? ''))
 
       if (lastMeaningful?.messageType === 'user' && lastMeaningful.thinkingSteps?.length) {
-        get().addErrorCard(
-          'agent.response_interrupted',
-          'Your previous request was not completed. Please resend your message.'
-        )
+        // No explicit message: ErrorBanner localizes the registry default via
+        // `agent.response_interrupted`'s messageKey.
+        get().addErrorCard('agent.response_interrupted')
       }
     }
   },

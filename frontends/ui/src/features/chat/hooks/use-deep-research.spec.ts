@@ -1,6 +1,7 @@
 import { renderHook, act, waitFor } from '@testing-library/react'
 import { vi, describe, test, expect, beforeEach, afterEach } from 'vitest'
 import { useDeepResearch } from './use-deep-research'
+import { en } from '@/i18n/dictionaries/en'
 
 // ============================================================
 // Mock store state and actions
@@ -705,9 +706,11 @@ describe('useDeepResearch', () => {
         'job-456',
         'test-conv-123'
       )
+      // Localized copy: the hook resolves the interrupted message through the
+      // chat dictionary (English fallback when no i18n provider is mounted).
       expect(mockAddErrorCard).toHaveBeenCalledWith(
         'agent.deep_research_failed',
-        'Research was interrupted before completion.'
+        en.chat.deepResearchErrors.interrupted
       )
     })
 

@@ -4,6 +4,9 @@ import type { en } from '../en'
 export const research: typeof en.research = {
   dismissError: 'Fehler ausblenden',
 
+  detailsHelp:
+    'Diese Details erscheinen während einer laufenden Recherche und sind für abgeschlossene Berichte möglicherweise nicht verfügbar.',
+
   runsPage: {
     title: 'Recherchedurchläufe',
     subtitle:
