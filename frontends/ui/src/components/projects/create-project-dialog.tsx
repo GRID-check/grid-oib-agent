@@ -40,7 +40,7 @@ export function CreateProjectDialog({
   const handleOpenChange = useCallback(
     (next: boolean): void => {
       setOpen(next)
-      if (!next && defaultOpen) {
+      if (!next && defaultOpen && pathname) {
         router.replace(pathname, { scroll: false })
       }
     },
