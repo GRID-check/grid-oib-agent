@@ -101,8 +101,18 @@ export async function _clearCatalogCache(): Promise<void> {
 /**
  * Check one model against one agent group's requirements.
  * Text input is required for every group — all agents converse in text.
+ *
+ * `strictCapabilities: false` (BYOK catalogs, ADR-0022) skips the
+ * required-parameter check: provider-native `/models` listings carry no
+ * capability metadata, so absence of `supported_parameters` must not read
+ * as "unsupported". The modality/context checks already self-skip on
+ * missing metadata.
  */
-export function validateModelForGroup(model: OpenRouterModel, group: AgentGroupDefinition): ModelValidationResult {
+export function validateModelForGroup(
+  model: OpenRouterModel,
+  group: AgentGroupDefinition,
+  strictCapabilities = true,
+): ModelValidationResult {
   const reasons: string[] = []
   if (model.inputModalities.length > 0 && !model.inputModalities.includes('text')) {
     reasons.push('model does not accept text input')
@@ -112,9 +122,11 @@ export function validateModelForGroup(model: OpenRouterModel, group: AgentGroupD
       `context length ${model.contextLength.toLocaleString()} is below the required ${group.requirements.minContextLength.toLocaleString()}`,
     )
   }
-  for (const param of group.requirements.requiredParameters) {
-    if (!model.supportedParameters.includes(param)) {
-      reasons.push(`model does not support required parameter '${param}'`)
+  if (strictCapabilities) {
+    for (const param of group.requirements.requiredParameters) {
+      if (!model.supportedParameters.includes(param)) {
+        reasons.push(`model does not support required parameter '${param}'`)
+      }
     }
   }
   return { ok: reasons.length === 0, reasons }
@@ -126,12 +138,13 @@ export function searchModelsForGroup(
   groupId: string,
   query: string,
   limit = 30,
+  strictCapabilities = true,
 ): OpenRouterModel[] {
   const group = getAgentGroup(groupId)
   if (!group) return []
   const q = query.trim().toLowerCase()
   return catalog
-    .filter((model) => validateModelForGroup(model, group).ok)
+    .filter((model) => validateModelForGroup(model, group, strictCapabilities).ok)
     .filter((model) => !q || model.id.toLowerCase().includes(q) || model.name.toLowerCase().includes(q))
     .sort((a, b) => a.id.localeCompare(b.id))
     .slice(0, limit)
@@ -145,6 +158,7 @@ export function searchModelsForGroup(
 export function validateOverrides(
   catalog: OpenRouterModel[],
   overrides: Record<string, string>,
+  strictCapabilities = true,
 ): { ok: boolean; errors: Record<string, string>; snapshot: Record<string, OpenRouterModel> } {
   const errors: Record<string, string> = {}
   const snapshot: Record<string, OpenRouterModel> = {}
@@ -156,10 +170,10 @@ export function validateOverrides(
     }
     const model = catalog.find((m) => m.id === modelId)
     if (!model) {
-      errors[groupId] = `model '${modelId}' not found in the OpenRouter catalog`
+      errors[groupId] = `model '${modelId}' not found in the model catalog`
       continue
     }
-    const validation = validateModelForGroup(model, group)
+    const validation = validateModelForGroup(model, group, strictCapabilities)
     if (!validation.ok) {
       errors[groupId] = validation.reasons.join('; ')
       continue

@@ -40,10 +40,13 @@ logger = logging.getLogger(__name__)
 
 MODEL_OVERRIDES_HEADER = "x-grid-model-overrides"
 
-# OpenRouter model ids are `author/slug` with an optional `:variant` suffix
-# (e.g. `deepseek/deepseek-v4-flash`, `meta-llama/llama-4:free`). Anything else
-# is dropped — defense in depth behind the BFF's catalog validation.
-_MODEL_ID_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}/[A-Za-z0-9_.:-]{1,128}$")
+# Model ids are OpenRouter's `author/slug` (optional `:variant` suffix, e.g.
+# `meta-llama/llama-4:free`) OR — for orgs on a BYOK credential (ADR-0022) —
+# a provider-native id without a slash (`gpt-4o`, `ft:gpt-4o:acme::abc`,
+# Azure deployment names). Anything else is dropped — defense in depth
+# behind the BFF's catalog validation. Mirrors MODEL_ID_PATTERN in
+# `frontends/ui/src/lib/model-config/agent-groups.ts`.
+_MODEL_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,64}(/[A-Za-z0-9_.:-]{1,128})?$")
 
 
 class AgentGroup(StrEnum):

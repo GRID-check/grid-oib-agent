@@ -148,6 +148,7 @@ export const ModelConfigCard: FC = () => {
   const [versions, setVersions] = useState<VersionDto[] | null>(null)
   const [activeVersionId, setActiveVersionId] = useState<string | null>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [catalogSource, setCatalogSource] = useState<{ source: string; provider: string | null } | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -157,10 +158,12 @@ export const ModelConfigCard: FC = () => {
       const body = (await res.json()) as {
         agentGroups: AgentGroupDto[]
         defaults: Record<string, string | null>
+        catalogSource: { source: string; provider: string | null } | null
         activeVersion: VersionDto | null
       }
       setGroups(body.agentGroups)
       setDefaults(body.defaults ?? {})
+      setCatalogSource(body.catalogSource ?? null)
       const flat: Record<string, string> = {}
       for (const [groupId, value] of Object.entries(body.activeVersion?.overrides ?? {})) {
         if (value?.model) flat[groupId] = value.model
@@ -252,6 +255,12 @@ export const ModelConfigCard: FC = () => {
 
   return (
     <div className="flex flex-col gap-4">
+      {/* BYOK (ADR-0022): the picker lists the org's own provider models. */}
+      {catalogSource?.source === 'byok' && (
+        <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+          {t('models.byokCatalogHint', { provider: catalogSource.provider ?? 'BYOK' })}
+        </p>
+      )}
       <ul className="flex flex-col divide-y">
         {groups.map((group) => {
           const override = draft[group.id]

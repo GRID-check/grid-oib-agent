@@ -109,7 +109,29 @@ internal endpoint fails **open to the platform key** (chat must not go down
 because a tenant key lookup hiccupped); the fallback is logged without key
 material.
 
-### 4. Org-level web-search setting
+### 4. The model switcher follows the credential
+
+ADR-0014's model switcher and BYOK compose instead of excluding each other:
+
+- **No credential** → the picker works exactly as before: platform
+  OpenRouter catalog, full capability validation, platform billing.
+- **OpenRouter credential** → same catalog and validation; every request is
+  billed to the org's own OpenRouter account. Overrides keep working.
+- **openai / azure-openai / custom credential** → the picker lists the live
+  `GET {baseUrl}/models` of the ORG's provider (fetched with the org key,
+  cached 5 min without the key). Capability checks run in relaxed
+  membership-only mode, because provider-native listings carry no
+  context-length/parameter metadata. Save-time validation and the version
+  snapshot record which catalog the admin chose from (`_catalog` marker).
+
+Model-id shape is widened accordingly (`author/slug` OR provider-native ids
+like `gpt-4o`, `ft:…`, Azure deployment names) in the BFF zod schema and
+the backend sanitizer alike; catalog membership remains the real gate.
+Runtime order of application: per-group model override first, then the
+credential swap — so a BYOK org can still re-point each agent group at any
+model its own provider serves.
+
+### 5. Org-level web-search setting
 
 Web search becomes tenant-controllable with two layers, both resolved at the
 WS upgrade / job submit:
@@ -154,9 +176,10 @@ header enforcement holds even against a hand-crafted payload).
 - Client reconstruction for credential swaps is heavier than the
   `model_copy` used for model ids (accepted: it happens at most once per
   request-scoped rebuild, and only for BYOK orgs).
-- The model-config picker (ADR-0014) stays OpenRouter-catalog-backed; orgs
-  bringing a non-OpenRouter key must choose models that exist at their
-  provider (documented; OpenRouter BYOK is the reference path).
+- Provider-native `/models` listings carry no capability metadata, so for
+  non-OpenRouter BYOK catalogs the ADR-0014 capability checks degrade to
+  membership-only validation (see §4) — a tool-incapable model can then
+  only be caught at runtime.
 
 ### Risks
 

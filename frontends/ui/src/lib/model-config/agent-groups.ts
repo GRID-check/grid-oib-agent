@@ -90,3 +90,12 @@ export function getAgentGroup(id: string): AgentGroupDefinition | undefined {
 
 /** OpenRouter model ids are `author/slug` with an optional `:variant` suffix. */
 export const OPENROUTER_MODEL_ID_PATTERN = /^[A-Za-z0-9_.-]{1,64}\/[A-Za-z0-9_.:-]{1,128}$/
+
+/**
+ * BYOK-aware model id shape (ADR-0022): OpenRouter's `author/slug` OR a
+ * plain provider-native id (`gpt-4o`, `ft:gpt-4o:acme::abc`, Azure
+ * deployment names). The catalog-membership check in `validateOverrides`
+ * remains the real gate — this pattern only rejects obvious garbage.
+ * Mirrors `_MODEL_ID_RE` in `src/aiq_agent/common/model_overrides.py`.
+ */
+export const MODEL_ID_PATTERN = /^[A-Za-z0-9_.:-]{1,64}(\/[A-Za-z0-9_.:-]{1,128})?$/
