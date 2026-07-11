@@ -395,3 +395,31 @@ Consistency/feedback (audits B/C):
   draft-restore lack the app's established AnimatePresence/fade vocabulary.
 - Drag-drop overlay text not announced (no role=status/aria-live).
 
+
+### Round 8 COMPLETE (`7979f3f`) — agent round after the limit reset
+All queued items landed via three parallel agents (files disjoint; one scope
+correction sent to avoid a co-owned-file clobber). Highlights:
+- Shared useEscapeKey / usePanelFocus / useRouteFocus hooks; docked panels +
+  ResearchPanel close on Escape with focus-trap/return + mobile dialog
+  semantics; route-change focus to #main-content (never steals composer
+  autofocus); research tab-switch skeletons.
+- Composer Cmd/Ctrl+Enter + cheatsheet rows; clarifier digit-key selection
+  (guarded against composer input/modifiers).
+- Folder-create in-flight spinner + name retained on failure; mobile
+  file-preview Escape/dialog; shared EmptyState on sessions + file-search
+  zero-match; silent-clipboard toast.
+- Locale sweep finished: format-time (7 cards), format-file-size (all
+  consumers incl. the two co-owned panes done by orchestrator), budget-card
+  11 eur() sites.
+- Gate: tsc 0; full vitest 1734 passed / 3 skipped (from 1531 baseline;
+  +203 net new tests over the whole run).
+
+Remaining below the value bar / flagged (not done, by design): the LARGER
+deferred items (UX-9 citation presentation, UX-10 stale-frame recovery,
+UX-27 document delete, UX-28 server history sync, UX-13 embedding docs,
+UX-29..32 operator docs) and product/security decisions FLAG-1..5. A few
+marginal micro-transition/copy-affordance nits from the round-8 audit (chat
+message copy button, org-id copy, drag-overlay aria-live, dialog-cancel
+variant, members double-report, assorted AnimatePresence fades) are logged
+here as candidates but judged below the "damn, thoughtful" bar for this run —
+pick up in a future session if desired.
