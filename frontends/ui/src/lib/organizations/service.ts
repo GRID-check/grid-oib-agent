@@ -10,8 +10,10 @@ import 'server-only'
 import { eq } from 'drizzle-orm'
 import { getWorkOS } from '@/lib/workos/client'
 import { getDb } from '@/lib/db'
+import { getCached, invalidateCached } from '@/lib/cache'
 import { organizations, type Organization } from '@/lib/db/schema'
 import { recordAuditEvent } from '@/lib/audit/service'
+import { isOrgFeatureEnabled, WEB_SEARCH_FLAG } from '@/lib/workos/feature-flags'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { defaultLocale, isLocale, type Locale } from '@/i18n/config'
 
@@ -161,6 +163,35 @@ export async function updateOrgSettings(
   return next
 }
 
+const WEB_SEARCH_CACHE_TTL_MS = 30_000
+const webSearchCacheKey = (organizationId: string): string => `websearch:${organizationId}`
+
+/**
+ * Effective web-search availability for an org (ADR-0022) — read on every
+ * WS upgrade and by the `/api/v1/data_sources` proxy, so it is cached
+ * briefly (write-invalidated by `saveOrgSettings`). Two layers:
+ *
+ *  - Tenant layer: `settings.webSearchEnabled` (default TRUE — web search is
+ *    a core capability until an org admin turns it off).
+ *  - Platform layer: the WorkOS `web-search` flag, participating only when
+ *    `GRID_ENFORCE_FEATURE_FLAGS=true` (the flag must be provisioned first;
+ *    see docs/deployment/workos-provisioning.md).
+ *
+ * No org (anonymous deployments) = enabled.
+ */
+export async function isWebSearchEnabledForOrg(organizationId: string | null | undefined): Promise<boolean> {
+  if (!organizationId) return true
+  return getCached(webSearchCacheKey(organizationId), WEB_SEARCH_CACHE_TTL_MS, async () => {
+    const { settings } = await getOrgSettings(organizationId)
+    if (settings.webSearchEnabled === false) return false
+    const enforceFlags = (process.env.GRID_ENFORCE_FEATURE_FLAGS ?? '').toLowerCase() === 'true'
+    if (enforceFlags) {
+      return isOrgFeatureEnabled(WEB_SEARCH_FLAG, organizationId, false)
+    }
+    return true
+  })
+}
+
 /**
  * Update the caller's org settings and record the audit trail. The coarse
  * gate (`org:settings:manage`) is enforced at the route via `apiRoute`'s
@@ -172,6 +203,7 @@ export async function saveOrgSettings(
   request: Request,
 ): Promise<OrgSettings> {
   const settings = await updateOrgSettings(session.organizationId, patch)
+  await invalidateCached(webSearchCacheKey(session.organizationId))
   await recordAuditEvent({
     organizationId: session.organizationId,
     actor: { userId: session.userId, email: session.email },

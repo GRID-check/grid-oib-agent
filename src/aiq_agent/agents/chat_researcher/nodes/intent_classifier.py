@@ -126,8 +126,9 @@ class IntentClassifier:
             # mutated; the override yields a request-scoped model copy.
             from aiq_agent.common import AgentGroup
             from aiq_agent.common import apply_model_override
+            from aiq_agent.common import apply_org_credential
 
-            llm = apply_model_override(self.llm, AgentGroup.INTENT)
+            llm = apply_org_credential(apply_model_override(self.llm, AgentGroup.INTENT))
             response = await asyncio.wait_for(
                 llm.ainvoke(messages, config=config),
                 timeout=self.llm_timeout,

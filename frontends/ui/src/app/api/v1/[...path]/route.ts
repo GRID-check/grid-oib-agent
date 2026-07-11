@@ -38,6 +38,31 @@ import {
   validateCollectionName,
 } from '@/lib/proxy/collection-authz'
 import { buildProxyUrl } from '@/lib/proxy/proxy-request'
+import { isWebSearchEnabledForOrg } from '@/lib/organizations/service'
+
+/**
+ * Sources hidden from the org (ADR-0022). Applied to the `/v1/data_sources`
+ * listing so a disabled tool disappears from the picker; the hard gate is
+ * the `x-grid-disabled-sources` WS header + submit-time subtraction, so this
+ * filter is UX, not the security boundary. Fail-open: a settings lookup
+ * error must not break the listing.
+ */
+async function filterDataSourcesResponse(
+  path: string[],
+  organizationId: string | null | undefined,
+  data: unknown,
+): Promise<unknown> {
+  if (path.length !== 1 || path[0] !== 'data_sources' || !organizationId) return data
+  try {
+    if (await isWebSearchEnabledForOrg(organizationId)) return data
+  } catch {
+    return data
+  }
+  if (!Array.isArray(data)) return data
+  return data.filter(
+    (source) => !(source && typeof source === 'object' && (source as { id?: unknown }).id === 'web_search'),
+  )
+}
 
 const isRedirectError = (error: unknown): boolean => {
   return error instanceof Error && error.message === 'NEXT_REDIRECT'
@@ -105,7 +130,7 @@ export async function GET(
     }
 
     const data = await response.json()
-    return NextResponse.json(data)
+    return NextResponse.json(await filterDataSourcesResponse(path, session?.organizationId, data))
   } catch (error) {
     if (isRedirectError(error)) {
       throw error

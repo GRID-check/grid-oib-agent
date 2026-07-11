@@ -26,6 +26,10 @@ export const FEATURE_FLAGS = {
   deepResearch: 'deep-research',
   /** Command palette + global keyboard shortcuts (workspace polish). */
   keyboardShortcuts: 'keyboard-shortcuts',
+  /** Per-org BYOK LLM credentials via WorkOS Vault (ADR-0022) — enterprise tier. */
+  byokLlm: 'byok-llm',
+  /** Platform-layer web-search gate; tenant toggle lives in org settings (ADR-0022). */
+  webSearch: 'web-search',
 } as const
 
 export type KnownFeatureFlag = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]

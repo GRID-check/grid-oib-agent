@@ -50,6 +50,32 @@ const SCHEMAS = [
     },
   },
   {
+    action: 'llm_credential.created',
+    targets: [{ type: 'llm_credential' }],
+    metadata: { provider: 'openrouter', secretBackend: 'workos-vault', keyFingerprint: 'abc123' },
+  },
+  {
+    action: 'llm_credential.rotated',
+    targets: [{ type: 'llm_credential' }],
+    metadata: {
+      provider: 'openrouter',
+      secretBackend: 'workos-vault',
+      keyFingerprint: 'abc123',
+      supersededCredentialId: 'uuid',
+      rotatedFrom: 'uuid',
+    },
+  },
+  {
+    action: 'llm_credential.revoked',
+    targets: [{ type: 'llm_credential' }],
+    metadata: { provider: 'openrouter', keyFingerprint: 'abc123' },
+  },
+  {
+    action: 'llm_credential.verified',
+    targets: [{ type: 'llm_credential' }],
+    metadata: { provider: 'openrouter', modelCount: 42 },
+  },
+  {
     action: 'compliance.hold.created',
     targets: [{ type: 'legal_hold' }],
     metadata: { entityType: 'project', entityId: 'uuid' },

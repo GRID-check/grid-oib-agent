@@ -149,6 +149,37 @@ class LLMProvider:
             derived._llms[role] = _resolve(llm, self._groups.get(role))
         return derived
 
+    def with_credential(self, credential) -> "LLMProvider":
+        """Return a provider whose every LLM uses the org's BYOK credential.
+
+        Unlike model overrides, a credential applies to ALL groups — BYOK
+        re-points the whole tenant's traffic (ADR-0022). Returns ``self``
+        when there is no credential. LLM instances shared between roles are
+        rebuilt once (identity-deduped) so the derived provider preserves
+        the original sharing topology.
+        """
+        if credential is None:
+            return self
+
+        from aiq_agent.common.llm_credentials import apply_org_credential
+
+        rebuilt: dict[int, BaseChatModel] = {}
+
+        def _resolve(llm: BaseChatModel) -> BaseChatModel:
+            key = id(llm)
+            if key not in rebuilt:
+                rebuilt[key] = apply_org_credential(llm, credential)
+            return rebuilt[key]
+
+        derived = LLMProvider()
+        derived._groups = dict(self._groups)
+        derived._default_group = self._default_group
+        if self._default is not None:
+            derived._default = _resolve(self._default)
+        for role, llm in self._llms.items():
+            derived._llms[role] = _resolve(llm)
+        return derived
+
     def has_role(self, role: LLMRole) -> bool:
         """Check if a specific LLM is configured for a role."""
         return role in self._llms

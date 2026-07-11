@@ -108,8 +108,10 @@ delivered in the AuthKit JWT `feature_flags` claim (registry:
 |---|---|
 | `runtime-model-config` | Runtime AI model configuration (org page card + all 4 API routes) |
 | `deep-research` | Deep-research job submission (`POST /api/jobs/async/submit`) |
+| `byok-llm` | BYOK LLM credentials (ADR-0022): org page card, all `/api/organization/llm-credentials` routes, and the internal resolution endpoint (under enforcement) |
+| `web-search` | Platform-layer web-search gate (ADR-0022). Evaluated live per org at the WS upgrade (like `memory-reflection`), combined with the tenant's own `settings.webSearchEnabled` toggle |
 
-Rollout order (per environment): 1) create both flags in the WorkOS
+Rollout order (per environment): 1) create the flags in the WorkOS
 dashboard (Feature Flags — flag create/update events are covered by
 WorkOS's own event log), 2) target the organizations that should have them
 (dashboard, or `workos.featureFlags.addFlagTarget({ slug, targetId:
@@ -135,8 +137,13 @@ Via the WorkOS dashboard (or the management API):
 6. Add the production web origin to AuthKit CORS and redirect URIs.
 7. Provision the Audit Log schemas: `WORKOS_API_KEY=<prod key> npm run
    provision:audit-schemas` (from `frontends/ui`).
-8. Create the two feature flags (§6), target the intended orgs, then set
+8. Create the feature flags (§6), target the intended orgs, then set
    `GRID_ENFORCE_FEATURE_FLAGS=true`.
+9. BYOK (ADR-0022): WorkOS Vault needs no per-environment setup — objects
+   are created lazily under each org's key context. Enterprise tenants
+   wanting customer-managed KEKs (Vault BYOK: AWS KMS / Azure Key Vault /
+   GCP KMS) enable it per organization with WorkOS support; no Grid change
+   is required.
 
 Bootstrap alternative: set `GRID_PLATFORM_OWNER_EMAILS=<owner email>` until
 steps 3–5 are done, then clear it.
