@@ -86,6 +86,8 @@ export const organization: typeof en.organization = {
     activateError: 'Diese Version konnte nicht aktiviert werden.',
     useDefaults: 'Overrides deaktivieren (Workflow-Standards verwenden)',
     loadError: 'Die Modellkonfiguration konnte nicht geladen werden.',
+    byokCatalogHint:
+      'Ihr Organisationsschlüssel ({provider}) ist aktiv: Die Auswahl zeigt die Modelle, die IHR Provider-Konto anbietet, und der gesamte Traffic wird darüber abgerechnet. Wird der Schlüssel entfernt, gilt wieder der Plattformkatalog.',
   },
   byok: {
     title: 'LLM-API-Schlüssel (BYOK)',

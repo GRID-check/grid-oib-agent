@@ -84,6 +84,8 @@ export const organization = {
     activateError: 'Could not activate this version.',
     useDefaults: 'Deactivate overrides (use workflow defaults)',
     loadError: 'Could not load the model configuration.',
+    byokCatalogHint:
+      'Your organization key ({provider}) is active: the picker lists the models available to YOUR provider account, and all traffic is billed to it. Removing the key switches back to the platform catalog.',
   },
   byok: {
     title: 'LLM API key (BYOK)',
