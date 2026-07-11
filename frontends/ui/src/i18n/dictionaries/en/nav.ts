@@ -11,6 +11,7 @@ export const nav = {
     overview: 'Overview',
     chat: 'Chat',
     files: 'Files',
+    knowledge: 'Knowledge',
     research: 'Research',
     members: 'Members',
   },

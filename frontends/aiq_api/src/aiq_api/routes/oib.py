@@ -14,6 +14,8 @@ from fastapi import Header
 from fastapi import HTTPException
 from fastapi import status
 
+from aiq_agent.oib_status import OibKnowledgeStatus
+
 from ..models.requests import OibSyncResponse
 
 logger = logging.getLogger(__name__)
@@ -33,6 +35,13 @@ def _run_ingestion() -> tuple[int, int]:
     from aiq_agent.oib_sync import sync
 
     return sync()
+
+
+def _compute_status():
+    # Import here to avoid heavy imports at module load time.
+    from aiq_agent.oib_status import get_status
+
+    return get_status()
 
 
 def add_oib_routes(router: APIRouter) -> None:
@@ -57,4 +66,23 @@ def add_oib_routes(router: APIRouter) -> None:
             )
         except Exception as e:
             logger.exception("OIB sync failed")
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)) from e
+
+    @router.get(
+        "/v1/oib/status",
+        response_model=OibKnowledgeStatus,
+        tags=["oib"],
+        summary="Report exactly which OIB documents the knowledge base has indexed",
+    )
+    async def get_oib_status() -> OibKnowledgeStatus:
+        """Merged per-file view of the OIB corpus (disk vs. registry vs. index).
+
+        Read-only and unprivileged on purpose: it powers the user-facing
+        knowledge-base transparency panel. Runs on a worker thread because it
+        hashes corpus files and queries the vector store.
+        """
+        try:
+            return await asyncio.to_thread(_compute_status)
+        except Exception as e:
+            logger.exception("OIB status failed")
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)) from e
