@@ -60,10 +60,12 @@ const ProjectChatContent = ({ projectId }: { projectId: string }): ReactNode => 
 
     // Remove ?ask= (preserving any other params, e.g. ?job=) without adding a
     // history entry.
-    const params = new URLSearchParams(searchParams?.toString() ?? '')
-    params.delete('ask')
-    const query = params.toString()
-    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false })
+    if (pathname) {
+      const params = new URLSearchParams(searchParams?.toString() ?? '')
+      params.delete('ask')
+      const query = params.toString()
+      router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false })
+    }
   }, [askPrefill, searchParams, pathname, router, setComposerPrefill])
 
   useEffect(() => {

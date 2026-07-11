@@ -48,7 +48,8 @@ export function useSessionUrl({ isAuthenticated }: UseSessionUrlOptions): UseSes
   // Read session from URL on mount and select it
   // Wait for both isAuthenticated AND currentUserId to be set (user ID is synced by chat hooks)
   useEffect(() => {
-    if (!isAuthenticated || !currentUserId || !searchParams || initialSyncDone.current) return
+    if (!isAuthenticated || !currentUserId || !searchParams || !pathname || initialSyncDone.current)
+      return
 
     const sessionId = searchParams.get('session')
     if (!sessionId) {
@@ -84,7 +85,8 @@ export function useSessionUrl({ isAuthenticated }: UseSessionUrlOptions): UseSes
 
   // Update URL when current conversation changes (but not on initial load)
   useEffect(() => {
-    if (!isAuthenticated || !currentUserId || !searchParams || !initialSyncDone.current) return
+    if (!isAuthenticated || !currentUserId || !searchParams || !pathname || !initialSyncDone.current)
+      return
 
     const urlSessionId = searchParams.get('session')
     const currentSessionId = currentConversation?.id
@@ -106,6 +108,7 @@ export function useSessionUrl({ isAuthenticated }: UseSessionUrlOptions): UseSes
   // Manual URL update function
   const updateSessionUrl = useCallback(
     (sessionId: string | null) => {
+      if (!pathname) return
       const currentParams = searchParams?.toString() ?? ''
       const newParams = new URLSearchParams(currentParams)
 
