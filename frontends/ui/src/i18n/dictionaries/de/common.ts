@@ -26,6 +26,7 @@ export const common: typeof en.common = {
     saved: 'Gespeichert',
     error: 'Etwas ist schiefgelaufen',
     empty: 'Noch nichts vorhanden',
+    copyFailed: 'Kopieren nicht möglich',
   },
   theme: {
     label: 'Design',

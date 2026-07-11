@@ -34,6 +34,7 @@ export const files = {
     retryIngestion: 'Retry ingestion',
     retryingIngestion: 'Retrying…',
     retryIngestionError: "Ingestion couldn't be restarted. Please try again.",
+    dialogLabel: 'File preview: {name}',
   },
   browser: {
     folderEmptyTitle: 'This folder is empty',
@@ -44,11 +45,14 @@ export const files = {
     searchPlaceholder: 'Search files...',
     searchLabel: 'Search files',
     noMatch: 'No files match “{query}”',
+    noMatchDescription: 'Try a different name, or clear the search to see every file.',
+    clearSearch: 'Clear search',
   },
   folders: {
     heading: 'Folders',
     namePlaceholder: 'Folder name',
     newFolderName: 'New folder name',
+    creating: 'Creating folder…',
     addSubfolderIn: 'Add subfolder in {name}',
     addSubfolder: 'Add subfolder',
     allFiles: 'All Files',

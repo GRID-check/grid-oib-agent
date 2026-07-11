@@ -29,6 +29,7 @@ import {
   Trash2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { EmptyState } from '@/components/ui/empty-state'
 import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/utils'
 import { motion, fadeRise, staggerParent, springGentle } from '@/components/motion'
@@ -285,13 +286,25 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
 
         {isEmptyState && (
           <div className="flex flex-1 flex-col items-center justify-center py-8">
-            <span className="text-sm text-muted-foreground">
-              {searchQuery.trim() ? t('sessionsPanel.noMatching') : t('sessionsPanel.noSessions')}
-            </span>
-            {!searchQuery.trim() && (
-              <Button variant="outline" size="sm" onClick={handleNewSession} className="mt-4">
-                {t('sessionsPanel.startNewSessionButton')}
-              </Button>
+            {searchQuery.trim() ? (
+              <EmptyState
+                variant="bare"
+                icon={MessageSquare}
+                title={t('sessionsPanel.noMatching')}
+                description={t('sessionsPanel.noMatchingDescription')}
+              />
+            ) : (
+              <EmptyState
+                variant="bare"
+                icon={MessageSquare}
+                title={t('sessionsPanel.noSessions')}
+                description={t('sessionsPanel.noSessionsDescription')}
+                action={
+                  <Button variant="outline" size="sm" onClick={handleNewSession}>
+                    {t('sessionsPanel.startNewSessionButton')}
+                  </Button>
+                }
+              />
             )}
           </div>
         )}

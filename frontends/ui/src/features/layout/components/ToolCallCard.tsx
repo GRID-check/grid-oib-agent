@@ -14,7 +14,8 @@ import { type FC, useState } from 'react'
 import { Check, ChevronDown, Clock, X } from 'lucide-react'
 import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/utils'
-import { useTranslations } from '@/i18n'
+import { useLocale, useTranslations } from '@/i18n'
+import { formatTime } from '@/shared/utils/format-time'
 
 /** Tool call information from SSE events */
 export interface ToolCallInfo {
@@ -39,14 +40,6 @@ export interface ToolCallInfo {
 interface ToolCallCardProps {
   /** Tool call information */
   toolCall: ToolCallInfo
-}
-
-/**
- * Format timestamp for display
- */
-const formatTime = (date: Date | string): string => {
-  const dateObj = typeof date === 'string' ? new Date(date) : date
-  return dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
 /**
@@ -82,6 +75,7 @@ const getPreviewText = (toolCall: ToolCallInfo): string => {
 export const ToolCallCard: FC<ToolCallCardProps> = ({ toolCall }) => {
   const [isExpanded, setIsExpanded] = useState(false)
   const t = useTranslations('research')
+  const { locale } = useLocale()
 
   const isRunning = toolCall.status === 'running'
   const isComplete = toolCall.status === 'complete'
@@ -143,7 +137,7 @@ export const ToolCallCard: FC<ToolCallCardProps> = ({ toolCall }) => {
           {/* Timestamp */}
           {toolCall.timestamp && (
             <span className="shrink-0 text-xs text-muted-foreground">
-              {formatTime(toolCall.timestamp)}
+              {formatTime(toolCall.timestamp, locale)}
             </span>
           )}
 

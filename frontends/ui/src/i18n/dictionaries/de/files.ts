@@ -38,6 +38,7 @@ export const files: typeof en.files = {
     retryingIngestion: 'Wird erneut gestartet …',
     retryIngestionError:
       'Die Verarbeitung konnte nicht erneut gestartet werden. Bitte versuchen Sie es erneut.',
+    dialogLabel: 'Dateivorschau: {name}',
   },
   browser: {
     folderEmptyTitle: 'Dieser Ordner ist leer',
@@ -49,11 +50,15 @@ export const files: typeof en.files = {
     searchPlaceholder: 'Dateien durchsuchen …',
     searchLabel: 'Dateien durchsuchen',
     noMatch: 'Keine Dateien entsprechen „{query}“',
+    noMatchDescription:
+      'Versuchen Sie einen anderen Namen oder löschen Sie die Suche, um alle Dateien zu sehen.',
+    clearSearch: 'Suche zurücksetzen',
   },
   folders: {
     heading: 'Ordner',
     namePlaceholder: 'Ordnername',
     newFolderName: 'Name des neuen Ordners',
+    creating: 'Ordner wird erstellt …',
     addSubfolderIn: 'Unterordner in {name} hinzufügen',
     addSubfolder: 'Unterordner hinzufügen',
     allFiles: 'Alle Dateien',

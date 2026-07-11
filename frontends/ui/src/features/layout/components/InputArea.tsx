@@ -386,10 +386,14 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault()
-        handleSubmit()
-      }
+      if (e.key !== 'Enter') return
+      // Shift+Enter inserts a newline — let the textarea handle it natively.
+      if (e.shiftKey) return
+      // Plain Enter sends; Cmd/Ctrl+Enter also sends as a discoverable power
+      // binding. Both funnel through a single handleSubmit call (no double-fire),
+      // and handleSubmit enforces the disabled/streaming/HITL guards.
+      e.preventDefault()
+      handleSubmit()
     },
     [handleSubmit]
   )

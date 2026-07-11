@@ -20,10 +20,13 @@ export const shortcuts: typeof en.shortcuts = {
     title: 'Tastaturkürzel',
     description: 'Grid bedienen, ohne die Tastatur zu verlassen.',
     thenSeparator: 'dann',
+    orSeparator: 'oder',
     items: {
       palette: 'Befehlspalette öffnen',
       cheatsheet: 'Diese Übersicht anzeigen',
       projects: 'Zu Ihren Projekten wechseln',
+      sendMessage: 'Nachricht senden',
+      newLine: 'Neue Zeile',
     },
     disableHint: 'Tastaturkürzel lassen sich in den Profileinstellungen deaktivieren.',
   },

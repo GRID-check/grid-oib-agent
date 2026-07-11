@@ -12,11 +12,14 @@
 
 'use client'
 
-import { type FC, type ReactNode } from 'react'
+import { type FC, type ReactNode, useCallback, useRef } from 'react'
 import { X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { useIsMobile } from '@/hooks/use-is-mobile'
 import { useTranslations } from '@/i18n'
+import { useEscapeKey } from '@/shared/hooks/use-escape-key'
+import { usePanelFocus } from '@/shared/hooks/use-panel-focus'
 
 interface DockedPanelProps {
   /** Whether the panel is open */
@@ -56,10 +59,32 @@ export const DockedPanel: FC<DockedPanelProps> = ({
   children,
 }) => {
   const t = useTranslations('research')
+  const isMobile = useIsMobile()
+  const closeButtonRef = useRef<HTMLButtonElement>(null)
+
+  // On open, move focus to the close button; remember the opener so Escape can
+  // return focus to it. Hooks must run unconditionally, so this precedes the
+  // early return below.
+  const { restoreFocus } = usePanelFocus(open, closeButtonRef)
+
+  const handleEscape = useCallback(() => {
+    restoreFocus()
+    onClose()
+  }, [restoreFocus, onClose])
+
+  // Escape closes the panel; the listener is inert (and unregistered) while
+  // the panel is closed.
+  useEscapeKey(open, handleEscape)
+
   if (!open && !forceMount) return null
 
   return (
     <aside
+      role="dialog"
+      // Full-screen on mobile, where the panel covers the page and behaves
+      // modally; on desktop it docks beside still-usable content, so it is a
+      // non-modal dialog.
+      aria-modal={isMobile}
       aria-label={ariaLabel}
       aria-hidden={!open}
       data-state={open ? 'open' : 'closed'}
@@ -79,6 +104,7 @@ export const DockedPanel: FC<DockedPanelProps> = ({
       <div className="flex h-14 shrink-0 items-center justify-between gap-2 border-b px-4">
         <div className="flex min-w-0 items-center gap-2 text-sm font-semibold">{heading}</div>
         <Button
+          ref={closeButtonRef}
           variant="ghost"
           size="icon"
           className="size-8"

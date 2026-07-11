@@ -9,8 +9,10 @@
 'use client'
 
 import { type FC, useMemo, useState } from 'react'
+import { toast } from 'sonner'
 import { Check, ChevronDown, ChevronUp, Copy } from 'lucide-react'
 import { AnimatePresence, motion, springSnappy } from '@/components/motion'
+import { useTranslations } from '@/i18n'
 
 export interface CodeBlockProps {
   /** Raw code content to display */
@@ -32,6 +34,7 @@ export const CodeBlock: FC<CodeBlockProps> = ({
   maxLines = 15,
   className = '',
 }) => {
+  const t = useTranslations('common')
   const [copied, setCopied] = useState(false)
   const [expanded, setExpanded] = useState(false)
 
@@ -45,7 +48,9 @@ export const CodeBlock: FC<CodeBlockProps> = ({
       setCopied(true)
       window.setTimeout(() => setCopied(false), 1500)
     } catch {
-      // Clipboard API unavailable — silently ignore
+      // Clipboard API unavailable or blocked (e.g. insecure context, denied
+      // permission) — surface the failure instead of swallowing it silently.
+      toast.error(t('states.copyFailed'))
     }
   }
 

@@ -125,6 +125,17 @@ describe('SessionsPanel', () => {
     expect(screen.getByRole('button', { name: /start a new session/i })).toBeInTheDocument()
   })
 
+  test('shows the search-specific empty state (no CTA) when a query matches nothing', async () => {
+    const user = userEvent.setup()
+    render(<SessionsPanel sessions={mockSessions} />)
+
+    await user.type(screen.getByRole('textbox', { name: /search sessions/i }), 'zzzzz')
+
+    expect(screen.getByText('No matching sessions')).toBeInTheDocument()
+    // The start-new-session CTA belongs to the no-sessions state, not search.
+    expect(screen.queryByRole('button', { name: /start a new session/i })).not.toBeInTheDocument()
+  })
+
   test('calls onNewSession when new session button clicked', async () => {
     const user = userEvent.setup()
     const onNewSession = vi.fn()

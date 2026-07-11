@@ -17,7 +17,8 @@ import { Check, ChevronDown, Clock, FileText, Pencil, Search, Wand2, X } from 'l
 import { Checkbox } from '@/components/ui/checkbox'
 import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/utils'
-import { useTranslations } from '@/i18n'
+import { useLocale, useTranslations } from '@/i18n'
+import { formatTime } from '@/shared/utils/format-time'
 import type { DeepResearchToolCall } from '@/features/chat/types'
 
 /** Maximum characters for truncated query display */
@@ -89,14 +90,6 @@ const getToolIcon = (toolType: ToolType) => {
 }
 
 /**
- * Format timestamp for display
- */
-const formatTime = (date: Date | string): string => {
-  const dateObj = typeof date === 'string' ? new Date(date) : date
-  return dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-}
-
-/**
  * Get the query/description from tool call input, with truncation
  */
 const getToolCallDescription = (toolCall: DeepResearchToolCall, truncate = true): string => {
@@ -150,6 +143,7 @@ const dedupeToolCalls = (toolCalls: DeepResearchToolCall[]): DeepResearchToolCal
 export const AgentCard: FC<AgentCardProps> = ({ agent, defaultExpanded = true }) => {
   const [isExpanded, setIsExpanded] = useState(defaultExpanded)
   const t = useTranslations('research')
+  const { locale } = useLocale()
 
   const isRunning = agent.status === 'running'
   const isComplete = agent.status === 'complete'
@@ -222,11 +216,11 @@ export const AgentCard: FC<AgentCardProps> = ({ agent, defaultExpanded = true })
           {/* Timestamp */}
           {agent.completedAt ? (
             <span className="shrink-0 text-xs text-muted-foreground">
-              {formatTime(agent.completedAt)}
+              {formatTime(agent.completedAt, locale)}
             </span>
           ) : agent.startedAt ? (
             <span className="shrink-0 text-xs text-muted-foreground">
-              {t('agentCard.started', { time: formatTime(agent.startedAt) })}
+              {t('agentCard.started', { time: formatTime(agent.startedAt, locale) })}
             </span>
           ) : null}
 

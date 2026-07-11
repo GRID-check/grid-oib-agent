@@ -18,10 +18,13 @@ export const shortcuts = {
     title: 'Keyboard shortcuts',
     description: 'Navigate Grid without leaving the keyboard.',
     thenSeparator: 'then',
+    orSeparator: 'or',
     items: {
       palette: 'Open the command palette',
       cheatsheet: 'Show this overview',
       projects: 'Go to your projects',
+      sendMessage: 'Send message',
+      newLine: 'New line',
     },
     disableHint: 'You can turn shortcuts off in your profile settings.',
   },

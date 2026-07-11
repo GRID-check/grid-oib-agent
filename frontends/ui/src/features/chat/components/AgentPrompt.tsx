@@ -10,10 +10,10 @@
 
 'use client'
 
-import { type FC, useCallback } from 'react'
+import { type FC, useCallback, useEffect } from 'react'
 import { MessageSquare } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { useTranslations } from '@/i18n'
+import { useLocale, useTranslations } from '@/i18n'
 import { formatTime } from '@/shared/utils/format-time'
 import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
 import { useChatStore } from '../store'
@@ -61,6 +61,7 @@ export const AgentPrompt: FC<AgentPromptProps> = ({
   timestamp,
 }) => {
   const t = useTranslations('chat')
+  const { locale } = useLocale()
   const respondToInteractionFn = useChatStore((state) => state.respondToInteractionFn)
   const isApprovalPrompt = APPROVAL_PROMPT_RE.test(content)
   const showApprovalButtons = isApprovalPrompt && !isResponded && !!respondToInteractionFn
@@ -124,7 +125,7 @@ export const AgentPrompt: FC<AgentPromptProps> = ({
         {/* Timestamp outside bubble, right-aligned */}
         {timestamp && (
           <span className="text-subtle mr-3 mt-1 self-end text-xs">
-            {formatTime(timestamp)}
+            {formatTime(timestamp, locale)}
           </span>
         )}
       </div>
@@ -137,12 +138,44 @@ export const AgentPrompt: FC<AgentPromptProps> = ({
  * is a focusable button that submits that option as the interaction answer on
  * click or Enter/Space — matching the immediate-submit behaviour of the inline
  * approve/reject buttons. Without a callback the options fall back to read-only.
+ *
+ * Digit keys 1–9 also select the matching option, making the numeric prefixes
+ * shown on each row real shortcuts. The listener is deliberately scoped so it
+ * can never hijack digits meant for another control: it bails when focus is in
+ * an editable element (the composer, any input/textarea/contenteditable) and
+ * when a modifier is held (so e.g. ⌘1 / Ctrl+1 still switches browser tabs).
+ * Only the active, unresponded choice prompt mounts this list with a callback,
+ * so at most one such listener is live at a time.
  */
 const OptionsList: FC<{
   options: string[]
   onSelect?: ((response: string) => void) | null
 }> = ({ options, onSelect }) => {
   const t = useTranslations('chat')
+
+  useEffect(() => {
+    if (!onSelect) return
+    const handleDigit = (e: globalThis.KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      const active = document.activeElement
+      if (
+        active instanceof HTMLInputElement ||
+        active instanceof HTMLTextAreaElement ||
+        active instanceof HTMLSelectElement ||
+        (active instanceof HTMLElement && active.isContentEditable)
+      ) {
+        return
+      }
+      if (!/^[1-9]$/.test(e.key)) return
+      const index = Number(e.key) - 1
+      if (index >= options.length) return
+      e.preventDefault()
+      onSelect(options[index])
+    }
+    document.addEventListener('keydown', handleDigit)
+    return () => document.removeEventListener('keydown', handleDigit)
+  }, [options, onSelect])
+
   return (
     <div className="flex flex-col gap-1">
       {options.map((option, index) => {

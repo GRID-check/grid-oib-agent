@@ -79,6 +79,26 @@ export function ShortcutsCheatsheet({ open, onOpenChange }: ShortcutsCheatsheetP
               </>
             }
           />
+          <ShortcutRow
+            label={t('items.sendMessage')}
+            keys={
+              <>
+                <Key>Enter</Key>
+                <span className="text-xs text-muted-foreground">{t('orSeparator')}</span>
+                <Key>{mod}</Key>
+                <Key>Enter</Key>
+              </>
+            }
+          />
+          <ShortcutRow
+            label={t('items.newLine')}
+            keys={
+              <>
+                <Key>Shift</Key>
+                <Key>Enter</Key>
+              </>
+            }
+          />
         </div>
         <p className="text-xs text-muted-foreground">{t('disableHint')}</p>
       </DialogContent>

@@ -7,6 +7,7 @@ import { getNavFlags } from '@/lib/authz/nav'
 import { getDb } from '@/lib/db'
 import { projects } from '@/lib/db/schema'
 import { AppSidebar } from '@/components/shell'
+import { RouteFocus } from '@/shared/components/route-focus'
 
 const isAuthRequired = (): boolean => process.env.REQUIRE_AUTH?.toLowerCase() === 'true'
 
@@ -87,7 +88,14 @@ export default async function ProjectLayout({ children, params }: ProjectLayoutP
         canViewOrganization={navFlags.canViewOrganization}
         canManagePlatform={navFlags.canManagePlatform}
       />
-      <main id="main-content" className="min-w-0 flex-1 overflow-y-auto bg-background">
+      {/* tabIndex={-1} makes the landmark programmatically focusable so
+          RouteFocus can move focus here on client-side section changes. */}
+      <main
+        id="main-content"
+        tabIndex={-1}
+        className="min-w-0 flex-1 overflow-y-auto bg-background outline-none"
+      >
+        <RouteFocus />
         {children}
       </main>
     </div>

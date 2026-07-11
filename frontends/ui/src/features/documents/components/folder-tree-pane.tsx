@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import type { FolderItem } from './project-file-workspace'
-import { Folder, FolderOpen, Plus } from 'lucide-react'
+import { Folder, FolderOpen, Loader2, Plus } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useTranslations } from '@/i18n'
@@ -31,6 +31,10 @@ export function FolderTreePane({
   const t = useTranslations('files')
   const [createTarget, setCreateTarget] = useState<CreateTarget>(undefined)
   const [newFolderName, setNewFolderName] = useState('')
+  // In-flight signal for the create request. While true the input row stays
+  // visible but disabled with a spinner; on failure we keep the row open with
+  // the typed name intact so the user doesn't have to retype it.
+  const [isCreating, setIsCreating] = useState(false)
 
   const rootFolders = useMemo(() => folders.filter((f) => f.parentId === null), [folders])
 
@@ -42,18 +46,26 @@ export function FolderTreePane({
   }
 
   const cancelCreate = () => {
+    if (isCreating) return
     setCreateTarget(undefined)
     setNewFolderName('')
   }
 
   const handleCreate = async () => {
-    if (!newFolderName.trim()) return
+    const name = newFolderName.trim()
+    if (!name || isCreating) return
     const parentId = createTarget ?? undefined
-    setCreateTarget(undefined)
-    const ok = await onCreateFolder(newFolderName.trim(), parentId)
+    // Keep the input row mounted and disabled while the request is in flight.
+    setIsCreating(true)
+    const ok = await onCreateFolder(name, parentId)
+    setIsCreating(false)
     if (ok) {
+      // Success: clear and close the input row.
       setNewFolderName('')
+      setCreateTarget(undefined)
     }
+    // Failure: leave createTarget + newFolderName untouched so the row stays
+    // open with the entered name (the workspace surfaces the error toast).
   }
 
   const rowClass = (active: boolean) =>
@@ -63,21 +75,32 @@ export function FolderTreePane({
 
   const renderCreateInput = (depth: number) => (
     <div key={`create-${createTarget ?? 'root'}`} className="px-1 pt-1" style={{ paddingLeft: `${8 + depth * 14}px` }}>
-      <Input
-        autoFocus
-        value={newFolderName}
-        onChange={(e) => setNewFolderName(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') handleCreate()
-          if (e.key === 'Escape') cancelCreate()
-        }}
-        onBlur={() => {
-          if (!newFolderName.trim()) cancelCreate()
-        }}
-        placeholder={t('folders.namePlaceholder')}
-        aria-label={t('folders.newFolderName')}
-        className="h-8"
-      />
+      <div className="relative">
+        <Input
+          autoFocus
+          value={newFolderName}
+          onChange={(e) => setNewFolderName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') handleCreate()
+            if (e.key === 'Escape') cancelCreate()
+          }}
+          onBlur={() => {
+            if (!isCreating && !newFolderName.trim()) cancelCreate()
+          }}
+          disabled={isCreating}
+          placeholder={t('folders.namePlaceholder')}
+          aria-label={t('folders.newFolderName')}
+          aria-busy={isCreating}
+          className="h-8 pr-8"
+        />
+        {isCreating && (
+          <Loader2
+            className="absolute right-2 top-1/2 size-4 -translate-y-1/2 animate-spin text-muted-foreground"
+            aria-label={t('folders.creating')}
+            role="status"
+          />
+        )}
+      </div>
     </div>
   )
 

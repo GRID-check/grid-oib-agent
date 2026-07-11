@@ -1,8 +1,15 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { http, HttpResponse } from 'msw'
+import { server } from '@/mocks/server'
 import { ProjectFileWorkspace } from './project-file-workspace'
 
 const mockUploadFiles = vi.fn()
+
+// Force the mobile presentation so the preview renders as a full-screen dialog.
+vi.mock('@/hooks/use-is-mobile', () => ({
+  useIsMobile: () => true,
+}))
 
 vi.mock('../hooks/use-project-documents', () => ({
   useProjectDocuments: vi.fn().mockImplementation(() => ({
@@ -91,5 +98,49 @@ describe('ProjectFileWorkspace', () => {
     fireEvent.drop(dropzone, { dataTransfer })
     // Same contract as the button: files still flow to uploadFiles, which validates.
     expect(mockUploadFiles).toHaveBeenCalledWith([badFile])
+  })
+})
+
+describe('ProjectFileWorkspace — mobile preview overlay', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    server.use(
+      http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: [] })),
+      http.get('/api/documents', () =>
+        HttpResponse.json({
+          documents: [
+            {
+              id: 'doc-1',
+              filename: 'notes.txt',
+              fileSize: 128,
+              contentType: 'text/plain',
+              status: 'ready',
+              folderId: null,
+              createdAt: '2026-01-01T00:00:00Z',
+              errorMessage: null,
+            },
+          ],
+        })
+      )
+    )
+  })
+
+  it('renders the preview as a labelled modal dialog and closes on Escape', async () => {
+    render(
+      <ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />
+    )
+
+    // Open the preview by selecting the loaded file.
+    const fileRow = await screen.findByRole('button', { name: /notes\.txt/i })
+    fireEvent.click(fileRow)
+
+    // Mobile overlay exposes dialog semantics with an accessible name.
+    const dialog = await screen.findByRole('dialog')
+    expect(dialog).toHaveAttribute('aria-modal', 'true')
+    expect(dialog).toHaveAttribute('aria-label', 'File preview: notes.txt')
+
+    // Escape closes the overlay.
+    fireEvent.keyDown(document, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
   })
 })

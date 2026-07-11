@@ -17,7 +17,8 @@ import { ChevronDown, MessageSquare } from 'lucide-react'
 import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/utils'
 import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
-import { useTranslations } from '@/i18n'
+import { useLocale, useTranslations } from '@/i18n'
+import { formatTime } from '@/shared/utils/format-time'
 
 /** Thought trace information from SSE events */
 export interface ThoughtInfo {
@@ -48,14 +49,6 @@ interface ThoughtCardProps {
 }
 
 /**
- * Format timestamp for display
- */
-const formatTime = (date: Date | string): string => {
-  const dateObj = typeof date === 'string' ? new Date(date) : date
-  return dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-}
-
-/**
  * Get preview text for collapsed state (prioritize thinking content)
  */
 const getPreviewText = (thought: ThoughtInfo): string => {
@@ -70,6 +63,7 @@ const getPreviewText = (thought: ThoughtInfo): string => {
 export const ThoughtCard: FC<ThoughtCardProps> = ({ thought }) => {
   const [isExpanded, setIsExpanded] = useState(false)
   const t = useTranslations('research')
+  const { locale } = useLocale()
 
   const previewText = getPreviewText(thought)
   const hasPreview = previewText.length > 0
@@ -129,7 +123,7 @@ export const ThoughtCard: FC<ThoughtCardProps> = ({ thought }) => {
           {/* Timestamp - only shown when not streaming */}
           {!thought.isStreaming && thought.timestamp && (
             <span className="shrink-0 text-xs text-muted-foreground">
-              {formatTime(thought.timestamp)}
+              {formatTime(thought.timestamp, locale)}
             </span>
           )}
 

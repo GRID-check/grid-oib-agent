@@ -92,6 +92,9 @@ describe('KeyboardShortcuts', () => {
     expect(await screen.findByText('Keyboard shortcuts')).toBeInTheDocument()
     expect(screen.getByText('Open the command palette')).toBeInTheDocument()
     expect(screen.getByText('Go to your projects')).toBeInTheDocument()
+    // Composer rows document the send / newline bindings.
+    expect(screen.getByText('Send message')).toBeInTheDocument()
+    expect(screen.getByText('New line')).toBeInTheDocument()
   })
 
   test('g then p navigates to the projects list', async () => {

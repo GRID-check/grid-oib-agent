@@ -6,7 +6,7 @@ import type { FileItem } from './project-file-workspace'
 import { AlertCircle, Download, FileQuestion, RotateCcw, X } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
-import { useTranslations } from '@/i18n'
+import { useLocale, useTranslations } from '@/i18n'
 import { formatFileSize } from '@/lib/utils/format-file-size'
 import { DocumentStatusBadge, fileTypeIcon } from './document-status'
 
@@ -22,6 +22,7 @@ const PREVIEW_TYPES = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg'
 
 export function FilePreviewPane({ file, onClose, onReingested }: FilePreviewPaneProps) {
   const t = useTranslations('files')
+  const { locale } = useLocale()
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [previewFailed, setPreviewFailed] = useState(false)
@@ -149,7 +150,7 @@ export function FilePreviewPane({ file, onClose, onReingested }: FilePreviewPane
           <span className="font-mono text-xs text-foreground">{file.contentType ?? t('preview.unknownType')}</span>
         </MetaRow>
         <MetaRow label={t('preview.size')}>
-          <span className="text-xs font-medium tabular-nums text-foreground">{formatFileSize(file.fileSize)}</span>
+          <span className="text-xs font-medium tabular-nums text-foreground">{formatFileSize(file.fileSize, locale)}</span>
         </MetaRow>
       </div>
 

@@ -13,6 +13,7 @@ import { ActiveUploads } from './active-uploads'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { useTranslations } from '@/i18n'
+import { useIsMobile } from '@/hooks/use-is-mobile'
 import { cn } from '@/lib/utils'
 
 interface ProjectFileWorkspaceProps {
@@ -142,6 +143,26 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName }:
   )
 
   const selectedFile = files.find((f) => f.id === selectedFileId) ?? null
+
+  // On mobile the preview is a full-screen overlay: give it dialog semantics and
+  // Escape-to-close. The desktop (md+) docked panel keeps its plain-column
+  // presentation. useIsMobile tracks Tailwind's `md` breakpoint at runtime.
+  const isMobile = useIsMobile()
+  const showMobilePreviewDialog = isMobile && selectedFile !== null
+  const previousFocusRef = useRef<HTMLElement | null>(null)
+  useEffect(() => {
+    if (!showMobilePreviewDialog) return
+    // Remember the file row that opened the overlay so focus can return to it.
+    previousFocusRef.current = document.activeElement as HTMLElement | null
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setSelectedFileId(null)
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('keydown', onKeyDown)
+      previousFocusRef.current?.focus?.()
+    }
+  }, [showMobilePreviewDialog])
 
   // After a successful re-ingestion the document is back to 'pending'; reflect
   // that locally so the badge flips to "Processing" and the dead-end failure UI
@@ -315,7 +336,16 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName }:
 
         {/* Preview pane — full-screen overlay on mobile, docked column on md+ */}
         {selectedFile && (
-          <div className="fixed inset-0 z-50 w-full shrink-0 overflow-y-auto bg-background pt-[env(safe-area-inset-top)] md:static md:z-auto md:w-96 md:border-l md:pt-0">
+          <div
+            className="fixed inset-0 z-50 w-full shrink-0 overflow-y-auto bg-background pt-[env(safe-area-inset-top)] md:static md:z-auto md:w-96 md:border-l md:pt-0"
+            {...(showMobilePreviewDialog
+              ? {
+                  role: 'dialog',
+                  'aria-modal': true,
+                  'aria-label': t('preview.dialogLabel', { name: selectedFile.filename }),
+                }
+              : {})}
+          >
             <FilePreviewPane
               file={selectedFile}
               projectId={projectId}

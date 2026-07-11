@@ -157,7 +157,7 @@ export function ProjectOverview({ data, canManageProject = false }: ProjectOverv
             <HardDrive className="size-4" aria-hidden />
           </div>
           <p className="mt-4 text-2xl font-semibold tracking-tight tabular-nums">
-            {formatFileSize(data.totalFileSize)}
+            {formatFileSize(data.totalFileSize, locale)}
           </p>
           <p className="mt-0.5 text-sm text-muted-foreground">{t('overview.stats.totalSize')}</p>
         </div>
@@ -198,7 +198,7 @@ export function ProjectOverview({ data, canManageProject = false }: ProjectOverv
                   <FileText className="size-4 shrink-0 text-muted-foreground" aria-hidden />
                   <span className="truncate text-sm">{doc.filename}</span>
                   <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-                    {formatFileSize(doc.fileSize)}
+                    {formatFileSize(doc.fileSize, locale)}
                   </span>
                 </div>
                 <Badge variant={statusVariant(doc.status)}>{statusLabel(doc.status, t)}</Badge>

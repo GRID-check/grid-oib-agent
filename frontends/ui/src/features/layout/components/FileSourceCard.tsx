@@ -15,7 +15,7 @@ import { cn } from '@/lib/utils'
 import { motion, springGentle } from '@/components/motion'
 import { useIsCurrentSessionBusy } from '@/features/chat'
 import { formatFileSize } from '@/lib/utils/format-file-size'
-import { useTranslations } from '@/i18n'
+import { useLocale, useTranslations } from '@/i18n'
 
 /** File source status types */
 export type FileSourceStatus = 'uploading' | 'ingesting' | 'available' | 'error' | 'deleting'
@@ -76,9 +76,9 @@ const STATUS_CONFIG: Record<
 /**
  * Format upload timestamp for display
  */
-const formatDateTime = (date: Date | string): string => {
+const formatDateTime = (date: Date | string, locale?: string): string => {
   const dateObj = typeof date === 'string' ? new Date(date) : date
-  return dateObj.toLocaleString([], {
+  return dateObj.toLocaleString(locale, {
     month: 'short',
     day: 'numeric',
     hour: '2-digit',
@@ -163,6 +163,7 @@ export const FileSourceCard: FC<FileSourceCardProps> = ({
   onDelete,
 }) => {
   const t = useTranslations('research')
+  const { locale } = useLocale()
   const config = STATUS_CONFIG[status]
   const label = t(config.labelKey)
   const isBusy = useIsCurrentSessionBusy()
@@ -206,14 +207,14 @@ export const FileSourceCard: FC<FileSourceCardProps> = ({
             <span className="truncate text-sm font-semibold">{title}</span>
             {fileSize != null && fileSize > 0 && (
               <span className="shrink-0 text-xs text-muted-foreground">
-                {formatFileSize(fileSize)}
+                {formatFileSize(fileSize, locale)}
               </span>
             )}
             {uploadedAt && (
               <>
                 <span className="shrink-0 text-muted-foreground">•</span>
                 <span className="shrink-0 text-xs text-muted-foreground">
-                  {formatDateTime(uploadedAt)}
+                  {formatDateTime(uploadedAt, locale)}
                 </span>
               </>
             )}

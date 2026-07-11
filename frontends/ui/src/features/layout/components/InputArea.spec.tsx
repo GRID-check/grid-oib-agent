@@ -262,6 +262,43 @@ describe('InputArea', () => {
     expect(mockSendMessage).toHaveBeenCalledWith('Hello world')
   })
 
+  test('sends message on Cmd+Enter (Meta)', async () => {
+    const user = userEvent.setup()
+    render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+
+    const input = screen.getByRole('textbox')
+    await user.type(input, 'Hello world')
+    await user.keyboard('{Meta>}{Enter}{/Meta}')
+
+    expect(mockSendMessage).toHaveBeenCalledTimes(1)
+    expect(mockSendMessage).toHaveBeenCalledWith('Hello world')
+  })
+
+  test('sends message on Ctrl+Enter', async () => {
+    const user = userEvent.setup()
+    render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+
+    const input = screen.getByRole('textbox')
+    await user.type(input, 'Hello world')
+    await user.keyboard('{Control>}{Enter}{/Control}')
+
+    expect(mockSendMessage).toHaveBeenCalledTimes(1)
+    expect(mockSendMessage).toHaveBeenCalledWith('Hello world')
+  })
+
+  test('Shift+Enter inserts a newline and does not send', async () => {
+    const user = userEvent.setup()
+    render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+
+    const input = screen.getByRole('textbox')
+    await user.type(input, 'line one')
+    await user.keyboard('{Shift>}{Enter}{/Shift}')
+    await user.type(input, 'line two')
+
+    expect(mockSendMessage).not.toHaveBeenCalled()
+    expect(input).toHaveValue('line one\nline two')
+  })
+
   test('disables input when session is busy (streaming)', () => {
     // InputArea uses useIsCurrentSessionBusy() for disable logic.
     // When isBusy is true (e.g. streaming), input is disabled with "Please wait..." placeholder.
