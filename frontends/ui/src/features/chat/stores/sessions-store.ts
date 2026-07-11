@@ -27,6 +27,7 @@ import {
 } from '../lib/deep-research-session-storage'
 import { hasActiveDeepResearchJob, hasNoUserChatMessages } from '../lib/session-activity'
 import { conversationMatchesProject } from '../lib/project-scope'
+import { mapServerMessagesToChatMessages } from '../lib/server-message-mapper'
 
 export type SessionsSlice = {
   currentUserId: string | null
@@ -34,6 +35,7 @@ export type SessionsSlice = {
   conversations: Conversation[]
 
   loadServerConversations: (projectId?: string) => Promise<void>
+  hydrateConversationMessages: (conversationId: string) => Promise<void>
   setCurrentUser: (userId: string | null) => void
   getUserConversations: () => Conversation[]
   createConversation: () => Conversation
@@ -230,6 +232,55 @@ const restoreConversationDataSources = (conversation: Conversation): void => {
   layoutStore.setEnabledDataSources(defaultIds)
 }
 
+// Single memoized dynamic import: the conversations client is loaded lazily
+// (it is browser-only), but exactly once — concurrent first loads must share
+// one promise.
+let conversationsClientModule: Promise<typeof import('@/adapters/api/conversations-client')> | null = null
+const getConversationsClient = () => {
+  conversationsClientModule ??= import('@/adapters/api/conversations-client')
+  return conversationsClientModule.then((m) => m.conversationsClient)
+}
+
+// Conversation ids whose server message history is currently being fetched;
+// prevents duplicate GETs when selection and boot-time hydration overlap.
+const hydratingConversationIds = new Set<string>()
+
+// Conversation ids already ensured (or being ensured) on the server. Two
+// rapid appends used to race list()+create and lose the second message when
+// the duplicate create rejected; sharing one in-flight promise serializes
+// the check per conversation.
+const ensuredServerConversations = new Map<string, Promise<void>>()
+
+const ensureServerConversation = (conversation: Conversation, fallbackProjectId: string | null): Promise<void> => {
+  const inFlight = ensuredServerConversations.get(conversation.id)
+  if (inFlight) return inFlight
+
+  const promise = (async () => {
+    const conversationsClient = await getConversationsClient()
+    const existing = await conversationsClient.list()
+    if (existing.some((c) => c.id === conversation.id)) return
+    // Stamp the server row with the session's project so future
+    // project-scoped lists stay accurate.
+    await conversationsClient.create(
+      conversation.id,
+      conversation.title || undefined,
+      conversation.projectId ?? fallbackProjectId,
+    )
+  })()
+
+  // Drop the cached promise on failure so the next append retries the check.
+  const tracked = promise.catch((err) => {
+    ensuredServerConversations.delete(conversation.id)
+    throw err
+  })
+  ensuredServerConversations.set(conversation.id, tracked)
+  return tracked
+}
+
+const forgetServerConversation = (conversationId: string): void => {
+  ensuredServerConversations.delete(conversationId)
+}
+
 const maybeDiscardAbandonedUploadOnlySession = (
   get: () => ChatStore,
   sessionId: string | null | undefined
@@ -267,7 +318,7 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
 
   loadServerConversations: async (projectId?: string) => {
     try {
-      const { conversationsClient } = await import('@/adapters/api/conversations-client')
+      const conversationsClient = await getConversationsClient()
       const serverConvs = await conversationsClient.list(projectId)
       if (!serverConvs || serverConvs.length === 0) return
 
@@ -283,10 +334,14 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
           // locally stamped projectId for legacy server rows that predate
           // project stamping.
           projectId: serverConv.projectId ?? (idx >= 0 ? merged[idx].projectId : null) ?? null,
-          title: serverConv.title ?? '',
+          // Titles are generated client-side and may not have reached the
+          // server yet — never clobber a local title with an empty one.
+          title: serverConv.title ?? (idx >= 0 ? merged[idx].title : '') ?? '',
           messages: idx >= 0 ? merged[idx].messages : [],
-          createdAt: serverConv.createdAt,
-          updatedAt: serverConv.updatedAt,
+          // Over JSON these arrive as ISO strings; normalize so date math and
+          // sidebar sorting behave the same as locally created sessions.
+          createdAt: new Date(serverConv.createdAt as unknown as string),
+          updatedAt: new Date(serverConv.updatedAt as unknown as string),
         }
         if (idx >= 0) {
           merged[idx] = local
@@ -296,8 +351,57 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
       }
 
       set({ conversations: merged }, false, 'loadServerConversations')
+
+      // If the restored current session lost its messages locally (storage
+      // cleanup, new device), repopulate them from the server right away.
+      const { currentConversation } = get()
+      if (currentConversation && currentConversation.messages.length === 0) {
+        void get().hydrateConversationMessages(currentConversation.id)
+      }
     } catch (err) {
       console.warn('[loadServerConversations] Failed to load server conversations:', err)
+    }
+  },
+
+  hydrateConversationMessages: async (conversationId: string) => {
+    const conversation = get().conversations.find((c) => c.id === conversationId)
+    if (!conversation || conversation.messages.length > 0) return
+    if (hydratingConversationIds.has(conversationId)) return
+    hydratingConversationIds.add(conversationId)
+
+    try {
+      const conversationsClient = await getConversationsClient()
+      const serverMessages = await conversationsClient.listMessages(conversationId)
+      const messages = mapServerMessagesToChatMessages(serverMessages)
+      if (messages.length === 0) return
+
+      const { conversations, currentConversation, isStreaming, isLoading } = get()
+      const target = conversations.find((c) => c.id === conversationId)
+      // The session may have been deleted or received live messages while the
+      // fetch was in flight — never overwrite newer local state.
+      if (!target || target.messages.length > 0) return
+
+      const hydrated: Conversation = { ...target, messages }
+      const isCurrent = currentConversation?.id === conversationId
+
+      set(
+        {
+          conversations: updateConversationInList(conversations, hydrated),
+          ...(isCurrent && { currentConversation: hydrated }),
+        },
+        false,
+        'hydrateConversationMessages'
+      )
+
+      // Re-derive session UI state (thinking steps, pending prompts) from the
+      // repopulated history — but never mid-stream.
+      if (isCurrent && !isStreaming && !isLoading) {
+        get().restoreSessionState(hydrated)
+      }
+    } catch (err) {
+      console.warn('[hydrateConversationMessages] Failed to load messages from server:', err)
+    } finally {
+      hydratingConversationIds.delete(conversationId)
     }
   },
 
@@ -586,6 +690,12 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
 
       get().restoreSessionState(conversation)
       restoreConversationDataSources(conversation)
+
+      // Past chats whose messages were pruned from localStorage (or that came
+      // from another device) repopulate from the server-persisted history.
+      if (conversation.messages.length === 0) {
+        void get().hydrateConversationMessages(conversation.id)
+      }
     }
   },
 
@@ -647,6 +757,15 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
 
     const isCurrentWithActiveResearch =
       currentConversation?.id === conversationId && isDeepResearchStreaming
+
+    // Delete the server-persisted row too — otherwise the next
+    // loadServerConversations resurrects the session as an empty ghost.
+    forgetServerConversation(conversationId)
+    getConversationsClient().then((conversationsClient) => {
+      conversationsClient.delete(conversationId).catch((err) => {
+        console.warn('[deleteConversation] Failed to delete server conversation:', err)
+      })
+    })
 
     set(
       {
@@ -770,6 +889,24 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
       clearAllDeepResearchSessions()
     }
 
+    // Delete the server-persisted rows too — otherwise the next
+    // loadServerConversations resurrects every session as an empty ghost.
+    userConversations.forEach((conv) => forgetServerConversation(conv.id))
+    getConversationsClient().then(async (conversationsClient) => {
+      const results = await Promise.allSettled(
+        userConversations.map((conv) => conversationsClient.delete(conv.id))
+      )
+      results.forEach((result, index) => {
+        if (result.status === 'rejected') {
+          console.warn(
+            '[deleteAllConversations] Failed to delete server conversation:',
+            userConversations[index].id,
+            result.reason
+          )
+        }
+      })
+    })
+
     const remainingConversations = conversations.filter((c) => !isInScope(c))
 
     // Drop drafts for exactly the sessions being removed (the in-scope ones);
@@ -832,6 +969,14 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
       false,
       'updateConversationTitle'
     )
+
+    // Mirror the title to the server row so repopulated history keeps its
+    // name. Best-effort: the row may not exist yet (created on first append).
+    getConversationsClient().then((conversationsClient) => {
+      conversationsClient.updateTitle(conversationId, title).catch((err) => {
+        console.warn('[updateConversationTitle] Failed to sync title to server:', err)
+      })
+    })
   },
 
   saveDataSourcesToConversation: (ids: string[]) => {
@@ -971,44 +1116,24 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
   },
 
   _ensureConversationExists: async () => {
-    const { currentConversation } = get()
+    const { currentConversation, projectId } = get()
     if (!currentConversation) return
-    const conv = currentConversation
 
     try {
-      const { conversationsClient } = await import('@/adapters/api/conversations-client')
-      const existing = await conversationsClient.list()
-      const exists = existing.some((c) => c.id === conv.id)
-      if (!exists) {
-        // Stamp the server row with the session's project so future
-        // project-scoped lists stay accurate.
-        await conversationsClient.create(
-          conv.id,
-          conv.title || undefined,
-          conv.projectId ?? get().projectId ?? null,
-        )
-      }
+      await ensureServerConversation(currentConversation, projectId ?? null)
     } catch (err) {
       console.warn('[ensureConversationExists] Failed:', err)
     }
   },
 
   _appendMessage: async (message: ChatMessage) => {
-    const { currentConversation } = get()
+    const { currentConversation, projectId } = get()
     if (!currentConversation) return
 
     try {
-      const { conversationsClient } = await import('@/adapters/api/conversations-client')
+      const conversationsClient = await getConversationsClient()
 
-      const existing = await conversationsClient.list()
-      const exists = existing.some((c) => c.id === currentConversation.id)
-      if (!exists) {
-        await conversationsClient.create(
-          currentConversation.id,
-          currentConversation.title || undefined,
-          currentConversation.projectId ?? get().projectId ?? null,
-        )
-      }
+      await ensureServerConversation(currentConversation, projectId ?? null)
 
       await conversationsClient.createMessage(currentConversation.id, {
         id: message.id,
@@ -1019,6 +1144,8 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
           ...(message.errorData && { errorData: message.errorData }),
           ...(message.fileData && { fileData: message.fileData }),
           ...(message.cards && { cards: message.cards }),
+          ...(message.enabledDataSources && { enabledDataSources: message.enabledDataSources }),
+          ...(message.messageFiles && { messageFiles: message.messageFiles }),
         },
         createdAt: message.timestamp instanceof Date
           ? message.timestamp.toISOString()

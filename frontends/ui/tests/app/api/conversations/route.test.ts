@@ -42,6 +42,7 @@ function mockDbChain(overrides: Record<string, unknown> = {}) {
     orderBy: vi.fn(() => chain),
     returning: vi.fn(() => Promise.resolve([])),
     values: vi.fn(() => chain),
+    onConflictDoNothing: vi.fn(() => chain),
     set: vi.fn(() => chain),
     ...overrides,
   }

@@ -28,7 +28,7 @@ Conversations persist through two layers: a PostgreSQL database (server-side) an
 | `conversation_id` | `text NOT NULL FK → conversations.id` | Cascade on delete |
 | `role` | `text NOT NULL` | `user` or `assistant` |
 | `content` | `text NOT NULL` | Message text |
-| `metadata` | `jsonb` | Optional structured data (errorData, fileData, cards) |
+| `metadata` | `jsonb` | Optional structured data (messageType, errorData, fileData, cards, enabledDataSources, messageFiles) |
 | `created_at` | `timestamp with tz` | Default `now()` |
 
 ## BFF CRUD routes
@@ -73,7 +73,7 @@ Lists all messages for a conversation, ordered by `createdAt ASC`. Validates org
 
 `frontends/ui/src/app/api/conversations/[id]/messages/route.ts:47`
 
-Appends one or more messages. Accepts a single message object or an array. Each message requires `id`, `role`, `content`; optional `messageType`, `metadata`, `createdAt`. Returns 201.
+Appends one or more messages. Accepts a single message object or an array. Each message requires `id`, `role`, `content`; optional `messageType`, `metadata`, `createdAt`. `messageType` is stored inside the `metadata` jsonb (no dedicated column) so the client can route rehydrated history to the right renderer. Duplicate message ids are skipped (`ON CONFLICT DO NOTHING`) so client retries can't fail a batch. Returns 201.
 
 ## Store hydration
 
@@ -82,11 +82,39 @@ On mount, `loadServerConversations()` (`store.ts:439`) runs:
 1. Fetches all server conversations via `conversationsClient.list()`
 2. Builds a `serverMap` keyed by conversation ID
 3. Merges with existing local `conversations` array:
-   - If a conversation exists locally and on server: server metadata (title, dates) wins, local messages are preserved
-   - If a conversation exists only on server: appended to local list
+   - If a conversation exists locally and on server: server metadata wins, but a `null` server title never clobbers a locally generated one, and local messages are preserved
+   - If a conversation exists only on server: appended to local list (messages empty until hydrated, see below)
    - Local-only conversations remain untouched (not yet persisted to server)
 
-The merge result updates `conversations` in the store.
+The merge result updates `conversations` in the store. Server timestamps are normalized to `Date` objects.
+
+## Message repopulation (server → client)
+
+localStorage is a cache, not the source of truth: the storage manager evicts
+old sessions near the ~5 MB quota, and history is per-browser. When a past
+chat's local messages are missing, they are repopulated from the server:
+
+- `selectConversation()` kicks off `hydrateConversationMessages()` when the
+  selected session has zero local messages.
+- `loadServerConversations()` does the same for the restored current session
+  on boot.
+- `hydrateConversationMessages()` fetches `GET /api/conversations/[id]/messages`,
+  maps rows back to `ChatMessage` via
+  `features/chat/lib/server-message-mapper.ts` (messageType from metadata,
+  falling back to role for legacy rows), and fills the session — but never
+  overwrites messages that arrived while the fetch was in flight.
+
+Heavy stream state (thinking-step content, report content, deep-research
+tabs) is not stored server-side; like the localStorage pruning path, it is
+refetched on demand.
+
+## Local → server lifecycle sync
+
+- `deleteConversation()` / `deleteAllConversations()` also delete the server
+  rows — otherwise the next merge would resurrect deleted sessions as empty
+  ghosts.
+- `updateConversationTitle()` mirrors renames to the server row
+  (best-effort; the row may not exist until the first message append).
 
 ## Per-message persistence
 

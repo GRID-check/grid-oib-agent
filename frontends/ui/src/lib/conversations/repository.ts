@@ -63,16 +63,22 @@ export async function findConversationInOrg(
   return row ?? null
 }
 
+/**
+ * Insert a conversation, tolerating concurrent duplicate creates: the client
+ * fires create-if-missing checks per appended message, so two in-flight
+ * appends can both attempt the insert. On id conflict this returns null and
+ * the caller resolves the existing row instead of surfacing a 500.
+ */
 export async function insertConversation(values: {
   id: string
   organizationId: string
   createdBy: string
   title: string | null
   projectId: string | null
-}): Promise<Conversation> {
+}): Promise<Conversation | null> {
   const db = getDb()
-  const [row] = await db.insert(conversations).values(values).returning()
-  return row
+  const [row] = await db.insert(conversations).values(values).onConflictDoNothing().returning()
+  return row ?? null
 }
 
 /**
@@ -123,7 +129,11 @@ export async function listMessagesForConversation(
     .limit(limit)
 }
 
+/**
+ * Insert messages, skipping ids that already exist (client retries replay the
+ * same client-generated id; a duplicate must not fail the whole batch).
+ */
 export async function insertMessages(values: NewMessage[]): Promise<Message[]> {
   const db = getDb()
-  return db.insert(messages).values(values).returning()
+  return db.insert(messages).values(values).onConflictDoNothing().returning()
 }
