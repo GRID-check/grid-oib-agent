@@ -18,6 +18,7 @@ import * as React from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
+  BookOpenCheck,
   FlaskConical,
   FolderOpen,
   LayoutDashboard,
@@ -40,7 +41,7 @@ import { SidebarUserMenu, type SidebarUser } from './sidebar-user-menu'
 
 interface NavItem {
   /** i18n key under `nav.sections` and stable React key. */
-  key: 'overview' | 'chat' | 'files' | 'research' | 'members'
+  key: 'overview' | 'chat' | 'files' | 'knowledge' | 'research' | 'members'
   segment: string | null // null = the project root (Overview)
   icon: React.ComponentType<{ className?: string }>
 }
@@ -49,6 +50,7 @@ const NAV_ITEMS: NavItem[] = [
   { key: 'overview', segment: null, icon: LayoutDashboard },
   { key: 'chat', segment: 'chat', icon: MessageSquare },
   { key: 'files', segment: 'files', icon: FolderOpen },
+  { key: 'knowledge', segment: 'knowledge', icon: BookOpenCheck },
   { key: 'research', segment: 'research', icon: FlaskConical },
   { key: 'members', segment: 'members', icon: Users },
 ]

@@ -13,6 +13,7 @@ export const nav: typeof en.nav = {
     overview: 'Übersicht',
     chat: 'Chat',
     files: 'Dateien',
+    knowledge: 'Wissen',
     research: 'Recherche',
     members: 'Mitglieder',
   },

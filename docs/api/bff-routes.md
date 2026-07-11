@@ -107,6 +107,14 @@ Document upload stores files in MinIO at key `{orgId}/{projectId}/{documentId}/{
 
 Source: `frontends/ui/src/app/api/documents/route.ts`, `frontends/ui/src/app/api/documents/upload/route.ts`, `frontends/ui/src/app/api/documents/[id]/download/route.ts`, `frontends/ui/src/app/api/documents/[id]/status/route.ts`, `frontends/ui/src/app/api/documents/[id]/reingest/route.ts`
 
+## Knowledge base
+
+| Method | Path | Auth | Description | Request Body / Params | Response |
+|--------|------|------|-------------|-----------------------|----------|
+| `GET` | `/api/knowledge-base` | Required | Transparency report over the shared OIB base corpus: every corpus file with its live index state (`ingested` / `stale` / `pending` / `removed` / `inconsistent`), chunk counts, checksums, and aggregate counts. Proxies the backend's `GET /v1/oib/status` (the generic `/api/v1` proxy deliberately blocks the base collection, so this dedicated service is the only path). Read-only; any authenticated session. | — | `{ collectionName, collectionExists, collectionUpdatedAt, summary: { totalFiles, ingested, stale, pending, removed, inconsistent, totalChunks }, files: [{ fileName, state, sizeBytes, chunkCount, ingestedSha256, currentSha256, ingestedAt, summary }] }` |
+
+Source: `frontends/ui/src/app/api/knowledge-base/route.ts` (service: `frontends/ui/src/lib/knowledge/service.ts`). Rendered by the project "Knowledge" page (`/app/projects/{id}/knowledge`), which combines it with `GET /api/documents?projectId=` for the project-scoped documents.
+
 ## Health
 
 | Method | Path | Auth | Description | Response |

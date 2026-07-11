@@ -15,6 +15,7 @@ import { landing } from './landing'
 import { projects } from './projects'
 import { chat } from './chat'
 import { files } from './files'
+import { knowledge } from './knowledge'
 import { research } from './research'
 import { members } from './members'
 import { onboarding } from './onboarding'
@@ -36,6 +37,7 @@ export const en = {
   projects,
   chat,
   files,
+  knowledge,
   research,
   members,
   onboarding,

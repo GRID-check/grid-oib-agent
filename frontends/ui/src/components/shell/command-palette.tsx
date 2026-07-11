@@ -14,6 +14,7 @@
 import * as React from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import {
+  BookOpenCheck,
   Building2,
   ClipboardList,
   FlaskConical,
@@ -49,7 +50,7 @@ interface PaletteProject {
 
 interface SectionItem {
   /** i18n key under `nav.sections` (intake lives in the shortcuts namespace). */
-  key: 'overview' | 'chat' | 'files' | 'research' | 'members' | 'intake'
+  key: 'overview' | 'chat' | 'files' | 'knowledge' | 'research' | 'members' | 'intake'
   segment: string | null // null = the project root (Overview)
   icon: React.ComponentType<{ className?: string }>
 }
@@ -58,6 +59,7 @@ const SECTION_ITEMS: SectionItem[] = [
   { key: 'overview', segment: null, icon: LayoutDashboard },
   { key: 'chat', segment: 'chat', icon: MessageSquare },
   { key: 'files', segment: 'files', icon: FolderOpen },
+  { key: 'knowledge', segment: 'knowledge', icon: BookOpenCheck },
   { key: 'research', segment: 'research', icon: FlaskConical },
   { key: 'members', segment: 'members', icon: Users },
   { key: 'intake', segment: 'intake', icon: ClipboardList },
