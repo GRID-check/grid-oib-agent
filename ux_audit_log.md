@@ -340,3 +340,58 @@ over existing capability.
 - Full-suite gate: tsc 0; vitest 1687 passed / 3 skipped (was 1531 baseline;
   +156 net new tests across all rounds).
 
+
+## Round 8 — immersion III: keyboard/focus/feedback polish (IN PROGRESS)
+
+Re-audit after round 7 (three parallel audit agents) confirmed the app is in
+strong shape; remaining items are genuine small polish, ranked below. Mid-round
+the Anthropic session limit was hit (resets ~01:40 UTC), killing the three
+implementation agents before they edited. The orchestrator (main loop)
+implemented the safest high-value cluster directly; the rest is queued for the
+agent round when the limit resets.
+
+### Done directly (`51be28a`) — localization holdouts round-4 missed
+- TypeToConfirmDialog (project-delete): hardcoded 'Type X to confirm:' + 'Cancel'
+  → overridable props wired to dictionaries (EN+DE), placeholder-split.
+- formatEur → Intl.NumberFormat(locale) ('12,34 €' de / '€12.34' en); wired at
+  spend-trend chart + platform overview.
+- SessionsPanel date-group headers 'en-US' → active locale.
+- model-config version timestamp toLocaleString() → active locale.
+- Verified: tsc 0, 59 touched-area specs.
+
+### Queued for the agent round (session-limit deferred)
+Keyboard/focus (audit A):
+- Panels (DockedPanel: Sessions/Settings/DataSources; ResearchPanel) + mobile
+  file-preview overlay: no Esc-to-close, no focus-trap, no focus-return — extract
+  the app-sidebar.tsx:114-122 Escape pattern into a shared useEscapeKey hook.
+- Route-change focus: navigating project sections doesn't move focus to main
+  (keyboard/SR users get no signal) — shared route-focus hook (LARGER-ish).
+- Research tab-switch uses a bare spinner while siblings use shaped skeletons.
+- Clarifier options show '1. 2. 3.' prefixes implying digit-select that isn't
+  wired — either wire digit keys or drop the prefix.
+- Composer: no Cmd/Ctrl+Enter; Enter/Shift+Enter not in the cheatsheet.
+
+Formatting holdouts remaining (audit B):
+- format-time.ts toLocaleTimeString([]) → locale, across 7 chat card consumers.
+- format-file-size.ts decimal separator → locale, across 5 consumers.
+- budget-usage-card 11 eur() sites → pass locale (uniformly default today = no
+  regression, but the org money surface should match platform).
+
+Consistency/feedback (audits B/C):
+- Dialog Cancel variant: rename dialog uses outline, delete dialogs use ghost —
+  standardize on ghost.
+- project-members-form double-reports failures (inline Alert AND toast) — pick one.
+- Folder creation: input closes before the await, no pending state, drops typed
+  name on failure — keep input+spinner, repopulate on failure.
+- SessionsPanel empty state is bare text while every sibling uses shared
+  EmptyState (icon+CTA); file-search zero-match likewise lacks EmptyState+Clear.
+- Chat message bubbles have no copy button (code blocks inside them do);
+  clipboard failure is silent (no toast); org id / collectionName shown
+  truncated with no copy affordance.
+- Command palette / cheatsheet have no click entry point (keyboard-only) —
+  add a small icon button in org-topbar to open the palette (discoverability +
+  motor-accessibility).
+- Micro-transitions: drag-drop overlay, clarifier option→chip swap, composer
+  draft-restore lack the app's established AnimatePresence/fade vocabulary.
+- Drag-drop overlay text not announced (no role=status/aria-live).
+
