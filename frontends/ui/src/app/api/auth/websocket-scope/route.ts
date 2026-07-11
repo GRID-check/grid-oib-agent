@@ -12,6 +12,7 @@ import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
 import { loadProjectPromptView } from '@/lib/project-profile/prompt-view'
 import { buildProjectMemoryDigest } from '@/lib/projects/memory-service'
 import { isOrgFeatureEnabled, MEMORY_REFLECTION_FLAG } from '@/lib/workos/feature-flags'
+import { isWebSearchEnabledForOrg } from '@/lib/organizations/service'
 import { getActiveModelOverrides } from '@/lib/model-config/service'
 import { getBudgetStatus } from '@/lib/budgets/service'
 import { isAuthzError } from '@/lib/auth-utils'
@@ -61,6 +62,18 @@ export async function GET(req: Request): Promise<Response> {
       : memoryReflectionEnvDefault()
 
     if (session?.organizationId) {
+      // Org-level web-search setting (ADR-0022): when off, server.js forwards
+      // x-grid-disabled-sources and the backend subtracts the source from
+      // every tool selection — enforcement, not just UI hiding. Best-effort:
+      // a lookup failure must not take chat down (web search stays on).
+      try {
+        if (!(await isWebSearchEnabledForOrg(session.organizationId))) {
+          response.disabledSources = ['web_search']
+        }
+      } catch (error) {
+        console.warn('[WebSocket Scope API] Failed to resolve web-search setting:', error)
+      }
+
       // Per-org runtime model overrides (active org_model_configs version) —
       // forwarded by server.js as x-grid-model-overrides. Best-effort: a
       // config read failure must not block chat; defaults apply instead.

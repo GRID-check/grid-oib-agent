@@ -401,6 +401,24 @@ async def run_agent_job(
                     if llm is not None:
                         llm = provider.get(LLMRole.ORCHESTRATOR)
 
+            # BYOK (ADR-0022): resolve the org's own LLM credential just in
+            # time from the BFF (never carried in job_args — plaintext keys
+            # must not enter the persisted job store). The org id was captured
+            # at submit time inside usage_context; resolution fails open to
+            # the platform credential.
+            _byok_org_id = ((usage_context or {}).get("identity") or {}).get("organization_id")
+            if _byok_org_id:
+                from aiq_agent.common import LLMRole
+                from aiq_agent.common import resolve_org_llm_credential
+
+                org_credential = resolve_org_llm_credential(_byok_org_id)
+                if org_credential is not None:
+                    credentialed = provider.with_credential(org_credential)
+                    if credentialed is not provider:
+                        provider = credentialed
+                        if llm is not None:
+                            llm = provider.get(LLMRole.ORCHESTRATOR)
+
             # Resolve tools: use explicit list or auto-inherit from data_source_registry
             tool_refs = fn_config.tools
             if not tool_refs:

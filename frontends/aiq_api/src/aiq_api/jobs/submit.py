@@ -89,6 +89,17 @@ async def _enforce_job_admission(db_url: str, organization_id: str | None) -> No
         logger.warning("Job admission check failed; admitting job", exc_info=True)
 
 
+def _get_disabled_sources() -> set[str]:
+    """Org-disabled source ids from the submitting request (fail-open)."""
+    try:
+        from aiq_agent.common import get_disabled_sources_from_context
+
+        return get_disabled_sources_from_context()
+    except Exception:
+        logger.warning("Failed to read disabled data sources; not filtering", exc_info=True)
+        return set()
+
+
 def _resolve_submission_principal(owner: str) -> Principal | None:
     """Resolve the best available principal for async job ownership.
 
@@ -328,6 +339,19 @@ async def submit_agent_job(
         from aiq_agent.common import get_model_overrides_from_context
 
         model_overrides = get_model_overrides_from_context() or None
+
+    # Org-disabled data sources (ADR-0022): subtracted HERE, at submit time,
+    # so Dask workers need no live flag lookup — the effective data_sources
+    # list they receive already excludes anything the organization turned
+    # off. A None ("all sources") request is materialized first so the
+    # subtraction can apply.
+    disabled_sources = _get_disabled_sources()
+    if disabled_sources:
+        if data_sources is None:
+            from aiq_agent.common.data_source_registry import get_all_sources
+
+            data_sources = [source.id for source in get_all_sources()]
+        data_sources = [source for source in data_sources if source.strip().lower() not in disabled_sources]
 
     # Capture caller identity + remaining budget for cost tracking in the worker.
     if usage_context is None:

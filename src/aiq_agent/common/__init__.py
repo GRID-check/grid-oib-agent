@@ -46,12 +46,19 @@ from .citation_verification import verify_citations
 from .data_source_registry import get_all_tool_refs
 from .data_source_registry import get_source_id_for_tool
 from .data_sources import DEFAULT_DATA_SOURCES
+from .data_sources import DISABLED_SOURCES_HEADER
 from .data_sources import all_mapped_tools_filtered_out
 from .data_sources import extract_messages_and_sources
 from .data_sources import filter_tools_by_sources
 from .data_sources import format_data_source_tools
+from .data_sources import get_disabled_sources_from_context
 from .data_sources import parse_data_sources
+from .data_sources import parse_disabled_sources
 from .json_utils import extract_json
+from .llm_credentials import OrgLLMCredential
+from .llm_credentials import apply_org_credential
+from .llm_credentials import get_org_llm_credential_from_context
+from .llm_credentials import resolve_org_llm_credential
 from .llm_provider import LLMProvider
 from .llm_provider import LLMRole
 from .message_utils import get_latest_user_query
@@ -75,15 +82,22 @@ _postgres_pools: dict[str, AsyncConnectionPool] = {}
 
 __all__ = [
     "DEFAULT_DATA_SOURCES",
+    "DISABLED_SOURCES_HEADER",
     "AgentGroup",
     "LLMProvider",
     "MODEL_OVERRIDES_HEADER",
     "LLMRole",
+    "OrgLLMCredential",
     "SourceRegistry",
     "VerboseTraceCallback",
     "all_mapped_tools_filtered_out",
     "apply_model_override",
+    "apply_org_credential",
+    "get_disabled_sources_from_context",
     "get_model_overrides_from_context",
+    "get_org_llm_credential_from_context",
+    "parse_disabled_sources",
+    "resolve_org_llm_credential",
     "parse_model_overrides",
     "sanitize_model_overrides",
     "extract_json",

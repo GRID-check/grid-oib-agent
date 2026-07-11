@@ -40,8 +40,10 @@ from aiq_agent.common import LLMProvider
 from aiq_agent.common import VerboseTraceCallback
 from aiq_agent.common import all_mapped_tools_filtered_out
 from aiq_agent.common import apply_model_override
+from aiq_agent.common import apply_org_credential
 from aiq_agent.common import filter_tools_by_sources
 from aiq_agent.common import get_model_overrides_from_context
+from aiq_agent.common import get_org_llm_credential_from_context
 from aiq_agent.common import is_verbose
 from nat.builder.builder import Builder
 from nat.builder.context import Context
@@ -220,7 +222,10 @@ async def clarifier_agent(config: ClarifierConfig, builder: Builder):
         # request-scoped agent (same shape as the data-source rebuild below).
         # The planner LLM belongs to the same `clarifier` agent group.
         model_overrides = get_model_overrides_from_context()
-        active_provider = provider.with_model_overrides(model_overrides)
+        # BYOK (ADR-0022): the org's own provider credential applies to every
+        # LLM in the request, on top of any per-group model override.
+        org_credential = get_org_llm_credential_from_context()
+        active_provider = provider.with_model_overrides(model_overrides).with_credential(org_credential)
         active_agent = agent
         if active_provider is not provider or (data_sources is not None and selected_tools != tools):
             active_agent = ClarifierAgent(
@@ -230,7 +235,9 @@ async def clarifier_agent(config: ClarifierConfig, builder: Builder):
                 max_turns=config.max_turns,
                 enable_plan_approval=config.enable_plan_approval,
                 max_plan_iterations=config.max_plan_iterations,
-                planner_llm=apply_model_override(planner_llm, AgentGroup.CLARIFIER, model_overrides)
+                planner_llm=apply_org_credential(
+                    apply_model_override(planner_llm, AgentGroup.CLARIFIER, model_overrides), org_credential
+                )
                 if planner_llm is not None
                 else None,
                 log_response_max_chars=config.log_response_max_chars,

@@ -673,12 +673,14 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                 from aiq_agent.agents.project_memory.reflection import schedule_memory_reflection
                 from aiq_agent.common import AgentGroup
                 from aiq_agent.common import apply_model_override
+                from aiq_agent.common import apply_org_credential
 
                 # Applied here — not inside the background task — because the
                 # override header is only readable while the request context is
-                # still live.
+                # still live. The org's BYOK credential (ADR-0022) covers the
+                # reflection call too — it is tenant traffic like any other.
                 schedule_memory_reflection(
-                    llm=apply_model_override(reflection_llm, AgentGroup.MEMORY_REFLECTION),
+                    llm=apply_org_credential(apply_model_override(reflection_llm, AgentGroup.MEMORY_REFLECTION)),
                     query=query_text,
                     answer=answer_text,
                     project_id=_reflection_project_id,

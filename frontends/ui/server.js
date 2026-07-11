@@ -350,6 +350,16 @@ const startServer = async () => {
               'utf8'
             ).toString('base64url')
           }
+          // Org-disabled data sources (e.g. web_search when the org toggle is
+          // off, ADR-0022). Decoded in aiq_agent (data_sources.py) and
+          // subtracted from every tool selection. Absent header = nothing
+          // disabled.
+          if (Array.isArray(result.data?.disabledSources) && result.data.disabledSources.length > 0) {
+            req.headers['x-grid-disabled-sources'] = Buffer.from(
+              JSON.stringify(result.data.disabledSources),
+              'utf8'
+            ).toString('base64url')
+          }
         } else if (result.status === 401 || result.status === 403) {
           const statusText = result.status === 401 ? 'Unauthorized' : 'Forbidden'
           try {

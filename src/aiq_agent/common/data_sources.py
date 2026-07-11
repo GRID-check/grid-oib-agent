@@ -15,6 +15,8 @@
 
 """Shared utilities for data source handling across agents."""
 
+import base64
+import json
 import logging
 from typing import Any
 
@@ -26,7 +28,37 @@ from .data_source_registry import get_source_id_for_tool
 # Default to web_search when no data sources specified
 DEFAULT_DATA_SOURCES: list[str] = ["web_search"]
 
+# Org-disabled data sources (ADR-0022): the BFF resolves the org's web-search
+# setting at the WS upgrade and forwards the disabled ids base64url-encoded.
+DISABLED_SOURCES_HEADER = "x-grid-disabled-sources"
+
 logger = logging.getLogger(__name__)
+
+
+def parse_disabled_sources(raw: str | None) -> set[str]:
+    """Decode the disabled-sources header into a lowercase id set.
+
+    Malformed values are ignored (nothing disabled) — the org toggle must
+    never take chat down; the BFF-side listing filter still hides the tool.
+    """
+    if not raw:
+        return set()
+    try:
+        padded = raw + "=" * (-len(raw) % 4)
+        data = json.loads(base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8"))
+    except Exception:
+        logger.warning("Ignoring malformed %s header", DISABLED_SOURCES_HEADER, exc_info=True)
+        return set()
+    if not isinstance(data, list):
+        return set()
+    return {str(item).strip().lower() for item in data if str(item).strip()}
+
+
+def get_disabled_sources_from_context() -> set[str]:
+    """Read the current request's org-disabled sources from NAT context."""
+    from aiq_agent.project_context import _read_header
+
+    return parse_disabled_sources(_read_header(DISABLED_SOURCES_HEADER))
 
 
 def parse_data_sources(raw: Any) -> list[str] | None:
@@ -55,25 +87,44 @@ def parse_data_sources(raw: Any) -> list[str] | None:
     return None
 
 
-def filter_tools_by_sources(tools: list[Any], data_sources: list[str] | None) -> list[Any]:
+def filter_tools_by_sources(
+    tools: list[Any],
+    data_sources: list[str] | None,
+    disabled_sources: set[str] | None = None,
+) -> list[Any]:
     """Filter tools based on selected data sources.
 
     Uses the tool->source map built at startup from config ``data_source`` fields.
     Tools without a mapping (e.g. "think", calculator) are always included.
     Source ID matching is case-insensitive.
 
+    Org-disabled sources (ADR-0022) are subtracted unconditionally — even a
+    ``data_sources=None`` ("all tools") request never sees a tool whose
+    source the organization turned off. ``disabled_sources`` defaults to the
+    current request's ``x-grid-disabled-sources`` header; async workers pass
+    the submit-time capture explicitly instead.
+
     Args:
         tools: List of LangChain tools.
         data_sources: List of selected data source IDs, None for all data-source
             tools, or [] for no data-source tools.
+        disabled_sources: Org-disabled source IDs (lowercase); None = read
+            from the request context.
 
     Returns:
         Filtered list of tools matching the selected data sources.
     """
-    if data_sources is None:
+    if disabled_sources is None:
+        disabled_sources = get_disabled_sources_from_context()
+
+    if data_sources is None and not disabled_sources:
         return tools
 
-    selected = {source_id.strip().lower() for source_id in data_sources if source_id.strip()}
+    selected = (
+        None
+        if data_sources is None
+        else {source_id.strip().lower() for source_id in data_sources if source_id.strip()}
+    )
     filtered = []
     for tool in tools:
         name = getattr(tool, "name", "")
@@ -81,7 +132,11 @@ def filter_tools_by_sources(tools: list[Any], data_sources: list[str] | None) ->
         if source_id is None:
             # Not a data source tool (e.g., "think", calculator) -> always include.
             filtered.append(tool)
-        elif source_id.lower() in selected:
+            continue
+        source_key = source_id.lower()
+        if source_key in disabled_sources:
+            continue
+        if selected is None or source_key in selected:
             filtered.append(tool)
     return filtered
 

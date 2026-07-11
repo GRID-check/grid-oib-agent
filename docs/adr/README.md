@@ -62,6 +62,7 @@ a new ADR. Small clarifications and typo fixes are fine.
 | [0019](0019-write-through-usage-rollups.md) | Write-through daily rollups for budget enforcement | Accepted |
 | [0020](0020-dragonfly-shared-cache.md) | Dragonfly as the shared cache tier | Accepted |
 | [0021](0021-db-claimed-research-workers.md) | DB-claimed workers for deep-research execution | Proposed |
+| [0022](0022-org-byok-llm-credentials.md) | Enterprise BYOK LLM credentials per organization (WorkOS Vault) and the org web-search setting | Accepted |
 
 ## Related documents
 
