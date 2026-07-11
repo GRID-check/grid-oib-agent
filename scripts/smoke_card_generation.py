@@ -33,7 +33,9 @@ from aiq_agent.cards.prompt import build_card_generation_prompt
 MODEL_NAME = "deepseek/deepseek-v4-flash"
 BASE_URL = "https://openrouter.ai/api/v1"
 
-SAMPLE_QUERY = "Welche Brandschutzanforderungen gelten laut OIB-Richtlinie 2 für Fluchtwege in einem 5-geschossigen Wohngebäude?"
+SAMPLE_QUERY = (
+    "Welche Brandschutzanforderungen gelten laut OIB-Richtlinie 2 für Fluchtwege in einem 5-geschossigen Wohngebäude?"
+)
 
 SAMPLE_RESEARCH_CONTEXT = (
     "Laut OIB-Richtlinie 2 (Brandschutz), Ausgabe 2019, Punkt 4.2, muessen Fluchtwege in "
