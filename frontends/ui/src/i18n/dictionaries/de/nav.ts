@@ -16,6 +16,18 @@ export const nav: typeof en.nav = {
     research: 'Recherche',
     members: 'Mitglieder',
   },
+  tabTitle: {
+    intake: 'Einrichtung',
+    researchProgress: '{percent}% · {label} — Grid',
+    researchActive: '⏳ {label} — Grid',
+  },
+  projectSwitcher: {
+    select: 'Projekt auswählen',
+    switchCurrent: 'Projekt wechseln (aktuell: {name})',
+    projects: 'Projekte',
+    allProjects: 'Alle Projekte',
+    newProject: 'Neues Projekt',
+  },
   userMenu: {
     label: 'Benutzermenü für {name}',
     defaultUser: 'Standardbenutzer',

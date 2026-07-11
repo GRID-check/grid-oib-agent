@@ -8,13 +8,14 @@
  * micro-labeled stats under the `sm` breakpoint.
  */
 
-import { type FC, type ReactNode, useEffect, useState } from 'react'
+import { type FC, type ReactNode, useCallback, useEffect, useState } from 'react'
 import { WorkOsWidgets, UsersManagement } from '@workos-inc/widgets'
 import '@radix-ui/themes/styles.css'
-import { Building2, FolderKanban, Gauge, ReceiptEuro } from 'lucide-react'
+import { AlertTriangle, Building2, FolderKanban, Gauge, ReceiptEuro, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -62,17 +63,47 @@ export const PlatformOverview: FC = () => {
   const appearance = useResolvedAppearance()
   const [overview, setOverview] = useState<OverviewDto | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(false)
 
-  useEffect(() => {
+  const load = useCallback(() => {
+    setLoading(true)
+    setError(false)
     fetch('/api/platform/overview')
       .then(async (res) => {
         if (!res.ok) throw new Error(String(res.status))
         setOverview((await res.json()) as OverviewDto)
       })
-      .catch(() => toast.error(t('loadError')))
+      .catch(() => {
+        setError(true)
+        toast.error(t('loadError'))
+      })
       .finally(() => setLoading(false))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  useEffect(() => {
+    load()
+  }, [load])
+
+  // Failed and nothing to show — an inline, retryable error instead of a
+  // skeleton that would otherwise spin forever.
+  if (error && !overview) {
+    return (
+      <Card>
+        <CardContent className="flex flex-col items-center gap-4 py-12 text-center">
+          <AlertTriangle className="size-8 text-muted-foreground" aria-hidden />
+          <div className="space-y-1">
+            <p className="text-sm font-medium">{t('loadError')}</p>
+            <p className="text-sm text-muted-foreground">{t('loadErrorHint')}</p>
+          </div>
+          <Button variant="outline" size="sm" onClick={load} disabled={loading}>
+            <RefreshCw className={`size-3.5 ${loading ? 'animate-spin' : ''}`} aria-hidden />
+            {t('retry')}
+          </Button>
+        </CardContent>
+      </Card>
+    )
+  }
 
   if (loading || !overview) {
     return (
@@ -107,7 +138,7 @@ export const PlatformOverview: FC = () => {
           <StatTile
             icon={<Gauge className="size-4" aria-hidden />}
             label={t('stats.spendToday')}
-            value={eur(totals.dayUsd * overview.eurPerUsd)}
+            value={eur(totals.dayUsd * overview.eurPerUsd, locale)}
           />
           <StatTile
             icon={<ReceiptEuro className="size-4" aria-hidden />}
@@ -115,7 +146,7 @@ export const PlatformOverview: FC = () => {
             value={
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <span className="cursor-default">{eur(totals.monthUsd * overview.eurPerUsd)}</span>
+                  <span className="cursor-default">{eur(totals.monthUsd * overview.eurPerUsd, locale)}</span>
                 </TooltipTrigger>
                 <TooltipContent>{t('stats.requestsMonth', { count: totals.monthEvents })}</TooltipContent>
               </Tooltip>
@@ -172,8 +203,8 @@ export const PlatformOverview: FC = () => {
                       {(
                         [
                           [t('orgs.colProjects'), String(org.projectCount)],
-                          [t('orgs.colToday'), eur(org.dayUsd * overview.eurPerUsd)],
-                          [t('orgs.colMonth'), eur(org.monthUsd * overview.eurPerUsd)],
+                          [t('orgs.colToday'), eur(org.dayUsd * overview.eurPerUsd, locale)],
+                          [t('orgs.colMonth'), eur(org.monthUsd * overview.eurPerUsd, locale)],
                         ] as const
                       ).map(([label, value]) => (
                         <div key={label} className="flex min-w-14 flex-col items-end">

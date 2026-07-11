@@ -50,6 +50,12 @@ export const projects: typeof en.projects = {
     nameLabel: 'Projektname',
     namePlaceholder: 'OIB-Brandschutzprüfung',
     templateLabel: 'Mit einer Vorlage beginnen',
+    templates: {
+      neubauWohnbau: { label: 'Neubau Wohnbau', name: 'Neubau Wohnbau' },
+      betriebsbauBrandschutz: { label: 'Betriebsbau Brandschutz', name: 'Betriebsbau — Brandschutz' },
+      sanierungBestand: { label: 'Sanierung Bestand', name: 'Sanierung Bestand' },
+      oibBrandschutzAudit: { label: 'OIB Brandschutz-Audit', name: 'OIB Brandschutz-Audit' },
+    },
     footnote:
       'Erstellen Sie einen fokussierten Arbeitsbereich für Dokumente, Retrieval, Mitglieder und Chat, fundiert im OIB/RIS-Korpus.',
     submit: 'Projekt erstellen',
@@ -78,8 +84,9 @@ export const projects: typeof en.projects = {
       'Nur zur Orientierung — keine Rechtsberatung. Prüfen Sie die Anwendbarkeit anhand der aktuellen Bauordnung und der zuständigen Behörde.',
   },
   dangerZone: {
-    deleteSuccess:
-      'Projekt gelöscht. Es kann während der Kulanzfrist über „Kürzlich gelöscht“ wiederhergestellt werden.',
+    deleteSuccess: 'Projekt gelöscht. Ein Organisationsadministrator kann es bis {date} wiederherstellen.',
+    deleteSuccessNoDate:
+      'Projekt gelöscht. Ein Organisationsadministrator kann es während der Kulanzfrist wiederherstellen.',
     deleteError: 'Projekt konnte nicht gelöscht werden.',
     heading: 'Gefahrenzone',
     description:
@@ -90,6 +97,7 @@ export const projects: typeof en.projects = {
     dialogDescriptionAfter:
       ' und alle zugehörigen Daten in der gesamten App: Dateien, Chats, Rechercheläufe und die Wissensdatenbank.',
     confirmLabel: 'Projekt löschen',
+    typeToConfirm: 'Zum Bestätigen {name} eingeben:',
   },
   recentlyDeleted: {
     restoreSuccess: '„{name}“ wiederhergestellt.',
@@ -98,6 +106,8 @@ export const projects: typeof en.projects = {
     purgeFailed: 'Löschung fehlgeschlagen — Support kontaktieren',
     purgeAfter: 'Endgültig gelöscht nach {date}',
     restore: 'Wiederherstellen',
+    loadError: 'Kürzlich gelöschte Projekte konnten nicht geladen werden.',
+    retry: 'Erneut versuchen',
   },
   researchRuns: {
     hint: {
@@ -250,9 +260,30 @@ export const projects: typeof en.projects = {
     workspace: 'Projekt-Arbeitsbereich',
     askGrid: 'Grid fragen',
     uploadFiles: 'Dateien hochladen',
+    rename: {
+      action: 'Projekt umbenennen',
+      dialogTitle: 'Projekt umbenennen',
+      dialogDescription:
+        'Geben Sie diesem Projekt einen klaren Namen. Er ist zugleich die zur Bestätigung der Löschung erforderliche Eingabe.',
+      nameLabel: 'Projektname',
+      save: 'Speichern',
+      saving: 'Wird gespeichert…',
+      cancel: 'Abbrechen',
+      success: 'Projekt umbenannt.',
+      error: 'Das Projekt konnte nicht umbenannt werden. Bitte versuchen Sie es erneut.',
+      forbidden: 'Sie haben keine Berechtigung, dieses Projekt umzubenennen.',
+    },
     brief: {
       heading: 'Projekt-Briefing',
       edit: 'Briefing bearbeiten',
+      summaryGenerate: 'Zusammenfassung erstellen',
+      summaryRegenerate: 'Neu erstellen',
+      summaryGenerating: 'Wird erstellt…',
+      summarySuccess: 'Zusammenfassung aktualisiert.',
+      summaryError: 'Die Zusammenfassung konnte nicht erstellt werden. Bitte versuchen Sie es erneut.',
+      summaryLlmNotConfigured:
+        'Die Erstellung der Zusammenfassung ist nicht verfügbar — es ist kein Sprachmodell konfiguriert. Bitten Sie eine Administratorin, eines einzurichten.',
+      summaryForbidden: 'Sie haben keine Berechtigung, die Zusammenfassung zu erstellen.',
       captured: '{answered} von {total} erfasst',
       focus: 'Fokus',
       startedNoDetailsBefore:
@@ -264,6 +295,11 @@ export const projects: typeof en.projects = {
       assumptionConfirm: 'Bestätigen',
       assumptionDismiss: 'Verwerfen',
       assumptionError: 'Das Briefing konnte nicht aktualisiert werden. Bitte erneut versuchen.',
+      provenance: {
+        onboarding: 'Im Intake-Assistenten erfasst',
+        user_confirmed: 'Von Ihnen bestätigt',
+        admin_edit: 'Von einer Administratorin bearbeitet',
+      },
       emptyTitle: 'Projekt-Briefing einrichten',
       emptyDescription:
         'Erzählen Sie Grid von diesem Gebäude — Nutzung, Klasse, Geschosse und Ziele. Ein vollständiges Briefing lässt Grid jede Antwort im realen Kontext Ihres Projekts fundieren.',

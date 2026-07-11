@@ -11,7 +11,8 @@
 
 import { type FC } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { CheckCircle2 } from 'lucide-react'
+import { CheckCircle2, AlertTriangle } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { useChatStore } from '@/features/chat'
 import { useTranslations } from '@/i18n'
@@ -23,11 +24,21 @@ import { TaskCard } from './TaskCard'
  */
 export const TasksTab: FC = () => {
   const t = useTranslations('research')
-  const { deepResearchTodos, currentStatus, isDeepResearchStreaming } = useChatStore(
+  const {
+    deepResearchTodos,
+    currentStatus,
+    isDeepResearchStreaming,
+    isDeepResearchStalled,
+    deepResearchConnectionLost,
+    reconnectDeepResearchFn,
+  } = useChatStore(
     useShallow((s) => ({
       deepResearchTodos: s.deepResearchTodos,
       currentStatus: s.currentStatus,
       isDeepResearchStreaming: s.isDeepResearchStreaming,
+      isDeepResearchStalled: s.isDeepResearchStalled,
+      deepResearchConnectionLost: s.deepResearchConnectionLost,
+      reconnectDeepResearchFn: s.reconnectDeepResearchFn,
     }))
   )
 
@@ -38,6 +49,45 @@ export const TasksTab: FC = () => {
   const totalCount = deepResearchTodos.length
   const progressPercent = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0
   const isWritingReport = isDeepResearchStreaming && currentStatus === 'writing'
+
+  // Recovery notice for a stream that stopped delivering progress (UX-11a/UX-11b).
+  // Connection-lost is the stronger signal (retries exhausted), so it wins over a
+  // mere stall. Both keep the job alive and offer a Reconnect action.
+  const showConnectionLost = isDeepResearchStreaming && deepResearchConnectionLost
+  const showStalled = isDeepResearchStreaming && isDeepResearchStalled && !deepResearchConnectionLost
+  const showRecoveryNotice = showConnectionLost || showStalled
+
+  const recoveryNotice = showRecoveryNotice ? (
+    <div
+      role="alert"
+      className="flex shrink-0 flex-col gap-2 rounded-md bg-warning-subtle px-3 py-2"
+      data-testid="deep-research-recovery-notice"
+    >
+      <div className="flex items-center gap-2">
+        <AlertTriangle className="h-4 w-4 shrink-0 text-warning" aria-hidden="true" />
+        <span className="text-sm font-medium text-warning">
+          {showConnectionLost
+            ? t('tasksTab.connectionLostTitle')
+            : t('tasksTab.stalledTitle')}
+        </span>
+      </div>
+      <span className="text-xs text-muted-foreground">
+        {showConnectionLost
+          ? t('tasksTab.connectionLostBody')
+          : t('tasksTab.stalledBody')}
+      </span>
+      <div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => reconnectDeepResearchFn?.()}
+          disabled={!reconnectDeepResearchFn}
+        >
+          {t('tasksTab.reconnect')}
+        </Button>
+      </div>
+    </div>
+  ) : null
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
@@ -55,6 +105,9 @@ export const TasksTab: FC = () => {
           {t('tasksTab.description')}
         </span>
       </div>
+
+      {/* Stall / connection-loss recovery notice — shown in-context with the todos */}
+      {recoveryNotice}
 
       {/* Content */}
       {isEmpty ? (

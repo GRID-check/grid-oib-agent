@@ -31,6 +31,14 @@ export const files: typeof en.files = {
     size: 'Größe',
     unknownType: 'Unbekannt',
     download: 'Herunterladen',
+    downloadFailed: 'Der Download konnte nicht gestartet werden. Bitte versuchen Sie es erneut.',
+    ingestionFailed: 'Verarbeitung fehlgeschlagen',
+    ingestionFailedGeneric: 'Dieses Dokument konnte nicht für die Suche verarbeitet werden.',
+    retryIngestion: 'Verarbeitung erneut starten',
+    retryingIngestion: 'Wird erneut gestartet …',
+    retryIngestionError:
+      'Die Verarbeitung konnte nicht erneut gestartet werden. Bitte versuchen Sie es erneut.',
+    dialogLabel: 'Dateivorschau: {name}',
   },
   browser: {
     folderEmptyTitle: 'Dieser Ordner ist leer',
@@ -42,11 +50,15 @@ export const files: typeof en.files = {
     searchPlaceholder: 'Dateien durchsuchen …',
     searchLabel: 'Dateien durchsuchen',
     noMatch: 'Keine Dateien entsprechen „{query}“',
+    noMatchDescription:
+      'Versuchen Sie einen anderen Namen oder löschen Sie die Suche, um alle Dateien zu sehen.',
+    clearSearch: 'Suche zurücksetzen',
   },
   folders: {
     heading: 'Ordner',
     namePlaceholder: 'Ordnername',
     newFolderName: 'Name des neuen Ordners',
+    creating: 'Ordner wird erstellt …',
     addSubfolderIn: 'Unterordner in {name} hinzufügen',
     addSubfolder: 'Unterordner hinzufügen',
     allFiles: 'Alle Dateien',
@@ -61,9 +73,19 @@ export const files: typeof en.files = {
     foldersLoadError: 'Ordner konnten nicht geladen werden.',
     documentsLoadError: 'Dokumente konnten nicht geladen werden.',
     tryAgain: 'Erneut versuchen',
+    dropToUpload: 'Dateien hier ablegen, um sie in dieses Projekt hochzuladen',
+    dropUnsupported: 'Einige Dateien haben einen nicht unterstützten Typ',
   },
   upload: {
     uploading: 'Wird hochgeladen …',
     upload: 'Hochladen',
+  },
+  errors: {
+    uploadingSkipped:
+      'Es werden {uploading} {fileLabel} hochgeladen, {skipped} übersprungen ({summary})',
+    cannotRetryServerFile:
+      'Vom Server geladene Dateien können nicht erneut versucht werden. Bitte laden Sie die Datei erneut hoch.',
+    fileSingular: 'Datei',
+    filePlural: 'Dateien',
   },
 }

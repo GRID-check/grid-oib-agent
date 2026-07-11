@@ -4,11 +4,17 @@ import { requireAuthorizedPageSession } from '@/lib/auth/require-auth'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { getDb } from '@/lib/db'
 import { projects } from '@/lib/db/schema'
+import { type Metadata } from 'next'
 import { ResearchRunsList } from '@/features/projects/components/research-runs-list'
 import { getTranslations } from '@/i18n/server'
 
 interface ProjectResearchPageProps {
   params: Promise<{ id: string }>
+}
+
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations('nav')
+  return { title: t('sections.research') }
 }
 
 export default async function ProjectResearchPage({ params }: ProjectResearchPageProps): Promise<JSX.Element> {

@@ -115,8 +115,12 @@ cp deploy/.env.example deploy/.env
 # 2. Build and start the full stack
 docker compose -f deploy/compose/docker-compose.yaml --env-file deploy/.env up -d --build
 
-# 3. Ingest the OIB knowledge base
+# 3. OIB knowledge-base ingestion starts automatically in the background when
+#    the aiq-agent container boots — watch its progress in the container logs:
+docker compose -f deploy/compose/docker-compose.yaml --env-file deploy/.env logs -f aiq-agent
+# To re-run ingestion manually (incremental — e.g. after adding PDFs to data/oib/):
 docker compose -f deploy/compose/docker-compose.yaml --env-file deploy/.env exec aiq-agent python scripts/ingest_oib.py
+# (An admin-token-guarded `POST /v1/admin/oib/sync` endpoint triggers the same re-run over HTTP.)
 
 # 4. Open the UI
 open http://localhost:3000

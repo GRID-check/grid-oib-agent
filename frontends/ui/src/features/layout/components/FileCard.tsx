@@ -14,7 +14,8 @@ import { type FC, useState } from 'react'
 import { ChevronDown, FileText } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
-import { useTranslations } from '@/i18n'
+import { useLocale, useTranslations } from '@/i18n'
+import { formatTime } from '@/shared/utils/format-time'
 
 /** File artifact information from SSE events */
 export interface FileInfo {
@@ -31,14 +32,6 @@ export interface FileInfo {
 interface FileCardProps {
   /** File artifact information */
   file: FileInfo
-}
-
-/**
- * Format timestamp for display
- */
-const formatTime = (date: Date | string): string => {
-  const dateObj = typeof date === 'string' ? new Date(date) : date
-  return dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
 /**
@@ -63,6 +56,7 @@ const isMarkdownFile = (filename: string): boolean => {
 export const FileCard: FC<FileCardProps> = ({ file }) => {
   const [isExpanded, setIsExpanded] = useState(false)
   const t = useTranslations('research')
+  const { locale } = useLocale()
 
   // Content preview (first 100 chars)
   const contentPreview = file.content
@@ -102,7 +96,7 @@ export const FileCard: FC<FileCardProps> = ({ file }) => {
           {/* Timestamp */}
           {file.timestamp && (
             <span className="shrink-0 text-xs text-muted-foreground">
-              {formatTime(file.timestamp)}
+              {formatTime(file.timestamp, locale)}
             </span>
           )}
 

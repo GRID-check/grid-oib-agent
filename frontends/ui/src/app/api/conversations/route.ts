@@ -5,7 +5,7 @@
  */
 
 import { z } from 'zod'
-import { apiRoute, parseJsonBody } from '@/lib/api/handler'
+import { apiRoute, parseJsonBody, parseQuery } from '@/lib/api/handler'
 import { createConversation, listConversations } from '@/lib/conversations/service'
 
 const createConversationSchema = z.object({
@@ -16,7 +16,14 @@ const createConversationSchema = z.object({
   projectId: z.string().uuid().nullable().optional(),
 })
 
-export const GET = apiRoute(async ({ session }) => listConversations(session))
+const listConversationsQuerySchema = z.object({
+  // Optional project scope; the service enforces project access + tenancy.
+  projectId: z.string().uuid().optional(),
+})
+
+export const GET = apiRoute(async ({ session, request }) =>
+  listConversations(session, parseQuery(request, listConversationsQuerySchema)),
+)
 
 export const POST = apiRoute(
   async ({ session, request }) => {

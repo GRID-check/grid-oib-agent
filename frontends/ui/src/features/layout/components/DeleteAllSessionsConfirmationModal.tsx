@@ -67,6 +67,8 @@ export const DeleteAllSessionsConfirmationModal: FC<DeleteAllSessionsConfirmatio
             </span>
             {t('deleteModals.lossSuffix')}
           </p>
+          {/* Scope reassurance: delete-all is project-local (UX-8). */}
+          <p className="text-sm">{t('deleteModals.all.scopeNote')}</p>
           <p className="text-sm">{t('deleteModals.cannotReverse')}</p>
         </div>
         <DialogFooter>

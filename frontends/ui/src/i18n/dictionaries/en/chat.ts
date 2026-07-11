@@ -14,6 +14,7 @@ export const chat = {
     reject: 'Reject',
     approvePlan: 'Approve plan',
     rejectPlan: 'Reject plan',
+    selectOption: 'Select option: {option}',
     yourResponse: 'Your response:',
   },
   agentResponse: {
@@ -85,6 +86,78 @@ export const chat = {
   error: {
     showDetails: 'Show details',
     hideDetails: 'Hide details',
+  },
+  // Localized titles + default messages for the chat error registry
+  // (features/chat/lib/error-registry.ts). Keyed by error code.
+  errorRegistry: {
+    connectionLost: {
+      title: 'Connection Lost',
+      message: 'Lost connection to the server. Please check your network.',
+    },
+    connectionFailed: {
+      title: 'Connection Failed',
+      message: 'Unable to connect to the server. Please check your network connection.',
+    },
+    connectionTimeout: {
+      title: 'Request Timeout',
+      message: 'The request took too long to complete.',
+    },
+    sessionExpired: {
+      title: 'Session Expired',
+      message: 'Your session has expired. Please sign in again.',
+    },
+    unauthorized: {
+      title: 'Unauthorized',
+      message: 'You do not have permission to perform this action.',
+    },
+    responseFailed: {
+      title: 'Response Failed',
+      message: 'The assistant encountered an error generating a response.',
+    },
+    responseInterrupted: {
+      title: 'Response Interrupted',
+      message: 'Your previous request was not completed. Please resend your message.',
+    },
+    workflowError: {
+      title: 'Request Failed',
+      message:
+        'The assistant hit an unexpected error while handling your request. Please try again.',
+    },
+    deepResearchFailed: {
+      title: 'Deep Research Failed',
+      message: 'The deep research process encountered an error.',
+    },
+    deepResearchLoadFailed: {
+      title: 'Research Data Unavailable',
+      message: 'Unable to load research data. The job may have expired or been deleted.',
+    },
+    unknown: {
+      title: 'Something Went Wrong',
+      message: 'An unexpected error occurred. Please try again.',
+    },
+  },
+  // User-facing deep-research error copy raised from the SSE hook.
+  deepResearchErrors: {
+    interrupted: 'Research was interrupted before completion.',
+  },
+  // Toasts fired when a session is deleted but its deep-research job could not
+  // be cancelled on the server.
+  sessionActions: {
+    researchMayStillRunTitle: 'Research run may still be running',
+    researchMayStillRunDescription:
+      'The session was deleted, but its deep-research job could not be stopped on the server.',
+    researchRunsMayStillRunTitle: '{count} research {runLabel} may still be running',
+    researchRunsMayStillRunDescription:
+      'Sessions were deleted, but some deep-research jobs could not be stopped on the server.',
+    runSingular: 'run',
+    runPlural: 'runs',
+  },
+  budgetExhausted: {
+    title: 'Budget exhausted',
+    memberMessage:
+      'Your LLM budget is used up, so new messages can’t be sent right now. You can review your own usage under Organization → Usage & budgets. Ask an organization admin to raise your limit.',
+    adminMessage:
+      'The LLM budget is used up, so new messages can’t be sent right now. Raise the limits under Organization → Usage & budgets.',
   },
   fileUpload: {
     uploading:

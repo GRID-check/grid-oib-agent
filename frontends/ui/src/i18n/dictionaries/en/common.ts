@@ -24,6 +24,7 @@ export const common = {
     saved: 'Saved',
     error: 'Something went wrong',
     empty: 'Nothing here yet',
+    copyFailed: 'Could not copy',
   },
   theme: {
     label: 'Theme',

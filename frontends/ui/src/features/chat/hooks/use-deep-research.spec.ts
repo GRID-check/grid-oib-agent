@@ -1,6 +1,7 @@
 import { renderHook, act, waitFor } from '@testing-library/react'
 import { vi, describe, test, expect, beforeEach, afterEach } from 'vitest'
 import { useDeepResearch } from './use-deep-research'
+import { en } from '@/i18n/dictionaries/en'
 
 // ============================================================
 // Mock store state and actions
@@ -34,6 +35,9 @@ const mockPatchConversationMessage = vi.fn()
 const mockPersistDeepResearchToSession = vi.fn()
 const mockAddDeepResearchBanner = vi.fn()
 const mockSetStreamLoaded = vi.fn()
+const mockSetDeepResearchStalled = vi.fn()
+const mockSetDeepResearchConnectionLost = vi.fn()
+const mockSetReconnectDeepResearchFn = vi.fn()
 
 let mockStoreState = {
   deepResearchJobId: null as string | null,
@@ -82,6 +86,9 @@ vi.mock('../store', () => ({
         persistDeepResearchToSession: mockPersistDeepResearchToSession,
         addDeepResearchBanner: mockAddDeepResearchBanner,
         setStreamLoaded: mockSetStreamLoaded,
+        setDeepResearchStalled: mockSetDeepResearchStalled,
+        setDeepResearchConnectionLost: mockSetDeepResearchConnectionLost,
+        setReconnectDeepResearchFn: mockSetReconnectDeepResearchFn,
       }
       return selector ? selector(state) : state
     }),
@@ -699,9 +706,11 @@ describe('useDeepResearch', () => {
         'job-456',
         'test-conv-123'
       )
+      // Localized copy: the hook resolves the interrupted message through the
+      // chat dictionary (English fallback when no i18n provider is mounted).
       expect(mockAddErrorCard).toHaveBeenCalledWith(
         'agent.deep_research_failed',
-        'Research was interrupted before completion.'
+        en.chat.deepResearchErrors.interrupted
       )
     })
 
@@ -1020,13 +1029,16 @@ describe('useDeepResearch', () => {
       })
     })
 
-    test('onError logs error and performs full cleanup when backend is unreachable', async () => {
+    test('onError surfaces a distinct connection-lost state instead of marking the job failed', async () => {
+      // UX-11b: exhausted SSE retries mean the CONNECTION is gone, but the job may
+      // still be running (and billing) server-side. The client must not pretend the
+      // job failed — it flags connection-lost, keeps streaming state intact (so Stop
+      // stays enabled), and disconnects the dead EventSource so Reconnect can rebuild.
       await setupConnectedHook({
         activeDeepResearchMessageId: 'msg-123',
         reportContent: 'Partial report',
       })
 
-      mockCheckBackendHealthCached.mockResolvedValue(false)
       useChatStore.getState = vi.fn(() => ({
         ...mockStoreState,
         isDeepResearchStreaming: true,
@@ -1040,93 +1052,57 @@ describe('useDeepResearch', () => {
         completeDeepResearch: mockCompleteDeepResearch,
         setStreaming: mockSetStreaming,
         setStreamLoaded: mockSetStreamLoaded,
+        setDeepResearchConnectionLost: mockSetDeepResearchConnectionLost,
       })) as unknown as typeof useChatStore.getState
 
       const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
-      const testError = new Error('Connection lost')
+      const testError = new Error('SSE connection failed after 5 reconnection attempts')
 
-      await act(async () => {
-        await mockClient?.callbacks.onError?.(testError)
+      act(() => {
+        mockClient?.callbacks.onError?.(testError)
       })
 
-      expect(consoleWarnSpy).toHaveBeenCalledWith('Deep research SSE error:', 'Connection lost')
-      expect(consoleErrorSpy).toHaveBeenCalledWith('Deep research SSE failed (backend unreachable):', testError)
-      expect(mockSetCurrentStatus).toHaveBeenCalledWith('error')
-      expect(mockAddErrorCard).toHaveBeenCalledWith(
-        'agent.deep_research_failed',
-        'Connection lost',
-        testError.stack
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        'Deep research SSE error:',
+        'SSE connection failed after 5 reconnection attempts'
       )
-
-      expect(mockPatchConversationMessage).toHaveBeenCalledWith(
-        'test-conv-123',
-        'msg-123',
-        expect.objectContaining({
-          deepResearchJobStatus: 'failure',
-          isDeepResearchActive: false,
-          showViewReport: true,
-        })
-      )
-      expect(mockAddDeepResearchBanner).toHaveBeenCalledWith('failure', 'job-456', 'test-conv-123')
-      expect(mockStopAllDeepResearchSpinners).toHaveBeenCalled()
+      // Distinct recovery state, NOT a failure.
+      expect(mockSetDeepResearchConnectionLost).toHaveBeenCalledWith(true)
       expect(mockClient?.disconnect).toHaveBeenCalled()
-      expect(mockSetStreamLoaded).toHaveBeenCalledWith(true)
-      expect(mockCompleteDeepResearch).toHaveBeenCalled()
-      expect(mockSetStreaming).toHaveBeenCalledWith(false)
+
+      // The job is NOT marked failed/interrupted, and streaming state is preserved.
+      expect(mockAddErrorCard).not.toHaveBeenCalled()
+      expect(mockPatchConversationMessage).not.toHaveBeenCalled()
+      expect(mockAddDeepResearchBanner).not.toHaveBeenCalled()
+      expect(mockStopAllDeepResearchSpinners).not.toHaveBeenCalled()
+      expect(mockCompleteDeepResearch).not.toHaveBeenCalled()
+      expect(mockSetStreaming).not.toHaveBeenCalled()
 
       consoleWarnSpy.mockRestore()
       consoleErrorSpy.mockRestore()
     })
 
-    test('onError surfaces error when backend is reachable (no longer silently swallowed)', async () => {
+    test('onError does not touch connection-lost state when research is already terminal', async () => {
       await setupConnectedHook()
 
-      mockCheckBackendHealthCached.mockResolvedValue(true)
-      useChatStore.getState = vi.fn(() => ({
-        ...mockStoreState,
-        isDeepResearchStreaming: true,
-        addErrorCard: mockAddErrorCard,
-        stopAllDeepResearchSpinners: mockStopAllDeepResearchSpinners,
-      })) as unknown as typeof useChatStore.getState
-
-      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-
-      await act(async () => {
-        await mockClient?.callbacks.onError?.(new Error('Transient error'))
-      })
-
-      // Errors are now surfaced instead of silently swallowed when backend is healthy
-      expect(mockAddErrorCard).toHaveBeenCalledWith(
-        'connection.failed',
-        'Transient error',
-        expect.any(String)
-      )
-      expect(mockCompleteDeepResearch).toHaveBeenCalled()
-      expect(mockSetStreaming).toHaveBeenCalledWith(false)
-
-      consoleWarnSpy.mockRestore()
-    })
-
-    test('onError skips cleanup when research already in terminal state', async () => {
-      await setupConnectedHook()
-
-      mockCheckBackendHealthCached.mockResolvedValue(false)
       useChatStore.getState = vi.fn(() => ({
         ...mockStoreState,
         isDeepResearchStreaming: false,
         deepResearchStatus: 'failure',
         addErrorCard: mockAddErrorCard,
         stopAllDeepResearchSpinners: mockStopAllDeepResearchSpinners,
+        setDeepResearchConnectionLost: mockSetDeepResearchConnectionLost,
       })) as unknown as typeof useChatStore.getState
 
       const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
-      await act(async () => {
-        await mockClient?.callbacks.onError?.(new Error('Late error'))
+      act(() => {
+        mockClient?.callbacks.onError?.(new Error('Late error'))
       })
 
+      expect(mockSetDeepResearchConnectionLost).not.toHaveBeenCalled()
       expect(mockAddErrorCard).not.toHaveBeenCalled()
       expect(mockCompleteDeepResearch).not.toHaveBeenCalled()
 

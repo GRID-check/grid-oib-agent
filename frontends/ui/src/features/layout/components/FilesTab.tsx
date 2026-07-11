@@ -12,14 +12,15 @@
 import { type FC } from 'react'
 import { FileText } from 'lucide-react'
 import { useChatStore } from '@/features/chat/store'
+import { useTranslations } from '@/i18n'
 import { FileCard } from './FileCard'
-import { EMPTY_RESEARCH_DETAILS_HELP_TEXT } from './research-empty-state-copy'
 
 /**
  * Files sub-tab content showing file artifacts from deep research.
  * Consumes deepResearchFiles from the chat store.
  */
 export const FilesTab: FC = () => {
+  const t = useTranslations('research')
   // Get files from the dedicated store array
   const files = useChatStore((state) => state.deepResearchFiles)
   const isEmpty = files.length === 0
@@ -45,7 +46,7 @@ export const FilesTab: FC = () => {
           <FileText className="mb-3 h-8 w-8 text-muted-foreground" aria-hidden="true" />
           <p className="text-sm text-muted-foreground">No generated files available.</p>
           <p className="mt-2 text-sm text-muted-foreground">
-            {EMPTY_RESEARCH_DETAILS_HELP_TEXT}
+            {t('detailsHelp')}
           </p>
         </div>
       ) : (

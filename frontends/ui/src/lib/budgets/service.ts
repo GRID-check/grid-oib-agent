@@ -390,6 +390,40 @@ export async function getBudgetStatus(
   }
 }
 
+export interface ConnectionDiagnostics {
+  /** True when a budget scope that applies to this caller is already exhausted. */
+  budgetExhausted: boolean
+  /** Which scope is blocking (organization/member/project), or null. */
+  blockedScope: BudgetScope | null
+  /** Whether the caller can raise limits (budget admin) — drives the UI copy. */
+  canManageBudgets: boolean
+}
+
+/**
+ * Read-only reason discovery for a failed chat WebSocket upgrade.
+ *
+ * When a budget scope is exhausted the gateway (server.js) refuses the WS
+ * upgrade with a bare failed handshake the browser cannot read, so chat only
+ * sees a generic connection failure. After its retries are exhausted the chat
+ * client calls this same-origin endpoint to learn whether the real cause was
+ * budget exhaustion and render a distinct, actionable banner.
+ *
+ * Reuses the exact enforcement snapshot the websocket-scope route uses
+ * (`getBudgetStatus`) so the answer can never disagree with what actually
+ * blocked the upgrade. No side effects.
+ */
+export async function getConnectionDiagnostics(
+  session: AuthorizedSession,
+  requested: { projectId?: string } = {},
+): Promise<ConnectionDiagnostics> {
+  const status = await getBudgetStatus(session.organizationId, session.userId, requested.projectId ?? null)
+  return {
+    budgetExhausted: status.blocked,
+    blockedScope: status.blockedScope,
+    canManageBudgets: canManageBudgets(session),
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Session-facing operations (route handlers delegate here)
 // ---------------------------------------------------------------------------

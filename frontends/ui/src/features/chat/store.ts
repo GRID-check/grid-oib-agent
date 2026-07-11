@@ -37,11 +37,17 @@ export const useChatStore = create<ChatStore>()(
           conversations: state.conversations,
           currentConversation: state.currentConversation,
           pendingInteraction: state.pendingInteraction,
+          composerDrafts: state.composerDrafts,
         }),
         onRehydrateStorage: () => (state) => {
           if (!state || typeof window === 'undefined') return
           queueMicrotask(() => {
-            void useChatStore.getState().refreshDeepResearchSessionStatuses()
+            const store = useChatStore.getState()
+            // Rehydration is async and can land AFTER a project page has set
+            // projectId; re-apply it so setProjectId's guard clears a
+            // persisted currentConversation from another project (UX-8).
+            if (store.projectId) store.setProjectId(store.projectId)
+            void store.refreshDeepResearchSessionStatuses()
           })
         },
       }

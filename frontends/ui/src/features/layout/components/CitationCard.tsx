@@ -15,6 +15,8 @@
 import { type FC } from 'react'
 import { Check, Link as LinkIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useLocale } from '@/i18n'
+import { formatTime } from '@/shared/utils/format-time'
 import type { CitationSource } from '@/features/chat/types'
 
 interface CitationCardProps {
@@ -22,14 +24,6 @@ interface CitationCardProps {
   citation: CitationSource
   /** 1-based position in the citation list, rendered as a numbered marker. */
   index?: number
-}
-
-/**
- * Format timestamp for display
- */
-const formatTime = (date: Date | string): string => {
-  const dateObj = typeof date === 'string' ? new Date(date) : date
-  return dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
 /**
@@ -49,6 +43,7 @@ const getDomain = (url: string): string => {
  * captured snippet and a verifiable link.
  */
 export const CitationCard: FC<CitationCardProps> = ({ citation, index }) => {
+  const { locale } = useLocale()
   const excerpt = citation.content?.trim()
 
   return (
@@ -94,7 +89,7 @@ export const CitationCard: FC<CitationCardProps> = ({ citation, index }) => {
               {getDomain(citation.url)}
             </span>
             <span className="shrink-0 text-xs text-muted-foreground">
-              {formatTime(citation.timestamp)}
+              {formatTime(citation.timestamp, locale)}
             </span>
           </div>
 

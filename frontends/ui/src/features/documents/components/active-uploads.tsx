@@ -4,7 +4,7 @@ import { Loader2, RotateCcw, XCircle } from 'lucide-react'
 import type { TrackedFile } from '../types'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
-import { useTranslations } from '@/i18n'
+import { useLocale, useTranslations } from '@/i18n'
 import { formatFileSize } from '@/lib/utils/format-file-size'
 
 interface ActiveUploadsProps {
@@ -20,6 +20,7 @@ interface ActiveUploadsProps {
 export function ActiveUploads({ files, onRetry }: ActiveUploadsProps) {
   const t = useTranslations('files')
   const tc = useTranslations('common')
+  const { locale } = useLocale()
   if (files.length === 0) return null
 
   return (
@@ -44,7 +45,7 @@ export function ActiveUploads({ files, onRetry }: ActiveUploadsProps) {
                 <div className="flex items-center justify-between gap-3">
                   <p className="truncate text-sm text-foreground">{file.fileName}</p>
                   <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-                    {formatFileSize(file.fileSize)}
+                    {formatFileSize(file.fileSize, locale)}
                   </span>
                 </div>
                 {isFailed ? (

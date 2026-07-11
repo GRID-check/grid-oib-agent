@@ -1,12 +1,12 @@
 'use client'
 
 import { useState, useEffect, useCallback, type ReactNode } from 'react'
+import { toast } from 'sonner'
 import type { FileItem } from './project-file-workspace'
-import { Download, FileQuestion, RotateCcw, X } from 'lucide-react'
+import { AlertCircle, Download, FileQuestion, RotateCcw, X } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Button, buttonVariants } from '@/components/ui/button'
-import { useTranslations } from '@/i18n'
-import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
+import { useLocale, useTranslations } from '@/i18n'
 import { formatFileSize } from '@/lib/utils/format-file-size'
 import { DocumentStatusBadge, fileTypeIcon } from './document-status'
 
@@ -14,16 +14,23 @@ interface FilePreviewPaneProps {
   file: FileItem
   projectId: string
   onClose?: () => void
+  /** Notify the parent to flip local state after a successful re-ingestion. */
+  onReingested?: (fileId: string, status: string) => void
 }
 
 const PREVIEW_TYPES = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp', 'image/svg+xml']
 
-export function FilePreviewPane({ file, onClose }: FilePreviewPaneProps) {
+export function FilePreviewPane({ file, onClose, onReingested }: FilePreviewPaneProps) {
   const t = useTranslations('files')
+  const { locale } = useLocale()
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [previewFailed, setPreviewFailed] = useState(false)
+  const [isDownloading, setIsDownloading] = useState(false)
+  const [downloadFailed, setDownloadFailed] = useState(false)
+  const [isReingesting, setIsReingesting] = useState(false)
   const canPreview = PREVIEW_TYPES.includes(file.contentType ?? '')
+  const isFailed = file.status === 'failed'
   const Icon = fileTypeIcon(file.contentType, file.filename)
 
   const loadPreview = useCallback(() => {
@@ -50,6 +57,41 @@ export function FilePreviewPane({ file, onClose }: FilePreviewPaneProps) {
   useEffect(() => {
     loadPreview()
   }, [loadPreview])
+
+  // The download route returns JSON ({downloadUrl, ...}), not the file bytes —
+  // fetch it, then navigate to the presigned URL. Its Content-Disposition is
+  // `attachment`, so the browser downloads the file without leaving the page.
+  const handleDownload = useCallback(async () => {
+    setDownloadFailed(false)
+    setIsDownloading(true)
+    try {
+      const res = await fetch(`/api/documents/${file.id}/download`)
+      const data = res.ok ? await res.json() : null
+      if (data?.downloadUrl) window.location.assign(data.downloadUrl)
+      else setDownloadFailed(true)
+    } catch {
+      setDownloadFailed(true)
+    } finally {
+      setIsDownloading(false)
+    }
+  }, [file.id])
+
+  // Re-dispatch a failed document to the ingest pipeline. On success the parent
+  // flips its local status to 'pending' (the endpoint returns the new status),
+  // so the existing status reconciliation takes over from there.
+  const handleReingest = useCallback(async () => {
+    setIsReingesting(true)
+    try {
+      const res = await fetch(`/api/documents/${file.id}/reingest`, { method: 'POST' })
+      if (!res.ok) throw new Error(`Reingest failed (${res.status})`)
+      const data = await res.json().catch(() => ({}))
+      onReingested?.(file.id, data.status ?? 'pending')
+    } catch {
+      toast.error(t('preview.retryIngestionError'))
+    } finally {
+      setIsReingesting(false)
+    }
+  }, [file.id, onReingested, t])
 
   return (
     <div className="flex h-full flex-col">
@@ -108,19 +150,52 @@ export function FilePreviewPane({ file, onClose }: FilePreviewPaneProps) {
           <span className="font-mono text-xs text-foreground">{file.contentType ?? t('preview.unknownType')}</span>
         </MetaRow>
         <MetaRow label={t('preview.size')}>
-          <span className="text-xs font-medium tabular-nums text-foreground">{formatFileSize(file.fileSize)}</span>
+          <span className="text-xs font-medium tabular-nums text-foreground">{formatFileSize(file.fileSize, locale)}</span>
         </MetaRow>
       </div>
 
+      {/* Failure reason + re-ingestion affordance */}
+      {isFailed && (
+        <div className="space-y-2.5 border-t px-4 py-3">
+          <div className="flex items-start gap-2">
+            <AlertCircle className="mt-0.5 size-4 shrink-0 text-destructive" aria-hidden />
+            <div className="min-w-0 space-y-1">
+              <p className="text-sm font-medium text-destructive">{t('preview.ingestionFailed')}</p>
+              <p className="break-words text-xs text-muted-foreground">
+                {file.errorMessage || t('preview.ingestionFailedGeneric')}
+              </p>
+            </div>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full gap-2"
+            onClick={handleReingest}
+            disabled={isReingesting}
+          >
+            <RotateCcw className="size-4" aria-hidden />
+            {isReingesting ? t('preview.retryingIngestion') : t('preview.retryIngestion')}
+          </Button>
+        </div>
+      )}
+
       {/* Actions */}
       <div className="border-t px-4 py-3">
-        <a
-          href={`/api/documents/${file.id}/download`}
-          className={cn(buttonVariants({ variant: 'outline' }), 'w-full gap-2')}
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full gap-2"
+          onClick={handleDownload}
+          disabled={isDownloading}
         >
           <Download className="size-4" aria-hidden />
           {t('preview.download')}
-        </a>
+        </Button>
+        {downloadFailed && (
+          <p role="alert" className="mt-2 text-xs text-destructive">
+            {t('preview.downloadFailed')}
+          </p>
+        )}
       </div>
     </div>
   )

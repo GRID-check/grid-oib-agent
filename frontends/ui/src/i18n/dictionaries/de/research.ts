@@ -4,10 +4,20 @@ import type { en } from '../en'
 export const research: typeof en.research = {
   dismissError: 'Fehler ausblenden',
 
+  detailsHelp:
+    'Diese Details erscheinen während einer laufenden Recherche und sind für abgeschlossene Berichte möglicherweise nicht verfügbar.',
+
   runsPage: {
     title: 'Recherchedurchläufe',
     subtitle:
       'Deep-Research-Berichte, die Grid für dieses Projekt erstellt hat, neueste zuerst.',
+  },
+
+  // Labels for the per-project research-runs list rows (research-runs-list.tsx).
+  runsList: {
+    untitledRun: 'Deep-Research-Durchlauf',
+    sessionLabel: 'Sitzung {id}',
+    viewThinking: 'Denkschritte anzeigen',
   },
 
   dockedPanel: {
@@ -27,10 +37,11 @@ export const research: typeof en.research = {
     cockpit: 'OIB-Recherche-Cockpit',
     title: 'Beginnen Sie mit einem Projekt und fragen Sie nach belegter baurechtlicher Argumentation.',
     body: 'Grid hält die Suche auf den ausgewählten Arbeitsbereich beschränkt und verwandelt lange Richtliniendokumente in nachvollziehbare Entscheidungen.',
-    openProjects: 'Projekte öffnen',
-    openProjectsDesc: 'Arbeitsbereiche anlegen, Dokumente verwalten und Rollen einladen.',
-    selectContext: 'Kontext auswählen',
-    selectContextDesc: 'Nutzen Sie die Arbeitsbereichsauswahl, bevor Sie eine Analyse starten.',
+    reviewBrief: 'Briefing prüfen',
+    reviewBriefDesc: 'Öffnen Sie die Projektübersicht, um die Fakten zu prüfen, auf die Grid seine Antworten stützt.',
+    uploadFiles: 'Dateien hochladen',
+    uploadFilesDesc: 'Hängen Sie Pläne oder Dokumente über die Büroklammer an, um Antworten auf Ihre Belege zu stützen.',
+    usePrompt: 'Vorschlag verwenden: {prompt}',
     prompt1: 'Vergleiche die Brandschutzpflichten nach OIB 2 über die Gebäudeklassen hinweg.',
     prompt2: 'Fasse die Barrierefreiheitsanforderungen für eine öffentliche Sanierung zusammen.',
     prompt3: 'Finde Widersprüche zwischen den hochgeladenen Plänen und den OIB-Richtlinien.',
@@ -101,10 +112,12 @@ export const research: typeof en.research = {
     lossSuffix:
       ' zu löschen. Dabei gehen sämtliche Fortschritte verloren und alle von Ihnen angehängten Dateien werden entfernt.',
     all: {
-      title: 'Alle Sitzungen löschen',
-      countSessions: 'alle {count} Sitzungen',
-      allSessions: 'ALLE Sitzungen',
-      confirm: 'ALLE Sitzungen löschen',
+      title: 'Alle Sitzungen dieses Projekts löschen',
+      countSessions: 'alle {count} Sitzungen dieses Projekts',
+      allSessions: 'ALLE Sitzungen dieses Projekts',
+      scopeNote:
+        'Es werden nur Sitzungen dieses Projekts gelöscht. Ihre Sitzungen in anderen Projekten sind nicht betroffen.',
+      confirm: 'Projektsitzungen löschen',
     },
     file: {
       title: 'Datei löschen',
@@ -198,6 +211,8 @@ export const research: typeof en.research = {
     signInToStart: 'Melden Sie sich an, um mit der Recherche zu beginnen',
     researchCompletedNewSession:
       'Recherche abgeschlossen. Erstellen Sie für weitere Fragen eine neue Sitzung.',
+    researchFailedFollowUp:
+      'Die Recherche wurde nicht abgeschlossen. Stellen Sie eine Anschlussfrage oder versuchen Sie es erneut.',
     typeResponse: 'Geben Sie Ihre Antwort an den Agenten ein...',
     pleaseWait: 'Bitte warten...',
     messageNotSent: 'Nachricht nicht gesendet',
@@ -264,8 +279,8 @@ export const research: typeof en.research = {
     storageQuota: '{percent}% des Browser-Speicherkontingents belegt',
     storageNote:
       'Hinweis: Chat-Sitzungen werden in diesem Browser gespeichert. Rechercheberichte können auf dem Server ablaufen.',
-    deleteAllDisabled: 'Alle Sitzungen löschen (deaktiviert)',
-    deleteAll: 'Alle Sitzungen löschen',
+    deleteAllDisabled: 'Alle Sitzungen dieses Projekts löschen (deaktiviert)',
+    deleteAll: 'Alle Sitzungen dieses Projekts löschen',
     cannotDeleteBusy: 'Löschen nicht möglich, während Vorgänge laufen',
     deleteAllButton: 'Alle löschen',
     newSessionDisabled: 'Neue Sitzung starten (während aktiver Vorgänge deaktiviert)',
@@ -276,7 +291,9 @@ export const research: typeof en.research = {
     searchPlaceholder: 'Sitzungen durchsuchen...',
     searchAria: 'Sitzungen durchsuchen',
     noMatching: 'Keine passenden Sitzungen',
+    noMatchingDescription: 'Keine Sitzungen entsprechen Ihrer Suche. Versuchen Sie einen anderen Begriff.',
     noSessions: 'Noch keine Sitzungen',
+    noSessionsDescription: 'Starten Sie eine neue Sitzung, um mit Grid zu recherchieren.',
     startNewSessionButton: 'Neue Sitzung starten',
     today: 'Heute',
     yesterday: 'Gestern',
@@ -310,6 +327,13 @@ export const research: typeof en.research = {
     emptyHelp: 'Zeigt die Aufschlüsselung des Plans und den Fortschritt während der Deep Research.',
     progressAria: 'Fortschritt der Aufgabenerledigung',
     writingReport: 'Finaler Bericht wird geschrieben... Dies kann einige Minuten dauern.',
+    stalledTitle: 'Seit einer Weile keine Fortschrittsupdates',
+    stalledBody:
+      'Die Recherche hat kürzlich kein Update gesendet. Sie läuft möglicherweise noch – stellen Sie die Verbindung wieder her, um den Live-Stream fortzusetzen.',
+    connectionLostTitle: 'Verbindung zum Recherchejob verloren',
+    connectionLostBody:
+      'Die Live-Verbindung wurde unterbrochen, aber der Job läuft möglicherweise noch auf dem Server. Stellen Sie die Verbindung wieder her, um fortzufahren, oder stoppen Sie ihn über die Leiste oben.',
+    reconnect: 'Erneut verbinden',
   },
 
   thinkingTab: {

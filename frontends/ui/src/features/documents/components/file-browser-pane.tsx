@@ -3,10 +3,11 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import type { FileItem } from './project-file-workspace'
 import { Search, FolderOpen, UploadCloud } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState } from '@/components/ui/empty-state'
-import { useTranslations } from '@/i18n'
+import { useLocale, useTranslations } from '@/i18n'
 import { formatFileSize } from '@/lib/utils/format-file-size'
 import { DocumentStatusBadge, fileTypeIcon } from './document-status'
 
@@ -30,6 +31,7 @@ export function FileBrowserPane({
   uploadControl,
 }: FileBrowserPaneProps) {
   const t = useTranslations('files')
+  const { locale } = useLocale()
   const [search, setSearch] = useState('')
 
   const filteredFiles = useMemo(() => {
@@ -99,13 +101,25 @@ export function FileBrowserPane({
       {/* File list */}
       <div className="divide-y">
         {filteredFiles.length === 0 && (
-          <div className="px-4 py-12 text-center text-sm text-muted-foreground">
-            {t('browser.noMatch', { query: search })}
+          <div className="p-8">
+            <EmptyState
+              variant="bare"
+              icon={Search}
+              title={t('browser.noMatch', { query: search })}
+              description={t('browser.noMatchDescription')}
+              action={
+                <Button variant="outline" size="sm" onClick={() => setSearch('')}>
+                  {t('browser.clearSearch')}
+                </Button>
+              }
+            />
           </div>
         )}
         {filteredFiles.map((file) => {
           const Icon = fileTypeIcon(file.contentType, file.filename)
           const isSelected = selectedFileId === file.id
+          const isFailed = file.status === 'failed'
+          const failureReason = isFailed ? file.errorMessage || t('preview.ingestionFailedGeneric') : undefined
           return (
             <button
               key={file.id}
@@ -121,7 +135,13 @@ export function FileBrowserPane({
                 </span>
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium text-foreground">{file.filename}</p>
-                  <p className="text-xs text-muted-foreground tabular-nums">{formatFileSize(file.fileSize)}</p>
+                  {isFailed ? (
+                    <p className="truncate text-xs text-destructive" title={failureReason}>
+                      {failureReason}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground tabular-nums">{formatFileSize(file.fileSize, locale)}</p>
+                  )}
                 </div>
               </div>
               <DocumentStatusBadge status={file.status} />

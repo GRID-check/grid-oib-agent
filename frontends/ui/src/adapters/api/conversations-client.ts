@@ -8,8 +8,14 @@ export interface ConversationSummary {
 }
 
 export const conversationsClient = {
-  async list(): Promise<Conversation[]> {
-    const res = await fetch('/api/conversations')
+  /**
+   * List conversations, optionally scoped to a project. The BFF applies a
+   * fail-open rule for legacy rows without a projectId (they are included in
+   * every project scope) so users never lose sight of their history.
+   */
+  async list(projectId?: string): Promise<Conversation[]> {
+    const query = projectId ? `?projectId=${encodeURIComponent(projectId)}` : ''
+    const res = await fetch(`/api/conversations${query}`)
     if (!res.ok) throw new Error('Failed to fetch conversations')
     return res.json()
   },
@@ -20,11 +26,11 @@ export const conversationsClient = {
     return res.json()
   },
 
-  async create(id: string, title?: string | null): Promise<Conversation> {
+  async create(id: string, title?: string | null, projectId?: string | null): Promise<Conversation> {
     const res = await fetch('/api/conversations', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, title: title ?? null }),
+      body: JSON.stringify({ id, title: title ?? null, projectId: projectId ?? null }),
     })
     if (!res.ok) throw new Error('Failed to create conversation')
     return res.json()

@@ -24,6 +24,7 @@ import { useLayoutStore } from '@/features/layout/store'
 import type { ThemeMode } from '@/features/layout/types'
 import { useTranslations, useLocale, locales, type Locale } from '@/i18n'
 import { AccountWidgets } from './account-widgets'
+import { ShortcutSettings } from './shortcut-settings'
 
 const THEME_MODES: ThemeMode[] = ['system', 'light', 'dark']
 const THEME_ICONS: Record<ThemeMode, FC<{ className?: string }>> = {
@@ -35,9 +36,19 @@ const THEME_ICONS: Record<ThemeMode, FC<{ className?: string }>> = {
 interface ProfileControlsProps {
   authRequired: boolean
   email?: string | null
+  /**
+   * Whether the keyboard-shortcuts feature is available to this org (the
+   * `keyboard-shortcuts` WorkOS flag, resolved server-side). Without it the
+   * per-user toggle is not shown at all.
+   */
+  shortcutsAvailable?: boolean
 }
 
-export const ProfileControls: FC<ProfileControlsProps> = ({ authRequired, email }) => {
+export const ProfileControls: FC<ProfileControlsProps> = ({
+  authRequired,
+  email,
+  shortcutsAvailable = false,
+}) => {
   const t = useTranslations('profile')
   const tc = useTranslations('common')
   const theme = useLayoutStore((s) => s.theme)
@@ -107,6 +118,9 @@ export const ProfileControls: FC<ProfileControlsProps> = ({ authRequired, email 
           </Select>
         </CardContent>
       </Card>
+
+      {/* Keyboard shortcuts (org flag is the outer gate; toggle is per-user) */}
+      {shortcutsAvailable && <ShortcutSettings />}
 
       {/* Security & sessions */}
       <Card>

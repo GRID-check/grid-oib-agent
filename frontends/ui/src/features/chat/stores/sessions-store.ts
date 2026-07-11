@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid'
 import { toast } from 'sonner'
+import { getStoreTranslator } from '@/i18n'
 import { createJSONStorage, type StorageValue, type PersistStorage } from 'zustand/middleware'
 import type { StateCreator } from 'zustand'
 import type {
@@ -20,15 +21,19 @@ import {
   logStorageAvailability,
 } from '../lib/storage-logger'
 import { ensureStorageCapacity } from '../lib/storage-manager'
-import { clearAllDeepResearchSessions } from '../lib/deep-research-session-storage'
+import {
+  clearAllDeepResearchSessions,
+  clearDeepResearchSession,
+} from '../lib/deep-research-session-storage'
 import { hasActiveDeepResearchJob, hasNoUserChatMessages } from '../lib/session-activity'
+import { conversationMatchesProject } from '../lib/project-scope'
 
 export type SessionsSlice = {
   currentUserId: string | null
   currentConversation: Conversation | null
   conversations: Conversation[]
 
-  loadServerConversations: () => Promise<void>
+  loadServerConversations: (projectId?: string) => Promise<void>
   setCurrentUser: (userId: string | null) => void
   getUserConversations: () => Conversation[]
   createConversation: () => Conversation
@@ -59,6 +64,7 @@ type PersistedChatState = {
   conversations: ChatState['conversations']
   currentConversation: ChatState['currentConversation']
   pendingInteraction: ChatState['pendingInteraction']
+  composerDrafts: ChatState['composerDrafts']
 }
 
 type PersistedChatStorageValue = StorageValue<PersistedChatState>
@@ -80,6 +86,7 @@ const prunePersistedChatState = (value: PersistedChatStorageValue): PersistedCha
       conversations,
       currentConversation: currentConversationId as unknown as Conversation | null,
       pendingInteraction: state.pendingInteraction ?? null,
+      composerDrafts: state.composerDrafts ?? {},
     },
   }
 }
@@ -151,6 +158,9 @@ export const createResilientStorage = (): PersistStorage<PersistedChatState> | u
               conversations: [],
               currentConversation: null,
               pendingInteraction: null,
+              // Sessions were just wiped to recover from quota — drop their
+              // drafts too so no orphaned draft outlives its conversation.
+              composerDrafts: {},
             },
           })
 
@@ -167,9 +177,12 @@ export const createResilientStorage = (): PersistStorage<PersistedChatState> | u
 
 // Helper functions
 
-const createNewConversation = (userId: string): Conversation => ({
+const createNewConversation = (userId: string, projectId: string | null): Conversation => ({
   id: `s_${uuidv4().replace(/-/g, '_')}`,
   userId,
+  // Stamp the active project so the session stays scoped to it (UX-8);
+  // null = created outside a project context (visible everywhere).
+  projectId,
   title: '',
   messages: [],
   createdAt: new Date(),
@@ -252,10 +265,10 @@ export const initialSessionsState = {
 export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", never]], [], SessionsSlice> = (set, get) => ({
   ...initialSessionsState,
 
-  loadServerConversations: async () => {
+  loadServerConversations: async (projectId?: string) => {
     try {
       const { conversationsClient } = await import('@/adapters/api/conversations-client')
-      const serverConvs = await conversationsClient.list()
+      const serverConvs = await conversationsClient.list(projectId)
       if (!serverConvs || serverConvs.length === 0) return
 
       const { conversations, currentUserId } = get()
@@ -266,6 +279,10 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
         const local: Conversation = {
           id: serverConv.id,
           userId: serverConv.createdBy ?? currentUserId ?? 'unknown',
+          // Server is the source of truth for project affiliation; keep the
+          // locally stamped projectId for legacy server rows that predate
+          // project stamping.
+          projectId: serverConv.projectId ?? (idx >= 0 ? merged[idx].projectId : null) ?? null,
           title: serverConv.title ?? '',
           messages: idx >= 0 ? merged[idx].messages : [],
           createdAt: serverConv.createdAt,
@@ -285,12 +302,18 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
   },
 
   setCurrentUser: (userId: string | null) => {
-    const { conversations, currentConversation } = get()
+    const { conversations, currentConversation, projectId } = get()
 
     const shouldClearCurrent =
       currentConversation && (userId === null || currentConversation.userId !== userId)
 
-    const userConversations = userId ? conversations.filter((c) => c.userId === userId) : []
+    // Fallback selection must respect the active project context, otherwise
+    // switching users inside project A could surface project B's session.
+    const userConversations = userId
+      ? conversations.filter(
+          (c) => c.userId === userId && conversationMatchesProject(c, projectId)
+        )
+      : []
     const newCurrentConversation = shouldClearCurrent
       ? userConversations[0] || null
       : currentConversation
@@ -338,13 +361,17 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
   },
 
   getUserConversations: () => {
-    const { conversations, currentUserId } = get()
+    const { conversations, currentUserId, projectId } = get()
     if (!currentUserId) return []
-    return conversations.filter((c) => c.userId === currentUserId)
+    // Scoped to the active project context; legacy sessions without a
+    // projectId fail open (see lib/project-scope.ts).
+    return conversations.filter(
+      (c) => c.userId === currentUserId && conversationMatchesProject(c, projectId)
+    )
   },
 
   createConversation: () => {
-    const { currentUserId } = get()
+    const { currentUserId, projectId } = get()
     if (!currentUserId) {
       throw new Error('Cannot create conversation without authenticated user')
     }
@@ -352,7 +379,7 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
     const defaultEnabledDataSourceIds = getDefaultEnabledDataSourceIds()
     layoutState.setEnabledDataSources(defaultEnabledDataSourceIds)
     const newConversation: Conversation = {
-      ...createNewConversation(currentUserId),
+      ...createNewConversation(currentUserId, projectId ?? null),
       enabledDataSourceIds: defaultEnabledDataSourceIds,
     }
     set(
@@ -431,7 +458,7 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
   },
 
   ensureSession: () => {
-    const { currentConversation, currentUserId } = get()
+    const { currentConversation, currentUserId, projectId } = get()
 
     if (currentConversation?.id) {
       return currentConversation.id
@@ -446,7 +473,7 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
     const defaultEnabledDataSourceIds = getDefaultEnabledDataSourceIds()
     layoutState.setEnabledDataSources(defaultEnabledDataSourceIds)
     const newConversation: Conversation = {
-      ...createNewConversation(currentUserId),
+      ...createNewConversation(currentUserId, projectId ?? null),
       enabledDataSourceIds: defaultEnabledDataSourceIds,
     }
     set(
@@ -496,6 +523,7 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
       conversations,
       currentUserId,
       currentConversation,
+      projectId,
       isDeepResearchStreaming,
       deepResearchOwnerConversationId,
       activeDeepResearchMessageId,
@@ -508,7 +536,14 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
 
     const conversation = conversations.find((c) => c.id === conversationId)
 
-    if (conversation && conversation.userId === currentUserId) {
+    // Ownership AND project-context guard: a stale URL or persisted state
+    // must never activate another project's session under this project's
+    // WebSocket projectId (cross-project retrieval bleed, UX-8).
+    if (
+      conversation &&
+      conversation.userId === currentUserId &&
+      conversationMatchesProject(conversation, projectId)
+    ) {
       if (
         currentConversation &&
         currentConversation.id !== conversationId &&
@@ -555,8 +590,13 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
   },
 
   deleteConversation: (conversationId: string) => {
-    const { currentConversation, conversations, deepResearchJobId, isDeepResearchStreaming } =
-      get()
+    const {
+      currentConversation,
+      conversations,
+      deepResearchJobId,
+      isDeepResearchStreaming,
+      composerDrafts,
+    } = get()
 
     const conversationToDelete = conversations.find((c) => c.id === conversationId)
 
@@ -587,9 +627,9 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
       import('@/adapters/api/deep-research-client').then(({ cancelJob }) => {
         cancelJob(jobIdToCancel!).catch((err) => {
           console.warn('Failed to cancel deep research job on session delete:', err)
-          toast.error('Research run may still be running', {
-            description:
-              'The session was deleted, but its deep-research job could not be stopped on the server.',
+          const t = getStoreTranslator('chat')
+          toast.error(t('sessionActions.researchMayStillRunTitle'), {
+            description: t('sessionActions.researchMayStillRunDescription'),
           })
         })
       })
@@ -597,12 +637,21 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
 
     const updatedConversations = conversations.filter((c) => c.id !== conversationId)
 
+    // Drop the removed session's draft so it can't orphan (or resurface if the
+    // id is ever reused).
+    let nextComposerDrafts = composerDrafts
+    if (conversationId in composerDrafts) {
+      nextComposerDrafts = { ...composerDrafts }
+      delete nextComposerDrafts[conversationId]
+    }
+
     const isCurrentWithActiveResearch =
       currentConversation?.id === conversationId && isDeepResearchStreaming
 
     set(
       {
         conversations: updatedConversations,
+        composerDrafts: nextComposerDrafts,
         currentConversation:
           currentConversation?.id === conversationId ? null : currentConversation,
         ...(isCurrentWithActiveResearch && {
@@ -633,13 +682,23 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
       conversations,
       currentUserId,
       currentConversation,
+      projectId,
       isDeepResearchStreaming,
       deepResearchJobId,
+      composerDrafts,
     } = get()
 
     if (!currentUserId) return
 
-    const userConversations = conversations.filter((c) => c.userId === currentUserId)
+    // Scope: delete exactly what the sessions panel shows in the current
+    // context — the active project's sessions plus unscoped legacy sessions
+    // (fail-open display rule, see lib/project-scope.ts). Sessions stamped
+    // with a DIFFERENT project are never touched, so "delete all" cannot
+    // silently wipe another project's history (UX-8).
+    const isInScope = (c: Conversation): boolean =>
+      c.userId === currentUserId && conversationMatchesProject(c, projectId)
+
+    const userConversations = conversations.filter(isInScope)
 
     const jobIdsToCancel: string[] = []
 
@@ -679,27 +738,53 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
           )
         })
         if (failedCount > 0) {
+          const t = getStoreTranslator('chat')
           toast.error(
-            `${failedCount} research ${failedCount === 1 ? 'run' : 'runs'} may still be running`,
+            t('sessionActions.researchRunsMayStillRunTitle', {
+              count: failedCount,
+              runLabel:
+                failedCount === 1
+                  ? t('sessionActions.runSingular')
+                  : t('sessionActions.runPlural'),
+            }),
             {
-              description:
-                'Sessions were deleted, but some deep-research jobs could not be stopped on the server.',
+              description: t('sessionActions.researchRunsMayStillRunDescription'),
             }
           )
         }
       })
     }
 
-    clearAllDeepResearchSessions()
+    if (projectId) {
+      // Project-scoped delete: only clear cached deep-research streams that
+      // belong to the sessions being deleted; other projects' cached
+      // streams stay intact.
+      const jobIdsToClear = new Set<string>()
+      for (const conv of userConversations) {
+        for (const message of conv.messages) {
+          if (message.deepResearchJobId) jobIdsToClear.add(message.deepResearchJobId)
+        }
+      }
+      jobIdsToClear.forEach((jobId) => clearDeepResearchSession(jobId))
+    } else {
+      clearAllDeepResearchSessions()
+    }
 
-    const remainingConversations = conversations.filter((c) => c.userId !== currentUserId)
+    const remainingConversations = conversations.filter((c) => !isInScope(c))
 
-    const shouldClearCurrent =
-      currentConversation && currentConversation.userId === currentUserId
+    // Drop drafts for exactly the sessions being removed (the in-scope ones);
+    // drafts of out-of-scope sessions in other projects stay untouched.
+    const removedSessionIds = new Set(userConversations.map((c) => c.id))
+    const nextComposerDrafts = Object.fromEntries(
+      Object.entries(composerDrafts).filter(([id]) => !removedSessionIds.has(id))
+    )
+
+    const shouldClearCurrent = currentConversation && isInScope(currentConversation)
 
     set(
       {
         conversations: remainingConversations,
+        composerDrafts: nextComposerDrafts,
         currentConversation: shouldClearCurrent ? null : currentConversation,
         deepResearchJobId: null,
         deepResearchLastEventId: null,
@@ -850,10 +935,9 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
         .find((m) => meaningfulTypes.has(m.messageType ?? ''))
 
       if (lastMeaningful?.messageType === 'user' && lastMeaningful.thinkingSteps?.length) {
-        get().addErrorCard(
-          'agent.response_interrupted',
-          'Your previous request was not completed. Please resend your message.'
-        )
+        // No explicit message: ErrorBanner localizes the registry default via
+        // `agent.response_interrupted`'s messageKey.
+        get().addErrorCard('agent.response_interrupted')
       }
     }
   },
@@ -896,7 +980,13 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
       const existing = await conversationsClient.list()
       const exists = existing.some((c) => c.id === conv.id)
       if (!exists) {
-        await conversationsClient.create(conv.id, conv.title || undefined)
+        // Stamp the server row with the session's project so future
+        // project-scoped lists stay accurate.
+        await conversationsClient.create(
+          conv.id,
+          conv.title || undefined,
+          conv.projectId ?? get().projectId ?? null,
+        )
       }
     } catch (err) {
       console.warn('[ensureConversationExists] Failed:', err)
@@ -913,7 +1003,11 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
       const existing = await conversationsClient.list()
       const exists = existing.some((c) => c.id === currentConversation.id)
       if (!exists) {
-        await conversationsClient.create(currentConversation.id, currentConversation.title || undefined)
+        await conversationsClient.create(
+          currentConversation.id,
+          currentConversation.title || undefined,
+          currentConversation.projectId ?? get().projectId ?? null,
+        )
       }
 
       await conversationsClient.createMessage(currentConversation.id, {

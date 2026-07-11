@@ -51,6 +51,7 @@ describe('useChatStore', () => {
       currentUserId: null,
       currentConversation: null,
       conversations: [],
+      projectId: null,
       isStreaming: false,
       isLoading: false,
       currentUserMessageId: null,
@@ -59,6 +60,8 @@ describe('useChatStore', () => {
       reportContent: '',
       currentStatus: null,
       pendingInteraction: null,
+      composerPrefill: null,
+      composerDrafts: {},
     })
   })
 
@@ -2168,6 +2171,353 @@ describe('useChatStore', () => {
       expect(trackingMessage?.isDeepResearchActive).toBe(false)
       expect(updatedMessages.some((m) => m.id === 'starting-banner')).toBe(false)
       expect(failureBanner).toBeTruthy()
+    })
+  })
+
+  describe('composer prefill', () => {
+    test('starts empty', () => {
+      expect(useChatStore.getState().composerPrefill).toBeNull()
+    })
+
+    test('setComposerPrefill queues text for the composer', () => {
+      useChatStore.getState().setComposerPrefill('Ask about OIB 2 fire resistance')
+
+      expect(useChatStore.getState().composerPrefill).toBe('Ask about OIB 2 fire resistance')
+    })
+
+    test('consumeComposerPrefill returns the queued text and clears it (one-shot)', () => {
+      useChatStore.getState().setComposerPrefill('Draft question')
+
+      const first = useChatStore.getState().consumeComposerPrefill()
+      const second = useChatStore.getState().consumeComposerPrefill()
+
+      expect(first).toBe('Draft question')
+      expect(second).toBeNull()
+      expect(useChatStore.getState().composerPrefill).toBeNull()
+    })
+
+    test('consumeComposerPrefill returns null when nothing is queued', () => {
+      expect(useChatStore.getState().consumeComposerPrefill()).toBeNull()
+    })
+
+    test('consumeComposerPrefill preserves an empty-string prefill as a distinct value', () => {
+      // Empty string is a valid (if unusual) prefill and must not be conflated
+      // with "nothing queued" -- consume returns it once, then null.
+      useChatStore.getState().setComposerPrefill('')
+
+      expect(useChatStore.getState().consumeComposerPrefill()).toBe('')
+      expect(useChatStore.getState().consumeComposerPrefill()).toBeNull()
+    })
+  })
+
+  describe('composer drafts (per-session)', () => {
+    test('starts empty', () => {
+      expect(useChatStore.getState().composerDrafts).toEqual({})
+      expect(useChatStore.getState().getComposerDraft('conv-1')).toBe('')
+    })
+
+    test('setComposerDraft saves in-progress text per session id', () => {
+      useChatStore.getState().setComposerDraft('conv-1', 'half typed question')
+
+      expect(useChatStore.getState().getComposerDraft('conv-1')).toBe('half typed question')
+      expect(useChatStore.getState().composerDrafts).toEqual({ 'conv-1': 'half typed question' })
+    })
+
+    test('keeps drafts isolated per session (two sessions keep separate drafts)', () => {
+      useChatStore.getState().setComposerDraft('conv-1', 'draft for one')
+      useChatStore.getState().setComposerDraft('conv-2', 'draft for two')
+
+      expect(useChatStore.getState().getComposerDraft('conv-1')).toBe('draft for one')
+      expect(useChatStore.getState().getComposerDraft('conv-2')).toBe('draft for two')
+    })
+
+    test('setComposerDraft with empty string drops the entry (no orphan blank drafts)', () => {
+      useChatStore.getState().setComposerDraft('conv-1', 'something')
+      useChatStore.getState().setComposerDraft('conv-1', '')
+
+      expect(useChatStore.getState().getComposerDraft('conv-1')).toBe('')
+      expect('conv-1' in useChatStore.getState().composerDrafts).toBe(false)
+    })
+
+    test('clearComposerDraft removes exactly one session draft', () => {
+      useChatStore.getState().setComposerDraft('conv-1', 'draft for one')
+      useChatStore.getState().setComposerDraft('conv-2', 'draft for two')
+
+      useChatStore.getState().clearComposerDraft('conv-1')
+
+      expect(useChatStore.getState().getComposerDraft('conv-1')).toBe('')
+      expect(useChatStore.getState().getComposerDraft('conv-2')).toBe('draft for two')
+    })
+
+    test('persists drafts to localStorage so a reload restores them', async () => {
+      useChatStore.setState({ currentUserId: 'user-1' })
+      useChatStore.getState().setComposerDraft('conv-1', 'survives reload')
+
+      await vi.waitFor(() => {
+        const stored = localStorage.getItem(STORAGE_KEY)
+        expect(stored).not.toBeNull()
+        const parsed = JSON.parse(stored!)
+        expect(parsed.state.composerDrafts).toEqual({ 'conv-1': 'survives reload' })
+      })
+    })
+
+    test('deleteConversation drops the deleted session draft', () => {
+      const conv: Conversation = {
+        id: 'conv-1',
+        userId: 'user-1',
+        title: 'Test',
+        messages: [],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }
+      useChatStore.setState({
+        currentUserId: 'user-1',
+        currentConversation: conv,
+        conversations: [conv],
+      })
+      useChatStore.getState().setComposerDraft('conv-1', 'draft to drop')
+      useChatStore.getState().setComposerDraft('conv-2', 'keep me')
+
+      useChatStore.getState().deleteConversation('conv-1')
+
+      expect('conv-1' in useChatStore.getState().composerDrafts).toBe(false)
+      expect(useChatStore.getState().getComposerDraft('conv-2')).toBe('keep me')
+    })
+  })
+
+  describe('project scoping (UX-8 cross-project bleed)', () => {
+    const makeConv = (id: string, userId: string, projectId?: string | null): Conversation => ({
+      id,
+      userId,
+      // undefined models legacy pre-scoping sessions restored from storage
+      ...(projectId !== undefined && { projectId }),
+      title: `Conv ${id}`,
+      messages: [],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+
+    describe('getUserConversations', () => {
+      test('inside a project, lists that project\'s sessions plus unscoped legacy sessions (fail-open)', () => {
+        useChatStore.setState({
+          currentUserId: 'user-1',
+          projectId: 'proj-a',
+          conversations: [
+            makeConv('a-1', 'user-1', 'proj-a'),
+            makeConv('b-1', 'user-1', 'proj-b'),
+            makeConv('legacy-null', 'user-1', null),
+            makeConv('legacy-undef', 'user-1'),
+            makeConv('other-user', 'user-2', 'proj-a'),
+          ],
+        })
+
+        const ids = useChatStore.getState().getUserConversations().map((c) => c.id)
+
+        expect(ids).toEqual(['a-1', 'legacy-null', 'legacy-undef'])
+      })
+
+      test('without a project context, lists all of the user\'s sessions', () => {
+        useChatStore.setState({
+          currentUserId: 'user-1',
+          projectId: null,
+          conversations: [
+            makeConv('a-1', 'user-1', 'proj-a'),
+            makeConv('b-1', 'user-1', 'proj-b'),
+            makeConv('legacy', 'user-1', null),
+          ],
+        })
+
+        expect(useChatStore.getState().getUserConversations()).toHaveLength(3)
+      })
+    })
+
+    describe('createConversation / ensureSession', () => {
+      test('createConversation stamps the active projectId', () => {
+        useChatStore.setState({ currentUserId: 'user-1', projectId: 'proj-a' })
+
+        const conv = useChatStore.getState().createConversation()
+
+        expect(conv.projectId).toBe('proj-a')
+      })
+
+      test('ensureSession stamps the active projectId on the new session', () => {
+        useChatStore.setState({
+          currentUserId: 'user-1',
+          projectId: 'proj-a',
+          currentConversation: null,
+        })
+
+        const sessionId = useChatStore.getState().ensureSession()
+
+        const created = useChatStore.getState().conversations.find((c) => c.id === sessionId)
+        expect(created?.projectId).toBe('proj-a')
+      })
+    })
+
+    describe('selectConversation guard', () => {
+      test('refuses to activate another project\'s session under the current project', () => {
+        const foreign = makeConv('b-1', 'user-1', 'proj-b')
+        useChatStore.setState({
+          currentUserId: 'user-1',
+          projectId: 'proj-a',
+          conversations: [foreign],
+          currentConversation: null,
+        })
+
+        useChatStore.getState().selectConversation('b-1')
+
+        expect(useChatStore.getState().currentConversation).toBeNull()
+      })
+
+      test('allows selecting an unscoped legacy session in any project (fail-open)', () => {
+        const legacy = makeConv('legacy', 'user-1', null)
+        useChatStore.setState({
+          currentUserId: 'user-1',
+          projectId: 'proj-a',
+          conversations: [legacy],
+          currentConversation: null,
+        })
+
+        useChatStore.getState().selectConversation('legacy')
+
+        expect(useChatStore.getState().currentConversation?.id).toBe('legacy')
+      })
+    })
+
+    describe('deleteAllConversations scoping', () => {
+      test('deletes only the current project\'s sessions and unscoped legacy sessions', () => {
+        useChatStore.setState({
+          currentUserId: 'user-1',
+          projectId: 'proj-a',
+          conversations: [
+            makeConv('a-1', 'user-1', 'proj-a'),
+            makeConv('a-2', 'user-1', 'proj-a'),
+            makeConv('legacy', 'user-1', null),
+            makeConv('b-1', 'user-1', 'proj-b'),
+            makeConv('other-user', 'user-2', 'proj-a'),
+          ],
+          currentConversation: makeConv('a-1', 'user-1', 'proj-a'),
+        })
+
+        useChatStore.getState().deleteAllConversations()
+
+        const state = useChatStore.getState()
+        // Another project's history must survive a project-scoped delete-all.
+        expect(state.conversations.map((c) => c.id).sort()).toEqual(['b-1', 'other-user'])
+        expect(state.currentConversation).toBeNull()
+      })
+
+      test('keeps a foreign-project current conversation untouched', () => {
+        // Defensive: currentConversation should never point at another
+        // project after the guards, but delete-all must still not clear it
+        // blindly if state is inconsistent.
+        const foreignCurrent = makeConv('b-1', 'user-1', 'proj-b')
+        useChatStore.setState({
+          currentUserId: 'user-1',
+          projectId: 'proj-a',
+          conversations: [makeConv('a-1', 'user-1', 'proj-a'), foreignCurrent],
+          currentConversation: foreignCurrent,
+        })
+
+        useChatStore.getState().deleteAllConversations()
+
+        const state = useChatStore.getState()
+        expect(state.conversations.map((c) => c.id)).toEqual(['b-1'])
+        expect(state.currentConversation?.id).toBe('b-1')
+      })
+
+      test('without a project context, deletes all of the user\'s sessions (org-wide view)', () => {
+        useChatStore.setState({
+          currentUserId: 'user-1',
+          projectId: null,
+          conversations: [
+            makeConv('a-1', 'user-1', 'proj-a'),
+            makeConv('b-1', 'user-1', 'proj-b'),
+            makeConv('other-user', 'user-2', 'proj-a'),
+          ],
+          currentConversation: null,
+        })
+
+        useChatStore.getState().deleteAllConversations()
+
+        expect(useChatStore.getState().conversations.map((c) => c.id)).toEqual(['other-user'])
+      })
+
+      test('drops drafts for exactly the removed sessions, keeping other projects\' drafts', () => {
+        useChatStore.setState({
+          currentUserId: 'user-1',
+          projectId: 'proj-a',
+          conversations: [
+            makeConv('a-1', 'user-1', 'proj-a'),
+            makeConv('legacy', 'user-1', null),
+            makeConv('b-1', 'user-1', 'proj-b'),
+          ],
+          currentConversation: null,
+        })
+        useChatStore.getState().setComposerDraft('a-1', 'in scope')
+        useChatStore.getState().setComposerDraft('legacy', 'legacy in scope')
+        useChatStore.getState().setComposerDraft('b-1', 'other project')
+
+        useChatStore.getState().deleteAllConversations()
+
+        // In-scope sessions (proj-a + unscoped legacy) and their drafts are gone;
+        // the other project's session and its draft are untouched.
+        expect('a-1' in useChatStore.getState().composerDrafts).toBe(false)
+        expect('legacy' in useChatStore.getState().composerDrafts).toBe(false)
+        expect(useChatStore.getState().getComposerDraft('b-1')).toBe('other project')
+      })
+    })
+
+    describe('setProjectId guard (stale state / URL restore)', () => {
+      test('clears a persisted current conversation from another project when entering a project', () => {
+        const foreign = makeConv('b-1', 'user-1', 'proj-b')
+        useChatStore.setState({
+          currentUserId: 'user-1',
+          projectId: null,
+          conversations: [foreign],
+          currentConversation: foreign,
+        })
+
+        useChatStore.getState().setProjectId('proj-a')
+
+        const state = useChatStore.getState()
+        expect(state.projectId).toBe('proj-a')
+        expect(state.currentConversation).toBeNull()
+        // The session itself is NOT deleted — it stays available in its own project.
+        expect(state.conversations.map((c) => c.id)).toEqual(['b-1'])
+      })
+
+      test('keeps a matching or unscoped current conversation', () => {
+        const own = makeConv('a-1', 'user-1', 'proj-a')
+        useChatStore.setState({
+          currentUserId: 'user-1',
+          currentConversation: own,
+          conversations: [own],
+        })
+
+        useChatStore.getState().setProjectId('proj-a')
+        expect(useChatStore.getState().currentConversation?.id).toBe('a-1')
+
+        const legacy = makeConv('legacy', 'user-1', null)
+        useChatStore.setState({ currentConversation: legacy, conversations: [legacy] })
+
+        useChatStore.getState().setProjectId('proj-a')
+        expect(useChatStore.getState().currentConversation?.id).toBe('legacy')
+      })
+
+      test('leaving the project context (null) never clears the current conversation', () => {
+        const own = makeConv('a-1', 'user-1', 'proj-a')
+        useChatStore.setState({
+          currentUserId: 'user-1',
+          projectId: 'proj-a',
+          currentConversation: own,
+          conversations: [own],
+        })
+
+        useChatStore.getState().setProjectId(null)
+
+        expect(useChatStore.getState().currentConversation?.id).toBe('a-1')
+      })
     })
   })
 })

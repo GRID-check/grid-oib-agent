@@ -23,7 +23,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
-import { useTranslations } from '@/i18n'
+import { useLocale, useTranslations } from '@/i18n'
 
 interface AgentGroupDto {
   id: string
@@ -136,6 +136,7 @@ const ModelPicker: FC<{
 
 export const ModelConfigCard: FC = () => {
   const t = useTranslations('organization')
+  const { locale } = useLocale()
   const [groups, setGroups] = useState<AgentGroupDto[]>([])
   const [defaults, setDefaults] = useState<Record<string, string | null>>({})
   const [saved, setSaved] = useState<Record<string, string>>({})
@@ -378,7 +379,7 @@ export const ModelConfigCard: FC = () => {
                     {version.id === activeVersionId && <Badge variant="secondary">{t('models.activeBadge')}</Badge>}
                   </span>
                   <span className="text-xs text-muted-foreground">
-                    {new Date(version.createdAt).toLocaleString()}
+                    {new Date(version.createdAt).toLocaleString(locale)}
                   </span>
                 </div>
                 {version.comment && <p className="mt-1 text-xs text-muted-foreground">{version.comment}</p>}

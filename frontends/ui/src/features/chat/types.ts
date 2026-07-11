@@ -54,8 +54,11 @@ export type ErrorCode =
   // Agent errors
   | 'agent.response_failed'
   | 'agent.response_interrupted'
+  | 'agent.workflow_error'
   | 'agent.deep_research_failed'
   | 'agent.deep_research_load_failed'
+  // Budget errors
+  | 'budget.exhausted'
   // System errors
   | 'system.unknown'
 
@@ -228,6 +231,12 @@ export interface Conversation {
   id: string
   /** Owner of this session - used to filter sessions by user */
   userId: string
+  /**
+   * Project this session belongs to. null/undefined marks a legacy unscoped
+   * session which fails OPEN (visible in every project context) — see
+   * `lib/project-scope.ts` for the rule.
+   */
+  projectId?: string | null
   title: string
   messages: ChatMessage[]
   createdAt: Date
@@ -385,6 +394,22 @@ export interface ChatState {
   activeThinkingStepId: string | null
   /** Active project ID for scoping (set by project chat page) */
   projectId: string | null
+  /**
+   * One-shot draft text queued for the chat composer (InputArea). Set by deep
+   * links (`?ask=`) and welcome-screen suggestion chips; consumed exactly once
+   * by the composer. Null when there is nothing to prefill.
+   */
+  composerPrefill: string | null
+  /**
+   * Per-session composer drafts: the user's own in-progress, unsent text keyed
+   * by conversation id. Distinct from `composerPrefill` (one-shot, external):
+   * a draft is long-lived, survives session switches and reloads (persisted to
+   * the `aiq-chat-store` localStorage namespace), and is cleared only when its
+   * message is sent successfully or its session is removed. Keyed by
+   * conversation id so it is inherently project/user-scoped and never leaks
+   * across contexts.
+   */
+  composerDrafts: Record<string, string>
   /** Content for the Details Panel - Report tab */
   reportContent: string
   /** Category of the current report content (distinguishes intermediate notes from final report) */
@@ -425,6 +450,12 @@ export interface ChatState {
   deepResearchCards: GridCard[]
   /** Whether the full stream data (artifacts, tool calls, etc.) has been loaded for current job */
   deepResearchStreamLoaded: boolean
+  /** Live stream is open but has gone quiet (no events for a while) — UX-11a */
+  isDeepResearchStalled: boolean
+  /** SSE retries exhausted: stream is gone but the job may still run server-side — UX-11b */
+  deepResearchConnectionLost: boolean
+  /** Transient reconnect handler registered by useDeepResearch (not persisted) */
+  reconnectDeepResearchFn: (() => void) | null
 
   // Plan state (for chat/HITL restore flows)
   /** Messages for clarification questions, plan previews, and approvals. */
@@ -433,19 +464,27 @@ export interface ChatState {
 
 /** Chat actions for Zustand store */
 export interface ChatActions {
-  /** Load conversations from the server and merge with local state */
-  loadServerConversations: () => Promise<void>
+  /**
+   * Load conversations from the server and merge with local state.
+   * Pass a projectId to fetch that project's conversations (plus legacy
+   * unscoped rows) — used when entering a project chat.
+   */
+  loadServerConversations: (projectId?: string) => Promise<void>
   /** Set the current authenticated user ID */
   setCurrentUser: (userId: string | null) => void
-  /** Get conversations filtered by current user */
+  /**
+   * Get conversations filtered by current user AND the active project
+   * context (legacy sessions without a projectId fail open — see
+   * `lib/project-scope.ts`).
+   */
   getUserConversations: () => Conversation[]
-  /** Create a new conversation for the current user */
+  /** Create a new conversation for the current user (stamped with the active projectId) */
   createConversation: () => Conversation
   /** Start a new unsaved session draft; persisted only after first interaction. */
   startNewSessionDraft: () => void
   /** Ensure a session exists, creating one if needed. Returns session ID or undefined if no user. */
   ensureSession: () => string | undefined
-  /** Select a conversation (only if owned by current user) */
+  /** Select a conversation (only if owned by current user and visible in the active project context) */
   selectConversation: (conversationId: string) => void
   /** Add a user message to the current conversation */
   addUserMessage: (
@@ -467,7 +506,11 @@ export interface ChatActions {
   setStreaming: (streaming: boolean) => void
   /** Delete a conversation */
   deleteConversation: (conversationId: string) => void
-  /** Delete all conversations for the current user */
+  /**
+   * Delete all of the current user's conversations in the active project
+   * context — exactly what the sessions panel shows there. Sessions stamped
+   * with a different project are never touched.
+   */
   deleteAllConversations: () => void
   /** Update conversation title */
   updateConversationTitle: (conversationId: string, title: string) => void
@@ -595,6 +638,12 @@ export interface ChatActions {
   persistDeepResearchToSession: () => void
   /** Complete deep research (clears streaming state, keeps content) */
   completeDeepResearch: () => void
+  /** Mark the live stream as stalled (open but silent) or clear it — UX-11a */
+  setDeepResearchStalled: (stalled: boolean) => void
+  /** Mark the SSE connection as lost (retries exhausted) or clear it — UX-11b */
+  setDeepResearchConnectionLost: (lost: boolean) => void
+  /** Register/clear the reconnect handler surfaced by useDeepResearch */
+  setReconnectDeepResearchFn: (fn: (() => void) | null) => void
   /** Save current deep research progress to conversation (for session switching) */
   saveDeepResearchProgress: () => void
   /** Reconnect to an in-progress job after page refresh (running/submitted only) */
@@ -697,6 +746,18 @@ export interface ChatActions {
 
   /** Set the active project ID for collection scoping */
   setProjectId: (projectId: string | null) => void
+
+  /** Queue text for the composer to pick up (does NOT auto-send). */
+  setComposerPrefill: (text: string) => void
+  /** Read and clear the queued composer prefill; returns null when empty. */
+  consumeComposerPrefill: () => string | null
+
+  /** Save (or update) the in-progress composer draft for a session. Passing an empty string drops the entry. */
+  setComposerDraft: (conversationId: string, text: string) => void
+  /** Read the persisted composer draft for a session ('' when none). */
+  getComposerDraft: (conversationId: string) => string
+  /** Drop a session's composer draft (on successful send or session removal). */
+  clearComposerDraft: (conversationId: string) => void
 }
 
 /** Combined chat store type */

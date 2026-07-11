@@ -16,7 +16,7 @@ import { requireProjectAccess } from '@/lib/authz/projects'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { getBackendUrl } from '@/lib/backend-proxy'
 import { findProjectInOrg } from '@/lib/projects/repository'
-import { ApiError, NotFoundError } from '@/lib/api/errors'
+import { ApiError, ConflictError, NotFoundError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import type { Document } from '@/lib/db/schema'
 import { reconcileDocumentStatuses } from './reconcile-status'
@@ -25,6 +25,7 @@ import {
   findFolderPathInProject,
   insertDocument,
   listProjectDocuments,
+  markDocumentIngestFailed,
   setDocumentIngestJob,
   type DocumentListRow,
 } from './repository'
@@ -42,6 +43,13 @@ const PREVIEW_CONTENT_TYPES = [
 ]
 
 const presignTtlSeconds = (): number => Number(process.env.MINIO_PRESIGNED_URL_TTL_SECONDS || 600)
+
+/**
+ * Stored on the document when the backend ingest dispatch never yielded a job.
+ * Persisted server-side (like backend-produced error messages), so it cannot
+ * go through the per-user i18n dictionaries.
+ */
+export const INGEST_DISPATCH_FAILED_MESSAGE = 'Ingestion could not be started'
 
 /**
  * Filenames are user-controlled and end up in the `Content-Disposition` of
@@ -70,13 +78,77 @@ function contentDisposition(type: 'attachment' | 'inline', rawFilename: string):
 
 /**
  * Load a document (org-scoped in SQL) and enforce per-project access.
- * Cross-tenant and no-access lookups both surface as 404.
+ * Cross-tenant and no-access lookups both surface as 404. Reads default to
+ * `project:view`; mutating actions (e.g. re-ingestion) pass `project:edit`.
  */
-async function getAccessibleDocument(session: AuthorizedSession, documentId: string): Promise<Document> {
+async function getAccessibleDocument(
+  session: AuthorizedSession,
+  documentId: string,
+  permission: 'project:view' | 'project:edit' = 'project:view',
+): Promise<Document> {
   const doc = await findDocumentInOrg(documentId, session.organizationId)
   if (!doc) throw new NotFoundError()
-  await requireProjectAccess(session, doc.projectId, 'project:view')
+  await requireProjectAccess(session, doc.projectId, permission)
   return doc
+}
+
+/**
+ * Dispatch a document to the backend ingest API and persist the outcome. The
+ * upload and re-ingest paths share this so the success path (status pending +
+ * jobId) and the failure path (status failed + errorMessage) stay identical.
+ *
+ * Best-effort: the file is already durable in MinIO + Postgres. Three outcomes:
+ *   - a job id came back  → status pending  (setDocumentIngestJob)
+ *   - dispatch failed     → status failed   (markDocumentIngestFailed)
+ *   - ok but no job id    → status left as-is ('uploaded' on first upload)
+ */
+async function dispatchIngest(
+  documentId: string,
+  collectionName: string,
+  minioKey: string,
+): Promise<{ jobId: string | null; status: 'pending' | 'uploaded' | 'failed' }> {
+  // The backend fetches the file itself, from inside the Docker network —
+  // sign with the internal-endpoint client, not the browser-facing one.
+  const presignedUrl = await getSignedUrl(s3Client, new GetObjectCommand({ Bucket: bucketName, Key: minioKey }), {
+    expiresIn: presignTtlSeconds(),
+  })
+
+  let ingestJobId: string | null = null
+  let ingestFailed = false
+  try {
+    const ingestRes = await fetch(`${getBackendUrl()}/v1/ingest`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        file_ref: presignedUrl,
+        collection: collectionName,
+        document_id: documentId,
+      }),
+    })
+
+    if (ingestRes.ok) {
+      const ingestResult = await ingestRes.json()
+      ingestJobId = ingestResult.job_id ?? null
+    } else {
+      ingestFailed = true
+    }
+  } catch {
+    // Dispatch never reached the backend — the document is in MinIO + DB but
+    // has no ingest job, so it can never be reconciled to a truthful status.
+    ingestFailed = true
+  }
+
+  if (ingestJobId) {
+    await setDocumentIngestJob(documentId, ingestJobId)
+    return { jobId: ingestJobId, status: 'pending' }
+  }
+  if (ingestFailed) {
+    // Persist 'failed' so status reads stop rendering an unsearchable document
+    // as a green "Ready" (it would otherwise sit at 'uploaded' forever).
+    await markDocumentIngestFailed(documentId, INGEST_DISPATCH_FAILED_MESSAGE)
+    return { jobId: null, status: 'failed' }
+  }
+  return { jobId: null, status: 'uploaded' }
 }
 
 /**
@@ -107,7 +179,7 @@ export interface UploadDocumentInput {
 export interface UploadDocumentResult {
   documentId: string
   jobId: string | null
-  status: 'pending' | 'uploaded'
+  status: 'pending' | 'uploaded' | 'failed'
   filename: string
 }
 
@@ -162,35 +234,7 @@ export async function uploadDocument(
     status: 'uploaded',
   })
 
-  // The backend fetches the file itself, from inside the Docker network —
-  // sign with the internal-endpoint client, not the browser-facing one.
-  const presignedUrl = await getSignedUrl(s3Client, new GetObjectCommand({ Bucket: bucketName, Key: minioKey }), {
-    expiresIn: presignTtlSeconds(),
-  })
-
-  let ingestJobId: string | null = null
-  try {
-    const ingestRes = await fetch(`${getBackendUrl()}/v1/ingest`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        file_ref: presignedUrl,
-        collection: collectionName,
-        document_id: documentId,
-      }),
-    })
-
-    if (ingestRes.ok) {
-      const ingestResult = await ingestRes.json()
-      ingestJobId = ingestResult.job_id ?? null
-    }
-  } catch {
-    // Ingestion call is best-effort; document is already in MinIO + DB
-  }
-
-  if (ingestJobId) {
-    await setDocumentIngestJob(documentId, ingestJobId)
-  }
+  const { jobId: ingestJobId, status: ingestStatus } = await dispatchIngest(documentId, collectionName, minioKey)
 
   // Data-provenance event: who brought which file into which project.
   await recordAuditEvent({
@@ -207,9 +251,36 @@ export async function uploadDocument(
   return {
     documentId,
     jobId: ingestJobId,
-    status: ingestJobId ? 'pending' : 'uploaded',
+    status: ingestStatus,
     filename: file.name,
   }
+}
+
+export interface ReingestDocumentResult {
+  id: string
+  status: 'pending' | 'uploaded' | 'failed'
+  jobId: string | null
+}
+
+/**
+ * Re-dispatch a previously-failed document to the backend ingest API. Only
+ * documents in status `failed` are eligible — re-ingesting a pending/ready one
+ * would be a no-op at best and a duplicate job at worst, so it 409s. Reuses the
+ * shared dispatch helper, so the success/failure persistence matches upload.
+ */
+export async function reingestDocument(
+  session: AuthorizedSession,
+  documentId: string,
+): Promise<ReingestDocumentResult> {
+  const doc = await getAccessibleDocument(session, documentId, 'project:edit')
+
+  if (doc.status !== 'failed') {
+    throw new ConflictError('Only failed documents can be re-ingested', { status: doc.status })
+  }
+  if (!doc.minioKey) throw new NotFoundError('File not available')
+
+  const { jobId, status } = await dispatchIngest(doc.id, doc.collectionName, doc.minioKey)
+  return { id: doc.id, status, jobId }
 }
 
 /** Presign a browser-facing download URL for a document. */

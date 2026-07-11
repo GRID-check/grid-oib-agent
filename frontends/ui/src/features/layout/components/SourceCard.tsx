@@ -14,7 +14,8 @@
 import { type FC } from 'react'
 import { Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useTranslations } from '@/i18n'
+import { useLocale, useTranslations } from '@/i18n'
+import { formatTime } from '@/shared/utils/format-time'
 
 /** Source information from SSE events */
 export interface SourceInfo {
@@ -38,14 +39,6 @@ interface SourceCardProps {
 }
 
 /**
- * Format timestamp for display
- */
-const formatTime = (date: Date | string): string => {
-  const dateObj = typeof date === 'string' ? new Date(date) : date
-  return dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-}
-
-/**
  * Extract domain from URL for display
  */
 const getDomain = (url: string): string => {
@@ -62,6 +55,7 @@ const getDomain = (url: string): string => {
  */
 export const SourceCard: FC<SourceCardProps> = ({ source }) => {
   const t = useTranslations('research')
+  const { locale } = useLocale()
   return (
     <a
       href={source.url}
@@ -90,7 +84,7 @@ export const SourceCard: FC<SourceCardProps> = ({ source }) => {
           {/* Timestamp */}
           {source.discoveredAt && (
             <span className="shrink-0 text-xs text-muted-foreground">
-              {formatTime(source.discoveredAt)}
+              {formatTime(source.discoveredAt, locale)}
             </span>
           )}
         </div>

@@ -7,15 +7,23 @@ import { ApplicableStandards } from './applicable-standards'
 import { ProjectBrief } from './project-brief'
 import { ProjectDangerZone } from './project-danger-zone'
 import { ProjectMemoryPanel } from './project-memory-panel'
+import { ProjectRenameButton } from './project-rename-button'
 import { Stagger, StaggerItem } from '@/components/motion'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
 import { formatFileSize } from '@/lib/utils/format-file-size'
-import { useTranslations, type Translator } from '@/i18n'
+import { useLocale, useTranslations, type Translator } from '@/i18n'
+import { useMemo } from 'react'
 
 interface ProjectOverviewProps {
   data: ProjectOverviewData
+  /**
+   * Whether the current user can delete the project (project:manage). The
+   * danger zone is only rendered when true — a viewer/editor never sees the
+   * type-to-confirm ritual for an action the API will reject.
+   */
+  canManageProject?: boolean
 }
 
 type BadgeVariant = 'success' | 'info' | 'destructive' | 'secondary'
@@ -58,10 +66,13 @@ function statusLabel(status: string | null, t: Translator): string {
   return status.charAt(0).toUpperCase() + status.slice(1)
 }
 
-const dateFormatter = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
-
-export function ProjectOverview({ data }: ProjectOverviewProps) {
+export function ProjectOverview({ data, canManageProject = false }: ProjectOverviewProps) {
   const t = useTranslations('projects')
+  const { locale } = useLocale()
+  const dateFormatter = useMemo(
+    () => new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'short', year: 'numeric' }),
+    [locale],
+  )
   const profile = data.profileDisplay
   const hasDocuments = data.documentCount > 0
 
@@ -78,7 +89,12 @@ export function ProjectOverview({ data }: ProjectOverviewProps) {
       <StaggerItem>
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div className="min-w-0">
-          <h1 className="text-2xl font-semibold tracking-tight">{data.name}</h1>
+          <div className="flex min-w-0 items-center gap-1.5">
+            <h1 className="min-w-0 truncate text-2xl font-semibold tracking-tight">{data.name}</h1>
+            {canManageProject && (
+              <ProjectRenameButton projectId={data.id} projectName={data.name} />
+            )}
+          </div>
           <p className="mt-1 text-sm text-muted-foreground">
             {createdLabel
               ? t('overview.workspaceCreated', { date: createdLabel })
@@ -141,7 +157,7 @@ export function ProjectOverview({ data }: ProjectOverviewProps) {
             <HardDrive className="size-4" aria-hidden />
           </div>
           <p className="mt-4 text-2xl font-semibold tracking-tight tabular-nums">
-            {formatFileSize(data.totalFileSize)}
+            {formatFileSize(data.totalFileSize, locale)}
           </p>
           <p className="mt-0.5 text-sm text-muted-foreground">{t('overview.stats.totalSize')}</p>
         </div>
@@ -182,7 +198,7 @@ export function ProjectOverview({ data }: ProjectOverviewProps) {
                   <FileText className="size-4 shrink-0 text-muted-foreground" aria-hidden />
                   <span className="truncate text-sm">{doc.filename}</span>
                   <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-                    {formatFileSize(doc.fileSize)}
+                    {formatFileSize(doc.fileSize, locale)}
                   </span>
                 </div>
                 <Badge variant={statusVariant(doc.status)}>{statusLabel(doc.status, t)}</Badge>
@@ -204,10 +220,14 @@ export function ProjectOverview({ data }: ProjectOverviewProps) {
       </section>
       </StaggerItem>
 
-      {/* Danger zone — soft delete with grace-period restore. */}
-      <StaggerItem>
-        <ProjectDangerZone projectId={data.id} projectName={data.name} />
-      </StaggerItem>
+      {/* Danger zone — soft delete with grace-period restore. Only shown to
+          users who can actually delete (project:manage); viewers/editors never
+          see a destructive ritual the API would reject. */}
+      {canManageProject && (
+        <StaggerItem>
+          <ProjectDangerZone projectId={data.id} projectName={data.name} />
+        </StaggerItem>
+      )}
     </Stagger>
   )
 }

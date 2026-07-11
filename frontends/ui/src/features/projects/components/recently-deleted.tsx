@@ -1,10 +1,10 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
-import { Loader2 } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { AlertTriangle, Loader2, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { useTranslations } from '@/i18n'
+import { useLocale, useTranslations } from '@/i18n'
 
 interface DeletionEntry {
   id: string
@@ -16,32 +16,66 @@ interface DeletionEntry {
   lastError: string | null
 }
 
-const dateFormatter = new Intl.DateTimeFormat('en-GB', {
-  day: 'numeric',
-  month: 'short',
-  year: 'numeric',
-})
+interface RecentlyDeletedProps {
+  /**
+   * Whether the viewer holds the compliance capability the `/api/deletions`
+   * endpoint requires. Passed from the projects page server component so
+   * non-admins render nothing without issuing a guaranteed-403 request — and
+   * so a real failure for an admin is distinguishable from "nothing pending".
+   */
+  canManageCompliance?: boolean
+}
 
 /**
  * Org-admin panel of pending deletions with restore. Renders nothing for
- * non-admins (the API returns 403) or when there is nothing pending.
+ * non-admins (no compliance capability) or when there is nothing pending, and
+ * a small retryable error state when the list genuinely fails to load.
  */
-export function RecentlyDeleted() {
+export function RecentlyDeleted({ canManageCompliance = false }: RecentlyDeletedProps) {
   const t = useTranslations('projects')
+  const { locale } = useLocale()
   const [entries, setEntries] = useState<DeletionEntry[]>([])
+  const [error, setError] = useState(false)
   /** Entry currently being restored — disables its button to avoid double-fires. */
   const [restoringId, setRestoringId] = useState<string | null>(null)
 
+  const dateFormatter = useMemo(
+    () =>
+      new Intl.DateTimeFormat(locale, {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+      }),
+    [locale],
+  )
+
   const refresh = useCallback(async () => {
-    const res = await fetch('/api/deletions')
-    if (!res.ok) return
-    const rows: DeletionEntry[] = await res.json()
-    setEntries(rows.filter((row) => row.entityType === 'project'))
+    try {
+      const res = await fetch('/api/deletions')
+      // A non-admin genuinely has no panel — treat 403 as "nothing to show".
+      if (res.status === 403) {
+        setError(false)
+        setEntries([])
+        return
+      }
+      if (!res.ok) {
+        setError(true)
+        return
+      }
+      const rows: DeletionEntry[] = await res.json()
+      setError(false)
+      setEntries(rows.filter((row) => row.entityType === 'project'))
+    } catch {
+      setError(true)
+    }
   }, [])
 
   useEffect(() => {
+    // Non-admins can't see the panel and their request is a guaranteed 403 —
+    // skip the fetch entirely when we already know the capability is absent.
+    if (!canManageCompliance) return
     void refresh()
-  }, [refresh])
+  }, [canManageCompliance, refresh])
 
   const handleRestore = async (entry: DeletionEntry) => {
     setRestoringId(entry.id)
@@ -61,6 +95,29 @@ export function RecentlyDeleted() {
     } finally {
       setRestoringId(null)
     }
+  }
+
+  // Non-admins have no panel at all.
+  if (!canManageCompliance) return null
+
+  // Real failure (not a 403) — let a compliance admin retry instead of silently
+  // showing an empty section they'd read as "nothing pending".
+  if (error) {
+    return (
+      <section className="mt-8">
+        <h2 className="text-sm font-semibold text-muted-foreground">
+          {t('recentlyDeleted.heading')}
+        </h2>
+        <div className="mt-2 flex flex-wrap items-center gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3">
+          <AlertTriangle className="size-4 shrink-0 text-destructive" aria-hidden />
+          <p className="flex-1 text-sm text-muted-foreground">{t('recentlyDeleted.loadError')}</p>
+          <Button variant="outline" size="sm" onClick={() => void refresh()}>
+            <RefreshCw className="size-3.5" aria-hidden />
+            {t('recentlyDeleted.retry')}
+          </Button>
+        </div>
+      </section>
+    )
   }
 
   if (entries.length === 0) return null

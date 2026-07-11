@@ -5,7 +5,7 @@ import { ClipboardCheck, ExternalLink, MessageSquareText } from 'lucide-react'
 import type { ApplicableStandard, ApplicableStatus } from '@/lib/oib/applicable-standards'
 import { Stagger, StaggerItem } from '@/components/motion'
 import { EmptyState } from '@/components/ui/empty-state'
-import { useTranslations, type Translator } from '@/i18n'
+import { useLocale, useTranslations, type Locale, type Translator } from '@/i18n'
 import { ApplicabilityChip, OibCodeChip } from './standard-chips'
 
 interface ApplicableStandardsProps {
@@ -24,11 +24,19 @@ function statusLabel(status: ApplicableStatus, t: Translator): string {
   return fallback.charAt(0).toUpperCase() + fallback.slice(1)
 }
 
+/**
+ * The title Austrian users reason in: German OIB terminology under the DE
+ * locale, English otherwise.
+ */
+function primaryTitle(standard: ApplicableStandard, locale: Locale): string {
+  return locale === 'de' ? standard.titleDe : standard.titleEn
+}
+
 /** Build the deep link that prefills the chat composer with a question about a Richtlinie. */
-function askGridHref(projectId: string, standard: ApplicableStandard, t: Translator): string {
+function askGridHref(projectId: string, standard: ApplicableStandard, locale: Locale, t: Translator): string {
   const question = t('applicableStandards.askQuestion', {
     code: standard.code,
-    title: standard.titleEn,
+    title: primaryTitle(standard, locale),
   })
   return `/app/projects/${projectId}/chat?ask=${encodeURIComponent(question)}`
 }
@@ -40,6 +48,7 @@ function askGridHref(projectId: string, standard: ApplicableStandard, t: Transla
  */
 export function ApplicableStandards({ projectId, standards, briefComplete }: ApplicableStandardsProps) {
   const t = useTranslations('projects')
+  const { locale } = useLocale()
   return (
     <section className="space-y-4">
       <div>
@@ -67,8 +76,12 @@ export function ApplicableStandards({ projectId, standards, briefComplete }: App
               <div className="flex min-w-0 gap-3">
                 <OibCodeChip code={standard.code} className="mt-0.5" />
                 <div className="min-w-0">
-                  <p className="text-sm font-medium">{standard.titleEn}</p>
-                  <p className="text-xs text-muted-foreground">{standard.titleDe}</p>
+                  <p className="text-sm font-medium">
+                    {locale === 'de' ? standard.titleDe : standard.titleEn}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {locale === 'de' ? standard.titleEn : standard.titleDe}
+                  </p>
                   <p className="mt-1 text-xs text-muted-foreground">{standard.reason}</p>
                 </div>
               </div>
@@ -91,7 +104,7 @@ export function ApplicableStandards({ projectId, standards, briefComplete }: App
                   {t('applicableStandards.source')}
                 </a>
                 <Link
-                  href={askGridHref(projectId, standard, t)}
+                  href={askGridHref(projectId, standard, locale, t)}
                   className="inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
                   aria-label={t('applicableStandards.askGridAria', { code: standard.code })}
                   title={t('applicableStandards.askGridTitle')}

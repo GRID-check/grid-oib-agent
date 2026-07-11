@@ -13,7 +13,7 @@
 
 import { type FC, memo, useRef, useEffect, useCallback, useState, useMemo } from 'react'
 import Link from 'next/link'
-import { CheckCircle2, CircleEllipsis, FileText, Folder, Lock, MessageSquare } from 'lucide-react'
+import { CheckCircle2, ClipboardCheck, FileText, Lock, MessageSquare, Paperclip } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { Button } from '@/components/ui/button'
 import {
@@ -369,6 +369,8 @@ interface WelcomeStateProps {
 
 const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn }) => {
   const t = useTranslations('research')
+  const projectId = useChatStore((s) => s.projectId)
+  const setComposerPrefill = useChatStore((s) => s.setComposerPrefill)
   const prompts = [
     t('chatArea.prompt1'),
     t('chatArea.prompt2'),
@@ -455,26 +457,26 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
 
             <div className="grid grid-cols-1 gap-3 md:grid-cols-[1.1fr_0.9fr]">
               <Link
-                href="/app/projects"
+                href={projectId ? `/app/projects/${projectId}` : '/app/projects'}
                 className="group rounded-xl border bg-muted p-5 transition hover:-translate-y-0.5 hover:bg-accent"
               >
                 <div className="flex flex-col gap-4">
-                  <Folder className="h-6 w-6 text-brand" aria-hidden="true" />
+                  <ClipboardCheck className="h-6 w-6 text-brand" aria-hidden="true" />
                   <div className="flex flex-col gap-1">
-                    <span className="text-sm font-semibold">{t('chatArea.openProjects')}</span>
+                    <span className="text-sm font-semibold">{t('chatArea.reviewBrief')}</span>
                     <span className="text-sm text-muted-foreground">
-                      {t('chatArea.openProjectsDesc')}
+                      {t('chatArea.reviewBriefDesc')}
                     </span>
                   </div>
                 </div>
               </Link>
               <div className="rounded-xl border bg-muted/30 p-5">
                 <div className="flex flex-col gap-4">
-                  <CircleEllipsis className="h-6 w-6 text-brand" aria-hidden="true" />
+                  <Paperclip className="h-6 w-6 text-brand" aria-hidden="true" />
                   <div className="flex flex-col gap-1">
-                    <span className="text-sm font-semibold">{t('chatArea.selectContext')}</span>
+                    <span className="text-sm font-semibold">{t('chatArea.uploadFiles')}</span>
                     <span className="text-sm text-muted-foreground">
-                      {t('chatArea.selectContextDesc')}
+                      {t('chatArea.uploadFilesDesc')}
                     </span>
                   </div>
                 </div>
@@ -485,16 +487,19 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
 
         <aside className="grid content-center gap-3">
           {prompts.map((prompt, index) => (
-            <div
+            <button
               key={prompt}
-              className="animate-in fade-in-0 slide-in-from-bottom-2 cursor-default rounded-xl border bg-muted/30 p-5 transition-all duration-200 ease-out fill-mode-backwards hover:-translate-y-px hover:border-primary/20 hover:bg-muted/50"
+              type="button"
+              onClick={() => setComposerPrefill(prompt)}
+              aria-label={t('chatArea.usePrompt', { prompt })}
+              className="animate-in fade-in-0 slide-in-from-bottom-2 cursor-pointer rounded-xl border bg-muted/30 p-5 text-left transition-all duration-200 ease-out fill-mode-backwards hover:-translate-y-px hover:border-primary/20 hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
               style={{ animationDelay: `${index * 90}ms` }}
             >
               <div className="flex items-start gap-3">
                 <MessageSquare className="mt-1 h-5 w-5 shrink-0 text-brand" aria-hidden="true" />
                 <span className="text-sm">{prompt}</span>
               </div>
-            </div>
+            </button>
           ))}
         </aside>
       </div>

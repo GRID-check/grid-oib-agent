@@ -2,6 +2,7 @@ import { and, asc, count, eq, isNull } from 'drizzle-orm'
 import { FolderOpen } from 'lucide-react'
 import { requireAuthorizedPageSession } from '@/lib/auth/require-auth'
 import { getNavFlags } from '@/lib/authz/nav'
+import { canManageCompliance } from '@/lib/authz/organizations'
 import { getDb } from '@/lib/db'
 import { documents, projects } from '@/lib/db/schema'
 import { ProjectsGrid } from '@/components/projects/projects-grid'
@@ -54,6 +55,7 @@ export default async function ProjectsPage({ searchParams }: ProjectsPageProps):
         authRequired={isAuthRequired()}
         heading={t('list.heading')}
         canManageOrganization={navFlags.canManageOrganization}
+        canViewOrganization={navFlags.canViewOrganization}
         canManagePlatform={navFlags.canManagePlatform}
       />
 
@@ -80,7 +82,7 @@ export default async function ProjectsPage({ searchParams }: ProjectsPageProps):
           )}
         </section>
 
-        <RecentlyDeleted />
+        <RecentlyDeleted canManageCompliance={canManageCompliance(session)} />
       </main>
     </div>
   )

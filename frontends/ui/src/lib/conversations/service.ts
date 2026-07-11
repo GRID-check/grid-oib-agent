@@ -38,8 +38,29 @@ export interface CreateMessageInput {
   createdAt?: string
 }
 
-export async function listConversations(session: AuthorizedSession): Promise<Conversation[]> {
-  return listConversationsInOrg(session.organizationId)
+export interface ListConversationsFilter {
+  /** Scope the list to one project's conversations (plus legacy unscoped rows). */
+  projectId?: string
+}
+
+/**
+ * List conversations for the caller's organization.
+ *
+ * With `filter.projectId` the caller must be able to see that project
+ * (same guard as `createConversation` — otherwise any org member could
+ * probe/list conversations of arbitrary project ids). The result is then
+ * scoped to that project, deliberately fail-open for legacy rows without a
+ * `projectId` (see `listConversationsInOrg`) so users never lose sight of
+ * conversations created before project stamping.
+ */
+export async function listConversations(
+  session: AuthorizedSession,
+  filter: ListConversationsFilter = {},
+): Promise<Conversation[]> {
+  if (filter.projectId) {
+    await requireProjectAccess(session, filter.projectId, 'project:view')
+  }
+  return listConversationsInOrg(session.organizationId, { projectId: filter.projectId })
 }
 
 export async function getConversation(session: AuthorizedSession, conversationId: string): Promise<Conversation> {

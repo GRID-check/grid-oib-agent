@@ -1,4 +1,5 @@
 import { render, screen } from '@/test-utils'
+import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
 import { TasksTab } from './TasksTab'
 
@@ -8,10 +9,19 @@ let mockDeepResearchTodos: Array<{
   content: string
   status: 'pending' | 'in_progress' | 'completed' | 'stopped'
 }> = []
+let mockIsDeepResearchStreaming = false
+let mockIsDeepResearchStalled = false
+let mockDeepResearchConnectionLost = false
+const mockReconnect = vi.fn()
 
 vi.mock('@/features/chat', () => ({
   useChatStore: () => ({
     deepResearchTodos: mockDeepResearchTodos,
+    currentStatus: null,
+    isDeepResearchStreaming: mockIsDeepResearchStreaming,
+    isDeepResearchStalled: mockIsDeepResearchStalled,
+    deepResearchConnectionLost: mockDeepResearchConnectionLost,
+    reconnectDeepResearchFn: mockReconnect,
   }),
 }))
 
@@ -26,6 +36,9 @@ describe('TasksTab', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockDeepResearchTodos = []
+    mockIsDeepResearchStreaming = false
+    mockIsDeepResearchStalled = false
+    mockDeepResearchConnectionLost = false
   })
 
   describe('empty state', () => {
@@ -136,6 +149,61 @@ describe('TasksTab', () => {
       render(<TasksTab />)
 
       expect(screen.getByText('1/2')).toBeInTheDocument()
+    })
+  })
+
+  describe('recovery notice (UX-11a / UX-11b)', () => {
+    test('shows no recovery notice while the stream is healthy', () => {
+      mockIsDeepResearchStreaming = true
+      mockDeepResearchTodos = [{ id: '1', content: 'Task 1', status: 'in_progress' }]
+
+      render(<TasksTab />)
+
+      expect(screen.queryByTestId('deep-research-recovery-notice')).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Reconnect' })).not.toBeInTheDocument()
+    })
+
+    test('shows the stalled notice when the stream goes quiet', () => {
+      mockIsDeepResearchStreaming = true
+      mockIsDeepResearchStalled = true
+      mockDeepResearchTodos = [{ id: '1', content: 'Task 1', status: 'in_progress' }]
+
+      render(<TasksTab />)
+
+      expect(screen.getByTestId('deep-research-recovery-notice')).toBeInTheDocument()
+      expect(screen.getByText('No progress updates for a while')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Reconnect' })).toBeInTheDocument()
+    })
+
+    test('shows the connection-lost notice (and it wins over a stall)', () => {
+      mockIsDeepResearchStreaming = true
+      mockIsDeepResearchStalled = true
+      mockDeepResearchConnectionLost = true
+
+      render(<TasksTab />)
+
+      expect(screen.getByText('Connection to the research job lost')).toBeInTheDocument()
+      expect(screen.queryByText('No progress updates for a while')).not.toBeInTheDocument()
+    })
+
+    test('does not show the notice when not streaming', () => {
+      mockIsDeepResearchStreaming = false
+      mockDeepResearchConnectionLost = true
+
+      render(<TasksTab />)
+
+      expect(screen.queryByTestId('deep-research-recovery-notice')).not.toBeInTheDocument()
+    })
+
+    test('Reconnect button invokes the registered reconnect handler', async () => {
+      const user = userEvent.setup()
+      mockIsDeepResearchStreaming = true
+      mockDeepResearchConnectionLost = true
+
+      render(<TasksTab />)
+
+      await user.click(screen.getByRole('button', { name: 'Reconnect' }))
+      expect(mockReconnect).toHaveBeenCalledTimes(1)
     })
   })
 })

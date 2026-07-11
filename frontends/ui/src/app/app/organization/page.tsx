@@ -37,6 +37,7 @@ export default async function OrganizationPage(): Promise<JSX.Element> {
         authRequired={isAuthRequired()}
         heading={t('title')}
         canManageOrganization={navFlags.canManageOrganization}
+        canViewOrganization={navFlags.canViewOrganization}
         canManagePlatform={navFlags.canManagePlatform}
       />
       <main id="main-content" className="mx-auto w-full max-w-3xl flex-1 px-4 py-6 md:px-8 md:py-10">
@@ -61,18 +62,47 @@ export default async function OrganizationPage(): Promise<JSX.Element> {
   const budgets = canManageBudgets(session)
   const audit = canViewAuditLogs(session)
 
-  // Users with no org capability at all never see org management.
+  // Users with no org capability at all can't manage the organization, but the
+  // page must still be worth landing on (the Organization nav entry is now
+  // visible to plain members). The usage API returns a member's own spend for
+  // non-admins, so give them a "Your usage" self-view — the primary way a
+  // budget-capped member can see why chat stopped — alongside a small note that
+  // full org management needs admin access.
   if (!admin && !models && !budgets && !audit) {
     return shell(
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <ShieldAlert className="size-4 text-muted-foreground" aria-hidden />
-            {t('notAdmin.title')}
-          </CardTitle>
-          <CardDescription>{t('notAdmin.description')}</CardDescription>
-        </CardHeader>
-      </Card>,
+      <div className="flex flex-col gap-6">
+        <header>
+          <h1 className="text-2xl font-semibold tracking-tight">{t('title')}</h1>
+          <p className="mt-1 text-sm text-muted-foreground">{t('memberSubtitle')}</p>
+        </header>
+
+        {/* Member self-view of usage (ADR-0015). isAdmin=false hides the
+            admin-only limit editors and member/project tables; the card shows
+            the member's own spend meters and legend. */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Gauge className="size-4 text-muted-foreground" aria-hidden />
+              {t('budgets.memberTitle')}
+            </CardTitle>
+            <CardDescription>{t('budgets.memberDescription')}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <BudgetUsageCard isAdmin={false} />
+          </CardContent>
+        </Card>
+
+        {/* Polite admin-access note — org management lives behind admin caps. */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <ShieldAlert className="size-4 text-muted-foreground" aria-hidden />
+              {t('notAdmin.title')}
+            </CardTitle>
+            <CardDescription>{t('notAdmin.description')}</CardDescription>
+          </CardHeader>
+        </Card>
+      </div>,
     )
   }
 
@@ -86,7 +116,17 @@ export default async function OrganizationPage(): Promise<JSX.Element> {
       overview = null
     }
   }
-  const settings = admin ? await getOrgSettings(session.organizationId) : null
+  // Grid-side settings are best-effort too — a Grid-DB hiccup must degrade this
+  // one card (a "could not load" note) rather than crash the whole admin page.
+  let settings: Awaited<ReturnType<typeof getOrgSettings>> | null = null
+  let settingsError = false
+  if (admin) {
+    try {
+      settings = await getOrgSettings(session.organizationId)
+    } catch {
+      settingsError = true
+    }
+  }
 
   const perms = session.permissions
   const createdLabel = overview
@@ -176,17 +216,21 @@ export default async function OrganizationPage(): Promise<JSX.Element> {
       )}
 
       {/* Grid-side settings (admins only) */}
-      {admin && settings && (
+      {admin && (settings || settingsError) && (
       <Card>
         <CardHeader>
           <CardTitle>{t('settings.title')}</CardTitle>
           <CardDescription>{t('settings.description')}</CardDescription>
         </CardHeader>
         <CardContent>
-          <OrgSettingsForm
-            initialDisplayName={settings.displayName}
-            initialDefaultLocale={settings.defaultLocale}
-          />
+          {settings ? (
+            <OrgSettingsForm
+              initialDisplayName={settings.displayName}
+              initialDefaultLocale={settings.defaultLocale}
+            />
+          ) : (
+            <p className="text-sm text-muted-foreground">{t('settings.loadError')}</p>
+          )}
         </CardContent>
       </Card>
 

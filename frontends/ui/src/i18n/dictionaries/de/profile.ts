@@ -4,6 +4,7 @@ import type { en } from '../en'
 export const profile: typeof en.profile = {
   title: 'Profil',
   subtitle: 'Verwalten Sie Ihr Konto, das Erscheinungsbild und Ihre Spracheinstellungen.',
+  loading: 'Profil wird geladen…',
   backToApp: 'Zurück zu den Projekten',
   savedToast: 'Einstellungen gespeichert',
   saveError: 'Ihre Einstellungen konnten nicht gespeichert werden. Bitte versuchen Sie es erneut.',
@@ -16,6 +17,11 @@ export const profile: typeof en.profile = {
     role: 'Rolle',
     noName: 'Nicht festgelegt',
     noOrganization: 'Keine Organisation',
+    roles: {
+      'org-platform-owner': 'Plattform-Inhaber',
+      admin: 'Administrator',
+      member: 'Mitglied',
+    },
   },
   appearance: {
     title: 'Erscheinungsbild',

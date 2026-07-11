@@ -32,7 +32,9 @@ import {
 import { Logo } from '@/components/brand/logo'
 import { AnimatePresence, easeQuiet, motion, springSnappy } from '@/components/motion'
 import { useTranslations } from '@/i18n'
+import { pruneProjectSections, useRecordProjectSection } from '@/hooks/use-last-project-section'
 import { cn } from '@/lib/utils'
+import { ConnectionPresenceIndicator } from './connection-presence-indicator'
 import { ProjectSwitcher, type ProjectSwitcherProject } from './project-switcher'
 import { SidebarUserMenu, type SidebarUser } from './sidebar-user-menu'
 
@@ -58,14 +60,15 @@ export interface AppSidebarProps {
   projects: ProjectSwitcherProject[]
   user?: SidebarUser
   authRequired: boolean
-  /**
-   * Whether the current user can manage project members. When false, the
-   * Members section is hidden — viewers/editors never see a nav item that
-   * dead-ends in a permission error.
-   */
-  canManageMembers?: boolean
   /** Whether the current user can manage the organization (org admin). */
   canManageOrganization?: boolean
+  /**
+   * Whether the current user may open the organization page at all. True for
+   * every authenticated org member — the org page serves capability subsets
+   * (budgets/models/audit) and a member self-usage view, so the nav entry is
+   * discoverable even for non-admins (UX-16).
+   */
+  canViewOrganization?: boolean
   /** Whether the current user is the platform owner (ADR-0016). */
   canManagePlatform?: boolean
 }
@@ -75,8 +78,8 @@ export function AppSidebar({
   projects,
   user,
   authRequired,
-  canManageMembers = true,
   canManageOrganization = false,
+  canViewOrganization = false,
   canManagePlatform = false,
 }: AppSidebarProps) {
   const pathname = usePathname() ?? ''
@@ -84,6 +87,18 @@ export function AppSidebar({
   const t = useTranslations('nav')
   const [collapsed, setCollapsed] = React.useState(false)
   const [mobileOpen, setMobileOpen] = React.useState(false)
+
+  // "Resume where you left off": remember the section the user is currently on
+  // for this project so entry points (project card / switcher) can land them
+  // back here next time. Records Overview too — an explicit Overview visit is a
+  // real visit and becomes the new memory, so resume never traps the user.
+  useRecordProjectSection(projectId)
+
+  // Keep the memory tidy: drop entries for projects that no longer exist
+  // (deleted, or no longer accessible) whenever the known project set changes.
+  React.useEffect(() => {
+    pruneProjectSections(projects.map((p) => p.id))
+  }, [projects])
 
   // Restore the persisted rail state after mount (avoids SSR hydration mismatch).
   React.useEffect(() => {
@@ -121,9 +136,10 @@ export function AppSidebar({
     return item.segment ? pathname.startsWith(href) : pathname === base
   }
 
-  const navItems = NAV_ITEMS.filter(
-    (item) => item.segment !== 'members' || canManageMembers,
-  )
+  // Members is shown to every project member: the roster page renders a
+  // dignified read-only view for viewers/editors and full controls for admins,
+  // so the nav item never dead-ends.
+  const navItems = NAV_ITEMS
 
   const activeItem = navItems.find(isActive)
 
@@ -257,13 +273,15 @@ export function AppSidebar({
 
             {renderNav('mobile')}
 
-            <div className="border-t border-border p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+            <div className="flex flex-col gap-2 border-t border-border p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+              <ConnectionPresenceIndicator className="px-1" />
               <SidebarUserMenu
                 user={user}
                 authRequired={authRequired}
                 compact={false}
                 canManageOrganization={canManageOrganization}
-            canManagePlatform={canManagePlatform}
+                canViewOrganization={canViewOrganization}
+                canManagePlatform={canManagePlatform}
               />
             </div>
           </div>
@@ -341,13 +359,15 @@ export function AppSidebar({
         {/* Section nav */}
         {renderNav('desktop')}
 
-        {/* Footer: user + settings */}
-        <div className={cn('border-t border-border', collapsed ? 'flex justify-center p-2' : 'p-3')}>
+        {/* Footer: connection presence + user + settings */}
+        <div className={cn('flex flex-col gap-2 border-t border-border', collapsed ? 'items-center p-2' : 'p-3')}>
+          <ConnectionPresenceIndicator compact={collapsed} className={collapsed ? undefined : 'px-1'} />
           <SidebarUserMenu
             user={user}
             authRequired={authRequired}
             compact={collapsed}
             canManageOrganization={canManageOrganization}
+            canViewOrganization={canViewOrganization}
             canManagePlatform={canManagePlatform}
           />
         </div>

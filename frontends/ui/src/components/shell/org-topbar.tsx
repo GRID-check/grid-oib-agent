@@ -10,6 +10,8 @@ import Link from 'next/link'
 
 import { Logo } from '@/components/brand/logo'
 import { FadeIn } from '@/components/motion'
+import { getTranslations } from '@/i18n/server'
+import { ConnectionPresenceIndicator } from './connection-presence-indicator'
 import { SidebarUserMenu, type SidebarUser } from './sidebar-user-menu'
 
 export interface OrgTopbarProps {
@@ -19,10 +21,13 @@ export interface OrgTopbarProps {
   heading?: string
   /** Show the org-management entry in the user menu (org admins only). */
   canManageOrganization?: boolean
+  /** Show the organization entry to any org member (UX-16). */
+  canViewOrganization?: boolean
   canManagePlatform?: boolean
 }
 
-export function OrgTopbar({ user, authRequired, heading, canManageOrganization, canManagePlatform }: OrgTopbarProps) {
+export async function OrgTopbar({ user, authRequired, heading, canManageOrganization, canViewOrganization, canManagePlatform }: OrgTopbarProps) {
+  const t = await getTranslations('nav')
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-background/80 backdrop-blur-xl">
       <FadeIn
@@ -33,7 +38,7 @@ export function OrgTopbar({ user, authRequired, heading, canManageOrganization, 
           <Link
             href="/app/projects"
             className="rounded-md focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
-            aria-label="Grid — all projects"
+            aria-label={t('allProjects')}
           >
             <Logo kind="horizontal" size="small" />
           </Link>
@@ -44,15 +49,19 @@ export function OrgTopbar({ user, authRequired, heading, canManageOrganization, 
             </>
           )}
         </div>
-        <SidebarUserMenu
-          user={user}
-          authRequired={authRequired}
-          menuSide="bottom"
-          menuAlign="end"
-          compact
-          canManageOrganization={canManageOrganization}
-          canManagePlatform={canManagePlatform}
-        />
+        <div className="flex items-center gap-3">
+          <ConnectionPresenceIndicator className="hidden sm:inline-flex" />
+          <SidebarUserMenu
+            user={user}
+            authRequired={authRequired}
+            menuSide="bottom"
+            menuAlign="end"
+            compact
+            canManageOrganization={canManageOrganization}
+            canViewOrganization={canViewOrganization}
+            canManagePlatform={canManagePlatform}
+          />
+        </div>
       </FadeIn>
     </header>
   )

@@ -30,6 +30,7 @@ import {
   backendErrorEnvelope,
   handleAuthzError,
   proxyErrorEnvelope,
+  errorEnvelope,
 } from '@/lib/backend-proxy'
 import {
   parseQueryContext,
@@ -42,12 +43,41 @@ const isRedirectError = (error: unknown): boolean => {
   return error instanceof Error && error.message === 'NEXT_REDIRECT'
 }
 
+/**
+ * Backend control-plane path prefixes that must NEVER be reachable through the
+ * public BFF proxy.
+ *
+ * The proxy forwards to `aiq-agent:8000` over the internal network, so the
+ * backend's `AuthMiddleware` classifies these requests as *internal* and skips
+ * its `EXTERNAL_ALLOWED_PATHS` filter. Without this guard an anonymous visitor
+ * on the public frontend could reach:
+ *   - `/v1/admin/*`       — GRID_ADMIN_TOKEN-gated OIB re-ingestion (fail-OPEN
+ *                           when the token is unset), and
+ *   - `/v1/maintenance/*` — internal-token-gated project purge.
+ * Neither prefix appears in the backend's `EXTERNAL_ALLOWED_PATHS`, so the
+ * proxy's forwardable set is kept no wider than what an external caller may
+ * reach. Legitimate v1 paths (collections, documents, data_sources, jobs,
+ * config) are unaffected. Rejected before any upstream fetch.
+ */
+const BLOCKED_PROXY_PREFIXES = new Set(['admin', 'maintenance'])
+
+const rejectBlockedPath = (path: string[]): NextResponse | null => {
+  if (path.length > 0 && BLOCKED_PROXY_PREFIXES.has(path[0])) {
+    return errorEnvelope(404, 'NOT_FOUND', 'Not found')
+  }
+  return null
+}
+
 export async function GET(
   req: Request,
   { params }: { params: Promise<{ path: string[] }> }
 ): Promise<Response> {
   try {
     const { path } = await params
+    const blocked = rejectBlockedPath(path)
+    if (blocked) {
+      return blocked
+    }
     const { searchParams } = new URL(req.url)
     const session = await resolveOptionalSession()
     const context = parseQueryContext(searchParams)
@@ -94,6 +124,10 @@ export async function POST(
 ): Promise<Response> {
   try {
     const { path } = await params
+    const blocked = rejectBlockedPath(path)
+    if (blocked) {
+      return blocked
+    }
     const { searchParams } = new URL(req.url)
     const session = await resolveOptionalSession()
     const contentType = req.headers.get('Content-Type') || 'application/json'
@@ -162,6 +196,10 @@ export async function DELETE(
 ): Promise<Response> {
   try {
     const { path } = await params
+    const blocked = rejectBlockedPath(path)
+    if (blocked) {
+      return blocked
+    }
     const { searchParams } = new URL(req.url)
     const session = await resolveOptionalSession()
     const context = parseQueryContext(searchParams)

@@ -14,6 +14,22 @@ export const nav = {
     research: 'Research',
     members: 'Members',
   },
+  /**
+   * Browser-tab title fragments. `{label}` is the localized section name; the
+   * project name is user data and is never translated.
+   */
+  tabTitle: {
+    intake: 'Setup',
+    researchProgress: '{percent}% · {label} — Grid',
+    researchActive: '⏳ {label} — Grid',
+  },
+  projectSwitcher: {
+    select: 'Select project',
+    switchCurrent: 'Switch project (current: {name})',
+    projects: 'Projects',
+    allProjects: 'All projects',
+    newProject: 'New project',
+  },
   userMenu: {
     label: 'User menu for {name}',
     defaultUser: 'Default User',

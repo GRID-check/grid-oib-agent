@@ -5,9 +5,16 @@ import { ResearchRunsList } from './research-runs-list'
 import type { ResearchRun } from '@/adapters/api/research-runs-client'
 
 const listResearchRuns = vi.fn()
+const listConversations = vi.fn()
 
 vi.mock('@/adapters/api/research-runs-client', () => ({
   listResearchRuns: (...args: unknown[]) => listResearchRuns(...args),
+}))
+
+vi.mock('@/adapters/api/conversations-client', () => ({
+  conversationsClient: {
+    list: (...args: unknown[]) => listConversations(...args),
+  },
 }))
 
 vi.mock('next/link', () => ({
@@ -28,6 +35,8 @@ const makeRun = (overrides: Partial<ResearchRun>): ResearchRun => ({
 describe('ResearchRunsList', () => {
   beforeEach(() => {
     listResearchRuns.mockReset()
+    listConversations.mockReset()
+    listConversations.mockResolvedValue([])
   })
 
   test('renders a crafted empty state pointing to Chat', async () => {
@@ -55,6 +64,44 @@ describe('ResearchRunsList', () => {
 
     expect(await screen.findByText(/Report pending/i)).toBeDefined()
     expect(screen.queryByRole('link', { name: /View report/i })).toBeNull()
+  })
+
+  test('labels a run with its originating session title when resolvable', async () => {
+    listResearchRuns.mockResolvedValue({
+      jobs: [makeRun({ job_id: 'job-abcdef99', conversation_id: 'conv-1' })],
+      total: 1,
+    })
+    listConversations.mockResolvedValue([
+      { id: 'conv-1', title: 'Fire safety for staircases', createdAt: '', updatedAt: '' },
+    ])
+    render(<ResearchRunsList projectId="p1" projectCollection="proj_1" />)
+
+    expect(await screen.findByText('Fire safety for staircases')).toBeDefined()
+    // job-id hash is demoted to metadata, still visible
+    expect(screen.getByText('job-abcd')).toBeDefined()
+  })
+
+  test('falls back to a session label when the run has no resolvable title', async () => {
+    listResearchRuns.mockResolvedValue({
+      jobs: [makeRun({ job_id: 'job-abcdef99', conversation_id: 'conv-xyz12345' })],
+      total: 1,
+    })
+    listConversations.mockResolvedValue([])
+    render(<ResearchRunsList projectId="p1" projectCollection="proj_1" />)
+
+    // sessionLabel interpolates the short conversation id
+    expect(await screen.findByText(/Session conv-xyz/i)).toBeDefined()
+  })
+
+  test('deep-links failed runs to the chat thinking view', async () => {
+    listResearchRuns.mockResolvedValue({
+      jobs: [makeRun({ job_id: 'job-failed-1', status: 'failed' })],
+      total: 1,
+    })
+    render(<ResearchRunsList projectId="p1" projectCollection="proj_1" />)
+
+    const link = await screen.findByRole('link', { name: /View thinking/i })
+    expect(link.getAttribute('href')).toBe('/app/projects/p1/chat?job=job-failed-1&tab=thinking')
   })
 
   test('surfaces load failures with a retry affordance', async () => {

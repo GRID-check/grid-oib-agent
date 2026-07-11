@@ -4,6 +4,8 @@ import type { en } from '../en'
 export const organization: typeof en.organization = {
   title: 'Organisation',
   subtitle: 'Verwalten Sie Ihre Organisation, ihre Mitglieder und Zugriffe.',
+  loading: 'Organisation wird geladen…',
+  memberSubtitle: 'Ihr LLM-Verbrauch und Ihre Organisation auf einen Blick.',
   backToApp: 'Zurück zu den Projekten',
   overview: {
     title: 'Übersicht',
@@ -29,6 +31,7 @@ export const organization: typeof en.organization = {
     saving: 'Wird gespeichert…',
     saved: 'Organisationseinstellungen gespeichert',
     saveError: 'Die Organisationseinstellungen konnten nicht gespeichert werden. Bitte versuchen Sie es erneut.',
+    loadError: 'Die Organisationseinstellungen konnten gerade nicht geladen werden. Bitte laden Sie die Seite neu.',
   },
   members: {
     title: 'Mitglieder',
@@ -85,6 +88,9 @@ export const organization: typeof en.organization = {
     title: 'Verbrauch & Budgets',
     description:
       'LLM-Ausgaben pro Modell im Verhältnis zu Ihren Organisationslimits. Die Kosten stammen aus dem OpenRouter-Usage-Accounting; Limits werden vor jeder Anfrage durchgesetzt.',
+    memberTitle: 'Ihr Verbrauch',
+    memberDescription:
+      'Ihre eigenen LLM-Ausgaben im Verhältnis zu Ihren Organisationslimits. Ist ein Budget aufgebraucht, wird der Chat pausiert, bis eine Administratorin oder ein Administrator das Limit erhöht.',
     today: 'Heute',
     thisMonth: 'Dieser Monat',
     ofLimit: '{spent} von {limit}',

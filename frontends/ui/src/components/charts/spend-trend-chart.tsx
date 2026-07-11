@@ -47,7 +47,7 @@ export const SpendTrendChart: FC<SpendTrendChartProps> = ({ points, eurPerUsd, r
         <div className="min-w-[420px]">
           <div className="flex justify-end">
             <span className="text-[10px] font-medium uppercase leading-4 text-muted-foreground">
-              {eur(maxUsd * eurPerUsd)}
+              {eur(maxUsd * eurPerUsd, locale)}
             </span>
           </div>
           <div className="flex h-24 items-end gap-[2px] border-b border-border/60" role="img">
@@ -72,7 +72,7 @@ export const SpendTrendChart: FC<SpendTrendChartProps> = ({ points, eurPerUsd, r
                 <TooltipContent>
                   <p className="font-medium">{dateLabel(point.day)}</p>
                   <p className="tabular-nums">
-                    {eur(point.usd * eurPerUsd)} · {requestsLabel(point.events)}
+                    {eur(point.usd * eurPerUsd, locale)} · {requestsLabel(point.events)}
                   </p>
                 </TooltipContent>
               </Tooltip>

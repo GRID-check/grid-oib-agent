@@ -46,8 +46,14 @@ export const viewport: Viewport = {
 }
 
 export const metadata: Metadata = {
-  title: 'Grid',
-  description: 'AI-powered research assistant',
+  title: {
+    // Bare landing/auth routes render this; nested routes (e.g. a project)
+    // override `template` so their titles read "<Section> — Grid".
+    default: 'Grid — OIB Compliance Assistant',
+    template: '%s — Grid',
+  },
+  description:
+    'AI compliance assistant for Austrian building regulations (OIB Richtlinien) — searches, interprets, and cites building-code requirements.',
   icons: {
     icon: '/favicon.ico',
   },

@@ -19,6 +19,7 @@ import logging
 import os
 import re
 import sys
+import traceback
 import uuid
 import warnings
 from pathlib import Path
@@ -286,13 +287,13 @@ async def _initialize_auth() -> None:
 def build_parser() -> argparse.ArgumentParser:
     """Build the argument parser for the CLI."""
     parser = argparse.ArgumentParser(
-        prog="aiq-agent",
+        prog="aiq-research",
         description="AI-Q Blueprint - Interactive CLI for research and data analysis",
     )
     parser.add_argument(
         "--config_file",
-        default="configs/config_cli.yml",
-        help="Path to NAT workflow config file (default: configs/config_cli.yml)",
+        default="configs/config_cli_default.yml",
+        help="Path to NAT workflow config file (default: configs/config_cli_default.yml)",
     )
     parser.add_argument(
         "--env_file",
@@ -418,9 +419,14 @@ def main() -> None:
         except Exception as e:
             print(f"Warning: Failed to load .env file: {e}")
 
+    config_path = Path(args.config_file)
+    if not config_path.exists():
+        print(f"Error: Config file not found: {config_path}", file=sys.stderr)
+        print("Pass --config_file <path> to point at a NAT workflow config (see configs/).", file=sys.stderr)
+        sys.exit(1)
+
     # Validate LLM API keys based on config
     try:
-        config_path = Path(args.config_file)
         if config_path.exists():
             import yaml
 
@@ -449,13 +455,35 @@ def main() -> None:
         async with load_workflow(args.config_file) as session_manager:
             await interactive_loop(session_manager, verbose=args.verbose)
 
+    exit_code = 0
     try:
-        asyncio.run(_run())
-    except RuntimeError:
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(_run())
+        try:
+            asyncio.run(_run())
+        except RuntimeError:
+            loop = asyncio.get_event_loop()
+            loop.run_until_complete(_run())
+    except (KeyboardInterrupt, EOFError):
+        exit_code = 130
+    except SystemExit as exc:
+        if exc.code is None:
+            exit_code = 0
+        elif isinstance(exc.code, int):
+            exit_code = exc.code
+        else:
+            print(exc.code, file=sys.stderr)
+            exit_code = 1
+    except BaseException:
+        traceback.print_exc()
+        exit_code = 1
     finally:
-        os._exit(0)
+        # os._exit (instead of sys.exit) so lingering non-daemon threads spawned
+        # by the workflow runtime can't hang the process on shutdown. It skips
+        # normal interpreter cleanup, so flush output first and propagate the
+        # real exit code (the old bare os._exit(0) forced success and swallowed
+        # tracebacks on every failure).
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os._exit(exit_code)
 
 
 if __name__ == "__main__":

@@ -2,7 +2,10 @@
 export const platform = {
   title: 'Platform',
   subtitle: 'Cross-organization overview for the platform owner.',
+  loading: 'Loading platform…',
   loadError: 'Could not load the platform overview.',
+  loadErrorHint: 'Something went wrong while fetching the data. Please try again.',
+  retry: 'Retry',
   stats: {
     organizations: 'Organizations',
     projects: 'Projects',

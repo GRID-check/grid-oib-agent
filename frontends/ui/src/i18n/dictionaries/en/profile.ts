@@ -2,6 +2,7 @@
 export const profile = {
   title: 'Profile',
   subtitle: 'Manage your account, appearance, and language preferences.',
+  loading: 'Loading profile…',
   backToApp: 'Back to projects',
   savedToast: 'Preferences saved',
   saveError: 'Could not save your preferences. Please try again.',
@@ -14,6 +15,11 @@ export const profile = {
     role: 'Role',
     noName: 'Not set',
     noOrganization: 'No organization',
+    roles: {
+      'org-platform-owner': 'Platform owner',
+      admin: 'Administrator',
+      member: 'Member',
+    },
   },
   appearance: {
     title: 'Appearance',

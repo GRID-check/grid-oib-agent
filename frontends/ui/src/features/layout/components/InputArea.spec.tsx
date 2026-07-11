@@ -11,6 +11,13 @@ let mockIsDeepResearchStreaming = false
 let mockDeepResearchStatus: string | null = null
 let mockDeepResearchOwnerConversationId: string | null = null
 let mockConversationMessages: unknown[] | undefined = []
+// Active session id (null models the "new session draft" state with no id yet).
+let mockCurrentSessionId: string | null = 'session-1'
+// One-shot prefill queued from a deep link / chip.
+let mockComposerPrefill: string | null = null
+// Real-ish per-session draft store, so component tests exercise genuine
+// save/restore/clear behaviour rather than asserting on spy calls alone.
+let mockDrafts: Record<string, string> = {}
 
 vi.mock('@/features/chat', () => ({
   useWebSocketChat: vi.fn(() => ({
@@ -22,12 +29,35 @@ vi.mock('@/features/chat', () => ({
   })),
   useChatStore: vi.fn((selector) => {
     const state = {
-      currentConversation: { id: 'session-1', messages: mockConversationMessages },
-      ensureSession: vi.fn(() => 'session-1'),
+      currentConversation: mockCurrentSessionId
+        ? { id: mockCurrentSessionId, messages: mockConversationMessages }
+        : null,
+      ensureSession: vi.fn(() => {
+        if (!mockCurrentSessionId) mockCurrentSessionId = 'session-new'
+        return mockCurrentSessionId
+      }),
       setRespondToInteractionFn: vi.fn(),
       deepResearchStatus: mockDeepResearchStatus,
       isDeepResearchStreaming: mockIsDeepResearchStreaming,
       deepResearchOwnerConversationId: mockDeepResearchOwnerConversationId,
+      composerPrefill: mockComposerPrefill,
+      consumeComposerPrefill: vi.fn(() => {
+        const value = mockComposerPrefill
+        mockComposerPrefill = null
+        return value
+      }),
+      composerDrafts: mockDrafts,
+      getComposerDraft: (id: string) => mockDrafts[id] ?? '',
+      setComposerDraft: (id: string, text: string) => {
+        if (text === '') {
+          delete mockDrafts[id]
+          return
+        }
+        mockDrafts[id] = text
+      },
+      clearComposerDraft: (id: string) => {
+        delete mockDrafts[id]
+      },
     }
     return selector(state)
   }),
@@ -113,6 +143,9 @@ describe('InputArea', () => {
     mockDeepResearchStatus = null
     mockDeepResearchOwnerConversationId = null
     mockConversationMessages = []
+    mockCurrentSessionId = 'session-1'
+    mockComposerPrefill = null
+    mockDrafts = {}
     // Reset mocks to defaults - clearAllMocks doesn't reset mockReturnValue
     vi.mocked(useIsCurrentSessionBusy).mockReturnValue(false)
     vi.mocked(useWebSocketChat).mockReturnValue({
@@ -227,6 +260,43 @@ describe('InputArea', () => {
     await user.type(input, 'Hello world{enter}')
 
     expect(mockSendMessage).toHaveBeenCalledWith('Hello world')
+  })
+
+  test('sends message on Cmd+Enter (Meta)', async () => {
+    const user = userEvent.setup()
+    render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+
+    const input = screen.getByRole('textbox')
+    await user.type(input, 'Hello world')
+    await user.keyboard('{Meta>}{Enter}{/Meta}')
+
+    expect(mockSendMessage).toHaveBeenCalledTimes(1)
+    expect(mockSendMessage).toHaveBeenCalledWith('Hello world')
+  })
+
+  test('sends message on Ctrl+Enter', async () => {
+    const user = userEvent.setup()
+    render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+
+    const input = screen.getByRole('textbox')
+    await user.type(input, 'Hello world')
+    await user.keyboard('{Control>}{Enter}{/Control}')
+
+    expect(mockSendMessage).toHaveBeenCalledTimes(1)
+    expect(mockSendMessage).toHaveBeenCalledWith('Hello world')
+  })
+
+  test('Shift+Enter inserts a newline and does not send', async () => {
+    const user = userEvent.setup()
+    render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+
+    const input = screen.getByRole('textbox')
+    await user.type(input, 'line one')
+    await user.keyboard('{Shift>}{Enter}{/Shift}')
+    await user.type(input, 'line two')
+
+    expect(mockSendMessage).not.toHaveBeenCalled()
+    expect(input).toHaveValue('line one\nline two')
   })
 
   test('disables input when session is busy (streaming)', () => {
@@ -415,6 +485,81 @@ describe('InputArea', () => {
     ).toBeInTheDocument()
   })
 
+  test('keeps the composer locked when a persisted message reports success', () => {
+    mockConversationMessages = [
+      {
+        messageType: 'agent_response',
+        deepResearchJobId: 'job-1',
+        deepResearchJobStatus: 'success',
+      },
+    ]
+
+    render(<InputArea isAuthenticated={true} connectionMode="websocket" />)
+
+    expect(screen.getByRole('textbox')).toBeDisabled()
+    expect(
+      screen.getByRole('button', { name: /research completed - create new session/i })
+    ).toBeInTheDocument()
+  })
+
+  test.each(['failure', 'interrupted'] as const)(
+    'unlocks the composer after a %s run so the user can retry or follow up',
+    (status) => {
+      mockDeepResearchStatus = status
+      mockIsDeepResearchStreaming = false
+      mockDeepResearchOwnerConversationId = 'session-1'
+
+      render(<InputArea isAuthenticated={true} connectionMode="websocket" />)
+
+      // Composer is enabled with contextual follow-up guidance...
+      expect(screen.getByRole('textbox')).not.toBeDisabled()
+      expect(
+        screen.getByPlaceholderText('Research didn’t finish. Ask a follow-up or try again.')
+      ).toBeInTheDocument()
+      // ...and the normal send button is shown (no "create new session" lock popover).
+      expect(screen.getByRole('button', { name: /send message/i })).toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: /research completed - create new session/i })
+      ).not.toBeInTheDocument()
+    }
+  )
+
+  test('unlocks the composer when a persisted message reports failure', () => {
+    mockConversationMessages = [
+      {
+        messageType: 'agent_response',
+        deepResearchJobId: 'job-1',
+        deepResearchJobStatus: 'failure',
+      },
+    ]
+
+    render(<InputArea isAuthenticated={true} connectionMode="websocket" />)
+
+    expect(screen.getByRole('textbox')).not.toBeDisabled()
+    expect(
+      screen.getByPlaceholderText('Research didn’t finish. Ask a follow-up or try again.')
+    ).toBeInTheDocument()
+  })
+
+  test('a later success still locks the composer even if an earlier run failed', () => {
+    mockConversationMessages = [
+      {
+        messageType: 'agent_response',
+        deepResearchJobId: 'job-1',
+        deepResearchJobStatus: 'failure',
+      },
+      {
+        messageType: 'agent_response',
+        deepResearchJobId: 'job-2',
+        deepResearchJobStatus: 'success',
+      },
+    ]
+
+    render(<InputArea isAuthenticated={true} connectionMode="websocket" />)
+
+    expect(screen.getByRole('textbox')).toBeDisabled()
+  })
+
   test('shows research in progress send button when deep research is active and streaming', () => {
     vi.mocked(useIsCurrentSessionBusy).mockReturnValue(true)
     mockIsDeepResearchStreaming = true
@@ -511,5 +656,91 @@ describe('InputArea', () => {
     await user.type(screen.getByRole('textbox'), 'approve')
     await user.click(sendButton)
     expect(mockRespondToInteraction).toHaveBeenCalledWith('approve')
+  })
+
+  describe('per-session composer drafts', () => {
+    test('restores the session draft into the composer on mount (survives remount)', () => {
+      mockDrafts = { 'session-1': 'a half-typed question' }
+
+      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+
+      expect(screen.getByRole('textbox')).toHaveValue('a half-typed question')
+    })
+
+    test('persists typed text to the active session draft', async () => {
+      const user = userEvent.setup()
+      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+
+      await user.type(screen.getByRole('textbox'), 'work in progress')
+
+      expect(mockDrafts['session-1']).toBe('work in progress')
+    })
+
+    test('shows each session its own draft when switching sessions', () => {
+      mockDrafts = { 'session-1': 'draft one', 'session-2': 'draft two' }
+
+      const { rerender } = render(
+        <InputArea isAuthenticated={true} connectionMode="sse" placeholder="a" />
+      )
+      expect(screen.getByRole('textbox')).toHaveValue('draft one')
+
+      // Switch the active session — the composer must load the other draft. The
+      // real component re-renders via its store subscription; with the store
+      // mocked, a changed prop stands in to trigger the same re-render.
+      mockCurrentSessionId = 'session-2'
+      rerender(<InputArea isAuthenticated={true} connectionMode="sse" placeholder="b" />)
+
+      expect(screen.getByRole('textbox')).toHaveValue('draft two')
+    })
+
+    test('clears the session draft on a successful send', async () => {
+      const user = userEvent.setup()
+      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+
+      await user.type(screen.getByRole('textbox'), 'send me')
+      expect(mockDrafts['session-1']).toBe('send me')
+
+      await user.click(screen.getByRole('button', { name: /send message/i }))
+
+      expect(mockSendMessage).toHaveBeenCalledWith('send me')
+      expect('session-1' in mockDrafts).toBe(false)
+      expect(screen.getByRole('textbox')).toHaveValue('')
+    })
+
+    test('retains the session draft (and text) when a send fails', async () => {
+      const user = userEvent.setup()
+      mockSendMessage.mockImplementationOnce(() => {
+        throw new Error('network down')
+      })
+      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+
+      await user.type(screen.getByRole('textbox'), 'do not lose me')
+      await user.click(screen.getByRole('button', { name: /send message/i }))
+
+      // Failed send keeps both the persisted draft and the restored input text.
+      expect(mockDrafts['session-1']).toBe('do not lose me')
+      expect(screen.getByRole('textbox')).toHaveValue('do not lose me')
+    })
+
+    test('a prefill fills an empty composer and becomes the session draft', () => {
+      mockComposerPrefill = 'prefilled question'
+
+      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+
+      expect(screen.getByRole('textbox')).toHaveValue('prefilled question')
+      expect(mockDrafts['session-1']).toBe('prefilled question')
+    })
+
+    test('a prefill does not clobber an existing non-empty draft', () => {
+      mockDrafts = { 'session-1': 'my own in-progress text' }
+      mockComposerPrefill = 'chip suggestion'
+
+      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+
+      // Existing draft wins; the prefill is dropped (consumed without applying).
+      expect(screen.getByRole('textbox')).toHaveValue('my own in-progress text')
+      expect(mockDrafts['session-1']).toBe('my own in-progress text')
+      expect(mockComposerPrefill).toBeNull()
+    })
   })
 })

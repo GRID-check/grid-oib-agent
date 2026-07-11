@@ -15,7 +15,6 @@ import { Wand2 } from 'lucide-react'
 import { useChatStore } from '@/features/chat'
 import { useTranslations } from '@/i18n'
 import { AgentCard, type AgentInfo } from './AgentCard'
-import { EMPTY_RESEARCH_DETAILS_HELP_TEXT } from './research-empty-state-copy'
 
 /**
  * Agents sub-tab content showing active workflows with their tool calls.
@@ -78,7 +77,7 @@ export const AgentsTab: FC = () => {
           <Wand2 className="mb-3 h-8 w-8 text-muted-foreground" aria-hidden="true" />
           <p className="text-sm text-muted-foreground">{t('agentsTab.empty')}</p>
           <p className="mt-2 text-sm text-muted-foreground">
-            {EMPTY_RESEARCH_DETAILS_HELP_TEXT}
+            {t('detailsHelp')}
           </p>
         </div>
       ) : (

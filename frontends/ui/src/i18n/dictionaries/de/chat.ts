@@ -16,6 +16,7 @@ export const chat: typeof en.chat = {
     reject: 'Ablehnen',
     approvePlan: 'Plan genehmigen',
     rejectPlan: 'Plan ablehnen',
+    selectOption: 'Option auswählen: {option}',
     yourResponse: 'Ihre Antwort:',
   },
   agentResponse: {
@@ -88,6 +89,75 @@ export const chat: typeof en.chat = {
   error: {
     showDetails: 'Details anzeigen',
     hideDetails: 'Details ausblenden',
+  },
+  errorRegistry: {
+    connectionLost: {
+      title: 'Verbindung getrennt',
+      message: 'Die Verbindung zum Server wurde getrennt. Bitte überprüfen Sie Ihr Netzwerk.',
+    },
+    connectionFailed: {
+      title: 'Verbindung fehlgeschlagen',
+      message:
+        'Verbindung zum Server nicht möglich. Bitte überprüfen Sie Ihre Netzwerkverbindung.',
+    },
+    connectionTimeout: {
+      title: 'Zeitüberschreitung der Anfrage',
+      message: 'Die Anfrage hat zu lange gedauert.',
+    },
+    sessionExpired: {
+      title: 'Sitzung abgelaufen',
+      message: 'Ihre Sitzung ist abgelaufen. Bitte melden Sie sich erneut an.',
+    },
+    unauthorized: {
+      title: 'Nicht autorisiert',
+      message: 'Sie haben keine Berechtigung, diese Aktion auszuführen.',
+    },
+    responseFailed: {
+      title: 'Antwort fehlgeschlagen',
+      message: 'Beim Erstellen einer Antwort ist beim Assistenten ein Fehler aufgetreten.',
+    },
+    responseInterrupted: {
+      title: 'Antwort unterbrochen',
+      message: 'Ihre vorherige Anfrage wurde nicht abgeschlossen. Bitte senden Sie Ihre Nachricht erneut.',
+    },
+    workflowError: {
+      title: 'Anfrage fehlgeschlagen',
+      message:
+        'Beim Bearbeiten Ihrer Anfrage ist beim Assistenten ein unerwarteter Fehler aufgetreten. Bitte versuchen Sie es erneut.',
+    },
+    deepResearchFailed: {
+      title: 'Deep Research fehlgeschlagen',
+      message: 'Beim Deep-Research-Vorgang ist ein Fehler aufgetreten.',
+    },
+    deepResearchLoadFailed: {
+      title: 'Recherchedaten nicht verfügbar',
+      message:
+        'Recherchedaten konnten nicht geladen werden. Der Auftrag ist möglicherweise abgelaufen oder wurde gelöscht.',
+    },
+    unknown: {
+      title: 'Etwas ist schiefgelaufen',
+      message: 'Ein unerwarteter Fehler ist aufgetreten. Bitte versuchen Sie es erneut.',
+    },
+  },
+  deepResearchErrors: {
+    interrupted: 'Die Recherche wurde vor dem Abschluss unterbrochen.',
+  },
+  sessionActions: {
+    researchMayStillRunTitle: 'Recherche-Ausführung läuft möglicherweise noch',
+    researchMayStillRunDescription:
+      'Die Sitzung wurde gelöscht, aber der zugehörige Deep-Research-Auftrag konnte auf dem Server nicht gestoppt werden.',
+    researchRunsMayStillRunTitle: 'Möglicherweise laufen noch {count} Recherche-{runLabel}',
+    researchRunsMayStillRunDescription:
+      'Die Sitzungen wurden gelöscht, aber einige Deep-Research-Aufträge konnten auf dem Server nicht gestoppt werden.',
+    runSingular: 'Ausführung',
+    runPlural: 'Ausführungen',
+  },
+  budgetExhausted: {
+    title: 'Budget aufgebraucht',
+    memberMessage:
+      'Ihr LLM-Budget ist aufgebraucht, daher können derzeit keine neuen Nachrichten gesendet werden. Ihren eigenen Verbrauch finden Sie unter Organisation → Verbrauch & Budgets. Bitten Sie eine Organisations-Administratorin oder einen -Administrator, Ihr Limit zu erhöhen.',
+    adminMessage:
+      'Das LLM-Budget ist aufgebraucht, daher können derzeit keine neuen Nachrichten gesendet werden. Erhöhen Sie die Limits unter Organisation → Verbrauch & Budgets.',
   },
   fileUpload: {
     uploading:

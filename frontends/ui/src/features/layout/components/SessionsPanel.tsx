@@ -29,10 +29,11 @@ import {
   Trash2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { EmptyState } from '@/components/ui/empty-state'
 import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/utils'
 import { motion, fadeRise, staggerParent, springGentle } from '@/components/motion'
-import { useTranslations } from '@/i18n'
+import { useLocale, useTranslations } from '@/i18n'
 import { useLayoutStore } from '../store'
 import { useChatStore } from '@/features/chat'
 import { checkStorageHealth } from '@/features/chat/lib/storage-manager'
@@ -80,6 +81,7 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
   onRenameSession,
 }) {
   const t = useTranslations('research')
+  const { locale } = useLocale()
   const isSessionsPanelOpen = useLayoutStore((s) => s.isSessionsPanelOpen)
   const setSessionsPanelOpen = useLayoutStore((s) => s.setSessionsPanelOpen)
 
@@ -164,11 +166,15 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
 
   const groupedSessions = useMemo(
     () =>
-      groupSessionsByDate(filteredSessions, {
-        today: t('sessionsPanel.today'),
-        yesterday: t('sessionsPanel.yesterday'),
-      }),
-    [filteredSessions, t]
+      groupSessionsByDate(
+        filteredSessions,
+        {
+          today: t('sessionsPanel.today'),
+          yesterday: t('sessionsPanel.yesterday'),
+        },
+        locale
+      ),
+    [filteredSessions, t, locale]
   )
   const isEmptyState = filteredSessions.length === 0
   return (
@@ -280,13 +286,25 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
 
         {isEmptyState && (
           <div className="flex flex-1 flex-col items-center justify-center py-8">
-            <span className="text-sm text-muted-foreground">
-              {searchQuery.trim() ? t('sessionsPanel.noMatching') : t('sessionsPanel.noSessions')}
-            </span>
-            {!searchQuery.trim() && (
-              <Button variant="outline" size="sm" onClick={handleNewSession} className="mt-4">
-                {t('sessionsPanel.startNewSessionButton')}
-              </Button>
+            {searchQuery.trim() ? (
+              <EmptyState
+                variant="bare"
+                icon={MessageSquare}
+                title={t('sessionsPanel.noMatching')}
+                description={t('sessionsPanel.noMatchingDescription')}
+              />
+            ) : (
+              <EmptyState
+                variant="bare"
+                icon={MessageSquare}
+                title={t('sessionsPanel.noSessions')}
+                description={t('sessionsPanel.noSessionsDescription')}
+                action={
+                  <Button variant="outline" size="sm" onClick={handleNewSession}>
+                    {t('sessionsPanel.startNewSessionButton')}
+                  </Button>
+                }
+              />
             )}
           </div>
         )}
@@ -556,7 +574,8 @@ const SessionStatusIcon: FC<{ session: Session; isSessionActive: boolean }> = ({
  */
 const groupSessionsByDate = (
   sessions: Session[],
-  labels: { today: string; yesterday: string }
+  labels: { today: string; yesterday: string },
+  locale: string
 ): Record<string, Session[]> => {
   const groups: Record<string, Session[]> = {}
   const today = new Date()
@@ -572,7 +591,7 @@ const groupSessionsByDate = (
     } else if (isSameDay(sessionDate, yesterday)) {
       label = labels.yesterday
     } else {
-      label = sessionDate.toLocaleDateString('en-US', {
+      label = sessionDate.toLocaleDateString(locale, {
         month: 'short',
         day: 'numeric',
         year: 'numeric',

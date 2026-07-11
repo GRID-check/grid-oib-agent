@@ -38,8 +38,9 @@ Security behavior as of the ADR-0017 refactor:
 |--------|------|------|-------------|---------|----------|
 | `GET` | `/api/auth/callback` | No | WorkOS AuthKit callback handler. Delegates to `@workos-inc/authkit-nextjs`'s `handleAuth()`. | Query params from WorkOS OAuth redirect | Redirect to app |
 | `GET` | `/api/auth/websocket-scope` | Varies | Internal endpoint called by `server.js` during WebSocket upgrade. Resolves collection scope, auth headers, and returns base64url-encoded scope + org/user IDs + access token. | `?projectId=&conversationId=` | `{ scope, header, organizationId?, userId?, accessToken? }` |
+| `GET` | `/api/auth/connection-diagnostics` | Required | Browser-safe reason discovery for a failed chat WebSocket upgrade. The gateway collapses a budget-exhausted upgrade into a bare failed handshake the browser can't read, so the chat client calls this after retries are exhausted to learn whether the cause was budget exhaustion. Read-only; reuses the same budget-check logic (ADR-0015). | `?projectId=` | `{ budgetExhausted, blockedScope, canManageBudgets }` |
 
-Source: `frontends/ui/src/app/api/auth/callback/route.ts`, `frontends/ui/src/app/api/auth/websocket-scope/route.ts`
+Source: `frontends/ui/src/app/api/auth/callback/route.ts`, `frontends/ui/src/app/api/auth/websocket-scope/route.ts`, `frontends/ui/src/app/api/auth/connection-diagnostics/route.ts`
 
 ## Chat
 
@@ -100,10 +101,11 @@ Source: `frontends/ui/src/app/api/projects/route.ts`, `frontends/ui/src/app/api/
 | `GET` | `/api/documents/{id}/download` | Required | Get a presigned download URL for a document. Verifies org ownership + `project:view` FGA. | — | `{ downloadUrl, filename, contentType, fileSize }` |
 | `GET` | `/api/documents/{id}/preview` | Required | Presigned inline preview URL (PDF/image types only; 415 otherwise). Verifies org ownership + `project:view` FGA. | — | `{ url, contentType, filename }` |
 | `GET` | `/api/documents/{id}/status` | Required | Get document ingestion status. Verifies org ownership + `project:view` FGA. | — | `{ id, status, filename, fileSize, errorMessage?, createdAt, updatedAt }` |
+| `POST` | `/api/documents/{id}/reingest` | Required | Re-dispatch a previously-**failed** document to the ingest pipeline (re-runs the same `POST /v1/ingest` call the upload path uses). Verifies org ownership + `project:edit` FGA. Rejects documents not in `failed` status with `409 CONFLICT`. | — | `{ id, status, jobId }` (status `pending` on success, `failed` if dispatch fails again) |
 
-Document upload stores files in MinIO at key `{orgId}/{projectId}/{documentId}/{filename}`. Presigned URLs expire after `MINIO_PRESIGNED_URL_TTL_SECONDS` (default 600s). Ingestion is best-effort: if the backend call fails, the document remains in `uploaded` status.
+Document upload stores files in MinIO at key `{orgId}/{projectId}/{documentId}/{filename}`. Presigned URLs expire after `MINIO_PRESIGNED_URL_TTL_SECONDS` (default 600s). Ingestion is best-effort: on the first upload a failed backend dispatch marks the document `failed` with an `errorMessage`; `POST /api/documents/{id}/reingest` lets the user retry that dispatch from the Files workspace.
 
-Source: `frontends/ui/src/app/api/documents/route.ts`, `frontends/ui/src/app/api/documents/upload/route.ts`, `frontends/ui/src/app/api/documents/[id]/download/route.ts`, `frontends/ui/src/app/api/documents/[id]/status/route.ts`
+Source: `frontends/ui/src/app/api/documents/route.ts`, `frontends/ui/src/app/api/documents/upload/route.ts`, `frontends/ui/src/app/api/documents/[id]/download/route.ts`, `frontends/ui/src/app/api/documents/[id]/status/route.ts`, `frontends/ui/src/app/api/documents/[id]/reingest/route.ts`
 
 ## Health
 

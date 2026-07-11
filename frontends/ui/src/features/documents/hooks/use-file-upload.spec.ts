@@ -1,5 +1,6 @@
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
+import { en } from '@/i18n/dictionaries/en'
 
 // Use vi.hoisted for mocks that need to be available before vi.mock
 const { mockClient, mockDocumentsStoreState, mockOrchestratorFns } = vi.hoisted(() => {
@@ -455,8 +456,10 @@ describe('useFileUpload', () => {
         await result.current.retryFile('file-1')
       })
 
+      // Localized copy resolved via the files dictionary (English fallback
+      // when no i18n provider is mounted in the test).
       expect(mockDocumentsStoreState.setError).toHaveBeenCalledWith(
-        'Cannot retry server-loaded files. Please upload the file again.'
+        en.files.errors.cannotRetryServerFile
       )
     })
 

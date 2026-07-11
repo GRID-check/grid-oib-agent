@@ -88,6 +88,20 @@ export async function setDocumentIngestJob(documentId: string, ingestJobId: stri
 }
 
 /**
+ * Persist an ingestion failure so status reads tell the truth. Without this a
+ * document whose ingest dispatch never started would sit at 'uploaded' — which
+ * the UI renders as a green "Ready" — forever (reconciliation only revisits
+ * in-flight statuses, and there is no job id to reconcile against).
+ */
+export async function markDocumentIngestFailed(documentId: string, errorMessage: string): Promise<void> {
+  const db = getDb()
+  await db
+    .update(documents)
+    .set({ status: 'failed', errorMessage, updatedAt: new Date() })
+    .where(eq(documents.id, documentId))
+}
+
+/**
  * Resolve a folder's storage path, scoped to the project so a folder id from
  * another project can never redirect an upload.
  */

@@ -551,23 +551,42 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
                     )
                     self._pending_observability_trace = None
             except Exception as exc:
-                if not isinstance(exc, AuthError):
+                # Build a structured ERROR frame for BOTH auth and non-auth
+                # failures. Previously a non-auth exception was logged and
+                # swallowed with a bare ``return`` -- no frame ever reached the
+                # client, so the frontend kept ``isStreaming=true`` forever and
+                # the composer + session list stayed permanently locked. Always
+                # emitting a terminal error frame lets the client release the
+                # streaming lock (see ``onError`` in use-websocket-chat.ts).
+                if isinstance(exc, AuthError):
+                    logger.warning("Auth error during workflow: %s", exc)
+                    error = Error(
+                        code=ErrorTypes.UNKNOWN_ERROR,
+                        message=exc.error_code,
+                        details=str(exc),
+                    )
+                else:
                     logger.exception("Error running workflow")
-                    return
+                    # ``code`` is the stable, machine-routable identity the
+                    # frontend keys on (-> ERROR_REGISTRY['agent.workflow_error']);
+                    # ``message`` is user-facing body copy, ``details`` keeps the
+                    # raw exception text for debugging.
+                    error = Error(
+                        code=ErrorTypes.WORKFLOW_ERROR,
+                        message="The assistant hit an unexpected error while handling your request. Please try again.",
+                        details=str(exc),
+                    )
 
-                logger.warning("Auth error during workflow: %s", exc)
+                # Guard the send itself: the socket may already be gone (the
+                # very failure we're reporting can be a dropped connection).
                 try:
                     await self.create_websocket_message(
-                        data_model=Error(
-                            code=ErrorTypes.UNKNOWN_ERROR,
-                            message=exc.error_code,
-                            details=str(exc),
-                        ),
+                        data_model=error,
                         message_type=WebSocketMessageType.ERROR_MESSAGE,
                         status=WebSocketMessageStatus.COMPLETE,
                     )
                 except Exception:  # pragma: no cover - socket may already be closed
-                    pass
+                    logger.warning("Failed to send workflow error frame", exc_info=True)
 
 
 def install_reconnectable_handler() -> None:  # TODO: upstream to NAT

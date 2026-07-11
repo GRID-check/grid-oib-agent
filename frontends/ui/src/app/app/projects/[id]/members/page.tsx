@@ -1,3 +1,4 @@
+import { type Metadata } from 'next'
 import { eq } from 'drizzle-orm'
 import { Users } from 'lucide-react'
 import { requireAuthorizedPageSession } from '@/lib/auth/require-auth'
@@ -9,6 +10,11 @@ import { getTranslations } from '@/i18n/server'
 
 interface ProjectMembersPageProps {
   params: Promise<{ id: string }>
+}
+
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations('nav')
+  return { title: t('sections.members') }
 }
 
 export default async function ProjectMembersPage({ params }: ProjectMembersPageProps): Promise<JSX.Element> {

@@ -25,6 +25,7 @@ import {
   evaluateIntakeCondition,
   formatIntakeAnswer,
   isIntakeAnswerProvided,
+  labelForProfileKey,
 } from '@/lib/project-profile/intake-definition'
 import type { ProjectIntakeDefinition, ProjectIntakeQuestion } from '@/lib/project-profile/intake-definition'
 import type { ProjectPrimitiveValue, ProjectProfile } from '@/lib/project-profile/types'
@@ -554,7 +555,7 @@ function ReviewStep({
             {t('intake.unknownsTitle')}
           </p>
           <p className="mt-1.5 text-sm text-muted-foreground">
-            {unknowns.map((u) => u.replaceAll('_', ' ')).join(' · ')}
+            {unknowns.map((u) => labelForProfileKey(definition, u)).join(' · ')}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">{t('intake.unknownsHint')}</p>
         </div>

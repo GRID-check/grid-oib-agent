@@ -2,9 +2,21 @@
 export const research = {
   dismissError: 'Dismiss error',
 
+  // Shared empty-state helper shown across the deep-research detail tabs
+  // (Thinking, Thought Traces, Tool Calls, Agents, Files).
+  detailsHelp:
+    'These details appear during active research and may not be available for completed reports.',
+
   runsPage: {
     title: 'Research runs',
     subtitle: 'Deep research reports Grid has produced for this project, newest first.',
+  },
+
+  // Labels for the per-project research-runs list rows (research-runs-list.tsx).
+  runsList: {
+    untitledRun: 'Deep research run',
+    sessionLabel: 'Session {id}',
+    viewThinking: 'View thinking',
   },
 
   dockedPanel: {
@@ -24,10 +36,11 @@ export const research = {
     cockpit: 'OIB research cockpit',
     title: 'Start with a project, then ask for cited building-code reasoning.',
     body: 'Grid keeps retrieval scoped to the selected workspace and turns long guideline documents into traceable decisions.',
-    openProjects: 'Open projects',
-    openProjectsDesc: 'Create workspaces, manage documents, and invite roles.',
-    selectContext: 'Select context',
-    selectContextDesc: 'Use the workspace selector before running analysis.',
+    reviewBrief: 'Review the brief',
+    reviewBriefDesc: 'Open the project overview to check the facts Grid uses for tailored answers.',
+    uploadFiles: 'Upload files',
+    uploadFilesDesc: 'Attach plans or documents with the paperclip to ground answers in your evidence.',
+    usePrompt: 'Use suggestion: {prompt}',
     prompt1: 'Compare OIB 2 fire resistance duties across building classes.',
     prompt2: 'Summarize accessibility requirements for a public retrofit.',
     prompt3: 'Find contradictions between uploaded plans and OIB guidance.',
@@ -95,10 +108,11 @@ export const research = {
     aboutToDelete: 'You are about to delete',
     lossSuffix: '. You will lose all progress and any files you have attached will be removed.',
     all: {
-      title: 'Deleting All Sessions',
-      countSessions: 'all {count} sessions',
-      allSessions: 'ALL sessions',
-      confirm: 'Delete ALL Sessions',
+      title: 'Deleting All Sessions in This Project',
+      countSessions: 'all {count} sessions in this project',
+      allSessions: 'ALL sessions in this project',
+      scopeNote: 'Only sessions in this project are deleted. Your sessions in other projects are not affected.',
+      confirm: 'Delete Project Sessions',
     },
     file: {
       title: 'Delete File',
@@ -191,6 +205,7 @@ export const research = {
     placeholderDefault: 'Check data sources and ask a research question...',
     signInToStart: 'Sign in to start researching',
     researchCompletedNewSession: 'Research completed. Create a new session for further questions.',
+    researchFailedFollowUp: 'Research didn’t finish. Ask a follow-up or try again.',
     typeResponse: 'Type your response to the agent...',
     pleaseWait: 'Please wait...',
     messageNotSent: 'Message not sent',
@@ -256,8 +271,8 @@ export const research = {
     storageQuota: 'Using {percent}% of browser storage quota',
     storageNote:
       'Note: Chat sessions are saved in this browser. Research reports may expire on the server.',
-    deleteAllDisabled: 'Delete all sessions (disabled)',
-    deleteAll: 'Delete all sessions',
+    deleteAllDisabled: 'Delete all sessions in this project (disabled)',
+    deleteAll: 'Delete all sessions in this project',
     cannotDeleteBusy: 'Cannot delete while operations are in progress',
     deleteAllButton: 'Delete All',
     newSessionDisabled: 'Start new session (disabled during active operations)',
@@ -267,7 +282,9 @@ export const research = {
     searchPlaceholder: 'Search sessions...',
     searchAria: 'Search sessions',
     noMatching: 'No matching sessions',
+    noMatchingDescription: 'No sessions match your search. Try a different term.',
     noSessions: 'No sessions yet',
+    noSessionsDescription: 'Start a new session to begin researching with Grid.',
     startNewSessionButton: 'Start a new session',
     today: 'Today',
     yesterday: 'Yesterday',
@@ -301,6 +318,13 @@ export const research = {
     emptyHelp: 'Shows the plan breakdown and progress during deep research.',
     progressAria: 'Task completion progress',
     writingReport: 'Writing final report... This may take a few minutes.',
+    stalledTitle: 'No progress updates for a while',
+    stalledBody:
+      'Research hasn’t sent an update recently. It may still be running — reconnect to resume the live stream.',
+    connectionLostTitle: 'Connection to the research job lost',
+    connectionLostBody:
+      'We lost the live connection, but the job may still be running on the server. Reconnect to resume, or stop it from the toolbar above.',
+    reconnect: 'Reconnect',
   },
 
   thinkingTab: {

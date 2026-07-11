@@ -82,6 +82,24 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   const currentConversation = useChatStore((state) => state.currentConversation)
   const ensureSession = useChatStore((state) => state.ensureSession)
 
+  // One-shot composer prefill from deep links (?ask=) and welcome-screen chips.
+  const composerPrefill = useChatStore((state) => state.composerPrefill)
+  const consumeComposerPrefill = useChatStore((state) => state.consumeComposerPrefill)
+
+  // Per-session composer drafts: the user's own in-progress text, persisted
+  // per conversation id so it survives session switches AND reloads.
+  const getComposerDraft = useChatStore((state) => state.getComposerDraft)
+  const setComposerDraft = useChatStore((state) => state.setComposerDraft)
+  const clearComposerDraft = useChatStore((state) => state.clearComposerDraft)
+
+  // Active session id — the key under which this session's draft is stored.
+  const currentSessionId = currentConversation?.id
+  // Tracks which session's draft is currently loaded into `message`, so the
+  // draft-sync effect only reloads when the ACTIVE session actually changes
+  // (never on every keystroke). Pre-set by handleValueChange when a first
+  // keystroke lazily creates a session, so that id transition doesn't wipe text.
+  const loadedDraftSessionRef = useRef<string | undefined>(undefined)
+
   // Deep research completion state - disables new submissions after research completes
   const deepResearchStatus = useChatStore((state) => state.deepResearchStatus)
   const isDeepResearchStreaming = useChatStore((state) => state.isDeepResearchStreaming)
@@ -101,29 +119,46 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     )
   })
 
-  // Check for completed deep research in conversation messages (persisted state)
-  // This handles the case where ephemeral state has been reset (page refresh, session switch)
-  const hasCompletedDeepResearch = useChatStore((state) => {
+  // Check for a SUCCESSFUL deep research in conversation messages (persisted state).
+  // This handles the case where ephemeral state has been reset (page refresh, session switch).
+  const hasSuccessfulDeepResearch = useChatStore((state) => {
     if (!state.currentConversation?.messages) return false
     return state.currentConversation.messages.some(
       (m) =>
         m.messageType === 'agent_response' &&
         m.deepResearchJobId &&
-        (m.deepResearchJobStatus === 'success' ||
-          m.deepResearchJobStatus === 'failure' ||
+        m.deepResearchJobStatus === 'success'
+    )
+  })
+
+  // Check for a FAILED/INTERRUPTED deep research in conversation messages (persisted state).
+  const hasFailedDeepResearch = useChatStore((state) => {
+    if (!state.currentConversation?.messages) return false
+    return state.currentConversation.messages.some(
+      (m) =>
+        m.messageType === 'agent_response' &&
+        m.deepResearchJobId &&
+        (m.deepResearchJobStatus === 'failure' ||
           m.deepResearchJobStatus === 'interrupted')
     )
   })
 
-  // Research session is complete when:
-  // 1. Ephemeral state shows terminal status AND stream has finished, OR
-  // 2. Persisted message has terminal deep research job status
-  const isResearchSessionComplete =
-    (!isDeepResearchStreaming &&
-      (deepResearchStatus === 'success' ||
-        deepResearchStatus === 'failure' ||
-        deepResearchStatus === 'interrupted')) ||
-    hasCompletedDeepResearch
+  // The composer is locked ONLY after a SUCCESSFUL research run: the finished
+  // report defines the session's context, so follow-up questions belong in a
+  // fresh session (this is the product rationale behind the lock). A failed or
+  // interrupted run produced no report to protect, so the user must be able to
+  // retry or follow up in place — do NOT lock those (UX-12).
+  const isResearchSessionSuccessful =
+    (!isDeepResearchStreaming && deepResearchStatus === 'success') ||
+    hasSuccessfulDeepResearch
+
+  // A terminal failure/interruption that is NOT superseded by a later success.
+  // Drives contextual placeholder copy while keeping the composer unlocked.
+  const isResearchSessionFailed =
+    !isResearchSessionSuccessful &&
+    ((!isDeepResearchStreaming &&
+      (deepResearchStatus === 'failure' || deepResearchStatus === 'interrupted')) ||
+      hasFailedDeepResearch)
 
   // Research session is in progress when:
   // 1. Ephemeral state is streaming, OR
@@ -212,7 +247,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   // 3. Deep research has completed/failed
 
   const isDisabledByAuth = !isAuthenticated
-  const disabled = isDisabledByAuth || (isBusy && !isResponseMode) || isResearchSessionComplete
+  const disabled = isDisabledByAuth || (isBusy && !isResponseMode) || isResearchSessionSuccessful
 
   // Autosize: grow the textarea with content, capped at TEXTAREA_MAX_HEIGHT_PX
   useEffect(() => {
@@ -222,24 +257,79 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     el.style.height = `${Math.min(el.scrollHeight, TEXTAREA_MAX_HEIGHT_PX)}px`
   }, [message])
 
+  // Per-session draft restore: when the ACTIVE session changes (switching
+  // sessions, or a session being restored after reload/hydration), load that
+  // session's saved draft into the composer. Keyed on the id — typing within a
+  // session never re-triggers this (the ref guard also covers the lazy
+  // ensureSession id transition, which handleValueChange marks as loaded).
+  useEffect(() => {
+    if (loadedDraftSessionRef.current === currentSessionId) return
+    loadedDraftSessionRef.current = currentSessionId
+    setMessage(currentSessionId ? getComposerDraft(currentSessionId) : '')
+  }, [currentSessionId, getComposerDraft])
+
+  // Consume a queued composer prefill exactly once: populate the draft, focus
+  // the textarea, and move the caret to the end. We never auto-send — the user
+  // reviews/edits before submitting. The store clears the flag on read.
+  //
+  // Precedence vs. an existing draft: a prefill fills an EMPTY composer only.
+  // If the session already holds the user's own in-progress text (local or
+  // persisted draft), the prefill is dropped — consumed without applying — so
+  // a deep link or chip can never silently clobber what the user was writing.
+  useEffect(() => {
+    if (composerPrefill === null || isDisabledByAuth) return
+    const existingDraft = currentSessionId ? getComposerDraft(currentSessionId) : ''
+    const composerHasText = message.trim().length > 0 || existingDraft.trim().length > 0
+    if (composerHasText) {
+      consumeComposerPrefill()
+      return
+    }
+    const text = consumeComposerPrefill()
+    if (text === null) return
+    setMessage(text)
+    // Persist the prefill as the session's draft too, so it survives a reload
+    // just like typed text (only possible once a session exists).
+    if (currentSessionId) setComposerDraft(currentSessionId, text)
+    requestAnimationFrame(() => {
+      const el = textareaRef.current
+      if (!el) return
+      el.focus()
+      const end = el.value.length
+      el.setSelectionRange(end, end)
+    })
+  }, [
+    composerPrefill,
+    consumeComposerPrefill,
+    isDisabledByAuth,
+    currentSessionId,
+    getComposerDraft,
+    setComposerDraft,
+    message,
+  ])
+
   // Dynamic placeholder based on state
   // Note: isResponseMode is checked before isBusy because the user needs to
   // see the response prompt even when the session is "busy" due to HITL.
   const getPlaceholder = (): string => {
     if (!isAuthenticated) return t('inputArea.signInToStart')
-    if (isResearchSessionComplete) return t('inputArea.researchCompletedNewSession')
+    if (isResearchSessionSuccessful) return t('inputArea.researchCompletedNewSession')
     if (isResponseMode) return t('inputArea.typeResponse')
     if (isBusy) return t('inputArea.pleaseWait')
+    if (isResearchSessionFailed) return t('inputArea.researchFailedFollowUp')
     return placeholder ?? t('inputArea.placeholderDefault')
   }
 
   const handleSubmit = useCallback(async () => {
     if (!message.trim() || disabled) return
     const currentMessage = message.trim()
+    // Capture the session up front — the draft is cleared against THIS id on a
+    // successful send, even if the session changes underneath us mid-await.
+    const submittingSessionId = currentConversation?.id
 
     // HITL responses always go through immediately — no file-pending check
     if (isResponseMode && respondToInteraction) {
       setMessage('')
+      if (submittingSessionId) clearComposerDraft(submittingSessionId)
       respondToInteraction(currentMessage)
       return
     }
@@ -266,9 +356,14 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     setMessage('')
     try {
       await sendMessage(currentMessage)
+      // Sent successfully — drop this session's saved draft so it can't
+      // resurface on the next visit. Only on success: a failed send keeps the
+      // draft so nothing the user typed is lost.
+      if (submittingSessionId) clearComposerDraft(submittingSessionId)
     } catch (error) {
       console.error('Failed to send message:', error)
-      // Restore the message so the user doesn't lose what they typed.
+      // Restore the message so the user doesn't lose what they typed. The
+      // persisted draft was never cleared, so it is retained too.
       setMessage(currentMessage)
       toast.error(t('inputArea.messageNotSent'), {
         description: t('inputArea.messageNotSentDesc'),
@@ -284,14 +379,21 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     pendingFilesWarningActive,
     addFileUploadStatusCard,
     removeFileUploadWarning,
+    currentConversation,
+    clearComposerDraft,
+    t,
   ])
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault()
-        handleSubmit()
-      }
+      if (e.key !== 'Enter') return
+      // Shift+Enter inserts a newline — let the textarea handle it natively.
+      if (e.shiftKey) return
+      // Plain Enter sends; Cmd/Ctrl+Enter also sends as a discoverable power
+      // binding. Both funnel through a single handleSubmit call (no double-fire),
+      // and handleSubmit enforces the disabled/streaming/HITL guards.
+      e.preventDefault()
+      handleSubmit()
     },
     [handleSubmit]
   )
@@ -302,13 +404,20 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
 
       // Persist a session as soon as the user starts interacting via typed input.
       // This keeps logo-triggered "new session" drafts out of history until touched.
-      if (!currentConversation && value.trim().length > 0) {
-        ensureSession()
+      let sessionId = currentConversation?.id
+      if (!sessionId && value.trim().length > 0) {
+        sessionId = ensureSession()
+        // ensureSession just activated a brand-new session; mark its id as the
+        // loaded draft so the draft-sync effect doesn't reset the text we set here.
+        if (sessionId) loadedDraftSessionRef.current = sessionId
       }
 
       setMessage(value)
+      // Persist the draft under the active session (once one exists) so it
+      // survives navigating away/back and a reload.
+      if (sessionId) setComposerDraft(sessionId, value)
     },
-    [isDisabledByAuth, currentConversation, ensureSession]
+    [isDisabledByAuth, currentConversation, ensureSession, setComposerDraft]
   )
 
   // Handle attach button click
@@ -528,7 +637,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
             {/* Send button - wrapped in Popover when research session is complete/in-progress.
                 Exception: isResponseMode always shows the normal send button so users can
                 submit HITL responses (approve/reject) even during active research. */}
-            {isResearchSessionComplete && !isResponseMode ? (
+            {isResearchSessionSuccessful && !isResponseMode ? (
               <Popover>
                 <PopoverTrigger asChild>
                   <Button

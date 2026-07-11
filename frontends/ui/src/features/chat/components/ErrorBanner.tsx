@@ -45,8 +45,15 @@ export const ErrorBanner: FC<ErrorBannerProps> = ({
   const [isExpanded, setIsExpanded] = useState(false)
   const errorMeta = getErrorMeta(code)
 
-  // Use custom message if provided, otherwise use default from registry
-  const displayMessage = message || errorMeta.defaultMessage
+  // Prefer the caller-supplied (already-localized / interpolated) message.
+  // Otherwise localize the registry default via `messageKey`, falling back to
+  // the static English `defaultMessage` when the entry opts out or no provider
+  // is present.
+  const displayMessage =
+    message || (errorMeta.messageKey ? t(errorMeta.messageKey) : errorMeta.defaultMessage)
+  // Localize the title when the registry entry opts in via `titleKey`;
+  // otherwise fall back to the static (English) registry title.
+  const displayTitle = errorMeta.titleKey ? t(errorMeta.titleKey) : errorMeta.title
   const variant = errorMeta.status === 'error' ? 'destructive' : errorMeta.status
   const StatusIcon = errorMeta.status === 'error' ? XCircle : AlertTriangle
 
@@ -54,7 +61,7 @@ export const ErrorBanner: FC<ErrorBannerProps> = ({
     <div className="flex w-full flex-col gap-1">
       <Alert variant={variant} className="relative">
         <StatusIcon />
-        <AlertTitle>{errorMeta.title}</AlertTitle>
+        <AlertTitle>{displayTitle}</AlertTitle>
         <AlertDescription>
           <span>
             {displayMessage}

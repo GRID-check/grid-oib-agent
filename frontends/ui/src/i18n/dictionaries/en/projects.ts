@@ -47,6 +47,15 @@ export const projects = {
     nameLabel: 'Project name',
     namePlaceholder: 'OIB fire safety review',
     templateLabel: 'Start from a template',
+    templates: {
+      neubauWohnbau: { label: 'New residential build', name: 'New residential build' },
+      betriebsbauBrandschutz: {
+        label: 'Commercial build — fire safety',
+        name: 'Commercial build — fire safety',
+      },
+      sanierungBestand: { label: 'Existing-building renovation', name: 'Existing-building renovation' },
+      oibBrandschutzAudit: { label: 'OIB fire-safety audit', name: 'OIB fire-safety audit' },
+    },
     footnote:
       'Create a focused workspace for documents, retrieval, members, and chat grounded in the OIB/RIS corpus.',
     submit: 'Create project',
@@ -74,8 +83,8 @@ export const projects = {
       'Orientation only — not legal advice. Confirm applicability against the current Bauordnung and the authority having jurisdiction.',
   },
   dangerZone: {
-    deleteSuccess:
-      'Project deleted. It can be restored from "Recently deleted" during the grace period.',
+    deleteSuccess: 'Project deleted. An organization admin can restore it until {date}.',
+    deleteSuccessNoDate: 'Project deleted. An organization admin can restore it during the grace period.',
     deleteError: 'Failed to delete project.',
     heading: 'Danger zone',
     description:
@@ -86,6 +95,7 @@ export const projects = {
     dialogDescriptionAfter:
       ' and all associated data across the entire app: files, chats, research runs, and its knowledge base.',
     confirmLabel: 'Delete project',
+    typeToConfirm: 'Type {name} to confirm:',
   },
   recentlyDeleted: {
     restoreSuccess: 'Restored "{name}".',
@@ -94,6 +104,8 @@ export const projects = {
     purgeFailed: 'Purge failed — contact support',
     purgeAfter: 'Permanently purged after {date}',
     restore: 'Restore',
+    loadError: 'Could not load recently deleted projects.',
+    retry: 'Retry',
   },
   researchRuns: {
     hint: {
@@ -244,9 +256,30 @@ export const projects = {
     workspace: 'Project workspace',
     askGrid: 'Ask Grid',
     uploadFiles: 'Upload files',
+    rename: {
+      action: 'Rename project',
+      dialogTitle: 'Rename project',
+      dialogDescription:
+        'Give this project a clear name. It is also the phrase required to confirm deletion.',
+      nameLabel: 'Project name',
+      save: 'Save',
+      saving: 'Saving…',
+      cancel: 'Cancel',
+      success: 'Project renamed.',
+      error: 'Could not rename the project. Please try again.',
+      forbidden: "You don't have permission to rename this project.",
+    },
     brief: {
       heading: 'Project Brief',
       edit: 'Edit brief',
+      summaryGenerate: 'Generate summary',
+      summaryRegenerate: 'Regenerate',
+      summaryGenerating: 'Generating…',
+      summarySuccess: 'Summary updated.',
+      summaryError: 'Could not generate a summary. Please try again.',
+      summaryLlmNotConfigured:
+        'Summary generation is unavailable — no language model is configured. Ask an administrator to set one up.',
+      summaryForbidden: "You don't have permission to generate the summary.",
       captured: '{answered} of {total} captured',
       focus: 'Focus',
       startedNoDetailsBefore: 'The brief has been started but no details are captured yet. ',
@@ -257,6 +290,11 @@ export const projects = {
       assumptionConfirm: 'Confirm',
       assumptionDismiss: 'Dismiss',
       assumptionError: 'Could not update the brief. Please try again.',
+      provenance: {
+        onboarding: 'Captured in the intake wizard',
+        user_confirmed: 'Confirmed by you',
+        admin_edit: 'Edited by an admin',
+      },
       emptyTitle: 'Set up the project brief',
       emptyDescription:
         "Tell Grid about this building — use, class, storeys and goals. A complete brief lets Grid ground every answer in your project's real context.",

@@ -27,6 +27,25 @@ export type MessagesSlice = {
   reportContentCategory: 'research_notes' | 'final_report' | null
   currentStatus: StatusType | null
   projectId: string | null
+  /**
+   * One-shot draft text destined for the chat composer (InputArea). Set by
+   * deep links (`?ask=`) and welcome-screen suggestion chips; consumed exactly
+   * once by the composer, which populates + focuses the textarea and clears
+   * this flag. Store-backed because the composer draft itself lives in
+   * component-local state with no cross-component setter.
+   */
+  composerPrefill: string | null
+  /**
+   * Per-session composer drafts keyed by conversation id: the user's own
+   * in-progress, unsent text. Unlike `composerPrefill` (one-shot, external),
+   * a draft is long-lived — it survives session switches and reloads because
+   * it is persisted to the `aiq-chat-store` localStorage namespace alongside
+   * the conversations. It is a plain serialisable map (SSR-safe) and is cleared
+   * only on successful send or when its session is deleted. Keyed by
+   * conversation id, so it is inherently project/user-scoped (a session id is
+   * already scoped to one project + user) and cannot leak across contexts.
+   */
+  composerDrafts: Record<string, string>
 
   startAssistantMessage: () => ChatMessage
   appendToAssistantMessage: (content: string) => void
@@ -91,6 +110,17 @@ export type MessagesSlice = {
     stats?: { totalTokens?: number; toolCallCount?: number }
   ) => void
   setProjectId: (projectId: string | null) => void
+  /** Queue text for the composer to pick up (does NOT auto-send). */
+  setComposerPrefill: (text: string) => void
+  /** Read and clear the queued composer prefill; returns null when empty. */
+  consumeComposerPrefill: () => string | null
+
+  /** Save (or update) the in-progress composer draft for a session. Passing an empty string drops the entry. */
+  setComposerDraft: (conversationId: string, text: string) => void
+  /** Read the persisted composer draft for a session ('' when none). */
+  getComposerDraft: (conversationId: string) => string
+  /** Drop a session's composer draft (on successful send or session removal). */
+  clearComposerDraft: (conversationId: string) => void
 }
 
 const generateTitle = (content: string): string => {
@@ -175,6 +205,8 @@ export const initialMessagesState = {
   reportContentCategory: null as 'research_notes' | 'final_report' | null,
   currentStatus: null as StatusType | null,
   projectId: null as string | null,
+  composerPrefill: null as string | null,
+  composerDrafts: {} as Record<string, string>,
 }
 
 export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", never]], [], MessagesSlice> = (set, get) => ({
@@ -1090,6 +1122,98 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
   },
 
   setProjectId: (projectId: string | null) => {
+    const { currentConversation } = get()
+
+    // Cross-project bleed guard (UX-8): entering a project must never keep
+    // another project's conversation active — a persisted currentConversation
+    // or stale URL would otherwise continue that chat under this project's
+    // WebSocket projectId and retrieve against the wrong corpus. Sessions
+    // without a projectId are unscoped legacy sessions and stay selectable
+    // everywhere (fail-open, see ../lib/project-scope).
+    if (
+      projectId &&
+      currentConversation?.projectId &&
+      currentConversation.projectId !== projectId
+    ) {
+      set(
+        {
+          projectId,
+          currentConversation: null,
+          isStreaming: false,
+          isLoading: false,
+          currentUserMessageId: null,
+          thinkingSteps: [],
+          activeThinkingStepId: null,
+          reportContent: '',
+          reportContentCategory: null,
+          currentStatus: null,
+          planMessages: [],
+          deepResearchCitations: [],
+          deepResearchTodos: [],
+          deepResearchLLMSteps: [],
+          deepResearchAgents: [],
+          deepResearchToolCalls: [],
+          deepResearchFiles: [],
+          deepResearchStreamLoaded: false,
+          deepResearchJobId: null,
+          deepResearchLastEventId: null,
+          isDeepResearchStreaming: false,
+          deepResearchStatus: null,
+          deepResearchOwnerConversationId: null,
+          activeDeepResearchMessageId: null,
+          pendingInteraction: null,
+        },
+        false,
+        'setProjectId:clearCrossProjectConversation'
+      )
+      return
+    }
+
     set({ projectId }, false, 'setProjectId')
+  },
+
+  setComposerPrefill: (text: string) => {
+    set({ composerPrefill: text }, false, 'setComposerPrefill')
+  },
+
+  consumeComposerPrefill: () => {
+    const { composerPrefill } = get()
+    if (composerPrefill === null) return null
+    set({ composerPrefill: null }, false, 'consumeComposerPrefill')
+    return composerPrefill
+  },
+
+  setComposerDraft: (conversationId: string, text: string) => {
+    const { composerDrafts } = get()
+    const current = composerDrafts[conversationId]
+
+    // An emptied composer should not linger as an empty draft — drop the key so
+    // the persisted map stays lean and a blank session reads as "no draft".
+    if (text === '') {
+      if (current === undefined) return
+      const next = { ...composerDrafts }
+      delete next[conversationId]
+      set({ composerDrafts: next }, false, 'setComposerDraft:clear')
+      return
+    }
+
+    if (current === text) return
+    set(
+      { composerDrafts: { ...composerDrafts, [conversationId]: text } },
+      false,
+      'setComposerDraft'
+    )
+  },
+
+  getComposerDraft: (conversationId: string) => {
+    return get().composerDrafts[conversationId] ?? ''
+  },
+
+  clearComposerDraft: (conversationId: string) => {
+    const { composerDrafts } = get()
+    if (!(conversationId in composerDrafts)) return
+    const next = { ...composerDrafts }
+    delete next[conversationId]
+    set({ composerDrafts: next }, false, 'clearComposerDraft')
   },
 })

@@ -418,6 +418,31 @@ export function answersFromProfile(
   return answers
 }
 
+/**
+ * Title-case a raw snake_case/space-separated profile key as a last-resort human
+ * label (e.g. `hohe_gebaeude_details` -> "Hohe Gebaeude Details").
+ */
+export function humanizeProfileKey(key: string): string {
+  return key
+    .split(/[_\s]+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ')
+}
+
+/**
+ * Resolve a human label for a raw profile fact/goal key (e.g. `fluchtniveau`)
+ * from the intake question that writes it. Falls back to a title-cased
+ * humanization of the key for genuinely unknown keys.
+ */
+export function labelForProfileKey(definition: ProjectIntakeDefinition, key: string): string {
+  for (const question of flattenIntakeQuestions(definition)) {
+    const target = resolveWriteTarget(question.writesTo)
+    if (target?.key === key) return question.label
+  }
+  return humanizeProfileKey(key)
+}
+
 /** Human-readable rendering of a single answer, using option labels where available. */
 export function formatIntakeAnswer(
   question: ProjectIntakeQuestion,

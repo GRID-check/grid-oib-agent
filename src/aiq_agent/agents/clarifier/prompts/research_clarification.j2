@@ -92,6 +92,16 @@ Do NOT ask about:
 - **CRITICAL**: Tailor options to the ACTUAL TOPIC - do not use generic templates
 - Always include a skip option
 - Keep questions concise and relevant to the subject matter
+- **Language**: Write the human-readable `clarification_question` text — the bold label, the numbered options, and the closing skip line — in the SAME language as the user's most recent message (e.g. a German request gets a German `clarification_question`). The JSON envelope is language-independent: keep the object keys, the `needs_clarification` boolean, and `null` exactly as specified, and never translate them. The examples below are written in English to show FORMAT only; do not copy their language.
+  {#-
+    APPROVAL/SKIP CONTRACT — byte-stable. The backend matches the user's REPLY
+    against literal English keyword sets (clarifier/agent.py: SKIP_COMMANDS =
+    {"skip", ...}; APPROVAL_KEYWORDS/REJECTION_KEYWORDS). When you localize the
+    skip line, keep the literal control keyword the user must type as the English
+    word `skip` in quotes (e.g. German: "... oder tippen Sie 'skip', um
+    fortzufahren"). Localize the surrounding sentence, but do NOT translate the
+    `skip` token itself, or the user's reply will not be recognized.
+  -#}
 
 ---
 

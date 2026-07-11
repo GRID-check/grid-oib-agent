@@ -10,13 +10,15 @@ import { useTranslations } from '@/i18n'
 /**
  * First-run accelerators grounded in the Austrian OIB/RIS domain. Selecting one
  * pre-fills the project name so a new architect isn't staring at a blank field.
+ * The chip label and the name it pre-fills are localized (DE keeps the domain
+ * terms; EN uses English equivalents) — see projects.form.templates.
  */
-const PROJECT_TEMPLATES: Array<{ label: string; name: string }> = [
-  { label: 'Neubau Wohnbau', name: 'Neubau Wohnbau' },
-  { label: 'Betriebsbau Brandschutz', name: 'Betriebsbau — Brandschutz' },
-  { label: 'Sanierung Bestand', name: 'Sanierung Bestand' },
-  { label: 'OIB Brandschutz-Audit', name: 'OIB Brandschutz-Audit' },
-]
+const TEMPLATE_KEYS = [
+  'neubauWohnbau',
+  'betriebsbauBrandschutz',
+  'sanierungBestand',
+  'oibBrandschutzAudit',
+] as const
 
 export function CreateProjectForm(): JSX.Element {
   const t = useTranslations('projects')
@@ -76,17 +78,21 @@ export function CreateProjectForm(): JSX.Element {
                 {t('form.templateLabel')}
               </span>
               <div className="flex flex-wrap gap-2">
-                {PROJECT_TEMPLATES.map((template) => (
-                  <button
-                    key={template.name}
-                    type="button"
-                    disabled={isSubmitting}
-                    onClick={() => form.setFieldValue('name', template.name)}
-                    className="rounded-full border px-3 py-1 text-xs text-muted-foreground transition-colors duration-200 ease-out hover:border-primary/40 hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none disabled:opacity-50"
-                  >
-                    {template.label}
-                  </button>
-                ))}
+                {TEMPLATE_KEYS.map((key) => {
+                  const label = t(`form.templates.${key}.label`)
+                  const name = t(`form.templates.${key}.name`)
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      disabled={isSubmitting}
+                      onClick={() => form.setFieldValue('name', name)}
+                      className="rounded-full border px-3 py-1 text-xs text-muted-foreground transition-colors duration-200 ease-out hover:border-primary/40 hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none disabled:opacity-50"
+                    >
+                      {label}
+                    </button>
+                  )
+                })}
               </div>
             </div>
           </>

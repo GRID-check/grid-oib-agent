@@ -110,6 +110,115 @@ describe('AgentPrompt', () => {
     expect(screen.getByText(/\d{1,2}:\d{2}/)).toBeInTheDocument()
   })
 
+  test('clicking an option submits it as the interaction response', async () => {
+    const user = userEvent.setup()
+    const respond = vi.fn()
+    useChatStore.setState({ respondToInteractionFn: respond })
+
+    render(
+      <AgentPrompt
+        id="prompt-1"
+        type="choice"
+        content="Choose one:"
+        options={['Option A', 'Option B']}
+      />
+    )
+
+    await user.click(screen.getByRole('button', { name: /select option: option b/i }))
+    expect(respond).toHaveBeenCalledTimes(1)
+    expect(respond).toHaveBeenCalledWith('Option B')
+  })
+
+  test('option is keyboard-activatable with Enter', async () => {
+    const user = userEvent.setup()
+    const respond = vi.fn()
+    useChatStore.setState({ respondToInteractionFn: respond })
+
+    render(
+      <AgentPrompt id="prompt-1" type="choice" content="Choose one:" options={['Option A']} />
+    )
+
+    await user.tab()
+    expect(screen.getByRole('button', { name: /select option: option a/i })).toHaveFocus()
+    await user.keyboard('{Enter}')
+    expect(respond).toHaveBeenCalledWith('Option A')
+  })
+
+  test('digit key selects the matching option', async () => {
+    const user = userEvent.setup()
+    const respond = vi.fn()
+    useChatStore.setState({ respondToInteractionFn: respond })
+
+    render(
+      <AgentPrompt
+        id="prompt-1"
+        type="choice"
+        content="Choose one:"
+        options={['Option A', 'Option B', 'Option C']}
+      />
+    )
+
+    // Focus is on the document body (no editable element) — pressing "2"
+    // selects the second option.
+    await user.keyboard('2')
+    expect(respond).toHaveBeenCalledTimes(1)
+    expect(respond).toHaveBeenCalledWith('Option B')
+  })
+
+  test('digit beyond the option count is ignored', async () => {
+    const user = userEvent.setup()
+    const respond = vi.fn()
+    useChatStore.setState({ respondToInteractionFn: respond })
+
+    render(
+      <AgentPrompt id="prompt-1" type="choice" content="Choose one:" options={['Only A']} />
+    )
+
+    await user.keyboard('5')
+    expect(respond).not.toHaveBeenCalled()
+  })
+
+  test('digit typed inside a text field does not select an option', async () => {
+    const user = userEvent.setup()
+    const respond = vi.fn()
+    useChatStore.setState({ respondToInteractionFn: respond })
+
+    render(
+      <>
+        <input aria-label="composer" />
+        <AgentPrompt
+          id="prompt-1"
+          type="choice"
+          content="Choose one:"
+          options={['Option A', 'Option B']}
+        />
+      </>
+    )
+
+    await user.click(screen.getByLabelText('composer'))
+    await user.keyboard('1')
+
+    // The digit went into the field, not the option selector.
+    expect(respond).not.toHaveBeenCalled()
+    expect(screen.getByLabelText('composer')).toHaveValue('1')
+  })
+
+  test('digit shortcut is inert without a response callback (read-only options)', async () => {
+    const user = userEvent.setup()
+    render(<AgentPrompt id="prompt-1" type="choice" content="Choose one:" options={['Option A']} />)
+
+    // No throw, no selection — the listener is never attached.
+    await user.keyboard('1')
+    expect(screen.getByText('Option A')).toBeInTheDocument()
+  })
+
+  test('options render read-only when no response callback is registered', () => {
+    render(<AgentPrompt id="prompt-1" type="choice" content="Choose one:" options={['Option A']} />)
+
+    expect(screen.queryByRole('button', { name: /select option/i })).not.toBeInTheDocument()
+    expect(screen.getByText('Option A')).toBeInTheDocument()
+  })
+
   test('tabs through plan approval actions in DOM order', async () => {
     const user = userEvent.setup()
     useChatStore.setState({ respondToInteractionFn: vi.fn() })

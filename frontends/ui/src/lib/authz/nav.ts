@@ -12,15 +12,24 @@ import { isPlatformOwner } from './platform'
 
 export interface NavFlags {
   canManageOrganization: boolean
+  /**
+   * Whether the organization page is reachable at all. True for any
+   * authenticated org member: the page serves capability subsets
+   * (budgets/models/audit) and a member self-usage view, and falls back to a
+   * polite card otherwise — so the nav entry is discoverable beyond full
+   * admins (UX-16). The page itself still gates each section server-side.
+   */
+  canViewOrganization: boolean
   canManagePlatform: boolean
 }
 
 export async function getNavFlags(session: GridSession | null): Promise<NavFlags> {
   if (!session) {
-    return { canManageOrganization: false, canManagePlatform: false }
+    return { canManageOrganization: false, canViewOrganization: false, canManagePlatform: false }
   }
   return {
     canManageOrganization: isOrgAdmin(session),
+    canViewOrganization: true,
     canManagePlatform: await isPlatformOwner(session),
   }
 }

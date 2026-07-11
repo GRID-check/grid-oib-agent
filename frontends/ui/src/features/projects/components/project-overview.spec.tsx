@@ -62,6 +62,28 @@ describe('ProjectOverview', () => {
     expect(screen.getByText(/No files yet/i)).toBeDefined()
   })
 
+  it('hides the danger zone from users who cannot delete (default)', () => {
+    render(<ProjectOverview data={mockData} />)
+    expect(screen.queryByRole('heading', { name: /Danger zone/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /Delete project/i })).toBeNull()
+  })
+
+  it('renders the danger zone only when the user can manage the project', () => {
+    render(<ProjectOverview data={mockData} canManageProject />)
+    expect(screen.getByRole('heading', { name: /Danger zone/i })).toBeDefined()
+    expect(screen.getByRole('button', { name: /Delete project/i })).toBeDefined()
+  })
+
+  it('hides the rename affordance from users who cannot manage the project', () => {
+    render(<ProjectOverview data={mockData} />)
+    expect(screen.queryByRole('button', { name: /Rename project/i })).toBeNull()
+  })
+
+  it('offers a rename affordance to users who can manage the project', () => {
+    render(<ProjectOverview data={mockData} canManageProject />)
+    expect(screen.getByRole('button', { name: /Rename project/i })).toBeDefined()
+  })
+
   it('renders grouped, human-labelled facts from the raw profile', () => {
     const dataWithProfile: ProjectOverviewData = {
       ...mockData,

@@ -29,7 +29,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { useTranslations } from '@/i18n'
+import { useLocale, useTranslations } from '@/i18n'
 import { formatEur as eur } from '@/lib/format'
 import { SeriesPaletteStyle, SERIES_SLOT_COUNT } from '@/components/charts/palette'
 import { SpendTrendChart, type SpendTrendPoint } from '@/components/charts/spend-trend-chart'
@@ -86,10 +86,17 @@ const parseLimit = (value: string): number | null => {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null
 }
 
-const policyLimitLabel = (policy: PolicyDto, perDay: string, perMonth: string): string => {
+const policyLimitLabel = (
+  policy: PolicyDto,
+  perDay: string,
+  perMonth: string,
+  locale?: string,
+): string => {
   const parts: string[] = []
-  if (policy.dailyLimit !== null) parts.push(`${eur(Number.parseFloat(policy.dailyLimit))}/${perDay}`)
-  if (policy.monthlyLimit !== null) parts.push(`${eur(Number.parseFloat(policy.monthlyLimit))}/${perMonth}`)
+  if (policy.dailyLimit !== null)
+    parts.push(`${eur(Number.parseFloat(policy.dailyLimit), locale)}/${perDay}`)
+  if (policy.monthlyLimit !== null)
+    parts.push(`${eur(Number.parseFloat(policy.monthlyLimit), locale)}/${perMonth}`)
   return parts.join(' · ') || '—'
 }
 
@@ -144,6 +151,7 @@ const BudgetMeter: FC<{
   monthLabel: string
 }> = ({ title, segments, totalEur, limitEur, requestsLabel, monthLabel }) => {
   const t = useTranslations('organization')
+  const { locale } = useLocale()
   const scaleEur = limitEur !== null ? Math.max(limitEur, totalEur) : totalEur
   const over = limitEur !== null && totalEur >= limitEur
 
@@ -153,14 +161,14 @@ const BudgetMeter: FC<{
         <p className="text-sm font-medium">{title}</p>
         <p className="text-right text-xs tabular-nums text-muted-foreground">
           {limitEur !== null
-            ? t('budgets.ofLimit', { spent: eur(totalEur), limit: eur(limitEur) })
-            : t('budgets.noLimit', { spent: eur(totalEur) })}
+            ? t('budgets.ofLimit', { spent: eur(totalEur, locale), limit: eur(limitEur, locale) })
+            : t('budgets.noLimit', { spent: eur(totalEur, locale) })}
         </p>
       </div>
       <div
         className="mt-1.5 flex h-3 w-full overflow-hidden rounded-[4px] bg-muted"
         role="img"
-        aria-label={`${title}: ${eur(totalEur)}${limitEur !== null ? ` / ${eur(limitEur)}` : ''}`}
+        aria-label={`${title}: ${eur(totalEur, locale)}${limitEur !== null ? ` / ${eur(limitEur, locale)}` : ''}`}
       >
         {scaleEur > 0 &&
           segments.map((segment) => (
@@ -177,10 +185,10 @@ const BudgetMeter: FC<{
               <TooltipContent>
                 <p className="font-medium">{segment.label || t('budgets.otherModels')}</p>
                 <p>
-                  {title}: {eur(segment.valueEur)} · {requestsLabel(segment.events)}
+                  {title}: {eur(segment.valueEur, locale)} · {requestsLabel(segment.events)}
                 </p>
                 <p>
-                  {monthLabel}: {eur(segment.monthEur)} · {requestsLabel(segment.monthEvents)}
+                  {monthLabel}: {eur(segment.monthEur, locale)} · {requestsLabel(segment.monthEvents)}
                 </p>
               </TooltipContent>
             </Tooltip>
@@ -337,6 +345,7 @@ const LoadingSkeleton: FC = () => (
 
 export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
   const t = useTranslations('organization')
+  const { locale } = useLocale()
   const [usage, setUsage] = useState<UsageResponse | null>(null)
   const [policies, setPolicies] = useState<PolicyDto[]>([])
   const [members, setMembers] = useState<MemberDto[]>([])
@@ -515,13 +524,13 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
                         <span className="max-w-40 truncate font-mono text-xs sm:max-w-56">
                           {segment.label || t('budgets.otherModels')}
                         </span>
-                        <span className="text-xs tabular-nums text-muted-foreground">{eur(segment.monthEur)}</span>
+                        <span className="text-xs tabular-nums text-muted-foreground">{eur(segment.monthEur, locale)}</span>
                       </span>
                     </TooltipTrigger>
                     <TooltipContent>
                       <p className="font-medium">{segment.label || t('budgets.otherModels')}</p>
                       <p>
-                        {t('budgets.thisMonth')}: {eur(segment.monthEur)} · {requestsLabel(segment.monthEvents)}
+                        {t('budgets.thisMonth')}: {eur(segment.monthEur, locale)} · {requestsLabel(segment.monthEvents)}
                       </p>
                     </TooltipContent>
                   </Tooltip>
@@ -584,13 +593,13 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
                       </div>
                       <div className="flex flex-1 items-center justify-between gap-4 sm:flex-none sm:justify-end">
                         <Stat label={t('budgets.today')}>
-                          {spend ? eur(spend.dayUsd * usage.eurPerUsd) : '—'}
+                          {spend ? eur(spend.dayUsd * usage.eurPerUsd, locale) : '—'}
                         </Stat>
                         <Stat label={t('budgets.thisMonth')}>
                           {spend ? (
                             <Tooltip>
                               <TooltipTrigger asChild>
-                                <span className="cursor-default">{eur(spend.monthUsd * usage.eurPerUsd)}</span>
+                                <span className="cursor-default">{eur(spend.monthUsd * usage.eurPerUsd, locale)}</span>
                               </TooltipTrigger>
                               <TooltipContent>{requestsLabel(spend.monthEvents)}</TooltipContent>
                             </Tooltip>
@@ -600,7 +609,7 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
                         </Stat>
                         <Stat label={t('budgets.limitLabel')}>
                           {policy ? (
-                            policyLimitLabel(policy, t('budgets.perDay'), t('budgets.perMonth'))
+                            policyLimitLabel(policy, t('budgets.perDay'), t('budgets.perMonth'), locale)
                           ) : (
                             <span className="text-muted-foreground">—</span>
                           )}
@@ -666,7 +675,7 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
                     <li key={policy.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2.5">
                       <span className="min-w-0 flex-1 truncate text-sm">{projectName(policy.subjectId)}</span>
                       <span className="text-xs tabular-nums text-muted-foreground">
-                        {policyLimitLabel(policy, t('budgets.perDay'), t('budgets.perMonth'))}
+                        {policyLimitLabel(policy, t('budgets.perDay'), t('budgets.perMonth'), locale)}
                       </span>
                       <LimitEditor
                         scope="project"

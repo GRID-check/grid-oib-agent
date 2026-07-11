@@ -59,6 +59,7 @@ COPY frontends/aiq_api/ ./frontends/aiq_api/
 COPY frontends/cli/ ./frontends/cli/
 COPY frontends/debug/ ./frontends/debug/
 COPY configs/ ./configs/
+COPY scripts/ ./scripts/
 # Only copy runtime scripts from deploy/ — never copy the full directory
 # to avoid leaking .env, Helm charts, compose files, or other dev artifacts.
 COPY deploy/entrypoint.py deploy/start_web.py ./deploy/

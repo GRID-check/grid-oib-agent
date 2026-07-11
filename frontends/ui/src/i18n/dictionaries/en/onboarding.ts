@@ -13,6 +13,12 @@ export const onboarding = {
     title: 'This platform is invite-only',
     description:
       'New organizations are created by the platform team. Ask your organization\u2019s admin for an invitation \u2014 once invited, you\u2019ll land directly in their workspace.',
+    wrongAccount:
+      'Signed in with the wrong account? Sign out below and sign in with the one that received the invitation.',
+  },
+  account: {
+    signedInAs: 'Signed in as {email}',
+    signedIn: 'You are signed in.',
   },
   errors: {
     createFailed: 'Failed to create organization.',

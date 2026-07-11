@@ -2,8 +2,9 @@
 
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { toast } from 'sonner'
-import { AlertCircle, RotateCcw, ShieldCheck, X } from 'lucide-react'
+import { AlertCircle, RotateCcw, ShieldCheck, Upload, X } from 'lucide-react'
 import { useProjectDocuments } from '../hooks/use-project-documents'
+import { useFileDragDrop } from '../hooks/use-file-drag-drop'
 import { FolderTreePane } from './folder-tree-pane'
 import { FileBrowserPane } from './file-browser-pane'
 import { FilePreviewPane } from './file-preview-pane'
@@ -12,6 +13,8 @@ import { ActiveUploads } from './active-uploads'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { useTranslations } from '@/i18n'
+import { useIsMobile } from '@/hooks/use-is-mobile'
+import { cn } from '@/lib/utils'
 
 interface ProjectFileWorkspaceProps {
   projectId: string
@@ -34,6 +37,8 @@ export interface FileItem {
   status: string | null
   folderId: string | null
   createdAt: string
+  /** Server-persisted reason a document is in `failed` status, if any. */
+  errorMessage: string | null
 }
 
 export function ProjectFileWorkspace({ projectId, projectName, collectionName }: ProjectFileWorkspaceProps) {
@@ -65,6 +70,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName }:
           status: d.status,
           folderId: d.folderId ?? null,
           createdAt: d.createdAt,
+          errorMessage: d.errorMessage ?? null,
         }))
         setFiles(docs)
       })
@@ -138,6 +144,35 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName }:
 
   const selectedFile = files.find((f) => f.id === selectedFileId) ?? null
 
+  // On mobile the preview is a full-screen overlay: give it dialog semantics and
+  // Escape-to-close. The desktop (md+) docked panel keeps its plain-column
+  // presentation. useIsMobile tracks Tailwind's `md` breakpoint at runtime.
+  const isMobile = useIsMobile()
+  const showMobilePreviewDialog = isMobile && selectedFile !== null
+  const previousFocusRef = useRef<HTMLElement | null>(null)
+  useEffect(() => {
+    if (!showMobilePreviewDialog) return
+    // Remember the file row that opened the overlay so focus can return to it.
+    previousFocusRef.current = document.activeElement as HTMLElement | null
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setSelectedFileId(null)
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('keydown', onKeyDown)
+      previousFocusRef.current?.focus?.()
+    }
+  }, [showMobilePreviewDialog])
+
+  // After a successful re-ingestion the document is back to 'pending'; reflect
+  // that locally so the badge flips to "Processing" and the dead-end failure UI
+  // clears. Server-side reconciliation resolves the final status on the next read.
+  const handleReingested = useCallback((fileId: string, status: string) => {
+    setFiles((prev) =>
+      prev.map((f) => (f.id === fileId ? { ...f, status, errorMessage: null } : f))
+    )
+  }, [])
+
   // In-flight and failed uploads for this project's corpus only.
   const activeUploads = useMemo(
     () =>
@@ -149,6 +184,30 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName }:
       ),
     [trackedFiles, collectionName]
   )
+
+  // Drag-and-drop onto the workspace routes dropped files into the SAME upload
+  // path the button uses (uploadFiles), which already targets the selected folder
+  // via the hook's folderId. Validation/limits stay in uploadFiles; the drag hook
+  // only surfaces a supported/unsupported affordance using the shared AppConfig.
+  const { isDragging, isUnsupportedDrag, dragHandlers } = useFileDragDrop({
+    onDrop: uploadFiles,
+    disabled: isUploading,
+  })
+
+  // Guard against the browser navigating away when a file is dropped outside the
+  // drop zone (e.g. onto a gap in the layout). Prevent the default open-file
+  // behaviour at the window level while this workspace is mounted.
+  useEffect(() => {
+    const prevent = (e: DragEvent) => {
+      e.preventDefault()
+    }
+    window.addEventListener('dragover', prevent)
+    window.addEventListener('drop', prevent)
+    return () => {
+      window.removeEventListener('dragover', prevent)
+      window.removeEventListener('drop', prevent)
+    }
+  }, [])
 
   const handleCreateFolder = useCallback(
     async (name: string, parentId?: string) => {
@@ -169,7 +228,28 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName }:
   )
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="relative flex h-full flex-col" {...dragHandlers} data-testid="workspace-dropzone">
+      {/* Drag-and-drop overlay — mirrors the chat FileUploadZone affordance. */}
+      {isDragging && (
+        <div
+          className={cn(
+            'pointer-events-none absolute inset-2 z-50 flex flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed text-center',
+            isUnsupportedDrag
+              ? 'border-destructive bg-destructive/5'
+              : 'border-ring bg-primary/5 backdrop-blur-sm'
+          )}
+          data-testid="workspace-drop-overlay"
+        >
+          <Upload
+            className={cn('size-6', isUnsupportedDrag ? 'text-destructive' : 'text-primary')}
+            aria-hidden
+          />
+          <p className={cn('text-sm font-medium', isUnsupportedDrag ? 'text-destructive' : 'text-primary')}>
+            {isUnsupportedDrag ? t('workspace.dropUnsupported') : t('workspace.dropToUpload')}
+          </p>
+        </div>
+      )}
+
       {/* Top action bar */}
       <div className="flex items-center justify-between gap-4 border-b px-4 py-3">
         <div className="min-w-0">
@@ -256,8 +336,22 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName }:
 
         {/* Preview pane — full-screen overlay on mobile, docked column on md+ */}
         {selectedFile && (
-          <div className="fixed inset-0 z-50 w-full shrink-0 overflow-y-auto bg-background pt-[env(safe-area-inset-top)] md:static md:z-auto md:w-96 md:border-l md:pt-0">
-            <FilePreviewPane file={selectedFile} projectId={projectId} onClose={() => setSelectedFileId(null)} />
+          <div
+            className="fixed inset-0 z-50 w-full shrink-0 overflow-y-auto bg-background pt-[env(safe-area-inset-top)] md:static md:z-auto md:w-96 md:border-l md:pt-0"
+            {...(showMobilePreviewDialog
+              ? {
+                  role: 'dialog',
+                  'aria-modal': true,
+                  'aria-label': t('preview.dialogLabel', { name: selectedFile.filename }),
+                }
+              : {})}
+          >
+            <FilePreviewPane
+              file={selectedFile}
+              projectId={projectId}
+              onClose={() => setSelectedFileId(null)}
+              onReingested={handleReingested}
+            />
           </div>
         )}
       </div>
