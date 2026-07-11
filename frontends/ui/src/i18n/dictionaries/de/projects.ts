@@ -97,6 +97,7 @@ export const projects: typeof en.projects = {
     dialogDescriptionAfter:
       ' und alle zugehörigen Daten in der gesamten App: Dateien, Chats, Rechercheläufe und die Wissensdatenbank.',
     confirmLabel: 'Projekt löschen',
+    typeToConfirm: 'Zum Bestätigen {name} eingeben:',
   },
   recentlyDeleted: {
     restoreSuccess: '„{name}“ wiederhergestellt.',

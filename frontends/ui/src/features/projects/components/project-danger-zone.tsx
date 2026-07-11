@@ -14,6 +14,7 @@ export interface ProjectDangerZoneProps {
 
 export function ProjectDangerZone({ projectId, projectName }: ProjectDangerZoneProps) {
   const t = useTranslations('projects')
+  const tCommon = useTranslations('common')
   const { locale } = useLocale()
   const router = useRouter()
   const [open, setOpen] = useState(false)
@@ -78,6 +79,8 @@ export function ProjectDangerZone({ projectId, projectName }: ProjectDangerZoneP
         }
         confirmName={projectName}
         confirmLabel={t('dangerZone.confirmLabel')}
+        typeToConfirmLabel={t('dangerZone.typeToConfirm')}
+        cancelLabel={tCommon('cancel')}
         onConfirm={handleConfirm}
         pending={pending}
       />

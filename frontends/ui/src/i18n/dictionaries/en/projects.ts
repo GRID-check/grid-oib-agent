@@ -95,6 +95,7 @@ export const projects = {
     dialogDescriptionAfter:
       ' and all associated data across the entire app: files, chats, research runs, and its knowledge base.',
     confirmLabel: 'Delete project',
+    typeToConfirm: 'Type {name} to confirm:',
   },
   recentlyDeleted: {
     restoreSuccess: 'Restored "{name}".',

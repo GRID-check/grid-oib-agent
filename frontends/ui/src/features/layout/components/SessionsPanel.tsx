@@ -32,7 +32,7 @@ import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/utils'
 import { motion, fadeRise, staggerParent, springGentle } from '@/components/motion'
-import { useTranslations } from '@/i18n'
+import { useLocale, useTranslations } from '@/i18n'
 import { useLayoutStore } from '../store'
 import { useChatStore } from '@/features/chat'
 import { checkStorageHealth } from '@/features/chat/lib/storage-manager'
@@ -80,6 +80,7 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
   onRenameSession,
 }) {
   const t = useTranslations('research')
+  const { locale } = useLocale()
   const isSessionsPanelOpen = useLayoutStore((s) => s.isSessionsPanelOpen)
   const setSessionsPanelOpen = useLayoutStore((s) => s.setSessionsPanelOpen)
 
@@ -164,11 +165,15 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
 
   const groupedSessions = useMemo(
     () =>
-      groupSessionsByDate(filteredSessions, {
-        today: t('sessionsPanel.today'),
-        yesterday: t('sessionsPanel.yesterday'),
-      }),
-    [filteredSessions, t]
+      groupSessionsByDate(
+        filteredSessions,
+        {
+          today: t('sessionsPanel.today'),
+          yesterday: t('sessionsPanel.yesterday'),
+        },
+        locale
+      ),
+    [filteredSessions, t, locale]
   )
   const isEmptyState = filteredSessions.length === 0
   return (
@@ -556,7 +561,8 @@ const SessionStatusIcon: FC<{ session: Session; isSessionActive: boolean }> = ({
  */
 const groupSessionsByDate = (
   sessions: Session[],
-  labels: { today: string; yesterday: string }
+  labels: { today: string; yesterday: string },
+  locale: string
 ): Record<string, Session[]> => {
   const groups: Record<string, Session[]> = {}
   const today = new Date()
@@ -572,7 +578,7 @@ const groupSessionsByDate = (
     } else if (isSameDay(sessionDate, yesterday)) {
       label = labels.yesterday
     } else {
-      label = sessionDate.toLocaleDateString('en-US', {
+      label = sessionDate.toLocaleDateString(locale, {
         month: 'short',
         day: 'numeric',
         year: 'numeric',

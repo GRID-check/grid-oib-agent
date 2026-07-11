@@ -138,7 +138,7 @@ export const PlatformOverview: FC = () => {
           <StatTile
             icon={<Gauge className="size-4" aria-hidden />}
             label={t('stats.spendToday')}
-            value={eur(totals.dayUsd * overview.eurPerUsd)}
+            value={eur(totals.dayUsd * overview.eurPerUsd, locale)}
           />
           <StatTile
             icon={<ReceiptEuro className="size-4" aria-hidden />}
@@ -146,7 +146,7 @@ export const PlatformOverview: FC = () => {
             value={
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <span className="cursor-default">{eur(totals.monthUsd * overview.eurPerUsd)}</span>
+                  <span className="cursor-default">{eur(totals.monthUsd * overview.eurPerUsd, locale)}</span>
                 </TooltipTrigger>
                 <TooltipContent>{t('stats.requestsMonth', { count: totals.monthEvents })}</TooltipContent>
               </Tooltip>
@@ -203,8 +203,8 @@ export const PlatformOverview: FC = () => {
                       {(
                         [
                           [t('orgs.colProjects'), String(org.projectCount)],
-                          [t('orgs.colToday'), eur(org.dayUsd * overview.eurPerUsd)],
-                          [t('orgs.colMonth'), eur(org.monthUsd * overview.eurPerUsd)],
+                          [t('orgs.colToday'), eur(org.dayUsd * overview.eurPerUsd, locale)],
+                          [t('orgs.colMonth'), eur(org.monthUsd * overview.eurPerUsd, locale)],
                         ] as const
                       ).map(([label, value]) => (
                         <div key={label} className="flex min-w-14 flex-col items-end">
