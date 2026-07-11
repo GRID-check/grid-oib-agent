@@ -200,6 +200,8 @@ export const research = {
   },
 
   inputArea: {
+    aiDisclosure:
+      'Grid is an AI system. Answers are AI-generated and can be wrong — verify them against the cited Richtlinie before relying on them.',
     placeholderDefault: 'Check data sources and ask a research question...',
     signInToStart: 'Sign in to start researching',
     researchCompletedNewSession: 'Research completed. Create a new session for further questions.',

@@ -718,6 +718,11 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           </div>
         </div>
       </div>
+      {/* AI-transparency disclosure (EU AI Act Art. 50): users must know they
+          interact with an AI system and that answers need verification. */}
+      <p className="mt-2 text-center text-xs leading-relaxed text-muted-foreground">
+        {t('inputArea.aiDisclosure')}
+      </p>
     </div>
   )
 })

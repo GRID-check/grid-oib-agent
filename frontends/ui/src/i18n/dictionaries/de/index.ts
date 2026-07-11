@@ -22,6 +22,7 @@ import { organization } from './organization'
 import { platform } from './platform'
 import { presence } from './presence'
 import { shortcuts } from './shortcuts'
+import { legal } from './legal'
 import type { Dictionary } from '../index'
 
 export const de: Dictionary = {
@@ -41,4 +42,5 @@ export const de: Dictionary = {
   onboarding,
   organization,
   platform,
+  legal,
 }

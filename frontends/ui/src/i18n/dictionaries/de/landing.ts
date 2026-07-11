@@ -67,6 +67,7 @@ export const landing: typeof en.landing = {
   footer: {
     description: 'Baurechtliche Antworten für österreichische Architektinnen und Architekten, verankert in der Vorschrift.',
     sources: 'Quellen: OIB-Richtlinien · RIS · Ihre Projektdokumente',
+    legalNav: 'Rechtliches',
   },
   card: {
     legalBasis: 'Rechtsgrundlage',
