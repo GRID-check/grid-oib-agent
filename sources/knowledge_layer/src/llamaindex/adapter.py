@@ -771,13 +771,30 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         job_id = str(uuid.uuid4())
         job_config = {**self.config, **(config or {})}
 
-        # Validate file paths
+        # Validate file paths. The caller-supplied per-file lists
+        # (original_filenames / file_ids) are positional, so they must be
+        # filtered in lockstep — otherwise a single skipped path shifts every
+        # later file onto the wrong name/id (poisoning citations and
+        # delete-by-filename).
+        original_filenames = job_config.get("original_filenames", [])
+        provided_file_ids = job_config.get("file_ids") or []
         validated_paths = []
-        for path in file_paths:
+        aligned_filenames = []
+        aligned_file_ids = []
+        for idx, path in enumerate(file_paths):
             if os.path.exists(path):
                 validated_paths.append(path)
+                if idx < len(original_filenames):
+                    aligned_filenames.append(original_filenames[idx])
+                if idx < len(provided_file_ids):
+                    aligned_file_ids.append(provided_file_ids[idx])
             else:
                 logger.warning(f"File not found, skipping: {path}")
+        original_filenames = aligned_filenames
+        provided_file_ids = aligned_file_ids
+        # _run_ingestion re-reads these from the config; keep it aligned too.
+        job_config["original_filenames"] = aligned_filenames
+        job_config["file_ids"] = aligned_file_ids
 
         if not validated_paths:
             # Create failed job immediately
@@ -798,8 +815,6 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
 
         # Create pending job with file details
         # Use original filenames if provided, otherwise extract from path
-        original_filenames = job_config.get("original_filenames", [])
-        provided_file_ids = job_config.get("file_ids") or []
         single_file_id = job_config.get("file_id")
         file_details = []
         for i, p in enumerate(validated_paths):
@@ -959,6 +974,28 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         except (ValueError, TypeError):
             return None
 
+    @staticmethod
+    def _get_all_metadatas(collection) -> list[dict[str, Any]]:
+        """Page through ALL chunk metadatas of a Chroma collection.
+
+        ``collection.peek(limit=N)`` only sees the first N chunks, so files
+        whose chunks sit past the window vanish from file listings (and the
+        OIB status page then misreports fully-ingested documents). Uses
+        ``get`` with limit/offset so embeddings are not fetched.
+        """
+        batch_size = 5000
+        metadatas: list[dict[str, Any]] = []
+        offset = 0
+        total = collection.count()
+        while offset < total:
+            page = collection.get(include=["metadatas"], limit=batch_size, offset=offset)
+            page_metadatas = page.get("metadatas") or []
+            if not page_metadatas:
+                break
+            metadatas.extend(page_metadatas)
+            offset += len(page_metadatas)
+        return metadatas
+
     def _update_collection_timestamp(self, collection_name: str) -> None:
         """Update the updated_at timestamp for a collection."""
         try:
@@ -1003,8 +1040,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     # Count unique files by examining chunk metadata
                     # This is approximate - based on unique file_name values
                     try:
-                        peek_data = col.peek(limit=1000)
-                        metadatas = peek_data.get("metadatas", [])
+                        metadatas = self._get_all_metadatas(col)
                         unique_files = set()
                         for m in metadatas:
                             if m and "file_name" in m:
@@ -1053,8 +1089,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
 
             # Count unique files
             try:
-                peek_data = collection.peek(limit=1000)
-                metadatas = peek_data.get("metadatas", [])
+                metadatas = self._get_all_metadatas(collection)
                 unique_files = set()
                 for m in metadatas:
                     if m and "file_name" in m:
@@ -1250,8 +1285,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                 return []
 
             # Get all unique file names from chunks
-            peek_data = collection.peek(limit=10000)
-            metadatas = peek_data.get("metadatas", [])
+            metadatas = self._get_all_metadatas(collection)
 
             # Group chunks by file_name
             files_map: dict[str, dict[str, Any]] = {}
@@ -1713,6 +1747,10 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     job.error_message = f"{len(failed_files)}/{len(job.file_details)} file(s) failed"
                 else:
                     job.status = JobState.COMPLETED
+                # NOTE: assigned as an isoformat STRING (assignment bypasses
+                # Pydantic coercion). get_file_status() depends on this — it
+                # calls datetime.fromisoformat(job.completed_at), which raises
+                # TypeError on a real datetime. Change both together.
                 job.completed_at = datetime.utcnow().isoformat()
                 job.metadata = {
                     "total_chunks": total_chunks,
@@ -2119,7 +2157,10 @@ class LlamaIndexRetriever(BaseRetriever):
             return Chunk(
                 chunk_id=node.node_id if hasattr(node, "node_id") else str(uuid.uuid4()),
                 content=node.get_content() if hasattr(node, "get_content") else str(node),
-                score=float(score) if score else 0.0,
+                # Cosine similarity is in [-1, 1] (and float rounding can nudge
+                # an exact match past 1.0), but Chunk.score enforces [0, 1] —
+                # an out-of-range value would raise and swallow the real result.
+                score=min(1.0, max(0.0, float(score))) if score else 0.0,
                 file_name=file_name,
                 page_number=page_number,
                 display_citation=display_citation,
