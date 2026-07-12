@@ -37,6 +37,7 @@ async function claimNext(tx) {
       AND NOT EXISTS (
         SELECT 1 FROM legal_holds h
         WHERE h.released_at IS NULL
+          AND h.organization_id = q.organization_id
           AND (
             (h.entity_type = q.entity_type AND h.entity_id = q.entity_id)
             OR (h.entity_type = 'organization' AND h.entity_id = q.organization_id)
@@ -66,6 +67,7 @@ async function hasActiveHold(tx, entry) {
   const rows = await tx`
     SELECT 1 FROM legal_holds h
     WHERE h.released_at IS NULL
+      AND h.organization_id = ${entry.organization_id}
       AND (
         (h.entity_type = ${entry.entity_type} AND h.entity_id = ${entry.entity_id})
         OR (h.entity_type = 'organization' AND h.entity_id = ${entry.organization_id})

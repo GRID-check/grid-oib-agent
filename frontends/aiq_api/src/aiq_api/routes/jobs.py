@@ -741,7 +741,7 @@ def _find_stale_jobs(db_url: str, running_status: str) -> list[str]:
         return []
 
     with engine.connect() as conn:
-        if db_url.startswith("postgresql"):
+        if db_url.startswith("postgres"):
             stale_query = text(
                 "SELECT DISTINCT je.job_id FROM job_events je "
                 "INNER JOIN job_info ji ON je.job_id = ji.job_id "

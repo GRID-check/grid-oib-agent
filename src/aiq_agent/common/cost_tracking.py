@@ -467,6 +467,11 @@ def track_llm_costs(
             grid_cost_tracker_var.reset(token)
         if tracker is not None:
             try:
-                tracker.flush(wait=False)
+                # Inline post at teardown: a wait=False flush would hand the
+                # final batch to the daemon executor, which a worker exiting
+                # right after this turn can strand — dropping the last (often
+                # largest) cost events. _post_usage_events never raises and is
+                # bounded by _REQUEST_TIMEOUT_SECONDS.
+                tracker.flush(wait=True)
             except Exception:
                 logger.warning("Failed to flush usage events at end of turn", exc_info=True)

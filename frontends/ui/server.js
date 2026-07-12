@@ -367,6 +367,19 @@ const startServer = async () => {
           } catch {}
           socket.destroy()
           return
+        } else {
+          // Fail CLOSED: any other scope-resolution failure (5xx, network
+          // error, malformed response) must not proxy the socket to the
+          // backend stripped of its collection-scope/auth/org headers.
+          console.warn(
+            '[WS Proxy] Collection scope unavailable (status: %s), rejecting upgrade',
+            result.status
+          )
+          try {
+            socket.write('HTTP/1.1 502 Bad Gateway\r\n\r\n')
+          } catch {}
+          socket.destroy()
+          return
         }
       } catch (err) {
         console.warn('[WS Proxy] Collection scope lookup failed:', err.message)

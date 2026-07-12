@@ -768,6 +768,11 @@ class FoundationalRagIngestor(TTLCleanupMixin, BaseIngestor):
                 return
             job.status = JobState.PROCESSING
             job.started_at = datetime.now()
+            # Stable snapshot: delete_files() may REPLACE job.file_details
+            # concurrently, which would break index alignment with file_paths
+            # (worst case IndexError killing this thread). The snapshot list
+            # stays index-consistent for the whole upload.
+            file_details = job.file_details
         config = config or {}
 
         # Original filenames for temp file uploads
@@ -788,7 +793,8 @@ class FoundationalRagIngestor(TTLCleanupMixin, BaseIngestor):
             file_name = original_filenames[i] if i < len(original_filenames) else Path(file_path).name
             file_path_obj = Path(file_path)
 
-            job.file_details[i].status = FileStatus.INGESTING
+            with self._lock:
+                file_details[i].status = FileStatus.INGESTING
 
             # Start client-side summary generation in parallel (if enabled)
             if self.generate_summary and file_path_obj.suffix.lower() in SUMMARIZABLE_EXTENSIONS:
@@ -810,9 +816,9 @@ class FoundationalRagIngestor(TTLCleanupMixin, BaseIngestor):
                 if executor:
                     executor.shutdown(wait=False)
                 with self._lock:
-                    for fd in job.file_details:
+                    for fd in file_details:
                         fd.status = FileStatus.FAILED
-                    job.file_details[i].error_message = str(e)
+                    file_details[i].error_message = str(e)
                     job.processed_files = job.total_files
                     job.status = JobState.FAILED
                     job.error_message = f"Failed to open file for upload: {e}"
@@ -849,16 +855,18 @@ class FoundationalRagIngestor(TTLCleanupMixin, BaseIngestor):
             if task_id:
                 task_ids.append(task_id)
                 # Map single task_id to all file indices
-                job.metadata["task_to_file"] = {task_id: list(range(len(file_paths)))}
+                with self._lock:
+                    job.metadata["task_to_file"] = {task_id: list(range(len(file_paths)))}
 
             logger.info(f"Uploaded {len(file_paths)} file(s) to RAG server in batch, task_id: {task_id}")
 
         except Exception as e:
             logger.error(f"Batch upload failed: {e}")
-            for i in range(len(file_paths)):
-                job.file_details[i].status = FileStatus.FAILED
-                job.file_details[i].error_message = str(e)
-            job.processed_files = len(file_paths)
+            with self._lock:
+                for i in range(len(file_paths)):
+                    file_details[i].status = FileStatus.FAILED
+                    file_details[i].error_message = str(e)
+                job.processed_files = len(file_paths)
 
         finally:
             for fh in file_handles:
@@ -882,14 +890,15 @@ class FoundationalRagIngestor(TTLCleanupMixin, BaseIngestor):
             executor.shutdown(wait=False)
 
         # Store task IDs for status polling
-        job.metadata["task_ids"] = task_ids
+        with self._lock:
+            job.metadata["task_ids"] = task_ids
 
-        # Check if all uploads failed immediately
-        failed_count = sum(1 for fd in job.file_details if fd.status == FileStatus.FAILED)
-        if failed_count == job.total_files:
-            job.status = JobState.FAILED
-            job.error_message = "File upload failed"
-            job.completed_at = datetime.now()
+            # Check if all uploads failed immediately
+            failed_count = sum(1 for fd in file_details if fd.status == FileStatus.FAILED)
+            if failed_count == job.total_files:
+                job.status = JobState.FAILED
+                job.error_message = "File upload failed"
+                job.completed_at = datetime.now()
         # Otherwise keep as PROCESSING - get_job_status will poll FRAG and update
 
     def get_job_status(self, job_id: str) -> IngestionJobStatus:
