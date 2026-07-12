@@ -195,6 +195,24 @@ class TestGridCostTracker:
             tracker.flush(wait=True)
         assert post.call_count == 0
 
+    def test_concurrent_runs_attribute_model_by_run_id(self):
+        """Interleaved LLM calls must each record their own requested model.
+
+        Deep research fires concurrent calls; keying the requested model by
+        run_id (not a single shared slot) keeps model attribution correct when
+        call B starts before call A ends.
+        """
+        tracker = self._tracker()
+        tracker.on_chat_model_start({}, [], run_id="A", invocation_params={"model": "vendor/model-a"})
+        # A second call on a different model starts before A finishes.
+        tracker.on_chat_model_start({}, [], run_id="B", invocation_params={"model": "vendor/model-b"})
+        tracker.on_llm_end(_openrouter_result(), run_id="A")
+        tracker.on_llm_end(_openrouter_result(), run_id="B")
+        with patch("aiq_agent.common.cost_tracking._post_usage_events") as post:
+            tracker.flush(wait=True)
+        events = post.call_args.args[0]["events"]
+        assert [e["requestedModel"] for e in events] == ["vendor/model-a", "vendor/model-b"]
+
 
 class TestTrackLlmCosts:
     def test_sets_and_resets_contextvar(self):

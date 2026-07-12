@@ -123,9 +123,12 @@ def _extract_query_and_sources(payload: Any) -> tuple[str, list[str] | None]:
     """
     if isinstance(payload, dict):
         content = payload.get("content", {}) if isinstance(payload.get("content"), dict) else {}
-        data_sources = parse_data_sources(payload.get("data_sources")) or parse_data_sources(
-            content.get("data_sources")
-        )
+        # `is None` chaining, not `or`: an explicit [] means "no data-source
+        # tools" and must not be overwritten by a fallback (parse_data_sources
+        # distinguishes None from []).
+        data_sources = parse_data_sources(payload.get("data_sources"))
+        if data_sources is None:
+            data_sources = parse_data_sources(content.get("data_sources"))
         messages = content.get("messages", [])
         query_text = None
         if isinstance(messages, list) and messages:
@@ -143,7 +146,8 @@ def _extract_query_and_sources(payload: Any) -> tuple[str, list[str] | None]:
         if query_text:
             inline_query, inline_sources = _extract_query_from_text(query_text)
             query_text = inline_query
-            data_sources = data_sources or inline_sources
+            if data_sources is None:
+                data_sources = inline_sources
         return (query_text or "", data_sources)
 
     messages = getattr(payload, "messages", None)
@@ -160,7 +164,8 @@ def _extract_query_and_sources(payload: Any) -> tuple[str, list[str] | None]:
         if query_text:
             inline_query, inline_sources = _extract_query_from_text(query_text)
             query_text = inline_query
-            data_sources = data_sources or inline_sources
+            if data_sources is None:
+                data_sources = inline_sources
         return (query_text or "", data_sources)
 
     query_text = str(payload)

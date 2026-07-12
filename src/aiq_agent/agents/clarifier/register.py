@@ -227,7 +227,9 @@ async def clarifier_agent(config: ClarifierConfig, builder: Builder):
         org_credential = get_org_llm_credential_from_context()
         active_provider = provider.with_model_overrides(model_overrides).with_credential(org_credential)
         active_agent = agent
-        if active_provider is not provider or (data_sources is not None and selected_tools != tools):
+        # No `data_sources is not None` guard: org-disabled sources (ADR-0022)
+        # narrow selected_tools even when the request selects "all tools".
+        if active_provider is not provider or selected_tools != tools:
             active_agent = ClarifierAgent(
                 llm_provider=active_provider,
                 tools=selected_tools,

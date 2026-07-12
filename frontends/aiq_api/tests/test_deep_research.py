@@ -294,8 +294,10 @@ class TestArtifactHelpers:
         """Test processing tool.start event."""
         from aiq_api.routes.jobs import _process_tool_start
 
-        event = {"timestamp": "2026-01-22T10:00:00"}
-        data = {"id": "tool-1", "name": "search", "data": {"input": "query"}}
+        # Shape produced by IntermediateStepEvent.to_sse_dict: id/name at the
+        # top level, tool input directly under data.
+        event = {"type": "tool.start", "id": "tool-1", "name": "search", "timestamp": "2026-01-22T10:00:00"}
+        data = {"input": "query"}
         metadata = {"workflow": "agent-1"}
         tool_call_map: dict = {}
 
@@ -309,8 +311,10 @@ class TestArtifactHelpers:
         """Test processing tool.end updates existing tool."""
         from aiq_api.routes.jobs import _process_tool_end
 
-        event = {"timestamp": "2026-01-22T10:00:01"}
-        data = {"id": "tool-1", "name": "search", "data": {"output": "result"}}
+        # tool.end events carry their own id; the running entry is matched
+        # by tool name, not by event id.
+        event = {"type": "tool.end", "id": "event-9", "name": "search", "timestamp": "2026-01-22T10:00:01"}
+        data = {"output": "result"}
         metadata = {"workflow": "agent-1"}
         tool_call_map = {
             "tool-1": {
@@ -331,8 +335,8 @@ class TestArtifactHelpers:
         """Test processing tool.end creates new entry if missing."""
         from aiq_api.routes.jobs import _process_tool_end
 
-        event = {"timestamp": "2026-01-22T10:00:01"}
-        data = {"id": "tool-2", "name": "other", "data": {"output": "result"}}
+        event = {"type": "tool.end", "id": "tool-2", "name": "other", "timestamp": "2026-01-22T10:00:01"}
+        data = {"output": "result"}
         metadata = {"workflow": "agent-1"}
         tool_call_map: dict = {}
 

@@ -224,6 +224,29 @@ describe('loadServerConversations merge', () => {
     expect(merged.updatedAt).toBeInstanceOf(Date)
   })
 
+  it('preserves the local per-session data-source selection across the merge', async () => {
+    // Regression: dropping enabledDataSourceIds re-enables every default data
+    // source on the next select, sending messages with sources the user
+    // explicitly turned off.
+    const conv = makeConversation({ enabledDataSourceIds: [] })
+    useChatStore.setState({ conversations: [conv] })
+    mockConversationsClient.list.mockResolvedValue([
+      {
+        id: conv.id,
+        title: 'Past chat',
+        createdBy: 'user-1',
+        projectId: null,
+        createdAt: '2026-07-01T09:00:00.000Z',
+        updatedAt: '2026-07-02T09:00:00.000Z',
+      },
+    ])
+
+    await useChatStore.getState().loadServerConversations()
+
+    const merged = useChatStore.getState().conversations.find((c) => c.id === conv.id)!
+    expect(merged.enabledDataSourceIds).toEqual([])
+  })
+
   it('repopulates the restored current conversation when its messages were pruned', async () => {
     const conv = makeConversation()
     useChatStore.setState({ conversations: [conv], currentConversation: conv })

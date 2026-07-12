@@ -442,8 +442,10 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
       setDataSourcesPanelTab('files')
       openRightPanel('data-sources')
 
-      // uploadFiles validates internally and sets error if invalid
-      await uploadFiles(files)
+      // Pass the (possibly just-created) session explicitly: the hook's
+      // memoized collectionName still reflects the previous render, so the
+      // first upload in a fresh session would otherwise abort.
+      await uploadFiles(files, sessionId)
     },
     [
       ensureSession,

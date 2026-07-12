@@ -120,7 +120,9 @@ async def shallow_research_agent(config: ShallowResearchAgentConfig, builder: Bu
                 get_org_llm_credential_from_context()
             )
             active_agent = agent
-            if active_provider is not provider or (data_sources is not None and selected_tools != tools):
+            # No `data_sources is not None` guard: org-disabled sources (ADR-0022)
+            # narrow selected_tools even when the request selects "all tools".
+            if active_provider is not provider or selected_tools != tools:
                 active_agent = ShallowResearcherAgent(
                     llm_provider=active_provider,
                     tools=selected_tools,

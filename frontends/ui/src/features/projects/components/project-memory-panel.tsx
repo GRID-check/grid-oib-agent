@@ -56,10 +56,12 @@ function formatWhen(isoDate: string, t: Translator, locale: string): string {
   const date = new Date(isoDate)
   if (Number.isNaN(date.getTime())) return ''
   const seconds = Math.round((Date.now() - date.getTime()) / 1000)
+  // floor, not round: 3,570s would otherwise render as "60 minutes ago"
+  // instead of "1 hour ago" (same at the hour/day boundaries).
   if (seconds < 60) return t('memory.time.justNow')
-  if (seconds < 3600) return t('memory.time.minutesAgo', { count: Math.round(seconds / 60) })
-  if (seconds < 86400) return t('memory.time.hoursAgo', { count: Math.round(seconds / 3600) })
-  if (seconds < 86400 * 30) return t('memory.time.daysAgo', { count: Math.round(seconds / 86400) })
+  if (seconds < 3600) return t('memory.time.minutesAgo', { count: Math.floor(seconds / 60) })
+  if (seconds < 86400) return t('memory.time.hoursAgo', { count: Math.floor(seconds / 3600) })
+  if (seconds < 86400 * 30) return t('memory.time.daysAgo', { count: Math.floor(seconds / 86400) })
   return new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'short', year: 'numeric' }).format(date)
 }
 

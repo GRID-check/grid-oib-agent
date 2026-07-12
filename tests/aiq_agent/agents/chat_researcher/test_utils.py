@@ -196,3 +196,26 @@ class TestExtractQueryAndSources:
         query, sources = _extract_query_and_sources("Plain query string")
         assert query == "Plain query string"
         assert sources is None
+
+    def test_explicit_empty_data_sources_preserved(self):
+        """An explicit [] ("no data-source tools") must not fall back to None."""
+        payload = {
+            "data_sources": [],
+            "content": {"messages": [{"role": "user", "content": "Query text"}]},
+        }
+        query, sources = _extract_query_and_sources(payload)
+        assert query == "Query text"
+        # [] must survive: `or`-chaining would overwrite it with None ("all tools").
+        assert sources == []
+
+    def test_top_level_empty_not_overwritten_by_content_sources(self):
+        """A top-level [] wins over content-level sources (both explicit)."""
+        payload = {
+            "data_sources": [],
+            "content": {
+                "messages": [{"role": "user", "content": "Query text"}],
+                "data_sources": ["confluence"],
+            },
+        }
+        _query, sources = _extract_query_and_sources(payload)
+        assert sources == []

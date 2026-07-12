@@ -1420,6 +1420,10 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         if (!wsClientRef.current) {
           wsClientRef.current = createNATWebSocketClient({
             conversationId,
+            // Seed projectId like the main connect effect: the updateProjectId
+            // effect only fires when the store value CHANGES, so a client
+            // created without it would handshake unscoped for its whole life.
+            projectId: useChatStore.getState().projectId || undefined,
             callbacks: createCallbacks(),
             onBeforeReconnect: refreshAuthBeforeReconnect,
           })
@@ -1555,6 +1559,8 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
     } else if (currentConversation) {
       wsClientRef.current = createNATWebSocketClient({
         conversationId: currentConversation.id,
+        // Seed projectId like the main connect effect (see comment there).
+        projectId: useChatStore.getState().projectId || undefined,
         callbacks: createCallbacks(),
         onBeforeReconnect: refreshAuthBeforeReconnect,
       })

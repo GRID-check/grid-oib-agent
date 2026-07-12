@@ -43,7 +43,9 @@ from aiq_agent.common.citation_verification import SourceEntry
 from aiq_agent.common.citation_verification import SourceRegistry
 from aiq_agent.common.citation_verification import extract_sources_from_tool_result
 from aiq_agent.common.citation_verification import get_session_registry
+from aiq_agent.common.citation_verification import reset_session_registry
 from aiq_agent.common.citation_verification import sanitize_report
+from aiq_agent.common.citation_verification import set_session_registry
 from aiq_agent.common.citation_verification import verify_citations
 
 from ...common import LLMProvider
@@ -346,20 +348,29 @@ class ShallowResearcherAgent:
             Updated state with response in messages.
         """
         # Resolve the registry for this request: session-scoped (conversation
-        # mode) or instance-scoped with clear (standalone mode).  We use a
-        # local variable so we never mutate the shared agent instance.
+        # mode) or a fresh per-run registry (standalone mode). The agent
+        # instance is shared, so falling back to `self.source_registry` with a
+        # clear() would let concurrent standalone runs (e.g. `nat eval`) wipe
+        # each other's captured sources mid-run and cross-pollinate citations.
+        # The fresh registry is bound via the ContextVar so the tool-capture
+        # node (which resolves get_session_registry() at call time) sees it.
+        registry_token = None
         session_registry = get_session_registry()
         if session_registry is not None:
             registry = session_registry
         else:
-            self.source_registry.clear()
-            registry = self.source_registry
+            registry = SourceRegistry()
+            registry_token = set_session_registry(registry)
 
         recursion_limit = (self.max_llm_turns * 2) + 10
         config = {"recursion_limit": recursion_limit}
         if self.callbacks:
             config["callbacks"] = self.callbacks
-        result = await self._graph.ainvoke(state, config=config)
+        try:
+            result = await self._graph.ainvoke(state, config=config)
+        finally:
+            if registry_token is not None:
+                reset_session_registry(registry_token)
 
         # Post-process: verify citations against source registry
         validated_result = dict(result)

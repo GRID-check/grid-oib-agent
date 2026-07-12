@@ -744,13 +744,16 @@ function renderEfficiency() {
 
 // ── PER-QUERY DETAIL ──────────────────────────────────────────────────────────
 function renderDetail() {
+  // HTML-escape user-derived strings: question text (and ids) flow into
+  // innerHTML, so raw markup in a trace would execute in the report.
+  const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   const tbody = document.querySelector('#detailTable tbody');
   tbody.innerHTML = DATA.per_query.map(q => {
     const isl = q.input_tokens||0, osl = q.output_tokens||0;
     const ratio = osl > 0 ? (isl/osl).toFixed(1)+':1' : '\u2014';
-    const qtxt = q.question ? q.question.substring(0,120)+(q.question.length>120?'\u2026':'') : '\u2014';
+    const qtxt = q.question ? esc(q.question.substring(0,120))+(q.question.length>120?'\u2026':'') : '\u2014';
     return `<tr>
-      <td><strong>${q.id}</strong></td>
+      <td><strong>${esc(q.id)}</strong></td>
       <td style="color:#d29922">${fmt$(q.cost_usd)}</td>
       <td>${isl.toLocaleString()}</td>
       <td>${osl.toLocaleString()}</td>

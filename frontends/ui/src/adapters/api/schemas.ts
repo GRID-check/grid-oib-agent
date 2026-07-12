@@ -188,8 +188,11 @@ export const NATSystemResponseMessageSchema = z.object({
   thread_id: z.string().optional(),
   parent_id: z.string().optional(),
   conversation_id: z.string().optional(),
-  // Content can be: string, SystemResponseContent (with text), or GenerateResponse (with output)
-  content: NATSystemResponseContentSchema.or(NATGenerateResponseContentSchema).or(z.string()),
+  // Content can be: string, SystemResponseContent (with text), or GenerateResponse (with output).
+  // GenerateResponse must be tried FIRST: SystemResponseContent has only
+  // optional fields and zod strips unknown keys, so it matches {output: ...}
+  // too and would parse it to {} — silently discarding the response text.
+  content: NATGenerateResponseContentSchema.or(NATSystemResponseContentSchema).or(z.string()),
   status: z.enum([
     WebSocketMessageStatus.IN_PROGRESS,
     WebSocketMessageStatus.COMPLETE,

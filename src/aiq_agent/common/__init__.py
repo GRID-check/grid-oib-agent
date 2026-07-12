@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import datetime
 import logging
 import os
@@ -79,6 +80,10 @@ logger = logging.getLogger(__name__)
 # Shared checkpointer caches
 _checkpointers: dict[str, BaseCheckpointSaver] = {}
 _postgres_pools: dict[str, AsyncConnectionPool] = {}
+# Serializes checkpointer creation: connect/setup are awaits, so a bare
+# check-then-act would let two concurrent callers both connect and leak the
+# loser's connection when it is overwritten in the cache.
+_checkpointer_lock = asyncio.Lock()
 
 __all__ = [
     "DEFAULT_DATA_SOURCES",
@@ -190,24 +195,30 @@ async def get_checkpointer(checkpoint_db: str) -> BaseCheckpointSaver:
     if checkpointer is not None:
         return checkpointer
 
-    if is_postgres_dsn(checkpoint_db):
-        pool = _postgres_pools.get(checkpoint_db)
-        if pool is None:
-            pool = AsyncConnectionPool(
-                conninfo=checkpoint_db,
-                min_size=1,
-                max_size=3,
-                kwargs={"autocommit": True, "row_factory": dict_row},
-            )
-            _postgres_pools[checkpoint_db] = pool
-        checkpointer = AsyncPostgresSaver(pool)
-        await checkpointer.setup()
-        logger.info("Postgres checkpointer initialized via async pool.")
-    else:
-        conn = await aiosqlite.connect(checkpoint_db)
-        checkpointer = AsyncSqliteSaver(conn)
-        await checkpointer.setup()
-        logger.info("SQLite checkpointer initialized: %s", checkpoint_db)
+    async with _checkpointer_lock:
+        # Re-check: another caller may have created it while we waited.
+        checkpointer = _checkpointers.get(checkpoint_db)
+        if checkpointer is not None:
+            return checkpointer
 
-    _checkpointers[checkpoint_db] = checkpointer
-    return checkpointer
+        if is_postgres_dsn(checkpoint_db):
+            pool = _postgres_pools.get(checkpoint_db)
+            if pool is None:
+                pool = AsyncConnectionPool(
+                    conninfo=checkpoint_db,
+                    min_size=1,
+                    max_size=3,
+                    kwargs={"autocommit": True, "row_factory": dict_row},
+                )
+                _postgres_pools[checkpoint_db] = pool
+            checkpointer = AsyncPostgresSaver(pool)
+            await checkpointer.setup()
+            logger.info("Postgres checkpointer initialized via async pool.")
+        else:
+            conn = await aiosqlite.connect(checkpoint_db)
+            checkpointer = AsyncSqliteSaver(conn)
+            await checkpointer.setup()
+            logger.info("SQLite checkpointer initialized: %s", checkpoint_db)
+
+        _checkpointers[checkpoint_db] = checkpointer
+        return checkpointer

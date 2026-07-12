@@ -633,12 +633,15 @@ class AgentEventCallback(BaseCallbackHandler):
 
         agent_info = self._find_agent_for_run(run_id)
 
+        # Include the (trimmed) output so the /state endpoint can surface tool
+        # results; with data=None every tool call reads as output=None there.
+        emit_output = self._trim_tool_input(str(output)) if output else None
         self._emit(
             IntermediateStepEvent(
                 category=EventCategory.TOOL,
                 state=EventState.END,
                 name=tool_name,
-                data=None,
+                data=EventData(output=emit_output) if emit_output is not None else None,
                 metadata=self._build_metadata_for_run(run_id),
             )
         )

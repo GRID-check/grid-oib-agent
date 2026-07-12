@@ -307,7 +307,16 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
                     user_content = await self._process_websocket_user_interaction_response_message(validated_message)
                     await _registry.set_socket(validated_message.conversation_id, self._socket)
                     if self._user_interaction_response is not None:
-                        self._user_interaction_response.set_result(user_content)
+                        # Guard against a double-submitted answer (client retry
+                        # or double-click): a second set_result would raise
+                        # InvalidStateError and tear down the whole handler.
+                        if not self._user_interaction_response.done():
+                            self._user_interaction_response.set_result(user_content)
+                        else:
+                            logger.warning(
+                                "Duplicate HITL response ignored for conversation %s",
+                                validated_message.conversation_id,
+                            )
                     else:
                         resolved = await _registry.resolve_pending_interaction(
                             validated_message.conversation_id, user_content
@@ -324,6 +333,11 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
                 break
             except ValidationError as exc:
                 logger.warning("Invalid websocket message payload: %s", str(exc))
+            except ValueError as exc:
+                # receive_json raises json.JSONDecodeError (a ValueError) on a
+                # non-JSON text frame; one malformed frame must not tear down
+                # the socket handler and orphan the running workflow.
+                logger.warning("Malformed websocket frame ignored: %s", str(exc))
 
     def _cancel_running_workflow(self) -> None:
         """Cancel the background workflow task spawned by NAT's create_task."""

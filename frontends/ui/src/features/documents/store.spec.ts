@@ -338,6 +338,55 @@ describe('useDocumentsStore', () => {
       expect(updated.progress).toBe(75)
     })
 
+    test('does not overwrite a same-named file tracked under a different job/collection', () => {
+      // Regression: a session upload's status tick must not clobber a
+      // same-named file in the project corpus by filename match.
+      const projectFile: TrackedFile = {
+        id: 'proj-1',
+        fileName: 'plan.pdf',
+        fileSize: 1024,
+        status: 'success',
+        progress: 100,
+        serverFileId: 'proj-server-id',
+        jobId: 'project-job',
+        collectionName: 'proj_corpus',
+      }
+      const sessionFile: TrackedFile = {
+        id: 'sess-1',
+        fileName: 'plan.pdf',
+        fileSize: 2048,
+        status: 'ingesting',
+        progress: 10,
+        serverFileId: 'sess-server-id',
+        jobId: 'session-job',
+        collectionName: 'session-1',
+      }
+      useDocumentsStore.setState({ trackedFiles: [projectFile, sessionFile] })
+
+      const jobStatus: IngestionJobStatus = {
+        job_id: 'session-job',
+        status: 'completed',
+        submitted_at: '2024-01-01T00:00:00Z',
+        total_files: 1,
+        processed_files: 1,
+        collection_name: 'session-1',
+        backend: 'milvus',
+        metadata: {},
+        file_details: [
+          { file_id: 'sess-server-id', file_name: 'plan.pdf', status: 'success', progress_percent: 100 },
+        ],
+      }
+
+      useDocumentsStore.getState().updateFilesFromJobStatus(jobStatus)
+
+      const proj = useDocumentsStore.getState().trackedFiles.find((f) => f.id === 'proj-1')!
+      // Project file untouched: still its own serverFileId and status.
+      expect(proj.serverFileId).toBe('proj-server-id')
+      expect(proj.status).toBe('success')
+      const sess = useDocumentsStore.getState().trackedFiles.find((f) => f.id === 'sess-1')!
+      expect(sess.status).toBe('success')
+    })
+
     test('updates files based on job status by filename', () => {
       const trackedFile: TrackedFile = {
         id: 'local-1',

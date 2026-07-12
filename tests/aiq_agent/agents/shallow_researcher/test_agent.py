@@ -32,8 +32,26 @@ from aiq_agent.common import LLMRole
 from aiq_agent.common.citation_verification import EmptySourceRegistryError
 from aiq_agent.common.citation_verification import SourceEntry
 from aiq_agent.common.citation_verification import SourceRegistry
+from aiq_agent.common.citation_verification import reset_session_registry
+from aiq_agent.common.citation_verification import set_session_registry
 from aiq_agent.common.data_source_registry import populate_from_config
 from aiq_agent.common.data_source_registry import reset_registry
+
+
+async def _run_with_captured_registry(agent, state):
+    """Run the agent with a bound session registry and return (result, registry).
+
+    Standalone runs use a fresh per-run registry (discarded afterwards) instead
+    of the shared instance one, so tests observe source capture by binding a
+    session registry for the duration of the run.
+    """
+    registry = SourceRegistry()
+    token = set_session_registry(registry)
+    try:
+        result = await agent.run(state)
+    finally:
+        reset_session_registry(token)
+    return result, registry
 
 
 @tool
@@ -576,9 +594,9 @@ class TestShallowResearcherSourceRegistryGating:
         )
 
         state = ShallowResearchAgentState(messages=[HumanMessage(content="What time is it in Tokyo?")])
-        result = await agent.run(state)
+        result, registry = await _run_with_captured_registry(agent, state)
 
-        sources = agent.source_registry.all_sources()
+        sources = registry.all_sources()
         assert len(sources) == 1
         assert sources[0].citation_key == "mcp_time__get_current_time"
         assert sources[0].source_type == "tool_result"
@@ -653,9 +671,9 @@ class TestShallowResearcherSourceRegistryGating:
         )
 
         state = ShallowResearchAgentState(messages=[HumanMessage(content="What is CUDA? Also note the time.")])
-        result = await agent.run(state)
+        result, registry = await _run_with_captured_registry(agent, state)
 
-        sources = agent.source_registry.all_sources()
+        sources = registry.all_sources()
         assert len(sources) >= 2
         assert sources[0].citation_key == "mcp_time__get_current_time"
         assert any(source.url == "https://docs.nvidia.com/cuda/" for source in sources)
@@ -687,9 +705,9 @@ class TestShallowResearcherSourceRegistryGating:
         )
 
         state = ShallowResearchAgentState(messages=[HumanMessage(content="What is the weather in San Francisco?")])
-        result = await agent.run(state)
+        result, registry = await _run_with_captured_registry(agent, state)
 
-        sources = agent.source_registry.all_sources()
+        sources = registry.all_sources()
         assert len(sources) == 1
         assert sources[0].citation_key == "weather_observation_tool"
         assert sources[0].source_type == "tool_result"
@@ -755,10 +773,10 @@ class TestShallowResearcherSourceCaptureIntegration:
         )
 
         state = ShallowResearchAgentState(messages=[HumanMessage(content="What is CUDA?")])
-        result = await agent.run(state)
+        result, registry = await _run_with_captured_registry(agent, state)
 
         # Source registry should have the URL from tool output
-        sources = agent.source_registry.all_sources()
+        sources = registry.all_sources()
         assert len(sources) >= 1
         assert any(s.url == "https://docs.nvidia.com/cuda/" for s in sources)
 
