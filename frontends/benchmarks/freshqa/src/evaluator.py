@@ -396,23 +396,19 @@ def extract_ratings(response):
             if evaluation not in ["correct", "incorrect"]:
                 return False, None
 
-        if len(lines) == 1:
-            if lines[0].split(" ")[-1] in ["correct", "incorrect"]:
-                evaluation = lines[0].split(" ")[-1]
+    if evaluation is None and len(lines) == 1:
+        candidate = lines[0].split(" ")[-1]
+        if candidate in ["correct", "incorrect"]:
+            evaluation = candidate
 
-        if evaluation == "incorrect":
-            evaluation = "FALSE"
-        else:
-            evaluation = "TRUE"
+    if evaluation is None:
+        if "Thus, the response is credited." in response:
+            return True, "TRUE"
+        if "Thus, the response is not credited." in response:
+            return True, "FALSE"
+        return False, None
 
-        if evaluation is None:
-            if "Thus, the response is credited." in response:
-                evaluation = "TRUE"
-            elif "Thus, the response is not credited." in response:
-                evaluation = "FALSE"
-            else:
-                return False, None
-    return True, evaluation
+    return True, "FALSE" if evaluation == "incorrect" else "TRUE"
 
 
 def load_dataset_metadata(dataset_file: str | None) -> dict[str, dict]:

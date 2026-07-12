@@ -104,7 +104,7 @@ class EventStore:
     def __init__(self, db_url: str = "sqlite+aiosqlite:///./jobs.db", job_id: str | None = None):
         self.db_url = db_url
         self.job_id = job_id
-        self._is_postgres = db_url.startswith("postgresql")
+        self._is_postgres = db_url.startswith("postgres")
         self._sync_engine = self._get_or_create_sync_engine(db_url)
         self._ensure_table_sync()
 
@@ -609,7 +609,7 @@ class EventStore:
     @classmethod
     def is_postgres(cls, db_url: str) -> bool:
         """Check if the database URL is for PostgreSQL."""
-        return db_url.startswith("postgresql")
+        return db_url.startswith("postgres")
 
     # -------------------------------------------------------------------------
     # Event Cleanup Methods
@@ -677,7 +677,7 @@ class EventStore:
 
         try:
             engine = cls._get_or_create_sync_engine(db_url)
-            is_postgres = db_url.startswith("postgresql")
+            is_postgres = db_url.startswith("postgres")
 
             with engine.connect() as conn:
                 if is_postgres:

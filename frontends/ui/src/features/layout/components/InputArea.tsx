@@ -355,7 +355,10 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     // Proceed with normal send
     setMessage('')
     try {
-      await sendMessage(currentMessage)
+      // sendMessage reports immediate failures (dead socket, no conversation)
+      // via a false return rather than throwing.
+      const sent = await sendMessage(currentMessage)
+      if (sent === false) throw new Error('Message could not be sent or queued')
       // Sent successfully — drop this session's saved draft so it can't
       // resurface on the next visit. Only on success: a failed send keeps the
       // draft so nothing the user typed is lost.

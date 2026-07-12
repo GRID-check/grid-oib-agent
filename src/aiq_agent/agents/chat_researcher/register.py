@@ -333,7 +333,9 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                 if not query:
                     if not state.messages:
                         raise RuntimeError("Cannot submit deep research job without messages.")
-                    query = state.messages[0].content
+                    from aiq_agent.common import get_latest_user_query
+
+                    query = get_latest_user_query(state.messages)
                 input_text = query if isinstance(query, str) else str(query)
 
                 # Serialize available_documents for the Dask worker

@@ -364,7 +364,7 @@ async def submit_agent_job(
     if principal is None:
         raise RuntimeError("Verified current principal required for async job submission")
 
-    organization_id = (usage_context or {}).get("identity", {}).get("organization_id")
+    organization_id = ((usage_context or {}).get("identity") or {}).get("organization_id")
 
     # Admission control: nothing else bounds how many concurrent jobs the
     # cluster accepts, and each deep-research run fans out multiple

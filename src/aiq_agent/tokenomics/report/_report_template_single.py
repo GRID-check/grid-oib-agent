@@ -775,4 +775,7 @@ _HTML = build_html(
 
 
 def render_html(report_data: dict) -> str:
-    return _HTML.replace("__REPORT_DATA_JSON__", json.dumps(report_data, ensure_ascii=False))
+    # Escape "<" so user-supplied strings (e.g. a query containing
+    # "</script>") cannot terminate the inline <script> block.
+    data_json = json.dumps(report_data, ensure_ascii=False).replace("<", "\\u003c")
+    return _HTML.replace("__REPORT_DATA_JSON__", data_json)
