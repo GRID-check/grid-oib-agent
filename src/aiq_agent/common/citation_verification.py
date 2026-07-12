@@ -129,13 +129,17 @@ def _normalize_url(url: str) -> str:
 # Knowledge-layer fuzzy matching helpers
 # ---------------------------------------------------------------------------
 
-_PAGE_RE = re.compile(r"(?:p\.?|page)\s*(\d+)", re.IGNORECASE)
+# The page token must be a separate word (preceded by a comma or whitespace
+# and followed by a delimiter or end), so filenames containing "p" + digits
+# (e.g. "Top2.pdf", "wp2023.pdf") are not truncated into bogus page refs.
+_PAGE_RE = re.compile(r"[,\s]\s*(?:p\.?|page)\s*(\d+)(?=\s*(?:[,)\]]|$))", re.IGNORECASE)
 
 
 def _parse_citation_key(key: str) -> tuple[str, int | None]:
     """Extract (filename, page_number) from a citation key.
 
-    Handles: "report.pdf, p.15", "report.pdf, page 15", "report.pdf"
+    Handles: "report.pdf, p.15", "report.pdf, page 15", "report.pdf",
+    "report.pdf, p.15, Table 1"
     """
     page_match = _PAGE_RE.search(key)
     page = int(page_match.group(1)) if page_match else None

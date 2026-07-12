@@ -60,10 +60,12 @@ fi
 cleanup() {
     echo ""
     echo "Shutting down services..."
-    if [ ! -z "$BACKEND_PID" ]; then
+    # ${VAR:-} guards: under `set -u` these may be unset if the user
+    # interrupts before the corresponding service was started.
+    if [ ! -z "${BACKEND_PID:-}" ]; then
         kill $BACKEND_PID 2>/dev/null || true
     fi
-    if [ ! -z "$FRONTEND_PID" ]; then
+    if [ ! -z "${FRONTEND_PID:-}" ]; then
         kill $FRONTEND_PID 2>/dev/null || true
     fi
     exit 0

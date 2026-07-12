@@ -38,7 +38,7 @@ import logging
 import os
 import signal
 from collections.abc import Callable
-from typing import override
+from typing_extensions import override
 
 from fastapi import APIRouter
 from fastapi import FastAPI

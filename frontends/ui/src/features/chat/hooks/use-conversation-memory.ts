@@ -46,6 +46,9 @@ export function useConversationMemory(
   useEffect(() => {
     if (!enabled || !projectId || !conversationId) {
       setItems([])
+      // A fetch may have been in flight when the scope went away; don't leave
+      // `loading` stuck true (the cleanup below cancels the poll timers).
+      setLoading(false)
       return
     }
 

@@ -16,7 +16,6 @@
 """URL-based ingestion endpoint for documents stored in MinIO."""
 
 import logging
-import mimetypes
 import os
 import tempfile
 from urllib.parse import urlparse
@@ -123,7 +122,7 @@ def _infer_suffix(content_type: str, url: str) -> str:
     }
     suffix = content_map.get(content_type.split(";", maxsplit=1)[0].strip(), "")
     if not suffix:
-        suffix = mimetypes.guess_extension(url.split("?", maxsplit=1)[0]) or ".bin"
+        suffix = os.path.splitext(urlparse(url).path)[1] or ".bin"
     return suffix
 
 

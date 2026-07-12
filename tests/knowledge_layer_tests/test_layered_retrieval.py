@@ -115,9 +115,9 @@ class TestResolveTargetCollections:
             collection_name="oib_knowledge",
             include_base_collection=True,
             include_session_collection=True,
-            project_collections=["oib_knowledge", "proj_a", "proj_a"],
+            project_collections=["oib_knowledge", "s_abc", "proj_a", "proj_a"],
         )
-        assert _resolve_target_collections(config, "oib_knowledge") == ["oib_knowledge", "proj_a"]
+        assert _resolve_target_collections(config, "s_abc") == ["oib_knowledge", "s_abc", "proj_a"]
 
     def test_no_session_available(self):
         config = KnowledgeRetrievalConfig(

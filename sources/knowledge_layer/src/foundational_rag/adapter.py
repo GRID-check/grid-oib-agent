@@ -802,10 +802,22 @@ class FoundationalRagIngestor(TTLCleanupMixin, BaseIngestor):
                 file_handles.append(fh)
                 files_payload.append(("documents", (file_name, fh, "application/octet-stream")))
             except Exception as e:
+                # Raising here would silently kill this background thread and
+                # leave the job stuck in PROCESSING forever — fail it instead.
                 logger.error(f"Failed to open file {file_path}: {e}")
                 for fh in file_handles:
                     fh.close()
-                raise
+                if executor:
+                    executor.shutdown(wait=False)
+                with self._lock:
+                    for fd in job.file_details:
+                        fd.status = FileStatus.FAILED
+                    job.file_details[i].error_message = str(e)
+                    job.processed_files = job.total_files
+                    job.status = JobState.FAILED
+                    job.error_message = f"Failed to open file for upload: {e}"
+                    job.completed_at = datetime.now()
+                return
 
         # Single batch upload - all files in one POST request
         # This matches the RAG UI behavior and prevents concurrent ingestion deadlocks
