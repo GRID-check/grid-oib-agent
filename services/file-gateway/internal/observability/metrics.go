@@ -13,10 +13,11 @@ import (
 )
 
 type Metrics struct {
-	checks    *prometheus.CounterVec
-	latency   *prometheus.HistogramVec
-	degraded  prometheus.Gauge
-	reg       *prometheus.Registry
+	checks       *prometheus.CounterVec
+	latency      *prometheus.HistogramVec
+	degraded     prometheus.Gauge
+	policyErrors prometheus.Counter
+	reg          *prometheus.Registry
 }
 
 func NewMetrics() *Metrics {
@@ -38,8 +39,15 @@ func NewMetrics() *Metrics {
 			Name: "authz_degraded",
 			Help: "1 when serving stale-allow decisions during a policy outage.",
 		}),
+		policyErrors: f.NewCounter(prometheus.CounterOpts{
+			Name: "authz_policy_errors_total",
+			Help: "Upstream policy-check failures (an availability signal, distinct from a legitimate deny).",
+		}),
 	}
 }
+
+// PolicyError satisfies authz.Metrics.
+func (m *Metrics) PolicyError() { m.policyErrors.Inc() }
 
 func (m *Metrics) Registry() *prometheus.Registry { return m.reg }
 

@@ -73,7 +73,7 @@ func main() {
 
 	// --- admin server: liveness, readiness, metrics ---
 	var ready atomic.Bool
-	admin := &http.Server{Addr: cfg.ListenAdmin, Handler: adminMux(&ready, backend, metrics)}
+	admin := &http.Server{Addr: cfg.ListenAdmin, Handler: adminMux(&ready, backend, metrics, cfg)}
 	go func() {
 		if err := admin.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Error("admin server", "err", err)
@@ -136,14 +136,30 @@ func buildResolver(cfg config.Config) (identity.Resolver, error) {
 	}
 }
 
-func adminMux(ready *atomic.Bool, backend storage.Backend, m *observability.Metrics) http.Handler {
+// bffReachable does a shallow GET to the BFF authz endpoint. It is POST-only, so
+// any HTTP response (even 405) proves reachability; only a transport error means
+// the authorization brain is down.
+func bffReachable(endpoint string) error {
+	client := &http.Client{Timeout: 1500 * time.Millisecond}
+	resp, err := client.Get(endpoint)
+	if err != nil {
+		return err
+	}
+	_ = resp.Body.Close()
+	return nil
+}
+
+func adminMux(ready *atomic.Bool, backend storage.Backend, m *observability.Metrics, cfg config.Config) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
 	mux.HandleFunc("/readyz", func(w http.ResponseWriter, _ *http.Request) {
-		// Ready only once the NFS listener is up AND the storage root is reachable.
+		// Ready requires: NFS listener up, storage root reachable, AND (in bff
+		// mode) the authorization brain reachable — every op fails closed without
+		// it, so a gateway that can't reach the BFF must not report ready.
+		// Dragonfly is intentionally NOT gated here: it is fail-open (ADR-0020).
 		if !ready.Load() {
 			http.Error(w, "not ready", http.StatusServiceUnavailable)
 			return
@@ -151,6 +167,12 @@ func adminMux(ready *atomic.Bool, backend storage.Backend, m *observability.Metr
 		if _, err := backend.Stat("."); err != nil {
 			http.Error(w, "storage unreachable: "+err.Error(), http.StatusServiceUnavailable)
 			return
+		}
+		if cfg.PolicyMode == "bff" {
+			if err := bffReachable(cfg.BFFEndpoint); err != nil {
+				http.Error(w, "authz brain unreachable: "+err.Error(), http.StatusServiceUnavailable)
+				return
+			}
 		}
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ready"))

@@ -15,12 +15,17 @@ import (
 type Metrics interface {
 	CheckObserved(source audit.Source, allow bool, latency time.Duration)
 	Degraded(active bool)
+	// PolicyError records that the upstream policy call failed — kept SEPARATE
+	// from a legitimate deny so a denial spike (security) and a policy outage
+	// (availability) are distinguishable in metrics/alerts.
+	PolicyError()
 }
 
 type nopMetrics struct{}
 
 func (nopMetrics) CheckObserved(audit.Source, bool, time.Duration) {}
 func (nopMetrics) Degraded(bool)                                   {}
+func (nopMetrics) PolicyError()                                    {}
 
 // Engine authorizes file operations. It is the ONLY component that decides
 // allow/deny; every protocol/storage path must route through it.
@@ -90,6 +95,7 @@ func (e *Engine) Authorize(ctx context.Context, op FileOp) (bool, error) {
 	})
 
 	if err != nil {
+		e.metrics.PolicyError()
 		// Upstream failed. Try grace (stale-allow) before failing closed.
 		if allow, res := e.cache.lookup(key); res == graceOK && allow {
 			e.metrics.Degraded(true)
