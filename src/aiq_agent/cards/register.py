@@ -21,6 +21,7 @@ import logging
 # Re-exported so the shape-hint retry loop and tests keep importing them from
 # here; the definitions live in the framing-free catalog module.
 from aiq_agent.cards.catalog import CARD_EXAMPLES as _CARD_EXAMPLES  # noqa: F401
+from aiq_agent.cards.catalog import SYSTEM_CARD_TYPES
 from aiq_agent.cards.catalog import render_card_catalog
 from aiq_agent.cards.catalog import shape_hint_for as _shape_hint_for
 from nat.builder.builder import Builder
@@ -77,6 +78,14 @@ async def emit_card(tool_config: EmitCardConfig, builder: Builder):
                 f"Error: card of type '{card_type}' failed validation: {exc}. "
                 + (f"Expected shape — {hint} " if hint else "")
                 + "Fix the fields and try again, or skip the card."
+            )
+
+        # System cards (e.g. memory_proposal) are emitted only by their owning
+        # tool on a sanctioned path — the model must never emit one directly.
+        if validated["type"] in SYSTEM_CARD_TYPES:
+            return (
+                f"Error: card type '{validated['type']}' is system-emitted and cannot be created with "
+                "emit_card. Do not emit this card type."
             )
 
         registry = get_card_registry()

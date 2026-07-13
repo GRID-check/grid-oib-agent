@@ -23,6 +23,12 @@ from typing import Literal
 from pydantic import BaseModel
 from pydantic_core import PydanticUndefined
 
+# Card types that are SYSTEM-emitted (by a tool, on a sanctioned path) and must
+# never be advertised to the model — it must not be able to fabricate them. They
+# remain valid union members for validation/serialization/rendering; only their
+# description in the model-facing catalog is suppressed.
+SYSTEM_CARD_TYPES = frozenset({"memory_proposal"})
+
 # One worked example per hard-to-nest card, so the model sees the exact shape
 # instead of discovering it through repeated validation failures. Keys are the
 # card ``type`` values; values are validated in the card model tests.
@@ -300,6 +306,10 @@ def render_card_catalog() -> str:
     card_lines: list[str] = []
     for card_cls in GridCard.__args__:
         type_value = getattr(card_cls.model_fields["type"].annotation, "__args__", ("?",))[0]
+        # System cards are emitted by tools on sanctioned paths, never by the
+        # model — omit them so the model can't fabricate them.
+        if type_value in SYSTEM_CARD_TYPES:
+            continue
         doc = (card_cls.__doc__ or "").strip().split("\n")[0]
         shape = _card_shape(card_cls, nested)
         card_lines.append(f'  - "{type_value}": {doc}\n      shape: {shape}')

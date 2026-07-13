@@ -7,6 +7,7 @@ the worked examples must stay valid against the live card models.
 
 import pytest
 
+from aiq_agent.cards.catalog import SYSTEM_CARD_TYPES
 from aiq_agent.cards.models import GridCard
 from aiq_agent.cards.models import grid_card_adapter
 from aiq_agent.cards.register import _CARD_EXAMPLES
@@ -35,6 +36,9 @@ _EXAMPLE_EXEMPT = {
     "acoustic_check",
     "energy_performance",
     "elevator_requirement",
+    # System-emitted (by the remember tool); never advertised to the model, so it
+    # ships without a worked example on purpose.
+    "memory_proposal",
 }
 
 
@@ -59,7 +63,17 @@ class TestToolDescription:
     def test_lists_every_card_type(self):
         desc = _build_tool_description()
         for card_type in _CARD_TYPES:
+            if card_type in SYSTEM_CARD_TYPES:
+                continue
             assert f'"{card_type}"' in desc
+
+    def test_system_cards_are_not_advertised(self):
+        # System cards (memory_proposal) must not appear in the model-facing tool
+        # description — the model must never be able to fabricate them.
+        desc = _build_tool_description()
+        for card_type in SYSTEM_CARD_TYPES:
+            assert f'"{card_type}"' not in desc
+        assert "memory_proposal" not in desc
 
     def test_expands_nested_building_blocks(self):
         # The whole point: nested object shapes must be spelled out, not hidden
