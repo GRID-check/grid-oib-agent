@@ -215,6 +215,9 @@ services:
       - BACKEND_URL=http://aiq-agent:8000
       - GRID_APP_DATABASE_URL=postgresql://aiq:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/grid_app
       - GRID_INTERNAL_API_TOKEN=${SERVICE_PASSWORD_INTERNALTOKEN}
+      # Admin token for the backend's /v1/admin/oib/* endpoints (must match the
+      # aiq-agent value). Powers the platform-owner base-knowledge management UI.
+      - GRID_ADMIN_TOKEN=${GRID_ADMIN_TOKEN:?set GRID_ADMIN_TOKEN}
       # WorkOS AuthKit — only consumed when REQUIRE_AUTH=true. Safe to leave the
       # keys empty for an unauthenticated preview.
       - WORKOS_CLIENT_ID=${WORKOS_CLIENT_ID:-}

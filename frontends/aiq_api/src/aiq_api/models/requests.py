@@ -78,3 +78,18 @@ class OibSyncResponse(BaseModel):
     message: str
     files_added: int
     files_total: int
+
+
+class OibDocumentUploadResponse(BaseModel):
+    """Response for a platform-admin upload into the OIB base corpus."""
+
+    status: str = Field(..., description="'success', 'failed', or 'timeout'")
+    file_name: str
+    message: str
+
+
+class OibDocumentDeleteResponse(BaseModel):
+    """Response for deleting an uploaded OIB base-corpus document."""
+
+    success: bool
+    file_name: str

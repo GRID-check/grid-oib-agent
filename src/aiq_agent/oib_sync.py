@@ -23,6 +23,10 @@ from aiq_agent.knowledge.schema import FileStatus
 logger = logging.getLogger(__name__)
 
 OIB_DIR = Path(os.environ.get("OIB_DOCUMENTS_DIR", "data/oib"))
+# Writable home for PDFs uploaded through the platform-admin UI. Kept separate
+# from OIB_DIR because deployments bind-mount the repo corpus read-only; this
+# directory lives on the persistent data volume instead.
+OIB_UPLOADS_DIR = Path(os.environ.get("OIB_UPLOADS_DIR", "data/oib_uploads"))
 REGISTRY_PATH = Path(os.environ.get("OIB_REGISTRY_PATH", "data/oib_registry.json"))
 COLLECTION_NAME = os.environ.get("OIB_COLLECTION_NAME") or os.environ.get("COLLECTION_NAME") or "oib_knowledge"
 CHROMA_DIR = os.environ.get("AIQ_CHROMA_DIR", "/tmp/chroma_data")
@@ -118,6 +122,96 @@ def _get_oib_ingestor():
     )
 
 
+def discover_pdfs() -> list[Path]:
+    """All corpus PDFs: the repo corpus plus platform-admin uploads.
+
+    Deduplicated by basename — the collection keys chunks on the filename, so
+    two same-named sources would double-index. Uploads win: uploading a file
+    with an existing corpus name is how an admin replaces that document.
+    """
+    by_name: dict[str, Path] = {}
+    for base in (OIB_DIR, OIB_UPLOADS_DIR):
+        if not base.exists():
+            continue
+        for pdf in sorted(p for p in base.rglob("*.pdf") if p.is_file()):
+            by_name[pdf.name] = pdf
+    return sorted(by_name.values(), key=lambda p: p.name)
+
+
+def ingest_single(pdf: Path) -> "FileStatus | None":
+    """Blocking ingest of one PDF into the OIB collection.
+
+    Same contract as sync(): existing chunks for the filename are replaced and
+    the registry hash is recorded only on success. Returns the terminal
+    FileStatus, or None on timeout.
+    """
+    current_hash = _file_hash(pdf)
+    ingestor = _get_oib_ingestor()
+    _ensure_collection(ingestor)
+
+    try:
+        ingestor.delete_file(pdf.name, COLLECTION_NAME)
+    except Exception as exc:
+        logger.warning("Could not delete existing chunks for %s before ingest: %s", pdf.name, exc)
+
+    file_info = ingestor.upload_file(str(pdf), COLLECTION_NAME)
+    logger.info("Submitted OIB upload %s size=%d file_id=%s", pdf.name, pdf.stat().st_size, file_info.file_id)
+
+    deadline = time.monotonic() + _POLL_TIMEOUT_SECONDS
+    while time.monotonic() < deadline:
+        info = ingestor.get_file_status(file_info.file_id, COLLECTION_NAME)
+        status = info.status if info else None
+        if status == FileStatus.SUCCESS:
+            registry = _load_registry()
+            registry[str(pdf)] = current_hash
+            _save_registry(registry)
+            logger.info("OIB upload ingested: %s chunks=%s", pdf.name, info.chunk_count if info else "unknown")
+            return status
+        if status == FileStatus.FAILED:
+            logger.error(
+                "OIB upload failed: %s error=%s", pdf.name, info.error_message if info else "missing file status"
+            )
+            return status
+        time.sleep(_POLL_INTERVAL_SECONDS)
+
+    logger.error("OIB upload timed out: %s", pdf.name)
+    return None
+
+
+def remove_uploaded_document(file_name: str) -> bool:
+    """Remove a platform-admin-uploaded PDF from disk, registry, and index.
+
+    Only files under OIB_UPLOADS_DIR are removable — the repo corpus is the
+    deployment's read-only ground truth (and would be re-ingested by the next
+    sync anyway). Returns False when no such uploaded file exists.
+    """
+    name = Path(file_name).name  # forbid path traversal
+    path = OIB_UPLOADS_DIR / name
+    if not path.is_file():
+        return False
+
+    ingestor = _get_oib_ingestor()
+    try:
+        ingestor.delete_file(name, COLLECTION_NAME)
+    except Exception as exc:
+        logger.warning("Could not delete chunks for %s: %s", name, exc)
+
+    registry = _load_registry()
+    if registry.pop(str(path), None) is not None:
+        _save_registry(registry)
+
+    try:
+        from aiq_agent.knowledge.factory import unregister_summary
+
+        unregister_summary(COLLECTION_NAME, name)
+    except Exception as exc:
+        logger.debug("Could not unregister summary for %s: %s", name, exc)
+
+    path.unlink(missing_ok=True)
+    logger.info("Removed uploaded OIB document %s", name)
+    return True
+
+
 def sync() -> tuple[int, int]:
     """Incrementally ingest new/changed OIB PDFs into the persistent collection.
 
@@ -126,10 +220,10 @@ def sync() -> tuple[int, int]:
         number of files that ingested successfully this run and num_total_tracked
         is the total number of OIB PDFs discovered on disk.
     """
-    if not OIB_DIR.exists():
+    if not OIB_DIR.exists() and not OIB_UPLOADS_DIR.exists():
         raise FileNotFoundError(f"OIB directory not found: {OIB_DIR}")
 
-    pdf_paths = sorted(p for p in OIB_DIR.rglob("*.pdf") if p.is_file())
+    pdf_paths = discover_pdfs()
     if not pdf_paths:
         logger.warning("No PDF files found in %s", OIB_DIR)
         return 0, 0

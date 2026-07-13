@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation'
 import { requireAuthorizedPageSession } from '@/lib/auth/require-auth'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { getNavFlags } from '@/lib/authz/nav'
+import { isProjectKnowledgePageEnabled } from '@/lib/authz/feature-flags'
 import { getDb } from '@/lib/db'
 import { projects } from '@/lib/db/schema'
 import { AppSidebar } from '@/components/shell'
@@ -87,6 +88,7 @@ export default async function ProjectLayout({ children, params }: ProjectLayoutP
         canManageOrganization={navFlags.canManageOrganization}
         canViewOrganization={navFlags.canViewOrganization}
         canManagePlatform={navFlags.canManagePlatform}
+        showKnowledge={isProjectKnowledgePageEnabled(session)}
       />
       {/* tabIndex={-1} makes the landmark programmatically focusable so
           RouteFocus can move focus here on client-side section changes. */}

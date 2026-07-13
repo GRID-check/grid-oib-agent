@@ -12,17 +12,18 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { AlertCircle, BookOpenCheck, FileSearch, FileText, FolderOpen, Layers, RotateCcw } from 'lucide-react'
+import { AlertCircle, BookOpenCheck, Eye, FileSearch, FileText, FolderOpen, Layers, RotateCcw } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Skeleton } from '@/components/ui/skeleton'
-import { DocumentStatusBadge, fileTypeIcon } from '@/features/documents/components/document-status'
+import { DocumentStatusBadge, documentStatusVariant, fileTypeIcon } from '@/features/documents/components/document-status'
 import { useLocale, useTranslations } from '@/i18n'
 import { formatFileSize } from '@/lib/utils/format-file-size'
 import type { KnowledgeBaseStatus, KnowledgeFile, KnowledgeFileState } from '@/lib/knowledge/service'
+import { PdfViewerDialog } from './pdf-viewer-dialog'
 
 interface ProjectDocument {
   id: string
@@ -40,6 +41,7 @@ interface KnowledgeBasePanelProps {
 /** Badge color per corpus state — success only when the RAG really knows it. */
 const STATE_VARIANT: Record<KnowledgeFileState, 'success' | 'info' | 'warning' | 'destructive' | 'secondary'> = {
   ingested: 'success',
+  snapshot: 'success',
   pending: 'info',
   stale: 'warning',
   removed: 'secondary',
@@ -73,7 +75,7 @@ function SummaryTile({ label, value, tone }: { label: string; value: number; ton
   )
 }
 
-function CorpusRow({ file }: { file: KnowledgeFile }) {
+function CorpusRow({ file, onView }: { file: KnowledgeFile; onView: (fileName: string) => void }) {
   const t = useTranslations('knowledge')
   const { locale } = useLocale()
   const formatDate = useDateFormatter()
@@ -106,6 +108,17 @@ function CorpusRow({ file }: { file: KnowledgeFile }) {
         <Badge variant={STATE_VARIANT[file.state]} title={t(`stateHints.${file.state}`)}>
           {t(`states.${file.state}`)}
         </Badge>
+        {file.origin !== 'index_only' && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8"
+            aria-label={`${t('viewer.view')}: ${file.fileName}`}
+            onClick={() => onView(file.fileName)}
+          >
+            <Eye className="size-4" aria-hidden />
+          </Button>
+        )}
       </div>
     </div>
   )
@@ -151,6 +164,7 @@ export function KnowledgeBasePanel({ projectId }: KnowledgeBasePanelProps) {
   const [documents, setDocuments] = useState<ProjectDocument[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [hasError, setHasError] = useState(false)
+  const [viewerFile, setViewerFile] = useState<string | null>(null)
 
   const load = useCallback(() => {
     setIsLoading(true)
@@ -185,6 +199,10 @@ export function KnowledgeBasePanel({ projectId }: KnowledgeBasePanelProps) {
   const attention = status
     ? status.summary.pending + status.summary.stale + status.summary.removed + status.summary.inconsistent
     : 0
+  // "Indexed" = everything the assistant can actually search: verified corpus
+  // files, snapshot-restored corpus files, and successfully ingested project docs.
+  const readyProjectDocs = documents.filter((doc) => documentStatusVariant(doc.status) === 'success').length
+  const indexed = status ? status.summary.ingested + status.summary.snapshot + readyProjectDocs : 0
 
   return (
     <div className="mx-auto w-full max-w-5xl space-y-8 px-4 py-6 md:px-8 md:py-10">
@@ -216,7 +234,7 @@ export function KnowledgeBasePanel({ projectId }: KnowledgeBasePanelProps) {
         <>
           <section className="grid grid-cols-2 gap-3 sm:grid-cols-4" aria-label={t('title')}>
             <SummaryTile label={t('summary.documents')} value={status.summary.totalFiles + documents.length} />
-            <SummaryTile label={t('summary.indexed')} value={status.summary.ingested} />
+            <SummaryTile label={t('summary.indexed')} value={indexed} />
             <SummaryTile label={t('summary.chunks')} value={status.summary.totalChunks} />
             <SummaryTile label={t('summary.attention')} value={attention} tone={attention > 0 ? 'warning' : undefined} />
           </section>
@@ -244,7 +262,7 @@ export function KnowledgeBasePanel({ projectId }: KnowledgeBasePanelProps) {
               ) : (
                 <div className="divide-y divide-border border-t border-border">
                   {status.files.map((file) => (
-                    <CorpusRow key={file.fileName} file={file} />
+                    <CorpusRow key={file.fileName} file={file} onView={setViewerFile} />
                   ))}
                 </div>
               )}
@@ -281,6 +299,10 @@ export function KnowledgeBasePanel({ projectId }: KnowledgeBasePanelProps) {
             </CardContent>
           </Card>
         </>
+      )}
+
+      {viewerFile && (
+        <PdfViewerDialog open onOpenChange={(open) => !open && setViewerFile(null)} fileName={viewerFile} />
       )}
     </div>
   )

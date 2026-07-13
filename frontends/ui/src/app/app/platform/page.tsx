@@ -14,6 +14,7 @@ import { getNavFlags } from '@/lib/authz/nav'
 import { OrgTopbar } from '@/components/shell'
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { getTranslations } from '@/i18n/server'
+import { BaseKnowledge } from './base-knowledge'
 import { PlatformOverview } from './platform-overview'
 
 const isAuthRequired = (): boolean => process.env.REQUIRE_AUTH?.toLowerCase() === 'true'
@@ -74,6 +75,7 @@ export default async function PlatformPage(): Promise<JSX.Element> {
         <p className="mt-1 text-sm text-muted-foreground">{t('subtitle')}</p>
       </header>
       <PlatformOverview />
+      <BaseKnowledge />
     </div>,
   )
 }

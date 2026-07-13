@@ -13,6 +13,7 @@ const corpusStatus = {
     ingested: 1,
     stale: 1,
     pending: 1,
+    snapshot: 0,
     removed: 0,
     inconsistent: 0,
     totalChunks: 128,
@@ -21,6 +22,7 @@ const corpusStatus = {
     {
       fileName: 'oib-rl_1_ausgabe_mai_2023.pdf',
       state: 'ingested',
+      origin: 'corpus',
       sizeBytes: 2048,
       chunkCount: 64,
       ingestedSha256: 'abc',
@@ -31,6 +33,7 @@ const corpusStatus = {
     {
       fileName: 'oib-rl_2_ausgabe_mai_2023.pdf',
       state: 'stale',
+      origin: 'corpus',
       sizeBytes: 4096,
       chunkCount: 64,
       ingestedSha256: 'old',
@@ -41,6 +44,7 @@ const corpusStatus = {
     {
       fileName: 'oib-rl_3_ausgabe_mai_2023.pdf',
       state: 'pending',
+      origin: 'corpus',
       sizeBytes: 1024,
       chunkCount: 0,
       ingestedSha256: null,

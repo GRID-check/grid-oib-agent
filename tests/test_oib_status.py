@@ -61,6 +61,7 @@ def _configure(monkeypatch, tmp_path: Path) -> Path:
     oib_dir.mkdir(parents=True, exist_ok=True)
     registry_path = tmp_path / "oib_registry.json"
     monkeypatch.setattr(oib_sync, "OIB_DIR", oib_dir)
+    monkeypatch.setattr(oib_sync, "OIB_UPLOADS_DIR", tmp_path / "oib_uploads")
     monkeypatch.setattr(oib_sync, "REGISTRY_PATH", registry_path)
     monkeypatch.setattr(oib_sync, "COLLECTION_NAME", "test_collection")
     monkeypatch.setattr(oib_status, "_load_summaries", lambda _name: {})
@@ -172,6 +173,68 @@ def test_status_files_are_sorted_by_name(monkeypatch, tmp_path):
     status = oib_status.get_status(ingestor=ingestor)
 
     assert [f.file_name for f in status.files] == ["a.pdf", "z.pdf"]
+
+
+def test_sourceless_deployment_reports_snapshot_not_removed(monkeypatch, tmp_path):
+    """A seed-restored deployment (index + registry, no PDFs) is healthy, not broken."""
+    registry_path = _configure(monkeypatch, tmp_path)
+    registry_path.write_text(
+        json.dumps({"data/oib/a.pdf": _sha256(b"a"), "data/oib/b.pdf": _sha256(b"b")}),
+        encoding="utf-8",
+    )
+    ingestor = FakeIngestor(_collection(chunk_count=10), files=[_file_info("a.pdf", 6), _file_info("b.pdf", 4)])
+
+    status = oib_status.get_status(ingestor=ingestor)
+
+    assert status.summary.snapshot == 2
+    assert status.summary.removed == 0
+    by_name = {f.file_name: f for f in status.files}
+    assert by_name["a.pdf"].state == OibFileState.SNAPSHOT
+    assert by_name["a.pdf"].origin == oib_status.OibFileOrigin.INDEX_ONLY
+    assert by_name["a.pdf"].chunk_count == 6
+    # Registry-only entries with no chunks are still 'removed' even here.
+    registry_path.write_text(
+        json.dumps({"data/oib/ghost.pdf": _sha256(b"ghost")}),
+        encoding="utf-8",
+    )
+    status = oib_status.get_status(ingestor=FakeIngestor(_collection(), files=[]))
+    assert {f.state for f in status.files} == {OibFileState.REMOVED}
+
+
+def test_uploaded_documents_get_uploaded_origin(monkeypatch, tmp_path):
+    registry_path = _configure(monkeypatch, tmp_path)
+    uploads = tmp_path / "oib_uploads"
+    _write_pdf(uploads / "custom.pdf", b"custom")
+    _write_pdf(tmp_path / "oib" / "shipped.pdf", b"shipped")
+    registry_path.write_text(
+        json.dumps(
+            {
+                str(uploads / "custom.pdf"): _sha256(b"custom"),
+                str(tmp_path / "oib" / "shipped.pdf"): _sha256(b"shipped"),
+            }
+        ),
+        encoding="utf-8",
+    )
+    ingestor = FakeIngestor(_collection(), files=[_file_info("custom.pdf", 3), _file_info("shipped.pdf", 2)])
+
+    status = oib_status.get_status(ingestor=ingestor)
+
+    by_name = {f.file_name: f for f in status.files}
+    assert by_name["custom.pdf"].origin == oib_status.OibFileOrigin.UPLOADED
+    assert by_name["custom.pdf"].state == OibFileState.INGESTED
+    assert by_name["shipped.pdf"].origin == oib_status.OibFileOrigin.CORPUS
+
+
+def test_disk_file_matching_registry_hash_under_other_path_counts_ingested(monkeypatch, tmp_path):
+    """Seed registries record build-machine paths; same content on disk still verifies."""
+    registry_path = _configure(monkeypatch, tmp_path)
+    _write_pdf(tmp_path / "oib" / "a.pdf", b"a")
+    registry_path.write_text(json.dumps({"/build/checkout/data/oib/a.pdf": _sha256(b"a")}), encoding="utf-8")
+    ingestor = FakeIngestor(_collection(), files=[_file_info("a.pdf", 5)])
+
+    status = oib_status.get_status(ingestor=ingestor)
+
+    assert status.files[0].state == OibFileState.INGESTED
 
 
 def test_hash_cache_avoids_rehashing_unchanged_files(monkeypatch, tmp_path):

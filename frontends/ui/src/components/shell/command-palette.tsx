@@ -78,6 +78,8 @@ export interface CommandPaletteProps {
   authRequired: boolean
   /** Whether the organization page is reachable for this user. */
   canViewOrganization: boolean
+  /** Whether the project knowledge page is enabled (feature-flagged, default off). */
+  showKnowledge?: boolean
 }
 
 export function CommandPalette({
@@ -85,6 +87,7 @@ export function CommandPalette({
   onOpenChange,
   authRequired,
   canViewOrganization,
+  showKnowledge = false,
 }: CommandPaletteProps) {
   const router = useRouter()
   const pathname = usePathname() ?? ''
@@ -163,7 +166,7 @@ export function CommandPalette({
           <>
             <CommandSeparator />
             <CommandGroup heading={t('groups.currentProject')}>
-              {SECTION_ITEMS.map((item) => {
+              {SECTION_ITEMS.filter((item) => item.key !== 'knowledge' || showKnowledge).map((item) => {
                 const Icon = item.icon
                 const label =
                   item.key === 'intake' ? t('intake') : tNav(`sections.${item.key}`)

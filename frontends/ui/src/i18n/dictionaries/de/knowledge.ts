@@ -39,6 +39,7 @@ export const knowledge: typeof en.knowledge = {
     ingested: 'Indexiert',
     stale: 'Veraltet',
     pending: 'Noch nicht indexiert',
+    snapshot: 'Indexiert (Snapshot)',
     removed: 'Quelle entfernt',
     inconsistent: 'Index fehlt',
   },
@@ -46,8 +47,17 @@ export const knowledge: typeof en.knowledge = {
     ingested: 'Für den Assistenten vollständig durchsuchbar.',
     stale: 'Die Datei wurde seit der Indexierung geändert; Antworten spiegeln bis zur nächsten Synchronisierung die vorherige Version wider.',
     pending: 'Auf der Festplatte vorhanden, aber noch nicht ingestiert — der Assistent kann sie erst nach der nächsten Synchronisierung verwenden.',
+    snapshot: 'Aus einem vorgefertigten Index wiederhergestellt; vollständig durchsuchbar, aber die Quell-PDF liegt nicht auf diesem Server.',
     removed: 'Die Quelldatei wurde entfernt; indexierte Inhalte können bis zur Bereinigung weiterhin auffindbar sein.',
     inconsistent: 'Als ingestiert vermerkt, aber es wurden keine indexierten Inhalte gefunden. Synchronisierung erneut ausführen.',
+  },
+  origin: {
+    uploaded: 'Hochgeladen',
+  },
+  viewer: {
+    view: 'PDF ansehen',
+    description: 'Originales Quelldokument.',
+    openInTab: 'In neuem Tab öffnen',
   },
   error: {
     title: 'Wissensbasis nicht verfügbar',

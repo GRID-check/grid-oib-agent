@@ -26,6 +26,8 @@ export const FEATURE_FLAGS = {
   deepResearch: 'deep-research',
   /** Command palette + global keyboard shortcuts (workspace polish). */
   keyboardShortcuts: 'keyboard-shortcuts',
+  /** Project-level knowledge-base transparency page (nav section). */
+  projectKnowledgePage: 'project-knowledge-page',
 } as const
 
 export type KnownFeatureFlag = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
@@ -42,6 +44,21 @@ export function isFeatureEnabled(
   if (!enforcementOn()) return true
   if (session.featureFlags === null) return false // stale token — re-auth picks flags up
   return session.featureFlags.includes(flag)
+}
+
+/**
+ * Default-OFF gate for the project knowledge page. Unlike isFeatureEnabled
+ * (which fails open when enforcement is off, for back-compat), this feature
+ * launches dark: without WorkOS flag enforcement it is only available when a
+ * deployment explicitly opts in via GRID_PROJECT_KNOWLEDGE_PAGE_ENABLED=true
+ * (mirrors the MEMORY_REFLECTION_ENABLED fallback pattern). The platform
+ * owner's base-knowledge manager is NOT gated by this.
+ */
+export function isProjectKnowledgePageEnabled(session: Pick<GridSession, 'featureFlags'>): boolean {
+  if (enforcementOn()) {
+    return isFeatureEnabled(session, FEATURE_FLAGS.projectKnowledgePage)
+  }
+  return (process.env.GRID_PROJECT_KNOWLEDGE_PAGE_ENABLED ?? '').toLowerCase() === 'true'
 }
 
 /**

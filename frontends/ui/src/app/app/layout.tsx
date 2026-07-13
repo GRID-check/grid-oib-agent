@@ -14,7 +14,7 @@
 
 import { type ReactNode } from 'react'
 import { getGridSession } from '@/lib/auth/session'
-import { FEATURE_FLAGS, isFeatureEnabled } from '@/lib/authz/feature-flags'
+import { FEATURE_FLAGS, isFeatureEnabled, isProjectKnowledgePageEnabled } from '@/lib/authz/feature-flags'
 import { KeyboardShortcuts } from '@/components/shell'
 
 const isAuthRequired = (): boolean => process.env.REQUIRE_AUTH?.toLowerCase() === 'true'
@@ -37,6 +37,7 @@ export default async function AppLayout({ children }: AppLayoutProps): Promise<J
           // Every authenticated org member may open the organization page
           // (it serves capability subsets, see getNavFlags / UX-16).
           canViewOrganization
+          showKnowledge={isProjectKnowledgePageEnabled(session)}
         />
       )
     }
