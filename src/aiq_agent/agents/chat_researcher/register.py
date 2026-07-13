@@ -66,6 +66,7 @@ _REFLECTION_NON_ANSWERS = (
     "No response generated.",
     "An error occurred",
     "The search tools did not return any results",
+    "I searched the available sources but couldn't retrieve anything usable",
 )
 
 

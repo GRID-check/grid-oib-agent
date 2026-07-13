@@ -394,17 +394,34 @@ class ShallowResearcherAgent:
                     if not verification.valid_citations and len(sources) == 1:
                         content = _append_minimal_citation(content, sources[0])
                 elif state.requires_sources:
-                    from aiq_agent.common.tool_validation import validate_tool_availability
-
-                    _, available_count, unavailable = validate_tool_availability(
-                        self.tools,
-                        research_type="shallow research",
-                        enable_logging=False,
+                    # Distinguish "retrieval genuinely failed" from "the agent
+                    # answered from conversation/project context without ever
+                    # querying a data source". Only the former is an error: when
+                    # no data-source tool was attempted there was nothing to
+                    # cite, and discarding a substantive answer would replace it
+                    # with a misleading "search tools failed" message (typical
+                    # for conversational turns misrouted as research).
+                    attempted_source_lookup = any(
+                        isinstance(msg, ToolMessage)
+                        and get_source_id_for_tool(getattr(msg, "name", "") or "") is not None
+                        for msg in validated_result["messages"]
                     )
-                    raise EmptySourceRegistryError(
-                        "shallow research",
-                        unavailable_tools=unavailable,
-                        available_count=available_count,
+                    if attempted_source_lookup:
+                        from aiq_agent.common.tool_validation import validate_tool_availability
+
+                        _, available_count, unavailable = validate_tool_availability(
+                            self.tools,
+                            research_type="shallow research",
+                            enable_logging=False,
+                        )
+                        raise EmptySourceRegistryError(
+                            "shallow research",
+                            unavailable_tools=unavailable,
+                            available_count=available_count,
+                        )
+                    logger.warning(
+                        "Shallow researcher: research turn answered without querying any "
+                        "data-source tool; returning the answer without citation verification",
                     )
                 else:
                     # Conversational/meta turn: no sources are expected, so an

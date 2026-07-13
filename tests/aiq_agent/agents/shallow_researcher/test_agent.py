@@ -473,6 +473,12 @@ def weather_observation_tool(location: str) -> str:
     return f"Current conditions for {location}: clear, 68F"
 
 
+@tool
+def empty_web_search_tool(query: str) -> str:
+    """Search the web (returns no results)."""
+    return ""
+
+
 class TestShallowResearcherSourceRegistryGating:
     """Tests that shallow source capture is gated by data_source_registry."""
 
@@ -497,7 +503,12 @@ class TestShallowResearcherSourceRegistryGating:
 
     @pytest.mark.asyncio
     async def test_explicit_tool_not_declared_as_data_source_is_not_captured(self, mock_llm_provider, mock_llm):
-        """Loaded agent tools are not enough; the tool must be in data_source_registry."""
+        """Loaded agent tools are not enough; the tool must be in data_source_registry.
+
+        A tool outside the registry captures no sources, and because no
+        data-source lookup was attempted the answer is returned rather than
+        rejected by the citation guard.
+        """
         tool_call_response = AIMessage(
             content="",
             tool_calls=[{"name": "mcp_time__get_current_time", "args": {"timezone": "Asia/Tokyo"}, "id": "1"}],
@@ -513,10 +524,10 @@ class TestShallowResearcherSourceRegistryGating:
         )
 
         state = ShallowResearchAgentState(messages=[HumanMessage(content="What time is it in Tokyo?")])
-        with pytest.raises(EmptySourceRegistryError):
-            await agent.run(state)
+        result = await agent.run(state)
 
         assert agent.source_registry.all_sources() == []
+        assert "current time" in result.messages[-1].content
 
     @pytest.mark.asyncio
     async def test_meta_turn_without_sources_returns_answer(self, mock_llm_provider, mock_llm):
@@ -546,11 +557,50 @@ class TestShallowResearcherSourceRegistryGating:
         assert "test 1" in result.messages[-1].content
 
     @pytest.mark.asyncio
-    async def test_research_turn_without_sources_still_raises(self, mock_llm_provider, mock_llm):
-        """Guard the other cell: a research turn (requires_sources=True, the
-        default) that captures no sources still raises EmptySourceRegistryError.
+    async def test_research_turn_with_failed_source_lookup_still_raises(self, mock_llm_provider, mock_llm):
+        """Guard the genuine-failure cell: a research turn that DID query a
+        registered data-source tool but captured no sources (empty result)
+        raises EmptySourceRegistryError — retrieval was attempted and failed.
         """
+        populate_from_config(
+            [
+                {
+                    "id": "web_search",
+                    "name": "Web Search",
+                    "description": "Search the web.",
+                    "tools": ["empty_web_search_tool"],
+                }
+            ],
+        )
+        tool_call_response = AIMessage(
+            content="",
+            tool_calls=[{"name": "empty_web_search_tool", "args": {"query": "OIB 2.2"}, "id": "1"}],
+        )
         final_response = AIMessage(content="Here is an answer that cites nothing.")
+        mock_llm.ainvoke = AsyncMock(side_effect=[tool_call_response, final_response])
+
+        agent = ShallowResearcherAgent(
+            llm_provider=mock_llm_provider,
+            tools=[empty_web_search_tool],
+        )
+
+        state = ShallowResearchAgentState(
+            messages=[HumanMessage(content="Which OIB Richtlinie applies to high-rise buildings?")],
+            requires_sources=True,
+        )
+        with pytest.raises(EmptySourceRegistryError):
+            await agent.run(state)
+
+    @pytest.mark.asyncio
+    async def test_research_turn_answered_from_context_returns_answer(self, mock_llm_provider, mock_llm):
+        """A research-routed turn the agent answers from conversation/project
+        context WITHOUT attempting any data-source lookup must return the
+        answer, not raise. Regression for the misrouted-conversational-turn
+        incident: the citation guard replaced a substantive answer with a
+        misleading "search tools did not return any results" error even though
+        no tool was ever called.
+        """
+        final_response = AIMessage(content="To fill in hohe_gebaeude_details I need the exact building height.")
         mock_llm.ainvoke = AsyncMock(side_effect=[final_response])
 
         agent = ShallowResearcherAgent(
@@ -559,11 +609,13 @@ class TestShallowResearcherSourceRegistryGating:
         )
 
         state = ShallowResearchAgentState(
-            messages=[HumanMessage(content="What time is it in Tokyo?")],
+            messages=[HumanMessage(content="what do you need to know to fill that in?")],
             requires_sources=True,
         )
-        with pytest.raises(EmptySourceRegistryError):
-            await agent.run(state)
+        result = await agent.run(state)
+
+        assert agent.source_registry.all_sources() == []
+        assert "building height" in result.messages[-1].content
 
     @pytest.mark.asyncio
     async def test_registered_group_tool_without_urls_is_captured(self, mock_llm_provider, mock_llm):
@@ -877,8 +929,10 @@ class TestShallowResearcherSessionRegistry:
 
     @pytest.mark.asyncio
     async def test_run_clears_registry_in_standalone_mode(self, mock_llm_provider, mock_llm):
-        """Without session registry ContextVar, run() clears instance registry and raises."""
-        from aiq_agent.common.citation_verification import EmptySourceRegistryError
+        """Without session registry ContextVar, run() uses a fresh per-run
+        registry: stale instance-registry sources must not leak into the output
+        (a consulted single-source registry would be auto-appended as a
+        citation on the answer)."""
         from aiq_agent.common.citation_verification import set_session_registry
 
         set_session_registry(None)  # Ensure no session registry
@@ -895,9 +949,9 @@ class TestShallowResearcherSessionRegistry:
         agent.source_registry.add(SourceEntry(url="https://stale.example.com"))
 
         state = ShallowResearchAgentState(messages=[HumanMessage(content="Test")])
+        result = await agent.run(state)
 
-        with pytest.raises(EmptySourceRegistryError):
-            await agent.run(state)
+        assert "stale.example.com" not in result.messages[-1].content
 
     @pytest.mark.asyncio
     async def test_session_registry_does_not_mutate_shared_instance(self, mock_llm_provider, mock_llm):

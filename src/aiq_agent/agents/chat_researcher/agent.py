@@ -273,10 +273,14 @@ class ChatResearcherAgent:
                         exc.available_count,
                     )
                 else:
+                    # This error only fires when a data-source tool was actually
+                    # queried and yielded nothing citable — the message must not
+                    # blame the search tools for unrelated failures (it used to
+                    # surface for turns where no tool was ever called).
                     err_msg = (
-                        "The search tools did not return any results for this question. "
-                        "This may be due to a temporary issue or the question may need to be rephrased. "
-                        "Please try again."
+                        "I searched the available sources but couldn't retrieve anything usable "
+                        "to ground an answer to this question. This may be a temporary issue — "
+                        "please try again, or rephrase the question."
                     )
                 # confidence="high" reflects certainty that an error occurred and that the error
                 # message is the correct response — not uncertainty about the answer quality.
@@ -399,9 +403,9 @@ class ChatResearcherAgent:
                     )
                 else:
                     err_msg = (
-                        "The search tools did not return any results for this question. "
-                        "This may be due to a temporary issue or the question may need to be rephrased. "
-                        "Please try again."
+                        "I searched the available sources but couldn't retrieve anything usable "
+                        "to ground an answer to this question. This may be a temporary issue — "
+                        "please try again, or rephrase the question."
                     )
                 return {"messages": [AIMessage(content=err_msg)]}
             except Exception as e:

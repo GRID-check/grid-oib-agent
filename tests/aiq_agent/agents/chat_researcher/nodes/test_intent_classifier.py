@@ -15,11 +15,13 @@
 
 """Tests for the IntentClassifier node (combined intent + depth + meta orchestration)."""
 
+from typing import ClassVar
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
 import pytest
+from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
 from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
 
@@ -225,3 +227,133 @@ class TestIntentClassifier:
             classifier = IntentClassifier(llm=mock_llm)
             prompt_lower = classifier.prompt.lower()
             assert "meta" in prompt_lower or "research" in prompt_lower
+
+    def test_default_prompt_treats_project_profile_questions_as_meta(self, mock_llm):
+        """The taxonomy must cover project-profile/context turns explicitly.
+
+        Regression: "what do you need to know to fill that in?" had no bucket —
+        neither small talk nor a regulations lookup — and fell into research via
+        the tie-break, where the citation contract then rejected the answer.
+        """
+        classifier = IntentClassifier(llm=mock_llm)
+        meta_bullet = next(line for line in classifier.prompt.splitlines() if '**intent = "meta"**' in line)
+        assert "project profile" in meta_bullet
+
+
+class _BindSpyChatModel(FakeMessagesListChatModel):
+    """Fake chat model that records the kwargs passed to bind()."""
+
+    bind_kwargs: ClassVar[list[dict]] = []
+
+    def bind(self, **kwargs):
+        type(self).bind_kwargs.append(kwargs)
+        return super().bind(**kwargs)
+
+
+class _StructuredRejectingChatModel(FakeMessagesListChatModel):
+    """Fake chat model whose structured-output binding fails at request time."""
+
+    def bind(self, **kwargs):
+        failing = MagicMock()
+        failing.ainvoke = AsyncMock(side_effect=Exception("400: response_format is not supported by this model"))
+        return failing
+
+
+class TestIntentClassifierRobustness:
+    """JSON-enforcement layers: message shape, structured output, corrective retry.
+
+    Regression suite for the misrouting incident where the classifier model
+    answered the user's question in prose instead of emitting routing JSON,
+    and the parse-failure fallback sent a conversational turn down the strict
+    research path.
+    """
+
+    _META_JSON = '{"intent":"meta","research_depth":null,"depth_reasoning":null}'
+
+    @pytest.fixture
+    def mock_llm(self):
+        llm = MagicMock()
+        llm.ainvoke = AsyncMock()
+        return llm
+
+    @pytest.mark.asyncio
+    async def test_final_turn_is_classification_instruction(self, mock_llm):
+        """The last message sent to the LLM must demand the routing JSON, so a
+        chat-tuned model doesn't just continue the replayed conversation."""
+        mock_response = MagicMock()
+        mock_response.content = self._META_JSON
+        mock_llm.ainvoke = AsyncMock(return_value=mock_response)
+
+        classifier = IntentClassifier(llm=mock_llm)
+        state = ChatResearcherState(messages=[HumanMessage(content="what do you need to know to fill that in?")])
+        await classifier.run(state)
+
+        sent_messages = mock_llm.ainvoke.call_args[0][0]
+        assert isinstance(sent_messages[-1], HumanMessage)
+        assert "ONLY the raw JSON" in sent_messages[-1].content
+
+    @pytest.mark.asyncio
+    async def test_prose_response_retried_once_then_parsed(self, mock_llm):
+        """A prose reply triggers exactly one corrective retry; a valid JSON
+        reply on the retry is used for routing."""
+        prose = MagicMock()
+        prose.content = "To fill in the missing details, I need to know the exact building height."
+        json_reply = MagicMock()
+        json_reply.content = self._META_JSON
+        mock_llm.ainvoke = AsyncMock(side_effect=[prose, json_reply])
+
+        classifier = IntentClassifier(llm=mock_llm)
+        state = ChatResearcherState(messages=[HumanMessage(content="what do you need to know?")])
+        result = await classifier.run(state)
+
+        assert result["user_intent"].intent == "meta"
+        assert mock_llm.ainvoke.call_count == 2
+        retry_messages = mock_llm.ainvoke.call_args_list[1][0][0]
+        # The retry quotes the bad reply back and re-demands bare JSON.
+        assert any(isinstance(m, AIMessage) and "building height" in str(m.content) for m in retry_messages)
+        assert "not the required JSON" in retry_messages[-1].content
+
+    @pytest.mark.asyncio
+    async def test_parse_failure_after_retry_falls_back_to_research(self, mock_llm):
+        """Two prose replies exhaust the retry and hit the research/shallow fallback."""
+        prose = MagicMock()
+        prose.content = "Still just chatting, no JSON here."
+        mock_llm.ainvoke = AsyncMock(return_value=prose)
+
+        classifier = IntentClassifier(llm=mock_llm)
+        state = ChatResearcherState(messages=[HumanMessage(content="hi")])
+        result = await classifier.run(state)
+
+        assert mock_llm.ainvoke.call_count == 2
+        assert result["user_intent"].intent == "research"
+        assert result["depth_decision"].decision == "shallow"
+        assert result["depth_decision"].raw_reasoning == "Parse failed"
+
+    @pytest.mark.asyncio
+    async def test_chat_model_gets_structured_output_binding(self):
+        """Real chat models are bound with an OpenAI-style json_schema
+        response_format so the provider enforces the JSON server-side."""
+        _BindSpyChatModel.bind_kwargs.clear()
+        llm = _BindSpyChatModel(responses=[AIMessage(content=self._META_JSON)])
+
+        classifier = IntentClassifier(llm=llm)
+        state = ChatResearcherState(messages=[HumanMessage(content="Hello?")])
+        result = await classifier.run(state)
+
+        assert result["user_intent"].intent == "meta"
+        assert len(_BindSpyChatModel.bind_kwargs) == 1
+        response_format = _BindSpyChatModel.bind_kwargs[0]["response_format"]
+        assert response_format["type"] == "json_schema"
+        assert response_format["json_schema"]["schema"]["properties"]["intent"]["enum"] == ["meta", "research"]
+
+    @pytest.mark.asyncio
+    async def test_structured_output_rejection_falls_back_to_plain_call(self):
+        """Providers that reject response_format degrade to a plain call with
+        prose parsing instead of surfacing an error."""
+        llm = _StructuredRejectingChatModel(responses=[AIMessage(content=self._META_JSON)])
+
+        classifier = IntentClassifier(llm=llm)
+        state = ChatResearcherState(messages=[HumanMessage(content="Hello?")])
+        result = await classifier.run(state)
+
+        assert result["user_intent"].intent == "meta"
