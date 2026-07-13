@@ -206,11 +206,15 @@ def insert_memory_item(
             )
         elif exc.code == 403:
             if _error_code(exc) == "ORG_MEMORY_DISABLED":
-                logger.error(
-                    "Internal memory endpoint denied an agent organization-scoped write "
-                    "(403 ORG_MEMORY_DISABLED) — agent organization-scoped memory is disabled "
-                    "on the frontend. Set GRID_ALLOW_AGENT_ORG_MEMORY=true on the frontend "
-                    "service to allow agent org-wide writes."
+                # Expected default-deny (audit finding S1), not a misconfiguration:
+                # an agent's service token may not write org-wide memory, so the
+                # caller routes the user to the confirmation-card path instead.
+                # Logged at INFO (the caller logs the handled outcome); set
+                # GRID_ALLOW_AGENT_ORG_MEMORY=true on the frontend to let agents
+                # write org-wide directly.
+                logger.info(
+                    "Internal memory endpoint declined an agent organization-scoped write "
+                    "(403 ORG_MEMORY_DISABLED); routing to the user confirmation card"
                 )
                 raise OrgMemoryDisabledError(
                     "agent organization-scoped memory is disabled on the frontend"

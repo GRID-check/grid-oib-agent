@@ -435,10 +435,11 @@ class TestSubmitDeepResearchJob:
         assert result == "test-job-id"
         mock_job_store.submit_job.assert_called_once()
         job_args = mock_job_store.submit_job.call_args.kwargs["job_args"]
-        # data_sources is eighth-to-last (auth_token, collection_scope,
+        # data_sources is tenth-to-last (auth_token, collection_scope,
         # project_context, model_overrides, usage_context, user_info,
-        # clarifier_result follow)
-        assert job_args[-8] == ["web_search"]
+        # clarifier_result, memory_reflection_enabled, memory_reflection_llm
+        # follow)
+        assert job_args[-10] == ["web_search"]
 
     @pytest.mark.asyncio
     async def test_submit_agent_job_passes_user_info_and_clarifier_result(self):
@@ -468,8 +469,10 @@ class TestSubmitDeepResearchJob:
                         )
 
         job_args = mock_job_store.submit_job.call_args.kwargs["job_args"]
-        assert job_args[-2] == {"name": "Ada", "email": "ada@example.com"}
-        assert job_args[-1] == "User confirmed scope: OIB 4 only."
+        # Tail order: ..., user_info, clarifier_result,
+        # memory_reflection_enabled, memory_reflection_llm.
+        assert job_args[-4] == {"name": "Ada", "email": "ada@example.com"}
+        assert job_args[-3] == "User confirmed scope: OIB 4 only."
 
     @pytest.mark.asyncio
     async def test_submit_with_custom_job_id(self):
@@ -1780,4 +1783,180 @@ class TestAsyncJobRunnerAgentFactory:
                 verbose=True,
                 callbacks=["callback"],
                 job_id="job-123",
+            )
+
+
+class TestDeepResearchReflection:
+    """Worker-side memory reflection over a finished deep-research report."""
+
+    @staticmethod
+    def _identity(project_id="proj-1"):
+        return {
+            "identity": {
+                "project_id": project_id,
+                "organization_id": "org-1",
+                "conversation_id": "conv-1",
+            }
+        }
+
+    @pytest.mark.asyncio
+    async def test_reflects_on_successful_report(self):
+        """Enabled + ref + project in scope → reflection runs over the report."""
+        from contextlib import nullcontext
+
+        from aiq_api.jobs.runner import _run_deep_research_reflection
+
+        builder = MagicMock()
+        builder.get_llm = AsyncMock(return_value=MagicMock())
+        report = "R" * 80
+
+        with (
+            patch(
+                "aiq_agent.agents.project_memory.reflection.run_memory_reflection",
+                new=AsyncMock(return_value=["mem-1"]),
+            ) as mock_reflect,
+            patch(
+                "aiq_agent.common.cost_tracking.track_llm_costs",
+                side_effect=lambda **_: nullcontext(),
+            ),
+        ):
+            await _run_deep_research_reflection(
+                builder=builder,
+                job_id="job-1",
+                reflection_llm_ref="card_llm",
+                reflection_enabled=True,
+                query="what beam depth did we settle on?",
+                report=report,
+                usage_context=self._identity(),
+                project_context="existing project memory",
+                org_credential=None,
+                model_overrides=None,
+            )
+
+        builder.get_llm.assert_awaited_once()
+        mock_reflect.assert_awaited_once()
+        kwargs = mock_reflect.await_args.kwargs
+        assert kwargs["answer"] == report
+        assert kwargs["query"] == "what beam depth did we settle on?"
+        assert kwargs["project_id"] == "proj-1"
+        assert kwargs["organization_id"] == "org-1"
+        assert kwargs["conversation_id"] == "conv-1"
+        assert kwargs["memory_digest"] == "existing project memory"
+
+    @pytest.mark.asyncio
+    async def test_skips_when_disabled(self):
+        """Feature flag off → no LLM built, no reflection."""
+        from aiq_api.jobs.runner import _run_deep_research_reflection
+
+        builder = MagicMock()
+        builder.get_llm = AsyncMock()
+
+        with patch(
+            "aiq_agent.agents.project_memory.reflection.run_memory_reflection",
+            new=AsyncMock(),
+        ) as mock_reflect:
+            await _run_deep_research_reflection(
+                builder=builder,
+                job_id="job-1",
+                reflection_llm_ref="card_llm",
+                reflection_enabled=False,
+                query="q",
+                report="R" * 80,
+                usage_context=self._identity(),
+                project_context="mem",
+                org_credential=None,
+                model_overrides=None,
+            )
+
+        builder.get_llm.assert_not_awaited()
+        mock_reflect.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_skips_without_llm_ref(self):
+        """No reflection LLM configured → no-op."""
+        from aiq_api.jobs.runner import _run_deep_research_reflection
+
+        builder = MagicMock()
+        builder.get_llm = AsyncMock()
+
+        with patch(
+            "aiq_agent.agents.project_memory.reflection.run_memory_reflection",
+            new=AsyncMock(),
+        ) as mock_reflect:
+            await _run_deep_research_reflection(
+                builder=builder,
+                job_id="job-1",
+                reflection_llm_ref=None,
+                reflection_enabled=True,
+                query="q",
+                report="R" * 80,
+                usage_context=self._identity(),
+                project_context="mem",
+                org_credential=None,
+                model_overrides=None,
+            )
+
+        builder.get_llm.assert_not_awaited()
+        mock_reflect.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_skips_without_project_scope(self):
+        """Org-only job (no project) → reflection has nothing it may write."""
+        from aiq_api.jobs.runner import _run_deep_research_reflection
+
+        builder = MagicMock()
+        builder.get_llm = AsyncMock()
+
+        with patch(
+            "aiq_agent.agents.project_memory.reflection.run_memory_reflection",
+            new=AsyncMock(),
+        ) as mock_reflect:
+            await _run_deep_research_reflection(
+                builder=builder,
+                job_id="job-1",
+                reflection_llm_ref="card_llm",
+                reflection_enabled=True,
+                query="q",
+                report="R" * 80,
+                usage_context=self._identity(project_id=None),
+                project_context="mem",
+                org_credential=None,
+                model_overrides=None,
+            )
+
+        builder.get_llm.assert_not_awaited()
+        mock_reflect.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_never_raises_on_reflection_failure(self):
+        """A reflection failure is swallowed — job outcome is unaffected."""
+        from contextlib import nullcontext
+
+        from aiq_api.jobs.runner import _run_deep_research_reflection
+
+        builder = MagicMock()
+        builder.get_llm = AsyncMock(return_value=MagicMock())
+
+        with (
+            patch(
+                "aiq_agent.agents.project_memory.reflection.run_memory_reflection",
+                new=AsyncMock(side_effect=RuntimeError("boom")),
+            ),
+            patch(
+                "aiq_agent.common.cost_tracking.track_llm_costs",
+                side_effect=lambda **_: nullcontext(),
+            ),
+        ):
+            # Must not raise.
+            await _run_deep_research_reflection(
+                builder=builder,
+                job_id="job-1",
+                reflection_llm_ref="card_llm",
+                reflection_enabled=True,
+                query="q",
+                report="R" * 80,
+                usage_context=self._identity(),
+                project_context="mem",
+                org_credential=None,
+                model_overrides=None,
             )

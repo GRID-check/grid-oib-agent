@@ -244,6 +244,56 @@ class TestChatResearcherAgent:
         assert result is not None
 
     @pytest.mark.asyncio
+    async def test_meta_intent_with_deep_depth_stays_shallow(
+        self,
+        mock_shallow_research,
+        mock_deep_research,
+        mock_clarifier,
+    ):
+        """A meta turn (e.g. a memory/`remember` request) must route to the
+        shallow agent — which owns the `remember` tool — even when the depth
+        classifier says "deep". Regression for memory requests being misrouted
+        into a deep-research job that lacks `remember`."""
+
+        async def meta_deep_classifier(state):
+            return {
+                "user_intent": IntentResult(intent="meta", raw=None),
+                "depth_decision": DepthDecision(
+                    decision="deep",
+                    raw_reasoning="Phrasing looked comprehensive",
+                ),
+            }
+
+        deep_called = False
+
+        async def tracking_deep(state):
+            nonlocal deep_called
+            deep_called = True
+            result = MagicMock()
+            result.messages = list(state.messages) + [
+                AIMessage(content="Here's a comprehensive report."),
+            ]
+            return result
+
+        agent = ChatResearcherAgent(
+            intent_classifier_fn=meta_deep_classifier,
+            shallow_research_fn=mock_shallow_research,
+            deep_research_fn=tracking_deep,
+            clarifier_fn=mock_clarifier,
+        )
+
+        state = ChatResearcherState(
+            messages=[HumanMessage(content="Remember for the whole org: the firm is Grid and Partners")],
+        )
+        result = await agent.run(state, thread_id="test-thread")
+
+        assert result is not None
+        assert deep_called is False, "meta turn must not reach deep research"
+        contents = [m.content for m in result["messages"] if isinstance(m, AIMessage)]
+        assert any("quick answer" in c for c in contents), "shallow agent should have answered"
+        assert not any("comprehensive report" in c for c in contents)
+
+    @pytest.mark.asyncio
     async def test_run_with_empty_messages(
         self,
         mock_intent_classifier,

@@ -265,6 +265,8 @@ async def run_agent_job(
     usage_context: dict | None = None,
     user_info: dict | None = None,
     clarifier_result: str | None = None,
+    memory_reflection_enabled: bool = False,
+    memory_reflection_llm: str | None = None,
 ):
     """
     Dask task to run any registered agent with cancellation support and telemetry.
@@ -314,6 +316,16 @@ async def run_agent_job(
             agent state so prompts render the authenticated-user context.
         clarifier_result: Optional clarifier dialog log forwarded onto the
             agent state so prompts render the Clarification Context section.
+        memory_reflection_enabled: Whether the post-answer memory-reflection
+            stage should run over this job's report. Captured from the
+            submitting request's feature flag (the worker has no live request to
+            read it from). Only honored for jobs that also supply
+            ``memory_reflection_llm``.
+        memory_reflection_llm: Optional ``llms:`` ref (e.g. ``card_llm``) for the
+            reflection pass. When set (and enabled), the worker reflects over the
+            finished report to record durable project findings — the chat path
+            skips reflection for deep jobs because the report only exists once
+            the async job completes.
     """
 
     # Propagate auth token into the current async task's context so tools
@@ -407,11 +419,15 @@ async def run_agent_job(
             # at submit time inside usage_context; resolution fails open to
             # the platform credential.
             _byok_org_id = ((usage_context or {}).get("identity") or {}).get("organization_id")
+            # Captured for the post-job reflection pass, which builds its own LLM
+            # outside the provider and must re-apply the same tenant credential.
+            resolved_org_credential = None
             if _byok_org_id:
                 from aiq_agent.common import LLMRole
                 from aiq_agent.common import resolve_org_llm_credential
 
                 org_credential = resolve_org_llm_credential(_byok_org_id)
+                resolved_org_credential = org_credential
                 if org_credential is not None:
                     credentialed = provider.with_credential(org_credential)
                     if credentialed is not provider:
@@ -658,6 +674,24 @@ async def run_agent_job(
                             agent_event_callback.emit_final_report(report, cards=cards)
                         except Exception:
                             logger.warning("Job %s: failed to emit final report with cards (non-fatal)", job_id)
+
+                    # Capture durable project findings from the finished report.
+                    # The chat path runs this post-answer for shallow/meta turns
+                    # but skips deep jobs (the report exists only now). Awaited,
+                    # guarded, and fail-open — the user already has the report, so
+                    # this never affects the job outcome, only its bookkeeping.
+                    await _run_deep_research_reflection(
+                        builder=builder,
+                        job_id=job_id,
+                        reflection_llm_ref=memory_reflection_llm,
+                        reflection_enabled=memory_reflection_enabled,
+                        query=input_text,
+                        report=report,
+                        usage_context=usage_context,
+                        project_context=project_context,
+                        org_credential=resolved_org_credential,
+                        model_overrides=model_overrides,
+                    )
 
                     # Flush any buffered events before updating status
                     if hasattr(event_store, "flush"):
@@ -955,6 +989,73 @@ async def _generate_grid_cards(llm: Any, query: str, report: str) -> list[dict] 
     except Exception as e:
         logger.warning("Grid card generation failed (non-fatal): %s", e)
         return None
+
+
+async def _run_deep_research_reflection(
+    *,
+    builder: Any,
+    job_id: str,
+    reflection_llm_ref: str | None,
+    reflection_enabled: bool,
+    query: str,
+    report: str,
+    usage_context: dict | None,
+    project_context: str | None,
+    org_credential: Any,
+    model_overrides: dict[str, str] | None,
+) -> None:
+    """Best-effort project-memory reflection over a finished deep-research report.
+
+    The synchronous chat path runs a post-answer reflection stage for
+    shallow/meta turns but deliberately skips deep-research jobs (see
+    chat_researcher/register.py, ``not deep_research_job_id``) because the report
+    does not exist until the async job completes. This closes that gap on the
+    worker, where the report and the submitting identity are both in hand.
+
+    Unlike the chat path this is AWAITED, not fire-and-forget: the report has
+    already been delivered to the user, and awaiting keeps the builder-owned LLM
+    client alive until reflection finishes (the ``async with WorkflowBuilder``
+    context is still open at the call site). It only ever delays the job's
+    SUCCESS bookkeeping, never the answer, and never raises — reflection is a
+    safety net, not part of the job contract.
+    """
+    if not reflection_enabled or not reflection_llm_ref or not report:
+        return
+    identity = (usage_context or {}).get("identity") or {}
+    project_id = identity.get("project_id")
+    if not project_id:
+        # The autonomous reflection stage only writes project-scoped memory
+        # (audit finding S1); an org-only job has nothing it may safely record.
+        return
+    try:
+        from aiq_agent.agents.project_memory.reflection import run_memory_reflection
+        from aiq_agent.common import AgentGroup
+        from aiq_agent.common import apply_model_override
+        from aiq_agent.common import apply_org_credential
+        from aiq_agent.common import sanitize_model_overrides
+        from aiq_agent.common.cost_tracking import BudgetSnapshot
+        from aiq_agent.common.cost_tracking import track_llm_costs
+        from nat.builder.framework_enum import LLMFrameworkEnum
+
+        reflection_llm = await builder.get_llm(reflection_llm_ref, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
+        overrides = sanitize_model_overrides(model_overrides) if model_overrides else None
+        reflection_llm = apply_model_override(reflection_llm, AgentGroup.MEMORY_REFLECTION, overrides)
+        # Explicit credential (not context): a Dask worker has no live request,
+        # so the org key resolved at build time is passed directly.
+        reflection_llm = apply_org_credential(reflection_llm, org_credential)
+
+        with track_llm_costs(job_id=job_id, identity=identity, budget=BudgetSnapshot()):
+            await run_memory_reflection(
+                llm=reflection_llm,
+                query=query,
+                answer=report,
+                project_id=project_id,
+                organization_id=identity.get("organization_id"),
+                conversation_id=identity.get("conversation_id"),
+                memory_digest=project_context,
+            )
+    except Exception:
+        logger.warning("Job %s: deep-research memory reflection failed (non-fatal)", job_id, exc_info=True)
 
 
 def _extract_result(result: Any) -> str:

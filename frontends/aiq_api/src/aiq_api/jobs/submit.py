@@ -229,6 +229,8 @@ async def submit_agent_job(
     usage_context: dict | None = None,
     user_info: dict | None = None,
     clarifier_result: str | None = None,
+    memory_reflection_enabled: bool = False,
+    memory_reflection_llm: str | None = None,
 ) -> str:
     """
     Submit an agent job to the Dask cluster.
@@ -260,6 +262,12 @@ async def submit_agent_job(
         clarifier_result: Optional clarifier dialog log set on the agent state
             so worker-side prompts render the structured Clarification Context
             section, matching the synchronous chat path.
+        memory_reflection_enabled: Whether the worker should run the post-answer
+            memory-reflection stage over the finished report. Captured from the
+            submitting request's feature flag (the worker cannot read it).
+        memory_reflection_llm: Optional ``llms:`` ref for the reflection pass
+            (e.g. ``card_llm``). When set and enabled, the worker records durable
+            project findings from the completed report.
 
     Returns:
         The job ID.
@@ -413,6 +421,8 @@ async def submit_agent_job(
                 usage_context,
                 user_info,
                 clarifier_result,
+                memory_reflection_enabled,
+                memory_reflection_llm,
             ],
         )
         await loop.run_in_executor(
