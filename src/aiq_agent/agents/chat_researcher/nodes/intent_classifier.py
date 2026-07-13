@@ -25,6 +25,7 @@ from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage
 from langchain_core.messages import BaseMessage
+from langchain_core.messages import HumanMessage
 from langchain_core.messages import SystemMessage
 
 from aiq_agent.common import extract_json
@@ -44,6 +45,44 @@ _LLM_UNAVAILABLE_MESSAGE = (
     "Please check your LLM API key and that the configured model is available for your account."
 )
 _LLM_TIMEOUT_MESSAGE = "The model service took too long to respond and the request timed out. "
+
+# Appended as the final turn of the classification request. With the raw
+# conversation replayed as real chat turns, a chat-tuned model's strongest pull
+# is to keep conversing and answer the user's question instead of classifying
+# it — this makes "emit the routing JSON" the most recent instruction it sees.
+_CLASSIFY_NOW_INSTRUCTION = (
+    "Classify the user's most recent question (shown as USER QUERY in the system prompt above). "
+    "Respond with ONLY the raw JSON object — no prose, no markdown, no code fences."
+)
+
+_JSON_RETRY_INSTRUCTION = (
+    "That response was not the required JSON. Respond again with ONLY the raw JSON object "
+    '({"intent": ..., "research_depth": ..., "depth_reasoning": ...}) — nothing else.'
+)
+
+# OpenAI-style structured-output request, supported by OpenRouter and other
+# OpenAI-compatible gateways. Providers that don't support json_schema either
+# silently ignore the parameter (prose parsing still applies) or reject the
+# request (handled by the plain-call fallback in _ainvoke_classifier).
+_INTENT_RESPONSE_FORMAT = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "intent_classification",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "properties": {
+                "intent": {"type": "string", "enum": ["meta", "research"]},
+                "research_depth": {
+                    "anyOf": [{"type": "string", "enum": ["shallow", "deep"]}, {"type": "null"}],
+                },
+                "depth_reasoning": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+            },
+            "required": ["intent", "research_depth", "depth_reasoning"],
+            "additionalProperties": False,
+        },
+    },
+}
 
 
 def _is_llm_api_unavailable(err: BaseException) -> bool:
@@ -80,6 +119,39 @@ class IntentClassifier:
         self.callbacks = callbacks or []
         self.max_history = max_history
         self.llm_timeout = llm_timeout
+
+    async def _ainvoke_classifier(
+        self,
+        llm: Any,
+        messages: list[BaseMessage],
+        config: dict[str, Any],
+    ) -> Any:
+        """Invoke the classifier LLM, enforcing JSON via structured output when possible.
+
+        Chat models get a request-scoped ``response_format`` binding so
+        OpenAI-compatible providers enforce the JSON schema server-side. If the
+        provider rejects the parameter, fall back to a plain call and rely on
+        prose parsing. Timeouts and unreachable-API errors propagate to the
+        caller's handlers either way.
+        """
+        if isinstance(llm, BaseChatModel):
+            try:
+                structured = llm.bind(response_format=_INTENT_RESPONSE_FORMAT)
+                return await asyncio.wait_for(
+                    structured.ainvoke(messages, config=config),
+                    timeout=self.llm_timeout,
+                )
+            except Exception as e:
+                if _is_timeout_error(e) or _is_llm_api_unavailable(e):
+                    raise
+                logger.warning(
+                    "Structured-output classification failed (%s); retrying without response_format",
+                    str(e).split("\n")[0],
+                )
+        return await asyncio.wait_for(
+            llm.ainvoke(messages, config=config),
+            timeout=self.llm_timeout,
+        )
 
     def _load_default_prompt(self) -> str:
         try:
@@ -129,7 +201,11 @@ class IntentClassifier:
             project_context=state.project_context,
         )
         trimmed_conversation = trim_message_history(list(state.messages), max_tokens=self.max_history)
-        messages: list[BaseMessage] = [SystemMessage(content=system_content)] + trimmed_conversation
+        messages: list[BaseMessage] = (
+            [SystemMessage(content=system_content)]
+            + trimmed_conversation
+            + [HumanMessage(content=_CLASSIFY_NOW_INSTRUCTION)]
+        )
 
         try:
             config = {"callbacks": self.callbacks} if self.callbacks else {}
@@ -141,15 +217,28 @@ class IntentClassifier:
             from aiq_agent.common import apply_org_credential
 
             llm = apply_org_credential(apply_model_override(self.llm, AgentGroup.INTENT))
-            response = await asyncio.wait_for(
-                llm.ainvoke(messages, config=config),
-                timeout=self.llm_timeout,
-            )
+            response = await self._ainvoke_classifier(llm, messages, config)
 
             response_text = (response.content or "").strip()
             parsed = extract_json(response_text)
 
             if not parsed or not isinstance(parsed, dict):
+                # One corrective retry before giving up: quote the bad reply
+                # back and demand bare JSON. Misparsing here misroutes the turn
+                # (the fallback below is research + strict citation contract),
+                # so a second LLM round-trip is cheaper than a wrong route.
+                retry_messages = messages + [
+                    AIMessage(content=response_text),
+                    HumanMessage(content=_JSON_RETRY_INSTRUCTION),
+                ]
+                response = await self._ainvoke_classifier(llm, retry_messages, config)
+                parsed = extract_json((response.content or "").strip())
+
+            if not parsed or not isinstance(parsed, dict):
+                logger.warning(
+                    "Intent classification returned no parseable JSON after retry; "
+                    "defaulting to research/shallow",
+                )
                 return {
                     "user_intent": IntentResult(intent="research", raw=None),
                     "depth_decision": DepthDecision(decision="shallow", raw_reasoning="Parse failed"),

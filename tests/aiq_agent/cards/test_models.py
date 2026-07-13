@@ -3,7 +3,47 @@
 
 """Tests for Grid card models."""
 
+from aiq_agent.cards.models import MemoryProposalCard
+from aiq_agent.cards.models import grid_card_adapter
 from aiq_agent.cards.models import validate_cards
+
+
+class TestMemoryProposalCard:
+    """The system-emitted memory_proposal card validates and routes correctly."""
+
+    def test_validates_with_defaults(self):
+        card = MemoryProposalCard(
+            type="memory_proposal",
+            title="Save this finding?",
+            content="The client requires all facades to be non-combustible.",
+            kind="constraint",
+        )
+        assert card.confidence == "medium"
+
+    def test_adapter_routes_type(self):
+        raw = {
+            "type": "memory_proposal",
+            "title": "Save this finding?",
+            "content": "The firm always uses REI 90 for GK4.",
+            "kind": "preference",
+            "confidence": "high",
+        }
+        validated = grid_card_adapter.validate_python(raw)
+        assert isinstance(validated, MemoryProposalCard)
+        assert validated.kind == "preference"
+        assert validated.confidence == "high"
+
+    def test_validate_cards_accepts_it(self):
+        raw = [
+            {
+                "type": "memory_proposal",
+                "title": "Save this finding?",
+                "content": "The site is in a Schutzzone.",
+                "kind": "derived_fact",
+            }
+        ]
+        # The default confidence is filled in on validation.
+        assert validate_cards(raw) == [{**raw[0], "confidence": "medium"}]
 
 
 class TestValidateCards:

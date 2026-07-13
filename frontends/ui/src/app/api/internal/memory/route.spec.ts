@@ -132,6 +132,10 @@ describe('POST /api/internal/memory', () => {
     )
 
     expect(response.status).toBe(403)
+    // Distinct machine-readable code so the backend does not mislabel this
+    // deliberate default-deny as a GRID_INTERNAL_API_TOKEN mismatch.
+    const body = await response.json()
+    expect(body.code).toBe('ORG_MEMORY_DISABLED')
     expect(organizationExists).not.toHaveBeenCalled()
     expect(createProjectMemoryItem).not.toHaveBeenCalled()
   })

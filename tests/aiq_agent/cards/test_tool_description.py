@@ -7,6 +7,7 @@ the worked examples must stay valid against the live card models.
 
 import pytest
 
+from aiq_agent.cards.catalog import SYSTEM_CARD_TYPES
 from aiq_agent.cards.models import GridCard
 from aiq_agent.cards.models import grid_card_adapter
 from aiq_agent.cards.register import _CARD_EXAMPLES
@@ -18,11 +19,41 @@ _CARD_TYPES = [
 ]
 
 
+# Card types deliberately shipped WITHOUT a worked example — flat/simple shapes
+# the model reliably produces from the one-line shape spec alone. Adding a new
+# card type forces a choice: give it an example or list it here (see coverage
+# test below), so a hard-to-nest type can't slip in with no guidance.
+_EXAMPLE_EXEMPT = {
+    "summary",
+    "legal_basis",
+    "stair_diagram",
+    "dimension_diagram",
+    "setback_plan",
+    "egress_diagram",
+    "guardrail_check",
+    "density_check",
+    "fire_access_plan",
+    "acoustic_check",
+    "energy_performance",
+    "elevator_requirement",
+    # System-emitted (by the remember tool); never advertised to the model, so it
+    # ships without a worked example on purpose.
+    "memory_proposal",
+}
+
+
 class TestWorkedExamples:
     @pytest.mark.parametrize("card_type", list(_CARD_EXAMPLES))
     def test_example_validates(self, card_type):
         # A drifted example would teach the model the wrong shape — fail loudly.
         grid_card_adapter.validate_python(_CARD_EXAMPLES[card_type])
+
+    def test_every_card_type_has_example_or_is_exempt(self):
+        # A new card type must not silently ship with neither an example nor a
+        # deliberate exemption.
+        documented = set(_CARD_EXAMPLES) | _EXAMPLE_EXEMPT
+        missing = [t for t in _CARD_TYPES if t not in documented]
+        assert not missing, f"New card type(s) need a worked example or an _EXAMPLE_EXEMPT entry: {missing}"
 
 
 class TestToolDescription:
@@ -32,7 +63,17 @@ class TestToolDescription:
     def test_lists_every_card_type(self):
         desc = _build_tool_description()
         for card_type in _CARD_TYPES:
+            if card_type in SYSTEM_CARD_TYPES:
+                continue
             assert f'"{card_type}"' in desc
+
+    def test_system_cards_are_not_advertised(self):
+        # System cards (memory_proposal) must not appear in the model-facing tool
+        # description — the model must never be able to fabricate them.
+        desc = _build_tool_description()
+        for card_type in SYSTEM_CARD_TYPES:
+            assert f'"{card_type}"' not in desc
+        assert "memory_proposal" not in desc
 
     def test_expands_nested_building_blocks(self):
         # The whole point: nested object shapes must be spelled out, not hidden

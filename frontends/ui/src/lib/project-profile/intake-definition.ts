@@ -443,6 +443,98 @@ export function labelForProfileKey(definition: ProjectIntakeDefinition, key: str
   return humanizeProfileKey(key)
 }
 
+/**
+ * Server-side vocabulary validation (defense-in-depth for the profile-patch
+ * flow): reject add/replace operations whose value violates the intake
+ * question that owns the key — a single-select value outside its options, a
+ * non-boolean for a boolean fact, a non-number for a number fact, etc. Keys no
+ * intake question covers pass (the model legitimately records novel facts), and
+ * `remove` operations always pass. Throws an Error naming the field and the
+ * offending value; callers map that to a 400.
+ *
+ * Lives here (not in patch-engine) because intake-definition already imports
+ * patch-engine — the reverse edge would create an import cycle.
+ */
+export function validateProfilePatchVocabulary(patch: ProjectProfilePatchOperation[]): void {
+  for (const operation of patch) {
+    if (operation.op === 'remove') continue
+    const key = extractVocabKey(operation.path)
+    if (!key) continue
+    const question = questionForKey(key)
+    if (!question) continue
+    assertVocabulary(question, unwrapPatchValue(operation.value))
+  }
+}
+
+/** `/facts/<key>`, `/facts/<key>/value`, `/assumptions/...` (+ /value), `/goals/<key>`. */
+function extractVocabKey(path: string): string | null {
+  const parts = path.split('/')
+  const section = parts[1]
+  if (section === 'facts' || section === 'assumptions' || section === 'goals') {
+    if (parts.length === 3 && parts[2] && parts[2] !== '-') return decodeVocabSegment(parts[2])
+    if (section !== 'goals' && parts.length === 4 && parts[3] === 'value' && parts[2] && parts[2] !== '-') {
+      return decodeVocabSegment(parts[2])
+    }
+  }
+  return null
+}
+
+function questionForKey(key: string): ProjectIntakeQuestion | undefined {
+  return flattenIntakeQuestions(projectIntakeDefinitionV1).find(
+    (question) => resolveWriteTarget(question.writesTo)?.key === key,
+  )
+}
+
+/** A patch value may be bare ("GK4") or already shaped ({ value: "GK4", ... }). */
+function unwrapPatchValue(value: unknown): unknown {
+  if (value !== null && typeof value === 'object' && !Array.isArray(value) && 'value' in value) {
+    return (value as Record<string, unknown>).value
+  }
+  return value
+}
+
+function assertVocabulary(question: ProjectIntakeQuestion, value: unknown): void {
+  const label = question.label
+  const shown = JSON.stringify(value)
+  switch (question.type) {
+    case 'single_select': {
+      if (typeof value !== 'string' || !question.options?.some((option) => option.value === value)) {
+        throw new Error(`Invalid value for "${label}": ${shown} is not an allowed option.`)
+      }
+      return
+    }
+    case 'multi_select': {
+      const allowed = new Set(question.options?.map((option) => option.value) ?? [])
+      if (!Array.isArray(value) || !value.every((item) => typeof item === 'string' && allowed.has(item))) {
+        throw new Error(`Invalid value for "${label}": ${shown} is not a subset of the allowed options.`)
+      }
+      return
+    }
+    case 'boolean': {
+      if (typeof value !== 'boolean') {
+        throw new Error(`Invalid value for "${label}": expected true or false, got ${shown}.`)
+      }
+      return
+    }
+    case 'number': {
+      if (typeof value !== 'number' || !Number.isFinite(value)) {
+        throw new Error(`Invalid value for "${label}": expected a number, got ${shown}.`)
+      }
+      return
+    }
+    case 'text': {
+      if (typeof value !== 'string') {
+        throw new Error(`Invalid value for "${label}": expected text, got ${shown}.`)
+      }
+      return
+    }
+  }
+}
+
+function decodeVocabSegment(segment: string): string {
+  return segment.replaceAll('~1', '/').replaceAll('~0', '~')
+}
+
 /** Human-readable rendering of a single answer, using option labels where available. */
 export function formatIntakeAnswer(
   question: ProjectIntakeQuestion,

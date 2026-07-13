@@ -42,6 +42,8 @@ export const elevatorRequirementCardSchema = z.object({ "cabin_depth": z.union([
 
 export const parkingRequirementCardSchema = z.object({ "basis": z.union([z.string(), z.null()]).describe("How the requirement is derived, e.g. '1 Stpl. je 100 m² BGF'").default(null), "bicycle_spaces": z.union([z.any(), z.null()]).describe("Provided vs required Fahrradabstellplätze").default(null), "car_spaces": z.any().describe("Provided vs required Kfz-Stellplätze (comparator '>=')"), "note": z.union([z.string(), z.null()]).describe("Optional clarification").default(null), "reference": z.any().describe("Source of the parking requirement (Bauordnung / StPl-VO)"), "title": z.string().min(1).describe("Title, e.g. 'Stellplatznachweis – Wohnbau'"), "type": z.literal("parking_requirement") }).describe("A parking-provision (Stellplatznachweis) card: required vs provided count.\n\nEmit for Stellplatz / Fahrradabstellplatz questions (Bauordnung /\nStellplatzverordnung). Draws a slot grid — outline slots for the required\ncount, filled for those provided — and reads provided against the required\nminimum for cars and, optionally, bicycles.")
 
+export const memoryProposalCardSchema = z.object({ "confidence": z.enum(["low","medium","high"]).default("medium"), "content": z.string().min(1).describe("The finding to remember (shown to the user verbatim)"), "kind": z.enum(["decision","constraint","open_question","derived_fact","preference"]), "title": z.string().min(1).describe("Short title for the memory proposal"), "type": z.literal("memory_proposal") }).describe("A proposal to save a finding to long-term memory, confirmed by the user.\n\nSystem-emitted by the `remember` tool when an org-scoped write needs human\nauthorization; the user chooses org-wide or project scope and the write goes\nthrough their authenticated session.")
+
 export const acousticCheckItemSchema = z.object({ "check": z.any().describe("Measured vs required in dB (comparator differs by metric)"), "metric": z.enum(["DnTw","LnTw","Rw_res"]).describe("Airborne / impact / resulting metric"), "path_label": z.string().min(1).describe("What is separated, e.g. 'Wohnungstrennwand Top 3/Top 4'"), "reference": z.any().describe("Source of the dB limit (OIB 5 / ÖNORM B 8115-2)") }).describe("One sound-insulation check between two building parts.")
 
 export const aufstellflaechePlanSchema = z.object({ "distance_to_facade": z.union([z.any(), z.null()]).describe("Distance to the facade (m)").default(null), "length": z.any().describe("Aufstellfläche length (m)"), "width": z.any().describe("Aufstellfläche width (m)") }).describe("The fire-brigade Aufstellfläche geometry.")
@@ -93,4 +95,5 @@ export const gridCardSchema = z.discriminatedUnion('type', [
   energyPerformanceCardSchema,
   elevatorRequirementCardSchema,
   parkingRequirementCardSchema,
+  memoryProposalCardSchema,
 ])

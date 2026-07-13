@@ -120,3 +120,36 @@ class TestEmitCardBody:
             reset_card_registry(token)
         assert "will be shown" in msg
         assert len(reg.snapshot()) == 1
+
+
+class TestEmitCardRejectsSystemCards:
+    """The real emit_card tool must refuse to emit a system-only card type."""
+
+    @pytest.mark.asyncio
+    async def test_memory_proposal_is_rejected(self):
+        from unittest.mock import MagicMock
+
+        from aiq_agent.cards.register import EmitCardConfig
+        from aiq_agent.cards.register import emit_card
+
+        reg = get_or_create_card_registry("conv-emit-system")
+        reg.clear()
+        token = set_card_registry(reg)
+        payload = json.dumps(
+            {
+                "type": "memory_proposal",
+                "title": "Save this finding?",
+                "content": "The firm always uses REI 90 for GK4.",
+                "kind": "preference",
+            }
+        )
+        try:
+            async with emit_card(EmitCardConfig(), MagicMock()) as info:
+                msg = await info.single_fn(card_json=payload)
+        finally:
+            reset_card_registry(token)
+        # It validated as a real union member but was rejected as system-emitted.
+        assert msg.startswith("Error")
+        assert "system-emitted" in msg
+        # Nothing was added to the registry.
+        assert reg.snapshot() == []

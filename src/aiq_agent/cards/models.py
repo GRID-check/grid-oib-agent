@@ -106,6 +106,20 @@ class ProjectProfilePatchCard(BaseModel):
     )
 
 
+class MemoryProposalCard(BaseModel):
+    """A proposal to save a finding to long-term memory, confirmed by the user.
+
+    System-emitted by the `remember` tool when an org-scoped write needs human
+    authorization; the user chooses org-wide or project scope and the write goes
+    through their authenticated session."""
+
+    type: Literal["memory_proposal"]
+    title: str = Field(min_length=1, description="Short title for the memory proposal")
+    content: str = Field(min_length=1, description="The finding to remember (shown to the user verbatim)")
+    kind: Literal["decision", "constraint", "open_question", "derived_fact", "preference"]
+    confidence: Literal["low", "medium", "high"] = Field(default="medium")
+
+
 # ── Schematic cards: shared sub-structures ───────────────────────────────────
 # These cards are programmatically-drawn technical schematics (SVG). The model
 # emits PARAMETERS ONLY — never a rendered image and never a number it can't
@@ -605,12 +619,11 @@ GridCard = (
     | EnergyPerformanceCard
     | ElevatorRequirementCard
     | ParkingRequirementCard
+    | MemoryProposalCard
 )
 
-# Discriminated-union adapter. ``grid_card_adapter`` is the canonical public name;
-# ``_grid_card_adapter`` is retained as a backwards-compatible alias.
+# Discriminated-union adapter — the canonical validator for a raw card dict.
 grid_card_adapter = TypeAdapter(Annotated[GridCard, Field(discriminator="type")])
-_grid_card_adapter = grid_card_adapter
 
 __all__ = [
     "ChecklistItem",
@@ -618,6 +631,7 @@ __all__ = [
     "ComparisonTableCard",
     "GridCard",
     "LegalBasisCard",
+    "MemoryProposalCard",
     "ProjectProfilePatchCard",
     "ProjectProfilePatchOperation",
     "ProjectProfilePatchPreviewItem",
@@ -641,7 +655,7 @@ def validate_cards(raw: list[dict]) -> list[dict]:
     validated: list[dict] = []
     for item in raw:
         try:
-            validated.append(_grid_card_adapter.validate_python(item).model_dump(exclude_none=True))
+            validated.append(grid_card_adapter.validate_python(item).model_dump(exclude_none=True))
         except Exception as exc:
             logger.warning(
                 "Dropping invalid card (type=%s): %s",

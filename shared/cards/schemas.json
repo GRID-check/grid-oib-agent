@@ -1393,6 +1393,57 @@
       "title": "LegalBasisCard",
       "type": "object"
     },
+    "MemoryProposalCard": {
+      "description": "A proposal to save a finding to long-term memory, confirmed by the user.\n\nSystem-emitted by the `remember` tool when an org-scoped write needs human\nauthorization; the user chooses org-wide or project scope and the write goes\nthrough their authenticated session.",
+      "properties": {
+        "confidence": {
+          "default": "medium",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "title": "Confidence",
+          "type": "string"
+        },
+        "content": {
+          "description": "The finding to remember (shown to the user verbatim)",
+          "minLength": 1,
+          "title": "Content",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "decision",
+            "constraint",
+            "open_question",
+            "derived_fact",
+            "preference"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "title": {
+          "description": "Short title for the memory proposal",
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "memory_proposal",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "title",
+        "content",
+        "kind"
+      ],
+      "title": "MemoryProposalCard",
+      "type": "object"
+    },
     "NormReference": {
       "description": "A verifiable pointer into a regulation (the atom of grounding).\n\nEvery required value MUST carry one so the architect can verify it against\nthe source. Never fabricate a reference.",
       "properties": {
@@ -2058,6 +2109,7 @@
       "fire_compartment": "#/$defs/FireCompartmentCard",
       "guardrail_check": "#/$defs/GuardrailCheckCard",
       "legal_basis": "#/$defs/LegalBasisCard",
+      "memory_proposal": "#/$defs/MemoryProposalCard",
       "parking_requirement": "#/$defs/ParkingRequirementCard",
       "project_profile_patch": "#/$defs/ProjectProfilePatchCard",
       "requirement_checklist": "#/$defs/RequirementChecklistCard",
@@ -2128,6 +2180,9 @@
     },
     {
       "$ref": "#/$defs/ParkingRequirementCard"
+    },
+    {
+      "$ref": "#/$defs/MemoryProposalCard"
     }
   ]
 }

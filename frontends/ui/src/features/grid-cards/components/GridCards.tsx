@@ -3,6 +3,7 @@ import type { GridCard } from '@/shared/cards/schemas'
 import { SummaryCard } from './SummaryCard'
 import { LegalBasisCard } from './LegalBasisCard'
 import { ProjectProfilePatchCard } from './ProjectProfilePatchCard'
+import { MemoryProposalCard } from './MemoryProposalCard'
 import { RequirementChecklistCard } from './RequirementChecklistCard'
 import { ComparisonTableCard } from './ComparisonTableCard'
 import { BuildingSectionCard } from '../schematics/BuildingSectionCard'
@@ -336,9 +337,21 @@ export const GridCards: FC<GridCardsProps> = ({ cards, projectId }) => {
               <ProjectProfilePatchCard
                 title={card.title || ''}
                 rationale={card.rationale || ''}
-                preview={card.preview || []}
                 patch={card.patch || []}
                 projectId={projectId}
+              />
+            </FadeIn>
+          )
+        }
+
+        if (card.type === 'memory_proposal') {
+          return (
+            <FadeIn key={key} distance={6}>
+              <MemoryProposalCard
+                title={card.title}
+                content={card.content}
+                kind={card.kind}
+                confidence={card.confidence}
               />
             </FadeIn>
           )
