@@ -97,6 +97,15 @@ export const organization = {
     storageVaultNote: 'New keys are stored encrypted in WorkOS Vault under your organization’s key context.',
     storageLocalNote: 'New keys are stored encrypted with this deployment’s local key.',
     activeBadge: 'Active',
+    standbyBadge: 'Stored, not in use',
+    modeTitle: 'Use your own key',
+    modeByokHint:
+      'Research traffic runs on your key and is billed to your provider account. The model picker lists your provider’s models.',
+    modePlatformHint:
+      'Research traffic runs on the Grid platform service. Your key stays stored securely and can be re-enabled anytime.',
+    modeByokSet: 'Switched to your own key — new conversations use it within a minute.',
+    modePlatformSet: 'Switched to the Grid platform service — your key is kept but not used.',
+    modeError: 'Could not change the provider mode.',
     keyLabel: 'Key',
     storageLabel: 'Storage',
     storageVault: 'WorkOS Vault (per-org encryption)',

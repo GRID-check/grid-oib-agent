@@ -14,14 +14,24 @@ import { apiRoute, parseJsonBody } from '@/lib/api/handler'
 import { ORG_PERMISSIONS } from '@/lib/authz/permissions'
 import { FEATURE_FLAGS, requireFeature } from '@/lib/authz/feature-flags'
 import { LLM_CREDENTIAL_PROVIDERS } from '@/lib/llm-credentials/providers'
-import { activeSecretBackend, createCredential, listOrgCredentials } from '@/lib/llm-credentials/service'
+import {
+  activeSecretBackend,
+  createCredential,
+  getLlmProviderMode,
+  listOrgCredentials,
+} from '@/lib/llm-credentials/service'
 
 export const GET = apiRoute(
   async ({ session }) => {
     const gated = requireFeature(session, FEATURE_FLAGS.byokLlm)
     if (gated) return gated
+    const [credentials, mode] = await Promise.all([
+      listOrgCredentials(session.organizationId),
+      getLlmProviderMode(session.organizationId),
+    ])
     return {
-      credentials: await listOrgCredentials(session.organizationId),
+      credentials,
+      mode,
       secretBackend: activeSecretBackend(),
     }
   },

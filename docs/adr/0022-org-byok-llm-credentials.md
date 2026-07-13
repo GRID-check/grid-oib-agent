@@ -76,6 +76,15 @@ index (`WHERE status = 'active'`) enforces at most one active credential per
 org. Every transition emits a WorkOS audit event
 (`llm_credential.created/rotated/revoked/verified`).
 
+Storing a key is not the same as using it: the org-level **provider mode**
+(`organizations.settings.llmProviderMode`, default `byok`) is the owner's
+explicit choice between their own key and the platform service. In
+`platform` mode the credential stays in Vault, idle — the internal
+resolution endpoint returns `null`, so runtime traffic AND the model
+catalog fall back to the platform path within one cache TTL, and switching
+back is a single audited toggle (`llm_credential.mode_changed`), no key
+re-entry.
+
 Provider presets: `openrouter` (reference), `openai`, `azure-openai`,
 `custom` (any OpenAI-compatible gateway, e.g. LiteLLM/Azure APIM). Custom
 base URLs must be HTTPS and pass an SSRF guard (private/loopback hosts
