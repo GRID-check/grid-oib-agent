@@ -119,7 +119,11 @@ WorkOS's own event log), 2) target the organizations that should have them
 While the env flag is `false` (default) nothing is gated, so existing
 deployments are unaffected. Once enforced, tokens minted before the rollout
 carry no `feature_flags` claim and fail closed — users pick the flags up at
-next sign-in. ⚠️ Not yet created in Staging.
+next sign-in. ✅ All four flags exist in Staging AND Production
+(2026-07-13): `runtime-model-config`, `deep-research`, and `web-search`
+enabled for ALL organizations in both; `byok-llm` enabled for ALL in
+Staging, OFF in Production (target per enterprise deal). Users signed in
+before a flag change pick it up at their next sign-in.
 
 ## Replay into a fresh environment (e.g. Production)
 
