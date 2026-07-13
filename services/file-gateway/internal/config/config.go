@@ -117,6 +117,11 @@ func (c Config) Validate() error {
 		if c.InternalToken == "" {
 			return errors.New("config: GRID_INTERNAL_API_TOKEN is required in bff mode")
 		}
+		// Mirror the BFF's guard: the well-known dev default must never be used
+		// outside dev (frontends/ui/src/lib/internal-auth.ts refuses it too).
+		if c.Env != "dev" && c.InternalToken == "grid-internal-dev-token" {
+			return errors.New("config: refusing the dev-default GRID_INTERNAL_API_TOKEN outside dev")
+		}
 	case "workos":
 		if c.PolicyEndpoint == "" {
 			return errors.New("config: GATEWAY_POLICY_ENDPOINT is required in workos mode")
@@ -129,13 +134,17 @@ func (c Config) Validate() error {
 		return fmt.Errorf("config: unknown GATEWAY_POLICY_MODE %q", c.PolicyMode)
 	}
 
-	prod := c.Env != "dev"
-	if prod && c.IdentityResolver == "dirpath" {
-		return fmt.Errorf("config: identity resolver %q is dev-only but GATEWAY_ENV=%q; "+
-			"use mounttoken / kerberos / smb in non-dev environments", c.IdentityResolver, c.Env)
-	}
+	// Keep this in lockstep with buildResolver() in cmd/gateway: only accept
+	// resolvers that are actually implemented, so a misconfig fails at config
+	// time with a clear message instead of at wiring time.
 	switch c.IdentityResolver {
-	case "dirpath", "mounttoken", "kerberos", "smb":
+	case "dirpath":
+		if c.Env != "dev" {
+			return fmt.Errorf("config: identity resolver %q is dev-only but GATEWAY_ENV=%q", c.IdentityResolver, c.Env)
+		}
+	case "mounttoken", "kerberos", "smb":
+		return fmt.Errorf("config: identity resolver %q is not implemented yet "+
+			"(only \"dirpath\" (dev) is available); production identity is a follow-up", c.IdentityResolver)
 	default:
 		return fmt.Errorf("config: unknown identity resolver %q", c.IdentityResolver)
 	}

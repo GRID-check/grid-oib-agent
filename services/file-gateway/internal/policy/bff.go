@@ -38,7 +38,7 @@ func NewBFF(endpoint, token string, timeout time.Duration) *BFF {
 func parseObject(object string) (orgID, projectID string, ok bool) {
 	object = strings.TrimPrefix(object, "document:")
 	seg := strings.Split(strings.Trim(object, "/"), "/")
-	if len(seg) >= 4 && seg[0] == "org" && seg[2] == "project" {
+	if len(seg) >= 4 && seg[0] == "org" && seg[2] == "project" && seg[1] != "" && seg[3] != "" {
 		return seg[1], seg[3], true
 	}
 	return "", "", false
@@ -84,16 +84,20 @@ func (b *BFF) checkOne(ctx context.Context, subjectUserID, subjectOrgID, relatio
 		return false, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+b.token)
+	// Grid's internal endpoints authenticate on x-grid-internal-token, NOT a
+	// Bearer header (see frontends/ui/src/lib/internal-auth.ts). Sending Bearer
+	// made every check 403 → deny → the drive was deny-all in bff mode.
+	req.Header.Set("x-grid-internal-token", b.token)
 	resp, err := b.http.Do(req)
 	if err != nil {
 		return false, fmt.Errorf("bff authz: %w", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusNotFound {
-		return false, nil // explicit deny
-	}
 	if resp.StatusCode != http.StatusOK {
+		// The internal endpoint returns 200 {allow} for BOTH grant and deny; any
+		// non-200 is an auth/transport failure. Surface it as an error so it
+		// fails closed WITH a signal (audit + metric + grace) rather than a
+		// silent deny-all — the exact failure mode that hid the wrong-header bug.
 		return false, fmt.Errorf("bff authz: status %d", resp.StatusCode)
 	}
 	var out bffResp
@@ -103,22 +107,42 @@ func (b *BFF) checkOne(ctx context.Context, subjectUserID, subjectOrgID, relatio
 	return out.Allow, nil
 }
 
-// Check implements policy.Client. subject is the WorkOS user id; org scoping is
-// carried in the object path and validated against the caller via the wrapping
-// engine's Subject (see gateway wiring). For the BFF path the org is taken from
-// the object key, so a bare Check(user, rel, obj) is sufficient.
-func (b *BFF) Check(ctx context.Context, subject, relation, object string) (bool, error) {
-	return b.checkOne(ctx, subject, "", relation, object)
+func (b *BFF) Check(ctx context.Context, subject Subject, relation, object string) (bool, error) {
+	return b.checkOne(ctx, subject.ID, subject.OrgID, relation, object)
 }
 
-func (b *BFF) BatchCheck(ctx context.Context, subject, relation string, objects []string) (map[string]bool, error) {
+// BatchCheck fans out with bounded concurrency (a directory listing must not be
+// N serial round-trips to the BFF).
+func (b *BFF) BatchCheck(ctx context.Context, subject Subject, relation string, objects []string) (map[string]bool, error) {
+	type res struct {
+		obj   string
+		allow bool
+		err   error
+	}
 	out := make(map[string]bool, len(objects))
+	ch := make(chan res, len(objects))
+	sem := make(chan struct{}, 8)
 	for _, o := range objects {
-		allow, err := b.checkOne(ctx, subject, "", relation, o)
-		if err != nil {
-			return nil, err
+		go func(o string) {
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			a, err := b.checkOne(ctx, subject.ID, subject.OrgID, relation, o)
+			ch <- res{o, a, err}
+		}(o)
+	}
+	var firstErr error
+	for range objects {
+		r := <-ch
+		if r.err != nil {
+			if firstErr == nil {
+				firstErr = r.err
+			}
+			continue
 		}
-		out[o] = allow
+		out[r.obj] = r.allow
+	}
+	if firstErr != nil {
+		return nil, firstErr
 	}
 	return out, nil
 }

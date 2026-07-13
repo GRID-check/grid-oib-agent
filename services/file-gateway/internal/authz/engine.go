@@ -55,7 +55,14 @@ func New(p policy.Client, sink audit.Sink, m Metrics, cfg Config) (*Engine, erro
 }
 
 func cacheKey(op FileOp) string {
-	return op.Subject.ID + "|" + op.Relation.String() + "|" + op.Object
+	// OrgID + Env are part of the decision identity: the same user id in a
+	// different org/env must not collide on a cached decision.
+	return op.Subject.Env + "|" + op.Subject.OrgID + "|" + op.Subject.ID + "|" +
+		op.Relation.String() + "|" + op.Object
+}
+
+func policySubject(s Subject) policy.Subject {
+	return policy.Subject{ID: s.ID, OrgID: s.OrgID}
 }
 
 // Authorize returns true iff the subject may perform the operation. Behaviour:
@@ -79,7 +86,7 @@ func (e *Engine) Authorize(ctx context.Context, op FileOp) (bool, error) {
 	}
 
 	v, err, _ := e.group.Do(key, func() (interface{}, error) {
-		return e.policy.Check(ctx, op.Subject.ID, op.Relation.String(), op.Object)
+		return e.policy.Check(ctx, policySubject(op.Subject), op.Relation.String(), op.Object)
 	})
 
 	if err != nil {
@@ -93,7 +100,11 @@ func (e *Engine) Authorize(ctx context.Context, op FileOp) (bool, error) {
 		return false, nil
 	}
 
-	allow := v.(bool)
+	allow, ok := v.(bool)
+	if !ok { // defensive: unexpected type from the policy layer → fail closed
+		e.emit(ctx, op, false, audit.SourceRemote, "policy returned non-bool: fail-closed", start)
+		return false, nil
+	}
 	e.cache.store(key, allow)
 	e.metrics.Degraded(false)
 	reason := "policy allow"
@@ -115,13 +126,13 @@ func (e *Engine) FilterViewable(ctx context.Context, subj Subject, children []st
 		objects = append(objects, obj)
 		objToChild[obj] = c
 	}
-	res, err := e.policy.BatchCheck(ctx, subj.ID, Viewer.String(), objects)
+	res, err := e.policy.BatchCheck(ctx, policySubject(subj), Viewer.String(), objects)
 	if err != nil {
 		return nil, err
 	}
 	out := make(map[string]bool, len(children))
 	for obj, allow := range res {
-		e.cache.store(subj.ID+"|"+Viewer.String()+"|"+obj, allow)
+		e.cache.store(cacheKey(FileOp{Subject: subj, Relation: Viewer, Object: obj}), allow)
 		out[objToChild[obj]] = allow
 	}
 	return out, nil

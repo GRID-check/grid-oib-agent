@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"gridnas/gateway/internal/authz"
+	"gridnas/gateway/internal/policy"
 )
 
 // flakyPolicy returns a fixed decision until it is "broken", then errors.
@@ -17,7 +18,7 @@ type flakyPolicy struct {
 	calls  atomic.Int64
 }
 
-func (f *flakyPolicy) Check(_ context.Context, _, _, _ string) (bool, error) {
+func (f *flakyPolicy) Check(context.Context, policy.Subject, string, string) (bool, error) {
 	f.calls.Add(1)
 	if f.broken.Load() {
 		return false, errors.New("policy service down")
@@ -25,7 +26,7 @@ func (f *flakyPolicy) Check(_ context.Context, _, _, _ string) (bool, error) {
 	return f.allow, nil
 }
 
-func (f *flakyPolicy) BatchCheck(context.Context, string, string, []string) (map[string]bool, error) {
+func (f *flakyPolicy) BatchCheck(context.Context, policy.Subject, string, []string) (map[string]bool, error) {
 	return nil, errors.New("unused")
 }
 

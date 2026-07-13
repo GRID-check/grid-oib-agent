@@ -1,0 +1,10 @@
+{
+  "_comment": "Canonical shape of POST /api/internal/file-access. The BFF Zod schema (frontends/ui/src/app/api/internal/file-access/route.ts) is the source of truth; this checked-in copy pins the Go client (internal/policy/bff.go) via contract_test.go so a rename/enum-drift fails CI on both sides.",
+  "request": {
+    "keys": ["userId", "organizationId", "projectId", "permission"],
+    "permissions": ["project:view", "project:edit", "project:manage", "project:chat"]
+  },
+  "response": {
+    "keys": ["allow"]
+  }
+}

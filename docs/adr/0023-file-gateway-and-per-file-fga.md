@@ -49,7 +49,10 @@ app uses**.
   which explicitly anticipated "FGA check memoization"), namespaced `fga:`. The BFF
   check is now cached too (`@/lib/authz/file-access`), fixing the previously-uncached
   WorkOS round-trip(s) on every project-scoped request. Role changes invalidate the
-  `fga:<membership>:project:<project>:` prefix.
+  `fga:<membership>:project:<project>:` prefix. **Caveat:** the gateway's own `fga:`
+  key shape differs from the BFF's, so a BFF invalidation does not yet clear the
+  gateway's copy (bounded by `SharedCacheTTL`); converging the schemas is tracked as
+  H4 in `services/file-gateway/docs/ENTERPRISE-READINESS.md`.
 
 The gateway closes gap (2) for the drive surface because access is checked on **every**
 open/read/write, not once at URL-mint time.

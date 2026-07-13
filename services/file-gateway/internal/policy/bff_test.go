@@ -39,41 +39,47 @@ func TestRelationToPermission(t *testing.T) {
 }
 
 func TestBFFCheck(t *testing.T) {
-	// A fake BFF that authorizes user "alice" as editor on proj_atlas only.
+	// A fake BFF that authorizes user "alice" on proj_atlas only. It authenticates
+	// on the x-grid-internal-token header — the SAME contract as the real
+	// internalApiRoute (a Bearer header would 403, the bug this test now guards).
+	var sawToken string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer secret" {
-			w.WriteHeader(http.StatusUnauthorized)
+		sawToken = r.Header.Get("x-grid-internal-token")
+		if sawToken != "secret" {
+			w.WriteHeader(http.StatusForbidden)
 			return
 		}
 		var req bffReq
 		_ = json.NewDecoder(r.Body).Decode(&req)
-		allow := req.UserID == "alice" && req.ProjectID == "proj_atlas"
-		// editor implies view; viewer does not imply edit
-		if req.Permission == "project:edit" {
-			allow = allow // alice is editor on atlas
-		}
-		_ = json.NewEncoder(w).Encode(bffResp{Allow: allow})
+		_ = json.NewEncoder(w).Encode(bffResp{Allow: req.UserID == "alice" && req.ProjectID == "proj_atlas"})
 	}))
 	defer srv.Close()
 
 	b := NewBFF(srv.URL, "secret", 2*time.Second)
 	ctx := context.Background()
+	atlas := "document:org/org_acme/project/proj_atlas/doc/d1/plan.pdf"
 
-	// alice may view/edit atlas
-	if ok, _ := b.Check(ctx, "alice", "viewer", "document:org/org_acme/project/proj_atlas/doc/d1/plan.pdf"); !ok {
+	if ok, _ := b.Check(ctx, Subject{ID: "alice", OrgID: "org_acme"}, "viewer", atlas); !ok {
 		t.Fatal("alice should view atlas")
 	}
-	// bob may not
-	if ok, _ := b.Check(ctx, "bob", "viewer", "document:org/org_acme/project/proj_atlas/doc/d1/plan.pdf"); ok {
+	if sawToken != "secret" {
+		t.Fatalf("gateway must send x-grid-internal-token, got %q", sawToken)
+	}
+	if ok, _ := b.Check(ctx, Subject{ID: "bob", OrgID: "org_acme"}, "viewer", atlas); ok {
 		t.Fatal("bob should be denied atlas")
 	}
+	// mount-org tenancy: a mount scoped to org_other is hard-denied a path under
+	// org_acme WITHOUT reaching the BFF (this is the previously-dead check).
+	if ok, _ := b.Check(ctx, Subject{ID: "alice", OrgID: "org_other"}, "viewer", atlas); ok {
+		t.Fatal("org mismatch must be hard-denied")
+	}
 	// non-project path is denied without hitting the BFF
-	if ok, _ := b.Check(ctx, "alice", "viewer", "document:oib-core/standards.md"); ok {
+	if ok, _ := b.Check(ctx, Subject{ID: "alice"}, "viewer", "document:oib-core/standards.md"); ok {
 		t.Fatal("non-project path must be denied (fail closed)")
 	}
-	// wrong token surfaces as an error (engine fails closed / grace)
+	// wrong token → non-200 → ERROR (fail closed WITH a signal, not silent deny)
 	bad := NewBFF(srv.URL, "wrong", 2*time.Second)
-	if _, err := bad.Check(ctx, "alice", "viewer", "document:org/org_acme/project/proj_atlas/doc/d1/x"); err == nil {
-		t.Fatal("bad token should error")
+	if _, err := bad.Check(ctx, Subject{ID: "alice", OrgID: "org_acme"}, "viewer", atlas); err == nil {
+		t.Fatal("bad token should error (surfaced, not silently denied)")
 	}
 }

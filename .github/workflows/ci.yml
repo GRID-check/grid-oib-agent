@@ -26,6 +26,7 @@ jobs:
     outputs:
       backend: ${{ steps.filter.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend }}
+      file_gateway: ${{ steps.filter.outputs.file_gateway }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -44,6 +45,9 @@ jobs:
               - '.github/actions/**'
             frontend:
               - 'frontends/ui/**'
+              - '.github/workflows/ci.yml'
+            file_gateway:
+              - 'services/file-gateway/**'
               - '.github/workflows/ci.yml'
 
   backend-lint:
@@ -149,10 +153,28 @@ jobs:
           path: frontends/ui/coverage/
           retention-days: 7
 
+  file-gateway:
+    name: File-gateway (Go vet + test)
+    needs: changes
+    if: needs.changes.outputs.file_gateway == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/file-gateway
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+          cache-dependency-path: services/file-gateway/go.sum
+      - run: go vet ./...
+      - run: go build ./...
+      - run: go test ./... -count=1
+
   ci-ok:
     name: CI OK
     if: always()
-    needs: [changes, backend-lint, backend-test, frontend]
+    needs: [changes, backend-lint, backend-test, frontend, file-gateway]
     runs-on: ubuntu-latest
     steps:
       - name: Require needed jobs to have passed (skipped is fine)

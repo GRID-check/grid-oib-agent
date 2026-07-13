@@ -30,7 +30,8 @@ func objectPath(object string) string {
 	return object
 }
 
-func (m *Mock) Check(_ context.Context, subject, relation, object string) (bool, error) {
+func (m *Mock) Check(_ context.Context, subj Subject, relation, object string) (bool, error) {
+	subject := subj.ID
 	path := objectPath(object)
 	if path == "" {
 		return false, nil
@@ -69,7 +70,7 @@ func (m *Mock) Check(_ context.Context, subject, relation, object string) (bool,
 	return true, nil
 }
 
-func (m *Mock) BatchCheck(ctx context.Context, subject, relation string, objects []string) (map[string]bool, error) {
+func (m *Mock) BatchCheck(ctx context.Context, subject Subject, relation string, objects []string) (map[string]bool, error) {
 	out := make(map[string]bool, len(objects))
 	for _, o := range objects {
 		a, err := m.Check(ctx, subject, relation, o)

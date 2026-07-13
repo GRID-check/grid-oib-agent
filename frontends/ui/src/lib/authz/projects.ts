@@ -3,11 +3,18 @@ import type { AuthorizedSession } from "@/lib/auth/types";
 import { NotFoundError } from "@/lib/api/errors";
 import { findProjectTenancy } from "@/lib/projects/repository";
 
-export type ProjectPermission =
-  | "project:view"
-  | "project:edit"
-  | "project:manage"
-  | "project:chat";
+/**
+ * The single source of truth for project permission slugs. The Zod enum on the
+ * internal route and any other validation derive from this — do not re-list them.
+ */
+export const PROJECT_PERMISSIONS = [
+  "project:view",
+  "project:edit",
+  "project:manage",
+  "project:chat",
+] as const;
+
+export type ProjectPermission = (typeof PROJECT_PERMISSIONS)[number];
 
 export type ProjectRole = "project-viewer" | "project-editor" | "project-admin";
 

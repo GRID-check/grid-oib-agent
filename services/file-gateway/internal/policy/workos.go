@@ -49,8 +49,8 @@ type checkResp struct {
 	Allow bool `json:"allow"`
 }
 
-func (w *WorkOS) Check(ctx context.Context, subject, relation, object string) (bool, error) {
-	body, _ := json.Marshal(checkReq{Subject: subject, Relation: relation, Object: object})
+func (w *WorkOS) Check(ctx context.Context, subject Subject, relation, object string) (bool, error) {
+	body, _ := json.Marshal(checkReq{Subject: subject.ID, Relation: relation, Object: object})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, w.endpoint, bytes.NewReader(body))
 	if err != nil {
 		return false, err
@@ -76,7 +76,7 @@ func (w *WorkOS) Check(ctx context.Context, subject, relation, object string) (b
 
 // BatchCheck issues checks concurrently, bounded, returning per-object results.
 // A single upstream error fails the whole batch (the caller decides the fallback).
-func (w *WorkOS) BatchCheck(ctx context.Context, subject, relation string, objects []string) (map[string]bool, error) {
+func (w *WorkOS) BatchCheck(ctx context.Context, subject Subject, relation string, objects []string) (map[string]bool, error) {
 	type res struct {
 		obj   string
 		allow bool

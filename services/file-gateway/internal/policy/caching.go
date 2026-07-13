@@ -52,11 +52,11 @@ func NewCaching(inner Client, redisURL string, ttl time.Duration, log *slog.Logg
 	}, nil
 }
 
-func (c *Caching) key(subject, relation, object string) string {
-	return c.prefix + subject + "|" + relation + "|" + object
+func (c *Caching) key(subject Subject, relation, object string) string {
+	return c.prefix + subject.OrgID + "|" + subject.ID + "|" + relation + "|" + object
 }
 
-func (c *Caching) Check(ctx context.Context, subject, relation, object string) (bool, error) {
+func (c *Caching) Check(ctx context.Context, subject Subject, relation, object string) (bool, error) {
 	k := c.key(subject, relation, object)
 	if v, err := c.rdb.Get(ctx, k).Result(); err == nil {
 		return v == "1", nil
@@ -73,7 +73,7 @@ func (c *Caching) Check(ctx context.Context, subject, relation, object string) (
 	return allow, nil
 }
 
-func (c *Caching) BatchCheck(ctx context.Context, subject, relation string, objects []string) (map[string]bool, error) {
+func (c *Caching) BatchCheck(ctx context.Context, subject Subject, relation string, objects []string) (map[string]bool, error) {
 	out := make(map[string]bool, len(objects))
 	var missing []string
 
