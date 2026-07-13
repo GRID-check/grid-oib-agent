@@ -47,8 +47,8 @@ import {
   markDocumentIngestFailed,
   findDocumentInOrg,
 } from './repository'
-import { uploadDocument, reingestDocument, INGEST_DISPATCH_FAILED_MESSAGE } from './service'
-import { ConflictError } from '@/lib/api/errors'
+import { uploadDocument, reingestDocument, commitUploadedFile, INGEST_DISPATCH_FAILED_MESSAGE } from './service'
+import { ConflictError, NotFoundError } from '@/lib/api/errors'
 
 const session = {
   userId: 'user-1',
@@ -180,5 +180,45 @@ describe('reingestDocument', () => {
     expect(result.jobId).toBeNull()
     expect(markDocumentIngestFailed).toHaveBeenCalledWith('doc-99', INGEST_DISPATCH_FAILED_MESSAGE)
     expect(setDocumentIngestJob).not.toHaveBeenCalled()
+  })
+})
+
+describe('commitUploadedFile (drive-upload convergence)', () => {
+  const driveInput = {
+    userId: 'user_1',
+    organizationId: 'org_acme',
+    projectId: 'proj-1',
+    folderId: null,
+    filename: 'plan.pdf',
+    objectKey: 'org/org_acme/project/proj-1/doc/d1/plan.pdf',
+    fileSize: 10,
+    contentType: 'application/pdf',
+  }
+
+  it('rejects an object key outside the caller org/project prefix (tenant isolation)', async () => {
+    await expect(
+      commitUploadedFile({ ...driveInput, objectKey: 'org/org_other/project/proj-1/doc/d1/x.pdf' }),
+    ).rejects.toBeInstanceOf(NotFoundError)
+    expect(insertDocument).not.toHaveBeenCalled()
+  })
+
+  it('inserts the documents row and dispatches ingest (same lifecycle as web upload)', async () => {
+    mockFetch.mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve({ job_id: 'job-7' }) })
+
+    const res = await commitUploadedFile(driveInput)
+
+    expect(res.status).toBe('pending')
+    expect(insertDocument).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: 'org_acme',
+        projectId: 'proj-1',
+        minioKey: 'org/org_acme/project/proj-1/doc/d1/plan.pdf',
+        collectionName: 'proj_abc',
+        createdBy: 'user_1',
+        status: 'uploaded',
+      }),
+    )
+    // ingest was dispatched to the agent
+    expect(mockFetch).toHaveBeenCalled()
   })
 })

@@ -257,6 +257,61 @@ export async function uploadDocument(
   }
 }
 
+export interface CommitUploadedFileInput {
+  userId: string
+  organizationId: string
+  projectId: string
+  folderId: string | null
+  filename: string
+  /** Canonical S3 key the bytes already live at (validated against org/project). */
+  objectKey: string
+  fileSize: number | null
+  contentType: string | null
+}
+
+/**
+ * Register a file whose bytes already exist in S3 (e.g. written through the
+ * mounted-drive gateway) as a real document, and dispatch async ingestion — the
+ * SAME lifecycle a web upload runs (`uploadDocument`), minus the byte PUT. This is
+ * the convergence seam so a drive upload is not a lifecycle-less orphan: it gets a
+ * `documents` row, a collection, and an ingest job into the agent.
+ *
+ * The caller must already be authorized (`project:edit`); this additionally
+ * enforces that `objectKey` lives under the caller's org+project prefix, so a
+ * drive cannot register bytes into another tenant's namespace.
+ */
+export async function commitUploadedFile(
+  input: CommitUploadedFileInput,
+): Promise<{ documentId: string; status: 'pending' | 'uploaded' | 'failed' }> {
+  const requiredPrefix = `org/${input.organizationId}/project/${input.projectId}/`
+  if (!input.objectKey.startsWith(requiredPrefix)) {
+    throw new NotFoundError()
+  }
+
+  const project = await findProjectInOrg(input.projectId, input.organizationId)
+  if (!project) throw new NotFoundError('Project not found')
+
+  const documentId = crypto.randomUUID()
+  await insertDocument({
+    id: documentId,
+    organizationId: input.organizationId,
+    projectId: input.projectId,
+    folderId: input.folderId ?? null,
+    createdBy: input.userId,
+    filename: input.filename,
+    minioKey: input.objectKey,
+    collectionName: project.collectionName,
+    fileSize: input.fileSize,
+    contentType: input.contentType,
+    status: 'uploaded',
+  })
+
+  // Same async ingest the web path uses (best-effort today; a durable
+  // document_ingest_queue is the tracked next step — see ENTERPRISE-READINESS.md).
+  const { status } = await dispatchIngest(documentId, project.collectionName, input.objectKey)
+  return { documentId, status }
+}
+
 export interface ReingestDocumentResult {
   id: string
   status: 'pending' | 'uploaded' | 'failed'
