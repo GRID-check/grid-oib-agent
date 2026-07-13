@@ -152,7 +152,7 @@ export function buildProjectBriefView(rawProfile: unknown): ProjectBriefView {
   }
 }
 
-function formatBareValue(value: ProjectFact['value']): string {
+export function formatBareValue(value: ProjectFact['value']): string {
   if (value === null) return '—'
   if (typeof value === 'boolean') return value ? 'Yes' : 'No'
   if (Array.isArray(value)) return value.join(', ')

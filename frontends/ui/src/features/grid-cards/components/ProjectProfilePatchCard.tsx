@@ -1,22 +1,17 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { motion, springGentle } from '@/components/motion'
 import { useTranslations } from '@/i18n'
-
-interface PreviewItem {
-  label: string
-  before: string
-  after: string
-}
+import { buildPatchPreviewRows } from '@/lib/project-profile/patch-preview'
+import type { ProjectProfile, ProjectProfilePatchOperation } from '@/lib/project-profile/types'
 
 interface ProjectProfilePatchCardProps {
   title: string
   rationale: string
-  preview: PreviewItem[]
-  patch: Array<{ op: string; path: string; value?: unknown }>
+  patch: ProjectProfilePatchOperation[]
   projectId?: string | null
 }
 
@@ -28,7 +23,6 @@ interface ProjectProfilePatchCardProps {
 export function ProjectProfilePatchCard({
   title,
   rationale,
-  preview,
   patch,
   projectId,
 }: ProjectProfilePatchCardProps) {
@@ -36,6 +30,29 @@ export function ProjectProfilePatchCard({
   const [status, setStatus] = useState<'pending' | 'accepted' | 'rejected'>('pending')
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  // The before/after rows are DERIVED from the patch + current profile — never
+  // from a model-supplied preview — so what the user consents to is exactly what
+  // gets written. The current profile is fetched once; on failure it stays null
+  // and the "Before" column is hidden rather than guessed.
+  const [profile, setProfile] = useState<ProjectProfile | null>(null)
+
+  useEffect(() => {
+    if (!projectId) return
+    let cancelled = false
+    fetch(`/api/projects/${projectId}/profile`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!cancelled && data?.profile) setProfile(data.profile as ProjectProfile)
+      })
+      .catch(() => {
+        /* leave profile null — the Before column stays hidden */
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [projectId])
+
+  const rows = useMemo(() => buildPatchPreviewRows(patch, profile), [patch, profile])
 
   const handleAccept = async () => {
     if (!projectId) {
@@ -92,21 +109,23 @@ export function ProjectProfilePatchCard({
       <p className="text-sm font-semibold text-foreground">{title}</p>
       <p className="text-sm leading-relaxed text-muted-foreground">{rationale}</p>
 
-      {preview.length > 0 && (
+      {rows.length > 0 && (
         <table className="w-full border-collapse text-sm">
           <thead>
             <tr className="border-b border-border text-muted-foreground">
               <th scope="col" className="py-1 pr-2 text-left font-medium">{t('profilePatchCard.field')}</th>
-              <th scope="col" className="p-1 text-left font-medium">{t('profilePatchCard.before')}</th>
+              {profile !== null && (
+                <th scope="col" className="p-1 text-left font-medium">{t('profilePatchCard.before')}</th>
+              )}
               <th scope="col" className="pl-2 text-left font-medium">{t('profilePatchCard.after')}</th>
             </tr>
           </thead>
           <tbody>
-            {preview.map((item, i) => (
+            {rows.map((row, i) => (
               <tr key={i} className="border-b border-border">
-                <td className="py-1 pr-2 font-medium text-foreground">{item.label}</td>
-                <td className="p-1 text-muted-foreground">{item.before}</td>
-                <td className="pl-2 text-foreground">{item.after}</td>
+                <td className="py-1 pr-2 font-medium text-foreground">{row.label}</td>
+                {profile !== null && <td className="p-1 text-muted-foreground">{row.before}</td>}
+                <td className="pl-2 text-foreground">{row.after}</td>
               </tr>
             ))}
           </tbody>

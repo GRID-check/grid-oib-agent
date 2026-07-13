@@ -336,7 +336,6 @@ export const GridCards: FC<GridCardsProps> = ({ cards, projectId }) => {
               <ProjectProfilePatchCard
                 title={card.title || ''}
                 rationale={card.rationale || ''}
-                preview={card.preview || []}
                 patch={card.patch || []}
                 projectId={projectId}
               />

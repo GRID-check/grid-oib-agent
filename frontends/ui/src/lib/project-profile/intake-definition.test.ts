@@ -9,9 +9,10 @@ import {
   humanizeProfileKey,
   labelForProfileKey,
   projectIntakeDefinitionV1,
+  validateProfilePatchVocabulary,
 } from './intake-definition'
 import { ProjectProfileSchema } from './types'
-import type { ProjectPrimitiveValue } from './types'
+import type { ProjectPrimitiveValue, ProjectProfilePatchOperation } from './types'
 
 const definition = projectIntakeDefinitionV1
 
@@ -118,6 +119,56 @@ describe('labelForProfileKey', () => {
 describe('humanizeProfileKey', () => {
   it('title-cases snake_case keys', () => {
     expect(humanizeProfileKey('hohe_gebaeude_details')).toBe('Hohe Gebaeude Details')
+  })
+})
+
+describe('validateProfilePatchVocabulary', () => {
+  const validate = (op: ProjectProfilePatchOperation['op'], path: string, value?: unknown) =>
+    validateProfilePatchVocabulary([{ op, path, value }])
+
+  it('accepts an allowed single-select value', () => {
+    expect(() => validate('add', '/facts/gebaeudeklasse', 'GK4')).not.toThrow()
+  })
+
+  it('rejects a single-select value outside the options', () => {
+    expect(() => validate('add', '/facts/gebaeudeklasse', 'GK9')).toThrow(/Building class/)
+  })
+
+  it('rejects a non-boolean for a boolean fact', () => {
+    expect(() => validate('add', '/facts/grundgrenze', 'yes')).toThrow(/On a property boundary/)
+  })
+
+  it('accepts a finite number for a number fact', () => {
+    expect(() => validate('add', '/facts/geschosse_oberirdisch', 3)).not.toThrow()
+  })
+
+  it('lets unknown keys through — the model may record novel facts', () => {
+    expect(() => validate('add', '/facts/some_novel_fact', 'anything')).not.toThrow()
+  })
+
+  it('validates a shaped { value } op the same as a bare value', () => {
+    expect(() =>
+      validate('add', '/facts/gebaeudeklasse', {
+        value: 'GK9',
+        confidence: 'confirmed',
+        source: 'user_confirmed',
+        updatedAt: '2026-07-08T00:00:00.000Z',
+      }),
+    ).toThrow(/Building class/)
+  })
+
+  it('validates the deep /facts/<key>/value path form', () => {
+    expect(() => validate('add', '/facts/gebaeudeklasse/value', 'GK9')).toThrow(/Building class/)
+  })
+
+  it('always passes remove operations', () => {
+    expect(() => validate('remove', '/facts/gebaeudeklasse')).not.toThrow()
+  })
+
+  it('rejects a multi-select value outside the options', () => {
+    expect(() => validate('add', '/goals/focus_areas', ['einreichung', 'nope'])).toThrow(
+      /Grid help with/,
+    )
   })
 })
 

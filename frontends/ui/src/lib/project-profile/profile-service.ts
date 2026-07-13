@@ -28,7 +28,11 @@ import {
   loadProjectPromptView,
 } from './prompt-view'
 import { normalizeProfilePatchOperations, pruneResolvedUnknowns } from './patch-engine'
-import { projectIntakeDefinitionV1, type ProjectIntakeDefinition } from './intake-definition'
+import {
+  projectIntakeDefinitionV1,
+  validateProfilePatchVocabulary,
+  type ProjectIntakeDefinition,
+} from './intake-definition'
 import type { ProjectProfile, ProjectProfilePatchOperation } from './types'
 
 export async function getProjectProfile(
@@ -70,6 +74,9 @@ export async function patchProjectProfile(
 
   let profile: ProjectProfile
   try {
+    // Defense-in-depth: reject values that violate the intake vocabulary before
+    // they are wrapped with `user_confirmed` provenance and persisted.
+    validateProfilePatchVocabulary(operations)
     const normalized = normalizeProfilePatchOperations(operations)
     profile = pruneResolvedUnknowns(applyProjectProfilePatch(current.profile, normalized))
   } catch (error) {
