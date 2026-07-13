@@ -169,6 +169,12 @@ functions:
         description: "Search uploaded documents and files."
         tools:
           - knowledge_search
+      - id: ris
+        name: "RIS – Österreichisches Recht"
+        description: "Search Austrian federal/state law and case law in the official RIS (Rechtsinformationssystem des Bundes) and fetch entire documents on demand."
+        tools:
+          - ris_search_tool
+          - ris_fetch_tool
 
   web_search_tool:
     _type: tavily_web_search
@@ -179,6 +185,27 @@ functions:
     _type: tavily_web_search
     max_results: 2
     advanced_search: true
+
+  # Austrian RIS (OGD-RIS API, no API key needed): live search over federal/
+  # state law and case law, plus on-demand fetching of ENTIRE documents
+  # (complete consolidated laws, court decisions). Fetched documents are also
+  # ingested into the per-session knowledge collection so knowledge_search can
+  # retrieve and cite specific sections afterwards.
+  ris_search_tool:
+    _type: ris_search
+    page_size: 20
+    max_results: 10
+    # Query planning via strict structured outputs (response_format:
+    # json_schema); falls back to the agent's raw arguments when the planner
+    # is unavailable or fails. Recycles the deep-research source-routing LLM —
+    # same kind of lightweight routing/planning task — so org model overrides
+    # (agent group deep_research_router) and BYOK apply to it consistently.
+    planner_llm: deep_router_llm
+
+  ris_fetch_tool:
+    _type: ris_fetch_document
+    max_chars: 40000
+    ingest_into_knowledge: true
 
   knowledge_search:
     _type: knowledge_retrieval
@@ -213,6 +240,8 @@ functions:
     tools:
       - web_search_tool
       - knowledge_search
+      - ris_search_tool
+      - ris_fetch_tool
       - remember
     verbose: true
 
@@ -233,6 +262,8 @@ functions:
     tools:
       - web_search_tool
       - knowledge_search
+      - ris_search_tool
+      - ris_fetch_tool
       - remember
       - emit_card
     verbose: true

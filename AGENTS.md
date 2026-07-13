@@ -10,7 +10,7 @@ This project is Docker-first. Run it via Docker Compose on Windows, macOS, or Li
 |------|---------|
 | `.devcontainer/` | VS Code dev container configuration |
 | `src/aiq_agent/` | Backend agent (LangGraph agents, cards, knowledge layer) |
-| `sources/` | NAT data-source packages (web search, knowledge layer, grid cards) |
+| `sources/` | NAT data-source packages (web search, knowledge layer, RIS adapter, grid cards) |
 | `frontends/ui/` | Next.js app: UI + BFF API routes + WS proxy (`server.js`) |
 | `frontends/aiq_api/` | The backend FastAPI front-end plugin (`_type: aiq_api`): REST routes, async jobs, `/v1/ingest` |
 | `frontends/debug/` | Debug console mounted at `/debug` |

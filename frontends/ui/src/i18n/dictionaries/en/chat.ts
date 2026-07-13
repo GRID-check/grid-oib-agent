@@ -49,6 +49,7 @@ export const chat = {
     dataSource: {
       webSearch: 'Web Search',
       files: 'Files',
+      ris: 'RIS (Austrian Law)',
     },
   },
   deepResearch: {
