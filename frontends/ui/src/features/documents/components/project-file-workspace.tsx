@@ -20,6 +20,8 @@ interface ProjectFileWorkspaceProps {
   projectId: string
   projectName: string
   collectionName: string
+  /** Whether the caller can write (project:edit). Viewers see a read-only view. */
+  canEdit: boolean
 }
 
 export interface FolderItem {
@@ -41,7 +43,7 @@ export interface FileItem {
   errorMessage: string | null
 }
 
-export function ProjectFileWorkspace({ projectId, projectName, collectionName }: ProjectFileWorkspaceProps) {
+export function ProjectFileWorkspace({ projectId, projectName, collectionName, canEdit }: ProjectFileWorkspaceProps) {
   const t = useTranslations('files')
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null)
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null)
@@ -191,7 +193,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName }:
   // only surfaces a supported/unsupported affordance using the shared AppConfig.
   const { isDragging, isUnsupportedDrag, dragHandlers } = useFileDragDrop({
     onDrop: uploadFiles,
-    disabled: isUploading,
+    disabled: isUploading || !canEdit,
   })
 
   // Guard against the browser navigating away when a file is dropped outside the
@@ -259,12 +261,14 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName }:
             {t('workspace.corpusSubtitle')}
           </p>
         </div>
-        <ProjectUppyUpload
-          projectId={projectId}
-          folderId={selectedFolderId}
-          onUpload={(files) => uploadFiles(files)}
-          isUploading={isUploading}
-        />
+        {canEdit && (
+          <ProjectUppyUpload
+            projectId={projectId}
+            folderId={selectedFolderId}
+            onUpload={(files) => uploadFiles(files)}
+            isUploading={isUploading}
+          />
+        )}
       </div>
 
       {/* Error banner */}
@@ -304,6 +308,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName }:
               onSelectFolder={setSelectedFolderId}
               onCreateFolder={handleCreateFolder}
               isLoading={isLoadingFolders}
+              canEdit={canEdit}
             />
           )}
         </div>
@@ -320,15 +325,17 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName }:
               isLoading={isLoadingFiles}
               hasFolderSelected={selectedFolderId !== null}
               uploadControl={
-                <ProjectUppyUpload
-                  projectId={projectId}
-                  folderId={selectedFolderId}
-                  onUpload={(files) => uploadFiles(files)}
-                  isUploading={isUploading}
-                  variant="default"
-                  size="default"
-                  label={t('workspace.uploadDocuments')}
-                />
+                canEdit ? (
+                  <ProjectUppyUpload
+                    projectId={projectId}
+                    folderId={selectedFolderId}
+                    onUpload={(files) => uploadFiles(files)}
+                    isUploading={isUploading}
+                    variant="default"
+                    size="default"
+                    label={t('workspace.uploadDocuments')}
+                  />
+                ) : undefined
               }
             />
           )}
@@ -351,6 +358,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName }:
               projectId={projectId}
               onClose={() => setSelectedFileId(null)}
               onReingested={handleReingested}
+              canEdit={canEdit}
             />
           </div>
         )}

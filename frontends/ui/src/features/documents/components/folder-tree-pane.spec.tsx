@@ -19,6 +19,7 @@ function setup() {
       onSelectFolder={vi.fn()}
       onCreateFolder={onCreateFolder}
       isLoading={false}
+      canEdit
     />
   )
   return { onCreateFolder, resolveCreate: () => resolveCreate }

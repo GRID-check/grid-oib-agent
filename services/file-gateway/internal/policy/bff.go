@@ -62,10 +62,40 @@ type bffResp struct {
 	Allow bool `json:"allow"`
 }
 
+// isOwnOrgTraversalPrefix reports whether object is a directory ABOVE a project
+// in the canonical key layout (org/<org>/project/<proj>/...), scoped to the
+// subject's org. An NFS client must Lstat each ancestor to descend to a project,
+// so these prefixes must resolve — but only within the caller's own org, so a
+// listing never reveals another tenant's orgs/projects:
+//
+//	org               -> the top level (List then filters children to own org)
+//	org/<org>         -> only the subject's own org
+//	org/<org>/project -> only the subject's own org
+func isOwnOrgTraversalPrefix(subjectOrgID, object string) bool {
+	object = strings.TrimPrefix(object, "document:")
+	seg := strings.Split(strings.Trim(object, "/"), "/")
+	switch len(seg) {
+	case 1:
+		return seg[0] == "org"
+	case 2:
+		return seg[0] == "org" && seg[1] != "" && seg[1] == subjectOrgID
+	case 3:
+		return seg[0] == "org" && seg[2] == "project" && seg[1] == subjectOrgID
+	default:
+		return false
+	}
+}
+
 func (b *BFF) checkOne(ctx context.Context, subjectUserID, subjectOrgID, relation, object string) (bool, error) {
 	orgID, projectID, ok := parseObject(object)
 	if !ok {
-		// Not a project-scoped document path — deny (fail closed).
+		// Not a full project path. Allow VIEWER traversal of the org/project
+		// scaffolding above a project, within the subject's own org, so the drive
+		// can descend to a project (where the real per-file check runs). Writes on
+		// a traversal dir, and any other-org prefix, fall through to deny.
+		if relation == "viewer" && isOwnOrgTraversalPrefix(subjectOrgID, object) {
+			return true, nil
+		}
 		return false, nil
 	}
 	// Tenancy: the mount's org must own the path. A mismatch is a hard deny and

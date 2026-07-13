@@ -112,17 +112,23 @@ func main() {
 // buildPolicyClient selects the authorization source and wraps it with the
 // shared Dragonfly decision cache (no-op if REDIS_URL is unset).
 func buildPolicyClient(cfg config.Config, log *slog.Logger) (policy.Client, error) {
-	var inner policy.Client
 	switch cfg.PolicyMode {
 	case "bff":
 		// Delegate to the BFF — the single authz brain (WorkOS FGA + org membership).
-		inner = policy.NewBFF(cfg.BFFEndpoint, cfg.InternalToken, cfg.PolicyTimeout)
+		// The BFF ALREADY memoizes decisions in the shared Dragonfly cache AND
+		// invalidates them on role change, so the gateway must NOT add its own L2
+		// Dragonfly cache here: a second, differently-keyed copy would keep serving
+		// stale allows after a revocation the BFF already cleared. The engine's
+		// short in-process L1 (with grace) is the only gateway-side cache in bff mode.
+		return policy.NewBFF(cfg.BFFEndpoint, cfg.InternalToken, cfg.PolicyTimeout), nil
 	case "workos":
-		inner = policy.NewWorkOS(cfg.PolicyEndpoint, cfg.PolicyAPIKey, cfg.PolicyTimeout)
+		// Direct-to-WorkOS: there is no BFF cache to share, so the gateway's own
+		// shared L2 (Dragonfly) is useful here.
+		inner := policy.NewWorkOS(cfg.PolicyEndpoint, cfg.PolicyAPIKey, cfg.PolicyTimeout)
+		return policy.NewCaching(inner, cfg.RedisURL, cfg.SharedCacheTTL, log)
 	default:
 		return nil, errors.New("unsupported policy mode: " + cfg.PolicyMode)
 	}
-	return policy.NewCaching(inner, cfg.RedisURL, cfg.SharedCacheTTL, log)
 }
 
 func buildResolver(cfg config.Config) (identity.Resolver, error) {

@@ -20,7 +20,11 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function FilesPage({ params }: FilesPageProps): Promise<JSX.Element> {
   const session = await requireAuthorizedPageSession()
   const { id } = await params
-  await requireProjectAccess(session, id, 'project:view')
+  // Capture the effective role so the UI only shows write affordances the caller
+  // can actually use — a viewer must not see Upload / New folder / Retry buttons
+  // that always 404 (they require project:edit). Mirrors the sibling pages.
+  const { role } = await requireProjectAccess(session, id, 'project:view')
+  const canEdit = role === 'project-editor' || role === 'project-admin'
 
   const db = getDb()
   const [project] = await db
@@ -33,5 +37,12 @@ export default async function FilesPage({ params }: FilesPageProps): Promise<JSX
     notFound()
   }
 
-  return <ProjectFileWorkspace projectId={id} projectName={project.name} collectionName={project.collectionName} />
+  return (
+    <ProjectFileWorkspace
+      projectId={id}
+      projectName={project.name}
+      collectionName={project.collectionName}
+      canEdit={canEdit}
+    />
+  )
 }

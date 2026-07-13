@@ -16,11 +16,13 @@ interface FilePreviewPaneProps {
   onClose?: () => void
   /** Notify the parent to flip local state after a successful re-ingestion. */
   onReingested?: (fileId: string, status: string) => void
+  /** Viewers (no project:edit) don't see the re-ingest action (it 404s for them). */
+  canEdit?: boolean
 }
 
 const PREVIEW_TYPES = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp', 'image/svg+xml']
 
-export function FilePreviewPane({ file, onClose, onReingested }: FilePreviewPaneProps) {
+export function FilePreviewPane({ file, onClose, onReingested, canEdit = false }: FilePreviewPaneProps) {
   const t = useTranslations('files')
   const { locale } = useLocale()
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
@@ -166,16 +168,18 @@ export function FilePreviewPane({ file, onClose, onReingested }: FilePreviewPane
               </p>
             </div>
           </div>
-          <Button
-            type="button"
-            variant="outline"
-            className="w-full gap-2"
-            onClick={handleReingest}
-            disabled={isReingesting}
-          >
-            <RotateCcw className="size-4" aria-hidden />
-            {isReingesting ? t('preview.retryingIngestion') : t('preview.retryIngestion')}
-          </Button>
+          {canEdit && (
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full gap-2"
+              onClick={handleReingest}
+              disabled={isReingesting}
+            >
+              <RotateCcw className="size-4" aria-hidden />
+              {isReingesting ? t('preview.retryingIngestion') : t('preview.retryIngestion')}
+            </Button>
+          )}
         </div>
       )}
 

@@ -13,6 +13,8 @@ interface FolderTreePaneProps {
   onSelectFolder: (id: string | null) => void
   onCreateFolder: (name: string, parentId?: string) => Promise<boolean>
   isLoading: boolean
+  /** Viewers (no project:edit) don't see folder-creation affordances. */
+  canEdit: boolean
 }
 
 // `undefined` = not creating; `null` = creating at the root; a string = creating
@@ -27,6 +29,7 @@ export function FolderTreePane({
   onSelectFolder,
   onCreateFolder,
   isLoading,
+  canEdit,
 }: FolderTreePaneProps) {
   const t = useTranslations('files')
   const [createTarget, setCreateTarget] = useState<CreateTarget>(undefined)
@@ -123,14 +126,16 @@ export function FolderTreePane({
             <Icon className="size-4 shrink-0" aria-hidden />
             <span className="truncate">{folder.name}</span>
           </button>
-          <button
-            onClick={() => startCreate(folder.id)}
-            aria-label={t('folders.addSubfolderIn', { name: folder.name })}
-            title={t('folders.addSubfolder')}
-            className="shrink-0 rounded-sm p-0.5 transition-opacity hover:bg-background/60 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:opacity-0 md:group-hover:opacity-100"
-          >
-            <Plus className="size-3.5" aria-hidden />
-          </button>
+          {canEdit && (
+            <button
+              onClick={() => startCreate(folder.id)}
+              aria-label={t('folders.addSubfolderIn', { name: folder.name })}
+              title={t('folders.addSubfolder')}
+              className="shrink-0 rounded-sm p-0.5 transition-opacity hover:bg-background/60 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:opacity-0 md:group-hover:opacity-100"
+            >
+              <Plus className="size-3.5" aria-hidden />
+            </button>
+          )}
         </div>,
         ...(createTarget === folder.id ? [renderCreateInput(depth + 1)] : []),
         ...(children.length > 0 ? renderFolderTree(children, depth + 1) : []),
@@ -163,18 +168,19 @@ export function FolderTreePane({
         renderFolderTree(rootFolders)
       )}
 
-      {/* Create a top-level folder */}
-      {createTarget === null ? (
-        renderCreateInput(0)
-      ) : (
-        <button
-          onClick={() => startCreate(null)}
-          className="mt-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <Plus className="size-4 shrink-0" aria-hidden />
-          <span>{t('folders.newFolder')}</span>
-        </button>
-      )}
+      {/* Create a top-level folder (editors only) */}
+      {canEdit &&
+        (createTarget === null ? (
+          renderCreateInput(0)
+        ) : (
+          <button
+            onClick={() => startCreate(null)}
+            className="mt-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <Plus className="size-4 shrink-0" aria-hidden />
+            <span>{t('folders.newFolder')}</span>
+          </button>
+        ))}
     </div>
   )
 }

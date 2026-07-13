@@ -38,6 +38,32 @@ func TestRelationToPermission(t *testing.T) {
 	}
 }
 
+// Bug #1 regression: in bff mode the client must allow VIEWER traversal of the
+// org/project scaffolding above a project (within the caller's own org) so an NFS
+// client can descend to a project — while never revealing another tenant's dirs.
+// These paths are decided locally, so no BFF is contacted.
+func TestBFFAncestorTraversal(t *testing.T) {
+	b := NewBFF("http://unused.invalid", "secret", time.Second)
+	ctx := context.Background()
+	own := Subject{ID: "alice", OrgID: "org_acme"}
+	allow := func(rel, obj string) bool { ok, _ := b.Check(ctx, own, rel, obj); return ok }
+
+	for _, o := range []string{"document:org", "document:org/org_acme", "document:org/org_acme/project"} {
+		if !allow("viewer", o) {
+			t.Fatalf("own-org traversal %q must be allowed so the drive can descend", o)
+		}
+	}
+	if allow("viewer", "document:org/org_evil") {
+		t.Fatal("another org's scaffolding must NOT be traversable (tenant existence leak)")
+	}
+	if allow("viewer", "document:org/org_evil/project") {
+		t.Fatal("another org's project dir must NOT be traversable")
+	}
+	if allow("editor", "document:org/org_acme/project") {
+		t.Fatal("a write on a traversal dir must be denied")
+	}
+}
+
 func TestBFFCheck(t *testing.T) {
 	// A fake BFF that authorizes user "alice" on proj_atlas only. It authenticates
 	// on the x-grid-internal-token header — the SAME contract as the real

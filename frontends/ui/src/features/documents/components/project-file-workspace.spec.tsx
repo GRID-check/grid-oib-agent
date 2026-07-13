@@ -52,13 +52,13 @@ describe('ProjectFileWorkspace', () => {
   })
 
   it('renders the file workspace with its project name and corpus context', () => {
-    render(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
+    render(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" canEdit />)
     expect(screen.getByText('Test')).toBeDefined()
     expect(screen.getByText(/ground Grid’s answers/i)).toBeDefined()
   })
 
   it('shows the drop overlay on dragover of a supported file', () => {
-    render(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
+    render(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" canEdit />)
     const dropzone = screen.getByTestId('workspace-dropzone')
     const dataTransfer = makeDataTransfer([
       new File(['x'], 'plan.pdf', { type: 'application/pdf' }),
@@ -71,7 +71,7 @@ describe('ProjectFileWorkspace', () => {
   })
 
   it('routes a dropped file into the existing upload path (uploadFiles)', () => {
-    render(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
+    render(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" canEdit />)
     const dropzone = screen.getByTestId('workspace-dropzone')
     const file = new File(['x'], 'plan.pdf', { type: 'application/pdf' })
     const dataTransfer = makeDataTransfer([file])
@@ -86,7 +86,7 @@ describe('ProjectFileWorkspace', () => {
   })
 
   it('flags an unsupported drag but still defers rejection to uploadFiles, like the button', () => {
-    render(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
+    render(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" canEdit />)
     const dropzone = screen.getByTestId('workspace-dropzone')
     const badFile = new File(['x'], 'photo.png', { type: 'image/png' })
     const dataTransfer = makeDataTransfer([badFile])
@@ -127,7 +127,7 @@ describe('ProjectFileWorkspace — mobile preview overlay', () => {
 
   it('renders the preview as a labelled modal dialog and closes on Escape', async () => {
     render(
-      <ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />
+      <ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" canEdit />
     )
 
     // Open the preview by selecting the loaded file.
