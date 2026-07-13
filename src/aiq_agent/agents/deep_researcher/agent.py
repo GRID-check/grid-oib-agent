@@ -201,6 +201,24 @@ class DeepResearcherAgent:
         return None
 
     @staticmethod
+    def _extract_last_message_text(result: dict | Any) -> str | None:
+        """Last-resort answer: the final assistant message text.
+
+        Used only when no report file was persisted — the writer normally
+        writes ``/shared/output.md``. Returns None when there is no usable
+        message content to fall back to.
+        """
+        messages = result.get("messages") if isinstance(result, dict) else getattr(result, "messages", None)
+        if not messages:
+            return None
+        content = getattr(messages[-1], "content", None)
+        if isinstance(content, str):
+            return content.strip() or None
+        if content is not None:
+            return str(content).strip() or None
+        return None
+
+    @staticmethod
     def _replace_last_message_content(result: dict | Any, content: str) -> None:
         """Overwrite the final message content in-place with post-processed Markdown."""
         messages = result.get("messages") if isinstance(result, dict) else getattr(result, "messages", None)
@@ -234,7 +252,20 @@ class DeepResearcherAgent:
 
             final_message = self._extract_final_markdown(result)
             if final_message is None:
-                raise ValueError("writer-agent did not produce a final Markdown answer")
+                # The writer normally persists the report to /shared/output.md.
+                # When it doesn't — the agent went off-task, replied only
+                # conversationally, or ran out of steps mid-write — fall back to
+                # its last message so the user gets the produced content instead
+                # of a hard job failure. Raise only when there is truly nothing.
+                fallback = self._extract_last_message_text(result)
+                if fallback is None:
+                    raise ValueError("writer-agent did not produce a final Markdown answer")
+                logger.warning(
+                    "writer-agent did not persist a report to /shared/output.md; "
+                    "falling back to the agent's last message (%d chars) instead of failing the job",
+                    len(fallback),
+                )
+                final_message = fallback
 
             # Post-process: verify citations against source registry
             if self.enable_citation_verification and source_registry_middleware.has_sources():

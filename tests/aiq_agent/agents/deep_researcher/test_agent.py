@@ -1290,6 +1290,67 @@ class TestDeepResearcherAgent:
                 result.messages[3].content == "Writer markdown [1].\n\n## Sources\n[1] Example: https://example.com\n"
             )
 
+    def test_extract_last_message_text(self):
+        """The fallback extractor returns the last message text, or None."""
+        from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent as A
+
+        assert A._extract_last_message_text({"messages": [AIMessage(content="hello")]}) == "hello"
+        assert A._extract_last_message_text({"messages": [AIMessage(content="  padded  ")]}) == "padded"
+        assert A._extract_last_message_text({"messages": [AIMessage(content="   ")]}) is None
+        assert A._extract_last_message_text({"messages": []}) is None
+        assert A._extract_last_message_text({}) is None
+
+    @pytest.mark.asyncio
+    async def test_run_falls_back_to_last_message_when_no_report_file(self, mock_llm_provider, real_tool):
+        """No /shared/output.md → fall back to the agent's last message, not a hard job failure."""
+        mock_agent = MagicMock()
+        mock_agent.with_config = MagicMock(return_value=mock_agent)
+        mock_agent.ainvoke = AsyncMock(
+            return_value={
+                "messages": [
+                    HumanMessage(content="q"),
+                    AIMessage(content="Here is what I found, though I did not persist a report file."),
+                ],
+                "files": {},  # writer never wrote /shared/output.md
+            }
+        )
+
+        with patch("aiq_agent.agents.deep_researcher.factory.create_deep_agent", return_value=mock_agent):
+            from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+
+            agent = DeepResearcherAgent(
+                llm_provider=mock_llm_provider,
+                tools=[real_tool],
+                # Isolate the fallback path from the empty-source-registry gate.
+                enable_citation_verification=False,
+            )
+
+            state = DeepResearchAgentState(messages=[HumanMessage(content="q")])
+            result = await agent.run(state)
+
+        assert result is not None
+        assert "did not persist a report file" in result.messages[-1].content
+
+    @pytest.mark.asyncio
+    async def test_run_raises_when_no_report_and_no_message(self, mock_llm_provider, real_tool):
+        """No report file AND no usable message → still a hard failure (nothing to return)."""
+        mock_agent = MagicMock()
+        mock_agent.with_config = MagicMock(return_value=mock_agent)
+        mock_agent.ainvoke = AsyncMock(return_value={"messages": [], "files": {}})
+
+        with patch("aiq_agent.agents.deep_researcher.factory.create_deep_agent", return_value=mock_agent):
+            from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+
+            agent = DeepResearcherAgent(
+                llm_provider=mock_llm_provider,
+                tools=[real_tool],
+                enable_citation_verification=False,
+            )
+
+            state = DeepResearchAgentState(messages=[HumanMessage(content="q")])
+            with pytest.raises(ValueError, match="did not produce a final Markdown answer"):
+                await agent.run(state)
+
 
 class TestPerRunIsolation:
     """Per-run construction (ADR-0018): no run can observe another run's state."""
@@ -1480,12 +1541,18 @@ class TestFinalMarkdownExtraction:
         mock_llm_provider,
         real_tool,
     ):
-        """Missing /shared/output.md is a writer failure, not a citation failure."""
+        """Missing /shared/output.md with nothing to fall back to is a writer
+        failure, not a citation failure — and is diagnosed before citation
+        verification (the seeded source registry would otherwise let a citation
+        pass run first)."""
         mock_agent = MagicMock()
         mock_agent.with_config = MagicMock(return_value=mock_agent)
         mock_agent.ainvoke = AsyncMock(
             return_value={
-                "messages": [AIMessage(content="Let's call get_verified_sources now.")],
+                # No report file AND no usable message → genuine writer failure
+                # (a present message would instead degrade to it; covered
+                # separately by test_run_falls_back_to_last_message_*).
+                "messages": [],
                 "files": {},
             }
         )
