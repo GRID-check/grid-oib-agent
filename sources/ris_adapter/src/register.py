@@ -37,6 +37,7 @@ from ris_adapter.client import build_document_url
 from nat.builder.builder import Builder
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
+from nat.data_models.component_ref import LLMRef
 from nat.data_models.function import FunctionBaseConfig
 
 logger = logging.getLogger(__name__)
@@ -274,12 +275,14 @@ class RisSearchToolConfig(FunctionBaseConfig, name="ris_search"):
     timeout: float = Field(default=30.0, description="HTTP timeout in seconds")
     page_size: int = Field(default=20, description="Documents per page (10, 20, 50, or 100)")
     max_results: int = Field(default=10, ge=1, description="Maximum number of results to format for the agent")
-    planner_llm: str | None = Field(
+    planner_llm: LLMRef | None = Field(
         default=None,
         description=(
             "Optional LLM reference (llms: section) used to refine the query into structured "
             "RIS search parameters via strict structured outputs (response_format: json_schema). "
-            "Falls back to the caller's raw arguments when unset or on planner failure."
+            "Falls back to the caller's raw arguments when unset or on planner failure. "
+            "Must be an LLMRef (not a plain str) so NAT records the build-order "
+            "dependency and instantiates the LLM before this tool is built."
         ),
     )
 
