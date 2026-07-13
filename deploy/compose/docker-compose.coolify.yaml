@@ -312,13 +312,16 @@ services:
     # --force_epoll: Dragonfly defaults to io_uring and CRASHES on boot where
     # the kernel/seccomp denies it (common on VPS/managed Docker hosts);
     # epoll is universally available and far above our throughput needs.
+    # --proactor_threads=1: Dragonfly refuses to start unless maxmemory is at
+    # least 256MiB per thread, so 2 threads would need a 512MiB cap. One
+    # thread keeps the 256MiB footprint and is ample for a small cache.
     image: dragonflydb/dragonfly:v1.27.1
     command:
       [
         "dragonfly",
         "--logtostderr",
         "--force_epoll",
-        "--proactor_threads=2",
+        "--proactor_threads=1",
         "--maxmemory=256mb",
         "--cache_mode=true",
         "--dbfilename=",

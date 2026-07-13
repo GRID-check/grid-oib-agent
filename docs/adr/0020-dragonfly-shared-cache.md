@@ -53,7 +53,9 @@ whose loss is not tolerable — Dragonfly runs with `cache_mode=true`
 (evict under memory pressure) and **no persistence volume**; every value can
 be rebuilt from Postgres, WorkOS, or the next turn.
 
-Operational posture: one container, 256 MB memory cap, 2 proactor threads,
+Operational posture: one container, 256 MB memory cap, 1 proactor thread
+(Dragonfly requires ≥ 256 MiB of maxmemory per thread, so a second thread
+would double the cap for nothing at our scale),
 health-checked; both app tiers **fail open to their in-process fallback** on
 any cache error, so the stack runs unchanged with the container stopped or
 `REDIS_URL` unset (dev outside Docker, tests).
