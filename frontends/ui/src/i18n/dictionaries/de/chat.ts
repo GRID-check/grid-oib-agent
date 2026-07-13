@@ -51,6 +51,7 @@ export const chat: typeof en.chat = {
     dataSource: {
       webSearch: 'Websuche',
       files: 'Dateien',
+      ris: 'RIS (Österreichisches Recht)',
     },
   },
   deepResearch: {

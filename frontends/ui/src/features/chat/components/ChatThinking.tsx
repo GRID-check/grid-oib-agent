@@ -42,6 +42,7 @@ const formatDataSourceName = (sourceId: string, t: Translator): string => {
   // Handle special cases
   if (sourceId === 'web_search') return t('thinking.dataSource.webSearch')
   if (sourceId === 'knowledge_layer') return t('thinking.dataSource.files')
+  if (sourceId === 'ris') return t('thinking.dataSource.ris')
 
   // Convert snake_case to Title Case
   return sourceId
