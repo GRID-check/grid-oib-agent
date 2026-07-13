@@ -73,7 +73,9 @@ def test_org_memory_disabled_raises_typed_error(monkeypatch, caplog):
     monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "t")
     body = json.dumps({"error": "Agent organization-scoped memory is disabled", "code": "ORG_MEMORY_DISABLED"}).encode()
     with _patched_opener(monkeypatch, error=_http_error(403, body)):
-        with caplog.at_level(logging.ERROR, logger=pm.logger.name):
+        # The default-deny is expected and handled by the caller (confirmation
+        # card), so it is logged at INFO, not ERROR — capture from INFO up.
+        with caplog.at_level(logging.INFO, logger=pm.logger.name):
             with pytest.raises(pm.OrgMemoryDisabledError):
                 pm.insert_memory_item(
                     scope="organization",
@@ -82,8 +84,10 @@ def test_org_memory_disabled_raises_typed_error(monkeypatch, caplog):
                     kind="preference",
                     content="Prefer metric units.",
                 )
+    # The typed error is the contract; the log is informational, not an error.
     assert "ORG_MEMORY_DISABLED" in caplog.text
-    assert "GRID_ALLOW_AGENT_ORG_MEMORY" in caplog.text
+    org_deny_records = [r for r in caplog.records if "ORG_MEMORY_DISABLED" in r.getMessage()]
+    assert org_deny_records and all(r.levelno <= logging.INFO for r in org_deny_records)
 
 
 def test_bare_403_logs_token_mismatch_and_reraises(monkeypatch, caplog):
