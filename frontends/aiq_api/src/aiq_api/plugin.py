@@ -34,6 +34,7 @@ Knowledge Layer Configuration:
     or the default backend (llamaindex).
 """
 
+import asyncio
 import logging
 import os
 import signal
@@ -246,6 +247,14 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
         await register_job_routes(app, builder, self)
         logger.info("Async Job API routes registered")
 
+        # Non-blocking startup handshake against the frontend's internal API:
+        # surfaces a GRID_INTERNAL_API_TOKEN mismatch / unreachable BFF at deploy
+        # time instead of only when the first `remember` tool call fails. Fire-
+        # and-forget (never awaited, never fatal) — add_routes has no clean
+        # "after everything is up" hook and blocking here would delay serving,
+        # so we schedule it on the running loop and let it log its own outcome.
+        self._schedule_internal_api_check()
+
         self._install_signal_handlers()
 
         @app.on_event("shutdown")
@@ -275,6 +284,28 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
                 pass
         else:
             logger.info("Debug console disabled by AIQ_ENABLE_DEBUG")
+
+    def _schedule_internal_api_check(self):
+        """Fire-and-forget the internal-API startup handshake (never fatal).
+
+        Runs the blocking urllib probe in a worker thread so it cannot stall the
+        event loop, and swallows/logs any failure — a broken or not-yet-up
+        frontend must never prevent the backend from serving.
+        """
+
+        async def _run() -> None:
+            try:
+                from aiq_agent.knowledge.project_memory import check_internal_api
+
+                await asyncio.to_thread(check_internal_api)
+            except Exception as e:  # noqa: BLE001 — diagnostic only, must not crash startup
+                logger.warning("Internal API startup handshake could not run: %s", e)
+
+        try:
+            asyncio.get_running_loop().create_task(_run())
+        except RuntimeError:
+            # No running loop (unexpected here) — skip the diagnostic silently.
+            logger.debug("No running loop for the internal API handshake; skipping")
 
     def _install_signal_handlers(self):
         """Install signal handlers to notify SSE connections on shutdown."""

@@ -50,6 +50,7 @@ class ProjectMemoryRememberConfig(FunctionBaseConfig, name="project_memory_remem
 async def project_memory_remember(tool_config: ProjectMemoryRememberConfig, builder: Builder):
     from aiq_agent.knowledge.project_memory import VALID_CONFIDENCES
     from aiq_agent.knowledge.project_memory import VALID_KINDS
+    from aiq_agent.knowledge.project_memory import OrgMemoryDisabledError
     from aiq_agent.knowledge.project_memory import insert_memory_item
     from aiq_agent.project_context import get_conversation_id_from_context
     from aiq_agent.project_context import get_organization_id_from_context
@@ -78,7 +79,13 @@ async def project_memory_remember(tool_config: ProjectMemoryRememberConfig, buil
 
         if scope == "project" and not project_id:
             if organization_id:
-                # No project in scope but the finding is still worth keeping.
+                # No project in scope but the finding is still worth keeping, so
+                # escalate to org scope. NOTE: in default deployments the frontend
+                # denies agent org-wide writes (ORG_MEMORY_DISABLED, audit finding
+                # S1) unless GRID_ALLOW_AGENT_ORG_MEMORY=true; when that happens the
+                # OrgMemoryDisabledError branch below returns an honest message that
+                # explains it to the user. (Escalation kept intentionally — product
+                # decision deferred.)
                 scope = "organization"
             else:
                 return (
@@ -101,9 +108,20 @@ async def project_memory_remember(tool_config: ProjectMemoryRememberConfig, buil
                 confidence=confidence,
                 conversation_id=conversation_id,
             )
+        except OrgMemoryDisabledError:
+            logger.warning("Org-scoped remember denied by frontend policy (org memory disabled)")
+            return (
+                "Error: organization-wide memory is disabled by the administrator in this "
+                "deployment; the finding was NOT saved. Tell the user that firm-wide rules "
+                "currently have to be added by hand in the organization memory panel. Do not retry."
+            )
         except Exception:
             logger.exception("Failed to record memory item")
-            return "Error: could not record the finding (memory service unavailable). Continue without it."
+            return (
+                "Error: the finding was NOT saved — long-term memory is unavailable. Do not tell "
+                "the user it has been noted; if they asked you to remember this, tell them it could "
+                "not be stored. Continue the main task."
+            )
 
         if item_id is None:
             return "Error: unknown project — nothing recorded."

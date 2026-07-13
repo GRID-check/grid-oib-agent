@@ -159,6 +159,9 @@ services:
       - GRID_APP_DATABASE_URL=${GRID_APP_DATABASE_URL:-postgresql://aiq:aiq_dev@postgres:5432/grid_app}
       # Shared service token for the internal memory endpoint (must match aiq-agent)
       - GRID_INTERNAL_API_TOKEN=${GRID_INTERNAL_API_TOKEN:-grid-internal-dev-token}
+      # S1 security default: agent org-wide memory writes are OFF unless explicitly
+      # enabled here (see app/api/internal/memory/route.ts). Leave false in production.
+      - GRID_ALLOW_AGENT_ORG_MEMORY=${GRID_ALLOW_AGENT_ORG_MEMORY:-false}
       # Admin token for the backend's /v1/admin/oib/* endpoints (must match
       # aiq-agent). Powers the platform-owner base-knowledge management UI.
       - GRID_ADMIN_TOKEN=${GRID_ADMIN_TOKEN:-}

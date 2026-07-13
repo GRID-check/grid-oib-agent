@@ -10,7 +10,7 @@
 
 import { z } from 'zod'
 import { internalApiRoute, parseJsonBody } from '@/lib/api/handler'
-import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
+import { NotFoundError, OrgMemoryDisabledError } from '@/lib/api/errors'
 import {
   createProjectMemoryItem,
   createProjectMemoryItemForProject,
@@ -58,7 +58,9 @@ export const POST = internalApiRoute(
       // Default-deny agent-authored org-wide writes (audit finding S1).
       if (!agentOrgMemoryAllowed()) {
         console.warn('[Internal Memory API] Rejected agent org-scoped write (GRID_ALLOW_AGENT_ORG_MEMORY not set)')
-        throw new ForbiddenError('Agent organization-scoped memory is disabled')
+        // Distinct ORG_MEMORY_DISABLED code (not a bare FORBIDDEN) so the backend
+        // reports the accurate cause instead of mislabeling it a token mismatch.
+        throw new OrgMemoryDisabledError('Agent organization-scoped memory is disabled')
       }
       // Validate the org id against known tenants. There is no organizations
       // table, so "known" means: at least one project belongs to it. This
