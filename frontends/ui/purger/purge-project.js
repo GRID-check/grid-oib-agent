@@ -9,7 +9,7 @@
  * and the project row dies LAST so pointers stay recoverable on retry.
  *
  * Legal-hold residual window: the hold is re-checked before each external
- * destructive step, but those steps (backend HTTP, MinIO, WorkOS) are outside
+ * destructive step, but those steps (backend HTTP, S3, WorkOS) are outside
  * any DB transaction, so a hold committed mid-step cannot roll them back. The
  * window is bounded to a single step rather than the whole purge.
  */
@@ -39,7 +39,7 @@ async function assertNoHold(tx, entry) {
 }
 
 async function purgeProject(tx, entry, deps) {
-  const { backendUrl, internalToken, bucket, workos, deleteMinioPrefix } = deps
+  const { backendUrl, internalToken, bucket, workos, deleteS3Prefix } = deps
   const fetchImpl = deps.fetchImpl || fetch
   const projectId = entry.entity_id
   const orgId = entry.organization_id
@@ -84,8 +84,8 @@ async function purgeProject(tx, entry, deps) {
   // Re-check the hold before EACH external destructive step to keep the TOCTOU
   // window to a single step (see file header). Aborts release the row.
   await assertNoHold(tx, entry)
-  // 2. MinIO objects under the project prefix.
-  await deleteMinioPrefix(bucket, `org/${orgId}/project/${projectId}/`)
+  // 2. S3 objects under the project prefix.
+  await deleteS3Prefix(bucket, `org/${orgId}/project/${projectId}/`)
 
   await assertNoHold(tx, entry)
   // 3. WorkOS FGA resource (+ role assignments). Already-gone is success.

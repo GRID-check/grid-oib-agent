@@ -1,6 +1,7 @@
 /**
- * Prefix-based MinIO cleanup. Paginated list + batched delete; a prefix with
- * no objects is a successful no-op (idempotent re-runs).
+ * Prefix-based S3 (S3-compatible object store) cleanup. Paginated list +
+ * batched delete; a prefix with no objects is a successful no-op (idempotent
+ * re-runs).
  */
 
 const {
@@ -10,18 +11,20 @@ const {
 } = require('@aws-sdk/client-s3')
 
 function createS3Client() {
+  // New S3_* config with a fallback to the legacy MINIO_* names so existing
+  // deployments keep working until their env is migrated.
   return new S3Client({
-    endpoint: process.env.MINIO_ENDPOINT,
+    endpoint: process.env.S3_ENDPOINT ?? process.env.MINIO_ENDPOINT,
     region: 'us-east-1',
     credentials: {
-      accessKeyId: process.env.MINIO_ACCESS_KEY || '',
-      secretAccessKey: process.env.MINIO_SECRET_KEY || '',
+      accessKeyId: (process.env.S3_ACCESS_KEY ?? process.env.MINIO_ACCESS_KEY) || '',
+      secretAccessKey: (process.env.S3_SECRET_KEY ?? process.env.MINIO_SECRET_KEY) || '',
     },
     forcePathStyle: true,
   })
 }
 
-async function deleteMinioPrefix(s3, bucket, prefix) {
+async function deleteS3Prefix(s3, bucket, prefix) {
   let deleted = 0
   let continuationToken
   do {
@@ -49,7 +52,7 @@ async function deleteMinioPrefix(s3, bucket, prefix) {
           .map((e) => `${e.Key}: ${e.Code}`)
           .join('; ')
         throw new Error(
-          `MinIO delete reported ${res.Errors.length} error(s) for prefix ${prefix}: ${sample}`,
+          `S3 delete reported ${res.Errors.length} error(s) for prefix ${prefix}: ${sample}`,
         )
       }
       deleted += keys.length
@@ -59,4 +62,4 @@ async function deleteMinioPrefix(s3, bucket, prefix) {
   return deleted
 }
 
-module.exports = { createS3Client, deleteMinioPrefix }
+module.exports = { createS3Client, deleteS3Prefix }

@@ -11,7 +11,7 @@
 import 'server-only'
 import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
-import { s3Client, signingS3Client, bucketName, buildMinioKey } from '@/lib/s3'
+import { s3Client, signingS3Client, bucketName, buildObjectKey } from '@/lib/s3'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { getBackendUrl } from '@/lib/backend-proxy'
@@ -42,7 +42,8 @@ const PREVIEW_CONTENT_TYPES = [
   'image/tiff',
 ]
 
-const presignTtlSeconds = (): number => Number(process.env.MINIO_PRESIGNED_URL_TTL_SECONDS || 600)
+const presignTtlSeconds = (): number =>
+  Number((process.env.S3_PRESIGNED_URL_TTL_SECONDS ?? process.env.MINIO_PRESIGNED_URL_TTL_SECONDS) || 600)
 
 /**
  * Stored on the document when the backend ingest dispatch never yielded a job.
@@ -208,7 +209,7 @@ export async function uploadDocument(
 
   const documentId = crypto.randomUUID()
   const collectionName = project.collectionName
-  const minioKey = buildMinioKey(session.organizationId, projectId, documentId, file.name, folderPath)
+  const minioKey = buildObjectKey(session.organizationId, projectId, documentId, file.name, folderPath)
 
   const bytes = Buffer.from(await file.arrayBuffer())
   await s3Client.send(

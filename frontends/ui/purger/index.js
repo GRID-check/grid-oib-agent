@@ -10,7 +10,8 @@
  *   GRID_APP_DATABASE_URL   - grid_app Postgres DSN
  *   BACKEND_URL             - aiq-agent base URL (Python-side purge endpoint)
  *   GRID_INTERNAL_API_TOKEN - shared token for the internal endpoint
- *   MINIO_ENDPOINT / MINIO_ACCESS_KEY / MINIO_SECRET_KEY / MINIO_BUCKET
+ *   S3_ENDPOINT / S3_ACCESS_KEY / S3_SECRET_KEY / S3_BUCKET
+ *     (legacy MINIO_* names still honored as a fallback)
  *   WORKOS_API_KEY          - WorkOS API key (FGA resource cleanup)
  *   PURGER_POLL_INTERVAL_MS - poll interval (default 60000)
  */
@@ -25,7 +26,7 @@ const {
   reapStranded,
   releaseHeld,
 } = require('./db')
-const { createS3Client, deleteMinioPrefix } = require('./minio')
+const { createS3Client, deleteS3Prefix } = require('./s3')
 const { LEGAL_HOLD_CODE, purgeProject } = require('./purge-project')
 
 const pollIntervalMs = parseInt(process.env.PURGER_POLL_INTERVAL_MS || '60000', 10)
@@ -37,9 +38,9 @@ const workos = new WorkOS(process.env.WORKOS_API_KEY)
 const deps = {
   backendUrl: (process.env.BACKEND_URL || 'http://aiq-agent:8000').replace(/\/$/, ''),
   internalToken: process.env.GRID_INTERNAL_API_TOKEN || '',
-  bucket: process.env.MINIO_BUCKET || 'grid-documents',
+  bucket: (process.env.S3_BUCKET ?? process.env.MINIO_BUCKET) || 'grid-documents',
   workos,
-  deleteMinioPrefix: (bucket, prefix) => deleteMinioPrefix(s3, bucket, prefix),
+  deleteS3Prefix: (bucket, prefix) => deleteS3Prefix(s3, bucket, prefix),
 }
 
 const purgers = {

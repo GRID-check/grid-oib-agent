@@ -1,0 +1,11 @@
+{
+  "identities": [
+    {
+      "name": "grid",
+      "credentials": [
+        { "accessKey": "gridkey", "secretKey": "gridsecret" }
+      ],
+      "actions": ["Admin", "Read", "Write", "List", "Tagging"]
+    }
+  ]
+}

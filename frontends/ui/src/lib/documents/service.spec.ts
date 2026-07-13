@@ -12,7 +12,7 @@ vi.mock('@/lib/s3', () => ({
   s3Client: { send: vi.fn().mockResolvedValue(undefined) },
   signingS3Client: { send: vi.fn().mockResolvedValue(undefined) },
   bucketName: 'test-bucket',
-  buildMinioKey: vi.fn().mockReturnValue('org/proj/doc/file.pdf'),
+  buildObjectKey: vi.fn().mockReturnValue('org/proj/doc/file.pdf'),
 }))
 
 vi.mock('@aws-sdk/s3-request-presigner', () => ({

@@ -1,0 +1,61 @@
+# grid-nas-gateway — phase-1 dev stack.
+# gateway (this service) + dev-only support services (s3, workos-mock, seed).
+# Nothing here uses a real WorkOS tenant or production credentials.
+services:
+  s3:
+    image: chrislusf/seaweedfs:latest
+    command: >
+      server -s3 -dir=/data -s3.port=8333
+      -s3.config=/etc/seaweedfs/s3config.json
+    volumes:
+      - ./s3config.json:/etc/seaweedfs/s3config.json:ro
+      - s3data:/data
+    ports:
+      - "8333:8333"
+
+  workos-mock:
+    build: ./workos-mock
+    ports:
+      - "8080:8080"
+
+  seed:
+    build: ./seed
+    environment:
+      S3_ENDPOINT: http://s3:8333
+      BUCKET: grid-nas
+      AWS_ACCESS_KEY_ID: gridkey
+      AWS_SECRET_ACCESS_KEY: gridsecret
+    depends_on: [s3]
+    restart: "no"
+
+  gateway:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    cap_add: [SYS_ADMIN]
+    devices: ["/dev/fuse"]
+    security_opt: ["apparmor:unconfined"]
+    environment:
+      GATEWAY_ENV: dev
+      GATEWAY_LISTEN_NFS: ":2049"
+      GATEWAY_LISTEN_ADMIN: ":9090"
+      GATEWAY_DATA_DIR: /data
+      GATEWAY_IDENTITY_RESOLVER: dirpath
+      # dev: authorize against the local mock (workos mode, no api key in dev).
+      # In the Grid stack use GATEWAY_POLICY_MODE=bff + GATEWAY_BFF_AUTHZ_URL +
+      # GRID_INTERNAL_API_TOKEN, and REDIS_URL=redis://dragonfly:6379/0 for the
+      # shared decision cache.
+      GATEWAY_POLICY_MODE: workos
+      GATEWAY_POLICY_ENDPOINT: http://workos-mock:8080/check
+      GATEWAY_CACHE_TTL: 2s
+      GATEWAY_CACHE_GRACE: 10s
+      BUCKET: grid-nas
+    volumes:
+      - ./rclone.conf:/etc/rclone/rclone.conf:ro
+    depends_on: [s3, workos-mock]
+    ports:
+      - "2049:2049"
+      - "9090:9090"
+
+volumes:
+  s3data:

@@ -21,7 +21,7 @@ const MEMBERSHIP_NEGATIVE_TTL_MS = 30_000
  *
  * Returns `null` when no active membership is found.
  */
-async function resolveOrganizationMembershipId(
+export async function resolveOrganizationMembershipId(
   userId: string,
   organizationId: string
 ): Promise<string | null> {

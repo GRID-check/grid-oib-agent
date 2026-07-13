@@ -78,6 +78,17 @@ The BFF computes the **`collection_scope[]`** passed to Python (see
 - Define the exact org-level roles/permissions that grant cross-project access.
 - Define cleanup/handling when a user is removed from the org (orphan ownership).
 
+## Update (2026-07)
+
+The implementation diverged from the `project_members(project_id, user_id, role)`
+table described above: **project membership lives entirely in WorkOS FGA** (role
+assignments on the `project` resource, keyed by `organizationMembershipId`), not in a
+local table. `projects.workos_resource_id` links a project row to its FGA resource.
+The access rule still holds — org tenancy (SQL) **AND** per-project role — but "user ∈
+R.project" is resolved by a WorkOS FGA `check`, not a membership join. Per-file
+authorization (a `document` resource type inheriting the project) extends this model;
+see [ADR-0023](0023-file-gateway-and-per-file-fga.md).
+
 ## References
 
 - [`../architecture/multitenancy-and-auth-spec.md`](../architecture/multitenancy-and-auth-spec.md)

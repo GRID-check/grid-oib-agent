@@ -85,7 +85,7 @@ services:
     depends_on:
       aiq-data-permissions:
         condition: service_completed_successfully
-      minio:
+      object-store:
         condition: service_healthy
       postgres:
         condition: service_healthy
@@ -109,7 +109,10 @@ services:
       - chroma_data:/app/data/chroma_data
     restart: "no"
 
-  minio:
+  # S3-compatible object store. De-branded service name; the running image is
+  # still minio/minio for now (image swap is a separate pass). MINIO_ROOT_USER /
+  # MINIO_ROOT_PASSWORD configure the minio server itself, so they stay as-is.
+  object-store:
     image: minio/minio:RELEASE.2024-06-29T01-20-47Z
     ports:
       - "9000:9000"
@@ -129,15 +132,15 @@ services:
       - aiq-network
     restart: unless-stopped
 
-  minio-init:
+  object-store-init:
     image: minio/mc:latest
     entrypoint: ["/bin/sh", "-c"]
     command:
       - >
-        mc alias set local http://minio:9000 minioadmin minioadmin &&
+        mc alias set local http://object-store:9000 minioadmin minioadmin &&
         mc mb local/grid-documents --ignore-existing
     depends_on:
-      minio:
+      object-store:
         condition: service_healthy
     networks:
       - aiq-network
@@ -179,15 +182,23 @@ services:
       - FILE_UPLOAD_MAX_SIZE_MB=${FILE_UPLOAD_MAX_SIZE_MB:-}
       - FILE_UPLOAD_MAX_FILE_COUNT=${FILE_UPLOAD_MAX_FILE_COUNT:-}
       - FILE_EXPIRATION_CHECK_INTERVAL_HOURS=${FILE_EXPIRATION_CHECK_INTERVAL_HOURS:-}
-      - MINIO_ENDPOINT=http://minio:9000
+      # S3-compatible object store. New S3_* names are primary; legacy MINIO_*
+      # are kept so un-migrated app builds and external configs keep working.
+      - S3_ENDPOINT=http://object-store:9000
+      - MINIO_ENDPOINT=http://object-store:9000
       # Browser-reachable endpoint used ONLY to sign presigned URLs handed to the
       # browser (PDF preview/download). Must be a host the browser can resolve --
-      # the internal `minio` hostname above is not. Defaults to the published
-      # localhost port for local dev; set to your public MinIO/S3 URL in prod.
+      # the internal `object-store` hostname above is not. Defaults to the
+      # published localhost port for local dev; set to your public S3 URL in prod.
+      - S3_PUBLIC_ENDPOINT=${MINIO_PUBLIC_ENDPOINT:-http://localhost:9000}
       - MINIO_PUBLIC_ENDPOINT=${MINIO_PUBLIC_ENDPOINT:-http://localhost:9000}
+      - S3_ACCESS_KEY=minioadmin
       - MINIO_ACCESS_KEY=minioadmin
+      - S3_SECRET_KEY=minioadmin
       - MINIO_SECRET_KEY=minioadmin
+      - S3_BUCKET=grid-documents
       - MINIO_BUCKET=grid-documents
+      - S3_PRESIGNED_URL_TTL_SECONDS=600
       - MINIO_PRESIGNED_URL_TTL_SECONDS=600
       - PROJECT_PURGE_GRACE_DAYS=${PROJECT_PURGE_GRACE_DAYS:-7}
       # OpenRouter model catalog for the org model-config picker/validation.
@@ -214,7 +225,7 @@ services:
     depends_on:
       aiq-agent:
         condition: service_healthy
-      minio:
+      object-store:
         condition: service_healthy
       postgres:
         condition: service_healthy
@@ -249,9 +260,14 @@ services:
       - GRID_APP_DATABASE_URL=${GRID_APP_DATABASE_URL:-postgresql://aiq:aiq_dev@postgres:5432/grid_app}
       - BACKEND_URL=${BACKEND_URL:-http://aiq-agent:8000}
       - GRID_INTERNAL_API_TOKEN=${GRID_INTERNAL_API_TOKEN:-grid-internal-dev-token}
-      - MINIO_ENDPOINT=http://minio:9000
+      # S3-compatible object store (new S3_* primary, legacy MINIO_* fallback).
+      - S3_ENDPOINT=http://object-store:9000
+      - MINIO_ENDPOINT=http://object-store:9000
+      - S3_ACCESS_KEY=minioadmin
       - MINIO_ACCESS_KEY=minioadmin
+      - S3_SECRET_KEY=minioadmin
       - MINIO_SECRET_KEY=minioadmin
+      - S3_BUCKET=grid-documents
       - MINIO_BUCKET=grid-documents
       - WORKOS_API_KEY=${WORKOS_API_KEY}
       - PURGER_POLL_INTERVAL_MS=${PURGER_POLL_INTERVAL_MS:-60000}
@@ -260,10 +276,51 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      minio:
+      object-store:
         condition: service_healthy
       aiq-agent:
         condition: service_healthy
+    restart: unless-stopped
+
+  # File-gateway: exposes project documents as a mountable network drive (NFSv3),
+  # authorizing every file access against the same WorkOS FGA the web app uses
+  # (delegated to the BFF internal endpoint) with decisions cached in Dragonfly.
+  # See services/file-gateway/ and ADR-0023. Needs FUSE for the server-side S3
+  # mount (rclone). Dev only in this compose; production wiring (privileged
+  # container review, signed mount-token identity) is a follow-up.
+  file-gateway:
+    build:
+      context: ../../services/file-gateway
+      dockerfile: deploy/Dockerfile
+    container_name: grid-file-gateway
+    cap_add: [SYS_ADMIN]
+    devices: ["/dev/fuse"]
+    security_opt: ["apparmor:unconfined"]
+    environment:
+      - GATEWAY_ENV=dev
+      - GATEWAY_LISTEN_NFS=:2049
+      - GATEWAY_LISTEN_ADMIN=:9090
+      - GATEWAY_DATA_DIR=/data
+      - GATEWAY_IDENTITY_RESOLVER=dirpath
+      # Single authz brain: delegate to the BFF's FGA (see /api/internal/file-access).
+      - GATEWAY_POLICY_MODE=bff
+      - GATEWAY_BFF_AUTHZ_URL=http://frontend:3000/api/internal/file-access
+      - GRID_INTERNAL_API_TOKEN=${GRID_INTERNAL_API_TOKEN:-grid-internal-dev-token}
+      # Shared FGA decision cache (ADR-0020) — the same Dragonfly the BFF uses.
+      - REDIS_URL=redis://dragonfly:6379/0
+      - BUCKET=grid-documents
+    volumes:
+      - ../../services/file-gateway/deploy/rclone.grid.conf:/etc/rclone/rclone.conf:ro
+    networks:
+      - aiq-network
+    depends_on:
+      object-store:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+    ports:
+      - "2049:2049"
+      - "9091:9090"
     restart: unless-stopped
 
   dragonfly:
@@ -343,6 +400,9 @@ volumes:
     driver: local
   chroma_data:
     driver: local
+  # Volume name kept as `minio-data` deliberately: renaming a named volume
+  # orphans stored objects on existing deployments. Rename in a follow-up with
+  # a data-migration step, not in this de-branding pass.
   minio-data:
     driver: local
   postgres-data:

@@ -1,0 +1,15 @@
+{
+  "_comment": "Equivalent of the WorkOS FGA warrant graph. In production this lives in WorkOS, not in a file. OIB core -> org -> project -> session layering.",
+  "subjects": {
+    "alice": {
+      "orgs": ["org-acme"],
+      "org_roles": { "org-acme": "viewer" },
+      "projects": { "org-acme/atlas": "editor" }
+    },
+    "bob": {
+      "orgs": ["org-acme"],
+      "org_roles": { "org-acme": "viewer" },
+      "projects": { "org-acme/zenith": "viewer" }
+    }
+  }
+}

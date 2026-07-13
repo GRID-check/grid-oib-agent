@@ -26,7 +26,7 @@ function makeDeps(overrides = {}) {
     internalToken: 'tok',
     bucket: 'grid-documents',
     fetchImpl: vi.fn().mockResolvedValue({ ok: true }),
-    deleteMinioPrefix: vi.fn().mockResolvedValue(3),
+    deleteS3Prefix: vi.fn().mockResolvedValue(3),
     workos: {
       authorization: {
         deleteResourceByExternalId: vi.fn().mockResolvedValue(undefined),
@@ -44,7 +44,7 @@ const entry = {
 }
 
 describe('purgeProject', () => {
-  it('runs steps in order: backend, minio, workos, rows — project row last', async () => {
+  it('runs steps in order: backend, s3, workos, rows — project row last', async () => {
     const { tx, executed } = makeTx({
       projectRow: { id: 'p1', collection_name: 'proj_abc', name: 'Alpha' },
       conversationRows: [{ id: 'c1' }, { id: 'c2' }],
@@ -59,7 +59,7 @@ describe('purgeProject', () => {
       collection_name: 'proj_abc',
       conversation_ids: ['c1', 'c2'],
     })
-    expect(deps.deleteMinioPrefix).toHaveBeenCalledWith(
+    expect(deps.deleteS3Prefix).toHaveBeenCalledWith(
       'grid-documents',
       'org/org1/project/p1/',
     )
@@ -111,7 +111,7 @@ describe('purgeProject', () => {
     // No destructive step ran: no backend call, no MinIO delete, no WorkOS
     // delete, no grid_app row deletes.
     expect(deps.fetchImpl).not.toHaveBeenCalled()
-    expect(deps.deleteMinioPrefix).not.toHaveBeenCalled()
+    expect(deps.deleteS3Prefix).not.toHaveBeenCalled()
     expect(deps.workos.authorization.deleteResourceByExternalId).not.toHaveBeenCalled()
     expect(executed.some((q) => q.text.startsWith('DELETE'))).toBe(false)
   })

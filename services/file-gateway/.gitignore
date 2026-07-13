@@ -1,0 +1,6 @@
+# build sandbox egress-proxy CA (environment-specific; not source)
+deploy/ca-bundle.crt
+deploy/client/ca-bundle.crt
+# build output
+/gateway
+*.out
