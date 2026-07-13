@@ -39,6 +39,7 @@ from aiq_agent.common.nat_converters import ensure_registered as _ensure_nat_con
 from aiq_agent.observability.otel_header_redaction_exporter import (
     ensure_registered as _ensure_otel_redaction_registered,
 )
+from aiq_agent.project_context import get_memory_reflection_enabled_from_context
 from nat.builder.builder import Builder
 from nat.builder.context import Context
 from nat.builder.framework_enum import LLMFrameworkEnum
@@ -367,6 +368,18 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                     # synchronous in-process deep research path.
                     user_info=state.user_info,
                     clarifier_result=state.clarifier_result,
+                    # Deep-research reflection runs on the worker once the report
+                    # exists (the sync post-answer stage skips deep jobs). Both
+                    # values are read here while the request context is live.
+                    memory_reflection_enabled=(
+                        config.memory_reflection_llm is not None
+                        and get_memory_reflection_enabled_from_context()
+                    ),
+                    # Plain str (LLMRef is a str subclass) so it crosses the Dask
+                    # pickle boundary without depending on the subclass.
+                    memory_reflection_llm=(
+                        str(config.memory_reflection_llm) if config.memory_reflection_llm else None
+                    ),
                 )
 
             deep_research_job_submitter = _submit_deep_job
