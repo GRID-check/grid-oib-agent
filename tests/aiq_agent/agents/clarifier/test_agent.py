@@ -729,6 +729,43 @@ class TestClarifierAgentPlanApproval:
         assert result.plan_sections == ["Intro", "Analysis", "Conclusion"]
 
     @pytest.mark.asyncio
+    async def test_plan_generation_anchors_on_current_request(
+        self, mock_llm_provider, mock_llm, mock_planner_llm
+    ):
+        """The planner is anchored on the CURRENT request, not an earlier-turn
+        topic still sitting in history — guards against stale-plan carry-over
+        (an aborted research bleeding into a new, unrelated request)."""
+        complete_response = ClarificationResponse(needs_clarification=False, clarification_question=None)
+        mock_llm.ainvoke = AsyncMock(return_value=AIMessage(content=complete_response.model_dump_json()))
+        mock_planner_llm.ainvoke = AsyncMock(
+            return_value=AIMessage(content='{"title": "T", "sections": ["A", "B"]}')
+        )
+        mock_user_callback = AsyncMock(return_value="approve")
+
+        agent = ClarifierAgent(
+            llm_provider=mock_llm_provider,
+            user_prompt_callback=mock_user_callback,
+            enable_plan_approval=True,
+            planner_llm=mock_planner_llm,
+        )
+
+        # History carries an earlier, since-abandoned topic; the latest turn is new.
+        state = ClarifierAgentState(
+            messages=[
+                HumanMessage(content="Research the 17-basement high-rise fire code"),
+                AIMessage(content="(earlier deep-research discussion)"),
+                HumanMessage(content="actually, summarize the daylight rules for small dwellings"),
+            ]
+        )
+        await agent.run(state)
+
+        # The final message handed to the planner names the CURRENT request.
+        planner_messages = mock_planner_llm.ainvoke.await_args.args[0]
+        anchor = planner_messages[-1].content
+        assert "CURRENT request" in anchor
+        assert "summarize the daylight rules for small dwellings" in anchor
+
+    @pytest.mark.asyncio
     async def test_run_with_plan_approval_rejected(self, mock_llm_provider, mock_llm, mock_planner_llm):
         """Test run with plan approval when user rejects."""
         complete_response = ClarificationResponse(needs_clarification=False, clarification_question=None)
