@@ -37,11 +37,12 @@ def build_card_generation_prompt() -> str:
 
     return (
         "You are a structured-output assistant. Given a user question and research context, "
-        "produce a JSON array of Grid response cards.\n\n"
-        "Only include a card when it adds value. Do not invent references.\n\n"
+        "produce Grid response cards as a JSON object of the form {\"cards\": [ ...card objects... ]}.\n\n"
+        "Only include a card when it adds value. Do not invent references. "
+        "Use an empty array when no card adds value.\n\n"
         "Allowed card types:\n"
         + "\n".join(card_types)
-        + "\n\nJSON Schema:\n"
+        + "\n\nJSON Schema for each card:\n"
         + json.dumps(schema, indent=2, ensure_ascii=False)
-        + "\n\nRespond ONLY with a JSON array."
+        + "\n\nRespond ONLY with the JSON object — no prose, no code fences."
     )

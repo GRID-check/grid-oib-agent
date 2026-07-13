@@ -26,6 +26,7 @@ import sys
 
 import httpx
 
+from aiq_agent.cards.generate import _parse_cards_text
 from aiq_agent.cards.models import validate_cards
 from aiq_agent.cards.prompt import build_card_generation_prompt
 
@@ -91,13 +92,6 @@ def call_openrouter(messages: list[dict]) -> str:
     return choice
 
 
-def strip_code_fence(raw_text: str) -> str:
-    raw_text = raw_text.strip()
-    if raw_text.startswith("```"):
-        raw_text = raw_text.split("\n", 1)[-1].rsplit("\n```", 1)[0].strip()
-    return raw_text
-
-
 def main() -> None:
     print(f"Model: {MODEL_NAME}")
     print(f"Base URL: {BASE_URL}")
@@ -108,15 +102,12 @@ def main() -> None:
     print("\n--- Raw LLM response (first 2000 chars) ---")
     print(raw_text[:2000])
 
-    cleaned = strip_code_fence(raw_text)
-    try:
-        parsed = json.loads(cleaned)
-    except json.JSONDecodeError as e:
-        print(f"\nFAIL: Could not parse LLM output as JSON: {e}")
+    # Use the real production parser so the smoke test mirrors the live path
+    # (object wrapper, bare array, or prose-wrapped JSON all handled).
+    parsed = _parse_cards_text(raw_text)
+    if parsed is None:
+        print("\nFAIL: Could not parse any cards from the LLM output.")
         sys.exit(1)
-
-    if not isinstance(parsed, list):
-        parsed = [parsed]
 
     try:
         cards = validate_cards(parsed)
