@@ -419,9 +419,13 @@ async def run_agent_job(
                         if llm is not None:
                             llm = provider.get(LLMRole.ORCHESTRATOR)
 
-            # Resolve tools: use explicit list or auto-inherit from data_source_registry
+            # Resolve tools: use explicit list or auto-inherit from
+            # data_source_registry. `is None` (not falsy): an explicit
+            # `tools: []` means a tool-less agent — the submit-route validator
+            # treats it that way, and `not []` would silently hand such an
+            # agent every registry tool instead.
             tool_refs = fn_config.tools
-            if not tool_refs:
+            if tool_refs is None:
                 from aiq_agent.common import get_all_tool_refs
 
                 tool_refs = get_all_tool_refs()
@@ -717,6 +721,9 @@ async def run_agent_job(
             from ._auth_context import job_auth_token
 
             job_auth_token.reset(_auth_token_reset)
+        # Drop the job's URL dedup caches: they are class-level dicts keyed by
+        # job_id and otherwise accumulate for the life of the worker process.
+        AgentEventCallback.cleanup_job_urls(job_id)
 
 
 def _create_agent_instance(

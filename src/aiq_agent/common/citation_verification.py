@@ -1030,10 +1030,17 @@ def verify_citations(
         )
     valid_citations = deduped_valid
 
-    # Apply URL replacements (garbled -> canonical) in the source section
+    # Apply URL replacements (garbled -> canonical) in the source section.
+    # Bounded match: a plain str.replace would also rewrite a *different*
+    # reference whose URL merely starts with the garbled one (e.g. ?id=1
+    # vs ?id=10), corrupting a valid citation into a dead link.
     if url_replacements:
         for garbled, canonical in url_replacements.items():
-            ref_section = ref_section.replace(garbled, canonical)
+            ref_section = re.sub(
+                re.escape(garbled) + r"(?![\w\-./?=&%#~+])",
+                lambda _m, url=canonical: url,
+                ref_section,
+            )
 
     removed_numbers = {c["number"] for c in removed_citations}
 

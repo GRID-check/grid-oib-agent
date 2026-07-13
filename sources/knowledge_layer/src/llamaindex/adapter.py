@@ -98,6 +98,10 @@ COLLECTION_TTL_HOURS = float(os.environ.get("AIQ_COLLECTION_TTL_HOURS", "24"))
 # Seconds between TTL cleanup runs.
 TTL_CLEANUP_INTERVAL_SECONDS = int(os.environ.get("AIQ_TTL_CLEANUP_INTERVAL_SECONDS", "3600"))
 
+# Terminal jobs are retained this long for status polling/file listings, then
+# pruned so in-memory job tracking doesn't grow for the life of the process.
+JOB_RETENTION_SECONDS = 3600  # 1 hour
+
 # Document summarization settings
 SUMMARY_MAX_INPUT_CHARS = 4000  # ~1000 tokens input
 
@@ -872,8 +876,32 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         logger.info(f"LlamaIndex ingestion job submitted: {job_id}")
         return job_id
 
+    def _prune_completed_jobs(self) -> None:
+        """Remove terminal jobs older than the retention window.
+
+        Without this, a long-lived backend accumulates one IngestionJobStatus
+        (with full file_details) per upload for the life of the process.
+        Mirrors the FRAG adapter's retention behavior. ``completed_at`` is an
+        isoformat string on this adapter (get_file_status round-trips it via
+        fromisoformat), so parse before comparing.
+        """
+        now = datetime.utcnow()
+        with self._lock:
+            stale = []
+            for jid, job in self._jobs.items():
+                if job.status not in (JobState.COMPLETED, JobState.FAILED):
+                    continue
+                completed_at = self._parse_timestamp(job.completed_at) if isinstance(job.completed_at, str) else None
+                if completed_at is not None and (now - completed_at).total_seconds() > JOB_RETENTION_SECONDS:
+                    stale.append(jid)
+            for jid in stale:
+                del self._jobs[jid]
+        if stale:
+            logger.debug("Pruned %d completed job(s) from tracking", len(stale))
+
     def get_job_status(self, job_id: str) -> IngestionJobStatus:
         """Get current status of an ingestion job."""
+        self._prune_completed_jobs()
         with self._lock:
             if job_id not in self._jobs:
                 return IngestionJobStatus(
@@ -951,6 +979,12 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             with self._lock:
                 client = self._get_chroma_client()
                 client.delete_collection(name=name)
+                # Purge in-memory tracking for the collection: entries left
+                # behind leak for the life of the process, and if a deleted
+                # collection name is ever reused, list_files would resurrect
+                # old FAILED entries as phantom files.
+                self._files = {fid: fi for fid, fi in self._files.items() if fi.collection_name != name}
+                self._jobs = {jid: job for jid, job in self._jobs.items() if job.collection_name != name}
 
             # Clear summaries from centralized registry
             from aiq_agent.knowledge import clear_collection_summaries

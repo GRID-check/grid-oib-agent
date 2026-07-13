@@ -157,9 +157,13 @@ async def intent_classifier(config: IntentClassifierConfig, builder: Builder):
     non_registry_tools_info = [t for t in tools_info if t["name"] not in registry_names]
 
     async def _run(state: ChatResearcherState) -> dict[str, Any]:
+        # Pass the narrowed list per request instead of mutating the shared
+        # classifier instance: a mutation would leak one request's data-source
+        # selection into every later request (and race between concurrent ones).
+        request_tools_info = None
         if state.data_sources is not None:
-            classifier.tools_info = format_data_source_tools(state.data_sources) + non_registry_tools_info
-        return await classifier.run(state)
+            request_tools_info = format_data_source_tools(state.data_sources) + non_registry_tools_info
+        return await classifier.run(state, tools_info=request_tools_info)
 
     yield FunctionInfo.from_fn(
         _run,

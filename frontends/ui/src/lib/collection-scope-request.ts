@@ -81,6 +81,7 @@ export async function buildCollectionScopeFromRequest(
   const includeProject = context.includeProject !== false
 
   let projectId = includeProject ? context.projectId : undefined
+  const explicitProject = Boolean(projectId)
   if (includeProject && !projectId && session && !anonymous) {
     projectId = await resolveActiveProjectId(session, undefined)
   }
@@ -88,7 +89,20 @@ export async function buildCollectionScopeFromRequest(
   const conversationId = context.conversationId
 
   if (projectId && session && !anonymous) {
-    await requireProjectAccess(session as AuthorizedSession, projectId, 'project:view')
+    if (explicitProject) {
+      await requireProjectAccess(session as AuthorizedSession, projectId, 'project:view')
+    } else {
+      // Implicit fallback from the stored active_project_id preference, which
+      // can go stale (project soft-deleted, membership revoked) and is never
+      // cleaned up. Throwing here would break every request that omits
+      // projectId — global listings 404, general chat WS upgrades 403 — so
+      // degrade to an unscoped request instead of failing.
+      try {
+        await requireProjectAccess(session as AuthorizedSession, projectId, 'project:view')
+      } catch {
+        projectId = undefined
+      }
+    }
   }
 
   const projectCollectionName = includeProject

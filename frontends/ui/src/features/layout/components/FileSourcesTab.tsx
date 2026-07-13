@@ -169,12 +169,18 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
         console.error('Project collection is not ready for upload')
         return
       }
-      if (!isProjectTarget && !ensureSession()) {
-        console.error('Failed to create session for upload')
-        return
+      let sessionId: string | undefined
+      if (!isProjectTarget) {
+        sessionId = ensureSession()
+        if (!sessionId) {
+          console.error('Failed to create session for upload')
+          return
+        }
       }
-      // uploadFiles validates internally and sets error if invalid
-      await uploadFiles(files)
+      // Pass the (possibly just-created) session explicitly: the hook's
+      // memoized collectionName still reflects the previous render, so the
+      // first upload in a fresh session would otherwise abort.
+      await uploadFiles(files, sessionId)
     },
     [ensureSession, isProjectTarget, projectCollectionName, uploadFiles]
   )

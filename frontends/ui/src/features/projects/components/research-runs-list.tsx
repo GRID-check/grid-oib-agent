@@ -69,7 +69,9 @@ const formatRelativeTime = (isoDate: string, locale: Locale): string => {
   for (const [limit, unit] of thresholds) {
     if (absSeconds < limit) {
       const divisor = divisors[unit]
-      const value = Math.round(diffSeconds / divisor)
+      // Truncate toward zero, not round: rounding at a unit boundary yields
+      // "in 60 minutes" / "60 minutes ago" instead of the next unit up.
+      const value = Math.trunc(diffSeconds / divisor)
       return rtf.format(value, unit)
     }
   }

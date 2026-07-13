@@ -205,6 +205,14 @@ def _derive_project_collection(collection_scope: list[str] | None) -> str | None
     return None
 
 
+class SchedulerNotConfiguredError(RuntimeError):
+    """The Dask scheduler address is not configured (server misconfiguration).
+
+    Subclasses RuntimeError for backwards compatibility, but lets HTTP routes
+    map it to 503 instead of conflating it with authorization failures (403).
+    """
+
+
 async def submit_agent_job(
     agent_type: str,
     input_text: str,
@@ -312,7 +320,7 @@ async def submit_agent_job(
     use_threads = os.environ.get("NAT_USE_DASK_THREADS", "0") == "1"
 
     if not scheduler_address:
-        raise RuntimeError("Async job submission requires NAT_DASK_SCHEDULER_ADDRESS to be set")
+        raise SchedulerNotConfiguredError("Async job submission requires NAT_DASK_SCHEDULER_ADDRESS to be set")
 
     # Auto-capture auth token if not explicitly provided
     if auth_token is None:

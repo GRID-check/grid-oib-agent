@@ -99,6 +99,8 @@ export class NATWebSocketClient {
    * See the `rotate()` docstring.
    */
   private rotationInFlight: Promise<void> | null = null
+  private connectInFlight: Promise<void> | null = null
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   /** ID of the last user message sent -- used by callbacks to detect stale responses */
   activeParentId: string | null = null
 
@@ -140,31 +142,42 @@ export class NATWebSocketClient {
     const separator = baseUrl.includes('?') ? '&' : '?'
     return `${baseUrl}${separator}${queryString}`
   }
-  connect = async (): Promise<void> => {
+  connect = (): Promise<void> => {
     if (this.ws?.readyState === WebSocket.OPEN || this.ws?.readyState === WebSocket.CONNECTING) {
-      return
+      return Promise.resolve()
     }
+    // Coalesce concurrent connect()s (mirrors rotationInFlight): between the
+    // readyState guard and `new WebSocket(...)` this method awaits auth
+    // refresh and URL building with `this.ws` still null, so a reconnect
+    // timer firing mid-rotate would otherwise open a second, orphaned socket.
+    if (this.connectInFlight) {
+      return this.connectInFlight
+    }
+    this.connectInFlight = (async () => {
+      this.isIntentionallyClosed = false
+      this.options.callbacks.onConnectionChange?.('connecting')
 
-    this.isIntentionallyClosed = false
-    this.options.callbacks.onConnectionChange?.('connecting')
-
-    try {
-      if (this.options.onBeforeReconnect) {
-        try {
-          await this.options.onBeforeReconnect()
-        } catch (err) {
-          // Auth refresh is best-effort; the upgrade still happens with whatever
-          // cookie the browser has. The backend will close the socket if it's bad.
-          console.warn('[WS] onBeforeReconnect failed, proceeding with current auth', err)
+      try {
+        if (this.options.onBeforeReconnect) {
+          try {
+            await this.options.onBeforeReconnect()
+          } catch (err) {
+            // Auth refresh is best-effort; the upgrade still happens with whatever
+            // cookie the browser has. The backend will close the socket if it's bad.
+            console.warn('[WS] onBeforeReconnect failed, proceeding with current auth', err)
+          }
         }
+        const wsUrl = await this.buildWebSocketUrl()
+        this.ws = new WebSocket(wsUrl)
+        this.setupEventHandlers()
+      } catch {
+        this.options.callbacks.onConnectionChange?.('error', { intentional: false })
+        this.handleReconnect()
+      } finally {
+        this.connectInFlight = null
       }
-      const wsUrl = await this.buildWebSocketUrl()
-      this.ws = new WebSocket(wsUrl)
-      this.setupEventHandlers()
-    } catch {
-      this.options.callbacks.onConnectionChange?.('error', { intentional: false })
-      this.handleReconnect()
-    }
+    })()
+    return this.connectInFlight
   }
 
   /**
@@ -173,6 +186,7 @@ export class NATWebSocketClient {
   disconnect = (): void => {
     this.isIntentionallyClosed = true
     this.reconnectCount = 0
+    this.clearReconnectTimer()
 
     if (this.ws) {
       this.ws.close()
@@ -236,6 +250,9 @@ export class NATWebSocketClient {
         this.isIntentionallyClosed = false
         this.reconnectCount = 0
         this.errorBeforeClose = false
+        // A pending backoff reconnect for the OLD socket must not fire during
+        // (or after) the rotation — it would race this connect() for this.ws.
+        this.clearReconnectTimer()
         await this.connect()
       } finally {
         this.rotationInFlight = null
@@ -502,11 +519,20 @@ export class NATWebSocketClient {
 
     this.reconnectCount++
 
-    setTimeout(() => {
+    this.clearReconnectTimer()
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null
       if (!this.isIntentionallyClosed) {
         this.connect()
       }
     }, reconnectDelay || 1000)
+  }
+
+  private clearReconnectTimer = (): void => {
+    if (this.reconnectTimer !== null) {
+      clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = null
+    }
   }
 }
 

@@ -253,7 +253,9 @@ async def deep_research_agent(config: DeepResearchAgentConfig, builder: Builder)
             if (
                 active_provider is not provider
                 or sandbox_config is not None
-                or (data_sources is not None and selected_tools != tools)
+                # No `data_sources is not None` guard: org-disabled sources
+                # (ADR-0022) narrow selected_tools even on "all tools" requests.
+                or selected_tools != tools
             ):
                 # Scope the Modal sandbox to the async job_id when one is in
                 # NAT context (set by aiq_api/jobs/runner.py). Falls back to a

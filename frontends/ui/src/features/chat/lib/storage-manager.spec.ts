@@ -217,10 +217,10 @@ describe('storage-manager', () => {
 
       setStoreData(conversations, 's_newest')
 
-      const deletedCount = cleanupOldSessions('s_newest', 'user1')
+      const deletedIds = cleanupOldSessions('s_newest', 'user1')
 
       // Under test storage won't be above threshold, so no deletions
-      expect(deletedCount).toBeGreaterThanOrEqual(0)
+      expect(deletedIds.length).toBeGreaterThanOrEqual(0)
     })
 
     test('protects current session from deletion', () => {

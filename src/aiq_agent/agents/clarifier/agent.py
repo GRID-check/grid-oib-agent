@@ -294,7 +294,9 @@ class ClarifierAgent:
         text = response.strip()
         try:
             data = json.loads(text)
-            if isinstance(data, dict) and "query" in data:
+            # Only accept a string query: a non-string value (number, null,
+            # object) would crash the .strip() below and abort the whole turn.
+            if isinstance(data, dict) and isinstance(data.get("query"), str):
                 text = data["query"]
         except (json.JSONDecodeError, TypeError):
             pass  # Not JSON, use original text

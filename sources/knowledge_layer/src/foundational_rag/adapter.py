@@ -134,12 +134,15 @@ def _create_session(timeout: int = DEFAULT_TIMEOUT, verify_ssl: bool = True) -> 
     # Disable SSL verification if requested (for self-signed certificates)
     session.verify = verify_ssl
 
-    # Configure retry strategy for resilience
+    # Configure retry strategy for resilience. POST is deliberately absent:
+    # POST /documents is not idempotent — a 502 after the ingestion task was
+    # already enqueued would silently re-submit the same documents and spawn
+    # concurrent duplicate ingestion tasks.
     retries = Retry(
         total=3,
         backoff_factor=0.5,
         status_forcelist=[500, 502, 503, 504],
-        allowed_methods=["HEAD", "GET", "POST", "PUT", "DELETE", "PATCH"],
+        allowed_methods=["HEAD", "GET", "PUT", "DELETE"],
     )
     adapter = HTTPAdapter(max_retries=retries)
     session.mount("http://", adapter)
@@ -497,7 +500,14 @@ class FoundationalRagRetriever(BaseRetriever):
         # Extract page_number from multiple locations (FRAG puts it in metadata)
         page_number = result.get("page_number") or metadata.get("page_number") or content_metadata.get("page_number")
 
-        if page_number in (-1, 0, None):
+        # Coerce to a positive int or None: Chunk enforces ge=1, and a stray
+        # string/negative value would raise inside retrieve() and be swallowed
+        # upstream into "No relevant documents found".
+        try:
+            page_number = int(page_number) if page_number is not None else None
+        except (TypeError, ValueError):
+            page_number = None
+        if page_number is not None and page_number < 1:
             page_number = None
 
         # Generate chunk_id for citation tracking
@@ -528,7 +538,10 @@ class FoundationalRagRetriever(BaseRetriever):
         return Chunk(
             chunk_id=chunk_id,
             content=content if content else "",
-            score=float(score),
+            # Clamp: reranker relevance scores are logits (routinely negative)
+            # and vector scores can drift past [0, 1]; Chunk enforces the range
+            # and a ValidationError here silently empties the whole result set.
+            score=min(1.0, max(0.0, float(score))),
             file_name=display_name,
             page_number=page_number,
             display_citation=display_citation,
@@ -934,16 +947,12 @@ class FoundationalRagIngestor(TTLCleanupMixin, BaseIngestor):
             task_ids = job.metadata.get("task_ids", [])
             task_to_file = job.metadata.get("task_to_file", {})
 
+            # Fetch every task status over HTTP first, WITHOUT holding the
+            # lock; the state mutations below then run under the lock so a
+            # concurrent delete_files replacing job.file_details (or another
+            # poller thread) can't race the read-modify-write sequences.
+            task_statuses: dict[str, dict] = {}
             for task_id in task_ids:
-                # Get file indices for this task (list for batch, int for legacy single-file)
-                file_idx_raw = task_to_file.get(task_id)
-                if isinstance(file_idx_raw, list):
-                    file_indices = file_idx_raw
-                elif file_idx_raw is not None:
-                    file_indices = [file_idx_raw]
-                else:
-                    file_indices = []
-
                 try:
                     response = self.session.get(
                         f"{self.rag_url}/status",
@@ -952,138 +961,144 @@ class FoundationalRagIngestor(TTLCleanupMixin, BaseIngestor):
                         timeout=30,
                     )
                     if response.status_code == 200:
-                        status_data = response.json()
-                        state = status_data.get("state", "").lower()
-                        logger.debug(f"FRAG task {task_id[:8]} state={state}")
-
-                        if state in ("success", "completed", "finished"):
-                            result = status_data.get("result", {})
-                            failed_docs = result.get("failed_documents", [])
-                            failed_names: dict[str, str] = {}
-                            for fdoc in failed_docs:
-                                fname = fdoc.get("document_name", "")
-                                ferr = fdoc.get("error_message", "Ingestion failed")
-                                if fname:
-                                    failed_names[fname] = ferr
-
-                            if failed_names:
-                                logger.warning(
-                                    f"FRAG task {task_id[:8]} completed with "
-                                    f"{len(failed_names)} failed file(s): {list(failed_names.keys())}"
-                                )
-
-                            if file_indices:
-                                for idx in file_indices:
-                                    if (
-                                        idx < len(job.file_details)
-                                        and job.file_details[idx].status == FileStatus.INGESTING
-                                    ):
-                                        fd = job.file_details[idx]
-                                        # Check if this file appears in failed_documents
-                                        matched_error = next(
-                                            (err for fname, err in failed_names.items() if fname == fd.file_name),
-                                            None,
-                                        )
-                                        if matched_error:
-                                            fd.status = FileStatus.FAILED
-                                            fd.error_message = matched_error
-                                        else:
-                                            fd.status = FileStatus.SUCCESS
-                                succeeded = sum(
-                                    1
-                                    for i in file_indices
-                                    if i < len(job.file_details) and job.file_details[i].status == FileStatus.SUCCESS
-                                )
-                                failed = sum(
-                                    1
-                                    for i in file_indices
-                                    if i < len(job.file_details) and job.file_details[i].status == FileStatus.FAILED
-                                )
-                                logger.debug(f"Batch ingestion done: {succeeded} succeeded, {failed} failed")
-                            else:
-                                # Fallback: match by document name
-                                docs = result.get("documents", [])
-                                for doc in docs:
-                                    doc_name = doc.get("document_name", "")
-                                    for fd in job.file_details:
-                                        if doc_name == fd.file_name and fd.status == FileStatus.INGESTING:
-                                            fd.status = FileStatus.SUCCESS
-                                            logger.debug("File ingestion succeeded")
-                                for fname, ferr in failed_names.items():
-                                    for fd in job.file_details:
-                                        if fname == fd.file_name and fd.status == FileStatus.INGESTING:
-                                            fd.status = FileStatus.FAILED
-                                            fd.error_message = ferr
-                                            logger.warning(f"File ingestion failed: {ferr}")
-                        elif state == "failed":
-                            result = status_data.get("result", {})
-                            # Try multiple fields for error message
-                            # FRAG puts detailed errors in result.message
-                            error_msg = (
-                                status_data.get("error")
-                                or status_data.get("error_message")
-                                or status_data.get("message")
-                                or result.get("message")  # FRAG uses this field
-                                or result.get("error")
-                                or result.get("error_message")
-                                or "Unknown error"
-                            )
-                            failed_docs = result.get("failed_documents", [])
-                            logger.warning(f"FRAG task {task_id[:8]} failed: {error_msg}")
-
-                            # Mark all files in this batch task as failed
-                            if file_indices:
-                                for idx in file_indices:
-                                    if (
-                                        idx < len(job.file_details)
-                                        and job.file_details[idx].status == FileStatus.INGESTING
-                                    ):
-                                        job.file_details[idx].status = FileStatus.FAILED
-                                        job.file_details[idx].error_message = error_msg
-                            elif failed_docs:
-                                # Fallback: use failed_docs list
-                                for fdoc in failed_docs:
-                                    doc_name = fdoc.get("document_name", "")
-                                    doc_error = fdoc.get("error_message", error_msg)
-                                    for fd in job.file_details:
-                                        if doc_name == fd.file_name and fd.status == FileStatus.INGESTING:
-                                            fd.status = FileStatus.FAILED
-                                            fd.error_message = doc_error
-                                            logger.warning(f"File ingestion failed: {doc_error}")
-                        elif state in ("pending", "started", "processing", "running"):
-                            # Check per-document status for incremental progress
-                            # The RAG server provides nv_ingest_status.document_wise_status
-                            # which shows individual file completion before the batch finishes
-                            nv_status = status_data.get("nv_ingest_status", {})
-                            doc_statuses = nv_status.get("document_wise_status", {})
-                            if doc_statuses:
-                                for fd in job.file_details:
-                                    if fd.status == FileStatus.INGESTING:
-                                        doc_state = doc_statuses.get(fd.file_name, "")
-                                        if doc_state == "completed":
-                                            fd.status = FileStatus.SUCCESS
-                                            logger.debug(f"File {fd.file_name} completed (batch still processing)")
+                        task_statuses[task_id] = response.json()
                     else:
                         logger.warning(f"FRAG status check returned {response.status_code} for task {task_id[:8]}")
                 except Exception as e:
                     logger.warning(f"Failed to check FRAG task {task_id[:8]} status: {e}")
 
-            # After checking all tasks, update job completion status
-            success_count = sum(1 for fd in job.file_details if fd.status == FileStatus.SUCCESS)
-            failed_count = sum(1 for fd in job.file_details if fd.status == FileStatus.FAILED)
-            total_done = success_count + failed_count
+            with self._lock:
+                for task_id, status_data in task_statuses.items():
+                    # Get file indices for this task (list for batch, int for legacy single-file)
+                    file_idx_raw = task_to_file.get(task_id)
+                    if isinstance(file_idx_raw, list):
+                        file_indices = file_idx_raw
+                    elif file_idx_raw is not None:
+                        file_indices = [file_idx_raw]
+                    else:
+                        file_indices = []
 
-            if total_done == job.total_files:
-                # All files have terminal status
-                job.processed_files = total_done
-                if failed_count == job.total_files:
-                    job.status = JobState.FAILED
-                    job.error_message = "File ingestion failed"
-                else:
-                    job.status = JobState.COMPLETED
-                job.completed_at = datetime.now()
+                    state = status_data.get("state", "").lower()
+                    logger.debug(f"FRAG task {task_id[:8]} state={state}")
 
-                logger.info(f"Job {job_id[:8]} completed: {success_count} succeeded, {failed_count} failed")
+                    if state in ("success", "completed", "finished"):
+                        result = status_data.get("result", {})
+                        failed_docs = result.get("failed_documents", [])
+                        failed_names: dict[str, str] = {}
+                        for fdoc in failed_docs:
+                            fname = fdoc.get("document_name", "")
+                            ferr = fdoc.get("error_message", "Ingestion failed")
+                            if fname:
+                                failed_names[fname] = ferr
+
+                        if failed_names:
+                            logger.warning(
+                                f"FRAG task {task_id[:8]} completed with "
+                                f"{len(failed_names)} failed file(s): {list(failed_names.keys())}"
+                            )
+
+                        if file_indices:
+                            for idx in file_indices:
+                                if idx < len(job.file_details) and job.file_details[idx].status == FileStatus.INGESTING:
+                                    fd = job.file_details[idx]
+                                    # Check if this file appears in failed_documents
+                                    matched_error = next(
+                                        (err for fname, err in failed_names.items() if fname == fd.file_name),
+                                        None,
+                                    )
+                                    if matched_error:
+                                        fd.status = FileStatus.FAILED
+                                        fd.error_message = matched_error
+                                    else:
+                                        fd.status = FileStatus.SUCCESS
+                            succeeded = sum(
+                                1
+                                for i in file_indices
+                                if i < len(job.file_details) and job.file_details[i].status == FileStatus.SUCCESS
+                            )
+                            failed = sum(
+                                1
+                                for i in file_indices
+                                if i < len(job.file_details) and job.file_details[i].status == FileStatus.FAILED
+                            )
+                            logger.debug(f"Batch ingestion done: {succeeded} succeeded, {failed} failed")
+                        else:
+                            # Fallback: match by document name
+                            docs = result.get("documents", [])
+                            for doc in docs:
+                                doc_name = doc.get("document_name", "")
+                                for fd in job.file_details:
+                                    if doc_name == fd.file_name and fd.status == FileStatus.INGESTING:
+                                        fd.status = FileStatus.SUCCESS
+                                        logger.debug("File ingestion succeeded")
+                            for fname, ferr in failed_names.items():
+                                for fd in job.file_details:
+                                    if fname == fd.file_name and fd.status == FileStatus.INGESTING:
+                                        fd.status = FileStatus.FAILED
+                                        fd.error_message = ferr
+                                        logger.warning(f"File ingestion failed: {ferr}")
+                    elif state == "failed":
+                        result = status_data.get("result", {})
+                        # Try multiple fields for error message
+                        # FRAG puts detailed errors in result.message
+                        error_msg = (
+                            status_data.get("error")
+                            or status_data.get("error_message")
+                            or status_data.get("message")
+                            or result.get("message")  # FRAG uses this field
+                            or result.get("error")
+                            or result.get("error_message")
+                            or "Unknown error"
+                        )
+                        failed_docs = result.get("failed_documents", [])
+                        logger.warning(f"FRAG task {task_id[:8]} failed: {error_msg}")
+
+                        # Mark all files in this batch task as failed
+                        if file_indices:
+                            for idx in file_indices:
+                                if idx < len(job.file_details) and job.file_details[idx].status == FileStatus.INGESTING:
+                                    job.file_details[idx].status = FileStatus.FAILED
+                                    job.file_details[idx].error_message = error_msg
+                        elif failed_docs:
+                            # Fallback: use failed_docs list
+                            for fdoc in failed_docs:
+                                doc_name = fdoc.get("document_name", "")
+                                doc_error = fdoc.get("error_message", error_msg)
+                                for fd in job.file_details:
+                                    if doc_name == fd.file_name and fd.status == FileStatus.INGESTING:
+                                        fd.status = FileStatus.FAILED
+                                        fd.error_message = doc_error
+                                        logger.warning(f"File ingestion failed: {doc_error}")
+                    elif state in ("pending", "started", "processing", "running"):
+                        # Check per-document status for incremental progress
+                        # The RAG server provides nv_ingest_status.document_wise_status
+                        # which shows individual file completion before the batch finishes
+                        nv_status = status_data.get("nv_ingest_status", {})
+                        doc_statuses = nv_status.get("document_wise_status", {})
+                        if doc_statuses:
+                            for fd in job.file_details:
+                                if fd.status == FileStatus.INGESTING:
+                                    doc_state = doc_statuses.get(fd.file_name, "")
+                                    if doc_state == "completed":
+                                        fd.status = FileStatus.SUCCESS
+                                        logger.debug(f"File {fd.file_name} completed (batch still processing)")
+
+                # After checking all tasks, update job completion status
+                success_count = sum(1 for fd in job.file_details if fd.status == FileStatus.SUCCESS)
+                failed_count = sum(1 for fd in job.file_details if fd.status == FileStatus.FAILED)
+                total_done = success_count + failed_count
+
+                if total_done == job.total_files:
+                    # All files have terminal status
+                    job.processed_files = total_done
+                    if failed_count == job.total_files:
+                        job.status = JobState.FAILED
+                        job.error_message = "File ingestion failed"
+                    else:
+                        job.status = JobState.COMPLETED
+                    job.completed_at = datetime.now()
+
+                    logger.info(f"Job {job_id[:8]} completed: {success_count} succeeded, {failed_count} failed")
 
         return job
 
@@ -1480,6 +1495,12 @@ class FoundationalRagIngestor(TTLCleanupMixin, BaseIngestor):
             with self._lock:
                 for job in self._jobs.values():
                     if job.collection_name != collection_name:
+                        continue
+                    # Only touch terminal jobs: removing an entry from an
+                    # in-flight job shrinks file_details below total_files, so
+                    # get_job_status could never see it complete and the job
+                    # would stay PROCESSING forever.
+                    if job.status not in (JobState.COMPLETED, JobState.FAILED):
                         continue
                     job.file_details = [fd for fd in job.file_details if fd.file_name not in deleted_set]
 

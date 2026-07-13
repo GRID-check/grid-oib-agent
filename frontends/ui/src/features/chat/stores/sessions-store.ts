@@ -338,6 +338,9 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
           // server yet — never clobber a local title with an empty one.
           title: serverConv.title ?? (idx >= 0 ? merged[idx].title : '') ?? '',
           messages: idx >= 0 ? merged[idx].messages : [],
+          // Client-only field — dropping it here would silently re-enable
+          // every data source the user turned off for this session.
+          enabledDataSourceIds: idx >= 0 ? merged[idx].enabledDataSourceIds : undefined,
           // Over JSON these arrive as ISO strings; normalize so date math and
           // sidebar sorting behave the same as locally created sessions.
           createdAt: new Date(serverConv.createdAt as unknown as string),
@@ -571,7 +574,17 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
       return undefined
     }
 
-    ensureStorageCapacity(currentConversation?.id ?? null, currentUserId)
+    const cleanedUpIds = ensureStorageCapacity(currentConversation?.id ?? null, currentUserId)
+    if (cleanedUpIds.length > 0) {
+      // Cleanup only edits localStorage; prune in-memory state too or the
+      // next persist write resurrects every deleted session.
+      const deleted = new Set(cleanedUpIds)
+      set(
+        (state) => ({ conversations: state.conversations.filter((c) => !deleted.has(c.id)) }),
+        false,
+        'storageCleanupPrune'
+      )
+    }
 
     const layoutState = useLayoutStore.getState()
     const defaultEnabledDataSourceIds = getDefaultEnabledDataSourceIds()
@@ -635,7 +648,16 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
     } = get()
 
     if (currentConversation?.id !== conversationId) {
-      ensureStorageCapacity(conversationId, currentUserId)
+      const cleanedUpIds = ensureStorageCapacity(conversationId, currentUserId)
+      if (cleanedUpIds.length > 0) {
+        // Keep in-memory state in sync or persist resurrects the sessions.
+        const deleted = new Set(cleanedUpIds)
+        set(
+          (state) => ({ conversations: state.conversations.filter((c) => !deleted.has(c.id)) }),
+          false,
+          'storageCleanupPrune'
+        )
+      }
     }
 
     const conversation = conversations.find((c) => c.id === conversationId)
