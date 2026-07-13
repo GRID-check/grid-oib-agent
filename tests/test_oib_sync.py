@@ -72,6 +72,7 @@ def _configure_sync(monkeypatch, tmp_path: Path, fake_ingestor: FakeIngestor, *,
     oib_dir = tmp_path / "oib"
     registry_path = tmp_path / "oib_registry.json"
     monkeypatch.setattr(oib_sync, "OIB_DIR", oib_dir)
+    monkeypatch.setattr(oib_sync, "OIB_UPLOADS_DIR", tmp_path / "oib_uploads")
     monkeypatch.setattr(oib_sync, "REGISTRY_PATH", registry_path)
     monkeypatch.setattr(oib_sync, "COLLECTION_NAME", "test_collection")
     monkeypatch.setattr(oib_sync, "CHROMA_DIR", str(tmp_path / "chroma"))
@@ -148,3 +149,64 @@ def test_sync_logs_discovery_progress_and_outcomes(monkeypatch, tmp_path, caplog
     assert "OIB ingestion succeeded" in caplog.text
     assert "OIB ingestion failed" in caplog.text
     assert "OIB sync complete:" in caplog.text
+
+
+def test_discover_pdfs_dedupes_by_name_with_uploads_winning(monkeypatch, tmp_path):
+    fake_ingestor = FakeIngestor({})
+    _configure_sync(monkeypatch, tmp_path, fake_ingestor)
+    _write_pdf(tmp_path / "oib" / "a.pdf", b"repo")
+    _write_pdf(tmp_path / "oib" / "b.pdf", b"repo-only")
+    _write_pdf(tmp_path / "oib_uploads" / "a.pdf", b"uploaded-replacement")
+    _write_pdf(tmp_path / "oib_uploads" / "c.pdf", b"upload-only")
+
+    discovered = oib_sync.discover_pdfs()
+
+    by_name = {p.name: p for p in discovered}
+    assert sorted(by_name) == ["a.pdf", "b.pdf", "c.pdf"]
+    assert by_name["a.pdf"] == tmp_path / "oib_uploads" / "a.pdf"
+
+
+def test_ingest_single_success_updates_registry(monkeypatch, tmp_path):
+    fake_ingestor = FakeIngestor({"new.pdf": FileStatus.SUCCESS})
+    registry_path = _configure_sync(monkeypatch, tmp_path, fake_ingestor)
+    pdf = tmp_path / "oib_uploads" / "new.pdf"
+    _write_pdf(pdf, b"fresh")
+
+    result = oib_sync.ingest_single(pdf)
+
+    assert result == FileStatus.SUCCESS
+    registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    assert str(pdf) in registry
+    assert fake_ingestor.uploaded == ["new.pdf"]
+    # Existing chunks for the name are replaced before re-ingest.
+    assert fake_ingestor.deleted == ["new.pdf"]
+
+
+def test_ingest_single_failure_leaves_registry_untouched(monkeypatch, tmp_path):
+    fake_ingestor = FakeIngestor({"bad.pdf": FileStatus.FAILED})
+    registry_path = _configure_sync(monkeypatch, tmp_path, fake_ingestor)
+    pdf = tmp_path / "oib_uploads" / "bad.pdf"
+    _write_pdf(pdf, b"broken")
+
+    result = oib_sync.ingest_single(pdf)
+
+    assert result == FileStatus.FAILED
+    assert not registry_path.exists()
+
+
+def test_remove_uploaded_document_deletes_disk_registry_and_chunks(monkeypatch, tmp_path):
+    fake_ingestor = FakeIngestor({})
+    registry_path = _configure_sync(monkeypatch, tmp_path, fake_ingestor)
+    pdf = tmp_path / "oib_uploads" / "custom.pdf"
+    _write_pdf(pdf, b"x")
+    registry_path.write_text(json.dumps({str(pdf): "hash"}), encoding="utf-8")
+
+    assert oib_sync.remove_uploaded_document("custom.pdf") is True
+
+    assert not pdf.exists()
+    assert json.loads(registry_path.read_text(encoding="utf-8")) == {}
+    assert fake_ingestor.deleted == ["custom.pdf"]
+    # Repo-corpus files (or unknown names) are not removable.
+    _write_pdf(tmp_path / "oib" / "shipped.pdf", b"y")
+    assert oib_sync.remove_uploaded_document("shipped.pdf") is False
+    assert oib_sync.remove_uploaded_document("../oib/shipped.pdf") is False

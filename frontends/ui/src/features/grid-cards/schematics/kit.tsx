@@ -15,17 +15,24 @@
  *   language, so each drawn limit stays verifiable.
  */
 
-import { type FC, type ReactNode } from 'react'
+'use client'
+
+import { type FC, type ReactNode, useState } from 'react'
 import {
   CircleCheck,
   CircleHelp,
   CircleX,
+  FileText,
   Scale,
   TriangleAlert,
   type LucideIcon,
 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { useTranslations } from '@/i18n'
+import { PdfViewerDialog } from '@/features/knowledge/components/pdf-viewer-dialog'
+import { resolveCorpusFileName } from '@/features/knowledge/lib/resolve-corpus-file'
+import { useCorpusFiles } from '@/features/knowledge/lib/use-corpus-files'
 import { cn } from '@/lib/utils'
 import type { DimensionCheckData, DimStatus, NormReferenceData } from './types'
 
@@ -418,9 +425,15 @@ interface NormRefFooterProps {
   reference: NormReferenceData | null | undefined
 }
 
-/** Footer chip echoing LegalBasisCard: document + section badge + edition. */
+/** Footer chip echoing LegalBasisCard: document + section badge + edition.
+ * When the referenced document resolves to a base-corpus PDF, the citation
+ * opens the actual source in the in-app viewer. */
 export const NormRefFooter: FC<NormRefFooterProps> = ({ reference }) => {
+  const t = useTranslations('knowledge')
+  const corpusFiles = useCorpusFiles()
+  const [viewerOpen, setViewerOpen] = useState(false)
   if (!reference?.document) return null
+  const corpusFileName = resolveCorpusFileName(reference.document, corpusFiles)
   return (
     <div className="flex flex-col gap-2 border-t pt-3">
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
@@ -432,11 +445,24 @@ export const NormRefFooter: FC<NormRefFooterProps> = ({ reference }) => {
           </Badge>
         )}
         {reference.edition && <span>{reference.edition}</span>}
+        {corpusFileName && (
+          <button
+            type="button"
+            onClick={() => setViewerOpen(true)}
+            className="inline-flex items-center gap-1 font-medium text-primary transition-opacity duration-200 ease-out hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
+          >
+            <FileText className="size-3.5" aria-hidden="true" />
+            {t('viewer.view')}
+          </button>
+        )}
       </div>
       {reference.excerpt && (
         <blockquote className="max-w-prose border-l-2 border-border pl-3 text-xs italic leading-relaxed text-muted-foreground">
           {reference.excerpt}
         </blockquote>
+      )}
+      {corpusFileName && viewerOpen && (
+        <PdfViewerDialog open onOpenChange={setViewerOpen} fileName={corpusFileName} title={reference.document} />
       )}
     </div>
   )

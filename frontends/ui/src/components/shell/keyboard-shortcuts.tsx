@@ -42,9 +42,11 @@ export interface KeyboardShortcutsProps {
   authRequired: boolean
   /** Whether the organization page is reachable for this user. */
   canViewOrganization: boolean
+  /** Whether the project knowledge page is enabled (feature-flagged, default off). */
+  showKnowledge?: boolean
 }
 
-export function KeyboardShortcuts({ authRequired, canViewOrganization }: KeyboardShortcutsProps) {
+export function KeyboardShortcuts({ authRequired, canViewOrganization, showKnowledge = false }: KeyboardShortcutsProps) {
   const { enabled } = useShortcutsPreference()
   const router = useRouter()
   const [paletteOpen, setPaletteOpen] = React.useState(false)
@@ -113,6 +115,7 @@ export function KeyboardShortcuts({ authRequired, canViewOrganization }: Keyboar
         onOpenChange={setPaletteOpen}
         authRequired={authRequired}
         canViewOrganization={canViewOrganization}
+        showKnowledge={showKnowledge}
       />
       <ShortcutsCheatsheet open={cheatsheetOpen} onOpenChange={setCheatsheetOpen} />
     </>

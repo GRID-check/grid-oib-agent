@@ -10,11 +10,14 @@
 
 'use client'
 
-import { type FC } from 'react'
-import { Scale, ExternalLink } from 'lucide-react'
+import { type FC, useState } from 'react'
+import { Scale, ExternalLink, FileText } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { useTranslations } from '@/i18n'
+import { PdfViewerDialog } from '@/features/knowledge/components/pdf-viewer-dialog'
+import { resolveCorpusFileName } from '@/features/knowledge/lib/resolve-corpus-file'
+import { useCorpusFiles } from '@/features/knowledge/lib/use-corpus-files'
 import type { LegalBasisCardData } from '../types'
 
 /**
@@ -46,7 +49,14 @@ export const LegalBasisCard: FC<LegalBasisCardData> = ({
   original_text,
 }) => {
   const t = useTranslations('chat')
+  const tViewer = useTranslations('knowledge')
   const sourceUrl = resolveSourceUrl(law, section)
+
+  // When the cited Richtlinie's source PDF exists in the knowledge base, the
+  // citation opens the actual document in-app instead of just linking out.
+  const corpusFiles = useCorpusFiles()
+  const corpusFileName = resolveCorpusFileName(law, corpusFiles)
+  const [viewerOpen, setViewerOpen] = useState(false)
 
   return (
     <Card className="animate-in fade-in-0 slide-in-from-bottom-1 gap-3 border-l-2 border-l-primary/40 p-5 shadow-xs">
@@ -81,17 +91,33 @@ export const LegalBasisCard: FC<LegalBasisCardData> = ({
       {/* Plain-language summary */}
       {summary && <p className="max-w-prose text-sm leading-relaxed text-foreground">{summary}</p>}
 
-      {/* Verifiable primary source */}
-      {sourceUrl && (
-        <a
-          href={sourceUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex w-fit items-center gap-1.5 text-xs font-medium text-primary transition-opacity duration-200 ease-out hover:opacity-80"
-        >
-          <ExternalLink className="size-3.5" aria-hidden="true" />
-          {/oib|richtlinie/i.test(law) ? 'View OIB Richtlinie' : 'Verify in RIS'}
-        </a>
+      {/* Verifiable primary source: in-app PDF when we have it, link otherwise */}
+      <div className="flex flex-wrap items-center gap-4">
+        {corpusFileName && (
+          <button
+            type="button"
+            onClick={() => setViewerOpen(true)}
+            className="inline-flex w-fit items-center gap-1.5 text-xs font-medium text-primary transition-opacity duration-200 ease-out hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
+          >
+            <FileText className="size-3.5" aria-hidden="true" />
+            {tViewer('viewer.view')}
+          </button>
+        )}
+        {sourceUrl && (
+          <a
+            href={sourceUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex w-fit items-center gap-1.5 text-xs font-medium text-primary transition-opacity duration-200 ease-out hover:opacity-80"
+          >
+            <ExternalLink className="size-3.5" aria-hidden="true" />
+            {/oib|richtlinie/i.test(law) ? 'View OIB Richtlinie' : 'Verify in RIS'}
+          </a>
+        )}
+      </div>
+
+      {corpusFileName && viewerOpen && (
+        <PdfViewerDialog open onOpenChange={setViewerOpen} fileName={corpusFileName} title={law} />
       )}
 
       {/* AI-transparency label (EU AI Act Art. 50): the excerpt above is

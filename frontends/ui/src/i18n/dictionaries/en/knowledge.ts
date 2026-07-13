@@ -37,6 +37,7 @@ export const knowledge = {
     ingested: 'Indexed',
     stale: 'Outdated',
     pending: 'Not indexed yet',
+    snapshot: 'Indexed (snapshot)',
     removed: 'Source removed',
     inconsistent: 'Index missing',
   },
@@ -44,8 +45,17 @@ export const knowledge = {
     ingested: 'Fully searchable by the assistant.',
     stale: 'The file changed on disk since it was indexed; answers still reflect the previous version until the next sync.',
     pending: 'On disk but not ingested yet — the assistant cannot use it until the next sync completes.',
+    snapshot: 'Restored from a pre-built index; fully searchable, but the source PDF is not stored on this server.',
     removed: 'The source file was removed; indexed content may still be retrievable until cleanup.',
     inconsistent: 'Recorded as ingested but no indexed content was found. Re-run the sync.',
+  },
+  origin: {
+    uploaded: 'Uploaded',
+  },
+  viewer: {
+    view: 'View PDF',
+    description: 'Original source document.',
+    openInTab: 'Open in new tab',
   },
   error: {
     title: 'Knowledge base unavailable',

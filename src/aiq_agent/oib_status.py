@@ -44,6 +44,10 @@ class OibFileState(StrEnum):
     PENDING = "pending"
     """On disk but never successfully ingested; the RAG does not know it yet."""
 
+    SNAPSHOT = "snapshot"
+    """Indexed and searchable, but this deployment ships no source PDFs at all
+    (pre-baked index seed). Content is fine; freshness cannot be verified."""
+
     REMOVED = "removed"
     """Known to the collection (or registry) but the source file is gone from
     disk; indexed content may linger until the next cleanup."""
@@ -53,11 +57,27 @@ class OibFileState(StrEnum):
     for the file (e.g. the vector store was wiped without the registry)."""
 
 
+class OibFileOrigin(StrEnum):
+    """Where a corpus file's source lives."""
+
+    CORPUS = "corpus"
+    """Shipped with the repository corpus (read-only in deployments)."""
+
+    UPLOADED = "uploaded"
+    """Uploaded through the platform admin UI; removable."""
+
+    INDEX_ONLY = "index_only"
+    """No source on this server — known only to the index/registry."""
+
+
 class OibFileEntry(BaseModel):
     """One corpus file as the RAG sees it."""
 
     file_name: str = Field(..., description="PDF filename (unique within the corpus).")
     state: OibFileState = Field(..., description="Lifecycle status relative to the index.")
+    origin: OibFileOrigin = Field(
+        OibFileOrigin.INDEX_ONLY, description="Whether the source is the repo corpus, an admin upload, or absent."
+    )
     size_bytes: int | None = Field(None, description="Current size on disk; None when the file was removed.")
     chunk_count: int = Field(0, ge=0, description="Number of indexed chunks the RAG can retrieve.")
     ingested_sha256: str | None = Field(None, description="Hash recorded at the last successful ingestion.")
@@ -73,6 +93,7 @@ class OibStatusSummary(BaseModel):
     ingested: int = 0
     stale: int = 0
     pending: int = 0
+    snapshot: int = 0
     removed: int = 0
     inconsistent: int = 0
     total_chunks: int = Field(0, description="Total chunks in the collection (all files).")
@@ -139,7 +160,13 @@ def _classify_disk_file(
     chunk_count = info.chunk_count if info else 0
 
     if recorded_hash is None:
-        state = OibFileState.PENDING
+        # No registry entry for this exact path — but if the index already has
+        # chunks whose recorded hash (under any path) matches this content, the
+        # document is de-facto ingested (e.g. seed built from another checkout).
+        if chunk_count > 0 and current_hash in _hashes_by_name(registry).get(pdf.name, set()):
+            state = OibFileState.INGESTED
+        else:
+            state = OibFileState.PENDING
     elif recorded_hash != current_hash:
         state = OibFileState.STALE
     elif chunk_count == 0:
@@ -147,15 +174,29 @@ def _classify_disk_file(
     else:
         state = OibFileState.INGESTED
 
+    try:
+        origin = OibFileOrigin.UPLOADED if pdf.is_relative_to(oib_sync.OIB_UPLOADS_DIR) else OibFileOrigin.CORPUS
+    except (TypeError, ValueError):
+        origin = OibFileOrigin.CORPUS
+
     return OibFileEntry(
         file_name=pdf.name,
         state=state,
+        origin=origin,
         size_bytes=pdf.stat().st_size,
         chunk_count=chunk_count,
         ingested_sha256=recorded_hash,
         current_sha256=current_hash,
         ingested_at=info.ingested_at if info else None,
     )
+
+
+def _hashes_by_name(registry: dict[str, str]) -> dict[str, set[str]]:
+    """Registry hashes grouped by basename (registry keys are full paths)."""
+    grouped: dict[str, set[str]] = {}
+    for path, digest in registry.items():
+        grouped.setdefault(Path(path).name, set()).add(digest)
+    return grouped
 
 
 def get_status(ingestor=None) -> OibKnowledgeStatus:
@@ -173,29 +214,36 @@ def get_status(ingestor=None) -> OibKnowledgeStatus:
         ingestor = oib_sync._get_oib_ingestor()
 
     registry = oib_sync._load_registry()
-    disk_pdfs = sorted(p for p in oib_dir.rglob("*.pdf") if p.is_file()) if oib_dir.exists() else []
+    disk_pdfs = oib_sync.discover_pdfs()
 
     collection_info = ingestor.get_collection(collection_name)
     collection_files = _list_collection_files(ingestor, collection_name) if collection_info else {}
 
     entries = [_classify_disk_file(pdf, registry, collection_files) for pdf in disk_pdfs]
 
-    # Files the RAG (or registry) still knows about whose source is gone.
+    # Files the RAG (or registry) still knows about whose source is not on
+    # this server. When the deployment ships NO sources at all (pre-baked
+    # index seed, e.g. restored from a tarball), that is by design — report
+    # those as "snapshot" (healthy, unverifiable) rather than "removed".
+    sourceless_deployment = not disk_pdfs
     disk_names = {pdf.name for pdf in disk_pdfs}
     disk_paths = {str(pdf) for pdf in disk_pdfs}
-    removed_names = {name for name in collection_files if name not in disk_names}
-    removed_names.update(
+    orphan_names = {name for name in collection_files if name not in disk_names}
+    orphan_names.update(
         Path(path).name for path in registry if path not in disk_paths and Path(path).name not in disk_names
     )
-    for name in sorted(removed_names):
+    for name in sorted(orphan_names):
         info = collection_files.get(name)
         registry_hash = next((h for p, h in registry.items() if Path(p).name == name), None)
+        chunk_count = info.chunk_count if info else 0
+        state = OibFileState.SNAPSHOT if sourceless_deployment and chunk_count > 0 else OibFileState.REMOVED
         entries.append(
             OibFileEntry(
                 file_name=name,
-                state=OibFileState.REMOVED,
+                state=state,
+                origin=OibFileOrigin.INDEX_ONLY,
                 size_bytes=None,
-                chunk_count=info.chunk_count if info else 0,
+                chunk_count=chunk_count,
                 ingested_sha256=registry_hash,
                 current_sha256=None,
                 ingested_at=info.ingested_at if info else None,
@@ -211,6 +259,7 @@ def get_status(ingestor=None) -> OibKnowledgeStatus:
         ingested=sum(1 for e in entries if e.state == OibFileState.INGESTED),
         stale=sum(1 for e in entries if e.state == OibFileState.STALE),
         pending=sum(1 for e in entries if e.state == OibFileState.PENDING),
+        snapshot=sum(1 for e in entries if e.state == OibFileState.SNAPSHOT),
         removed=sum(1 for e in entries if e.state == OibFileState.REMOVED),
         inconsistent=sum(1 for e in entries if e.state == OibFileState.INCONSISTENT),
         total_chunks=collection_info.chunk_count if collection_info else 0,

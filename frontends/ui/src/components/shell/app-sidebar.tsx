@@ -73,6 +73,8 @@ export interface AppSidebarProps {
   canViewOrganization?: boolean
   /** Whether the current user is the platform owner (ADR-0016). */
   canManagePlatform?: boolean
+  /** Whether the project knowledge page is enabled (feature-flagged, default off). */
+  showKnowledge?: boolean
 }
 
 export function AppSidebar({
@@ -83,6 +85,7 @@ export function AppSidebar({
   canManageOrganization = false,
   canViewOrganization = false,
   canManagePlatform = false,
+  showKnowledge = false,
 }: AppSidebarProps) {
   const pathname = usePathname() ?? ''
   const base = `/app/projects/${projectId}`
@@ -140,8 +143,8 @@ export function AppSidebar({
 
   // Members is shown to every project member: the roster page renders a
   // dignified read-only view for viewers/editors and full controls for admins,
-  // so the nav item never dead-ends.
-  const navItems = NAV_ITEMS
+  // so the nav item never dead-ends. Knowledge is feature-flagged (default off).
+  const navItems = NAV_ITEMS.filter((item) => item.key !== 'knowledge' || showKnowledge)
 
   const activeItem = navItems.find(isActive)
 
