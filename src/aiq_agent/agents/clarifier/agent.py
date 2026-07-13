@@ -657,8 +657,22 @@ class ClarifierAgent:
                     feedback_history=feedback_history if feedback_history else None,
                 )
 
-                # Generate plan using planner LLM
-                messages_for_plan = state.messages + [HumanMessage(content="Generate a research plan.")]
+                # Generate plan using planner LLM. Anchor on the CURRENT request
+                # so the planner does not drift to an earlier turn's topic still
+                # present in state.messages (e.g. an aborted research the user has
+                # moved on from) — that carry-over produced plans unrelated to
+                # what the user actually just asked.
+                latest_request = get_latest_user_query(state.messages)
+                messages_for_plan = state.messages + [
+                    HumanMessage(
+                        content=(
+                            "Generate a research plan for the user's CURRENT request below. "
+                            "Earlier messages are background context only — do NOT plan around "
+                            "topics from earlier turns that the current request does not ask about.\n\n"
+                            f"Current request: {latest_request}"
+                        )
+                    )
+                ]
                 response = await planner_llm.ainvoke([SystemMessage(content=rendered_prompt)] + messages_for_plan)
                 title, sections = self._parse_plan_response(response.content)
 
