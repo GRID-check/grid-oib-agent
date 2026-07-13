@@ -651,7 +651,13 @@ async def run_agent_job(
                     # Best-effort and additive: card failures never fail the job.
                     cards = await _generate_grid_cards(llm, input_text, report)
                     if cards:
-                        agent_event_callback.emit_final_report(report, cards=cards)
+                        # Card delivery is additive and must never flip an
+                        # already-complete job to FAILURE — the report is done
+                        # and persisted below regardless of this emit.
+                        try:
+                            agent_event_callback.emit_final_report(report, cards=cards)
+                        except Exception:
+                            logger.warning("Job %s: failed to emit final report with cards (non-fatal)", job_id)
 
                     # Flush any buffered events before updating status
                     if hasattr(event_store, "flush"):

@@ -3,6 +3,7 @@
 
 """Tests for post-hoc Grid card generation (the async-jobs / deep-research path)."""
 
+import asyncio
 from typing import ClassVar
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
@@ -77,7 +78,7 @@ class TestGenerateCards:
         assert await generate_cards(llm, "q", "") is None
 
     @pytest.mark.asyncio
-    async def test_chat_model_gets_structured_output_binding(self):
+    async def test_chat_model_gets_json_object_binding(self):
         _BindSpyChatModel.bind_kwargs.clear()
         llm = _BindSpyChatModel(responses=[AIMessage(content=_ONE_CARD_OBJECT)])
 
@@ -85,10 +86,9 @@ class TestGenerateCards:
 
         assert cards == [{"type": "summary", "title": "Überblick", "content": "Kurzfassung."}]
         assert len(_BindSpyChatModel.bind_kwargs) == 1
-        response_format = _BindSpyChatModel.bind_kwargs[0]["response_format"]
-        assert response_format["type"] == "json_schema"
-        # Root must be an object wrapping the card array (OpenAI structured-output rule).
-        assert response_format["json_schema"]["schema"]["properties"]["cards"]["type"] == "array"
+        # json_object mode: widely honored, guarantees valid JSON; shape is taught
+        # by the prompt's worked examples, not a (near-unenforced) json_schema body.
+        assert _BindSpyChatModel.bind_kwargs[0]["response_format"] == {"type": "json_object"}
 
     @pytest.mark.asyncio
     async def test_structured_output_rejection_falls_back_to_plain_call(self):
@@ -130,5 +130,19 @@ class TestGenerateCards:
     async def test_llm_exception_returns_none(self):
         llm = MagicMock()
         llm.ainvoke = AsyncMock(side_effect=RuntimeError("boom"))
+
+        assert await generate_cards(llm, "q", "ctx") is None
+
+    @pytest.mark.asyncio
+    async def test_hung_llm_is_bounded_by_timeout(self, monkeypatch):
+        """A stalled provider must not strand the (already-finished) job — the
+        call is bounded and returns no cards on timeout."""
+        monkeypatch.setattr("aiq_agent.cards.generate._CARD_LLM_TIMEOUT_S", 0.05)
+
+        async def _never_returns(*_args, **_kwargs):
+            await asyncio.sleep(10)
+
+        llm = MagicMock()
+        llm.ainvoke = _never_returns
 
         assert await generate_cards(llm, "q", "ctx") is None

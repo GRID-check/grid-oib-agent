@@ -18,11 +18,38 @@ _CARD_TYPES = [
 ]
 
 
+# Card types deliberately shipped WITHOUT a worked example — flat/simple shapes
+# the model reliably produces from the one-line shape spec alone. Adding a new
+# card type forces a choice: give it an example or list it here (see coverage
+# test below), so a hard-to-nest type can't slip in with no guidance.
+_EXAMPLE_EXEMPT = {
+    "summary",
+    "legal_basis",
+    "stair_diagram",
+    "dimension_diagram",
+    "setback_plan",
+    "egress_diagram",
+    "guardrail_check",
+    "density_check",
+    "fire_access_plan",
+    "acoustic_check",
+    "energy_performance",
+    "elevator_requirement",
+}
+
+
 class TestWorkedExamples:
     @pytest.mark.parametrize("card_type", list(_CARD_EXAMPLES))
     def test_example_validates(self, card_type):
         # A drifted example would teach the model the wrong shape — fail loudly.
         grid_card_adapter.validate_python(_CARD_EXAMPLES[card_type])
+
+    def test_every_card_type_has_example_or_is_exempt(self):
+        # A new card type must not silently ship with neither an example nor a
+        # deliberate exemption.
+        documented = set(_CARD_EXAMPLES) | _EXAMPLE_EXEMPT
+        missing = [t for t in _CARD_TYPES if t not in documented]
+        assert not missing, f"New card type(s) need a worked example or an _EXAMPLE_EXEMPT entry: {missing}"
 
 
 class TestToolDescription:

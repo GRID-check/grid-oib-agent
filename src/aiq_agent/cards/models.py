@@ -607,10 +607,8 @@ GridCard = (
     | ParkingRequirementCard
 )
 
-# Discriminated-union adapter. ``grid_card_adapter`` is the canonical public name;
-# ``_grid_card_adapter`` is retained as a backwards-compatible alias.
+# Discriminated-union adapter — the canonical validator for a raw card dict.
 grid_card_adapter = TypeAdapter(Annotated[GridCard, Field(discriminator="type")])
-_grid_card_adapter = grid_card_adapter
 
 __all__ = [
     "ChecklistItem",
@@ -641,7 +639,7 @@ def validate_cards(raw: list[dict]) -> list[dict]:
     validated: list[dict] = []
     for item in raw:
         try:
-            validated.append(_grid_card_adapter.validate_python(item).model_dump(exclude_none=True))
+            validated.append(grid_card_adapter.validate_python(item).model_dump(exclude_none=True))
         except Exception as exc:
             logger.warning(
                 "Dropping invalid card (type=%s): %s",

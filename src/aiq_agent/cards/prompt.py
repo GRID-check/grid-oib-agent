@@ -1,48 +1,27 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, Grid Agent Contributors. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Shared prompt builder for Grid response card generation."""
+"""Shared prompt builder for post-hoc Grid response card generation."""
 
-import json
-
-from aiq_agent.cards.models import GridCard
-from aiq_agent.cards.models import _grid_card_adapter
+from aiq_agent.cards.catalog import render_card_catalog
 
 
 def build_card_generation_prompt() -> str:
-    """Build a system prompt that describes every card type from the shared schema.
+    """Build a system prompt for batch card generation from a finished report.
 
-    The prompt lists each card variant, its fields, and the JSON schema so the
-    model can produce validated card arrays without hard-coding card types.
+    Uses the same compact shapes + worked examples catalog as the ``emit_card``
+    tool (via :func:`aiq_agent.cards.catalog.render_card_catalog`) so the two
+    surfaces describe the schema to the model identically. Only the framing
+    differs: this path asks for a batch object, the tool asks for one card per
+    call.
     """
-    card_types = []
-    for card_cls in GridCard.__args__:
-        fields = []
-        for field_name, field_info in card_cls.model_fields.items():
-            if field_name == "type":
-                continue
-            annotation = field_info.annotation
-            type_name = getattr(annotation, "__name__", str(annotation))
-            desc = field_info.description or type_name
-            fields.append(f"{field_name} ({desc})")
-
-        type_line = f"- {card_cls.__name__}"
-        if card_cls.__doc__:
-            type_line += f": {card_cls.__doc__.strip()}"
-        if fields:
-            type_line += f" — fields: {', '.join(fields)}"
-        card_types.append(type_line)
-
-    schema = _grid_card_adapter.json_schema()
-
     return (
         "You are a structured-output assistant. Given a user question and research context, "
-        "produce Grid response cards as a JSON object of the form {\"cards\": [ ...card objects... ]}.\n\n"
-        "Only include a card when it adds value. Do not invent references. "
-        "Use an empty array when no card adds value.\n\n"
-        "Allowed card types:\n"
-        + "\n".join(card_types)
-        + "\n\nJSON Schema for each card:\n"
-        + json.dumps(schema, indent=2, ensure_ascii=False)
-        + "\n\nRespond ONLY with the JSON object — no prose, no code fences."
+        'produce Grid response cards as a JSON object of the form {"cards": [ ...card objects... ]}.\n\n'
+        "Only include a card when it adds real value; never fabricate fields or references. "
+        "Use an empty array when no card adds value. Fields marked * are required; omit optional "
+        'fields you cannot fill (do NOT pass null for optional objects). If a value is unknown, '
+        'omit it and set that check\'s status to "needs_input" — never estimate.\n\n'
+        + render_card_catalog()
+        + '\n\nRespond ONLY with the JSON object — no prose, no code fences.'
     )

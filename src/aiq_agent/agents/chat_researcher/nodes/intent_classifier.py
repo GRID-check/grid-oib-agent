@@ -51,7 +51,7 @@ _LLM_TIMEOUT_MESSAGE = "The model service took too long to respond and the reque
 # is to keep conversing and answer the user's question instead of classifying
 # it — this makes "emit the routing JSON" the most recent instruction it sees.
 _CLASSIFY_NOW_INSTRUCTION = (
-    "Classify the USER QUERY from the system prompt (the last user message above). "
+    "Classify the user's most recent question (shown as USER QUERY in the system prompt above). "
     "Respond with ONLY the raw JSON object — no prose, no markdown, no code fences."
 )
 
