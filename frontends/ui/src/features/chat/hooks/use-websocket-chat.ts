@@ -1234,6 +1234,51 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
   ])
 
   /**
+   * Latest callback set + auth-refresh fn, mirrored into refs so the socket
+   * lifecycle effect below can depend ONLY on the conversation id.
+   *
+   * ROOT CAUSE of the connect/disconnect churn this fixes: the lifecycle
+   * effect used to list `createCallbacks` and `refreshAuthBeforeReconnect` in
+   * its dependency array. Its cleanup unconditionally closes the socket and
+   * nulls the ref, so any render where either identity changed tore the socket
+   * down and the re-run opened a fresh one. `refreshAuthBeforeReconnect`
+   * depends on `getAccessToken`, which AuthKit's `useAccessToken()` returns as
+   * a NEW function reference whenever the access-token state updates -- and
+   * this hook re-renders constantly while a turn streams (it subscribes to
+   * isStreaming / thinkingSteps / status). The net effect was a socket that
+   * reconnected repeatedly (each rotate()/reconnect also resets the client's
+   * reconnect counter, so its own CONNECTION_FAILED backstop never tripped).
+   * Routing both through refs keeps the socket stable for the conversation's
+   * lifetime while the callbacks still observe fresh state via getState().
+   */
+  const latestCallbacksRef = useRef<NATWebSocketClientCallbacks>({})
+  const latestRefreshAuthRef = useRef<() => Promise<void>>(async () => {})
+  const memoizedCallbacks = useMemo(() => createCallbacks(), [createCallbacks])
+  latestCallbacksRef.current = memoizedCallbacks
+  latestRefreshAuthRef.current = refreshAuthBeforeReconnect
+
+  /**
+   * Build a WebSocket client whose callbacks and auth-refresh hook delegate to
+   * the refs above. Stable (empty deps) so creating a client never depends on
+   * a changing callback identity. Seeds projectId from the store like the
+   * lifecycle effect did; later project changes are pushed via updateProjectId.
+   */
+  const buildWsClient = useCallback((conversationId: string): NATWebSocketClient => {
+    return createNATWebSocketClient({
+      conversationId,
+      projectId: useChatStore.getState().projectId || undefined,
+      callbacks: {
+        onResponse: (...args) => latestCallbacksRef.current.onResponse?.(...args),
+        onIntermediateStep: (...args) => latestCallbacksRef.current.onIntermediateStep?.(...args),
+        onHumanPrompt: (...args) => latestCallbacksRef.current.onHumanPrompt?.(...args),
+        onError: (...args) => latestCallbacksRef.current.onError?.(...args),
+        onConnectionChange: (...args) => latestCallbacksRef.current.onConnectionChange?.(...args),
+      },
+      onBeforeReconnect: () => latestRefreshAuthRef.current(),
+    })
+  }, [])
+
+  /**
    * Initialize WebSocket client when conversation changes
    */
   useEffect(() => {
@@ -1245,12 +1290,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
     // effect on projectId -- doing so tears the socket down mid-connect and
     // produces "closed before the connection is established" churn.
     if (!wsClientRef.current) {
-      wsClientRef.current = createNATWebSocketClient({
-        conversationId: currentConversationId,
-        projectId: useChatStore.getState().projectId || undefined,
-        callbacks: createCallbacks(),
-        onBeforeReconnect: refreshAuthBeforeReconnect,
-      })
+      wsClientRef.current = buildWsClient(currentConversationId)
       wsClientRef.current.connect()
     } else {
       // Update conversation ID on existing client
@@ -1295,8 +1335,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
   }, [
     currentConversationId,
     autoConnect,
-    createCallbacks,
-    refreshAuthBeforeReconnect,
+    buildWsClient,
     clearUnacknowledgedOutgoing,
     clearStreamingWatchdog,
     setStreaming,
@@ -1418,15 +1457,10 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         pendingOutgoingRef.current = outgoingPayload
 
         if (!wsClientRef.current) {
-          wsClientRef.current = createNATWebSocketClient({
-            conversationId,
-            // Seed projectId like the main connect effect: the updateProjectId
-            // effect only fires when the store value CHANGES, so a client
-            // created without it would handshake unscoped for its whole life.
-            projectId: useChatStore.getState().projectId || undefined,
-            callbacks: createCallbacks(),
-            onBeforeReconnect: refreshAuthBeforeReconnect,
-          })
+          // buildWsClient seeds projectId from the store; the updateProjectId
+          // effect only fires when the store value CHANGES, so a client created
+          // without it would handshake unscoped for its whole life.
+          wsClientRef.current = buildWsClient(conversationId)
         }
         void wsClientRef.current.connect()
         return true
@@ -1448,8 +1482,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
       setCurrentStatus,
       setStreaming,
       setLoading,
-      createCallbacks,
-      refreshAuthBeforeReconnect,
+      buildWsClient,
       rotateSocket,
       sendOutgoingPayload,
       armStreamingWatchdog,
@@ -1557,16 +1590,10 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
     if (wsClientRef.current) {
       wsClientRef.current.connect()
     } else if (currentConversation) {
-      wsClientRef.current = createNATWebSocketClient({
-        conversationId: currentConversation.id,
-        // Seed projectId like the main connect effect (see comment there).
-        projectId: useChatStore.getState().projectId || undefined,
-        callbacks: createCallbacks(),
-        onBeforeReconnect: refreshAuthBeforeReconnect,
-      })
+      wsClientRef.current = buildWsClient(currentConversation.id)
       wsClientRef.current.connect()
     }
-  }, [currentConversation, createCallbacks, refreshAuthBeforeReconnect])
+  }, [currentConversation, buildWsClient])
 
   // Activate recovery polling when connection error cards are visible
   useConnectionRecovery(connect)

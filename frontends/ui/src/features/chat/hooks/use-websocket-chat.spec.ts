@@ -373,6 +373,53 @@ describe('useWebSocketChat', () => {
     )
   })
 
+  test('re-renders that change the auth getAccessToken identity do not recreate the socket (churn regression)', () => {
+    // Real AuthKit (`useAccessToken()`) returns a NEW `getAccessToken`
+    // reference whenever the access-token state updates, and this hook
+    // re-renders constantly while a turn streams (isStreaming / thinkingSteps
+    // / status subscriptions). The socket lifecycle effect must NOT depend on
+    // that identity -- otherwise its cleanup closes the socket and the re-run
+    // opens a fresh one, producing the connect/disconnect churn observed in
+    // the backend logs. Simulate a fresh getAccessToken per render.
+    const defaultAuth = {
+      user: { id: 'user-1', email: 'test@example.com' },
+      accessToken: 'mock-access-token',
+      idToken: 'mock-access-token',
+      authRequired: false,
+      isAuthenticated: true,
+      error: undefined,
+      isLoading: false,
+      signIn: mockSignIn,
+      signOut: mockSignOut,
+      getAccessToken: mockGetAccessToken,
+    }
+    try {
+      vi.mocked(useAuth).mockImplementation(() => ({
+        ...defaultAuth,
+        // Brand-new reference on every render.
+        getAccessToken: vi.fn(async () => 'mock-access-token'),
+      }))
+
+      const { rerender } = renderWebSocketHook()
+
+      expect(createNATWebSocketClient).toHaveBeenCalledTimes(1)
+      expect(mockWsClient.connect).toHaveBeenCalledTimes(1)
+
+      for (let i = 0; i < 5; i++) {
+        act(() => {
+          rerender()
+        })
+      }
+
+      // Built once, never torn down: the churn is gone.
+      expect(createNATWebSocketClient).toHaveBeenCalledTimes(1)
+      expect(mockWsClient.disconnect).not.toHaveBeenCalled()
+    } finally {
+      // mockImplementation persists across tests -- restore the shared default.
+      vi.mocked(useAuth).mockReturnValue(defaultAuth)
+    }
+  })
+
   test('replays a just-sent message once when the socket drops before any backend frame', () => {
     mockWsClient.isConnected.mockReturnValue(true)
     mockWsClient.sendMessage
