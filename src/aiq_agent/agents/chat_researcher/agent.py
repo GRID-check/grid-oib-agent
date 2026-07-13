@@ -428,6 +428,15 @@ class ChatResearcherAgent:
             the persona and the `remember` tool."""
             if state.user_intent and state.user_intent.intent == "error":
                 return "END"
+            # Meta/conversational turns (greetings, capability questions AND
+            # memory/`remember` requests) are owned by the shallow agent and must
+            # never escalate to deep research — even when the depth classifier
+            # says "deep". Checking intent before depth mirrors the meta guard in
+            # should_escalate(); without it a "remember X for the whole org"
+            # request classified meta+deep is misrouted into a deep-research job
+            # that lacks the `remember` tool and hallucinates a filesystem write.
+            if state.user_intent and state.user_intent.intent == "meta":
+                return "shallow_research"
             if state.depth_decision and state.depth_decision.decision == "deep":
                 return "clarifier"
             return "shallow_research"
