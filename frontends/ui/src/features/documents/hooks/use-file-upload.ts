@@ -32,7 +32,7 @@ interface UseFileUploadOptions {
 }
 
 interface UseFileUploadReturn {
-  uploadFiles: (files: File[]) => Promise<void>
+  uploadFiles: (files: File[], collectionOverride?: string) => Promise<void>
   cancelUpload: () => void
   deleteFile: (fileId: string) => Promise<void>
   retryFile: (fileId: string) => Promise<void>
@@ -139,10 +139,15 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
   )
 
   const uploadFiles = useCallback(
-    async (files: File[]) => {
+    async (files: File[], collectionOverride?: string) => {
       if (files.length === 0) return
 
-      if (!collectionName) {
+      // `collectionOverride` lets callers that just created the session
+      // (ensureSession() immediately followed by an upload) target it without
+      // waiting for a re-render: the memoized `collectionName` is captured
+      // from the PREVIOUS render and is still undefined at that point.
+      const targetCollection = collectionOverride ?? collectionName
+      if (!targetCollection) {
         const uploadError = new Error('Collection name required for upload')
         setError(uploadError.message)
         onError?.(uploadError)
@@ -191,7 +196,7 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
           fileSize: file.size,
           status: 'uploading',
           progress: 0,
-          collectionName,
+          collectionName: targetCollection,
           uploadedAt: new Date().toISOString(),
         }
         addTrackedFile(trackedFile)
@@ -204,11 +209,11 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
         'uploaded',
         validFiles.length,
         `upload-${Date.now()}`,
-        collectionName
+        targetCollection
       )
 
       try {
-        await ensureCollectionExists(collectionName)
+        await ensureCollectionExists(targetCollection)
 
         if (projectId) {
           // Project uploads persist document metadata before backend ingestion.
@@ -244,7 +249,7 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
           }
         } else {
           // Session uploads go through the canonical collection documents API.
-          const { job_id: jobId, file_ids: fileIds } = await clientRef.current.uploadFiles(collectionName, validFiles)
+          const { job_id: jobId, file_ids: fileIds } = await clientRef.current.uploadFiles(targetCollection, validFiles)
           removeRecentlyDeletedIds(fileIds)
 
           validFiles.forEach((file, index) => {
@@ -259,7 +264,29 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
           })
         }
 
-        // Collect files grouped by jobId for the orchestrator
+      } catch (err) {
+        if (err instanceof Error && err.name === 'AbortError') {
+          return
+        }
+        const message = err instanceof Error ? err.message : 'Upload failed'
+        setError(message)
+        onError?.(err instanceof Error ? err : new Error(message))
+
+        // Only mark files that never reached the server as failed: in the
+        // sequential project loop, files uploaded before the failing one are
+        // already ingesting server-side and must keep their real status.
+        for (const trackedFile of trackedFileMap.values()) {
+          const storeFile = useDocumentsStore.getState().trackedFiles.find((f) => f.id === trackedFile.id)
+          if (storeFile?.serverFileId || storeFile?.jobId) continue
+          updateTrackedFile(trackedFile.id, {
+            status: 'failed',
+            errorMessage: message,
+          })
+        }
+      } finally {
+        // Enqueue polling for every job the server accepted — including when
+        // a later file in the batch failed, otherwise those live jobs are
+        // never polled and their cards stay stuck at "ingesting".
         const filesByJob = new Map<string, TrackedFile[]>()
         for (const file of validFiles) {
           const trackedFile = trackedFileMap.get(file.name)
@@ -271,28 +298,13 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
           filesByJob.set(storeFile.jobId, files)
         }
 
-        // Enqueue all jobs in the orchestrator (polled sequentially)
         const pendingJobEntries: PendingJob[] = []
         for (const [jobId, files] of filesByJob) {
-          pendingJobEntries.push({ jobId, collectionName, files })
+          pendingJobEntries.push({ jobId, collectionName: targetCollection, files })
         }
-        UploadOrchestrator.enqueueJobs(pendingJobEntries)
-      } catch (err) {
-        if (err instanceof Error && err.name === 'AbortError') {
-          return
+        if (pendingJobEntries.length > 0) {
+          UploadOrchestrator.enqueueJobs(pendingJobEntries)
         }
-        const message = err instanceof Error ? err.message : 'Upload failed'
-        setError(message)
-        onError?.(err instanceof Error ? err : new Error(message))
-
-        // Update all files that were added to 'failed' status
-        for (const trackedFile of trackedFileMap.values()) {
-          updateTrackedFile(trackedFile.id, {
-            status: 'failed',
-            errorMessage: message,
-          })
-        }
-      } finally {
         setUploading(false)
       }
     },

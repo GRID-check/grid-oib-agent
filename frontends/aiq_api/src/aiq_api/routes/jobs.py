@@ -333,6 +333,7 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
     from ..jobs.access import authorize_job_access
     from ..jobs.access import ensure_job_access_table
     from ..jobs.event_store import EventStore
+    from ..jobs.submit import SchedulerNotConfiguredError
     from ..jobs.submit import submit_agent_job as submit_authorized_job
 
     if not get_all_sources():
@@ -389,6 +390,13 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
 
     scheduler_address = getattr(worker, "_scheduler_address", None) or os.environ.get("NAT_DASK_SCHEDULER_ADDRESS")
     db_url = getattr(worker, "_db_url", None) or os.environ.get("NAT_JOB_STORE_DB_URL", "sqlite:///./data/jobs.db")
+    # submit_agent_job resolves these from the environment only; publish the
+    # worker-provided values so a NAT-config-only deployment (no env vars)
+    # doesn't register routes whose every submission then fails.
+    if scheduler_address:
+        os.environ.setdefault("NAT_DASK_SCHEDULER_ADDRESS", scheduler_address)
+    if db_url:
+        os.environ.setdefault("NAT_JOB_STORE_DB_URL", db_url)
     config_path = getattr(worker, "_config_file_path", None) or os.environ.get("NAT_CONFIG_FILE", "")
     log_level = getattr(worker, "_log_level", std_logging.INFO)
     use_threads = getattr(worker, "_use_dask_threads", False)
@@ -494,6 +502,9 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
             )
         except JobAdmissionError as e:
             raise HTTPException(429, str(e), headers={"Retry-After": str(e.retry_after_seconds)})
+        except SchedulerNotConfiguredError as e:
+            # Server misconfiguration, not an authorization failure.
+            raise HTTPException(503, str(e))
         except RuntimeError as e:
             raise HTTPException(403, str(e))
         except Exception as e:
@@ -741,7 +752,7 @@ def _find_stale_jobs(db_url: str, running_status: str) -> list[str]:
         return []
 
     with engine.connect() as conn:
-        if db_url.startswith("postgresql"):
+        if db_url.startswith("postgres"):
             stale_query = text(
                 "SELECT DISTINCT je.job_id FROM job_events je "
                 "INNER JOIN job_info ji ON je.job_id = ji.job_id "
@@ -764,7 +775,39 @@ def _find_stale_jobs(db_url: str, running_status: str) -> list[str]:
             }
 
         result = conn.execute(stale_query, params)
-        return [row[0] for row in result]
+        stale_ids = [row[0] for row in result]
+
+        # Second predicate: RUNNING jobs that never produced a single event.
+        # The INNER JOIN above can't match them, but they are exactly the
+        # crash class the reaper exists for (worker died during agent setup,
+        # before the first heartbeat/callback event was written). Without
+        # this they hold admission-control slots forever.
+        if db_url.startswith("postgres"):
+            eventless_query = text(
+                "SELECT ji.job_id FROM job_info ji "
+                "LEFT JOIN job_events je ON je.job_id = ji.job_id "
+                "WHERE ji.status = :running_status AND je.job_id IS NULL "
+                "AND ji.updated_at < NOW() - :timeout * INTERVAL '1 second'"
+            )
+            eventless_params: dict[str, Any] = {
+                "running_status": running_status,
+                "timeout": GHOST_JOB_TIMEOUT_SECONDS,
+            }
+        else:
+            eventless_query = text(
+                "SELECT ji.job_id FROM job_info ji "
+                "LEFT JOIN job_events je ON je.job_id = ji.job_id "
+                "WHERE ji.status = :running_status AND je.job_id IS NULL "
+                "AND datetime(ji.updated_at) < datetime('now', :timeout_interval)"
+            )
+            eventless_params = {
+                "running_status": running_status,
+                "timeout_interval": f"-{GHOST_JOB_TIMEOUT_SECONDS} seconds",
+            }
+
+        result = conn.execute(eventless_query, eventless_params)
+        stale_ids.extend(row[0] for row in result)
+        return stale_ids
 
 
 def _format_created_at(value: Any) -> str | None:
@@ -801,12 +844,20 @@ def _find_research_runs(
     enforced, consistent with how ``authorize_job_access`` treats no-auth
     deployments.
     """
+    from sqlalchemy import inspect
     from sqlalchemy import text
 
     from ..jobs.event_store import EventStore
 
     EventStore._ensure_table_exists(db_url)
     engine = EventStore._get_or_create_sync_engine(db_url)
+
+    # job_info is created by NAT's JobStore; on a fresh database where no job
+    # has ever been submitted it may not exist yet, and the JOIN below would
+    # 500 the listing instead of returning an empty page (same guard as
+    # _find_stale_jobs uses for job_events).
+    if not inspect(engine).has_table("job_info"):
+        return [], 0
 
     conditions: list[str] = []
     params: dict[str, Any] = {}
@@ -1117,13 +1168,17 @@ def _extract_event_metadata(event: dict) -> tuple[dict, dict]:
 
 
 def _process_tool_start(event: dict, data: dict, metadata: dict, tool_call_map: dict[str, dict]) -> None:
-    """Process a tool.start event and add to tool_call_map."""
-    tool_id = data.get("id", "")
-    inner_data = data.get("data", {}) if isinstance(data.get("data"), dict) else {}
+    """Process a tool.start event and add to tool_call_map.
+
+    Stored events (IntermediateStepEvent.to_sse_dict) carry ``id``/``name`` at
+    the top level and the tool input directly under ``data`` — not nested one
+    level deeper.
+    """
+    tool_id = event.get("id", "")
     tool_call_map[tool_id] = {
         "id": tool_id,
-        "name": data.get("name", ""),
-        "input": inner_data.get("input"),
+        "name": event.get("name", ""),
+        "input": data.get("input"),
         "output": None,
         "status": "running",
         "workflow": metadata.get("workflow"),
@@ -1132,18 +1187,27 @@ def _process_tool_start(event: dict, data: dict, metadata: dict, tool_call_map: 
 
 
 def _process_tool_end(event: dict, data: dict, metadata: dict, tool_call_map: dict[str, dict]) -> None:
-    """Process a tool.end event and update tool_call_map."""
-    tool_id = data.get("id", "")
-    inner_data = data.get("data", {}) if isinstance(data.get("data"), dict) else {}
-    tool_output = inner_data.get("output")
+    """Process a tool.end event and update tool_call_map.
 
-    if tool_id in tool_call_map:
-        tool_call_map[tool_id]["output"] = tool_output
-        tool_call_map[tool_id]["status"] = "completed"
+    tool.start and tool.end are separate events with distinct ``id``s, so the
+    running entry is matched by tool name (the emitter resolves the name from
+    the run_id on both sides).
+    """
+    tool_output = data.get("output")
+    tool_name = event.get("name", "")
+
+    running = next(
+        (entry for entry in tool_call_map.values() if entry["name"] == tool_name and entry["status"] == "running"),
+        None,
+    )
+    if running is not None:
+        running["output"] = tool_output
+        running["status"] = "completed"
     else:
+        tool_id = event.get("id", "")
         tool_call_map[tool_id] = {
             "id": tool_id,
-            "name": data.get("name", ""),
+            "name": tool_name,
             "input": None,
             "output": tool_output,
             "status": "completed",
@@ -1318,11 +1382,13 @@ async def _sse_generator_postgres(job_store, job_id: str, db_url: str, start_eve
     is_reconnect = start_event_id > 0
 
     def format_sse(event_type: str, data: dict, event_id: int | None = None) -> str:
+        # Synthetic events (job.status, stream.mode, ...) reuse the last real
+        # event id instead of advancing past it: id+1 is exactly the id the
+        # next stored job_events row will get, so a client that disconnects
+        # after a synthetic event would reconnect past a real event and lose it.
         nonlocal sequence_id
         if event_id is not None:
             sequence_id = event_id
-        else:
-            sequence_id += 1
         return f"id: {sequence_id}\nevent: {event_type}\ndata: {json.dumps(data)}\n\n"
 
     # LISTEN/NOTIFY needs a persistent session — incompatible with PgBouncer
@@ -1330,7 +1396,16 @@ async def _sse_generator_postgres(job_store, job_id: str, db_url: str, start_eve
     import os
 
     listen_db_url = os.environ.get("AIQ_LISTEN_DB_URL", db_url)
-    asyncpg_url = listen_db_url.replace("+psycopg2", "").replace("+asyncpg", "").replace("postgresql://", "postgres://")
+    # Strip +psycopg2 before +psycopg (it's a prefix of the former) — this
+    # codebase standardizes on postgresql+psycopg:// URLs, which asyncpg
+    # rejects; a leftover driver suffix silently degrades every SSE stream
+    # to polling ("Pub-sub failed, falling back to polling").
+    asyncpg_url = (
+        listen_db_url.replace("+psycopg2", "")
+        .replace("+psycopg", "")
+        .replace("+asyncpg", "")
+        .replace("postgresql://", "postgres://")
+    )
     channel = f"job_events_{job_id.replace('-', '_')}"
 
     logger.info(f"SSE pub-sub stream starting for job_id={job_id}, channel={channel}")
@@ -1504,11 +1579,13 @@ async def _sse_generator_polling(job_store, job_id: str, db_url: str, start_even
     replay_mode_announced = False
 
     def format_sse(event_type: str, data: dict, event_id: int | None = None) -> str:
+        # Synthetic events (job.status, stream.mode, ...) reuse the last real
+        # event id instead of advancing past it: id+1 is exactly the id the
+        # next stored job_events row will get, so a client that disconnects
+        # after a synthetic event would reconnect past a real event and lose it.
         nonlocal sequence_id
         if event_id is not None:
             sequence_id = event_id
-        else:
-            sequence_id += 1
         return f"id: {sequence_id}\nevent: {event_type}\ndata: {json.dumps(data)}\n\n"
 
     logger.info(

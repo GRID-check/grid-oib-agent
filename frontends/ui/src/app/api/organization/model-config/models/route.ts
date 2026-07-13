@@ -11,7 +11,8 @@ import { BadRequestError, ServiceUnavailableError } from '@/lib/api/errors'
 import { ORG_PERMISSIONS } from '@/lib/authz/permissions'
 import { FEATURE_FLAGS, requireFeature } from '@/lib/authz/feature-flags'
 import { getAgentGroup } from '@/lib/model-config/agent-groups'
-import { fetchModelCatalog, searchModelsForGroup } from '@/lib/model-config/openrouter'
+import { searchModelsForGroup } from '@/lib/model-config/openrouter'
+import { getCatalogForOrg } from '@/lib/model-config/org-catalog'
 
 const querySchema = z.object({
   group: z.string().default(''),
@@ -28,14 +29,20 @@ export const GET = apiRoute(
       throw new BadRequestError('Unknown agent group')
     }
 
+    // With a BYOK credential the catalog is the org's own provider listing
+    // (relaxed capability checks) — otherwise the OpenRouter catalog (ADR-0022).
     let catalog
     try {
-      catalog = await fetchModelCatalog()
+      catalog = await getCatalogForOrg(session.organizationId)
     } catch (error) {
-      console.error('[Model Search API] OpenRouter catalog unavailable:', error)
-      throw new ServiceUnavailableError('OpenRouter model catalog is unavailable')
+      console.error('[Model Search API] Model catalog unavailable:', error)
+      throw new ServiceUnavailableError('The model catalog is unavailable')
     }
-    return { group: group.id, models: searchModelsForGroup(catalog, groupId, query) }
+    return {
+      group: group.id,
+      catalogSource: { source: catalog.source, provider: catalog.provider, validation: catalog.validation },
+      models: searchModelsForGroup(catalog.models, groupId, query, 30, catalog.validation === 'full'),
+    }
   },
   { permission: ORG_PERMISSIONS.modelsManage },
 )

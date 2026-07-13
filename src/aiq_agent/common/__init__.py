@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import datetime
 import logging
 import os
@@ -46,12 +47,19 @@ from .citation_verification import verify_citations
 from .data_source_registry import get_all_tool_refs
 from .data_source_registry import get_source_id_for_tool
 from .data_sources import DEFAULT_DATA_SOURCES
+from .data_sources import DISABLED_SOURCES_HEADER
 from .data_sources import all_mapped_tools_filtered_out
 from .data_sources import extract_messages_and_sources
 from .data_sources import filter_tools_by_sources
 from .data_sources import format_data_source_tools
+from .data_sources import get_disabled_sources_from_context
 from .data_sources import parse_data_sources
+from .data_sources import parse_disabled_sources
 from .json_utils import extract_json
+from .llm_credentials import OrgLLMCredential
+from .llm_credentials import apply_org_credential
+from .llm_credentials import get_org_llm_credential_from_context
+from .llm_credentials import resolve_org_llm_credential
 from .llm_provider import LLMProvider
 from .llm_provider import LLMRole
 from .message_utils import get_latest_user_query
@@ -72,18 +80,29 @@ logger = logging.getLogger(__name__)
 # Shared checkpointer caches
 _checkpointers: dict[str, BaseCheckpointSaver] = {}
 _postgres_pools: dict[str, AsyncConnectionPool] = {}
+# Serializes checkpointer creation: connect/setup are awaits, so a bare
+# check-then-act would let two concurrent callers both connect and leak the
+# loser's connection when it is overwritten in the cache.
+_checkpointer_lock = asyncio.Lock()
 
 __all__ = [
     "DEFAULT_DATA_SOURCES",
+    "DISABLED_SOURCES_HEADER",
     "AgentGroup",
     "LLMProvider",
     "MODEL_OVERRIDES_HEADER",
     "LLMRole",
+    "OrgLLMCredential",
     "SourceRegistry",
     "VerboseTraceCallback",
     "all_mapped_tools_filtered_out",
     "apply_model_override",
+    "apply_org_credential",
+    "get_disabled_sources_from_context",
     "get_model_overrides_from_context",
+    "get_org_llm_credential_from_context",
+    "parse_disabled_sources",
+    "resolve_org_llm_credential",
     "parse_model_overrides",
     "sanitize_model_overrides",
     "extract_json",
@@ -176,24 +195,30 @@ async def get_checkpointer(checkpoint_db: str) -> BaseCheckpointSaver:
     if checkpointer is not None:
         return checkpointer
 
-    if is_postgres_dsn(checkpoint_db):
-        pool = _postgres_pools.get(checkpoint_db)
-        if pool is None:
-            pool = AsyncConnectionPool(
-                conninfo=checkpoint_db,
-                min_size=1,
-                max_size=3,
-                kwargs={"autocommit": True, "row_factory": dict_row},
-            )
-            _postgres_pools[checkpoint_db] = pool
-        checkpointer = AsyncPostgresSaver(pool)
-        await checkpointer.setup()
-        logger.info("Postgres checkpointer initialized via async pool.")
-    else:
-        conn = await aiosqlite.connect(checkpoint_db)
-        checkpointer = AsyncSqliteSaver(conn)
-        await checkpointer.setup()
-        logger.info("SQLite checkpointer initialized: %s", checkpoint_db)
+    async with _checkpointer_lock:
+        # Re-check: another caller may have created it while we waited.
+        checkpointer = _checkpointers.get(checkpoint_db)
+        if checkpointer is not None:
+            return checkpointer
 
-    _checkpointers[checkpoint_db] = checkpointer
-    return checkpointer
+        if is_postgres_dsn(checkpoint_db):
+            pool = _postgres_pools.get(checkpoint_db)
+            if pool is None:
+                pool = AsyncConnectionPool(
+                    conninfo=checkpoint_db,
+                    min_size=1,
+                    max_size=3,
+                    kwargs={"autocommit": True, "row_factory": dict_row},
+                )
+                _postgres_pools[checkpoint_db] = pool
+            checkpointer = AsyncPostgresSaver(pool)
+            await checkpointer.setup()
+            logger.info("Postgres checkpointer initialized via async pool.")
+        else:
+            conn = await aiosqlite.connect(checkpoint_db)
+            checkpointer = AsyncSqliteSaver(conn)
+            await checkpointer.setup()
+            logger.info("SQLite checkpointer initialized: %s", checkpoint_db)
+
+        _checkpointers[checkpoint_db] = checkpointer
+        return checkpointer

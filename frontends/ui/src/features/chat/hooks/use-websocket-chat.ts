@@ -179,8 +179,9 @@ interface UseWebSocketChatOptions {
 }
 
 interface UseWebSocketChatReturn {
-  /** Send a message via WebSocket */
-  sendMessage: (content: string) => void
+  /** Send a message via WebSocket. Returns false when the message could not
+   * be sent or queued (so the caller can preserve the user's input). */
+  sendMessage: (content: string) => boolean
   /** Respond to a pending interaction (clarification, approval, etc.) */
   respondToInteraction: (response: string) => void
   /** Disconnect from the WebSocket server */
@@ -1321,8 +1322,8 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
    * Send a message via WebSocket
    */
   const sendMessage = useCallback(
-    (content: string) => {
-      if (!content.trim()) return
+    (content: string): boolean => {
+      if (!content.trim()) return false
 
       // Collect metadata about data sources and files before adding user message
       const layoutState = useLayoutStore.getState()
@@ -1379,17 +1380,18 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
       }
 
       // Helper to actually send the message
-      const doSend = () => {
+      const doSend = (): boolean => {
         if (sendOutgoingPayload(outgoingPayload)) {
           // Turn is on the wire -- start the overall inactivity deadline.
           armStreamingWatchdog()
           setLoading(false)
-        } else {
-          clearStreamingWatchdog()
-          addErrorCard('connection.failed', 'WebSocket connection failed')
-          setStreaming(false)
-          setLoading(false)
+          return true
         }
+        clearStreamingWatchdog()
+        addErrorCard('connection.failed', 'WebSocket connection failed')
+        setStreaming(false)
+        setLoading(false)
+        return false
       }
 
       // Pre-flight: the socket may report connected, but if its JWT is
@@ -1404,11 +1406,11 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
       if (wsClientRef.current?.isConnected() && tokenIsStale()) {
         pendingOutgoingRef.current = outgoingPayload
         rotateSocket('preflight')
-        return
+        return true
       }
 
       if (wsClientRef.current?.isConnected()) {
-        doSend()
+        return doSend()
       } else if (conversationId) {
         // A client can exist but still be handshaking or reconnecting.
         // Queue this outbound payload for the normal 'connected' drain
@@ -1418,11 +1420,16 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         if (!wsClientRef.current) {
           wsClientRef.current = createNATWebSocketClient({
             conversationId,
+            // Seed projectId like the main connect effect: the updateProjectId
+            // effect only fires when the store value CHANGES, so a client
+            // created without it would handshake unscoped for its whole life.
+            projectId: useChatStore.getState().projectId || undefined,
             callbacks: createCallbacks(),
             onBeforeReconnect: refreshAuthBeforeReconnect,
           })
         }
         void wsClientRef.current.connect()
+        return true
       } else {
         // Defensive: shouldn't happen because addUserMessage creates a
         // conversation if one is missing.
@@ -1430,6 +1437,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         addErrorCard('system.unknown', 'No active conversation')
         setStreaming(false)
         setLoading(false)
+        return false
       }
     },
     [
@@ -1551,6 +1559,8 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
     } else if (currentConversation) {
       wsClientRef.current = createNATWebSocketClient({
         conversationId: currentConversation.id,
+        // Seed projectId like the main connect effect (see comment there).
+        projectId: useChatStore.getState().projectId || undefined,
         callbacks: createCallbacks(),
         onBeforeReconnect: refreshAuthBeforeReconnect,
       })

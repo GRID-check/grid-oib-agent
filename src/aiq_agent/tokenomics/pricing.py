@@ -162,9 +162,17 @@ class PricingRegistry:
     def get(self, model_name: str) -> ModelPrice:
         if model_name in self._prices:
             return self._prices[model_name]
+        # Substring fallback (trace names are often provider-prefixed, e.g.
+        # "azure/openai/gpt-4o"). Prefer the LONGEST key so "gpt-4o-mini"
+        # matches its own entry rather than whichever of gpt-4o/gpt-4o-mini
+        # happens to come first in the config.
+        best: ModelPrice | None = None
+        best_len = -1
         for key, price in self._prices.items():
-            if key in model_name or model_name in key:
-                return price
+            if (key in model_name or model_name in key) and len(key) > best_len:
+                best, best_len = price, len(key)
+        if best is not None:
+            return best
         if self._default is not None:
             return self._default
         raise KeyError(
@@ -181,10 +189,12 @@ class PricingRegistry:
         """
         if tool_name in self._tools:
             return self._tools[tool_name]
+        best: ToolPrice | None = None
+        best_len = -1
         for key, price in self._tools.items():
-            if key in tool_name or tool_name in key:
-                return price
-        return ToolPrice(cost_per_call=0.0)
+            if (key in tool_name or tool_name in key) and len(key) > best_len:
+                best, best_len = price, len(key)
+        return best if best is not None else ToolPrice(cost_per_call=0.0)
 
     def known_models(self) -> list[str]:
         return list(self._prices)

@@ -89,6 +89,17 @@ async def _enforce_job_admission(db_url: str, organization_id: str | None) -> No
         logger.warning("Job admission check failed; admitting job", exc_info=True)
 
 
+def _get_disabled_sources() -> set[str]:
+    """Org-disabled source ids from the submitting request (fail-open)."""
+    try:
+        from aiq_agent.common import get_disabled_sources_from_context
+
+        return get_disabled_sources_from_context()
+    except Exception:
+        logger.warning("Failed to read disabled data sources; not filtering", exc_info=True)
+        return set()
+
+
 def _resolve_submission_principal(owner: str) -> Principal | None:
     """Resolve the best available principal for async job ownership.
 
@@ -192,6 +203,14 @@ def _derive_project_collection(collection_scope: list[str] | None) -> str | None
     if len(candidates) == 1:
         return candidates[0]
     return None
+
+
+class SchedulerNotConfiguredError(RuntimeError):
+    """The Dask scheduler address is not configured (server misconfiguration).
+
+    Subclasses RuntimeError for backwards compatibility, but lets HTTP routes
+    map it to 503 instead of conflating it with authorization failures (403).
+    """
 
 
 async def submit_agent_job(
@@ -301,7 +320,7 @@ async def submit_agent_job(
     use_threads = os.environ.get("NAT_USE_DASK_THREADS", "0") == "1"
 
     if not scheduler_address:
-        raise RuntimeError("Async job submission requires NAT_DASK_SCHEDULER_ADDRESS to be set")
+        raise SchedulerNotConfiguredError("Async job submission requires NAT_DASK_SCHEDULER_ADDRESS to be set")
 
     # Auto-capture auth token if not explicitly provided
     if auth_token is None:
@@ -329,6 +348,19 @@ async def submit_agent_job(
 
         model_overrides = get_model_overrides_from_context() or None
 
+    # Org-disabled data sources (ADR-0022): subtracted HERE, at submit time,
+    # so Dask workers need no live flag lookup — the effective data_sources
+    # list they receive already excludes anything the organization turned
+    # off. A None ("all sources") request is materialized first so the
+    # subtraction can apply.
+    disabled_sources = _get_disabled_sources()
+    if disabled_sources:
+        if data_sources is None:
+            from aiq_agent.common.data_source_registry import get_all_sources
+
+            data_sources = [source.id for source in get_all_sources()]
+        data_sources = [source for source in data_sources if source.strip().lower() not in disabled_sources]
+
     # Capture caller identity + remaining budget for cost tracking in the worker.
     if usage_context is None:
         from aiq_agent.common.cost_tracking import capture_usage_context
@@ -340,7 +372,7 @@ async def submit_agent_job(
     if principal is None:
         raise RuntimeError("Verified current principal required for async job submission")
 
-    organization_id = (usage_context or {}).get("identity", {}).get("organization_id")
+    organization_id = ((usage_context or {}).get("identity") or {}).get("organization_id")
 
     # Admission control: nothing else bounds how many concurrent jobs the
     # cluster accepts, and each deep-research run fans out multiple

@@ -157,9 +157,13 @@ async def intent_classifier(config: IntentClassifierConfig, builder: Builder):
     non_registry_tools_info = [t for t in tools_info if t["name"] not in registry_names]
 
     async def _run(state: ChatResearcherState) -> dict[str, Any]:
+        # Pass the narrowed list per request instead of mutating the shared
+        # classifier instance: a mutation would leak one request's data-source
+        # selection into every later request (and race between concurrent ones).
+        request_tools_info = None
         if state.data_sources is not None:
-            classifier.tools_info = format_data_source_tools(state.data_sources) + non_registry_tools_info
-        return await classifier.run(state)
+            request_tools_info = format_data_source_tools(state.data_sources) + non_registry_tools_info
+        return await classifier.run(state, tools_info=request_tools_info)
 
     yield FunctionInfo.from_fn(
         _run,
@@ -333,7 +337,9 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                 if not query:
                     if not state.messages:
                         raise RuntimeError("Cannot submit deep research job without messages.")
-                    query = state.messages[0].content
+                    from aiq_agent.common import get_latest_user_query
+
+                    query = get_latest_user_query(state.messages)
                 input_text = query if isinstance(query, str) else str(query)
 
                 # Serialize available_documents for the Dask worker
@@ -673,12 +679,14 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                 from aiq_agent.agents.project_memory.reflection import schedule_memory_reflection
                 from aiq_agent.common import AgentGroup
                 from aiq_agent.common import apply_model_override
+                from aiq_agent.common import apply_org_credential
 
                 # Applied here — not inside the background task — because the
                 # override header is only readable while the request context is
-                # still live.
+                # still live. The org's BYOK credential (ADR-0022) covers the
+                # reflection call too — it is tenant traffic like any other.
                 schedule_memory_reflection(
-                    llm=apply_model_override(reflection_llm, AgentGroup.MEMORY_REFLECTION),
+                    llm=apply_org_credential(apply_model_override(reflection_llm, AgentGroup.MEMORY_REFLECTION)),
                     query=query_text,
                     answer=answer_text,
                     project_id=_reflection_project_id,

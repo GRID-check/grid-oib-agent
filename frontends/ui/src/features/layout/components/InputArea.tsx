@@ -355,7 +355,10 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     // Proceed with normal send
     setMessage('')
     try {
-      await sendMessage(currentMessage)
+      // sendMessage reports immediate failures (dead socket, no conversation)
+      // via a false return rather than throwing.
+      const sent = await sendMessage(currentMessage)
+      if (sent === false) throw new Error('Message could not be sent or queued')
       // Sent successfully — drop this session's saved draft so it can't
       // resurface on the next visit. Only on success: a failed send keeps the
       // draft so nothing the user typed is lost.
@@ -439,8 +442,10 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
       setDataSourcesPanelTab('files')
       openRightPanel('data-sources')
 
-      // uploadFiles validates internally and sets error if invalid
-      await uploadFiles(files)
+      // Pass the (possibly just-created) session explicitly: the hook's
+      // memoized collectionName still reflects the previous render, so the
+      // first upload in a fresh session would otherwise abort.
+      await uploadFiles(files, sessionId)
     },
     [
       ensureSession,

@@ -193,14 +193,17 @@ export const getOldestSession = (
  *
  * @param currentConversationId - ID of current session to protect
  * @param currentUserId - ID of current user (for Tier 2 scoping)
- * @returns Number of sessions deleted
+ * @returns IDs of the deleted sessions. Callers that hold these sessions in
+ *   memory (the Zustand store) MUST prune them too: this function only edits
+ *   localStorage, and the next persist write would otherwise resurrect every
+ *   "deleted" session from the untouched in-memory state.
  */
 export const cleanupOldSessions = (
   currentConversationId: string | null,
   currentUserId: string | null
-): number => {
+): string[] => {
   const data = getChatStoreData()
-  if (!data) return 0
+  if (!data) return []
 
   let { conversations } = data
   const deletedSessionIds: string[] = []
@@ -247,7 +250,7 @@ export const cleanupOldSessions = (
     logStorageCleanup(deletedSessionIds, freedMB, beforeMB, afterMB)
   }
 
-  return deletedSessionIds.length
+  return deletedSessionIds
 }
 
 /**
@@ -256,25 +259,27 @@ export const cleanupOldSessions = (
  *
  * @param currentConversationId - ID of current session to protect
  * @param currentUserId - ID of current user for Tier 2 scoping
+ * @returns IDs of deleted sessions — see cleanupOldSessions: callers must
+ *   prune these from in-memory store state as well.
  */
 export const ensureStorageCapacity = (
   currentConversationId: string | null,
   currentUserId: string | null
-): void => {
+): string[] => {
   const health = checkStorageHealth()
 
   logStorageCapacity(health.currentMB, STORAGE_QUOTA_MB, health.percentUsed, health.isHealthy)
 
-  if (health.isHealthy) return
+  if (health.isHealthy) return []
 
   const data = getChatStoreData()
   const sessionCount = data?.conversations.length ?? 0
 
   logStorageWarning(health.currentMB, WARNING_THRESHOLD_MB, sessionCount)
 
-  const deletedCount = cleanupOldSessions(currentConversationId, currentUserId)
+  const deletedIds = cleanupOldSessions(currentConversationId, currentUserId)
 
-  if (deletedCount === 0 && !checkStorageHealth().isHealthy) {
+  if (deletedIds.length === 0 && !checkStorageHealth().isHealthy) {
     console.warn(
       '[SessionsStore] ⚠️ Current session is too large - message pruning will occur on next save',
       {
@@ -283,4 +288,6 @@ export const ensureStorageCapacity = (
       }
     )
   }
+
+  return deletedIds
 }

@@ -3,7 +3,6 @@
  * Used when abandoning upload-only sessions (no user chat messages).
  */
 
-import { createDocumentsClient } from '@/adapters/api'
 import { removePersistedJobForCollection, unmarkSessionCollection } from './persistence'
 import { UploadOrchestrator } from './orchestrator'
 import { useDocumentsStore } from './store'
@@ -20,7 +19,11 @@ export const discardSessionDocumentsResources = (sessionId: string): void => {
     docs.setCollectionInfo(null)
   }
 
-  void createDocumentsClient({}).deleteCollection(sessionId).catch((err) => {
-    console.warn('Failed to delete documents collection for discarded session:', sessionId, err)
-  })
+  // Use the orchestrator's authenticated client: a token-less client 401s in
+  // auth-required deployments and the orphaned collection persists forever.
+  void UploadOrchestrator.getAuthenticatedClient()
+    .deleteCollection(sessionId)
+    .catch((err) => {
+      console.warn('Failed to delete documents collection for discarded session:', sessionId, err)
+    })
 }

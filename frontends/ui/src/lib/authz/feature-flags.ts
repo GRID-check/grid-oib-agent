@@ -28,6 +28,10 @@ export const FEATURE_FLAGS = {
   keyboardShortcuts: 'keyboard-shortcuts',
   /** Project-level knowledge-base transparency page (nav section). */
   projectKnowledgePage: 'project-knowledge-page',
+  /** Per-org BYOK LLM credentials via WorkOS Vault (ADR-0022) — enterprise tier. */
+  byokLlm: 'byok-llm',
+  /** Platform-layer web-search gate; tenant toggle lives in org settings (ADR-0022). */
+  webSearch: 'web-search',
 } as const
 
 export type KnownFeatureFlag = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]

@@ -69,6 +69,29 @@ from .models import ClarifierResult
 
 logger = logging.getLogger(__name__)
 
+
+def _content_to_text(content: Any) -> str:
+    """Normalize LLM message content to plain text.
+
+    Chat models may return ``content`` as a string or as a list of content
+    blocks (e.g. ``[{"type": "text", "text": "..."}]``); the parsing helpers
+    below all expect a string.
+    """
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict) and isinstance(block.get("text"), str):
+                parts.append(block["text"])
+            elif isinstance(getattr(block, "text", None), str):
+                parts.append(block.text)
+        return "\n".join(parts)
+    return str(content) if content is not None else ""
+
+
 AGENT_DIR = Path(__file__).parent
 """Path to the clarifier agent's directory, used for loading prompts."""
 
@@ -234,6 +257,7 @@ class ClarifierAgent:
         Returns:
             Tuple of (title, sections) or (None, []) if parsing fails.
         """
+        text = _content_to_text(text)
         if not text:
             return None, []
 
@@ -270,7 +294,9 @@ class ClarifierAgent:
         text = response.strip()
         try:
             data = json.loads(text)
-            if isinstance(data, dict) and "query" in data:
+            # Only accept a string query: a non-string value (number, null,
+            # object) would crash the .strip() below and abort the whole turn.
+            if isinstance(data, dict) and isinstance(data.get("query"), str):
                 text = data["query"]
         except (json.JSONDecodeError, TypeError):
             pass  # Not JSON, use original text
@@ -321,6 +347,7 @@ class ClarifierAgent:
         Returns:
             ClarificationResponse if parsing succeeds, None otherwise.
         """
+        text = _content_to_text(text)
         if not text:
             return None
 
@@ -715,6 +742,9 @@ class ClarifierAgent:
             ClarifierResult with clarification log and plan approval details.
         """
         logger.info("Clarifier: Starting (max %d turns)", self.max_turns)
+        # The state governs the turn loop, but callers build it without
+        # max_turns — stamp the configured limit so it actually applies.
+        state = state.model_copy(update={"max_turns": self.max_turns})
         query = get_latest_user_query(state.messages)
         logger.info("User's query: %s...", str(query)[:100] if query else "")
         result = await self._graph.ainvoke(state, config={"callbacks": self.callbacks})

@@ -34,6 +34,7 @@ export interface CreateMessageInput {
   id: string
   role: 'user' | 'assistant' | 'system' | 'tool'
   content: string
+  messageType?: string
   metadata?: Record<string, unknown>
   createdAt?: string
 }
@@ -82,13 +83,20 @@ export async function createConversation(
     await requireProjectAccess(session, input.projectId, 'project:view')
   }
 
-  return insertConversation({
+  const inserted = await insertConversation({
     id: input.id,
     organizationId: session.organizationId,
     createdBy: session.userId,
     title: input.title ?? null,
     projectId: input.projectId ?? null,
   })
+  if (inserted) return inserted
+
+  // Id conflict: either a concurrent create from this org (idempotent
+  // success) or an id owned by another tenant (opaque 404, same as reads).
+  const existing = await findConversationInOrg(input.id, session.organizationId)
+  if (!existing) throw new NotFoundError()
+  return existing
 }
 
 export async function updateConversationTitle(
@@ -131,7 +139,12 @@ export async function createConversationMessages(
       conversationId,
       role: input.role,
       content: input.content,
-      metadata: input.metadata ?? {},
+      // messageType lives in metadata (no dedicated column) so the client
+      // can route rehydrated history to the right renderer.
+      metadata: {
+        ...(input.metadata ?? {}),
+        ...(input.messageType ? { messageType: input.messageType } : {}),
+      },
       createdAt: input.createdAt ? new Date(input.createdAt) : new Date(),
     })),
   )

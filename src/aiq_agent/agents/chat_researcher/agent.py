@@ -529,6 +529,10 @@ class ChatResearcherAgent:
                 # Reset like shallow_result: a persisted job id from a previous
                 # deep-research turn would otherwise be read as this turn's job.
                 "deep_research_job_id": None,
+                # Reset likewise: the clarifier skip path never overwrites this,
+                # so turn 1's clarification log would otherwise steer turn 2's
+                # deep research toward stale constraints.
+                "clarifier_result": None,
                 "skip_clarifier": state.skip_clarifier,
                 "project_context": state.project_context,
             }

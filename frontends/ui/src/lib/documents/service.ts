@@ -318,6 +318,7 @@ export async function getDocumentPreview(
   documentId: string,
 ): Promise<{ url: string; contentType: string; filename: string }> {
   const doc = await getAccessibleDocument(session, documentId)
+  if (!doc.minioKey) throw new NotFoundError('File not available')
 
   const contentType = doc.contentType || 'application/octet-stream'
   if (!PREVIEW_CONTENT_TYPES.includes(contentType)) {

@@ -16,6 +16,17 @@ import { getCached, invalidateCached } from '@/lib/cache'
 /** Slug of the flag gating the async post-answer memory-reflection stage. */
 export const MEMORY_REFLECTION_FLAG = 'memory-reflection'
 
+/** Slug of the flag gating per-org BYOK LLM credentials (ADR-0022). */
+export const BYOK_LLM_FLAG = 'byok-llm'
+
+/**
+ * Slug of the platform-layer web-search flag (ADR-0022). Participates only
+ * when GRID_ENFORCE_FEATURE_FLAGS=true — see `isWebSearchEnabledForOrg` in
+ * `@/lib/organizations/service`, which combines it with the tenant's own
+ * `settings.webSearchEnabled` toggle.
+ */
+export const WEB_SEARCH_FLAG = 'web-search'
+
 const CACHE_TTL_MS = 30_000
 
 async function enabledSlugsForOrg(organizationId: string): Promise<Set<string>> {

@@ -16,7 +16,6 @@
 """URL-based ingestion endpoint for documents stored in MinIO."""
 
 import logging
-import mimetypes
 import os
 import tempfile
 from urllib.parse import urlparse
@@ -68,6 +67,8 @@ def add_ingest_routes(router: APIRouter):
         if not file_ref or not collection:
             raise HTTPException(status_code=400, detail="file_ref and collection are required")
 
+        temp_path: str | None = None
+        submitted = False
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.get(file_ref, follow_redirects=True)
@@ -92,6 +93,7 @@ def add_ingest_routes(router: APIRouter):
             )
 
             logger.info(f"Submitted ingestion job {job_id} for {_extract_filename(file_ref)}")
+            submitted = True
 
             return {
                 "job_id": job_id,
@@ -110,6 +112,16 @@ def add_ingest_routes(router: APIRouter):
         except Exception as e:
             logger.error(f"Ingestion failed: {e}")
             raise HTTPException(status_code=500, detail=str(e))
+        finally:
+            # Once submit_job succeeds the ingestion job owns cleanup
+            # (cleanup_files=True); until then the downloaded temp file is
+            # ours, and leaving it behind on a failed submit leaks one file
+            # per request until the disk fills (mirrors documents.py).
+            if not submitted and temp_path:
+                try:
+                    os.unlink(temp_path)
+                except OSError:
+                    pass
 
 
 def _infer_suffix(content_type: str, url: str) -> str:
@@ -123,7 +135,7 @@ def _infer_suffix(content_type: str, url: str) -> str:
     }
     suffix = content_map.get(content_type.split(";", maxsplit=1)[0].strip(), "")
     if not suffix:
-        suffix = mimetypes.guess_extension(url.split("?", maxsplit=1)[0]) or ".bin"
+        suffix = os.path.splitext(urlparse(url).path)[1] or ".bin"
     return suffix
 
 

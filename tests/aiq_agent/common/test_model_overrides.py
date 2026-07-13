@@ -63,13 +63,18 @@ class TestParseModelOverrides:
     def test_invalid_model_ids_dropped(self):
         raw = _encode(
             {
-                "intent": "no-slash-model",
                 "clarifier": "vendor/model with spaces",
                 "shallow_research": 42,
                 "deep_research": "vendor/ok-model:free",
             }
         )
         assert parse_model_overrides(raw) == {"deep_research": "vendor/ok-model:free"}
+
+    def test_provider_native_ids_accepted_for_byok(self):
+        # BYOK orgs (ADR-0022) may run provider-native ids without a slash;
+        # multi-slash ids are still rejected.
+        raw = _encode({"intent": "gpt-4o", "clarifier": "ft:gpt-4o:acme::abc", "deep_research": "a/b/c"})
+        assert parse_model_overrides(raw) == {"intent": "gpt-4o", "clarifier": "ft:gpt-4o:acme::abc"}
 
     def test_sanitize_rejects_non_dict(self):
         assert sanitize_model_overrides("x") == {}

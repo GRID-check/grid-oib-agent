@@ -461,8 +461,6 @@ class AgentEventCallback(BaseCallbackHandler):
         urls = self._extract_urls(content)
         for url in urls:
             normalized = self._normalize_url(url)
-            if normalized in self._cited_urls:
-                continue
 
             is_valid = False
             registry = self._get_source_registry()
@@ -472,7 +470,12 @@ class AgentEventCallback(BaseCallbackHandler):
                 is_valid = normalized in self._discovered_urls
 
             if is_valid:
-                self._cited_urls.add(normalized)
+                # Atomic test-and-set (see on_tool_end): avoid duplicate
+                # citation_use artifacts from concurrent handler threads.
+                with AgentEventCallback._cache_lock:
+                    if normalized in self._cited_urls:
+                        continue
+                    self._cited_urls.add(normalized)
                 self._emit_artifact(
                     ArtifactType.CITATION_USE,
                     url,
@@ -630,12 +633,15 @@ class AgentEventCallback(BaseCallbackHandler):
 
         agent_info = self._find_agent_for_run(run_id)
 
+        # Include the (trimmed) output so the /state endpoint can surface tool
+        # results; with data=None every tool call reads as output=None there.
+        emit_output = self._trim_tool_input(str(output)) if output else None
         self._emit(
             IntermediateStepEvent(
                 category=EventCategory.TOOL,
                 state=EventState.END,
                 name=tool_name,
-                data=None,
+                data=EventData(output=emit_output) if emit_output is not None else None,
                 metadata=self._build_metadata_for_run(run_id),
             )
         )
@@ -644,17 +650,22 @@ class AgentEventCallback(BaseCallbackHandler):
             urls = self._extract_urls(str(output))
             for url in urls:
                 normalized = self._normalize_url(url)
-                if normalized not in self._discovered_urls:
+                # Atomic test-and-set: concurrent researcher workers invoke this
+                # handler on different threads, and an unlocked check-then-act
+                # emits duplicate citation_source artifacts for the same URL.
+                with AgentEventCallback._cache_lock:
+                    if normalized in self._discovered_urls:
+                        continue
                     self._discovered_urls.add(normalized)
-                    self._emit_artifact(
-                        ArtifactType.CITATION_SOURCE,
-                        url,
-                        name=url,
-                        url=url,
-                        tool=tool_name,
-                        agent_id=agent_info[1] if agent_info else None,
-                        workflow=agent_info[0] if agent_info else None,
-                    )
+                self._emit_artifact(
+                    ArtifactType.CITATION_SOURCE,
+                    url,
+                    name=url,
+                    url=url,
+                    tool=tool_name,
+                    agent_id=agent_info[1] if agent_info else None,
+                    workflow=agent_info[0] if agent_info else None,
+                )
 
         self._run_id_to_parent.pop(run_id, None)
 

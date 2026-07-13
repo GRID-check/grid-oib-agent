@@ -2,7 +2,8 @@
 
 /**
  * Editable Grid-side organization settings (admin only): a display-name
- * override and the default interface language for new members. Persists to
+ * override, the default interface language for new members, and the
+ * org-level web-search toggle (ADR-0022). Persists to
  * `/api/organization/settings` (PUT), which enforces the admin check server-side.
  */
 
@@ -19,21 +20,25 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
 import { useTranslations, locales, localeNames, type Locale } from '@/i18n'
 
 interface OrgSettingsFormProps {
   initialDisplayName: string | null
   initialDefaultLocale: Locale
+  initialWebSearchEnabled: boolean
 }
 
 export const OrgSettingsForm: FC<OrgSettingsFormProps> = ({
   initialDisplayName,
   initialDefaultLocale,
+  initialWebSearchEnabled,
 }) => {
   const t = useTranslations('organization')
 
   const [displayName, setDisplayName] = useState(initialDisplayName ?? '')
   const [defaultLocaleValue, setDefaultLocaleValue] = useState<Locale>(initialDefaultLocale)
+  const [webSearchEnabled, setWebSearchEnabled] = useState(initialWebSearchEnabled)
   const [saving, setSaving] = useState(false)
 
   const handleSave = useCallback(async () => {
@@ -45,6 +50,7 @@ export const OrgSettingsForm: FC<OrgSettingsFormProps> = ({
         body: JSON.stringify({
           displayName: displayName.trim() === '' ? null : displayName.trim(),
           defaultLocale: defaultLocaleValue,
+          settings: { webSearchEnabled },
         }),
       })
       if (!res.ok) throw new Error(`Save failed (${res.status})`)
@@ -54,7 +60,7 @@ export const OrgSettingsForm: FC<OrgSettingsFormProps> = ({
     } finally {
       setSaving(false)
     }
-  }, [displayName, defaultLocaleValue, t])
+  }, [displayName, defaultLocaleValue, webSearchEnabled, t])
 
   return (
     <div className="flex flex-col gap-5">
@@ -85,6 +91,19 @@ export const OrgSettingsForm: FC<OrgSettingsFormProps> = ({
           </SelectContent>
         </Select>
         <p className="text-xs text-muted-foreground">{t('settings.defaultLocaleHint')}</p>
+      </div>
+
+      <div className="flex items-start justify-between gap-4 sm:max-w-md">
+        <div className="flex flex-col gap-1">
+          <Label htmlFor="org-web-search">{t('settings.webSearch')}</Label>
+          <p className="text-xs text-muted-foreground">{t('settings.webSearchHint')}</p>
+        </div>
+        <Switch
+          id="org-web-search"
+          checked={webSearchEnabled}
+          onCheckedChange={setWebSearchEnabled}
+          aria-label={t('settings.webSearch')}
+        />
       </div>
 
       <div>

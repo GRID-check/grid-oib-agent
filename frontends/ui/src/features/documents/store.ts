@@ -184,6 +184,13 @@ export const useDocumentsStore = create<DocumentsStore>()(
               // Never overwrite client-side transient states with backend data
               if (file.status === 'deleting') return file
 
+              // Scope to the polled job and collection: filename matching
+              // without this would let a session upload overwrite the
+              // status/serverFileId of a same-named file tracked in another
+              // collection (e.g. the project corpus), corrupting later deletes.
+              if (file.jobId && file.jobId !== jobStatus.job_id) return file
+              if (file.collectionName && file.collectionName !== jobStatus.collection_name) return file
+
               // Find matching file in job details by server ID or filename
               const jobFile = jobStatus.file_details.find(
                 (jf) => jf.file_id === file.serverFileId || jf.file_name === file.fileName

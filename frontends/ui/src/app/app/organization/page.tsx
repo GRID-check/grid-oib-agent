@@ -7,7 +7,7 @@
  */
 
 import Link from 'next/link'
-import { ArrowLeft, Building2, Cpu, Gauge, Globe, Mail, ScrollText, ShieldAlert, Users } from 'lucide-react'
+import { ArrowLeft, Building2, Cpu, Gauge, Globe, KeyRound, Mail, ScrollText, ShieldAlert, Users } from 'lucide-react'
 import { requireAuthorizedPageSession } from '@/lib/auth/require-auth'
 import { canManageBudgets, canManageModels, canViewAuditLogs, isOrgAdmin } from '@/lib/authz/organizations'
 import { FEATURE_FLAGS, isFeatureEnabled } from '@/lib/authz/feature-flags'
@@ -20,6 +20,7 @@ import { getTranslations, getLocale } from '@/i18n/server'
 import { OrgSettingsForm } from './org-settings-form'
 import { OrgWidgets } from './org-widgets'
 import { ModelConfigCard } from './model-config-card'
+import { LlmCredentialsCard } from './llm-credentials-card'
 import { BudgetUsageCard } from './budget-usage-card'
 
 const isAuthRequired = (): boolean => process.env.REQUIRE_AUTH?.toLowerCase() === 'true'
@@ -59,6 +60,8 @@ export default async function OrganizationPage(): Promise<JSX.Element> {
   const admin = isOrgAdmin(session)
   // Permission AND feature flag — the card mirrors the API's double gate.
   const models = canManageModels(session) && isFeatureEnabled(session, FEATURE_FLAGS.modelConfiguration)
+  // BYOK LLM credentials (ADR-0022) — same permission, its own flag.
+  const byok = canManageModels(session) && isFeatureEnabled(session, FEATURE_FLAGS.byokLlm)
   const budgets = canManageBudgets(session)
   const audit = canViewAuditLogs(session)
 
@@ -68,7 +71,7 @@ export default async function OrganizationPage(): Promise<JSX.Element> {
   // non-admins, so give them a "Your usage" self-view — the primary way a
   // budget-capped member can see why chat stopped — alongside a small note that
   // full org management needs admin access.
-  if (!admin && !models && !budgets && !audit) {
+  if (!admin && !models && !byok && !budgets && !audit) {
     return shell(
       <div className="flex flex-col gap-6">
         <header>
@@ -227,6 +230,7 @@ export default async function OrganizationPage(): Promise<JSX.Element> {
             <OrgSettingsForm
               initialDisplayName={settings.displayName}
               initialDefaultLocale={settings.defaultLocale}
+              initialWebSearchEnabled={settings.settings.webSearchEnabled !== false}
             />
           ) : (
             <p className="text-sm text-muted-foreground">{t('settings.loadError')}</p>
@@ -248,6 +252,23 @@ export default async function OrganizationPage(): Promise<JSX.Element> {
         </CardHeader>
         <CardContent>
           <ModelConfigCard />
+        </CardContent>
+      </Card>
+
+      )}
+
+      {/* BYOK LLM credentials (ADR-0022) */}
+      {byok && (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <KeyRound className="size-4 text-muted-foreground" aria-hidden />
+            {t('byok.title')}
+          </CardTitle>
+          <CardDescription>{t('byok.description')}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <LlmCredentialsCard />
         </CardContent>
       </Card>
 

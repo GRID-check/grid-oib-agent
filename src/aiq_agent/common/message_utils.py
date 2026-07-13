@@ -12,6 +12,21 @@ from langchain_core.messages import HumanMessage
 logger = logging.getLogger(__name__)
 
 
+def _content_as_text(content: object) -> str:
+    """Normalize message content (str or list of content blocks) to plain text."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict) and isinstance(block.get("text"), str):
+                parts.append(block["text"])
+        return "\n".join(parts)
+    return str(content) if content is not None else ""
+
+
 def get_latest_user_query(messages: list[BaseMessage]) -> str:
     """Return the most recent user-authored message content.
 
@@ -26,12 +41,12 @@ def get_latest_user_query(messages: list[BaseMessage]) -> str:
     """
     for message in reversed(messages):
         if isinstance(message, HumanMessage):
-            return message.content
+            return _content_as_text(message.content)
 
     if messages:
         last_message = messages[-1]
         if hasattr(last_message, "content"):
-            return last_message.content
+            return _content_as_text(last_message.content)
 
     logger.warning("No user message found in conversation history, returning empty string")
     return ""

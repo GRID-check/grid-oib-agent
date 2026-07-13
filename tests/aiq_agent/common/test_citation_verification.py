@@ -917,6 +917,26 @@ class TestVerifyCitations:
         assert len(result.valid_citations) == 1
         assert "https://arxiv.org/abs/1706.03762" in result.verified_report
 
+    def test_url_repair_does_not_corrupt_prefix_sibling(self):
+        """A repaired URL must not rewrite a different citation whose URL is a superstring.
+
+        Garbled ``?id=1`` is repaired to ``?id=1&lang=en``; a bounded replace
+        must leave the valid ``?id=10`` citation untouched (an unbounded
+        str.replace would turn it into ``?id=1&lang=en0``).
+        """
+        reg = SourceRegistry()
+        reg.add(SourceEntry(url="https://x.com/p?id=1&lang=en", source_type="generic"))
+        reg.add(SourceEntry(url="https://x.com/p?id=10", source_type="generic"))
+        report = (
+            "A [1] and B [2].\n\n## Sources\n"
+            "[1] First: https://x.com/p?id=1\n"
+            "[2] Second: https://x.com/p?id=10"
+        )
+        result = verify_citations(report, reg)
+        assert "https://x.com/p?id=10" in result.verified_report
+        # The sibling must not have been mangled into id=1&lang=en0.
+        assert "id=1&lang=en0" not in result.verified_report
+
     def test_duplicate_tool_result_refs_collapse_to_single_citation(self):
         """Two [N] lines that resolve to the same non-URL tool_result source are merged.
 

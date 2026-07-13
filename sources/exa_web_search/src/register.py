@@ -40,7 +40,11 @@ class ExaWebSearchToolConfig(FunctionBaseConfig, name="exa_web_search"):
 
     max_results: int = Field(default=5, description="Maximum number of search results to return")
     api_key: SecretStr | None = Field(default=None, description="The API key for the Exa service")
-    max_retries: int = Field(default=3, description="Maximum number of retries for the search request")
+    max_retries: int = Field(
+        default=3,
+        ge=1,
+        description="Maximum number of retries for the search request (a value of 0 would never search at all)",
+    )
     search_type: Literal["auto", "deep", "fast"] = Field(
         default="auto",
         description="Exa search type: 'auto', 'deep', or 'fast'",

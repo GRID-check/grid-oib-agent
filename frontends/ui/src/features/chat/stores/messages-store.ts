@@ -657,6 +657,10 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
       const layoutState = useLayoutStore.getState()
       conversation = {
         ...createNewConversation(currentUserId),
+        // Stamp the active project (UX-8): an unstamped session created inside
+        // a project would appear in every project's list and dodge the
+        // cross-project clear guard in setProjectId.
+        projectId: get().projectId ?? null,
         enabledDataSourceIds: [...layoutState.enabledDataSourceIds],
       }
     }
@@ -766,7 +770,17 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
 
     if (!checkStorageHealth().isHealthy) {
       const { currentUserId } = get()
-      ensureStorageCapacity(currentConversation.id, currentUserId)
+      const cleanedUpIds = ensureStorageCapacity(currentConversation.id, currentUserId)
+      if (cleanedUpIds.length > 0) {
+        // Cleanup only edits localStorage; prune in-memory state too or the
+        // next persist write resurrects every deleted session.
+        const deleted = new Set(cleanedUpIds)
+        set(
+          (state) => ({ conversations: state.conversations.filter((c) => !deleted.has(c.id)) }),
+          false,
+          'storageCleanupPrune'
+        )
+      }
     }
 
     get()._appendMessage(responseMessage)

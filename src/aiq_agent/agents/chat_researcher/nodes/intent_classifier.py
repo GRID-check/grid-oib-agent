@@ -92,8 +92,20 @@ class IntentClassifier:
                 "Respond ONLY with the raw JSON object — no prose, no code fences."
             )
 
-    async def run(self, state: ChatResearcherState) -> dict[str, Any]:
-        """Run the intent classifier node."""
+    async def run(
+        self,
+        state: ChatResearcherState,
+        tools_info: list[dict[str, str]] | None = None,
+    ) -> dict[str, Any]:
+        """Run the intent classifier node.
+
+        Args:
+            state: Current chat researcher state.
+            tools_info: Optional request-scoped tool list to render into the
+                prompt instead of ``self.tools_info``. The classifier instance
+                is shared across requests, so per-request narrowing must be
+                passed in rather than mutated onto the instance.
+        """
         messages = state.messages
         if not messages:
             return {
@@ -113,7 +125,7 @@ class IntentClassifier:
             query=query,
             current_datetime=current_datetime,
             user_info=user_info,
-            tools=self.tools_info,
+            tools=tools_info if tools_info is not None else self.tools_info,
             project_context=state.project_context,
         )
         trimmed_conversation = trim_message_history(list(state.messages), max_tokens=self.max_history)
@@ -126,8 +138,9 @@ class IntentClassifier:
             # mutated; the override yields a request-scoped model copy.
             from aiq_agent.common import AgentGroup
             from aiq_agent.common import apply_model_override
+            from aiq_agent.common import apply_org_credential
 
-            llm = apply_model_override(self.llm, AgentGroup.INTENT)
+            llm = apply_org_credential(apply_model_override(self.llm, AgentGroup.INTENT))
             response = await asyncio.wait_for(
                 llm.ainvoke(messages, config=config),
                 timeout=self.llm_timeout,

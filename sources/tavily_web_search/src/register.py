@@ -40,7 +40,7 @@ class TavilyWebSearchToolConfig(FunctionBaseConfig, name="tavily_web_search"):
     include_answer: str = Field(default="advanced", description="Whether to include answers in the search results")
     max_results: int = Field(default=3, description="Maximum number of search results to return")
     api_key: SecretStr | None = Field(default=None, description="The API key for the Tavily service")
-    max_retries: int = Field(default=3, description="Maximum number of retries for the search request")
+    max_retries: int = Field(default=3, ge=1, description="Maximum number of retries for the search request")
     advanced_search: bool = Field(default=False, description="Whether to use advanced search")
     max_content_length: int | None = Field(
         default=None,
@@ -166,6 +166,10 @@ async def tavily_web_search(tool_config: TavilyWebSearchToolConfig, builder: Bui
                     else:
                         return f"Error: Web search failed - {error_msg}"
                 await asyncio.sleep(2**attempt)
+
+        # Unreachable when max_retries >= 1 (enforced by config), but a tool
+        # must always hand the agent a string, never None.
+        return "Error: Web search failed - no attempts were made"
 
     yield FunctionInfo.from_fn(
         _tavily_web_search,

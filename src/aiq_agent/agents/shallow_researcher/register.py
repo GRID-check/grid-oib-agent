@@ -27,6 +27,7 @@ from aiq_agent.common import _create_chat_response
 from aiq_agent.common import all_mapped_tools_filtered_out
 from aiq_agent.common import filter_tools_by_sources
 from aiq_agent.common import get_model_overrides_from_context
+from aiq_agent.common import get_org_llm_credential_from_context
 from aiq_agent.common import is_verbose
 from nat.builder.builder import Builder
 from nat.builder.framework_enum import LLMFrameworkEnum
@@ -112,9 +113,16 @@ async def shallow_research_agent(config: ShallowResearchAgentConfig, builder: Bu
             # Per-org runtime model overrides (X-Grid-Model-Overrides). Returns
             # the build-time provider unchanged when no override targets this
             # agent, so the identity check below keeps the prebuilt agent.
-            active_provider = provider.with_model_overrides(get_model_overrides_from_context())
+            # Model overrides + the org's BYOK credential (ADR-0022); both
+            # return the build-time provider unchanged when inactive, so the
+            # identity check below keeps the prebuilt agent.
+            active_provider = provider.with_model_overrides(get_model_overrides_from_context()).with_credential(
+                get_org_llm_credential_from_context()
+            )
             active_agent = agent
-            if active_provider is not provider or (data_sources is not None and selected_tools != tools):
+            # No `data_sources is not None` guard: org-disabled sources (ADR-0022)
+            # narrow selected_tools even when the request selects "all tools".
+            if active_provider is not provider or selected_tools != tools:
                 active_agent = ShallowResearcherAgent(
                     llm_provider=active_provider,
                     tools=selected_tools,

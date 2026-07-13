@@ -470,6 +470,12 @@ export interface ChatActions {
    * unscoped rows) — used when entering a project chat.
    */
   loadServerConversations: (projectId?: string) => Promise<void>
+  /**
+   * Repopulate a conversation's messages from the server-persisted history
+   * when the local copy is empty (localStorage cleanup, new device). No-op
+   * for sessions that already have local messages.
+   */
+  hydrateConversationMessages: (conversationId: string) => Promise<void>
   /** Set the current authenticated user ID */
   setCurrentUser: (userId: string | null) => void
   /**

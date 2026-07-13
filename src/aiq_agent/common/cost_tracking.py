@@ -263,6 +263,12 @@ class GridCostTracker(BaseCallbackHandler):
         self._pending: list[UsageEvent] = []
         self._events_recorded = 0
         self._turn_cost_usd = 0.0
+        # Requested model per LLM run: deep research fires concurrent LLM
+        # calls (possibly on different models), so a single shared slot would
+        # attribute one call's usage to whichever model started last. Keyed by
+        # the callback run_id; the last-seen value is kept as a fallback for
+        # callers that don't propagate run_id.
+        self._requested_models: dict[Any, str] = {}
         self._requested_model: str | None = None
 
     # -- budget gate ---------------------------------------------------------
@@ -294,11 +300,18 @@ class GridCostTracker(BaseCallbackHandler):
         params = kwargs.get("invocation_params") or {}
         model = params.get("model") or params.get("model_name")
         if isinstance(model, str):
-            self._requested_model = model
+            run_id = kwargs.get("run_id")
+            with self._lock:
+                if run_id is not None:
+                    self._requested_models[run_id] = model
+                self._requested_model = model
 
     # -- capture ---------------------------------------------------------------
 
     def on_llm_end(self, response: Any, **kwargs: Any) -> None:
+        run_id = kwargs.get("run_id")
+        with self._lock:
+            requested = self._requested_models.pop(run_id, None) if run_id is not None else None
         try:
             event = extract_usage_event(response)
         except Exception:
@@ -306,7 +319,7 @@ class GridCostTracker(BaseCallbackHandler):
             return
         if event is None:
             return
-        event.requested_model = self._requested_model
+        event.requested_model = requested or self._requested_model
         with self._lock:
             self._pending.append(event)
             self._events_recorded += 1
@@ -314,6 +327,13 @@ class GridCostTracker(BaseCallbackHandler):
             should_flush = len(self._pending) >= _FLUSH_BATCH_SIZE
         if should_flush:
             self.flush(wait=False)
+
+    def on_llm_error(self, error: BaseException, **kwargs: Any) -> None:
+        # Drop the per-run model entry so failed runs don't accumulate.
+        run_id = kwargs.get("run_id")
+        if run_id is not None:
+            with self._lock:
+                self._requested_models.pop(run_id, None)
 
     # -- ledger flush ----------------------------------------------------------
 
@@ -467,6 +487,11 @@ def track_llm_costs(
             grid_cost_tracker_var.reset(token)
         if tracker is not None:
             try:
-                tracker.flush(wait=False)
+                # Inline post at teardown: a wait=False flush would hand the
+                # final batch to the daemon executor, which a worker exiting
+                # right after this turn can strand — dropping the last (often
+                # largest) cost events. _post_usage_events never raises and is
+                # bounded by _REQUEST_TIMEOUT_SECONDS.
+                tracker.flush(wait=True)
             except Exception:
                 logger.warning("Failed to flush usage events at end of turn", exc_info=True)

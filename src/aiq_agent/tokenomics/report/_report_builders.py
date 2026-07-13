@@ -340,7 +340,11 @@ def _build_comparison_data(run_datas: list[dict]) -> dict:
         cost_b = qb["cost_usd"] if qb else None
         if in_both:
             cost_delta: float | None = round(cost_b - cost_a, 6)  # type: ignore[operator]
-            cost_pct: float | None = round((cost_delta / cost_a * 100) if cost_a else 0.0, 1)
+            if cost_a:
+                cost_pct: float | None = round(cost_delta / cost_a * 100, 1)
+            else:
+                # Zero baseline: a nonzero delta is an infinite change, not 0%.
+                cost_pct = 0.0 if not cost_delta else None
         else:
             cost_delta = cost_pct = None
 

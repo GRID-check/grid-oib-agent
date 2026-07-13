@@ -31,6 +31,7 @@ from aiq_agent.common import _create_chat_response
 from aiq_agent.common import all_mapped_tools_filtered_out
 from aiq_agent.common import filter_tools_by_sources
 from aiq_agent.common import get_model_overrides_from_context
+from aiq_agent.common import get_org_llm_credential_from_context
 from aiq_agent.common import is_verbose
 from nat.builder.builder import Builder
 from nat.builder.framework_enum import LLMFrameworkEnum
@@ -243,12 +244,18 @@ async def deep_research_agent(config: DeepResearchAgentConfig, builder: Builder)
             selected_tools = filter_tools_by_sources(tools, data_sources)
             # Per-org runtime model overrides (X-Grid-Model-Overrides); identity
             # check means "no override for deep research" keeps the prebuilt agent.
-            active_provider = provider.with_model_overrides(get_model_overrides_from_context())
+            # Model overrides + the org's BYOK credential (ADR-0022); identity
+            # check means "nothing to apply" keeps the prebuilt agent.
+            active_provider = provider.with_model_overrides(get_model_overrides_from_context()).with_credential(
+                get_org_llm_credential_from_context()
+            )
             active_agent = agent
             if (
                 active_provider is not provider
                 or sandbox_config is not None
-                or (data_sources is not None and selected_tools != tools)
+                # No `data_sources is not None` guard: org-disabled sources
+                # (ADR-0022) narrow selected_tools even on "all tools" requests.
+                or selected_tools != tools
             ):
                 # Scope the Modal sandbox to the async job_id when one is in
                 # NAT context (set by aiq_api/jobs/runner.py). Falls back to a
