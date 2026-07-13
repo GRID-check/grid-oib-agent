@@ -16,6 +16,8 @@ vi.mock('@/lib/auth/require-auth', () => ({
 
 vi.mock('@/lib/llm-credentials/service', () => ({
   activeSecretBackend: vi.fn().mockReturnValue('local-aes-gcm'),
+  getLlmProviderMode: vi.fn().mockResolvedValue('byok'),
+  setLlmProviderMode: vi.fn().mockImplementation(async (_s: unknown, mode: string) => mode),
   listOrgCredentials: vi.fn().mockResolvedValue([
     {
       id: 'cred-1',
@@ -53,11 +55,12 @@ describe('/api/organization/llm-credentials', () => {
     expect((await GET(get())).status).toBe(403)
   })
 
-  it('GET returns metadata only for admins', async () => {
+  it('GET returns metadata only for admins, including the provider mode', async () => {
     const res = await GET(get())
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.secretBackend).toBe('local-aes-gcm')
+    expect(body.mode).toBe('byok')
     expect(body.credentials[0].keyHint).toBe('…abcd')
     expect(JSON.stringify(body)).not.toContain('apiKey')
   })

@@ -76,6 +76,11 @@ const SCHEMAS = [
     metadata: { provider: 'openrouter', modelCount: 42 },
   },
   {
+    action: 'llm_credential.mode_changed',
+    targets: [{ type: 'organization' }],
+    metadata: { mode: 'platform' },
+  },
+  {
     action: 'compliance.hold.created',
     targets: [{ type: 'legal_hold' }],
     metadata: { entityType: 'project', entityId: 'uuid' },

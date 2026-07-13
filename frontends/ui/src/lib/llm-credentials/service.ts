@@ -14,6 +14,7 @@ import { randomUUID } from 'node:crypto'
 import { BadRequestError, ConflictError, NotFoundError, UnprocessableError } from '@/lib/api/errors'
 import { recordAuditEvent } from '@/lib/audit/service'
 import type { AuthorizedSession } from '@/lib/auth/types'
+import { getOrgSettings, updateOrgSettings } from '@/lib/organizations/service'
 import { BYOK_LLM_FLAG, isOrgFeatureEnabled } from '@/lib/workos/feature-flags'
 import type { OrgLlmCredential } from '@/lib/db/schema'
 import {
@@ -35,6 +36,15 @@ import { activeSecretBackend, deleteSecret, keyFingerprint, keyHint, revealSecre
 
 const VERIFY_TIMEOUT_MS = 8_000
 const MARK_USED_THROTTLE_MS = 5 * 60 * 1000
+
+/**
+ * Which credential serves the org's LLM traffic (ADR-0022):
+ *  - 'byok'     — the org's stored key (default while a credential exists).
+ *  - 'platform' — the platform key; the stored credential stays in Vault,
+ *    unused, so the org can switch back without re-entering the key.
+ */
+export type LlmProviderMode = 'byok' | 'platform'
+const PROVIDER_MODE_SETTING = 'llmProviderMode'
 
 /** Metadata-only view — the ONLY credential shape browsers ever see. */
 export interface LlmCredentialView {
@@ -75,6 +85,35 @@ export function toView(row: OrgLlmCredential): LlmCredentialView {
 
 export async function listOrgCredentials(organizationId: string): Promise<LlmCredentialView[]> {
   return (await listCredentials(organizationId)).map(toView)
+}
+
+/** The org's chosen traffic mode. Defaults to 'byok' — a connected key is used. */
+export async function getLlmProviderMode(organizationId: string): Promise<LlmProviderMode> {
+  const { settings } = await getOrgSettings(organizationId)
+  return settings[PROVIDER_MODE_SETTING] === 'platform' ? 'platform' : 'byok'
+}
+
+/**
+ * Flip the org between its own key and the platform service without
+ * touching the stored credential. Takes effect on new conversations within
+ * the backend's resolution-cache TTL (≤ 60 s).
+ */
+export async function setLlmProviderMode(
+  session: AuthorizedSession,
+  mode: LlmProviderMode,
+  request: Request,
+): Promise<LlmProviderMode> {
+  await updateOrgSettings(session.organizationId, { settings: { [PROVIDER_MODE_SETTING]: mode } })
+  await recordAuditEvent({
+    organizationId: session.organizationId,
+    actor: { userId: session.userId, email: session.email },
+    action: 'llm_credential.mode_changed',
+    targetType: 'organization',
+    targetId: session.organizationId,
+    metadata: { mode },
+    request,
+  })
+  return mode
 }
 
 /**
@@ -278,6 +317,11 @@ export async function resolveActiveCredentialForBackend(
 
   const row = await getActiveCredential(organizationId)
   if (!row) return null
+
+  // The org owner's explicit choice (ADR-0022): a stored key is only USED
+  // in 'byok' mode. In 'platform' mode it stays in Vault, idle, and the
+  // backend runs on the platform credential — switching back is one toggle.
+  if ((await getLlmProviderMode(organizationId)) === 'platform') return null
 
   let apiKey: string
   try {

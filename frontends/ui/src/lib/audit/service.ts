@@ -30,6 +30,7 @@ export const AUDIT_ACTIONS = [
   'llm_credential.rotated',
   'llm_credential.revoked',
   'llm_credential.verified',
+  'llm_credential.mode_changed',
   'compliance.hold.created',
   'compliance.hold.released',
   'platform.access.break_glass',

@@ -100,6 +100,15 @@ export const organization: typeof en.organization = {
       'Neue Schlüssel werden verschlüsselt in WorkOS Vault unter dem Schlüsselkontext Ihrer Organisation gespeichert.',
     storageLocalNote: 'Neue Schlüssel werden mit dem lokalen Schlüssel dieser Installation verschlüsselt gespeichert.',
     activeBadge: 'Aktiv',
+    standbyBadge: 'Gespeichert, nicht in Verwendung',
+    modeTitle: 'Eigenen Schlüssel verwenden',
+    modeByokHint:
+      'Research-Traffic läuft über Ihren Schlüssel und wird über Ihr Provider-Konto abgerechnet. Die Modellauswahl zeigt die Modelle Ihres Providers.',
+    modePlatformHint:
+      'Research-Traffic läuft über den Grid-Plattform-Service. Ihr Schlüssel bleibt sicher gespeichert und kann jederzeit wieder aktiviert werden.',
+    modeByokSet: 'Auf eigenen Schlüssel umgestellt — neue Unterhaltungen nutzen ihn innerhalb einer Minute.',
+    modePlatformSet: 'Auf den Grid-Plattform-Service umgestellt — Ihr Schlüssel bleibt gespeichert, wird aber nicht verwendet.',
+    modeError: 'Der Provider-Modus konnte nicht geändert werden.',
     keyLabel: 'Schlüssel',
     storageLabel: 'Speicherung',
     storageVault: 'WorkOS Vault (Verschlüsselung pro Organisation)',

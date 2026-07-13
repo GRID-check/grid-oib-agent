@@ -26,6 +26,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
+import { Switch } from '@/components/ui/switch'
 import { useTranslations } from '@/i18n'
 
 interface CredentialView {
@@ -44,6 +45,7 @@ interface CredentialView {
 
 interface ListResponse {
   credentials: CredentialView[]
+  mode: 'byok' | 'platform'
   secretBackend: string
 }
 
@@ -56,6 +58,7 @@ export const LlmCredentialsCard: FC = () => {
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
   const [credentials, setCredentials] = useState<CredentialView[]>([])
+  const [mode, setMode] = useState<'byok' | 'platform'>('byok')
   const [secretBackend, setSecretBackend] = useState<string>('')
 
   const [provider, setProvider] = useState<(typeof PROVIDERS)[number]>('openrouter')
@@ -73,6 +76,7 @@ export const LlmCredentialsCard: FC = () => {
       if (!res.ok) throw new Error(`load failed (${res.status})`)
       const data = (await res.json()) as ListResponse
       setCredentials(data.credentials)
+      setMode(data.mode === 'platform' ? 'platform' : 'byok')
       setSecretBackend(data.secretBackend)
       setLoadError(false)
     } catch {
@@ -115,6 +119,27 @@ export const LlmCredentialsCard: FC = () => {
       setBusy(false)
     }
   }, [provider, label, baseUrl, apiKey, active, reload, t])
+
+  const handleModeChange = useCallback(
+    async (useOwnKey: boolean) => {
+      const nextMode = useOwnKey ? 'byok' : 'platform'
+      const previous = mode
+      setMode(nextMode)
+      try {
+        const res = await fetch('/api/organization/llm-credentials/mode', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mode: nextMode }),
+        })
+        if (!res.ok) throw new Error(`mode change failed (${res.status})`)
+        toast.success(nextMode === 'byok' ? t('byok.modeByokSet') : t('byok.modePlatformSet'))
+      } catch {
+        setMode(previous)
+        toast.error(t('byok.modeError'))
+      }
+    },
+    [mode, t],
+  )
 
   const handleVerify = useCallback(async () => {
     if (!active) return
@@ -164,6 +189,27 @@ export const LlmCredentialsCard: FC = () => {
 
   return (
     <div className="flex flex-col gap-6">
+      {/* The org owner's choice: platform service vs their own key (ADR-0022).
+          Only meaningful once a credential is stored — the key stays in the
+          vault either way, so switching back is one toggle. */}
+      {active && (
+        <div className="flex items-start justify-between gap-4 rounded-lg border p-4">
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="byok-mode">{t('byok.modeTitle')}</Label>
+            <p className="text-xs text-muted-foreground">
+              {mode === 'byok' ? t('byok.modeByokHint') : t('byok.modePlatformHint')}
+            </p>
+          </div>
+          <Switch
+            id="byok-mode"
+            checked={mode === 'byok'}
+            onCheckedChange={handleModeChange}
+            disabled={busy}
+            aria-label={t('byok.modeTitle')}
+          />
+        </div>
+      )}
+
       {/* Active credential */}
       {active ? (
         <div className="rounded-lg border p-4">
@@ -172,7 +218,11 @@ export const LlmCredentialsCard: FC = () => {
               <KeyRound className="size-4 text-muted-foreground" aria-hidden />
               <span className="text-sm font-medium">{active.label}</span>
               <Badge variant="secondary">{active.provider}</Badge>
-              <Badge>{t('byok.activeBadge')}</Badge>
+              {mode === 'byok' ? (
+                <Badge>{t('byok.activeBadge')}</Badge>
+              ) : (
+                <Badge variant="outline">{t('byok.standbyBadge')}</Badge>
+              )}
             </div>
             <div className="flex items-center gap-2">
               <Button size="sm" variant="outline" onClick={handleVerify} disabled={busy}>
