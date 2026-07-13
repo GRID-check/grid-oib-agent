@@ -72,11 +72,12 @@ RUN uv pip install --no-deps -e . \
     && uv pip install --no-deps -e ./sources/google_scholar_paper_search \
     && uv pip install --no-deps -e ./sources/tavily_web_search \
     && uv pip install --no-deps -e ./sources/exa_web_search \
+    && uv pip install --no-deps -e ./sources/ris_adapter \
     && uv pip install --no-deps -e "./sources/knowledge_layer[all]" \
     && uv pip install --no-deps -e ./frontends/aiq_api \
-    && uv pip install "psycopg[binary]>=3.0.0"
+    && uv pip install "psycopg[binary]>=3.0.0" "beautifulsoup4>=4.12.0"
 
-RUN /app/.venv/bin/python -c "import aiq_api; import knowledge_layer; print('✓ Base packages installed')"
+RUN /app/.venv/bin/python -c "import aiq_api; import knowledge_layer; import ris_adapter.register; print('✓ Base packages installed')"
 
 RUN chmod +x /app/deploy/start_web.py \
     && mkdir -p /app/data \
