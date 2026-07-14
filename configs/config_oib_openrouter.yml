@@ -180,11 +180,23 @@ functions:
     _type: tavily_web_search
     max_results: 5
     max_content_length: 1000
+    # Optional domain allow/deny lists (default: unrestricted). These are HARD
+    # filters: with include_domains set, any result NOT on the list is dropped;
+    # exclude_domains removes matching domains. Shallow chat uses THIS instance,
+    # so a real allow-list must be set here AND on advanced_web_search_tool below.
+    # include_domains: []
+    # exclude_domains: []
 
   advanced_web_search_tool:
     _type: tavily_web_search
     max_results: 2
     advanced_search: true
+    # Optional domain allow/deny lists (default: unrestricted). These are HARD
+    # filters: with include_domains set, any result NOT on the list is dropped;
+    # exclude_domains removes matching domains. Deep research uses THIS instance,
+    # so a real allow-list must be set here AND on web_search_tool above.
+    # include_domains: []
+    # exclude_domains: []
 
   # Austrian RIS (OGD-RIS API, no API key needed): live search over federal/
   # state law and case law, plus on-demand fetching of ENTIRE documents

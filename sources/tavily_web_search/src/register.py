@@ -47,6 +47,20 @@ class TavilyWebSearchToolConfig(FunctionBaseConfig, name="tavily_web_search"):
         description="Max characters per result content. If set, truncates each result to reduce token usage.",
     )
     api_base_url: str | None = Field(default=None, description="API base URL to use for Tavily Client constructor")
+    include_domains: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Restrict results to these domains only. Empty (default) applies no restriction. "
+            "This is a hard filter: results from any domain not in the list are dropped."
+        ),
+    )
+    exclude_domains: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Drop results from these domains. Empty (default) applies no restriction. "
+            "This is a hard filter: matching domains are removed from the results."
+        ),
+    )
 
 
 @register_function(config_type=TavilyWebSearchToolConfig)
@@ -106,6 +120,10 @@ async def tavily_web_search(tool_config: TavilyWebSearchToolConfig, builder: Bui
 
         if tool_config.api_base_url:
             tavily_kwargs["api_base_url"] = tool_config.api_base_url
+        if tool_config.include_domains:
+            tavily_kwargs["include_domains"] = tool_config.include_domains
+        if tool_config.exclude_domains:
+            tavily_kwargs["exclude_domains"] = tool_config.exclude_domains
         tavily_search = TavilySearch(**tavily_kwargs)
 
         def _truncate_content(content: str) -> str:
