@@ -115,6 +115,7 @@ delivered in the AuthKit JWT `feature_flags` claim (registry:
 | `files-metadata-panel` | Files preview ingestion-metadata block: summary/pages/passages/contents rows (FB-8). Server-computed in the files page, prop-drilled to FilePreviewPane; status/type/size rows are never gated |
 | `image-upload` | Standalone PNG/JPG upload via VLM captioning (FB-15a). Server-computed in the root layout, prop-drilled into `AppConfig.fileUpload.acceptedTypes` (client accept-list strips image types when off); the BFF upload route (`uploadDocument`) independently re-checks the flag and rejects image extensions with a 400 when off |
 | `research-in-chat-history` | Fold the Research runs tab into the chat-history panel as a "Deep Research" section (FB-10). Server-computed in the project layout (hide the `research` nav item) and the chat route (SessionsPanel section + `?job=` deep links); the `/research` route redirects to chat when on. Off → legacy Research tab + `ResearchRunsList` page remain |
+| `wizard-conflict-check` | End-of-wizard intake conflict check (FB-13). Server-computed in the intake page, prop-drilled to `ProjectIntakeWizard`. On Save: structured answers are checked deterministically on the client (instant), free-text answers by the LLM (`POST /api/projects/[id]/consistency-check` → backend `/v1/consistency-check`, skipped when there is no substantive free text); findings hold the save for "Trotzdem speichern" / "Überarbeiten". Off → the wizard saves exactly as before |
 
 Rollout order (per environment): 1) create the flags in the WorkOS
 dashboard (Feature Flags — flag create/update events are covered by
@@ -144,7 +145,13 @@ Production once that check is green. The `research-in-chat-history` flag (FB-10)
 exists in Staging AND Production (2026-07-14); enabled for all orgs in Staging,
 **intentionally OFF in Production** pending a review of the merged navigation
 (the Research tab disappears and its runs move into the chat-history panel) —
-flip it on in Production once the IA change is signed off.
+flip it on in Production once the IA change is signed off. The
+`wizard-conflict-check` flag (FB-13) exists in Staging AND Production
+(2026-07-14); enabled for all orgs in Staging, **intentionally dark in
+Production** pending a review of the end-of-wizard conflict check (deterministic
+structured-answer rules plus a free-text LLM check, with a "Trotzdem speichern"
+override) — flip it on in Production once the review is signed off and the
+free-text check has been smoke-tested against a configured LLM.
 
 ## Replay into a fresh environment (e.g. Production)
 

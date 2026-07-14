@@ -46,6 +46,11 @@ export const FEATURE_FLAGS = {
    *  `/research` to chat, show the Deep Research section in SessionsPanel;
    *  OFF → keep the legacy Research tab + ResearchRunsList page. */
   researchInChatHistory: 'research-in-chat-history',
+  /** End-of-wizard AI conflict check (FB-13): on Save, an LLM checks the intake
+   *  answers for internal contradictions and the user confirms/overrides or
+   *  revises. Server-computed in the intake page, prop-drilled to the wizard;
+   *  off → the wizard saves exactly as before (no check). */
+  wizardConflictCheck: 'wizard-conflict-check',
 } as const
 
 export type KnownFeatureFlag = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]

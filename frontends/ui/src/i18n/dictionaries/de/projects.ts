@@ -171,6 +171,25 @@ export const projects: typeof en.projects = {
     yes: 'Ja',
     no: 'Nein',
     selectPlaceholder: 'Auswählen…',
+    consistency: {
+      checking: 'Angaben werden geprüft…',
+      title: 'Ein paar Dinge zum Prüfen',
+      subtitle: 'Einige Angaben passen möglicherweise nicht zusammen. Bitte prüfen — oder trotzdem speichern.',
+      severity: {
+        warning: 'Zum Nachsehen',
+        inconsistency: 'Möglicher Widerspruch',
+      },
+      revise: 'Überarbeiten',
+      proceed: 'Trotzdem speichern',
+      rules: {
+        lowClassTooManyFloors:
+          'Gebäudeklasse {buildingClass} lässt höchstens 3 oberirdische Geschoße zu, angegeben sind aber {floors}.',
+        escapeLevelTooFewFloors:
+          'Ein Fluchtniveau von {escapeLevel} ist mit nur {floors} oberirdischen Geschoß(en) kaum erreichbar.',
+        orphanedAnswer:
+          '„{field}" gilt aufgrund Ihrer Angabe zu „{dependsOn}" nicht mehr und wird nicht gespeichert.',
+      },
+    },
   },
   memory: {
     kinds: {

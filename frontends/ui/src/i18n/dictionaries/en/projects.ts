@@ -167,6 +167,25 @@ export const projects = {
     yes: 'Yes',
     no: 'No',
     selectPlaceholder: 'Select…',
+    consistency: {
+      checking: 'Checking your answers…',
+      title: 'A couple of things to check',
+      subtitle: 'Some answers look like they might not fit together. Review them, or save anyway.',
+      severity: {
+        warning: 'Worth a look',
+        inconsistency: 'Likely conflict',
+      },
+      revise: 'Revise',
+      proceed: 'Save anyway',
+      rules: {
+        lowClassTooManyFloors:
+          'Building class {buildingClass} allows at most 3 above-ground floors, but {floors} are entered.',
+        escapeLevelTooFewFloors:
+          'An escape level of {escapeLevel} is hard to reach with only {floors} above-ground floor(s).',
+        orphanedAnswer:
+          '"{field}" no longer applies given your answer for "{dependsOn}" and won\'t be saved.',
+      },
+    },
   },
   memory: {
     kinds: {

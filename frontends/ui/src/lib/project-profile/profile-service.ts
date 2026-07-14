@@ -33,6 +33,7 @@ import {
   validateProfilePatchVocabulary,
   type ProjectIntakeDefinition,
 } from './intake-definition'
+import type { AiConsistencyFinding, ConsistencyCheckField } from './intake-consistency'
 import type { ProjectProfile, ProjectProfilePatchOperation } from './types'
 
 export async function getProjectProfile(
@@ -119,6 +120,77 @@ export async function getProjectIntakeDefinition(
 ): Promise<ProjectIntakeDefinition> {
   await requireProjectAccess(session, projectId, 'project:view')
   return projectIntakeDefinitionV1
+}
+
+/** The raw finding shape the Python backend returns (prose, not i18n keys). */
+interface BackendConsistencyFinding {
+  fields?: unknown
+  severity?: unknown
+  explanation?: unknown
+}
+
+/** Normalise a backend finding into an {@link AiConsistencyFinding}, or drop it. */
+function toAiFinding(raw: BackendConsistencyFinding): AiConsistencyFinding | null {
+  const message = typeof raw.explanation === 'string' ? raw.explanation.trim() : ''
+  if (!message) return null
+  const severity: AiConsistencyFinding['severity'] =
+    raw.severity === 'inconsistency' ? 'inconsistency' : 'warning'
+  const fields = Array.isArray(raw.fields) ? raw.fields.filter((f): f is string => typeof f === 'string') : []
+  return { kind: 'ai', fields, severity, message }
+}
+
+/**
+ * End-of-wizard FREE-TEXT consistency check (FB-13): ask the Python backend's
+ * LLM whether the free-text answers contradict the structured answers (or each
+ * other), BEFORE the profile is saved. Structured answers are checked
+ * deterministically on the client (`intake-consistency.ts`) and passed here only
+ * as read-only context.
+ *
+ * Fully fail-open: this never throws and always resolves to a result the wizard
+ * can act on. Any backend transport failure or non-200 degrades to
+ * `{ findings: null, error }` (the wizard then saves anyway) — an infrastructure
+ * problem must never block the user from saving. `findings: []` means the free
+ * text is consistent.
+ */
+export async function checkProjectConsistency(
+  session: AuthorizedSession,
+  projectId: string,
+  input: { freeText: ConsistencyCheckField[]; structured?: ConsistencyCheckField[]; locale?: string },
+): Promise<{ findings: AiConsistencyFinding[] | null; error?: string }> {
+  await requireProjectAccess(session, projectId, 'project:view')
+
+  try {
+    const backendRes = await fetch(`${getBackendUrl()}/v1/consistency-check`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        free_text: input.freeText,
+        structured: input.structured ?? [],
+        locale: input.locale ?? 'de',
+      }),
+    })
+
+    if (!backendRes.ok) {
+      const errorText = await backendRes.text().catch(() => '')
+      console.warn('[ConsistencyCheck] Backend error (non-fatal):', backendRes.status, errorText)
+      return { findings: null, error: 'check_failed' }
+    }
+
+    const { findings, error } = (await backendRes.json()) as {
+      findings: BackendConsistencyFinding[] | null
+      error?: string | null
+    }
+    if (findings == null) return { findings: null, error: error ?? undefined }
+    return {
+      findings: findings.map(toAiFinding).filter((f): f is AiConsistencyFinding => f !== null),
+      error: error ?? undefined,
+    }
+  } catch (e) {
+    // Transport failure to the backend — degrade to "no findings" so the wizard
+    // proceeds. Never surface this as a save-blocking error.
+    console.warn('[ConsistencyCheck] Request failed (non-fatal):', e)
+    return { findings: null, error: 'check_request_failed' }
+  }
 }
 
 /**
