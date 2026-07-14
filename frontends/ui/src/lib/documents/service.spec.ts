@@ -161,6 +161,7 @@ describe('listDocuments', () => {
         pageCount: 4,
         chunkCount: 12,
         contentTypes: ['text', 'table'],
+        tags: ['Grundriss', 'Brandschutz'],
       },
     ] as any)
 
@@ -173,6 +174,7 @@ describe('listDocuments', () => {
     expect(row.pageCount).toBe(4)
     expect(row.chunkCount).toBe(12)
     expect(row.contentTypes).toEqual(['text', 'table'])
+    expect(row.tags).toEqual(['Grundriss', 'Brandschutz'])
   })
 })
 

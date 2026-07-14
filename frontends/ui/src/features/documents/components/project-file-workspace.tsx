@@ -53,6 +53,8 @@ export interface FileItem {
   chunkCount: number | null
   /** Content categories present in the document (e.g. text, table, chart, image). */
   contentTypes: string[] | null
+  /** Controlled ingestion-generated tags (document type + OIB discipline). */
+  tags: string[] | null
 }
 
 export function ProjectFileWorkspace({ projectId, projectName, collectionName, showMetadataPanel = true }: ProjectFileWorkspaceProps) {
@@ -89,6 +91,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
           pageCount: d.pageCount ?? null,
           chunkCount: d.chunkCount ?? null,
           contentTypes: d.contentTypes ?? null,
+          tags: d.tags ?? null,
         }))
         setFiles(docs)
       })

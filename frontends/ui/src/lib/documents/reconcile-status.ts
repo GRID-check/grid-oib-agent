@@ -46,6 +46,8 @@ export interface DocumentMetadata {
   pageCount?: number
   chunkCount?: number
   contentTypes?: string[]
+  /** Controlled ingestion-generated tags (document type + OIB discipline). */
+  tags?: string[]
 }
 
 interface TerminalResolution {
@@ -133,6 +135,7 @@ interface BackendFileEntry {
   chunk_count?: number
   page_count?: number
   content_types?: string[]
+  tags?: string[] | null
 }
 
 /**
@@ -151,6 +154,8 @@ interface RawBackendFile {
   error_message?: string | null
   summary?: string | null
   chunk_count?: number
+  // Tags are a top-level FileInfo field (not inside the internal metadata jsonb).
+  tags?: string[] | null
   metadata?: { page_count?: number; content_types?: string[] } | null
 }
 
@@ -176,6 +181,7 @@ const loadCollectionFiles = async (collectionName: string): Promise<CollectionFi
       chunk_count: file.chunk_count,
       page_count: file.metadata?.page_count,
       content_types: file.metadata?.content_types,
+      tags: file.tags,
     })
   }
   return { byName, ambiguousNames }
@@ -209,6 +215,9 @@ const extractMetadata = (files: CollectionFiles | null, filename: string): Docum
   if (typeof file.chunk_count === 'number' && file.chunk_count > 0) meta.chunkCount = file.chunk_count
   if (Array.isArray(file.content_types) && file.content_types.length > 0) {
     meta.contentTypes = file.content_types
+  }
+  if (Array.isArray(file.tags) && file.tags.length > 0) {
+    meta.tags = file.tags.filter((t): t is string => typeof t === 'string')
   }
   return Object.keys(meta).length > 0 ? meta : null
 }

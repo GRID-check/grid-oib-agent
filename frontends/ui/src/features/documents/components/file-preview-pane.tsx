@@ -189,6 +189,24 @@ export function FilePreviewPane({ file, onClose, onReingested, showMetadataPanel
         </div>
       )}
 
+      {/* Ingestion-generated tags — controlled document-type/discipline labels,
+          rendered as small muted chips. Read-only in this cycle. */}
+      {showMetadataPanel && file.tags && file.tags.length > 0 && (
+        <div className="space-y-1.5 border-t px-4 py-3">
+          <p className="text-xs text-muted-foreground">{t('preview.tags')}</p>
+          <div className="flex flex-wrap gap-1.5">
+            {file.tags.map((tag) => (
+              <span
+                key={tag}
+                className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground"
+              >
+                {tag}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Metadata */}
       <div className="space-y-2.5 border-t px-4 py-3">
         <MetaRow label={t('preview.status')}>

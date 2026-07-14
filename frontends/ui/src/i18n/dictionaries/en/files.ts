@@ -28,6 +28,7 @@ export const files = {
     type: 'Type',
     size: 'Size',
     summary: 'Summary',
+    tags: 'Tags',
     pages: 'Pages',
     chunks: 'Passages',
     contents: 'Contents',

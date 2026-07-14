@@ -365,5 +365,6 @@ export async function getDocumentStatus(session: AuthorizedSession, documentId: 
     pageCount: reconciled.pageCount,
     chunkCount: reconciled.chunkCount,
     contentTypes: reconciled.contentTypes,
+    tags: reconciled.tags,
   }
 }

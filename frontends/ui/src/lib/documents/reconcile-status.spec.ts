@@ -236,7 +236,7 @@ describe('reconcileDocumentStatuses metadata enrichment', () => {
     vi.clearAllMocks()
   })
 
-  it('merges summary, page/chunk counts, and content types onto a row', async () => {
+  it('merges summary, page/chunk counts, content types, and tags onto a row', async () => {
     makeDbMock()
     mockFetch.mockResolvedValue(
       collectionResponse([
@@ -246,6 +246,7 @@ describe('reconcileDocumentStatuses metadata enrichment', () => {
           status: 'success',
           summary: 'A ground-floor plan.',
           chunk_count: 12,
+          tags: ['Grundriss', 'Brandschutz'],
           metadata: { page_count: 4, content_types: ['text', 'table'] },
         },
       ])
@@ -257,6 +258,20 @@ describe('reconcileDocumentStatuses metadata enrichment', () => {
     expect(result.pageCount).toBe(4)
     expect(result.chunkCount).toBe(12)
     expect(result.contentTypes).toEqual(['text', 'table'])
+    expect(result.tags).toEqual(['Grundriss', 'Brandschutz'])
+  })
+
+  it('omits tags when the backend provides an empty tag list', async () => {
+    makeDbMock()
+    mockFetch.mockResolvedValue(
+      collectionResponse([
+        { file_id: 'f-1', file_name: 'plan.pdf', status: 'success', chunk_count: 5, tags: [] },
+      ])
+    )
+
+    const [result] = await reconcileDocumentStatuses([makeRow({ status: 'completed' })])
+
+    expect(result.tags).toBeUndefined()
   })
 
   it('omits fields the backend did not provide', async () => {

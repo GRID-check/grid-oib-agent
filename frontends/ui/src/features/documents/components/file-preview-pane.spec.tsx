@@ -16,6 +16,7 @@ describe('FilePreviewPane', () => {
     pageCount: null,
     chunkCount: null,
     contentTypes: null,
+    tags: null,
   }
 
   afterEach(() => {
@@ -82,6 +83,36 @@ describe('FilePreviewPane', () => {
     expect(screen.queryByText('Summary')).toBeNull()
     expect(screen.queryByText('Pages')).toBeNull()
     expect(screen.queryByText('Passages')).toBeNull()
+  })
+
+  it('renders ingestion-generated tags as chips when present', () => {
+    render(
+      <FilePreviewPane
+        file={{ ...mockFile, tags: ['Grundriss', 'Brandschutz'] }}
+        projectId="proj-1"
+      />
+    )
+    expect(screen.getByText('Tags')).toBeDefined()
+    expect(screen.getByText('Grundriss')).toBeDefined()
+    expect(screen.getByText('Brandschutz')).toBeDefined()
+  })
+
+  it('hides the tags block when there are no tags', () => {
+    render(<FilePreviewPane file={mockFile} projectId="proj-1" />)
+    expect(screen.queryByText('Tags')).toBeNull()
+  })
+
+  it('hides tags when the files-metadata-panel flag is off', () => {
+    render(
+      <FilePreviewPane
+        file={{ ...mockFile, tags: ['Grundriss', 'Brandschutz'] }}
+        projectId="proj-1"
+        showMetadataPanel={false}
+      />
+    )
+    expect(screen.queryByText('Tags')).toBeNull()
+    expect(screen.queryByText('Grundriss')).toBeNull()
+    expect(screen.queryByText('Brandschutz')).toBeNull()
   })
 
   it('hides the metadata block when the files-metadata-panel flag is off, keeping status/type/size', () => {

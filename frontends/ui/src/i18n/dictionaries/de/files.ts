@@ -31,6 +31,7 @@ export const files: typeof en.files = {
     type: 'Typ',
     size: 'Größe',
     summary: 'Zusammenfassung',
+    tags: 'Schlagwörter',
     pages: 'Seiten',
     chunks: 'Passagen',
     contents: 'Inhalte',

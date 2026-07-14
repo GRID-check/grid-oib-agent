@@ -18,6 +18,7 @@ const files: FileItem[] = [
     pageCount: null,
     chunkCount: null,
     contentTypes: null,
+    tags: null,
   },
   {
     id: 'f2',
@@ -32,6 +33,7 @@ const files: FileItem[] = [
     pageCount: null,
     chunkCount: null,
     contentTypes: null,
+    tags: null,
   },
 ]
 
