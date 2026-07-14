@@ -19,9 +19,18 @@ import (
 type Guard struct {
 	backend Backend
 	engine  *authz.Engine
+	holds   HoldChecker
 }
 
-func NewGuard(b Backend, e *authz.Engine) *Guard { return &Guard{backend: b, engine: e} }
+// NewGuard wires the authorization Engine and the legal-hold checker. holds must
+// be non-nil (pass storage.AllowAllHolds{} where no hold source exists); a nil
+// checker would silently drop the compliance gate, so it panics instead.
+func NewGuard(b Backend, e *authz.Engine, holds HoldChecker) *Guard {
+	if holds == nil {
+		panic("storage.NewGuard: holds checker must not be nil (use AllowAllHolds{} for no-op)")
+	}
+	return &Guard{backend: b, engine: e, holds: holds}
+}
 
 // authorize is the one place path -> object -> decision happens.
 func (g *Guard) authorize(ctx context.Context, subj authz.Subject, rel authz.Relation, path string) error {
@@ -114,6 +123,19 @@ func (g *Guard) Create(ctx context.Context, subj authz.Subject, path string, fla
 func (g *Guard) Remove(ctx context.Context, subj authz.Subject, path string) error {
 	if err := g.authorize(ctx, subj, authz.Editor, path); err != nil {
 		return err
+	}
+	// Compliance (ADR-0024 §3): bytes must NEVER be destroyed while under a legal
+	// hold. This is checked synchronously here, before the delete — a drive `rm`
+	// is immediate and irreversible, so unlike a read the safe direction is to
+	// BLOCK on any uncertainty. A checker error therefore fails closed (refuse),
+	// not open. The async embedding/row cleanup for an ALLOWED delete is driven by
+	// the reconciler's "disappeared" branch, not here.
+	allowed, err := g.holds.DeletionAllowed(ctx, subj, path)
+	if err != nil {
+		return err
+	}
+	if !allowed {
+		return ErrLegalHold
 	}
 	return g.backend.Remove(path)
 }

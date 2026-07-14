@@ -78,7 +78,31 @@ func newGuard(t *testing.T, backend *fakeBackend, allow func(rel, object string)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return NewGuard(backend, eng)
+	// Default: no legal holds, so the delete-time gate never blocks (existing
+	// tests assert the Editor path reaches the backend). Hold-specific tests build
+	// their own Guard with a fakeHolds below.
+	return NewGuard(backend, eng, AllowAllHolds{})
+}
+
+// fakeHolds is a HoldChecker whose answer/err the test controls.
+type fakeHolds struct {
+	allowed bool
+	err     error
+}
+
+func (f fakeHolds) DeletionAllowed(context.Context, authz.Subject, string) (bool, error) {
+	return f.allowed, f.err
+}
+
+func newGuardWithHolds(t *testing.T, backend *fakeBackend, allow func(rel, object string) bool, h HoldChecker) *Guard {
+	t.Helper()
+	eng, err := authz.New(fakePolicy{allow: allow}, nil, nil, authz.Config{
+		CacheSize: 100, CacheTTL: time.Second, CacheGrace: time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return NewGuard(backend, eng, h)
 }
 
 var subj = authz.Subject{ID: "alice", OrgID: "org_acme"}
@@ -122,6 +146,70 @@ func TestGuardMutationsRequireEditor(t *testing.T) {
 	if be.lastWrite != "" {
 		t.Fatalf("no denied mutation may reach the backend, reached %q", be.lastWrite)
 	}
+}
+
+// Remove is gated by BOTH Editor authz AND the legal-hold checker: an Editor may
+// delete only when no hold covers the object; a hold blocks the delete with
+// ErrLegalHold and the backend is never reached (ADR-0024 §3).
+func TestGuardRemoveEnforcesLegalHold(t *testing.T) {
+	ctx := context.Background()
+	p := "org/org_acme/project/p/doc/d/a.pdf"
+	editor := func(rel, _ string) bool { return rel == "editor" || rel == "viewer" }
+
+	// Not held → the delete proceeds to the backend.
+	be := &fakeBackend{}
+	g := newGuardWithHolds(t, be, editor, fakeHolds{allowed: true})
+	if err := g.Remove(ctx, subj, p); err != nil {
+		t.Fatalf("unheld delete must succeed, got %v", err)
+	}
+	if be.lastWrite != "remove:"+p {
+		t.Fatalf("unheld delete must reach the backend, got %q", be.lastWrite)
+	}
+
+	// Held → ErrLegalHold, and the backend is NEVER touched.
+	be = &fakeBackend{}
+	g = newGuardWithHolds(t, be, editor, fakeHolds{allowed: false})
+	err := g.Remove(ctx, subj, p)
+	if !errors.Is(err, ErrLegalHold) {
+		t.Fatalf("held delete must return ErrLegalHold, got %v", err)
+	}
+	// ErrLegalHold wraps ErrPermission so protocols map it to permission-denied.
+	if !errors.Is(err, os.ErrPermission) {
+		t.Fatalf("ErrLegalHold must wrap os.ErrPermission, got %v", err)
+	}
+	if be.lastWrite != "" {
+		t.Fatalf("a held delete must NOT reach the backend, reached %q", be.lastWrite)
+	}
+
+	// Checker error → fail CLOSED: the delete is refused and bytes preserved.
+	be = &fakeBackend{}
+	g = newGuardWithHolds(t, be, editor, fakeHolds{err: errors.New("bff down")})
+	if err := g.Remove(ctx, subj, p); err == nil {
+		t.Fatal("a hold-check error must fail closed (refuse the delete)")
+	}
+	if be.lastWrite != "" {
+		t.Fatalf("a failed hold check must NOT reach the backend, reached %q", be.lastWrite)
+	}
+
+	// The hold gate is downstream of authz: a viewer is denied BEFORE the checker.
+	be = &fakeBackend{}
+	sawCheck := false
+	g = newGuardWithHolds(t, be, func(rel, _ string) bool { return rel == "viewer" },
+		holdSpy{&sawCheck})
+	if err := g.Remove(ctx, subj, p); !errors.Is(err, os.ErrPermission) {
+		t.Fatalf("viewer Remove must be denied by authz, got %v", err)
+	}
+	if sawCheck {
+		t.Fatal("the hold checker must not run when authz already denied the delete")
+	}
+}
+
+// holdSpy records whether it was consulted (allows the delete if reached).
+type holdSpy struct{ seen *bool }
+
+func (h holdSpy) DeletionAllowed(context.Context, authz.Subject, string) (bool, error) {
+	*h.seen = true
+	return true, nil
 }
 
 // Rename requires editor on BOTH source and destination.

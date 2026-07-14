@@ -21,6 +21,7 @@ import (
 	"gridnas/gateway/internal/audit"
 	"gridnas/gateway/internal/authz"
 	"gridnas/gateway/internal/config"
+	"gridnas/gateway/internal/holds"
 	"gridnas/gateway/internal/identity"
 	"gridnas/gateway/internal/observability"
 	"gridnas/gateway/internal/policy"
@@ -62,7 +63,7 @@ func main() {
 	}
 
 	backend := storage.NewBillyFUSEBackend(cfg.DataDir)
-	guard := storage.NewGuard(backend, engine)
+	guard := storage.NewGuard(backend, engine, buildHoldChecker(cfg, log))
 
 	resolver, err := buildResolver(cfg)
 	if err != nil {
@@ -157,6 +158,20 @@ func buildPolicyClient(cfg config.Config, log *slog.Logger) (policy.Client, erro
 	default:
 		return nil, errors.New("unsupported policy mode: " + cfg.PolicyMode)
 	}
+}
+
+// buildHoldChecker selects the legal-hold gate for Guard.Remove. In bff mode the
+// BFF owns `legal_holds`, so we delegate there (fail-closed: an unreachable BFF
+// refuses deletes rather than destroying possibly-held bytes). In workos mode
+// there is no hold source, so deletes are permitted with a warning — the same
+// posture as the purger when no hold table is reachable.
+func buildHoldChecker(cfg config.Config, log *slog.Logger) storage.HoldChecker {
+	if cfg.PolicyMode == "bff" {
+		return holds.NewBFF(cfg.BFFDeletableURL, cfg.InternalToken, cfg.PolicyTimeout)
+	}
+	log.Warn("legal-hold gate disabled: policy mode has no BFF legal_holds source; drive deletes are NOT hold-checked",
+		"policy_mode", cfg.PolicyMode)
+	return storage.AllowAllHolds{}
 }
 
 func buildResolver(cfg config.Config) (identity.Resolver, error) {

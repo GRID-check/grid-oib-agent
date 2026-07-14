@@ -100,7 +100,13 @@ A list-and-diff loop is only safe with these (all mandatory):
 - **`Guard.Remove` must check `legal_holds` synchronously before destroying bytes** (an
   extra field on the internal file-access decision, or a dedicated check). If held, the
   `rm` is denied and the file stays — bytes are never destroyed under a hold. This is a
-  compliance requirement, not an optimization.
+  compliance requirement, not an optimization. **(Implemented in this PR.)** The gateway
+  gains a `storage.HoldChecker` consulted in `Guard.Remove` after the Editor authz; the
+  BFF exposes `POST /api/internal/file-deletable` (backed by `isDeletionUnderHold`, which
+  mirrors the purger's org/project/document hold predicate). The check **fails closed** —
+  an unreachable BFF or any uncertain answer *refuses* the delete (preserving bytes), the
+  opposite posture to a read authz. The async embedding/row cleanup for an *allowed*
+  delete is still driven by the reconciler's "disappeared" branch (below), not here.
 - If allowed, the raw S3 delete proceeds (the file disappears from the drive
   immediately — correct `rm` UX), and the reconciler's "disappeared" branch drives the
   rest through the pipeline: a **new `document` purger** (registered in `purger/index.js`,
@@ -158,9 +164,11 @@ identical across all three.
 
 ## Follow-ups
 
-- Build the reconciler worker (sibling of `purger`), the `document` purger + the
-  `ingestor.delete_file` maintenance route, the `Guard.Remove` legal-hold check, and the
-  `(projectId, objectKey)` unique index / upsert.
+- Build the reconciler worker (sibling of `purger`) around the pure `reconcile-plan` diff
+  core (`frontends/ui/src/lib/documents/reconcile-plan.ts`, landed + exhaustively tested
+  in this PR), the `document` purger + the `ingestor.delete_file` maintenance route, and
+  the `(projectId, objectKey)` unique index / upsert. (`Guard.Remove` legal-hold check is
+  done — see §3.)
 - WebDAV production identity: validated Bearer (WorkOS JWKS) or BFF-issued signed mount
   token; force HTTPS; raise the Windows file-size registry limit via GPO for managed
   fleets.

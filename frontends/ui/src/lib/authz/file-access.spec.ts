@@ -20,9 +20,19 @@ vi.mock('@/lib/auth/session', () => ({
   resolveOrganizationMembershipId: vi.fn(),
 }))
 
+vi.mock('@/lib/compliance/repository', () => ({
+  isDeletionUnderHold: vi.fn(),
+}))
+
+vi.mock('@/lib/documents/repository', () => ({
+  findDocumentIdByObjectKey: vi.fn(),
+}))
+
 import { findProjectTenancy } from '@/lib/projects/repository'
 import { resolveOrganizationMembershipId } from '@/lib/auth/session'
-import { checkFileAccess } from './file-access'
+import { isDeletionUnderHold } from '@/lib/compliance/repository'
+import { findDocumentIdByObjectKey } from '@/lib/documents/repository'
+import { checkFileAccess, checkFileDeletable } from './file-access'
 
 const req = {
   userId: 'user_1',
@@ -69,5 +79,57 @@ describe('checkFileAccess', () => {
   it('denies when WorkOS FGA denies', async () => {
     check.mockResolvedValue({ authorized: false })
     await expect(checkFileAccess(req)).resolves.toEqual({ allow: false })
+  })
+})
+
+describe('checkFileDeletable (legal-hold gate)', () => {
+  const delReq = {
+    organizationId: 'org_acme',
+    projectId: 'proj_atlas',
+    objectKey: 'org/org_acme/project/proj_atlas/doc/d1/plan.pdf',
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(findProjectTenancy).mockResolvedValue({ organizationId: 'org_acme', deletedAt: null } as never)
+    vi.mocked(findDocumentIdByObjectKey).mockResolvedValue('d1')
+    vi.mocked(isDeletionUnderHold).mockResolvedValue(false)
+  })
+
+  it('deletable when no hold covers the object', async () => {
+    await expect(checkFileDeletable(delReq)).resolves.toEqual({ deletable: true })
+    expect(isDeletionUnderHold).toHaveBeenCalledWith({
+      organizationId: 'org_acme',
+      projectId: 'proj_atlas',
+      documentId: 'd1',
+    })
+  })
+
+  it('NOT deletable when a hold covers the object', async () => {
+    vi.mocked(isDeletionUnderHold).mockResolvedValue(true)
+    await expect(checkFileDeletable(delReq)).resolves.toEqual({ deletable: false })
+  })
+
+  it('still checks org/project holds for a raw file with no document row', async () => {
+    vi.mocked(findDocumentIdByObjectKey).mockResolvedValue(null)
+    await checkFileDeletable(delReq)
+    expect(isDeletionUnderHold).toHaveBeenCalledWith({
+      organizationId: 'org_acme',
+      projectId: 'proj_atlas',
+      documentId: null,
+    })
+  })
+
+  it('fails closed (not deletable) for a cross-tenant project, never touching holds', async () => {
+    vi.mocked(findProjectTenancy).mockResolvedValue({ organizationId: 'org_other', deletedAt: null } as never)
+    await expect(checkFileDeletable(delReq)).resolves.toEqual({ deletable: false })
+    expect(isDeletionUnderHold).not.toHaveBeenCalled()
+  })
+
+  it('fails closed for an unknown / soft-deleted project', async () => {
+    vi.mocked(findProjectTenancy).mockResolvedValue(null as never)
+    await expect(checkFileDeletable(delReq)).resolves.toEqual({ deletable: false })
+    vi.mocked(findProjectTenancy).mockResolvedValue({ organizationId: 'org_acme', deletedAt: new Date() } as never)
+    await expect(checkFileDeletable(delReq)).resolves.toEqual({ deletable: false })
   })
 })

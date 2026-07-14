@@ -10,9 +10,15 @@
  */
 
 import 'server-only'
-import { and, desc, eq, inArray, isNull } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNull, or } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
-import { deletionQueue, legalHolds, type LegalHold, type NewLegalHold } from '@/lib/db/schema'
+import {
+  deletionQueue,
+  legalHolds,
+  type DeletionEntityType,
+  type LegalHold,
+  type NewLegalHold,
+} from '@/lib/db/schema'
 
 /** Hard cap for unpaginated org-wide compliance lists. */
 export const COMPLIANCE_LIST_LIMIT = 200
@@ -29,6 +35,45 @@ export async function listOpenHoldsInOrg(
     .where(and(eq(legalHolds.organizationId, organizationId), isNull(legalHolds.releasedAt)))
     .orderBy(desc(legalHolds.createdAt))
     .limit(limit)
+}
+
+/**
+ * Is destruction of a document blocked by an active (unreleased) legal hold?
+ *
+ * Same predicate the purger enforces (`purger/db.js` hasActiveHold), generalized
+ * to the document case: a hold covers this delete if, within the org, there is an
+ * unreleased hold that is org-wide, targets the parent project, or targets the
+ * specific document. This is the SYNCHRONOUS gate the file-gateway calls before a
+ * drive `rm` destroys bytes (ADR-0024 §3) — bytes must never be destroyed under a
+ * hold. `documentId` is optional: a raw drive file not yet reconciled into a
+ * `documents` row is still covered by any org- or project-level hold.
+ */
+export async function isDeletionUnderHold(params: {
+  organizationId: string
+  projectId: string
+  documentId?: string | null
+}): Promise<boolean> {
+  const db = getDb()
+  const targets: Array<{ type: DeletionEntityType; id: string }> = [
+    { type: 'organization', id: params.organizationId },
+    { type: 'project', id: params.projectId },
+  ]
+  if (params.documentId) targets.push({ type: 'document', id: params.documentId })
+
+  const rows = await db
+    .select({ id: legalHolds.id })
+    .from(legalHolds)
+    .where(
+      and(
+        eq(legalHolds.organizationId, params.organizationId),
+        isNull(legalHolds.releasedAt),
+        or(
+          ...targets.map((t) => and(eq(legalHolds.entityType, t.type), eq(legalHolds.entityId, t.id))),
+        ),
+      ),
+    )
+    .limit(1)
+  return rows.length > 0
 }
 
 export async function insertHold(

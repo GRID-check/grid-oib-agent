@@ -11,7 +11,7 @@
  */
 
 import 'server-only'
-import { and, desc, eq } from 'drizzle-orm'
+import { and, desc, eq, isNull } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { documents, projectFolders, type Document, type NewDocument } from '@/lib/db/schema'
 
@@ -68,6 +68,21 @@ export async function findDocumentInOrg(documentId: string, organizationId: stri
     .where(and(eq(documents.id, documentId), eq(documents.organizationId, organizationId)))
     .limit(1)
   return row ?? null
+}
+
+/**
+ * Resolve the document id for a canonical S3 object key within a project, or
+ * null when no live row points at it (e.g. a raw drive file not yet reconciled).
+ * Used by the delete-time legal-hold gate so a document-level hold is honored.
+ */
+export async function findDocumentIdByObjectKey(projectId: string, objectKey: string): Promise<string | null> {
+  const db = getDb()
+  const [row] = await db
+    .select({ id: documents.id })
+    .from(documents)
+    .where(and(eq(documents.projectId, projectId), eq(documents.minioKey, objectKey), isNull(documents.deletedAt)))
+    .limit(1)
+  return row?.id ?? null
 }
 
 export async function insertDocument(values: NewDocument): Promise<void> {

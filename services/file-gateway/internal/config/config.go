@@ -28,8 +28,9 @@ type Config struct {
 	PolicyMode string
 
 	// bff mode
-	BFFEndpoint   string // http://frontend:3000/api/internal/file-access
-	InternalToken string // GRID_INTERNAL_API_TOKEN, shared with the BFF/purger
+	BFFEndpoint     string // http://frontend:3000/api/internal/file-access
+	BFFDeletableURL string // http://frontend:3000/api/internal/file-deletable (legal-hold gate)
+	InternalToken   string // GRID_INTERNAL_API_TOKEN, shared with the BFF/purger
 
 	// workos mode
 	PolicyEndpoint string
@@ -86,6 +87,7 @@ func Load() Config {
 		DataDir:          getenv("GATEWAY_DATA_DIR", "/data"),
 		PolicyMode:       getenv("GATEWAY_POLICY_MODE", "bff"),
 		BFFEndpoint:      getenv("GATEWAY_BFF_AUTHZ_URL", "http://frontend:3000/api/internal/file-access"),
+		BFFDeletableURL:  getenv("GATEWAY_BFF_DELETABLE_URL", "http://frontend:3000/api/internal/file-deletable"),
 		InternalToken:    os.Getenv("GRID_INTERNAL_API_TOKEN"),
 		PolicyEndpoint:   getenv("GATEWAY_POLICY_ENDPOINT", ""),
 		PolicyAPIKey:     os.Getenv("WORKOS_API_KEY"),
