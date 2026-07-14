@@ -683,8 +683,8 @@ class TestVerifyCitations:
 
         assert "Finding one [1]. Finding two [2]." in result.verified_report
         assert "[^" not in result.verified_report
-        assert "[1] Article 1: https://valid.com/article1" in result.verified_report
-        assert "[2] Article 2: https://valid.com/article2" in result.verified_report
+        assert "[1] [Web] Article 1: https://valid.com/article1" in result.verified_report
+        assert "[2] [Web] Article 2: https://valid.com/article2" in result.verified_report
         assert len(result.valid_citations) == 2
         assert not result.removed_citations
 
@@ -711,8 +711,8 @@ class TestVerifyCitations:
 
         assert "Finding one [1]. Finding two [2]." in result.verified_report
         assert "\u2020" not in result.verified_report
-        assert "[1] Article 1: https://valid.com/article1" in result.verified_report
-        assert "[2] Article 2: https://valid.com/article2" in result.verified_report
+        assert "[1] [Web] Article 1: https://valid.com/article1" in result.verified_report
+        assert "[2] [Web] Article 2: https://valid.com/article2" in result.verified_report
         assert len(result.valid_citations) == 2
         assert not result.removed_citations
 
@@ -737,8 +737,8 @@ class TestVerifyCitations:
         )
         result = verify_citations(report, registry)
 
-        assert "## Sources\n[1] Article 1: https://valid.com/article1\n" in result.verified_report
-        assert "[2] Article 2: https://valid.com/article2" in result.verified_report
+        assert "## Sources\n[1] [Web] Article 1: https://valid.com/article1\n" in result.verified_report
+        assert "[2] [Web] Article 2: https://valid.com/article2" in result.verified_report
         assert len(result.valid_citations) == 2
         assert not result.removed_citations
 
@@ -746,7 +746,7 @@ class TestVerifyCitations:
         report = "Finding [1].\n\n## Sources\n[1] Semiconductor outlook [2024] update: https://valid.com/article1"
         result = verify_citations(report, registry)
 
-        assert "[1] Semiconductor outlook [2024] update: https://valid.com/article1" in result.verified_report
+        assert "[1] [Web] Semiconductor outlook [2024] update: https://valid.com/article1" in result.verified_report
         assert len(result.valid_citations) == 1
         assert not result.removed_citations
 
@@ -775,8 +775,8 @@ class TestVerifyCitations:
         )
         result = verify_citations(report, registry)
 
-        assert "[1] Article 1: https://valid.com/article1" in result.verified_report
-        assert "[2] Article 2: https://valid.com/article2" in result.verified_report
+        assert "[1] [Web] Article 1: https://valid.com/article1" in result.verified_report
+        assert "[2] [Web] Article 2: https://valid.com/article2" in result.verified_report
         assert len(result.valid_citations) == 2
         assert not result.removed_citations
 
@@ -800,7 +800,7 @@ class TestVerifyCitations:
         report = "Finding [1].\n\n## Sources\n1) Article 1: https://valid.com/article1"
         result = verify_citations(report, registry)
 
-        assert "[1] Article 1: https://valid.com/article1" in result.verified_report
+        assert "[1] [Web] Article 1: https://valid.com/article1" in result.verified_report
         assert len(result.valid_citations) == 1
         assert not result.removed_citations
 
@@ -1125,6 +1125,146 @@ class TestVerifyCitations:
         assert ref_section.count("[1]") == 1
         assert "[2]" not in ref_section
         assert ref_section.count("[3]") == 1
+
+
+class TestVerifyCitationsOriginTokens:
+    """FB-2 cycle 3: verify_citations labels the LLM-written source section.
+
+    The normal deep-research path preserves the writer's ``## Sources`` block,
+    so those lines carry no origin token until verify_citations injects one
+    (after the ``[N]`` marker) per validated source's registry identity.
+    """
+
+    @pytest.fixture(name="registry")
+    def fixture_registry(self):
+        reg = SourceRegistry()
+        reg.add(
+            SourceEntry(
+                citation_key="OIB-Richtlinie-2.pdf, p.3",
+                title="OIB-Richtlinie-2.pdf",
+                source_type="knowledge_layer",
+            )
+        )
+        reg.add(
+            SourceEntry(
+                url="https://example.com/article",
+                title="Article",
+                source_type="tavily",
+                tool_name="web_search_tool",
+            )
+        )
+        reg.add(
+            SourceEntry(
+                url="https://www.ris.bka.gv.at/eli/bgbl/1985/446",
+                title="BauO",
+                source_type="generic",
+                tool_name="ris_search_tool",
+            )
+        )
+        return reg
+
+    def test_llm_written_kb_line_gets_kb_token(self, registry):
+        report = "Interner Befund [1].\n\n## Sources\n[1] OIB-Richtlinie-2.pdf, p.3"
+        result = verify_citations(report, registry)
+        assert "[1] [KB] OIB-Richtlinie-2.pdf, p.3" in result.verified_report
+        assert len(result.valid_citations) == 1
+        assert not result.removed_citations
+
+    def test_llm_written_web_line_gets_web_token(self, registry):
+        report = "Finding [1].\n\n## Sources\n[1] Article: https://example.com/article"
+        result = verify_citations(report, registry)
+        assert "[1] [Web] Article: https://example.com/article" in result.verified_report
+        assert len(result.valid_citations) == 1
+
+    def test_llm_written_ris_line_gets_ris_token(self, registry):
+        report = "Rechtslage [1].\n\n## Sources\n[1] BauO: https://www.ris.bka.gv.at/eli/bgbl/1985/446"
+        result = verify_citations(report, registry)
+        assert "[1] [RIS] BauO: https://www.ris.bka.gv.at/eli/bgbl/1985/446" in result.verified_report
+        assert len(result.valid_citations) == 1
+
+    def test_mixed_section_labels_each_line_by_type(self, registry):
+        report = (
+            "A [1]. B [2]. C [3].\n\n"
+            "## Sources\n"
+            "[1] OIB-Richtlinie-2.pdf, p.3\n"
+            "[2] Article: https://example.com/article\n"
+            "[3] BauO: https://www.ris.bka.gv.at/eli/bgbl/1985/446"
+        )
+        result = verify_citations(report, registry)
+        assert "[1] [KB] OIB-Richtlinie-2.pdf, p.3" in result.verified_report
+        assert "[2] [Web] Article: https://example.com/article" in result.verified_report
+        assert "[3] [RIS] BauO: https://www.ris.bka.gv.at/eli/bgbl/1985/446" in result.verified_report
+        assert len(result.valid_citations) == 3
+        assert not result.removed_citations
+
+    def test_dashed_list_kb_line_gets_token_after_marker(self, registry):
+        """The token sits after ``[N]`` even for ``- [N] ...`` list lines."""
+        report = "Befund [1].\n\n**References:**\n- [1] OIB-Richtlinie-2.pdf, p.3"
+        result = verify_citations(report, registry)
+        assert "- [1] [KB] OIB-Richtlinie-2.pdf, p.3" in result.verified_report
+
+    def test_already_tokenized_lines_are_not_double_prefixed(self, registry):
+        """Idempotence: a section that already carries tokens is unchanged."""
+        report = (
+            "A [1]. B [2].\n\n"
+            "## Sources\n"
+            "[1] [KB] OIB-Richtlinie-2.pdf, p.3\n"
+            "[2] [Web] Article: https://example.com/article"
+        )
+        result = verify_citations(report, registry)
+        assert "[1] [KB] OIB-Richtlinie-2.pdf, p.3" in result.verified_report
+        assert "[2] [Web] Article: https://example.com/article" in result.verified_report
+        assert "[KB] [KB]" not in result.verified_report
+        assert "[Web] [Web]" not in result.verified_report
+        assert len(result.valid_citations) == 2
+        assert not result.removed_citations
+
+    def test_removed_lines_are_dropped_not_tokenized(self, registry):
+        """Invalid/unverifiable lines are dropped, never labeled."""
+        report = (
+            "Good [1]. Fake [2]. Vague [3].\n\n"
+            "## Sources\n"
+            "[1] Article: https://example.com/article\n"
+            "[2] Fabricated: https://not-in-registry.example.com/x\n"
+            "[3] Some vague reference with no target"
+        )
+        result = verify_citations(report, registry)
+        assert "[1] [Web] Article: https://example.com/article" in result.verified_report
+        assert "not-in-registry.example.com" not in result.verified_report
+        assert "Some vague reference" not in result.verified_report
+        assert len(result.valid_citations) == 1
+        assert {c["reason"] for c in result.removed_citations} == {"url_not_in_registry", "unverifiable"}
+
+    def test_tokens_survive_sanitize_report_renumbering(self, registry):
+        """Non-numeric tokens are not renumbered; a removed gap still closes."""
+        report = (
+            "A [1]. B [2]. C [3].\n\n"
+            "## Sources\n"
+            "[1] OIB-Richtlinie-2.pdf, p.3\n"
+            "[2] Fake: https://not-in-registry.example.com/x\n"
+            "[3] Article: https://example.com/article"
+        )
+        verified = verify_citations(report, registry).verified_report
+        sanitized = sanitize_report(verified).sanitized_report
+        # [2] removed → [3] renumbered to [2]; both tokens intact.
+        assert "[1] [KB] OIB-Richtlinie-2.pdf, p.3" in sanitized
+        assert "[2] [Web] Article: https://example.com/article" in sanitized
+        assert "[3]" not in sanitized
+        assert "A [1]. B . C [2]." in sanitized
+
+    def test_sanitize_report_leaves_existing_tokens_alone(self):
+        """``_normalize_citation_syntax`` must not rewrite ``[KB]``/``[RIS]``/``[Web]``."""
+        report = (
+            "A [1]. B [2]. C [3].\n\n"
+            "## Sources\n"
+            "[1] [KB] OIB-Richtlinie-2.pdf, p.3\n"
+            "[2] [Web] Article: https://example.com/article\n"
+            "[3] [RIS] BauO: https://www.ris.bka.gv.at/eli/bgbl/1985/446"
+        )
+        sanitized = sanitize_report(report).sanitized_report
+        assert "[1] [KB] OIB-Richtlinie-2.pdf, p.3" in sanitized
+        assert "[2] [Web] Article: https://example.com/article" in sanitized
+        assert "[3] [RIS] BauO: https://www.ris.bka.gv.at/eli/bgbl/1985/446" in sanitized
 
 
 # ---------------------------------------------------------------------------

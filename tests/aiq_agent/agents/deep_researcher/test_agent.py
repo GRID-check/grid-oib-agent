@@ -1288,8 +1288,11 @@ class TestDeepResearcherAgent:
             assert result.messages[0].content == "Original query"
             assert result.messages[1].content == "I'll help with that."
             assert result.messages[2].content == "Search results here"
+            # The LLM-written source line is labeled with the deterministic
+            # origin token (URL source → [Web]) injected by verify_citations.
             assert (
-                result.messages[3].content == "Writer markdown [1].\n\n## Sources\n[1] Example: https://example.com\n"
+                result.messages[3].content
+                == "Writer markdown [1].\n\n## Sources\n[1] [Web] Example: https://example.com\n"
             )
 
     def test_extract_last_message_text(self):
