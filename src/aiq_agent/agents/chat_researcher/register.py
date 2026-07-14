@@ -658,6 +658,11 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         deep_research_job_id = getattr(result, "deep_research_job_id", None) or (
             result.get("deep_research_job_id") if isinstance(result, dict) else None
         )
+        # The model's guarded self-assessment of answer grounding (None on error,
+        # escalation, and marker-absent turns → no chip renders).
+        answer_confidence = getattr(result, "answer_confidence", None) or (
+            result.get("answer_confidence") if isinstance(result, dict) else None
+        )
 
         # Exit after response when --input is provided
         if "--input" in sys.argv:
@@ -678,6 +683,8 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
             logger.info("No cards on this turn (cards=%r)", cards)
         if deep_research_job_id:
             response.deep_research_job_id = deep_research_job_id
+        if answer_confidence:
+            response.answer_confidence = answer_confidence
 
         # Post-processing phase: kick off memory reflection AFTER the answer is
         # ready. Fire-and-forget — it runs on the event loop without delaying the

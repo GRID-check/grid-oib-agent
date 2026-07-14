@@ -43,6 +43,14 @@ class ShallowResearchAgentState(BaseModel):
             legitimately answer from persona/project context without any sources;
             the orchestrator sets this based on the classified intent. Defaults to
             True so standalone/eval callers keep the strict research contract.
+        answer_citation_grounded: Whether the final answer carries at least one
+            verified citation after citation verification. Set by ``run()`` — it
+            is True only when verification kept a valid citation (or a single
+            registry source was appended as the one minimal citation), and False
+            when the registry was empty or verification removed every citation.
+            The chat node reads it as the deterministic overconfidence guard:
+            a model self-reported "high"/"medium" is capped to "low" when the
+            answer is not grounded. Defaults to False (conservative).
     """
 
     messages: Annotated[list[AnyMessage], add_messages]
@@ -54,3 +62,4 @@ class ShallowResearchAgentState(BaseModel):
     tool_iterations: int = 0
     project_context: str | None = None
     requires_sources: bool = True
+    answer_citation_grounded: bool = False

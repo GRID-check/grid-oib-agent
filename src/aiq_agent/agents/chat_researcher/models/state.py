@@ -17,6 +17,7 @@
 
 from typing import Annotated
 from typing import Any
+from typing import Literal
 
 from langchain_core.messages import AnyMessage
 from langgraph.graph.message import add_messages
@@ -70,3 +71,10 @@ class ChatResearcherState(BaseModel):
     # the "Deep research job submitted. Job ID: ..." prose) so deep-research
     # visibility no longer breaks on any wording change.
     deep_research_job_id: str | None = None
+    # The model's own self-assessment of how well the shallow answer is grounded
+    # in its sources, parsed from the trailing `[CONFIDENCE:...]` marker and
+    # already passed through the deterministic overconfidence guard. Surfaced to
+    # the frontend as an honest self-assessment chip. None means "no signal"
+    # (marker absent/malformed, or an error/escalation turn) — nothing renders.
+    # Distinct from the internal ShallowResult.confidence error-certainty proxy.
+    answer_confidence: Literal["low", "medium", "high"] | None = None

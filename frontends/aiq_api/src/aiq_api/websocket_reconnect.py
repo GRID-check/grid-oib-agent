@@ -406,6 +406,13 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
                     data_model.model_extra.get("deep_research_job_id") if data_model.model_extra else None
                 )
 
+            # Pull the model's guarded self-assessed answer confidence (present
+            # only on grounded shallow answers that emitted the marker) so the
+            # frontend can render the honest self-assessment chip.
+            answer_confidence = getattr(data_model, "answer_confidence", None)
+            if answer_confidence is None and isinstance(data_model, BaseModel):
+                answer_confidence = data_model.model_extra.get("answer_confidence") if data_model.model_extra else None
+
             if issubclass(message_schema, WebSocketSystemResponseTokenMessage):
                 message = await self._message_validator.create_system_response_token_message(
                     message_id=message_id,
@@ -426,6 +433,12 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
                         message.deep_research_job_id = deep_research_job_id
                     except Exception:
                         logger.warning("Could not attach deep_research_job_id to websocket message", exc_info=True)
+                # Attach the guarded self-assessed answer confidence, if present.
+                if message_type == WebSocketMessageType.RESPONSE_MESSAGE and answer_confidence:
+                    try:
+                        message.answer_confidence = answer_confidence
+                    except Exception:
+                        logger.warning("Could not attach answer_confidence to websocket message", exc_info=True)
 
             elif issubclass(message_schema, WebSocketSystemIntermediateStepMessage):
                 message = await self._message_validator.create_system_intermediate_step_message(

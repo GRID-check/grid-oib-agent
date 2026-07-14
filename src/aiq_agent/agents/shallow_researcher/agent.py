@@ -377,6 +377,10 @@ class ShallowResearcherAgent:
 
         # Post-process: verify citations against source registry
         validated_result = dict(result)
+        # Overconfidence guard signal for the chat node: True only when the
+        # final answer carries at least one verified citation (see the
+        # ``answer_citation_grounded`` field docstring). Conservative default.
+        citation_grounded = False
         if validated_result.get("messages"):
             last_msg = validated_result["messages"][-1]
             if hasattr(last_msg, "content") and last_msg.content:
@@ -394,8 +398,15 @@ class ShallowResearcherAgent:
                     )
                     content = verification.verified_report
                     sources = registry.all_sources()
-                    if not verification.valid_citations and len(sources) == 1:
+                    if verification.valid_citations:
+                        # Verification kept at least one grounded citation.
+                        citation_grounded = True
+                    elif len(sources) == 1:
+                        # No model citation survived, but exactly one registry
+                        # source is available: append it as the single minimal
+                        # citation, which grounds the answer in a real source.
                         content = _append_minimal_citation(content, sources[0])
+                        citation_grounded = True
                 elif state.requires_sources:
                     # Distinguish "retrieval genuinely failed" from "the agent
                     # answered from conversation/project context without ever
@@ -454,6 +465,9 @@ class ShallowResearcherAgent:
                     validated_result["messages"][-1] = last_msg.model_copy(update={"content": content})
                 else:
                     validated_result["messages"][-1] = type(last_msg)(content=content)
+
+        # Carry the grounding signal to the chat node's overconfidence guard.
+        validated_result["answer_citation_grounded"] = citation_grounded
 
         return ShallowResearchAgentState.model_validate(validated_result)
 

@@ -1056,3 +1056,96 @@ class TestAppendMinimalCitation:
         assert result == (
             "Body sentence [1].\n\n**References:**\n- [1] [RIS] BauO - https://www.ris.bka.gv.at/eli/bgbl/1985/446"
         )
+
+
+class TestShallowResearcherAnswerGrounding:
+    """The ``answer_citation_grounded`` overconfidence-guard signal set by run().
+
+    This class deliberately does NOT inherit the citation-bypass autouse fixture
+    of TestShallowResearcherAgent: each test controls the verification outcome
+    and registry contents itself.
+    """
+
+    @pytest.fixture
+    def mock_llm(self):
+        llm = MagicMock()
+        llm.ainvoke = AsyncMock()
+        llm.bind_tools = MagicMock(return_value=llm)
+        return llm
+
+    @pytest.fixture
+    def mock_llm_provider(self, mock_llm):
+        provider = MagicMock(spec=LLMProvider)
+        provider.get = MagicMock(return_value=mock_llm)
+        return provider
+
+    def _agent(self, provider):
+        return ShallowResearcherAgent(llm_provider=provider, tools=[web_search_tool])
+
+    @pytest.mark.asyncio
+    async def test_grounded_when_verification_keeps_valid_citation(self, mock_llm_provider, mock_llm):
+        mock_llm.ainvoke.return_value = AIMessage(content="OIB-Richtlinie 2 regelt Brandschutz [1].")
+        source = SourceEntry(url="https://example.com/a", title="A", tool_name="web_search_tool")
+        with (
+            patch.object(SourceRegistry, "all_sources", return_value=[source]),
+            patch("aiq_agent.agents.shallow_researcher.agent.verify_citations") as mock_verify,
+        ):
+            mock_verify.return_value = MagicMock(
+                verified_report="OIB-Richtlinie 2 regelt Brandschutz [1].",
+                valid_citations=["[1]"],
+                removed_citations=[],
+            )
+            state = ShallowResearchAgentState(messages=[HumanMessage(content="Brandschutz?")])
+            result, _ = await _run_with_captured_registry(self._agent(mock_llm_provider), state)
+        assert result.answer_citation_grounded is True
+
+    @pytest.mark.asyncio
+    async def test_grounded_when_single_source_appended_as_minimal_citation(self, mock_llm_provider, mock_llm):
+        # No model citation survives, but exactly one registry source exists →
+        # appended as the one minimal citation, which grounds the answer.
+        mock_llm.ainvoke.return_value = AIMessage(content="Answer without any citation.")
+        source = SourceEntry(url="https://example.com/a", title="A", tool_name="web_search_tool")
+        with (
+            patch.object(SourceRegistry, "all_sources", return_value=[source]),
+            patch("aiq_agent.agents.shallow_researcher.agent.verify_citations") as mock_verify,
+        ):
+            mock_verify.return_value = MagicMock(
+                verified_report="Answer without any citation.",
+                valid_citations=[],
+                removed_citations=["[1]"],
+            )
+            state = ShallowResearchAgentState(messages=[HumanMessage(content="Q?")])
+            result, _ = await _run_with_captured_registry(self._agent(mock_llm_provider), state)
+        assert result.answer_citation_grounded is True
+
+    @pytest.mark.asyncio
+    async def test_not_grounded_when_all_citations_removed_and_many_sources(self, mock_llm_provider, mock_llm):
+        mock_llm.ainvoke.return_value = AIMessage(content="Answer [1][2].")
+        sources = [
+            SourceEntry(url="https://example.com/a", title="A", tool_name="web_search_tool"),
+            SourceEntry(url="https://example.com/b", title="B", tool_name="web_search_tool"),
+        ]
+        with (
+            patch.object(SourceRegistry, "all_sources", return_value=sources),
+            patch("aiq_agent.agents.shallow_researcher.agent.verify_citations") as mock_verify,
+        ):
+            mock_verify.return_value = MagicMock(
+                verified_report="Answer.",
+                valid_citations=[],
+                removed_citations=["[1]", "[2]"],
+            )
+            state = ShallowResearchAgentState(messages=[HumanMessage(content="Q?")])
+            result, _ = await _run_with_captured_registry(self._agent(mock_llm_provider), state)
+        assert result.answer_citation_grounded is False
+
+    @pytest.mark.asyncio
+    async def test_not_grounded_when_registry_empty_meta_turn(self, mock_llm_provider, mock_llm):
+        # Empty registry, conversational turn (requires_sources=False): nothing to
+        # cite → not grounded (a self-report would be capped to "low" downstream).
+        mock_llm.ainvoke.return_value = AIMessage(content="Hallo! Wie kann ich helfen?")
+        state = ShallowResearchAgentState(
+            messages=[HumanMessage(content="Hi")],
+            requires_sources=False,
+        )
+        result, _ = await _run_with_captured_registry(self._agent(mock_llm_provider), state)
+        assert result.answer_citation_grounded is False
