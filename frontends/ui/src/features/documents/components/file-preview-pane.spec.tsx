@@ -84,6 +84,33 @@ describe('FilePreviewPane', () => {
     expect(screen.queryByText('Passages')).toBeNull()
   })
 
+  it('hides the metadata block when the files-metadata-panel flag is off, keeping status/type/size', () => {
+    render(
+      <FilePreviewPane
+        file={{
+          ...mockFile,
+          summary: 'A ground-floor plan of the east wing.',
+          pageCount: 4,
+          chunkCount: 12,
+          contentTypes: ['text', 'table'],
+        }}
+        projectId="proj-1"
+        showMetadataPanel={false}
+      />
+    )
+    // The flag-gated metadata block is absent…
+    expect(screen.queryByText('Summary')).toBeNull()
+    expect(screen.queryByText('A ground-floor plan of the east wing.')).toBeNull()
+    expect(screen.queryByText('Pages')).toBeNull()
+    expect(screen.queryByText('Passages')).toBeNull()
+    expect(screen.queryByText('Contents')).toBeNull()
+    // …but the pre-existing status/type/size rows stay (never gated).
+    expect(screen.getByText('Status')).toBeDefined()
+    expect(screen.getByText('Type')).toBeDefined()
+    expect(screen.getByText('Size')).toBeDefined()
+    expect(screen.getByText(/1\.0 MB/i)).toBeDefined()
+  })
+
   it('shows content types only when the document holds more than plain text', () => {
     const { rerender } = render(
       <FilePreviewPane file={{ ...mockFile, contentTypes: ['text'] }} projectId="proj-1" />

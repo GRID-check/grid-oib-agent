@@ -189,6 +189,44 @@ describe('ReportTab', () => {
     expect(kbEntry).not.toHaveTextContent('[KB]')
   })
 
+  test('hides origin badges when the source-origin-badges flag is off, keeping plain token-stripped text', () => {
+    vi.mocked(useChatStore).mockImplementation((selector?: (s: any) => any) => {
+      const state = {
+        reportContent: [
+          '# Report',
+          '',
+          'KB fact [1]. Web fact [2]. Law [3].',
+          '',
+          '## Sources',
+          '[1] [KB] OIB Richtlinie 2, p.3',
+          '[2] [Web] Example — https://example.com',
+          '[3] [RIS] BauO — https://www.ris.bka.gv.at/eli/bgbl/1985/446',
+        ].join('\n'),
+        reportContentCategory: 'final_report',
+        isStreaming: false,
+        currentStatus: null,
+        deepResearchCards: [],
+        deepResearchCitations: [],
+      }
+      return selector ? selector(state) : state
+    })
+
+    render(<ReportTab showSourceBadges={false} />)
+
+    // No localized badges render…
+    expect(screen.queryByText('Knowledge Base')).not.toBeInTheDocument()
+    expect(screen.queryByText('Web')).not.toBeInTheDocument()
+    expect(screen.queryByText('RIS')).not.toBeInTheDocument()
+    // …but the source entries still render as plain text with the raw origin
+    // token stripped (never the raw [KB] token) — falling back to before-badges.
+    const kbEntry = document.getElementById('report-source-1')
+    expect(kbEntry).toHaveTextContent('OIB Richtlinie 2, p.3')
+    expect(kbEntry).not.toHaveTextContent('[KB]')
+    const risEntry = document.getElementById('report-source-3')
+    expect(risEntry).toHaveTextContent('BauO')
+    expect(risEntry).not.toHaveTextContent('[RIS]')
+  })
+
   test('renders no origin badge for sources without a token (backward compatible)', () => {
     vi.mocked(useChatStore).mockImplementation((selector?: (s: any) => any) => {
       const state = {

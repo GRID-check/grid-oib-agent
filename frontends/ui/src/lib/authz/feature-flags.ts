@@ -32,6 +32,12 @@ export const FEATURE_FLAGS = {
   byokLlm: 'byok-llm',
   /** Platform-layer web-search gate; tenant toggle lives in org settings (ADR-0022). */
   webSearch: 'web-search',
+  /** [KB]/[RIS]/[Web] origin badges in report source lists (FB-2); off → plain text. */
+  sourceOriginBadges: 'source-origin-badges',
+  /** Self-assessed confidence chip on shallow chat answers (FB-6). */
+  chatConfidenceChip: 'chat-confidence-chip',
+  /** Files preview metadata block: summary/pages/passages/contents rows (FB-8). */
+  filesMetadataPanel: 'files-metadata-panel',
 } as const
 
 export type KnownFeatureFlag = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]

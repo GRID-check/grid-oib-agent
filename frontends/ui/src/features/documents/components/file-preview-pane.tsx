@@ -17,11 +17,19 @@ interface FilePreviewPaneProps {
   onClose?: () => void
   /** Notify the parent to flip local state after a successful re-ingestion. */
   onReingested?: (fileId: string, status: string) => void
+  /**
+   * Whether the ingestion-metadata block (summary + pages/passages/contents
+   * rows) renders (WorkOS `files-metadata-panel` flag, FB-8). Defaults to true
+   * so the feature stays visible with flag enforcement off (fail-open) and
+   * existing callers/specs are unaffected. Status/type/size rows are never
+   * gated — they predate the feature.
+   */
+  showMetadataPanel?: boolean
 }
 
 const PREVIEW_TYPES = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp', 'image/svg+xml']
 
-export function FilePreviewPane({ file, onClose, onReingested }: FilePreviewPaneProps) {
+export function FilePreviewPane({ file, onClose, onReingested, showMetadataPanel = true }: FilePreviewPaneProps) {
   const t = useTranslations('files')
   const { locale } = useLocale()
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
@@ -174,7 +182,7 @@ export function FilePreviewPane({ file, onClose, onReingested }: FilePreviewPane
 
       {/* Document summary — a one-sentence description of the contents, when the
           backend generated one. Read-only; calm muted text, no chrome. */}
-      {file.summary && (
+      {showMetadataPanel && file.summary && (
         <div className="space-y-1.5 border-t px-4 py-3">
           <p className="text-xs text-muted-foreground">{t('preview.summary')}</p>
           <p className="text-xs leading-relaxed text-foreground">{file.summary}</p>
@@ -192,19 +200,19 @@ export function FilePreviewPane({ file, onClose, onReingested }: FilePreviewPane
         <MetaRow label={t('preview.size')}>
           <span className="text-xs font-medium tabular-nums text-foreground">{formatFileSize(file.fileSize, locale)}</span>
         </MetaRow>
-        {typeof file.pageCount === 'number' && file.pageCount > 0 && (
+        {showMetadataPanel && typeof file.pageCount === 'number' && file.pageCount > 0 && (
           <MetaRow label={t('preview.pages')}>
             <span className="text-xs font-medium tabular-nums text-foreground">{file.pageCount}</span>
           </MetaRow>
         )}
-        {typeof file.chunkCount === 'number' && file.chunkCount > 0 && (
+        {showMetadataPanel && typeof file.chunkCount === 'number' && file.chunkCount > 0 && (
           <MetaRow label={t('preview.chunks')}>
             <span className="text-xs font-medium tabular-nums text-foreground">{file.chunkCount}</span>
           </MetaRow>
         )}
         {/* Content categories, shown only when the document holds more than plain
             text (production documents are usually text-only — no redundant row). */}
-        {hasRichContent && (
+        {showMetadataPanel && hasRichContent && (
           <MetaRow label={t('preview.contents')}>
             <span className="text-xs text-foreground">
               {file.contentTypes!.map((c) => t(`preview.contentTypeNames.${c}`)).join(', ')}

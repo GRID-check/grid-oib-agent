@@ -178,6 +178,22 @@ describe('AgentResponse', () => {
     expect(screen.getByText('Confidence: high')).toBeInTheDocument()
   })
 
+  test('hides the confidence chip when the chat-confidence-chip flag is off (default variant)', () => {
+    // Flag off must suppress the chip even when the model self-assessed a level.
+    render(<AgentResponse content="Answer" answerConfidence="high" showConfidenceChip={false} />)
+    expect(screen.queryByText(/Confidence:/)).not.toBeInTheDocument()
+    // The answer itself still renders — only the chip is gated.
+    expect(screen.getByText('Answer')).toBeInTheDocument()
+  })
+
+  test('hides the confidence chip when the flag is off (inline variant)', () => {
+    render(
+      <AgentResponse content="Answer" variant="inline" answerConfidence="low" showConfidenceChip={false} />
+    )
+    expect(screen.queryByText(/Confidence:/)).not.toBeInTheDocument()
+    expect(screen.getByText('Answer')).toBeInTheDocument()
+  })
+
   test('renders SummaryCard and LegalBasisCard from cards prop', () => {
     const cards = [
       {

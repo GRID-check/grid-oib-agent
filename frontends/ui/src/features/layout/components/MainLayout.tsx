@@ -38,6 +38,18 @@ interface MainLayoutProps {
   isAuthenticated?: boolean
   /** Callback when sign in is clicked */
   onSignIn?: () => void
+  /**
+   * Whether report source lines show origin badges (WorkOS
+   * `source-origin-badges` flag, FB-2). Threaded to ResearchPanel → ReportTab.
+   * Defaults to true (fail-open) so existing callers/specs are unaffected.
+   */
+  showSourceBadges?: boolean
+  /**
+   * Whether shallow answers show the confidence chip (WorkOS
+   * `chat-confidence-chip` flag, FB-6). Threaded to ChatArea → AgentResponse.
+   * Defaults to true (fail-open) so existing callers/specs are unaffected.
+   */
+  showConfidenceChip?: boolean
 }
 
 /**
@@ -45,7 +57,12 @@ interface MainLayoutProps {
  * Manages the overall structure and panel states.
  * Chat state is managed via the useChatStore.
  */
-export const MainLayout: FC<MainLayoutProps> = ({ isAuthenticated = false, onSignIn }) => {
+export const MainLayout: FC<MainLayoutProps> = ({
+  isAuthenticated = false,
+  onSignIn,
+  showSourceBadges = true,
+  showConfidenceChip = true,
+}) => {
   const {
     currentConversation,
     conversations,
@@ -178,7 +195,11 @@ export const MainLayout: FC<MainLayoutProps> = ({ isAuthenticated = false, onSig
           }}
         >
           {/* Chat Area - Scrollable */}
-          <ChatArea isAuthenticated={isAuthenticated} onSignIn={onSignIn} />
+          <ChatArea
+            isAuthenticated={isAuthenticated}
+            onSignIn={onSignIn}
+            showConfidenceChip={showConfidenceChip}
+          />
 
           {/* No sources warning - shown when no data sources or files available */}
           <NoSourcesBanner isAuthenticated={isAuthenticated} />
@@ -189,7 +210,7 @@ export const MainLayout: FC<MainLayoutProps> = ({ isAuthenticated = false, onSig
         </div>
 
         {/* Research Panel (Right) - Pushes content, shares the width 50/50 */}
-        <ResearchPanel />
+        <ResearchPanel showSourceBadges={showSourceBadges} />
       </div>
 
       {/* Overlay Panels - These slide over the content */}

@@ -110,6 +110,9 @@ delivered in the AuthKit JWT `feature_flags` claim (registry:
 | `deep-research` | Deep-research job submission (`POST /api/jobs/async/submit`) |
 | `byok-llm` | BYOK LLM credentials (ADR-0022): org page card, all `/api/organization/llm-credentials` routes, and the internal resolution endpoint (under enforcement) |
 | `web-search` | Platform-layer web-search gate (ADR-0022). Evaluated live per org at the WS upgrade (like `memory-reflection`), combined with the tenant's own `settings.webSearchEnabled` toggle |
+| `source-origin-badges` | [KB]/[RIS]/[Web] origin badges in report source lists (FB-2). Server-computed in the chat route, prop-drilled to ReportTab; off → plain token-stripped source text |
+| `chat-confidence-chip` | Self-assessed confidence chip on shallow chat answers (FB-6). Server-computed in the chat route, prop-drilled to AgentResponse; off → no chip |
+| `files-metadata-panel` | Files preview ingestion-metadata block: summary/pages/passages/contents rows (FB-8). Server-computed in the files page, prop-drilled to FilePreviewPane; status/type/size rows are never gated |
 
 Rollout order (per environment): 1) create the flags in the WorkOS
 dashboard (Feature Flags — flag create/update events are covered by
@@ -123,7 +126,14 @@ next sign-in. ✅ All four flags exist in Staging AND Production
 (2026-07-13): `runtime-model-config`, `deep-research`, and `web-search`
 enabled for ALL organizations in both; `byok-llm` enabled for ALL in
 Staging, OFF in Production (target per enterprise deal). Users signed in
-before a flag change pick it up at their next sign-in.
+before a flag change pick it up at their next sign-in. ✅ The three
+cycle-6 UI flags exist in Staging AND Production (2026-07-14):
+`source-origin-badges` and `files-metadata-panel` enabled for ALL
+organizations in both; **`chat-confidence-chip` is enabled in Staging but
+intentionally OFF in Production** until the live confidence-marker
+smoke test passes (the answering LLM must emit the `[CONFIDENCE:…]` control
+marker reliably; see FB-6 / backlog.md RUNTIME-SMOKE) — flip it on in
+Production once that check is green.
 
 ## Replay into a fresh environment (e.g. Production)
 

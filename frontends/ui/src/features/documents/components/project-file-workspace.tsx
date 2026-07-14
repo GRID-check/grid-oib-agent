@@ -20,6 +20,12 @@ interface ProjectFileWorkspaceProps {
   projectId: string
   projectName: string
   collectionName: string
+  /**
+   * Whether the file preview's ingestion-metadata block renders (WorkOS
+   * `files-metadata-panel` flag, FB-8). Threaded to FilePreviewPane. Defaults
+   * to true so the feature stays visible with flag enforcement off (fail-open).
+   */
+  showMetadataPanel?: boolean
 }
 
 export interface FolderItem {
@@ -49,7 +55,7 @@ export interface FileItem {
   contentTypes: string[] | null
 }
 
-export function ProjectFileWorkspace({ projectId, projectName, collectionName }: ProjectFileWorkspaceProps) {
+export function ProjectFileWorkspace({ projectId, projectName, collectionName, showMetadataPanel = true }: ProjectFileWorkspaceProps) {
   const t = useTranslations('files')
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null)
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null)
@@ -363,6 +369,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName }:
               projectId={projectId}
               onClose={() => setSelectedFileId(null)}
               onReingested={handleReingested}
+              showMetadataPanel={showMetadataPanel}
             />
           </div>
         )}
