@@ -48,6 +48,69 @@ class GenerateSummaryResponse(BaseModel):
     )
 
 
+class ConsistencyCheckField(BaseModel):
+    """A single intake answer passed to the consistency check (label + rendered value)."""
+
+    field: str = Field(..., description="Human-readable question label (echoed back in findings)")
+    value: str = Field(..., description="Human-readable rendering of the user's answer")
+
+
+class ConsistencyCheckRequest(BaseModel):
+    """Request body for the end-of-wizard FREE-TEXT consistency check.
+
+    Only free-text answers are scrutinised by the LLM. Structured answers
+    (selects/numbers/booleans) are checked deterministically on the client and
+    are passed here purely as read-only context, so the model can judge whether
+    the free text contradicts them. Skipped/unknown answers are omitted upstream.
+    """
+
+    free_text: list[ConsistencyCheckField] = Field(
+        default_factory=list,
+        description="Free-text answers to scrutinise (e.g. goal details, high-building details)",
+    )
+    structured: list[ConsistencyCheckField] = Field(
+        default_factory=list,
+        description="Structured answers as read-only context (never themselves flagged here)",
+    )
+    locale: str = Field(
+        default="de",
+        description="UI locale ('de' or 'en') — the language the user-facing explanations must be written in",
+    )
+
+
+class ConsistencyFinding(BaseModel):
+    """One detected contradiction involving a free-text answer."""
+
+    fields: list[str] = Field(
+        default_factory=list,
+        description="Labels of the answers involved in the contradiction (echoed from the request)",
+    )
+    severity: str = Field(..., description="'warning' (soft, worth a look) or 'inconsistency' (hard contradiction)")
+    explanation: str = Field(..., description="User-facing explanation of the contradiction, in the request locale")
+
+
+class ConsistencyCheckResponse(BaseModel):
+    """Response for the intake consistency check.
+
+    ``findings`` is an empty list when the answers are internally consistent,
+    a populated list when contradictions were found, and ``None`` when the
+    check could not run (see ``error``). Always HTTP 200 — the wizard fails
+    open and never blocks saving on a check outage.
+    """
+
+    findings: list[ConsistencyFinding] | None = Field(
+        default=None,
+        description="Detected contradictions ([] = consistent); None when the check could not complete",
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Failure code when the check could not complete "
+            "(llm_not_configured, llm_request_failed, llm_response_malformed); None on success"
+        ),
+    )
+
+
 class UploadResponse(BaseModel):
     """Response for document upload (async operation)."""
 
