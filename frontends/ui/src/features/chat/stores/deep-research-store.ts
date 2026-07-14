@@ -678,8 +678,13 @@ export const createDeepResearchSlice: StateCreator<ChatStore, [["zustand/devtool
       if (get().isDeepResearchStreaming) return
 
       if (currentStatus === 'running' || currentStatus === 'submitted') {
+        // Seed the elapsed-time indicator from the backend's job creation
+        // timestamp so it survives page reloads; fall back to "now" so a
+        // missing timestamp never shows a bogus duration.
+        const startedAtMs = statusResponse.created_at ? Date.parse(statusResponse.created_at) : NaN
         set(
           {
+            deepResearchStartedAt: Number.isFinite(startedAtMs) ? startedAtMs : Date.now(),
             deepResearchJobId: jobId,
             deepResearchLastEventId: null,
             isDeepResearchStreaming: true,

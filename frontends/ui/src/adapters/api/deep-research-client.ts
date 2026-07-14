@@ -736,7 +736,12 @@ const throwDeepResearchApiError = async (response: Response, context: string): P
 export const getJobStatus = async (
   jobId: string,
   authToken?: string
-): Promise<{ job_id: string; status: DeepResearchJobStatus; error: string | null }> => {
+): Promise<{
+  job_id: string
+  status: DeepResearchJobStatus
+  error: string | null
+  created_at?: string | null
+}> => {
   const url = `${getDeepResearchBaseUrl()}/job/${jobId}`
   const headers: HeadersInit = {
     'Content-Type': 'application/json',

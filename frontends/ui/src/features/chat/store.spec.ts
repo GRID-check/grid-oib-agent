@@ -2222,6 +2222,71 @@ describe('useChatStore', () => {
       // Reset streaming state so it does not leak into other tests.
       useChatStore.setState({ isDeepResearchStreaming: false, deepResearchJobId: null })
     })
+
+    test('seeds the elapsed-time start from the job creation timestamp', async () => {
+      const createdAt = new Date(Date.now() - 5 * 60_000).toISOString()
+      mockDeepResearchApi.getJobStatus.mockResolvedValue({
+        job_id: 'job-elapsed',
+        status: 'running',
+        error: null,
+        created_at: createdAt,
+      })
+
+      const conv = createConversation([
+        {
+          id: 'tracking-msg',
+          messageType: 'agent_response',
+          deepResearchJobId: 'job-elapsed',
+          deepResearchJobStatus: 'running',
+          isDeepResearchActive: true,
+        },
+      ])
+
+      useChatStore.setState({ currentConversation: conv, conversations: [conv] })
+
+      await useChatStore.getState().reconnectToActiveJob()
+
+      expect(useChatStore.getState().deepResearchStartedAt).toBe(Date.parse(createdAt))
+
+      useChatStore.setState({
+        isDeepResearchStreaming: false,
+        deepResearchJobId: null,
+        deepResearchStartedAt: null,
+      })
+    })
+
+    test('falls back to now when the status has no creation timestamp', async () => {
+      mockDeepResearchApi.getJobStatus.mockResolvedValue({
+        job_id: 'job-no-created-at',
+        status: 'running',
+        error: null,
+      })
+
+      const conv = createConversation([
+        {
+          id: 'tracking-msg',
+          messageType: 'agent_response',
+          deepResearchJobId: 'job-no-created-at',
+          deepResearchJobStatus: 'running',
+          isDeepResearchActive: true,
+        },
+      ])
+
+      useChatStore.setState({ currentConversation: conv, conversations: [conv] })
+
+      const before = Date.now()
+      await useChatStore.getState().reconnectToActiveJob()
+
+      const startedAt = useChatStore.getState().deepResearchStartedAt
+      expect(startedAt).not.toBeNull()
+      expect(startedAt!).toBeGreaterThanOrEqual(before)
+
+      useChatStore.setState({
+        isDeepResearchStreaming: false,
+        deepResearchJobId: null,
+        deepResearchStartedAt: null,
+      })
+    })
   })
 
   describe('composer prefill', () => {
