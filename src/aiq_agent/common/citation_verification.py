@@ -776,13 +776,50 @@ def _is_knowledge_citation(ref_text: str, registry: SourceRegistry | None = None
     return False, None
 
 
+# Austrian RIS (Rechtsinformationssystem) sources arrive via the generic URL
+# parser, so they share ``source_type == "generic"`` with ordinary web hits.
+# They stay cleanly identifiable through the RIS tool names (``ris_search_tool``
+# / ``ris_fetch_tool``, and the ``ris_*`` names the prompts reference) and the
+# official RIS host — either signal is enough to label them as the authoritative
+# legal source rather than generic web.
+_RIS_URL_HOST_RE = re.compile(r"^\s*https?://(?:[\w-]+\.)*ris\.bka\.gv\.at\b", re.IGNORECASE)
+
+
+def _is_ris_source(entry: SourceEntry) -> bool:
+    """Return true when a source originates from the Austrian RIS."""
+    name = (entry.tool_name or "").lower()
+    if name.startswith("ris_") or "ris_search" in name or "ris_fetch" in name:
+        return True
+    return bool(entry.url and _RIS_URL_HOST_RE.match(entry.url))
+
+
+def source_origin_token(entry: SourceEntry) -> str:
+    """Return a stable leading origin token for a source line.
+
+    Deterministic backend output (never LLM-generated): ``[KB]`` for the
+    trusted OIB knowledge base, ``[RIS]`` for the official Austrian legal
+    information system, ``[Web]`` for URL-bearing web sources. Returns an empty
+    string when the origin is not cleanly identifiable, so callers emit no token
+    and the frontend falls open to plain, unlabeled text.
+    """
+    if entry.source_type == "knowledge_layer":
+        return "[KB]"
+    if _is_ris_source(entry):
+        return "[RIS]"
+    if entry.url:
+        return "[Web]"
+    return ""
+
+
 def _format_registry_reference(num: int, entry: SourceEntry) -> str | None:
     """Render a registered source as a source-section line."""
     title = entry.title or entry.tool_name or entry.source_type or "Source"
+    token = source_origin_token(entry)
+    prefix = f"{token} " if token else ""
     if entry.url:
-        return f"[{num}] {title}: {entry.url}"
+        return f"[{num}] {prefix}{title}: {entry.url}"
     if entry.citation_key:
-        return f"[{num}] {entry.citation_key}"
+        return f"[{num}] {prefix}{entry.citation_key}"
     return None
 
 

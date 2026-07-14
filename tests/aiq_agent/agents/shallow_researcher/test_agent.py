@@ -1022,3 +1022,37 @@ class TestAppendMinimalCitation:
         result = _append_minimal_citation(report, self._tool_source())
 
         assert result == "Body sentence [1].\n\n**References:**\n- [1] mcp_time__get_current_time"
+
+    def test_knowledge_base_source_carries_kb_token(self):
+        source = SourceEntry(
+            source_type="knowledge_layer",
+            citation_key="OIB-Richtlinie-2.pdf, p.3",
+            tool_name="knowledge_search",
+        )
+        result = _append_minimal_citation("Body sentence.", source)
+
+        assert result == ("Body sentence [1].\n\n**References:**\n- [1] [KB] OIB-Richtlinie-2.pdf, p.3")
+
+    def test_web_source_carries_web_token(self):
+        source = SourceEntry(
+            source_type="generic",
+            url="https://example.com/a",
+            title="Article A",
+            tool_name="web_search_tool",
+        )
+        result = _append_minimal_citation("Body sentence.", source)
+
+        assert result == ("Body sentence [1].\n\n**References:**\n- [1] [Web] Article A - https://example.com/a")
+
+    def test_ris_source_carries_ris_token(self):
+        source = SourceEntry(
+            source_type="generic",
+            url="https://www.ris.bka.gv.at/eli/bgbl/1985/446",
+            title="BauO",
+            tool_name="ris_search_tool",
+        )
+        result = _append_minimal_citation("Body sentence.", source)
+
+        assert result == (
+            "Body sentence [1].\n\n**References:**\n- [1] [RIS] BauO - https://www.ris.bka.gv.at/eli/bgbl/1985/446"
+        )

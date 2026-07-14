@@ -46,6 +46,7 @@ from aiq_agent.common.citation_verification import get_session_registry
 from aiq_agent.common.citation_verification import reset_session_registry
 from aiq_agent.common.citation_verification import sanitize_report
 from aiq_agent.common.citation_verification import set_session_registry
+from aiq_agent.common.citation_verification import source_origin_token
 from aiq_agent.common.citation_verification import verify_citations
 
 from ...common import LLMProvider
@@ -87,11 +88,13 @@ def _append_minimal_citation(report_text: str, source: SourceEntry) -> str:
     else:
         content = f"{content} [1]"
 
+    token = source_origin_token(source)
+    prefix = f"{token} " if token else ""
     if source.url:
         title = source.title or source.url
-        reference = f"- [1] {title} - {source.url}"
+        reference = f"- [1] {prefix}{title} - {source.url}"
     else:
-        reference = f"- [1] {citation_target}"
+        reference = f"- [1] {prefix}{citation_target}"
 
     return f"{content}\n\n**References:**\n{reference}"
 

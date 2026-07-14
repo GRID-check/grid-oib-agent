@@ -21,11 +21,13 @@ from aiq_agent.common.citation_verification import _PARSER_REGISTRY
 from aiq_agent.common.citation_verification import EmptySourceRegistryError
 from aiq_agent.common.citation_verification import SourceEntry
 from aiq_agent.common.citation_verification import SourceRegistry
+from aiq_agent.common.citation_verification import _format_registry_reference
 from aiq_agent.common.citation_verification import _normalize_url
 from aiq_agent.common.citation_verification import _parse_citation_key
 from aiq_agent.common.citation_verification import extract_sources_from_tool_result
 from aiq_agent.common.citation_verification import register_source_parser
 from aiq_agent.common.citation_verification import sanitize_report
+from aiq_agent.common.citation_verification import source_origin_token
 from aiq_agent.common.citation_verification import verify_citations
 
 
@@ -624,8 +626,8 @@ class TestVerifyCitations:
 
         assert result.verified_report.startswith(report)
         assert "## Sources" in result.verified_report
-        assert "[1] Article 1: https://valid.com/article1" in result.verified_report
-        assert "[2] Article 2: https://valid.com/article2" in result.verified_report
+        assert "[1] [Web] Article 1: https://valid.com/article1" in result.verified_report
+        assert "[2] [Web] Article 2: https://valid.com/article2" in result.verified_report
         assert len(result.valid_citations) == 2
         assert not result.removed_citations
 
@@ -635,8 +637,8 @@ class TestVerifyCitations:
 
         assert "Missing source ." in result.verified_report
         assert "[3]" not in result.verified_report
-        assert "[1] Article 1: https://valid.com/article1" in result.verified_report
-        assert "[2] Article 2: https://valid.com/article2" in result.verified_report
+        assert "[1] [Web] Article 1: https://valid.com/article1" in result.verified_report
+        assert "[2] [Web] Article 2: https://valid.com/article2" in result.verified_report
         assert len(result.valid_citations) == 2
         assert not result.removed_citations
 
@@ -652,8 +654,8 @@ class TestVerifyCitations:
         report = "Finding one [1]. Finding two [2]."
         result = verify_citations(report, reg, reference_sources=[compact_one, compact_two])
 
-        assert "[1] Compact One: https://valid.com/compact-one" in result.verified_report
-        assert "[2] Compact Two: https://valid.com/compact-two" in result.verified_report
+        assert "[1] [Web] Compact One: https://valid.com/compact-one" in result.verified_report
+        assert "[2] [Web] Compact Two: https://valid.com/compact-two" in result.verified_report
         assert "Unused" not in result.verified_report
         assert len(result.valid_citations) == 2
         assert not result.removed_citations
@@ -665,8 +667,8 @@ class TestVerifyCitations:
         assert "Finding one [1]. Finding two [2]." in result.verified_report
         assert "[^1]" not in result.verified_report
         assert "## Sources" in result.verified_report
-        assert "[1] Article 1: https://valid.com/article1" in result.verified_report
-        assert "[2] Article 2: https://valid.com/article2" in result.verified_report
+        assert "[1] [Web] Article 1: https://valid.com/article1" in result.verified_report
+        assert "[2] [Web] Article 2: https://valid.com/article2" in result.verified_report
         assert len(result.valid_citations) == 2
         assert not result.removed_citations
 
@@ -693,8 +695,8 @@ class TestVerifyCitations:
         assert "Finding one [1]. Finding two [2]." in result.verified_report
         assert "\u2020" not in result.verified_report
         assert "## Sources" in result.verified_report
-        assert "[1] Article 1: https://valid.com/article1" in result.verified_report
-        assert "[2] Article 2: https://valid.com/article2" in result.verified_report
+        assert "[1] [Web] Article 1: https://valid.com/article1" in result.verified_report
+        assert "[2] [Web] Article 2: https://valid.com/article2" in result.verified_report
         assert len(result.valid_citations) == 2
         assert not result.removed_citations
 
@@ -1022,11 +1024,7 @@ class TestVerifyCitations:
         reg = SourceRegistry()
         reg.add(SourceEntry(url="https://x.com/p?id=1&lang=en", source_type="generic"))
         reg.add(SourceEntry(url="https://x.com/p?id=10", source_type="generic"))
-        report = (
-            "A [1] and B [2].\n\n## Sources\n"
-            "[1] First: https://x.com/p?id=1\n"
-            "[2] Second: https://x.com/p?id=10"
-        )
+        report = "A [1] and B [2].\n\n## Sources\n[1] First: https://x.com/p?id=1\n[2] Second: https://x.com/p?id=10"
         result = verify_citations(report, reg)
         assert "https://x.com/p?id=10" in result.verified_report
         # The sibling must not have been mangled into id=1&lang=en0.
@@ -1127,6 +1125,79 @@ class TestVerifyCitations:
         assert ref_section.count("[1]") == 1
         assert "[2]" not in ref_section
         assert ref_section.count("[3]") == 1
+
+
+# ---------------------------------------------------------------------------
+# source origin token tests (FB-2: knowledge base vs web vs RIS labeling)
+# ---------------------------------------------------------------------------
+
+
+class TestSourceOriginToken:
+    """Tests for the deterministic per-source origin token."""
+
+    def test_knowledge_layer_source_gets_kb_token(self):
+        entry = SourceEntry(citation_key="OIB-Richtlinie-2.pdf, p.3", source_type="knowledge_layer")
+        assert source_origin_token(entry) == "[KB]"
+
+    def test_web_source_gets_web_token(self):
+        entry = SourceEntry(url="https://example.com/article", source_type="generic", tool_name="web_search_tool")
+        assert source_origin_token(entry) == "[Web]"
+
+    def test_tavily_web_source_gets_web_token(self):
+        entry = SourceEntry(url="https://example.com/a", source_type="tavily", tool_name="tavily_web_search")
+        assert source_origin_token(entry) == "[Web]"
+
+    def test_ris_source_by_tool_name_gets_ris_token(self):
+        # RIS hits arrive via the generic URL parser, so source_type == "generic";
+        # the RIS tool name is what keeps them cleanly identifiable.
+        entry = SourceEntry(
+            url="https://www.ris.bka.gv.at/eli/bgbl/1985/446",
+            source_type="generic",
+            tool_name="ris_search_tool",
+        )
+        assert source_origin_token(entry) == "[RIS]"
+
+    def test_ris_source_by_fetch_tool_name_gets_ris_token(self):
+        entry = SourceEntry(
+            url="https://www.ris.bka.gv.at/Dokument.wxe",
+            source_type="generic",
+            tool_name="ris_fetch_tool",
+        )
+        assert source_origin_token(entry) == "[RIS]"
+
+    def test_ris_source_by_host_gets_ris_token_even_without_tool_name(self):
+        entry = SourceEntry(url="https://ris.bka.gv.at/GeltendeFassung.wxe", source_type="generic")
+        assert source_origin_token(entry) == "[RIS]"
+
+    def test_non_ris_web_source_is_not_labeled_ris(self):
+        # A URL that merely contains "ris" elsewhere must not be mislabeled.
+        entry = SourceEntry(url="https://paris-example.com/law", source_type="generic", tool_name="web_search_tool")
+        assert source_origin_token(entry) == "[Web]"
+
+    def test_non_url_tool_result_gets_no_token(self):
+        entry = SourceEntry(citation_key="mcp_time__get_current_time", source_type="tool_result")
+        assert source_origin_token(entry) == ""
+
+    def test_format_registry_reference_prepends_kb_token(self):
+        entry = SourceEntry(citation_key="OIB-Richtlinie-2.pdf, p.3", source_type="knowledge_layer")
+        assert _format_registry_reference(4, entry) == "[4] [KB] OIB-Richtlinie-2.pdf, p.3"
+
+    def test_format_registry_reference_prepends_web_token(self):
+        entry = SourceEntry(url="https://example.com/a", title="Article A", source_type="tavily")
+        assert _format_registry_reference(1, entry) == "[1] [Web] Article A: https://example.com/a"
+
+    def test_format_registry_reference_prepends_ris_token(self):
+        entry = SourceEntry(
+            url="https://www.ris.bka.gv.at/eli/bgbl/1985/446",
+            title="BauO",
+            source_type="generic",
+            tool_name="ris_search_tool",
+        )
+        assert _format_registry_reference(2, entry) == "[2] [RIS] BauO: https://www.ris.bka.gv.at/eli/bgbl/1985/446"
+
+    def test_format_registry_reference_tool_result_has_no_token(self):
+        entry = SourceEntry(citation_key="mcp_time__get_current_time", source_type="tool_result")
+        assert _format_registry_reference(1, entry) == "[1] mcp_time__get_current_time"
 
 
 # ---------------------------------------------------------------------------
