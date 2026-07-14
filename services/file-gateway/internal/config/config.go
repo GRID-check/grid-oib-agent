@@ -19,6 +19,14 @@ type Config struct {
 	ListenAdmin  string // health + metrics, e.g. ":9090"
 	ListenWebDAV string // e.g. ":8090"; empty = WebDAV front disabled (NFS is the default front)
 
+	// WebDAVIdentity selects the HTTP identity resolver for the WebDAV front:
+	//   "header" — dev-only X-Grid-* headers (client-asserted, spoofable)
+	//   "basic"  — WebDAV Basic auth verified against the BFF mount-auth
+	//              endpoint (SSO-brokered device credentials, ADR-0025). The
+	//              production mode; REQUIRES TLS at the ingress.
+	WebDAVIdentity  string
+	BFFMountAuthURL string // http://frontend:3000/api/internal/mount-auth
+
 	DataDir string // the (rclone-mounted) storage directory for the billy backend
 
 	// PolicyMode selects the authorization source:
@@ -84,6 +92,8 @@ func Load() Config {
 		ListenNFS:        getenv("GATEWAY_LISTEN_NFS", ":2049"),
 		ListenAdmin:      getenv("GATEWAY_LISTEN_ADMIN", ":9090"),
 		ListenWebDAV:     getenv("GATEWAY_WEBDAV_LISTEN", ""),
+		WebDAVIdentity:   getenv("GATEWAY_WEBDAV_IDENTITY", "header"),
+		BFFMountAuthURL:  getenv("GATEWAY_BFF_MOUNT_AUTH_URL", "http://frontend:3000/api/internal/mount-auth"),
 		DataDir:          getenv("GATEWAY_DATA_DIR", "/data"),
 		PolicyMode:       getenv("GATEWAY_POLICY_MODE", "bff"),
 		BFFEndpoint:      getenv("GATEWAY_BFF_AUTHZ_URL", "http://frontend:3000/api/internal/file-access"),
@@ -153,15 +163,33 @@ func (c Config) Validate() error {
 		return fmt.Errorf("config: unknown identity resolver %q", c.IdentityResolver)
 	}
 
-	// The WebDAV front (additive to NFS) currently authenticates only via the
-	// dev-only X-Grid-* header resolver. Like the dirpath resolver, it is
-	// client-asserted and spoofable, so it must never run outside dev. Production
-	// WebDAV identity (validated Bearer/WorkOS access token via JWKS, or a
-	// BFF-issued signed mount token) is a follow-up seam — see proto/webdav.
-	if c.ListenWebDAV != "" && c.Env != "dev" {
-		return fmt.Errorf("config: GATEWAY_WEBDAV_LISTEN is set but the only WebDAV "+
-			"identity resolver is the dev-only header resolver, and GATEWAY_ENV=%q; "+
-			"a validated-token resolver is required before enabling WebDAV outside dev", c.Env)
+	// WebDAV identity matrix (keep in lockstep with buildWebDAVResolver):
+	//   header — client-asserted X-Grid-* headers, spoofable → dev-only.
+	//   basic  — SSO-brokered device credentials verified against the BFF
+	//            mount-auth endpoint (ADR-0025) → the production mode. Needs the
+	//            internal token + endpoint; TLS is terminated at the ingress and
+	//            is a deployment invariant (Basic is plaintext-equivalent).
+	if c.ListenWebDAV != "" {
+		switch c.WebDAVIdentity {
+		case "header":
+			if c.Env != "dev" {
+				return fmt.Errorf("config: GATEWAY_WEBDAV_IDENTITY=header is dev-only "+
+					"(client-asserted, spoofable) but GATEWAY_ENV=%q; use \"basic\" "+
+					"(SSO-brokered device credentials) outside dev", c.Env)
+			}
+		case "basic":
+			if c.BFFMountAuthURL == "" {
+				return errors.New("config: GATEWAY_BFF_MOUNT_AUTH_URL is required for WebDAV basic identity")
+			}
+			if c.InternalToken == "" {
+				return errors.New("config: GRID_INTERNAL_API_TOKEN is required for WebDAV basic identity")
+			}
+			if c.Env != "dev" && c.InternalToken == "grid-internal-dev-token" {
+				return errors.New("config: refusing the dev-default GRID_INTERNAL_API_TOKEN outside dev")
+			}
+		default:
+			return fmt.Errorf("config: unknown GATEWAY_WEBDAV_IDENTITY %q (header|basic)", c.WebDAVIdentity)
+		}
 	}
 	return nil
 }

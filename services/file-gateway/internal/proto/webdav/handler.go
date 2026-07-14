@@ -76,14 +76,24 @@ func NewHandler(port storage.StoragePort, resolver HTTPResolver, log *slog.Logge
 func (h *authHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	subj, err := h.resolver.Resolve(r)
 	if err != nil {
-		h.log.Warn("webdav request denied: unauthenticated",
-			"method", r.Method, "path", r.URL.Path, "resolver", h.resolver.Name(), "err", err)
-		// RFC 4918 uses ordinary HTTP auth semantics; 401 asks the client to
-		// present credentials.
+		// Two distinct failure modes, and conflating them breaks the mount UX:
+		//   - ErrUnauthenticated → 401 + the resolver's challenge, which is what
+		//     makes the native OS credential dialog appear (Basic) or an API
+		//     client present a token (Bearer).
+		//   - anything else (the credential VERIFIER is unreachable, e.g. BFF
+		//     down) → 503. Returning 401 here would make every mounted client
+		//     re-prompt its user for a password that is not wrong — during an
+		//     outage, of all times. Clients retry a 503 silently.
 		if errors.Is(err, ErrUnauthenticated) {
-			w.Header().Set("WWW-Authenticate", `Bearer realm="grid-file-gateway"`)
+			h.log.Warn("webdav request denied: unauthenticated",
+				"method", r.Method, "path", r.URL.Path, "resolver", h.resolver.Name())
+			w.Header().Set("WWW-Authenticate", h.resolver.Challenge())
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
 		}
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		h.log.Error("webdav authentication unavailable",
+			"method", r.Method, "path", r.URL.Path, "resolver", h.resolver.Name(), "err", err)
+		http.Error(w, "authentication unavailable", http.StatusServiceUnavailable)
 		return
 	}
 	// Stash the authenticated Subject so the FileSystem — which only sees a

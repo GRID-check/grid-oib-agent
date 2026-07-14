@@ -21,6 +21,11 @@ type HTTPResolver interface {
 	Resolve(r *http.Request) (authz.Subject, error)
 	// Name identifies the resolver for config validation and audit.
 	Name() string
+	// Challenge is the WWW-Authenticate value sent with a 401. It decides what
+	// the CLIENT does next: `Basic realm=…` makes the native macOS/Windows mount
+	// dialog pop its username/password prompt (the whole point of the device-
+	// credential flow, ADR-0025); `Bearer …` tells API clients to present a token.
+	Challenge() string
 }
 
 // Header names carried by the dev header resolver.
@@ -60,6 +65,8 @@ func NewHeaderResolver(env string) (*HeaderResolver, error) {
 }
 
 func (r *HeaderResolver) Name() string { return "header" }
+
+func (r *HeaderResolver) Challenge() string { return `Bearer realm="grid-file-gateway"` }
 
 func (r *HeaderResolver) Resolve(req *http.Request) (authz.Subject, error) {
 	uid := req.Header.Get(HeaderUserID)

@@ -185,13 +185,23 @@ func buildResolver(cfg config.Config) (identity.Resolver, error) {
 	}
 }
 
-// buildWebDAVResolver selects the HTTP identity resolver for the WebDAV front.
-// Only the dev-only header resolver exists today; config.Validate already refuses
-// to enable WebDAV with it outside dev, and NewHeaderResolver fails closed as a
-// second guard. Production identity (validated Bearer/WorkOS token or a signed
-// mount token) is a follow-up that slots into the same HTTPResolver seam.
+// buildWebDAVResolver selects the HTTP identity resolver for the WebDAV front
+// (kept in lockstep with config.Validate):
+//
+//	header — dev-only X-Grid-* headers (spoofable; NewHeaderResolver also
+//	         refuses outside dev as defence in depth).
+//	basic  — PRODUCTION: WebDAV Basic credentials verified against the BFF
+//	         mount-auth endpoint. The credential is minted inside a WorkOS-SSO'd
+//	         web session (ADR-0025); every file op is still FGA-authorized.
 func buildWebDAVResolver(cfg config.Config) (protowebdav.HTTPResolver, error) {
-	return protowebdav.NewHeaderResolver(cfg.Env)
+	switch cfg.WebDAVIdentity {
+	case "header":
+		return protowebdav.NewHeaderResolver(cfg.Env)
+	case "basic":
+		return protowebdav.NewBasicResolver(cfg.BFFMountAuthURL, cfg.InternalToken, cfg.Env, cfg.PolicyTimeout), nil
+	default:
+		return nil, errors.New("unsupported webdav identity: " + cfg.WebDAVIdentity)
+	}
 }
 
 // bffReachable does a shallow GET to the BFF authz endpoint. It is POST-only, so

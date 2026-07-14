@@ -169,6 +169,6 @@ identical across all three.
   in this PR), the `document` purger + the `ingestor.delete_file` maintenance route, and
   the `(projectId, objectKey)` unique index / upsert. (`Guard.Remove` legal-hold check is
   done — see §3.)
-- WebDAV production identity: validated Bearer (WorkOS JWKS) or BFF-issued signed mount
-  token; force HTTPS; raise the Windows file-size registry limit via GPO for managed
-  fleets.
+- WebDAV production identity: **done — ADR-0025** (SSO-brokered device credentials over
+  Basic, verified via `/api/internal/mount-auth`; HTTPS at the ingress; Windows
+  file-size registry note in `services/file-gateway/docs/MOUNTING.md`).

@@ -40,6 +40,8 @@ export const AUDIT_ACTIONS = [
   'project.role.assigned',
   'project.role.removed',
   'document.uploaded',
+  'drive.credential_created',
+  'drive.credential_revoked',
 ] as const
 export type AuditAction = (typeof AUDIT_ACTIONS)[number]
 
