@@ -28,7 +28,9 @@ from fastapi import UploadFile
 from pydantic import BaseModel
 from pydantic import Field
 
+from aiq_agent.knowledge import get_available_documents_async
 from aiq_agent.knowledge.base import BaseIngestor
+from aiq_agent.knowledge.schema import AvailableDocument
 from aiq_agent.knowledge.schema import FileInfo
 from aiq_agent.knowledge.schema import IngestionJobStatus
 
@@ -40,6 +42,24 @@ logger = logging.getLogger(__name__)
 
 # Upper bound on job ids per batch-status request (request validation).
 BATCH_STATUS_MAX_IDS = 200
+
+
+def _merge_summaries(files: list[FileInfo], summaries: list[AvailableDocument]) -> list[FileInfo]:
+    """Attach persisted per-document summaries onto the collection file list.
+
+    SummaryStore (SQL, keyed by ``(collection, filename)``) is the source of
+    truth; ``list_files`` only knows what the vector store holds. The join key
+    is the filename, unique within the summaries table, so a straight lookup
+    is safe. A file without a stored summary is left untouched (summary stays
+    ``None``); an already-populated summary is never overwritten.
+    """
+    if not summaries:
+        return files
+    summary_by_name = {doc.file_name: doc.summary for doc in summaries if doc.summary}
+    for file in files:
+        if file.summary is None and file.file_name in summary_by_name:
+            file.summary = summary_by_name[file.file_name]
+    return files
 
 
 def add_document_routes(router: APIRouter):
@@ -144,10 +164,21 @@ def add_document_routes(router: APIRouter):
             raise HTTPException(status_code=404, detail=f"Collection '{collection_name}' not found")
 
         try:
-            return ingestor.list_files(collection_name)
+            files = ingestor.list_files(collection_name)
         except Exception as e:
             logger.error(f"Failed to list documents: {e}")
             raise HTTPException(status_code=500, detail=str(e))
+
+        # Enrich with persisted per-document summaries (one SQL read). Fail-open:
+        # a summary-store hiccup must never break the document listing, so the
+        # files are returned without summaries rather than erroring the route.
+        try:
+            summaries = await get_available_documents_async(collection_name)
+            _merge_summaries(files, summaries)
+        except Exception as e:
+            logger.warning(f"Failed to merge summaries for {collection_name}: {e}")
+
+        return files
 
     @router.delete(
         "/v1/collections/{collection_name}/documents",

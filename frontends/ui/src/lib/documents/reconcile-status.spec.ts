@@ -33,6 +33,12 @@ const batchResponse = (statuses: Record<string, unknown>) => ({
   json: () => Promise.resolve({ statuses }),
 })
 
+const collectionResponse = (files: unknown[]) => ({
+  ok: true,
+  status: 200,
+  json: () => Promise.resolve(files),
+})
+
 describe('reconcileDocumentStatuses', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', mockFetch)
@@ -44,14 +50,21 @@ describe('reconcileDocumentStatuses', () => {
     vi.clearAllMocks()
   })
 
-  it('leaves terminal rows untouched without calling the backend', async () => {
-    makeDbMock()
+  it('preserves terminal statuses and never issues a status batch call for them', async () => {
+    const db = makeDbMock()
+    // Terminal rows still consult the collection file list for metadata, but
+    // their status must not change and no status write should occur.
+    mockFetch.mockResolvedValue(collectionResponse([{ file_name: 'plan.pdf', status: 'success' }]))
     const rows = [makeRow({ status: 'completed' }), makeRow({ id: 'doc-2', status: 'failed' })]
 
     const result = await reconcileDocumentStatuses(rows)
 
-    expect(result).toEqual(rows)
-    expect(mockFetch).not.toHaveBeenCalled()
+    expect(result.map((r) => r.status)).toEqual(['completed', 'failed'])
+    expect(db.update).not.toHaveBeenCalled()
+    expect(mockFetch).not.toHaveBeenCalledWith(
+      expect.stringContaining('/v1/documents/status/batch'),
+      expect.anything()
+    )
   })
 
   it('marks a row completed when the ingestion job completed', async () => {
@@ -64,7 +77,6 @@ describe('reconcileDocumentStatuses', () => {
 
     const [result] = await reconcileDocumentStatuses([makeRow()])
 
-    expect(mockFetch).toHaveBeenCalledTimes(1)
     expect(mockFetch).toHaveBeenCalledWith(
       expect.stringContaining('/v1/documents/status/batch'),
       expect.objectContaining({ method: 'POST' })
@@ -210,6 +222,92 @@ describe('reconcileDocumentStatuses', () => {
 
     expect(result.status).toBe('pending')
     expect(db.update).not.toHaveBeenCalled()
+  })
+})
+
+describe('reconcileDocumentStatuses metadata enrichment', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', mockFetch)
+    mockFetch.mockReset()
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.clearAllMocks()
+  })
+
+  it('merges summary, page/chunk counts, and content types onto a row', async () => {
+    makeDbMock()
+    mockFetch.mockResolvedValue(
+      collectionResponse([
+        {
+          file_id: 'f-1',
+          file_name: 'plan.pdf',
+          status: 'success',
+          summary: 'A ground-floor plan.',
+          chunk_count: 12,
+          metadata: { page_count: 4, content_types: ['text', 'table'] },
+        },
+      ])
+    )
+
+    const [result] = await reconcileDocumentStatuses([makeRow({ status: 'completed' })])
+
+    expect(result.summary).toBe('A ground-floor plan.')
+    expect(result.pageCount).toBe(4)
+    expect(result.chunkCount).toBe(12)
+    expect(result.contentTypes).toEqual(['text', 'table'])
+  })
+
+  it('omits fields the backend did not provide', async () => {
+    makeDbMock()
+    mockFetch.mockResolvedValue(
+      collectionResponse([{ file_id: 'f-1', file_name: 'plan.pdf', status: 'success', chunk_count: 5 }])
+    )
+
+    const [result] = await reconcileDocumentStatuses([makeRow({ status: 'completed' })])
+
+    expect(result.chunkCount).toBe(5)
+    expect(result.summary).toBeUndefined()
+    expect(result.pageCount).toBeUndefined()
+    expect(result.contentTypes).toBeUndefined()
+  })
+
+  it('shows no metadata when the filename is ambiguous within the collection', async () => {
+    makeDbMock()
+    // Two backend files share the filename → the join is unsafe.
+    mockFetch.mockResolvedValue(
+      collectionResponse([
+        { file_id: 'f-1', file_name: 'plan.pdf', status: 'success', summary: 'First.', chunk_count: 3 },
+        { file_id: 'f-2', file_name: 'plan.pdf', status: 'success', summary: 'Second.', chunk_count: 9 },
+      ])
+    )
+
+    const [result] = await reconcileDocumentStatuses([makeRow({ status: 'completed' })])
+
+    expect(result.summary).toBeUndefined()
+    expect(result.chunkCount).toBeUndefined()
+  })
+
+  it('adds no metadata when the backend file list is unreachable (fail-open)', async () => {
+    makeDbMock()
+    mockFetch.mockRejectedValue(new Error('ECONNREFUSED'))
+
+    const [result] = await reconcileDocumentStatuses([makeRow({ status: 'completed' })])
+
+    expect(result.status).toBe('completed')
+    expect(result.summary).toBeUndefined()
+    expect(result.chunkCount).toBeUndefined()
+  })
+
+  it('adds no metadata when the document is absent from the collection list', async () => {
+    makeDbMock()
+    mockFetch.mockResolvedValue(collectionResponse([{ file_id: 'f-9', file_name: 'other.pdf', status: 'success' }]))
+
+    const [result] = await reconcileDocumentStatuses([makeRow({ status: 'completed' })])
+
+    expect(result.summary).toBeUndefined()
+    expect(result.chunkCount).toBeUndefined()
   })
 })
 

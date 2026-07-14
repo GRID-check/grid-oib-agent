@@ -186,6 +186,7 @@ class FileInfo(BaseModel):
     ingested_at: datetime | None = Field(None, description="When ingestion completed.")
     expiration_date: datetime | None = Field(None, description="When the file will be auto-deleted.")
     error_message: str | None = Field(None, description="Error message if processing failed.")
+    summary: str | None = Field(None, description="One-sentence summary of the document content, if generated.")
     metadata: dict[str, Any] = Field(
         default_factory=dict,
         description="File-specific metadata (e.g., page count, content types).",

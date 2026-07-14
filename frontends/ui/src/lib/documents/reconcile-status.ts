@@ -35,6 +35,19 @@ export interface ReconcilableDocument {
   metadata?: unknown
 }
 
+/**
+ * Read-only document metadata surfaced from the backend's collection file list
+ * and merged onto document rows for display. Every field is optional: a backend
+ * outage, a missing file, or an ambiguous filename join all resolve to "absent"
+ * rather than wrong data.
+ */
+export interface DocumentMetadata {
+  summary?: string
+  pageCount?: number
+  chunkCount?: number
+  contentTypes?: string[]
+}
+
 interface TerminalResolution {
   status: 'completed' | 'failed'
   errorMessage: string | null
@@ -112,7 +125,34 @@ const resolveFromJobStatus = (job: BackendJobStatus | null | undefined): JobReso
   return { kind: 'in_progress' }
 }
 
-type CollectionFiles = Map<string, { status?: string; error_message?: string | null }>
+/** One backend file entry, flattened to the fields the BFF forwards. */
+interface BackendFileEntry {
+  status?: string
+  error_message?: string | null
+  summary?: string | null
+  chunk_count?: number
+  page_count?: number
+  content_types?: string[]
+}
+
+/**
+ * The backend collection file list, indexed by filename. `ambiguousNames`
+ * carries filenames that appear more than once: the filename join is then
+ * unsafe, so metadata for those is suppressed (show nothing over wrong data).
+ */
+interface CollectionFiles {
+  byName: Map<string, BackendFileEntry>
+  ambiguousNames: Set<string>
+}
+
+interface RawBackendFile {
+  file_name?: string
+  status?: string
+  error_message?: string | null
+  summary?: string | null
+  chunk_count?: number
+  metadata?: { page_count?: number; content_types?: string[] } | null
+}
 
 const loadCollectionFiles = async (collectionName: string): Promise<CollectionFiles | null> => {
   const result = await fetchJson(
@@ -120,18 +160,32 @@ const loadCollectionFiles = async (collectionName: string): Promise<CollectionFi
   )
   if (!result || result.status === 404 || !Array.isArray(result.body)) return null
 
-  const files: CollectionFiles = new Map()
-  for (const file of result.body as Array<{ file_name?: string; status?: string; error_message?: string | null }>) {
-    if (file.file_name) files.set(file.file_name, file)
+  const byName = new Map<string, BackendFileEntry>()
+  const ambiguousNames = new Set<string>()
+  for (const file of result.body as RawBackendFile[]) {
+    if (!file.file_name) continue
+    if (byName.has(file.file_name)) {
+      // Duplicate filename in the collection — the join is no longer 1:1.
+      ambiguousNames.add(file.file_name)
+      continue
+    }
+    byName.set(file.file_name, {
+      status: file.status,
+      error_message: file.error_message,
+      summary: file.summary,
+      chunk_count: file.chunk_count,
+      page_count: file.metadata?.page_count,
+      content_types: file.metadata?.content_types,
+    })
   }
-  return files
+  return { byName, ambiguousNames }
 }
 
 const resolveFromCollection = (
   files: CollectionFiles | null,
   filename: string
 ): TerminalResolution | null => {
-  const file = files?.get(filename)
+  const file = files?.byName.get(filename)
   if (!file) return null
   if (file.status === 'success') return { status: 'completed', errorMessage: null }
   if (file.status === 'failed') return { status: 'failed', errorMessage: file.error_message ?? null }
@@ -139,18 +193,44 @@ const resolveFromCollection = (
 }
 
 /**
- * Reconcile in-flight document rows with the backend's ingestion state and
- * persist any terminal transition. Returns the rows with fresh statuses;
- * rows that are already terminal (or still genuinely in flight) pass through
- * unchanged. Backend outages never fail the read path — rows are simply left
- * as they are until the next read.
+ * Extract the curated, read-only metadata subset for a filename from the
+ * backend file list. Returns null (→ no enrichment) when the list is missing,
+ * the filename is absent, or the join is ambiguous. Individual fields are
+ * omitted when the backend did not provide them.
  */
-export async function reconcileDocumentStatuses<T extends ReconcilableDocument>(rows: T[]): Promise<T[]> {
-  const inFlight = rows.filter((row) => IN_FLIGHT_STATUSES.has(row.status))
-  if (inFlight.length === 0) return rows
+const extractMetadata = (files: CollectionFiles | null, filename: string): DocumentMetadata | null => {
+  if (!files || files.ambiguousNames.has(filename)) return null
+  const file = files.byName.get(filename)
+  if (!file) return null
+
+  const meta: DocumentMetadata = {}
+  if (typeof file.summary === 'string' && file.summary.length > 0) meta.summary = file.summary
+  if (typeof file.page_count === 'number' && file.page_count > 0) meta.pageCount = file.page_count
+  if (typeof file.chunk_count === 'number' && file.chunk_count > 0) meta.chunkCount = file.chunk_count
+  if (Array.isArray(file.content_types) && file.content_types.length > 0) {
+    meta.contentTypes = file.content_types
+  }
+  return Object.keys(meta).length > 0 ? meta : null
+}
+
+/**
+ * Reconcile in-flight document rows with the backend's ingestion state and
+ * persist any terminal transition, then merge the backend's read-only document
+ * metadata (summary, page/chunk counts, content types) onto every returned row.
+ *
+ * Returns the rows with fresh statuses and metadata; rows that are already
+ * terminal (or still genuinely in flight) keep their status, and metadata is
+ * layered on top. Backend outages never fail the read path — a failed fetch
+ * simply leaves statuses untouched and metadata absent until the next read.
+ */
+export async function reconcileDocumentStatuses<T extends ReconcilableDocument>(
+  rows: T[]
+): Promise<Array<T & DocumentMetadata>> {
+  if (rows.length === 0) return []
 
   const db = getDb()
-  // One file-list fetch per collection, shared across rows in this call.
+  // One file-list fetch per collection, shared across the status-reconciliation
+  // and metadata-enrichment passes below.
   const collectionCache = new Map<string, Promise<CollectionFiles | null>>()
   const getCollectionFiles = (collectionName: string): Promise<CollectionFiles | null> => {
     let cached = collectionCache.get(collectionName)
@@ -161,49 +241,70 @@ export async function reconcileDocumentStatuses<T extends ReconcilableDocument>(
     return cached
   }
 
-  // One batch call for every in-flight job id (previously one GET per row).
-  const jobIds = [...new Set(inFlight.map((row) => extractIngestJobId(row.metadata)).filter((id): id is string => !!id))]
-  const jobStatuses = await fetchJobStatuses(jobIds)
-
+  // --- Status reconciliation (in-flight rows only) ---
   const resolutions = new Map<string, TerminalResolution>()
+  const inFlight = rows.filter((row) => IN_FLIGHT_STATUSES.has(row.status))
+  if (inFlight.length > 0) {
+    // One batch call for every in-flight job id (previously one GET per row).
+    const jobIds = [
+      ...new Set(inFlight.map((row) => extractIngestJobId(row.metadata)).filter((id): id is string => !!id)),
+    ]
+    const jobStatuses = await fetchJobStatuses(jobIds)
 
-  await Promise.all(
-    inFlight.map(async (row) => {
-      const jobId = extractIngestJobId(row.metadata)
-      let resolution: TerminalResolution | null = null
+    await Promise.all(
+      inFlight.map(async (row) => {
+        const jobId = extractIngestJobId(row.metadata)
+        let resolution: TerminalResolution | null = null
 
-      if (jobId) {
-        // Batch call failed → backend unreachable → leave rows untouched.
-        if (jobStatuses === null) return
-        const jobResult = resolveFromJobStatus(jobStatuses.get(jobId))
-        if (jobResult.kind === 'terminal') {
-          resolution = jobResult.resolution
-        } else if (jobResult.kind !== 'unknown') {
-          // in_progress — nothing to write this round.
-          return
+        if (jobId) {
+          // Batch call failed → backend unreachable → leave rows untouched.
+          if (jobStatuses === null) return
+          const jobResult = resolveFromJobStatus(jobStatuses.get(jobId))
+          if (jobResult.kind === 'terminal') {
+            resolution = jobResult.resolution
+          } else if (jobResult.kind !== 'unknown') {
+            // in_progress — nothing to write this round.
+            return
+          }
         }
-      }
 
-      if (!resolution) {
-        resolution = resolveFromCollection(await getCollectionFiles(row.collectionName), row.filename)
-      }
-      if (!resolution) return
+        if (!resolution) {
+          resolution = resolveFromCollection(await getCollectionFiles(row.collectionName), row.filename)
+        }
+        if (!resolution) return
 
-      await db
-        .update(documents)
-        .set({
-          status: resolution.status,
-          errorMessage: resolution.errorMessage,
-          updatedAt: new Date(),
-        })
-        .where(eq(documents.id, row.id))
-      resolutions.set(row.id, resolution)
+        await db
+          .update(documents)
+          .set({
+            status: resolution.status,
+            errorMessage: resolution.errorMessage,
+            updatedAt: new Date(),
+          })
+          .where(eq(documents.id, row.id))
+        resolutions.set(row.id, resolution)
+      })
+    )
+  }
+
+  // --- Metadata enrichment (all rows) ---
+  // Completed documents never hit the status pass above, so metadata is joined
+  // here for every row. Reuses the shared per-collection cache, so a project
+  // with one collection costs a single backend fetch per list read. Fail-open:
+  // a null file list (backend down / 404) simply yields no metadata.
+  const metaByRow = new Map<string, DocumentMetadata>()
+  await Promise.all(
+    rows.map(async (row) => {
+      const meta = extractMetadata(await getCollectionFiles(row.collectionName), row.filename)
+      if (meta) metaByRow.set(row.id, meta)
     })
   )
 
-  if (resolutions.size === 0) return rows
   return rows.map((row) => {
     const resolution = resolutions.get(row.id)
-    return resolution ? { ...row, status: resolution.status, errorMessage: resolution.errorMessage } : row
+    const meta = metaByRow.get(row.id) ?? {}
+    const base = resolution
+      ? { ...row, status: resolution.status, errorMessage: resolution.errorMessage }
+      : row
+    return { ...base, ...meta }
   })
 }

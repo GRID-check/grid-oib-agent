@@ -46,8 +46,10 @@ import {
   setDocumentIngestJob,
   markDocumentIngestFailed,
   findDocumentInOrg,
+  listProjectDocuments,
 } from './repository'
-import { uploadDocument, reingestDocument, INGEST_DISPATCH_FAILED_MESSAGE } from './service'
+import { listDocuments, uploadDocument, reingestDocument, INGEST_DISPATCH_FAILED_MESSAGE } from './service'
+import { reconcileDocumentStatuses } from './reconcile-status'
 import { ConflictError } from '@/lib/api/errors'
 
 const session = {
@@ -134,6 +136,43 @@ describe('uploadDocument ingest dispatch', () => {
       INGEST_DISPATCH_FAILED_MESSAGE,
     )
     expect(setDocumentIngestJob).not.toHaveBeenCalled()
+  })
+})
+
+describe('listDocuments', () => {
+  it('carries the curated metadata subset through and strips the internal metadata column', async () => {
+    vi.mocked(listProjectDocuments).mockResolvedValue([] as any)
+    // reconcile returns rows with the internal `metadata` jsonb (ingestJobId)
+    // plus the curated read-only fields layered on top.
+    vi.mocked(reconcileDocumentStatuses).mockResolvedValue([
+      {
+        id: 'doc-1',
+        filename: 'plan.pdf',
+        fileSize: 1024,
+        contentType: 'application/pdf',
+        status: 'completed',
+        collectionName: 'proj_abc',
+        folderId: null,
+        createdAt: new Date('2026-01-01T00:00:00Z'),
+        updatedAt: new Date('2026-01-02T00:00:00Z'),
+        errorMessage: null,
+        metadata: { ingestJobId: 'job-1' },
+        summary: 'A ground-floor plan.',
+        pageCount: 4,
+        chunkCount: 12,
+        contentTypes: ['text', 'table'],
+      },
+    ] as any)
+
+    const [row] = await listDocuments(session, 'proj-1')
+
+    // Internal metadata jsonb (with ingestJobId) never leaves the BFF.
+    expect(row).not.toHaveProperty('metadata')
+    // Curated read-only fields ride alongside as top-level properties.
+    expect(row.summary).toBe('A ground-floor plan.')
+    expect(row.pageCount).toBe(4)
+    expect(row.chunkCount).toBe(12)
+    expect(row.contentTypes).toEqual(['text', 'table'])
   })
 })
 

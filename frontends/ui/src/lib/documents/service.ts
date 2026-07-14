@@ -19,7 +19,7 @@ import { findProjectInOrg } from '@/lib/projects/repository'
 import { ApiError, ConflictError, NotFoundError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import type { Document } from '@/lib/db/schema'
-import { reconcileDocumentStatuses } from './reconcile-status'
+import { reconcileDocumentStatuses, type DocumentMetadata } from './reconcile-status'
 import {
   findDocumentInOrg,
   findFolderPathInProject,
@@ -153,12 +153,15 @@ async function dispatchIngest(
 
 /**
  * List a project's documents (bounded), lazily reconciling in-flight
- * ingestion statuses with the backend. Internal metadata never leaves the BFF.
+ * ingestion statuses with the backend and merging the backend's read-only
+ * document metadata (summary, page/chunk counts, content types). The internal
+ * `metadata` jsonb column (which carries `ingestJobId`) never leaves the BFF;
+ * the curated metadata fields ride alongside as top-level properties.
  */
 export async function listDocuments(
   session: AuthorizedSession,
   projectId: string,
-): Promise<Omit<DocumentListRow, 'metadata'>[]> {
+): Promise<Array<Omit<DocumentListRow, 'metadata'> & DocumentMetadata>> {
   await requireProjectAccess(session, projectId, 'project:view')
 
   const rows = await listProjectDocuments(projectId, session.organizationId)
@@ -357,5 +360,10 @@ export async function getDocumentStatus(session: AuthorizedSession, documentId: 
     errorMessage: reconciled.errorMessage,
     createdAt: reconciled.createdAt,
     updatedAt: reconciled.updatedAt,
+    // Read-only document metadata merged from the backend collection listing.
+    summary: reconciled.summary,
+    pageCount: reconciled.pageCount,
+    chunkCount: reconciled.chunkCount,
+    contentTypes: reconciled.contentTypes,
   }
 }
