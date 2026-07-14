@@ -20,15 +20,29 @@ describe('FilePreviewPane', () => {
     expect(screen.getByText(/1\.0 MB/i)).toBeDefined()
   })
 
-  it('surfaces the failure reason and a retry-ingestion affordance for failed documents', () => {
+  it('surfaces the failure reason and a retry-ingestion affordance for editors on failed documents', () => {
+    render(
+      <FilePreviewPane
+        file={{ ...mockFile, status: 'failed', errorMessage: 'Ingestion could not be started' }}
+        projectId="proj-1"
+        canEdit
+      />
+    )
+    expect(screen.getByText('Ingestion failed')).toBeDefined()
+    expect(screen.getByText('Ingestion could not be started')).toBeDefined()
+    expect(screen.getByRole('button', { name: /retry ingestion/i })).toBeDefined()
+  })
+
+  it('hides the retry-ingestion affordance from viewers (canEdit is false)', () => {
     render(
       <FilePreviewPane
         file={{ ...mockFile, status: 'failed', errorMessage: 'Ingestion could not be started' }}
         projectId="proj-1"
       />
     )
+    // The failure reason is still surfaced to viewers…
     expect(screen.getByText('Ingestion failed')).toBeDefined()
-    expect(screen.getByText('Ingestion could not be started')).toBeDefined()
-    expect(screen.getByRole('button', { name: /retry ingestion/i })).toBeDefined()
+    // …but the mutating retry action is not offered.
+    expect(screen.queryByRole('button', { name: /retry ingestion/i })).toBeNull()
   })
 })
