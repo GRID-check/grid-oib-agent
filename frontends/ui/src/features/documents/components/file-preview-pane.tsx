@@ -40,9 +40,10 @@ export function FilePreviewPane({ file, onClose, onReingested, showMetadataPanel
   const [isReingesting, setIsReingesting] = useState(false)
   const [isLargePreviewOpen, setIsLargePreviewOpen] = useState(false)
   const canPreview = PREVIEW_TYPES.includes(file.contentType ?? '')
-  // The large viewer dialog renders documents in an iframe using the browser's
-  // native PDF viewer, so the expand affordance is offered for PDFs only.
-  const canExpandPreview = file.contentType === 'application/pdf'
+  const isImage = (file.contentType ?? '').startsWith('image/')
+  // The large viewer dialog enlarges PDFs (native iframe viewer) and images
+  // (img mode). Offer the expand affordance for both.
+  const canExpandPreview = file.contentType === 'application/pdf' || isImage
   const isFailed = file.status === 'failed'
   const Icon = fileTypeIcon(file.contentType, file.filename)
   // Only surface content categories when there is something beyond plain text;
@@ -144,6 +145,7 @@ export function FilePreviewPane({ file, onClose, onReingested, showMetadataPanel
           onOpenChange={setIsLargePreviewOpen}
           fileName={file.filename}
           src={previewUrl}
+          isImage={isImage}
         />
       )}
 

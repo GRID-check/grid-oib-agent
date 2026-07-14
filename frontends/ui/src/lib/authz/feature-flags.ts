@@ -38,6 +38,9 @@ export const FEATURE_FLAGS = {
   chatConfidenceChip: 'chat-confidence-chip',
   /** Files preview metadata block: summary/pages/passages/contents rows (FB-8). */
   filesMetadataPanel: 'files-metadata-panel',
+  /** Standalone PNG/JPG image upload via VLM captioning (FB-15a); gates the
+   *  accept-list (client) and the server-side upload allow-list (BFF). */
+  imageUpload: 'image-upload',
 } as const
 
 export type KnownFeatureFlag = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]

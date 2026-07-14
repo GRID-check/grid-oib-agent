@@ -113,6 +113,7 @@ delivered in the AuthKit JWT `feature_flags` claim (registry:
 | `source-origin-badges` | [KB]/[RIS]/[Web] origin badges in report source lists (FB-2). Server-computed in the chat route, prop-drilled to ReportTab; off → plain token-stripped source text |
 | `chat-confidence-chip` | Self-assessed confidence chip on shallow chat answers (FB-6). Server-computed in the chat route, prop-drilled to AgentResponse; off → no chip |
 | `files-metadata-panel` | Files preview ingestion-metadata block: summary/pages/passages/contents rows (FB-8). Server-computed in the files page, prop-drilled to FilePreviewPane; status/type/size rows are never gated |
+| `image-upload` | Standalone PNG/JPG upload via VLM captioning (FB-15a). Server-computed in the root layout, prop-drilled into `AppConfig.fileUpload.acceptedTypes` (client accept-list strips image types when off); the BFF upload route (`uploadDocument`) independently re-checks the flag and rejects image extensions with a 400 when off |
 
 Rollout order (per environment): 1) create the flags in the WorkOS
 dashboard (Feature Flags — flag create/update events are covered by
@@ -133,6 +134,11 @@ organizations in both; **`chat-confidence-chip` is enabled in Staging but
 intentionally OFF in Production** until the live confidence-marker
 smoke test passes (the answering LLM must emit the `[CONFIDENCE:…]` control
 marker reliably; see FB-6 / backlog.md RUNTIME-SMOKE) — flip it on in
+Production once that check is green. The `image-upload` flag (FB-15a) exists in
+Staging AND Production (2026-07-14); enabled for all orgs in Staging,
+**intentionally OFF in Production** pending a live image-ingestion smoke test
+(a real PNG/JPG must round-trip through the VLM caption → summary/tags →
+retrieval, and the deployment must have `AIQ_VLM_*` configured) — flip it on in
 Production once that check is green.
 
 ## Replay into a fresh environment (e.g. Production)

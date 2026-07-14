@@ -25,7 +25,7 @@ describe('validation', () => {
     test('rejects invalid extensions', () => {
       expect(isValidFileExtension('document.exe')).toBe(false)
       expect(isValidFileExtension('document.js')).toBe(false)
-      expect(isValidFileExtension('document.png')).toBe(false)
+      expect(isValidFileExtension('document.zip')).toBe(false)
       expect(isValidFileExtension('document.html')).toBe(false)
     })
 
@@ -51,7 +51,7 @@ describe('validation', () => {
     })
 
     test('rejects invalid mime types', () => {
-      expect(isValidMimeType('image/png')).toBe(false)
+      expect(isValidMimeType('image/gif')).toBe(false)
       expect(isValidMimeType('application/javascript')).toBe(false)
       expect(isValidMimeType('text/html')).toBe(false)
     })
@@ -258,7 +258,7 @@ describe('validation', () => {
       })
 
       test('generates summary for multiple file errors', () => {
-        const files = [createFile('a.exe'), createFile('b.png')]
+        const files = [createFile('a.exe'), createFile('b.zip')]
 
         const result = validateFileUpload(files)
 

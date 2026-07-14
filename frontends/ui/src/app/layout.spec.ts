@@ -28,7 +28,7 @@ describe('File Upload Configuration', () => {
     test('uses default accepted types when env var not set', () => {
       const config = buildFileUploadConfig()
 
-      expect(config.acceptedTypes).toBe('.pdf,.docx,.txt,.md')
+      expect(config.acceptedTypes).toBe('.pdf,.docx,.txt,.md,.png,.jpg,.jpeg')
     })
 
     test('uses default max size when env var not set', () => {
@@ -64,6 +64,42 @@ describe('File Upload Configuration', () => {
         )
       ).toBe(true)
       expect(config.acceptedMimeTypes).not.toContain('text/html')
+    })
+
+    test('default includes image types (gated by the image-upload flag downstream)', () => {
+      const config = buildFileUploadConfig()
+
+      expect(config.acceptedTypes).toContain('.png')
+      expect(config.acceptedTypes).toContain('.jpg')
+      expect(config.acceptedTypes).toContain('.jpeg')
+      expect(config.acceptedMimeTypes).toContain('image/png')
+      expect(config.acceptedMimeTypes).toContain('image/jpeg')
+    })
+  })
+
+  describe('image-upload flag gating', () => {
+    test('strips image extensions + MIME types when imageUploadEnabled is false', () => {
+      const config = getFileUploadConfigFromEnv(process.env, { imageUploadEnabled: false })
+
+      expect(config.acceptedTypes).toBe('.pdf,.docx,.txt,.md')
+      expect(config.acceptedMimeTypes).not.toContain('image/png')
+      expect(config.acceptedMimeTypes).not.toContain('image/jpeg')
+      // Non-image types are untouched.
+      expect(config.acceptedMimeTypes).toContain('application/pdf')
+    })
+
+    test('keeps image extensions when imageUploadEnabled is true', () => {
+      const config = getFileUploadConfigFromEnv(process.env, { imageUploadEnabled: true })
+
+      expect(config.acceptedTypes).toContain('.png')
+      expect(config.acceptedMimeTypes).toContain('image/png')
+    })
+
+    test('strips images from an explicit env override too', () => {
+      process.env.FILE_UPLOAD_ACCEPTED_TYPES = '.pdf,.png,.jpeg'
+      const config = getFileUploadConfigFromEnv(process.env, { imageUploadEnabled: false })
+
+      expect(config.acceptedTypes).toBe('.pdf')
     })
   })
 

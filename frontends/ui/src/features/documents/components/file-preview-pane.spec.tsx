@@ -40,7 +40,7 @@ describe('FilePreviewPane', () => {
     expect(await screen.findByRole('button', { name: /open large preview/i })).toBeDefined()
   })
 
-  it('does not offer the expand affordance for a non-PDF file', async () => {
+  it('offers the expand affordance for an image once its preview URL has loaded (FB-15a)', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
       json: async () => ({ url: 'https://example.test/diagram.png' }),
@@ -53,8 +53,19 @@ describe('FilePreviewPane', () => {
       />
     )
 
-    // Wait for the preview fetch to settle, then confirm no expand button exists.
     await waitFor(() => expect(screen.getByAltText('diagram.png')).toBeDefined())
+    expect(await screen.findByRole('button', { name: /open large preview/i })).toBeDefined()
+  })
+
+  it('does not offer the expand affordance for a non-previewable file', async () => {
+    render(
+      <FilePreviewPane
+        file={{ ...mockFile, filename: 'notes.txt', contentType: 'text/plain' }}
+        projectId="proj-1"
+      />
+    )
+
+    // text/plain is not previewable, so no preview URL loads and no expand button.
     expect(screen.queryByRole('button', { name: /open large preview/i })).toBeNull()
   })
 

@@ -33,12 +33,18 @@ export interface PdfViewerDialogProps {
    * this viewer. `page` is appended as a `#page=N` fragment when provided.
    */
   src?: string
+  /**
+   * Render the source as an image (`<img>` in a scrollable frame) instead of
+   * the PDF iframe. Lets the Files preview pane reuse this dialog to enlarge
+   * standalone image uploads (FB-15a). The `#page=N` fragment does not apply.
+   */
+  isImage?: boolean
 }
 
-export function PdfViewerDialog({ open, onOpenChange, fileName, page, title, src: srcOverride }: PdfViewerDialogProps) {
+export function PdfViewerDialog({ open, onOpenChange, fileName, page, title, src: srcOverride, isImage }: PdfViewerDialogProps) {
   const t = useTranslations('knowledge')
   const baseSrc = srcOverride ?? `/api/knowledge-base/documents/${encodeURIComponent(fileName)}`
-  const src = page ? `${baseSrc}#page=${page}` : baseSrc
+  const src = page && !isImage ? `${baseSrc}#page=${page}` : baseSrc
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -58,13 +64,18 @@ export function PdfViewerDialog({ open, onOpenChange, fileName, page, title, src
             </a>
           </DialogDescription>
         </DialogHeader>
-        {open && (
-          <iframe
-            src={src}
-            title={title ?? fileName}
-            className="min-h-0 w-full flex-1 rounded-lg border border-border bg-surface-sunken"
-          />
-        )}
+        {open &&
+          (isImage ? (
+            <div className="min-h-0 w-full flex-1 overflow-auto rounded-lg border border-border bg-surface-sunken">
+              <img src={src} alt={title ?? fileName} className="mx-auto h-auto max-w-full" />
+            </div>
+          ) : (
+            <iframe
+              src={src}
+              title={title ?? fileName}
+              className="min-h-0 w-full flex-1 rounded-lg border border-border bg-surface-sunken"
+            />
+          ))}
       </DialogContent>
     </Dialog>
   )

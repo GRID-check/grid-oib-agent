@@ -50,20 +50,23 @@ import {
 } from './repository'
 import { listDocuments, uploadDocument, reingestDocument, INGEST_DISPATCH_FAILED_MESSAGE } from './service'
 import { reconcileDocumentStatuses } from './reconcile-status'
-import { ConflictError } from '@/lib/api/errors'
+import { BadRequestError, ConflictError } from '@/lib/api/errors'
 
 const session = {
   userId: 'user-1',
   email: 'user@example.com',
   organizationId: 'org-1',
+  featureFlags: null,
 } as any
 
-const makeInput = () => ({
+const makeInput = (
+  overrides: { name?: string; type?: string } = {},
+) => ({
   projectId: 'proj-1',
   folderId: null,
   file: {
-    name: 'plan.pdf',
-    type: 'application/pdf',
+    name: overrides.name ?? 'plan.pdf',
+    type: overrides.type ?? 'application/pdf',
     size: 1234,
     arrayBuffer: () => Promise.resolve(new ArrayBuffer(8)),
   } as unknown as File,
@@ -83,7 +86,48 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  vi.unstubAllEnvs()
   vi.clearAllMocks()
+})
+
+describe('uploadDocument server-side type gate', () => {
+  it('rejects an image with a 400 when the image-upload flag is off', async () => {
+    // Flag enforcement ON, session lacks the image-upload flag → images stripped.
+    vi.stubEnv('GRID_ENFORCE_FEATURE_FLAGS', 'true')
+    const gatedSession = { ...session, featureFlags: [] }
+
+    await expect(
+      uploadDocument(gatedSession, makeInput({ name: 'photo.png', type: 'image/png' }), new Request('http://x')),
+    ).rejects.toBeInstanceOf(BadRequestError)
+
+    // Rejected before any storage/ingest side effects.
+    expect(insertDocument).not.toHaveBeenCalled()
+    expect(mockFetch).not.toHaveBeenCalled()
+  })
+
+  it('accepts an image when the image-upload flag is on', async () => {
+    vi.stubEnv('GRID_ENFORCE_FEATURE_FLAGS', 'true')
+    const gatedSession = { ...session, featureFlags: ['image-upload'] }
+    mockFetch.mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve({ job_id: 'job-img' }) })
+
+    const result = await uploadDocument(
+      gatedSession,
+      makeInput({ name: 'photo.png', type: 'image/png' }),
+      new Request('http://x'),
+    )
+
+    expect(result.status).toBe('pending')
+    expect(insertDocument).toHaveBeenCalled()
+  })
+
+  it('rejects a type outside the accepted list regardless of flags (general allow-list)', async () => {
+    // Enforcement off (default) → image-upload fails open, but .exe is still
+    // not in the accepted-types list, so the server rejects it.
+    await expect(
+      uploadDocument(session, makeInput({ name: 'malware.exe', type: 'application/octet-stream' }), new Request('http://x')),
+    ).rejects.toBeInstanceOf(BadRequestError)
+    expect(insertDocument).not.toHaveBeenCalled()
+  })
 })
 
 describe('uploadDocument ingest dispatch', () => {

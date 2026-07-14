@@ -16,7 +16,9 @@ import { requireProjectAccess } from '@/lib/authz/projects'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { getBackendUrl } from '@/lib/backend-proxy'
 import { findProjectInOrg } from '@/lib/projects/repository'
-import { ApiError, ConflictError, NotFoundError } from '@/lib/api/errors'
+import { ApiError, BadRequestError, ConflictError, NotFoundError } from '@/lib/api/errors'
+import { getFileUploadConfigFromEnv } from '@/shared/config/file-upload'
+import { FEATURE_FLAGS, isFeatureEnabled } from '@/lib/authz/feature-flags'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import type { Document } from '@/lib/db/schema'
 import { reconcileDocumentStatuses, type DocumentMetadata } from './reconcile-status'
@@ -186,6 +188,36 @@ export interface UploadDocumentResult {
   filename: string
 }
 
+/** Lowercased extension including the leading dot, or '' when there is none. */
+function fileExtension(name: string): string {
+  const idx = name.lastIndexOf('.')
+  return idx > 0 ? name.slice(idx).toLowerCase() : ''
+}
+
+/**
+ * Server-side upload allow-list. The client already filters by accepted type,
+ * but nothing enforced it on the server until now — so any type could be
+ * POSTed directly. This mirrors the same env-driven accepted-types config the
+ * client uses (closing that gap for ALL types), and additionally gates image
+ * types behind the `image-upload` flag: images are only in the allow-list when
+ * the session's org has the flag (fail-open when enforcement is off).
+ */
+function assertUploadTypeAllowed(session: AuthorizedSession, filename: string): void {
+  const imageUploadEnabled = isFeatureEnabled(session, FEATURE_FLAGS.imageUpload)
+  const { acceptedTypes } = getFileUploadConfigFromEnv(process.env, { imageUploadEnabled })
+  const allowed = acceptedTypes
+    .split(',')
+    .map((ext) => ext.trim().toLowerCase())
+    .filter(Boolean)
+  const ext = fileExtension(filename)
+  if (!ext || !allowed.includes(ext)) {
+    throw new BadRequestError(`File type "${ext || 'unknown'}" is not permitted`, {
+      extension: ext || null,
+      accepted: allowed,
+    })
+  }
+}
+
 /**
  * Store an uploaded file in MinIO, record it, and hand it to the backend for
  * ingestion. The ingest call is best-effort: the document is already durable
@@ -199,6 +231,7 @@ export async function uploadDocument(
   const { projectId, folderId, file } = input
 
   await requireProjectAccess(session, projectId, 'project:edit')
+  assertUploadTypeAllowed(session, file.name)
 
   let folderPath: string | null = null
   if (folderId) {

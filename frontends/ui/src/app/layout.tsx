@@ -15,6 +15,8 @@ import { connection } from 'next/server'
 import { Providers } from './providers'
 import type { AppConfig } from '@/shared/context'
 import { getFileUploadConfigFromEnv } from '@/shared/config/file-upload'
+import { getGridSession } from '@/lib/auth/session'
+import { FEATURE_FLAGS, isFeatureEnabled } from '@/lib/authz/feature-flags'
 import { getLocale } from '@/i18n/server'
 import { getDictionary } from '@/i18n'
 import './globals.css'
@@ -60,12 +62,28 @@ export const metadata: Metadata = {
 }
 
 /**
+ * Whether standalone image upload is offered to this session (WorkOS
+ * `image-upload` flag, FB-15a). Read tolerantly — an unauthenticated route or a
+ * session-lookup failure must never break the layout; it just falls back to the
+ * flag's default (fail-open when enforcement is off, so images are offered).
+ */
+const isImageUploadEnabled = async (): Promise<boolean> => {
+  try {
+    const session = await getGridSession()
+    if (!session) return isFeatureEnabled({ featureFlags: null }, FEATURE_FLAGS.imageUpload)
+    return isFeatureEnabled(session, FEATURE_FLAGS.imageUpload)
+  } catch {
+    return isFeatureEnabled({ featureFlags: null }, FEATURE_FLAGS.imageUpload)
+  }
+}
+
+/**
  * Runtime configuration from server-side environment variables.
  * These values can be changed at runtime without rebuilding the container.
  */
-const getAppConfig = (): AppConfig => ({
+const getAppConfig = async (): Promise<AppConfig> => ({
   authRequired: isAuthRequired(),
-  fileUpload: getFileUploadConfigFromEnv(process.env),
+  fileUpload: getFileUploadConfigFromEnv(process.env, { imageUploadEnabled: await isImageUploadEnabled() }),
 })
 
 interface RootLayoutProps {
@@ -74,7 +92,7 @@ interface RootLayoutProps {
 
 const RootLayout = async ({ children }: RootLayoutProps): Promise<ReactNode> => {
   await connection()
-  const config = getAppConfig()
+  const config = await getAppConfig()
   const locale = await getLocale()
   const t = getDictionary(locale).common
 
