@@ -655,8 +655,11 @@ describe('useDeepResearch', () => {
       expect(mockSetCurrentStatus).toHaveBeenCalledWith('error')
       expect(mockStopAllDeepResearchSpinners).toHaveBeenCalled()
       expect(mockCompleteDeepResearch).toHaveBeenCalled()
+      // No explicit message (the banner localizes the registry default);
+      // the raw backend error travels in the details slot.
       expect(mockAddErrorCard).toHaveBeenCalledWith(
         'agent.deep_research_failed',
+        undefined,
         'Something went wrong'
       )
     })
@@ -690,6 +693,7 @@ describe('useDeepResearch', () => {
       )
       expect(mockAddErrorCard).toHaveBeenCalledWith(
         'agent.deep_research_failed',
+        undefined,
         'worker lost during reconnect'
       )
     })

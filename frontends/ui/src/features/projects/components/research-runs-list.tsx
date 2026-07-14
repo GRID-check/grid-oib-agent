@@ -79,6 +79,17 @@ const formatRelativeTime = (isoDate: string, locale: Locale): string => {
   return rtf.format(Math.round(diffSeconds / divisors.year), 'year')
 }
 
+/**
+ * Localized absolute date/time used as the tooltip on relative timestamps,
+ * so "vor 3 Tagen" can be pinned to an exact moment on hover.
+ */
+const formatAbsoluteTime = (isoDate: string, locale: Locale): string => {
+  const date = new Date(isoDate)
+  if (Number.isNaN(date.getTime())) return isoDate
+
+  return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }).format(date)
+}
+
 export function ResearchRunsList({ projectId, projectCollection }: ResearchRunsListProps): JSX.Element {
   const t = useTranslations('projects')
   const tr = useTranslations('research')
@@ -245,7 +256,9 @@ export function ResearchRunsList({ projectId, projectCollection }: ResearchRunsL
                   <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                     <span className="font-mono">{shortJobId(job.job_id)}</span>
                     <span aria-hidden>·</span>
-                    <span>{formatRelativeTime(job.created_at, locale)}</span>
+                    <span title={formatAbsoluteTime(job.created_at, locale)}>
+                      {formatRelativeTime(job.created_at, locale)}
+                    </span>
                   </span>
                 </div>
               </div>

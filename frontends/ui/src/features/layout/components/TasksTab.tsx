@@ -9,7 +9,7 @@
 
 'use client'
 
-import { type FC } from 'react'
+import { type FC, useEffect, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { CheckCircle2, AlertTriangle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -17,6 +17,31 @@ import { Progress } from '@/components/ui/progress'
 import { useChatStore } from '@/features/chat'
 import { useTranslations } from '@/i18n'
 import { TaskCard } from './TaskCard'
+
+/** How often the coarse elapsed-time indicator refreshes (30s). */
+const ELAPSED_TICK_MS = 30000
+
+/**
+ * Whole minutes elapsed since a live run started in this tab.
+ * Returns null while no run is active, before the first full minute, or after
+ * a reload (where the true start time is unknown and the indicator is hidden).
+ * Re-renders at a coarse interval; the timer is cleaned up on unmount and when
+ * the run reaches a terminal state.
+ */
+const useElapsedMinutes = (startedAt: number | null, isActive: boolean): number | null => {
+  const [now, setNow] = useState(() => Date.now())
+
+  useEffect(() => {
+    if (!isActive || !startedAt) return
+    setNow(Date.now())
+    const interval = setInterval(() => setNow(Date.now()), ELAPSED_TICK_MS)
+    return () => clearInterval(interval)
+  }, [isActive, startedAt])
+
+  if (!isActive || !startedAt) return null
+  const minutes = Math.floor((now - startedAt) / 60000)
+  return minutes >= 1 ? minutes : null
+}
 
 /**
  * Tasks tab content showing todos/tasks from deep research.
@@ -28,6 +53,7 @@ export const TasksTab: FC = () => {
     deepResearchTodos,
     currentStatus,
     isDeepResearchStreaming,
+    deepResearchStartedAt,
     isDeepResearchStalled,
     deepResearchConnectionLost,
     reconnectDeepResearchFn,
@@ -36,11 +62,14 @@ export const TasksTab: FC = () => {
       deepResearchTodos: s.deepResearchTodos,
       currentStatus: s.currentStatus,
       isDeepResearchStreaming: s.isDeepResearchStreaming,
+      deepResearchStartedAt: s.deepResearchStartedAt,
       isDeepResearchStalled: s.isDeepResearchStalled,
       deepResearchConnectionLost: s.deepResearchConnectionLost,
       reconnectDeepResearchFn: s.reconnectDeepResearchFn,
     }))
   )
+
+  const elapsedMinutes = useElapsedMinutes(deepResearchStartedAt ?? null, isDeepResearchStreaming)
 
   const isEmpty = deepResearchTodos.length === 0
 
@@ -98,6 +127,14 @@ export const TasksTab: FC = () => {
           {totalCount > 0 && (
             <span className="text-xs text-muted-foreground">
               {completedCount}/{totalCount}
+            </span>
+          )}
+          {/* Coarse elapsed-time indicator for the live run (UX: sets a
+              duration expectation; hidden after reload where the true start
+              time is unknown). */}
+          {elapsedMinutes !== null && (
+            <span className="text-xs text-muted-foreground" data-testid="tasks-elapsed-time">
+              {t('tasksTab.elapsed', { minutes: elapsedMinutes })}
             </span>
           )}
         </div>

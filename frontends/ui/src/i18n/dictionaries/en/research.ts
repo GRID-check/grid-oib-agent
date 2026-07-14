@@ -201,7 +201,7 @@ export const research = {
 
   inputArea: {
     aiDisclosure:
-      'Grid is an AI system. Answers are AI-generated and can be wrong — verify them against the cited Richtlinie before relying on them.',
+      'Grid is an AI system. Answers are AI-generated and can be wrong — verify them against the cited guideline (Richtlinie) before relying on them.',
     placeholderDefault: 'Check data sources and ask a research question...',
     signInToStart: 'Sign in to start researching',
     researchCompletedNewSession: 'Research completed. Create a new session for further questions.',
@@ -246,6 +246,9 @@ export const research = {
   reportTab: {
     contentWhenAvailable: 'Report content will appear here when available.',
     notesBanner: 'Research notes from agents — final report is still being generated.',
+    // Heading for the sources list appended from run citations when the
+    // report markdown itself has no sources section.
+    sourcesTitle: 'Sources',
   },
 
   researchPanel: {
@@ -258,6 +261,11 @@ export const research = {
     tabReport: 'Report',
     stopResearchingButton: 'Stop Researching',
     stopResearching: 'Stop researching',
+    // Confirmation dialog shown before cancelling a running deep-research job.
+    stopConfirmTitle: 'Stop research?',
+    stopConfirmBody:
+      'The running research will be cancelled and cannot be resumed. Partial progress so far stays visible in the research panel.',
+    stopConfirmConfirm: 'Stop research',
     noActiveResearch: 'No active research',
     loadingData: 'Loading research data',
     loadingDataEllipsis: 'Loading research data...',
@@ -317,6 +325,8 @@ export const research = {
     empty: 'Research tasks will appear here.',
     emptyHelp: 'Shows the plan breakdown and progress during deep research.',
     progressAria: 'Task completion progress',
+    // Coarse elapsed-time indicator for a live run (updates every 30s).
+    elapsed: 'Running for {minutes} min',
     writingReport: 'Writing final report... This may take a few minutes.',
     stalledTitle: 'No progress updates for a while',
     stalledBody:

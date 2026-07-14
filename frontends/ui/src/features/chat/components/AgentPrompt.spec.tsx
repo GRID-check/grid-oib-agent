@@ -219,6 +219,39 @@ describe('AgentPrompt', () => {
     expect(screen.getByText('Option A')).toBeInTheDocument()
   })
 
+  test('replaces the English approval envelope with localized copy', () => {
+    useChatStore.setState({ respondToInteractionFn: vi.fn() })
+
+    render(
+      <AgentPrompt
+        id="prompt-1"
+        type="approval"
+        content={'Here is the plan.\n\nReply **approve** to proceed, **reject** to cancel.'}
+      />
+    )
+
+    // The raw backend envelope sentence is stripped from the rendered content…
+    expect(screen.getByTestId('markdown')).not.toHaveTextContent(/reply/i)
+    expect(screen.getByTestId('markdown')).toHaveTextContent('Here is the plan.')
+    // …and a localized instruction plus a duration/quota expectation appear
+    // at the decision point (English fallback without an i18n provider).
+    expect(
+      screen.getByText('Choose "Approve" to start the research or "Reject" to cancel.')
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/several minutes.*quota/i)
+    ).toBeInTheDocument()
+  })
+
+  test('keeps non-approval prompt content untouched', () => {
+    render(
+      <AgentPrompt id="prompt-1" type="clarification" content="Which building class applies?" />
+    )
+
+    expect(screen.getByTestId('markdown')).toHaveTextContent('Which building class applies?')
+    expect(screen.queryByText(/several minutes/i)).not.toBeInTheDocument()
+  })
+
   test('tabs through plan approval actions in DOM order', async () => {
     const user = userEvent.setup()
     useChatStore.setState({ respondToInteractionFn: vi.fn() })

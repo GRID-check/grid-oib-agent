@@ -19,9 +19,15 @@ Usage:
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Deep Research Debug Console</title>
+    <!-- Optional markdown renderer. On-prem/air-gapped deployments without CDN
+         access degrade gracefully: renderMarkdown() falls back to escaped
+         plain text in a <pre> when window.marked is unavailable. -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
-      @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Inter:wght@400;500;600;700&display=swap');
+      /* No webfont imports: system font stacks keep this file self-contained
+         and fully functional in offline/air-gapped deployments. 'Inter' /
+         'JetBrains Mono' are used when installed locally, else the fallbacks
+         in each font-family declaration apply. */
 
       :root {
         --bg-primary: #0a0c10;
@@ -1829,7 +1835,14 @@ Usage:
 
       function renderMarkdown(text) {
         if (window.marked) return window.marked.parse(text || '');
-        return (text || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br/>');
+        // Fallback when the CDN copy of `marked` did not load (offline /
+        // air-gapped deployment): render escaped plain text in a <pre> so
+        // reports stay readable instead of failing.
+        const escaped = (text || '')
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+        return `<pre style="white-space: pre-wrap; word-break: break-word; font-family: inherit; margin: 0;">${escaped}</pre>`;
       }
 
       function appendChat(role, text, options = {}, persist = true) {

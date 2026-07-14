@@ -24,6 +24,16 @@ export type { PromptType }
 const APPROVAL_PROMPT_RE =
   /Reply\s+\*{0,2}approve\*{0,2}\s+to proceed,\s+\*{0,2}reject\*{0,2}\s+to cancel/i
 
+/**
+ * The backend's approval envelope sentence, including optional surrounding
+ * punctuation. The envelope is byte-stable by design, so we keep matching the
+ * English sentence — but instead of showing it to (mostly German-speaking)
+ * users, we strip it from the rendered markdown and show a localized
+ * instruction next to the Approve/Reject buttons.
+ */
+const APPROVAL_PROMPT_STRIP_RE =
+  /[ \t]*Reply\s+\*{0,2}approve\*{0,2}\s+to proceed,\s+\*{0,2}reject\*{0,2}\s+to cancel\.?/i
+
 export interface AgentPromptProps {
   /** Unique identifier for this prompt */
   id: string
@@ -65,6 +75,10 @@ export const AgentPrompt: FC<AgentPromptProps> = ({
   const respondToInteractionFn = useChatStore((state) => state.respondToInteractionFn)
   const isApprovalPrompt = APPROVAL_PROMPT_RE.test(content)
   const showApprovalButtons = isApprovalPrompt && !isResponded && !!respondToInteractionFn
+  // Replace the English envelope sentence with localized copy rendered below.
+  const displayContent = isApprovalPrompt
+    ? content.replace(APPROVAL_PROMPT_STRIP_RE, '').trim()
+    : content
 
   const handleApprove = useCallback(() => {
     respondToInteractionFn?.('approve')
@@ -88,12 +102,25 @@ export const AgentPrompt: FC<AgentPromptProps> = ({
 
           {/* Content - rendered as markdown */}
           <div className={`prose prose-sm max-w-none ${isResponded ? 'opacity-75' : ''}`}>
-            <MarkdownRenderer content={content} />
+            <MarkdownRenderer content={displayContent} />
           </div>
 
           {/* Options list for choice prompts */}
           {options.length > 0 && !isResponded && (
             <OptionsList options={options} onSelect={respondToInteractionFn} />
+          )}
+
+          {/* Localized instruction + duration/cost expectation for plan
+              approval prompts, shown at the decision point (before approval). */}
+          {isApprovalPrompt && !isResponded && (
+            <div className="flex flex-col gap-1">
+              <span className="text-sm text-foreground">
+                {t('agentPrompt.approvalInstruction')}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {t('agentPrompt.durationHint')}
+              </span>
+            </div>
           )}
 
           {/* Approve/Reject buttons for plan approval prompts */}

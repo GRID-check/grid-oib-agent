@@ -80,7 +80,6 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
   const lastEventTimeRef = useRef<number>(Date.now())
   const timeoutIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const cancelFallbackRef = useRef<NodeJS.Timeout | null>(null)
-  const researchStartTimeRef = useRef<number | null>(null)
 
 
   // State for timeout warning
@@ -291,7 +290,6 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
             if (buf.active) return
             if (!isActiveJob()) return
             resetTimeout()
-            researchStartTimeRef.current = Date.now()
             setCurrentStatus('researching')
           },
 
@@ -334,7 +332,6 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
                 })
               }
               addDeepResearchBanner('success', jobId, ownerConvId || undefined, { totalTokens, toolCallCount })
-              researchStartTimeRef.current = null
               stopAllDeepResearchSpinners(true)
               setStreamLoaded(true)
               completeDeepResearch()
@@ -354,14 +351,19 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
                 })
               }
               addDeepResearchBanner(isUserCancelled ? 'cancelled' : 'failure', jobId, ownerConvId || undefined)
-              researchStartTimeRef.current = null
               clientRef.current?.disconnect()
               setStreamLoaded(true)
               completeDeepResearch()
               setStreaming(false)
               if (error && !isUserCancelled) {
+                // The failure banner above carries the user-facing outcome and
+                // its View-report/Thinking affordances; the error card adds the
+                // technical context. No explicit message: ErrorBanner localizes
+                // the registry default via messageKey, while the raw backend
+                // string stays collapsed behind the details toggle instead of
+                // being shown as the headline.
                 const { addErrorCard } = useChatStore.getState()
-                addErrorCard('agent.deep_research_failed', error)
+                addErrorCard('agent.deep_research_failed', undefined, error)
               } else if (status === 'interrupted' && !isUserCancelled) {
                 const { addErrorCard } = useChatStore.getState()
                 addErrorCard('agent.deep_research_failed', tChat('deepResearchErrors.interrupted'))

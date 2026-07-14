@@ -27,6 +27,12 @@ export type DeepResearchSlice = {
   deepResearchJobId: string | null
   deepResearchLastEventId: string | null
   isDeepResearchStreaming: boolean
+  /**
+   * Epoch ms when the current live run was submitted from this tab. Powers the
+   * coarse elapsed-time indicator; intentionally not persisted, so a reload
+   * (where the true start time is unknown) simply hides the indicator.
+   */
+  deepResearchStartedAt: number | null
   deepResearchStatus: DeepResearchJobStatus | null
   deepResearchOwnerConversationId: string | null
   activeDeepResearchMessageId: string | null
@@ -216,6 +222,7 @@ export const initialDeepResearchState = {
   deepResearchJobId: null as string | null,
   deepResearchLastEventId: null as string | null,
   isDeepResearchStreaming: false,
+  deepResearchStartedAt: null as number | null,
   deepResearchStatus: null as DeepResearchJobStatus | null,
   deepResearchOwnerConversationId: null as string | null,
   activeDeepResearchMessageId: null as string | null,
@@ -245,6 +252,7 @@ export const createDeepResearchSlice: StateCreator<ChatStore, [["zustand/devtool
         deepResearchJobId: jobId,
         deepResearchLastEventId: null,
         isDeepResearchStreaming: true,
+        deepResearchStartedAt: Date.now(),
         deepResearchStatus: 'submitted',
         deepResearchOwnerConversationId: currentConversation?.id || null,
         activeDeepResearchMessageId: messageId || null,
@@ -565,6 +573,7 @@ export const createDeepResearchSlice: StateCreator<ChatStore, [["zustand/devtool
         deepResearchJobId: null,
         deepResearchLastEventId: null,
         isDeepResearchStreaming: false,
+        deepResearchStartedAt: null,
         deepResearchStatus: null,
         deepResearchOwnerConversationId: null,
         activeDeepResearchMessageId: null,

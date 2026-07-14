@@ -289,9 +289,12 @@ describe('useLoadJobData', () => {
     expect(mockStopAllDeepResearchSpinners).not.toHaveBeenCalled()
     expect(mockCompleteDeepResearch).not.toHaveBeenCalled()
     expect(mockSetStreaming).not.toHaveBeenCalled()
+    // End-user copy (localized via chat.deepResearchErrors.serviceUnreachable;
+    // English fallback without an i18n provider) with the technical cause in
+    // the details slot.
     expect(mockAddErrorCard).toHaveBeenCalledWith(
       'connection.failed',
-      'The backend is not reachable. Start the backend and try again.',
+      'The service is currently unreachable. Please try again later.',
       'Failed to get job status: 500 - PROXY_ERROR: fetch failed'
     )
     expect(consoleErrorSpy).not.toHaveBeenCalled()

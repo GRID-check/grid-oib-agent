@@ -34,11 +34,10 @@ import {
 } from '../lib/deep-research-errors'
 import { useAuth } from '@/adapters/auth'
 import { useLayoutStore } from '@/features/layout/store'
+import { useTranslations } from '@/i18n'
 import type { ResearchPanelTab } from '@/features/layout/types'
 import { normalizeDeepResearchTodos } from '../lib/deep-research-todos'
 
-const EXPIRED_REPORT_MESSAGE = 'This research report is no longer available.'
-const BACKEND_UNREACHABLE_MESSAGE = 'The backend is not reachable. Start the backend and try again.'
 const STREAM_BACKED_RESEARCH_TABS = new Set<ResearchPanelTab>(['tasks', 'thinking'])
 
 interface JobLoadScope {
@@ -188,6 +187,10 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
   const [error, setError] = useState<string | null>(null)
   const clientRef = useRef<DeepResearchClient | null>(null)
 
+  // Localized end-user copy for load failures (chat.deepResearchErrors.*).
+  // These strings surface directly in the UI (error cards, err.message
+  // tooltips), so they must never be raw technical/backend text.
+  const tChat = useTranslations('chat')
   const { idToken } = useAuth()
   const setReportContent = useChatStore((s) => s.setReportContent)
   const addDeepResearchToolCall = useChatStore((s) => s.addDeepResearchToolCall)
@@ -691,7 +694,9 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
         if (!isJobLoadScopeCurrent(scope)) return
 
         if (jobStatus !== 'success' && jobStatus !== 'failure' && jobStatus !== 'interrupted') {
-          throw new Error(`Job is still ${jobStatus}. Cannot load data from incomplete job.`)
+          // This message is user-facing: it becomes err.message below, which
+          // flows into the error state (rendered as a tooltip) and error card.
+          throw new Error(tChat('deepResearchErrors.jobStillRunning'))
         }
 
         // Re-check after the await: a live run for another job may have
@@ -727,12 +732,12 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
         const errorDetails = getDeepResearchJobLoadErrorDetails(err)
         const errorMessage =
           failureKind === 'unavailable'
-            ? EXPIRED_REPORT_MESSAGE
+            ? tChat('deepResearchErrors.reportUnavailable')
             : failureKind === 'backend_unreachable'
-              ? BACKEND_UNREACHABLE_MESSAGE
+              ? tChat('deepResearchErrors.serviceUnreachable')
               : err instanceof Error
                 ? err.message
-                : 'Failed to load job data'
+                : tChat('deepResearchErrors.loadFailed')
         setError(errorMessage)
         if (failureKind === 'unavailable') {
           syncMissingJobToFailureState(jobId)
@@ -754,6 +759,7 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
     },
     [
       idToken,
+      tChat,
       clearDeepResearch,
       loadJobDataFast,
       streamFullJob,
@@ -848,12 +854,12 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
         const errorDetails = getDeepResearchJobLoadErrorDetails(err)
         const errorMessage =
           failureKind === 'unavailable'
-            ? EXPIRED_REPORT_MESSAGE
+            ? tChat('deepResearchErrors.reportUnavailable')
             : failureKind === 'backend_unreachable'
-              ? BACKEND_UNREACHABLE_MESSAGE
+              ? tChat('deepResearchErrors.serviceUnreachable')
               : err instanceof Error
                 ? err.message
-                : 'Failed to load stream data'
+                : tChat('deepResearchErrors.loadFailed')
         setError(errorMessage)
         if (failureKind === 'unavailable') {
           syncMissingJobToFailureState(jobId)
@@ -875,6 +881,7 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
     },
     [
       idToken,
+      tChat,
       clearDeepResearch,
       streamFullJob,
       stopAllDeepResearchSpinners,
