@@ -132,6 +132,8 @@ def _infer_suffix(content_type: str, url: str) -> str:
         "text/markdown": ".md",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
         "application/vnd.openxmlformats-officedocument.presentationml.presentation": ".pptx",
+        "image/png": ".png",
+        "image/jpeg": ".jpg",
     }
     suffix = content_map.get(content_type.split(";", maxsplit=1)[0].strip(), "")
     if not suffix:

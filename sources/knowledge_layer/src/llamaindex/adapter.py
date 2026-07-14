@@ -315,6 +315,86 @@ def _looks_like_pdf(file_path: str) -> bool:
         return False
 
 
+def _looks_like_image(file_path: str) -> str | None:
+    """Detect standalone PNG/JPEG images by file magic (mirrors _looks_like_pdf).
+
+    Returns the normalized format ("png"/"jpeg") or None. Standalone images must
+    be routed to VLM captioning; without this they slip through to
+    SimpleDirectoryReader, which UTF-8-garbles the binary and is then rejected by
+    the binary-content guard. The signatures are specific enough (8-byte PNG,
+    3-byte JPEG SOI) that text/PDF inputs never false-positive.
+    """
+    try:
+        with open(file_path, "rb") as handle:
+            header = handle.read(8)
+    except OSError:
+        return None
+    if header.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "png"
+    if header.startswith(b"\xff\xd8\xff"):
+        return "jpeg"
+    return None
+
+
+def _build_image_caption_document(
+    file_path: str,
+    file_name: str,
+    file_size: int,
+    image_format: str,
+    vlm_model: str = DEFAULT_VLM_MODEL,
+    vlm_base_url: str = DEFAULT_VLM_BASE_URL,
+    extract_charts: bool = True,
+):
+    """Read a standalone image, validate/normalize via PIL, and VLM-caption it.
+
+    Returns a single caption ``Document`` shaped exactly like the PDF-embedded
+    image documents (page_label "1", image_index 0), or ``None`` when the bytes
+    cannot be decoded as an image (corrupt/unsupported) so the caller can fail
+    the file cleanly instead of crashing the job.
+    """
+    import io
+
+    from llama_index.core import Document
+    from PIL import Image
+
+    try:
+        with open(file_path, "rb") as handle:
+            raw = handle.read()
+        with Image.open(io.BytesIO(raw)) as pil_image:
+            pil_image.load()
+            width, height = pil_image.size
+            # Re-encode to JPEG (RGB) for a uniform VLM payload, exactly like the
+            # PDF-embedded-image path (_extract_images_from_pdf).
+            buf = io.BytesIO()
+            pil_image.convert("RGB").save(buf, format="JPEG", quality=95)
+            image_bytes = buf.getvalue()
+    except Exception as e:
+        logger.error("Could not decode standalone image %s: %s", file_name, e)
+        return None
+
+    content_type, caption = _analyze_image_with_vlm(
+        image_bytes,
+        vlm_model=vlm_model,
+        vlm_base_url=vlm_base_url,
+        extract_charts=extract_charts,
+    )
+
+    prefix = "CHART" if content_type == "chart" else "IMAGE"
+    return Document(
+        text=f"[{prefix} from page 1]\n\n{caption}",
+        metadata={
+            "file_name": file_name,
+            "file_size": file_size,
+            "page_label": "1",
+            "content_type": content_type,
+            "image_index": 0,
+            "image_format": image_format,
+            "image_width": width,
+            "image_height": height,
+        },
+    )
+
+
 def _looks_like_raw_pdf_or_binary(text: str) -> bool:
     """Reject raw PDF bytes or binary-looking text before it reaches Chroma."""
     sample = text[:4096]
@@ -1544,9 +1624,20 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         or Path(file_path).suffix.lower() == ".pdf"
                         or _looks_like_pdf(file_path)
                     )
+                    # Standalone image detection (magic bytes, else extension) —
+                    # only when it is not a PDF. Routes PNG/JPEG to VLM captioning
+                    # instead of the text reader (which would garble the binary).
+                    image_format = None if is_pdf else _looks_like_image(file_path)
+                    if image_format is None and not is_pdf:
+                        ext = Path(file_name).suffix.lower()
+                        if ext == ".png":
+                            image_format = "png"
+                        elif ext in (".jpg", ".jpeg"):
+                            image_format = "jpeg"
+                    is_image = image_format is not None and not is_pdf
 
                     mode_str = "text"
-                    if is_pdf and (extract_tables or extract_images):
+                    if is_image or (is_pdf and (extract_tables or extract_images)):
                         mode_str = "multimodal"
                     logger.info(f"Processing file {i + 1}/{len(file_paths)} (mode={mode_str})")
 
@@ -1575,6 +1666,48 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                             )
                             for page in _extract_text_from_pdf(file_path)
                         ]
+                    elif is_image:
+                        # Standalone image: caption via the VLM into a single
+                        # Document. The VLM is a hard requirement here (there is
+                        # no text to fall back on), so a missing key fails the
+                        # file with a specific, machine-readable reason the
+                        # failed-doc UX can surface for retry.
+                        if not _get_vlm_api_key():
+                            self._update_file_status(
+                                job,
+                                i,
+                                FileStatus.FAILED,
+                                error="vlm_not_configured: image ingestion requires AIQ_VLM_API_KEY",
+                            )
+                            logger.warning("Image ingestion skipped (VLM not configured): %s", file_name)
+                            continue
+
+                        caption_doc = _build_image_caption_document(
+                            file_path,
+                            file_name,
+                            file_size,
+                            image_format,
+                            vlm_model=vlm_model,
+                            vlm_base_url=vlm_base_url,
+                            extract_charts=extract_charts,
+                        )
+                        if caption_doc is None:
+                            self._update_file_status(
+                                job,
+                                i,
+                                FileStatus.FAILED,
+                                error="Image could not be read (corrupted or unsupported format)",
+                            )
+                            logger.warning("Image could not be decoded: %s", file_name)
+                            continue
+                        text_documents = [caption_doc]
+                        # Keep the job-level visual counters accurate (the caption
+                        # is the file's only chunk, and it is an image/chart —
+                        # not a text chunk).
+                        if caption_doc.metadata.get("content_type") == "chart":
+                            total_charts += 1
+                        else:
+                            total_images += 1
                     else:
                         from llama_index.core import SimpleDirectoryReader
 
@@ -1703,6 +1836,15 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     # Clean up executor
                     if executor:
                         executor.shutdown(wait=False)
+
+                    # Standalone images must appear in the per-turn
+                    # available_documents list to be usable in chat (summaries
+                    # are the ONLY per-turn file visibility). If summarization is
+                    # disabled or failed, fall back to the VLM caption itself so
+                    # the image is never silently invisible.
+                    if is_image and not summary and text_documents:
+                        caption_text = text_documents[0].get_content().strip()
+                        summary = caption_text[:500] or None
 
                     valid_documents = [
                         doc for doc in all_documents if not _looks_like_raw_pdf_or_binary(doc.get_content())
