@@ -54,7 +54,7 @@ def web_search_tool(query: str) -> str:
 _COMMON_MIDDLEWARE_CLASSES = {
     "EmptyContentFixMiddleware",
     "ToolNameSanitizationMiddleware",
-    "ToolRetryMiddleware",
+    "SelectiveToolRetryMiddleware",
     "SourceRegistryMiddleware",
     "ToolResultPruningMiddleware",
     "ModelRetryMiddleware",
@@ -674,6 +674,8 @@ class TestDeepResearcherAgent:
             assert "all needed queries in one call when there are 2 or fewer" in prompt
             assert "fewest ordered batches" in prompt
             assert "Never repeat a covered query" in prompt
+            assert "re-attempt each failed query at most 2 times" in prompt
+            assert "state what could not be researched" in prompt
             assert subagents["planner-agent"]["response_format"] is ResearchPlan
             assert "/shared/source_routing.json" not in subagents["planner-agent"]["system_prompt"]
             assert real_tool.name in {tool.name for tool in subagents["planner-agent"]["tools"]}
@@ -777,7 +779,7 @@ class TestDeepResearcherAgent:
         persisted_files = fake_backend.upload_files.call_args.args[0]
         assert len(persisted_files) == 1
         persisted_path, persisted_content = persisted_files[0]
-        assert persisted_path.startswith("/shared/research_note_01_cuda_opencl_portability_")
+        assert persisted_path.startswith("/shared/research_note_cuda_opencl_portability_comparison_")
         assert persisted_path.endswith(".json")
         persisted_payload = json.loads(persisted_content.decode("utf-8"))
         assert persisted_payload["query_topic"] == "CUDA / OpenCL portability"
@@ -996,8 +998,8 @@ class TestDeepResearcherAgent:
         ]
         query_models = [ResearchQuery.model_validate(payload) for payload in query_payloads]
         assert [note.query_topic for note in persisted_notes] == ["Good Query", "Slow Query"]
-        assert persisted_files[0][0] == _research_note_path(query_models[0], persisted_notes[0], 1)
-        assert persisted_files[1][0] == _research_note_path(query_models[2], persisted_notes[1], 2)
+        assert persisted_files[0][0] == _research_note_path(query_models[0])
+        assert persisted_files[1][0] == _research_note_path(query_models[2])
         compact_sources = source_mw.get_source_list_text()
         assert compact_sources is not None
         assert "https://example.test/good" in compact_sources
@@ -1300,6 +1302,45 @@ class TestDeepResearcherAgent:
         assert A._extract_last_message_text({"messages": []}) is None
         assert A._extract_last_message_text({}) is None
 
+    def test_extract_last_message_text_joins_structured_blocks(self):
+        """Structured block content yields joined text, not a Python repr."""
+        from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent as A
+
+        blocks = [
+            {"type": "text", "text": "First paragraph."},
+            {"type": "tool_use", "id": "tc1", "name": "think", "input": {}},
+            {"type": "text", "text": "Second paragraph."},
+        ]
+        extracted = A._extract_last_message_text({"messages": [AIMessage(content=blocks)]})
+
+        assert extracted == "First paragraph.\nSecond paragraph."
+        assert "{'type'" not in extracted
+
+        mixed = ["Plain string block.", {"type": "text", "text": "Dict block."}]
+        assert A._extract_last_message_text({"messages": [AIMessage(content=mixed)]}) == (
+            "Plain string block.\nDict block."
+        )
+        assert A._extract_last_message_text({"messages": [AIMessage(content=[])]}) is None
+
+    def test_research_note_path_is_deterministic_per_query(self):
+        """Note filenames derive from the query alone so re-runs overwrite, not accumulate."""
+        from aiq_agent.agents.deep_researcher.tools.research import _research_note_path
+
+        query = ResearchQuery(
+            query="OIB Richtlinie 2 Brandschutz Anforderungen",
+            preferred_tools=["web_search_tool"],
+            fallback_tools=[],
+            target_components=["fire_safety"],
+            rationale="coverage",
+        )
+        other = query.model_copy(update={"query": "OIB Richtlinie 6 Energieeinsparung"})
+
+        first_path = _research_note_path(query)
+        assert first_path == _research_note_path(query)
+        assert first_path.startswith("/shared/research_note_oib_richtlinie_2_brandschutz_anforderungen_")
+        assert first_path.endswith(".json")
+        assert _research_note_path(other) != first_path
+
     @pytest.mark.asyncio
     async def test_run_falls_back_to_last_message_when_no_report_file(self, mock_llm_provider, real_tool):
         """No /shared/output.md → fall back to the agent's last message, not a hard job failure."""
@@ -1422,6 +1463,39 @@ class TestPerRunIsolation:
                 "https://run-one.example.com"
             ]
 
+    def test_prepare_run_builds_fresh_trace_callbacks(self, mock_llm_provider):
+        """Stateful trace callbacks are rebuilt per run instead of shared across runs."""
+        from aiq_agent.common import VerboseTraceCallback
+
+        mock_agent = MagicMock()
+        mock_agent.with_config = MagicMock(return_value=mock_agent)
+        with patch(
+            "aiq_agent.agents.deep_researcher.factory.create_deep_agent",
+            return_value=mock_agent,
+        ):
+            from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+
+            shared_callback = VerboseTraceCallback(log_reasoning=False, max_chars=123)
+            plain_callback = MagicMock(spec=[])  # no for_new_run → passed through as-is
+            agent = DeepResearcherAgent(
+                llm_provider=mock_llm_provider,
+                tools=[web_search_tool],
+                callbacks=[shared_callback, plain_callback],
+            )
+            state = DeepResearchAgentState(messages=[HumanMessage(content="Request")])
+
+            first = agent._prepare_run(state)
+            second = agent._prepare_run(state)
+
+            assert isinstance(first.callbacks[0], VerboseTraceCallback)
+            assert first.callbacks[0] is not shared_callback
+            assert first.callbacks[0] is not second.callbacks[0]
+            # Configuration carries over; per-run mutable state does not.
+            assert first.callbacks[0].log_reasoning is False
+            assert first.callbacks[0].max_chars == 123
+            # Callbacks without per-run state are reused unchanged.
+            assert first.callbacks[1] is plain_callback
+
     @pytest.mark.asyncio
     async def test_second_run_does_not_reuse_first_run_sources(self, mock_llm_provider):
         """A reused prebuilt agent starts each standalone run with an empty registry."""
@@ -1438,20 +1512,24 @@ class TestPerRunIsolation:
             return_value=mock_agent,
         ):
             from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
-            from aiq_agent.common.citation_verification import EmptySourceRegistryError
 
             agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[web_search_tool])
 
             # First run succeeds against a session-scoped registry (conversation mode).
             state = DeepResearchAgentState(messages=[HumanMessage(content="First request")])
             with seeded_session_registry(SourceEntry(url="https://run-one.example.com")):
-                await agent.run(state)
+                first_result = await agent.run(state)
+
+            assert "Deep research answer" in first_result.messages[-1].content
 
             # Second run without a session registry sees none of the first
-            # run's sources: its fresh per-run registry is empty.
+            # run's sources: its fresh per-run registry is empty. The completed
+            # report is still returned (degraded, without citation
+            # verification) instead of being discarded.
             state = DeepResearchAgentState(messages=[HumanMessage(content="Next request")])
-            with pytest.raises(EmptySourceRegistryError):
-                await agent.run(state)
+            second_result = await agent.run(state)
+
+            assert "Deep research answer" in second_result.messages[-1].content
 
 
 class TestFinalMarkdownExtraction:
@@ -1648,6 +1726,53 @@ class TestDeepResearcherCitationVerification:
 
         assert result.messages[-1].content == sanitized_report
         assert "Citation verification found no valid citations" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_run_returns_completed_report_when_registry_is_empty(self, mock_llm_provider, real_tool, caplog):
+        """An empty source registry degrades to a warning when a report was produced."""
+        from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+
+        report = "Completed report without captured sources."
+        deep_result = {
+            "messages": [AIMessage(content="done")],
+            "files": output_markdown_file(report),
+        }
+        mock_agent = MagicMock()
+        mock_agent.with_config = MagicMock(return_value=mock_agent)
+        mock_agent.ainvoke = AsyncMock(return_value=deep_result)
+
+        with patch(
+            "aiq_agent.agents.deep_researcher.factory.create_deep_agent",
+            return_value=mock_agent,
+        ):
+            agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
+
+            state = DeepResearchAgentState(messages=[HumanMessage(content="Write a report")])
+            with caplog.at_level("WARNING", logger="aiq_agent.agents.deep_researcher.agent"):
+                result = await agent.run(state)
+
+        assert result.messages[-1].content.strip() == report
+        assert "No sources were captured during deep research" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_run_raises_empty_registry_error_when_nothing_to_salvage(self, mock_llm_provider, real_tool):
+        """No report, no fallback message, no sources → EmptySourceRegistryError."""
+        from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+        from aiq_agent.common.citation_verification import EmptySourceRegistryError
+
+        mock_agent = MagicMock()
+        mock_agent.with_config = MagicMock(return_value=mock_agent)
+        mock_agent.ainvoke = AsyncMock(return_value={"messages": [], "files": {}})
+
+        with patch(
+            "aiq_agent.agents.deep_researcher.factory.create_deep_agent",
+            return_value=mock_agent,
+        ):
+            agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
+
+            state = DeepResearchAgentState(messages=[HumanMessage(content="Write a report")])
+            with pytest.raises(EmptySourceRegistryError):
+                await agent.run(state)
 
     @pytest.mark.asyncio
     async def test_run_verifies_and_sanitizes_writer_markdown(self, mock_llm_provider, real_tool):

@@ -91,6 +91,7 @@ The planner will use search tools to discover internal vs external and what info
 - Keep a submitted-query ledger using each ResearchQuery's exact `query` string. Before any later call, remove queries already submitted and successfully returned. Never repeat a covered query for extra depth.
 - `run_research_batch` returns a JSON array of successful `ResearchNotes` and persists those same notes as JSON files under `/shared/`; each note includes its own `evidence_judgment`.
 - If `run_research_batch` returns a tool error, read the error, revise only the invalid, failed, or missing ResearchQuery objects, and call `run_research_batch` again for that missing research. Do not resubmit successful returned notes.
+- Retry budget: re-attempt each failed query at most 2 times (3 submissions total). If a query still fails after its second re-attempt, stop retrying it — record the unresearched gap explicitly in your todos and name it in the writer delegation message, then move on so the writer can state what could not be researched.
 - Do NOT pass query IDs — each ResearchQuery needs full context.
 - Before writing, use the ResearchNotes returned by `run_research_batch` and the research note files under `/shared/` as the research evidence.
 

@@ -99,22 +99,27 @@ def _research_note_slug(text: str) -> str:
     return slug or "research_note"
 
 
-def _research_note_path(query: ResearchQuery, note: ResearchNotes, index: int) -> str:
-    """Build a stable /shared path for a returned research note."""
+def _research_note_path(query: ResearchQuery) -> str:
+    """Build a deterministic /shared path for a returned research note.
+
+    Derived from the query alone (never from batch position or the returned
+    note), so re-running a query after a partial batch failure overwrites the
+    previous note file instead of accumulating near-duplicates.
+    """
     digest_input = json.dumps(query.model_dump(mode="json"), sort_keys=True, ensure_ascii=False)
     digest = hashlib.sha1(digest_input.encode("utf-8")).hexdigest()[:8]
-    slug = _research_note_slug(note.query_topic or query.query)
-    return f"/shared/research_note_{index:02d}_{slug}_{digest}.json"
+    slug = _research_note_slug(query.query)
+    return f"/shared/research_note_{slug}_{digest}.json"
 
 
 def _research_note_files(queries: list[ResearchQuery], notes: list[ResearchNotes]) -> list[tuple[str, bytes]]:
     """Serialize returned research notes as shared JSON files."""
     return [
         (
-            _research_note_path(query, note, index),
+            _research_note_path(query),
             json.dumps(note.model_dump(mode="json", exclude_none=True), indent=2, ensure_ascii=False).encode("utf-8"),
         )
-        for index, (query, note) in enumerate(zip(queries, notes, strict=False), start=1)
+        for query, note in zip(queries, notes, strict=False)
     ]
 
 

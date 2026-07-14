@@ -68,6 +68,7 @@ class DeepResearchRunArtifacts:
     source_registry_middleware: SourceRegistryMiddleware
     tool_set: DeepResearchToolSet
     middleware_set: DeepResearchMiddlewareSet
+    callbacks: list[Any]
 
 
 class DeepResearcherAgent:
@@ -163,7 +164,11 @@ class DeepResearcherAgent:
         middleware_set = build_deep_research_middleware_set(
             tool_set=tool_set,
             source_registry_middleware=source_registry_middleware,
+            max_research_concurrency=self.max_research_concurrency,
         )
+        # Stateful trace callbacks (e.g. VerboseTraceCallback) mutate internal
+        # per-run state, so a shared instance must not span runs (ADR-0018).
+        callbacks = [cb.for_new_run() if hasattr(cb, "for_new_run") else cb for cb in self.callbacks]
         graph = build_deep_research_graph(
             llm_provider=self.llm_provider,
             state=state,
@@ -173,7 +178,7 @@ class DeepResearcherAgent:
             tool_set=tool_set,
             middleware_set=middleware_set,
             source_registry_middleware=source_registry_middleware,
-            callbacks=self.callbacks,
+            callbacks=callbacks,
             domain_catalog_path=self.domain_catalog_path,
             enable_source_router=self.enable_source_router,
             max_research_concurrency=self.max_research_concurrency,
@@ -183,6 +188,7 @@ class DeepResearcherAgent:
             source_registry_middleware=source_registry_middleware,
             tool_set=tool_set,
             middleware_set=middleware_set,
+            callbacks=callbacks,
         )
 
     def _extract_final_markdown(self, result: dict | Any) -> str | None:
@@ -214,6 +220,18 @@ class DeepResearcherAgent:
         content = getattr(messages[-1], "content", None)
         if isinstance(content, str):
             return content.strip() or None
+        if isinstance(content, list):
+            # Structured block content: join the text blocks instead of
+            # producing a Python repr of the block list.
+            parts = []
+            for block in content:
+                if isinstance(block, str):
+                    parts.append(block)
+                elif isinstance(block, dict) and isinstance(block.get("text"), str):
+                    parts.append(block["text"])
+                elif isinstance(getattr(block, "text", None), str):
+                    parts.append(block.text)
+            return "\n".join(parts).strip() or None
         if content is not None:
             return str(content).strip() or None
         return None
@@ -230,6 +248,21 @@ class DeepResearcherAgent:
         else:
             messages[-1] = type(last_msg)(content=content)
 
+    def _empty_source_registry_error(self) -> EmptySourceRegistryError:
+        """Build an EmptySourceRegistryError enriched with tool availability details."""
+        from aiq_agent.common.tool_validation import validate_tool_availability
+
+        _, available_count, unavailable = validate_tool_availability(
+            self.tools,
+            research_type="deep research",
+            enable_logging=False,
+        )
+        return EmptySourceRegistryError(
+            "deep research",
+            unavailable_tools=unavailable,
+            available_count=available_count,
+        )
+
     async def run(self, state: DeepResearchAgentState) -> DeepResearchAgentState:
         """
         Execute deep research with multi-phase workflow.
@@ -237,6 +270,7 @@ class DeepResearcherAgent:
         run_artifacts = self._prepare_run(state)
         agent = run_artifacts.graph
         source_registry_middleware = run_artifacts.source_registry_middleware
+        callbacks = run_artifacts.callbacks
 
         messages = state.messages
         if messages:
@@ -248,7 +282,7 @@ class DeepResearcherAgent:
             logger.info("=" * 80)
 
         try:
-            result = await agent.ainvoke(state, config={"callbacks": self.callbacks} if self.callbacks else None)
+            result = await agent.ainvoke(state, config={"callbacks": callbacks} if callbacks else None)
 
             final_message = self._extract_final_markdown(result)
             if final_message is None:
@@ -259,6 +293,10 @@ class DeepResearcherAgent:
                 # of a hard job failure. Raise only when there is truly nothing.
                 fallback = self._extract_last_message_text(result)
                 if fallback is None:
+                    if self.enable_citation_verification and not source_registry_middleware.has_sources():
+                        # No report AND no captured sources: research never
+                        # produced anything salvageable.
+                        raise self._empty_source_registry_error()
                     raise ValueError("writer-agent did not produce a final Markdown answer")
                 logger.warning(
                     "writer-agent did not persist a report to /shared/output.md; "
@@ -294,17 +332,12 @@ class DeepResearcherAgent:
                         "This may indicate unsupported citation formatting or over-aggressive verification."
                     )
             elif self.enable_citation_verification:
-                from aiq_agent.common.tool_validation import validate_tool_availability
-
-                _, available_count, unavailable = validate_tool_availability(
-                    self.tools,
-                    research_type="deep research",
-                    enable_logging=False,
-                )
-                raise EmptySourceRegistryError(
-                    "deep research",
-                    unavailable_tools=unavailable,
-                    available_count=available_count,
+                # A completed report exists — degrade gracefully like the
+                # zero-valid-citations branch above instead of discarding the
+                # finished run over an empty registry.
+                logger.warning(
+                    "No sources were captured during deep research; returning the completed report "
+                    "without citation verification instead of failing the job."
                 )
 
             # Post-process: sanitize report (strip body URLs, shortened URLs, unsafe URLs)
@@ -313,7 +346,7 @@ class DeepResearcherAgent:
 
             # Re-emit the verified/sanitized report so the frontend overwrites
             # the raw version that on_llm_end auto-emitted during ainvoke().
-            for cb in self.callbacks:
+            for cb in callbacks:
                 if hasattr(cb, "emit_final_report"):
                     cb.emit_final_report(final_message)
                     break

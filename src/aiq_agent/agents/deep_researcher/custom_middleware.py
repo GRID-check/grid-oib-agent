@@ -17,9 +17,11 @@
 
 import asyncio
 import logging
+from collections.abc import Iterable
 from pathlib import Path
 
 from langchain.agents.middleware import AgentMiddleware
+from langchain.agents.middleware import ToolRetryMiddleware
 from langchain.agents.middleware.types import ModelResponse
 from langchain_core.messages import AIMessage
 from langchain_core.messages import ToolMessage
@@ -35,6 +37,59 @@ logger = logging.getLogger(__name__)
 
 # Path to this agent's prompts directory
 _PROMPTS_DIR = Path(__file__).parent / "prompts"
+
+
+def is_retryable_tool_error(exc: Exception) -> bool:
+    """Return whether a tool exception represents a transient failure worth retrying.
+
+    ValueError is the deliberate "invalid input / invalid result" signal used by
+    our tools (e.g. run_research_batch rejecting oversized batches, researcher
+    workers returning malformed ResearchNotes). Re-executing the same call
+    cannot fix it — the MODEL has to change its input — so it must reach the
+    model immediately instead of burning retries.
+    """
+    return not isinstance(exc, ValueError)
+
+
+class SelectiveToolRetryMiddleware(ToolRetryMiddleware):
+    """ToolRetryMiddleware that never re-executes designated tools.
+
+    Some tools raise errors as deliberate signals for the MODEL (e.g.
+    run_research_batch raises RuntimeError on partial failure so the
+    orchestrator can resubmit only the failed queries). Blindly re-executing
+    such a tool re-runs all its already-successful expensive work below the
+    LLM. Tools listed in ``no_retry_tools`` are executed exactly once; their
+    failures are converted to error ToolMessages immediately so the model can
+    react.
+    """
+
+    def __init__(self, *, no_retry_tools: Iterable[str] = (), **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.no_retry_tools = set(no_retry_tools)
+
+    @staticmethod
+    def _request_tool_name(request) -> str:
+        return request.tool.name if request.tool else request.tool_call["name"]
+
+    def wrap_tool_call(self, request, handler):
+        """Run no-retry tools once, surfacing failures to the model immediately."""
+        tool_name = self._request_tool_name(request)
+        if tool_name not in self.no_retry_tools:
+            return super().wrap_tool_call(request, handler)
+        try:
+            return handler(request)
+        except Exception as exc:  # noqa: BLE001 - converted to an error ToolMessage for the model
+            return self._handle_failure(tool_name, request.tool_call["id"], exc, 1)
+
+    async def awrap_tool_call(self, request, handler):
+        """Run no-retry tools once, surfacing failures to the model immediately."""
+        tool_name = self._request_tool_name(request)
+        if tool_name not in self.no_retry_tools:
+            return await super().awrap_tool_call(request, handler)
+        try:
+            return await handler(request)
+        except Exception as exc:  # noqa: BLE001 - converted to an error ToolMessage for the model
+            return self._handle_failure(tool_name, request.tool_call["id"], exc, 1)
 
 
 class EmptyContentFixMiddleware(AgentMiddleware):
@@ -149,11 +204,10 @@ class ToolNameSanitizationMiddleware(AgentMiddleware):
                 new_tool_calls = []
                 for tc in msg.tool_calls:
                     new_tool_calls.append({**tc, "name": self._sanitize_tool_name(tc["name"])})
-                new_msg = AIMessage(
-                    content=msg.content,
-                    tool_calls=new_tool_calls,
-                    id=msg.id,
-                )
+                # model_copy preserves usage_metadata, additional_kwargs, and
+                # response_metadata — rebuilding the AIMessage from scratch
+                # dropped them and broke usage accounting downstream.
+                new_msg = msg.model_copy(update={"tool_calls": new_tool_calls})
                 new_result.append(new_msg)
             else:
                 new_result.append(msg)
@@ -243,13 +297,24 @@ class SourceRegistryMiddleware(AgentMiddleware):
 
     @staticmethod
     def _locator_key(locator: str) -> str:
-        """Return the comparable key used for source locators and registry entries."""
+        """Return the comparable key used for source locators and registry entries.
+
+        Knowledge-layer locators carry page suffixes ("handbuch.pdf, p.12"),
+        but the registry dedups those entries per file and keeps whichever
+        page it saw first ("handbuch.pdf, p.3"). Comparing full strings would
+        drop a registered document from the compact whitelist whenever a
+        research note cites a different page, so non-URL locators are keyed by
+        their page-stripped, lowercased filename.
+        """
         locator = locator.strip()
         if locator.startswith(("http://", "https://")):
             from aiq_agent.common.citation_verification import _normalize_url
 
             return _normalize_url(locator)
-        return locator
+        from aiq_agent.common.citation_verification import _parse_citation_key
+
+        filename, _ = _parse_citation_key(locator)
+        return filename.lower()
 
     @classmethod
     def _entry_key(cls, entry: SourceEntry) -> str | None:
@@ -257,7 +322,7 @@ class SourceRegistryMiddleware(AgentMiddleware):
         if entry.url:
             return cls._locator_key(entry.url)
         if entry.citation_key:
-            return entry.citation_key.strip()
+            return cls._locator_key(entry.citation_key)
         return None
 
     def register_research_note_sources(self, notes: list[object]) -> None:

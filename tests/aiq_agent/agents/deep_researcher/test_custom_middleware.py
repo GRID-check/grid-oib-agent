@@ -23,9 +23,11 @@ import pytest
 from langchain_core.messages import AIMessage
 from langchain_core.messages import ToolMessage
 
+from aiq_agent.agents.deep_researcher.custom_middleware import SelectiveToolRetryMiddleware
 from aiq_agent.agents.deep_researcher.custom_middleware import SourceRegistryMiddleware
 from aiq_agent.agents.deep_researcher.custom_middleware import ToolNameSanitizationMiddleware
 from aiq_agent.agents.deep_researcher.custom_middleware import ToolVisibilityMiddleware
+from aiq_agent.agents.deep_researcher.custom_middleware import is_retryable_tool_error
 from aiq_agent.agents.deep_researcher.tools.source_registry import build_get_verified_sources_tool
 from aiq_agent.common.citation_verification import SourceEntry
 from aiq_agent.common.data_source_registry import populate_from_config
@@ -110,6 +112,34 @@ class TestToolNameSanitizationMiddleware:
         assert result.result[0].tool_calls[0]["name"] == "advanced_web_search_tool"
 
     @pytest.mark.asyncio
+    async def test_awrap_model_call_preserves_message_metadata(self, middleware):
+        """Sanitizing tool names keeps usage/metadata fields for usage accounting."""
+        from langchain.agents.middleware.types import ModelResponse
+
+        ai_msg = AIMessage(
+            content="",
+            tool_calls=[
+                {"name": "advanced_web_search_tool.exec", "args": {"question": "test"}, "id": "tc1"},
+            ],
+            id="msg-1",
+            usage_metadata={"input_tokens": 11, "output_tokens": 7, "total_tokens": 18},
+            additional_kwargs={"reasoning_content": "thinking..."},
+            response_metadata={"model_name": "test-model", "token_usage": {"prompt_tokens": 11}},
+        )
+        mock_response = ModelResponse(result=[ai_msg])
+        mock_handler = AsyncMock(return_value=mock_response)
+
+        result = await middleware.awrap_model_call(MagicMock(), mock_handler)
+
+        sanitized = result.result[0]
+        assert sanitized.tool_calls[0]["name"] == "advanced_web_search_tool"
+        assert sanitized.id == "msg-1"
+        assert sanitized.content == ""
+        assert sanitized.usage_metadata == {"input_tokens": 11, "output_tokens": 7, "total_tokens": 18}
+        assert sanitized.additional_kwargs == {"reasoning_content": "thinking..."}
+        assert sanitized.response_metadata == {"model_name": "test-model", "token_usage": {"prompt_tokens": 11}}
+
+    @pytest.mark.asyncio
     async def test_awrap_model_call_no_tool_calls_passthrough(self, middleware):
         """Messages without tool_calls pass through unchanged."""
         from langchain.agents.middleware.types import ModelResponse
@@ -123,6 +153,95 @@ class TestToolNameSanitizationMiddleware:
 
         assert result.result[0].content == "Just text, no tools"
         assert not result.result[0].tool_calls
+
+
+class TestSelectiveToolRetryMiddleware:
+    """Tests for retry exclusions on deliberate tool error signals."""
+
+    def _middleware(self, **kwargs) -> SelectiveToolRetryMiddleware:
+        return SelectiveToolRetryMiddleware(
+            max_retries=3,
+            backoff_factor=0.0,
+            initial_delay=0.0,
+            jitter=False,
+            retry_on=is_retryable_tool_error,
+            no_retry_tools={"run_research_batch"},
+            **kwargs,
+        )
+
+    def _request(self, tool_name: str):
+        request = MagicMock()
+        request.tool = SimpleNamespace(name=tool_name)
+        request.tool_call = {"name": tool_name, "id": "tc1"}
+        return request
+
+    @pytest.mark.asyncio
+    async def test_no_retry_tool_error_reaches_model_without_re_execution(self):
+        """run_research_batch failures are never re-executed below the LLM."""
+        middleware = self._middleware()
+        error = RuntimeError("run_research_batch failed for 1 of 3 researcher worker(s)")
+        handler = AsyncMock(side_effect=error)
+
+        result = await middleware.awrap_tool_call(self._request("run_research_batch"), handler)
+
+        handler.assert_awaited_once()
+        assert isinstance(result, ToolMessage)
+        assert result.status == "error"
+        assert "run_research_batch failed for 1 of 3 researcher worker(s)" in result.content
+
+    @pytest.mark.asyncio
+    async def test_no_retry_tool_success_passes_through(self):
+        """Successful no-retry tool calls return the handler result unchanged."""
+        middleware = self._middleware()
+        message = ToolMessage(content="[]", tool_call_id="tc1")
+        handler = AsyncMock(return_value=message)
+
+        result = await middleware.awrap_tool_call(self._request("run_research_batch"), handler)
+
+        handler.assert_awaited_once()
+        assert result is message
+
+    @pytest.mark.asyncio
+    async def test_value_error_is_never_retried(self):
+        """Deliberate ValueError signals reach the model immediately on any tool."""
+        middleware = self._middleware()
+        error = ValueError("run_research_batch accepts at most 6 curated queries")
+        handler = AsyncMock(side_effect=error)
+
+        result = await middleware.awrap_tool_call(self._request("web_search_tool"), handler)
+
+        handler.assert_awaited_once()
+        assert isinstance(result, ToolMessage)
+        assert result.status == "error"
+        assert "accepts at most 6 curated queries" in result.content
+
+    @pytest.mark.asyncio
+    async def test_transient_error_on_other_tools_is_retried(self):
+        """Genuinely transient failures on regular tools keep retrying."""
+        middleware = self._middleware()
+        handler = AsyncMock(
+            side_effect=[
+                RuntimeError("connection reset"),
+                ToolMessage(content="recovered", tool_call_id="tc1"),
+            ]
+        )
+
+        result = await middleware.awrap_tool_call(self._request("web_search_tool"), handler)
+
+        assert handler.await_count == 2
+        assert result.content == "recovered"
+
+    def test_sync_no_retry_tool_error_reaches_model_without_re_execution(self):
+        """The sync path mirrors the async no-retry behavior."""
+        middleware = self._middleware()
+        handler = MagicMock(side_effect=RuntimeError("partial batch failure"))
+
+        result = middleware.wrap_tool_call(self._request("run_research_batch"), handler)
+
+        handler.assert_called_once()
+        assert isinstance(result, ToolMessage)
+        assert result.status == "error"
+        assert "partial batch failure" in result.content
 
 
 class TestToolVisibilityMiddleware:
@@ -416,6 +535,26 @@ class TestSourceRegistryMiddleware:
         assert "other.pdf, p.9" not in compact
         assert "report.pdf, p.5" in full
         assert "other.pdf, p.9" in full
+
+    def test_compact_internal_citation_matches_across_pages(self, middleware):
+        """A note citing a different page of a registered document still rescues it.
+
+        The registry dedups knowledge-layer entries per file and keeps the
+        first-seen page (p.3); notes may carry any page of the same document
+        (p.12). Matching is per filename, not per full locator string.
+        """
+        middleware.registry.add(SourceEntry(citation_key="handbuch.pdf, p.3", title="handbuch.pdf"))
+        middleware.registry.add(SourceEntry(citation_key="other.pdf, p.9", title="other.pdf"))
+        middleware.register_research_note_sources(
+            [SimpleNamespace(sources=[SimpleNamespace(locator="handbuch.pdf, p.12")])]
+        )
+
+        compact_entries = middleware.get_source_entries()
+
+        assert [entry.citation_key for entry in compact_entries] == ["handbuch.pdf, p.3"]
+        compact = middleware.get_source_list_text()
+        assert "handbuch.pdf, p.3" in compact
+        assert "other.pdf" not in compact
 
     # -- Edge cases --
 

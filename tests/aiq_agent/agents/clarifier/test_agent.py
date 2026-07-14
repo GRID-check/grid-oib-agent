@@ -559,6 +559,29 @@ class TestClarifierAgentApprovalParsing:
         assert rejected is True
         assert feedback is None
 
+    @pytest.mark.parametrize("response", ["ja", "Ja", "passt", "einverstanden", "in ordnung", "Genehmigt"])
+    def test_parse_approval_german_approved(self, agent, response):
+        """German approval keywords are recognized (German-first product)."""
+        approved, rejected, feedback = agent._parse_approval(response)
+        assert approved is True
+        assert rejected is False
+        assert feedback is None
+
+    @pytest.mark.parametrize("response", ["nein", "Nein", "abbrechen", "ablehnen", "verwerfen"])
+    def test_parse_approval_german_rejected(self, agent, response):
+        """German rejection keywords are recognized (German-first product)."""
+        approved, rejected, feedback = agent._parse_approval(response)
+        assert approved is False
+        assert rejected is True
+        assert feedback is None
+
+    def test_parse_approval_german_feedback_still_treated_as_feedback(self, agent):
+        """Longer German responses remain plan-revision feedback, not approvals."""
+        approved, rejected, feedback = agent._parse_approval("Bitte einen Abschnitt zum Brandschutz ergänzen")
+        assert approved is False
+        assert rejected is False
+        assert feedback == "Bitte einen Abschnitt zum Brandschutz ergänzen"
+
     def test_parse_approval_feedback(self, agent):
         """Test feedback response is captured."""
         approved, rejected, feedback = agent._parse_approval("Please add a section about security")

@@ -386,6 +386,62 @@ class TestGenericUrlExtractor:
         )
         assert entries == []
 
+    def test_all_error_batch_output_is_not_citable(self):
+        """A batch source-tool output whose items all errored registers nothing."""
+        content = (
+            "## Query: oib richtlinie 2 brandschutz\n"
+            "ERROR: request timed out\n\n"
+            "---\n\n"
+            "## Query: oib richtlinie 6 energie\n"
+            "ERROR: upstream 502"
+        )
+        entries = extract_sources_from_tool_result("web_search_tool", content)
+        assert entries == []
+
+    def test_all_no_results_batch_output_is_not_citable(self):
+        """A batch whose items all returned no results is status output, not evidence."""
+        content = (
+            "## Query: first query\n"
+            "Search returned no results.\n\n"
+            "---\n\n"
+            "## Query: second query\n"
+            "Search returned no results."
+        )
+        entries = extract_sources_from_tool_result("web_search_tool", content)
+        assert entries == []
+
+    def test_single_all_error_batch_section_is_not_citable(self):
+        """A one-item batch output that errored registers nothing."""
+        content = "## Query: only query\nERROR: connection refused"
+        entries = extract_sources_from_tool_result("web_search_tool", content)
+        assert entries == []
+
+    def test_mixed_batch_output_registers_only_real_sources(self):
+        """Partially failed batches still register the successful items' sources."""
+        content = (
+            "## Query: failing query\n"
+            "ERROR: request timed out\n\n"
+            "---\n\n"
+            "## Query: working query\n"
+            "Found result at https://example.com/real-source"
+        )
+        entries = extract_sources_from_tool_result("web_search_tool", content)
+        assert [entry.url for entry in entries] == ["https://example.com/real-source"]
+
+    def test_mixed_batch_with_url_less_success_falls_back_to_tool_result(self):
+        """A batch with at least one substantive URL-less item stays citable."""
+        content = (
+            "## Query: failing query\n"
+            "ERROR: request timed out\n\n"
+            "---\n\n"
+            "## Query: working query\n"
+            "OIB Richtlinie 2 regelt den Brandschutz in Bauwerken."
+        )
+        entries = extract_sources_from_tool_result("some_registry_tool", content)
+        assert len(entries) == 1
+        assert entries[0].citation_key == "some_registry_tool"
+        assert entries[0].source_type == "tool_result"
+
     def test_duplicate_urls_deduplicated(self):
         content = "See https://example.com/page and also https://example.com/page for reference."
         entries = extract_sources_from_tool_result("any_tool", content)
@@ -873,6 +929,45 @@ class TestVerifyCitations:
         result = verify_citations(report, registry)
         assert len(result.valid_citations) == 1
 
+    def test_german_quellen_heading_is_treated_as_source_section(self, registry):
+        """German reports with '## Quellen' verify in place — no duplicate English section."""
+        report = (
+            "Erkenntnis eins [1]. Erfundene Behauptung [2].\n\n"
+            "## Quellen\n"
+            "[1] Artikel 1: https://valid.com/article1\n"
+            "[2] Erfundene Quelle: https://fake.com/nichts"
+        )
+        result = verify_citations(report, registry)
+
+        assert "## Quellen" in result.verified_report
+        assert "## Sources" not in result.verified_report
+        assert len(result.valid_citations) == 1
+        assert len(result.removed_citations) == 1
+        assert result.removed_citations[0]["reason"] == "url_not_in_registry"
+        assert "https://fake.com/nichts" not in result.verified_report
+        assert "Erfundene Behauptung ." in result.verified_report
+
+    @pytest.mark.parametrize(
+        "heading",
+        ["## Quellen", "### Quellenverzeichnis", "**Quellenangaben:**", "## Literaturverzeichnis", "Referenzen:"],
+    )
+    def test_german_heading_variants_are_recognized(self, registry, heading):
+        """Common German source-section labels are all treated like English ones."""
+        report = f"Erkenntnis [1].\n\n{heading}\n[1] Artikel 1: https://valid.com/article1"
+        result = verify_citations(report, registry)
+
+        assert len(result.valid_citations) == 1
+        assert not result.removed_citations
+        assert "## Quellen" in result.verified_report
+        assert "## Sources" not in result.verified_report
+
+    def test_german_knowledge_layer_citation_in_quellen_section(self, registry):
+        """Internal document citations verify under a German heading too."""
+        report = "Interner Befund [1].\n\n## Quellen\n[1] report.pdf, p.15"
+        result = verify_citations(report, registry)
+        assert len(result.valid_citations) == 1
+        assert not result.removed_citations
+
     def test_unverifiable_citation_removed(self, registry):
         """Citation with no URL and no recognizable citation key is removed."""
         report = (
@@ -1055,6 +1150,26 @@ class TestSanitizeReport:
         assert "https://nvidia.com/article" in result.sanitized_report
         assert result.body_urls_removed == 1
         assert result.body_urls_replaced == 0
+
+    def test_german_quellen_section_sanitized_like_english(self):
+        """A German '## Quellen' section gets the same URL hygiene as '## Sources'."""
+        report = (
+            "Siehe https://nvidia.com/artikel im Text [1]. Verkuerzt [2].\n\n"
+            "## Quellen\n"
+            "[1] NVIDIA: https://nvidia.com/artikel\n"
+            "[2] Kurzlink: https://bit.ly/abc123"
+        )
+        result = sanitize_report(report)
+
+        assert "## Quellen" in result.sanitized_report
+        assert "## Sources" not in result.sanitized_report
+        # Body URL matching a reference is replaced with [1].
+        assert "Siehe [1] im Text [1]" in result.sanitized_report
+        assert result.body_urls_replaced == 1
+        # Shortened URL removed and citations renumbered as in the English case.
+        assert "bit.ly" not in result.sanitized_report
+        assert result.shortened_urls_removed == ["https://bit.ly/abc123"]
+        assert "[2]" not in result.sanitized_report
 
     def test_body_url_with_commas_matched_to_reference(self):
         """Regression: ``_BODY_URL_RE`` previously stopped at the first comma,
