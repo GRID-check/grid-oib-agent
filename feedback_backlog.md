@@ -44,16 +44,16 @@
 
 ### P1 — Chat trust chain (core of beta promise "safe Baurecht research")
 
-- **FB-1 — Make the OIB knowledge base visible as a chat source.** `ChatThinking.tsx:66-69` filters `knowledge_layer` out of the "Selected Data Sources" display, so KB-answered queries look like the KB doesn't exist — the single cheapest fix for the most damaging perception problem in the feedback. Show it, labeled clearly (e.g. "OIB Knowledge Base" / "OIB-Wissensdatenbank"). Effort: S.
-- **FB-2 — Label sources: trusted database vs web.** Propagate `source_type` (`knowledge_layer` vs web/generic) from `citation_verification.py` through the WS payload into `CitationSource` (`chat/types.ts:268-275`) and render a badge in `CitationCard`/`SourceCard`; fix `ReportTab.tsx:124-127` so URL-less KB citations still appear in source lists. Effort: M.
-- **FB-3 — "AI can make mistakes" notice at the chat input.** Reuse the existing AI-Act Art. 50 wording (short form) from `lib/legal/content/*` under/near `InputArea`, DE+EN, linking to `/legal`. Effort: XS.
+- ~~**FB-1**~~ DONE cycle 1 (`2c6d53e`) — `ChatThinking.tsx` no longer filters `knowledge_layer` out of "Selected Data Sources"; labeled "OIB Knowledge Base" / "OIB-Wissensdatenbank" (i18n `dataSource.knowledgeBase`, old single-use `files` key repurposed); attached files still listed separately, spec updated.
+- **FB-2 — Label sources: trusted database vs web.** *Rescoped after wiring-map research (cycle 1):* shallow chat has NO structured citation channel (citations are backend-appended markdown, `_append_minimal_citation`), and in deep research KB citations never enter the SSE citation pipeline at all (`jobs/callbacks.py` `_is_search_tool` matches only web-search tool names; the pipeline regex-scrapes URLs, `CitationSource.url` is a required string, and live + replay parsers are independent). **Decision: implement labeling at the one owned chokepoint both paths share** — `citation_verification.py` source formatting (`_format_registry_reference`, and the shallow `_append_minimal_citation`), emitting a stable `[KB]`/`[Web]` token per source line; frontend `report-citations.ts`/`ReportTab` maps tokens to localized badges, plain text as fail-open fallback. The full structured pipeline (registry-backed citation artifacts, URL-optional `CitationSource`, both SSE parsers) is deferred to **FB-4**, which needs it anyway. Effort: M.
+- ~~**FB-3**~~ ALREADY ADDRESSED (triage error, corrected cycle 1) — `InputArea.tsx:726-730` already renders a muted one-line AI-Act disclosure via `inputArea.aiDisclosure` (dictionary `research.ts`, both locales); the initial verification missed it. No change made.
 - **FB-4 — Citation click-through to the original passage.** KB citations carry file+page; `PdfViewerDialog` already opens corpus PDFs. Wire chat/report KB citations to open the viewer at the cited page. Effort: M.
 - **FB-5 — Web source allowlist.** Add `include_domains` (Tavily natively supports it) to `TavilyWebSearchToolConfig` + config plumbing, seeded with a curated AT/Baurecht-quality domain list; keeps the agent off low-quality sites. Effort: S–M.
 - **FB-6 — Surface the confidence score.** The shallow agent already sets `low/medium/high` per answer; expose it on the response payload and render a subtle indicator with a "why" tooltip. Effort: M (protocol plumbing).
 
 ### P2 — Files quick wins
 
-- **FB-7 — Larger document preview.** Add an expand affordance in `file-preview-pane.tsx` opening the existing `PdfViewerDialog` (85vh/95vw). Effort: S.
+- ~~**FB-7**~~ DONE cycle 1 (`454471f`) — Maximize2 ghost button in `file-preview-pane.tsx` opens the existing `PdfViewerDialog` (gained an optional `src` prop for presigned URLs, backward-compatible); gated to PDFs; i18n both locales; 2 new spec tests.
 - **FB-8 — Show (then edit) document contents/labels.** Stop stripping user-relevant ingestion metadata in `documents/service.ts`; show extracted summary/type/chunk info in the preview pane; second step: editable labels (needs a small API + column). Effort: M (show) + M (edit).
 
 ### P3 — Navigation restructure (directionally clear, confirm IA with team)
@@ -92,4 +92,5 @@
 
 ## Cycle log
 
-- **Cycle 0 (2026-07-14):** 7 parallel verification agents ran; this file created. Next: Cycle 1 = FB-1 + FB-3 (chat trust quick wins) and FB-7 (files preview), delegated as parallel implementation tasks on disjoint files.
+- **Cycle 0 (2026-07-14):** 7 parallel verification agents ran; this file created.
+- **Cycle 1 (2026-07-14):** FB-1 + FB-7 implemented (`2c6d53e`, `454471f`); FB-3 found already shipped (triage corrected). Verification: `tsc --noEmit` exit 0; full `vitest run` 1919 passed / 3 skipped / 0 failed (suite grew past the 1531 baseline with PR #56; zero regressions). In parallel, a wiring-map research pass rescoped FB-2 (see item) and surfaced a pre-existing gap now folded into FB-4: `knowledge_retrieval` never triggers citation artifacts in deep research (`jobs/callbacks.py` `SEARCH_TOOL_PATTERNS`), so KB sources are invisible in the live citation feed. Next: Cycle 2 = FB-2 (chokepoint labeling per decision above).
