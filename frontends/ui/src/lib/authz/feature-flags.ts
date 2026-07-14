@@ -41,6 +41,11 @@ export const FEATURE_FLAGS = {
   /** Standalone PNG/JPG image upload via VLM captioning (FB-15a); gates the
    *  accept-list (client) and the server-side upload allow-list (BFF). */
   imageUpload: 'image-upload',
+  /** Fold the Research runs tab into the chat-history panel as a "Deep
+   *  Research" section (FB-10). ON → hide the `research` nav item, redirect
+   *  `/research` to chat, show the Deep Research section in SessionsPanel;
+   *  OFF → keep the legacy Research tab + ResearchRunsList page. */
+  researchInChatHistory: 'research-in-chat-history',
 } as const
 
 export type KnownFeatureFlag = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]

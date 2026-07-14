@@ -13,12 +13,21 @@ export interface ProjectChatClientProps {
   showSourceBadges: boolean
   /** Whether shallow answers show the confidence chip (WorkOS `chat-confidence-chip`). */
   showConfidenceChip: boolean
+  /**
+   * Whether the sessions panel shows the Deep Research section and per-session
+   * research labels (WorkOS `research-in-chat-history`, FB-10).
+   */
+  showResearchInHistory: boolean
+  /** Qdrant collection scoping the Deep Research section's job fetch (FB-10). */
+  projectCollection: string | null
 }
 
 const ProjectChatContent = ({
   projectId,
   showSourceBadges,
   showConfidenceChip,
+  showResearchInHistory,
+  projectCollection,
 }: ProjectChatClientProps): ReactNode => {
   const { isAuthenticated, signIn } = useAuth()
   const setProjectId = useChatStore((s) => s.setProjectId)
@@ -90,6 +99,8 @@ const ProjectChatContent = ({
       onSignIn={signIn}
       showSourceBadges={showSourceBadges}
       showConfidenceChip={showConfidenceChip}
+      showResearchInHistory={showResearchInHistory}
+      projectCollection={projectCollection}
     />
   )
 }

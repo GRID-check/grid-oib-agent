@@ -1,10 +1,26 @@
-import { render, screen } from '@/test-utils'
+import type { ReactNode } from 'react'
+import { render, screen, waitFor } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
 import { SessionsPanel } from './SessionsPanel'
+import type { ResearchRun } from '@/adapters/api/research-runs-client'
 
 // Mock the layout store
 const mockSetSessionsPanelOpen = vi.fn()
+
+// FB-10: the Deep Research section fetches server-truth runs on panel open.
+const mockListResearchRuns = vi.fn()
+vi.mock('@/adapters/api/research-runs-client', () => ({
+  listResearchRuns: (...args: unknown[]) => mockListResearchRuns(...args),
+}))
+
+vi.mock('next/link', () => ({
+  default: ({ href, children, ...rest }: { href: string; children: ReactNode }) => (
+    <a href={href} {...rest}>
+      {children}
+    </a>
+  ),
+}))
 
 vi.mock('../store', () => ({
   useLayoutStore: vi.fn((selector?: (s: any) => any) => {
@@ -645,5 +661,113 @@ describe('SessionsPanel - Delete Button States', () => {
     // Check that delete button has appropriate title attribute
     const deleteButton = screen.getByRole('button', { name: /delete session \(disabled\)/i })
     expect(deleteButton).toHaveAttribute('title', 'Cannot delete while operations are in progress')
+  })
+})
+
+describe('SessionsPanel - Deep Research section (FB-10)', () => {
+  const today = new Date()
+
+  const makeRun = (overrides: Partial<ResearchRun>): ResearchRun => ({
+    job_id: 'job-aaaaaaaa1111',
+    status: 'completed',
+    created_at: today.toISOString(),
+    conversation_id: null,
+    project_collection: 'proj_1',
+    ...overrides,
+  })
+
+  const sessions = [{ id: 'conv-1', title: 'Fire safety review', date: today }]
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    setupChatStoreMock()
+    mockListResearchRuns.mockResolvedValue({ jobs: [], total: 0 })
+    vi.mocked(useLayoutStore).mockImplementation((selector?: (s: any) => any) => {
+      const state = {
+        isSessionsPanelOpen: true,
+        setSessionsPanelOpen: mockSetSessionsPanelOpen,
+      }
+      return selector ? selector(state) : state
+    })
+  })
+
+  test('does not render the section or fetch runs when the flag is off', async () => {
+    render(<SessionsPanel sessions={sessions} projectId="p1" projectCollection="proj_1" />)
+
+    expect(screen.queryByRole('button', { name: /Deep Research/i })).not.toBeInTheDocument()
+    // Effect early-returns when showDeepResearchSection is false.
+    expect(mockListResearchRuns).not.toHaveBeenCalled()
+  })
+
+  test('renders a count badge and fetches runs scoped to the project collection', async () => {
+    mockListResearchRuns.mockResolvedValue({
+      jobs: [makeRun({ job_id: 'job-1' }), makeRun({ job_id: 'job-2' })],
+      total: 2,
+    })
+
+    render(
+      <SessionsPanel
+        sessions={sessions}
+        showDeepResearchSection
+        projectId="p1"
+        projectCollection="proj_1"
+      />
+    )
+
+    expect(await screen.findByRole('button', { name: /Deep Research \(2\)/i })).toBeInTheDocument()
+    expect(mockListResearchRuns).toHaveBeenCalledWith(
+      expect.objectContaining({ projectCollection: 'proj_1' })
+    )
+  })
+
+  test('expands to show runs: session-title label, untitled fallback, and deep-link hrefs', async () => {
+    const user = userEvent.setup()
+    mockListResearchRuns.mockResolvedValue({
+      jobs: [
+        makeRun({ job_id: 'job-completed', status: 'completed', conversation_id: 'conv-1' }),
+        makeRun({ job_id: 'job-failed', status: 'failed', conversation_id: null }),
+      ],
+      total: 2,
+    })
+
+    render(
+      <SessionsPanel
+        sessions={sessions}
+        showDeepResearchSection
+        projectId="p1"
+        projectCollection="proj_1"
+      />
+    )
+
+    const toggle = await screen.findByRole('button', { name: /Deep Research \(2\)/i })
+    await user.click(toggle)
+
+    // Completed run inherits its originating session's title and links to the report.
+    const completed = await screen.findByRole('link', {
+      name: /Open deep research run: Fire safety review/i,
+    })
+    expect(completed.getAttribute('href')).toBe('/app/projects/p1/chat?job=job-completed')
+
+    // Failed run with no local session falls back to the shared untitled label
+    // and deep-links to the thinking tab.
+    const failed = screen.getByRole('link', {
+      name: /Open deep research run: Deep research run/i,
+    })
+    expect(failed.getAttribute('href')).toBe('/app/projects/p1/chat?job=job-failed&tab=thinking')
+  })
+
+  test('marks research-carrying sessions with a Deep Research chip', async () => {
+    render(
+      <SessionsPanel
+        sessions={[{ id: 'conv-1', title: 'Research chat', date: today, hasCompletedReport: true }]}
+        showDeepResearchSection
+        projectId="p1"
+        projectCollection="proj_1"
+      />
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Deep Research')).toBeInTheDocument()
+    })
   })
 })

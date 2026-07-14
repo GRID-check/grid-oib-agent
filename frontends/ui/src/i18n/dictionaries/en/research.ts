@@ -315,6 +315,10 @@ export const research = {
     chatSession: 'Chat session',
     sessionLabelBusy: 'Session: {title} (processing in progress)',
     sessionLabel: 'Session: {title}',
+    // FB-10: Deep Research section folded into the sessions panel.
+    deepResearchHeading: 'Deep Research ({count})',
+    deepResearchChip: 'Deep Research',
+    deepResearchRunLabel: 'Open deep research run: {label}',
   },
 
   taskCard: {

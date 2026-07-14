@@ -50,6 +50,14 @@ interface MainLayoutProps {
    * Defaults to true (fail-open) so existing callers/specs are unaffected.
    */
   showConfidenceChip?: boolean
+  /**
+   * Whether the sessions panel shows the Deep Research section and per-session
+   * research labels (WorkOS `research-in-chat-history` flag, FB-10). Threaded to
+   * SessionsPanel. Defaults to false so existing callers/specs are unaffected.
+   */
+  showResearchInHistory?: boolean
+  /** Qdrant collection scoping the Deep Research section's job fetch (FB-10). */
+  projectCollection?: string | null
 }
 
 /**
@@ -62,6 +70,8 @@ export const MainLayout: FC<MainLayoutProps> = ({
   onSignIn,
   showSourceBadges = true,
   showConfidenceChip = true,
+  showResearchInHistory = false,
+  projectCollection = null,
 }) => {
   const {
     currentConversation,
@@ -224,6 +234,9 @@ export const MainLayout: FC<MainLayoutProps> = ({
         onDeleteSession={handleDeleteSession}
         onDeleteAllSessions={handleDeleteAllSessions}
         onRenameSession={updateConversationTitle}
+        showDeepResearchSection={showResearchInHistory}
+        projectId={projectId ?? undefined}
+        projectCollection={projectCollection ?? undefined}
       />
 
       {/* Data Sources Panel (Right) - Overlay */}
