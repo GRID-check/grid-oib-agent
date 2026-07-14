@@ -249,6 +249,13 @@ export const research = {
     // Heading for the sources list appended from run citations when the
     // report markdown itself has no sources section.
     sourcesTitle: 'Sources',
+    // Per-source origin badges: whether a cited source came from the trusted
+    // knowledge base, the official Austrian legal system (RIS), or the web.
+    sourceBadge: {
+      kb: 'Knowledge Base',
+      web: 'Web',
+      ris: 'RIS',
+    },
   },
 
   researchPanel: {

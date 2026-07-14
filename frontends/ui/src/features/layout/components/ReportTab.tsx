@@ -22,6 +22,7 @@ import { type FC, type ReactNode, useMemo } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { FileText } from 'lucide-react'
 import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
+import { Badge, type BadgeProps } from '@/components/ui/badge'
 import { useChatStore } from '@/features/chat'
 import { GridCards } from '@/features/grid-cards'
 import { useTranslations } from '@/i18n'
@@ -30,8 +31,20 @@ import {
   linkifyCitationMarkers,
   splitReportSources,
   type ReportSourceEntry,
+  type ReportSourceKind,
 } from '../lib/report-citations'
 import { ExportFooter } from './ExportFooter'
+
+/**
+ * Badge variant per source origin. The knowledge base carries the single blue
+ * accent (trusted, primary source); web and the official Austrian legal system
+ * (RIS) stay in muted, neutral tones per the design language.
+ */
+const SOURCE_KIND_BADGE_VARIANT: Record<ReportSourceKind, BadgeProps['variant']> = {
+  kb: 'info',
+  web: 'secondary',
+  ris: 'outline',
+}
 
 interface ReportTabProps {
   /** Optional custom content to display instead of store content */
@@ -43,10 +56,11 @@ interface ReportTabProps {
  * DOM id so inline [N] anchor links (handled by MarkdownRenderer) can scroll
  * to it.
  */
-const ReportSourcesList: FC<{ heading: string; entries: ReportSourceEntry[] }> = ({
-  heading,
-  entries,
-}) => (
+const ReportSourcesList: FC<{
+  heading: string
+  entries: ReportSourceEntry[]
+  sourceBadgeLabel: (kind: ReportSourceKind) => string
+}> = ({ heading, entries, sourceBadgeLabel }) => (
   <section aria-label={heading}>
     <h2 className="mb-2 mt-5 text-xl font-semibold tracking-tight text-foreground">{heading}</h2>
     <ol className="list-none space-y-1 pl-0">
@@ -57,8 +71,18 @@ const ReportSourcesList: FC<{ heading: string; entries: ReportSourceEntry[] }> =
           className="flex scroll-mt-4 items-baseline gap-2 text-sm text-foreground"
         >
           <span className="shrink-0 text-muted-foreground">[{entry.number}]</span>
-          <div className="min-w-0">
-            <MarkdownRenderer content={entry.markdown} compact className="max-w-none" />
+          <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
+            {entry.sourceKind && (
+              <Badge
+                variant={SOURCE_KIND_BADGE_VARIANT[entry.sourceKind]}
+                className="shrink-0 self-center"
+              >
+                {sourceBadgeLabel(entry.sourceKind)}
+              </Badge>
+            )}
+            <div className="min-w-0">
+              <MarkdownRenderer content={entry.markdown} compact className="max-w-none" />
+            </div>
           </div>
         </li>
       ))}
@@ -169,6 +193,7 @@ export const ReportTab: FC<ReportTabProps> = ({ children }) => {
               <ReportSourcesList
                 heading={sourcesHeading ?? t('reportTab.sourcesTitle')}
                 entries={sourceEntries}
+                sourceBadgeLabel={(kind) => t(`reportTab.sourceBadge.${kind}`)}
               />
             )}
             {citedFallbackSources.length > 0 && (

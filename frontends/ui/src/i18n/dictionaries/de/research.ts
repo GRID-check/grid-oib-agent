@@ -255,6 +255,11 @@ export const research: typeof en.research = {
     contentWhenAvailable: 'Berichtsinhalt erscheint hier, sobald verfügbar.',
     notesBanner: 'Rechercheanmerkungen der Agenten – der finale Bericht wird noch erstellt.',
     sourcesTitle: 'Quellen',
+    sourceBadge: {
+      kb: 'Wissensdatenbank',
+      web: 'Web',
+      ris: 'RIS',
+    },
   },
 
   researchPanel: {

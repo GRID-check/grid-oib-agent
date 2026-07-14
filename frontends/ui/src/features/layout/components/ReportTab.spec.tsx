@@ -154,4 +154,59 @@ describe('ReportTab', () => {
     // Uncited sources stay out of the report-level list.
     expect(screen.queryByText('https://example.com/uncited')).not.toBeInTheDocument()
   })
+
+  test('renders an origin badge per source from the parsed token', () => {
+    vi.mocked(useChatStore).mockImplementation((selector?: (s: any) => any) => {
+      const state = {
+        reportContent: [
+          '# Report',
+          '',
+          'KB fact [1]. Web fact [2]. Law [3].',
+          '',
+          '## Sources',
+          '[1] [KB] OIB Richtlinie 2, p.3',
+          '[2] [Web] Example — https://example.com',
+          '[3] [RIS] BauO — https://www.ris.bka.gv.at/eli/bgbl/1985/446',
+        ].join('\n'),
+        reportContentCategory: 'final_report',
+        isStreaming: false,
+        currentStatus: null,
+        deepResearchCards: [],
+        deepResearchCitations: [],
+      }
+      return selector ? selector(state) : state
+    })
+
+    render(<ReportTab />)
+
+    // Localized badges render for each origin…
+    expect(screen.getByText('Knowledge Base')).toBeInTheDocument()
+    expect(screen.getByText('Web')).toBeInTheDocument()
+    expect(screen.getByText('RIS')).toBeInTheDocument()
+    // …and the origin token is stripped from the displayed source text.
+    const kbEntry = document.getElementById('report-source-1')
+    expect(kbEntry).toHaveTextContent('OIB Richtlinie 2, p.3')
+    expect(kbEntry).not.toHaveTextContent('[KB]')
+  })
+
+  test('renders no origin badge for sources without a token (backward compatible)', () => {
+    vi.mocked(useChatStore).mockImplementation((selector?: (s: any) => any) => {
+      const state = {
+        reportContent:
+          '# Report\n\nDuties differ [1].\n\n## Quellen\n1. OIB Richtlinie 2 — https://oib.or.at',
+        reportContentCategory: 'final_report',
+        isStreaming: false,
+        currentStatus: null,
+        deepResearchCards: [],
+        deepResearchCitations: [],
+      }
+      return selector ? selector(state) : state
+    })
+
+    render(<ReportTab />)
+
+    expect(document.getElementById('report-source-1')).toBeInTheDocument()
+    expect(screen.queryByText('Knowledge Base')).not.toBeInTheDocument()
+    expect(screen.queryByText('Wissensdatenbank')).not.toBeInTheDocument()
+  })
 })
