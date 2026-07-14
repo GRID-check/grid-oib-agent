@@ -21,6 +21,7 @@ export const files: typeof en.files = {
   },
   preview: {
     closePreview: 'Vorschau schließen',
+    expandPreview: 'Große Vorschau öffnen',
     loadFailed:
       'Die Vorschau konnte nicht geladen werden. Sie können die Datei unten trotzdem herunterladen.',
     tryAgain: 'Erneut versuchen',

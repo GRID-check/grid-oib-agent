@@ -26,11 +26,19 @@ export interface PdfViewerDialogProps {
   page?: number | null
   /** Optional heading; defaults to the filename. */
   title?: string
+  /**
+   * Explicit document URL to render (e.g. a presigned preview URL for a
+   * project-uploaded file). When set it overrides the base-corpus path built
+   * from `fileName`, letting non-corpus surfaces (the Files preview pane) reuse
+   * this viewer. `page` is appended as a `#page=N` fragment when provided.
+   */
+  src?: string
 }
 
-export function PdfViewerDialog({ open, onOpenChange, fileName, page, title }: PdfViewerDialogProps) {
+export function PdfViewerDialog({ open, onOpenChange, fileName, page, title, src: srcOverride }: PdfViewerDialogProps) {
   const t = useTranslations('knowledge')
-  const src = `/api/knowledge-base/documents/${encodeURIComponent(fileName)}${page ? `#page=${page}` : ''}`
+  const baseSrc = srcOverride ?? `/api/knowledge-base/documents/${encodeURIComponent(fileName)}`
+  const src = page ? `${baseSrc}#page=${page}` : baseSrc
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

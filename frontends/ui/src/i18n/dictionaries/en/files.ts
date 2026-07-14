@@ -19,6 +19,7 @@ export const files = {
   },
   preview: {
     closePreview: 'Close preview',
+    expandPreview: 'Open large preview',
     loadFailed: "Preview couldn't be loaded. You can still download the file below.",
     tryAgain: 'Try again',
     noInlinePreview:

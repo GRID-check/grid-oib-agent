@@ -3,11 +3,12 @@
 import { useState, useEffect, useCallback, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import type { FileItem } from './project-file-workspace'
-import { AlertCircle, Download, FileQuestion, RotateCcw, X } from 'lucide-react'
+import { AlertCircle, Download, FileQuestion, Maximize2, RotateCcw, X } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
 import { useLocale, useTranslations } from '@/i18n'
 import { formatFileSize } from '@/lib/utils/format-file-size'
+import { PdfViewerDialog } from '@/features/knowledge/components/pdf-viewer-dialog'
 import { DocumentStatusBadge, fileTypeIcon } from './document-status'
 
 interface FilePreviewPaneProps {
@@ -29,7 +30,11 @@ export function FilePreviewPane({ file, onClose, onReingested }: FilePreviewPane
   const [isDownloading, setIsDownloading] = useState(false)
   const [downloadFailed, setDownloadFailed] = useState(false)
   const [isReingesting, setIsReingesting] = useState(false)
+  const [isLargePreviewOpen, setIsLargePreviewOpen] = useState(false)
   const canPreview = PREVIEW_TYPES.includes(file.contentType ?? '')
+  // The large viewer dialog renders documents in an iframe using the browser's
+  // native PDF viewer, so the expand affordance is offered for PDFs only.
+  const canExpandPreview = file.contentType === 'application/pdf'
   const isFailed = file.status === 'failed'
   const Icon = fileTypeIcon(file.contentType, file.filename)
 
@@ -101,12 +106,35 @@ export function FilePreviewPane({ file, onClose, onReingested }: FilePreviewPane
           <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
           <h3 className="truncate text-sm font-semibold text-foreground">{file.filename}</h3>
         </div>
-        {onClose && (
-          <Button variant="ghost" size="icon" className="size-7 shrink-0" onClick={onClose} aria-label={t('preview.closePreview')}>
-            <X className="size-4" />
-          </Button>
-        )}
+        <div className="flex shrink-0 items-center gap-1">
+          {canExpandPreview && previewUrl && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-7"
+              onClick={() => setIsLargePreviewOpen(true)}
+              aria-label={t('preview.expandPreview')}
+              title={t('preview.expandPreview')}
+            >
+              <Maximize2 className="size-4" />
+            </Button>
+          )}
+          {onClose && (
+            <Button variant="ghost" size="icon" className="size-7" onClick={onClose} aria-label={t('preview.closePreview')}>
+              <X className="size-4" />
+            </Button>
+          )}
+        </div>
       </div>
+
+      {canExpandPreview && previewUrl && (
+        <PdfViewerDialog
+          open={isLargePreviewOpen}
+          onOpenChange={setIsLargePreviewOpen}
+          fileName={file.filename}
+          src={previewUrl}
+        />
+      )}
 
       {/* Preview */}
       <div className="flex-1 overflow-auto bg-muted/30">
