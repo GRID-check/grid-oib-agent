@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { FilePreviewPane } from './file-preview-pane'
 
 describe('FilePreviewPane', () => {
@@ -108,9 +109,59 @@ describe('FilePreviewPane', () => {
     expect(screen.getByText('Brandschutz')).toBeDefined()
   })
 
-  it('hides the tags block when there are no tags', () => {
+  it('shows the tags block with a placeholder and edit affordance when there are no tags', () => {
     render(<FilePreviewPane file={mockFile} projectId="proj-1" />)
+    // The block is now always present (with the flag on) so tags can be added.
+    expect(screen.getByText('Tags')).toBeDefined()
+    expect(screen.getByText('No tags')).toBeDefined()
+    expect(screen.getByRole('button', { name: /edit tags/i })).toBeDefined()
+  })
+
+  it('does not offer the tags edit affordance when the flag is off', () => {
+    render(<FilePreviewPane file={mockFile} projectId="proj-1" showMetadataPanel={false} />)
     expect(screen.queryByText('Tags')).toBeNull()
+    expect(screen.queryByRole('button', { name: /edit tags/i })).toBeNull()
+  })
+
+  it('edits tags via the popover: toggle, save, optimistic update, PATCH shape', async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, json: async () => ({}) } as Response)
+
+    render(<FilePreviewPane file={{ ...mockFile, tags: ['Grundriss'] }} projectId="proj-1" />)
+
+    await user.click(screen.getByRole('button', { name: /edit tags/i }))
+
+    // Grouped by Dokumenttyp / Fachbereich.
+    expect(await screen.findByText('Document type')).toBeDefined()
+    expect(screen.getByText('Discipline')).toBeDefined()
+
+    // Toggle a discipline tag on, then save.
+    await user.click(screen.getByRole('button', { name: 'Brandschutz', pressed: false }))
+    await user.click(screen.getByRole('button', { name: /^Save$/i }))
+
+    // Optimistic: the new chip is present immediately.
+    await waitFor(() => expect(screen.getByText('Brandschutz')).toBeDefined())
+
+    const tagsCall = fetchMock.mock.calls.find(([url]) => String(url) === '/api/documents/doc-1/tags')
+    expect(tagsCall).toBeDefined()
+    expect(tagsCall![1]).toMatchObject({ method: 'PATCH' })
+    expect(JSON.parse((tagsCall![1] as RequestInit).body as string)).toEqual({
+      tags: ['Grundriss', 'Brandschutz'],
+    })
+  })
+
+  it('reverts the optimistic tag update when the PATCH fails', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: false, status: 500, json: async () => ({}) } as Response)
+
+    render(<FilePreviewPane file={{ ...mockFile, tags: ['Grundriss'] }} projectId="proj-1" />)
+
+    await user.click(screen.getByRole('button', { name: /edit tags/i }))
+    await user.click(screen.getByRole('button', { name: 'Grundriss', pressed: true }))
+    await user.click(screen.getByRole('button', { name: /^Save$/i }))
+
+    // After the failed save, the original tag is restored and the added-none stays.
+    await waitFor(() => expect(screen.getByText('Grundriss')).toBeDefined())
   })
 
   it('hides tags when the files-metadata-panel flag is off', () => {

@@ -16,7 +16,8 @@ import { requireProjectAccess } from '@/lib/authz/projects'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { getBackendUrl } from '@/lib/backend-proxy'
 import { findProjectInOrg } from '@/lib/projects/repository'
-import { ApiError, BadRequestError, ConflictError, NotFoundError } from '@/lib/api/errors'
+import { ApiError, BadRequestError, ConflictError, NotFoundError, UpstreamError } from '@/lib/api/errors'
+import { ALLOWED_TAGS } from './tag-vocabulary'
 import { getFileUploadConfigFromEnv } from '@/shared/config/file-upload'
 import { FEATURE_FLAGS, isFeatureEnabled } from '@/lib/authz/feature-flags'
 import type { AuthorizedSession } from '@/lib/auth/types'
@@ -317,6 +318,54 @@ export async function reingestDocument(
 
   const { jobId, status } = await dispatchIngest(doc.id, doc.collectionName, doc.minioKey)
   return { id: doc.id, status, jobId }
+}
+
+/**
+ * Replace a document's controlled tags. Requires `project:edit`. The document
+ * row maps to the backend's `(collectionName, filename)` summary key; the edit
+ * is proxied to the Python tag endpoint, which is the authority on the
+ * vocabulary. Tags are also validated here against the mirrored `ALLOWED_TAGS`
+ * so an obviously-bad request fails fast (400) without a backend round-trip;
+ * an empty list clears the tags. A missing summary row surfaces as 404.
+ */
+export async function updateDocumentTags(
+  session: AuthorizedSession,
+  documentId: string,
+  tags: string[],
+): Promise<{ id: string; tags: string[] }> {
+  const doc = await getAccessibleDocument(session, documentId, 'project:edit')
+
+  const offending = tags.filter((tag) => !ALLOWED_TAGS.has(tag))
+  if (offending.length > 0) {
+    throw new BadRequestError('Tags outside the controlled vocabulary are not allowed', {
+      invalidTags: offending,
+    })
+  }
+
+  let res: Response
+  try {
+    res = await fetch(
+      `${getBackendUrl()}/v1/collections/${encodeURIComponent(doc.collectionName)}/documents/${encodeURIComponent(
+        doc.filename,
+      )}/tags`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tags }),
+      },
+    )
+  } catch {
+    throw new UpstreamError('Could not reach the document service')
+  }
+
+  if (res.status === 404) throw new NotFoundError()
+  if (res.status === 400) {
+    throw new BadRequestError('Tags outside the controlled vocabulary are not allowed')
+  }
+  if (!res.ok) throw new UpstreamError('The document service rejected the tag update')
+
+  const body = await res.json().catch(() => ({}))
+  return { id: doc.id, tags: Array.isArray(body.tags) ? body.tags : tags }
 }
 
 /** Presign a browser-facing download URL for a document. */

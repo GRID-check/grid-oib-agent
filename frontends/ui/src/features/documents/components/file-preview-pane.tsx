@@ -3,9 +3,11 @@
 import { useState, useEffect, useCallback, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import type { FileItem } from './project-file-workspace'
-import { AlertCircle, Download, FileQuestion, Maximize2, RotateCcw, X } from 'lucide-react'
+import { AlertCircle, Check, Download, FileQuestion, Maximize2, Pencil, RotateCcw, X } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { TAG_GROUPS, MAX_TAGS } from '@/lib/documents/tag-vocabulary'
 import { useLocale, useTranslations } from '@/i18n'
 import { formatFileSize } from '@/lib/utils/format-file-size'
 import { PdfViewerDialog } from '@/features/knowledge/components/pdf-viewer-dialog'
@@ -191,23 +193,10 @@ export function FilePreviewPane({ file, onClose, onReingested, showMetadataPanel
         </div>
       )}
 
-      {/* Ingestion-generated tags — controlled document-type/discipline labels,
-          rendered as small muted chips. Read-only in this cycle. */}
-      {showMetadataPanel && file.tags && file.tags.length > 0 && (
-        <div className="space-y-1.5 border-t px-4 py-3">
-          <p className="text-xs text-muted-foreground">{t('preview.tags')}</p>
-          <div className="flex flex-wrap gap-1.5">
-            {file.tags.map((tag) => (
-              <span
-                key={tag}
-                className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground"
-              >
-                {tag}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* Ingestion-generated tags — controlled document-type/discipline labels.
+          Editable via a small popover of toggleable chips (same flag as the rest
+          of the metadata block). */}
+      {showMetadataPanel && <DocumentTagsSection fileId={file.id} initialTags={file.tags ?? []} />}
 
       {/* Metadata */}
       <div className="space-y-2.5 border-t px-4 py-3">
@@ -284,6 +273,144 @@ export function FilePreviewPane({ file, onClose, onReingested, showMetadataPanel
           </p>
         )}
       </div>
+    </div>
+  )
+}
+
+/**
+ * Editable controlled-tag block. Renders the current tags as calm muted chips
+ * with an edit affordance; the popover offers the full vocabulary as toggleable
+ * chips, grouped Dokumenttyp / Fachbereich. Save is optimistic: the chips update
+ * immediately and revert (with a toast) if the PATCH fails.
+ */
+function DocumentTagsSection({ fileId, initialTags }: { fileId: string; initialTags: string[] }) {
+  const t = useTranslations('files')
+  const [tags, setTags] = useState<string[]>(initialTags)
+  const [draft, setDraft] = useState<string[]>(initialTags)
+  const [open, setOpen] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+
+  // Reset when a different file is selected (the pane is reused across files).
+  useEffect(() => {
+    setTags(initialTags)
+    setOpen(false)
+    // initialTags identity changes per file; fileId gates the reset intent.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fileId])
+
+  const openEditor = useCallback(() => {
+    setDraft(tags)
+    setOpen(true)
+  }, [tags])
+
+  const toggleTag = useCallback((tag: string) => {
+    setDraft((current) =>
+      current.includes(tag)
+        ? current.filter((existing) => existing !== tag)
+        : current.length >= MAX_TAGS
+          ? current
+          : [...current, tag],
+    )
+  }, [])
+
+  const handleSave = useCallback(async () => {
+    const next = draft
+    const previous = tags
+    // Optimistic: commit locally and close before the network round-trip.
+    setTags(next)
+    setOpen(false)
+    setIsSaving(true)
+    try {
+      const res = await fetch(`/api/documents/${fileId}/tags`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tags: next }),
+      })
+      if (!res.ok) throw new Error(`Tag update failed (${res.status})`)
+    } catch {
+      setTags(previous) // revert on failure
+      toast.error(t('preview.tagsSaveError'))
+    } finally {
+      setIsSaving(false)
+    }
+  }, [draft, tags, fileId, t])
+
+  return (
+    <div className="space-y-1.5 border-t px-4 py-3">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs text-muted-foreground">{t('preview.tags')}</p>
+        <Popover open={open} onOpenChange={setOpen}>
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-6"
+              onClick={openEditor}
+              disabled={isSaving}
+              aria-label={t('preview.editTags')}
+              title={t('preview.editTags')}
+            >
+              <Pencil className="size-3.5" aria-hidden />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-72 space-y-3">
+            {TAG_GROUPS.map((group) => (
+              <div key={group.id} className="space-y-1.5">
+                <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                  {t(`preview.tagGroups.${group.id}`)}
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {group.tags.map((tag) => {
+                    const selected = draft.includes(tag)
+                    const atCap = !selected && draft.length >= MAX_TAGS
+                    return (
+                      <button
+                        key={tag}
+                        type="button"
+                        onClick={() => toggleTag(tag)}
+                        disabled={atCap}
+                        aria-pressed={selected}
+                        className={
+                          'inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium transition-colors ' +
+                          (selected
+                            ? 'border-primary bg-primary text-primary-foreground'
+                            : 'border-border bg-transparent text-muted-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40')
+                        }
+                      >
+                        {tag}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            ))}
+            <div className="flex justify-end gap-2 pt-1">
+              <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(false)}>
+                {t('preview.tagsCancel')}
+              </Button>
+              <Button type="button" size="sm" className="gap-1.5" onClick={handleSave}>
+                <Check className="size-3.5" aria-hidden />
+                {t('preview.tagsSave')}
+              </Button>
+            </div>
+          </PopoverContent>
+        </Popover>
+      </div>
+      {tags.length > 0 ? (
+        <div className="flex flex-wrap gap-1.5">
+          {tags.map((tag) => (
+            <span
+              key={tag}
+              className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground"
+            >
+              {tag}
+            </span>
+          ))}
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground/70">{t('preview.noTags')}</p>
+      )}
     </div>
   )
 }
