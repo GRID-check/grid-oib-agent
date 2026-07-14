@@ -307,11 +307,20 @@ def _get_summary_store() -> "SummaryStore":
     return _summary_store
 
 
-def register_summary(collection: str, filename: str, summary: str | None) -> None:
-    """Store summary in database."""
+def register_summary(
+    collection: str,
+    filename: str,
+    summary: str | None,
+    tags: list[str] | None = None,
+) -> None:
+    """Store a summary (and optional controlled tags) in the database.
+
+    The ``summary`` column is NOT NULL, so a file with no summary is skipped
+    entirely — tags ride along with the summary in a single upsert per file.
+    """
     if not summary:
         return
-    _get_summary_store().register(collection, filename, summary)
+    _get_summary_store().register(collection, filename, summary, tags)
 
 
 def get_available_documents(collection: str) -> list["AvailableDocument"]:

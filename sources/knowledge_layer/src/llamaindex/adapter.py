@@ -102,8 +102,8 @@ TTL_CLEANUP_INTERVAL_SECONDS = int(os.environ.get("AIQ_TTL_CLEANUP_INTERVAL_SECO
 # pruned so in-memory job tracking doesn't grow for the life of the process.
 JOB_RETENTION_SECONDS = 3600  # 1 hour
 
-# Document summarization settings
-SUMMARY_MAX_INPUT_CHARS = 4000  # ~1000 tokens input
+# Document summarization + tag-classification input limits live in the shared
+# aiq_agent.knowledge.document_classification module (CLASSIFY_MAX_INPUT_CHARS).
 
 # ---------------------------------------------------------------------------
 # In-process collection write versions.
@@ -503,6 +503,11 @@ def _generate_document_summary(text_content: str, file_name: str, llm=None) -> s
     """
     Generate one-sentence summary from document text.
 
+    Thin wrapper over the shared, backend-agnostic
+    ``summarize_document_text`` (prompt + call + parse live in one place so the
+    two backends can never drift). LlamaIndex supplies the text from already
+    extracted chunks.
+
     Args:
         text_content: Combined first + last chunk text.
         file_name: Filename for context.
@@ -511,24 +516,9 @@ def _generate_document_summary(text_content: str, file_name: str, llm=None) -> s
     Returns:
         One-sentence summary or None if no LLM provided or generation failed.
     """
-    if llm is None:
-        # No fallback LLM - summary_model must be configured
-        return None
+    from aiq_agent.knowledge.document_classification import summarize_document_text
 
-    # Truncate if too long
-    text = text_content[:SUMMARY_MAX_INPUT_CHARS]
-    prompt = f"Summarize in ONE sentence:\n\n{text}"
-
-    try:
-        response = llm.invoke(prompt)
-        # Handle different response types (str or AIMessage)
-        content = response.content if hasattr(response, "content") else str(response)
-        summary = content.strip()
-        logger.info("[SUMMARY] Generated (%d chars)", len(summary))
-        return summary
-    except Exception as e:
-        logger.warning(f"Summary via LLM failed for {file_name}: {e}")
-        return None
+    return summarize_document_text(text_content, file_name, llm)
 
 
 # =============================================================================
@@ -1598,19 +1588,26 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     all_documents.extend(text_documents)
                     logger.info(f"  Text extraction: {len(text_documents)} documents")
 
-                    # Start summary generation in parallel with VLM (if enabled)
+                    # Start summary + tag classification in parallel with VLM
+                    # (if enabled). Two separate LLM calls run concurrently on a
+                    # 2-worker pool; both are awaited (with their own timeouts)
+                    # and are fully fail-open below.
                     summary_future = None
+                    tags_future = None
                     executor = None
                     if self.generate_summary_enabled and text_documents:
                         from concurrent.futures import ThreadPoolExecutor
 
+                        from aiq_agent.knowledge.document_classification import classify_document_tags
+
                         first = text_documents[0].get_content()
                         last = text_documents[-1].get_content() if len(text_documents) > 1 else ""
                         combined = f"{first}\n...\n{last}" if last else first
-                        executor = ThreadPoolExecutor(max_workers=1)
+                        executor = ThreadPoolExecutor(max_workers=2)
                         summary_future = executor.submit(
                             _generate_document_summary, combined, file_name, self.summary_llm
                         )
+                        tags_future = executor.submit(classify_document_tags, combined, file_name, self.summary_llm)
 
                     # 2. Extract tables (PDF only)
                     if is_pdf and extract_tables:
@@ -1692,6 +1689,17 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         except Exception as e:
                             logger.warning("Summary generation failed for %s: %s", file_name, e)
 
+                    # Wait for tags if started (independent timeout, fail-open —
+                    # a tag failure never affects the summary or the ingestion).
+                    tags = None
+                    if tags_future:
+                        try:
+                            tags = tags_future.result(timeout=30)
+                        except TimeoutError:
+                            logger.warning("Tag classification timed out for %s", file_name)
+                        except Exception as e:
+                            logger.warning("Tag classification failed for %s: %s", file_name, e)
+
                     # Clean up executor
                     if executor:
                         executor.shutdown(wait=False)
@@ -1730,18 +1738,21 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     total_chunks += chunks_created
 
                     self._update_file_status(job, i, FileStatus.SUCCESS, chunks_created=chunks_created)
-                    # Store summary in FileInfo and centralized registry
+                    # Store summary + tags in FileInfo and centralized registry
                     if summary:
-                        # Register in centralized summary registry (backend-agnostic)
+                        # Register in centralized summary registry (backend-agnostic).
+                        # Tags ride along in the same upsert (may be None).
                         from aiq_agent.knowledge import register_summary
 
-                        register_summary(collection_name, file_name, summary)
+                        register_summary(collection_name, file_name, summary, tags=tags)
 
                         # Also store in local FileInfo for backwards compatibility
                         file_id = config.get("file_id")
                         if file_id and file_id in self._files:
                             with self._lock:
                                 self._files[file_id].metadata["summary"] = summary
+                                if tags:
+                                    self._files[file_id].tags = tags
                         else:
                             # Fallback: store by filename when using submit_job directly
                             with self._lock:
@@ -1751,6 +1762,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                                     collection_name=collection_name,
                                     status=FileStatus.SUCCESS,
                                     chunk_count=chunks_created,
+                                    tags=tags,
                                     metadata={"summary": summary},
                                 )
                         logger.info(f"  Summary generated ({len(summary)} chars)")

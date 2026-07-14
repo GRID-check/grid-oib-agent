@@ -103,7 +103,7 @@ When the query references "me", "myself", or "my work", search for this person.
 {% if available_documents and available_documents | length > 0 %}
 ## User Uploaded Documents
 The following documents are available via knowledge_search:
-{% for doc in available_documents %}- **{{ doc.file_name }}**: {{ doc.summary or "No summary available" }}
+{% for doc in available_documents %}- **{{ doc.file_name }}**{% if doc.tags %} [{{ doc.tags|join(', ') }}]{% endif %}: {{ doc.summary or "No summary available" }}
 {% endfor %}
 {% endif %}
 

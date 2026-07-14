@@ -94,3 +94,34 @@ def test_summary_row_with_none_summary_is_skipped():
     _merge_summaries(files, summaries)
 
     assert files[0].summary is None
+
+
+def test_merges_tags_onto_matching_file():
+    files = [_file("plan.pdf")]
+    summaries = [
+        AvailableDocument(file_name="plan.pdf", summary="A plan.", tags=["Grundriss", "Brandschutz"]),
+    ]
+
+    _merge_summaries(files, summaries)
+
+    assert files[0].summary == "A plan."
+    assert files[0].tags == ["Grundriss", "Brandschutz"]
+
+
+def test_file_without_tags_row_stays_none():
+    files = [_file("plan.pdf")]
+    summaries = [AvailableDocument(file_name="plan.pdf", summary="A plan.")]
+
+    _merge_summaries(files, summaries)
+
+    assert files[0].tags is None
+
+
+def test_existing_tags_are_not_overwritten():
+    files = [_file("plan.pdf")]
+    files[0].tags = ["Schnitt"]
+    summaries = [AvailableDocument(file_name="plan.pdf", summary="A plan.", tags=["Grundriss"])]
+
+    _merge_summaries(files, summaries)
+
+    assert files[0].tags == ["Schnitt"]

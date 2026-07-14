@@ -99,7 +99,7 @@ User: {{ user_info.name or "Unknown" }} ({{ user_info.email or "Unknown" }})
 ## Uploaded Documents (IMPORTANT)
 The user has uploaded the following documents to the knowledge base:
 {% for doc in available_documents %}
-- **{{ doc.file_name }}**: {{ doc.summary or "No summary available" }}
+- **{{ doc.file_name }}**{% if doc.tags %} [{{ doc.tags|join(', ') }}]{% endif %}: {{ doc.summary or "No summary available" }}
 {% endfor %}
 
 **CRITICAL**: When the user asks to summarize, describe, explain, or query their uploaded documents, you MUST use the **knowledge_search** tool — NOT web search. Only **knowledge_search** has access to these uploaded documents.

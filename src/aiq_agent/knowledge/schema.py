@@ -187,6 +187,10 @@ class FileInfo(BaseModel):
     expiration_date: datetime | None = Field(None, description="When the file will be auto-deleted.")
     error_message: str | None = Field(None, description="Error message if processing failed.")
     summary: str | None = Field(None, description="One-sentence summary of the document content, if generated.")
+    tags: list[str] | None = Field(
+        None,
+        description="Controlled ingestion-generated tags (document type + OIB discipline), if classified.",
+    )
     metadata: dict[str, Any] = Field(
         default_factory=dict,
         description="File-specific metadata (e.g., page count, content types).",
@@ -260,7 +264,10 @@ class AvailableDocument(BaseModel):
     Attributes:
         file_name: The name of the uploaded file.
         summary: Optional one-sentence summary of the document content.
+        tags: Optional controlled ingestion-generated tags (document type + OIB
+            discipline).
     """
 
     file_name: str
     summary: str | None = None
+    tags: list[str] | None = None

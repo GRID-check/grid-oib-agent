@@ -244,15 +244,44 @@ def _generate_file_summary(file_path: str, llm=None) -> str | None:
     if not text:
         return None
 
-    prompt = f"Summarize in ONE sentence:\n\n{text}"
+    # Prompt + call + parse are shared with the LlamaIndex backend so the two
+    # can never drift; only text extraction differs (client-side here).
+    from aiq_agent.knowledge.document_classification import summarize_document_text
 
-    try:
-        response = llm.invoke(prompt)
-        content = response.content if hasattr(response, "content") else str(response)
-        return content.strip()
-    except Exception as e:
-        logger.warning("Summary generation via LLM failed: %s", e)
+    return summarize_document_text(text, Path(file_path).name, llm)
+
+
+def _generate_file_tags(file_path: str, llm=None) -> list[str] | None:
+    """
+    Classify a local file into controlled German tags (document type + OIB
+    discipline).
+
+    Runs client-side in parallel with FRAG upload, mirroring
+    ``_generate_file_summary``: same supported formats, same client-side text
+    extraction, shared prompt/call/parse via the backend-agnostic
+    ``classify_document_tags``. Fully fail-open.
+
+    Args:
+        file_path: Path to the file to classify.
+        llm: LangChain LLM object. Required - no default fallback.
+
+    Returns:
+        A validated list of tags, or ``None`` (unsupported format, no LLM,
+        no text, or classification failure).
+    """
+    if llm is None:
         return None
+
+    if Path(file_path).suffix.lower() not in SUMMARIZABLE_EXTENSIONS:
+        return None
+
+    text = _extract_text(file_path)
+    if not text:
+        return None
+
+    from aiq_agent.knowledge.document_classification import classify_document_tags
+
+    return classify_document_tags(text, Path(file_path).name, llm)
 
 
 @register_retriever("foundational_rag")
@@ -793,11 +822,13 @@ class FoundationalRagIngestor(TTLCleanupMixin, BaseIngestor):
 
         task_ids = []
 
-        # Track summary futures for parallel generation
+        # Track summary + tag futures for parallel generation
         summary_futures: dict[int, tuple[str, Any]] = {}  # index -> (file_name, future)
+        tags_futures: dict[int, Any] = {}  # index -> future
         executor = None
         if self.generate_summary:
-            executor = ThreadPoolExecutor(max_workers=min(len(file_paths), 4))
+            # Two futures per file (summary + tags), so scale the pool up to 8.
+            executor = ThreadPoolExecutor(max_workers=min(len(file_paths) * 2, 8))
 
         # Pre-loop: update statuses and kick off summary generation
         file_handles = []
@@ -809,11 +840,12 @@ class FoundationalRagIngestor(TTLCleanupMixin, BaseIngestor):
             with self._lock:
                 file_details[i].status = FileStatus.INGESTING
 
-            # Start client-side summary generation in parallel (if enabled)
+            # Start client-side summary + tag generation in parallel (if enabled)
             if self.generate_summary and file_path_obj.suffix.lower() in SUMMARIZABLE_EXTENSIONS:
-                logger.info("Starting client-side summary generation")
+                logger.info("Starting client-side summary + tag generation")
                 future = executor.submit(_generate_file_summary, file_path, self.summary_llm)
                 summary_futures[i] = (file_name, future)
+                tags_futures[i] = executor.submit(_generate_file_tags, file_path, self.summary_llm)
 
             # Open file handle for batch upload
             try:
@@ -885,7 +917,7 @@ class FoundationalRagIngestor(TTLCleanupMixin, BaseIngestor):
             for fh in file_handles:
                 fh.close()
 
-        # Collect summaries from parallel generation and register them
+        # Collect summaries + tags from parallel generation and register them
         if summary_futures:
             from aiq_agent.knowledge import register_summary
 
@@ -893,7 +925,16 @@ class FoundationalRagIngestor(TTLCleanupMixin, BaseIngestor):
                 try:
                     summary = future.result(timeout=30)
                     if summary:
-                        register_summary(collection_name, file_name, summary)
+                        # Tags are best-effort and independent: a tag failure
+                        # must not block registering the summary.
+                        tags = None
+                        tags_future = tags_futures.get(idx)
+                        if tags_future is not None:
+                            try:
+                                tags = tags_future.result(timeout=30)
+                            except Exception as te:
+                                logger.debug(f"Tag classification failed for {file_name}: {te}")
+                        register_summary(collection_name, file_name, summary, tags=tags)
                         logger.info(f"  Summary generated ({len(summary)} chars)")
                 except Exception as e:
                     logger.debug(f"Summary generation failed for {file_name}: {e}")
@@ -1335,13 +1376,15 @@ class FoundationalRagIngestor(TTLCleanupMixin, BaseIngestor):
             metadata=metadata or {},
         )
 
-        # Start client-side summary generation in background (parallel with upload)
+        # Start client-side summary + tag generation in background (parallel with upload)
         summary_future = None
+        tags_future = None
         executor = None
         if self.generate_summary and file_path_obj.suffix.lower() in SUMMARIZABLE_EXTENSIONS:
-            logger.info("Starting client-side summary generation for %s", file_path_obj.name)
-            executor = ThreadPoolExecutor(max_workers=1)
+            logger.info("Starting client-side summary + tag generation for %s", file_path_obj.name)
+            executor = ThreadPoolExecutor(max_workers=2)
             summary_future = executor.submit(_generate_file_summary, file_path, self.summary_llm)
+            tags_future = executor.submit(_generate_file_tags, file_path, self.summary_llm)
 
         try:
             # Build the data payload
@@ -1386,17 +1429,31 @@ class FoundationalRagIngestor(TTLCleanupMixin, BaseIngestor):
             file_info.error_message = str(e)
             logger.error(f"Failed to upload file {file_path}: {e}")
 
+        # Wait for client-side tags first (independent, fail-open) so they can
+        # ride along in the single summary upsert below.
+        tags = None
+        if tags_future:
+            try:
+                tags = tags_future.result(timeout=30)
+            except TimeoutError:
+                logger.warning("Tag classification timed out for %s", file_path_obj.name)
+            except Exception as e:
+                logger.warning("Tag classification failed for %s: %s", file_path_obj.name, e)
+        if tags:
+            file_info.tags = tags
+
         # Wait for client-side summary (non-blocking during upload)
         if summary_future:
             try:
                 summary = summary_future.result(timeout=15)
                 file_info.metadata["summary"] = summary
 
-                # Register in centralized summary registry (backend-agnostic)
+                # Register in centralized summary registry (backend-agnostic).
+                # Tags ride along in the same upsert (may be None).
                 if summary:
                     from aiq_agent.knowledge import register_summary
 
-                    register_summary(collection_name, file_info.file_name, summary)
+                    register_summary(collection_name, file_info.file_name, summary, tags=tags)
                     logger.info(f"  Summary generated ({len(summary)} chars)")
 
             except TimeoutError:

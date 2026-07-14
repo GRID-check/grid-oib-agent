@@ -112,13 +112,13 @@ class TestAvailableDocument:
         """Test model serialization to dict."""
         doc = AvailableDocument(file_name="report.pdf", summary="Financial report.")
         data = doc.model_dump()
-        assert data == {"file_name": "report.pdf", "summary": "Financial report."}
+        assert data == {"file_name": "report.pdf", "summary": "Financial report.", "tags": None}
 
     def test_model_dump_without_summary(self):
         """Test model serialization without summary."""
         doc = AvailableDocument(file_name="report.pdf")
         data = doc.model_dump()
-        assert data == {"file_name": "report.pdf", "summary": None}
+        assert data == {"file_name": "report.pdf", "summary": None, "tags": None}
 
     def test_model_validate(self):
         """Test model creation from dict."""
@@ -126,6 +126,14 @@ class TestAvailableDocument:
         doc = AvailableDocument.model_validate(data)
         assert doc.file_name == "doc.pdf"
         assert doc.summary == "Test summary"
+        assert doc.tags is None
+
+    def test_create_with_tags(self):
+        """Test creating AvailableDocument with controlled tags."""
+        doc = AvailableDocument(file_name="plan.pdf", summary="A floor plan.", tags=["Grundriss", "Brandschutz"])
+        assert doc.tags == ["Grundriss", "Brandschutz"]
+        # Tags survive a serialize/round-trip through model_dump.
+        assert AvailableDocument.model_validate(doc.model_dump()).tags == ["Grundriss", "Brandschutz"]
 
 
 # =============================================================================
@@ -181,6 +189,87 @@ class TestSummaryStore:
         docs = store.get_all("collection")
         assert len(docs) == 1
         assert docs[0].summary == "Updated summary"
+
+    def test_register_with_tags_roundtrip(self, store):
+        """Test tags are JSON-persisted and decoded back into a list."""
+        store.register("coll", "plan.pdf", "A floor plan.", tags=["Grundriss", "Brandschutz"])
+        docs = store.get_all("coll")
+        assert len(docs) == 1
+        assert docs[0].summary == "A floor plan."
+        assert docs[0].tags == ["Grundriss", "Brandschutz"]
+
+    def test_register_without_tags_is_none(self, store):
+        """Test a summary registered without tags decodes to None (not [])."""
+        store.register("coll", "doc.pdf", "A summary.")
+        docs = store.get_all("coll")
+        assert docs[0].tags is None
+
+    def test_register_tags_update_overwrites(self, store):
+        """Test re-registering replaces the previously stored tags."""
+        store.register("coll", "doc.pdf", "Summary.", tags=["Grundriss"])
+        store.register("coll", "doc.pdf", "Summary.", tags=["Schnitt", "Schallschutz"])
+        docs = store.get_all("coll")
+        assert docs[0].tags == ["Schnitt", "Schallschutz"]
+
+    @pytest.mark.asyncio
+    async def test_get_all_async_with_tags(self, store):
+        """Test async retrieval decodes the tags column."""
+        store.register("acoll", "plan.pdf", "A plan.", tags=["Grundriss"])
+        docs = await store.get_all_async("acoll")
+        assert len(docs) == 1
+        assert docs[0].tags == ["Grundriss"]
+
+    def test_fresh_table_has_tags_column(self, temp_db):
+        """A freshly-created summaries table includes the tags column."""
+        from sqlalchemy import create_engine
+        from sqlalchemy import inspect
+
+        SummaryStore(temp_db)  # creates the table
+        engine = create_engine(temp_db)
+        columns = {c["name"] for c in inspect(engine).get_columns("summaries")}
+        assert "tags" in columns
+
+    def test_existing_table_without_tags_is_migrated(self):
+        """A pre-existing summaries table (no tags column) is migrated in place."""
+        from sqlalchemy import create_engine
+        from sqlalchemy import inspect
+        from sqlalchemy import text
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "legacy.db"
+            db_url = f"sqlite:///{db_path}"
+
+            # Simulate a legacy DB: create the table WITHOUT the tags column.
+            engine = create_engine(db_url)
+            with engine.connect() as conn:
+                conn.execute(
+                    text(
+                        "CREATE TABLE summaries ("
+                        "collection VARCHAR(256) NOT NULL, "
+                        "filename VARCHAR(512) NOT NULL, "
+                        "summary TEXT NOT NULL, "
+                        "created_at DATETIME, "
+                        "PRIMARY KEY (collection, filename))"
+                    )
+                )
+                conn.execute(
+                    text("INSERT INTO summaries (collection, filename, summary) VALUES ('c', 'old.pdf', 'Legacy.')")
+                )
+                conn.commit()
+
+            assert "tags" not in {c["name"] for c in inspect(engine).get_columns("summaries")}
+
+            # Constructing the store must migrate the existing table in place.
+            SummaryStore._tables_initialized.discard(db_url)
+            store = SummaryStore(db_url)
+            assert "tags" in {c["name"] for c in inspect(engine).get_columns("summaries")}
+
+            # Existing rows survive, tags default to None, new writes carry tags.
+            docs = store.get_all("c")
+            assert len(docs) == 1 and docs[0].tags is None
+            store.register("c", "new.pdf", "New.", tags=["Grundriss"])
+            new = {d.file_name: d for d in store.get_all("c")}
+            assert new["new.pdf"].tags == ["Grundriss"]
 
     def test_get_all_empty_collection(self, store):
         """Test getting documents from empty collection returns empty list."""
