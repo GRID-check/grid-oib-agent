@@ -9,6 +9,7 @@
  */
 
 import { apiConfig } from './config'
+import { ApiRequestError } from './api-error'
 
 // ============================================================
 // Types
@@ -16,6 +17,15 @@ import { apiConfig } from './config'
 
 /** Job status values */
 export type DeepResearchJobStatus = 'submitted' | 'running' | 'success' | 'failure' | 'interrupted'
+
+/** Valid job status values, used to validate unvalidated SSE payloads */
+const VALID_JOB_STATUSES: ReadonlySet<DeepResearchJobStatus> = new Set([
+  'submitted',
+  'running',
+  'success',
+  'failure',
+  'interrupted',
+])
 
 /** SSE event types from the deep research stream */
 export type DeepResearchEventType =
@@ -395,23 +405,33 @@ export const createDeepResearchClient = (options: DeepResearchStreamOptions): De
 
       case 'job.status': {
         // job.status wraps status in data property
-        const statusWrapper = rawData as { data?: { status: DeepResearchJobStatus; error?: string }; status?: DeepResearchJobStatus; error?: string }
+        const statusWrapper = rawData as { data?: { status?: DeepResearchJobStatus; error?: string }; status?: DeepResearchJobStatus; error?: string }
         const statusData = statusWrapper.data || statusWrapper
-        callbacks.onJobStatus?.(statusData.status!, statusData.error)
+        const status = statusData.status
+        // Validate before use — the payload is unvalidated JSON from the wire.
+        if (!status || !VALID_JOB_STATUSES.has(status)) {
+          if (process.env.NODE_ENV === 'development') {
+            console.warn('[SSE:job.status] Ignoring event with invalid status:', status)
+          }
+          break
+        }
+        callbacks.onJobStatus?.(status, statusData.error)
 
         // Check for terminal states — close EventSource immediately to prevent
         // auto-reconnection loops (EventSource reconnects on its own if left open)
-        if (statusData.status === 'success') {
+        if (status === 'success') {
           isTerminated = true
           eventSource?.close()
           callbacks.onComplete?.()
-        } else if (statusData.status === 'failure' || statusData.status === 'interrupted') {
+        } else if (status === 'failure' || status === 'interrupted') {
           isTerminated = true
           eventSource?.close()
-          // Only call onError for actual failures, not user-initiated cancellations
-          const isUserCancelled = statusData.status === 'interrupted' && statusData.error?.toLowerCase().includes('cancelled by user')
-          if (!isUserCancelled && statusData.error) {
-            callbacks.onError?.(new Error(statusData.error || `Job ${statusData.status}`))
+          // Only call onError for actual failures, not user-initiated cancellations.
+          // A failure without an error string is still a failure — fall back to a
+          // generic message so the caller is always notified of the terminal state.
+          const isUserCancelled = status === 'interrupted' && statusData.error?.toLowerCase().includes('cancelled by user')
+          if (!isUserCancelled) {
+            callbacks.onError?.(new Error(statusData.error || `Job ${status}`))
           }
         }
         break
@@ -704,7 +724,12 @@ const getDeepResearchErrorDetails = async (response: Response): Promise<string |
 
 const throwDeepResearchApiError = async (response: Response, context: string): Promise<never> => {
   const details = await getDeepResearchErrorDetails(response)
-  throw new Error(`${context}: ${response.status}${details ? ` - ${details}` : ''}`)
+  // ApiRequestError carries the HTTP status so consumers can classify the
+  // failure structurally instead of parsing the message text.
+  throw new ApiRequestError(
+    `${context}: ${response.status}${details ? ` - ${details}` : ''}`,
+    response.status
+  )
 }
 
 /** Get job status */

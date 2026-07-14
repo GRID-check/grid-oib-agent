@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { AlertCircle, ArrowRight, Telescope } from 'lucide-react'
 import { Stagger, StaggerItem } from '@/components/motion'
@@ -114,8 +114,19 @@ export function ResearchRunsList({ projectId, projectCollection }: ResearchRunsL
     return tr('runsList.untitledRun')
   }
 
+  // Tracks the in-flight fetch (initial, prop-change, or retry) so a newer
+  // load or unmount cancels it — a stale response must never overwrite a
+  // newer project's list.
+  const activeLoadRef = useRef<{ cancelled: boolean } | null>(null)
+
   const load = useCallback(
-    (signal: { cancelled: boolean }) => {
+    () => {
+      if (activeLoadRef.current) {
+        activeLoadRef.current.cancelled = true
+      }
+      const signal = { cancelled: false }
+      activeLoadRef.current = signal
+
       setJobs(null)
       setError(null)
       setTitles({})
@@ -153,10 +164,12 @@ export function ResearchRunsList({ projectId, projectCollection }: ResearchRunsL
   )
 
   useEffect(() => {
-    const signal = { cancelled: false }
-    load(signal)
+    load()
     return () => {
-      signal.cancelled = true
+      if (activeLoadRef.current) {
+        activeLoadRef.current.cancelled = true
+        activeLoadRef.current = null
+      }
     }
   }, [load])
 
@@ -167,14 +180,7 @@ export function ResearchRunsList({ projectId, projectCollection }: ResearchRunsL
         <AlertTitle>{t('researchRuns.errorTitle')}</AlertTitle>
         <AlertDescription className="flex flex-col items-start gap-3">
           <span>{error}</span>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              const signal = { cancelled: false }
-              load(signal)
-            }}
-          >
+          <Button variant="outline" size="sm" onClick={() => load()}>
             {t('researchRuns.tryAgain')}
           </Button>
         </AlertDescription>

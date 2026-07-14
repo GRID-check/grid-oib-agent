@@ -84,6 +84,21 @@ const createJobLoadScope = (jobId: string): JobLoadScope => {
   return { jobId, conversationId: currentConversation?.id ?? null, requiresJobMatch: false }
 }
 
+/**
+ * True when a DIFFERENT job is actively streaming live. Loading (and thus
+ * clearing) deep research state in that case would wipe the live run's
+ * progress and disconnect its SSE while the backend keeps working — mirrors
+ * the isAnotherJobStreaming guard in AgentResponse.
+ */
+const isAnotherJobStreaming = (jobId: string): boolean => {
+  const state = useChatStore.getState()
+  return Boolean(
+    state.isDeepResearchStreaming &&
+      state.deepResearchJobId &&
+      state.deepResearchJobId !== jobId
+  )
+}
+
 const isJobLoadScopeCurrent = (scope: JobLoadScope): boolean => {
   const state = useChatStore.getState()
 
@@ -467,6 +482,9 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
         }
 
         let client: DeepResearchClient | null = null
+        // The client fires onError right after a terminal failure job.status —
+        // once the load settled that late error must not be logged as a failure.
+        let settled = false
         const disconnectReplayClient = (): void => {
           if (!client) return
           client.disconnect()
@@ -484,16 +502,18 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
               setCurrentStatus('researching')
             },
 
-            onJobStatus: (status: DeepResearchJobStatus, statusError?: string) => {
+            onJobStatus: (status: DeepResearchJobStatus) => {
               if (status === 'success' || status === 'failure' || status === 'interrupted') {
                 disconnectReplayClient()
                 commitToStore()
 
-                if (status === 'failure' && statusError) {
-                  reject(new Error(statusError))
-                } else {
-                  resolve()
-                }
+                // This replays a job that is already terminal — a re-delivered
+                // terminal 'failure' status is data, not a load error. The load
+                // itself succeeded, so complete it normally (no error card, and
+                // the stream stays cached instead of re-replaying on every tab
+                // click).
+                settled = true
+                resolve()
               }
             },
 
@@ -569,7 +589,13 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
               if (uniqueId) {
                 const tool = buffer.toolCalls.get(uniqueId)
                 if (tool) {
-                  tool.output = output ? JSON.stringify(output) : undefined
+                  // output is already a string on the wire — stringifying it
+                  // again would double-JSON-encode it on replay.
+                  tool.output = output
+                    ? typeof output === 'string'
+                      ? output
+                      : JSON.stringify(output)
+                    : undefined
                 }
               }
             },
@@ -594,17 +620,20 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
             },
 
             onComplete: () => {
+              settled = true
               commitToStore()
               resolve()
             },
 
             onError: (err) => {
+              if (settled) return
               console.error('Stream error while loading job data:', err)
               commitToStore()
               reject(err)
             },
 
             onDisconnect: () => {
+              settled = true
               commitToStore()
               resolve()
             },
@@ -646,6 +675,12 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
         return
       }
 
+      // A different job is streaming live — loading this one would clear its
+      // state and disconnect the live SSE. Skip the load entirely.
+      if (isAnotherJobStreaming(jobId)) {
+        return
+      }
+
       setIsLoading(true)
       setError(null)
 
@@ -658,6 +693,10 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
         if (jobStatus !== 'success' && jobStatus !== 'failure' && jobStatus !== 'interrupted') {
           throw new Error(`Job is still ${jobStatus}. Cannot load data from incomplete job.`)
         }
+
+        // Re-check after the await: a live run for another job may have
+        // started while the status request was in flight.
+        if (isAnotherJobStreaming(jobId)) return
 
         clearDeepResearch()
 
@@ -767,6 +806,12 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
         return
       }
 
+      // A different job is streaming live — loading this one would clear its
+      // state and disconnect the live SSE. Skip the load entirely.
+      if (isAnotherJobStreaming(jobId)) {
+        return
+      }
+
       setIsLoading(true)
       setError(null)
 
@@ -782,6 +827,10 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
           setIsLoading(false)
           return
         }
+
+        // Re-check after the await: a live run for another job may have
+        // started while the status request was in flight.
+        if (isAnotherJobStreaming(jobId)) return
 
         clearDeepResearch()
         await streamFullJob(jobId, scope)

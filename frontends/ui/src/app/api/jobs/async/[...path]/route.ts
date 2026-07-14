@@ -52,9 +52,25 @@ export async function GET(
 ): Promise<Response> {
   try {
     const { path } = await params
-    const backendUrl = buildProxyUrl(JOBS_BASE_PATH, path)
     const isStreamRequest = path.includes('stream')
     const { searchParams } = new URL(req.url)
+
+    // SSE reconnection: the browser's EventSource automatically sends a
+    // `Last-Event-ID` header when it reconnects after a dropped connection.
+    // Map it onto the backend's /stream/{last_event_id} resume endpoint so
+    // reconnects resume after the last delivered event instead of replaying
+    // the whole job (duplicated steps/tool calls, double-counted tokens).
+    // Backend event ids are integers — anything else is ignored so a bogus
+    // header can never break the stream.
+    const lastEventId = req.headers.get('Last-Event-ID')?.trim()
+    const upstreamPath =
+      isStreamRequest &&
+      path[path.length - 1] === 'stream' &&
+      lastEventId &&
+      /^\d+$/.test(lastEventId)
+        ? [...path, lastEventId]
+        : path
+    const backendUrl = buildProxyUrl(JOBS_BASE_PATH, upstreamPath)
 
     console.log('[Deep Research API] GET:', backendUrl, isStreamRequest ? '(SSE)' : '')
 
@@ -65,7 +81,7 @@ export async function GET(
     const { headerValue } = await buildCollectionScopeFromRequest(session, parseQueryContext(searchParams))
 
     // The token query param is consumed for auth and forwarded via headers.
-    const upstreamUrl = buildProxyUrl(JOBS_BASE_PATH, path, searchParams, ['token'])
+    const upstreamUrl = buildProxyUrl(JOBS_BASE_PATH, upstreamPath, searchParams, ['token'])
 
     // Forward the request to the backend
     const response = await fetch(upstreamUrl, {

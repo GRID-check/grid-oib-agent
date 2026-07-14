@@ -2172,6 +2172,56 @@ describe('useChatStore', () => {
       expect(updatedMessages.some((m) => m.id === 'starting-banner')).toBe(false)
       expect(failureBanner).toBeTruthy()
     })
+
+    test('keeps the job active when the status lookup fails transiently', async () => {
+      // A brief network blip (or 5xx) must NOT orphan the running job: the
+      // tracking message keeps isDeepResearchActive so the next
+      // reconnectToActiveJob attempt can still find and restore it.
+      mockDeepResearchApi.getJobStatus.mockRejectedValue(
+        new Error('Failed to get job status: 500 - PROXY_ERROR: fetch failed')
+      )
+
+      const conv = createConversation([
+        {
+          id: 'tracking-msg',
+          messageType: 'agent_response',
+          deepResearchJobId: 'job-transient',
+          deepResearchJobStatus: 'running',
+          isDeepResearchActive: true,
+        },
+      ])
+
+      useChatStore.setState({ currentConversation: conv, conversations: [conv] })
+
+      await useChatStore.getState().reconnectToActiveJob()
+
+      const updatedMessages = useChatStore.getState().currentConversation?.messages ?? []
+      const trackingMessage = updatedMessages.find((m) => m.id === 'tracking-msg')
+      const failureBanner = updatedMessages.find(
+        (m) =>
+          m.messageType === 'deep_research_banner' &&
+          m.deepResearchBannerData?.jobId === 'job-transient'
+      )
+
+      expect(trackingMessage?.isDeepResearchActive).toBe(true)
+      expect(trackingMessage?.deepResearchJobStatus).toBe('running')
+      expect(failureBanner).toBeUndefined()
+
+      // A later attempt (backend back up) can still restore the job.
+      mockDeepResearchApi.getJobStatus.mockResolvedValue({
+        job_id: 'job-transient',
+        status: 'running',
+        error: null,
+      })
+
+      await useChatStore.getState().reconnectToActiveJob()
+
+      expect(useChatStore.getState().deepResearchJobId).toBe('job-transient')
+      expect(useChatStore.getState().isDeepResearchStreaming).toBe(true)
+
+      // Reset streaming state so it does not leak into other tests.
+      useChatStore.setState({ isDeepResearchStreaming: false, deepResearchJobId: null })
+    })
   })
 
   describe('composer prefill', () => {

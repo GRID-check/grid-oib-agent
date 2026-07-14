@@ -9,7 +9,6 @@
 import type { DeepResearchJobStatus } from '../types'
 
 const STORAGE_KEY_PREFIX = 'aiq-deep-research-'
-const ONE_HOUR = 60 * 60 * 1000
 
 const getStorageKey = (jobId: string): string => `${STORAGE_KEY_PREFIX}${jobId}`
 
@@ -43,29 +42,6 @@ export const saveDeepResearchToSession = (state: Omit<DeepResearchSessionState, 
 }
 
 /**
- * Load deep research state from sessionStorage for a specific job
- */
-export const loadDeepResearchFromSession = (jobId: string): DeepResearchSessionState | null => {
-  try {
-    const stored = sessionStorage.getItem(getStorageKey(jobId))
-    if (!stored) return null
-
-    const state = JSON.parse(stored) as DeepResearchSessionState
-
-    // Expire after 1 hour (job likely timed out)
-    if (Date.now() - state.timestamp > ONE_HOUR) {
-      clearDeepResearchSession(jobId)
-      return null
-    }
-
-    return state
-  } catch (error) {
-    console.warn('Failed to load deep research state from sessionStorage:', error)
-    return null
-  }
-}
-
-/**
  * Clear deep research state from sessionStorage for a specific job
  */
 export const clearDeepResearchSession = (jobId: string): void => {
@@ -93,11 +69,4 @@ export const clearAllDeepResearchSessions = (): void => {
   } catch (error) {
     console.warn('Failed to clear all deep research sessions:', error)
   }
-}
-
-/**
- * Check if there's a stored session for a specific job
- */
-export const hasStoredSessionForJob = (jobId: string): boolean => {
-  return loadDeepResearchFromSession(jobId) !== null
 }

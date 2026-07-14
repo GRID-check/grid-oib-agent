@@ -8,6 +8,9 @@
 // Configuration
 export { apiConfig, getWebSocketUrl } from './config'
 
+// Shared API error carrying the HTTP status for structural classification
+export { ApiRequestError } from './api-error'
+
 // WebSocket Client (NAT Protocol)
 export { NATWebSocketClient, createNATWebSocketClient } from './websocket-client'
 export type {

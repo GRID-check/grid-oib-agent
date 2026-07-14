@@ -714,11 +714,10 @@ export const createDeepResearchSlice: StateCreator<ChatStore, [["zustand/devtool
           showViewReport: Boolean(activeJobMessage.reportContent?.trim()),
         })
         get().addDeepResearchBanner('failure', jobId, conversationId)
-      } else {
-        get().patchConversationMessage(conversationId, activeJobMessage.id, {
-          isDeepResearchActive: false,
-        })
       }
+      // Transient errors (network blip, 5xx) keep isDeepResearchActive intact
+      // so a later reconnectToActiveJob attempt can still restore the running
+      // job — only a confirmed-unavailable job clears the flag.
     }
   },
 

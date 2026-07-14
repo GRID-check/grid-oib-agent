@@ -1,8 +1,9 @@
 import type { ReactNode } from 'react'
 import { render, screen, waitFor } from '@/test-utils'
+import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
 import { ResearchRunsList } from './research-runs-list'
-import type { ResearchRun } from '@/adapters/api/research-runs-client'
+import type { ListResearchRunsResponse, ResearchRun } from '@/adapters/api/research-runs-client'
 
 const listResearchRuns = vi.fn()
 const listConversations = vi.fn()
@@ -110,5 +111,38 @@ describe('ResearchRunsList', () => {
 
     expect(await screen.findByText(/Couldn't load research runs/i)).toBeDefined()
     await waitFor(() => expect(screen.getByRole('button', { name: /Try again/i })).toBeDefined())
+  })
+
+  test('a stale retry response cannot overwrite a newer project load', async () => {
+    // 1. Initial load for proj_1 fails → retry button shows.
+    listResearchRuns.mockRejectedValueOnce(new Error('boom'))
+
+    const { rerender } = render(<ResearchRunsList projectId="p1" projectCollection="proj_1" />)
+    const retryButton = await screen.findByRole('button', { name: /Try again/i })
+
+    // 2. Retry kicks off a SLOW fetch that we resolve later (stale response).
+    let resolveStaleRetry: (value: ListResearchRunsResponse) => void = () => undefined
+    listResearchRuns.mockImplementationOnce(
+      () => new Promise<ListResearchRunsResponse>((resolve) => { resolveStaleRetry = resolve })
+    )
+    await userEvent.click(retryButton)
+
+    // 3. The project changes before the retry resolves → a fresh load runs.
+    listResearchRuns.mockResolvedValueOnce({
+      jobs: [makeRun({ job_id: 'job-new-project', project_collection: 'proj_2' })],
+      total: 1,
+    })
+    rerender(<ResearchRunsList projectId="p1" projectCollection="proj_2" />)
+
+    expect(await screen.findByText('job-new-')).toBeDefined()
+
+    // 4. The stale retry response for proj_1 finally lands — it must be
+    //    ignored, not overwrite proj_2's list.
+    resolveStaleRetry({
+      jobs: [makeRun({ job_id: 'job-old-project', project_collection: 'proj_1' })],
+      total: 1,
+    })
+    await waitFor(() => expect(screen.queryByText('job-old-')).toBeNull())
+    expect(screen.getByText('job-new-')).toBeDefined()
   })
 })

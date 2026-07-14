@@ -298,6 +298,96 @@ describe('useLoadJobData', () => {
     consoleErrorSpy.mockRestore()
   })
 
+  test('does not clear live deep research state when loading a different job (importJobStream)', async () => {
+    // A DIFFERENT job is actively streaming — deep-linking to an old run must
+    // not wipe its live state or disconnect its SSE.
+    mockStoreState.deepResearchJobId = 'job-live'
+    mockStoreState.isDeepResearchStreaming = true
+    mockGetJobStatus.mockResolvedValue({ job_id: 'job-old', status: 'success', error: null })
+
+    const { result } = renderHook(() => useLoadJobData())
+
+    await act(async () => {
+      await result.current.importJobStream('job-old')
+    })
+
+    expect(mockClearDeepResearch).not.toHaveBeenCalled()
+    expect(mockCreateDeepResearchClient).not.toHaveBeenCalled()
+    expect(mockGetJobStatus).not.toHaveBeenCalled()
+    expect(result.current.error).toBeNull()
+  })
+
+  test('does not clear live deep research state when loading a different job (importStreamOnly)', async () => {
+    mockStoreState.deepResearchJobId = 'job-live'
+    mockStoreState.isDeepResearchStreaming = true
+    mockGetJobStatus.mockResolvedValue({ job_id: 'job-old', status: 'success', error: null })
+
+    const { result } = renderHook(() => useLoadJobData())
+
+    await act(async () => {
+      await result.current.importStreamOnly('job-old')
+    })
+
+    expect(mockClearDeepResearch).not.toHaveBeenCalled()
+    expect(mockCreateDeepResearchClient).not.toHaveBeenCalled()
+    expect(mockGetJobStatus).not.toHaveBeenCalled()
+    expect(result.current.error).toBeNull()
+  })
+
+  test('aborts before clearing when another job starts streaming during the status check', async () => {
+    // The live run starts while getJobStatus is in flight — the re-check after
+    // the await must skip the destructive clear.
+    mockGetJobStatus.mockImplementation(async () => {
+      mockStoreState.deepResearchJobId = 'job-live'
+      mockStoreState.isDeepResearchStreaming = true
+      return { job_id: 'job-old', status: 'success', error: null }
+    })
+
+    const { result } = renderHook(() => useLoadJobData())
+
+    await act(async () => {
+      await result.current.importStreamOnly('job-old')
+    })
+
+    expect(mockClearDeepResearch).not.toHaveBeenCalled()
+    expect(mockCreateDeepResearchClient).not.toHaveBeenCalled()
+  })
+
+  test('completes a failed job replay normally instead of surfacing an error card', async () => {
+    // The target job is terminal 'failure'; the replayed stream re-delivers
+    // that status. That is data, not a load error — the load must complete,
+    // cache the stream, and add no error card.
+    mockGetJobStatus.mockResolvedValue({
+      job_id: 'job-failed',
+      status: 'failure',
+      error: 'worker crashed',
+    })
+    mockCreateDeepResearchClient.mockImplementation(({ callbacks }) => ({
+      connect: vi.fn(() => {
+        callbacks.onJobStatus?.('failure', 'worker crashed')
+        // The real client fires onError right after a terminal failure status.
+        callbacks.onError?.(new Error('worker crashed'))
+      }),
+      disconnect: vi.fn(),
+      isConnected: vi.fn(() => false),
+      getLastEventId: vi.fn(() => null),
+    }))
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    const { result } = renderHook(() => useLoadJobData())
+
+    await act(async () => {
+      await result.current.importStreamOnly('job-failed')
+    })
+
+    expect(mockAddErrorCard).not.toHaveBeenCalled()
+    expect(mockSetStreamLoaded).toHaveBeenCalledWith(true)
+    expect(mockSetLoadedJobId).toHaveBeenCalledWith('job-failed')
+    expect(result.current.error).toBeNull()
+    expect(consoleErrorSpy).not.toHaveBeenCalled()
+    consoleErrorSpy.mockRestore()
+  })
+
   test('does not commit full stream replay data after the user switches sessions', async () => {
     let streamCallbacks: {
       onOutputUpdate: (content: string, outputCategory?: string) => void

@@ -7,6 +7,7 @@
  */
 
 import { apiConfig } from './config'
+import { ApiRequestError } from './api-error'
 
 // ============================================================
 // Types
@@ -74,7 +75,43 @@ const getResearchRunsErrorDetails = async (response: Response): Promise<string |
 
 const throwResearchRunsApiError = async (response: Response, context: string): Promise<never> => {
   const details = await getResearchRunsErrorDetails(response)
-  throw new Error(`${context}: ${response.status}${details ? ` - ${details}` : ''}`)
+  // ApiRequestError carries the HTTP status so consumers can classify the
+  // failure structurally instead of parsing the message text.
+  throw new ApiRequestError(
+    `${context}: ${response.status}${details ? ` - ${details}` : ''}`,
+    response.status
+  )
+}
+
+/**
+ * Minimal runtime shape validation for the list response. The proxy forwards
+ * backend JSON verbatim, so guard against malformed payloads instead of
+ * trusting `response.json()` blindly: malformed entries are dropped and a
+ * missing `jobs` array is treated as empty.
+ */
+const isResearchRun = (value: unknown): value is ResearchRun => {
+  if (typeof value !== 'object' || value === null) return false
+  const run = value as Record<string, unknown>
+  return (
+    typeof run.job_id === 'string' &&
+    typeof run.status === 'string' &&
+    typeof run.created_at === 'string' &&
+    (run.conversation_id === null || typeof run.conversation_id === 'string' || run.conversation_id === undefined) &&
+    (run.project_collection === null || typeof run.project_collection === 'string' || run.project_collection === undefined)
+  )
+}
+
+const normalizeListResearchRunsResponse = (data: unknown): ListResearchRunsResponse => {
+  const raw = (typeof data === 'object' && data !== null ? data : {}) as Record<string, unknown>
+  const jobs = Array.isArray(raw.jobs)
+    ? raw.jobs.filter(isResearchRun).map((run) => ({
+        ...run,
+        conversation_id: run.conversation_id ?? null,
+        project_collection: run.project_collection ?? null,
+      }))
+    : []
+  const total = typeof raw.total === 'number' ? raw.total : jobs.length
+  return { jobs, total }
 }
 
 // ============================================================
@@ -114,5 +151,5 @@ export const listResearchRuns = async (
     await throwResearchRunsApiError(response, 'Failed to list research runs')
   }
 
-  return response.json()
+  return normalizeListResearchRunsResponse(await response.json())
 }
