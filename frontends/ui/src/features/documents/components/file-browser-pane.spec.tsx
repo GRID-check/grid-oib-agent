@@ -14,6 +14,10 @@ const files: FileItem[] = [
     folderId: null,
     createdAt: '2026-01-01T00:00:00Z',
     errorMessage: null,
+    summary: null,
+    pageCount: null,
+    chunkCount: null,
+    contentTypes: null,
   },
   {
     id: 'f2',
@@ -24,6 +28,10 @@ const files: FileItem[] = [
     folderId: null,
     createdAt: '2026-01-02T00:00:00Z',
     errorMessage: null,
+    summary: null,
+    pageCount: null,
+    chunkCount: null,
+    contentTypes: null,
   },
 ]
 

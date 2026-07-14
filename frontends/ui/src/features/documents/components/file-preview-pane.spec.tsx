@@ -12,6 +12,10 @@ describe('FilePreviewPane', () => {
     folderId: null,
     createdAt: '2026-01-01T00:00:00.000Z',
     errorMessage: null,
+    summary: null,
+    pageCount: null,
+    chunkCount: null,
+    contentTypes: null,
   }
 
   afterEach(() => {
@@ -51,6 +55,47 @@ describe('FilePreviewPane', () => {
     // Wait for the preview fetch to settle, then confirm no expand button exists.
     await waitFor(() => expect(screen.getByAltText('diagram.png')).toBeDefined())
     expect(screen.queryByRole('button', { name: /open large preview/i })).toBeNull()
+  })
+
+  it('renders the summary, page and chunk counts when present', () => {
+    render(
+      <FilePreviewPane
+        file={{
+          ...mockFile,
+          summary: 'A ground-floor plan of the east wing.',
+          pageCount: 4,
+          chunkCount: 12,
+        }}
+        projectId="proj-1"
+      />
+    )
+    expect(screen.getByText('Summary')).toBeDefined()
+    expect(screen.getByText('A ground-floor plan of the east wing.')).toBeDefined()
+    expect(screen.getByText('Pages')).toBeDefined()
+    expect(screen.getByText('4')).toBeDefined()
+    expect(screen.getByText('Passages')).toBeDefined()
+    expect(screen.getByText('12')).toBeDefined()
+  })
+
+  it('hides the summary and count rows when the metadata is absent', () => {
+    render(<FilePreviewPane file={mockFile} projectId="proj-1" />)
+    expect(screen.queryByText('Summary')).toBeNull()
+    expect(screen.queryByText('Pages')).toBeNull()
+    expect(screen.queryByText('Passages')).toBeNull()
+  })
+
+  it('shows content types only when the document holds more than plain text', () => {
+    const { rerender } = render(
+      <FilePreviewPane file={{ ...mockFile, contentTypes: ['text'] }} projectId="proj-1" />
+    )
+    // Text-only → no redundant contents row.
+    expect(screen.queryByText('Contents')).toBeNull()
+
+    rerender(
+      <FilePreviewPane file={{ ...mockFile, contentTypes: ['text', 'table'] }} projectId="proj-1" />
+    )
+    expect(screen.getByText('Contents')).toBeDefined()
+    expect(screen.getByText('Text, Tables')).toBeDefined()
   })
 
   it('surfaces the failure reason and a retry-ingestion affordance for failed documents', () => {

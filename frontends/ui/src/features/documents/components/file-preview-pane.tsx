@@ -37,6 +37,9 @@ export function FilePreviewPane({ file, onClose, onReingested }: FilePreviewPane
   const canExpandPreview = file.contentType === 'application/pdf'
   const isFailed = file.status === 'failed'
   const Icon = fileTypeIcon(file.contentType, file.filename)
+  // Only surface content categories when there is something beyond plain text;
+  // a lone "Text" row is noise for the text-only documents that dominate here.
+  const hasRichContent = (file.contentTypes ?? []).some((c) => c !== 'text')
 
   const loadPreview = useCallback(() => {
     setPreviewFailed(false)
@@ -169,6 +172,15 @@ export function FilePreviewPane({ file, onClose, onReingested }: FilePreviewPane
         )}
       </div>
 
+      {/* Document summary — a one-sentence description of the contents, when the
+          backend generated one. Read-only; calm muted text, no chrome. */}
+      {file.summary && (
+        <div className="space-y-1.5 border-t px-4 py-3">
+          <p className="text-xs text-muted-foreground">{t('preview.summary')}</p>
+          <p className="text-xs leading-relaxed text-foreground">{file.summary}</p>
+        </div>
+      )}
+
       {/* Metadata */}
       <div className="space-y-2.5 border-t px-4 py-3">
         <MetaRow label={t('preview.status')}>
@@ -180,6 +192,25 @@ export function FilePreviewPane({ file, onClose, onReingested }: FilePreviewPane
         <MetaRow label={t('preview.size')}>
           <span className="text-xs font-medium tabular-nums text-foreground">{formatFileSize(file.fileSize, locale)}</span>
         </MetaRow>
+        {typeof file.pageCount === 'number' && file.pageCount > 0 && (
+          <MetaRow label={t('preview.pages')}>
+            <span className="text-xs font-medium tabular-nums text-foreground">{file.pageCount}</span>
+          </MetaRow>
+        )}
+        {typeof file.chunkCount === 'number' && file.chunkCount > 0 && (
+          <MetaRow label={t('preview.chunks')}>
+            <span className="text-xs font-medium tabular-nums text-foreground">{file.chunkCount}</span>
+          </MetaRow>
+        )}
+        {/* Content categories, shown only when the document holds more than plain
+            text (production documents are usually text-only — no redundant row). */}
+        {hasRichContent && (
+          <MetaRow label={t('preview.contents')}>
+            <span className="text-xs text-foreground">
+              {file.contentTypes!.map((c) => t(`preview.contentTypeNames.${c}`)).join(', ')}
+            </span>
+          </MetaRow>
+        )}
       </div>
 
       {/* Failure reason + re-ingestion affordance */}

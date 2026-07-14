@@ -39,6 +39,14 @@ export interface FileItem {
   createdAt: string
   /** Server-persisted reason a document is in `failed` status, if any. */
   errorMessage: string | null
+  /** One-sentence summary of the document content, if the backend generated one. */
+  summary: string | null
+  /** Number of pages the backend indexed for this document. */
+  pageCount: number | null
+  /** Number of retrieval chunks the backend produced for this document. */
+  chunkCount: number | null
+  /** Content categories present in the document (e.g. text, table, chart, image). */
+  contentTypes: string[] | null
 }
 
 export function ProjectFileWorkspace({ projectId, projectName, collectionName }: ProjectFileWorkspaceProps) {
@@ -71,6 +79,10 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName }:
           folderId: d.folderId ?? null,
           createdAt: d.createdAt,
           errorMessage: d.errorMessage ?? null,
+          summary: d.summary ?? null,
+          pageCount: d.pageCount ?? null,
+          chunkCount: d.chunkCount ?? null,
+          contentTypes: d.contentTypes ?? null,
         }))
         setFiles(docs)
       })
