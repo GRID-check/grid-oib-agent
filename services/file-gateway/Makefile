@@ -1,4 +1,4 @@
-.PHONY: build test vet run down verify
+.PHONY: build test vet verify
 
 build:
 	CGO_ENABLED=0 go build ./...
@@ -9,14 +9,9 @@ test:
 vet:
 	go vet ./...
 
-# bring up the phase-1 dev stack and seed it
-run:
-	cd deploy && docker compose up -d s3 workos-mock gateway && docker compose up seed
+verify: vet build test
 
-# build + run the NFS allow/deny + write-path verifier against the running stack
-verify:
-	cd deploy && docker build -t nfsverify ./client && \
-	docker run --rm --network deploy_default -e GATEWAY=gateway:2049 nfsverify
-
-down:
-	cd deploy && docker compose down -v
+# Dev stack: the gateway runs as part of the main compose file —
+#   docker compose -f deploy/compose/docker-compose.yaml up file-gateway
+# (repo root). It mounts the shared object store via rclone and authorizes
+# against the frontend BFF; see deploy/ for the image and docs/ for details.

@@ -51,5 +51,5 @@ listed, and only editors can write.
 - The WebDAV front runs with `GATEWAY_WEBDAV_IDENTITY=basic` outside dev
   (config-enforced) and **must** sit behind TLS at the ingress.
 - `GATEWAY_BFF_MOUNT_AUTH_URL` points at the BFF's `/api/internal/mount-auth`.
-- NFS remains a separate, isolated-network/dev front (no credential transport);
-  SMB/Kerberos is the documented future for zero-prompt managed-Windows fleets.
+- SMB/Kerberos is the documented future for zero-prompt managed-Windows fleets;
+  an NFS front would return only with NFSv4+Kerberos identity (ADR-0024/0025).

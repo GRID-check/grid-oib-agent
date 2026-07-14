@@ -282,12 +282,13 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  # File-gateway: exposes project documents as a mountable network drive (NFSv3),
-  # authorizing every file access against the same WorkOS FGA the web app uses
-  # (delegated to the BFF internal endpoint) with decisions cached in Dragonfly.
-  # See services/file-gateway/ and ADR-0023. Needs FUSE for the server-side S3
-  # mount (rclone). Dev only in this compose; production wiring (privileged
-  # container review, signed mount-token identity) is a follow-up.
+  # File-gateway: exposes project documents as a mountable network drive
+  # (WebDAV), authorizing every file access against the same WorkOS FGA the web
+  # app uses (delegated to the BFF internal endpoints). Mount identity is an
+  # SSO-brokered device credential (ADR-0025); in this dev compose the dev-only
+  # header resolver is used instead. See services/file-gateway/ and ADR-0023.
+  # Needs FUSE for the server-side S3 mount (rclone) until the native S3
+  # backend lands; production also requires TLS at the ingress (Basic auth).
   file-gateway:
     build:
       context: ../../services/file-gateway
@@ -298,16 +299,16 @@ services:
     security_opt: ["apparmor:unconfined"]
     environment:
       - GATEWAY_ENV=dev
-      - GATEWAY_LISTEN_NFS=:2049
+      - GATEWAY_WEBDAV_LISTEN=:8090
+      - GATEWAY_WEBDAV_IDENTITY=header
       - GATEWAY_LISTEN_ADMIN=:9090
       - GATEWAY_DATA_DIR=/data
-      - GATEWAY_IDENTITY_RESOLVER=dirpath
-      # Single authz brain: delegate to the BFF's FGA (see /api/internal/file-access).
-      - GATEWAY_POLICY_MODE=bff
+      # Single authz brain: the BFF's internal endpoints (authz, legal-hold
+      # gate, mount identity) — see ADR-0023/0025.
       - GATEWAY_BFF_AUTHZ_URL=http://frontend:3000/api/internal/file-access
+      - GATEWAY_BFF_DELETABLE_URL=http://frontend:3000/api/internal/file-deletable
+      - GATEWAY_BFF_MOUNT_AUTH_URL=http://frontend:3000/api/internal/mount-auth
       - GRID_INTERNAL_API_TOKEN=${GRID_INTERNAL_API_TOKEN:-grid-internal-dev-token}
-      # Shared FGA decision cache (ADR-0020) — the same Dragonfly the BFF uses.
-      - REDIS_URL=redis://dragonfly:6379/0
       - BUCKET=grid-documents
     volumes:
       - ../../services/file-gateway/deploy/rclone.grid.conf:/etc/rclone/rclone.conf:ro
@@ -319,7 +320,7 @@ services:
       frontend:
         condition: service_healthy
     ports:
-      - "2049:2049"
+      - "8090:8090"
       - "9091:9090"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:9090/healthz || exit 1"]

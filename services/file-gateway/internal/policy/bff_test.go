@@ -11,9 +11,9 @@ import (
 
 func TestParseObject(t *testing.T) {
 	cases := []struct {
-		in                string
+		in        string
 		org, proj string
-		ok                bool
+		ok        bool
 	}{
 		{"document:org/org_acme/project/proj_atlas/doc/d1/plan.pdf", "org_acme", "proj_atlas", true},
 		{"org/org_acme/project/proj_atlas/folder/x/doc/d1/plan.pdf", "org_acme", "proj_atlas", true},

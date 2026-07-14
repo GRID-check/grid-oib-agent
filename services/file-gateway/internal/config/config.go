@@ -1,8 +1,7 @@
 // Package config loads typed configuration from the environment and validates it
 // at boot. Validation FAILS FAST: a misconfiguration that would weaken security —
-// the dev share-per-subject resolver in a prod environment, or a missing internal
-// token when delegating to the BFF — prevents startup rather than silently
-// degrading.
+// the dev header identity in a prod environment, or a missing internal token —
+// prevents startup rather than silently degrading.
 package config
 
 import (
@@ -15,44 +14,28 @@ import (
 
 type Config struct {
 	Env          string // "dev" | "staging" | "prod"
-	ListenNFS    string // e.g. ":2049"
+	ListenWebDAV string // the drive front, e.g. ":8090"
 	ListenAdmin  string // health + metrics, e.g. ":9090"
-	ListenWebDAV string // e.g. ":8090"; empty = WebDAV front disabled (NFS is the default front)
 
-	// WebDAVIdentity selects the HTTP identity resolver for the WebDAV front:
+	DataDir string // the (rclone-mounted) storage directory for the billy backend
+
+	// The BFF is the single authorization brain (WorkOS FGA + org membership);
+	// all three endpoints authenticate with InternalToken.
+	BFFEndpoint     string // http://frontend:3000/api/internal/file-access   (per-op authz)
+	BFFDeletableURL string // http://frontend:3000/api/internal/file-deletable (legal-hold gate)
+	BFFMountAuthURL string // http://frontend:3000/api/internal/mount-auth    (mount identity)
+	InternalToken   string // GRID_INTERNAL_API_TOKEN, shared with the BFF/purger
+
+	PolicyTimeout time.Duration
+
+	// WebDAVIdentity selects the HTTP identity resolver:
 	//   "header" — dev-only X-Grid-* headers (client-asserted, spoofable)
 	//   "basic"  — WebDAV Basic auth verified against the BFF mount-auth
 	//              endpoint (SSO-brokered device credentials, ADR-0025). The
 	//              production mode; REQUIRES TLS at the ingress.
-	WebDAVIdentity  string
-	BFFMountAuthURL string // http://frontend:3000/api/internal/mount-auth
+	WebDAVIdentity string
 
-	DataDir string // the (rclone-mounted) storage directory for the billy backend
-
-	// PolicyMode selects the authorization source:
-	//   "bff"    — delegate to the Next.js BFF internal endpoint (single authz brain; default)
-	//   "workos" — call WorkOS FGA directly (endpoint + api key)
-	//   "mock"   — in-process warrants (dev/CI/e2e only)
-	PolicyMode string
-
-	// bff mode
-	BFFEndpoint     string // http://frontend:3000/api/internal/file-access
-	BFFDeletableURL string // http://frontend:3000/api/internal/file-deletable (legal-hold gate)
-	InternalToken   string // GRID_INTERNAL_API_TOKEN, shared with the BFF/purger
-
-	// workos mode
-	PolicyEndpoint string
-	PolicyAPIKey   string
-
-	PolicyTimeout time.Duration
-
-	// Shared decision cache (Dragonfly / Redis-protocol). Empty = L1 only.
-	RedisURL       string
-	SharedCacheTTL time.Duration
-
-	IdentityResolver string // "dirpath" (dev) | "mounttoken" (prod) | "kerberos" | "smb"
-
-	// L1 (in-process) cache.
+	// L1 (in-process) decision cache. The BFF owns the shared L2 (Dragonfly).
 	CacheSize  int
 	CacheTTL   time.Duration
 	CacheGrace time.Duration
@@ -83,31 +66,24 @@ func getint(k string, def int) int {
 	return def
 }
 
-// Load reads config from the environment and applies defaults. Storage/identity
-// env names follow the repo's conventions (REDIS_URL, GRID_INTERNAL_API_TOKEN)
-// so the service drops into the existing compose stack.
+// Load reads config from the environment and applies defaults. Env names follow
+// the repo's conventions (GRID_INTERNAL_API_TOKEN) so the service drops into the
+// existing compose stack.
 func Load() Config {
 	return Config{
-		Env:              getenv("GATEWAY_ENV", "dev"),
-		ListenNFS:        getenv("GATEWAY_LISTEN_NFS", ":2049"),
-		ListenAdmin:      getenv("GATEWAY_LISTEN_ADMIN", ":9090"),
-		ListenWebDAV:     getenv("GATEWAY_WEBDAV_LISTEN", ""),
-		WebDAVIdentity:   getenv("GATEWAY_WEBDAV_IDENTITY", "header"),
-		BFFMountAuthURL:  getenv("GATEWAY_BFF_MOUNT_AUTH_URL", "http://frontend:3000/api/internal/mount-auth"),
-		DataDir:          getenv("GATEWAY_DATA_DIR", "/data"),
-		PolicyMode:       getenv("GATEWAY_POLICY_MODE", "bff"),
-		BFFEndpoint:      getenv("GATEWAY_BFF_AUTHZ_URL", "http://frontend:3000/api/internal/file-access"),
-		BFFDeletableURL:  getenv("GATEWAY_BFF_DELETABLE_URL", "http://frontend:3000/api/internal/file-deletable"),
-		InternalToken:    os.Getenv("GRID_INTERNAL_API_TOKEN"),
-		PolicyEndpoint:   getenv("GATEWAY_POLICY_ENDPOINT", ""),
-		PolicyAPIKey:     os.Getenv("WORKOS_API_KEY"),
-		PolicyTimeout:    getdur("GATEWAY_POLICY_TIMEOUT", 3*time.Second),
-		RedisURL:         os.Getenv("REDIS_URL"),
-		SharedCacheTTL:   getdur("GATEWAY_SHARED_CACHE_TTL", 30*time.Second),
-		IdentityResolver: getenv("GATEWAY_IDENTITY_RESOLVER", "dirpath"),
-		CacheSize:        getint("GATEWAY_CACHE_SIZE", 50000),
-		CacheTTL:         getdur("GATEWAY_CACHE_TTL", 2*time.Second),
-		CacheGrace:       getdur("GATEWAY_CACHE_GRACE", 10*time.Second),
+		Env:             getenv("GATEWAY_ENV", "dev"),
+		ListenWebDAV:    getenv("GATEWAY_WEBDAV_LISTEN", ":8090"),
+		ListenAdmin:     getenv("GATEWAY_LISTEN_ADMIN", ":9090"),
+		DataDir:         getenv("GATEWAY_DATA_DIR", "/data"),
+		BFFEndpoint:     getenv("GATEWAY_BFF_AUTHZ_URL", "http://frontend:3000/api/internal/file-access"),
+		BFFDeletableURL: getenv("GATEWAY_BFF_DELETABLE_URL", "http://frontend:3000/api/internal/file-deletable"),
+		BFFMountAuthURL: getenv("GATEWAY_BFF_MOUNT_AUTH_URL", "http://frontend:3000/api/internal/mount-auth"),
+		InternalToken:   os.Getenv("GRID_INTERNAL_API_TOKEN"),
+		PolicyTimeout:   getdur("GATEWAY_POLICY_TIMEOUT", 3*time.Second),
+		WebDAVIdentity:  getenv("GATEWAY_WEBDAV_IDENTITY", "header"),
+		CacheSize:       getint("GATEWAY_CACHE_SIZE", 50000),
+		CacheTTL:        getdur("GATEWAY_CACHE_TTL", 2*time.Second),
+		CacheGrace:      getdur("GATEWAY_CACHE_GRACE", 10*time.Second),
 	}
 }
 
@@ -116,6 +92,9 @@ func (c Config) Validate() error {
 	if c.DataDir == "" {
 		return errors.New("config: GATEWAY_DATA_DIR is required")
 	}
+	if c.ListenWebDAV == "" {
+		return errors.New("config: GATEWAY_WEBDAV_LISTEN is required (the WebDAV front IS the drive)")
+	}
 	if c.CacheSize <= 0 {
 		return errors.New("config: GATEWAY_CACHE_SIZE must be > 0 (unbounded cache is not allowed)")
 	}
@@ -123,73 +102,41 @@ func (c Config) Validate() error {
 		return errors.New("config: GATEWAY_CACHE_TTL must be > 0")
 	}
 
-	switch c.PolicyMode {
-	case "bff":
-		if c.BFFEndpoint == "" {
-			return errors.New("config: GATEWAY_BFF_AUTHZ_URL is required in bff mode")
-		}
-		if c.InternalToken == "" {
-			return errors.New("config: GRID_INTERNAL_API_TOKEN is required in bff mode")
-		}
-		// Mirror the BFF's guard: the well-known dev default must never be used
-		// outside dev (frontends/ui/src/lib/internal-auth.ts refuses it too).
-		if c.Env != "dev" && c.InternalToken == "grid-internal-dev-token" {
-			return errors.New("config: refusing the dev-default GRID_INTERNAL_API_TOKEN outside dev")
-		}
-	case "workos":
-		if c.PolicyEndpoint == "" {
-			return errors.New("config: GATEWAY_POLICY_ENDPOINT is required in workos mode")
-		}
-		// A real WorkOS tenant needs an API key; a dev endpoint (mock service) does not.
-		if c.Env != "dev" && c.PolicyAPIKey == "" {
-			return fmt.Errorf("config: WORKOS_API_KEY is required in workos mode when GATEWAY_ENV=%q", c.Env)
-		}
-	default:
-		return fmt.Errorf("config: unknown GATEWAY_POLICY_MODE %q", c.PolicyMode)
+	// The BFF is the only authorization source; without it every op fails closed.
+	if c.BFFEndpoint == "" {
+		return errors.New("config: GATEWAY_BFF_AUTHZ_URL is required")
 	}
-
-	// Keep this in lockstep with buildResolver() in cmd/gateway: only accept
-	// resolvers that are actually implemented, so a misconfig fails at config
-	// time with a clear message instead of at wiring time.
-	switch c.IdentityResolver {
-	case "dirpath":
-		if c.Env != "dev" {
-			return fmt.Errorf("config: identity resolver %q is dev-only but GATEWAY_ENV=%q", c.IdentityResolver, c.Env)
-		}
-	case "mounttoken", "kerberos", "smb":
-		return fmt.Errorf("config: identity resolver %q is not implemented yet "+
-			"(only \"dirpath\" (dev) is available); production identity is a follow-up", c.IdentityResolver)
-	default:
-		return fmt.Errorf("config: unknown identity resolver %q", c.IdentityResolver)
+	if c.BFFDeletableURL == "" {
+		return errors.New("config: GATEWAY_BFF_DELETABLE_URL is required (legal-hold gate for deletes)")
+	}
+	if c.InternalToken == "" {
+		return errors.New("config: GRID_INTERNAL_API_TOKEN is required")
+	}
+	// Mirror the BFF's guard: the well-known dev default must never be used
+	// outside dev (frontends/ui/src/lib/internal-auth.ts refuses it too).
+	if c.Env != "dev" && c.InternalToken == "grid-internal-dev-token" {
+		return errors.New("config: refusing the dev-default GRID_INTERNAL_API_TOKEN outside dev")
 	}
 
 	// WebDAV identity matrix (keep in lockstep with buildWebDAVResolver):
 	//   header — client-asserted X-Grid-* headers, spoofable → dev-only.
 	//   basic  — SSO-brokered device credentials verified against the BFF
-	//            mount-auth endpoint (ADR-0025) → the production mode. Needs the
-	//            internal token + endpoint; TLS is terminated at the ingress and
-	//            is a deployment invariant (Basic is plaintext-equivalent).
-	if c.ListenWebDAV != "" {
-		switch c.WebDAVIdentity {
-		case "header":
-			if c.Env != "dev" {
-				return fmt.Errorf("config: GATEWAY_WEBDAV_IDENTITY=header is dev-only "+
-					"(client-asserted, spoofable) but GATEWAY_ENV=%q; use \"basic\" "+
-					"(SSO-brokered device credentials) outside dev", c.Env)
-			}
-		case "basic":
-			if c.BFFMountAuthURL == "" {
-				return errors.New("config: GATEWAY_BFF_MOUNT_AUTH_URL is required for WebDAV basic identity")
-			}
-			if c.InternalToken == "" {
-				return errors.New("config: GRID_INTERNAL_API_TOKEN is required for WebDAV basic identity")
-			}
-			if c.Env != "dev" && c.InternalToken == "grid-internal-dev-token" {
-				return errors.New("config: refusing the dev-default GRID_INTERNAL_API_TOKEN outside dev")
-			}
-		default:
-			return fmt.Errorf("config: unknown GATEWAY_WEBDAV_IDENTITY %q (header|basic)", c.WebDAVIdentity)
+	//            mount-auth endpoint (ADR-0025) → the production mode. TLS is
+	//            terminated at the ingress and is a deployment invariant (Basic
+	//            is plaintext-equivalent).
+	switch c.WebDAVIdentity {
+	case "header":
+		if c.Env != "dev" {
+			return fmt.Errorf("config: GATEWAY_WEBDAV_IDENTITY=header is dev-only "+
+				"(client-asserted, spoofable) but GATEWAY_ENV=%q; use \"basic\" "+
+				"(SSO-brokered device credentials) outside dev", c.Env)
 		}
+	case "basic":
+		if c.BFFMountAuthURL == "" {
+			return errors.New("config: GATEWAY_BFF_MOUNT_AUTH_URL is required for WebDAV basic identity")
+		}
+	default:
+		return fmt.Errorf("config: unknown GATEWAY_WEBDAV_IDENTITY %q (header|basic)", c.WebDAVIdentity)
 	}
 	return nil
 }

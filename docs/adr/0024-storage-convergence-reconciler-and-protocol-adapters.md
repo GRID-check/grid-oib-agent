@@ -126,7 +126,7 @@ winning protocol, so we support more than one behind the same authz core:
 
 | Protocol | Identity fit | Client (Windows) | Deploy | Verdict |
 |---|---|---|---|---|
-| **NFSv3** (built) | weak — `AUTH_NULL`, needs mount-token + network isolation | 2nd-class | privileged (FUSE/`SYS_ADMIN`) | keep for high-perf isolated LAN |
+| **NFSv3** (built, since removed) | weak — `AUTH_NULL`, needs mount-token + network isolation | 2nd-class | privileged (FUSE/`SYS_ADMIN`) | removed with ADR-0025 (in git history); returns only as NFSv4+Kerberos |
 | **WebDAV** (this ADR) | **best** — per-request `Authorization` header, checked in middleware | works, caveats (≤50MB default, HTTPS/Basic registry tweaks, perf) | **plain HTTP, no privilege** | adopt as the identity-carrying + easy-deploy front |
 | **SMB** (Samba) | good — authenticated session | **best, native** | Samba + in-tree VFS (heavy) | documented Windows-native ideal (ADR-0023) |
 

@@ -9,17 +9,17 @@ items are the remaining roadmap, ordered by severity.
 | # | Finding | Status |
 |---|---|---|
 | B1 | Gateway sent `Authorization: Bearer` but Grid internal routes read `x-grid-internal-token` → every check 403 → **drive was deny-all in the default `bff` mode**. `bff_test` encoded the wrong header, so it passed green. | **Fixed** — header corrected (`policy/bff.go`); non-200 now surfaces as an *error* (fail-closed **with a signal**), not a silent deny; test rewritten to guard the real header + add a real-route integration test (Open). |
-| B2 | Prod can't boot: `config.Validate` accepted `mounttoken/kerberos/smb` but `buildResolver` implements none. | **Fixed** — `Validate` and `buildResolver` are now in lockstep (only `dirpath`, dev-only); a clear "not implemented yet" error instead of a confusing wiring failure. |
+| B2 | Prod can't boot: `config.Validate` accepted `mounttoken/kerberos/smb` but `buildResolver` implements none. | **Fixed, then superseded** — the NFS front (and its resolver seam) was removed when WebDAV became the drive (ADR-0025); the same lockstep rule now guards `Validate` ↔ `buildWebDAVResolver` (`header`/`basic`), with a config-matrix test. |
 
 ## High
 
 | # | Finding | Status |
 |---|---|---|
 | H2 | `Subject.OrgID` was dropped at the `policy.Client` string boundary → the advertised mount-tenancy hard-deny was **dead code** (a user in orgs A+B could mount as A and read `org/<B>/…`). | **Fixed** — `policy.Client` now takes a typed `policy.Subject{ID,OrgID}`; tenancy enforced in `bff.checkOne`; OrgID+Env folded into both cache keys. Test added. |
-| H3 | No production identity: NFSv3 `AUTH_NULL` + `dirpath` is fully spoofable; anyone reaching :2049 can `mount /<anyOrg>/<anyUser>`. | **Fixed for the WebDAV front (ADR-0025):** SSO-brokered device credentials — minted only inside a WorkOS-SSO'd web session (`/api/drive/credentials`, sha256-stored, TTL'd, revocable, audited), verified by the gateway's Basic resolver against `/api/internal/mount-auth` (fail-closed; 401+`Basic` challenge pops the native OS dialog; verifier outage → 503, no re-prompt). Per-op FGA keeps authorization live, so revocation/role-loss cuts a mounted drive instantly. `GATEWAY_WEBDAV_IDENTITY=basic` is required outside dev; TLS at the ingress is a deployment invariant. **Open for NFS** (protocol can't carry a credential): Kerberos/NFSv4 or isolated-LAN only; `dirpath` stays dev-only. |
-| H4 | Gateway cache key (`fga:<subj>|<rel>|<obj>`) ≠ BFF invalidation key (`fga:<membership>:project:<proj>:`) → revocation never cleared the gateway cache (≤ `SharedCacheTTL` stale-allow even when healthy). | **Fixed** — the gateway no longer runs its own Dragonfly L2 in **bff** mode: the BFF already memoizes AND invalidates in the shared cache, so the redundant divergently-keyed copy is gone. Post-revocation staleness is now just the gateway's short in-process L1 (~2s), not 30s. (The L2 remains only in `workos` mode, where there's no BFF cache to share.) |
+| H3 | No production identity: NFSv3 `AUTH_NULL` + `dirpath` is fully spoofable; anyone reaching :2049 can `mount /<anyOrg>/<anyUser>`. | **Fixed (ADR-0025)** — and the spoofable front is gone: the NFSv3 adapter was removed from the PR (it cannot carry a credential; it lives in git history for an NFSv4+Kerberos revival). The drive is WebDAV with SSO-brokered device credentials — minted only inside a WorkOS-SSO'd web session (`/api/drive/credentials`, sha256-stored, TTL'd, revocable, audited), verified by the gateway's Basic resolver against `/api/internal/mount-auth` (fail-closed; 401+`Basic` challenge pops the native OS dialog; verifier outage → 503, no re-prompt). Per-op FGA keeps authorization live, so revocation/role-loss cuts a mounted drive instantly. `GATEWAY_WEBDAV_IDENTITY=basic` is required outside dev; TLS at the ingress is a deployment invariant. |
+| H4 | Gateway cache key (`fga:<subj>|<rel>|<obj>`) ≠ BFF invalidation key (`fga:<membership>:project:<proj>:`) → revocation never cleared the gateway cache (≤ `SharedCacheTTL` stale-allow even when healthy). | **Fixed** — the gateway runs no Dragonfly L2 at all: the BFF already memoizes AND invalidates in the shared cache, so a second, divergently-keyed copy is gone (the `workos` direct policy mode that used one was removed with it — the BFF is the single authz source). Post-revocation staleness is just the gateway's short in-process L1 (~2s), not 30s. |
 | BFF-1 | **Drive was non-functional in the default `bff` mode:** files live at `org/<org>/project/<proj>/…`; go-nfs `Lstat`s each ancestor, but `parseObject` blanket-denied anything shorter than a full project path → traversal denied at the first component. CI missed it (e2e used mock mode + a shorter layout with ancestor inheritance). | **Fixed** — bff mode now allows VIEWER traversal of the `org` / `org/<org>` / `org/<org>/project` scaffolding **within the caller's own org** (no cross-tenant existence leak), so the client can descend to a project where the real check runs. Regression test added. |
-| ING | **Async ingest on drive upload is missing** and the whole ingest path is non-durable: `dispatchIngest` is fire-and-forget (Python down at upload → permanent `failed`, manual re-ingest only); the Python job store is in-memory (restart loses jobs). | **In progress.** **Done:** the convergence seam — `commitUploadedFile` (`documents/service.ts`) + `POST /api/internal/commit-upload` — so a completed drive upload runs the SAME lifecycle as web (documents row + async ingest), with object-key tenant isolation; unit-tested. **Open:** (a) the gateway commit-detector (ignore `~$`/`.tmp`/`.ac$`/`.bak`; fire on final rename/close + quiescence debounce → call `commit-upload`); (b) make ingest DURABLE via `document_ingest_queue` + DB-claimed worker (clone `deletion_queue`/purger, ADR-0021), which also fixes the web path's "Python down ⇒ permanent failed". See "Async ingest plan". |
+| ING | **Async ingest on drive upload is missing** and the whole ingest path is non-durable: `dispatchIngest` is fire-and-forget (Python down at upload → permanent `failed`, manual re-ingest only); the Python job store is in-memory (restart loses jobs). | **Open — designed, next PR.** ADR-0024 decides the mechanism: a periodic **list-and-diff reconciler** (S3 → `documents` → vectors; generalizing `oib_sync.py` as a purger-family claimed worker) is the primary, durable, self-healing ingest+deletion path for BOTH web and drive uploads. An earlier per-event seam (`commitUploadedFile` + `/api/internal/commit-upload`) and a pure diff core (`reconcile-plan.ts`) were built, then deliberately pulled from this PR: the seam is superseded by the reconciler, and the diff core ships with the worker that executes it. |
 
 | CMPL | **Drive `rm` bypassed legal holds and left embeddings** — `Guard.Remove` did a raw S3 delete after the Editor check and nothing else: no `legal_holds` check (bytes destroyable under hold — a compliance/GDPR failure), no embedding removal, orphaned row. | **Fixed (synchronous half).** `Guard.Remove` now consults a `storage.HoldChecker` after authz; the BFF `POST /api/internal/file-deletable` (backed by `isDeletionUnderHold`, mirroring the purger's org/project/document predicate) gates it, **fail-closed** (unreachable BFF ⇒ delete refused). Held ⇒ `ErrLegalHold` (wraps `os.ErrPermission`), backend never touched. Tests on both sides. **Open:** embedding + row cleanup for an *allowed* delete rides the reconciler's "disappeared" branch → `document` purger + `ingestor.delete_file` (ADR-0024 §3). |
 
@@ -42,7 +42,7 @@ items are the remaining roadmap, ordered by severity.
 | T6 | Loose id validation (`min(1)`). | **Fixed** — `^user_…`, `^org_…`, `.uuid()` at the edge. |
 | T8 | `parseObject` accepted empty org/project segments. | **Fixed** — rejects empty segments. |
 | T9 | Unchecked `interface{}` assertion on the singleflight return. | **Fixed** — comma-ok, fail-closed on unexpected type. |
-| T7 | `mock` policy mode dead + uses a stale object layout. | **Open** — realign to `ObjectFor` or delete; mock stays a unit-test fixture only. |
+| T7 | `mock` policy mode dead + uses a stale object layout. | **Resolved** — the `mock` *mode* is gone from config entirely (the BFF is the only policy source); `policy.NewMock` remains strictly a unit-test fixture for the engine tests. |
 | T11/T12 | Branded ids (`OrgId`/`ProjectId`…); `as never` casts in specs. | **Open** — low-risk hardening. |
 
 ## Observability / testing / ops
@@ -57,16 +57,13 @@ items are the remaining roadmap, ordered by severity.
 
 ## Async ingest plan (the headline follow-up)
 
-1. **`document_ingest_queue` + claimer worker** — clone `deletion_queue` schema + `purger/db.js`
-   (`FOR UPDATE SKIP LOCKED`, attempts/backoff, stale-claim reaping, `MAX_ATTEMPTS`). A worker
-   claims rows and calls `/v1/ingest` with retries, persisting `jobId` back. This alone makes
-   the **web** path durable (fixes "Python down ⇒ permanent failed").
-2. **`commitDocument` seam** — extract steps 4–9 of `uploadDocument` into one function; the web
-   path calls it after PUT; it upserts the row (idempotent on `(projectId, canonicalPath)`) and
-   enqueues ingest **in the same DB transaction** (row exists ⇒ ingest enqueued).
-3. **`POST /api/internal/commit-upload`** — mirror the `file-access` internal route; authorize
-   `project:edit`; call `commitDocument`. The convergence point for the drive.
-4. **Gateway commit-detector** — ignore temp/lock names; trigger on final rename/close + a
-   quiescence debounce; call `commit-upload` (at-least-once; the BFF upsert makes retries safe).
-5. Later: an S3-event reconciler as a safety net; migrate drive bytes onto the canonical
-   `doc/<docId>/` key when the native-S3 backend replaces rclone/FUSE.
+Superseded by **ADR-0024**: the per-event plan that used to live here (ingest
+queue + `commitDocument` seam + `commit-upload` route + gateway commit-detector)
+is replaced by a periodic **list-and-diff reconciler** (S3 → `documents` →
+vectors) run as a purger-family claimed worker — one durable, self-healing
+convergence path for web + drive + API uploads AND the async half of drive
+deletion (embeddings via `ingestor.delete_file`, rows via a `document` purger).
+The pure diff core (`reconcile-plan`: name filter, quiescence, ETag
+change-detection, deletion grace, pipeline backstop — exhaustively unit-tested)
+was prototyped on this branch and deliberately deferred to ship WITH the worker
+that executes it; see ADR-0024 "Follow-ups" for the build list.

@@ -1,6 +1,14 @@
 # GRID NAS Gateway — Production Architecture
 
-**Status:** Proposed
+**Status:** Historical design record — partially superseded. The core (gated
+`StoragePort`/Guard, pure `authz.Engine`, pluggable policy client) shipped as
+designed, but the protocol front pivoted from NFSv3 to **WebDAV** and mount
+identity to **SSO-brokered device credentials** (ADR-0024 §4, ADR-0025): NFSv3
+cannot carry a real credential, while WebDAV's per-request HTTP auth can. The
+NFS adapter described below lives in git history for an NFSv4+Kerberos revival.
+NFS-specific sections (identity resolvers, handle-state affinity) are kept as
+the record of that analysis.
+
 **Date:** 2026-07-13
 **Scope:** Turn the validated PoC (`go-nfs` + authz decorator + rclone→S3) into a solid, single-responsibility Go microservice: **`grid-nas-gateway`** — a file-protocol front for S3-compatible storage that authorizes every file operation, per access, against WorkOS FGA.
 

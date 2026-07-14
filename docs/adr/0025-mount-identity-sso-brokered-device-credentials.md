@@ -68,8 +68,9 @@ default — the correct client-side backstop, not a bug to work around.
 - Mount UX on stock macOS/Windows: browser SSO → copy credential → native dialog →
   keychain → files. No agent, no FUSE, no registry surgery (except the well-known
   Windows 50 MB WebDAV size limit for large files — see `docs/MOUNTING.md`).
-- The NFS front's H3 identity gap is **not** solved by this ADR (NFSv3 cannot carry a
-  credential); NFS remains isolated-LAN/dev, WebDAV is the identity-carrying front.
+- NFSv3 cannot carry a credential at all, so with this ADR the NFSv3 adapter was
+  **removed** rather than left as a permanently-dev-only front (it lives in git history
+  for an NFSv4+Kerberos revival); WebDAV is the drive.
 - Brute force: 256-bit secrets, uniform denials, per-attempt BFF round trip, short
   negative cache. Lockout counters were deliberately skipped (they'd be a self-DoS
   vector against a known username).

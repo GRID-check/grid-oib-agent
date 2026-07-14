@@ -34,11 +34,11 @@ type fakeInfo struct {
 }
 
 func (f fakeInfo) Name() string       { return f.name }
-func (f fakeInfo) Size() int64         { return 0 }
-func (f fakeInfo) Mode() os.FileMode   { return 0 }
-func (f fakeInfo) ModTime() time.Time  { return time.Time{} }
-func (f fakeInfo) IsDir() bool         { return f.dir }
-func (f fakeInfo) Sys() any            { return nil }
+func (f fakeInfo) Size() int64        { return 0 }
+func (f fakeInfo) Mode() os.FileMode  { return 0 }
+func (f fakeInfo) ModTime() time.Time { return time.Time{} }
+func (f fakeInfo) IsDir() bool        { return f.dir }
+func (f fakeInfo) Sys() any           { return nil }
 
 // fakeBackend records the last mutating call so tests can assert the backend was
 // (not) reached, and serves a fixed directory listing.
@@ -62,13 +62,13 @@ func (b *fakeBackend) MkdirAll(path string, _ os.FileMode) error {
 	b.lastWrite = "mkdir:" + path
 	return nil
 }
-func (b *fakeBackend) Symlink(_, link string) error { b.lastWrite = "symlink:" + link; return nil }
-func (b *fakeBackend) Readlink(string) (string, error)          { return "", nil }
-func (b *fakeBackend) Chmod(string, os.FileMode) error          { return nil }
-func (b *fakeBackend) Chown(string, int, int) error             { return nil }
-func (b *fakeBackend) Lchown(string, int, int) error            { return nil }
+func (b *fakeBackend) Symlink(_, link string) error               { b.lastWrite = "symlink:" + link; return nil }
+func (b *fakeBackend) Readlink(string) (string, error)            { return "", nil }
+func (b *fakeBackend) Chmod(string, os.FileMode) error            { return nil }
+func (b *fakeBackend) Chown(string, int, int) error               { return nil }
+func (b *fakeBackend) Lchown(string, int, int) error              { return nil }
 func (b *fakeBackend) Chtimes(string, time.Time, time.Time) error { return nil }
-func (b *fakeBackend) Root() string                            { return "/" }
+func (b *fakeBackend) Root() string                               { return "/" }
 
 func newGuard(t *testing.T, backend *fakeBackend, allow func(rel, object string) bool) *Guard {
 	t.Helper()
