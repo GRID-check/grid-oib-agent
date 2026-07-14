@@ -18,6 +18,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/com
 import { getTranslations } from '@/i18n/server'
 import type { Translator } from '@/i18n'
 import { getOrgSettings, getOrganizationOverview } from '@/lib/organizations/service'
+import { NetworkDriveCard } from './network-drive-card'
 import { ProfileControls } from './profile-controls'
 
 const isAuthRequired = (): boolean => process.env.REQUIRE_AUTH?.toLowerCase() === 'true'
@@ -163,6 +164,8 @@ export default async function ProfilePage(): Promise<JSX.Element> {
             email={session.email}
             shortcutsAvailable={isFeatureEnabled(session, FEATURE_FLAGS.keyboardShortcuts)}
           />
+
+          <NetworkDriveCard />
         </div>
       </main>
     </div>
