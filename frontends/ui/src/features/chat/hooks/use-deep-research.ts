@@ -72,11 +72,14 @@ interface UseDeepResearchReturn {
 export const useDeepResearch = (): UseDeepResearchReturn => {
   // Refs for SSE client lifecycle
   const clientRef = useRef<DeepResearchClient | null>(null)
-  const connectRef = useRef<((jobId: string, bufferReplay?: boolean) => void) | null>(null)
+  const connectRef = useRef<((jobId: string, bufferReplay?: boolean, lastEventId?: string) => void) | null>(null)
+  // Handle to the current connection's replay buffer so every teardown path
+  // can deactivate it — otherwise its 30s safety timer could later flush a
+  // stale partial snapshot over newer state.
+  const replayBufferRef = useRef<{ deactivate: () => void; isActive: () => boolean } | null>(null)
   const lastEventTimeRef = useRef<number>(Date.now())
   const timeoutIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const cancelFallbackRef = useRef<NodeJS.Timeout | null>(null)
-  const researchStartTimeRef = useRef<number | null>(null)
 
 
   // State for timeout warning
@@ -145,6 +148,11 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
   // Ref to track active thinking step IDs by name
   const activeStepIdsRef = useRef<Map<string, string>>(new Map())
 
+  // Per-name stacks of in-flight tool calls (live mode). Concurrent same-name
+  // tools (two sub-agents both running web_search) must not overwrite each
+  // other, so ends pop the most recent start — mirroring the buffered path.
+  const activeToolCallStacksRef = useRef<Map<string, Array<{ thinkingStepId?: string; toolCallId: string }>>>(new Map())
+
   /**
    * Reset the timeout tracker - called when we receive any live event.
    */
@@ -165,13 +173,18 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
    * 2. Live phase: subsequent events go straight to individual store actions (fine for low volume).
    */
   const connect = useCallback(
-    (jobId: string, bufferReplay = false) => {
+    (jobId: string, bufferReplay = false, lastEventId?: string) => {
       if (clientRef.current) {
         clientRef.current.disconnect()
         clientRef.current = null
       }
+      // Deactivate the previous connection's replay buffer so its stale 30s
+      // safety timer cannot fire later and clobber this connection's state.
+      replayBufferRef.current?.deactivate()
+      replayBufferRef.current = null
 
       activeStepIdsRef.current.clear()
+      activeToolCallStacksRef.current.clear()
       resetTimeout()
       // Any (re)connect attempt clears the "connection lost" recovery state; if the
       // stream fails again onError will set it back.
@@ -208,6 +221,7 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
         buf.active = false
         if (buf.timer) { clearTimeout(buf.timer); buf.timer = null }
       }
+      replayBufferRef.current = { deactivate: deactivateBuffer, isActive: () => buf.active }
 
       /** Flush buffer to store in one setState, deactivate buffer, switch to live. */
       const flushBuffer = (): boolean => {
@@ -254,10 +268,8 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
           }
         }
         for (const [name, stack] of buf.activeToolStacks) {
-          const lastId = stack[stack.length - 1]
-          if (lastId) {
-            activeStepIdsRef.current.set(`tool:${name}`, lastId)
-            activeStepIdsRef.current.set(`toolCall:${name}`, lastId)
+          if (stack.length > 0) {
+            activeToolCallStacksRef.current.set(name, stack.map((toolCallId) => ({ toolCallId })))
           }
         }
         return true
@@ -271,13 +283,13 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
       // Create SSE client — callbacks check buf.active to decide buffer vs real-time
       const client = createDeepResearchClient({
         jobId,
+        lastEventId,
         authToken: idToken || undefined,
         callbacks: {
           onStreamStart: () => {
             if (buf.active) return
             if (!isActiveJob()) return
             resetTimeout()
-            researchStartTimeRef.current = Date.now()
             setCurrentStatus('researching')
           },
 
@@ -320,7 +332,6 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
                 })
               }
               addDeepResearchBanner('success', jobId, ownerConvId || undefined, { totalTokens, toolCallCount })
-              researchStartTimeRef.current = null
               stopAllDeepResearchSpinners(true)
               setStreamLoaded(true)
               completeDeepResearch()
@@ -340,14 +351,19 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
                 })
               }
               addDeepResearchBanner(isUserCancelled ? 'cancelled' : 'failure', jobId, ownerConvId || undefined)
-              researchStartTimeRef.current = null
               clientRef.current?.disconnect()
               setStreamLoaded(true)
               completeDeepResearch()
               setStreaming(false)
               if (error && !isUserCancelled) {
+                // The failure banner above carries the user-facing outcome and
+                // its View-report/Thinking affordances; the error card adds the
+                // technical context. No explicit message: ErrorBanner localizes
+                // the registry default via messageKey, while the raw backend
+                // string stays collapsed behind the details toggle instead of
+                // being shown as the headline.
                 const { addErrorCard } = useChatStore.getState()
-                addErrorCard('agent.deep_research_failed', error)
+                addErrorCard('agent.deep_research_failed', undefined, error)
               } else if (status === 'interrupted' && !isUserCancelled) {
                 const { addErrorCard } = useChatStore.getState()
                 addErrorCard('agent.deep_research_failed', tChat('deepResearchErrors.interrupted'))
@@ -437,25 +453,29 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
             if (!isActiveJob()) return
             resetTimeout(); setCurrentStatus('searching')
             const hasUserMsg = Boolean(useChatStore.getState().currentUserMessageId)
+            let thinkingStepId: string | undefined
             if (hasUserMsg) {
               const inputText = input ? ('_raw' in input && typeof input._raw === 'string' ? input._raw : JSON.stringify(input, null, 2)) : null
-              const stepId = addThinkingStep({ category: 'tools', functionName: name, displayName: name, content: inputText ? `Input: ${inputText}\n` : 'Executing...\n', isComplete: false, isDeepResearch: true })
-              activeStepIdsRef.current.set(`tool:${name}`, stepId)
+              thinkingStepId = addThinkingStep({ category: 'tools', functionName: name, displayName: name, content: inputText ? `Input: ${inputText}\n` : 'Executing...\n', isComplete: false, isDeepResearch: true })
             }
             const toolCallId = addDeepResearchToolCall({ name, input, workflow, agentId })
-            activeStepIdsRef.current.set(`toolCall:${name}`, toolCallId)
+            let stack = activeToolCallStacksRef.current.get(name)
+            if (!stack) { stack = []; activeToolCallStacksRef.current.set(name, stack) }
+            stack.push({ thinkingStepId, toolCallId })
           },
 
           onToolEnd: (name, output) => {
             if (name === 'task') return
             if (buf.active) {
-              const stack = buf.activeToolStacks.get(name); const id = stack?.pop(); if (id) { const t = buf.toolCalls.get(id); if (t) t.output = output ? JSON.stringify(output) : undefined }; return
+              const stack = buf.activeToolStacks.get(name); const id = stack?.pop(); if (id) { const t = buf.toolCalls.get(id); if (t) t.output = output ? (typeof output === 'string' ? output : JSON.stringify(output)) : undefined }; return
             }
             if (!isActiveJob()) return
-            const stepId = activeStepIdsRef.current.get(`tool:${name}`)
-            if (stepId) { if (output) { const truncated = output.length > 500 ? output.substring(0, 500) + '...' : output; appendToThinkingStep(stepId, `\nOutput: ${truncated}`) }; completeThinkingStep(stepId); activeStepIdsRef.current.delete(`tool:${name}`) }
-            const toolCallId = activeStepIdsRef.current.get(`toolCall:${name}`)
-            if (toolCallId) { completeDeepResearchToolCall(toolCallId, output); activeStepIdsRef.current.delete(`toolCall:${name}`) }
+            const entry = activeToolCallStacksRef.current.get(name)?.pop()
+            if (entry?.thinkingStepId) {
+              if (output) { const truncated = output.length > 500 ? output.substring(0, 500) + '...' : output; appendToThinkingStep(entry.thinkingStepId, `\nOutput: ${truncated}`) }
+              completeThinkingStep(entry.thinkingStepId)
+            }
+            if (entry) { completeDeepResearchToolCall(entry.toolCallId, output) }
             setCurrentStatus('researching')
           },
 
@@ -554,6 +574,10 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
    * Disconnect from the SSE stream
    */
   const disconnect = useCallback(() => {
+    // Deactivate any in-flight replay buffer so its stale 30s safety timer
+    // cannot flush a partial snapshot after this teardown.
+    replayBufferRef.current?.deactivate()
+    replayBufferRef.current = null
     if (clientRef.current) {
       clientRef.current.disconnect()
       clientRef.current = null
@@ -561,18 +585,28 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
   }, [])
 
   /**
-   * Reconnect to the SSE stream from the beginning.
+   * Reconnect to the SSE stream.
    *
    * Used by the research panel's recovery notice for BOTH failure modes:
    * - stalled: the EventSource is still "open" but silent, so we cannot rely on
    *   isConnected() being false — connect() tears down the stale client and
    *   rebuilds from scratch.
    * - connection lost: onError already disconnected; connect() clears the flag.
+   *
+   * When the previous client tracked a last event id AND the store already
+   * holds the full history (no replay buffer still active), resume from that
+   * id: the backend's /stream/{last_event_id} endpoint replays only newer
+   * events, which append live to the existing state instead of replaying the
+   * whole job. Otherwise fall back to a full buffered replay.
    */
   const reconnect = useCallback(() => {
     if (!deepResearchJobId) return
     setDeepResearchStalled(false)
-    connectRef.current?.(deepResearchJobId, true)
+    const bufferStillActive = replayBufferRef.current?.isActive() ?? false
+    const lastEventId = bufferStillActive
+      ? undefined
+      : clientRef.current?.getLastEventId() ?? undefined
+    connectRef.current?.(deepResearchJobId, !lastEventId, lastEventId)
   }, [deepResearchJobId, setDeepResearchStalled])
 
   /**
@@ -655,7 +689,16 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
         // Fresh jobs (status 'submitted') use per-event store writes for live updates.
         // Reconnections (status 'running') buffer historical events then flush once
         // when the backend sends stream.mode: "live".
-        const isReconnect = useChatStore.getState().deepResearchStatus !== 'submitted'
+        // A remount can happen before the first 'running' status lands, so ALSO
+        // treat as a reconnect when the store already holds deep-research events
+        // for this job — replaying into live mode would append duplicates.
+        const stateAtConnect = useChatStore.getState()
+        const hasReplayedEvents =
+          stateAtConnect.deepResearchAgents.length > 0 ||
+          stateAtConnect.deepResearchLLMSteps.length > 0 ||
+          stateAtConnect.deepResearchToolCalls.length > 0 ||
+          stateAtConnect.deepResearchCitations.length > 0
+        const isReconnect = stateAtConnect.deepResearchStatus !== 'submitted' || hasReplayedEvents
         connectRef.current?.(effectJobId, isReconnect)
 
         setResearchPanelTab('tasks')
@@ -669,9 +712,6 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
           }
         }, TIMEOUT_CHECK_INTERVAL_MS)
       }, 50)
-
-      // Session persistence is now handled by debounced resetTimeout()
-      // (fires 2s after each event instead of fixed 10s interval)
     }
 
     return () => {

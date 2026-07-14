@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { AlertCircle, ArrowRight, Telescope } from 'lucide-react'
 import { Stagger, StaggerItem } from '@/components/motion'
@@ -79,6 +79,17 @@ const formatRelativeTime = (isoDate: string, locale: Locale): string => {
   return rtf.format(Math.round(diffSeconds / divisors.year), 'year')
 }
 
+/**
+ * Localized absolute date/time used as the tooltip on relative timestamps,
+ * so "vor 3 Tagen" can be pinned to an exact moment on hover.
+ */
+const formatAbsoluteTime = (isoDate: string, locale: Locale): string => {
+  const date = new Date(isoDate)
+  if (Number.isNaN(date.getTime())) return isoDate
+
+  return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }).format(date)
+}
+
 export function ResearchRunsList({ projectId, projectCollection }: ResearchRunsListProps): JSX.Element {
   const t = useTranslations('projects')
   const tr = useTranslations('research')
@@ -114,8 +125,19 @@ export function ResearchRunsList({ projectId, projectCollection }: ResearchRunsL
     return tr('runsList.untitledRun')
   }
 
+  // Tracks the in-flight fetch (initial, prop-change, or retry) so a newer
+  // load or unmount cancels it — a stale response must never overwrite a
+  // newer project's list.
+  const activeLoadRef = useRef<{ cancelled: boolean } | null>(null)
+
   const load = useCallback(
-    (signal: { cancelled: boolean }) => {
+    () => {
+      if (activeLoadRef.current) {
+        activeLoadRef.current.cancelled = true
+      }
+      const signal = { cancelled: false }
+      activeLoadRef.current = signal
+
       setJobs(null)
       setError(null)
       setTitles({})
@@ -153,10 +175,12 @@ export function ResearchRunsList({ projectId, projectCollection }: ResearchRunsL
   )
 
   useEffect(() => {
-    const signal = { cancelled: false }
-    load(signal)
+    load()
     return () => {
-      signal.cancelled = true
+      if (activeLoadRef.current) {
+        activeLoadRef.current.cancelled = true
+        activeLoadRef.current = null
+      }
     }
   }, [load])
 
@@ -167,14 +191,7 @@ export function ResearchRunsList({ projectId, projectCollection }: ResearchRunsL
         <AlertTitle>{t('researchRuns.errorTitle')}</AlertTitle>
         <AlertDescription className="flex flex-col items-start gap-3">
           <span>{error}</span>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              const signal = { cancelled: false }
-              load(signal)
-            }}
-          >
+          <Button variant="outline" size="sm" onClick={() => load()}>
             {t('researchRuns.tryAgain')}
           </Button>
         </AlertDescription>
@@ -239,7 +256,9 @@ export function ResearchRunsList({ projectId, projectCollection }: ResearchRunsL
                   <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                     <span className="font-mono">{shortJobId(job.job_id)}</span>
                     <span aria-hidden>·</span>
-                    <span>{formatRelativeTime(job.created_at, locale)}</span>
+                    <span title={formatAbsoluteTime(job.created_at, locale)}>
+                      {formatRelativeTime(job.created_at, locale)}
+                    </span>
                   </span>
                 </div>
               </div>

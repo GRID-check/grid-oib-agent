@@ -282,6 +282,38 @@ describe('ResearchPanel', () => {
 
       expect(screen.getByTestId('research-panel-stop')).not.toBeDisabled()
     })
+
+    test('asks for confirmation before cancelling and only cancels on confirm', async () => {
+      const user = userEvent.setup()
+      const { cancelJob } = await import('@/adapters/api')
+      mockIsDeepResearchStreaming = true
+      mockDeepResearchJobId = 'job-123'
+
+      render(<ResearchPanel />)
+
+      // Clicking Stop must NOT cancel immediately — it opens the confirm dialog.
+      await user.click(screen.getByTestId('research-panel-stop'))
+      expect(cancelJob).not.toHaveBeenCalled()
+      expect(screen.getByText('Stop research?')).toBeInTheDocument()
+
+      // Confirming performs the cancellation.
+      await user.click(screen.getByTestId('stop-research-confirm'))
+      expect(cancelJob).toHaveBeenCalledWith('job-123', 'mock-token')
+    })
+
+    test('dismissing the confirmation does not cancel the run', async () => {
+      const user = userEvent.setup()
+      const { cancelJob } = await import('@/adapters/api')
+      mockIsDeepResearchStreaming = true
+      mockDeepResearchJobId = 'job-123'
+
+      render(<ResearchPanel />)
+
+      await user.click(screen.getByTestId('research-panel-stop'))
+      await user.click(screen.getByRole('button', { name: 'Cancel' }))
+
+      expect(cancelJob).not.toHaveBeenCalled()
+    })
   })
 
   describe('children rendering', () => {

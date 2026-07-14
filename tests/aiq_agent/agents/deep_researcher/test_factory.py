@@ -23,9 +23,12 @@ from deepagents.middleware.filesystem import _check_fs_permission
 from langchain.agents.middleware import AgentMiddleware
 from langchain_core.tools import tool
 
+from aiq_agent.agents.deep_researcher.custom_middleware import SelectiveToolRetryMiddleware
 from aiq_agent.agents.deep_researcher.custom_middleware import SourceRegistryMiddleware
 from aiq_agent.agents.deep_researcher.custom_middleware import ToolNameSanitizationMiddleware
+from aiq_agent.agents.deep_researcher.custom_middleware import ToolResultPruningMiddleware
 from aiq_agent.agents.deep_researcher.custom_middleware import ToolVisibilityMiddleware
+from aiq_agent.agents.deep_researcher.custom_middleware import is_retryable_tool_error
 from aiq_agent.agents.deep_researcher.deepagents_runtime import DeepAgentsRuntime
 from aiq_agent.agents.deep_researcher.deepagents_runtime import DeepResearchSkillsConfig
 from aiq_agent.agents.deep_researcher.factory import DeepResearchGraphContext
@@ -82,6 +85,7 @@ def _tool_set_and_middleware() -> tuple[SourceRegistryMiddleware, object, object
     middleware_set = build_deep_research_middleware_set(
         tool_set=tool_set,
         source_registry_middleware=registry,
+        max_research_concurrency=6,
     )
     return registry, tool_set, middleware_set
 
@@ -148,6 +152,48 @@ def test_middleware_set_adds_orchestrator_batch_tool_name():
     assert registry in middleware_set.researcher
     assert registry in middleware_set.writer
     assert tool_set.writer_tools != tool_set.researcher_tools
+
+
+def _retry_middleware(middleware: list[object]) -> SelectiveToolRetryMiddleware:
+    return next(item for item in middleware if isinstance(item, SelectiveToolRetryMiddleware))
+
+
+def _pruning_middleware(middleware: list[object]) -> ToolResultPruningMiddleware:
+    return next(item for item in middleware if isinstance(item, ToolResultPruningMiddleware))
+
+
+def test_tool_retry_never_re_executes_run_research_batch_and_skips_value_errors():
+    """Deliberate tool error signals reach the model instead of amplifying retries."""
+    _, _, middleware_set = _tool_set_and_middleware()
+
+    stacks = (
+        middleware_set.researcher,
+        middleware_set.planner,
+        middleware_set.writer,
+        middleware_set.orchestrator,
+    )
+    for stack in stacks:
+        retry = _retry_middleware(stack)
+        assert "run_research_batch" in retry.no_retry_tools
+        assert retry.retry_on is is_retryable_tool_error
+    assert is_retryable_tool_error(RuntimeError("transient")) is True
+    assert is_retryable_tool_error(ValueError("deliberate signal")) is False
+
+
+def test_writer_pruning_middleware_scales_with_research_volume():
+    """The writer stack keeps enough tool results for plan + every note + verified sources."""
+    _, _, middleware_set = _tool_set_and_middleware()
+
+    writer_pruning = _pruning_middleware(middleware_set.writer)
+    researcher_pruning = _pruning_middleware(middleware_set.researcher)
+    orchestrator_pruning = _pruning_middleware(middleware_set.orchestrator)
+    # 6 (max_research_concurrency) * assumed max batches + headroom.
+    assert writer_pruning.keep_last_n >= 50
+    assert writer_pruning.max_chars >= 20_000
+    # Non-writer stacks keep the tighter defaults.
+    assert researcher_pruning.keep_last_n == 10
+    assert researcher_pruning.max_chars == 2000
+    assert orchestrator_pruning.keep_last_n == 10
 
 
 def test_subagents_route_tools_and_writer_skills():

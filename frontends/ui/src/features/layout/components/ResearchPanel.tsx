@@ -11,7 +11,7 @@
 
 'use client'
 
-import { type FC, type ReactNode, memo, useCallback, useRef, useEffect } from 'react'
+import { type FC, type ReactNode, memo, useCallback, useRef, useEffect, useState } from 'react'
 import { CircleStop, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -29,6 +29,7 @@ import { useLayoutStore } from '../store'
 import { TasksTab } from './TasksTab'
 import { ThinkingTab } from './ThinkingTab'
 import { ReportTab } from './ReportTab'
+import { StopResearchConfirmationModal } from './StopResearchConfirmationModal'
 import type { ResearchPanelTab } from '../types'
 
 const TABS_REQUIRING_STREAM: ResearchPanelTab[] = ['tasks', 'thinking']
@@ -62,6 +63,9 @@ export const ResearchPanel: FC<ResearchPanelProps> = memo(function ResearchPanel
 
   const prefersReducedMotion = useReducedMotion()
   const isMobile = useIsMobile()
+  // Cancelling a run is irreversible, so — like every delete flow in the
+  // product — it goes through an explicit confirmation dialog first.
+  const [showStopConfirm, setShowStopConfirm] = useState(false)
   const cancelFallbackRef = useRef<NodeJS.Timeout | null>(null)
   const pendingTabLoadRef = useRef<{ jobId: string; tab: ResearchPanelTab } | null>(null)
   const closeButtonRef = useRef<HTMLButtonElement>(null)
@@ -213,11 +217,12 @@ export const ResearchPanel: FC<ResearchPanelProps> = memo(function ResearchPanel
                   <TabsTrigger value="report">{t('researchPanel.tabReport')}</TabsTrigger>
                 </TabsList>
               </Tabs>
-              {/* Stop Researching button - always visible, disabled when not streaming */}
+              {/* Stop Researching button - always visible, disabled when not streaming.
+                  Opens a confirmation dialog first: a cancelled run cannot be resumed. */}
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={isDeepResearchStreaming ? handleStopResearch : undefined}
+                onClick={isDeepResearchStreaming ? () => setShowStopConfirm(true) : undefined}
                 disabled={!isDeepResearchStreaming}
                 aria-label={t('researchPanel.stopResearching')}
                 title={isDeepResearchStreaming ? t('researchPanel.stopResearching') : t('researchPanel.noActiveResearch')}
@@ -279,6 +284,15 @@ export const ResearchPanel: FC<ResearchPanelProps> = memo(function ResearchPanel
           </div>
         </div>
       </div>
+
+      {/* Confirmation before cancelling the run — it cannot be resumed. */}
+      <StopResearchConfirmationModal
+        open={showStopConfirm}
+        onOpenChange={setShowStopConfirm}
+        onConfirm={() => {
+          void handleStopResearch()
+        }}
+      />
     </aside>
   )
 })

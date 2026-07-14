@@ -18,6 +18,10 @@ export const chat: typeof en.chat = {
     rejectPlan: 'Plan ablehnen',
     selectOption: 'Option auswählen: {option}',
     yourResponse: 'Ihre Antwort:',
+    approvalInstruction:
+      'Wählen Sie „Genehmigen“, um die Recherche zu starten, oder „Ablehnen“, um abzubrechen.',
+    durationHint:
+      'Die Deep-Research-Ausführung kann mehrere Minuten dauern und verbraucht Kontingent.',
   },
   agentResponse: {
     viewProgress: 'Fortschritt anzeigen',
@@ -81,7 +85,7 @@ export const chat: typeof en.chat = {
     success: {
       heading: 'Bericht abgeschlossen!{stats}',
       subheading:
-        'Die Recherche ist abgeschlossen und ein Bericht steht im Recherche-Panel zur Ansicht bereit.',
+        'Die Recherche ist abgeschlossen und ein Bericht steht im Recherchebereich zur Ansicht bereit.',
     },
     failure: {
       heading: 'Bericht konnte nicht abgeschlossen werden',
@@ -91,7 +95,7 @@ export const chat: typeof en.chat = {
     cancelled: {
       heading: 'Recherche abgebrochen',
       subheading:
-        'Die Recherche wurde vom Benutzer gestoppt. Sie können den Teilfortschritt im Recherche-Panel ansehen.',
+        'Die Recherche wurde vom Benutzer gestoppt. Sie können den Teilfortschritt im Recherchebereich ansehen.',
     },
     expired: {
       heading: 'Bericht abgelaufen',
@@ -161,6 +165,12 @@ export const chat: typeof en.chat = {
   },
   deepResearchErrors: {
     interrupted: 'Die Recherche wurde vor dem Abschluss unterbrochen.',
+    reportUnavailable: 'Dieser Recherchebericht ist nicht mehr verfügbar.',
+    serviceUnreachable:
+      'Der Dienst ist derzeit nicht erreichbar. Bitte versuchen Sie es später erneut.',
+    jobStillRunning:
+      'Die Recherche läuft noch. Der Bericht kann geöffnet werden, sobald sie abgeschlossen ist.',
+    loadFailed: 'Recherchedaten konnten nicht geladen werden.',
   },
   sessionActions: {
     researchMayStillRunTitle: 'Recherche-Ausführung läuft möglicherweise noch',

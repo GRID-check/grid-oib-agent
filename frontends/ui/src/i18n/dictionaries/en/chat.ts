@@ -16,6 +16,12 @@ export const chat = {
     rejectPlan: 'Reject plan',
     selectOption: 'Select option: {option}',
     yourResponse: 'Your response:',
+    // Localized replacement for the backend's English approval envelope
+    // sentence ("Reply approve to proceed, reject to cancel").
+    approvalInstruction: 'Choose "Approve" to start the research or "Reject" to cancel.',
+    // Duration/cost expectation shown at the decision point, BEFORE approval.
+    durationHint:
+      'Deep research can take several minutes to run and consumes usage quota.',
   },
   agentResponse: {
     viewProgress: 'View Progress',
@@ -156,9 +162,15 @@ export const chat = {
       message: 'An unexpected error occurred. Please try again.',
     },
   },
-  // User-facing deep-research error copy raised from the SSE hook.
+  // User-facing deep-research error copy raised from the SSE hook and the
+  // job-data loading hook (use-load-job-data.ts).
   deepResearchErrors: {
     interrupted: 'Research was interrupted before completion.',
+    reportUnavailable: 'This research report is no longer available.',
+    serviceUnreachable: 'The service is currently unreachable. Please try again later.',
+    jobStillRunning:
+      'This research is still running. The report can be opened once it finishes.',
+    loadFailed: 'Research data could not be loaded.',
   },
   // Toasts fired when a session is deleted but its deep-research job could not
   // be cancelled on the server.

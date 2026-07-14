@@ -110,6 +110,17 @@ class TestJobSubmitRequest:
         with pytest.raises(ValueError):
             JobSubmitRequest(agent_type="deep_researcher", input="")
 
+    def test_input_at_max_length_accepted(self):
+        """Test that input at the 32000-char bound is accepted."""
+        req = JobSubmitRequest(agent_type="deep_researcher", input="x" * 32000)
+
+        assert len(req.input) == 32000
+
+    def test_input_over_max_length_rejected(self):
+        """Test that input longer than 32000 chars is rejected."""
+        with pytest.raises(ValueError):
+            JobSubmitRequest(agent_type="deep_researcher", input="x" * 32001)
+
     def test_expiry_too_low_rejected(self):
         """Test that expiry below 600 is rejected."""
         with pytest.raises(ValueError):

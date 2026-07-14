@@ -538,8 +538,44 @@ def extract_sources_from_tool_result(
     return []
 
 
+# Batch source-tool output format (see deep_researcher's
+# _format_batch_tool_output): "## Query: <q>\n<body>" sections joined by
+# "\n\n---\n\n".
+_BATCH_SECTION_SEPARATOR_RE = re.compile(r"\n\s*---\s*\n")
+_BATCH_QUERY_HEADING_RE = re.compile(r"\A\s*##\s*Query:[^\n]*\n?", re.IGNORECASE)
+
+
+def _split_batch_output_bodies(content: str) -> list[str] | None:
+    """Split batch source-tool output into per-query bodies.
+
+    Returns None when content is not batch-formatted (i.e. any section does
+    not start with a "## Query:" heading).
+    """
+    sections = _BATCH_SECTION_SEPARATOR_RE.split(content.strip())
+    bodies: list[str] = []
+    for section in sections:
+        heading_match = _BATCH_QUERY_HEADING_RE.match(section)
+        if heading_match is None:
+            return None
+        bodies.append(section[heading_match.end() :])
+    return bodies or None
+
+
 def _is_non_citable_status_output(content: str) -> bool:
-    """Return whether content is a tool status/error message, not evidence."""
+    """Return whether content is a tool status/error message, not evidence.
+
+    Understands the batched source-tool output format: a batch whose items ALL
+    errored (or returned nothing) is a status report, not citable evidence.
+    A batch with at least one substantive item stays citable.
+    """
+    batch_bodies = _split_batch_output_bodies(content)
+    if batch_bodies is not None:
+        return all(not body.strip() or _is_status_message(body) for body in batch_bodies)
+    return _is_status_message(content)
+
+
+def _is_status_message(content: str) -> bool:
+    """Return whether a single tool output (or batch item body) is a status message."""
     normalized = re.sub(r"\s+", " ", content.strip()).rstrip(".").lower()
     if not normalized:
         return False
@@ -669,7 +705,16 @@ register_source_parser(lambda name: "knowledge" in name, _parse_knowledge_layer)
 # Citation parsing and source-section layout normalization
 # ---------------------------------------------------------------------------
 
-_REFERENCE_HEADING_LABEL_PATTERN = r"(?:Sources|References|Reference[^\S\n]+List)"
+# German labels are first-class: reports written in German use "Quellen" &c.,
+# and failing to recognize them appended a duplicate English "## Sources"
+# section while mangling the original block.
+_GERMAN_REFERENCE_HEADING_LABEL_PATTERN = r"(?:Quellen(?:verzeichnis|angaben)?|Literatur(?:verzeichnis)?|Referenzen)"
+_REFERENCE_HEADING_LABEL_PATTERN = (
+    r"(?:Sources|References|Reference[^\S\n]+List|" + _GERMAN_REFERENCE_HEADING_LABEL_PATTERN + r")"
+)
+_GERMAN_REFERENCE_HEADING_LABEL_RE = re.compile(
+    rf"{_GERMAN_REFERENCE_HEADING_LABEL_PATTERN}[^\S\n]*:?[^\S\n]*\**[^\S\n]*$", re.IGNORECASE
+)
 _REFERENCE_HEADING_PATTERN = (
     r"^[^\S\n]*(?:"
     rf"#{{1,3}}[^\S\n]+{_REFERENCE_HEADING_LABEL_PATTERN}[^\S\n]*:?"
@@ -808,7 +853,9 @@ def _normalize_source_section_layout(ref_section: str) -> str:
     ref_section = _normalize_ordered_reference_lines(ref_section)
     lines = ref_section.split("\n")
     if lines and _REFERENCE_HEADING_LINE_RE.match(lines[0]):
-        lines[0] = "## Sources"
+        # Keep German reports German: a "Quellen"-style heading is normalized
+        # to "## Quellen" instead of being anglicized to "## Sources".
+        lines[0] = "## Quellen" if _GERMAN_REFERENCE_HEADING_LABEL_RE.search(lines[0]) else "## Sources"
         ref_section = "\n".join(lines)
     return "\n".join(_split_collapsed_source_line(line) for line in ref_section.split("\n"))
 

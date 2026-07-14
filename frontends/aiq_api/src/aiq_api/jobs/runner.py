@@ -41,6 +41,80 @@ from .event_store import EventStore
 
 logger = logging.getLogger(__name__)
 
+# Root modules of LLM/provider client stacks — exceptions raised from these are
+# classified as provider errors in sanitize_job_error().
+_LLM_PROVIDER_ERROR_MODULES = frozenset(
+    {
+        "openai",
+        "anthropic",
+        "litellm",
+        "langchain",
+        "langchain_core",
+        "langchain_openai",
+        "langchain_anthropic",
+        "langchain_nvidia_ai_endpoints",
+    }
+)
+
+# Root modules of HTTP/transport stacks — classified as connection errors.
+_NETWORK_ERROR_MODULES = frozenset({"httpx", "httpcore", "aiohttp", "requests", "urllib3"})
+
+
+def sanitize_job_error(exc: BaseException) -> str:
+    """Map an internal exception to a user-safe error message.
+
+    Raw exception text can leak hosts, DSNs, file paths, or credentials into
+    the persisted ``job.error`` field and emitted ``job.error`` events, both of
+    which are returned to API clients. Callers must log the full exception
+    server-side (``logger.exception``) and persist/emit only this message.
+
+    Kept informative by category (timeout / provider / connection / internal)
+    without ever including the exception's own text.
+
+    NOTE: cancellation paths intentionally bypass this — the UI string-matches
+    the exact error "cancelled by user".
+    """
+    root_module = (type(exc).__module__ or "").split(".")[0]
+    if isinstance(exc, TimeoutError):
+        return "The job timed out while waiting on an external service."
+    if root_module in _LLM_PROVIDER_ERROR_MODULES:
+        return "The LLM provider returned an error while running the job."
+    if root_module in _NETWORK_ERROR_MODULES or isinstance(exc, (ConnectionError, OSError)):
+        return "A connection error occurred while running the job."
+    return "The job failed due to an internal error."
+
+
+async def _update_status_if_not_terminal(job_store: Any, job_id: str, status: Any, **kwargs: Any) -> bool:
+    """Write a job status only if the job is not already in a terminal state.
+
+    Terminal statuses (SUCCESS/FAILURE/INTERRUPTED) are sticky: the ghost-job
+    reaper or the cancel route may have already finalized this job while the
+    worker was still running, and the runner's own success/failure write must
+    not overwrite that verdict (e.g. flipping a reaped FAILURE back to SUCCESS).
+
+    Returns True if the status was written, False if it was left untouched.
+    """
+    from nat.front_ends.fastapi.async_jobs.job_store import JobStatus
+
+    terminal_statuses = {JobStatus.SUCCESS.value, JobStatus.FAILURE.value, JobStatus.INTERRUPTED.value}
+    try:
+        job = await job_store.get_job(job_id)
+    except Exception:
+        logger.warning("Could not read current status for job %s before writing %s", job_id, status, exc_info=True)
+        job = None
+
+    if job is not None and job.status in terminal_statuses:
+        logger.info(
+            "Job %s already in terminal status %s; not overwriting with %s",
+            job_id,
+            job.status,
+            status,
+        )
+        return False
+
+    await job_store.update_status(job_id, status, **kwargs)
+    return True
+
 
 def _normalize_trace_id(trace_id: int | str | None) -> int | None:
     """Convert trace ID to integer format.
@@ -66,7 +140,8 @@ class CancellationMonitor:
     Monitors job status for cancellation requests.
 
     Polls the job store at regular intervals and sets an asyncio.Event
-    when the job status changes to INTERRUPTED.
+    when the job status changes to INTERRUPTED or FAILURE (the latter is
+    written by the ghost-job reaper, which must also stop the worker).
     """
 
     def __init__(
@@ -94,11 +169,16 @@ class CancellationMonitor:
 
         job_store = JobStore(scheduler_address=self.scheduler_address, db_url=self.db_url)
 
+        # FAILURE included: the ghost-job reaper writes FAILURE externally and
+        # the worker must stop instead of running to completion against a job
+        # that has already been finalized.
+        stop_statuses = (JobStatus.INTERRUPTED.value, JobStatus.FAILURE.value)
+
         while not self._cancelled.is_set():
             try:
                 job = await job_store.get_job(self.job_id)
-                if job and job.status == JobStatus.INTERRUPTED.value:
-                    logger.info("Cancellation detected for job %s", self.job_id)
+                if job and job.status in stop_statuses:
+                    logger.info("Cancellation detected for job %s (status: %s)", self.job_id, job.status)
                     self._cancelled.set()
                     break
             except Exception as e:
@@ -700,7 +780,10 @@ async def run_agent_job(
                     output: dict[str, Any] = {"report": report}
                     if cards:
                         output["cards"] = cards
-                    await job_store.update_status(job_id, JobStatus.SUCCESS, output=output)
+                    # Sticky terminal statuses: never flip a job the reaper or
+                    # cancel route already finalized (FAILURE/INTERRUPTED) back
+                    # to SUCCESS.
+                    await _update_status_if_not_terminal(job_store, job_id, JobStatus.SUCCESS, output=output)
                     logger.info(
                         "Job %s completed (report: %d chars, cards: %d)",
                         job_id,
@@ -712,9 +795,13 @@ async def run_agent_job(
         logger.info("Job %s cancelled", job_id)
         if job_store:
             try:
-                job = await job_store.get_job(job_id)
-                if job and job.status != JobStatus.INTERRUPTED.value:
-                    await job_store.update_status(job_id, JobStatus.INTERRUPTED, error="cancelled by user")
+                # Sticky terminal statuses: don't overwrite a FAILURE (reaper)
+                # or SUCCESS either — only mark still-active jobs INTERRUPTED.
+                # The "cancelled by user" error string is exact: the UI
+                # string-matches on it.
+                await _update_status_if_not_terminal(
+                    job_store, job_id, JobStatus.INTERRUPTED, error="cancelled by user"
+                )
             except (ConnectionError, TimeoutError, RuntimeError):
                 pass
 
@@ -731,9 +818,14 @@ async def run_agent_job(
             event_store.flush()
 
     except Exception as e:
+        # Full exception (with traceback) is logged server-side; only the
+        # sanitized, user-safe message is persisted and streamed to clients.
         logger.exception("Job %s failed: %s", job_id, type(e).__name__)
+        safe_error = sanitize_job_error(e)
         if job_store:
-            await job_store.update_status(job_id, JobStatus.FAILURE, error=str(e))
+            # Sticky terminal statuses: don't clobber an INTERRUPTED/FAILURE
+            # verdict written by the cancel route or the ghost-job reaper.
+            await _update_status_if_not_terminal(job_store, job_id, JobStatus.FAILURE, error=safe_error)
 
         if event_store is None:
             event_store = BatchingEventStore(EventStore(db_url, job_id))
@@ -742,7 +834,7 @@ async def run_agent_job(
             {
                 "type": "job.error",
                 "data": {
-                    "error": str(e),
+                    "error": safe_error,
                     "error_type": type(e).__name__,
                 },
             }

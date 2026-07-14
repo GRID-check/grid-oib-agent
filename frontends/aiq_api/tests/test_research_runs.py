@@ -174,6 +174,21 @@ class TestFindResearchRuns:
         assert total == 2
         assert [row["job_id"] for row in rows] == ["job-new"]
 
+    def test_pagination_stable_for_identical_created_at(self, db_url):
+        """job_id tiebreaker: identical created_at must not duplicate/drop rows across pages."""
+        principal = Principal(type="jwt", sub="user-1")
+        ts = datetime.now(UTC)
+        for job_id in ("job-a", "job-b", "job-c"):
+            _seed_job(db_url, job_id, principal, created_at=ts)
+
+        pages = [
+            _find_research_runs(db_url, False, None, None, None, None, None, 1, offset)[0][0]["job_id"]
+            for offset in (0, 1, 2)
+        ]
+
+        # Deterministic order (created_at DESC, job_id DESC) and full coverage.
+        assert pages == ["job-c", "job-b", "job-a"]
+
 
 @pytest.fixture
 async def research_runs_app(db_url, monkeypatch):

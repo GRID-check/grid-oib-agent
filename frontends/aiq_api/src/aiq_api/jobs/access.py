@@ -108,6 +108,30 @@ def get_job_access(job_id: str, db_url: str) -> dict[str, Any] | None:
         return dict(row) if row is not None else None
 
 
+def job_exists(job_id: str, db_url: str) -> bool:
+    """Return True if a job with this ID already exists (job_access OR job_info row).
+
+    Used by the submit path to reject caller-supplied job IDs that collide with
+    an existing job: both NAT's job_info write and the ``job_access`` upsert are
+    unconditional, so without this check a re-submitted ID would rewrite the
+    original job's ownership (hijack) and a failed re-submission would delete
+    the original job via ``rollback_job_submission``.
+    """
+    from sqlalchemy import inspect
+
+    with _job_access_connection(db_url) as conn:
+        _ensure_job_access_schema(conn, db_url)
+        row = conn.execute(text("SELECT 1 FROM job_access WHERE job_id = :job_id"), {"job_id": job_id}).first()
+        if row is not None:
+            return True
+        # job_info is created lazily by NAT's JobStore; on a fresh database it
+        # may not exist yet (same guard as _find_research_runs).
+        if inspect(conn.engine).has_table("job_info"):
+            row = conn.execute(text("SELECT 1 FROM job_info WHERE job_id = :job_id"), {"job_id": job_id}).first()
+            return row is not None
+    return False
+
+
 def delete_job_access(job_id: str, db_url: str) -> int:
     """Delete job access metadata for a specific job."""
     with _job_access_connection(db_url) as conn:
@@ -136,6 +160,11 @@ def rollback_job_submission(job_id: str, db_url: str) -> None:
 
     The submit path must not return an ownerless job ID. If job submission creates
     NAT metadata but `job_access` cannot be written, remove the partial job state.
+
+    DESTRUCTIVE: deletes job_access, job_events AND job_info rows for the job.
+    Callers must only invoke this for a job ID that was positively verified not
+    to exist before this request (see ``job_exists``) — otherwise a failed
+    re-submission of an existing ID would wipe the original job.
     """
     from .event_store import EventStore
 

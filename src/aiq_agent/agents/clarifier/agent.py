@@ -110,10 +110,40 @@ DEFAULT_PLAN_GENERATION_PROMPT = (
 )
 """Fallback prompt for plan generation."""
 
-APPROVAL_KEYWORDS = {"approve", "approved", "yes", "ok", "proceed", "continue", "go ahead", "looks good", "y", "accept"}
+APPROVAL_KEYWORDS = {
+    "approve",
+    "approved",
+    "yes",
+    "ok",
+    "proceed",
+    "continue",
+    "go ahead",
+    "looks good",
+    "y",
+    "accept",
+    # German equivalents (German-first product).
+    "ja",
+    "passt",
+    "einverstanden",
+    "in ordnung",
+    "genehmigt",
+}
 """Keywords that indicate the user approves the plan."""
 
-REJECTION_KEYWORDS = {"reject", "rejected", "no", "cancel", "stop", "abort", "n"}
+REJECTION_KEYWORDS = {
+    "reject",
+    "rejected",
+    "no",
+    "cancel",
+    "stop",
+    "abort",
+    "n",
+    # German equivalents (German-first product).
+    "nein",
+    "abbrechen",
+    "ablehnen",
+    "verwerfen",
+}
 """Keywords that indicate the user rejects the plan."""
 
 JSON_REMINDER_AFTER_TOOLS = (

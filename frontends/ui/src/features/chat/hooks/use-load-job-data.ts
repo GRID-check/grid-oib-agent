@@ -34,11 +34,10 @@ import {
 } from '../lib/deep-research-errors'
 import { useAuth } from '@/adapters/auth'
 import { useLayoutStore } from '@/features/layout/store'
+import { useTranslations } from '@/i18n'
 import type { ResearchPanelTab } from '@/features/layout/types'
 import { normalizeDeepResearchTodos } from '../lib/deep-research-todos'
 
-const EXPIRED_REPORT_MESSAGE = 'This research report is no longer available.'
-const BACKEND_UNREACHABLE_MESSAGE = 'The backend is not reachable. Start the backend and try again.'
 const STREAM_BACKED_RESEARCH_TABS = new Set<ResearchPanelTab>(['tasks', 'thinking'])
 
 interface JobLoadScope {
@@ -82,6 +81,21 @@ const createJobLoadScope = (jobId: string): JobLoadScope => {
   // has been persisted. In that case we still bind to the current session ID
   // so switching sessions aborts the eventual replay commit.
   return { jobId, conversationId: currentConversation?.id ?? null, requiresJobMatch: false }
+}
+
+/**
+ * True when a DIFFERENT job is actively streaming live. Loading (and thus
+ * clearing) deep research state in that case would wipe the live run's
+ * progress and disconnect its SSE while the backend keeps working — mirrors
+ * the isAnotherJobStreaming guard in AgentResponse.
+ */
+const isAnotherJobStreaming = (jobId: string): boolean => {
+  const state = useChatStore.getState()
+  return Boolean(
+    state.isDeepResearchStreaming &&
+      state.deepResearchJobId &&
+      state.deepResearchJobId !== jobId
+  )
 }
 
 const isJobLoadScopeCurrent = (scope: JobLoadScope): boolean => {
@@ -173,6 +187,10 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
   const [error, setError] = useState<string | null>(null)
   const clientRef = useRef<DeepResearchClient | null>(null)
 
+  // Localized end-user copy for load failures (chat.deepResearchErrors.*).
+  // These strings surface directly in the UI (error cards, err.message
+  // tooltips), so they must never be raw technical/backend text.
+  const tChat = useTranslations('chat')
   const { idToken } = useAuth()
   const setReportContent = useChatStore((s) => s.setReportContent)
   const addDeepResearchToolCall = useChatStore((s) => s.addDeepResearchToolCall)
@@ -467,6 +485,9 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
         }
 
         let client: DeepResearchClient | null = null
+        // The client fires onError right after a terminal failure job.status —
+        // once the load settled that late error must not be logged as a failure.
+        let settled = false
         const disconnectReplayClient = (): void => {
           if (!client) return
           client.disconnect()
@@ -484,16 +505,18 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
               setCurrentStatus('researching')
             },
 
-            onJobStatus: (status: DeepResearchJobStatus, statusError?: string) => {
+            onJobStatus: (status: DeepResearchJobStatus) => {
               if (status === 'success' || status === 'failure' || status === 'interrupted') {
                 disconnectReplayClient()
                 commitToStore()
 
-                if (status === 'failure' && statusError) {
-                  reject(new Error(statusError))
-                } else {
-                  resolve()
-                }
+                // This replays a job that is already terminal — a re-delivered
+                // terminal 'failure' status is data, not a load error. The load
+                // itself succeeded, so complete it normally (no error card, and
+                // the stream stays cached instead of re-replaying on every tab
+                // click).
+                settled = true
+                resolve()
               }
             },
 
@@ -569,7 +592,13 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
               if (uniqueId) {
                 const tool = buffer.toolCalls.get(uniqueId)
                 if (tool) {
-                  tool.output = output ? JSON.stringify(output) : undefined
+                  // output is already a string on the wire — stringifying it
+                  // again would double-JSON-encode it on replay.
+                  tool.output = output
+                    ? typeof output === 'string'
+                      ? output
+                      : JSON.stringify(output)
+                    : undefined
                 }
               }
             },
@@ -594,17 +623,20 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
             },
 
             onComplete: () => {
+              settled = true
               commitToStore()
               resolve()
             },
 
             onError: (err) => {
+              if (settled) return
               console.error('Stream error while loading job data:', err)
               commitToStore()
               reject(err)
             },
 
             onDisconnect: () => {
+              settled = true
               commitToStore()
               resolve()
             },
@@ -646,6 +678,12 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
         return
       }
 
+      // A different job is streaming live — loading this one would clear its
+      // state and disconnect the live SSE. Skip the load entirely.
+      if (isAnotherJobStreaming(jobId)) {
+        return
+      }
+
       setIsLoading(true)
       setError(null)
 
@@ -656,8 +694,14 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
         if (!isJobLoadScopeCurrent(scope)) return
 
         if (jobStatus !== 'success' && jobStatus !== 'failure' && jobStatus !== 'interrupted') {
-          throw new Error(`Job is still ${jobStatus}. Cannot load data from incomplete job.`)
+          // This message is user-facing: it becomes err.message below, which
+          // flows into the error state (rendered as a tooltip) and error card.
+          throw new Error(tChat('deepResearchErrors.jobStillRunning'))
         }
+
+        // Re-check after the await: a live run for another job may have
+        // started while the status request was in flight.
+        if (isAnotherJobStreaming(jobId)) return
 
         clearDeepResearch()
 
@@ -688,12 +732,12 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
         const errorDetails = getDeepResearchJobLoadErrorDetails(err)
         const errorMessage =
           failureKind === 'unavailable'
-            ? EXPIRED_REPORT_MESSAGE
+            ? tChat('deepResearchErrors.reportUnavailable')
             : failureKind === 'backend_unreachable'
-              ? BACKEND_UNREACHABLE_MESSAGE
+              ? tChat('deepResearchErrors.serviceUnreachable')
               : err instanceof Error
                 ? err.message
-                : 'Failed to load job data'
+                : tChat('deepResearchErrors.loadFailed')
         setError(errorMessage)
         if (failureKind === 'unavailable') {
           syncMissingJobToFailureState(jobId)
@@ -715,6 +759,7 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
     },
     [
       idToken,
+      tChat,
       clearDeepResearch,
       loadJobDataFast,
       streamFullJob,
@@ -767,6 +812,12 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
         return
       }
 
+      // A different job is streaming live — loading this one would clear its
+      // state and disconnect the live SSE. Skip the load entirely.
+      if (isAnotherJobStreaming(jobId)) {
+        return
+      }
+
       setIsLoading(true)
       setError(null)
 
@@ -782,6 +833,10 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
           setIsLoading(false)
           return
         }
+
+        // Re-check after the await: a live run for another job may have
+        // started while the status request was in flight.
+        if (isAnotherJobStreaming(jobId)) return
 
         clearDeepResearch()
         await streamFullJob(jobId, scope)
@@ -799,12 +854,12 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
         const errorDetails = getDeepResearchJobLoadErrorDetails(err)
         const errorMessage =
           failureKind === 'unavailable'
-            ? EXPIRED_REPORT_MESSAGE
+            ? tChat('deepResearchErrors.reportUnavailable')
             : failureKind === 'backend_unreachable'
-              ? BACKEND_UNREACHABLE_MESSAGE
+              ? tChat('deepResearchErrors.serviceUnreachable')
               : err instanceof Error
                 ? err.message
-                : 'Failed to load stream data'
+                : tChat('deepResearchErrors.loadFailed')
         setError(errorMessage)
         if (failureKind === 'unavailable') {
           syncMissingJobToFailureState(jobId)
@@ -826,6 +881,7 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
     },
     [
       idToken,
+      tChat,
       clearDeepResearch,
       streamFullJob,
       stopAllDeepResearchSpinners,

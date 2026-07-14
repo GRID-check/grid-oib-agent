@@ -34,6 +34,7 @@ from ..registry import get_agent_config
 from .access import _make_no_auth_principal
 from .access import count_active_jobs
 from .access import create_job_access
+from .access import job_exists
 from .access import rollback_job_submission
 from .runner import run_agent_job
 
@@ -213,6 +214,23 @@ class SchedulerNotConfiguredError(RuntimeError):
     """
 
 
+class MissingPrincipalError(RuntimeError):
+    """No verified principal is available to own the async job.
+
+    Subclasses RuntimeError for backwards compatibility. HTTP routes map this
+    specific error to 403 with its static, user-safe message — arbitrary
+    RuntimeError text (which may carry hosts/DSNs) must never reach clients.
+    """
+
+
+class DuplicateJobIdError(ValueError):
+    """A caller-supplied job ID collides with an existing job.
+
+    Mapped to HTTP 409 Conflict by the submit route. Only raised for
+    caller-supplied IDs; auto-generated UUIDs skip the existence check.
+    """
+
+
 async def submit_agent_job(
     agent_type: str,
     input_text: str,
@@ -275,6 +293,7 @@ async def submit_agent_job(
     Raises:
         KeyError: If agent_type is not registered.
         RuntimeError: If Dask scheduler is not configured.
+        DuplicateJobIdError: If a caller-supplied job_id collides with an existing job.
 
     Example:
         job_id = await submit_agent_job(
@@ -378,7 +397,7 @@ async def submit_agent_job(
     if principal is None:
         principal = _resolve_submission_principal(owner)
     if principal is None:
-        raise RuntimeError("Verified current principal required for async job submission")
+        raise MissingPrincipalError("Verified current principal required for async job submission")
 
     organization_id = ((usage_context or {}).get("identity") or {}).get("organization_id")
 
@@ -391,6 +410,28 @@ async def submit_agent_job(
     job_store = JobStore(scheduler_address=scheduler_address, db_url=db_url)
     resolved_job_id = job_store.ensure_job_id(job_id)
     loop = asyncio.get_running_loop()
+
+    # Duplicate-ID guard: job_id is caller-supplied, and both NAT's job_info
+    # write and the job_access upsert below are unconditional — without this
+    # check, re-submitting an existing ID would rewrite the original job's
+    # ownership (hijack), and a failed re-submission would delete the original
+    # job via rollback_job_submission. Auto-generated UUIDs skip the check.
+    # Fails open on DB errors (like admission control), but an unverified
+    # pre-existence also suppresses the destructive rollback below.
+    preexistence_verified = job_id is None
+    if job_id is not None:
+        try:
+            if await loop.run_in_executor(None, job_exists, resolved_job_id, db_url):
+                raise DuplicateJobIdError(f"Job ID already exists: {resolved_job_id}")
+            preexistence_verified = True
+        except DuplicateJobIdError:
+            raise
+        except Exception:
+            logger.warning(
+                "Failed to check whether job %s already exists; proceeding without rollback safety",
+                resolved_job_id,
+                exc_info=True,
+            )
 
     parent_trace_context = _get_parent_trace_context()
     parent_conversation_id = parent_trace_context[5]
@@ -436,6 +477,16 @@ async def submit_agent_job(
             organization_id,
         )
     except Exception:
+        if not preexistence_verified:
+            # rollback_job_submission deletes job_access, job_events AND
+            # job_info. Without positive proof the job ID did not exist before
+            # this request, rolling back could wipe a pre-existing job.
+            logger.warning(
+                "Skipping rollback for job %s after submission failure: pre-existence of the "
+                "job ID could not be verified, and rollback must never delete a pre-existing job.",
+                resolved_job_id,
+            )
+            raise
         try:
             await loop.run_in_executor(None, rollback_job_submission, resolved_job_id, db_url)
             logger.warning(

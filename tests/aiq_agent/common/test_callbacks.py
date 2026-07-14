@@ -217,6 +217,23 @@ class TestVerboseTraceCallback:
         assert callback.log_reasoning is False
         assert callback.max_chars == 1000
 
+    def test_for_new_run_returns_fresh_instance_with_same_config(self):
+        """for_new_run copies configuration but not accumulated per-run state."""
+        callback = VerboseTraceCallback(log_reasoning=False, max_chars=1000)
+        callback.current_input = "old input"
+        callback.active_chains = {"run-1": "chain"}
+        callback.depth = 3
+
+        fresh = callback.for_new_run()
+
+        assert fresh is not callback
+        assert isinstance(fresh, VerboseTraceCallback)
+        assert fresh.log_reasoning is False
+        assert fresh.max_chars == 1000
+        assert fresh.current_input is None
+        assert fresh.active_chains == {}
+        assert fresh.depth == 0
+
     def test_get_indent(self):
         """Test _get_indent returns correct indentation."""
         callback = VerboseTraceCallback()

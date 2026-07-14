@@ -428,6 +428,8 @@ export interface ChatState {
   deepResearchLastEventId: string | null
   /** Whether deep research SSE is currently streaming */
   isDeepResearchStreaming: boolean
+  /** Epoch ms when the current live run started in this tab (null after reload) */
+  deepResearchStartedAt: number | null
   /** Current deep research job status */
   deepResearchStatus: DeepResearchJobStatus | null
   /** Conversation ID that owns the current deep research stream (for session isolation) */

@@ -45,6 +45,7 @@ let mockStoreState = {
   isDeepResearchStreaming: false,
   deepResearchStatus: null as string | null,
   reportContent: '',
+  deepResearchAgents: [] as unknown[],
   deepResearchLLMSteps: [] as unknown[],
   deepResearchToolCalls: [] as unknown[],
   deepResearchCitations: [] as unknown[],
@@ -194,6 +195,7 @@ describe('useDeepResearch', () => {
       isDeepResearchStreaming: false,
       deepResearchStatus: null,
       reportContent: '',
+      deepResearchAgents: [],
       deepResearchLLMSteps: [],
       deepResearchToolCalls: [],
       deepResearchCitations: [],
@@ -653,8 +655,11 @@ describe('useDeepResearch', () => {
       expect(mockSetCurrentStatus).toHaveBeenCalledWith('error')
       expect(mockStopAllDeepResearchSpinners).toHaveBeenCalled()
       expect(mockCompleteDeepResearch).toHaveBeenCalled()
+      // No explicit message (the banner localizes the registry default);
+      // the raw backend error travels in the details slot.
       expect(mockAddErrorCard).toHaveBeenCalledWith(
         'agent.deep_research_failed',
+        undefined,
         'Something went wrong'
       )
     })
@@ -688,6 +693,7 @@ describe('useDeepResearch', () => {
       )
       expect(mockAddErrorCard).toHaveBeenCalledWith(
         'agent.deep_research_failed',
+        undefined,
         'worker lost during reconnect'
       )
     })
@@ -1117,6 +1123,156 @@ describe('useDeepResearch', () => {
       act(() => {
         mockClient?.callbacks.onDisconnect?.()
       })
+    })
+
+    test('tracks concurrent same-name tool calls independently in live mode', async () => {
+      await setupConnectedHook()
+
+      mockAddDeepResearchToolCall
+        .mockReturnValueOnce('tool-call-A')
+        .mockReturnValueOnce('tool-call-B')
+
+      // Two sub-agents both run web_search concurrently.
+      act(() => {
+        mockClient?.callbacks.onToolStart?.('web_search', { query: 'first' }, 'wf-1', 'event-1', 'agent-1')
+        mockClient?.callbacks.onToolStart?.('web_search', { query: 'second' }, 'wf-2', 'event-2', 'agent-2')
+      })
+
+      // Ends pop the most recent start (LIFO) — mirroring the buffered path —
+      // so the second call's output is never attributed to the first call.
+      act(() => {
+        mockClient?.callbacks.onToolEnd?.('web_search', 'result for second', 'event-3')
+      })
+
+      expect(mockCompleteDeepResearchToolCall).toHaveBeenCalledTimes(1)
+      expect(mockCompleteDeepResearchToolCall).toHaveBeenCalledWith('tool-call-B', 'result for second')
+
+      act(() => {
+        mockClient?.callbacks.onToolEnd?.('web_search', 'result for first', 'event-4')
+      })
+
+      expect(mockCompleteDeepResearchToolCall).toHaveBeenCalledTimes(2)
+      expect(mockCompleteDeepResearchToolCall).toHaveBeenLastCalledWith('tool-call-A', 'result for first')
+    })
+  })
+
+  describe('replay buffer teardown', () => {
+    const collectSetStateUpdates = (): Array<Record<string, unknown>> =>
+      vi
+        .mocked(useChatStore.setState)
+        .mock.calls.map(([updater]) =>
+          typeof updater === 'function'
+            ? ((updater as unknown as (state: { currentStatus: string | null }) => Record<string, unknown>)({
+                currentStatus: 'researching',
+              }))
+            : (updater as unknown as Record<string, unknown>)
+        )
+
+    test('a stale replay-buffer safety timer cannot flush after reconnect', async () => {
+      const { result } = await setupBufferedHook()
+
+      // Events buffered on the FIRST connection (never flushed).
+      act(() => {
+        mockClient?.callbacks.onCitationUpdate?.('https://stale.example', 'Stale citation', true)
+      })
+
+      // Reconnect tears the first connection down and starts a new buffer.
+      act(() => {
+        result.current.reconnect()
+      })
+
+      // Advance past the 30s safety timeout: the OLD buffer's timer must have
+      // been cleared/deactivated — its partial snapshot must never reach the store.
+      await act(async () => { await advanceAndFlush(31000) })
+
+      const staleFlushes = collectSetStateUpdates().filter(
+        (updates) => 'deepResearchCitations' in updates
+      )
+      expect(staleFlushes).toHaveLength(0)
+    })
+
+    test('disconnect deactivates the replay buffer and clears its safety timer', async () => {
+      const { result } = await setupBufferedHook()
+
+      act(() => {
+        mockClient?.callbacks.onCitationUpdate?.('https://stale.example', 'Stale citation', true)
+      })
+
+      act(() => {
+        result.current.disconnect()
+      })
+
+      await act(async () => { await advanceAndFlush(31000) })
+
+      expect(useChatStore.setState).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('reconnect resume behavior', () => {
+    test('reconnect resumes from the tracked last event id when the store holds full history', async () => {
+      const { result } = await setupConnectedHook()
+
+      mockClient!.getLastEventId.mockReturnValue('99')
+      mockCreateDeepResearchClient.mockClear()
+
+      act(() => {
+        result.current.reconnect()
+      })
+
+      expect(mockCreateDeepResearchClient).toHaveBeenCalledTimes(1)
+      const options = mockCreateDeepResearchClient.mock.calls[0][0] as { lastEventId?: string }
+      expect(options.lastEventId).toBe('99')
+
+      // Resumed events append live — no replay buffer swallowing them.
+      act(() => {
+        mockClient?.callbacks.onCitationUpdate?.('https://example.com', 'Citation', true)
+      })
+      expect(mockAddDeepResearchCitation).toHaveBeenCalledWith('https://example.com', 'Citation', true)
+    })
+
+    test('reconnect falls back to a full buffered replay while the replay buffer is still active', async () => {
+      const { result } = await setupBufferedHook()
+
+      // Mid-replay the store does not yet hold the buffered history — resuming
+      // from the last event id would drop the buffered head.
+      mockClient!.getLastEventId.mockReturnValue('55')
+      mockCreateDeepResearchClient.mockClear()
+
+      act(() => {
+        result.current.reconnect()
+      })
+
+      expect(mockCreateDeepResearchClient).toHaveBeenCalledTimes(1)
+      const options = mockCreateDeepResearchClient.mock.calls[0][0] as { lastEventId?: string }
+      expect(options.lastEventId).toBeUndefined()
+    })
+  })
+
+  describe('reconnect detection (bufferReplay heuristic)', () => {
+    test('treats a remount with existing deep-research events as a reconnect even before running status lands', async () => {
+      // Status is still 'submitted' (the first running status has not landed),
+      // but the store already holds events from before navigation. Replaying
+      // in live mode would append duplicates — the hook must buffer instead.
+      mockStoreState.deepResearchJobId = 'job-456'
+      mockStoreState.isDeepResearchStreaming = true
+      mockStoreState.deepResearchStatus = 'submitted'
+      mockStoreState.deepResearchToolCalls = [{ id: 'existing-tool-call' }]
+
+      renderHook(() => useDeepResearch())
+      await act(async () => { await advanceAndFlush(60) })
+
+      act(() => {
+        mockClient?.callbacks.onCitationUpdate?.('https://example.com', 'Replayed citation', true)
+      })
+
+      // Buffered: replayed events must NOT be appended to the store directly.
+      expect(mockAddDeepResearchCitation).not.toHaveBeenCalled()
+
+      // The flush on stream.mode "live" commits the replay wholesale instead.
+      act(() => {
+        mockClient?.callbacks.onStreamMode?.('live')
+      })
+      expect(useChatStore.setState).toHaveBeenCalled()
     })
   })
 

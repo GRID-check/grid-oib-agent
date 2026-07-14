@@ -119,6 +119,15 @@ class VerboseTraceCallback(BaseCallbackHandler):
         self.active_chains: dict[Any, str] = {}
         self.depth = 0
 
+    def for_new_run(self) -> "VerboseTraceCallback":
+        """Return a fresh instance with the same configuration for one run.
+
+        The handler mutates per-run state (current input, active chains,
+        depth), so a single shared instance must not span concurrent or
+        consecutive runs (ADR-0018).
+        """
+        return VerboseTraceCallback(log_reasoning=self.log_reasoning, max_chars=self.max_chars)
+
     def _get_indent(self) -> str:
         return "  " * self.depth
 

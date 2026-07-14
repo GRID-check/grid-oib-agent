@@ -31,7 +31,6 @@ from deepagents.middleware.skills import SkillsMiddleware
 from deepagents.middleware.summarization import create_summarization_middleware
 from langchain.agents import create_agent
 from langchain.agents.middleware import ModelRetryMiddleware
-from langchain.agents.middleware import ToolRetryMiddleware
 from langchain_core.language_models import BaseChatModel
 from langchain_core.tools import BaseTool
 from langchain_core.tools import tool
@@ -42,10 +41,12 @@ from aiq_agent.common import LLMRole
 from aiq_agent.common import render_prompt_template
 
 from .custom_middleware import EmptyContentFixMiddleware
+from .custom_middleware import SelectiveToolRetryMiddleware
 from .custom_middleware import SourceRegistryMiddleware
 from .custom_middleware import ToolNameSanitizationMiddleware
 from .custom_middleware import ToolResultPruningMiddleware
 from .custom_middleware import ToolVisibilityMiddleware
+from .custom_middleware import is_retryable_tool_error
 from .deepagents_runtime import BUILTIN_SKILL_SOURCE
 from .deepagents_runtime import DeepAgentsRuntime
 from .models import DeepResearchAgentState
@@ -176,11 +177,35 @@ def build_deep_research_tool_set(
     )
 
 
+# run_research_batch raises deliberate errors (oversized batch, partial worker
+# failure) that the ORCHESTRATOR must react to; re-executing the whole batch
+# below the LLM would re-run every already-successful multi-LLM-call worker.
+_NO_RETRY_TOOL_NAMES = frozenset({"run_research_batch"})
+
+# The writer must read the plan, EVERY research note file, get_verified_sources,
+# and skill files without truncation; pruning any of them corrupts the final
+# synthesis and the citation whitelist. Sized as assumed-max research batches
+# times per-batch queries, plus headroom for plan/skill/source reads.
+_WRITER_ASSUMED_MAX_BATCHES = 5
+_WRITER_TOOL_RESULT_HEADROOM = 20
+_WRITER_MAX_TOOL_RESULT_CHARS = 20_000
+
+DEFAULT_TOOL_RESULT_KEEP_LAST_N = 10
+DEFAULT_TOOL_RESULT_MAX_CHARS = 2000
+
+
+def writer_tool_result_keep_last_n(max_research_concurrency: int) -> int:
+    """Return a writer keep-last-n that covers every research note plus headroom."""
+    return max_research_concurrency * _WRITER_ASSUMED_MAX_BATCHES + _WRITER_TOOL_RESULT_HEADROOM
+
+
 def build_common_middleware(
     *,
     tool_set: DeepResearchToolSet,
     source_registry_middleware: SourceRegistryMiddleware,
     extra_valid_tool_names: Sequence[str] = (),
+    tool_result_keep_last_n: int = DEFAULT_TOOL_RESULT_KEEP_LAST_N,
+    tool_result_max_chars: int = DEFAULT_TOOL_RESULT_MAX_CHARS,
 ) -> list[Any]:
     """Build the shared middleware stack with agent-specific valid tool names."""
     valid_tool_names = {tool.name for tool in [*tool_set.all_tools, *tool_set.researcher_tools]}
@@ -189,9 +214,15 @@ def build_common_middleware(
     return [
         EmptyContentFixMiddleware(),
         ToolNameSanitizationMiddleware(valid_tool_names=sorted(valid_tool_names)),
-        ToolRetryMiddleware(max_retries=3, backoff_factor=2.0, initial_delay=1.0),
+        SelectiveToolRetryMiddleware(
+            max_retries=3,
+            backoff_factor=2.0,
+            initial_delay=1.0,
+            retry_on=is_retryable_tool_error,
+            no_retry_tools=_NO_RETRY_TOOL_NAMES,
+        ),
         source_registry_middleware,
-        ToolResultPruningMiddleware(keep_last_n=10, max_chars=2000),
+        ToolResultPruningMiddleware(keep_last_n=tool_result_keep_last_n, max_chars=tool_result_max_chars),
         ModelRetryMiddleware(max_retries=2, backoff_factor=2.0, initial_delay=1.0),
     ]
 
@@ -201,7 +232,12 @@ def build_source_router_middleware(*, extra_valid_tool_names: Sequence[str] = ()
     return [
         EmptyContentFixMiddleware(),
         ToolNameSanitizationMiddleware(valid_tool_names=sorted({"write_file", *extra_valid_tool_names})),
-        ToolRetryMiddleware(max_retries=3, backoff_factor=2.0, initial_delay=1.0),
+        SelectiveToolRetryMiddleware(
+            max_retries=3,
+            backoff_factor=2.0,
+            initial_delay=1.0,
+            retry_on=is_retryable_tool_error,
+        ),
         ModelRetryMiddleware(max_retries=2, backoff_factor=2.0, initial_delay=1.0),
     ]
 
@@ -210,20 +246,25 @@ def build_deep_research_middleware_set(
     *,
     tool_set: DeepResearchToolSet,
     source_registry_middleware: SourceRegistryMiddleware,
+    max_research_concurrency: int,
 ) -> DeepResearchMiddlewareSet:
     """Build researcher, writer, and orchestrator middleware stacks."""
 
-    def common(extra_valid_tool_names: Sequence[str] = ()) -> list[Any]:
+    def common(extra_valid_tool_names: Sequence[str] = (), **kwargs: Any) -> list[Any]:
         return build_common_middleware(
             tool_set=tool_set,
             source_registry_middleware=source_registry_middleware,
             extra_valid_tool_names=extra_valid_tool_names,
+            **kwargs,
         )
 
     return DeepResearchMiddlewareSet(
         researcher=common(),
         planner=common(),
-        writer=common(),
+        writer=common(
+            tool_result_keep_last_n=writer_tool_result_keep_last_n(max_research_concurrency),
+            tool_result_max_chars=_WRITER_MAX_TOOL_RESULT_CHARS,
+        ),
         orchestrator=common(["run_research_batch"]),
     )
 

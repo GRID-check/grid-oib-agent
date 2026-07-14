@@ -150,7 +150,7 @@ export const research: typeof en.research = {
     detailsWhenComplete: 'Details verfügbar, sobald der Agent fertig ist',
     isRunning: '{name} läuft',
     queriesCount: '{completed}/{total} Abfragen',
-    toolsCount: '{completed}/{total} Werkzeuge',
+    toolsCount: '{completed}/{total} Tools',
     started: 'Gestartet: {time}',
     running: 'Läuft',
   },
@@ -254,18 +254,23 @@ export const research: typeof en.research = {
   reportTab: {
     contentWhenAvailable: 'Berichtsinhalt erscheint hier, sobald verfügbar.',
     notesBanner: 'Rechercheanmerkungen der Agenten – der finale Bericht wird noch erstellt.',
+    sourcesTitle: 'Quellen',
   },
 
   researchPanel: {
     closePanel: 'Recherchebereich schließen',
     openPanel: 'Recherchebereich öffnen',
     signInToAccess: 'Melden Sie sich an, um auf den Recherchebereich zuzugreifen',
-    researching: 'Recherchiert',
+    researching: 'Recherche läuft',
     tabTasks: 'Aufgaben',
     tabThinking: 'Denken',
     tabReport: 'Bericht',
     stopResearchingButton: 'Recherche stoppen',
     stopResearching: 'Recherche stoppen',
+    stopConfirmTitle: 'Recherche stoppen?',
+    stopConfirmBody:
+      'Die laufende Recherche wird abgebrochen und kann nicht fortgesetzt werden. Der bisherige Teilfortschritt bleibt im Recherchebereich sichtbar.',
+    stopConfirmConfirm: 'Recherche stoppen',
     noActiveResearch: 'Keine aktive Recherche',
     loadingData: 'Recherchedaten werden geladen',
     loadingDataEllipsis: 'Recherchedaten werden geladen...',
@@ -322,10 +327,13 @@ export const research: typeof en.research = {
 
   tasksTab: {
     title: 'Aufgaben',
-    description: 'Aufschlüsselung und Fortschritt des Rechercheplans während der Deep Research.',
+    description:
+      'Aufschlüsselung und Fortschritt des Rechercheplans während der Deep-Research-Ausführung.',
     empty: 'Rechercheaufgaben erscheinen hier.',
-    emptyHelp: 'Zeigt die Aufschlüsselung des Plans und den Fortschritt während der Deep Research.',
+    emptyHelp:
+      'Zeigt die Aufschlüsselung des Plans und den Fortschritt während der Deep-Research-Ausführung.',
     progressAria: 'Fortschritt der Aufgabenerledigung',
+    elapsed: 'Läuft seit {minutes} Min.',
     writingReport: 'Finaler Bericht wird geschrieben... Dies kann einige Minuten dauern.',
     stalledTitle: 'Seit einer Weile keine Fortschrittsupdates',
     stalledBody:
@@ -339,7 +347,7 @@ export const research: typeof en.research = {
   thinkingTab: {
     tabThoughts: 'Gedanken',
     tabAgents: 'Agenten',
-    tabTools: 'Werkzeuge',
+    tabTools: 'Tools',
     tabFiles: 'Dateien',
     tabRead: 'Gelesen',
     tabReferenced: 'Referenziert',
@@ -356,7 +364,7 @@ export const research: typeof en.research = {
     detailsWhenComplete: 'Details verfügbar, sobald die Generierung abgeschlossen ist',
     generating: 'Generiert',
     via: 'über {workflow}',
-    tokens: 'Tokens: {prompt} rein / {completion} raus',
+    tokens: 'Tokens: {prompt} Eingabe / {completion} Ausgabe',
     output: 'Ausgabe',
   },
 
@@ -368,7 +376,7 @@ export const research: typeof en.research = {
   },
 
   toolCallCard: {
-    detailsWhenComplete: 'Details verfügbar, sobald der Werkzeugaufruf abgeschlossen ist',
+    detailsWhenComplete: 'Details verfügbar, sobald der Tool-Aufruf abgeschlossen ist',
     isRunning: '{name} läuft',
     via: 'über {workflow}',
     arguments: 'Argumente',
@@ -377,10 +385,10 @@ export const research: typeof en.research = {
   },
 
   toolCallsTab: {
-    title: 'Werkzeugaufrufe',
+    title: 'Tool-Aufrufe',
     runningCount: '{count} aktiv',
-    description: 'Websuchen, Dateioperationen und andere Werkzeugaufrufe.',
-    empty: 'Keine Werkzeugaufrufe verfügbar.',
+    description: 'Websuchen, Dateioperationen und andere Tool-Aufrufe.',
+    empty: 'Keine Tool-Aufrufe verfügbar.',
   },
 
   sourceCard: {
