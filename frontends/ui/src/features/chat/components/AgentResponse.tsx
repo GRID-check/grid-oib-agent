@@ -22,6 +22,7 @@ import type { GridCard } from '@/shared/cards/schemas'
 import { useChatStore } from '../store'
 import { useLoadJobData } from '../hooks'
 import { MemoryNotedChip } from './MemoryNotedChip'
+import { ConfidenceChip } from './ConfidenceChip'
 
 export interface AgentResponseProps {
   /** Response content from the agent */
@@ -42,6 +43,8 @@ export interface AgentResponseProps {
   cards?: GridCard[]
   /** Conversation this response belongs to (for the "Grid noted N" memory chip) */
   conversationId?: string | null
+  /** The assistant's guarded self-assessed answer confidence (shallow answers only) */
+  answerConfidence?: 'low' | 'medium' | 'high'
 }
 
 /**
@@ -57,6 +60,7 @@ export const AgentResponse: FC<AgentResponseProps> = ({
   deepResearchJobStatus,
   cards,
   conversationId,
+  answerConfidence,
 }) => {
   const t = useTranslations('chat')
   const openRightPanel = useLayoutStore((s) => s.openRightPanel)
@@ -172,8 +176,11 @@ export const AgentResponse: FC<AgentResponseProps> = ({
           </div>
         )}
 
-        {/* Memory chip: what Grid recorded during this turn (in-turn + reflection) */}
-        <MemoryNotedChip projectId={projectId} conversationId={conversationId} />
+        {/* Footer chips: self-assessed confidence + what Grid recorded this turn */}
+        <div className="flex flex-wrap items-center gap-2">
+          <ConfidenceChip confidence={answerConfidence} />
+          <MemoryNotedChip projectId={projectId} conversationId={conversationId} />
+        </div>
 
         {/* Timestamp outside content, right-aligned */}
         {timestamp && (
@@ -225,8 +232,9 @@ export const AgentResponse: FC<AgentResponseProps> = ({
           )}
         </div>
 
-        {/* Memory chip: what Grid recorded during this turn (in-turn + reflection) */}
-        <div className="mt-1.5 flex justify-start px-1">
+        {/* Footer chips: self-assessed confidence + what Grid recorded this turn */}
+        <div className="mt-1.5 flex flex-wrap items-center justify-start gap-2 px-1">
+          <ConfidenceChip confidence={answerConfidence} />
           <MemoryNotedChip projectId={projectId} conversationId={conversationId} />
         </div>
 

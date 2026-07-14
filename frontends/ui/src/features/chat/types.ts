@@ -186,6 +186,12 @@ export interface ChatMessage {
   messageFiles?: Array<{ id: string; fileName: string }>
   /** Grid cards rendered with this agent response */
   cards?: GridCard[]
+  /**
+   * The assistant's own guarded self-assessment of how well this answer is
+   * grounded in its sources (shallow answers only). Absent on error, escalation,
+   * deep-research, and historical turns — nothing renders when undefined.
+   */
+  answerConfidence?: 'low' | 'medium' | 'high'
 }
 
 /** Intermediate thinking step from agent */
@@ -567,7 +573,12 @@ export interface ChatActions {
   // Actions for agent responses and HITL
 
   /** Add an agent response message to the chat (for short answers) */
-  addAgentResponse: (content: string, showViewReport?: boolean, cards?: GridCard[]) => void
+  addAgentResponse: (
+    content: string,
+    showViewReport?: boolean,
+    cards?: GridCard[],
+    answerConfidence?: 'low' | 'medium' | 'high'
+  ) => void
   /** Add an agent response with additional metadata - returns the created message ID */
   addAgentResponseWithMeta: (
     content: string,

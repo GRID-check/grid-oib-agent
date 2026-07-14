@@ -1497,6 +1497,24 @@ describe('useChatStore', () => {
       expect(messages?.[0].showViewReport).toBe(true)
     })
 
+    test('addAgentResponse threads answerConfidence onto the message', () => {
+      setupConversation()
+
+      useChatStore.getState().addAgentResponse('Grounded answer', false, undefined, 'high')
+
+      const messages = useChatStore.getState().currentConversation?.messages
+      expect(messages?.[0].answerConfidence).toBe('high')
+    })
+
+    test('addAgentResponse leaves answerConfidence undefined when not provided', () => {
+      setupConversation()
+
+      useChatStore.getState().addAgentResponse('Plain answer')
+
+      const messages = useChatStore.getState().currentConversation?.messages
+      expect(messages?.[0].answerConfidence).toBeUndefined()
+    })
+
     test('setPendingInteraction sets interaction', () => {
       const interaction: PendingInteraction = {
         id: 'int-1',

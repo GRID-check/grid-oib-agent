@@ -218,4 +218,15 @@ export const chat = {
       inTurn: 'noted during the response',
     },
   },
+  confidence: {
+    label: 'Confidence: {level}',
+    levels: {
+      high: 'high',
+      medium: 'medium',
+      low: 'low',
+    },
+    ariaLabel: 'Assistant self-assessed confidence: {level}',
+    tooltip:
+      "The assistant's own assessment of how well this answer is supported by its sources. It can be wrong.",
+  },
 }

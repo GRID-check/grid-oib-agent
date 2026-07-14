@@ -216,4 +216,15 @@ export const chat: typeof en.chat = {
       inTurn: 'während der Antwort notiert',
     },
   },
+  confidence: {
+    label: 'Einschätzung: {level}',
+    levels: {
+      high: 'hoch',
+      medium: 'mittel',
+      low: 'niedrig',
+    },
+    ariaLabel: 'Selbsteinschätzung des Assistenten: {level}',
+    tooltip:
+      'Die eigene Einschätzung des Assistenten, wie gut diese Antwort durch seine Quellen gestützt ist. Sie kann falsch sein.',
+  },
 }

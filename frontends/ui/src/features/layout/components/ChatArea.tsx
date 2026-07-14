@@ -283,6 +283,7 @@ const MessageRenderer: FC<MessageRendererProps> = ({
           deepResearchJobStatus={message.deepResearchJobStatus}
           cards={message.cards}
           conversationId={conversationId}
+          answerConfidence={message.answerConfidence}
         />
       )
 

@@ -157,6 +157,27 @@ describe('AgentResponse', () => {
     expect(mockImportJobStream).not.toHaveBeenCalled()
   })
 
+  test('renders the confidence chip for each level', () => {
+    const { rerender } = render(<AgentResponse content="Answer" answerConfidence="high" />)
+    expect(screen.getByText('Confidence: high')).toBeInTheDocument()
+
+    rerender(<AgentResponse content="Answer" answerConfidence="medium" />)
+    expect(screen.getByText('Confidence: medium')).toBeInTheDocument()
+
+    rerender(<AgentResponse content="Answer" answerConfidence="low" />)
+    expect(screen.getByText('Confidence: low')).toBeInTheDocument()
+  })
+
+  test('renders no confidence chip when answerConfidence is absent (backward compatible)', () => {
+    render(<AgentResponse content="Answer without a self-assessment" />)
+    expect(screen.queryByText(/Confidence:/)).not.toBeInTheDocument()
+  })
+
+  test('renders the confidence chip in the inline variant too', () => {
+    render(<AgentResponse content="Answer" variant="inline" answerConfidence="high" />)
+    expect(screen.getByText('Confidence: high')).toBeInTheDocument()
+  })
+
   test('renders SummaryCard and LegalBasisCard from cards prop', () => {
     const cards = [
       {

@@ -79,7 +79,12 @@ export type MessagesSlice = {
       messageFiles?: Array<{ id: string; fileName: string }>
     }
   ) => ChatMessage
-  addAgentResponse: (content: string, showViewReport?: boolean, cards?: GridCard[]) => void
+  addAgentResponse: (
+    content: string,
+    showViewReport?: boolean,
+    cards?: GridCard[],
+    answerConfidence?: 'low' | 'medium' | 'high'
+  ) => void
   addAgentResponseWithMeta: (
     content: string,
     showViewReport: boolean,
@@ -710,7 +715,12 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
     return newMessage
   },
 
-  addAgentResponse: (content: string, showViewReport?: boolean, cards?: GridCard[]) => {
+  addAgentResponse: (
+    content: string,
+    showViewReport?: boolean,
+    cards?: GridCard[],
+    answerConfidence?: 'low' | 'medium' | 'high'
+  ) => {
     const {
       currentConversation,
       conversations,
@@ -736,6 +746,7 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
       messageType: 'agent_response',
       showViewReport,
       cards,
+      answerConfidence,
       reportContent: reportContent || undefined,
       citations: deepResearchCitations.length > 0 ? [...deepResearchCitations] : undefined,
       planMessages: planMessages.length > 0 ? [...planMessages] : undefined,
