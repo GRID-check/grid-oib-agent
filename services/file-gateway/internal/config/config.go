@@ -14,9 +14,10 @@ import (
 )
 
 type Config struct {
-	Env         string // "dev" | "staging" | "prod"
-	ListenNFS   string // e.g. ":2049"
-	ListenAdmin string // health + metrics, e.g. ":9090"
+	Env          string // "dev" | "staging" | "prod"
+	ListenNFS    string // e.g. ":2049"
+	ListenAdmin  string // health + metrics, e.g. ":9090"
+	ListenWebDAV string // e.g. ":8090"; empty = WebDAV front disabled (NFS is the default front)
 
 	DataDir string // the (rclone-mounted) storage directory for the billy backend
 
@@ -81,6 +82,7 @@ func Load() Config {
 		Env:              getenv("GATEWAY_ENV", "dev"),
 		ListenNFS:        getenv("GATEWAY_LISTEN_NFS", ":2049"),
 		ListenAdmin:      getenv("GATEWAY_LISTEN_ADMIN", ":9090"),
+		ListenWebDAV:     getenv("GATEWAY_WEBDAV_LISTEN", ""),
 		DataDir:          getenv("GATEWAY_DATA_DIR", "/data"),
 		PolicyMode:       getenv("GATEWAY_POLICY_MODE", "bff"),
 		BFFEndpoint:      getenv("GATEWAY_BFF_AUTHZ_URL", "http://frontend:3000/api/internal/file-access"),
@@ -147,6 +149,17 @@ func (c Config) Validate() error {
 			"(only \"dirpath\" (dev) is available); production identity is a follow-up", c.IdentityResolver)
 	default:
 		return fmt.Errorf("config: unknown identity resolver %q", c.IdentityResolver)
+	}
+
+	// The WebDAV front (additive to NFS) currently authenticates only via the
+	// dev-only X-Grid-* header resolver. Like the dirpath resolver, it is
+	// client-asserted and spoofable, so it must never run outside dev. Production
+	// WebDAV identity (validated Bearer/WorkOS access token via JWKS, or a
+	// BFF-issued signed mount token) is a follow-up seam — see proto/webdav.
+	if c.ListenWebDAV != "" && c.Env != "dev" {
+		return fmt.Errorf("config: GATEWAY_WEBDAV_LISTEN is set but the only WebDAV "+
+			"identity resolver is the dev-only header resolver, and GATEWAY_ENV=%q; "+
+			"a validated-token resolver is required before enabling WebDAV outside dev", c.Env)
 	}
 	return nil
 }

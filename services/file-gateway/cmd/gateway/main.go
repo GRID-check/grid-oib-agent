@@ -25,6 +25,7 @@ import (
 	"gridnas/gateway/internal/observability"
 	"gridnas/gateway/internal/policy"
 	protonfs "gridnas/gateway/internal/proto/nfs"
+	protowebdav "gridnas/gateway/internal/proto/webdav"
 	"gridnas/gateway/internal/storage"
 )
 
@@ -80,6 +81,30 @@ func main() {
 		}
 	}()
 
+	// --- WebDAV server (optional, additive to NFS) ---
+	// A SECOND protocol front behind the SAME Guard: every WebDAV request is
+	// authenticated per request and every file op authorized per file, proving the
+	// authz core plugs behind identity-carrying HTTP. Disabled unless a listen
+	// address is configured.
+	var davSrv *http.Server
+	if cfg.ListenWebDAV != "" {
+		davResolver, err := buildWebDAVResolver(cfg)
+		if err != nil {
+			log.Error("build webdav resolver", "err", err)
+			os.Exit(1)
+		}
+		davSrv = &http.Server{
+			Addr:    cfg.ListenWebDAV,
+			Handler: protowebdav.NewHandler(guard, davResolver, log),
+		}
+		go func() {
+			log.Info("webdav listening", "addr", cfg.ListenWebDAV, "resolver", davResolver.Name())
+			if err := davSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				log.Error("webdav server", "err", err)
+			}
+		}()
+	}
+
 	// --- NFS server ---
 	ln, err := net.Listen("tcp", cfg.ListenNFS)
 	if err != nil {
@@ -105,6 +130,9 @@ func main() {
 	_ = ln.Close()
 	shutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	if davSrv != nil {
+		_ = davSrv.Shutdown(shutCtx)
+	}
 	_ = admin.Shutdown(shutCtx)
 	log.Info("stopped")
 }
@@ -140,6 +168,15 @@ func buildResolver(cfg config.Config) (identity.Resolver, error) {
 	default:
 		return nil, errors.New("unsupported identity resolver: " + cfg.IdentityResolver)
 	}
+}
+
+// buildWebDAVResolver selects the HTTP identity resolver for the WebDAV front.
+// Only the dev-only header resolver exists today; config.Validate already refuses
+// to enable WebDAV with it outside dev, and NewHeaderResolver fails closed as a
+// second guard. Production identity (validated Bearer/WorkOS token or a signed
+// mount token) is a follow-up that slots into the same HTTPResolver seam.
+func buildWebDAVResolver(cfg config.Config) (protowebdav.HTTPResolver, error) {
+	return protowebdav.NewHeaderResolver(cfg.Env)
 }
 
 // bffReachable does a shallow GET to the BFF authz endpoint. It is POST-only, so
