@@ -1,6 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026, Grid Agent Contributors. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-
 """Single, framing-agnostic description of the card catalog for the LLM.
 
 Grid describes the SAME discriminated-union card schema to the model on two

@@ -1,6 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026, Grid Agent Contributors. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-
 """Drift test ensuring the committed card JSON Schema matches the Pydantic models.
 
 ``shared/cards/schemas.json`` is generated from the canonical Pydantic models via

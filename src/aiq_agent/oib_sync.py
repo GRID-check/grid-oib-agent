@@ -1,6 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026, Grid Agent Contributors. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-
 """Incremental ingestion of OIB Richtlinien PDFs into the oib_knowledge collection.
 
 Uses the canonical, blocking knowledge-layer ingestion path: each new or changed

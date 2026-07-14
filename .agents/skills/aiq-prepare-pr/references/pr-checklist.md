@@ -1,8 +1,3 @@
-<!--
-SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-SPDX-License-Identifier: Apache-2.0
--->
-
 # AI-Q PR checklist and bot commands
 
 Step-by-step companion to `SKILL.md`. The source of truth is `CONTRIBUTING.md`

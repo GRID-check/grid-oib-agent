@@ -1,6 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026, Grid Agent Contributors. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-
 """Generate the canonical Grid card JSON Schema from the Pydantic models.
 
 The Pydantic models in :mod:`aiq_agent.cards.models` are the single source of

@@ -1,6 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026, Grid Agent Contributors. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-
 """Tests for the post-hoc card generation prompt builder."""
 
 from aiq_agent.cards.catalog import render_card_catalog
