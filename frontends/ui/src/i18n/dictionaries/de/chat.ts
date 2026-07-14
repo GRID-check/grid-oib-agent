@@ -73,7 +73,7 @@ export const chat: typeof en.chat = {
     selectedDataSources: 'Ausgewählte Datenquellen:',
     dataSource: {
       webSearch: 'Websuche',
-      files: 'Dateien',
+      knowledgeBase: 'OIB-Wissensdatenbank',
       ris: 'RIS (Österreichisches Recht)',
     },
   },

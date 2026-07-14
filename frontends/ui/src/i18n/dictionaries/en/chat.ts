@@ -73,7 +73,7 @@ export const chat = {
     selectedDataSources: 'Selected Data Sources:',
     dataSource: {
       webSearch: 'Web Search',
-      files: 'Files',
+      knowledgeBase: 'OIB Knowledge Base',
       ris: 'RIS (Austrian Law)',
     },
   },
