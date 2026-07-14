@@ -31,11 +31,13 @@ from .factory import get_available_documents
 from .factory import get_available_documents_async
 from .factory import get_ingestor
 from .factory import get_retriever
+from .factory import list_summary_collections
 from .factory import register_ingestor
 from .factory import register_retriever
 from .factory import register_summary
 from .factory import set_active_ingestor
 from .factory import unregister_summary
+from .factory import update_document_tags
 from .schema import AvailableDocument
 from .schema import Chunk
 from .schema import ContentType
@@ -69,6 +71,8 @@ __all__ = [
     "configure_summary_db",
     "register_summary",
     "unregister_summary",
+    "update_document_tags",
+    "list_summary_collections",
     "get_available_documents",
     "get_available_documents_async",
     "clear_collection_summaries",

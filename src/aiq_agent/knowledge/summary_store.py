@@ -290,6 +290,64 @@ class SummaryStore:
         except Exception as e:
             logger.warning("Failed to register summary for %s: %s", filename, e)
 
+    def update_tags(self, collection: str, filename: str, tags: list[str] | None) -> bool:
+        """Replace only the ``tags`` of an existing summary row (sync).
+
+        The one-sentence ``summary`` is NEVER touched — this is the tag-edit /
+        backfill seam, distinct from :meth:`register` (which owns the summary).
+        An empty or ``None`` ``tags`` clears the column (stored as SQL NULL,
+        which decodes back to ``None``).
+
+        Returns ``True`` when a row existed and was updated, ``False`` when no
+        summary row exists for ``(collection, filename)`` — so callers (the edit
+        endpoint) can surface a 404 rather than silently creating a summary-less,
+        NOT NULL-violating row.
+        """
+        import json
+
+        from sqlalchemy import text
+
+        tags_json = json.dumps(tags) if tags else None
+
+        try:
+            with self._sync_engine.connect() as conn:
+                result = conn.execute(
+                    text(
+                        "UPDATE summaries SET tags = :tags "
+                        "WHERE collection = :collection AND filename = :filename"
+                    ),
+                    {"tags": tags_json, "collection": collection, "filename": filename},
+                )
+                conn.commit()
+                updated = (result.rowcount or 0) > 0
+                if updated:
+                    logger.debug("Updated tags for %s in %s", filename, collection)
+                else:
+                    logger.debug("No summary row to update tags for %s in %s", filename, collection)
+                return updated
+        except Exception as e:
+            logger.warning("Failed to update tags for %s: %s", filename, e)
+            return False
+
+    def list_collections(self) -> list[str]:
+        """Return every distinct collection present in the summaries table (sync).
+
+        The store is the only place that knows which collections have persisted
+        summaries; the backfill script iterates these when no ``--collection`` is
+        given. Ordered for stable, log-friendly output.
+        """
+        from sqlalchemy import text
+
+        try:
+            with self._sync_engine.connect() as conn:
+                result = conn.execute(
+                    text("SELECT DISTINCT collection FROM summaries ORDER BY collection")
+                )
+                return [row[0] for row in result]
+        except Exception as e:
+            logger.warning("Failed to list summary collections: %s", e)
+            return []
+
     @staticmethod
     def _decode_tags(raw: Any) -> list[str] | None:
         """Decode the JSON-encoded tags column back into a list (fail-open)."""

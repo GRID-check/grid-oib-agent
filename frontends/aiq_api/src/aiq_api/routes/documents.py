@@ -14,7 +14,9 @@ from pydantic import BaseModel
 from pydantic import Field
 
 from aiq_agent.knowledge import get_available_documents_async
+from aiq_agent.knowledge import update_document_tags
 from aiq_agent.knowledge.base import BaseIngestor
+from aiq_agent.knowledge.document_classification import ALLOWED_TAGS
 from aiq_agent.knowledge.schema import AvailableDocument
 from aiq_agent.knowledge.schema import FileInfo
 from aiq_agent.knowledge.schema import IngestionJobStatus
@@ -170,6 +172,61 @@ def add_document_routes(router: APIRouter):
             logger.warning(f"Failed to merge summaries for {collection_name}: {e}")
 
         return files
+
+    class UpdateTagsRequest(BaseModel):
+        tags: list[str] = Field(
+            default_factory=list,
+            description="Controlled document tags; must be a subset of the ingestion vocabulary.",
+        )
+
+    @router.patch(
+        "/v1/collections/{collection_name}/documents/{file_name}/tags",
+        tags=["documents"],
+        summary="Replace a document's controlled tags",
+    )
+    async def update_document_tags_route(
+        collection_name: str,
+        file_name: str,
+        request: UpdateTagsRequest,
+        ingestor: BaseIngestor = Depends(_require_ingestor),
+    ) -> dict[str, Any]:
+        """Replace the controlled tags on a single document's summary row.
+
+        Follows the documents-router auth model (end-user access is enforced at
+        the BFF; this route only requires the knowledge API to be configured).
+        The ingestion vocabulary (``ALLOWED_TAGS``) is the contract: a user edit
+        can never introduce an off-vocabulary tag.
+
+        - Tags outside ``ALLOWED_TAGS`` → 400 listing the offending values.
+        - An empty list is allowed and clears the tags.
+        - No summary row for ``(collection, file_name)`` → 404 (the summary is
+          the anchor; there is nothing to tag without one).
+        The summary itself is never modified.
+        """
+        # De-duplicate while preserving order so the response is stable.
+        deduped: list[str] = []
+        for tag in request.tags:
+            if tag not in deduped:
+                deduped.append(tag)
+
+        offending = [tag for tag in deduped if tag not in ALLOWED_TAGS]
+        if offending:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "message": "Tags outside the controlled vocabulary are not allowed",
+                    "invalid_tags": offending,
+                },
+            )
+
+        updated = update_document_tags(collection_name, file_name, deduped)
+        if not updated:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No summary found for '{file_name}' in collection '{collection_name}'",
+            )
+
+        return {"collection_name": collection_name, "file_name": file_name, "tags": deduped}
 
     @router.delete(
         "/v1/collections/{collection_name}/documents",

@@ -328,6 +328,57 @@ class TestSummaryStore:
         docs = await store.get_all_async("empty_collection")
         assert docs == []
 
+    # -- update_tags -------------------------------------------------------
+
+    def test_update_tags_roundtrip(self, store):
+        """update_tags replaces tags on an existing row without touching summary."""
+        store.register("coll", "plan.pdf", "A floor plan.", tags=["Grundriss"])
+
+        assert store.update_tags("coll", "plan.pdf", ["Schnitt", "Brandschutz"]) is True
+
+        docs = {d.file_name: d for d in store.get_all("coll")}
+        assert docs["plan.pdf"].tags == ["Schnitt", "Brandschutz"]
+        # Summary is never modified by a tag update.
+        assert docs["plan.pdf"].summary == "A floor plan."
+
+    def test_update_tags_on_row_without_tags(self, store):
+        """A summary with NULL tags (legacy row) can be tagged via update_tags."""
+        store.register("coll", "legacy.pdf", "Legacy summary.")
+
+        assert store.update_tags("coll", "legacy.pdf", ["Bescheid"]) is True
+
+        docs = {d.file_name: d for d in store.get_all("coll")}
+        assert docs["legacy.pdf"].tags == ["Bescheid"]
+
+    def test_update_tags_empty_clears(self, store):
+        """An empty list clears the tags back to None (SQL NULL)."""
+        store.register("coll", "plan.pdf", "A floor plan.", tags=["Grundriss"])
+
+        assert store.update_tags("coll", "plan.pdf", []) is True
+
+        docs = {d.file_name: d for d in store.get_all("coll")}
+        assert docs["plan.pdf"].tags is None
+
+    def test_update_tags_missing_row_returns_false(self, store):
+        """Updating tags for a non-existent summary row returns False (no insert)."""
+        assert store.update_tags("coll", "ghost.pdf", ["Grundriss"]) is False
+        # No summary-less row is created (summary is NOT NULL).
+        assert store.get_all("coll") == []
+
+    # -- list_collections --------------------------------------------------
+
+    def test_list_collections(self, store):
+        """list_collections returns the distinct collections, sorted."""
+        store.register("coll_b", "doc1.pdf", "S1")
+        store.register("coll_a", "doc2.pdf", "S2")
+        store.register("coll_a", "doc3.pdf", "S3")
+
+        assert store.list_collections() == ["coll_a", "coll_b"]
+
+    def test_list_collections_empty(self, store):
+        """list_collections on an empty store returns an empty list."""
+        assert store.list_collections() == []
+
 
 # =============================================================================
 # Factory Function Tests

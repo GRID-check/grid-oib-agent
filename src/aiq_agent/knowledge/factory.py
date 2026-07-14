@@ -309,6 +309,24 @@ def register_summary(
     _get_summary_store().register(collection, filename, summary, tags)
 
 
+def update_document_tags(collection: str, filename: str, tags: list[str] | None) -> bool:
+    """Replace only the controlled tags of an existing summary row.
+
+    The single factory seam behind BOTH the classify-only backfill script and
+    the user-facing tag-edit endpoint. Never touches the summary; returns
+    ``False`` when no summary row exists (callers 404). Tag-vocabulary
+    validation is the caller's responsibility — the store persists whatever it
+    is given, so every caller MUST validate against
+    ``document_classification.ALLOWED_TAGS`` first.
+    """
+    return _get_summary_store().update_tags(collection, filename, tags)
+
+
+def list_summary_collections() -> list[str]:
+    """List every collection that has at least one persisted summary."""
+    return _get_summary_store().list_collections()
+
+
 def get_available_documents(collection: str) -> list["AvailableDocument"]:
     """Get documents with summaries (sync)."""
     return _get_summary_store().get_all(collection)

@@ -146,6 +146,25 @@ For each file:
 
 Session-scoped collections (`s_*`) are automatically reaped by a background thread. Default TTL is 24 hours (`AIQ_COLLECTION_TTL_HOURS`), checked every 3600 seconds (`AIQ_TTL_CLEANUP_INTERVAL_SECONDS`). Base/project collections are never auto-deleted.
 
+### Backfilling tags for documents ingested before tagging existed
+
+Ingestion now also classifies each document into controlled tags (document type + OIB discipline), stored on the `summaries` table alongside the one-sentence summary. Documents ingested **before** this feature shipped have a summary but `tags = NULL`, and OIB sync is hash-gated (an already-ingested, unchanged document is never re-processed), so they will never pick tags up on their own.
+
+Run the classify-only backfill **once** after deploying the tagging feature:
+
+```bash
+python scripts/backfill_document_tags.py --dry-run          # preview, writes nothing
+python scripts/backfill_document_tags.py                    # every collection with summaries
+python scripts/backfill_document_tags.py --collection oib_knowledge
+python scripts/backfill_document_tags.py --force            # re-classify rows that already have tags
+```
+
+It never re-ingests or re-embeds and never touches the summary — it only fills the `tags` column. It is idempotent (rows with tags are skipped unless `--force`) and fail-soft per document.
+
+- **Text source**: the document's already-indexed Chroma chunk text when available (the same text ingestion classified from), falling back to the stored summary otherwise.
+- **LLM access**: it runs outside the NAT runtime, so it builds an OpenAI-compatible client from env vars that must match the `summary_llm` block in `configs/config_*.yml`: `BACKFILL_SUMMARY_API_KEY` (falls back to `NVIDIA_API_KEY`), `BACKFILL_SUMMARY_BASE_URL` (default `https://integrate.api.nvidia.com/v1`), `BACKFILL_SUMMARY_MODEL` (default `nvidia/nemotron-mini-4b-instruct`).
+- **Store**: `AIQ_SUMMARY_DB` (or `--summary-db`); chunk source dir `AIQ_CHROMA_DIR` (or `--chroma-dir`).
+
 ---
 
 ## Step 5: Status Polling
