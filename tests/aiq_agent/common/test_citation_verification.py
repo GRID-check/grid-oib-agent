@@ -373,6 +373,34 @@ class TestGenericUrlExtractor:
         )
         assert entries == []
 
+    def test_ris_no_result_message_is_not_citable(self):
+        """The RIS adapter's no-result text must not become a [RIS] citation."""
+        content = (
+            "No RIS documents found for query 'Stellplatzverpflichtung' in application "
+            "'LrKons'. Try different German search terms, another application (e.g. LrKons "
+            "for state building law with a bundesland), or drop filters."
+        )
+        entries = extract_sources_from_tool_result("ris_search_tool", content, source_id="ris_search")
+        assert entries == []
+
+    def test_generic_no_results_prefixes_are_not_citable(self):
+        for text in ("No documents found for this query.", "No results found."):
+            entries = extract_sources_from_tool_result("some_tool", text, source_id="some")
+            assert entries == []
+
+    def test_genuine_ris_result_text_is_still_citable(self):
+        """A real RIS result with a citation URL must still register a source."""
+        content = (
+            "--- Result 1 ---\n"
+            "Title: Bauordnung für Wien\n"
+            "Application: LrKons\n"
+            "Document number: LWI40012345\n"
+            "Source: https://www.ris.bka.gv.at/eli/lgbl/wi/1930/11\n"
+        )
+        entries = extract_sources_from_tool_result("ris_search_tool", content, source_id="ris_search")
+        assert len(entries) >= 1
+        assert any("ris.bka.gv.at" in (e.url or "") for e in entries)
+
     def test_all_error_batch_output_is_not_citable(self):
         """A batch source-tool output whose items all errored registers nothing."""
         content = (

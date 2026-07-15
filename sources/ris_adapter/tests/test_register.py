@@ -227,6 +227,29 @@ class _FakeStructuredLLM:
         return _Structured()
 
 
+class _SequenceStructuredLLM:
+    """Structured LLM whose successive ainvoke calls return/raise a scripted sequence."""
+
+    def __init__(self, sequence):
+        self.sequence = list(sequence)
+        self.structured_kwargs = None
+        self.invocations = []
+
+    def with_structured_output(self, schema, **kwargs):
+        self.structured_kwargs = {"schema": schema, **kwargs}
+        outer = self
+
+        class _Structured:
+            async def ainvoke(self, messages):
+                outer.invocations.append(messages)
+                item = outer.sequence.pop(0)
+                if isinstance(item, Exception):
+                    raise item
+                return item
+
+        return _Structured()
+
+
 def _builder_with_planner(llm):
     from unittest.mock import AsyncMock
 
@@ -288,6 +311,58 @@ class TestRisSearchPlanner:
         call = fake_client.search_calls[0]
         assert call["application"] == "LrKons"
         assert call["params"]["Suchworte"] == "Garagengesetz"
+
+    async def test_planner_retries_once_on_validation_error_then_succeeds(self, fake_client):
+        from pydantic import ValidationError
+        from ris_adapter.register import RisSearchPlan
+
+        fake_client.search_result = RisSearchResult(hits=[_sample_hit()], total=1, page=1, page_size=20)
+        try:
+            RisSearchPlan.model_validate({})  # missing required fields
+        except ValidationError as exc:
+            validation_error = exc
+        good_plan = RisSearchPlan(
+            application="LrKons",
+            suchworte="Stellplatzverpflichtung",
+            bundesland="Wien",
+        )
+        llm = _SequenceStructuredLLM([validation_error, good_plan])
+
+        config = RisSearchToolConfig(planner_llm="ris_planner_llm")
+        async with ris_search(config, _builder_with_planner(llm)) as info:
+            output = await _call(info, query="Wie viele Stellplätze brauche ich in Wien?", application="BrKons")
+
+        # Retried exactly once, and the corrective instruction was appended.
+        assert len(llm.invocations) == 2
+        corrective_texts = [m["content"] for m in llm.invocations[1] if m["role"] == "user"]
+        assert any("invalid JSON" in text for text in corrective_texts)
+        # The successful second-attempt plan drove the search, not the caller args.
+        call = fake_client.search_calls[0]
+        assert call["application"] == "LrKons"
+        assert call["params"]["Suchworte"] == "Stellplatzverpflichtung"
+        assert "Found 1 RIS document(s)" in output
+
+    async def test_planner_double_validation_error_falls_back_to_caller_args(self, fake_client):
+        from pydantic import ValidationError
+        from ris_adapter.register import RisSearchPlan
+
+        fake_client.search_result = RisSearchResult(hits=[_sample_hit()], total=1, page=1, page_size=20)
+        try:
+            RisSearchPlan.model_validate({})
+        except ValidationError as exc:
+            validation_error = exc
+        llm = _SequenceStructuredLLM([validation_error, validation_error])
+
+        config = RisSearchToolConfig(planner_llm="ris_planner_llm")
+        async with ris_search(config, _builder_with_planner(llm)) as info:
+            output = await _call(info, query="Garagengesetz", application="BrKons")
+
+        # Retried once (two invocations), both failed -> outer fail-open uses caller args.
+        assert len(llm.invocations) == 2
+        call = fake_client.search_calls[0]
+        assert call["application"] == "BrKons"
+        assert call["params"] == {"Suchworte": "Garagengesetz"}
+        assert "Found 1 RIS document(s)" in output
 
     async def test_unresolvable_planner_llm_disables_planner(self, fake_client):
         from unittest.mock import AsyncMock

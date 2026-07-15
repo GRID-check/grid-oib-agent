@@ -592,7 +592,19 @@ def _is_status_message(content: str) -> bool:
         return False
     if normalized.startswith("error:"):
         return True
-    return normalized == "search returned no results" or normalized.endswith(" search returned no results")
+    if normalized == "search returned no results" or normalized.endswith(" search returned no results"):
+        return True
+    # No-result outputs from source tools (e.g. the RIS adapter's
+    # "No RIS documents found for query ...") are status reports, not evidence,
+    # and must not become citations. Stay conservative: only match explicit
+    # known no-result prefixes so genuine results are never dropped.
+    return normalized.startswith(
+        (
+            "no ris documents found",
+            "no documents found",
+            "no results found",
+        )
+    )
 
 
 # ---------------------------------------------------------------------------
