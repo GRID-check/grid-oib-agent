@@ -11,7 +11,33 @@ from aiq_agent.knowledge.document_classification import DISCIPLINE_TAGS
 from aiq_agent.knowledge.document_classification import DOCUMENT_TYPE_TAGS
 from aiq_agent.knowledge.document_classification import _build_tag_prompt
 from aiq_agent.knowledge.document_classification import classify_document_tags
+from aiq_agent.knowledge.document_classification import fallback_summary_from_text
 from aiq_agent.knowledge.document_classification import summarize_document_text
+
+# =============================================================================
+# Deterministic fallback summary (used to anchor a tags-only row)
+# =============================================================================
+
+
+class TestFallbackSummaryFromText:
+    def test_short_text_returned_verbatim_single_line(self):
+        assert fallback_summary_from_text("A short summary line.") == "A short summary line."
+
+    def test_whitespace_collapsed_to_single_line(self):
+        assert fallback_summary_from_text("line one\n\nline   two\ttab") == "line one line two tab"
+
+    def test_long_text_truncated_with_ellipsis(self):
+        text = "word " * 100  # 500 chars
+        result = fallback_summary_from_text(text, max_chars=50)
+        assert result.endswith("…")
+        # The ellipsis is the only character beyond the cap.
+        assert len(result) <= 51
+        assert "\n" not in result
+
+    def test_empty_or_none_returns_none(self):
+        assert fallback_summary_from_text(None) is None
+        assert fallback_summary_from_text("") is None
+        assert fallback_summary_from_text("   \n\t ") is None
 
 
 def _llm_returning(content: str) -> MagicMock:

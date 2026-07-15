@@ -121,6 +121,35 @@ async def test_patch_missing_summary_row_404(app, store):
 
 
 @pytest.mark.asyncio
+async def test_patch_too_many_tags_400(app, store):
+    """More than MAX_TAGS (5) valid, in-vocabulary tags after dedup → 400.
+
+    Mirrors the ingestion cap; the BFF zod already blocks this, so a normal user
+    never reaches it, but the route enforces it defensively.
+    """
+    from aiq_agent.knowledge.document_classification import MAX_TAGS
+
+    store.register("proj_a", "plan.pdf", "A floor plan.", tags=["Grundriss"])
+
+    six_valid = ["Grundriss", "Schnitt", "Ansicht", "Brandschutz", "Schallschutz", "Bescheid"]
+    assert len(six_valid) == MAX_TAGS + 1
+
+    async with _client(app) as client:
+        res = await client.patch(
+            "/v1/collections/proj_a/documents/plan.pdf/tags",
+            json={"tags": six_valid},
+        )
+
+    assert res.status_code == 400
+    detail = res.json()["detail"]
+    assert detail["max_tags"] == MAX_TAGS
+    assert detail["tag_count"] == 6
+    # Storage was not mutated by the rejected edit.
+    docs = {d.file_name: d for d in store.get_all("proj_a")}
+    assert docs["plan.pdf"].tags == ["Grundriss"]
+
+
+@pytest.mark.asyncio
 async def test_patch_deduplicates_valid_tags(app, store):
     store.register("proj_a", "plan.pdf", "A floor plan.")
 

@@ -645,6 +645,101 @@ class TestSummaryIntegration:
 
 
 # =============================================================================
+# Migration-failure caching guard
+# =============================================================================
+
+
+class TestMigrationFailureNotCached:
+    """A failed tags-column migration must NOT mark the store initialized, so the
+    next access retries it instead of writing against a missing column."""
+
+    @staticmethod
+    def _legacy_db(dir_path):
+        """Create a pre-tags-column ``summaries`` table and return (url, engine)."""
+        from sqlalchemy import create_engine
+        from sqlalchemy import text
+
+        db_url = f"sqlite:///{dir_path / 'legacy.db'}"
+        engine = create_engine(db_url)
+        with engine.connect() as conn:
+            conn.execute(
+                text(
+                    "CREATE TABLE summaries ("
+                    "collection VARCHAR(256) NOT NULL, "
+                    "filename VARCHAR(512) NOT NULL, "
+                    "summary TEXT NOT NULL, "
+                    "created_at DATETIME, "
+                    "PRIMARY KEY (collection, filename))"
+                )
+            )
+            conn.commit()
+        return db_url, engine
+
+    @staticmethod
+    def _columns(engine):
+        from sqlalchemy import inspect
+
+        return {c["name"] for c in inspect(engine).get_columns("summaries")}
+
+    def test_failed_sync_migration_not_cached_then_retried(self, monkeypatch):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_url, engine = self._legacy_db(Path(tmpdir))
+            SummaryStore._tables_initialized.discard(db_url)
+            try:
+                calls = {"n": 0}
+                real = SummaryStore._migrate_add_tags_column_sync
+
+                def flaky(self):
+                    calls["n"] += 1
+                    if calls["n"] == 1:
+                        return False  # simulate a failed ALTER: column NOT added
+                    return real(self)
+
+                monkeypatch.setattr(SummaryStore, "_migrate_add_tags_column_sync", flaky)
+
+                # First construction: migration "fails" -> not cached, no tags col.
+                SummaryStore(db_url)
+                assert db_url not in SummaryStore._tables_initialized
+                assert "tags" not in self._columns(engine)
+
+                # Next construction retries the migration -> succeeds and caches.
+                SummaryStore(db_url)
+                assert db_url in SummaryStore._tables_initialized
+                assert "tags" in self._columns(engine)
+            finally:
+                SummaryStore._tables_initialized.discard(db_url)
+
+    @pytest.mark.asyncio
+    async def test_failed_async_migration_not_cached_then_retried(self, monkeypatch):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_url, engine = self._legacy_db(Path(tmpdir))
+            SummaryStore._tables_initialized.discard(db_url)
+            try:
+                calls = {"n": 0}
+                real = SummaryStore._migrate_add_tags_column_conn  # underlying fn
+
+                def flaky(sync_conn, db_url_arg):
+                    calls["n"] += 1
+                    if calls["n"] == 1:
+                        return False  # simulate a failed ALTER: column NOT added
+                    return real(sync_conn, db_url_arg)
+
+                monkeypatch.setattr(SummaryStore, "_migrate_add_tags_column_conn", staticmethod(flaky))
+
+                # First ensure: migration "fails" -> not cached, no tags col.
+                await SummaryStore._ensure_table_async(db_url)
+                assert db_url not in SummaryStore._tables_initialized
+                assert "tags" not in self._columns(engine)
+
+                # Next ensure retries the migration -> succeeds and caches.
+                await SummaryStore._ensure_table_async(db_url)
+                assert db_url in SummaryStore._tables_initialized
+                assert "tags" in self._columns(engine)
+            finally:
+                SummaryStore._tables_initialized.discard(db_url)
+
+
+# =============================================================================
 # Text Extraction Tests (Foundational RAG multi-format support)
 # =============================================================================
 

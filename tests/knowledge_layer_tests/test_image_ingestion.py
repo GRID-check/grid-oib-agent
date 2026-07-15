@@ -117,6 +117,129 @@ class TestBuildImageCaptionDocument:
 
 
 # =============================================================================
+# Image downscale before VLM (payload/cost bound, aspect preserved)
+# =============================================================================
+
+
+def _capture_vlm_bytes(monkeypatch):
+    """Patch the VLM to capture the JPEG bytes it is handed; return a holder."""
+    captured = {}
+
+    def fake_vlm(image_bytes, *a, **k):
+        captured["bytes"] = image_bytes
+        return ("image", "A caption.")
+
+    monkeypatch.setattr(adapter, "_analyze_image_with_vlm", fake_vlm)
+    return captured
+
+
+class TestImageDownscaleBeforeVLM:
+    def test_oversized_standalone_image_is_downscaled(self, tmp_path, monkeypatch):
+        captured = _capture_vlm_bytes(monkeypatch)
+        p = tmp_path / "big.png"
+        p.write_bytes(_png_bytes(size=(4000, 2000)))
+
+        doc = _build_image_caption_document(str(p), "big.png", 12345, "png")
+
+        # The bytes sent to the VLM are capped at VLM_MAX_IMAGE_DIM on the long
+        # edge, aspect preserved (4000x2000 -> 1568x784).
+        w, h = Image.open(io.BytesIO(captured["bytes"])).size
+        assert max(w, h) == adapter.VLM_MAX_IMAGE_DIM
+        assert (w, h) == (1568, 784)
+        # Metadata records the ORIGINAL dimensions, not the downscaled ones.
+        assert doc.metadata["image_width"] == 4000
+        assert doc.metadata["image_height"] == 2000
+
+    def test_small_standalone_image_is_untouched(self, tmp_path, monkeypatch):
+        captured = _capture_vlm_bytes(monkeypatch)
+        p = tmp_path / "small.png"
+        p.write_bytes(_png_bytes(size=(120, 90)))
+
+        doc = _build_image_caption_document(str(p), "small.png", 999, "png")
+
+        # Already within bounds: thumbnail() is a no-op, dimensions preserved.
+        w, h = Image.open(io.BytesIO(captured["bytes"])).size
+        assert (w, h) == (120, 90)
+        assert doc.metadata["image_width"] == 120
+        assert doc.metadata["image_height"] == 90
+
+
+class TestExtractImagesFromPdfDownscale:
+    """The PDF-embedded image path shares the same VLM_MAX_IMAGE_DIM cap."""
+
+    def _mock_pdfium_page(self, monkeypatch, pil_image):
+        """Stub pypdfium2 so _extract_images_from_pdf yields one image object
+        whose bitmap.to_pil() returns the given PIL image."""
+        pdfium = pytest.importorskip("pypdfium2")
+
+        class _FakeBitmap:
+            def __init__(self, img):
+                self._img = img
+                self.width, self.height = img.size
+
+            def to_pil(self):
+                return self._img
+
+        class _FakeObj:
+            type = 3  # FPDF_PAGEOBJ_IMAGE
+
+            def __init__(self, img):
+                self._img = img
+
+            def get_bitmap(self):
+                return _FakeBitmap(self._img)
+
+        class _FakePage:
+            def __init__(self, img):
+                self._img = img
+
+            def get_objects(self):
+                return [_FakeObj(self._img)]
+
+            def close(self):
+                pass
+
+        class _FakeDoc:
+            def __init__(self, path):
+                self._img = pil_image
+
+            def __len__(self):
+                return 1
+
+            def __getitem__(self, idx):
+                return _FakePage(self._img)
+
+            def close(self):
+                pass
+
+        monkeypatch.setattr(pdfium, "PdfDocument", _FakeDoc)
+
+    def test_oversized_pdf_image_is_downscaled(self, monkeypatch):
+        big = Image.new("RGB", (3000, 1500), "green")
+        self._mock_pdfium_page(monkeypatch, big)
+
+        images = adapter._extract_images_from_pdf("ignored.pdf")
+
+        assert len(images) == 1
+        w, h = Image.open(io.BytesIO(images[0]["image_bytes"])).size
+        assert max(w, h) == adapter.VLM_MAX_IMAGE_DIM
+        assert (w, h) == (1568, 784)
+        # Original dimensions retained in the record's metadata.
+        assert images[0]["width"] == 3000
+        assert images[0]["height"] == 1500
+
+    def test_small_pdf_image_is_untouched(self, monkeypatch):
+        small = Image.new("RGB", (300, 200), "green")
+        self._mock_pdfium_page(monkeypatch, small)
+
+        images = adapter._extract_images_from_pdf("ignored.pdf")
+
+        assert len(images) == 1
+        w, h = Image.open(io.BytesIO(images[0]["image_bytes"])).size
+        assert (w, h) == (300, 200)
+
+
+# =============================================================================
 # _run_ingestion image branch (heavy collaborators mocked)
 # =============================================================================
 
@@ -212,6 +335,36 @@ class TestRunIngestionImageBranch:
         detail = status.file_details[0]
         assert detail.status.value == "failed"
         assert detail.error_message == "vlm_not_configured: image ingestion requires AIQ_VLM_API_KEY"
+
+    def test_summary_fail_but_tags_succeed_persists_fallback_summary(self, tmp_path, monkeypatch, ingestor, summary_db):
+        """Fix 1: when the summary LLM call fails but tag classification
+        succeeds, the row still persists (tags are not wasted) using a
+        deterministic, LLM-free fallback summary from the extracted text."""
+        from aiq_agent.knowledge import get_available_documents
+
+        # Summary call fails; tag call returns valid tags. Same LLM, routed by
+        # the prompt prefix ("Summarize ..." vs the German tag prompt).
+        def summary_fails_tags_ok(prompt):
+            if prompt.startswith("Summarize"):
+                raise RuntimeError("summary model unavailable")
+            return MagicMock(content='["Schnitt", "Brandschutz"]')
+
+        ingestor.summary_llm.invoke.side_effect = summary_fails_tags_ok
+
+        doc = tmp_path / "konzept.txt"
+        doc.write_text("Dies ist ein Brandschutzkonzept fuer das Gebaeude.", encoding="utf-8")
+
+        job_id = ingestor.submit_job([str(doc)], "coll_fallback", config={"original_filenames": ["konzept.txt"]})
+        status = _wait_terminal(ingestor, job_id)
+        assert status.is_success
+
+        docs = get_available_documents("coll_fallback")
+        assert len(docs) == 1
+        # Tags persisted despite the summary failure.
+        assert docs[0].tags == ["Schnitt", "Brandschutz"]
+        # Summary is the deterministic text fallback (not an LLM sentence).
+        assert docs[0].summary is not None
+        assert "Brandschutzkonzept" in docs[0].summary
 
     def test_corrupt_image_fails_without_crashing(self, tmp_path, monkeypatch, ingestor, summary_db):
         monkeypatch.setattr(adapter, "_get_vlm_api_key", lambda: "vlm-key")

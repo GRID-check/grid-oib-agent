@@ -17,6 +17,7 @@ from aiq_agent.knowledge import get_available_documents_async
 from aiq_agent.knowledge import update_document_tags
 from aiq_agent.knowledge.base import BaseIngestor
 from aiq_agent.knowledge.document_classification import ALLOWED_TAGS
+from aiq_agent.knowledge.document_classification import MAX_TAGS
 from aiq_agent.knowledge.schema import AvailableDocument
 from aiq_agent.knowledge.schema import FileInfo
 from aiq_agent.knowledge.schema import IngestionJobStatus
@@ -198,6 +199,8 @@ def add_document_routes(router: APIRouter):
         can never introduce an off-vocabulary tag.
 
         - Tags outside ``ALLOWED_TAGS`` → 400 listing the offending values.
+        - More than ``MAX_TAGS`` tags (after dedup) → 400 (the BFF zod already
+          caps this, so a normal user never reaches it).
         - An empty list is allowed and clears the tags.
         - No summary row for ``(collection, file_name)`` → 404 (the summary is
           the anchor; there is nothing to tag without one).
@@ -216,6 +219,18 @@ def add_document_routes(router: APIRouter):
                 detail={
                     "message": "Tags outside the controlled vocabulary are not allowed",
                     "invalid_tags": offending,
+                },
+            )
+
+        # Enforce the same per-document cap that ingestion applies (MAX_TAGS).
+        # Reject rather than silently truncate so the caller's intent is explicit.
+        if len(deduped) > MAX_TAGS:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "message": f"At most {MAX_TAGS} tags are allowed per document",
+                    "max_tags": MAX_TAGS,
+                    "tag_count": len(deduped),
                 },
             )
 

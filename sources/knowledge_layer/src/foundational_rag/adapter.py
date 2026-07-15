@@ -206,7 +206,7 @@ def _extract_text(file_path: str, max_chars: int = SUMMARY_MAX_CHARS) -> str | N
     return None
 
 
-def _generate_file_summary(file_path: str, llm=None) -> str | None:
+def _generate_file_summary(file_path: str, llm=None, text: str | None = None) -> str | None:
     """
     Generate one-sentence summary from a local file.
 
@@ -216,6 +216,9 @@ def _generate_file_summary(file_path: str, llm=None) -> str | None:
     Args:
         file_path: Path to the file to summarize.
         llm: LangChain LLM object. Required - no default fallback.
+        text: Pre-extracted text. When provided, the caller has already run
+            ``_extract_text`` (so summary + tags share a single extraction);
+            when ``None`` the text is extracted here (backwards-compatible).
 
     Returns:
         One-sentence summary or None if unsupported format, no LLM, or generation fails.
@@ -226,7 +229,8 @@ def _generate_file_summary(file_path: str, llm=None) -> str | None:
     if Path(file_path).suffix.lower() not in SUMMARIZABLE_EXTENSIONS:
         return None
 
-    text = _extract_text(file_path)
+    if text is None:
+        text = _extract_text(file_path)
     if not text:
         return None
 
@@ -237,7 +241,7 @@ def _generate_file_summary(file_path: str, llm=None) -> str | None:
     return summarize_document_text(text, Path(file_path).name, llm)
 
 
-def _generate_file_tags(file_path: str, llm=None) -> list[str] | None:
+def _generate_file_tags(file_path: str, llm=None, text: str | None = None) -> list[str] | None:
     """
     Classify a local file into controlled German tags (document type + OIB
     discipline).
@@ -250,6 +254,9 @@ def _generate_file_tags(file_path: str, llm=None) -> list[str] | None:
     Args:
         file_path: Path to the file to classify.
         llm: LangChain LLM object. Required - no default fallback.
+        text: Pre-extracted text. When provided, the caller has already run
+            ``_extract_text`` (so summary + tags share a single extraction);
+            when ``None`` the text is extracted here (backwards-compatible).
 
     Returns:
         A validated list of tags, or ``None`` (unsupported format, no LLM,
@@ -261,7 +268,8 @@ def _generate_file_tags(file_path: str, llm=None) -> list[str] | None:
     if Path(file_path).suffix.lower() not in SUMMARIZABLE_EXTENSIONS:
         return None
 
-    text = _extract_text(file_path)
+    if text is None:
+        text = _extract_text(file_path)
     if not text:
         return None
 
@@ -811,6 +819,7 @@ class FoundationalRagIngestor(TTLCleanupMixin, BaseIngestor):
         # Track summary + tag futures for parallel generation
         summary_futures: dict[int, tuple[str, Any]] = {}  # index -> (file_name, future)
         tags_futures: dict[int, Any] = {}  # index -> future
+        extracted_texts: dict[int, str | None] = {}  # index -> pre-extracted text
         executor = None
         if self.generate_summary:
             # Two futures per file (summary + tags), so scale the pool up to 8.
@@ -829,9 +838,14 @@ class FoundationalRagIngestor(TTLCleanupMixin, BaseIngestor):
             # Start client-side summary + tag generation in parallel (if enabled)
             if self.generate_summary and file_path_obj.suffix.lower() in SUMMARIZABLE_EXTENSIONS:
                 logger.info("Starting client-side summary + tag generation")
-                future = executor.submit(_generate_file_summary, file_path, self.summary_llm)
+                # Extract text ONCE and feed both futures (summary + tags),
+                # avoiding a redundant second extraction per file. The text is
+                # also retained for a deterministic fallback summary below.
+                extracted_text = _extract_text(file_path)
+                extracted_texts[i] = extracted_text
+                future = executor.submit(_generate_file_summary, file_path, self.summary_llm, extracted_text)
                 summary_futures[i] = (file_name, future)
-                tags_futures[i] = executor.submit(_generate_file_tags, file_path, self.summary_llm)
+                tags_futures[i] = executor.submit(_generate_file_tags, file_path, self.summary_llm, extracted_text)
 
             # Open file handle for batch upload
             try:
@@ -903,27 +917,38 @@ class FoundationalRagIngestor(TTLCleanupMixin, BaseIngestor):
             for fh in file_handles:
                 fh.close()
 
-        # Collect summaries + tags from parallel generation and register them
+        # Collect summaries + tags from parallel generation and register them.
+        # Summary and tags are INDEPENDENT: the tags future is awaited regardless
+        # of the summary's outcome, otherwise a failed/timed-out summary would
+        # orphan the tags future (wasted LLM cost) and discard good tags. When the
+        # summary failed but tags succeeded, anchor the row with a deterministic
+        # fallback summary derived from the already-extracted text (the summary
+        # column is NOT NULL) so the tags still persist.
         if summary_futures:
             from aiq_agent.knowledge import register_summary
+            from aiq_agent.knowledge.document_classification import fallback_summary_from_text
 
             for idx, (file_name, future) in summary_futures.items():
+                summary = None
                 try:
                     summary = future.result(timeout=30)
-                    if summary:
-                        # Tags are best-effort and independent: a tag failure
-                        # must not block registering the summary.
-                        tags = None
-                        tags_future = tags_futures.get(idx)
-                        if tags_future is not None:
-                            try:
-                                tags = tags_future.result(timeout=30)
-                            except Exception as te:
-                                logger.debug(f"Tag classification failed for {file_name}: {te}")
-                        register_summary(collection_name, file_name, summary, tags=tags)
-                        logger.info(f"  Summary generated ({len(summary)} chars)")
                 except Exception as e:
                     logger.debug(f"Summary generation failed for {file_name}: {e}")
+
+                tags = None
+                tags_future = tags_futures.get(idx)
+                if tags_future is not None:
+                    try:
+                        tags = tags_future.result(timeout=30)
+                    except Exception as te:
+                        logger.debug(f"Tag classification failed for {file_name}: {te}")
+
+                if not summary and tags:
+                    summary = fallback_summary_from_text(extracted_texts.get(idx))
+
+                if summary:
+                    register_summary(collection_name, file_name, summary, tags=tags)
+                    logger.info(f"  Summary generated ({len(summary)} chars)")
 
         # Clean up executor
         if executor:
@@ -1365,12 +1390,16 @@ class FoundationalRagIngestor(TTLCleanupMixin, BaseIngestor):
         # Start client-side summary + tag generation in background (parallel with upload)
         summary_future = None
         tags_future = None
+        extracted_text = None
         executor = None
         if self.generate_summary and file_path_obj.suffix.lower() in SUMMARIZABLE_EXTENSIONS:
             logger.info("Starting client-side summary + tag generation for %s", file_path_obj.name)
             executor = ThreadPoolExecutor(max_workers=2)
-            summary_future = executor.submit(_generate_file_summary, file_path, self.summary_llm)
-            tags_future = executor.submit(_generate_file_tags, file_path, self.summary_llm)
+            # Extract text ONCE and feed both futures (summary + tags); retained
+            # for a deterministic fallback summary below.
+            extracted_text = _extract_text(file_path)
+            summary_future = executor.submit(_generate_file_summary, file_path, self.summary_llm, extracted_text)
+            tags_future = executor.submit(_generate_file_tags, file_path, self.summary_llm, extracted_text)
 
         try:
             # Build the data payload
@@ -1425,29 +1454,39 @@ class FoundationalRagIngestor(TTLCleanupMixin, BaseIngestor):
                 logger.warning("Tag classification timed out for %s", file_path_obj.name)
             except Exception as e:
                 logger.warning("Tag classification failed for %s: %s", file_path_obj.name, e)
-        if tags:
-            file_info.tags = tags
 
-        # Wait for client-side summary (non-blocking during upload)
+        # Wait for client-side summary (non-blocking during upload). Independent
+        # of the tags outcome above.
+        summary = None
         if summary_future:
             try:
                 summary = summary_future.result(timeout=15)
-                file_info.metadata["summary"] = summary
-
-                # Register in centralized summary registry (backend-agnostic).
-                # Tags ride along in the same upsert (may be None).
-                if summary:
-                    from aiq_agent.knowledge import register_summary
-
-                    register_summary(collection_name, file_info.file_name, summary, tags=tags)
-                    logger.info(f"  Summary generated ({len(summary)} chars)")
-
             except TimeoutError:
                 logger.warning("Summary generation timed out for %s", file_path_obj.name)
-                file_info.metadata["summary"] = None
             except Exception as e:
                 logger.warning("Summary generation failed for %s: %s", file_path_obj.name, e)
-                file_info.metadata["summary"] = None
+
+        # When the summary failed/timed out but tags succeeded, anchor the row
+        # with a deterministic fallback summary derived from the already-extracted
+        # text (the summary column is NOT NULL) so the tags still persist.
+        if not summary and tags:
+            from aiq_agent.knowledge.document_classification import fallback_summary_from_text
+
+            summary = fallback_summary_from_text(extracted_text)
+
+        file_info.metadata["summary"] = summary
+
+        # Register in centralized summary registry (backend-agnostic). Tags ride
+        # along in the same upsert (may be None).
+        if summary:
+            from aiq_agent.knowledge import register_summary
+
+            register_summary(collection_name, file_info.file_name, summary, tags=tags)
+            logger.info(f"  Summary generated ({len(summary)} chars)")
+
+        # FileInfo.tags must mirror what was actually persisted — tags only exist
+        # in storage when a summary row was written (no FileInfo/store divergence).
+        file_info.tags = tags if summary else None
 
         # Clean up executor
         if executor:

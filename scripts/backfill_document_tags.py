@@ -51,6 +51,15 @@ The summaries DB is taken from ``AIQ_SUMMARY_DB`` (same env var the deployment
 sets, default ``sqlite+aiosqlite:///./summaries.db``), overridable with
 ``--summary-db``. The Chroma directory is ``AIQ_CHROMA_DIR`` (default
 ``/tmp/chroma_data``), overridable with ``--chroma-dir``.
+
+EXIT CODES
+----------
+* ``0`` — success (nothing to do, or a completed run with no failures). A
+  ``--dry-run`` always exits ``0`` regardless of preview failures (it writes
+  nothing).
+* ``1`` — a real (non-dry-run) run finished but at least one document failed to
+  classify (``stats.failed > 0``), so CI can flag a partial backfill.
+* ``2`` — the summary/tagging LLM could not be constructed (missing API key).
 """
 
 from __future__ import annotations
@@ -386,6 +395,11 @@ def main(argv: list[str] | None = None) -> int:
         stats.skipped,
         stats.failed,
     )
+    # Signal partial failure to the caller/CI: a non-zero exit when any document
+    # failed to classify during a real run. --dry-run never writes, so it always
+    # reports success (exit 0) regardless of preview failures.
+    if not args.dry_run and stats.failed > 0:
+        return 1
     return 0
 
 

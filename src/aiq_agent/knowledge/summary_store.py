@@ -169,21 +169,30 @@ class SummaryStore:
                 )
                 metadata.create_all(self._sync_engine)
                 logger.info("Created summaries table in %s", self.db_url[:50])
+                migrated = True
             else:
                 # Pre-existing table (created before the tags column existed):
                 # add the column explicitly. CREATE TABLE only adds it on fresh
                 # tables, and this store has no migration framework.
-                self._migrate_add_tags_column_sync()
+                migrated = self._migrate_add_tags_column_sync()
 
-            SummaryStore._tables_initialized.add(self.db_url)
+            # Only mark the store initialized when the schema is actually ready.
+            # A failed migration must NOT be cached as initialized, so the next
+            # call retries it instead of writing against a missing tags column.
+            if migrated:
+                SummaryStore._tables_initialized.add(self.db_url)
 
-    def _migrate_add_tags_column_sync(self) -> None:
+    def _migrate_add_tags_column_sync(self) -> bool:
         """Backfill the ``tags`` column onto a pre-existing summaries table.
 
         Postgres supports ``ADD COLUMN IF NOT EXISTS``; SQLite does not, so the
         column is added only after a ``PRAGMA table_info`` existence check.
         Mirrors the job_access migration pattern in
         ``frontends/aiq_api/src/aiq_api/jobs/access.py``.
+
+        Returns ``True`` when the column is present after the call, ``False`` if
+        the migration failed (so the caller can retry on the next access instead
+        of caching a half-initialized store).
         """
         from sqlalchemy import text
 
@@ -196,8 +205,10 @@ class SummaryStore:
                     if "tags" not in existing:
                         conn.execute(text("ALTER TABLE summaries ADD COLUMN tags TEXT"))
                 conn.commit()
+            return True
         except Exception as e:
             logger.warning("Failed to migrate summaries.tags column: %s", e)
+            return False
 
     @classmethod
     async def _ensure_table_async(cls, db_url: str):
@@ -234,14 +245,22 @@ class SummaryStore:
             await conn.run_sync(lambda sync_conn: metadata.create_all(sync_conn))
             # create_all() never alters an existing table, so backfill the tags
             # column onto pre-existing tables (see _migrate_add_tags_column_sync).
-            await conn.run_sync(cls._migrate_add_tags_column_conn, db_url)
+            migrated = await conn.run_sync(cls._migrate_add_tags_column_conn, db_url)
 
-        cls._tables_initialized.add(db_url)
-        logger.info("Created summaries table (async) in %s", db_url[:50])
+        # Only cache the store as initialized when the migration actually
+        # succeeded; a failed migration must be retried on the next access.
+        if migrated:
+            cls._tables_initialized.add(db_url)
+            logger.info("Created summaries table (async) in %s", db_url[:50])
 
     @staticmethod
-    def _migrate_add_tags_column_conn(sync_conn, db_url: str) -> None:
-        """Add the ``tags`` column onto a pre-existing table, over a sync connection."""
+    def _migrate_add_tags_column_conn(sync_conn, db_url: str) -> bool:
+        """Add the ``tags`` column onto a pre-existing table, over a sync connection.
+
+        Returns ``True`` when the column is present afterwards, ``False`` if the
+        migration failed (so ``_ensure_table_async`` does not cache a
+        half-initialized store).
+        """
         from sqlalchemy import text
 
         try:
@@ -251,8 +270,10 @@ class SummaryStore:
                 existing = {row[1] for row in sync_conn.execute(text("PRAGMA table_info(summaries)")).fetchall()}
                 if "tags" not in existing:
                     sync_conn.execute(text("ALTER TABLE summaries ADD COLUMN tags TEXT"))
+            return True
         except Exception as e:
             logger.warning("Failed to migrate summaries.tags column (async): %s", e)
+            return False
 
     def register(self, collection: str, filename: str, summary: str, tags: list[str] | None = None) -> None:
         """Store a document summary and optional controlled tags (sync)."""

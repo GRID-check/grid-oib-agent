@@ -68,6 +68,12 @@ DEFAULT_VLM_BASE_URL = os.environ.get("AIQ_VLM_BASE_URL", "https://integrate.api
 MIN_IMAGE_WIDTH_PX = 100
 MIN_IMAGE_HEIGHT_PX = 100
 
+# Cap on the longest edge (px) of an image before it is JPEG-re-encoded and sent
+# to the VLM. Larger images are downscaled (aspect preserved, never upscaled) to
+# bound the VLM payload/token cost; smaller images pass through untouched. The
+# ORIGINAL dimensions are still recorded in the Document metadata.
+VLM_MAX_IMAGE_DIM = 1568
+
 # @environment_variable AIQ_COLLECTION_TTL_HOURS
 # @category Knowledge Layer
 # @type float
@@ -195,6 +201,11 @@ def _extract_images_from_pdf(
                     # Filter small images (likely icons/logos)
                     if width >= min_width and height >= min_height:
                         pil_image = bitmap.to_pil()
+                        # Downscale the longest edge to VLM_MAX_IMAGE_DIM before
+                        # re-encoding (aspect preserved, never upscaled) to bound
+                        # the VLM payload. thumbnail() is a no-op when already
+                        # within bounds. Metadata still records the ORIGINAL size.
+                        pil_image.thumbnail((VLM_MAX_IMAGE_DIM, VLM_MAX_IMAGE_DIM))
                         buf = io.BytesIO()
                         pil_image.save(buf, format="JPEG", quality=95)
                         images.append(
@@ -350,9 +361,14 @@ def _build_image_caption_document(
             pil_image.load()
             width, height = pil_image.size
             # Re-encode to JPEG (RGB) for a uniform VLM payload, exactly like the
-            # PDF-embedded-image path (_extract_images_from_pdf).
+            # PDF-embedded-image path (_extract_images_from_pdf). Downscale the
+            # longest edge to VLM_MAX_IMAGE_DIM first (aspect preserved, never
+            # upscaled) to bound the payload; thumbnail() is a no-op when already
+            # within bounds. Metadata still records the ORIGINAL size below.
+            rgb_image = pil_image.convert("RGB")
+            rgb_image.thumbnail((VLM_MAX_IMAGE_DIM, VLM_MAX_IMAGE_DIM))
             buf = io.BytesIO()
-            pil_image.convert("RGB").save(buf, format="JPEG", quality=95)
+            rgb_image.save(buf, format="JPEG", quality=95)
             image_bytes = buf.getvalue()
     except Exception as e:
         logger.error("Could not decode standalone image %s: %s", file_name, e)
@@ -1866,6 +1882,18 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     total_chunks += chunks_created
 
                     self._update_file_status(job, i, FileStatus.SUCCESS, chunks_created=chunks_created)
+
+                    # If summarization failed/timed out but tag classification
+                    # succeeded, still persist the row (and its tags) with a
+                    # deterministic, LLM-free fallback summary derived from the
+                    # already-extracted text — otherwise the tag work is wasted
+                    # (the summary column is NOT NULL). Standalone images already
+                    # fell back to their VLM caption above.
+                    if not summary and tags and text_documents:
+                        from aiq_agent.knowledge.document_classification import fallback_summary_from_text
+
+                        summary = fallback_summary_from_text(text_documents[0].get_content())
+
                     # Store summary + tags in FileInfo and centralized registry
                     if summary:
                         # Register in centralized summary registry (backend-agnostic).

@@ -180,6 +180,44 @@ def test_classification_exception_is_fail_soft():
     assert store.updates == []
 
 
+def _patch_main_deps(monkeypatch, stats, *, llm_raises=False):
+    """Stub every collaborator ``main`` touches so only its exit-code logic runs."""
+    from aiq_agent import knowledge
+
+    monkeypatch.setattr(knowledge, "configure_summary_db", lambda *a, **k: None, raising=False)
+    monkeypatch.setattr(knowledge, "list_summary_collections", lambda: ["c"], raising=False)
+
+    def _build_llm():
+        if llm_raises:
+            raise RuntimeError("No API key")
+        return MagicMock()
+
+    monkeypatch.setattr(backfill, "build_summary_llm", _build_llm)
+    monkeypatch.setattr(backfill, "make_chunk_text_fetcher", lambda chroma_dir: None)
+    monkeypatch.setattr(backfill, "run_backfill", lambda **kwargs: stats)
+
+
+def test_main_exit_1_when_failures(monkeypatch):
+    _patch_main_deps(monkeypatch, backfill.BackfillStats(processed=2, tagged=1, skipped=0, failed=1))
+    assert backfill.main(["--summary-db", "sqlite:///unused.db"]) == 1
+
+
+def test_main_exit_0_when_no_failures(monkeypatch):
+    _patch_main_deps(monkeypatch, backfill.BackfillStats(processed=2, tagged=2, skipped=0, failed=0))
+    assert backfill.main(["--summary-db", "sqlite:///unused.db"]) == 0
+
+
+def test_main_dry_run_exit_0_despite_failures(monkeypatch):
+    # A dry-run writes nothing, so preview failures must not fail the process.
+    _patch_main_deps(monkeypatch, backfill.BackfillStats(processed=2, tagged=0, skipped=0, failed=2))
+    assert backfill.main(["--summary-db", "sqlite:///unused.db", "--dry-run"]) == 0
+
+
+def test_main_exit_2_when_llm_unavailable(monkeypatch):
+    _patch_main_deps(monkeypatch, backfill.BackfillStats(), llm_raises=True)
+    assert backfill.main(["--summary-db", "sqlite:///unused.db"]) == 2
+
+
 def test_run_backfill_aggregates_stats():
     store = FakeStore(existing={("c", "a.pdf"), ("c", "b.pdf")})
     docs = {

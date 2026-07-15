@@ -86,6 +86,29 @@ ALLOWED_TAGS: frozenset[str] = frozenset(DOCUMENT_TYPE_TAGS) | frozenset(DISCIPL
 # Hard cap on the number of tags stored per document.
 MAX_TAGS = 5
 
+# Length cap for the deterministic, LLM-free fallback summary (see
+# ``fallback_summary_from_text``).
+FALLBACK_SUMMARY_MAX_CHARS = 200
+
+
+def fallback_summary_from_text(text: str | None, max_chars: int = FALLBACK_SUMMARY_MAX_CHARS) -> str | None:
+    """Deterministic, LLM-free summary derived from already-extracted text.
+
+    Used when LLM summary generation failed/timed out but tag classification
+    succeeded: the ``summaries.summary`` column is NOT NULL, so tags need an
+    anchor row. Returns the first ``max_chars`` characters of ``text`` collapsed
+    to a single line and ellipsized, or ``None`` when no usable text exists (so
+    the caller skips registration exactly as it would with no summary).
+    """
+    if not text:
+        return None
+    single_line = " ".join(text.split())
+    if not single_line:
+        return None
+    if len(single_line) <= max_chars:
+        return single_line
+    return single_line[:max_chars].rstrip() + "…"
+
 
 # =============================================================================
 # One-sentence summary (shared prompt + call + parse)
