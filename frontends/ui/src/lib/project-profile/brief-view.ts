@@ -152,6 +152,33 @@ export function buildProjectBriefView(rawProfile: unknown): ProjectBriefView {
   }
 }
 
+/**
+ * Plain-text, human-readable profile rendering fed to the summary LLM. Uses the
+ * same label resolution as the Project Brief panel — question labels ("Building
+ * class") and option labels ("Open land (Freiland)") instead of raw keys and
+ * enum tokens — so the generated prose can't leak machine vocabulary like
+ * "fluchtniveau" or "abweichender_bebauungsplan" into the sentence. Unknowns
+ * and unconfirmed assumptions are deliberately excluded: the summary should
+ * describe what the project IS, not enumerate what's missing.
+ */
+export function buildProjectSummaryText(rawProfile: unknown): string {
+  const parsed = ProjectProfileSchema.safeParse(rawProfile ?? {})
+  const profile: ProjectProfile = parsed.success ? parsed.data : ProjectProfileSchema.parse({})
+  const brief = buildProjectBriefView(profile)
+
+  const lines: string[] = []
+  const name = profile.facts['project_name']?.value
+  if (typeof name === 'string' && name.trim()) lines.push(`Project name: ${name.trim()}`)
+  if (brief.focusAreas.length > 0) lines.push(`Focus: ${brief.focusAreas.join('; ')}`)
+  if (brief.goalDetails) lines.push(`Focus details: ${brief.goalDetails}`)
+  for (const group of brief.groups) {
+    for (const fact of group.facts) {
+      lines.push(`${fact.label}: ${fact.value}`)
+    }
+  }
+  return lines.join('\n')
+}
+
 export function formatBareValue(value: ProjectFact['value']): string {
   if (value === null) return '—'
   if (typeof value === 'boolean') return value ? 'Yes' : 'No'

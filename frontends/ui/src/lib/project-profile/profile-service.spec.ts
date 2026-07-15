@@ -8,10 +8,49 @@ vi.mock('@/lib/backend-proxy', () => ({
   getBackendUrl: vi.fn().mockReturnValue('http://backend:8000'),
 }))
 
+vi.mock('@/lib/projects/repository', () => ({
+  findProjectProfileInOrg: vi.fn(),
+  setProjectProfileSummaryInOrg: vi.fn().mockResolvedValue(undefined),
+  updateProjectProfileIfVersion: vi.fn(),
+}))
+
+vi.mock('@/lib/cache', () => ({
+  getCached: vi.fn(),
+  invalidateCached: vi.fn().mockResolvedValue(undefined),
+}))
+
 import { requireProjectAccess } from '@/lib/authz/projects'
-import { checkProjectConsistency } from './profile-service'
+import {
+  findProjectProfileInOrg,
+  setProjectProfileSummaryInOrg,
+  updateProjectProfileIfVersion,
+} from '@/lib/projects/repository'
+import { checkProjectConsistency, generateProjectSummary, saveProjectProfile } from './profile-service'
+import type { ProjectProfile } from './types'
 
 const session = { userId: 'user-1', organizationId: 'org-1' } as never
+
+const storedProfile: ProjectProfile = {
+  facts: {
+    hauptnutzung: {
+      value: 'wohnen',
+      confidence: 'confirmed',
+      source: 'onboarding',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    },
+  },
+  goals: {},
+  unknowns: [],
+  assumptions: {},
+}
+
+const storedState = {
+  profile: storedProfile,
+  profileVersion: 5,
+  profilePromptView: 'PROJECT_CONTEXT v1',
+  profileDisplay: { title: 'Project profile', summary: 'Old prose.', keyFacts: [], missingInfo: [] },
+  profileUpdatedAt: new Date('2026-01-01T00:00:00.000Z'),
+} as never
 
 describe('checkProjectConsistency authorization (FB-13)', () => {
   const mockFetch = vi.fn()
@@ -81,5 +120,94 @@ describe('checkProjectConsistency backend fetch is time-bounded (fail-open)', ()
     const result = await checkProjectConsistency(session, 'proj-1', { freeText: [] })
 
     expect(result).toEqual({ findings: null, error: 'check_request_failed' })
+  })
+})
+
+describe('saveProjectProfile optimistic concurrency (If-Match)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(findProjectProfileInOrg).mockResolvedValue(storedState)
+    vi.mocked(updateProjectProfileIfVersion).mockResolvedValue(storedState)
+  })
+
+  it('rejects with a conflict when the client-loaded version is stale', async () => {
+    await expect(saveProjectProfile(session, 'proj-1', storedProfile, 4)).rejects.toThrow(/modified since/i)
+    expect(updateProjectProfileIfVersion).not.toHaveBeenCalled()
+  })
+
+  it('writes when the client-loaded version matches, resetting the stale summary', async () => {
+    await saveProjectProfile(session, 'proj-1', storedProfile, 5)
+
+    expect(updateProjectProfileIfVersion).toHaveBeenCalledTimes(1)
+    const [, , expectedVersion, values] = vi.mocked(updateProjectProfileIfVersion).mock.calls[0]
+    expect(expectedVersion).toBe(5)
+    // A full replace invalidates the old prose; the Overview regenerates it.
+    expect((values as { profileDisplay: { summary: string } }).profileDisplay.summary).toBe('')
+  })
+
+  it('keeps the legacy in-request check when no version is supplied', async () => {
+    await saveProjectProfile(session, 'proj-1', storedProfile)
+    expect(updateProjectProfileIfVersion).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('generateProjectSummary', () => {
+  const mockFetch = vi.fn()
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.stubGlobal('fetch', mockFetch)
+    vi.mocked(findProjectProfileInOrg).mockResolvedValue(storedState)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('sends the HUMAN-READABLE profile text and locale, and persists the summary', async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ summary: 'Ein Wohnprojekt.', error: null }),
+    })
+
+    const result = await generateProjectSummary(session, 'proj-1', { locale: 'de' })
+
+    expect(result).toEqual({ summary: 'Ein Wohnprojekt.' })
+    const [url, init] = mockFetch.mock.calls[0]
+    expect(url).toBe('http://backend:8000/v1/generate-summary')
+    const body = JSON.parse(String((init as RequestInit).body))
+    // Labels, not machine tokens: "hauptnutzung=wohnen" leaked into the prose.
+    expect(body.profile_text).toBe('Main use: Residential')
+    expect(body.locale).toBe('de')
+    expect(setProjectProfileSummaryInOrg).toHaveBeenCalledWith('proj-1', 'org-1', 'Ein Wohnprojekt.')
+  })
+
+  it('degrades a timeout/transport failure to a diagnosable code instead of a 500', async () => {
+    mockFetch.mockRejectedValue(new DOMException('The operation timed out.', 'TimeoutError'))
+
+    const result = await generateProjectSummary(session, 'proj-1')
+
+    expect(result).toEqual({ summary: '', error: 'backend_unreachable' })
+    expect(setProjectProfileSummaryInOrg).not.toHaveBeenCalled()
+  })
+
+  it('degrades a non-2xx backend response the same way', async () => {
+    mockFetch.mockResolvedValue({ ok: false, status: 502, text: () => Promise.resolve('bad gateway') })
+
+    const result = await generateProjectSummary(session, 'proj-1')
+
+    expect(result).toEqual({ summary: '', error: 'backend_error' })
+  })
+
+  it('never persists an empty summary over an existing one', async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ summary: '', error: 'llm_not_configured' }),
+    })
+
+    const result = await generateProjectSummary(session, 'proj-1')
+
+    expect(result).toEqual({ summary: '', error: 'llm_not_configured' })
+    expect(setProjectProfileSummaryInOrg).not.toHaveBeenCalled()
   })
 })

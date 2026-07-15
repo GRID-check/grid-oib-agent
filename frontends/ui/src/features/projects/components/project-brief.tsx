@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
@@ -11,7 +11,7 @@ import type { ProjectProfile } from '@/lib/project-profile/types'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
-import { useTranslations } from '@/i18n'
+import { useLocale, useTranslations } from '@/i18n'
 
 interface ProjectBriefProps {
   projectId: string
@@ -81,8 +81,11 @@ export function ProjectBrief({ projectId, profile, summary, briefStarted }: Proj
         </div>
       </div>
 
-      {/* AI summary prose, with a generate/regenerate affordance. A failed
-          intake-time generation otherwise leaves the brief permanently prose-less. */}
+      {/* AI summary prose. When the brief has facts but no prose yet (a wizard
+          save just reset it), generation starts automatically WITH a visible
+          "writing…" state — the old fire-and-forget from the wizard finished
+          after this page rendered, so the summary never appeared without a
+          manual reload. The manual control remains for retry/regenerate. */}
       {prose ? (
         <div className="mt-3">
           <p className="text-sm leading-relaxed text-muted-foreground">{prose}</p>
@@ -90,7 +93,7 @@ export function ProjectBrief({ projectId, profile, summary, briefStarted }: Proj
         </div>
       ) : (
         <div className="mt-3">
-          <SummaryControl projectId={projectId} hasSummary={false} />
+          <SummaryControl projectId={projectId} hasSummary={false} autoStart={hasFacts} />
         </div>
       )}
 
@@ -175,19 +178,39 @@ export function ProjectBrief({ projectId, profile, summary, briefStarted }: Proj
 }
 
 /**
- * Generate / regenerate the AI prose summary on demand. Surfaces the route's
- * machine-readable failure codes (notably `llm_not_configured`) as localized
- * messages, and refreshes the server component so the new prose shows on success.
+ * Generate / regenerate the AI prose summary. Manual clicks surface the
+ * route's machine-readable failure codes (notably `llm_not_configured`) as
+ * localized toasts and refresh the server component so the new prose shows.
+ *
+ * With `autoStart`, generation kicks off once on mount (the post-wizard-save
+ * case: the brief has facts but its prose was just reset) with a visible
+ * "writing the summary…" state. Auto-run failures degrade silently to the
+ * manual button — a viewer without edit permission, or an unconfigured LLM,
+ * must not greet every visitor with an error toast.
  */
-function SummaryControl({ projectId, hasSummary }: { projectId: string; hasSummary: boolean }) {
+function SummaryControl({
+  projectId,
+  hasSummary,
+  autoStart = false,
+}: {
+  projectId: string
+  hasSummary: boolean
+  autoStart?: boolean
+}) {
   const t = useTranslations('projects')
+  const { locale } = useLocale()
   const router = useRouter()
   const [pending, setPending] = useState(false)
+  const autoAttemptedRef = useRef(false)
 
-  const generate = async () => {
+  const generate = async (silent = false) => {
     setPending(true)
     try {
-      const res = await fetch(`/api/projects/${projectId}/generate-summary`, { method: 'POST' })
+      const res = await fetch(`/api/projects/${projectId}/generate-summary`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ locale }),
+      })
       if (!res.ok) {
         throw new Error(
           res.status === 403
@@ -206,20 +229,29 @@ function SummaryControl({ projectId, hasSummary }: { projectId: string; hasSumma
       if (data?.error || !data?.summary) {
         throw new Error(t('overview.brief.summaryError'))
       }
-      toast.success(t('overview.brief.summarySuccess'))
+      if (!silent) toast.success(t('overview.brief.summarySuccess'))
       router.refresh()
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t('overview.brief.summaryError'))
+      if (!silent) {
+        toast.error(error instanceof Error ? error.message : t('overview.brief.summaryError'))
+      }
     } finally {
       setPending(false)
     }
   }
 
+  useEffect(() => {
+    if (!autoStart || hasSummary || autoAttemptedRef.current) return
+    autoAttemptedRef.current = true
+    void generate(true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoStart, hasSummary])
+
   if (hasSummary) {
     return (
       <button
         type="button"
-        onClick={generate}
+        onClick={() => void generate()}
         disabled={pending}
         className="mt-2 inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-60"
       >
@@ -233,14 +265,22 @@ function SummaryControl({ projectId, hasSummary }: { projectId: string; hasSumma
     )
   }
 
-  return (
-    <Button type="button" variant="outline" size="sm" onClick={generate} disabled={pending}>
-      {pending ? (
+  if (pending) {
+    // Covers the auto-run right after a wizard save: the user must see that
+    // the prose is on its way, not an inviting "Generate" button that would
+    // start a duplicate LLM call.
+    return (
+      <p className="flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite">
         <Loader2 className="size-4 animate-spin" aria-hidden />
-      ) : (
-        <Sparkles className="size-4" aria-hidden />
-      )}
-      {pending ? t('overview.brief.summaryGenerating') : t('overview.brief.summaryGenerate')}
+        {t('overview.brief.summaryWriting')}
+      </p>
+    )
+  }
+
+  return (
+    <Button type="button" variant="outline" size="sm" onClick={() => void generate()}>
+      <Sparkles className="size-4" aria-hidden />
+      {t('overview.brief.summaryGenerate')}
     </Button>
   )
 }

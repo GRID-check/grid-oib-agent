@@ -423,6 +423,64 @@ export function buildIntakeProfile(
 }
 
 /**
+ * Merge a freshly wizard-built profile over the previously stored one so a
+ * whole-profile PUT can never destroy knowledge the wizard doesn't own.
+ *
+ * The wizard's questions only round-trip intake-vocabulary keys, but the agent
+ * patch flow legitimately records NOVEL facts/goals/unknowns (see
+ * {@link validateProfilePatchVocabulary}) and assumptions are never editable
+ * here. Merge semantics:
+ *
+ *  - Intake-owned keys (incl. the seeded `project_name`): the built profile is
+ *    authoritative — an answer the user just cleared stays cleared (it lands in
+ *    `unknowns`), it is NOT resurrected from the stored profile.
+ *  - Non-intake facts/goals from the stored profile are preserved verbatim.
+ *  - Unknowns: the built (intake-gap) list first, then stored unknowns that are
+ *    not intake-owned, not duplicates, and not answered by a surviving fact/goal.
+ *  - Assumptions: stored ones carry over; built ones (always empty today) win
+ *    on key conflicts — unchanged from the previous assumptions-only carry-over.
+ */
+export function mergeIntakeProfile(
+  built: ProjectProfile,
+  previous: ProjectProfile | null | undefined,
+  definition: ProjectIntakeDefinition,
+): ProjectProfile {
+  if (!previous) return built
+
+  const intakeFactKeys = new Set<string>(['project_name'])
+  const intakeGoalKeys = new Set<string>()
+  for (const question of flattenIntakeQuestions(definition)) {
+    const target = resolveWriteTarget(question.writesTo)
+    if (!target) continue
+    ;(target.scope === 'goals' ? intakeGoalKeys : intakeFactKeys).add(target.key)
+  }
+
+  const facts = {
+    ...Object.fromEntries(Object.entries(previous.facts).filter(([key]) => !intakeFactKeys.has(key))),
+    ...built.facts,
+  }
+  const goals = {
+    ...Object.fromEntries(Object.entries(previous.goals).filter(([key]) => !intakeGoalKeys.has(key))),
+    ...built.goals,
+  }
+
+  const unknowns = [...built.unknowns]
+  for (const key of previous.unknowns) {
+    if (intakeFactKeys.has(key) || intakeGoalKeys.has(key)) continue
+    if (unknowns.includes(key)) continue
+    if (key in facts || key in goals) continue
+    unknowns.push(key)
+  }
+
+  return {
+    facts,
+    goals,
+    unknowns,
+    assumptions: { ...previous.assumptions, ...built.assumptions },
+  }
+}
+
+/**
  * Reverse of {@link buildIntakeProfile}: seed wizard answers from an already-saved
  * profile so re-entering intake opens in edit mode, prefilled.
  */

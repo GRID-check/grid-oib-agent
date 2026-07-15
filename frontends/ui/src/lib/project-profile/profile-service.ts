@@ -12,7 +12,7 @@
 import 'server-only'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { getBackendUrl } from '@/lib/backend-proxy'
-import { BadRequestError, ConflictError, NotFoundError, UpstreamError } from '@/lib/api/errors'
+import { BadRequestError, ConflictError, NotFoundError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import {
   findProjectProfileInOrg,
@@ -25,8 +25,8 @@ import {
   buildProjectProfileDisplay,
   buildProjectPromptView,
   invalidateProjectPromptViewCache,
-  loadProjectPromptView,
 } from './prompt-view'
+import { buildProjectSummaryText } from './brief-view'
 import { normalizeProfilePatchOperations, pruneResolvedUnknowns } from './patch-engine'
 import {
   projectIntakeDefinitionV1,
@@ -44,7 +44,14 @@ import type { ProjectProfile, ProjectProfilePatchOperation } from './types'
  * a user-visible LLM call (longer bound).
  */
 const CONSISTENCY_CHECK_TIMEOUT_MS = 10_000
-const GENERATE_SUMMARY_TIMEOUT_MS = 20_000
+/**
+ * MUST stay above the backend's own LLM timeout (30s in generate_summary.py):
+ * with the bounds inverted the BFF aborts first, the backend finishes the
+ * generation anyway, and the completed summary is thrown away because
+ * persistence happens here after the response. Still well under Cloudflare's
+ * ~100s origin timeout.
+ */
+const GENERATE_SUMMARY_TIMEOUT_MS = 35_000
 
 export async function getProjectProfile(
   session: AuthorizedSession,
@@ -56,16 +63,30 @@ export async function getProjectProfile(
   return state
 }
 
-/** Replace the whole profile (intake wizard save). 409 on a version conflict. */
+/**
+ * Replace the whole profile (intake wizard save). 409 on a version conflict.
+ *
+ * `expectedVersion` is the profileVersion the CLIENT loaded (sent as If-Match):
+ * comparing against it is what makes the concurrency check real — without it
+ * the version is read and compared inside this one request, so edits made by
+ * someone else since the wizard was opened are silently last-writer-wins.
+ *
+ * A full replace also resets the stored AI summary: the prose described the old
+ * profile, and the overview regenerates it from the new one.
+ */
 export async function saveProjectProfile(
   session: AuthorizedSession,
   projectId: string,
   profile: ProjectProfile,
+  expectedVersion?: number,
 ): Promise<ProjectProfileState> {
   await requireProjectAccess(session, projectId, 'project:edit')
   const current = await findProjectProfileInOrg(projectId, session.organizationId)
   if (!current) throw new NotFoundError()
-  return persistProfile(projectId, session.organizationId, profile, current)
+  if (expectedVersion !== undefined && current.profileVersion !== expectedVersion) {
+    throw new ConflictError('Conflict: profile was modified since it was loaded')
+  }
+  return persistProfile(projectId, session.organizationId, profile, current, { resetSummary: true })
 }
 
 /**
@@ -109,12 +130,23 @@ async function persistProfile(
   organizationId: string,
   profile: ProjectProfile,
   current: ProjectProfileState,
+  options?: {
+    /**
+     * Wizard full-replace: clear the stored AI summary instead of carrying it
+     * over — the prose described the profile being replaced. Patch-driven
+     * edits keep preserving it (regenerating on every chat patch would churn).
+     */
+    resetSummary?: boolean
+  },
 ): Promise<ProjectProfileState> {
   const updated = await updateProjectProfileIfVersion(projectId, organizationId, current.profileVersion, {
     profile,
     profileVersion: current.profileVersion + 1,
     profilePromptView: buildProjectPromptView(profile),
-    profileDisplay: buildProjectProfileDisplay(profile, current.profileDisplay?.summary ?? ''),
+    profileDisplay: buildProjectProfileDisplay(
+      profile,
+      options?.resetSummary ? '' : current.profileDisplay?.summary ?? '',
+    ),
     profileUpdatedAt: new Date(),
   })
   if (!updated) throw new ConflictError('Conflict: profile was modified by another request')
@@ -211,34 +243,52 @@ export async function checkProjectConsistency(
 
 /**
  * Generate an AI summary of the profile via the Python backend and persist it
- * onto profileDisplay. Best-effort contract: generation failures are
- * non-fatal (HTTP 200 with the backend's diagnostic code); only a transport
- * failure to the backend is a 502.
+ * onto profileDisplay. Fully best-effort: every failure mode — backend
+ * unreachable, timeout, non-2xx, or the backend's own diagnostic code —
+ * resolves to HTTP 200 with `{ summary: '', error }` so callers (the brief's
+ * auto/manual generate) can render a state instead of a blown-up request.
+ *
+ * The LLM is fed the human-readable brief rendering (question/option labels),
+ * not the machine prompt view — raw tokens like `fluchtniveau=7-11m` were
+ * leaking verbatim into the generated prose. `locale` controls the output
+ * language (mirrors the consistency check; defaults to German).
  */
 export async function generateProjectSummary(
   session: AuthorizedSession,
   projectId: string,
+  options?: { locale?: string },
 ): Promise<{ summary: string; error?: string }> {
   await requireProjectAccess(session, projectId, 'project:edit')
 
-  const profileText = await loadProjectPromptView(projectId)
+  const state = await findProjectProfileInOrg(projectId, session.organizationId)
+  if (!state) throw new NotFoundError()
+
+  const profileText = buildProjectSummaryText(state.profile)
   if (!profileText) {
     return { summary: '' }
   }
 
-  const backendRes = await fetch(`${getBackendUrl()}/v1/generate-summary`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ profile_text: profileText }),
-    // Bound the call so an unreachable backend rejects promptly (as a
-    // TimeoutError) instead of hanging into a Cloudflare 504.
-    signal: AbortSignal.timeout(GENERATE_SUMMARY_TIMEOUT_MS),
-  })
+  let backendRes: Response
+  try {
+    backendRes = await fetch(`${getBackendUrl()}/v1/generate-summary`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ profile_text: profileText, locale: options?.locale ?? 'de' }),
+      // Bound the call so an unreachable backend rejects promptly (as a
+      // TimeoutError) instead of hanging into a Cloudflare 504.
+      signal: AbortSignal.timeout(GENERATE_SUMMARY_TIMEOUT_MS),
+    })
+  } catch (e) {
+    // Transport failure/timeout to the backend — degrade like every other
+    // generation failure instead of surfacing a 500 to the caller.
+    console.error('[GenerateSummary] Backend unreachable (non-fatal):', e)
+    return { summary: '', error: 'backend_unreachable' }
+  }
 
   if (!backendRes.ok) {
-    const errorText = await backendRes.text()
+    const errorText = await backendRes.text().catch(() => '')
     console.error('[GenerateSummary] Backend error:', backendRes.status, errorText)
-    throw new UpstreamError('Summary generation failed')
+    return { summary: '', error: 'backend_error' }
   }
 
   const { summary, error } = (await backendRes.json()) as { summary: string; error?: string | null }
@@ -253,8 +303,6 @@ export async function generateProjectSummary(
   if (summary) {
     await setProjectProfileSummaryInOrg(projectId, session.organizationId, summary)
   }
-
-  await invalidateProjectPromptViewCache(projectId)
 
   return { summary }
 }

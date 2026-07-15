@@ -188,6 +188,12 @@ export const projects = {
           'GK1–GK3 buildings normally have no more than {threshold} above-ground storeys; you entered {count}.',
         escapeLevelTooFewFloors:
           'An escape level of {escapeLevel} is hard to reach with only {floors} above-ground floor(s).',
+        escapeLevelTooManyFloors:
+          'With {floors} above-ground storeys the highest escape level cannot stay at {escapeLevel}.',
+        classEscapeLevelMismatch:
+          '{buildingClass} buildings have an escape level of at most {maxLevel}; you entered {escapeLevel}.',
+        renovationFocusOnNewBuild:
+          'The focus "Renovation / existing-building compliance" doesn\'t match a pure new build — did you mean Extension / conversion?',
         orphanedAnswer:
           '"{field}" no longer applies given your answer for "{dependsOn}" and won\'t be saved.',
       },
@@ -300,6 +306,7 @@ export const projects = {
       summaryGenerate: 'Generate summary',
       summaryRegenerate: 'Regenerate',
       summaryGenerating: 'Generating…',
+      summaryWriting: 'Grid is writing the project summary…',
       summarySuccess: 'Summary updated.',
       summaryError: 'Could not generate a summary. Please try again.',
       summaryLlmNotConfigured:

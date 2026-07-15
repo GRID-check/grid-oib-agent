@@ -93,6 +93,92 @@ describe('checkIntakeConsistency — rule 2: escape level vs. floors', () => {
   })
 })
 
+describe('checkIntakeConsistency — rule 2b: low escape level vs. too many floors', () => {
+  it('flags a 7-11m escape level with far too many floors (the field-reported case)', () => {
+    const findings = check({ fluchtniveau: '7-11m', geschosse_oberirdisch: 12 })
+    const finding = findings.find((f) => f.messageKey === 'escapeLevelTooManyFloors')!
+    expect(finding.severity).toBe('inconsistency')
+    expect(finding.params).toEqual({ escapeLevel: '7–11m', floors: 12 })
+    expect(finding.fields).toEqual(['Escape level', 'Above-ground floors'])
+  })
+
+  it('flags a <=7m escape level with too many floors', () => {
+    expect(keys(check({ fluchtniveau: '<=7m', geschosse_oberirdisch: 6 }))).toContain(
+      'escapeLevelTooManyFloors',
+    )
+  })
+
+  it('does NOT flag counts at or below the conservative ceilings', () => {
+    expect(check({ fluchtniveau: '<=7m', geschosse_oberirdisch: 5 })).toEqual([])
+    expect(check({ fluchtniveau: '7-11m', geschosse_oberirdisch: 6 })).toEqual([])
+    // High bands have no upper floor cap.
+    expect(check({ fluchtniveau: '>22m', geschosse_oberirdisch: 30 })).toEqual([])
+  })
+
+  it('never triggers when either answer is skipped', () => {
+    expect(check({ fluchtniveau: '7-11m' })).toEqual([])
+    expect(check({ geschosse_oberirdisch: 12 })).toEqual([])
+  })
+})
+
+describe('checkIntakeConsistency — rule 2c: building class vs. escape-level band', () => {
+  it('flags GK1-GK3 with an escape level above 7m (definitionally impossible)', () => {
+    for (const buildingClass of ['GK1', 'GK2', 'GK3']) {
+      for (const escapeLevel of ['7-11m', '11-22m']) {
+        const findings = check({ gebaeudeklasse: buildingClass, fluchtniveau: escapeLevel })
+        const finding = findings.find((f) => f.messageKey === 'classEscapeLevelMismatch')!
+        expect(finding).toBeDefined()
+        expect(finding.severity).toBe('inconsistency')
+        expect(finding.params).toMatchObject({ buildingClass, maxLevel: '7 m' })
+        expect(finding.fields).toEqual(['Building class', 'Escape level'])
+      }
+    }
+  })
+
+  it('flags GK4 above 11m', () => {
+    const findings = check({ gebaeudeklasse: 'GK4', fluchtniveau: '11-22m' })
+    const finding = findings.find((f) => f.messageKey === 'classEscapeLevelMismatch')!
+    expect(finding.params).toEqual({ buildingClass: 'GK4', escapeLevel: '11–22m', maxLevel: '11 m' })
+  })
+
+  it('does NOT flag allowed combinations, including GK5 with a LOW band', () => {
+    expect(check({ gebaeudeklasse: 'GK1', fluchtniveau: '<=7m' })).toEqual([])
+    expect(check({ gebaeudeklasse: 'GK4', fluchtniveau: '7-11m' })).toEqual([])
+    // A building can be GK5 despite a low escape level (fails other GK1-4
+    // criteria), so GK5 is never constrained downward.
+    expect(check({ gebaeudeklasse: 'GK5', fluchtniveau: '<=7m' })).toEqual([])
+    expect(check({ gebaeudeklasse: 'GK5', fluchtniveau: '>22m' })).toEqual([])
+  })
+
+  it('never triggers when either answer is skipped', () => {
+    expect(check({ gebaeudeklasse: 'GK1' })).toEqual([])
+    expect(check({ fluchtniveau: '11-22m' })).toEqual([])
+  })
+})
+
+describe('checkIntakeConsistency — rule 4: renovation focus on a new build', () => {
+  it('flags the renovation focus on a pure new build as a soft warning', () => {
+    const findings = check({ focus_areas: ['sanierung'], bestand_neubau: 'neubau' })
+    const finding = findings.find((f) => f.messageKey === 'renovationFocusOnNewBuild')!
+    expect(finding.severity).toBe('warning')
+    expect(finding.fields).toEqual(['What should Grid help with on this project?', 'Existing or new building'])
+  })
+
+  it('does NOT flag renovation focus on existing fabric or extensions', () => {
+    expect(check({ focus_areas: ['sanierung'], bestand_neubau: 'bestand' })).toEqual([])
+    expect(check({ focus_areas: ['sanierung'], bestand_neubau: 'zu_und_umbau' })).toEqual([])
+  })
+
+  it('does NOT flag a new build without the renovation focus', () => {
+    expect(check({ focus_areas: ['einreichung', 'brandschutz'], bestand_neubau: 'neubau' })).toEqual([])
+  })
+
+  it('never triggers when either answer is skipped', () => {
+    expect(check({ focus_areas: ['sanierung'] })).toEqual([])
+    expect(check({ bestand_neubau: 'neubau' })).toEqual([])
+  })
+})
+
 describe('checkIntakeConsistency — rule 3: orphaned conditional answers', () => {
   it('flags a bed count when the use is not hospitality', () => {
     const findings = check({ hauptnutzung: 'buero', anzahl_betten: 40 })

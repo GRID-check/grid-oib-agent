@@ -192,6 +192,12 @@ export const projects: typeof en.projects = {
           'GK1–GK3-Gebäude haben normalerweise höchstens {threshold} oberirdische Geschoße; angegeben sind {count}.',
         escapeLevelTooFewFloors:
           'Ein Fluchtniveau von {escapeLevel} ist mit nur {floors} oberirdischen Geschoß(en) kaum erreichbar.',
+        escapeLevelTooManyFloors:
+          'Bei {floors} oberirdischen Geschoßen kann das höchste Fluchtniveau nicht bei {escapeLevel} liegen.',
+        classEscapeLevelMismatch:
+          '{buildingClass}-Gebäude haben ein Fluchtniveau von höchstens {maxLevel}; angegeben ist {escapeLevel}.',
+        renovationFocusOnNewBuild:
+          'Der Fokus „Sanierung / Bestandskonformität" passt nicht zu einem reinen Neubau — meinten Sie Zu- und Umbau?',
         orphanedAnswer:
           '„{field}" gilt aufgrund Ihrer Angabe zu „{dependsOn}" nicht mehr und wird nicht gespeichert.',
       },
@@ -304,6 +310,7 @@ export const projects: typeof en.projects = {
       summaryGenerate: 'Zusammenfassung erstellen',
       summaryRegenerate: 'Neu erstellen',
       summaryGenerating: 'Wird erstellt…',
+      summaryWriting: 'Grid schreibt die Projekt-Zusammenfassung…',
       summarySuccess: 'Zusammenfassung aktualisiert.',
       summaryError: 'Die Zusammenfassung konnte nicht erstellt werden. Bitte versuchen Sie es erneut.',
       summaryLlmNotConfigured:

@@ -172,6 +172,113 @@ function checkEscapeLevelVsFloors(
   ]
 }
 
+/**
+ * Rule 2b — the inverse direction: a LOW escape-level band with implausibly many
+ * above-ground floors. The highest storey's floor is an escape level, so with N
+ * floors the escape level is at least (N-1) × storey height. Even at an
+ * implausibly low ~2.5 m per storey:
+ *   `<= 7 m`  → impossible from 6 floors up (5 × 2.5 m = 12.5 m > 7 m)
+ *   `7–11 m`  → impossible from 7 floors up (6 × 2.5 m = 15 m > 11 m)
+ * Real storey heights (≥ 3 m) make these bounds generous, so no legitimate
+ * building is flagged. (This caught a real case: 12 floors entered with 7–11 m.)
+ */
+const ESCAPE_LEVEL_MAX_FLOORS: Record<string, number> = { '<=7m': 5, '7-11m': 6 }
+
+function checkEscapeLevelTooManyFloors(
+  answers: Answers,
+  definition: ProjectIntakeDefinition,
+): DeterministicConsistencyFinding[] {
+  const escapeLevel = stringAnswer(answers, 'fluchtniveau')
+  const floors = numericAnswer(answers, 'geschosse_oberirdisch')
+  if (escapeLevel === undefined || floors === undefined) return []
+  const maxFloors = ESCAPE_LEVEL_MAX_FLOORS[escapeLevel]
+  if (maxFloors === undefined || floors <= maxFloors) return []
+
+  const question = questionById(definition, 'fluchtniveau')
+  const escapeLabel = question ? formatIntakeAnswer(question, escapeLevel) : escapeLevel
+  return [
+    {
+      kind: 'deterministic',
+      fields: [labelFor(definition, 'fluchtniveau'), labelFor(definition, 'geschosse_oberirdisch')],
+      severity: 'inconsistency',
+      messageKey: 'escapeLevelTooManyFloors',
+      params: { escapeLevel: escapeLabel, floors },
+    },
+  ]
+}
+
+// ---------------------------------------------------------------------------
+// Rule 2c — building class vs. escape-level band (definitional, OIB RL 2).
+// ---------------------------------------------------------------------------
+
+/**
+ * OIB Richtlinie 2 defines GK1–GK3 as buildings with a Fluchtniveau of at most
+ * 7 m and GK4 as at most 11 m — a higher escape level is definitionally
+ * impossible for those classes, not merely unusual. GK5 is deliberately NOT
+ * constrained downward: a building can be GK5 with a low escape level when it
+ * fails the other GK1–GK4 criteria (size, Betriebseinheiten), so flagging
+ * GK5 + a low band would false-positive.
+ */
+const CLASS_MAX_ESCAPE_BANDS: Record<string, { allowed: Set<string>; maxLevel: string }> = {
+  GK1: { allowed: new Set(['<=7m']), maxLevel: '7 m' },
+  GK2: { allowed: new Set(['<=7m']), maxLevel: '7 m' },
+  GK3: { allowed: new Set(['<=7m']), maxLevel: '7 m' },
+  GK4: { allowed: new Set(['<=7m', '7-11m']), maxLevel: '11 m' },
+}
+
+function checkClassEscapeLevelMismatch(
+  answers: Answers,
+  definition: ProjectIntakeDefinition,
+): DeterministicConsistencyFinding[] {
+  const buildingClass = stringAnswer(answers, 'gebaeudeklasse')
+  const escapeLevel = stringAnswer(answers, 'fluchtniveau')
+  if (buildingClass === undefined || escapeLevel === undefined) return []
+  const constraint = CLASS_MAX_ESCAPE_BANDS[buildingClass]
+  if (constraint === undefined || constraint.allowed.has(escapeLevel)) return []
+
+  const question = questionById(definition, 'fluchtniveau')
+  const escapeLabel = question ? formatIntakeAnswer(question, escapeLevel) : escapeLevel
+  return [
+    {
+      kind: 'deterministic',
+      fields: [labelFor(definition, 'gebaeudeklasse'), labelFor(definition, 'fluchtniveau')],
+      severity: 'inconsistency',
+      messageKey: 'classEscapeLevelMismatch',
+      params: { buildingClass, escapeLevel: escapeLabel, maxLevel: constraint.maxLevel },
+    },
+  ]
+}
+
+// ---------------------------------------------------------------------------
+// Rule 4 — renovation focus on a new build.
+// ---------------------------------------------------------------------------
+
+/**
+ * Selecting the "Renovation / existing-building compliance" focus while the
+ * project is a pure NEW build ("neubau") is contradictory — renovation work
+ * implies existing fabric. Extension/conversion ("zu_und_umbau") legitimately
+ * mixes both and is never flagged. Soft ('warning'): the user may simply have
+ * picked the wrong focus chip, but it could also be a mis-set building type.
+ */
+function checkRenovationFocusOnNewBuild(
+  answers: Answers,
+  definition: ProjectIntakeDefinition,
+): DeterministicConsistencyFinding[] {
+  const focus = answers['focus_areas']
+  const buildingType = stringAnswer(answers, 'bestand_neubau')
+  if (!Array.isArray(focus) || !focus.includes('sanierung')) return []
+  if (buildingType !== 'neubau') return []
+
+  return [
+    {
+      kind: 'deterministic',
+      fields: [labelFor(definition, 'focus_areas'), labelFor(definition, 'bestand_neubau')],
+      severity: 'warning',
+      messageKey: 'renovationFocusOnNewBuild',
+    },
+  ]
+}
+
 // ---------------------------------------------------------------------------
 // Rule 3 — orphaned conditional answers.
 // ---------------------------------------------------------------------------
@@ -223,6 +330,9 @@ export function checkIntakeConsistencyFromAnswers(
   return [
     ...checkLowClassTooManyFloors(answers, definition),
     ...checkEscapeLevelVsFloors(answers, definition),
+    ...checkEscapeLevelTooManyFloors(answers, definition),
+    ...checkClassEscapeLevelMismatch(answers, definition),
+    ...checkRenovationFocusOnNewBuild(answers, definition),
     ...checkOrphanedConditionalAnswers(answers, definition),
   ]
 }

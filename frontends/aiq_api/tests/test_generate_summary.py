@@ -88,6 +88,50 @@ async def test_generate_summary_empty_profile_text(app):
 
 
 @pytest.mark.asyncio
+async def test_generate_summary_defaults_to_german(app):
+    """Without an explicit locale the summary is requested in German (UI default)."""
+    mock_response = MagicMock(spec=httpx.Response)
+    mock_response.status_code = 200
+    mock_response.raise_for_status = MagicMock()
+    mock_response.json.return_value = {"choices": [{"message": {"content": "Ein Projekt."}}]}
+    mock_post = AsyncMock(return_value=mock_response)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        with patch("httpx.AsyncClient", _fake_async_client(mock_post)):
+            response = await client.post(
+                "/v1/generate-summary",
+                json={"profile_text": "Main use: Residential"},
+            )
+
+    assert response.status_code == 200
+    payload = mock_post.call_args.kwargs["json"]
+    user_content = payload["messages"][1]["content"]
+    assert user_content.startswith("Write the summary in German.")
+    assert "Main use: Residential" in user_content
+
+
+@pytest.mark.asyncio
+async def test_generate_summary_english_locale(app):
+    """An 'en' locale asks for the summary in English."""
+    mock_response = MagicMock(spec=httpx.Response)
+    mock_response.status_code = 200
+    mock_response.raise_for_status = MagicMock()
+    mock_response.json.return_value = {"choices": [{"message": {"content": "A project."}}]}
+    mock_post = AsyncMock(return_value=mock_response)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        with patch("httpx.AsyncClient", _fake_async_client(mock_post)):
+            response = await client.post(
+                "/v1/generate-summary",
+                json={"profile_text": "Main use: Residential", "locale": "en"},
+            )
+
+    assert response.status_code == 200
+    payload = mock_post.call_args.kwargs["json"]
+    assert payload["messages"][1]["content"].startswith("Write the summary in English.")
+
+
+@pytest.mark.asyncio
 async def test_generate_summary_missing_field(app):
     """Test that a missing profile_text field is a validation error."""
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
