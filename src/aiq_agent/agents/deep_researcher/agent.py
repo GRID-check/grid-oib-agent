@@ -317,13 +317,13 @@ class DeepResearcherAgent:
                         "This may indicate unsupported citation formatting or over-aggressive verification."
                     )
             elif self.enable_citation_verification:
-                # A completed report exists — degrade gracefully like the
-                # zero-valid-citations branch above instead of discarding the
-                # finished run over an empty registry.
-                logger.warning(
-                    "No sources were captured during deep research; returning the completed report "
-                    "without citation verification instead of failing the job."
-                )
+                # A completed report exists but no sources were ever captured:
+                # every finding is ungrounded (the writer answered from model
+                # memory), so the report cannot be citation-verified. Fail the
+                # job loudly instead of shipping an unverifiable report — an
+                # empty registry at the end of a research run is a failure, not
+                # a degraded success.
+                raise self._empty_source_registry_error()
 
             # Post-process: sanitize report (strip body URLs, shortened URLs, unsafe URLs)
             sanitization = sanitize_report(final_message)

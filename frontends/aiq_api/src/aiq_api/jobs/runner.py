@@ -240,6 +240,29 @@ async def run_with_cancellation(
         monitor.stop()
 
 
+def _resolve_worker_tool_refs(fn_config: Any) -> list[str]:
+    """Resolve the tool refs a worker agent should build with.
+
+    Uses the config's explicit ``tools`` list, or auto-inherits the entire
+    data_source_registry when none are configured.
+
+    The empty check is falsy (not ``is None``): agent configs declare ``tools``
+    with ``default_factory=list``, so an omitted list arrives as ``[]``, never
+    ``None``. A prior ``is None`` guard therefore never inherited and silently
+    built a tool-less agent — the researcher workers received no source tools
+    while validation elsewhere reported the inherited tools as available. This
+    matches the two other resolution sites (the sync agent build in
+    deep_researcher/register.py and the chat-route validator in
+    chat_researcher/register.py), which both treat an empty list as "inherit".
+    """
+    tool_refs = getattr(fn_config, "tools", None)
+    if not tool_refs:
+        from aiq_agent.common import get_all_tool_refs
+
+        return get_all_tool_refs()
+    return list(tool_refs)
+
+
 def _load_agent_class(agent_class_path: str) -> type:
     """
     Dynamically load an agent class from its module path.
@@ -500,16 +523,9 @@ async def run_agent_job(
                         if llm is not None:
                             llm = provider.get(LLMRole.ORCHESTRATOR)
 
-            # Resolve tools: use explicit list or auto-inherit from
-            # data_source_registry. `is None` (not falsy): an explicit
-            # `tools: []` means a tool-less agent — the submit-route validator
-            # treats it that way, and `not []` would silently hand such an
-            # agent every registry tool instead.
-            tool_refs = fn_config.tools
-            if tool_refs is None:
-                from aiq_agent.common import get_all_tool_refs
-
-                tool_refs = get_all_tool_refs()
+            # Resolve tools: use the explicit list or auto-inherit the whole
+            # data_source_registry when none are configured.
+            tool_refs = _resolve_worker_tool_refs(fn_config)
 
             tools = await builder.get_tools(tool_names=tool_refs, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
 

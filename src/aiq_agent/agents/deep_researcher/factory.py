@@ -483,6 +483,7 @@ def build_deep_research_graph(
         backend=context.backend,
         callbacks=callbacks,
         max_research_concurrency=max_research_concurrency,
+        researcher_tool_names={tool.name for tool in context.tool_set.researcher_tools},
         source_registry_middleware=source_registry_middleware,
     )
 

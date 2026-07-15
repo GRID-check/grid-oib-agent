@@ -125,20 +125,26 @@ class TestDeepResearcherAgent:
         """Create a real LangChain tool."""
         return web_search_tool
 
-    def _build_batch_tool(self, agent, researcher_runnable, backend=None):
+    def _build_batch_tool(self, agent, researcher_runnable, backend=None, researcher_tool_names=None):
         """Build a batch tool plus the run-scoped middleware it registers into.
 
         Mirrors _prepare_run(): the source registry middleware is per-run
-        state, so tests construct one alongside the tool (ADR-0018).
+        state, so tests construct one alongside the tool (ADR-0018). The
+        researcher tool-name set mirrors the worker's real registry (source
+        tools plus the always-present helper tools) so preferred_tools
+        validation matches production.
         """
         from aiq_agent.agents.deep_researcher.custom_middleware import SourceRegistryMiddleware
 
+        if researcher_tool_names is None:
+            researcher_tool_names = set(agent.source_tool_names) | {"think", "get_verified_sources"}
         source_registry_middleware = SourceRegistryMiddleware(source_tool_names=agent.source_tool_names)
         batch_tool = build_research_batch_tool(
             researcher_runnable=researcher_runnable,
             backend=backend,
             callbacks=agent.callbacks,
             max_research_concurrency=agent.max_research_concurrency,
+            researcher_tool_names=researcher_tool_names,
             source_registry_middleware=source_registry_middleware,
         )
         return batch_tool, source_registry_middleware
@@ -806,12 +812,12 @@ class TestDeepResearcherAgent:
         fake_runnable.ainvoke.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_run_research_batch_delegates_tool_names_without_extra_validation(
+    async def test_run_research_batch_rejects_unavailable_preferred_tools(
         self,
         mock_llm_provider,
         real_tool,
     ):
-        """The simplified batch tool delegates the planned query shape to the researcher."""
+        """A query preferring a tool absent from the worker registry fails at submission."""
         from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
 
         fake_runnable = MagicMock()
@@ -819,26 +825,66 @@ class TestDeepResearcherAgent:
         agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
         batch_tool, _source_mw = self._build_batch_tool(agent, fake_runnable)
 
-        result = await batch_tool.ainvoke(
-            {
-                "queries": [
-                    {
-                        "query": "AI agents overview",
-                        "subqueries": ["AI agents definition 2025", "LLM agents architecture 2025"],
-                        "preferred_tools": ["external"],
-                        "fallback_tools": [],
-                        "target_components": ["overview"],
-                        "rationale": "External overview.",
-                    }
-                ]
-            }
-        )
+        with pytest.raises(ValueError, match="preferred_tools are not available"):
+            await batch_tool.ainvoke(
+                {
+                    "queries": [
+                        {
+                            "query": "AI agents overview",
+                            "subqueries": ["AI agents definition 2025", "LLM agents architecture 2025"],
+                            "preferred_tools": ["external"],
+                            "fallback_tools": [],
+                            "target_components": ["overview"],
+                            "rationale": "External overview.",
+                        }
+                    ]
+                }
+            )
 
-        assert json.loads(result)[0]["query_topic"] == "AI agents overview"
-        fake_runnable.ainvoke.assert_awaited_once()
-        call_state = fake_runnable.ainvoke.call_args.args[0]
-        assert '"preferred_tools": [' in call_state["messages"][0].content
-        assert '"external"' in call_state["messages"][0].content
+        # Fail fast: no researcher worker is spawned for an unexecutable query.
+        fake_runnable.ainvoke.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_run_research_batch_rejects_empty_notes_as_failed_worker(
+        self,
+        mock_llm_provider,
+        real_tool,
+    ):
+        """A note with no findings and a blank summary is a failed worker, not a success."""
+        from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+
+        empty_note = {
+            "structured_response": {
+                "query_topic": "Empty",
+                "target_components": ["overview"],
+                "summary": "   ",
+                "findings": [],
+                "gaps": [],
+                "sources": [],
+                "narrative_notes": "",
+                "language": "English",
+            }
+        }
+        fake_runnable = MagicMock()
+        fake_runnable.ainvoke = AsyncMock(return_value=empty_note)
+        agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
+        batch_tool, _source_mw = self._build_batch_tool(agent, fake_runnable)
+
+        with pytest.raises(RuntimeError, match="empty ResearchNotes"):
+            await batch_tool.ainvoke(
+                {
+                    "queries": [
+                        {
+                            "query": "survey of AI agents 2023-2025",
+                            "subqueries": [],
+                            "preferred_tools": ["web_search_tool"],
+                            "fallback_tools": [],
+                            "target_components": ["overview"],
+                            "rationale": "Gather coverage.",
+                        }
+                    ]
+                }
+            )
 
     @pytest.mark.asyncio
     async def test_run_research_batch_delegates_empty_subqueries(
@@ -1511,13 +1557,15 @@ class TestPerRunIsolation:
             assert "Deep research answer" in first_result.messages[-1].content
 
             # Second run without a session registry sees none of the first
-            # run's sources: its fresh per-run registry is empty. The completed
-            # report is still returned (degraded, without citation
-            # verification) instead of being discarded.
-            state = DeepResearchAgentState(messages=[HumanMessage(content="Next request")])
-            second_result = await agent.run(state)
+            # run's sources: its fresh per-run registry is empty. An empty
+            # registry at the end of a run now fails loudly — which also proves
+            # the second run did not inherit run-one's captured source (it would
+            # otherwise have a non-empty registry and succeed).
+            from aiq_agent.common.citation_verification import EmptySourceRegistryError
 
-            assert "Deep research answer" in second_result.messages[-1].content
+            state = DeepResearchAgentState(messages=[HumanMessage(content="Next request")])
+            with pytest.raises(EmptySourceRegistryError):
+                await agent.run(state)
 
 
 class TestFinalMarkdownExtraction:
@@ -1716,9 +1764,10 @@ class TestDeepResearcherCitationVerification:
         assert "Citation verification found no valid citations" in caplog.text
 
     @pytest.mark.asyncio
-    async def test_run_returns_completed_report_when_registry_is_empty(self, mock_llm_provider, real_tool, caplog):
-        """An empty source registry degrades to a warning when a report was produced."""
+    async def test_run_fails_when_registry_is_empty_despite_report(self, mock_llm_provider, real_tool):
+        """A report produced with zero captured sources is unverifiable, so the run fails."""
         from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+        from aiq_agent.common.citation_verification import EmptySourceRegistryError
 
         report = "Completed report without captured sources."
         deep_result = {
@@ -1736,11 +1785,8 @@ class TestDeepResearcherCitationVerification:
             agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
 
             state = DeepResearchAgentState(messages=[HumanMessage(content="Write a report")])
-            with caplog.at_level("WARNING", logger="aiq_agent.agents.deep_researcher.agent"):
-                result = await agent.run(state)
-
-        assert result.messages[-1].content.strip() == report
-        assert "No sources were captured during deep research" in caplog.text
+            with pytest.raises(EmptySourceRegistryError):
+                await agent.run(state)
 
     @pytest.mark.asyncio
     async def test_run_raises_empty_registry_error_when_nothing_to_salvage(self, mock_llm_provider, real_tool):

@@ -74,6 +74,16 @@ async def _run_research_query(
                 f"researcher worker returned invalid ResearchNotes for query {query.query!r}: {exc}"
             ) from exc
 
+        # A note with no findings and an empty summary carries no research
+        # result — it is schema-valid only because the contract sets no minimum
+        # length. Treat it as a failed worker so the orchestrator resubmits the
+        # query instead of persisting an empty note that silently drops the work.
+        if not note.findings and not note.summary.strip():
+            raise ValueError(
+                f"researcher worker returned an empty ResearchNotes (no findings and blank summary) "
+                f"for query {query.query!r}"
+            )
+
         return note
 
 
@@ -161,11 +171,35 @@ async def _run_research_queries(
     return successful_queries, notes, errors
 
 
+def _assert_preferred_tools_available(queries: list[ResearchQuery], researcher_tool_names: set[str]) -> None:
+    """Fail the batch before spawning workers if any query prefers an unavailable tool.
+
+    A query whose ``preferred_tools`` are not in the researcher worker's actual
+    tool registry can never be executed as planned — the worker would fall back
+    to answering from model memory. Surface that as a submission error so the
+    orchestrator/planner rewrites the query instead of the worker improvising.
+    """
+    missing = {
+        tool_name
+        for query in queries
+        for tool_name in query.preferred_tools
+        if tool_name not in researcher_tool_names
+    }
+    if missing:
+        available = ", ".join(sorted(researcher_tool_names)) or "(none)"
+        raise ValueError(
+            f"run_research_batch received queries whose preferred_tools are not available to researcher "
+            f"workers: {', '.join(sorted(missing))}. Available researcher tools: {available}. "
+            "Re-plan the queries to use only available tools."
+        )
+
+
 def build_research_batch_tool(
     *,
     researcher_runnable: Any,
     callbacks: list[Any],
     max_research_concurrency: int,
+    researcher_tool_names: set[str],
     backend: Any | None = None,
     source_registry_middleware: Any | None = None,
 ) -> BaseTool:
@@ -185,6 +219,8 @@ def build_research_batch_tool(
                 f"run_research_batch accepts at most {max_research_concurrency} curated queries. "
                 f"Received {len(queries)}. Rank, merge, or drop lower-priority queries and call again."
             )
+
+        _assert_preferred_tools_available(queries, researcher_tool_names)
         successful_queries, notes, errors = await _run_research_queries(
             queries=queries,
             researcher_runnable=researcher_runnable,
