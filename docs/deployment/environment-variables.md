@@ -223,3 +223,12 @@ vars. See `docs/architecture/usage-budgets.md`.
 | `GRID_PLATFORM_ORG_EXTERNAL_ID` | No | `grid-platform` | External id of the GRID Platform organization in WorkOS. |
 | `GRID_DISABLE_SELF_SERVE_ORGS` | No | `false` | `true` makes the platform invite-only: fresh users can no longer self-create organizations (403 `self-serve-disabled`). |
 | `GRID_ENFORCE_FEATURE_FLAGS` | No | `false` | `true` enforces WorkOS feature flags (`runtime-model-config`, `deep-research` — registry: `lib/authz/feature-flags.ts`). Turn on only after the flags exist in WorkOS and orgs are targeted; sessions without the JWT `feature_flags` claim then fail closed until re-login. |
+
+## Project Authorization (frontend)
+
+Tune the per-project FGA authorization path (`lib/authz/projects.ts`), the WorkOS round-trips that are unique to the project save / summary / consistency-check flows (a normal chat-message persistence POST does no FGA call).
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `GRID_AUTHZ_SLOW_CALL_MS` | No | `2000` | Threshold (ms) above which a WorkOS authorization call on the project-authz path is logged as slow (`[WorkOS] slow call: …`), so a production stall names the exact leg instead of an anonymous hang. The fast path stays silent. `0` disables the warning. |
+| `GRID_AUTHZ_CACHE_TTL_MS` | No | `0` (off) | When `> 0`, caches per-project FGA `authorization.check` results for `(organizationMembershipId, projectId, permission)` for this many ms in the shared cache (Redis/Dragonfly, fail-open). Cuts the two WorkOS round-trips each save/summary/consistency-check makes down to zero on a cache hit. **Security tradeoff:** a project-role grant or revocation propagates up to TTL later — keep it short (30000–60000, matching the 30s feature-flag cache). The org **tenancy** check is never cached (runs every request), so a project can never be served cross-org from cache, and org-admin bypass is unaffected. Off by default; enable only where a ≤TTL revocation lag is acceptable. |
