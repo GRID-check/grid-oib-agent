@@ -20,10 +20,12 @@ Variables set in `docker-compose.yaml` under `environment:` take precedence over
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `KIMI_API_KEY` | Yes | — | Kimi (Moonshot AI) OpenAI-compatible API key for LLM inference. Used by `config_grid_oib.yml` for all LLM models (intent, reasoning, deep research, summaries). |
-| `OPENROUTER_API_KEY` | Yes* | — | OpenRouter API key for embeddings. In the local `.env`, this replaces the NVIDIA API key for the embedding layer. |
-| `NVIDIA_API_KEY` | Yes* | — | NVIDIA API key for NIM inference models. **Current workaround**: Set to the same value as `OPENROUTER_API_KEY` because the NVIDIAEmbedding class from LlamaIndex uses this env var name. A real NVIDIA NGC API key is required for production VLM features. |
+| `OPENROUTER_API_KEY` | Yes* | — | OpenRouter API key. Powers embeddings, the VLM, and the BFF-invoked LLM routes. Because the bespoke LLM call sites now resolve credentials through the shared resolver with **provider inference** (see note below), setting this alone is enough whenever the corresponding base URL points at `openrouter.ai`. |
+| `NVIDIA_API_KEY` | Yes* | — | NVIDIA API key for NIM inference models, and the historical fallback env for embeddings/VLM (the LlamaIndex `NVIDIAEmbedding` class reads this name). With OpenRouter base URLs, provider inference now picks up `OPENROUTER_API_KEY` natively, so aliasing `NVIDIA_API_KEY=${OPENROUTER_API_KEY}` is only a belt-and-suspenders back-compat. A real NVIDIA NGC key is required only for actual NVIDIA endpoints. |
 
 *At least one API key for LLM and one for embeddings is required. The local setup uses Kimi for LLM + OpenRouter for embeddings (with NVIDIA_API_KEY as a workaround).
+
+> **Unified LLM credential resolution.** The bespoke (non-NAT) LLM call sites — the VLM captioner, the embeddings client, the tag-backfill script, and the BFF-invoked `/v1/consistency-check` and `/v1/generate-summary` routes — resolve credentials through one shared resolver (`aiq_agent.common.credential_resolution.resolve_llm_credential`). Resolution order: (1) **org BYOK** credential when an organization id is supplied (the two BFF routes forward `x-grid-organization-id`; a BYOK swap changes the api key + base URL only, never the model); (2) the call site's explicit key env var; (3) its fallback env vars; (4) **provider inference** — the conventional key env for whatever provider the resolved base URL points at (`openrouter.ai`→`OPENROUTER_API_KEY`, `integrate.api.nvidia.com`→`NVIDIA_API_KEY`, `api.openai.com`→`OPENAI_API_KEY`). All env reads treat a literal, uninterpolated `${...}` placeholder (a docker compose `env_file` non-interpolation) as unset. BYOK is **not** wired for embeddings/VLM: ingestion is org-agnostic today (no org id crosses `/v1/ingest`) — a known follow-up.
 
 ---
 
@@ -83,8 +85,10 @@ Variables set in `docker-compose.yaml` under `environment:` take precedence over
 | `AIQ_EXTRACT_TABLES` | No | `false` | Enable table extraction from documents. |
 | `AIQ_EXTRACT_IMAGES` | No | `false` | Enable image extraction from documents. |
 | `AIQ_EXTRACT_CHARTS` | No | `false` | Enable chart extraction from documents. |
-| `AIQ_VLM_MODEL` | No | `nvidia/nemotron-nano-12b-v2-vl` | VLM model for vision-language tasks. Requires a real NVIDIA API key. |
-| `AIQ_VLM_BASE_URL` | No | `https://integrate.api.nvidia.com/v1` | Base URL for VLM model API. |
+| `AIQ_VLM_MODEL` | No | `nvidia/nemotron-nano-12b-v2-vl` | VLM model for vision-language tasks (image captioning during ingestion). |
+| `AIQ_VLM_BASE_URL` | No | `https://integrate.api.nvidia.com/v1` | Base URL for the VLM API. Drives provider inference for the VLM key (an `openrouter.ai` base URL resolves `OPENROUTER_API_KEY`). |
+| `AIQ_VLM_API_KEY` | No | `NVIDIA_API_KEY`, then the provider key inferred from `AIQ_VLM_BASE_URL` | Explicit VLM key override. Resolution chain: `AIQ_VLM_API_KEY` → `NVIDIA_API_KEY` → provider inference from the base URL. This one resolver is the single source of truth both ingestion and the `vlm_available` capability bit consult. |
+| `AIQ_EMBED_API_KEY` | No | `NVIDIA_API_KEY`, then the provider key inferred from `AIQ_EMBED_BASE_URL` | Explicit embeddings key override (now read by the adapter). Chain: `AIQ_EMBED_API_KEY` → `NVIDIA_API_KEY` → provider inference. Inference only selects the key for the configured base URL; it never changes the base URL (embeddings need an embeddings-capable endpoint). |
 | `AIQ_EMBED_MODEL` | No | `nvidia/llama-nemotron-embed-vl-1b-v2` | Embedding model name. Local override: `openai/text-embedding-3-large`. |
 | `AIQ_INGEST_MAX_WORKERS` | No | `2` | Max concurrent ingestion jobs per backend process; excess uploads queue as PENDING instead of each spawning a thread against the embedding API and the embedded Chroma store. |
 | `GRID_MAX_ACTIVE_JOBS` | No | `8` | Admission control: max non-terminal async research jobs accepted across all orgs. Beyond the cap, REST submits get 429 (+Retry-After) and chat answers with a friendly "queue full" message. `0` disables. |
@@ -96,10 +100,13 @@ Variables set in `docker-compose.yaml` under `environment:` take precedence over
 | `AIQ_QUERY_EMBED_CACHE_SIZE` | No | `512` | Max query embeddings kept in the retriever's LRU (one query is embedded once and reused across the per-collection fan-out). |
 | `AIQ_STATIC_RESULT_CACHE_COLLECTIONS` | No | `oib_knowledge` | Comma-separated collections whose retrieval results may be cached (static corpora only — never project/session collections). |
 | `AIQ_STATIC_RESULT_CACHE_TTL_SECONDS` | No | `3600` | TTL for cached static-collection retrieval results; in-process writes invalidate immediately via a collection version. |
-| `AIQ_EMBED_BASE_URL` | No | `https://integrate.api.nvidia.com/v1` | Embedding model API base URL. Local override: `https://openrouter.ai/api/v1`. |
+| `AIQ_EMBED_BASE_URL` | No | `https://integrate.api.nvidia.com/v1` | Embedding model API base URL. Local override: `https://openrouter.ai/api/v1`. Drives provider inference for the embeddings key (see `AIQ_EMBED_API_KEY`). |
 | `CONSISTENCY_LLM_MODEL` | No | `LLM_MODEL`, then `deepseek/deepseek-v4-flash` (if `OPENROUTER_API_KEY` set) / `gpt-4o-mini` | Model for the end-of-wizard free-text intake consistency-check endpoint (`POST /v1/consistency-check`). Falls back to the generic `LLM_MODEL`, then the OpenRouter/OpenAI default. |
-| `CONSISTENCY_LLM_API_KEY` | No | `LLM_API_KEY`, then `OPENROUTER_API_KEY` | API key for the consistency-check LLM. Falls back to `LLM_API_KEY`, then `OPENROUTER_API_KEY`. If none resolves, the endpoint returns `error=llm_not_configured` (HTTP 200) so the wizard can still save. |
-| `CONSISTENCY_LLM_BASE_URL` | No | `LLM_BASE_URL`, then `https://openrouter.ai/api/v1` (if `OPENROUTER_API_KEY` set) / `https://api.openai.com/v1` | Base URL for the consistency-check LLM (OpenAI-compatible `/chat/completions`). Falls back to `LLM_BASE_URL`, then the OpenRouter/OpenAI default. |
+| `CONSISTENCY_LLM_API_KEY` | No | org BYOK, then `LLM_API_KEY`, then `OPENROUTER_API_KEY`, then provider inference | API key for the consistency-check LLM. Resolved through the shared resolver: an org BYOK credential (forwarded `x-grid-organization-id`) wins, then `CONSISTENCY_LLM_API_KEY` → `LLM_API_KEY` → `OPENROUTER_API_KEY` → the provider key inferred from the resolved base URL. If none resolves, the endpoint returns `error=llm_not_configured` (HTTP 200) so the wizard can still save. |
+| `CONSISTENCY_LLM_BASE_URL` | No | `LLM_BASE_URL`, then `https://openrouter.ai/api/v1` (if `OPENROUTER_API_KEY` set) / `https://api.openai.com/v1` | Base URL for the consistency-check LLM (OpenAI-compatible `/chat/completions`). Falls back to `LLM_BASE_URL`, then the OpenRouter/OpenAI default. An org BYOK credential overrides this base URL (and the key) at request time. |
+| `SUMMARY_LLM_MODEL` | No | `LLM_MODEL`, then `deepseek/deepseek-v4-flash` (if `OPENROUTER_API_KEY` set) / `gpt-4o-mini` | Model for the AI project-summary endpoint (`POST /v1/generate-summary`). Falls back to the generic `LLM_MODEL`, then the OpenRouter/OpenAI default. BYOK never changes the model. |
+| `SUMMARY_LLM_API_KEY` | No | org BYOK, then `LLM_API_KEY`, then `OPENROUTER_API_KEY`, then provider inference | API key for the summary LLM, resolved through the shared resolver exactly like `CONSISTENCY_LLM_API_KEY` (org BYOK via forwarded `x-grid-organization-id` first, then `SUMMARY_LLM_API_KEY` → `LLM_API_KEY` → `OPENROUTER_API_KEY` → provider inference). If none resolves the endpoint returns `error=llm_not_configured` (HTTP 200). |
+| `SUMMARY_LLM_BASE_URL` | No | `LLM_BASE_URL`, then `https://openrouter.ai/api/v1` (if `OPENROUTER_API_KEY` set) / `https://api.openai.com/v1` | Base URL for the summary LLM (OpenAI-compatible `/chat/completions`). Falls back to `LLM_BASE_URL`, then the OpenRouter/OpenAI default. An org BYOK credential overrides this base URL (and the key) at request time. |
 
 ---
 
@@ -109,8 +116,8 @@ The one-off tag-backfill script runs **outside** the NAT runtime, so it builds a
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `BACKFILL_SUMMARY_API_KEY` | Yes* | `NVIDIA_API_KEY` fallback | API key for the tagging LLM. Falls back to `NVIDIA_API_KEY`. If neither is set the script exits with code `2` (LLM could not be constructed). |
-| `BACKFILL_SUMMARY_BASE_URL` | No | `https://integrate.api.nvidia.com/v1` | Base URL for the tagging LLM. |
+| `BACKFILL_SUMMARY_API_KEY` | Yes* | `NVIDIA_API_KEY`, then provider inference | API key for the tagging LLM, resolved through the shared resolver: `BACKFILL_SUMMARY_API_KEY` → `NVIDIA_API_KEY` → the provider key inferred from `BACKFILL_SUMMARY_BASE_URL`. If none resolves the script exits with code `2` (LLM could not be constructed). The script runs outside NAT, so BYOK does not apply. |
+| `BACKFILL_SUMMARY_BASE_URL` | No | `https://integrate.api.nvidia.com/v1` | Base URL for the tagging LLM. Drives provider inference for the tagging key. |
 | `BACKFILL_SUMMARY_MODEL` | No | `nvidia/nemotron-mini-4b-instruct` | Tagging model name. |
 
 *Required only when running the backfill script; not needed by the running services. The store/source come from `AIQ_SUMMARY_DB` and `AIQ_CHROMA_DIR` (or `--summary-db` / `--chroma-dir`). Exit codes: `0` success (or nothing to do; `--dry-run` always `0`), `1` a real run finished with per-document classification failures, `2` missing LLM key.
@@ -121,7 +128,7 @@ The one-off tag-backfill script runs **outside** the NAT runtime, so it builds a
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `FILE_UPLOAD_ACCEPTED_TYPES` | No | `.pdf,.docx,.txt,.md` | Comma-separated list of accepted file extensions (include leading dots). Add `.pptx` for Foundational RAG backend. **Images are opt-in**: image types (`.png,.jpg,.jpeg`) are no longer shipped in the defaults — image ingestion needs a configured VLM (`AIQ_VLM_*`), so add them here explicitly AND enable the `image-upload` WorkOS flag to accept them. Images added here are stripped from the client accept-list and rejected server-side (400) when the flag is off. |
+| `FILE_UPLOAD_ACCEPTED_TYPES` | No | `.pdf,.docx,.txt,.md` | Comma-separated list of accepted file extensions (include leading dots). Add `.pptx` for Foundational RAG backend. Governs **non-image** types only. **Image types (`.png,.jpg,.jpeg`) are derived, not env-listed**: they are offered automatically when the `image-upload` WorkOS flag allows AND the backend reports a configured VLM (`vlm_available`, derived from `AIQ_VLM_*`). Listing images here has no effect without a VLM — they are stripped from the client accept-list and rejected server-side (400) whenever the flag is off OR the VLM capability is absent (fail-closed), closing the old silent-failure hole where env-listed images without a VLM were accepted then failed ingestion. |
 | `FILE_UPLOAD_MAX_SIZE_MB` | No | `100` | Maximum total file size in MB. |
 | `FILE_UPLOAD_MAX_FILE_COUNT` | No | `10` | Maximum number of files per upload session. |
 | `FILE_EXPIRATION_CHECK_INTERVAL_HOURS` | No | `0` | Hours after upload before files may expire (0 = no expiry shown). Should match backend TTL (e.g., 12 hours). |

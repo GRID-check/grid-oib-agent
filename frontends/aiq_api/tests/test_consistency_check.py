@@ -262,6 +262,69 @@ async def test_consistency_check_upstream_error_returns_error(app):
 
 
 @pytest.mark.asyncio
+async def test_consistency_check_uses_byok_credential_when_org_header_present(app, monkeypatch):
+    """When the BFF forwards an org id and BYOK resolves, the route calls the
+    tenant's endpoint/key rather than the env credential."""
+    from aiq_agent.common.llm_credentials import OrgLLMCredential
+
+    monkeypatch.delenv("CONSISTENCY_LLM_API_KEY", raising=False)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "platform-key")
+
+    byok = OrgLLMCredential(
+        credential_id="cred-1",
+        provider="openrouter",
+        base_url="https://tenant.example.com/v1",
+        api_key="sk-tenant",
+        key_fingerprint="fp",
+    )
+
+    captured: dict = {}
+
+    async def _capture(url, json=None, headers=None):  # noqa: A002 - mirrors httpx kwarg
+        captured["url"] = url
+        captured["headers"] = headers
+        return _llm_response('{"findings": []}')
+
+    mock_post = AsyncMock(side_effect=_capture)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        with patch("aiq_agent.common.llm_credentials.resolve_org_llm_credential", return_value=byok):
+            with patch("httpx.AsyncClient", _fake_async_client(mock_post)):
+                response = await client.post(
+                    "/v1/consistency-check", json=_body(), headers={"x-grid-organization-id": "org-1"}
+                )
+
+    assert response.status_code == 200
+    assert captured["url"] == "https://tenant.example.com/v1/chat/completions"
+    assert captured["headers"]["Authorization"] == "Bearer sk-tenant"
+
+
+@pytest.mark.asyncio
+async def test_consistency_check_env_fallback_when_byok_absent(app, monkeypatch):
+    """With an org header but no BYOK credential, the route falls back to the env
+    chain (fail-open)."""
+    monkeypatch.setenv("CONSISTENCY_LLM_API_KEY", "env-key")
+
+    captured: dict = {}
+
+    async def _capture(url, json=None, headers=None):  # noqa: A002 - mirrors httpx kwarg
+        captured["headers"] = headers
+        return _llm_response('{"findings": []}')
+
+    mock_post = AsyncMock(side_effect=_capture)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        with patch("aiq_agent.common.llm_credentials.resolve_org_llm_credential", return_value=None):
+            with patch("httpx.AsyncClient", _fake_async_client(mock_post)):
+                response = await client.post(
+                    "/v1/consistency-check", json=_body(), headers={"x-grid-organization-id": "org-1"}
+                )
+
+    assert response.status_code == 200
+    assert captured["headers"]["Authorization"] == "Bearer env-key"
+
+
+@pytest.mark.asyncio
 async def test_consistency_check_no_api_key_returns_not_configured(app, monkeypatch):
     """With no resolvable API key the route short-circuits without any HTTP call."""
     monkeypatch.delenv("CONSISTENCY_LLM_API_KEY", raising=False)

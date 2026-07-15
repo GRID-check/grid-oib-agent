@@ -10,6 +10,7 @@ import os
 
 import httpx
 from fastapi import APIRouter
+from fastapi import Header
 
 from ..models.requests import GenerateSummaryRequest
 from ..models.requests import GenerateSummaryResponse
@@ -25,24 +26,38 @@ SYSTEM_PROMPT = (
 )
 
 
-def _llm_settings() -> tuple[str, str, str]:
+def _llm_settings(organization_id: str | None = None) -> tuple[str, str, str]:
     """Resolve the model/api_key/base_url for the summary LLM call.
 
-    ``SUMMARY_LLM_*`` env vars take precedence, then generic ``LLM_*`` vars.
-    Neither is set in the standard deployment, so the final fallback matches
-    the OpenRouter setup used by ``config_oib_openrouter.yml`` — without it
-    every summary silently degrades to "".
+    Goes through the shared credential resolver so this route reaches the org's
+    BYOK credential like every other LLM call, then the same env chain as before:
+    ``SUMMARY_LLM_*`` → generic ``LLM_*`` → the OpenRouter/OpenAI default used by
+    ``config_oib_openrouter.yml`` (without which every summary silently degrades
+    to ""). Model + base URL keep their two-level env fallback; the resolver adds
+    BYOK (org key + base, model unchanged) and provider inference on top.
+    Fail-open: a BYOK miss falls back to the env chain.
     """
+    from aiq_agent.common.credential_resolution import resolve_llm_credential
+
     openrouter_key = os.getenv("OPENROUTER_API_KEY", "")
     default_model = "deepseek/deepseek-v4-flash" if openrouter_key else "gpt-4o-mini"
     default_base = "https://openrouter.ai/api/v1" if openrouter_key else "https://api.openai.com/v1"
 
     model = os.getenv("SUMMARY_LLM_MODEL", os.getenv("LLM_MODEL", default_model))
-    api_key = os.getenv("SUMMARY_LLM_API_KEY", os.getenv("LLM_API_KEY", openrouter_key))
     base_url = os.getenv("SUMMARY_LLM_BASE_URL", os.getenv("LLM_BASE_URL", default_base))
-    if not api_key:
-        logger.warning("No API key for summary LLM (SUMMARY_LLM_API_KEY / LLM_API_KEY / OPENROUTER_API_KEY)")
-    return model, api_key, base_url.rstrip("/")
+
+    cred = resolve_llm_credential(
+        primary_env="SUMMARY_LLM_API_KEY",
+        fallback_envs=("LLM_API_KEY", "OPENROUTER_API_KEY"),
+        default_base_url=base_url,
+        default_model=model,
+        organization_id=organization_id,
+    )
+    if not cred.api_key:
+        logger.warning(
+            "No API key for summary LLM (BYOK / SUMMARY_LLM_API_KEY / LLM_API_KEY / OPENROUTER_API_KEY)"
+        )
+    return cred.model, cred.api_key, cred.base_url
 
 
 def add_generate_summary_routes(router: APIRouter) -> None:
@@ -58,12 +73,17 @@ def add_generate_summary_routes(router: APIRouter) -> None:
             "from the structured profile prompt view text."
         ),
     )
-    async def generate_summary(request: GenerateSummaryRequest) -> GenerateSummaryResponse:
+    async def generate_summary(
+        request: GenerateSummaryRequest,
+        # Forwarded by the BFF (profile-service) so this route can reach the
+        # org's BYOK LLM credential; absent for anonymous/direct callers.
+        x_grid_organization_id: str | None = Header(default=None),
+    ) -> GenerateSummaryResponse:
         profile_text = request.profile_text.strip()
         if not profile_text:
             return GenerateSummaryResponse(summary="")
 
-        model, api_key, base_url = _llm_settings()
+        model, api_key, base_url = _llm_settings(x_grid_organization_id)
         if not api_key:
             # No credentials resolved — do not send a request that is guaranteed
             # to fail (401/403). Surface a diagnosable code instead.

@@ -40,6 +40,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from aiq_agent.common.credential_resolution import read_api_key_env
 from aiq_agent.knowledge.base import BaseIngestor
 from aiq_agent.knowledge.base import BaseRetriever
 from aiq_agent.knowledge.base import TTLCleanupMixin
@@ -119,34 +120,95 @@ def collection_version(collection_name: str) -> int:
         return _collection_versions.get(collection_name, 0)
 
 
-def _read_api_key_env(name: str) -> str:
-    """Read an API key env var, treating unresolved ``${...}`` placeholders as unset.
-
-    docker compose ``env_file`` does not interpolate ``${VAR}`` references, so a
-    line like ``AIQ_VLM_API_KEY=${OPENROUTER_API_KEY}`` reaches the process as a
-    literal placeholder string rather than a key.
-    """
-    key = os.environ.get(name, "")
-    if key.startswith("${") and key.endswith("}"):
-        logger.error("%s contains an unresolved placeholder %r - treating as unset", name, key)
-        return ""
-    return key
+# ``read_api_key_env`` (the ${...}-placeholder guard) was promoted to the shared
+# resolver (aiq_agent.common.credential_resolution) so every credential path
+# applies it identically. Kept aliased under the historical private name for
+# back-compat with any caller that still imports ``_read_api_key_env``.
+_read_api_key_env = read_api_key_env
 
 
 def _get_nvidia_api_key() -> str:
     """Get NVIDIA API key from environment."""
-    key = _read_api_key_env("NVIDIA_API_KEY")
+    key = read_api_key_env("NVIDIA_API_KEY")
     if not key:
         logger.warning("NVIDIA_API_KEY not set - embeddings may fail")
     return key
 
 
+def _resolve_embed_api_key(base_url: str, model: str) -> str:
+    """Resolve the embeddings API key through the shared credential resolver.
+
+    Chain: explicit ``AIQ_EMBED_API_KEY`` → ``NVIDIA_API_KEY`` fallback →
+    provider inference from ``base_url``. Inference only selects the KEY for the
+    configured embeddings endpoint; it NEVER changes ``base_url`` (embeddings
+    need an embeddings-capable endpoint, so the caller keeps its configured
+    base). With the default deployment (NVIDIA base, ``NVIDIA_API_KEY`` set) this
+    is byte-identical to the old ``_get_nvidia_api_key()`` behaviour.
+
+    BYOK is intentionally NOT wired here: ingestion is org-agnostic today (no org
+    id crosses ``/v1/ingest``; the ingest thread pool loses request context), so
+    there is no org id to resolve. Known follow-up — see docs.
+    """
+    from aiq_agent.common.credential_resolution import resolve_llm_credential
+
+    return resolve_llm_credential(
+        primary_env="AIQ_EMBED_API_KEY",
+        fallback_envs=("NVIDIA_API_KEY",),
+        default_base_url=base_url,
+        default_model=model,
+        organization_id=None,
+    ).api_key
+
+
+def resolve_vlm_api_key() -> str:
+    """Resolve the VLM API key from the deployment's configuration — the single
+    source of truth for "is a vision model reachable?".
+
+    Both the ingestion path (image captioning) and the capability endpoint that
+    tells the frontend whether to offer image upload MUST go through this one
+    function, so the advertised capability can never drift from what ingestion
+    will actually attempt.
+
+    Delegates to the shared resolver (:func:`resolve_llm_credential`) so every
+    caller inherits the same chain:
+
+      1. explicit override           — ``AIQ_VLM_API_KEY``
+      2. platform default             — ``NVIDIA_API_KEY``
+      3. deployment provider key      — inferred from ``AIQ_VLM_BASE_URL``: the
+         key for whatever provider the base URL points at (e.g.
+         ``OPENROUTER_API_KEY`` when the base URL is openrouter.ai)
+
+    BYOK is not wired here for the same reason as embeddings: ingestion carries
+    no org id today (known follow-up). Returns the resolved key, or ``""`` when
+    none is configured.
+    """
+    from aiq_agent.common.credential_resolution import resolve_llm_credential
+
+    return resolve_llm_credential(
+        primary_env="AIQ_VLM_API_KEY",
+        fallback_envs=("NVIDIA_API_KEY",),
+        default_base_url="https://integrate.api.nvidia.com/v1",
+        default_model=DEFAULT_VLM_MODEL,
+        base_url_env="AIQ_VLM_BASE_URL",
+        model_env="AIQ_VLM_MODEL",
+        organization_id=None,
+    ).api_key
+
+
+def vlm_configured() -> bool:
+    """Whether a VLM API key resolves — i.e. image ingestion can run here.
+
+    Derived capability (never a standalone flag): it reflects exactly what
+    ``resolve_vlm_api_key`` finds, so extending the resolution chain lights up
+    the frontend's image-upload offer automatically.
+    """
+    return bool(resolve_vlm_api_key())
+
+
 def _get_vlm_api_key() -> str:
-    """Get VLM API key from environment, falling back to NVIDIA_API_KEY."""
-    key = _read_api_key_env("AIQ_VLM_API_KEY")
-    if not key:
-        key = _get_nvidia_api_key()
-    return key
+    """Back-compat alias for the ingestion path; delegates to the single source
+    of truth in :func:`resolve_vlm_api_key`."""
+    return resolve_vlm_api_key()
 
 
 # =============================================================================
@@ -765,11 +827,11 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         try:
             from llama_index.embeddings.nvidia import NVIDIAEmbedding
 
-            nvidia_api_key = _get_nvidia_api_key()
+            nvidia_api_key = _resolve_embed_api_key(self.embed_base_url, self.embed_model_name)
             if not nvidia_api_key:
                 logger.error(
-                    "NVIDIA_API_KEY is not set - ingestion/retrieval will fail. "
-                    "Set the NVIDIA_API_KEY environment variable to enable embeddings."
+                    "No embeddings API key resolved (AIQ_EMBED_API_KEY / NVIDIA_API_KEY / "
+                    "the provider key for AIQ_EMBED_BASE_URL) - ingestion/retrieval will fail."
                 )
 
             self._embed_model = NVIDIAEmbedding(
@@ -2128,11 +2190,11 @@ class LlamaIndexRetriever(BaseRetriever):
             from llama_index.core import Settings
             from llama_index.embeddings.nvidia import NVIDIAEmbedding
 
-            nvidia_api_key = _get_nvidia_api_key()
+            nvidia_api_key = _resolve_embed_api_key(self.embed_base_url, self.embed_model_name)
             if not nvidia_api_key:
                 logger.error(
-                    "NVIDIA_API_KEY is not set - retrieval/ingestion will fail. "
-                    "Set the NVIDIA_API_KEY environment variable to enable embeddings."
+                    "No embeddings API key resolved (AIQ_EMBED_API_KEY / NVIDIA_API_KEY / "
+                    "the provider key for AIQ_EMBED_BASE_URL) - retrieval/ingestion will fail."
                 )
 
             self._embed_model = NVIDIAEmbedding(

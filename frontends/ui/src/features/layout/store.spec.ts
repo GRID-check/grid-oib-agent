@@ -191,6 +191,7 @@ describe('useLayoutStore', () => {
           { id: 'knowledge_base', name: 'Knowledge Base', requires_auth: true },
         ],
         knowledge_layer: true,
+        vlm_available: false,
       })
 
       await useLayoutStore.getState().fetchDataSources('token-1')
@@ -200,6 +201,18 @@ describe('useLayoutStore', () => {
         'knowledge_base',
       ])
       expect(useLayoutStore.getState().knowledgeLayerAvailable).toBe(true)
+    })
+
+    test('maps vlm_available from the response into the store', async () => {
+      mockGetDataSources.mockResolvedValueOnce({
+        data_sources: [{ id: 'web_search', name: 'Web Search', requires_auth: false }],
+        knowledge_layer: true,
+        vlm_available: true,
+      })
+
+      expect(useLayoutStore.getState().vlmAvailable).toBe(false)
+      await useLayoutStore.getState().fetchDataSources('token-1')
+      expect(useLayoutStore.getState().vlmAvailable).toBe(true)
     })
   })
 })

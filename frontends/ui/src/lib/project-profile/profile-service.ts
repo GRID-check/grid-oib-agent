@@ -207,7 +207,9 @@ export async function checkProjectConsistency(
   try {
     const backendRes = await fetch(`${getBackendUrl()}/v1/consistency-check`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      // Forward the org id so the backend can resolve this org's BYOK LLM
+      // credential (falls back to the platform env chain when unset).
+      headers: { 'Content-Type': 'application/json', 'x-grid-organization-id': session.organizationId },
       body: JSON.stringify({
         free_text: input.freeText,
         structured: input.structured ?? [],
@@ -272,7 +274,9 @@ export async function generateProjectSummary(
   try {
     backendRes = await fetch(`${getBackendUrl()}/v1/generate-summary`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      // Forward the org id so the backend can resolve this org's BYOK LLM
+      // credential (falls back to the platform env chain when unset).
+      headers: { 'Content-Type': 'application/json', 'x-grid-organization-id': session.organizationId },
       body: JSON.stringify({ profile_text: profileText, locale: options?.locale ?? 'de' }),
       // Bound the call so an unreachable backend rejects promptly (as a
       // TimeoutError) instead of hanging into a Cloudflare 504.

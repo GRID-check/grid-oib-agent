@@ -19,6 +19,7 @@ import os
 
 import httpx
 from fastapi import APIRouter
+from fastapi import Header
 
 from ..models.requests import ConsistencyCheckRequest
 from ..models.requests import ConsistencyCheckResponse
@@ -52,25 +53,39 @@ SYSTEM_PROMPT = (
 )
 
 
-def _llm_settings() -> tuple[str, str, str]:
+def _llm_settings(organization_id: str | None = None) -> tuple[str, str, str]:
     """Resolve the model/api_key/base_url for the consistency-check LLM call.
 
-    ``CONSISTENCY_LLM_*`` env vars take precedence, then generic ``LLM_*`` vars,
-    then the OpenRouter default used by ``config_oib_openrouter.yml`` (matching
-    ``generate_summary.py`` so both endpoints degrade identically).
+    Goes through the shared credential resolver so this route reaches the org's
+    BYOK credential like every other LLM call, then the same env chain as before:
+    ``CONSISTENCY_LLM_*`` → generic ``LLM_*`` → the OpenRouter/OpenAI default used
+    by ``config_oib_openrouter.yml`` (matching ``generate_summary.py`` so both
+    endpoints degrade identically). Model + base URL keep their two-level env
+    fallback; the resolver adds BYOK (org key + base, model unchanged) and
+    provider inference on top. Fail-open: a BYOK miss falls back to the env chain.
     """
+    from aiq_agent.common.credential_resolution import resolve_llm_credential
+
     openrouter_key = os.getenv("OPENROUTER_API_KEY", "")
     default_model = "deepseek/deepseek-v4-flash" if openrouter_key else "gpt-4o-mini"
     default_base = "https://openrouter.ai/api/v1" if openrouter_key else "https://api.openai.com/v1"
 
     model = os.getenv("CONSISTENCY_LLM_MODEL", os.getenv("LLM_MODEL", default_model))
-    api_key = os.getenv("CONSISTENCY_LLM_API_KEY", os.getenv("LLM_API_KEY", openrouter_key))
     base_url = os.getenv("CONSISTENCY_LLM_BASE_URL", os.getenv("LLM_BASE_URL", default_base))
-    if not api_key:
+
+    cred = resolve_llm_credential(
+        primary_env="CONSISTENCY_LLM_API_KEY",
+        fallback_envs=("LLM_API_KEY", "OPENROUTER_API_KEY"),
+        default_base_url=base_url,
+        default_model=model,
+        organization_id=organization_id,
+    )
+    if not cred.api_key:
         logger.warning(
-            "No API key for consistency-check LLM (CONSISTENCY_LLM_API_KEY / LLM_API_KEY / OPENROUTER_API_KEY)"
+            "No API key for consistency-check LLM (BYOK / CONSISTENCY_LLM_API_KEY / "
+            "LLM_API_KEY / OPENROUTER_API_KEY)"
         )
-    return model, api_key, base_url.rstrip("/")
+    return cred.model, cred.api_key, cred.base_url
 
 
 def _render_fields(fields: list) -> str:
@@ -142,13 +157,18 @@ def add_consistency_check_routes(router: APIRouter) -> None:
             "return an error code with findings=null so the wizard can save anyway."
         ),
     )
-    async def consistency_check(request: ConsistencyCheckRequest) -> ConsistencyCheckResponse:
+    async def consistency_check(
+        request: ConsistencyCheckRequest,
+        # Forwarded by the BFF (profile-service) so this route can reach the
+        # org's BYOK LLM credential; absent for anonymous/direct callers.
+        x_grid_organization_id: str | None = Header(default=None),
+    ) -> ConsistencyCheckResponse:
         if not request.free_text:
             # No free text to scrutinise — nothing for the LLM to do. The client
             # normally short-circuits before calling; this guards direct callers.
             return ConsistencyCheckResponse(findings=[])
 
-        model, api_key, base_url = _llm_settings()
+        model, api_key, base_url = _llm_settings(x_grid_organization_id)
         if not api_key:
             # No credentials — surface a diagnosable code instead of a guaranteed 401.
             return ConsistencyCheckResponse(findings=None, error="llm_not_configured")

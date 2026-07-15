@@ -16,6 +16,7 @@
  */
 
 import type { FileUploadConfig } from '@/shared/context'
+import { IMAGE_EXTENSIONS } from '@/shared/config/file-upload'
 import {
   DEFAULT_MAX_FILE_SIZE,
   DEFAULT_MAX_TOTAL_SIZE,
@@ -34,11 +35,21 @@ export type FileValidationErrorCode = 'FILE_TOO_LARGE' | 'INVALID_TYPE' | 'DUPLI
 /** Error codes for batch-level validation failures */
 export type BatchValidationErrorCode = 'TOTAL_SIZE_EXCEEDED' | 'MAX_FILES_EXCEEDED'
 
+/**
+ * Machine-readable sub-reason for an INVALID_TYPE rejection, so the UI can show
+ * a targeted message. `'image-vlm-unavailable'` = the file is an image and
+ * images are off specifically because no vision model is configured (the
+ * `image-upload` flag is on but the capability is missing).
+ */
+export type FileValidationReason = 'image-vlm-unavailable'
+
 /** Detailed error information for a single file */
 export interface FileValidationError {
   file: File
   code: FileValidationErrorCode
   message: string
+  /** Optional targeted reason enabling localized, specific copy in the UI. */
+  reason?: FileValidationReason
 }
 
 /** Batch-level error (affects the whole batch) */
@@ -87,6 +98,14 @@ const DEFAULT_CONFIG: FileUploadConfig = {
 // ============================================================================
 // Helper Functions
 // ============================================================================
+
+/** Whether a filename carries a gated image extension (.png/.jpg/.jpeg). */
+function isImageFileName(fileName: string): boolean {
+  const idx = fileName.lastIndexOf('.')
+  if (idx <= 0) return false
+  const ext = fileName.slice(idx).toLowerCase()
+  return (IMAGE_EXTENSIONS as readonly string[]).includes(ext)
+}
 
 /**
  * Check if a file has a valid extension
@@ -204,10 +223,18 @@ export function validateFileUpload(
 
     // Check file type (extension)
     if (!isValidFileExtension(file.name, config)) {
+      // When an image is rejected specifically because no VLM is configured
+      // (flag on, capability off), tag it so the UI can explain WHY instead of
+      // a generic "unsupported type" — the base message stays as a fallback.
+      const isImageBlockedByVlm =
+        config.imageUploadBlockedReason === 'vlm-unavailable' && isImageFileName(file.name)
       fileErrors.push({
         file,
         code: 'INVALID_TYPE',
-        message: `"${file.name}" is not a supported file type. Accepted: ${config.acceptedTypes}`,
+        message: isImageBlockedByVlm
+          ? `"${file.name}" needs a configured vision model (VLM) to upload.`
+          : `"${file.name}" is not a supported file type. Accepted: ${config.acceptedTypes}`,
+        ...(isImageBlockedByVlm ? { reason: 'image-vlm-unavailable' as const } : {}),
       })
       continue
     }

@@ -117,6 +117,12 @@ async def generate_cards(llm: Any, query: str, research_context: str) -> list[di
     Returns:
         A list of validated card dicts, or None if no cards could be produced.
     """
+    # Known follow-up (pre-existing gap): the card LLM is passed in already-built
+    # and is NOT run through the org BYOK credential swap
+    # (aiq_agent.common.llm_credentials.apply_org_credential), so card generation
+    # always uses the platform credential even for BYOK orgs. Wiring it would mean
+    # applying the credential where this llm is constructed/handed in (chat path +
+    # async job runner), which is out of scope for the unified-resolution change.
     if llm is None or not query or not research_context:
         return None
 

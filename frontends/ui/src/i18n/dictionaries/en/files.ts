@@ -98,6 +98,7 @@ export const files = {
   errors: {
     uploadingSkipped: 'Uploading {uploading} {fileLabel}, skipped {skipped} ({summary})',
     cannotRetryServerFile: 'Cannot retry server-loaded files. Please upload the file again.',
+    imageVlmUnavailable: 'Image upload requires a configured vision model (VLM) on this deployment.',
     fileSingular: 'file',
     filePlural: 'files',
   },

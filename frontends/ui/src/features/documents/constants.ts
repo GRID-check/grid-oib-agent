@@ -18,10 +18,11 @@ export const DEFAULT_MAX_FILE_COUNT = 10
 /**
  * Default accepted file extensions for upload (used by file inputs).
  *
- * Images (.png/.jpg/.jpeg) are intentionally excluded: image ingestion requires
- * a configured VLM, so they must be opted in per-deployment via
- * FILE_UPLOAD_ACCEPTED_TYPES (and gated by the image-upload flag), never shipped
- * enabled by default.
+ * Images (.png/.jpg/.jpeg) are intentionally excluded here: they are a derived
+ * capability, offered only when the `image-upload` flag allows AND a VLM is
+ * configured (availability = flag AND capability). This constant is only the
+ * fallback used when no AppConfig is available; the real accepted-types list is
+ * composed server-side in getFileUploadConfigFromEnv.
  */
 export const DEFAULT_ACCEPTED_FILE_TYPES = '.pdf,.docx,.txt,.md'
 

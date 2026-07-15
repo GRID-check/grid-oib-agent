@@ -156,13 +156,19 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
 
       const validationResult = validateFileUpload(files, validationContext, fileUploadConfig)
 
+      // Images rejected because no VLM is configured (flag on, capability off)
+      // get a localized, specific reason so admins aren't puzzled by a generic
+      // "unsupported type". Falls back to the validator's summary otherwise.
+      const imageVlmBlocked = validationResult.fileErrors.some((e) => e.reason === 'image-vlm-unavailable')
+      const imageVlmMessage = t('errors.imageVlmUnavailable')
+
       if (validationResult.batchErrors.length > 0) {
         setError(validationResult.summary)
         return
       }
 
       if (validationResult.validFiles.length === 0) {
-        setError(validationResult.summary)
+        setError(imageVlmBlocked ? imageVlmMessage : validationResult.summary)
         return
       }
 
@@ -177,7 +183,7 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
             uploading: uploadingCount,
             fileLabel: uploadingCount > 1 ? t('errors.filePlural') : t('errors.fileSingular'),
             skipped: skippedCount,
-            summary: validationResult.summary ?? '',
+            summary: imageVlmBlocked ? imageVlmMessage : (validationResult.summary ?? ''),
           })
         )
       } else {

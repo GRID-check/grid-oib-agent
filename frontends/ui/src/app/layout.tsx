@@ -15,6 +15,7 @@ import { connection } from 'next/server'
 import { Providers } from './providers'
 import type { AppConfig } from '@/shared/context'
 import { getFileUploadConfigFromEnv } from '@/shared/config/file-upload'
+import { isVlmConfigured } from '@/lib/documents/vlm-capability'
 import { getGridSession } from '@/lib/auth/session'
 import { FEATURE_FLAGS, isFeatureEnabled } from '@/lib/authz/feature-flags'
 import { getLocale } from '@/i18n/server'
@@ -81,10 +82,15 @@ const isImageUploadEnabled = async (): Promise<boolean> => {
  * Runtime configuration from server-side environment variables.
  * These values can be changed at runtime without rebuilding the container.
  */
-const getAppConfig = async (): Promise<AppConfig> => ({
-  authRequired: isAuthRequired(),
-  fileUpload: getFileUploadConfigFromEnv(process.env, { imageUploadEnabled: await isImageUploadEnabled() }),
-})
+const getAppConfig = async (): Promise<AppConfig> => {
+  // Image upload = flag AND capability. Resolve both server-side so the picker
+  // and validation share ONE accepted-types list with the upload allow-list.
+  const [imageUploadEnabled, vlmAvailable] = await Promise.all([isImageUploadEnabled(), isVlmConfigured()])
+  return {
+    authRequired: isAuthRequired(),
+    fileUpload: getFileUploadConfigFromEnv(process.env, { imageUploadEnabled, vlmAvailable }),
+  }
+}
 
 interface RootLayoutProps {
   children: ReactNode

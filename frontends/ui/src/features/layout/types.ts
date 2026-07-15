@@ -36,6 +36,13 @@ export interface LayoutState {
   availableDataSources: DataSourceFromAPI[] | null
   /** Whether the knowledge layer (file upload) is available */
   knowledgeLayerAvailable: boolean
+  /**
+   * Whether a vision model (VLM) is configured on the backend. Derived
+   * capability carried alongside knowledgeLayerAvailable; image upload is
+   * offered only when the `image-upload` flag allows AND this is true. Defaults
+   * to false until the capability fetch confirms it.
+   */
+  vlmAvailable: boolean
   /** Whether data sources are being fetched */
   dataSourcesLoading: boolean
   /** Error message if data sources fetch failed */
@@ -78,6 +85,8 @@ export interface LayoutActions {
   setAvailableDataSources: (sources: DataSourceFromAPI[]) => void
   /** Set knowledge layer availability */
   setKnowledgeLayerAvailable: (available: boolean) => void
+  /** Set VLM (vision model) capability availability */
+  setVlmAvailable: (available: boolean) => void
   /**
    * @deprecated Use setResearchPanelTab instead
    */
