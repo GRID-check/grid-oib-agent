@@ -25,21 +25,11 @@ export const research = {
 
   chatArea: {
     ariaMessages: 'Chat messages',
-    secureWorkspace: 'secure workspace',
     loggedOutTitle: 'Grid opens after your organization is verified.',
     loggedOutBody:
       'Sign in to unlock project-scoped OIB research, document ingestion, and member access controls.',
     signInSso: 'Sign in with SSO',
-    featureWorkos: 'WorkOS authentication',
-    featureRetrieval: 'Project-scoped retrieval',
-    featureRbac: 'Role-based access',
-    cockpit: 'OIB research cockpit',
-    title: 'Start with a project, then ask for cited building-code reasoning.',
-    body: 'Grid keeps retrieval scoped to the selected workspace and turns long guideline documents into traceable decisions.',
-    reviewBrief: 'Review the brief',
-    reviewBriefDesc: 'Open the project overview to check the facts Grid uses for tailored answers.',
-    uploadFiles: 'Upload files',
-    uploadFilesDesc: 'Attach plans or documents with the paperclip to ground answers in your evidence.',
+    welcomeTitle: 'How can Grid help with your project?',
     usePrompt: 'Use suggestion: {prompt}',
     prompt1: 'Compare OIB 2 fire resistance duties across building classes.',
     prompt2: 'Summarize accessibility requirements for a public retrofit.',

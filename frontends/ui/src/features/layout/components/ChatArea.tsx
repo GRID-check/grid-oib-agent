@@ -12,8 +12,7 @@
 'use client'
 
 import { type FC, memo, useRef, useEffect, useCallback, useState, useMemo } from 'react'
-import Link from 'next/link'
-import { CheckCircle2, ClipboardCheck, FileText, Lock, MessageSquare, Paperclip } from 'lucide-react'
+import { FileText, Lock } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { Button } from '@/components/ui/button'
 import {
@@ -28,7 +27,6 @@ import {
 } from '@/features/chat'
 import type { ChatMessage } from '@/features/chat'
 import { AnimatePresence, motion, fadeRise, springGentle } from '@/components/motion'
-import { StarfieldAnimation } from '@/shared/components/StarfieldAnimation'
 import { useTranslations } from '@/i18n'
 
 interface ChatAreaProps {
@@ -153,7 +151,9 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
       {isEmpty ? (
         <WelcomeState isAuthenticated={isAuthenticated} onSignIn={onSignIn} />
       ) : (
-        <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 pb-6 pt-4">
+        // Generous bottom padding keeps the last message clear of the floating
+        // composer, which now overlays the bottom of this scroll area.
+        <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 pb-44 pt-4">
           <AnimatePresence initial={false}>
             {displayableMessages.map((message, index) => {
               const isUserMessage = message.messageType === 'user' || message.role === 'user'
@@ -372,8 +372,10 @@ const MessageRenderer: FC<MessageRendererProps> = ({
 }
 
 /**
- * Welcome state shown when no messages exist
- * Shows different content based on authentication state
+ * Welcome state shown when no messages exist.
+ * Deliberately minimal: a short heading plus suggestion chips (signed in), or
+ * a compact sign-in prompt (signed out). Bottom padding keeps the centered
+ * content clear of the floating composer.
  */
 interface WelcomeStateProps {
   isAuthenticated?: boolean
@@ -382,7 +384,6 @@ interface WelcomeStateProps {
 
 const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn }) => {
   const t = useTranslations('research')
-  const projectId = useChatStore((s) => s.projectId)
   const setComposerPrefill = useChatStore((s) => s.setComposerPrefill)
   const prompts = [
     t('chatArea.prompt1'),
@@ -392,129 +393,47 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
 
   if (!isAuthenticated) {
     return (
-      <div className="relative flex flex-1 items-center overflow-hidden px-4 py-6 sm:p-8">
-        <div className="pointer-events-none absolute right-[-8rem] top-1/2 h-[560px] w-[560px] -translate-y-1/2 opacity-30">
-          <StarfieldAnimation particleCount={260} maxRadius={245} rotationSpeed={0.0005} />
-        </div>
-        <div className="relative mx-auto grid w-full max-w-6xl grid-cols-1 gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-          <div className="rounded-2xl border bg-muted/30 p-6 shadow-lg sm:p-8">
-            <div className="flex flex-col items-start gap-6">
-              <div className="flex h-14 w-14 items-center justify-center rounded-xl border bg-muted text-brand">
-                <Lock className="h-6 w-6" aria-hidden="true" />
-              </div>
-              <div className="flex flex-col gap-3">
-                <span className="text-xs uppercase tracking-label text-muted-foreground">
-                  {t('chatArea.secureWorkspace')}
-                </span>
-                <h1 className="max-w-2xl text-3xl font-semibold tracking-display sm:text-4xl md:text-5xl md:leading-none">
-                  {t('chatArea.loggedOutTitle')}
-                </h1>
-                <p className="max-w-xl text-sm text-muted-foreground">
-                  {t('chatArea.loggedOutBody')}
-                </p>
-              </div>
-              <Button
-                size="lg"
-                onClick={onSignIn}
-                aria-label={t('chatArea.signInSso')}
-                className="transition active:scale-press"
-              >
-                {t('chatArea.signInSso')}
-              </Button>
-            </div>
+      <div className="flex flex-1 items-center justify-center px-4 pb-44 pt-6">
+        <div className="flex w-full max-w-md flex-col items-center gap-4 text-center">
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl border bg-muted text-brand">
+            <Lock className="h-5 w-5" aria-hidden="true" />
           </div>
-
-          <div className="grid content-end gap-4">
-            {[
-              t('chatArea.featureWorkos'),
-              t('chatArea.featureRetrieval'),
-              t('chatArea.featureRbac'),
-            ].map((item, index) => (
-                <div
-                  key={item}
-                  className="animate-in fade-in-0 slide-in-from-bottom-2 rounded-xl border bg-muted/30 p-5 transition-all duration-200 ease-out fill-mode-backwards hover:-translate-y-0.5 hover:bg-muted/50"
-                  style={{ animationDelay: `${index * 80}ms` }}
-                >
-                  <div className="flex items-center gap-3">
-                    <CheckCircle2 className="h-5 w-5 text-brand" aria-hidden="true" />
-                    <span className="text-sm font-semibold">{item}</span>
-                  </div>
-                </div>
-              )
-            )}
-          </div>
+          <h1 className="text-2xl font-semibold tracking-display">
+            {t('chatArea.loggedOutTitle')}
+          </h1>
+          <p className="text-sm text-muted-foreground">{t('chatArea.loggedOutBody')}</p>
+          <Button
+            onClick={onSignIn}
+            aria-label={t('chatArea.signInSso')}
+            className="transition active:scale-press"
+          >
+            {t('chatArea.signInSso')}
+          </Button>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="relative flex flex-1 items-center overflow-hidden px-4 py-6 sm:p-8">
-      <div className="pointer-events-none absolute -right-24 top-10 h-[520px] w-[520px] opacity-25">
-        <StarfieldAnimation particleCount={300} maxRadius={230} rotationSpeed={0.001} />
-      </div>
-      <div className="relative mx-auto grid w-full max-w-6xl grid-cols-1 gap-6 lg:grid-cols-[1.25fr_0.75fr]">
-        <section className="rounded-2xl border bg-muted/30 p-6 shadow-lg sm:p-8">
-          <div className="flex flex-col gap-7">
-            <div className="flex max-w-3xl flex-col gap-4">
-              <span className="text-xs uppercase tracking-label text-muted-foreground">
-                {t('chatArea.cockpit')}
-              </span>
-              <h1 className="text-3xl font-semibold tracking-display sm:text-4xl md:text-5xl md:leading-none">
-                {t('chatArea.title')}
-              </h1>
-              <p className="max-w-2xl text-sm text-muted-foreground">
-                {t('chatArea.body')}
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-[1.1fr_0.9fr]">
-              <Link
-                href={projectId ? `/app/projects/${projectId}` : '/app/projects'}
-                className="group rounded-xl border bg-muted p-5 transition hover:-translate-y-0.5 hover:bg-accent"
-              >
-                <div className="flex flex-col gap-4">
-                  <ClipboardCheck className="h-6 w-6 text-brand" aria-hidden="true" />
-                  <div className="flex flex-col gap-1">
-                    <span className="text-sm font-semibold">{t('chatArea.reviewBrief')}</span>
-                    <span className="text-sm text-muted-foreground">
-                      {t('chatArea.reviewBriefDesc')}
-                    </span>
-                  </div>
-                </div>
-              </Link>
-              <div className="rounded-xl border bg-muted/30 p-5">
-                <div className="flex flex-col gap-4">
-                  <Paperclip className="h-6 w-6 text-brand" aria-hidden="true" />
-                  <div className="flex flex-col gap-1">
-                    <span className="text-sm font-semibold">{t('chatArea.uploadFiles')}</span>
-                    <span className="text-sm text-muted-foreground">
-                      {t('chatArea.uploadFilesDesc')}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <aside className="grid content-center gap-3">
+    <div className="flex flex-1 items-center justify-center px-4 pb-44 pt-6">
+      <div className="flex w-full max-w-xl flex-col items-center gap-8 text-center">
+        <h1 className="text-3xl font-semibold tracking-display sm:text-4xl">
+          {t('chatArea.welcomeTitle')}
+        </h1>
+        <div className="flex w-full flex-col gap-2">
           {prompts.map((prompt, index) => (
             <button
               key={prompt}
               type="button"
               onClick={() => setComposerPrefill(prompt)}
               aria-label={t('chatArea.usePrompt', { prompt })}
-              className="animate-in fade-in-0 slide-in-from-bottom-2 cursor-pointer rounded-xl border bg-muted/30 p-5 text-left transition-all duration-200 ease-out fill-mode-backwards hover:-translate-y-px hover:border-primary/20 hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-              style={{ animationDelay: `${index * 90}ms` }}
+              className="animate-in fade-in-0 slide-in-from-bottom-2 cursor-pointer rounded-xl border bg-muted/30 px-4 py-3 text-left text-sm transition-all duration-200 ease-out fill-mode-backwards hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+              style={{ animationDelay: `${index * 80}ms` }}
             >
-              <div className="flex items-start gap-3">
-                <MessageSquare className="mt-1 h-5 w-5 shrink-0 text-brand" aria-hidden="true" />
-                <span className="text-sm">{prompt}</span>
-              </div>
+              {prompt}
             </button>
           ))}
-        </aside>
+        </div>
       </div>
     </div>
   )

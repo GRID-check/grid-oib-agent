@@ -195,7 +195,7 @@ export const MainLayout: FC<MainLayoutProps> = ({
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
         {/* Center Content: Chat + Input - Responsive to research panel */}
         <div
-          className="flex min-w-0 flex-col overflow-hidden"
+          className="relative flex min-w-0 flex-col overflow-hidden"
           style={{
             // Balanced split: the research panel informs alongside chat rather
             // than squeezing it into a cramped column. On mobile the panel
@@ -204,19 +204,24 @@ export const MainLayout: FC<MainLayoutProps> = ({
             transition: prefersReducedMotion ? 'none' : 'width 300ms ease-in-out',
           }}
         >
-          {/* Chat Area - Scrollable */}
+          {/* Chat Area - Scrollable, extends behind the floating composer */}
           <ChatArea
             isAuthenticated={isAuthenticated}
             onSignIn={onSignIn}
             showConfidenceChip={showConfidenceChip}
           />
 
-          {/* No sources warning - shown when no data sources or files available */}
-          <NoSourcesBanner isAuthenticated={isAuthenticated} />
+          {/* Floating composer stack: overlays the bottom of the chat scroll
+              area instead of docking below it, so messages scroll behind the
+              translucent input. ChatArea pads its bottom to keep the last
+              message readable above it. */}
+          <div className="absolute inset-x-0 bottom-0 z-10 flex flex-col">
+            {/* No sources warning - shown when no data sources or files available */}
+            <NoSourcesBanner isAuthenticated={isAuthenticated} />
 
-          {/* Input Area - Fixed at bottom of chat */}
-          {/* Using WebSocket mode for full HITL (human-in-the-loop) support */}
-          <InputArea isAuthenticated={isAuthenticated} connectionMode="websocket" />
+            {/* Input Area - Using WebSocket mode for full HITL (human-in-the-loop) support */}
+            <InputArea isAuthenticated={isAuthenticated} connectionMode="websocket" />
+          </div>
         </div>
 
         {/* Research Panel (Right) - Pushes content, shares the width 50/50 */}

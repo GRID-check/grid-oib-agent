@@ -486,7 +486,9 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     <div className="mx-auto flex w-full max-w-3xl flex-col p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:p-4 sm:pb-4">
       <div
         className={cn(
-          'relative flex flex-col rounded-2xl border bg-card p-4 shadow-sm transition-[box-shadow,border-color] duration-200 ease-out focus-within:ring-2 focus-within:ring-ring/30',
+          // Floating composer: translucent + blurred so scrolled messages show
+          // through behind it, with a lifted shadow instead of a docked look.
+          'relative flex flex-col rounded-2xl border bg-card/80 p-4 shadow-lg backdrop-blur-xl transition-[box-shadow,border-color] duration-200 ease-out focus-within:ring-2 focus-within:ring-ring/30',
           isDisabledByAuth && 'opacity-60',
           isDragging && isUnsupportedDrag
             ? 'border-dashed border-error'
