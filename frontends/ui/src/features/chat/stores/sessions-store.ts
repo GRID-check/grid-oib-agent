@@ -47,6 +47,10 @@ export type SessionsSlice = {
   updateConversationTitle: (conversationId: string, title: string) => void
   saveDataSourcesToConversation: (ids: string[]) => void
   restoreSessionState: (conversation: Conversation) => void
+  _recoverInterruptedAssistantMessage: (
+    conversationId: string,
+    afterUserMessageId: string
+  ) => Promise<boolean>
   isSessionBusy: (conversationId: string) => boolean
   hasAnyBusySession: () => boolean
   _ensureConversationExists: () => Promise<void>
@@ -1102,10 +1106,72 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
         .find((m) => meaningfulTypes.has(m.messageType ?? ''))
 
       if (lastMeaningful?.messageType === 'user' && lastMeaningful.thinkingSteps?.length) {
-        // No explicit message: ErrorBanner localizes the registry default via
-        // `agent.response_interrupted`'s messageKey.
-        get().addErrorCard('agent.response_interrupted')
+        // The turn LOOKS interrupted (last meaningful local message is the user
+        // turn, with thinking steps but no assistant reply). But the client may
+        // simply have been disconnected when the terminal frame was sent — the
+        // backend finishes the turn and persists the response server-side in
+        // that case. Refetch server history first: if the finished assistant
+        // message is there, render it and skip the banner. Only when the
+        // refetch yields nothing do we fall back to today's interrupted banner.
+        const interruptedUserId = lastMeaningful.id
+        void (async () => {
+          const recovered = await get()._recoverInterruptedAssistantMessage(
+            conversation.id,
+            interruptedUserId
+          )
+          if (!recovered) {
+            // No explicit message: ErrorBanner localizes the registry default
+            // via `agent.response_interrupted`'s messageKey.
+            get().addErrorCard('agent.response_interrupted')
+          }
+        })()
       }
+    }
+  },
+
+  _recoverInterruptedAssistantMessage: async (
+    conversationId: string,
+    afterUserMessageId: string
+  ): Promise<boolean> => {
+    try {
+      const conversationsClient = await getConversationsClient()
+      const serverMessages = await conversationsClient.listMessages(conversationId)
+      const mapped = mapServerMessagesToChatMessages(serverMessages)
+
+      const { conversations, currentConversation, isStreaming } = get()
+      const target = conversations.find((c) => c.id === conversationId)
+      // A live stream (or a deleted session) supersedes recovery: never fold
+      // stale server history over newer local state.
+      if (!target || isStreaming) return false
+
+      const localIds = new Set(target.messages.map((m) => m.id))
+
+      // The recovered response is the assistant message the server persisted
+      // for THIS turn: it comes after the interrupted user message and is not
+      // already in local history.
+      const userIdx = mapped.findIndex((m) => m.id === afterUserMessageId)
+      const searchSpace = userIdx >= 0 ? mapped.slice(userIdx + 1) : mapped
+      const recovered = searchSpace.find(
+        (m) => m.role === 'assistant' && !localIds.has(m.id)
+      )
+      if (!recovered) return false
+
+      const merged: Conversation = {
+        ...target,
+        messages: [...target.messages, recovered],
+      }
+      set(
+        {
+          conversations: updateConversationInList(conversations, merged),
+          ...(currentConversation?.id === conversationId && { currentConversation: merged }),
+        },
+        false,
+        'recoverInterruptedAssistantMessage'
+      )
+      return true
+    } catch (err) {
+      console.warn('[recoverInterruptedAssistantMessage] Failed:', err)
+      return false
     }
   },
 

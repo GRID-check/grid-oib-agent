@@ -37,6 +37,7 @@ from aiq_agent.common.citation_verification import verify_citations
 
 from ...common import LLMProvider
 from ...common import LLMRole
+from .dsml import strip_and_salvage_dsml_tool_calls
 from .markers import detect_and_strip_confidence_marker
 from .markers import detect_and_strip_escalation_marker
 from .models import ShallowResearchAgentState
@@ -403,12 +404,24 @@ class ShallowResearcherAgent:
                 # cleaned content is written back into the returned messages — so
                 # neither marker can leak onto job/streaming callbacks or to the
                 # frontend. The detected signals travel as structured fields.
+                #
+                # First strip any DeepSeek DSML tool-call machinery the model
+                # leaked as literal text (and salvage a leaked emit_card into the
+                # card registry) so the markers below and the citation pipeline
+                # operate on clean prose.
+                content = strip_and_salvage_dsml_tool_calls(content)
                 content, escalation_requested = detect_and_strip_escalation_marker(content)
                 content, answer_confidence_marker = detect_and_strip_confidence_marker(content)
 
                 # Step 1: verify citations against registry
                 if registry.all_sources():
-                    verification = verify_citations(content, registry)
+                    # Pass the writer-facing source list (ordered as the model
+                    # saw them, mirroring the deep researcher's call) so that an
+                    # answer with inline [N] citations but no Sources section can
+                    # have one synthesized instead of the citations being dropped.
+                    verification = verify_citations(
+                        content, registry, reference_sources=registry.all_sources()
+                    )
                     logger.debug(
                         "Shallow researcher: citation verification complete — "
                         "%d valid, %d removed, %d sources in registry",
