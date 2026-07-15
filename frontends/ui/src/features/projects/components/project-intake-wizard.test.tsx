@@ -5,7 +5,7 @@
  * LLM call is skipped when there is no free text, override saves, revise
  * navigates, and a check failure still saves.
  */
-import { render, screen, waitFor } from '@/test-utils'
+import { fireEvent, render, screen, waitFor } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ProjectIntakeWizard } from './project-intake-wizard'
@@ -111,7 +111,7 @@ describe('ProjectIntakeWizard — FB-13 conflict check', () => {
     await user.click(saveButton)
 
     // The deterministic finding renders...
-    expect(await screen.findByText(/at most 3 above-ground floors/i)).toBeInTheDocument()
+    expect(await screen.findByText(/no more than 4 above-ground storeys/i)).toBeInTheDocument()
     // ...the save is held (no PUT)...
     expect(putProfileCalls(stub)).toHaveLength(0)
     expect(pushMock).not.toHaveBeenCalled()
@@ -126,7 +126,7 @@ describe('ProjectIntakeWizard — FB-13 conflict check', () => {
     renderWizard(true)
 
     await user.click(await screen.findByRole('button', { name: /save & see/i }))
-    await screen.findByText(/at most 3 above-ground floors/i)
+    await screen.findByText(/no more than 4 above-ground storeys/i)
 
     await user.click(screen.getByRole('button', { name: /save anyway/i }))
 
@@ -141,7 +141,7 @@ describe('ProjectIntakeWizard — FB-13 conflict check', () => {
     renderWizard(true)
 
     await user.click(await screen.findByRole('button', { name: /save & see/i }))
-    await screen.findByText(/at most 3 above-ground floors/i)
+    await screen.findByText(/no more than 4 above-ground storeys/i)
 
     await user.click(screen.getByRole('button', { name: /revise/i }))
 
@@ -149,7 +149,7 @@ describe('ProjectIntakeWizard — FB-13 conflict check', () => {
     // clear once the review step finishes animating out.
     expect(await screen.findByText(/step 3 of 6/i)).toBeInTheDocument()
     await waitFor(() =>
-      expect(screen.queryByText(/at most 3 above-ground floors/i)).not.toBeInTheDocument(),
+      expect(screen.queryByText(/no more than 4 above-ground storeys/i)).not.toBeInTheDocument(),
     )
   })
 
@@ -212,5 +212,70 @@ describe('ProjectIntakeWizard — FB-13 conflict check', () => {
     await waitFor(() => expect(pushMock).toHaveBeenCalledWith(`/app/projects/${PROJECT_ID}`))
     expect(consistencyCalls(stub)).toHaveLength(1)
     expect(putProfileCalls(stub)).toHaveLength(1)
+  })
+})
+
+describe('ProjectIntakeWizard — Fix 1 salvage banner', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals()
+    vi.clearAllMocks()
+    sessionStorage.clear()
+  })
+  afterEach(() => sessionStorage.clear())
+
+  it('shows the partial-replacement banner when some parts were dropped', async () => {
+    stubFetch()
+    render(<ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" salvageNotice="partial" />)
+    expect(
+      await screen.findByText(/parts of the existing project brief could not be loaded and will be replaced/i),
+    ).toBeInTheDocument()
+  })
+
+  it('shows the full-failure banner when nothing was salvageable', async () => {
+    stubFetch()
+    render(<ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" salvageNotice="full" />)
+    expect(await screen.findByText(/the existing project brief could not be loaded\. anything you enter/i)).toBeInTheDocument()
+  })
+
+  it('shows no banner when the stored brief loaded cleanly', async () => {
+    stubFetch()
+    render(<ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" />)
+    // Wait for the definition to load (step counter appears), then assert no banner.
+    await screen.findByText(/step 1 of 6/i)
+    expect(screen.queryByText(/could not be loaded/i)).not.toBeInTheDocument()
+  })
+})
+
+describe('ProjectIntakeWizard — Fix 5 non-finite number rejected', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals()
+    vi.clearAllMocks()
+    sessionStorage.clear()
+  })
+  afterEach(() => sessionStorage.clear())
+
+  it('rejects "1e999" (Infinity) with a validation error and neither advances nor saves', async () => {
+    const user = userEvent.setup()
+    const stub = stubFetch()
+    // Land on the Building details stage (index 3) with the other two fields valid.
+    const buildingStep = 3
+    sessionStorage.setItem(
+      `intake-draft-${PROJECT_ID}`,
+      JSON.stringify({ answers: { geschosse_unterirdisch: 1, fluchtniveau: '<=7m' }, currentStep: buildingStep }),
+    )
+    render(<ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" />)
+
+    const floors = await screen.findByLabelText('Above-ground floors')
+    // "1e999" is a valid numeric literal but Number("1e999") === Infinity.
+    fireEvent.change(floors, { target: { value: '1e999' } })
+
+    await user.click(screen.getByRole('button', { name: /next/i }))
+
+    // The field shows the normal invalid-input state and the step does not advance.
+    expect(await screen.findByText(/enter a number/i)).toBeInTheDocument()
+    expect(screen.getByText(/step 4 of 6/i)).toBeInTheDocument()
+    // Nothing was persisted.
+    expect(putProfileCalls(stub)).toHaveLength(0)
+    expect(pushMock).not.toHaveBeenCalled()
   })
 })

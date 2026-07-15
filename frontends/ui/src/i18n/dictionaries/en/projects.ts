@@ -144,6 +144,12 @@ export const projects = {
     },
     tryAgain: 'Try again',
     draftSaved: 'Draft saved',
+    salvage: {
+      partial:
+        'Parts of the existing project brief could not be loaded and will be replaced when you save.',
+      full:
+        'The existing project brief could not be loaded. Anything you enter here will replace it when you save.',
+    },
     eyebrowEdit: 'Edit project brief',
     eyebrowCreate: 'Project setup',
     titleFallback: 'Tell Grid about this project',
@@ -179,7 +185,7 @@ export const projects = {
       proceed: 'Save anyway',
       rules: {
         lowClassTooManyFloors:
-          'Building class {buildingClass} allows at most 3 above-ground floors, but {floors} are entered.',
+          'GK1–GK3 buildings normally have no more than {threshold} above-ground storeys; you entered {count}.',
         escapeLevelTooFewFloors:
           'An escape level of {escapeLevel} is hard to reach with only {floors} above-ground floor(s).',
         orphanedAnswer:

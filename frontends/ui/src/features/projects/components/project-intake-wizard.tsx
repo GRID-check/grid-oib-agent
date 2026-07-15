@@ -26,6 +26,7 @@ import {
   formatIntakeAnswer,
   isIntakeAnswerProvided,
   labelForProfileKey,
+  pruneStaleConditionalAnswers,
 } from '@/lib/project-profile/intake-definition'
 import type { ProjectIntakeDefinition, ProjectIntakeQuestion } from '@/lib/project-profile/intake-definition'
 import {
@@ -45,6 +46,13 @@ interface ProjectIntakeWizardProps {
   initialProfile?: ProjectProfile | null
   /** FB-13: gate the end-of-wizard conflict check. Off → save exactly as before. */
   conflictCheckEnabled?: boolean
+  /**
+   * Set when the stored profile could not be fully loaded: 'partial' → some parts
+   * were dropped but the rest prefilled the wizard; 'full' → nothing salvageable, so
+   * the wizard opens blank but the stored brief will be replaced on save. Either
+   * variant shows a visible banner so the user is never silently blanked.
+   */
+  salvageNotice?: 'partial' | 'full' | null
 }
 
 type Answers = Record<string, ProjectPrimitiveValue>
@@ -57,8 +65,13 @@ function isQuestionValid(question: ProjectIntakeQuestion, answers: Answers): boo
   switch (question.type) {
     case 'boolean':
       return answer !== undefined
-    case 'number':
-      return answer !== undefined && answer !== '' && answer !== null
+    case 'number': {
+      if (answer === undefined || answer === '' || answer === null) return false
+      // Reject non-finite input (e.g. "1e999" → Infinity): it passes a naive
+      // provided-check but serializes to null in the saved fact — silent corruption.
+      const numeric = typeof answer === 'number' ? answer : Number(answer)
+      return Number.isFinite(numeric)
+    }
     case 'text':
       return typeof answer === 'string' && answer.trim().length > 0
     case 'single_select':
@@ -91,6 +104,7 @@ export function ProjectIntakeWizard({
   mode = 'create',
   initialProfile = null,
   conflictCheckEnabled = false,
+  salvageNotice = null,
 }: ProjectIntakeWizardProps) {
   const t = useTranslations('projects')
   const { locale } = useLocale()
@@ -193,7 +207,11 @@ export function ProjectIntakeWizard({
   }, [stage, answers])
 
   const setAnswer = useCallback((id: string, value: ProjectPrimitiveValue) => {
-    setAnswers((prev) => ({ ...prev, [id]: value }))
+    // Apply the change, then drop answers for conditional questions whose visibility
+    // condition just became false (e.g. bed count after switching the use to Office).
+    // Recursive pruning handles chained conditions. Without this, ordinary
+    // backtracking left stale answers that tripped the orphanedAnswer rule on Save.
+    setAnswers((prev) => pruneStaleConditionalAnswers({ ...prev, [id]: value }, definition))
     // Editing invalidates any held conflict findings — the check re-runs on Save.
     setFindings(null)
     setTouched((prev) => {
@@ -202,7 +220,7 @@ export function ProjectIntakeWizard({
       next.delete(id)
       return next
     })
-  }, [])
+  }, [definition])
 
   const stageValid = visibleQuestions.every((q) => isQuestionValid(q, answers))
 
@@ -306,9 +324,21 @@ export function ProjectIntakeWizard({
     }
     setError(null)
 
-    const deterministic = checkIntakeConsistencyFromAnswers(answers, definition)
+    // The deterministic gate is pure, but a bug there must never leave Save inertly
+    // stuck — handleSave is fired as `void handleSave()`, so a throw would silently
+    // swallow the click. Fail open (matching the AI half's philosophy): on any throw,
+    // log and proceed straight to the actual save.
+    let deterministic: ConsistencyFinding[]
+    let freeText: ReturnType<typeof collectFreeTextFields>
+    try {
+      deterministic = checkIntakeConsistencyFromAnswers(answers, definition)
+      freeText = collectFreeTextFields(answers, definition)
+    } catch (e) {
+      console.error('[ProjectIntakeWizard] Pre-save consistency gate threw; saving anyway (fail-open):', e)
+      await runSave()
+      return
+    }
 
-    const freeText = collectFreeTextFields(answers, definition)
     let aiFindings: ConsistencyFinding[] = []
     if (freeText.length > 0) {
       setChecking(true)
@@ -408,6 +438,17 @@ export function ProjectIntakeWizard({
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">{t('intake.subtitle')}</p>
       </header>
+
+      {/* Fix 1: the stored brief could not be fully loaded. Never blank silently —
+          warn that the (partially) unloaded brief will be replaced on save. */}
+      {salvageNotice && (
+        <Alert variant="warning" className="mb-6">
+          <AlertTriangle aria-hidden />
+          <AlertDescription>
+            {salvageNotice === 'full' ? t('intake.salvage.full') : t('intake.salvage.partial')}
+          </AlertDescription>
+        </Alert>
+      )}
 
       {/* Stepper */}
       <nav aria-label={t('intake.progressAria')} className="mb-6">
@@ -841,7 +882,15 @@ function QuestionField({
             value={typeof value === 'number' ? value : typeof value === 'string' ? value : ''}
             aria-invalid={error ? true : undefined}
             aria-describedby={describedBy}
-            onChange={(e) => onChange(e.target.value === '' ? '' : Number(e.target.value))}
+            onChange={(e) => {
+              const raw = e.target.value
+              if (raw === '') return onChange('')
+              const parsed = Number(raw)
+              // Keep the raw string for non-finite input (e.g. "1e999" → Infinity) so
+              // the field shows what was typed and validation flags it, rather than
+              // storing Infinity — which serializes to null and corrupts the fact.
+              onChange(Number.isFinite(parsed) ? parsed : raw)
+            }}
           />
           {errorText}
         </div>

@@ -9,6 +9,7 @@ import {
   humanizeProfileKey,
   labelForProfileKey,
   projectIntakeDefinitionV1,
+  pruneStaleConditionalAnswers,
   validateProfilePatchVocabulary,
 } from './intake-definition'
 import { ProjectProfileSchema } from './types'
@@ -169,6 +170,60 @@ describe('validateProfilePatchVocabulary', () => {
     expect(() => validate('add', '/goals/focus_areas', ['einreichung', 'nope'])).toThrow(
       /Grid help with/,
     )
+  })
+})
+
+describe('pruneStaleConditionalAnswers', () => {
+  it('drops a conditional answer once its condition no longer holds', () => {
+    // Bed count applies only when the main use is Hospitality. Switch to Office →
+    // the stale bed count must be removed (otherwise the orphanedAnswer rule fires).
+    const pruned = pruneStaleConditionalAnswers(
+      { hauptnutzung: 'buero', anzahl_betten: 40 },
+      definition,
+    )
+    expect(pruned.anzahl_betten).toBeUndefined()
+    expect(pruned.hauptnutzung).toBe('buero')
+  })
+
+  it('keeps a conditional answer whose condition still holds', () => {
+    const answers = { hauptnutzung: 'beherbergung', anzahl_betten: 40 }
+    const pruned = pruneStaleConditionalAnswers(answers, definition)
+    expect(pruned.anzahl_betten).toBe(40)
+  })
+
+  it('leaves unconditional and unrelated answers untouched', () => {
+    const answers = {
+      hauptnutzung: 'wohnen',
+      anzahl_einheiten: 12,
+      geschosse_oberirdisch: 3,
+    }
+    const pruned = pruneStaleConditionalAnswers(answers, definition)
+    expect(pruned).toEqual(answers)
+    // No change → same reference is returned (cheap no-op).
+    expect(pruned).toBe(answers)
+  })
+
+  it('prunes chained conditions recursively', () => {
+    // goal_details depends on focus_areas including "sonstiges"; bestandsalter depends
+    // on bestand_neubau === "bestand". Flip both governing answers → both dependents go.
+    const pruned = pruneStaleConditionalAnswers(
+      {
+        focus_areas: ['einreichung'],
+        goal_details: 'Some note that no longer applies.',
+        bestand_neubau: 'neubau',
+        bestandsalter: '>50',
+      },
+      definition,
+    )
+    expect(pruned.goal_details).toBeUndefined()
+    expect(pruned.bestandsalter).toBeUndefined()
+    expect(pruned.focus_areas).toEqual(['einreichung'])
+    expect(pruned.bestand_neubau).toBe('neubau')
+  })
+
+  it('is a no-op when the definition is missing', () => {
+    const answers = { hauptnutzung: 'buero', anzahl_betten: 40 }
+    expect(pruneStaleConditionalAnswers(answers, null)).toBe(answers)
   })
 })
 

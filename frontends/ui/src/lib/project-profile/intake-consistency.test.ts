@@ -6,7 +6,11 @@ import {
   collectFreeTextFields,
   collectStructuredContextFields,
 } from './intake-consistency'
-import { buildIntakeProfile, projectIntakeDefinitionV1 } from './intake-definition'
+import {
+  buildIntakeProfile,
+  projectIntakeDefinitionV1,
+  pruneStaleConditionalAnswers,
+} from './intake-definition'
 import type { ProjectPrimitiveValue } from './types'
 
 const definition = projectIntakeDefinitionV1
@@ -29,7 +33,9 @@ describe('checkIntakeConsistency — rule 1: low building class vs. floors', () 
       expect(keys(findings)).toContain('lowClassTooManyFloors')
       const finding = findings.find((f) => f.messageKey === 'lowClassTooManyFloors')!
       expect(finding.severity).toBe('inconsistency')
-      expect(finding.params).toEqual({ buildingClass, floors: 8 })
+      // Params are data-driven: `count` is the entered floor count, `threshold` the
+      // conservative ceiling the rule fires above (never a hard-coded copy value).
+      expect(finding.params).toEqual({ buildingClass, count: 8, threshold: 4 })
       // Both offending fields are named so the wizard can offer Edit links.
       expect(finding.fields).toEqual(['Building class', 'Above-ground floors'])
     }
@@ -111,6 +117,15 @@ describe('checkIntakeConsistency — rule 3: orphaned conditional answers', () =
     // Use is Office and the (hidden) bed count is simply absent → nothing to flag.
     expect(check({ hauptnutzung: 'buero' })).toEqual([])
     expect(check({ hauptnutzung: 'buero', anzahl_betten: '' })).toEqual([])
+  })
+
+  it('Fix 3: pruning stale answers on edit avoids the orphan finding on save', () => {
+    // The wizard prunes conditional answers when their condition turns false. After
+    // switching the use away from Hospitality, the bed count is gone → no orphan.
+    const raw = { hauptnutzung: 'buero', anzahl_betten: 40 }
+    expect(keys(check(raw))).toContain('orphanedAnswer') // (stale data, un-pruned)
+    const pruned = pruneStaleConditionalAnswers(raw, definition)
+    expect(check(pruned)).toEqual([]) // pruned → clean save
   })
 })
 
