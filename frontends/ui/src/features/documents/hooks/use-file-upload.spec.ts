@@ -250,6 +250,30 @@ describe('useFileUpload', () => {
       expect(onError).toHaveBeenCalled()
     })
 
+    test('surfaces the localized VLM reason when an image is rejected for a missing VLM', async () => {
+      const { validateFileUpload } = await import('../validation')
+      const pngFile = new File(['x'], 'photo.png', { type: 'image/png' })
+      // Simulate the validator flagging the image as blocked by a missing VLM.
+      vi.mocked(validateFileUpload).mockReturnValueOnce({
+        valid: false,
+        canUpload: false,
+        validFiles: [],
+        batchErrors: [],
+        fileErrors: [
+          { file: pngFile, code: 'INVALID_TYPE', message: 'blocked', reason: 'image-vlm-unavailable' },
+        ],
+        summary: 'blocked',
+      })
+
+      const { result } = renderHook(() => useFileUpload({ collectionName: 'session-1' }))
+
+      await act(async () => {
+        await result.current.uploadFiles([pngFile])
+      })
+
+      expect(mockDocumentsStoreState.setError).toHaveBeenCalledWith(en.files.errors.imageVlmUnavailable)
+    })
+
     test('uploads files successfully', async () => {
       mockClient.getCollection.mockResolvedValue({ name: 'session-1' })
       mockClient.uploadFiles.mockResolvedValue({

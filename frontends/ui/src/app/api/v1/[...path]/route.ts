@@ -58,10 +58,18 @@ async function filterDataSourcesResponse(
   } catch {
     return data
   }
-  if (!Array.isArray(data)) return data
-  return data.filter(
-    (source) => !(source && typeof source === 'object' && (source as { id?: unknown }).id === 'web_search'),
-  )
+  const dropWebSearch = (sources: unknown[]): unknown[] =>
+    sources.filter(
+      (source) => !(source && typeof source === 'object' && (source as { id?: unknown }).id === 'web_search'),
+    )
+  // The backend returns `{ data_sources, vlm_available }`; older/other shapes
+  // may return a bare array. Filter web_search in either while preserving the
+  // capability fields (e.g. vlm_available) untouched.
+  if (Array.isArray(data)) return dropWebSearch(data)
+  if (data && typeof data === 'object' && Array.isArray((data as { data_sources?: unknown }).data_sources)) {
+    return { ...data, data_sources: dropWebSearch((data as { data_sources: unknown[] }).data_sources) }
+  }
+  return data
 }
 
 const isRedirectError = (error: unknown): boolean => {

@@ -161,6 +161,12 @@ Rules of thumb: prefer updating an existing doc over adding a new one; delete do
 - Python: ruff, line length 120, Python 3.11.
 - New tools use `@register_function` and a `FunctionBaseConfig` subclass.
 - Secrets live in environment variables only.
+- Capability doctrine: feature flags are **product decisions**, environment
+  variables are **real infrastructure dependencies**, a **capability** is
+  DERIVED from a dependency (never a second flag), and a feature's
+  **availability = flag AND capability**. Example: image upload = the
+  `image-upload` flag AND `vlm_available` (derived from the VLM key) — do not
+  add a redundant env opt-in for something the dependency already implies.
 - Documentation obligations above apply to every change — treat stale docs as a bug.
 - Git workflow above (feature-branch-per-feature, Conventional Commits, PR to
   `develop`) applies to every change.

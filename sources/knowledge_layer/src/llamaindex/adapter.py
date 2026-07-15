@@ -141,12 +141,48 @@ def _get_nvidia_api_key() -> str:
     return key
 
 
-def _get_vlm_api_key() -> str:
-    """Get VLM API key from environment, falling back to NVIDIA_API_KEY."""
+def resolve_vlm_api_key() -> str:
+    """Resolve the VLM API key from the deployment's configuration — the single
+    source of truth for "is a vision model reachable?".
+
+    Both the ingestion path (image captioning) and the capability endpoint that
+    tells the frontend whether to offer image upload MUST go through this one
+    function, so the advertised capability can never drift from what ingestion
+    will actually attempt.
+
+    Resolution chain (today): explicit ``AIQ_VLM_API_KEY`` → ``NVIDIA_API_KEY``
+    fallback. This chain is expected to grow (kept here so every caller inherits
+    it automatically):
+
+      1. explicit override           — ``AIQ_VLM_API_KEY``
+      2. deployment provider key      — the key for whatever provider
+         ``AIQ_VLM_BASE_URL`` points at (e.g. ``OPENROUTER_API_KEY`` when the
+         base URL is openrouter.ai)
+      3. platform default             — ``NVIDIA_API_KEY``
+      4. org BYOK                     — per-tenant credential
+
+    Returns the resolved key, or ``""`` when none is configured.
+    """
     key = _read_api_key_env("AIQ_VLM_API_KEY")
     if not key:
         key = _get_nvidia_api_key()
     return key
+
+
+def vlm_configured() -> bool:
+    """Whether a VLM API key resolves — i.e. image ingestion can run here.
+
+    Derived capability (never a standalone flag): it reflects exactly what
+    ``resolve_vlm_api_key`` finds, so extending the resolution chain lights up
+    the frontend's image-upload offer automatically.
+    """
+    return bool(resolve_vlm_api_key())
+
+
+def _get_vlm_api_key() -> str:
+    """Back-compat alias for the ingestion path; delegates to the single source
+    of truth in :func:`resolve_vlm_api_key`."""
+    return resolve_vlm_api_key()
 
 
 # =============================================================================

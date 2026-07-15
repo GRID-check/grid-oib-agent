@@ -303,6 +303,23 @@ class DataSource(BaseModel):
     requires_auth: bool = Field(default=False, description="Whether user authentication is required")
 
 
+class DataSourcesResponse(BaseModel):
+    """Data sources listing plus derived deployment capabilities.
+
+    ``data_sources`` is the registry listing (unchanged). ``vlm_available`` is a
+    DERIVED capability, not a flag: it reflects whether a vision model API key
+    resolves on this deployment, so the frontend can offer image upload only
+    when ingestion would actually succeed (availability = ``image-upload`` flag
+    AND this capability). See ``resolve_vlm_api_key`` for the resolution chain.
+    """
+
+    data_sources: list[DataSource] = Field(..., description="Registered data sources")
+    vlm_available: bool = Field(
+        default=False,
+        description="Whether a vision model (VLM) is configured (derived from VLM API key presence)",
+    )
+
+
 async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: FastApiFrontEndPluginWorker) -> None:
     """
     Register agent-agnostic async job routes.
@@ -348,21 +365,39 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
 
     @app.get(
         "/v1/data_sources",
-        response_model=list[DataSource],
+        response_model=DataSourcesResponse,
         tags=["data sources"],
-        summary="List data sources",
+        summary="List data sources and deployment capabilities",
     )
-    async def list_data_sources() -> list[DataSource]:
-        """List available data sources dynamically from the registry."""
-        return [
-            DataSource(
-                id=source.id,
-                name=source.name,
-                description=source.description,
-                requires_auth=source.requires_auth,
-            )
-            for source in get_all_sources()
-        ]
+    async def list_data_sources() -> DataSourcesResponse:
+        """List data sources from the registry plus derived capabilities.
+
+        ``vlm_available`` is derived from the knowledge layer's single VLM-key
+        resolver (``vlm_configured``) — the same seam the ingestion path uses —
+        so the advertised image-upload capability can never drift from what
+        ingestion will actually attempt. Resolves defensively: any import/lookup
+        failure reports ``vlm_available=False`` (fail-closed, no false offer).
+        """
+        try:
+            from knowledge_layer.llamaindex.adapter import vlm_configured
+
+            vlm_available = vlm_configured()
+        except Exception:  # noqa: BLE001 — capability probe must never break the listing
+            logger.warning("VLM capability probe failed; reporting vlm_available=False", exc_info=True)
+            vlm_available = False
+
+        return DataSourcesResponse(
+            data_sources=[
+                DataSource(
+                    id=source.id,
+                    name=source.name,
+                    description=source.description,
+                    requires_auth=source.requires_auth,
+                )
+                for source in get_all_sources()
+            ],
+            vlm_available=vlm_available,
+        )
 
     logger.info("Registered /v1/data_sources and /v1/jobs/async/agents routes")
 

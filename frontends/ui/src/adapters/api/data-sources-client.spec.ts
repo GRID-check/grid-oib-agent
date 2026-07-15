@@ -81,6 +81,31 @@ describe('createDataSourcesClient', () => {
       expect(result.data_sources).toEqual(mockDataSources)
     })
 
+    test('maps vlm_available from the wrapped response', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ data_sources: [{ id: 'web', name: 'Web' }], vlm_available: true }),
+      })
+
+      const result = await createDataSourcesClient().getDataSources()
+
+      expect(result.vlm_available).toBe(true)
+    })
+
+    test('vlm_available defaults false when the field is absent or the response is a bare array', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ data_sources: [{ id: 'web', name: 'Web' }] }),
+      })
+      expect((await createDataSourcesClient().getDataSources()).vlm_available).toBe(false)
+
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve([{ id: 'web', name: 'Web' }]),
+      })
+      expect((await createDataSourcesClient().getDataSources()).vlm_available).toBe(false)
+    })
+
     test('detects knowledge_layer availability', async () => {
       const mockDataSources = [
         { id: 'web', name: 'Web Search' },

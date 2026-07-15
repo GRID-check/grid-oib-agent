@@ -1,12 +1,20 @@
 import type { FileUploadConfig } from '@/shared/context'
 
-// Image types are intentionally NOT shipped as defaults: image ingestion has a
-// hard runtime dependency on a configured VLM, and the `image-upload` flag fails
-// open — so a VLM-less deployment that shipped images by default would accept
-// uploads guaranteed to fail ingestion. Images become available only when a
-// deployment opts in via FILE_UPLOAD_ACCEPTED_TYPES (alongside AIQ_VLM_*) AND the
-// image-upload flag allows. The EXTENSION_TO_MIME image entries below stay so
-// that env-driven enablement still resolves their MIME types.
+// Doctrine (see AGENTS.md): flags are product decisions, env vars are real
+// infrastructure dependencies, a capability is DERIVED from the dependency, and
+// availability = flag AND capability. Image upload follows it exactly: the
+// `image-upload` WorkOS flag is the product decision; a configured VLM
+// (AIQ_VLM_API_KEY / provider fallback) is the dependency; `vlmAvailable` is the
+// capability the backend derives from it; images are offered only when the flag
+// allows AND the capability is present.
+//
+// Image types are therefore NEVER controlled by the env accept-list: they are
+// stripped from it unconditionally and re-added ONLY when (flag AND capability).
+// This closes the old silent-failure hole where a deployment that listed images
+// in FILE_UPLOAD_ACCEPTED_TYPES but had no VLM would accept uploads guaranteed
+// to fail ingestion. The env list still governs every NON-image type (exotic
+// additions, explicit back-compat entries). The EXTENSION_TO_MIME image entries
+// below stay so the re-added image extensions resolve their MIME types.
 const DEFAULT_ACCEPTED_TYPES = '.pdf,.docx,.txt,.md'
 const DEFAULT_MAX_SIZE_MB = 100
 const DEFAULT_MAX_FILE_COUNT = 10
@@ -27,17 +35,21 @@ const EXTENSION_TO_MIME: Record<string, string[]> = {
 }
 
 /**
- * Image extensions gated behind the WorkOS `image-upload` flag (FB-15a). When
- * the flag is off they are stripped from the accepted-types list before it
- * reaches the client, so the file picker + drag-drop never offer them.
+ * Image extensions gated by availability = `image-upload` flag AND VLM
+ * capability (FB-15a). They are stripped from the env accept-list
+ * unconditionally and re-added only when both hold, so the file picker +
+ * drag-drop offer them exactly when ingestion would succeed.
  */
 export const IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg'] as const
+
+const isImageExtension = (ext: string): boolean =>
+  IMAGE_EXTENSIONS.includes(ext.toLowerCase() as (typeof IMAGE_EXTENSIONS)[number])
 
 const stripImageExtensions = (acceptedTypes: string): string =>
   acceptedTypes
     .split(',')
     .map((ext) => ext.trim())
-    .filter((ext) => ext && !IMAGE_EXTENSIONS.includes(ext.toLowerCase() as (typeof IMAGE_EXTENSIONS)[number]))
+    .filter((ext) => ext && !isImageExtension(ext))
     .join(',')
 
 const parsePositiveNumber = (value: string | undefined): number | null => {
@@ -68,12 +80,30 @@ export const buildAcceptedMimeTypes = (acceptedTypes: string): string[] => {
 
 export const getFileUploadConfigFromEnv = (
   env: NodeJS.ProcessEnv = process.env,
-  options: { imageUploadEnabled?: boolean } = {}
+  options: { imageUploadEnabled?: boolean; vlmAvailable?: boolean } = {}
 ): FileUploadConfig => {
-  const { imageUploadEnabled = true } = options
+  // `imageUploadEnabled` defaults TRUE (flag fails open when enforcement is
+  // off); `vlmAvailable` defaults FALSE (fail-closed — a caller that doesn't
+  // supply the derived capability gets NO images, matching the base list). Real
+  // callers pass both resolved values.
+  const { imageUploadEnabled = true, vlmAvailable = false } = options
   const rawAcceptedTypes = env.FILE_UPLOAD_ACCEPTED_TYPES || DEFAULT_ACCEPTED_TYPES
-  // Image types only reach the client when the `image-upload` flag allows it.
-  const acceptedTypes = imageUploadEnabled ? rawAcceptedTypes : stripImageExtensions(rawAcceptedTypes)
+
+  // Images are governed by the capability, never by the env list: strip them
+  // unconditionally, then re-add only when (flag AND capability). Env-listed
+  // images with no VLM stay excluded — no silent-failure uploads.
+  const imagesAllowed = imageUploadEnabled && vlmAvailable
+  const nonImageTypes = stripImageExtensions(rawAcceptedTypes)
+  const acceptedTypes = imagesAllowed
+    ? [nonImageTypes, ...IMAGE_EXTENSIONS].filter(Boolean).join(',')
+    : nonImageTypes
+
+  // Distinguish "images off because no VLM" (flag on, capability missing) from
+  // "images off because the product flag is off" so the UI can explain the
+  // former to admins. null when images are allowed or the flag itself is off.
+  const imageUploadBlockedReason: FileUploadConfig['imageUploadBlockedReason'] =
+    imageUploadEnabled && !vlmAvailable ? 'vlm-unavailable' : null
+
   const maxTotalSizeMB = parsePositiveNumber(env.FILE_UPLOAD_MAX_SIZE_MB) ?? DEFAULT_MAX_SIZE_MB
   const maxFileCount =
     parsePositiveNumber(env.FILE_UPLOAD_MAX_FILE_COUNT) ?? DEFAULT_MAX_FILE_COUNT
@@ -90,5 +120,6 @@ export const getFileUploadConfigFromEnv = (
     maxTotalSize: maxSizeBytes,
     maxFileCount,
     fileExpirationCheckIntervalHours,
+    imageUploadBlockedReason,
   }
 }

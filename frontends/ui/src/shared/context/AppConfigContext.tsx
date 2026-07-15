@@ -30,6 +30,14 @@ export interface FileUploadConfig {
   maxFileCount: number
   /** Hours after upload before files may expire on the backend (0 = no expiry shown) */
   fileExpirationCheckIntervalHours: number
+  /**
+   * Why image extensions are absent from `acceptedTypes`, when the absence is
+   * explainable to the user. `'vlm-unavailable'` means the `image-upload` flag
+   * is on but no vision model is configured (so ingestion would fail); the UI
+   * uses this to show a VLM-specific rejection message. `null` when images are
+   * allowed, or when they're simply not enabled by the product flag.
+   */
+  imageUploadBlockedReason?: 'vlm-unavailable' | null
 }
 
 /**

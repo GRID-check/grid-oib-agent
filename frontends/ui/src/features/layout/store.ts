@@ -26,6 +26,7 @@ const initialState: LayoutState = {
   theme: 'system',
   availableDataSources: null,
   knowledgeLayerAvailable: false, // Default to false until API confirms availability
+  vlmAvailable: false, // Default to false until API confirms the VLM capability
   dataSourcesLoading: false,
   dataSourcesError: null,
   // Deprecated aliases for backwards compatibility
@@ -94,6 +95,7 @@ export const useLayoutStore = create<LayoutStore>()(
             {
               availableDataSources: response.data_sources,
               knowledgeLayerAvailable: response.knowledge_layer,
+              vlmAvailable: response.vlm_available,
               enabledDataSourceIds: enabledIds,
               dataSourcesLoading: false,
               dataSourcesError: null,
@@ -131,6 +133,9 @@ export const useLayoutStore = create<LayoutStore>()(
 
       setKnowledgeLayerAvailable: (available: boolean) =>
         set({ knowledgeLayerAvailable: available }, false, 'setKnowledgeLayerAvailable'),
+
+      setVlmAvailable: (available: boolean) =>
+        set({ vlmAvailable: available }, false, 'setVlmAvailable'),
 
       // Deprecated actions - delegate to new ones
       setDetailsPanelTab: (tab: ResearchPanelTab) =>

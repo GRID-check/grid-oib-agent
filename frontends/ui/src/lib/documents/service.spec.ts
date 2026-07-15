@@ -27,6 +27,12 @@ vi.mock('@/lib/audit/service', () => ({
   recordAuditEvent: vi.fn().mockResolvedValue(undefined),
 }))
 
+// The server-side allow-list consults the derived VLM capability. Mock it so
+// tests drive the (flag × capability) matrix directly, without a backend probe.
+vi.mock('@/lib/documents/vlm-capability', () => ({
+  isVlmConfigured: vi.fn().mockResolvedValue(false),
+}))
+
 vi.mock('./repository', () => ({
   insertDocument: vi.fn().mockResolvedValue(undefined),
   setDocumentIngestJob: vi.fn().mockResolvedValue(undefined),
@@ -50,6 +56,7 @@ import {
 } from './repository'
 import { listDocuments, uploadDocument, reingestDocument, INGEST_DISPATCH_FAILED_MESSAGE } from './service'
 import { reconcileDocumentStatuses } from './reconcile-status'
+import { isVlmConfigured } from '@/lib/documents/vlm-capability'
 import { BadRequestError, ConflictError } from '@/lib/api/errors'
 
 const session = {
@@ -91,10 +98,11 @@ afterEach(() => {
 })
 
 describe('uploadDocument server-side type gate', () => {
-  it('rejects an image with a 400 when the image-upload flag is off', async () => {
-    // Deployment opted images into the accepted-types list (VLM configured), but
-    // flag enforcement is ON and the session lacks image-upload → images stripped.
-    vi.stubEnv('FILE_UPLOAD_ACCEPTED_TYPES', '.pdf,.docx,.txt,.md,.png,.jpg,.jpeg')
+  // Availability = image-upload flag AND VLM capability. The env accept-list is
+  // irrelevant for images: these cases list them in env to prove it can't force
+  // them in without the capability.
+  it('rejects an image with a 400 when the image-upload flag is off (capability on)', async () => {
+    vi.mocked(isVlmConfigured).mockResolvedValue(true)
     vi.stubEnv('GRID_ENFORCE_FEATURE_FLAGS', 'true')
     const gatedSession = { ...session, featureFlags: [] }
 
@@ -107,10 +115,24 @@ describe('uploadDocument server-side type gate', () => {
     expect(mockFetch).not.toHaveBeenCalled()
   })
 
-  it('accepts an image when the image-upload flag is on', async () => {
-    // Deployment opted images into the accepted-types list (VLM configured); with
-    // the flag on they are permitted. (Images are no longer a shipped default.)
+  it('rejects an image when the capability is absent/unconfirmed even with the flag on (fail-closed)', async () => {
+    // Explicit env images + flag on, but no VLM → still rejected. This is the
+    // silent-failure hole the derived capability closes.
+    vi.mocked(isVlmConfigured).mockResolvedValue(false)
     vi.stubEnv('FILE_UPLOAD_ACCEPTED_TYPES', '.pdf,.docx,.txt,.md,.png,.jpg,.jpeg')
+    vi.stubEnv('GRID_ENFORCE_FEATURE_FLAGS', 'true')
+    const gatedSession = { ...session, featureFlags: ['image-upload'] }
+
+    await expect(
+      uploadDocument(gatedSession, makeInput({ name: 'photo.png', type: 'image/png' }), new Request('http://x')),
+    ).rejects.toBeInstanceOf(BadRequestError)
+    expect(insertDocument).not.toHaveBeenCalled()
+    expect(mockFetch).not.toHaveBeenCalled()
+  })
+
+  it('accepts an image when the flag is on AND the VLM capability is confirmed', async () => {
+    // No env opt-in needed — the capability alone (plus the flag) admits images.
+    vi.mocked(isVlmConfigured).mockResolvedValue(true)
     vi.stubEnv('GRID_ENFORCE_FEATURE_FLAGS', 'true')
     const gatedSession = { ...session, featureFlags: ['image-upload'] }
     mockFetch.mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve({ job_id: 'job-img' }) })

@@ -106,6 +106,8 @@ export const files: typeof en.files = {
       'Es werden {uploading} {fileLabel} hochgeladen, {skipped} übersprungen ({summary})',
     cannotRetryServerFile:
       'Vom Server geladene Dateien können nicht erneut versucht werden. Bitte laden Sie die Datei erneut hoch.',
+    imageVlmUnavailable:
+      'Das Hochladen von Bildern erfordert ein konfiguriertes Vision-Modell (VLM) in dieser Umgebung.',
     fileSingular: 'Datei',
     filePlural: 'Dateien',
   },

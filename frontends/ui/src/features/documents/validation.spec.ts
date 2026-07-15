@@ -421,5 +421,43 @@ describe('validation', () => {
         expect(result.fileErrors[0].message).toContain('.csv,.json')
       })
     })
+
+    describe('image rejected due to missing VLM (flag on, capability off)', () => {
+      const nonImageConfig = {
+        acceptedTypes: '.pdf,.docx,.txt,.md',
+        acceptedMimeTypes: ['application/pdf'],
+        maxTotalSizeMB: 100,
+        maxFileSize: 100 * 1024 * 1024,
+        maxTotalSize: 100 * 1024 * 1024,
+        maxFileCount: 10,
+        fileExpirationCheckIntervalHours: 0,
+      }
+
+      test('tags an image rejection with reason image-vlm-unavailable when blocked by VLM', () => {
+        const config = { ...nonImageConfig, imageUploadBlockedReason: 'vlm-unavailable' as const }
+        const result = validateFileUpload([createFile('photo.png')], createEmptyValidationContext(), config)
+
+        expect(result.fileErrors[0].code).toBe('INVALID_TYPE')
+        expect(result.fileErrors[0].reason).toBe('image-vlm-unavailable')
+      })
+
+      test('does NOT tag a non-image rejection even when images are VLM-blocked', () => {
+        const config = { ...nonImageConfig, imageUploadBlockedReason: 'vlm-unavailable' as const }
+        const result = validateFileUpload([createFile('malware.exe')], createEmptyValidationContext(), config)
+
+        expect(result.fileErrors[0].code).toBe('INVALID_TYPE')
+        expect(result.fileErrors[0].reason).toBeUndefined()
+      })
+
+      test('does NOT tag an image rejection when the block is not VLM-related', () => {
+        // imageUploadBlockedReason null (e.g. flag off) → generic rejection, no
+        // VLM-specific reason.
+        const config = { ...nonImageConfig, imageUploadBlockedReason: null }
+        const result = validateFileUpload([createFile('photo.png')], createEmptyValidationContext(), config)
+
+        expect(result.fileErrors[0].code).toBe('INVALID_TYPE')
+        expect(result.fileErrors[0].reason).toBeUndefined()
+      })
+    })
   })
 })
