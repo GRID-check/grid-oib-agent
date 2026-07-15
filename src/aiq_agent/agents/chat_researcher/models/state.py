@@ -1,4 +1,11 @@
-"""State models for chat researcher agent."""
+"""State models for chat researcher agent.
+
+NOTE: any new pydantic state type added below (or nested inside these fields)
+MUST also be added to the checkpointer allow-list in
+``aiq_agent/common/__init__.py`` (``_build_checkpointer_serde``). The
+checkpointer deserializes with a STRICT msgpack allow-list; a type missing from
+that list will break checkpoint restore for states that contain it.
+"""
 
 from typing import Annotated
 from typing import Any

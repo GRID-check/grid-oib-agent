@@ -10,6 +10,7 @@ import os
 import aiosqlite
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
@@ -165,6 +166,27 @@ def is_postgres_dsn(value: str) -> bool:
         return value.startswith(("postgresql://", "postgres://"))
 
 
+def _build_checkpointer_serde() -> JsonPlusSerializer:
+    """Build the checkpointer serializer with an explicit msgpack allow-list.
+
+    This flips the checkpointer from permissive to STRICT deserialization: only
+    the listed pydantic state types may be reconstructed from a checkpoint. The
+    list below is the complete set of custom pydantic types carried in
+    ``ChatResearcherState`` (the shallow graph has no checkpointer). Any NEW
+    pydantic state type MUST be added here or restore will break for it.
+    """
+    # Imported lazily to avoid a circular import: the agent state modules import
+    # from ``aiq_agent.common`` at module load time.
+    from aiq_agent.agents.chat_researcher.models.depth import DepthDecision
+    from aiq_agent.agents.chat_researcher.models.intent import IntentResult
+    from aiq_agent.agents.chat_researcher.models.result import ShallowResult
+    from aiq_agent.knowledge.schema import AvailableDocument
+
+    return JsonPlusSerializer(
+        allowed_msgpack_modules=[IntentResult, DepthDecision, ShallowResult, AvailableDocument],
+    )
+
+
 async def get_checkpointer(checkpoint_db: str) -> BaseCheckpointSaver:
     """Return a shared checkpointer for the given database/DSN.
 
@@ -198,12 +220,12 @@ async def get_checkpointer(checkpoint_db: str) -> BaseCheckpointSaver:
                     kwargs={"autocommit": True, "row_factory": dict_row},
                 )
                 _postgres_pools[checkpoint_db] = pool
-            checkpointer = AsyncPostgresSaver(pool)
+            checkpointer = AsyncPostgresSaver(pool, serde=_build_checkpointer_serde())
             await checkpointer.setup()
             logger.info("Postgres checkpointer initialized via async pool.")
         else:
             conn = await aiosqlite.connect(checkpoint_db)
-            checkpointer = AsyncSqliteSaver(conn)
+            checkpointer = AsyncSqliteSaver(conn, serde=_build_checkpointer_serde())
             await checkpointer.setup()
             logger.info("SQLite checkpointer initialized: %s", checkpoint_db)
 
