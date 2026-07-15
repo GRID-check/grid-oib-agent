@@ -125,12 +125,12 @@ export function FileBrowserPane({
               key={file.id}
               onClick={() => onSelectFile(isSelected ? null : file.id)}
               aria-pressed={isSelected}
-              className={`flex w-full items-center justify-between gap-4 px-4 py-3 text-left transition-colors duration-200 ease-out hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset ${
+              className={`flex w-full items-start justify-between gap-4 px-4 py-3 text-left transition-colors duration-200 ease-out hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset ${
                 isSelected ? 'bg-accent' : ''
               }`}
             >
-              <div className="flex min-w-0 items-center gap-3">
-                <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+              <div className="flex min-w-0 items-start gap-3">
+                <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
                   <Icon className="size-4" aria-hidden />
                 </span>
                 <div className="min-w-0">
@@ -140,7 +140,16 @@ export function FileBrowserPane({
                       {failureReason}
                     </p>
                   ) : (
-                    <p className="text-xs text-muted-foreground tabular-nums">{formatFileSize(file.fileSize, locale)}</p>
+                    <>
+                      {/* The AI-generated description grounds every answer, so surface
+                          it in the list — clamped to two lines — not just the preview. */}
+                      {file.summary && (
+                        <p className="mt-0.5 line-clamp-2 text-xs leading-relaxed text-muted-foreground" title={file.summary}>
+                          {file.summary}
+                        </p>
+                      )}
+                      <p className="mt-0.5 text-xs text-muted-foreground/70 tabular-nums">{formatFileSize(file.fileSize, locale)}</p>
+                    </>
                   )}
                 </div>
               </div>

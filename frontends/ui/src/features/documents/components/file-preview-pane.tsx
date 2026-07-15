@@ -147,6 +147,19 @@ export function FilePreviewPane({ file, onClose, onReingested, onTagsUpdated, sh
         </div>
       </div>
 
+      {/* Document description — the one-sentence summary the backend generated at
+          ingestion. It's what grounds the agent's answers, so lead with it: place
+          it directly under the header, above the preview, rather than burying it
+          below. Read-only; calm accented panel so it reads as the document's gist. */}
+      {showMetadataPanel && file.summary && (
+        <div className="space-y-1 border-b bg-muted/40 px-4 py-3">
+          <p className="text-[0.6875rem] font-medium uppercase tracking-wider text-muted-foreground">
+            {t('preview.summary')}
+          </p>
+          <p className="text-sm leading-relaxed text-foreground">{file.summary}</p>
+        </div>
+      )}
+
       {canExpandPreview && previewUrl && (
         <PdfViewerDialog
           open={isLargePreviewOpen}
@@ -189,15 +202,6 @@ export function FilePreviewPane({ file, onClose, onReingested, onTagsUpdated, sh
           <PreviewMessage message={t('preview.noInlinePreview')} />
         )}
       </div>
-
-      {/* Document summary — a one-sentence description of the contents, when the
-          backend generated one. Read-only; calm muted text, no chrome. */}
-      {showMetadataPanel && file.summary && (
-        <div className="space-y-1.5 border-t px-4 py-3">
-          <p className="text-xs text-muted-foreground">{t('preview.summary')}</p>
-          <p className="text-xs leading-relaxed text-foreground">{file.summary}</p>
-        </div>
-      )}
 
       {/* Ingestion-generated tags — controlled document-type/discipline labels.
           Editable via a small popover of toggleable chips (same flag as the rest
