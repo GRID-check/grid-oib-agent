@@ -245,9 +245,11 @@ This PostgreSQL entrypoint script runs on first container startup and creates tw
 | `job_info` | NAT JobStore metadata | `job_id` (PK), `status`, `config_file`, `error`, `output_path`, `created_at`, `updated_at`, `expiry_seconds`, `is_expired` |
 | `job_access` | Job ownership/access control | `job_id` (PK), `owner_auth_type`, `owner_subject`, `owner_email` |
 | `job_events` | SSE streaming event persistence | `id` (serial PK), `job_id`, `event_type`, `event_data`, `created_at` |
-| `summaries` | Document summaries | `collection` + `filename` (composite PK), `summary` |
+| `summaries` | Document summaries + controlled tags | `collection` + `filename` (composite PK), `summary`, `tags` (`TEXT`, JSON-encoded list of controlled tags; nullable) |
 
 Indexes: `job_info(status)`, `job_info(created_at)`, `job_access(owner_auth_type, owner_subject)`, `job_events(job_id)`, `job_events(job_id, id)`, `summaries(collection)`.
+
+> **`summaries.tags`** stores each document's controlled ingestion tags (document-type + OIB discipline vocabulary) as a JSON list, e.g. `["Grundriss","Brandschutz"]`, or SQL `NULL`/absent when untagged. **`init-db.sql` deliberately pre-creates the `summaries` table without this column** (see below), so the column is added at runtime by `SummaryStore` on first access — the in-place migration is always exercised on an existing deployment. See `docs/database/migrations.md` (init-db.sql section) for the ALTER-TABLE mechanics.
 
 ### aiq_checkpoints database
 
