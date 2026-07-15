@@ -56,8 +56,8 @@ describe('ChatArea', () => {
   test('renders welcome state when authenticated with no messages', () => {
     render(<ChatArea isAuthenticated={true} />)
 
-    expect(screen.getByText(/start with a project/i)).toBeInTheDocument()
-    expect(screen.getByText(/keeps retrieval scoped/i)).toBeInTheDocument()
+    expect(screen.getByText(/how can grid help with your project/i)).toBeInTheDocument()
+    expect(screen.getByText(/compare oib 2 fire resistance/i)).toBeInTheDocument()
   })
 
   test('calls onSignIn when sign in button clicked', async () => {
@@ -265,7 +265,7 @@ describe('ChatArea', () => {
     render(<ChatArea isAuthenticated={true} />)
 
     // Should show welcome state since assistant messages are filtered out
-    expect(screen.getByText(/start with a project/i)).toBeInTheDocument()
+    expect(screen.getByText(/how can grid help with your project/i)).toBeInTheDocument()
   })
 
   test('renders chat messages area with aria-label', () => {
@@ -290,7 +290,7 @@ describe('ChatArea', () => {
     render(<ChatArea isAuthenticated={true} />)
 
     // Should render welcome state
-    expect(screen.getByText(/start with a project/i)).toBeInTheDocument()
+    expect(screen.getByText(/how can grid help with your project/i)).toBeInTheDocument()
   })
 
   test('renders file upload banners', () => {

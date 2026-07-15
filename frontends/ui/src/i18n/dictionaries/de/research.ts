@@ -26,21 +26,11 @@ export const research: typeof en.research = {
 
   chatArea: {
     ariaMessages: 'Chat-Nachrichten',
-    secureWorkspace: 'sicherer Arbeitsbereich',
     loggedOutTitle: 'Grid wird verfügbar, sobald Ihre Organisation verifiziert ist.',
     loggedOutBody:
       'Melden Sie sich an, um projektbezogene OIB-Recherche, Dokumenten-Ingestion und Zugriffskontrollen für Mitglieder freizuschalten.',
     signInSso: 'Mit SSO anmelden',
-    featureWorkos: 'WorkOS-Authentifizierung',
-    featureRetrieval: 'Projektbezogene Suche',
-    featureRbac: 'Rollenbasierter Zugriff',
-    cockpit: 'OIB-Recherche-Cockpit',
-    title: 'Beginnen Sie mit einem Projekt und fragen Sie nach belegter baurechtlicher Argumentation.',
-    body: 'Grid hält die Suche auf den ausgewählten Arbeitsbereich beschränkt und verwandelt lange Richtliniendokumente in nachvollziehbare Entscheidungen.',
-    reviewBrief: 'Briefing prüfen',
-    reviewBriefDesc: 'Öffnen Sie die Projektübersicht, um die Fakten zu prüfen, auf die Grid seine Antworten stützt.',
-    uploadFiles: 'Dateien hochladen',
-    uploadFilesDesc: 'Hängen Sie Pläne oder Dokumente über die Büroklammer an, um Antworten auf Ihre Belege zu stützen.',
+    welcomeTitle: 'Wie kann Grid bei Ihrem Projekt helfen?',
     usePrompt: 'Vorschlag verwenden: {prompt}',
     prompt1: 'Vergleiche die Brandschutzpflichten nach OIB 2 über die Gebäudeklassen hinweg.',
     prompt2: 'Fasse die Barrierefreiheitsanforderungen für eine öffentliche Sanierung zusammen.',
