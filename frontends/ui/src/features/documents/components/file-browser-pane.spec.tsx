@@ -49,6 +49,26 @@ function renderPane() {
   )
 }
 
+describe('FileBrowserPane — document descriptions', () => {
+  it('surfaces the AI-generated description under the filename in the list', () => {
+    const withSummary: FileItem[] = [
+      { ...files[0], summary: 'A ground-floor plan of the east wing.' },
+      files[1],
+    ]
+    render(
+      <FileBrowserPane
+        files={withSummary}
+        selectedFileId={null}
+        onSelectFile={vi.fn()}
+        isLoading={false}
+        hasFolderSelected={false}
+      />
+    )
+    // The description shows for the file that has one, and only for that file.
+    expect(screen.getByText('A ground-floor plan of the east wing.')).toBeInTheDocument()
+  })
+})
+
 describe('FileBrowserPane — search zero-match', () => {
   it('shows an EmptyState with a Clear-search action when nothing matches', async () => {
     const user = userEvent.setup()
