@@ -143,7 +143,11 @@ export function ProjectIntakeWizard({
           if (draft) {
             const parsed = JSON.parse(draft)
             if (parsed.answers) {
-              setAnswers(parsed.answers)
+              // Prune orphaned conditional answers on restore too, so a loaded
+              // draft behaves exactly like interactively-edited state — a stale
+              // conditional answer whose condition no longer holds must not trip
+              // the orphanedAnswer rule on Save.
+              setAnswers(pruneStaleConditionalAnswers(parsed.answers, data))
               restored = true
             }
             if (typeof parsed.currentStep === 'number') setCurrentStep(parsed.currentStep)
@@ -153,7 +157,10 @@ export function ProjectIntakeWizard({
         }
 
         if (!restored && initialProfile) {
-          setAnswers(answersFromProfile(initialProfile, data))
+          // Same pruning for a profile-prefilled edit session: an answer whose
+          // conditional question is hidden by the current answers is dropped so
+          // loaded state matches what interactive editing would have produced.
+          setAnswers(pruneStaleConditionalAnswers(answersFromProfile(initialProfile, data), data))
         }
         setLoading(false)
       })
@@ -262,7 +269,15 @@ export function ProjectIntakeWizard({
     setSaving(true)
     setError(null)
     try {
-      const profile = buildIntakeProfile(answers, definition, { projectName })
+      const built = buildIntakeProfile(answers, definition, { projectName })
+      // The wizard's questions only round-trip facts/goals/unknowns; assumptions
+      // (agent-suggested, unconfirmed) are not editable here. A PUT replaces the
+      // whole profile, so carry over any assumptions from the loaded profile —
+      // otherwise every edit-mode save silently wipes a salvaged assumptions-only
+      // brief. Built assumptions (always empty today) still win on key conflicts.
+      const profile: ProjectProfile = initialProfile
+        ? { ...built, assumptions: { ...initialProfile.assumptions, ...built.assumptions } }
+        : built
       const res = await fetch(`/api/projects/${projectId}/profile`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -307,7 +322,7 @@ export function ProjectIntakeWizard({
       )
       setSaving(false)
     }
-  }, [definition, answers, projectId, projectName, router, STORAGE_KEY, t])
+  }, [definition, answers, initialProfile, projectId, projectName, router, STORAGE_KEY, t])
 
   /**
    * FB-13 Save entry point. Flag off → save immediately (unchanged). Flag on →

@@ -1,11 +1,16 @@
 import { describe, expect, it } from 'vitest'
 
-import { salvageProjectProfile } from './salvage'
-import type { ProjectFact } from './types'
+import { deriveIntakeEntry, salvageProjectProfile } from './salvage'
+import type { ProjectAssumption, ProjectFact } from './types'
 
 /** A well-formed confirmed fact for a given value. */
 function fact(value: ProjectFact['value']): ProjectFact {
   return { value, confidence: 'confirmed', source: 'onboarding', updatedAt: '2026-01-01T00:00:00.000Z' }
+}
+
+/** A well-formed unconfirmed assumption for a given value. */
+function assumption(value: ProjectAssumption['value']): ProjectAssumption {
+  return { value, status: 'unconfirmed', reason: 'agent guess', source: 'agent_suggested', updatedAt: '2026-01-01T00:00:00.000Z' }
 }
 
 describe('salvageProjectProfile', () => {
@@ -100,5 +105,52 @@ describe('salvageProjectProfile', () => {
     expect(profile).toBeNull()
     expect(dropped.length).toBeGreaterThan(0)
     expect(dropped).toContain('facts.a')
+  })
+})
+
+describe('deriveIntakeEntry', () => {
+  it('opens an assumptions-only profile in edit mode with the assumptions kept', () => {
+    const raw = { facts: {}, goals: {}, unknowns: [], assumptions: { widmung: assumption('wohnen') } }
+    const entry = deriveIntakeEntry(raw)
+    expect(entry.mode).toBe('edit')
+    expect(entry.initialProfile).not.toBeNull()
+    expect(entry.initialProfile?.assumptions.widmung?.value).toBe('wohnen')
+    // Fully valid → nothing dropped → no banner.
+    expect(entry.salvageNotice).toBeNull()
+  })
+
+  it('shows the partial banner and edits when assumptions survive but a fact dropped', () => {
+    const raw = {
+      facts: { a: { bogus: true } },
+      goals: {},
+      unknowns: [],
+      assumptions: { widmung: assumption('wohnen') },
+    }
+    const entry = deriveIntakeEntry(raw)
+    expect(entry.mode).toBe('edit')
+    expect(entry.initialProfile?.assumptions.widmung?.value).toBe('wohnen')
+    expect(entry.salvageNotice).toBe('partial')
+  })
+
+  it('opens a genuinely empty ({}) profile in create mode with no banner', () => {
+    const entry = deriveIntakeEntry({})
+    expect(entry.mode).toBe('create')
+    expect(entry.initialProfile).toBeNull()
+    expect(entry.salvageNotice).toBeNull()
+  })
+
+  it('opens an edit session for a facts-bearing profile', () => {
+    const raw = { facts: { hauptnutzung: fact('wohnen') }, goals: {}, unknowns: [], assumptions: {} }
+    const entry = deriveIntakeEntry(raw)
+    expect(entry.mode).toBe('edit')
+    expect(entry.initialProfile?.facts.hauptnutzung?.value).toBe('wohnen')
+    expect(entry.salvageNotice).toBeNull()
+  })
+
+  it('shows the full-failure banner and create mode when nothing salvageable remained', () => {
+    const entry = deriveIntakeEntry('totally corrupt')
+    expect(entry.mode).toBe('create')
+    expect(entry.initialProfile).toBeNull()
+    expect(entry.salvageNotice).toBe('full')
   })
 })

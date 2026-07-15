@@ -246,6 +246,74 @@ describe('ProjectIntakeWizard — Fix 1 salvage banner', () => {
   })
 })
 
+describe('ProjectIntakeWizard — assumptions-only edit preserves assumptions', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals()
+    vi.clearAllMocks()
+    sessionStorage.clear()
+  })
+  afterEach(() => sessionStorage.clear())
+
+  it('carries loaded assumptions into the PUT payload on an edit-mode save', async () => {
+    const user = userEvent.setup()
+    const stub = stubFetch()
+    // Land on Review via a seeded draft; the assumption comes from the loaded
+    // profile (the wizard's questions never round-trip assumptions).
+    seedReviewDraft({ hauptnutzung: 'wohnen' })
+    const initialProfile = {
+      facts: {},
+      goals: {},
+      unknowns: [],
+      assumptions: {
+        widmung: {
+          value: 'wohnen',
+          status: 'unconfirmed' as const,
+          reason: 'agent guess',
+          source: 'agent_suggested' as const,
+          updatedAt: '2026-01-01T00:00:00.000Z',
+        },
+      },
+    }
+    render(
+      <ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" mode="edit" initialProfile={initialProfile} />,
+    )
+
+    await user.click(await screen.findByRole('button', { name: /save changes/i }))
+
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith(`/app/projects/${PROJECT_ID}`))
+    const put = putProfileCalls(stub)[0]
+    expect(put).toBeDefined()
+    const body = put.body as { assumptions?: Record<string, { value?: unknown }> }
+    expect(body.assumptions?.widmung?.value).toBe('wohnen')
+  })
+})
+
+describe('ProjectIntakeWizard — Fix 6 stale conditional answers pruned on load', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals()
+    vi.clearAllMocks()
+    sessionStorage.clear()
+  })
+  afterEach(() => sessionStorage.clear())
+
+  it('prunes an orphaned conditional answer from a restored draft so save is clean', async () => {
+    const user = userEvent.setup()
+    const stub = stubFetch()
+    // Bed count is only valid when the use is Hospitality. A restored draft with
+    // Office + a stale bed count would trip the orphanedAnswer rule and HOLD the
+    // save — unless the load path prunes it like an interactive edit would.
+    seedReviewDraft({ hauptnutzung: 'buero', anzahl_betten: 40 })
+    render(<ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" conflictCheckEnabled />)
+
+    await user.click(await screen.findByRole('button', { name: /save & see/i }))
+
+    // Pruned on load → no orphan finding → the save proceeds straight through.
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith(`/app/projects/${PROJECT_ID}`))
+    expect(putProfileCalls(stub)).toHaveLength(1)
+    expect(screen.queryByText(/no longer applies/i)).not.toBeInTheDocument()
+  })
+})
+
 describe('ProjectIntakeWizard — Fix 5 non-finite number rejected', () => {
   beforeEach(() => {
     vi.unstubAllGlobals()

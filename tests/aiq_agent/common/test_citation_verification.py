@@ -388,6 +388,23 @@ class TestGenericUrlExtractor:
             entries = extract_sources_from_tool_result("some_tool", text, source_id="some")
             assert entries == []
 
+    def test_multiline_content_leading_with_no_results_prefix_survives(self):
+        """Substantive content that merely LEADS with a no-result phrase stays citable.
+
+        The prefix match must not swallow a real result block just because it
+        opens with "No results found for the exact phrase, however: ...".
+        """
+        content = (
+            "No results found for the exact phrase, however the following related "
+            "records match:\n"
+            "--- Result 1 ---\n"
+            "Title: Bauordnung für Wien\n"
+            "Source: https://www.ris.bka.gv.at/eli/lgbl/wi/1930/11\n"
+        )
+        entries = extract_sources_from_tool_result("ris_search_tool", content, source_id="ris_search")
+        assert len(entries) >= 1
+        assert any("ris.bka.gv.at" in (e.url or "") for e in entries)
+
     def test_genuine_ris_result_text_is_still_citable(self):
         """A real RIS result with a citation URL must still register a source."""
         content = (

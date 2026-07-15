@@ -29,9 +29,18 @@ def test_sqlite_path_no_crash():
     assert out == "sqlite:///./jobs.db"
 
 
-def test_unparseable_returns_sentinel():
-    out = redact_db_url("this is not a url at all")
-    assert out == "<unparseable-db-url>"
+def test_bare_path_passes_through_unchanged():
+    # No credentials to scrub and unparseable as a SQLAlchemy URL → returned as-is.
+    out = redact_db_url("summaries.db")
+    assert out == "summaries.db"
+
+
+def test_garbled_url_with_credentials_scrubs_password():
+    # A DSN SQLAlchemy cannot parse (spaces in the scheme) still gets its
+    # user:pass@ segment scrubbed by the regex fallback.
+    out = redact_db_url("a b c://myuser:supersecret@host/db")
+    assert "supersecret" not in out
+    assert "://***@" in out
 
 
 def test_export_matches_module():

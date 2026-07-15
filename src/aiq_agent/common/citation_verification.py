@@ -587,7 +587,8 @@ def _is_non_citable_status_output(content: str) -> bool:
 
 def _is_status_message(content: str) -> bool:
     """Return whether a single tool output (or batch item body) is a status message."""
-    normalized = re.sub(r"\s+", " ", content.strip()).rstrip(".").lower()
+    stripped = content.strip()
+    normalized = re.sub(r"\s+", " ", stripped).rstrip(".").lower()
     if not normalized:
         return False
     if normalized.startswith("error:"):
@@ -596,9 +597,14 @@ def _is_status_message(content: str) -> bool:
         return True
     # No-result outputs from source tools (e.g. the RIS adapter's
     # "No RIS documents found for query ...") are status reports, not evidence,
-    # and must not become citations. Stay conservative: only match explicit
-    # known no-result prefixes so genuine results are never dropped.
-    return normalized.startswith(
+    # and must not become citations. The known no-result prefixes only qualify
+    # when the body actually has the shape of a terse status line — a SINGLE,
+    # reasonably SHORT line, matching the real RIS no-result output. A multi-line
+    # or long body that merely LEADS with one of these phrases (e.g. "No results
+    # found for the exact phrase, however: <records>") carries substantive
+    # content and must survive as citable evidence.
+    is_terse_status_line = "\n" not in stripped and len(normalized) <= 300
+    return is_terse_status_line and normalized.startswith(
         (
             "no ris documents found",
             "no documents found",

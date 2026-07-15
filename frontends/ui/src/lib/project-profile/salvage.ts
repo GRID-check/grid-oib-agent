@@ -90,14 +90,51 @@ export function salvageProjectProfile(raw: unknown): SalvageResult {
     return { profile: null, dropped: dropped.length > 0 ? dropped : ['profile'] }
   }
 
-  // Re-validate the reassembled profile so defaults/shape are guaranteed. This
-  // must succeed (every kept entry already validated), but fall back defensively.
-  const rebuilt = ProjectProfileSchema.safeParse({ facts, goals, unknowns, assumptions })
-  if (!rebuilt.success) {
-    return { profile: null, dropped: dropped.length > 0 ? dropped : ['profile'] }
-  }
+  // Every kept entry already validated against its schema, and all four fields
+  // are present here — so the reassembled profile is a well-formed ProjectProfile
+  // by construction. Assemble it directly instead of re-parsing the whole object.
+  const profile: ProjectProfile = { facts, goals, unknowns, assumptions }
+  return { profile, dropped }
+}
 
-  return { profile: rebuilt.data, dropped }
+/** The intake page's entry decision, derived from a salvage result. */
+export interface IntakeEntry {
+  /** 'edit' when any brief content survived (incl. assumptions-only); else 'create'. */
+  mode: 'create' | 'edit'
+  /** The profile to prefill the wizard with in edit mode, else null. */
+  initialProfile: ProjectProfile | null
+  /** Banner variant: 'partial' when some parts dropped but content survived,
+   *  'full' when nothing salvageable remained, null when the brief loaded cleanly. */
+  salvageNotice: 'partial' | 'full' | null
+}
+
+/**
+ * Derive the intake page's mode / initialProfile / banner from a raw stored
+ * profile in one coherent decision.
+ *
+ * A salvaged profile that retained ANY content — facts, goals, unknowns, OR
+ * assumptions — is USED: the wizard opens in edit mode prefilled from it, so an
+ * assumptions-only brief is no longer silently dropped into create mode by a
+ * facts/goals/unknowns-only count. A genuinely empty profile (e.g. the `{}`
+ * default of a fresh project) has no content and opens in create mode. The
+ * banner is 'partial' when parts were dropped but a profile survived, 'full'
+ * when nothing salvageable remained, and null when the brief loaded cleanly.
+ */
+export function deriveIntakeEntry(raw: unknown): IntakeEntry {
+  const { profile, dropped } = salvageProjectProfile(raw)
+  const hasContent =
+    profile !== null &&
+    (Object.keys(profile.facts).length > 0 ||
+      Object.keys(profile.goals).length > 0 ||
+      profile.unknowns.length > 0 ||
+      Object.keys(profile.assumptions).length > 0)
+  const salvageNotice: 'partial' | 'full' | null =
+    dropped.length === 0 ? null : profile === null ? 'full' : 'partial'
+  return {
+    mode: hasContent ? 'edit' : 'create',
+    initialProfile: hasContent ? profile : null,
+    salvageNotice,
+  }
 }
 
 /** Validate each value of a record against `schema`, dropping the invalid ones. */

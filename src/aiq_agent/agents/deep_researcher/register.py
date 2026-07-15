@@ -212,9 +212,19 @@ async def deep_research_agent(config: DeepResearchAgentConfig, builder: Builder)
     verbose = is_verbose(config.verbose)
     callbacks = [VerboseTraceCallback()] if verbose else []
 
-    def _build_agent(tool_list: list) -> DeepResearcherAgent:
+    def _build_agent(
+        tool_list: list,
+        *,
+        llm_provider: Any = None,
+        job_id: str | None = None,
+    ) -> DeepResearcherAgent:
+        # Optional overrides let per-request paths (model overrides / BYOK
+        # credential, source-filtered tools, sandbox-scoped job_id) reuse this
+        # single constructor call instead of duplicating every kwarg. Omitted
+        # overrides fall back to the module-level provider / a fresh job_id,
+        # matching the eager and lazy build sites.
         return DeepResearcherAgent(
-            llm_provider=provider,
+            llm_provider=llm_provider if llm_provider is not None else provider,
             tools=tool_list,
             verbose=verbose,
             callbacks=callbacks,
@@ -223,6 +233,7 @@ async def deep_research_agent(config: DeepResearchAgentConfig, builder: Builder)
             enable_citation_verification=config.enable_citation_verification,
             skills=skills_config,
             sandbox=sandbox_config,
+            job_id=job_id,
             max_research_concurrency=config.max_research_concurrency,
             max_concurrent_source_tool_calls=config.max_concurrent_source_tool_calls,
             max_source_tool_batch_size=config.max_source_tool_batch_size,
@@ -288,21 +299,7 @@ async def deep_research_agent(config: DeepResearchAgentConfig, builder: Builder)
                     job_id = Context.get().workflow_run_id
                 except Exception:  # noqa: BLE001 - Context may be unavailable in sync/eval paths
                     job_id = None
-                active_agent = DeepResearcherAgent(
-                    llm_provider=active_provider,
-                    tools=selected_tools,
-                    verbose=verbose,
-                    callbacks=callbacks,
-                    domain_catalog_path=config.domain_catalog_path,
-                    enable_source_router=config.enable_source_router,
-                    enable_citation_verification=config.enable_citation_verification,
-                    skills=skills_config,
-                    sandbox=sandbox_config,
-                    job_id=job_id,
-                    max_research_concurrency=config.max_research_concurrency,
-                    max_concurrent_source_tool_calls=config.max_concurrent_source_tool_calls,
-                    max_source_tool_batch_size=config.max_source_tool_batch_size,
-                )
+                active_agent = _build_agent(selected_tools, llm_provider=active_provider, job_id=job_id)
 
             if all_mapped_tools_filtered_out(tools, selected_tools, data_sources):
                 logger.warning("Deep research received data_sources with no matching tools")
