@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
 from langchain_core.messages import SystemMessage
 from langchain_core.messages import ToolMessage
@@ -374,12 +375,28 @@ class ShallowResearcherAgent:
         # Control-marker signals extracted from the model's answer. Populated
         # below and carried as STRUCTURED state so the chat node does not have to
         # re-parse the answer string (which also leaked the markers downstream).
-        escalation_requested = False
-        answer_confidence_marker = None
-        if validated_result.get("messages"):
-            last_msg = validated_result["messages"][-1]
-            if hasattr(last_msg, "content") and last_msg.content:
-                content = str(last_msg.content)
+        # ``escalation_requested`` stays None until extraction actually runs on a
+        # real answer message; the chat node reads None as "fall back to string
+        # detection". A bool means extraction ran and the value is authoritative.
+        escalation_requested: bool | None = None
+        answer_confidence_marker: str | None = None
+        messages_list = validated_result.get("messages") or []
+        # Select the answer message with the SAME selector the chat node uses:
+        # the last AIMessage that is not a tool call. Marker extraction, citation
+        # verification, sanitization, and the write-back all target THIS message,
+        # leaving any other messages (tool calls/results) untouched.
+        answer_index = next(
+            (
+                i
+                for i in range(len(messages_list) - 1, -1, -1)
+                if isinstance(messages_list[i], AIMessage) and not messages_list[i].tool_calls
+            ),
+            None,
+        )
+        if answer_index is not None:
+            answer_msg = messages_list[answer_index]
+            if hasattr(answer_msg, "content") and answer_msg.content:
+                content = str(answer_msg.content)
 
                 # Step 0: extract AND strip both control markers up front, before
                 # citation verification, before emit_final_report, and before the
@@ -464,16 +481,16 @@ class ShallowResearcherAgent:
                         cb.emit_final_report(content)
                         break
 
-                if hasattr(last_msg, "model_copy"):
-                    validated_result["messages"][-1] = last_msg.model_copy(update={"content": content})
+                if hasattr(answer_msg, "model_copy"):
+                    messages_list[answer_index] = answer_msg.model_copy(update={"content": content})
                 else:
-                    validated_result["messages"][-1] = type(last_msg)(content=content)
+                    messages_list[answer_index] = type(answer_msg)(content=content)
 
         # Carry the grounding signal to the chat node's overconfidence guard.
         validated_result["answer_citation_grounded"] = citation_grounded
-        # Carry the extracted control-marker signals as structured state. The
-        # sentinel tells the chat node to trust these instead of re-parsing text.
-        validated_result["control_markers_extracted"] = True
+        # Carry the extracted control-marker signals as structured state. A
+        # non-None ``escalation_requested`` tells the chat node these ran on a
+        # real answer message and are authoritative (else it re-parses text).
         validated_result["escalation_requested"] = escalation_requested
         validated_result["answer_confidence_marker"] = answer_confidence_marker
 

@@ -50,13 +50,13 @@ class ShallowResearchAgentState(BaseModel):
     requires_sources: bool = True
     answer_citation_grounded: bool = False
     # Structured control-marker signals extracted (and stripped from the answer
-    # text) inside ShallowResearcherAgent.run(). The chat orchestrator reads
-    # these instead of re-parsing the answer string; ``control_markers_extracted``
-    # is the sentinel that distinguishes "the shallow agent populated these"
-    # (use them) from "absent" (older caller — fall back to string detection).
-    control_markers_extracted: bool = False
-    # True when the model emitted ``[ESCALATE_TO_DEEP]`` (insufficiency signal).
-    escalation_requested: bool = False
+    # text) inside ShallowResearcherAgent.run(). The chat orchestrator reads these
+    # instead of re-parsing the answer string. ``escalation_requested`` doubles as
+    # the extraction sentinel: None means "extraction did not run" (older caller,
+    # or no real answer message) → the chat node falls back to string detection;
+    # a bool means extraction ran and the value is authoritative.
+    escalation_requested: bool | None = None
     # Parsed ``[CONFIDENCE:...]`` self-assessment level (the raw marker value,
-    # before the chat node's overconfidence guard). None = marker absent/malformed.
+    # before the chat node's overconfidence guard). None = marker absent/malformed
+    # (or extraction did not run — disambiguated via ``escalation_requested``).
     answer_confidence_marker: Literal["low", "medium", "high"] | None = None

@@ -90,8 +90,8 @@ class TestConfidenceEndToEnd:
         """Simulate a shallow result WITHOUT structured marker extraction.
 
         Exercises the back-compat FALLBACK path: the answer text still carries the
-        raw markers and ``control_markers_extracted`` is False, so the chat node
-        detects/strips the markers from the string itself.
+        raw markers and ``escalation_requested`` is None (the "not extracted"
+        sentinel), so the chat node detects/strips the markers from the string.
         """
 
         async def shallow(state_input):
@@ -99,7 +99,7 @@ class TestConfidenceEndToEnd:
             result = MagicMock()
             result.messages = list(messages) + [AIMessage(content=answer)]
             result.answer_citation_grounded = grounded
-            result.control_markers_extracted = False
+            result.escalation_requested = None
             return result
 
         return shallow
@@ -123,7 +123,6 @@ class TestConfidenceEndToEnd:
             result = MagicMock()
             result.messages = list(messages) + [AIMessage(content=answer)]
             result.answer_citation_grounded = grounded
-            result.control_markers_extracted = True
             result.escalation_requested = escalation_requested
             result.answer_confidence_marker = confidence_marker
             return result

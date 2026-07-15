@@ -392,9 +392,13 @@ class ChatResearcherAgent:
 
             # Prefer the structured control-marker signals the shallow agent
             # extracted in its run(); fall back to string-detection inside
-            # _finalize_shallow_answer when they are absent (older callers).
-            if getattr(result, "control_markers_extracted", False):
-                escalation_present: bool | None = bool(getattr(result, "escalation_requested", False))
+            # _finalize_shallow_answer when they are absent (older callers). The
+            # shallow agent leaves ``escalation_requested`` None until extraction
+            # actually ran on a real answer message — None is the sentinel for
+            # "not extracted", so a bool (True/False) means trust these fields.
+            raw_escalation = getattr(result, "escalation_requested", None)
+            if raw_escalation is not None:
+                escalation_present: bool | None = bool(raw_escalation)
                 self_reported = getattr(result, "answer_confidence_marker", None)
             else:
                 escalation_present = None

@@ -252,8 +252,8 @@ class TestShallowResearcherAgent:
         assert "[CONFIDENCE" not in final_content
         assert "[ESCALATE_TO_DEEP]" not in final_content
 
-        # Structured signals populated.
-        assert result.control_markers_extracted is True
+        # Structured signals populated (escalation_requested is a bool, i.e. not
+        # None, signalling extraction ran on a real answer message).
         assert result.escalation_requested is True
         assert result.answer_confidence_marker == "high"
 
@@ -265,7 +265,8 @@ class TestShallowResearcherAgent:
 
         result = await agent.run(ShallowResearchAgentState(messages=[HumanMessage(content="Frage?")]))
 
-        assert result.control_markers_extracted is True
+        # Extraction ran on a real answer message → escalation_requested is the
+        # bool False (not the None "not-extracted" sentinel); no markers present.
         assert result.escalation_requested is False
         assert result.answer_confidence_marker is None
 
