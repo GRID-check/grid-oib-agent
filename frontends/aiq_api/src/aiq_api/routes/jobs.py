@@ -33,6 +33,7 @@ from pydantic import Field
 from aiq_agent.common.data_source_registry import get_all_sources
 from aiq_agent.common.data_source_registry import get_all_tool_refs
 from aiq_agent.common.data_source_registry import get_source_id_for_tool
+from aiq_agent.common.db_utils import redact_db_url
 from aiq_agent.common.job_admission import JobAdmissionError
 from nat.builder.framework_enum import LLMFrameworkEnum
 
@@ -398,7 +399,7 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
     logger.info(
         "Registering async job routes: scheduler=%s, db=%s, expiry=%ds",
         scheduler_address,
-        db_url[:50],
+        redact_db_url(db_url),
         default_expiry_seconds,
     )
     await asyncio.get_running_loop().run_in_executor(None, ensure_job_access_table, db_url)
@@ -1642,7 +1643,10 @@ async def _sse_generator_polling(job_store, job_id: str, db_url: str, start_even
         return f"id: {sequence_id}\nevent: {event_type}\ndata: {json.dumps(data)}\n\n"
 
     logger.info(
-        f"SSE polling stream starting for job_id={job_id}, start_event_id={start_event_id}, db_url={db_url[:50]}"
+        "SSE polling stream starting for job_id=%s, start_event_id=%s, db_url=%s",
+        job_id,
+        start_event_id,
+        redact_db_url(db_url),
     )
 
     async with connection_manager.track_connection():

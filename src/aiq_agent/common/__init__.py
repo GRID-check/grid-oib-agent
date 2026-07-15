@@ -40,6 +40,7 @@ from .data_sources import format_data_source_tools
 from .data_sources import get_disabled_sources_from_context
 from .data_sources import parse_data_sources
 from .data_sources import parse_disabled_sources
+from .db_utils import redact_db_url
 from .json_utils import extract_json
 from .llm_credentials import OrgLLMCredential
 from .llm_credentials import apply_org_credential
@@ -89,6 +90,7 @@ __all__ = [
     "parse_disabled_sources",
     "resolve_org_llm_credential",
     "parse_model_overrides",
+    "redact_db_url",
     "sanitize_model_overrides",
     "extract_json",
     "extract_messages_and_sources",

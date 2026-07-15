@@ -12,6 +12,8 @@ import time
 from typing import TYPE_CHECKING
 from typing import Any
 
+from aiq_agent.common.db_utils import redact_db_url
+
 if TYPE_CHECKING:
     from .schema import AvailableDocument
 
@@ -56,7 +58,7 @@ class SummaryStore:
         self.db_url = db_url
         self._sync_engine = self._get_or_create_sync_engine(db_url)
         self._ensure_table_sync()
-        logger.info("SummaryStore initialized: %s", db_url[:50])
+        logger.info("SummaryStore initialized: %s", redact_db_url(db_url))
 
     @classmethod
     def _get_or_create_sync_engine(cls, db_url: str):
@@ -83,7 +85,7 @@ class SummaryStore:
                 connect_args=connect_args,
             )
             cls._sync_engine_cache[db_url] = (engine, time.monotonic())
-            logger.debug("Created sync engine for %s", db_url[:50])
+            logger.debug("Created sync engine for %s", redact_db_url(db_url))
             return engine
 
     @classmethod
@@ -109,7 +111,7 @@ class SummaryStore:
                 max_overflow=0 if is_sqlite else 10,
             )
             cls._async_engine_cache[db_url] = (engine, time.monotonic())
-            logger.debug("Created async engine for %s", db_url[:50])
+            logger.debug("Created async engine for %s", redact_db_url(db_url))
             return engine
 
     @classmethod
@@ -122,7 +124,7 @@ class SummaryStore:
             if engine:
                 try:
                     engine.dispose()
-                    logger.debug("Disposed stale engine for %s", key[:50])
+                    logger.debug("Disposed stale engine for %s", redact_db_url(key))
                 except Exception as e:
                     logger.warning("Failed to dispose engine: %s", e)
 
@@ -168,7 +170,7 @@ class SummaryStore:
                     Index("idx_summaries_collection", "collection"),
                 )
                 metadata.create_all(self._sync_engine)
-                logger.info("Created summaries table in %s", self.db_url[:50])
+                logger.info("Created summaries table in %s", redact_db_url(self.db_url))
                 migrated = True
             else:
                 # Pre-existing table (created before the tags column existed):
@@ -251,7 +253,7 @@ class SummaryStore:
         # succeeded; a failed migration must be retried on the next access.
         if migrated:
             cls._tables_initialized.add(db_url)
-            logger.info("Created summaries table (async) in %s", db_url[:50])
+            logger.info("Created summaries table (async) in %s", redact_db_url(db_url))
 
     @staticmethod
     def _migrate_add_tags_column_conn(sync_conn, db_url: str) -> bool:
@@ -333,10 +335,7 @@ class SummaryStore:
         try:
             with self._sync_engine.connect() as conn:
                 result = conn.execute(
-                    text(
-                        "UPDATE summaries SET tags = :tags "
-                        "WHERE collection = :collection AND filename = :filename"
-                    ),
+                    text("UPDATE summaries SET tags = :tags WHERE collection = :collection AND filename = :filename"),
                     {"tags": tags_json, "collection": collection, "filename": filename},
                 )
                 conn.commit()
@@ -361,9 +360,7 @@ class SummaryStore:
 
         try:
             with self._sync_engine.connect() as conn:
-                result = conn.execute(
-                    text("SELECT DISTINCT collection FROM summaries ORDER BY collection")
-                )
+                result = conn.execute(text("SELECT DISTINCT collection FROM summaries ORDER BY collection"))
                 return [row[0] for row in result]
         except Exception as e:
             logger.warning("Failed to list summary collections: %s", e)
