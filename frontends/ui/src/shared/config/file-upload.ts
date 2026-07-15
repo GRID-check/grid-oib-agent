@@ -1,6 +1,13 @@
 import type { FileUploadConfig } from '@/shared/context'
 
-const DEFAULT_ACCEPTED_TYPES = '.pdf,.docx,.txt,.md,.png,.jpg,.jpeg'
+// Image types are intentionally NOT shipped as defaults: image ingestion has a
+// hard runtime dependency on a configured VLM, and the `image-upload` flag fails
+// open — so a VLM-less deployment that shipped images by default would accept
+// uploads guaranteed to fail ingestion. Images become available only when a
+// deployment opts in via FILE_UPLOAD_ACCEPTED_TYPES (alongside AIQ_VLM_*) AND the
+// image-upload flag allows. The EXTENSION_TO_MIME image entries below stay so
+// that env-driven enablement still resolves their MIME types.
+const DEFAULT_ACCEPTED_TYPES = '.pdf,.docx,.txt,.md'
 const DEFAULT_MAX_SIZE_MB = 100
 const DEFAULT_MAX_FILE_COUNT = 10
 const DEFAULT_EXPIRATION_CHECK_INTERVAL_HOURS = 0

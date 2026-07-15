@@ -20,6 +20,12 @@ interface FilePreviewPaneProps {
   /** Notify the parent to flip local state after a successful re-ingestion. */
   onReingested?: (fileId: string, status: string) => void
   /**
+   * Notify the parent of the saved tags after a successful PATCH, so the
+   * workspace's file state (and thus `initialTags` on reselect) stays fresh —
+   * otherwise switching away and back reverts to the pre-edit tags.
+   */
+  onTagsUpdated?: (fileId: string, tags: string[]) => void
+  /**
    * Whether the ingestion-metadata block (summary + pages/passages/contents
    * rows) renders (WorkOS `files-metadata-panel` flag, FB-8). Defaults to true
    * so the feature stays visible with flag enforcement off (fail-open) and
@@ -31,7 +37,7 @@ interface FilePreviewPaneProps {
 
 const PREVIEW_TYPES = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp', 'image/svg+xml']
 
-export function FilePreviewPane({ file, onClose, onReingested, showMetadataPanel = true }: FilePreviewPaneProps) {
+export function FilePreviewPane({ file, onClose, onReingested, onTagsUpdated, showMetadataPanel = true }: FilePreviewPaneProps) {
   const t = useTranslations('files')
   const { locale } = useLocale()
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
@@ -196,7 +202,9 @@ export function FilePreviewPane({ file, onClose, onReingested, showMetadataPanel
       {/* Ingestion-generated tags — controlled document-type/discipline labels.
           Editable via a small popover of toggleable chips (same flag as the rest
           of the metadata block). */}
-      {showMetadataPanel && <DocumentTagsSection fileId={file.id} initialTags={file.tags ?? []} />}
+      {showMetadataPanel && (
+        <DocumentTagsSection fileId={file.id} initialTags={file.tags ?? []} onTagsUpdated={onTagsUpdated} />
+      )}
 
       {/* Metadata */}
       <div className="space-y-2.5 border-t px-4 py-3">
@@ -283,7 +291,15 @@ export function FilePreviewPane({ file, onClose, onReingested, showMetadataPanel
  * chips, grouped Dokumenttyp / Fachbereich. Save is optimistic: the chips update
  * immediately and revert (with a toast) if the PATCH fails.
  */
-function DocumentTagsSection({ fileId, initialTags }: { fileId: string; initialTags: string[] }) {
+function DocumentTagsSection({
+  fileId,
+  initialTags,
+  onTagsUpdated,
+}: {
+  fileId: string
+  initialTags: string[]
+  onTagsUpdated?: (fileId: string, tags: string[]) => void
+}) {
   const t = useTranslations('files')
   const [tags, setTags] = useState<string[]>(initialTags)
   const [draft, setDraft] = useState<string[]>(initialTags)
@@ -327,13 +343,17 @@ function DocumentTagsSection({ fileId, initialTags }: { fileId: string; initialT
         body: JSON.stringify({ tags: next }),
       })
       if (!res.ok) throw new Error(`Tag update failed (${res.status})`)
+      // Propagate to the parent so the workspace's file state (and initialTags on
+      // reselect) reflects the save — without this the pane reverts to the
+      // pre-edit tags when the file is switched away and back.
+      onTagsUpdated?.(fileId, next)
     } catch {
       setTags(previous) // revert on failure
       toast.error(t('preview.tagsSaveError'))
     } finally {
       setIsSaving(false)
     }
-  }, [draft, tags, fileId, t])
+  }, [draft, tags, fileId, onTagsUpdated, t])
 
   return (
     <div className="space-y-1.5 border-t px-4 py-3">

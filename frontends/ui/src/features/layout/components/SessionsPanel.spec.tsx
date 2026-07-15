@@ -770,4 +770,45 @@ describe('SessionsPanel - Deep Research section (FB-10)', () => {
       expect(screen.getByText('Deep Research')).toBeInTheDocument()
     })
   })
+
+  test('populates the section after a quick close→reopen while the fetch is pending', async () => {
+    // The component stays mounted when the panel closes, so a pending fetch that
+    // resolves during a close→reopen must NOT be discarded — the section should
+    // show the runs once resolved.
+    let isPanelOpen = true
+    let resolveRuns: (value: { jobs: ResearchRun[]; total: number }) => void = () => {}
+    mockListResearchRuns.mockReturnValue(
+      new Promise((resolve) => {
+        resolveRuns = resolve
+      })
+    )
+    vi.mocked(useLayoutStore).mockImplementation((selector?: (s: any) => any) => {
+      const state = {
+        isSessionsPanelOpen: isPanelOpen,
+        setSessionsPanelOpen: mockSetSessionsPanelOpen,
+      }
+      return selector ? selector(state) : state
+    })
+
+    const { rerender } = render(
+      <SessionsPanel sessions={sessions} showDeepResearchSection projectId="p1" projectCollection="proj_1" />
+    )
+
+    expect(mockListResearchRuns).toHaveBeenCalledTimes(1)
+
+    // Close, then reopen — all while the fetch is still in flight.
+    isPanelOpen = false
+    rerender(
+      <SessionsPanel sessions={sessions} showDeepResearchSection projectId="p1" projectCollection="proj_1" />
+    )
+    isPanelOpen = true
+    rerender(
+      <SessionsPanel sessions={sessions} showDeepResearchSection projectId="p1" projectCollection="proj_1" />
+    )
+
+    // Now the original fetch resolves; the result must land in the section.
+    resolveRuns({ jobs: [makeRun({ job_id: 'job-1' }), makeRun({ job_id: 'job-2' })], total: 2 })
+
+    expect(await screen.findByRole('button', { name: /Deep Research \(2\)/i })).toBeInTheDocument()
+  })
 })

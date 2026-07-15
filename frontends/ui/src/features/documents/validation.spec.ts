@@ -33,6 +33,15 @@ describe('validation', () => {
       expect(isValidFileExtension('document')).toBe(false)
     })
 
+    test('rejects image extensions by default (opt-in only, needs a VLM)', () => {
+      // Images are not a shipped default; a deployment opts in via
+      // FILE_UPLOAD_ACCEPTED_TYPES, which flows through AppConfig, not the
+      // default validation config used here.
+      expect(isValidFileExtension('photo.png')).toBe(false)
+      expect(isValidFileExtension('photo.jpg')).toBe(false)
+      expect(isValidFileExtension('photo.jpeg')).toBe(false)
+    })
+
     test('handles case insensitivity', () => {
       expect(isValidFileExtension('document.PDF')).toBe(true)
       expect(isValidFileExtension('document.Pdf')).toBe(true)
@@ -54,6 +63,11 @@ describe('validation', () => {
       expect(isValidMimeType('image/gif')).toBe(false)
       expect(isValidMimeType('application/javascript')).toBe(false)
       expect(isValidMimeType('text/html')).toBe(false)
+    })
+
+    test('rejects image mime types by default (opt-in only, needs a VLM)', () => {
+      expect(isValidMimeType('image/png')).toBe(false)
+      expect(isValidMimeType('image/jpeg')).toBe(false)
     })
   })
 

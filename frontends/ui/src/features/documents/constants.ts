@@ -15,8 +15,15 @@ export const DEFAULT_MAX_TOTAL_SIZE = 100 * 1024 * 1024
 /** Default maximum number of files per session */
 export const DEFAULT_MAX_FILE_COUNT = 10
 
-/** Default accepted file extensions for upload (used by file inputs) */
-export const DEFAULT_ACCEPTED_FILE_TYPES = '.pdf,.docx,.txt,.md,.png,.jpg,.jpeg'
+/**
+ * Default accepted file extensions for upload (used by file inputs).
+ *
+ * Images (.png/.jpg/.jpeg) are intentionally excluded: image ingestion requires
+ * a configured VLM, so they must be opted in per-deployment via
+ * FILE_UPLOAD_ACCEPTED_TYPES (and gated by the image-upload flag), never shipped
+ * enabled by default.
+ */
+export const DEFAULT_ACCEPTED_FILE_TYPES = '.pdf,.docx,.txt,.md'
 
 /** Default accepted MIME types for upload (used for drag-drop validation) */
 export const DEFAULT_ACCEPTED_MIME_TYPES = [
@@ -25,8 +32,6 @@ export const DEFAULT_ACCEPTED_MIME_TYPES = [
   'text/plain',
   'text/markdown',
   'text/x-markdown',
-  'image/png',
-  'image/jpeg',
 ]
 
 // Legacy exports for backward compatibility (use AppConfig where possible)

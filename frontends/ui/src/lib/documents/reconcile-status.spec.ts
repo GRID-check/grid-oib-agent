@@ -5,7 +5,7 @@ vi.mock('@/lib/db', () => ({
 }))
 
 import { getDb } from '@/lib/db'
-import { reconcileDocumentStatuses, extractIngestJobId } from './reconcile-status'
+import { reconcileDocumentStatuses, extractIngestJobId, clearCollectionFilesCache } from './reconcile-status'
 
 const makeDbMock = () => {
   const where = vi.fn().mockResolvedValue(undefined)
@@ -43,6 +43,9 @@ describe('reconcileDocumentStatuses', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', mockFetch)
     mockFetch.mockReset()
+    // The collection-file-list cache is module-level and short-TTL; clear it so
+    // each case starts from a cold cache and its own mock data is honoured.
+    clearCollectionFilesCache()
   })
 
   afterEach(() => {
@@ -229,6 +232,9 @@ describe('reconcileDocumentStatuses metadata enrichment', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', mockFetch)
     mockFetch.mockReset()
+    // The collection-file-list cache is module-level and short-TTL; clear it so
+    // each case starts from a cold cache and its own mock data is honoured.
+    clearCollectionFilesCache()
   })
 
   afterEach(() => {
@@ -323,6 +329,54 @@ describe('reconcileDocumentStatuses metadata enrichment', () => {
 
     expect(result.summary).toBeUndefined()
     expect(result.chunkCount).toBeUndefined()
+  })
+})
+
+describe('reconcileDocumentStatuses collection-file-list caching', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', mockFetch)
+    mockFetch.mockReset()
+    clearCollectionFilesCache()
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.clearAllMocks()
+  })
+
+  it('does not refetch the collection file list for terminal rows within the TTL', async () => {
+    makeDbMock()
+    // Terminal rows only consult the collection list for metadata enrichment.
+    mockFetch.mockResolvedValue(
+      collectionResponse([{ file_id: 'f-1', file_name: 'plan.pdf', status: 'success', chunk_count: 3 }])
+    )
+    const rows = [makeRow({ status: 'completed' })]
+
+    // First read fetches once and caches; a second read within the TTL reuses it.
+    await reconcileDocumentStatuses(rows)
+    await reconcileDocumentStatuses(rows)
+
+    const collectionCalls = mockFetch.mock.calls.filter(([url]) =>
+      String(url).includes('/v1/collections/proj_abc/documents')
+    )
+    expect(collectionCalls).toHaveLength(1)
+  })
+
+  it('always refetches the collection list for in-flight rows (status freshness cannot lag)', async () => {
+    makeDbMock()
+    mockFetch.mockResolvedValue(
+      collectionResponse([{ file_id: 'f-1', file_name: 'plan.pdf', status: 'pending' }])
+    )
+    // Legacy in-flight row (no job id) → status reconciliation reads the list fresh.
+    const rows = [makeRow({ status: 'pending', metadata: null })]
+
+    await reconcileDocumentStatuses(rows)
+    await reconcileDocumentStatuses(rows)
+
+    const collectionCalls = mockFetch.mock.calls.filter(([url]) =>
+      String(url).includes('/v1/collections/proj_abc/documents')
+    )
+    expect(collectionCalls).toHaveLength(2)
   })
 })
 

@@ -150,6 +150,41 @@ describe('FilePreviewPane', () => {
     })
   })
 
+  it('notifies the parent with the saved tags after a successful PATCH', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, json: async () => ({}) } as Response)
+    const onTagsUpdated = vi.fn()
+
+    render(
+      <FilePreviewPane file={{ ...mockFile, tags: ['Grundriss'] }} projectId="proj-1" onTagsUpdated={onTagsUpdated} />
+    )
+
+    await user.click(screen.getByRole('button', { name: /edit tags/i }))
+    await user.click(screen.getByRole('button', { name: 'Brandschutz', pressed: false }))
+    await user.click(screen.getByRole('button', { name: /^Save$/i }))
+
+    await waitFor(() =>
+      expect(onTagsUpdated).toHaveBeenCalledWith('doc-1', ['Grundriss', 'Brandschutz'])
+    )
+  })
+
+  it('does not notify the parent when the PATCH fails', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: false, status: 500, json: async () => ({}) } as Response)
+    const onTagsUpdated = vi.fn()
+
+    render(
+      <FilePreviewPane file={{ ...mockFile, tags: ['Grundriss'] }} projectId="proj-1" onTagsUpdated={onTagsUpdated} />
+    )
+
+    await user.click(screen.getByRole('button', { name: /edit tags/i }))
+    await user.click(screen.getByRole('button', { name: 'Brandschutz', pressed: false }))
+    await user.click(screen.getByRole('button', { name: /^Save$/i }))
+
+    await waitFor(() => expect(screen.getByText('Grundriss')).toBeDefined())
+    expect(onTagsUpdated).not.toHaveBeenCalled()
+  })
+
   it('reverts the optimistic tag update when the PATCH fails', async () => {
     const user = userEvent.setup()
     vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: false, status: 500, json: async () => ({}) } as Response)

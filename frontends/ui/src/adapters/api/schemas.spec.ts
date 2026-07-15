@@ -52,9 +52,12 @@ describe('NATSystemResponseMessageSchema answer_confidence', () => {
     expect(parsed.answer_confidence).toBeUndefined()
   })
 
-  test('rejects an invalid level', () => {
-    expect(() =>
-      NATSystemResponseMessageSchema.parse({ ...base, answer_confidence: 'certain' })
-    ).toThrow()
+  test('an out-of-enum level degrades to undefined without dropping the message', () => {
+    // `.catch(undefined)` keeps the message parseable (text preserved) and just
+    // omits the confidence chip, rather than throwing away the whole response.
+    const parsed = NATSystemResponseMessageSchema.parse({ ...base, answer_confidence: 'certain' })
+
+    expect(parsed.answer_confidence).toBeUndefined()
+    expect(parsed.content).toBe('an answer')
   })
 })

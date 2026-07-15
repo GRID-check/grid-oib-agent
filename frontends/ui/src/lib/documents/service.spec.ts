@@ -92,7 +92,9 @@ afterEach(() => {
 
 describe('uploadDocument server-side type gate', () => {
   it('rejects an image with a 400 when the image-upload flag is off', async () => {
-    // Flag enforcement ON, session lacks the image-upload flag → images stripped.
+    // Deployment opted images into the accepted-types list (VLM configured), but
+    // flag enforcement is ON and the session lacks image-upload → images stripped.
+    vi.stubEnv('FILE_UPLOAD_ACCEPTED_TYPES', '.pdf,.docx,.txt,.md,.png,.jpg,.jpeg')
     vi.stubEnv('GRID_ENFORCE_FEATURE_FLAGS', 'true')
     const gatedSession = { ...session, featureFlags: [] }
 
@@ -106,6 +108,9 @@ describe('uploadDocument server-side type gate', () => {
   })
 
   it('accepts an image when the image-upload flag is on', async () => {
+    // Deployment opted images into the accepted-types list (VLM configured); with
+    // the flag on they are permitted. (Images are no longer a shipped default.)
+    vi.stubEnv('FILE_UPLOAD_ACCEPTED_TYPES', '.pdf,.docx,.txt,.md,.png,.jpg,.jpeg')
     vi.stubEnv('GRID_ENFORCE_FEATURE_FLAGS', 'true')
     const gatedSession = { ...session, featureFlags: ['image-upload'] }
     mockFetch.mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve({ job_id: 'job-img' }) })

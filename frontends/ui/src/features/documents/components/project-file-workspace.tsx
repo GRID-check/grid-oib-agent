@@ -194,6 +194,13 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
     )
   }, [])
 
+  // After the preview pane successfully saves tags, mirror them into the local
+  // files state so the pane's `initialTags` is fresh if the file is reselected
+  // (the pane is reused across files and re-seeds from initialTags on switch).
+  const handleTagsUpdated = useCallback((fileId: string, tags: string[]) => {
+    setFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, tags } : f)))
+  }, [])
+
   // In-flight and failed uploads for this project's corpus only.
   const activeUploads = useMemo(
     () =>
@@ -372,6 +379,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
               projectId={projectId}
               onClose={() => setSelectedFileId(null)}
               onReingested={handleReingested}
+              onTagsUpdated={handleTagsUpdated}
               showMetadataPanel={showMetadataPanel}
             />
           </div>

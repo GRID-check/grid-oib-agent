@@ -204,8 +204,10 @@ export const NATSystemResponseMessageSchema = z.object({
   // job). Preferred over regex-parsing the response prose.
   deep_research_job_id: z.string().optional(),
   // The model's guarded self-assessment of how well the answer is grounded in
-  // its sources. Absent on error/escalation/marker-less turns → no chip.
-  answer_confidence: z.enum(['low', 'medium', 'high']).optional(),
+  // its sources. Absent on error/escalation/marker-less turns → no chip. An
+  // out-of-enum value degrades to `undefined` (no chip) via `.catch` rather than
+  // failing the whole message parse and dropping the response text.
+  answer_confidence: z.enum(['low', 'medium', 'high']).optional().catch(undefined),
 })
 
 /** Intermediate step content */

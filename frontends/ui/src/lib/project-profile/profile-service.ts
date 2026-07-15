@@ -157,7 +157,10 @@ export async function checkProjectConsistency(
   projectId: string,
   input: { freeText: ConsistencyCheckField[]; structured?: ConsistencyCheckField[]; locale?: string },
 ): Promise<{ findings: AiConsistencyFinding[] | null; error?: string }> {
-  await requireProjectAccess(session, projectId, 'project:view')
+  // Only editors can save the wizard, and this check is part of that save flow —
+  // align it with generateProjectSummary (also 'project:edit') rather than the
+  // broader 'project:view'.
+  await requireProjectAccess(session, projectId, 'project:edit')
 
   try {
     const backendRes = await fetch(`${getBackendUrl()}/v1/consistency-check`, {

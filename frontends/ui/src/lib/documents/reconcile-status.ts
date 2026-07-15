@@ -187,6 +187,72 @@ const loadCollectionFiles = async (collectionName: string): Promise<CollectionFi
   return { byName, ambiguousNames }
 }
 
+// ---------------------------------------------------------------------------
+// Short-TTL collection-file-list cache
+//
+// Metadata enrichment runs on EVERY document read. Without a cache, a read of a
+// fully-terminal list still fetched every collection's file list from the
+// backend — turning an otherwise zero-backend-call steady state into one fetch
+// per collection per read. This module-level cache serves the enrichment of
+// terminal rows: repeated reads within the TTL reuse a single fetch. In-flight
+// status reconciliation deliberately bypasses it (status freshness cannot lag).
+// ---------------------------------------------------------------------------
+
+const COLLECTION_FILES_TTL_MS = 15_000
+
+interface CollectionFilesCacheEntry {
+  promise: Promise<CollectionFiles | null>
+  expiresAt: number
+}
+
+const collectionFilesCache = new Map<string, CollectionFilesCacheEntry>()
+
+/**
+ * Store a fetch under the short TTL. A null (backend outage / 404) result is
+ * evicted immediately so a transient failure never suppresses metadata for the
+ * whole TTL window — the next read retries instead.
+ */
+const storeCollectionFiles = (collectionName: string, promise: Promise<CollectionFiles | null>): void => {
+  collectionFilesCache.set(collectionName, { promise, expiresAt: Date.now() + COLLECTION_FILES_TTL_MS })
+  void promise.then((value) => {
+    if (value === null && collectionFilesCache.get(collectionName)?.promise === promise) {
+      collectionFilesCache.delete(collectionName)
+    }
+  })
+}
+
+/** TTL-cached read used for metadata enrichment (terminal rows). */
+const loadCollectionFilesCached = (collectionName: string): Promise<CollectionFiles | null> => {
+  const entry = collectionFilesCache.get(collectionName)
+  if (entry && entry.expiresAt > Date.now()) return entry.promise
+  const promise = loadCollectionFiles(collectionName)
+  storeCollectionFiles(collectionName, promise)
+  return promise
+}
+
+/**
+ * Fresh (TTL-bypassing) read used by in-flight status reconciliation, where the
+ * status must reflect the very latest backend state. It also primes the cache so
+ * the enrichment pass in the same read reuses this fetch rather than issuing a
+ * second one.
+ */
+const loadCollectionFilesFresh = (collectionName: string): Promise<CollectionFiles | null> => {
+  const promise = loadCollectionFiles(collectionName)
+  storeCollectionFiles(collectionName, promise)
+  return promise
+}
+
+/**
+ * Invalidate the collection-file-list cache. Exported primarily so tests can
+ * isolate TTL behaviour between cases. (The pending→terminal transition itself
+ * is detected via a fresh fetch that re-primes the cache, so a document
+ * completing is already reflected without an explicit clear; hence no
+ * upload-completion caller is wired here — TTL expiry covers the rest.)
+ */
+export const clearCollectionFilesCache = (): void => {
+  collectionFilesCache.clear()
+}
+
 const resolveFromCollection = (
   files: CollectionFiles | null,
   filename: string
@@ -238,14 +304,16 @@ export async function reconcileDocumentStatuses<T extends ReconcilableDocument>(
   if (rows.length === 0) return []
 
   const db = getDb()
-  // One file-list fetch per collection, shared across the status-reconciliation
-  // and metadata-enrichment passes below.
-  const collectionCache = new Map<string, Promise<CollectionFiles | null>>()
-  const getCollectionFiles = (collectionName: string): Promise<CollectionFiles | null> => {
-    let cached = collectionCache.get(collectionName)
+  // Per-call dedup for FRESH fetches used by status reconciliation: multiple
+  // in-flight rows in the same collection share one fetch. Each fresh fetch also
+  // primes the module-level TTL cache (via loadCollectionFilesFresh), so the
+  // enrichment pass below reuses it instead of fetching again.
+  const freshFetches = new Map<string, Promise<CollectionFiles | null>>()
+  const getFreshCollectionFiles = (collectionName: string): Promise<CollectionFiles | null> => {
+    let cached = freshFetches.get(collectionName)
     if (!cached) {
-      cached = loadCollectionFiles(collectionName)
-      collectionCache.set(collectionName, cached)
+      cached = loadCollectionFilesFresh(collectionName)
+      freshFetches.set(collectionName, cached)
     }
     return cached
   }
@@ -278,7 +346,7 @@ export async function reconcileDocumentStatuses<T extends ReconcilableDocument>(
         }
 
         if (!resolution) {
-          resolution = resolveFromCollection(await getCollectionFiles(row.collectionName), row.filename)
+          resolution = resolveFromCollection(await getFreshCollectionFiles(row.collectionName), row.filename)
         }
         if (!resolution) return
 
@@ -297,13 +365,15 @@ export async function reconcileDocumentStatuses<T extends ReconcilableDocument>(
 
   // --- Metadata enrichment (all rows) ---
   // Completed documents never hit the status pass above, so metadata is joined
-  // here for every row. Reuses the shared per-collection cache, so a project
-  // with one collection costs a single backend fetch per list read. Fail-open:
+  // here for every row via the short-TTL cache. Collections that were consulted
+  // fresh during status reconciliation are already primed (no double fetch);
+  // a read where every row is terminal reuses the cache and — within the TTL —
+  // makes zero backend calls, restoring the zero-call steady state. Fail-open:
   // a null file list (backend down / 404) simply yields no metadata.
   const metaByRow = new Map<string, DocumentMetadata>()
   await Promise.all(
     rows.map(async (row) => {
-      const meta = extractMetadata(await getCollectionFiles(row.collectionName), row.filename)
+      const meta = extractMetadata(await loadCollectionFilesCached(row.collectionName), row.filename)
       if (meta) metaByRow.set(row.id, meta)
     })
   )

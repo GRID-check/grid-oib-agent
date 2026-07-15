@@ -133,6 +133,11 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
   const [deepResearchRuns, setDeepResearchRuns] = useState<ResearchRun[] | null>(null)
   const [isDeepResearchOpen, setIsDeepResearchOpen] = useState(false)
   const deepResearchFetchInFlightRef = useRef(false)
+  // Tracks the projectCollection the current fetch belongs to. Only an identity
+  // change (a different collection) invalidates an in-flight result — closing the
+  // panel must NOT, because the component stays mounted and the data is still
+  // valid on reopen.
+  const deepResearchCollectionRef = useRef<string | null>(null)
 
   // Storage usage percentage — refreshes only when the panel opens
   const [storagePercent, setStoragePercent] = useState<number>(0)
@@ -150,16 +155,24 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
   }, [isSessionsPanelOpen, refreshDeepResearchSessionStatuses])
 
   // FB-10: load the project's research runs when the panel opens (flag on).
-  // Mirrors the status-refresh guard so a slow fetch never stacks. Fail-soft:
-  // any error yields an empty section rather than a broken panel.
+  // Fail-soft: any error yields an empty section rather than a broken panel.
+  //
+  // The in-flight ref is purely a concurrent-dedup guard; it does NOT discard
+  // resolved data. Crucially, a quick close→reopen while the fetch is pending
+  // must still populate the section once it resolves — the component stays
+  // mounted, so the result is never stale. We therefore always set state on
+  // settle and only ignore a result whose projectCollection has since changed.
   useEffect(() => {
     if (!isSessionsPanelOpen || !showDeepResearchSection || !projectCollection) return
     if (deepResearchFetchInFlightRef.current) return
     deepResearchFetchInFlightRef.current = true
-    let cancelled = false
+    const requestedCollection = projectCollection
+    deepResearchCollectionRef.current = requestedCollection
     listResearchRuns({ projectCollection, limit: 50 })
       .then((response) => {
-        if (cancelled) return
+        // Only a projectCollection (identity) change invalidates this result;
+        // panel visibility does not.
+        if (deepResearchCollectionRef.current !== requestedCollection) return
         // Newest-first: the panel surfaces the most recent runs at the top.
         const sorted = [...response.jobs].sort(
           (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
@@ -167,14 +180,11 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
         setDeepResearchRuns(sorted)
       })
       .catch(() => {
-        if (!cancelled) setDeepResearchRuns([])
+        if (deepResearchCollectionRef.current === requestedCollection) setDeepResearchRuns([])
       })
       .finally(() => {
         deepResearchFetchInFlightRef.current = false
       })
-    return () => {
-      cancelled = true
-    }
   }, [isSessionsPanelOpen, showDeepResearchSection, projectCollection])
 
   const handleDeleteClick = useCallback((sessionId: string) => {
