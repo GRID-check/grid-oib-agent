@@ -214,6 +214,62 @@ class TestShallowResearcherAgent:
         # Agent should complete without errors
 
     @pytest.mark.asyncio
+    async def test_run_extracts_and_strips_control_markers(self, mock_llm_provider, mock_llm, real_tool):
+        """Both control markers are stripped before emit_final_report and in the returned message.
+
+        The detected signals are carried as structured state fields.
+        """
+        from langchain_core.callbacks import BaseCallbackHandler
+
+        agent_response = AIMessage(content="The answer body.\n[CONFIDENCE:high]\n[ESCALATE_TO_DEEP]")
+        mock_llm.ainvoke = AsyncMock(return_value=agent_response)
+
+        class _EmitCallback(BaseCallbackHandler):
+            def __init__(self):
+                self.reports = []
+
+            def emit_final_report(self, content):
+                self.reports.append(content)
+
+        emit_callback = _EmitCallback()
+        agent = ShallowResearcherAgent(
+            llm_provider=mock_llm_provider,
+            tools=[real_tool],
+            callbacks=[emit_callback],
+        )
+
+        state = ShallowResearchAgentState(messages=[HumanMessage(content="Frage?")])
+        result = await agent.run(state)
+
+        # emit_final_report received marker-free content.
+        assert len(emit_callback.reports) == 1
+        emitted = emit_callback.reports[0]
+        assert "[CONFIDENCE" not in emitted
+        assert "[ESCALATE_TO_DEEP]" not in emitted
+
+        # Returned message content is marker-free too.
+        final_content = result.messages[-1].content
+        assert "[CONFIDENCE" not in final_content
+        assert "[ESCALATE_TO_DEEP]" not in final_content
+
+        # Structured signals populated.
+        assert result.control_markers_extracted is True
+        assert result.escalation_requested is True
+        assert result.answer_confidence_marker == "high"
+
+    @pytest.mark.asyncio
+    async def test_run_without_markers_sets_neutral_structured_signals(self, mock_llm_provider, mock_llm, real_tool):
+        """A clean answer still marks extraction done, with neutral signals."""
+        mock_llm.ainvoke = AsyncMock(return_value=AIMessage(content="A clean grounded answer [1]."))
+        agent = ShallowResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
+
+        result = await agent.run(ShallowResearchAgentState(messages=[HumanMessage(content="Frage?")]))
+
+        assert result.control_markers_extracted is True
+        assert result.escalation_requested is False
+        assert result.answer_confidence_marker is None
+
+    @pytest.mark.asyncio
     async def test_run_with_user_info(self, mock_llm_provider, mock_llm, real_tool):
         """Test run() with user info in state."""
         agent_response = AIMessage(content="Personalized answer")
@@ -305,6 +361,38 @@ class TestShallowResearcherAgent:
         # language-matching instruction.
         assert "[ESCALATE_TO_DEEP]" in agent.system_prompt
         assert "exactly as written" in agent.system_prompt
+
+    def _render_default_prompt(self, mock_llm_provider, real_tool, *, requires_sources: bool) -> str:
+        from aiq_agent.common import render_prompt_template
+
+        agent = ShallowResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
+        return render_prompt_template(
+            agent.system_prompt,
+            tools=[{"name": real_tool.name, "description": "Search the web"}],
+            user_info=None,
+            current_datetime="2026-07-15",
+            available_documents=[],
+            project_context=None,
+            requires_sources=requires_sources,
+        )
+
+    def test_meta_turn_prompt_suppresses_marker_mandate(self, mock_llm_provider, real_tool):
+        """requires_sources=False renders a deterministic suppression line and no marker mandate."""
+        rendered = self._render_default_prompt(mock_llm_provider, real_tool, requires_sources=False)
+
+        assert "do NOT emit the confidence or escalation markers" in rendered
+        # The marker-mandate sections are omitted on meta turns.
+        assert "## Insufficient-Answer Marker" not in rendered
+        assert "## Confidence Marker" not in rendered
+
+    def test_research_turn_prompt_keeps_marker_mandate(self, mock_llm_provider, real_tool):
+        """requires_sources=True keeps the marker mandate and omits the suppression line."""
+        rendered = self._render_default_prompt(mock_llm_provider, real_tool, requires_sources=True)
+
+        assert "## Insufficient-Answer Marker" in rendered
+        assert "## Confidence Marker" in rendered
+        assert "For every research answer, end your reply with exactly ONE confidence marker" in rendered
+        assert "do NOT emit the confidence or escalation markers" not in rendered
 
     @pytest.mark.asyncio
     async def test_tool_iterations_incremented_on_tool_calls(self, mock_llm_provider, mock_llm, real_tool):

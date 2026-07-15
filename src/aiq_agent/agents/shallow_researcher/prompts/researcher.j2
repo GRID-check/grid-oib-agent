@@ -59,6 +59,7 @@ Cite sources inline with [1], [2], etc. Include a `**References:**` section at t
 **References:**
 - [1] Q4_Review.pdf, p. 2 (Internal)"
 
+{% if requires_sources is not defined or requires_sources %}
 ## Insufficient-Answer Marker
 If, after using the available tools, you could NOT adequately answer the question — because the sources are missing, contradictory, or clearly insufficient — still give your best partial answer, then end your reply with the exact marker `[ESCALATE_TO_DEEP]` on its own final line.
 
@@ -78,6 +79,10 @@ Rules:
 - This is an honest self-assessment for the reader, NOT a control token — judge only the strength of your grounding, never whether to escalate.
 - The confidence marker is the final line of your reply, EXCEPT when you also emit `[ESCALATE_TO_DEEP]`: then the confidence marker comes immediately before it and the escalation marker is last. (Both may appear together; each is detected independently, so their relative order never breaks anything.)
 - Do NOT emit a confidence marker on conversational/meta turns (greetings, identity/ability questions, style requests) — only on research answers.
+{% else %}
+## Turn Classification: Conversational / Meta
+This turn was classified as conversational/meta: do NOT emit the confidence or escalation markers. Reply directly, without `[CONFIDENCE:...]` and without `[ESCALATE_TO_DEEP]`.
+{% endif %}
 
 {#- === KV CACHE BOUNDARY — dynamic content below === -#}
 

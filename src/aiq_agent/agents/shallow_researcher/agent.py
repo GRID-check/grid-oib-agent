@@ -36,6 +36,8 @@ from aiq_agent.common.citation_verification import verify_citations
 
 from ...common import LLMProvider
 from ...common import LLMRole
+from .markers import detect_and_strip_confidence_marker
+from .markers import detect_and_strip_escalation_marker
 from .models import ShallowResearchAgentState
 
 logger = logging.getLogger(__name__)
@@ -209,6 +211,9 @@ class ShallowResearcherAgent:
                 current_datetime=current_datetime,
                 available_documents=[doc.model_dump() for doc in available_documents],
                 project_context=state.project_context,
+                # Deterministically suppress the control-marker mandate on
+                # conversational/meta turns instead of relying on model judgment.
+                requires_sources=state.requires_sources,
             )
             if os.environ.get("DEBUG_PROMPTS"):
                 logger.debug("Rendered system prompt:\n%s", rendered_system_prompt)
@@ -366,10 +371,23 @@ class ShallowResearcherAgent:
         # final answer carries at least one verified citation (see the
         # ``answer_citation_grounded`` field docstring). Conservative default.
         citation_grounded = False
+        # Control-marker signals extracted from the model's answer. Populated
+        # below and carried as STRUCTURED state so the chat node does not have to
+        # re-parse the answer string (which also leaked the markers downstream).
+        escalation_requested = False
+        answer_confidence_marker = None
         if validated_result.get("messages"):
             last_msg = validated_result["messages"][-1]
             if hasattr(last_msg, "content") and last_msg.content:
                 content = str(last_msg.content)
+
+                # Step 0: extract AND strip both control markers up front, before
+                # citation verification, before emit_final_report, and before the
+                # cleaned content is written back into the returned messages — so
+                # neither marker can leak onto job/streaming callbacks or to the
+                # frontend. The detected signals travel as structured fields.
+                content, escalation_requested = detect_and_strip_escalation_marker(content)
+                content, answer_confidence_marker = detect_and_strip_confidence_marker(content)
 
                 # Step 1: verify citations against registry
                 if registry.all_sources():
@@ -453,6 +471,11 @@ class ShallowResearcherAgent:
 
         # Carry the grounding signal to the chat node's overconfidence guard.
         validated_result["answer_citation_grounded"] = citation_grounded
+        # Carry the extracted control-marker signals as structured state. The
+        # sentinel tells the chat node to trust these instead of re-parsing text.
+        validated_result["control_markers_extracted"] = True
+        validated_result["escalation_requested"] = escalation_requested
+        validated_result["answer_confidence_marker"] = answer_confidence_marker
 
         return ShallowResearchAgentState.model_validate(validated_result)
 
