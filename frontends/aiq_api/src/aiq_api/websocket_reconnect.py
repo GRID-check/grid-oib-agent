@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 import uuid
 from typing import Any
 
+import httpx
 from fastapi import WebSocket
 from pydantic import BaseModel
 from pydantic import ValidationError
@@ -108,6 +110,18 @@ class WebSocketSessionRegistry:
             if current is socket:
                 self._sockets.pop(conversation_id, None)
 
+    async def has_socket(self, conversation_id: str | None) -> bool:
+        """Return True if a live socket is currently registered for a conversation.
+
+        Used as the dual-write guard before server-side persistence: if a client
+        has (re)connected we must not also POST the message, or the turn would be
+        written twice.
+        """
+        if not conversation_id:
+            return False
+        async with self._lock:
+            return self._sockets.get(conversation_id) is not None
+
     async def send(self, conversation_id: str | None, message: BaseModel) -> bool:
         """Send a message to the current socket for a conversation."""
         if not conversation_id:
@@ -181,6 +195,118 @@ class WebSocketSessionRegistry:
 
 _registry = WebSocketSessionRegistry()
 _installed = False
+
+# httpx timeout for the fail-soft server-side persistence POST.
+_PERSIST_TIMEOUT_SECONDS = 10.0
+
+
+def _internal_base_url() -> str | None:
+    """Resolve the BFF base URL for internal server-to-server calls."""
+    return os.environ.get("FRONTEND_INTERNAL_URL") or os.environ.get("FRONTEND_URL")
+
+
+def deterministic_assistant_message_id(conversation_id: str, parent_id: str | None) -> str:
+    """Stable id for a turn's assistant message, keyed on (conversation, turn).
+
+    ``parent_id`` is the id of the user message that opened the turn
+    (``_message_parent_id``). Deriving the id deterministically means an
+    accidental double POST collides on the messages route's primary key
+    (``onConflictDoNothing`` on ``messages.id``) and no-ops, and the id is
+    distinct per turn (each user message has its own id).
+    """
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"grid:assistant:{conversation_id}:{parent_id or 'default'}"))
+
+
+def _auth_headers_from_scope(scope: dict[str, Any]) -> dict[str, str]:
+    """Replay the browser session credentials the WS handshake forwarded.
+
+    ``server.js`` forwards the browser ``Cookie`` header (which carries the
+    WorkOS AuthKit session cookie) and an ``Authorization: Bearer`` header on the
+    WebSocket upgrade. The conversations-messages route authenticates the same
+    way the client writer does (``withAuth()`` reads the session cookie), so we
+    replay those headers verbatim to persist as the same user.
+    """
+    headers: dict[str, str] = {}
+    for raw_name, raw_value in scope.get("headers", []) or []:
+        name = raw_name.decode() if isinstance(raw_name, bytes) else str(raw_name)
+        if name.lower() not in ("cookie", "authorization"):
+            continue
+        value = raw_value.decode() if isinstance(raw_value, bytes) else str(raw_value)
+        headers[name.lower()] = value
+    return headers
+
+
+async def persist_assistant_message(
+    *,
+    conversation_id: str,
+    parent_id: str | None,
+    text: str,
+    auth_headers: dict[str, str],
+    cards: Any = None,
+    deep_research_job_id: Any = None,
+    answer_confidence: Any = None,
+) -> bool:
+    """Persist a finished assistant turn to the BFF when the client is gone.
+
+    Fail-soft: never raises and returns ``False`` on any problem. The langgraph
+    checkpoint already holds the completed turn, so a failed POST only means the
+    client must wait for a future rehydrate; it is never fatal to the handler.
+
+    Returns ``True`` only when the message was accepted by the BFF.
+    """
+    base_url = _internal_base_url()
+    if not base_url:
+        logger.warning(
+            "Cannot persist assistant message for %s: FRONTEND_INTERNAL_URL/FRONTEND_URL not configured",
+            conversation_id,
+        )
+        return False
+
+    # Dual-write guard: a client may have (re)connected between the failed send
+    # and now. If a live socket exists, the client owns the write — skip.
+    if await _registry.has_socket(conversation_id):
+        logger.debug(
+            "Live socket present for conversation %s; skipping server-side persist",
+            conversation_id,
+        )
+        return False
+
+    metadata: dict[str, Any] = {}
+    if cards:
+        metadata["cards"] = cards
+    if deep_research_job_id:
+        metadata["deep_research_job_id"] = deep_research_job_id
+    if answer_confidence:
+        metadata["answer_confidence"] = answer_confidence
+
+    payload = {
+        "id": deterministic_assistant_message_id(conversation_id, parent_id),
+        "role": "assistant",
+        "content": text,
+        "messageType": "agent_response",
+        "metadata": metadata,
+    }
+    url = f"{base_url.rstrip('/')}/api/conversations/{conversation_id}/messages"
+
+    try:
+        async with httpx.AsyncClient(timeout=_PERSIST_TIMEOUT_SECONDS) as client:
+            response = await client.post(url, json=payload, headers=auth_headers)
+        if response.status_code not in (200, 201):
+            logger.warning(
+                "Server-side persist for conversation %s returned HTTP %s",
+                conversation_id,
+                response.status_code,
+            )
+            return False
+        logger.info("Persisted assistant message server-side for disconnected conversation %s", conversation_id)
+        return True
+    except Exception:  # noqa: BLE001 — fail-soft; checkpoint still holds the turn
+        logger.warning(
+            "Failed to persist assistant message server-side for conversation %s",
+            conversation_id,
+            exc_info=True,
+        )
+        return False
 
 
 class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
@@ -312,9 +438,15 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
                                 validated_message.conversation_id,
                             )
             except (asyncio.CancelledError, WebSocketDisconnect):
+                # Client disconnect (navigate-away, tab close, dropped socket)
+                # must NOT cancel the in-flight workflow. The turn finishes on
+                # the backend, the langgraph checkpoint captures it, and the
+                # terminal response is persisted server-side (see
+                # ``create_websocket_message``) so the finished message is there
+                # when the client returns. We only release this socket; a
+                # superseding NEW user message on the same conversation still
+                # cancels the now-stale turn via ``set_workflow_task``.
                 await _registry.clear_socket(self._conversation_id, self._socket)
-                await _registry.cancel_workflow_task(self._conversation_id)
-                self._cancel_running_workflow()
                 break
             except ValidationError as exc:
                 logger.warning("Invalid websocket message payload: %s", str(exc))
@@ -323,16 +455,6 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
                 # non-JSON text frame; one malformed frame must not tear down
                 # the socket handler and orphan the running workflow.
                 logger.warning("Malformed websocket frame ignored: %s", str(exc))
-
-    def _cancel_running_workflow(self) -> None:
-        """Cancel the background workflow task spawned by NAT's create_task."""
-        task = self._running_workflow_task
-        if task is not None and not task.done():
-            task.cancel()
-            logger.info(
-                "Cancelled in-flight workflow task for conversation %s",
-                self._conversation_id,
-            )
 
     async def process_workflow_request(self, user_message_as_validated_type: WebSocketUserMessage) -> None:
         """Process user messages and register sockets for reconnect."""
@@ -347,10 +469,13 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
         )
         with user_context(current_user), request_trace_tag_context(request_trace_tags):
             await super().process_workflow_request(user_message_as_validated_type)
-        # TODO(NAT-upstream): _running_workflow_task is currently always None
-        # because NAT's message_handler.py assigns via method chaining:
-        #   self._running_workflow_task = asyncio.create_task(...).add_done_callback(cb)
-        # add_done_callback() returns None. Blocked on NeMo-Agent-Toolkit#1744.
+        # NAT's message_handler assigns the task and adds its done-callback as
+        # two separate statements, so ``_running_workflow_task`` holds a live
+        # Task reference here. We register it ONLY so a superseding NEW user
+        # message on this conversation can cancel the now-stale turn
+        # (``set_workflow_task`` cancels any prior task). A client DISCONNECT
+        # deliberately does NOT cancel it — the turn finishes and is persisted
+        # server-side.
         task = self._running_workflow_task
         if task is not None and not task.done():
             await _registry.set_workflow_task(user_message_as_validated_type.conversation_id, task)
@@ -480,10 +605,56 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
                         except Exception as exc:  # pragma: no cover - socket may be closed
                             logger.warning("Failed to send websocket message: %s", exc)
                     else:
+                        # The client is gone. For a terminal RESPONSE_MESSAGE
+                        # carrying the finished answer (text and/or cards),
+                        # persist it server-side so it is there when the client
+                        # returns; otherwise it would only live in the langgraph
+                        # checkpoint and the frontend would show "interrupted".
+                        await self._persist_terminal_message_if_client_gone(message, message_type)
                         logger.debug(
                             "Dropping message for disconnected conversation %s",
                             self._conversation_id,
                         )
+
+    async def _persist_terminal_message_if_client_gone(
+        self,
+        message: BaseModel,
+        message_type: str | None,
+    ) -> None:
+        """Persist a dropped terminal assistant response to the BFF.
+
+        Only fires for a RESPONSE_MESSAGE that actually carries the finished
+        answer (non-empty text and/or cards). The empty COMPLETE frame that
+        merely signals turn completion is skipped so no blank bubble is written.
+        Fail-soft: never raises.
+        """
+        try:
+            if message_type != WebSocketMessageType.RESPONSE_MESSAGE:
+                return
+            if not self._conversation_id:
+                return
+
+            dump = message.model_dump()
+            content_obj = dump.get("content")
+            text = content_obj.get("text") if isinstance(content_obj, dict) else None
+            cards = dump.get("cards")
+            deep_research_job_id = dump.get("deep_research_job_id")
+            answer_confidence = dump.get("answer_confidence")
+
+            if not (text and text.strip()) and not cards:
+                return
+
+            await persist_assistant_message(
+                conversation_id=self._conversation_id,
+                parent_id=self._message_parent_id,
+                text=text or "",
+                auth_headers=_auth_headers_from_scope(getattr(self._socket, "scope", {}) or {}),
+                cards=cards,
+                deep_research_job_id=deep_research_job_id,
+                answer_confidence=answer_confidence,
+            )
+        except Exception:  # noqa: BLE001 — never let persistence crash the handler
+            logger.warning("Unexpected error while persisting terminal message", exc_info=True)
 
     async def human_interaction_callback(self, prompt: InteractionPrompt) -> HumanResponse:
         """

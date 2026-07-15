@@ -32,6 +32,22 @@ vi.mock('@/features/documents/discard-session-resources', () => ({
   discardSessionDocumentsResources: mockDiscardSessionResources,
 }))
 
+// The interrupted-turn recovery refetches server history before deciding to
+// show the banner; default to an empty server history so the banner path runs.
+const mockConversationsClient = vi.hoisted(() => ({
+  list: vi.fn().mockResolvedValue([]),
+  get: vi.fn().mockResolvedValue(undefined),
+  create: vi.fn().mockResolvedValue(undefined),
+  updateTitle: vi.fn().mockResolvedValue(undefined),
+  delete: vi.fn().mockResolvedValue(undefined),
+  listMessages: vi.fn().mockResolvedValue([]),
+  createMessage: vi.fn().mockResolvedValue(undefined),
+  createMessages: vi.fn().mockResolvedValue(undefined),
+}))
+vi.mock('@/adapters/api/conversations-client', () => ({
+  conversationsClient: mockConversationsClient,
+}))
+
 describe('useChatStore', () => {
   beforeEach(() => {
     // Clear localStorage before each test
@@ -1724,7 +1740,9 @@ describe('useChatStore', () => {
       updatedAt: new Date(),
     })
 
-    test('adds error card when last meaningful message is user with thinking steps', () => {
+    test('adds error card when last meaningful message is user with thinking steps', async () => {
+      // Server has no persisted assistant reply → genuinely interrupted.
+      mockConversationsClient.listMessages.mockResolvedValueOnce([])
       const conv = createConversation([
         {
           role: 'user',
@@ -1749,9 +1767,12 @@ describe('useChatStore', () => {
       useChatStore.setState({ currentConversation: conv, conversations: [conv] })
       useChatStore.getState().restoreSessionState(conv)
 
-      // Should have added an error card
+      // The banner is added after the (empty) server refetch resolves.
+      await vi.waitFor(() => {
+        const messages = useChatStore.getState().currentConversation?.messages ?? []
+        expect(messages).toHaveLength(2)
+      })
       const messages = useChatStore.getState().currentConversation?.messages ?? []
-      expect(messages).toHaveLength(2)
       expect(messages[1].messageType).toBe('error')
       expect(messages[1].errorData?.errorCode).toBe('agent.response_interrupted')
     })
@@ -2003,7 +2024,8 @@ describe('useChatStore', () => {
       )
     })
 
-    test('does NOT double-add error card on repeated restore calls', () => {
+    test('does NOT double-add error card on repeated restore calls', async () => {
+      mockConversationsClient.listMessages.mockResolvedValue([]) // empty → banner path
       const conv = createConversation([
         {
           role: 'user',
@@ -2026,16 +2048,21 @@ describe('useChatStore', () => {
 
       useChatStore.setState({ currentConversation: conv, conversations: [conv] })
 
-      // First restore — adds error card
+      // First restore — adds error card after the (empty) server refetch.
       useChatStore.getState().restoreSessionState(conv)
-      const afterFirst = useChatStore.getState().currentConversation?.messages ?? []
-      expect(
-        afterFirst.filter((m) => m.errorData?.errorCode === 'agent.response_interrupted')
-      ).toHaveLength(1)
+      await vi.waitFor(() => {
+        const messages = useChatStore.getState().currentConversation?.messages ?? []
+        expect(
+          messages.filter((m) => m.errorData?.errorCode === 'agent.response_interrupted')
+        ).toHaveLength(1)
+      })
 
-      // Second restore with updated conversation (now includes error card)
+      // Second restore with updated conversation (now includes error card): the
+      // last meaningful message is the error card, so the interrupted branch
+      // does not fire again.
       const updatedConv = useChatStore.getState().currentConversation!
       useChatStore.getState().restoreSessionState(updatedConv)
+      await new Promise((resolve) => setTimeout(resolve, 0))
       const afterSecond = useChatStore.getState().currentConversation?.messages ?? []
       expect(
         afterSecond.filter((m) => m.errorData?.errorCode === 'agent.response_interrupted')

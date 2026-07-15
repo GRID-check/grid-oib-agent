@@ -134,6 +134,87 @@ gateway to the backend. Coolify's Traefik proxy passes WebSocket upgrades by
 default — no extra config. Verify after deploy by opening a chat and watching
 the browser Network tab for a `101 Switching Protocols` on `/websocket`.
 
+### Networking
+
+**The Coolify compose deliberately declares NO custom `networks:`.** Coolify
+auto-creates one managed bridge network per compose stack (named after the
+resource UUID) and attaches every service to it, so **service-name DNS already
+works across the whole stack** — `frontend` reaches the backend at
+`http://aiq-agent:8000`, the backend reaches `http://frontend:3000`, and both
+reach `postgres:5432`, `minio:9000`, and `dragonfly:6379` by name. No custom
+network is needed to get this.
+
+> **The dual-homed pitfall (why the custom `aiq-network` was removed).** Coolify
+> [documents](https://coolify.io/docs/applications/build-packs/docker-compose)
+> that defining a custom network in a compose resource makes every container
+> **dual-homed** — attached to BOTH your custom bridge and Coolify's managed
+> network. Two failures follow:
+>
+> 1. **Intermittent 504s.** Coolify's Traefik proxy sits only on the managed
+>    network and then *non-deterministically* picks which of a container's two
+>    IPs to route to. When it picks the custom-network IP it cannot reach the
+>    container, so requests hang and Cloudflare surfaces a **504 Gateway
+>    Timeout**. It is intermittent by nature — a stack can work after one deploy
+>    and break after the next depending on which IP Traefik selected
+>    ([coolify#6215](https://github.com/coollabsio/coolify/issues/6215), a known
+>    duplicate of #4483; also
+>    [discussion#5059](https://github.com/coollabsio/coolify/discussions/5059)).
+> 2. **Sporadic name-resolution failures.** A dual-homed container carries two
+>    interfaces/resolver entries, which is the source of the intermittent
+>    `Temporary failure in name resolution` seen when the backend tries to reach
+>    `frontend:3000` at startup.
+>
+> This matched our production symptoms exactly: intermittent frontend→backend
+> fetch hangs ending in Cloudflare 504, backend→frontend name-resolution errors
+> at boot, while an already-established WebSocket kept working (it connected
+> during a good routing window and stayed up — only *new* connections re-roll
+> the dice). Removing the custom network makes every container **single-homed**
+> on the managed network and fixes both. This is the Coolify-prescribed pattern:
+> rely on the managed network + service-name DNS, and never declare a custom
+> `networks:` block in a compose resource.
+
+**Cross-stack access.** To reach a service in a *different* Coolify stack (e.g. an
+external managed database), do **not** re-add a custom network — enable the
+resource's **Connect To Predefined Network** option instead. It is not needed for
+anything in this stack, since all services live in the same compose project.
+
+> The bundled dev compose (`deploy/compose/docker-compose.yaml`) still declares
+> its own `aiq-network` — that is correct and unchanged. It runs under plain
+> `docker compose` with **no** Coolify-managed network and **no** Traefik, so
+> there is nothing to be dual-homed against. The custom-network removal applies
+> **only** to the Coolify compose file.
+
+#### Verification runbook (after deploy)
+
+Network changes require container recreation, so **redeploy the stack** (see
+below) before probing. Then exec into the containers and confirm both directions
+of service-name DNS resolve and connect. Container names are Coolify-namespaced,
+so grab them from `docker ps` first (or use the Coolify terminal for each
+service).
+
+```bash
+# frontend → backend: expect the backend's health JSON, and NO proxy vars set
+docker exec <frontend-container> sh -c 'env | grep -i proxy; wget -T 10 -O- http://aiq-agent:8000/health'
+
+# backend → frontend: expect HTTP 200 from the healthz endpoint
+docker exec <aiq-agent-container> sh -c 'curl -m 10 http://frontend:3000/api/healthz'
+```
+
+- The `env | grep -i proxy` line should print **nothing** — Coolify does not
+  inject `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` into app containers, so those
+  are ruled out as a cause of the hangs. If your org sets them globally on the
+  Docker daemon, add the in-cluster service names to `NO_PROXY`.
+- Both probes should return promptly (well under the 10s timeout). A hang or
+  timeout here means the container is still dual-homed — re-check that the
+  compose has no `networks:` block and that you **redeployed** (a plain restart
+  reuses the old network attachments).
+
+> **You must REDEPLOY, not just restart.** Docker network membership is fixed at
+> container creation. After pulling this change, trigger a full **Redeploy** in
+> Coolify so every container is recreated on the managed network only. A restart
+> of the existing containers keeps the old dual-homed attachments and the
+> intermittent 504 / DNS failures persist.
+
 ### Auth
 
 `REQUIRE_AUTH` defaults to **`true`** in this production compose (both the
@@ -315,6 +396,7 @@ redeploys of the same environment; each preview gets its own set.
 | Concern | Dev compose | Coolify compose |
 |---|---|---|
 | Container names | fixed (`aiq-agent`, …) | none (Coolify namespaces) |
+| Docker network | custom `aiq-network` (bridge) | none declared — Coolify's managed per-stack network (avoids dual-homed 504/DNS failures) |
 | Host ports | published (3000, 8000, 5432, 9000/9001) | none — proxy + FQDN vars |
 | Secrets | `deploy/.env` literals | Coolify UI (`${VAR:?}`) + generated passwords; `OPENROUTER_API_KEY`, `TAVILY_API_KEY`, `GRID_ADMIN_TOKEN` all required |
 | Auth (`REQUIRE_AUTH`) | `false` (dev convenience) | **`true`** by default (WorkOS required; opt out per-preview) |

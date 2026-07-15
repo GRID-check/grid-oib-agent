@@ -215,6 +215,45 @@ describe('ProjectIntakeWizard — FB-13 conflict check', () => {
   })
 })
 
+describe('ProjectIntakeWizard — summary generation is off the save critical path', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals()
+    vi.clearAllMocks()
+    sessionStorage.clear()
+  })
+  afterEach(() => sessionStorage.clear())
+
+  it('navigates on save even when generate-summary never resolves (fire-and-forget)', async () => {
+    const user = userEvent.setup()
+    const calls: Recorded[] = []
+    // /generate-summary hangs forever; the save must still complete + navigate.
+    const fetch = vi.fn((url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET'
+      calls.push({ url, method, body: init?.body ? JSON.parse(String(init.body)) : undefined })
+      if (url.endsWith('/intake-definition')) {
+        return Promise.resolve({ ok: true, status: 200, json: async () => projectIntakeDefinitionV1 })
+      }
+      if (url.endsWith('/generate-summary')) {
+        return new Promise(() => {}) // never resolves — a hung backend
+      }
+      return Promise.resolve({ ok: true, status: 200, json: async () => ({}) })
+    })
+    vi.stubGlobal('fetch', fetch)
+
+    seedReviewDraft({ gebaeudeklasse: 'GK1', geschosse_oberirdisch: 8 })
+    renderWizard(false)
+
+    await user.click(await screen.findByRole('button', { name: /save/i }))
+
+    // The profile PUT is the durable save; navigation must not wait on the summary.
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith(`/app/projects/${PROJECT_ID}`))
+    expect(refreshMock).toHaveBeenCalled()
+    expect(calls.some((c) => c.url.endsWith(`/projects/${PROJECT_ID}/profile`) && c.method === 'PUT')).toBe(true)
+    // The summary generation was dispatched (fire-and-forget), not awaited.
+    expect(calls.some((c) => c.url.endsWith('/generate-summary') && c.method === 'POST')).toBe(true)
+  })
+})
+
 describe('ProjectIntakeWizard — Fix 1 salvage banner', () => {
   beforeEach(() => {
     vi.unstubAllGlobals()

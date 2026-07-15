@@ -742,6 +742,17 @@ export interface ChatActions {
   /** Restore ephemeral state (thinkingSteps, reportContent, citations) from a conversation's messages */
   restoreSessionState: (conversation: Conversation) => void
 
+  /**
+   * Refetch server-persisted history for a seemingly-interrupted turn and, if
+   * the backend persisted the assistant reply while the client was disconnected,
+   * append it locally. Returns true when a reply was recovered (so the caller
+   * can skip the "response interrupted" banner).
+   */
+  _recoverInterruptedAssistantMessage: (
+    conversationId: string,
+    afterUserMessageId: string
+  ) => Promise<boolean>
+
   // Session busy checks (for disabling UI controls)
 
   /**

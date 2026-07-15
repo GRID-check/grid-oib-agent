@@ -574,8 +574,13 @@ async def test_handler_run_processes_user_message(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_handler_run_cancels_workflow_on_disconnect(monkeypatch) -> None:
-    """When the socket disconnects, in-flight workflow tasks are cancelled."""
+async def test_handler_run_survives_disconnect_without_cancelling_workflow(monkeypatch) -> None:
+    """A client disconnect must NOT cancel the in-flight workflow.
+
+    Navigating away mid-generation has to keep the turn running so the backend
+    can finish it and persist the response server-side; the socket is released
+    but the workflow task keeps going.
+    """
     dummy_socket = DummySocket()  # no messages → immediate WebSocketDisconnect
     handler = ReconnectableWebSocketMessageHandler(
         socket=dummy_socket,
@@ -592,11 +597,21 @@ async def test_handler_run_cancels_workflow_on_disconnect(monkeypatch) -> None:
     # Also register the task in the global registry
     await websocket_reconnect._registry.set_workflow_task("conv-1", workflow_task)
 
+    # Register a socket so we can assert it is released on disconnect.
+    await websocket_reconnect._registry.set_socket("conv-1", dummy_socket)
+
     await handler.run()
 
-    # Let the event loop process the cancellation
+    # Let the event loop turn over; the task must still be alive.
     await asyncio.sleep(0)
-    assert workflow_task.cancelled()
+    assert not workflow_task.cancelled()
+    assert not workflow_task.done()
+    # The socket is released so a stale reference can't be reused.
+    assert not await websocket_reconnect._registry.has_socket("conv-1")
+
+    # Cleanup the still-running task.
+    workflow_task.cancel()
+    await asyncio.sleep(0)
 
 
 @pytest.mark.asyncio
@@ -644,6 +659,225 @@ async def test_registry_cancel_workflow_task_noop_for_missing() -> None:
     registry = WebSocketSessionRegistry()
     await registry.cancel_workflow_task(None)
     await registry.cancel_workflow_task("nonexistent")
+
+
+class _FakeResponse:
+    def __init__(self, status_code: int) -> None:
+        self.status_code = status_code
+
+
+class _FakeAsyncClient:
+    """Records POSTs and returns a canned status; stands in for httpx.AsyncClient."""
+
+    calls: list[dict] = []
+    status_code = 201
+    raise_on_post = False
+
+    def __init__(self, *args, **kwargs) -> None:
+        self.init_kwargs = kwargs
+
+    async def __aenter__(self) -> _FakeAsyncClient:
+        return self
+
+    async def __aexit__(self, *args) -> bool:
+        return False
+
+    async def post(self, url, json=None, headers=None):
+        _FakeAsyncClient.calls.append({"url": url, "json": json, "headers": headers})
+        if _FakeAsyncClient.raise_on_post:
+            raise RuntimeError("connection refused")
+        return _FakeResponse(_FakeAsyncClient.status_code)
+
+
+@pytest.fixture(autouse=True)
+def _reset_fake_client():
+    _FakeAsyncClient.calls = []
+    _FakeAsyncClient.status_code = 201
+    _FakeAsyncClient.raise_on_post = False
+    yield
+
+
+class _RespContent(BaseModel):
+    text: str
+
+
+class _RespMessage(BaseModel):
+    content: _RespContent
+    cards: list | None = None
+    deep_research_job_id: str | None = None
+    answer_confidence: str | None = None
+
+
+@pytest.mark.asyncio
+async def test_create_websocket_message_persists_terminal_response_when_client_gone(monkeypatch) -> None:
+    """A dropped terminal RESPONSE_MESSAGE with content is persisted server-side."""
+    from nat.data_models.api_server import WebSocketMessageType
+    from nat.data_models.api_server import WebSocketSystemResponseTokenMessage
+
+    registry = WebSocketSessionRegistry()  # no socket registered → client gone
+    monkeypatch.setattr(websocket_reconnect, "_registry", registry)
+    monkeypatch.setattr(websocket_reconnect.httpx, "AsyncClient", _FakeAsyncClient)
+    monkeypatch.setenv("FRONTEND_INTERNAL_URL", "http://frontend:3000")
+
+    handler = ReconnectableWebSocketMessageHandler(
+        socket=DummySocket(headers=[(b"cookie", b"nat-session=abc")]),
+        session_manager=DummySessionManager(),
+        step_adaptor=DummyStepAdaptor(),
+        worker=DummyWorker(),
+    )
+    handler._conversation_id = "conv-1"
+    handler._message_parent_id = "user-msg-1"
+
+    async def fake_get_schema(_message_type):
+        return WebSocketSystemResponseTokenMessage
+
+    async def fake_convert_data(_data_model):
+        return _RespContent(text="Final answer [1].")
+
+    async def fake_create_response_message(**_kwargs):
+        return _RespMessage(content=_RespContent(text="Final answer [1]."), cards=[{"type": "summary", "title": "T"}])
+
+    monkeypatch.setattr(handler._message_validator, "get_message_schema_by_type", fake_get_schema)
+    monkeypatch.setattr(handler._message_validator, "convert_data_to_message_content", fake_convert_data)
+    monkeypatch.setattr(
+        handler._message_validator, "create_system_response_token_message", fake_create_response_message
+    )
+
+    await handler.create_websocket_message(
+        data_model=DummyMessage(),
+        message_type=WebSocketMessageType.RESPONSE_MESSAGE,
+    )
+
+    assert len(_FakeAsyncClient.calls) == 1
+    body = _FakeAsyncClient.calls[0]["json"]
+    assert body["content"] == "Final answer [1]."
+    assert body["metadata"]["cards"] == [{"type": "summary", "title": "T"}]
+    assert _FakeAsyncClient.calls[0]["headers"] == {"cookie": "nat-session=abc"}
+
+
+def test_deterministic_assistant_message_id_is_stable_and_turn_scoped() -> None:
+    a = websocket_reconnect.deterministic_assistant_message_id("conv-1", "user-msg-1")
+    b = websocket_reconnect.deterministic_assistant_message_id("conv-1", "user-msg-1")
+    c = websocket_reconnect.deterministic_assistant_message_id("conv-1", "user-msg-2")
+    d = websocket_reconnect.deterministic_assistant_message_id("conv-2", "user-msg-1")
+    assert a == b  # same turn → same id (double POST no-ops on the conflict key)
+    assert a != c  # different turn on same conversation → distinct id
+    assert a != d  # different conversation → distinct id
+
+
+@pytest.mark.asyncio
+async def test_persist_assistant_message_posts_expected_payload(monkeypatch) -> None:
+    monkeypatch.setattr(websocket_reconnect, "_registry", WebSocketSessionRegistry())
+    monkeypatch.setattr(websocket_reconnect.httpx, "AsyncClient", _FakeAsyncClient)
+    monkeypatch.setenv("FRONTEND_INTERNAL_URL", "http://frontend:3000")
+
+    ok = await websocket_reconnect.persist_assistant_message(
+        conversation_id="conv-1",
+        parent_id="user-msg-1",
+        text="The finished answer [1].",
+        auth_headers={"cookie": "nat-session=abc", "authorization": "Bearer tkn"},
+        cards=[{"type": "summary", "title": "T"}],
+        deep_research_job_id="job-9",
+        answer_confidence="high",
+    )
+
+    assert ok is True
+    assert len(_FakeAsyncClient.calls) == 1
+    call = _FakeAsyncClient.calls[0]
+    assert call["url"] == "http://frontend:3000/api/conversations/conv-1/messages"
+    assert call["headers"] == {"cookie": "nat-session=abc", "authorization": "Bearer tkn"}
+    body = call["json"]
+    assert body["role"] == "assistant"
+    assert body["content"] == "The finished answer [1]."
+    assert body["messageType"] == "agent_response"
+    assert body["id"] == websocket_reconnect.deterministic_assistant_message_id("conv-1", "user-msg-1")
+    assert body["metadata"]["cards"] == [{"type": "summary", "title": "T"}]
+    assert body["metadata"]["deep_research_job_id"] == "job-9"
+    assert body["metadata"]["answer_confidence"] == "high"
+
+
+@pytest.mark.asyncio
+async def test_persist_assistant_message_skips_when_live_socket(monkeypatch) -> None:
+    registry = WebSocketSessionRegistry()
+    await registry.set_socket("conv-1", DummySocket())
+    monkeypatch.setattr(websocket_reconnect, "_registry", registry)
+    monkeypatch.setattr(websocket_reconnect.httpx, "AsyncClient", _FakeAsyncClient)
+    monkeypatch.setenv("FRONTEND_INTERNAL_URL", "http://frontend:3000")
+
+    ok = await websocket_reconnect.persist_assistant_message(
+        conversation_id="conv-1",
+        parent_id="user-msg-1",
+        text="answer",
+        auth_headers={},
+    )
+    assert ok is False
+    assert _FakeAsyncClient.calls == []  # dual-write guard: client owns the write
+
+
+@pytest.mark.asyncio
+async def test_persist_assistant_message_warns_only_on_post_failure(monkeypatch) -> None:
+    monkeypatch.setattr(websocket_reconnect, "_registry", WebSocketSessionRegistry())
+    _FakeAsyncClient.raise_on_post = True
+    monkeypatch.setattr(websocket_reconnect.httpx, "AsyncClient", _FakeAsyncClient)
+    monkeypatch.setenv("FRONTEND_INTERNAL_URL", "http://frontend:3000")
+
+    # Must not raise — the checkpoint still holds the turn.
+    ok = await websocket_reconnect.persist_assistant_message(
+        conversation_id="conv-1",
+        parent_id="user-msg-1",
+        text="answer",
+        auth_headers={},
+    )
+    assert ok is False
+
+
+@pytest.mark.asyncio
+async def test_persist_assistant_message_non_2xx_returns_false(monkeypatch) -> None:
+    monkeypatch.setattr(websocket_reconnect, "_registry", WebSocketSessionRegistry())
+    _FakeAsyncClient.status_code = 403
+    monkeypatch.setattr(websocket_reconnect.httpx, "AsyncClient", _FakeAsyncClient)
+    monkeypatch.setenv("FRONTEND_INTERNAL_URL", "http://frontend:3000")
+
+    ok = await websocket_reconnect.persist_assistant_message(
+        conversation_id="conv-1",
+        parent_id="user-msg-1",
+        text="answer",
+        auth_headers={},
+    )
+    assert ok is False
+
+
+@pytest.mark.asyncio
+async def test_persist_assistant_message_skips_without_base_url(monkeypatch) -> None:
+    monkeypatch.setattr(websocket_reconnect, "_registry", WebSocketSessionRegistry())
+    monkeypatch.setattr(websocket_reconnect.httpx, "AsyncClient", _FakeAsyncClient)
+    monkeypatch.delenv("FRONTEND_INTERNAL_URL", raising=False)
+    monkeypatch.delenv("FRONTEND_URL", raising=False)
+
+    ok = await websocket_reconnect.persist_assistant_message(
+        conversation_id="conv-1",
+        parent_id="user-msg-1",
+        text="answer",
+        auth_headers={},
+    )
+    assert ok is False
+    assert _FakeAsyncClient.calls == []
+
+
+def _auth_headers_scope(cookie: str, auth: str) -> dict:
+    return {
+        "headers": [
+            (b"cookie", cookie.encode()),
+            (b"authorization", auth.encode()),
+            (b"x-other", b"ignored"),
+        ]
+    }
+
+
+def test_auth_headers_from_scope_replays_only_credentials() -> None:
+    scope = _auth_headers_scope("nat-session=abc", "Bearer tkn")
+    headers = websocket_reconnect._auth_headers_from_scope(scope)
+    assert headers == {"cookie": "nat-session=abc", "authorization": "Bearer tkn"}
 
 
 def test_install_reconnectable_handler(monkeypatch) -> None:

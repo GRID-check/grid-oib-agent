@@ -32,7 +32,8 @@ services:
   # WARNING: do NOT add a `ports:` mapping to this internal service. Coolify
   # binds the published host port on the server regardless of Traefik routing,
   # which would expose the backend (8000) to the public internet. Keep it on
-  # `expose:` only — it stays reachable in-cluster over the aiq-network.
+  # `expose:` only — it stays reachable in-cluster over Coolify's managed
+  # network (service-name DNS; see the networking note below).
   aiq-agent:
     build:
       # Paths are relative to the Compose *project directory*, which Coolify sets
@@ -133,8 +134,6 @@ services:
       - ./data/oib:/app/data/oib:ro
       - aiq-data:/app/data
       - chroma_data:/app/data/chroma_data
-    networks:
-      - aiq-network
     depends_on:
       aiq-data-permissions:
         condition: service_completed_successfully
@@ -160,8 +159,6 @@ services:
     volumes:
       - aiq-data:/app/data
       - chroma_data:/app/data/chroma_data
-    networks:
-      - aiq-network
     restart: "no"
 
   minio:
@@ -181,8 +178,6 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
-    networks:
-      - aiq-network
     restart: unless-stopped
 
   minio-init:
@@ -195,8 +190,6 @@ services:
     depends_on:
       minio:
         condition: service_healthy
-    networks:
-      - aiq-network
     restart: "no"
 
   frontend:
@@ -258,8 +251,6 @@ services:
       - GRID_WS_UPGRADE_RATE_LIMIT=${GRID_WS_UPGRADE_RATE_LIMIT:-30}
     expose:
       - "3000"
-    networks:
-      - aiq-network
     depends_on:
       aiq-agent:
         condition: service_healthy
@@ -294,8 +285,6 @@ services:
       - MINIO_BUCKET=grid-documents
       - WORKOS_API_KEY=${WORKOS_API_KEY:-}
       - PURGER_POLL_INTERVAL_MS=${PURGER_POLL_INTERVAL_MS:-60000}
-    networks:
-      - aiq-network
     depends_on:
       postgres:
         condition: service_healthy
@@ -331,8 +320,6 @@ services:
       ]
     ulimits:
       memlock: -1
-    networks:
-      - aiq-network
     # Observability only — nothing depends_on this being healthy: both app
     # tiers fail open to in-process caches (ADR-0020), so a broken cache must
     # never block a deployment.
@@ -362,8 +349,6 @@ services:
       - "5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
-    networks:
-      - aiq-network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U aiq -d aiq_jobs && pg_isready -U aiq -d aiq_checkpoints && pg_isready -U aiq -d grid_app"]
       interval: 5s
@@ -382,6 +367,19 @@ volumes:
   postgres-data:
     driver: local
 
-networks:
-  aiq-network:
-    driver: bridge
+# NOTE: intentionally NO top-level `networks:` block. Coolify auto-creates one
+# managed bridge network per compose stack (named after the resource UUID) and
+# attaches every service to it, so service-name DNS (aiq-agent, frontend,
+# postgres, minio, dragonfly, …) already works across the stack. Declaring a
+# custom network here would make each container DUAL-HOMED — attached to BOTH
+# the custom bridge and Coolify's managed network. Coolify's Traefik proxy sits
+# only on the managed network and then non-deterministically picks which of a
+# container's two IPs to route to; when it picks the custom-network IP it cannot
+# reach the container, so requests hang and surface as intermittent 504s.
+# Dual-homed containers also get two resolver entries, which is the source of the
+# sporadic "Temporary failure in name resolution" seen at startup. Removing the
+# custom network makes every container single-homed on the managed network and
+# fixes both symptoms. See docs/deployment/coolify.md §"Networking".
+#
+# To reach a service in ANOTHER Coolify stack (e.g. an external DB), do NOT add a
+# custom network — enable "Connect To Predefined Network" on the resource instead.

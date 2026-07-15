@@ -48,6 +48,15 @@ const PREVIEW_CONTENT_TYPES = [
 const presignTtlSeconds = (): number => Number(process.env.MINIO_PRESIGNED_URL_TTL_SECONDS || 600)
 
 /**
+ * Bound every server-side call to the Python backend: an unreachable backend
+ * container otherwise hangs the BFF request past Cloudflare's ~100s origin
+ * timeout (→ 504). Ingest dispatch is best-effort (a timeout is caught and
+ * recorded as a failed ingest); the tag edit is user-blocking (a timeout
+ * surfaces as an UpstreamError, same as any other transport failure).
+ */
+const BACKEND_FETCH_TIMEOUT_MS = 10_000
+
+/**
  * Stored on the document when the backend ingest dispatch never yielded a job.
  * Persisted server-side (like backend-produced error messages), so it cannot
  * go through the per-user i18n dictionaries.
@@ -127,6 +136,7 @@ async function dispatchIngest(
         collection: collectionName,
         document_id: documentId,
       }),
+      signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
     })
 
     if (ingestRes.ok) {
@@ -352,9 +362,12 @@ export async function updateDocumentTags(
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tags }),
+        signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
       },
     )
   } catch {
+    // Includes a TimeoutError abort — treat a hung backend like any other
+    // transport failure rather than letting the request hang.
     throw new UpstreamError('Could not reach the document service')
   }
 

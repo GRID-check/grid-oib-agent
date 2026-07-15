@@ -61,7 +61,9 @@ class TestShallowResearcherAgent:
             patch("aiq_agent.agents.shallow_researcher.agent.verify_citations") as mock_verify,
             patch("aiq_agent.agents.shallow_researcher.agent.sanitize_report") as mock_sanitize,
         ):
-            mock_verify.side_effect = lambda content, reg: MagicMock(verified_report=content, removed_citations=[])
+            mock_verify.side_effect = lambda content, reg, reference_sources=None: MagicMock(
+                verified_report=content, removed_citations=[]
+            )
             mock_sanitize.side_effect = lambda content: MagicMock(sanitized_report=content)
             yield
 
@@ -1223,3 +1225,22 @@ class TestShallowResearcherAnswerGrounding:
         )
         result, _ = await _run_with_captured_registry(self._agent(mock_llm_provider), state)
         assert result.answer_citation_grounded is False
+
+    @pytest.mark.asyncio
+    async def test_reference_sources_synthesizes_missing_sources_section(self, mock_llm_provider, mock_llm):
+        # Inline [1] citation, NO Sources section written by the model, but a
+        # populated registry: the shallow path must pass reference_sources so the
+        # real verify_citations can synthesize the section (rather than dropping
+        # the citation). Uses the REAL verification/sanitization pipeline.
+        mock_llm.ainvoke.return_value = AIMessage(content="The building height limit is 12 m [1].")
+        source = SourceEntry(url="https://example.gv.at/oib", title="OIB Richtlinie", tool_name="web_search_tool")
+        with patch.object(SourceRegistry, "all_sources", return_value=[source]):
+            state = ShallowResearchAgentState(messages=[HumanMessage(content="What is the height limit?")])
+            result, _ = await _run_with_captured_registry(self._agent(mock_llm_provider), state)
+
+        answer = next(
+            m for m in reversed(result.messages) if isinstance(m, AIMessage) and not m.tool_calls
+        )
+        assert "Sources" in answer.content
+        assert "OIB Richtlinie" in answer.content
+        assert result.answer_citation_grounded is True

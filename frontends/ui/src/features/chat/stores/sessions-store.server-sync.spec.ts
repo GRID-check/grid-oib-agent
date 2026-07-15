@@ -298,3 +298,80 @@ describe('_appendMessage conversation ensure', () => {
     expect(mockConversationsClient.createMessage).toHaveBeenCalledTimes(2)
   })
 })
+
+describe('hydration-aware interrupted state', () => {
+  // A turn that LOOKS interrupted: the last meaningful local message is the
+  // user turn carrying thinking steps, with no assistant reply and no pending
+  // prompt. This is the exact shape that used to unconditionally show the
+  // "response interrupted" banner.
+  const interruptedConversation = () => {
+    const interruptedUser = {
+      id: 'u1',
+      role: 'user',
+      content: 'What is the height limit?',
+      timestamp: new Date('2026-07-01T10:00:00.000Z'),
+      messageType: 'user',
+      thinkingSteps: [{ id: 'ts1' }],
+    } as unknown as ChatMessage
+    return makeConversation({ messages: [interruptedUser] })
+  }
+
+  it('renders the server-persisted assistant reply and skips the banner', async () => {
+    const conv = interruptedConversation()
+    useChatStore.setState({ conversations: [conv], currentConversation: conv })
+    // Server has the finished response the disconnected client never received.
+    mockConversationsClient.listMessages.mockResolvedValue([
+      serverRow(conv.id, 'u1', 'user', 'What is the height limit?'),
+      serverRow(conv.id, 'assistant-recovered', 'assistant', 'The limit is 12 m.'),
+    ])
+
+    useChatStore.getState().restoreSessionState(conv)
+
+    await vi.waitFor(() => {
+      const messages = useChatStore.getState().currentConversation!.messages
+      expect(messages.some((m) => m.id === 'assistant-recovered')).toBe(true)
+    })
+
+    const messages = useChatStore.getState().currentConversation!.messages
+    // The recovered assistant reply is rendered, and NO interrupted error card.
+    expect(messages.find((m) => m.id === 'assistant-recovered')).toMatchObject({
+      role: 'assistant',
+      content: 'The limit is 12 m.',
+    })
+    expect(messages.some((m) => m.messageType === 'error')).toBe(false)
+  })
+
+  it('shows the interrupted banner when the server has no assistant reply', async () => {
+    const conv = interruptedConversation()
+    useChatStore.setState({ conversations: [conv], currentConversation: conv })
+    // Server only has the user turn — the response was genuinely lost.
+    mockConversationsClient.listMessages.mockResolvedValue([
+      serverRow(conv.id, 'u1', 'user', 'What is the height limit?'),
+    ])
+
+    useChatStore.getState().restoreSessionState(conv)
+
+    await vi.waitFor(() => {
+      const messages = useChatStore.getState().currentConversation!.messages
+      expect(messages.some((m) => m.messageType === 'error')).toBe(true)
+    })
+
+    const errorCard = useChatStore
+      .getState()
+      .currentConversation!.messages.find((m) => m.messageType === 'error')
+    expect(errorCard?.errorData?.errorCode).toBe('agent.response_interrupted')
+  })
+
+  it('shows the interrupted banner when the server refetch fails', async () => {
+    const conv = interruptedConversation()
+    useChatStore.setState({ conversations: [conv], currentConversation: conv })
+    mockConversationsClient.listMessages.mockRejectedValue(new Error('network down'))
+
+    useChatStore.getState().restoreSessionState(conv)
+
+    await vi.waitFor(() => {
+      const messages = useChatStore.getState().currentConversation!.messages
+      expect(messages.some((m) => m.messageType === 'error')).toBe(true)
+    })
+  })
+})

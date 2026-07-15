@@ -18,6 +18,10 @@ export type GroupDefaults = Record<string, string | null>
 
 const CACHE_TTL_MS = 5 * 60 * 1000
 
+// Fail-open label resolution: bound the backend call so an unreachable backend
+// falls through to the generic "workflow default" label instead of hanging.
+const LLM_DEFAULTS_TIMEOUT_MS = 10_000
+
 let cache: { fetchedAt: number; llms: Record<string, string | null> } | null = null
 
 async function fetchLlmDefaults(): Promise<Record<string, string | null>> {
@@ -29,7 +33,11 @@ async function fetchLlmDefaults(): Promise<Record<string, string | null>> {
   const token = process.env.GRID_INTERNAL_API_TOKEN
   if (token) headers['x-grid-internal-token'] = token
 
-  const response = await fetch(`${base}/v1/config/llm-defaults`, { headers, cache: 'no-store' })
+  const response = await fetch(`${base}/v1/config/llm-defaults`, {
+    headers,
+    cache: 'no-store',
+    signal: AbortSignal.timeout(LLM_DEFAULTS_TIMEOUT_MS),
+  })
   if (!response.ok) {
     throw new Error(`llm-defaults request failed: HTTP ${response.status}`)
   }
