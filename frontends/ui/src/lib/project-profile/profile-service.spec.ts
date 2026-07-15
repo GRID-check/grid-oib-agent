@@ -104,6 +104,15 @@ describe('checkProjectConsistency backend fetch is time-bounded (fail-open)', ()
     expect((init as RequestInit).signal).toBeInstanceOf(AbortSignal)
   })
 
+  it('forwards the org id so the backend can resolve the org BYOK credential', async () => {
+    mockFetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({ findings: [] }) })
+
+    await checkProjectConsistency(session, 'proj-1', { freeText: [] })
+
+    const [, init] = mockFetch.mock.calls[0]
+    expect((init as RequestInit).headers).toMatchObject({ 'x-grid-organization-id': 'org-1' })
+  })
+
   it('degrades a timeout abort to the same fail-open result as a network error', async () => {
     // AbortSignal.timeout() rejects fetch with a DOMException named TimeoutError.
     mockFetch.mockRejectedValue(new DOMException('The operation timed out.', 'TimeoutError'))
@@ -209,5 +218,17 @@ describe('generateProjectSummary', () => {
 
     expect(result).toEqual({ summary: '', error: 'llm_not_configured' })
     expect(setProjectProfileSummaryInOrg).not.toHaveBeenCalled()
+  })
+
+  it('forwards the org id so the backend can resolve the org BYOK credential', async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ summary: 'A summary.', error: null }),
+    })
+
+    await generateProjectSummary(session, 'proj-1')
+
+    const [, init] = mockFetch.mock.calls[0]
+    expect((init as RequestInit).headers).toMatchObject({ 'x-grid-organization-id': 'org-1' })
   })
 })

@@ -63,14 +63,22 @@ services:
       # here ever calls a NVIDIA endpoint.
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:?set OPENROUTER_API_KEY}
       - TAVILY_API_KEY=${TAVILY_API_KEY:?set TAVILY_API_KEY}
-      # Embeddings + VLM route through OpenRouter. LlamaIndex's embedding client
-      # reads NVIDIA_API_KEY as its api_key, so we point it at the OpenRouter key
-      # while base_url stays on OpenRouter. These model/base_url values MUST match
-      # whatever generated the OIB seed (see docs/deployment/coolify.md §6) — a
-      # restored snapshot only works if query embeddings use the same model.
+      # Embeddings + VLM route through OpenRouter. The backend now resolves each
+      # LLM key through the shared credential resolver, which INFERS the provider
+      # key from the base URL: with a base URL on openrouter.ai it picks up
+      # OPENROUTER_API_KEY automatically, so no per-family key wiring is required.
+      # These model/base_url values MUST match whatever generated the OIB seed
+      # (see docs/deployment/coolify.md §6) — a restored snapshot only works if
+      # query embeddings use the same model.
       - AIQ_EMBED_MODEL=${AIQ_EMBED_MODEL:-openai/text-embedding-3-large}
       - AIQ_EMBED_BASE_URL=${AIQ_EMBED_BASE_URL:-https://openrouter.ai/api/v1}
+      # AIQ_EMBED_API_KEY is the embeddings key override (now read by the adapter
+      # via the shared resolver); explicit here so the OpenRouter key is used even
+      # if provider inference is ever disabled.
       - AIQ_EMBED_API_KEY=${OPENROUTER_API_KEY}
+      # NVIDIA_API_KEY alias kept for back-compat (it is the embeddings/VLM
+      # fallback env); provider inference from the openrouter.ai base URL now
+      # covers this natively, so this line is belt-and-suspenders.
       - NVIDIA_API_KEY=${NVIDIA_API_KEY:-${OPENROUTER_API_KEY}}
       - AIQ_VLM_MODEL=${AIQ_VLM_MODEL:-google/gemma-4-31b-it}
       - AIQ_VLM_BASE_URL=${AIQ_VLM_BASE_URL:-https://openrouter.ai/api/v1}
