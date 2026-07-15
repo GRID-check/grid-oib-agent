@@ -54,6 +54,7 @@ Variables set in `docker-compose.yaml` under `environment:` take precedence over
 | Variable | Required | Default (Docker) | Default (Local) | Description |
 |----------|----------|------------------|-----------------|-------------|
 | `GRID_APP_DATABASE_URL` | Yes | `postgresql://aiq:aiq_dev@postgres:5432/grid_app` | `postgresql://postgres:postgres@localhost:5432/grid_app` | PostgreSQL URL for the Next.js BFF application database (Drizzle ORM). |
+| `GRID_DB_POOL_MAX` | No | `10` | `10` | Max PostgreSQL connections the BFF connection pool holds open. Bounds resource use so connection acquisition fails fast under load instead of piling requests up behind a saturated/unreachable database. Invalid/non-positive values fall back to `10`. |
 | `NAT_JOB_STORE_DB_URL` | No (SQLite fallback) | `postgresql+asyncpg://aiq:aiq_dev@postgres:5432/aiq_jobs` | `sqlite+aiosqlite:///./jobs.db` | NAT job store URL. PostgreSQL for Docker, SQLite for local dev. |
 | `AIQ_CHECKPOINT_DB` | No (SQLite fallback) | `postgresql://aiq:aiq_dev@postgres:5432/aiq_checkpoints` | `./checkpoints.db` | LangGraph conversation checkpoint database. PostgreSQL for Docker, SQLite for local dev. |
 | `AIQ_SUMMARY_DB` | No (SQLite fallback) | `postgresql+psycopg://aiq:aiq_dev@postgres:5432/aiq_jobs` | `sqlite+aiosqlite:///./summaries.db` | Document summaries database. Pointed at `aiq_jobs` in Docker to share the database. |

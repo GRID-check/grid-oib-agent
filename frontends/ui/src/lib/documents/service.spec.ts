@@ -188,6 +188,34 @@ describe('uploadDocument ingest dispatch', () => {
   })
 })
 
+describe('uploadDocument ingest dispatch — backend fetch is time-bounded', () => {
+  it('sends the ingest dispatch with an AbortSignal so a hung backend cannot stall the request', async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ job_id: 'job-42' }),
+    })
+
+    await uploadDocument(session, makeInput(), new Request('http://x'))
+
+    const ingestCall = mockFetch.mock.calls.find(([url]) => String(url).endsWith('/v1/ingest'))
+    expect(ingestCall).toBeDefined()
+    expect((ingestCall?.[1] as RequestInit).signal).toBeInstanceOf(AbortSignal)
+  })
+
+  it('a timeout abort fails open exactly like a network error (persists failed, no crash)', async () => {
+    // AbortSignal.timeout() rejects fetch with a DOMException named TimeoutError.
+    mockFetch.mockRejectedValue(new DOMException('The operation timed out.', 'TimeoutError'))
+
+    const result = await uploadDocument(session, makeInput(), new Request('http://x'))
+
+    expect(result.status).toBe('failed')
+    expect(result.jobId).toBeNull()
+    expect(markDocumentIngestFailed).toHaveBeenCalledWith(result.documentId, INGEST_DISPATCH_FAILED_MESSAGE)
+    expect(setDocumentIngestJob).not.toHaveBeenCalled()
+  })
+})
+
 describe('listDocuments', () => {
   it('carries the curated metadata subset through and strips the internal metadata column', async () => {
     vi.mocked(listProjectDocuments).mockResolvedValue([] as any)

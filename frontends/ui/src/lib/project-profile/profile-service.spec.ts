@@ -41,3 +41,45 @@ describe('checkProjectConsistency authorization (FB-13)', () => {
     expect(mockFetch).not.toHaveBeenCalled()
   })
 })
+
+describe('checkProjectConsistency backend fetch is time-bounded (fail-open)', () => {
+  const mockFetch = vi.fn()
+
+  beforeEach(() => {
+    // clearAllMocks preserves the module-factory default (requireProjectAccess
+    // resolves to undefined); only call history is cleared.
+    vi.clearAllMocks()
+    vi.stubGlobal('fetch', mockFetch)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('carries an AbortSignal so a hung backend cannot block the save', async () => {
+    mockFetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({ findings: [] }) })
+
+    await checkProjectConsistency(session, 'proj-1', { freeText: [] })
+
+    const [, init] = mockFetch.mock.calls[0]
+    expect((init as RequestInit).signal).toBeInstanceOf(AbortSignal)
+  })
+
+  it('degrades a timeout abort to the same fail-open result as a network error', async () => {
+    // AbortSignal.timeout() rejects fetch with a DOMException named TimeoutError.
+    mockFetch.mockRejectedValue(new DOMException('The operation timed out.', 'TimeoutError'))
+
+    const result = await checkProjectConsistency(session, 'proj-1', { freeText: [] })
+
+    // Identical fail-open shape to a plain transport failure — the wizard saves anyway.
+    expect(result).toEqual({ findings: null, error: 'check_request_failed' })
+  })
+
+  it('a plain network error produces the same fail-open shape (parity baseline)', async () => {
+    mockFetch.mockRejectedValue(new Error('ECONNREFUSED'))
+
+    const result = await checkProjectConsistency(session, 'proj-1', { freeText: [] })
+
+    expect(result).toEqual({ findings: null, error: 'check_request_failed' })
+  })
+})

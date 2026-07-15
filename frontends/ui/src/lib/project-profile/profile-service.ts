@@ -36,6 +36,16 @@ import {
 import type { AiConsistencyFinding, ConsistencyCheckField } from './intake-consistency'
 import type { ProjectProfile, ProjectProfilePatchOperation } from './types'
 
+/**
+ * Server-side backend fetches MUST be time-bounded: an unreachable backend
+ * container (inter-container network flakiness) otherwise hangs the request
+ * past Cloudflare's ~100s origin timeout and surfaces as a 504. The consistency
+ * check is a fail-open pre-save enrichment (short bound); summary generation is
+ * a user-visible LLM call (longer bound).
+ */
+const CONSISTENCY_CHECK_TIMEOUT_MS = 10_000
+const GENERATE_SUMMARY_TIMEOUT_MS = 20_000
+
 export async function getProjectProfile(
   session: AuthorizedSession,
   projectId: string,
@@ -171,6 +181,9 @@ export async function checkProjectConsistency(
         structured: input.structured ?? [],
         locale: input.locale ?? 'de',
       }),
+      // A hung backend must never block the save — bound the call and let the
+      // TimeoutError land in the fail-open catch below.
+      signal: AbortSignal.timeout(CONSISTENCY_CHECK_TIMEOUT_MS),
     })
 
     if (!backendRes.ok) {
@@ -217,6 +230,9 @@ export async function generateProjectSummary(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ profile_text: profileText }),
+    // Bound the call so an unreachable backend rejects promptly (as a
+    // TimeoutError) instead of hanging into a Cloudflare 504.
+    signal: AbortSignal.timeout(GENERATE_SUMMARY_TIMEOUT_MS),
   })
 
   if (!backendRes.ok) {

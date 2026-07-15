@@ -254,7 +254,11 @@ export async function streamKnowledgeBaseDocument(fileName: string): Promise<Res
   const name = requirePdfBasename(fileName)
   let res: Response
   try {
-    res = await fetch(`${getBackendUrl()}/v1/oib/documents/${encodeURIComponent(name)}`)
+    res = await fetch(`${getBackendUrl()}/v1/oib/documents/${encodeURIComponent(name)}`, {
+      // Corpus source PDFs are small and cached (5 min); bound the call so an
+      // unreachable backend rejects promptly instead of hanging the viewer.
+      signal: AbortSignal.timeout(KNOWLEDGE_STATUS_TIMEOUT_MS),
+    })
   } catch (error) {
     throw new UpstreamError('Knowledge backend unreachable', error instanceof Error ? error.message : undefined)
   }

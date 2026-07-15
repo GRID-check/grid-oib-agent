@@ -213,6 +213,29 @@ describe('reconcileDocumentStatuses', () => {
     expect(db.update).not.toHaveBeenCalled()
   })
 
+  it('leaves rows untouched when the backend fetch times out (same fail-open as unreachable)', async () => {
+    const db = makeDbMock()
+    // AbortSignal.timeout() rejects fetch with a DOMException named TimeoutError;
+    // the fetchJson wrapper swallows it exactly like a connection refusal.
+    mockFetch.mockRejectedValue(new DOMException('The operation timed out.', 'TimeoutError'))
+
+    const [result] = await reconcileDocumentStatuses([makeRow()])
+
+    expect(result.status).toBe('pending')
+    expect(db.update).not.toHaveBeenCalled()
+  })
+
+  it('bounds the status batch call with an AbortSignal', async () => {
+    makeDbMock()
+    mockFetch.mockResolvedValue(batchResponse({ 'job-1': { status: 'in_progress' } }))
+
+    await reconcileDocumentStatuses([makeRow()])
+
+    const batchCall = mockFetch.mock.calls.find(([url]) => String(url).includes('/v1/documents/status/batch'))
+    expect(batchCall).toBeDefined()
+    expect((batchCall?.[1] as RequestInit).signal).toBeInstanceOf(AbortSignal)
+  })
+
   it('leaves a legacy row pending when its file is not in the collection yet', async () => {
     const db = makeDbMock()
     mockFetch.mockResolvedValue({

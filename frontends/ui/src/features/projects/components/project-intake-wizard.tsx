@@ -297,20 +297,23 @@ export function ProjectIntakeWizard({
         /* ignore */
       }
 
-      // Summary generation is an enrichment — never let its failure look like a save failure.
-      try {
-        const res = await fetch(`/api/projects/${projectId}/generate-summary`, { method: 'POST' })
-        if (!res.ok) {
-          console.warn('[ProjectIntakeWizard] Summary generation returned a non-ok status (non-fatal):', res.status)
-        } else {
-          const data = await res.json().catch(() => null) as { error?: string | null } | null
+      // Summary generation is background enrichment — fire-and-forget so a slow
+      // or unreachable backend can never turn a successful save into a hung
+      // request (→ Cloudflare 504) or make the save appear to fail. The save is
+      // already durable above; navigate immediately and let the summary settle
+      // in the background. Failures are logged, never surfaced to the user.
+      void fetch(`/api/projects/${projectId}/generate-summary`, { method: 'POST' })
+        .then(async (res) => {
+          if (!res.ok) {
+            console.warn('[ProjectIntakeWizard] Summary generation returned a non-ok status (non-fatal):', res.status)
+            return
+          }
+          const data = (await res.json().catch(() => null)) as { error?: string | null } | null
           if (data?.error) {
             console.warn('[ProjectIntakeWizard] Summary generation failed (non-fatal):', data.error)
           }
-        }
-      } catch (e) {
-        console.warn('[ProjectIntakeWizard] Summary generation request failed (non-fatal):', e)
-      }
+        })
+        .catch((e) => console.warn('[ProjectIntakeWizard] Summary generation request failed (non-fatal):', e))
 
       router.push(`/app/projects/${projectId}`)
       router.refresh()
