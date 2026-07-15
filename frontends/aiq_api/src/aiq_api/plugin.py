@@ -1,18 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 """
 NAT plugin registration for unified AI-Q API.
 
@@ -58,6 +43,7 @@ from .jobs.connection_manager import get_connection_manager
 from .jobs.event_store import EventStore
 from .routes.collections import add_collection_routes
 from .routes.config_info import add_config_info_routes
+from .routes.consistency_check import add_consistency_check_routes
 from .routes.documents import add_document_routes
 from .routes.generate_summary import add_generate_summary_routes
 from .routes.ingest import add_ingest_routes
@@ -211,6 +197,7 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
         add_collection_routes(knowledge_router)
         add_document_routes(knowledge_router)
         add_generate_summary_routes(knowledge_router)
+        add_consistency_check_routes(knowledge_router)
         add_ingest_routes(knowledge_router)
         add_oib_routes(knowledge_router)
         add_maintenance_routes(knowledge_router)

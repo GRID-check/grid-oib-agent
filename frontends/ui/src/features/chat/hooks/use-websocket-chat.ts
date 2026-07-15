@@ -707,7 +707,8 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         isFinal: boolean,
         parentId?: string,
         cards?: unknown[],
-        deepResearchJobId?: string
+        deepResearchJobId?: string,
+        answerConfidence?: 'low' | 'medium' | 'high'
       ) => {
         // A response on the wire proves the post-rotation auth is alive --
         // clear the consecutive auth_expired counter so a *future* (and
@@ -850,7 +851,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         if ((content && content.trim()) || validatedCards.length > 0) {
           // Add to chat area as AgentResponse
           // Note: reportContent is only set by deep research SSE events (use-deep-research.ts)
-          addAgentResponse(content, false, validatedCards)
+          addAgentResponse(content, false, validatedCards, answerConfidence)
         }
 
         // status: "complete" with null text signals task completion

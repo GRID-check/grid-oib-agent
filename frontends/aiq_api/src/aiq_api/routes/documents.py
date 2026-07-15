@@ -1,18 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 """Document management endpoints."""
 
 import logging
@@ -28,7 +13,12 @@ from fastapi import UploadFile
 from pydantic import BaseModel
 from pydantic import Field
 
+from aiq_agent.knowledge import get_available_documents_async
+from aiq_agent.knowledge import update_document_tags
 from aiq_agent.knowledge.base import BaseIngestor
+from aiq_agent.knowledge.document_classification import ALLOWED_TAGS
+from aiq_agent.knowledge.document_classification import MAX_TAGS
+from aiq_agent.knowledge.schema import AvailableDocument
 from aiq_agent.knowledge.schema import FileInfo
 from aiq_agent.knowledge.schema import IngestionJobStatus
 
@@ -40,6 +30,30 @@ logger = logging.getLogger(__name__)
 
 # Upper bound on job ids per batch-status request (request validation).
 BATCH_STATUS_MAX_IDS = 200
+
+
+def _merge_summaries(files: list[FileInfo], summaries: list[AvailableDocument]) -> list[FileInfo]:
+    """Attach persisted per-document summaries and tags onto the file list.
+
+    SummaryStore (SQL, keyed by ``(collection, filename)``) is the source of
+    truth for both the one-sentence summary and the controlled ingestion tags;
+    ``list_files`` only knows what the vector store holds. The join key is the
+    filename, unique within the summaries table, so a straight lookup is safe.
+    A file without a stored summary/tags is left untouched; already-populated
+    values are never overwritten.
+    """
+    if not summaries:
+        return files
+    doc_by_name = {doc.file_name: doc for doc in summaries}
+    for file in files:
+        doc = doc_by_name.get(file.file_name)
+        if doc is None:
+            continue
+        if file.summary is None and doc.summary:
+            file.summary = doc.summary
+        if not file.tags and doc.tags:
+            file.tags = doc.tags
+    return files
 
 
 def add_document_routes(router: APIRouter):
@@ -144,10 +158,90 @@ def add_document_routes(router: APIRouter):
             raise HTTPException(status_code=404, detail=f"Collection '{collection_name}' not found")
 
         try:
-            return ingestor.list_files(collection_name)
+            files = ingestor.list_files(collection_name)
         except Exception as e:
             logger.error(f"Failed to list documents: {e}")
             raise HTTPException(status_code=500, detail=str(e))
+
+        # Enrich with persisted per-document summaries (one SQL read). Fail-open:
+        # a summary-store hiccup must never break the document listing, so the
+        # files are returned without summaries rather than erroring the route.
+        try:
+            summaries = await get_available_documents_async(collection_name)
+            _merge_summaries(files, summaries)
+        except Exception as e:
+            logger.warning(f"Failed to merge summaries for {collection_name}: {e}")
+
+        return files
+
+    class UpdateTagsRequest(BaseModel):
+        tags: list[str] = Field(
+            default_factory=list,
+            description="Controlled document tags; must be a subset of the ingestion vocabulary.",
+        )
+
+    @router.patch(
+        "/v1/collections/{collection_name}/documents/{file_name}/tags",
+        tags=["documents"],
+        summary="Replace a document's controlled tags",
+    )
+    async def update_document_tags_route(
+        collection_name: str,
+        file_name: str,
+        request: UpdateTagsRequest,
+        ingestor: BaseIngestor = Depends(_require_ingestor),
+    ) -> dict[str, Any]:
+        """Replace the controlled tags on a single document's summary row.
+
+        Follows the documents-router auth model (end-user access is enforced at
+        the BFF; this route only requires the knowledge API to be configured).
+        The ingestion vocabulary (``ALLOWED_TAGS``) is the contract: a user edit
+        can never introduce an off-vocabulary tag.
+
+        - Tags outside ``ALLOWED_TAGS`` → 400 listing the offending values.
+        - More than ``MAX_TAGS`` tags (after dedup) → 400 (the BFF zod already
+          caps this, so a normal user never reaches it).
+        - An empty list is allowed and clears the tags.
+        - No summary row for ``(collection, file_name)`` → 404 (the summary is
+          the anchor; there is nothing to tag without one).
+        The summary itself is never modified.
+        """
+        # De-duplicate while preserving order so the response is stable.
+        deduped: list[str] = []
+        for tag in request.tags:
+            if tag not in deduped:
+                deduped.append(tag)
+
+        offending = [tag for tag in deduped if tag not in ALLOWED_TAGS]
+        if offending:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "message": "Tags outside the controlled vocabulary are not allowed",
+                    "invalid_tags": offending,
+                },
+            )
+
+        # Enforce the same per-document cap that ingestion applies (MAX_TAGS).
+        # Reject rather than silently truncate so the caller's intent is explicit.
+        if len(deduped) > MAX_TAGS:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "message": f"At most {MAX_TAGS} tags are allowed per document",
+                    "max_tags": MAX_TAGS,
+                    "tag_count": len(deduped),
+                },
+            )
+
+        updated = update_document_tags(collection_name, file_name, deduped)
+        if not updated:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No summary found for '{file_name}' in collection '{collection_name}'",
+            )
+
+        return {"collection_name": collection_name, "file_name": file_name, "tags": deduped}
 
     @router.delete(
         "/v1/collections/{collection_name}/documents",

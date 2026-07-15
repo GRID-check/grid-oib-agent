@@ -65,6 +65,64 @@ describe('File Upload Configuration', () => {
       ).toBe(true)
       expect(config.acceptedMimeTypes).not.toContain('text/html')
     })
+
+    test('does NOT include image types by default (opt-in only, even with the flag on)', () => {
+      // Image ingestion needs a configured VLM, so images ship disabled: a
+      // deployment must opt in via FILE_UPLOAD_ACCEPTED_TYPES. The image-upload
+      // flag can only ever narrow the env-provided list, never add images.
+      const enabled = getFileUploadConfigFromEnv(process.env, { imageUploadEnabled: true })
+
+      expect(enabled.acceptedTypes).toBe('.pdf,.docx,.txt,.md')
+      expect(enabled.acceptedTypes).not.toContain('.png')
+      expect(enabled.acceptedTypes).not.toContain('.jpg')
+      expect(enabled.acceptedTypes).not.toContain('.jpeg')
+      expect(enabled.acceptedMimeTypes).not.toContain('image/png')
+      expect(enabled.acceptedMimeTypes).not.toContain('image/jpeg')
+    })
+  })
+
+  describe('image-upload flag gating (env opt-in matrix)', () => {
+    // A deployment opts into images by adding them to FILE_UPLOAD_ACCEPTED_TYPES
+    // (done alongside configuring the VLM). The flag then decides whether that
+    // opt-in reaches the client.
+    const IMAGE_ENABLED_ENV = '.pdf,.docx,.txt,.md,.png,.jpg,.jpeg'
+
+    test('env opts in + flag on → image types reach the client', () => {
+      process.env.FILE_UPLOAD_ACCEPTED_TYPES = IMAGE_ENABLED_ENV
+      const config = getFileUploadConfigFromEnv(process.env, { imageUploadEnabled: true })
+
+      expect(config.acceptedTypes).toContain('.png')
+      expect(config.acceptedTypes).toContain('.jpg')
+      expect(config.acceptedTypes).toContain('.jpeg')
+      expect(config.acceptedMimeTypes).toContain('image/png')
+      expect(config.acceptedMimeTypes).toContain('image/jpeg')
+    })
+
+    test('env opts in + flag off → image types stripped before the client', () => {
+      process.env.FILE_UPLOAD_ACCEPTED_TYPES = IMAGE_ENABLED_ENV
+      const config = getFileUploadConfigFromEnv(process.env, { imageUploadEnabled: false })
+
+      expect(config.acceptedTypes).toBe('.pdf,.docx,.txt,.md')
+      expect(config.acceptedMimeTypes).not.toContain('image/png')
+      expect(config.acceptedMimeTypes).not.toContain('image/jpeg')
+      // Non-image types are untouched.
+      expect(config.acceptedMimeTypes).toContain('application/pdf')
+    })
+
+    test('no env opt-in → images absent regardless of the flag', () => {
+      const on = getFileUploadConfigFromEnv(process.env, { imageUploadEnabled: true })
+      const off = getFileUploadConfigFromEnv(process.env, { imageUploadEnabled: false })
+
+      expect(on.acceptedTypes).not.toContain('.png')
+      expect(off.acceptedTypes).not.toContain('.png')
+    })
+
+    test('strips images from an explicit env override when the flag is off', () => {
+      process.env.FILE_UPLOAD_ACCEPTED_TYPES = '.pdf,.png,.jpeg'
+      const config = getFileUploadConfigFromEnv(process.env, { imageUploadEnabled: false })
+
+      expect(config.acceptedTypes).toBe('.pdf')
+    })
   })
 
   describe('environment variable overrides', () => {

@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm'
 import { notFound } from 'next/navigation'
 import { requireAuthorizedPageSession } from '@/lib/auth/require-auth'
 import { requireProjectAccess } from '@/lib/authz/projects'
+import { FEATURE_FLAGS, isFeatureEnabled } from '@/lib/authz/feature-flags'
 import { getDb } from '@/lib/db'
 import { projects } from '@/lib/db/schema'
 import { ProjectProfileSchema } from '@/lib/project-profile/types'
@@ -47,12 +48,17 @@ export default async function IntakePage({ params }: IntakePageProps): Promise<J
       Object.keys(initialProfile.goals).length > 0 ||
       initialProfile.unknowns.length > 0)
 
+  // FB-13: the end-of-wizard conflict check is computed server-side from the
+  // session's flags and prop-drilled — off → the wizard saves exactly as before.
+  const conflictCheckEnabled = isFeatureEnabled(session, FEATURE_FLAGS.wizardConflictCheck)
+
   return (
     <ProjectIntakeWizard
       projectId={id}
       projectName={project.name}
       mode={hasExistingProfile ? 'edit' : 'create'}
       initialProfile={hasExistingProfile ? initialProfile : null}
+      conflictCheckEnabled={conflictCheckEnabled}
     />
   )
 }

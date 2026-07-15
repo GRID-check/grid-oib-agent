@@ -73,7 +73,7 @@ export const chat = {
     selectedDataSources: 'Selected Data Sources:',
     dataSource: {
       webSearch: 'Web Search',
-      files: 'Files',
+      knowledgeBase: 'OIB Knowledge Base',
       ris: 'RIS (Austrian Law)',
     },
   },
@@ -217,5 +217,16 @@ export const chat = {
       distillation: 'added after the response',
       inTurn: 'noted during the response',
     },
+  },
+  confidence: {
+    label: 'Confidence: {level}',
+    levels: {
+      high: 'high',
+      medium: 'medium',
+      low: 'low',
+    },
+    ariaLabel: 'Assistant self-assessed confidence: {level}',
+    tooltip:
+      "The assistant's own assessment of how well this answer is supported by its sources. It can be wrong.",
   },
 }

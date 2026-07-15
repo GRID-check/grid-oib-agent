@@ -249,6 +249,13 @@ export const research = {
     // Heading for the sources list appended from run citations when the
     // report markdown itself has no sources section.
     sourcesTitle: 'Sources',
+    // Per-source origin badges: whether a cited source came from the trusted
+    // knowledge base, the official Austrian legal system (RIS), or the web.
+    sourceBadge: {
+      kb: 'Knowledge Base',
+      web: 'Web',
+      ris: 'RIS',
+    },
   },
 
   researchPanel: {
@@ -308,6 +315,10 @@ export const research = {
     chatSession: 'Chat session',
     sessionLabelBusy: 'Session: {title} (processing in progress)',
     sessionLabel: 'Session: {title}',
+    // FB-10: Deep Research section folded into the sessions panel.
+    deepResearchHeading: 'Deep Research ({count})',
+    deepResearchChip: 'Deep Research',
+    deepResearchRunLabel: 'Open deep research run: {label}',
   },
 
   taskCard: {

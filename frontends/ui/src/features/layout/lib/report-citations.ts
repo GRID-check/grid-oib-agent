@@ -18,11 +18,21 @@
 /** DOM id prefix for source entries rendered by ReportTab. */
 export const REPORT_SOURCE_ANCHOR_PREFIX = 'report-source-'
 
+/**
+ * Origin of a cited source, parsed from a leading backend token
+ * (`[KB]` / `[Web]` / `[RIS]`) on the source line. `undefined` when the line
+ * carries no recognized token — older reports and replays predate the token,
+ * so absence must degrade gracefully to an unlabeled entry.
+ */
+export type ReportSourceKind = 'kb' | 'web' | 'ris'
+
 export interface ReportSourceEntry {
   /** The citation number, e.g. 3 for "[3]" / "3." */
   number: number
-  /** Entry text (markdown, without the leading number marker) */
+  /** Entry text (markdown, without the leading number marker or origin token) */
   markdown: string
+  /** Parsed source origin, or undefined when the line has no origin token. */
+  sourceKind?: ReportSourceKind
 }
 
 export interface SplitReportSources {
@@ -40,6 +50,31 @@ const SOURCES_HEADING_RE =
 
 /** A numbered source entry line: "1. ...", "1) ..." or "[1] ...". */
 const SOURCE_ENTRY_RE = /^\s*(?:\[(\d{1,3})\]|(\d{1,3})[.)])\s+(.+)$/
+
+/**
+ * Leading backend origin token on a source entry, e.g. "[KB] ...".
+ * Deterministic backend output (see citation_verification.source_origin_token);
+ * stripped from the display text and mapped to `sourceKind`.
+ */
+const SOURCE_KIND_TOKEN_RE = /^\[(KB|Web|RIS)\]\s*/i
+
+const TOKEN_TO_SOURCE_KIND: Record<string, ReportSourceKind> = {
+  kb: 'kb',
+  web: 'web',
+  ris: 'ris',
+}
+
+/** Split a leading origin token off an entry, returning the display text + kind. */
+const parseSourceKind = (
+  text: string
+): { markdown: string; sourceKind?: ReportSourceKind } => {
+  const match = text.match(SOURCE_KIND_TOKEN_RE)
+  if (!match) return { markdown: text }
+  return {
+    markdown: text.slice(match[0].length).trim(),
+    sourceKind: TOKEN_TO_SOURCE_KIND[match[1].toLowerCase()],
+  }
+}
 
 /** Markdown reference-link definition, e.g. "[1]: https://..." */
 const LINK_REFERENCE_DEFINITION_RE = /^\s*\[\d+\]:\s+\S/m
@@ -85,7 +120,8 @@ export const splitReportSources = (markdown: string): SplitReportSources => {
     const entryMatch = line.match(SOURCE_ENTRY_RE)
     if (entryMatch) {
       const number = Number(entryMatch[1] ?? entryMatch[2])
-      entries.push({ number, markdown: entryMatch[3].trim() })
+      const { markdown, sourceKind } = parseSourceKind(entryMatch[3].trim())
+      entries.push({ number, markdown, sourceKind })
     } else if (line.trim() && entries.length > 0) {
       // Continuation line of the previous entry (wrapped URL/title).
       entries[entries.length - 1].markdown += ` ${line.trim()}`

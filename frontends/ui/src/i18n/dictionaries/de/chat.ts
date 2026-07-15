@@ -73,7 +73,7 @@ export const chat: typeof en.chat = {
     selectedDataSources: 'Ausgewählte Datenquellen:',
     dataSource: {
       webSearch: 'Websuche',
-      files: 'Dateien',
+      knowledgeBase: 'OIB-Wissensdatenbank',
       ris: 'RIS (Österreichisches Recht)',
     },
   },
@@ -215,5 +215,16 @@ export const chat: typeof en.chat = {
       distillation: 'nach der Antwort ergänzt',
       inTurn: 'während der Antwort notiert',
     },
+  },
+  confidence: {
+    label: 'Einschätzung: {level}',
+    levels: {
+      high: 'hoch',
+      medium: 'mittel',
+      low: 'niedrig',
+    },
+    ariaLabel: 'Selbsteinschätzung des Assistenten: {level}',
+    tooltip:
+      'Die eigene Einschätzung des Assistenten, wie gut diese Antwort durch seine Quellen gestützt ist. Sie kann falsch sein.',
   },
 }

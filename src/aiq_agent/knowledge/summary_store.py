@@ -1,18 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 """Summary store for document summaries using SQLAlchemy.
 
 Provides configurable SQLite/PostgreSQL storage for document summaries,
@@ -177,14 +162,53 @@ class SummaryStore:
                     Column("collection", String(256), nullable=False),
                     Column("filename", String(512), nullable=False),
                     Column("summary", Text, nullable=False),
+                    Column("tags", Text, nullable=True),
                     Column("created_at", DateTime, server_default=func.now()),
                     PrimaryKeyConstraint("collection", "filename"),
                     Index("idx_summaries_collection", "collection"),
                 )
                 metadata.create_all(self._sync_engine)
                 logger.info("Created summaries table in %s", self.db_url[:50])
+                migrated = True
+            else:
+                # Pre-existing table (created before the tags column existed):
+                # add the column explicitly. CREATE TABLE only adds it on fresh
+                # tables, and this store has no migration framework.
+                migrated = self._migrate_add_tags_column_sync()
 
-            SummaryStore._tables_initialized.add(self.db_url)
+            # Only mark the store initialized when the schema is actually ready.
+            # A failed migration must NOT be cached as initialized, so the next
+            # call retries it instead of writing against a missing tags column.
+            if migrated:
+                SummaryStore._tables_initialized.add(self.db_url)
+
+    def _migrate_add_tags_column_sync(self) -> bool:
+        """Backfill the ``tags`` column onto a pre-existing summaries table.
+
+        Postgres supports ``ADD COLUMN IF NOT EXISTS``; SQLite does not, so the
+        column is added only after a ``PRAGMA table_info`` existence check.
+        Mirrors the job_access migration pattern in
+        ``frontends/aiq_api/src/aiq_api/jobs/access.py``.
+
+        Returns ``True`` when the column is present after the call, ``False`` if
+        the migration failed (so the caller can retry on the next access instead
+        of caching a half-initialized store).
+        """
+        from sqlalchemy import text
+
+        try:
+            with self._sync_engine.connect() as conn:
+                if self.db_url.startswith("postgres"):
+                    conn.execute(text("ALTER TABLE summaries ADD COLUMN IF NOT EXISTS tags TEXT"))
+                else:
+                    existing = {row[1] for row in conn.execute(text("PRAGMA table_info(summaries)")).fetchall()}
+                    if "tags" not in existing:
+                        conn.execute(text("ALTER TABLE summaries ADD COLUMN tags TEXT"))
+                conn.commit()
+            return True
+        except Exception as e:
+            logger.warning("Failed to migrate summaries.tags column: %s", e)
+            return False
 
     @classmethod
     async def _ensure_table_async(cls, db_url: str):
@@ -211,6 +235,7 @@ class SummaryStore:
             Column("collection", String(256), nullable=False),
             Column("filename", String(512), nullable=False),
             Column("summary", Text, nullable=False),
+            Column("tags", Text, nullable=True),
             Column("created_at", DateTime, server_default=func.now()),
             PrimaryKeyConstraint("collection", "filename"),
             Index("idx_summaries_collection", "collection"),
@@ -218,41 +243,147 @@ class SummaryStore:
 
         async with engine.begin() as conn:
             await conn.run_sync(lambda sync_conn: metadata.create_all(sync_conn))
+            # create_all() never alters an existing table, so backfill the tags
+            # column onto pre-existing tables (see _migrate_add_tags_column_sync).
+            migrated = await conn.run_sync(cls._migrate_add_tags_column_conn, db_url)
 
-        cls._tables_initialized.add(db_url)
-        logger.info("Created summaries table (async) in %s", db_url[:50])
+        # Only cache the store as initialized when the migration actually
+        # succeeded; a failed migration must be retried on the next access.
+        if migrated:
+            cls._tables_initialized.add(db_url)
+            logger.info("Created summaries table (async) in %s", db_url[:50])
 
-    def register(self, collection: str, filename: str, summary: str) -> None:
-        """Store a document summary (sync)."""
+    @staticmethod
+    def _migrate_add_tags_column_conn(sync_conn, db_url: str) -> bool:
+        """Add the ``tags`` column onto a pre-existing table, over a sync connection.
+
+        Returns ``True`` when the column is present afterwards, ``False`` if the
+        migration failed (so ``_ensure_table_async`` does not cache a
+        half-initialized store).
+        """
+        from sqlalchemy import text
+
+        try:
+            if db_url.startswith("postgres"):
+                sync_conn.execute(text("ALTER TABLE summaries ADD COLUMN IF NOT EXISTS tags TEXT"))
+            else:
+                existing = {row[1] for row in sync_conn.execute(text("PRAGMA table_info(summaries)")).fetchall()}
+                if "tags" not in existing:
+                    sync_conn.execute(text("ALTER TABLE summaries ADD COLUMN tags TEXT"))
+            return True
+        except Exception as e:
+            logger.warning("Failed to migrate summaries.tags column (async): %s", e)
+            return False
+
+    def register(self, collection: str, filename: str, summary: str, tags: list[str] | None = None) -> None:
+        """Store a document summary and optional controlled tags (sync)."""
+        import json
+
         from sqlalchemy import text
 
         # Use upsert pattern that works for both SQLite and PostgreSQL
         is_postgres = self.db_url.startswith("postgres")
+        tags_json = json.dumps(tags) if tags else None
 
         try:
             with self._sync_engine.connect() as conn:
                 if is_postgres:
                     conn.execute(
                         text(
-                            "INSERT INTO summaries (collection, filename, summary) "
-                            "VALUES (:collection, :filename, :summary) "
-                            "ON CONFLICT (collection, filename) DO UPDATE SET summary = EXCLUDED.summary"
+                            "INSERT INTO summaries (collection, filename, summary, tags) "
+                            "VALUES (:collection, :filename, :summary, :tags) "
+                            "ON CONFLICT (collection, filename) DO UPDATE SET "
+                            "summary = EXCLUDED.summary, tags = EXCLUDED.tags"
                         ),
-                        {"collection": collection, "filename": filename, "summary": summary},
+                        {"collection": collection, "filename": filename, "summary": summary, "tags": tags_json},
                     )
                 else:
                     # SQLite uses INSERT OR REPLACE
                     conn.execute(
                         text(
-                            "INSERT OR REPLACE INTO summaries (collection, filename, summary) "
-                            "VALUES (:collection, :filename, :summary)"
+                            "INSERT OR REPLACE INTO summaries (collection, filename, summary, tags) "
+                            "VALUES (:collection, :filename, :summary, :tags)"
                         ),
-                        {"collection": collection, "filename": filename, "summary": summary},
+                        {"collection": collection, "filename": filename, "summary": summary, "tags": tags_json},
                     )
                 conn.commit()
                 logger.debug("Registered summary for %s in %s", filename, collection)
         except Exception as e:
             logger.warning("Failed to register summary for %s: %s", filename, e)
+
+    def update_tags(self, collection: str, filename: str, tags: list[str] | None) -> bool:
+        """Replace only the ``tags`` of an existing summary row (sync).
+
+        The one-sentence ``summary`` is NEVER touched — this is the tag-edit /
+        backfill seam, distinct from :meth:`register` (which owns the summary).
+        An empty or ``None`` ``tags`` clears the column (stored as SQL NULL,
+        which decodes back to ``None``).
+
+        Returns ``True`` when a row existed and was updated, ``False`` when no
+        summary row exists for ``(collection, filename)`` — so callers (the edit
+        endpoint) can surface a 404 rather than silently creating a summary-less,
+        NOT NULL-violating row.
+        """
+        import json
+
+        from sqlalchemy import text
+
+        tags_json = json.dumps(tags) if tags else None
+
+        try:
+            with self._sync_engine.connect() as conn:
+                result = conn.execute(
+                    text(
+                        "UPDATE summaries SET tags = :tags "
+                        "WHERE collection = :collection AND filename = :filename"
+                    ),
+                    {"tags": tags_json, "collection": collection, "filename": filename},
+                )
+                conn.commit()
+                updated = (result.rowcount or 0) > 0
+                if updated:
+                    logger.debug("Updated tags for %s in %s", filename, collection)
+                else:
+                    logger.debug("No summary row to update tags for %s in %s", filename, collection)
+                return updated
+        except Exception as e:
+            logger.warning("Failed to update tags for %s: %s", filename, e)
+            return False
+
+    def list_collections(self) -> list[str]:
+        """Return every distinct collection present in the summaries table (sync).
+
+        The store is the only place that knows which collections have persisted
+        summaries; the backfill script iterates these when no ``--collection`` is
+        given. Ordered for stable, log-friendly output.
+        """
+        from sqlalchemy import text
+
+        try:
+            with self._sync_engine.connect() as conn:
+                result = conn.execute(
+                    text("SELECT DISTINCT collection FROM summaries ORDER BY collection")
+                )
+                return [row[0] for row in result]
+        except Exception as e:
+            logger.warning("Failed to list summary collections: %s", e)
+            return []
+
+    @staticmethod
+    def _decode_tags(raw: Any) -> list[str] | None:
+        """Decode the JSON-encoded tags column back into a list (fail-open)."""
+        if not raw:
+            return None
+        import json
+
+        try:
+            decoded = json.loads(raw)
+        except (TypeError, ValueError):
+            return None
+        if isinstance(decoded, list):
+            tags = [t for t in decoded if isinstance(t, str)]
+            return tags or None
+        return None
 
     def get_all(self, collection: str) -> list[AvailableDocument]:
         """Get all documents with summaries for a collection (sync)."""
@@ -263,10 +394,13 @@ class SummaryStore:
         try:
             with self._sync_engine.connect() as conn:
                 result = conn.execute(
-                    text("SELECT filename, summary FROM summaries WHERE collection = :collection"),
+                    text("SELECT filename, summary, tags FROM summaries WHERE collection = :collection"),
                     {"collection": collection},
                 )
-                return [AvailableDocument(file_name=row[0], summary=row[1]) for row in result]
+                return [
+                    AvailableDocument(file_name=row[0], summary=row[1], tags=self._decode_tags(row[2]))
+                    for row in result
+                ]
         except Exception as e:
             logger.warning("Failed to get summaries for %s: %s", collection, e)
             return []
@@ -282,10 +416,13 @@ class SummaryStore:
             engine = self._get_or_create_async_engine(self.db_url)
             async with engine.connect() as conn:
                 result = await conn.execute(
-                    text("SELECT filename, summary FROM summaries WHERE collection = :collection"),
+                    text("SELECT filename, summary, tags FROM summaries WHERE collection = :collection"),
                     {"collection": collection},
                 )
-                return [AvailableDocument(file_name=row[0], summary=row[1]) for row in result]
+                return [
+                    AvailableDocument(file_name=row[0], summary=row[1], tags=self._decode_tags(row[2]))
+                    for row in result
+                ]
         except Exception as e:
             logger.warning("Failed to get summaries async for %s: %s", collection, e)
             # Fallback to sync

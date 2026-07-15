@@ -75,6 +75,12 @@ export interface AppSidebarProps {
   canManagePlatform?: boolean
   /** Whether the project knowledge page is enabled (feature-flagged, default off). */
   showKnowledge?: boolean
+  /**
+   * Whether the standalone Research nav item is shown. False when the
+   * `research-in-chat-history` flag folds research runs into the chat-history
+   * panel (FB-10). Defaults to true (legacy tab visible) for back-compat.
+   */
+  showResearch?: boolean
 }
 
 export function AppSidebar({
@@ -86,6 +92,7 @@ export function AppSidebar({
   canViewOrganization = false,
   canManagePlatform = false,
   showKnowledge = false,
+  showResearch = true,
 }: AppSidebarProps) {
   const pathname = usePathname() ?? ''
   const base = `/app/projects/${projectId}`
@@ -144,7 +151,12 @@ export function AppSidebar({
   // Members is shown to every project member: the roster page renders a
   // dignified read-only view for viewers/editors and full controls for admins,
   // so the nav item never dead-ends. Knowledge is feature-flagged (default off).
-  const navItems = NAV_ITEMS.filter((item) => item.key !== 'knowledge' || showKnowledge)
+  // Research is hidden when its runs are folded into the chat-history panel
+  // (research-in-chat-history flag, FB-10).
+  const navItems = NAV_ITEMS.filter(
+    (item) =>
+      (item.key !== 'knowledge' || showKnowledge) && (item.key !== 'research' || showResearch),
+  )
 
   const activeItem = navItems.find(isActive)
 

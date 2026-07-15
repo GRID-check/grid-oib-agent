@@ -1,18 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 """
 Knowledge Layer - Universal RAG interfaces and schemas.
 
@@ -46,11 +31,13 @@ from .factory import get_available_documents
 from .factory import get_available_documents_async
 from .factory import get_ingestor
 from .factory import get_retriever
+from .factory import list_summary_collections
 from .factory import register_ingestor
 from .factory import register_retriever
 from .factory import register_summary
 from .factory import set_active_ingestor
 from .factory import unregister_summary
+from .factory import update_document_tags
 from .schema import AvailableDocument
 from .schema import Chunk
 from .schema import ContentType
@@ -84,6 +71,8 @@ __all__ = [
     "configure_summary_db",
     "register_summary",
     "unregister_summary",
+    "update_document_tags",
+    "list_summary_collections",
     "get_available_documents",
     "get_available_documents_async",
     "clear_collection_summaries",

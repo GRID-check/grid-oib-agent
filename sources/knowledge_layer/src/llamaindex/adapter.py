@@ -1,17 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 """
 LlamaIndex adapter for the Knowledge Layer.
 
@@ -82,6 +68,12 @@ DEFAULT_VLM_BASE_URL = os.environ.get("AIQ_VLM_BASE_URL", "https://integrate.api
 MIN_IMAGE_WIDTH_PX = 100
 MIN_IMAGE_HEIGHT_PX = 100
 
+# Cap on the longest edge (px) of an image before it is JPEG-re-encoded and sent
+# to the VLM. Larger images are downscaled (aspect preserved, never upscaled) to
+# bound the VLM payload/token cost; smaller images pass through untouched. The
+# ORIGINAL dimensions are still recorded in the Document metadata.
+VLM_MAX_IMAGE_DIM = 1568
+
 # @environment_variable AIQ_COLLECTION_TTL_HOURS
 # @category Knowledge Layer
 # @type float
@@ -102,8 +94,8 @@ TTL_CLEANUP_INTERVAL_SECONDS = int(os.environ.get("AIQ_TTL_CLEANUP_INTERVAL_SECO
 # pruned so in-memory job tracking doesn't grow for the life of the process.
 JOB_RETENTION_SECONDS = 3600  # 1 hour
 
-# Document summarization settings
-SUMMARY_MAX_INPUT_CHARS = 4000  # ~1000 tokens input
+# Document summarization + tag-classification input limits live in the shared
+# aiq_agent.knowledge.document_classification module (CLASSIFY_MAX_INPUT_CHARS).
 
 # ---------------------------------------------------------------------------
 # In-process collection write versions.
@@ -209,6 +201,11 @@ def _extract_images_from_pdf(
                     # Filter small images (likely icons/logos)
                     if width >= min_width and height >= min_height:
                         pil_image = bitmap.to_pil()
+                        # Downscale the longest edge to VLM_MAX_IMAGE_DIM before
+                        # re-encoding (aspect preserved, never upscaled) to bound
+                        # the VLM payload. thumbnail() is a no-op when already
+                        # within bounds. Metadata still records the ORIGINAL size.
+                        pil_image.thumbnail((VLM_MAX_IMAGE_DIM, VLM_MAX_IMAGE_DIM))
                         buf = io.BytesIO()
                         pil_image.save(buf, format="JPEG", quality=95)
                         images.append(
@@ -313,6 +310,91 @@ def _looks_like_pdf(file_path: str) -> bool:
             return handle.read(5) == b"%PDF-"
     except OSError:
         return False
+
+
+def _looks_like_image(file_path: str) -> str | None:
+    """Detect standalone PNG/JPEG images by file magic (mirrors _looks_like_pdf).
+
+    Returns the normalized format ("png"/"jpeg") or None. Standalone images must
+    be routed to VLM captioning; without this they slip through to
+    SimpleDirectoryReader, which UTF-8-garbles the binary and is then rejected by
+    the binary-content guard. The signatures are specific enough (8-byte PNG,
+    3-byte JPEG SOI) that text/PDF inputs never false-positive.
+    """
+    try:
+        with open(file_path, "rb") as handle:
+            header = handle.read(8)
+    except OSError:
+        return None
+    if header.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "png"
+    if header.startswith(b"\xff\xd8\xff"):
+        return "jpeg"
+    return None
+
+
+def _build_image_caption_document(
+    file_path: str,
+    file_name: str,
+    file_size: int,
+    image_format: str,
+    vlm_model: str = DEFAULT_VLM_MODEL,
+    vlm_base_url: str = DEFAULT_VLM_BASE_URL,
+    extract_charts: bool = True,
+):
+    """Read a standalone image, validate/normalize via PIL, and VLM-caption it.
+
+    Returns a single caption ``Document`` shaped exactly like the PDF-embedded
+    image documents (page_label "1", image_index 0), or ``None`` when the bytes
+    cannot be decoded as an image (corrupt/unsupported) so the caller can fail
+    the file cleanly instead of crashing the job.
+    """
+    import io
+
+    from llama_index.core import Document
+    from PIL import Image
+
+    try:
+        with open(file_path, "rb") as handle:
+            raw = handle.read()
+        with Image.open(io.BytesIO(raw)) as pil_image:
+            pil_image.load()
+            width, height = pil_image.size
+            # Re-encode to JPEG (RGB) for a uniform VLM payload, exactly like the
+            # PDF-embedded-image path (_extract_images_from_pdf). Downscale the
+            # longest edge to VLM_MAX_IMAGE_DIM first (aspect preserved, never
+            # upscaled) to bound the payload; thumbnail() is a no-op when already
+            # within bounds. Metadata still records the ORIGINAL size below.
+            rgb_image = pil_image.convert("RGB")
+            rgb_image.thumbnail((VLM_MAX_IMAGE_DIM, VLM_MAX_IMAGE_DIM))
+            buf = io.BytesIO()
+            rgb_image.save(buf, format="JPEG", quality=95)
+            image_bytes = buf.getvalue()
+    except Exception as e:
+        logger.error("Could not decode standalone image %s: %s", file_name, e)
+        return None
+
+    content_type, caption = _analyze_image_with_vlm(
+        image_bytes,
+        vlm_model=vlm_model,
+        vlm_base_url=vlm_base_url,
+        extract_charts=extract_charts,
+    )
+
+    prefix = "CHART" if content_type == "chart" else "IMAGE"
+    return Document(
+        text=f"[{prefix} from page 1]\n\n{caption}",
+        metadata={
+            "file_name": file_name,
+            "file_size": file_size,
+            "page_label": "1",
+            "content_type": content_type,
+            "image_index": 0,
+            "image_format": image_format,
+            "image_width": width,
+            "image_height": height,
+        },
+    )
 
 
 def _looks_like_raw_pdf_or_binary(text: str) -> bool:
@@ -503,6 +585,11 @@ def _generate_document_summary(text_content: str, file_name: str, llm=None) -> s
     """
     Generate one-sentence summary from document text.
 
+    Thin wrapper over the shared, backend-agnostic
+    ``summarize_document_text`` (prompt + call + parse live in one place so the
+    two backends can never drift). LlamaIndex supplies the text from already
+    extracted chunks.
+
     Args:
         text_content: Combined first + last chunk text.
         file_name: Filename for context.
@@ -511,24 +598,9 @@ def _generate_document_summary(text_content: str, file_name: str, llm=None) -> s
     Returns:
         One-sentence summary or None if no LLM provided or generation failed.
     """
-    if llm is None:
-        # No fallback LLM - summary_model must be configured
-        return None
+    from aiq_agent.knowledge.document_classification import summarize_document_text
 
-    # Truncate if too long
-    text = text_content[:SUMMARY_MAX_INPUT_CHARS]
-    prompt = f"Summarize in ONE sentence:\n\n{text}"
-
-    try:
-        response = llm.invoke(prompt)
-        # Handle different response types (str or AIMessage)
-        content = response.content if hasattr(response, "content") else str(response)
-        summary = content.strip()
-        logger.info("[SUMMARY] Generated (%d chars)", len(summary))
-        return summary
-    except Exception as e:
-        logger.warning(f"Summary via LLM failed for {file_name}: {e}")
-        return None
+    return summarize_document_text(text_content, file_name, llm)
 
 
 # =============================================================================
@@ -1554,9 +1626,20 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         or Path(file_path).suffix.lower() == ".pdf"
                         or _looks_like_pdf(file_path)
                     )
+                    # Standalone image detection (magic bytes, else extension) —
+                    # only when it is not a PDF. Routes PNG/JPEG to VLM captioning
+                    # instead of the text reader (which would garble the binary).
+                    image_format = None if is_pdf else _looks_like_image(file_path)
+                    if image_format is None and not is_pdf:
+                        ext = Path(file_name).suffix.lower()
+                        if ext == ".png":
+                            image_format = "png"
+                        elif ext in (".jpg", ".jpeg"):
+                            image_format = "jpeg"
+                    is_image = image_format is not None and not is_pdf
 
                     mode_str = "text"
-                    if is_pdf and (extract_tables or extract_images):
+                    if is_image or (is_pdf and (extract_tables or extract_images)):
                         mode_str = "multimodal"
                     logger.info(f"Processing file {i + 1}/{len(file_paths)} (mode={mode_str})")
 
@@ -1585,6 +1668,48 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                             )
                             for page in _extract_text_from_pdf(file_path)
                         ]
+                    elif is_image:
+                        # Standalone image: caption via the VLM into a single
+                        # Document. The VLM is a hard requirement here (there is
+                        # no text to fall back on), so a missing key fails the
+                        # file with a specific, machine-readable reason the
+                        # failed-doc UX can surface for retry.
+                        if not _get_vlm_api_key():
+                            self._update_file_status(
+                                job,
+                                i,
+                                FileStatus.FAILED,
+                                error="vlm_not_configured: image ingestion requires AIQ_VLM_API_KEY",
+                            )
+                            logger.warning("Image ingestion skipped (VLM not configured): %s", file_name)
+                            continue
+
+                        caption_doc = _build_image_caption_document(
+                            file_path,
+                            file_name,
+                            file_size,
+                            image_format,
+                            vlm_model=vlm_model,
+                            vlm_base_url=vlm_base_url,
+                            extract_charts=extract_charts,
+                        )
+                        if caption_doc is None:
+                            self._update_file_status(
+                                job,
+                                i,
+                                FileStatus.FAILED,
+                                error="Image could not be read (corrupted or unsupported format)",
+                            )
+                            logger.warning("Image could not be decoded: %s", file_name)
+                            continue
+                        text_documents = [caption_doc]
+                        # Keep the job-level visual counters accurate (the caption
+                        # is the file's only chunk, and it is an image/chart —
+                        # not a text chunk).
+                        if caption_doc.metadata.get("content_type") == "chart":
+                            total_charts += 1
+                        else:
+                            total_images += 1
                     else:
                         from llama_index.core import SimpleDirectoryReader
 
@@ -1598,19 +1723,26 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     all_documents.extend(text_documents)
                     logger.info(f"  Text extraction: {len(text_documents)} documents")
 
-                    # Start summary generation in parallel with VLM (if enabled)
+                    # Start summary + tag classification in parallel with VLM
+                    # (if enabled). Two separate LLM calls run concurrently on a
+                    # 2-worker pool; both are awaited (with their own timeouts)
+                    # and are fully fail-open below.
                     summary_future = None
+                    tags_future = None
                     executor = None
                     if self.generate_summary_enabled and text_documents:
                         from concurrent.futures import ThreadPoolExecutor
 
+                        from aiq_agent.knowledge.document_classification import classify_document_tags
+
                         first = text_documents[0].get_content()
                         last = text_documents[-1].get_content() if len(text_documents) > 1 else ""
                         combined = f"{first}\n...\n{last}" if last else first
-                        executor = ThreadPoolExecutor(max_workers=1)
+                        executor = ThreadPoolExecutor(max_workers=2)
                         summary_future = executor.submit(
                             _generate_document_summary, combined, file_name, self.summary_llm
                         )
+                        tags_future = executor.submit(classify_document_tags, combined, file_name, self.summary_llm)
 
                     # 2. Extract tables (PDF only)
                     if is_pdf and extract_tables:
@@ -1692,9 +1824,29 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         except Exception as e:
                             logger.warning("Summary generation failed for %s: %s", file_name, e)
 
+                    # Wait for tags if started (independent timeout, fail-open —
+                    # a tag failure never affects the summary or the ingestion).
+                    tags = None
+                    if tags_future:
+                        try:
+                            tags = tags_future.result(timeout=30)
+                        except TimeoutError:
+                            logger.warning("Tag classification timed out for %s", file_name)
+                        except Exception as e:
+                            logger.warning("Tag classification failed for %s: %s", file_name, e)
+
                     # Clean up executor
                     if executor:
                         executor.shutdown(wait=False)
+
+                    # Standalone images must appear in the per-turn
+                    # available_documents list to be usable in chat (summaries
+                    # are the ONLY per-turn file visibility). If summarization is
+                    # disabled or failed, fall back to the VLM caption itself so
+                    # the image is never silently invisible.
+                    if is_image and not summary and text_documents:
+                        caption_text = text_documents[0].get_content().strip()
+                        summary = caption_text[:500] or None
 
                     valid_documents = [
                         doc for doc in all_documents if not _looks_like_raw_pdf_or_binary(doc.get_content())
@@ -1730,18 +1882,33 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     total_chunks += chunks_created
 
                     self._update_file_status(job, i, FileStatus.SUCCESS, chunks_created=chunks_created)
-                    # Store summary in FileInfo and centralized registry
+
+                    # If summarization failed/timed out but tag classification
+                    # succeeded, still persist the row (and its tags) with a
+                    # deterministic, LLM-free fallback summary derived from the
+                    # already-extracted text — otherwise the tag work is wasted
+                    # (the summary column is NOT NULL). Standalone images already
+                    # fell back to their VLM caption above.
+                    if not summary and tags and text_documents:
+                        from aiq_agent.knowledge.document_classification import fallback_summary_from_text
+
+                        summary = fallback_summary_from_text(text_documents[0].get_content())
+
+                    # Store summary + tags in FileInfo and centralized registry
                     if summary:
-                        # Register in centralized summary registry (backend-agnostic)
+                        # Register in centralized summary registry (backend-agnostic).
+                        # Tags ride along in the same upsert (may be None).
                         from aiq_agent.knowledge import register_summary
 
-                        register_summary(collection_name, file_name, summary)
+                        register_summary(collection_name, file_name, summary, tags=tags)
 
                         # Also store in local FileInfo for backwards compatibility
                         file_id = config.get("file_id")
                         if file_id and file_id in self._files:
                             with self._lock:
                                 self._files[file_id].metadata["summary"] = summary
+                                if tags:
+                                    self._files[file_id].tags = tags
                         else:
                             # Fallback: store by filename when using submit_job directly
                             with self._lock:
@@ -1751,6 +1918,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                                     collection_name=collection_name,
                                     status=FileStatus.SUCCESS,
                                     chunk_count=chunks_created,
+                                    tags=tags,
                                     metadata={"summary": summary},
                                 )
                         logger.info(f"  Summary generated ({len(summary)} chars)")

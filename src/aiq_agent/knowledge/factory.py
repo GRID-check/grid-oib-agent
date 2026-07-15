@@ -1,17 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 """
 Factory pattern for Knowledge Layer adapters.
 
@@ -307,11 +293,38 @@ def _get_summary_store() -> "SummaryStore":
     return _summary_store
 
 
-def register_summary(collection: str, filename: str, summary: str | None) -> None:
-    """Store summary in database."""
+def register_summary(
+    collection: str,
+    filename: str,
+    summary: str | None,
+    tags: list[str] | None = None,
+) -> None:
+    """Store a summary (and optional controlled tags) in the database.
+
+    The ``summary`` column is NOT NULL, so a file with no summary is skipped
+    entirely — tags ride along with the summary in a single upsert per file.
+    """
     if not summary:
         return
-    _get_summary_store().register(collection, filename, summary)
+    _get_summary_store().register(collection, filename, summary, tags)
+
+
+def update_document_tags(collection: str, filename: str, tags: list[str] | None) -> bool:
+    """Replace only the controlled tags of an existing summary row.
+
+    The single factory seam behind BOTH the classify-only backfill script and
+    the user-facing tag-edit endpoint. Never touches the summary; returns
+    ``False`` when no summary row exists (callers 404). Tag-vocabulary
+    validation is the caller's responsibility — the store persists whatever it
+    is given, so every caller MUST validate against
+    ``document_classification.ALLOWED_TAGS`` first.
+    """
+    return _get_summary_store().update_tags(collection, filename, tags)
+
+
+def list_summary_collections() -> list[str]:
+    """List every collection that has at least one persisted summary."""
+    return _get_summary_store().list_collections()
 
 
 def get_available_documents(collection: str) -> list["AvailableDocument"]:

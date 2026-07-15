@@ -96,6 +96,23 @@ Variables set in `docker-compose.yaml` under `environment:` take precedence over
 | `AIQ_STATIC_RESULT_CACHE_COLLECTIONS` | No | `oib_knowledge` | Comma-separated collections whose retrieval results may be cached (static corpora only — never project/session collections). |
 | `AIQ_STATIC_RESULT_CACHE_TTL_SECONDS` | No | `3600` | TTL for cached static-collection retrieval results; in-process writes invalidate immediately via a collection version. |
 | `AIQ_EMBED_BASE_URL` | No | `https://integrate.api.nvidia.com/v1` | Embedding model API base URL. Local override: `https://openrouter.ai/api/v1`. |
+| `CONSISTENCY_LLM_MODEL` | No | `LLM_MODEL`, then `deepseek/deepseek-v4-flash` (if `OPENROUTER_API_KEY` set) / `gpt-4o-mini` | Model for the end-of-wizard free-text intake consistency-check endpoint (`POST /v1/consistency-check`). Falls back to the generic `LLM_MODEL`, then the OpenRouter/OpenAI default. |
+| `CONSISTENCY_LLM_API_KEY` | No | `LLM_API_KEY`, then `OPENROUTER_API_KEY` | API key for the consistency-check LLM. Falls back to `LLM_API_KEY`, then `OPENROUTER_API_KEY`. If none resolves, the endpoint returns `error=llm_not_configured` (HTTP 200) so the wizard can still save. |
+| `CONSISTENCY_LLM_BASE_URL` | No | `LLM_BASE_URL`, then `https://openrouter.ai/api/v1` (if `OPENROUTER_API_KEY` set) / `https://api.openai.com/v1` | Base URL for the consistency-check LLM (OpenAI-compatible `/chat/completions`). Falls back to `LLM_BASE_URL`, then the OpenRouter/OpenAI default. |
+
+---
+
+## Tag Backfill Script (`scripts/backfill_document_tags.py`)
+
+The one-off tag-backfill script runs **outside** the NAT runtime, so it builds an OpenAI-compatible client directly from these env vars, which must match the `summary_llm` block in `configs/config_*.yml`.
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `BACKFILL_SUMMARY_API_KEY` | Yes* | `NVIDIA_API_KEY` fallback | API key for the tagging LLM. Falls back to `NVIDIA_API_KEY`. If neither is set the script exits with code `2` (LLM could not be constructed). |
+| `BACKFILL_SUMMARY_BASE_URL` | No | `https://integrate.api.nvidia.com/v1` | Base URL for the tagging LLM. |
+| `BACKFILL_SUMMARY_MODEL` | No | `nvidia/nemotron-mini-4b-instruct` | Tagging model name. |
+
+*Required only when running the backfill script; not needed by the running services. The store/source come from `AIQ_SUMMARY_DB` and `AIQ_CHROMA_DIR` (or `--summary-db` / `--chroma-dir`). Exit codes: `0` success (or nothing to do; `--dry-run` always `0`), `1` a real run finished with per-document classification failures, `2` missing LLM key.
 
 ---
 
@@ -103,7 +120,7 @@ Variables set in `docker-compose.yaml` under `environment:` take precedence over
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `FILE_UPLOAD_ACCEPTED_TYPES` | No | `.pdf,.docx,.txt,.md` | Comma-separated list of accepted file extensions (include leading dots). Add `.pptx` for Foundational RAG backend. |
+| `FILE_UPLOAD_ACCEPTED_TYPES` | No | `.pdf,.docx,.txt,.md` | Comma-separated list of accepted file extensions (include leading dots). Add `.pptx` for Foundational RAG backend. **Images are opt-in**: image types (`.png,.jpg,.jpeg`) are no longer shipped in the defaults — image ingestion needs a configured VLM (`AIQ_VLM_*`), so add them here explicitly AND enable the `image-upload` WorkOS flag to accept them. Images added here are stripped from the client accept-list and rejected server-side (400) when the flag is off. |
 | `FILE_UPLOAD_MAX_SIZE_MB` | No | `100` | Maximum total file size in MB. |
 | `FILE_UPLOAD_MAX_FILE_COUNT` | No | `10` | Maximum number of files per upload session. |
 | `FILE_EXPIRATION_CHECK_INTERVAL_HOURS` | No | `0` | Hours after upload before files may expire (0 = no expiry shown). Should match backend TTL (e.g., 12 hours). |

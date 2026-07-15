@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { server } from '@/mocks/server'
 import { ProjectFileWorkspace } from './project-file-workspace'
@@ -142,5 +143,71 @@ describe('ProjectFileWorkspace — mobile preview overlay', () => {
     // Escape closes the overlay.
     fireEvent.keyDown(document, { key: 'Escape' })
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  })
+})
+
+describe('ProjectFileWorkspace — saved tags survive reselect', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    server.use(
+      http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: [] })),
+      http.get('/api/documents', () =>
+        HttpResponse.json({
+          documents: [
+            {
+              id: 'doc-a',
+              filename: 'alpha.txt',
+              fileSize: 128,
+              contentType: 'text/plain',
+              status: 'ready',
+              folderId: null,
+              createdAt: '2026-01-01T00:00:00Z',
+              errorMessage: null,
+              tags: ['Grundriss'],
+            },
+            {
+              id: 'doc-b',
+              filename: 'beta.txt',
+              fileSize: 256,
+              contentType: 'text/plain',
+              status: 'ready',
+              folderId: null,
+              createdAt: '2026-01-02T00:00:00Z',
+              errorMessage: null,
+              tags: [],
+            },
+          ],
+        })
+      ),
+      http.patch('/api/documents/:id/tags', () => HttpResponse.json({}))
+    )
+  })
+
+  it('shows the newly saved tag after switching away and back to the file', async () => {
+    const user = userEvent.setup()
+    render(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
+
+    // Open doc-a and add a discipline tag.
+    fireEvent.click(await screen.findByRole('button', { name: /alpha\.txt/i }))
+    await user.click(await screen.findByRole('button', { name: /edit tags/i }))
+    await user.click(await screen.findByRole('button', { name: 'Brandschutz', pressed: false }))
+    await user.click(screen.getByRole('button', { name: /^Save$/i }))
+    await waitFor(() => expect(screen.getByText('Brandschutz')).toBeDefined())
+
+    // Switch to doc-b (the pane re-seeds from the newly selected file's tags)...
+    fireEvent.keyDown(document, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    fireEvent.click(await screen.findByRole('button', { name: /beta\.txt/i }))
+    await screen.findByRole('dialog')
+
+    // ...then back to doc-a: the saved tag must still be there (parent state
+    // was updated on save), not reverted to the pre-edit ['Grundriss'].
+    fireEvent.keyDown(document, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    fireEvent.click(await screen.findByRole('button', { name: /alpha\.txt/i }))
+    await screen.findByRole('dialog')
+
+    await waitFor(() => expect(screen.getByText('Brandschutz')).toBeDefined())
+    expect(screen.getByText('Grundriss')).toBeDefined()
   })
 })

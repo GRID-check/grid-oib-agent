@@ -3,6 +3,7 @@ import { eq, and } from 'drizzle-orm'
 import { notFound } from 'next/navigation'
 import { requireAuthorizedPageSession } from '@/lib/auth/require-auth'
 import { requireProjectAccess } from '@/lib/authz/projects'
+import { FEATURE_FLAGS, isFeatureEnabled } from '@/lib/authz/feature-flags'
 import { getDb } from '@/lib/db'
 import { projects } from '@/lib/db/schema'
 import { getTranslations } from '@/i18n/server'
@@ -33,5 +34,16 @@ export default async function FilesPage({ params }: FilesPageProps): Promise<JSX
     notFound()
   }
 
-  return <ProjectFileWorkspace projectId={id} projectName={project.name} collectionName={project.collectionName} />
+  // Org-level gate for the ingestion-metadata block (WorkOS `files-metadata-panel`).
+  // Fail-open when enforcement is off (isFeatureEnabled → true).
+  const showMetadataPanel = isFeatureEnabled(session, FEATURE_FLAGS.filesMetadataPanel)
+
+  return (
+    <ProjectFileWorkspace
+      projectId={id}
+      projectName={project.name}
+      collectionName={project.collectionName}
+      showMetadataPanel={showMetadataPanel}
+    />
+  )
 }

@@ -1,6 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026, Grid Agent Contributors. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-
 """Tests for post-hoc Grid card generation (the async-jobs / deep-research path)."""
 
 import asyncio

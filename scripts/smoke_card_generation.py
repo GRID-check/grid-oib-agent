@@ -1,6 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026, Grid Agent Contributors. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-
 """Live smoke test for Grid card generation.
 
 Reconstructs the minimal real path used by ``ChatResearcherAgent._generate_cards``

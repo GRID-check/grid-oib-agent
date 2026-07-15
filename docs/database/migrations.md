@@ -210,6 +210,21 @@ These tables are separate from Drizzle ORM (the Next.js app only manages `grid_a
 
 ---
 
+## Runtime schema migration: `summaries.tags`
+
+The Python backend has **no migration framework** for its own tables (`aiq_jobs`) — `SummaryStore` (`src/aiq_agent/knowledge/summary_store.py`) creates and evolves the `summaries` table itself at store init.
+
+The document-tagging feature (FB-8) added a `tags TEXT` column (a JSON-encoded list of controlled tags) to `summaries`. Because `init-db.sql` pre-creates the `summaries` table **without** the `tags` column and `CREATE TABLE IF NOT EXISTS` never alters an existing table, `SummaryStore` performs an idempotent in-place migration on first access (both the sync `_ensure_table_sync` and async `_ensure_table_async` paths):
+
+- **Fresh table** (table absent): `metadata.create_all()` creates `summaries` **with** the `tags` column — no ALTER needed.
+- **Pre-existing table** (the normal Postgres/`init-db.sql` case): add the column explicitly.
+  - **PostgreSQL** — `ALTER TABLE summaries ADD COLUMN IF NOT EXISTS tags TEXT`.
+  - **SQLite** — no `IF NOT EXISTS` for columns, so it runs a `PRAGMA table_info(summaries)` existence check first, then `ALTER TABLE summaries ADD COLUMN tags TEXT` only when the column is missing.
+
+The migration reports success/failure: the store URL is added to the in-memory `_tables_initialized` cache **only when the column is confirmed present**, so a failed migration is retried on the next access instead of caching a half-initialized store (which would write against a missing column). This mirrors the `job_access` migration pattern in `frontends/aiq_api/src/aiq_api/jobs/access.py`. Since it is exercised on every existing deployment, updating `init-db.sql` to add the column there is intentionally **not** done — the runtime path is the single source of truth.
+
+---
+
 ## Safety Notes
 
 - **Generated migrations are idempotent** — `drizzle-kit generate` always produces SQL that can be safely reapplied (though `drizzle-kit migrate` only applies pending ones).

@@ -18,9 +18,14 @@ import {
   useEffect,
 } from 'react'
 import { useShallow } from 'zustand/react/shallow'
+import Link from 'next/link'
 import {
+  AlertCircle,
+  ChevronRight,
   CircleEllipsis,
   FileCheck2,
+  FlaskConical,
+  Loader2,
   MessageSquare,
   MessageSquareText,
   Pencil,
@@ -32,8 +37,10 @@ import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/utils'
+import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
 import { motion, fadeRise, staggerParent, springGentle } from '@/components/motion'
 import { useLocale, useTranslations } from '@/i18n'
+import { listResearchRuns, type ResearchRun } from '@/adapters/api/research-runs-client'
 import { useLayoutStore } from '../store'
 import { useChatStore } from '@/features/chat'
 import { checkStorageHealth } from '@/features/chat/lib/storage-manager'
@@ -65,6 +72,16 @@ interface SessionsPanelProps {
   onDeleteAllSessions?: () => void
   /** Callback when a session is renamed */
   onRenameSession?: (sessionId: string, newTitle: string) => void
+  /**
+   * FB-10: render the server-backed "Deep Research" section and per-session
+   * research label chips (gated by the `research-in-chat-history` flag,
+   * threaded from MainLayout). Default off so existing callers are unaffected.
+   */
+  showDeepResearchSection?: boolean
+  /** Active project id — builds the `?job=` deep links for research runs. */
+  projectId?: string
+  /** Qdrant collection scoping the research-runs fetch (FB-10). */
+  projectCollection?: string
 }
 
 /**
@@ -79,6 +96,9 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
   onDeleteSession,
   onDeleteAllSessions,
   onRenameSession,
+  showDeepResearchSection = false,
+  projectId,
+  projectCollection,
 }) {
   const t = useTranslations('research')
   const { locale } = useLocale()
@@ -106,6 +126,19 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
   const [sessionToDelete, setSessionToDelete] = useState<string | null>(null)
   const refreshStatusesInFlightRef = useRef(false)
 
+  // FB-10: server-truth deep-research runs for the collapsed "Deep Research"
+  // section. Fetched on panel open (like the status refresh above) so the list
+  // includes headless/CLI jobs that never touched local storage. Null = not yet
+  // loaded; [] = loaded, empty.
+  const [deepResearchRuns, setDeepResearchRuns] = useState<ResearchRun[] | null>(null)
+  const [isDeepResearchOpen, setIsDeepResearchOpen] = useState(false)
+  const deepResearchFetchInFlightRef = useRef(false)
+  // Tracks the projectCollection the current fetch belongs to. Only an identity
+  // change (a different collection) invalidates an in-flight result — closing the
+  // panel must NOT, because the component stays mounted and the data is still
+  // valid on reopen.
+  const deepResearchCollectionRef = useRef<string | null>(null)
+
   // Storage usage percentage — refreshes only when the panel opens
   const [storagePercent, setStoragePercent] = useState<number>(0)
   useEffect(() => {
@@ -120,6 +153,39 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
       }
     }
   }, [isSessionsPanelOpen, refreshDeepResearchSessionStatuses])
+
+  // FB-10: load the project's research runs when the panel opens (flag on).
+  // Fail-soft: any error yields an empty section rather than a broken panel.
+  //
+  // The in-flight ref is purely a concurrent-dedup guard; it does NOT discard
+  // resolved data. Crucially, a quick close→reopen while the fetch is pending
+  // must still populate the section once it resolves — the component stays
+  // mounted, so the result is never stale. We therefore always set state on
+  // settle and only ignore a result whose projectCollection has since changed.
+  useEffect(() => {
+    if (!isSessionsPanelOpen || !showDeepResearchSection || !projectCollection) return
+    if (deepResearchFetchInFlightRef.current) return
+    deepResearchFetchInFlightRef.current = true
+    const requestedCollection = projectCollection
+    deepResearchCollectionRef.current = requestedCollection
+    listResearchRuns({ projectCollection, limit: 50 })
+      .then((response) => {
+        // Only a projectCollection (identity) change invalidates this result;
+        // panel visibility does not.
+        if (deepResearchCollectionRef.current !== requestedCollection) return
+        // Newest-first: the panel surfaces the most recent runs at the top.
+        const sorted = [...response.jobs].sort(
+          (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        )
+        setDeepResearchRuns(sorted)
+      })
+      .catch(() => {
+        if (deepResearchCollectionRef.current === requestedCollection) setDeepResearchRuns([])
+      })
+      .finally(() => {
+        deepResearchFetchInFlightRef.current = false
+      })
+  }, [isSessionsPanelOpen, showDeepResearchSection, projectCollection])
 
   const handleDeleteClick = useCallback((sessionId: string) => {
     setSessionToDelete(sessionId)
@@ -177,6 +243,41 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
     [filteredSessions, t, locale]
   )
   const isEmptyState = filteredSessions.length === 0
+
+  // FB-10: map a run's originating conversation to the local session title so a
+  // run reads as its chat rather than an opaque job hash. Falls back to the
+  // shared "untitled run" label when the job is headless/CLI or its session
+  // isn't in local storage.
+  const sessionTitleById = useMemo(() => {
+    const map: Record<string, string> = {}
+    for (const s of sessions) {
+      const title = s.title.trim()
+      if (title) map[s.id] = title
+    }
+    return map
+  }, [sessions])
+
+  const runLabel = useCallback(
+    (run: ResearchRun): string => {
+      const title = run.conversation_id ? sessionTitleById[run.conversation_id] : undefined
+      return title ?? t('runsList.untitledRun')
+    },
+    [sessionTitleById, t]
+  )
+
+  // The chat page's ?job= loader resolves any job id; failed runs deep-link to
+  // the thinking tab (no report to show) so the run can still be diagnosed.
+  const runHref = useCallback(
+    (run: ResearchRun): string => {
+      const base = `/app/projects/${projectId}/chat?job=${run.job_id}`
+      return run.status === 'failed' ? `${base}&tab=thinking` : base
+    },
+    [projectId]
+  )
+
+  const hasDeepResearchRuns = (deepResearchRuns?.length ?? 0) > 0
+  const showDeepResearch = showDeepResearchSection && Boolean(projectId) && hasDeepResearchRuns
+
   return (
     <DockedPanel
       open={isSessionsPanelOpen}
@@ -255,6 +356,57 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
         />
       </div>
 
+      {/* Deep Research (FB-10) — server-truth runs for this project, collapsed
+          by default with a count badge. Includes headless/CLI jobs that have no
+          local session. Hidden entirely when there are no runs. */}
+      {showDeepResearch && (
+        <div className="mb-4 shrink-0 border-b border-border pb-4">
+          <button
+            type="button"
+            onClick={() => setIsDeepResearchOpen((open) => !open)}
+            aria-expanded={isDeepResearchOpen}
+            className="flex w-full items-center gap-2 rounded-md px-1 py-1.5 text-left text-sm font-semibold text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+          >
+            <ChevronRight
+              className={cn(
+                'h-4 w-4 shrink-0 transition-transform duration-200',
+                isDeepResearchOpen && 'rotate-90'
+              )}
+              aria-hidden="true"
+            />
+            <FlaskConical className="h-4 w-4 shrink-0" aria-hidden="true" />
+            <span>
+              {t('sessionsPanel.deepResearchHeading', { count: deepResearchRuns?.length ?? 0 })}
+            </span>
+          </button>
+
+          {isDeepResearchOpen && (
+            <div className="mt-2 flex flex-col gap-1">
+              {(deepResearchRuns ?? []).map((run) => (
+                <Link
+                  key={run.job_id}
+                  href={runHref(run)}
+                  onClick={handleClose}
+                  className="flex items-center gap-2 rounded-md border border-transparent p-2 text-left outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50"
+                  aria-label={t('sessionsPanel.deepResearchRunLabel', { label: runLabel(run) })}
+                >
+                  <RunStatusIcon status={run.status} />
+                  <span className="min-w-0 flex-1 truncate text-sm" title={runLabel(run)}>
+                    {runLabel(run)}
+                  </span>
+                  <span
+                    className="shrink-0 text-xs text-muted-foreground"
+                    title={formatAbsoluteTime(run.created_at, locale)}
+                  >
+                    {formatRelativeTime(run.created_at, locale)}
+                  </span>
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Session List — items stagger in when the panel opens (forceMount keeps the
           panel in the DOM, so this is driven by the open state, not by mounting) */}
       <motion.div
@@ -275,6 +427,7 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
                   isSelected={selectedSessionId === session.id}
                   isBusy={isNavigationBlocked}
                   isSessionActive={isSessionBusy(session.id)}
+                  showResearchLabel={showDeepResearchSection}
                   onSelect={handleSessionClick}
                   onDelete={handleDeleteClick}
                   onRename={onRenameSession}
@@ -340,6 +493,8 @@ interface SessionItemProps {
   isBusy?: boolean
   /** Per-session block: true when this specific session has active deep research */
   isSessionActive?: boolean
+  /** FB-10: show a "Deep Research" chip when this session carries research status. */
+  showResearchLabel?: boolean
   onSelect?: (sessionId: string) => void
   onDelete?: (sessionId: string) => void
   onRename?: (sessionId: string, newTitle: string) => void
@@ -350,6 +505,7 @@ const SessionItem: FC<SessionItemProps> = ({
   isSelected,
   isBusy = false,
   isSessionActive = false,
+  showResearchLabel = false,
   onSelect,
   onDelete,
   onRename,
@@ -477,6 +633,20 @@ const SessionItem: FC<SessionItemProps> = ({
 
           <span className="min-w-0 flex-1 truncate text-sm">{session.title}</span>
 
+          {/* FB-10: a calm "Deep Research" chip marks sessions that carry a
+              research run, so they read as research-bearing in the history. */}
+          {showResearchLabel &&
+            !isHovered &&
+            !isFocused &&
+            (isSessionActive ||
+              session.hasActiveDeepResearch ||
+              session.hasCompletedReport ||
+              session.hasExpiredReport) && (
+              <span className="shrink-0 rounded-full border border-border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                {t('sessionsPanel.deepResearchChip')}
+              </span>
+            )}
+
           {/* Action icons - shown on hover or while focus is inside the item */}
           {(isHovered || isFocused) && (
             <div className="flex shrink-0 items-center gap-1">
@@ -523,6 +693,24 @@ const SessionItem: FC<SessionItemProps> = ({
         </>
       )}
     </div>
+  )
+}
+
+/**
+ * Status icon for a research run row (FB-10). Mirrors SessionStatusIcon's
+ * iconography: completed = document check, failed/cancelled = alert, everything
+ * still in flight = a quiet spinner. The row's Link carries the accessible name,
+ * so the icon itself is decorative.
+ */
+const RunStatusIcon: FC<{ status: string }> = ({ status }) => {
+  if (status === 'completed') {
+    return <FileCheck2 className="h-4 w-4 shrink-0 text-success" aria-hidden="true" />
+  }
+  if (status === 'failed' || status === 'cancelled') {
+    return <AlertCircle className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+  }
+  return (
+    <Loader2 className="h-4 w-4 shrink-0 animate-spin text-accent-primary" aria-hidden="true" />
   )
 }
 

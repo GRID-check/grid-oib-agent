@@ -1,6 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026, Grid Agent Contributors. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-
 """Read-only status view of the OIB knowledge corpus.
 
 Answers "what does the RAG know right now?" by merging the three sources of

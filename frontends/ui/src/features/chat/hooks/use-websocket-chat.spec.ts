@@ -204,7 +204,15 @@ const mockWsClient = {
 }
 
 let capturedCallbacks: {
-  onResponse?: (content: string, status: string, isFinal: boolean, parentId?: string) => void
+  onResponse?: (
+    content: string,
+    status: string,
+    isFinal: boolean,
+    parentId?: string,
+    cards?: unknown[],
+    deepResearchJobId?: string,
+    answerConfidence?: 'low' | 'medium' | 'high'
+  ) => void
   onIntermediateStep?: (content: unknown, status: string, parentId?: string) => void
   onHumanPrompt?: (promptId: string, parentId: string, prompt: unknown) => void
   onError?: (error: { code: string; message: string; details?: string }) => void
@@ -946,7 +954,7 @@ describe('useWebSocketChat', () => {
     // Should complete the pending thinking step
     expect(mockCompleteThinkingStep).toHaveBeenCalledWith('step-1')
     // Note: reportContent is now only set by deep research SSE events, not by onResponse
-    expect(mockAddAgentResponse).toHaveBeenCalledWith('Response content', false, [])
+    expect(mockAddAgentResponse).toHaveBeenCalledWith('Response content', false, [], undefined)
     expect(mockSetStreaming).toHaveBeenCalledWith(false)
     expect(mockSetCurrentStatus).toHaveBeenCalledWith('complete')
   })
@@ -963,7 +971,19 @@ describe('useWebSocketChat', () => {
 
     // Non-final responses with content are now added to chat as AgentResponse
     // reportContent is only set by deep research SSE events
-    expect(mockAddAgentResponse).toHaveBeenCalledWith('Partial content...', false, [])
+    expect(mockAddAgentResponse).toHaveBeenCalledWith('Partial content...', false, [], undefined)
+  })
+
+  test('onResponse forwards answer_confidence into addAgentResponse', () => {
+    renderWebSocketHook()
+
+    mockStoreState.isStreaming = true
+
+    act(() => {
+      capturedCallbacks.onResponse?.('Grounded answer', 'complete', true, undefined, undefined, undefined, 'high')
+    })
+
+    expect(mockAddAgentResponse).toHaveBeenCalledWith('Grounded answer', false, [], 'high')
   })
 
   test('onResponse drops stale content when not streaming', () => {

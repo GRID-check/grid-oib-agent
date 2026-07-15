@@ -16,10 +16,13 @@ import { requireProjectAccess } from '@/lib/authz/projects'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { getBackendUrl } from '@/lib/backend-proxy'
 import { findProjectInOrg } from '@/lib/projects/repository'
-import { ApiError, ConflictError, NotFoundError } from '@/lib/api/errors'
+import { ApiError, BadRequestError, ConflictError, NotFoundError, UpstreamError } from '@/lib/api/errors'
+import { ALLOWED_TAGS } from './tag-vocabulary'
+import { getFileUploadConfigFromEnv } from '@/shared/config/file-upload'
+import { FEATURE_FLAGS, isFeatureEnabled } from '@/lib/authz/feature-flags'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import type { Document } from '@/lib/db/schema'
-import { reconcileDocumentStatuses } from './reconcile-status'
+import { reconcileDocumentStatuses, type DocumentMetadata } from './reconcile-status'
 import {
   findDocumentInOrg,
   findFolderPathInProject,
@@ -153,12 +156,15 @@ async function dispatchIngest(
 
 /**
  * List a project's documents (bounded), lazily reconciling in-flight
- * ingestion statuses with the backend. Internal metadata never leaves the BFF.
+ * ingestion statuses with the backend and merging the backend's read-only
+ * document metadata (summary, page/chunk counts, content types). The internal
+ * `metadata` jsonb column (which carries `ingestJobId`) never leaves the BFF;
+ * the curated metadata fields ride alongside as top-level properties.
  */
 export async function listDocuments(
   session: AuthorizedSession,
   projectId: string,
-): Promise<Omit<DocumentListRow, 'metadata'>[]> {
+): Promise<Array<Omit<DocumentListRow, 'metadata'> & DocumentMetadata>> {
   await requireProjectAccess(session, projectId, 'project:view')
 
   const rows = await listProjectDocuments(projectId, session.organizationId)
@@ -183,6 +189,36 @@ export interface UploadDocumentResult {
   filename: string
 }
 
+/** Lowercased extension including the leading dot, or '' when there is none. */
+function fileExtension(name: string): string {
+  const idx = name.lastIndexOf('.')
+  return idx > 0 ? name.slice(idx).toLowerCase() : ''
+}
+
+/**
+ * Server-side upload allow-list. The client already filters by accepted type,
+ * but nothing enforced it on the server until now — so any type could be
+ * POSTed directly. This mirrors the same env-driven accepted-types config the
+ * client uses (closing that gap for ALL types), and additionally gates image
+ * types behind the `image-upload` flag: images are only in the allow-list when
+ * the session's org has the flag (fail-open when enforcement is off).
+ */
+function assertUploadTypeAllowed(session: AuthorizedSession, filename: string): void {
+  const imageUploadEnabled = isFeatureEnabled(session, FEATURE_FLAGS.imageUpload)
+  const { acceptedTypes } = getFileUploadConfigFromEnv(process.env, { imageUploadEnabled })
+  const allowed = acceptedTypes
+    .split(',')
+    .map((ext) => ext.trim().toLowerCase())
+    .filter(Boolean)
+  const ext = fileExtension(filename)
+  if (!ext || !allowed.includes(ext)) {
+    throw new BadRequestError(`File type "${ext || 'unknown'}" is not permitted`, {
+      extension: ext || null,
+      accepted: allowed,
+    })
+  }
+}
+
 /**
  * Store an uploaded file in MinIO, record it, and hand it to the backend for
  * ingestion. The ingest call is best-effort: the document is already durable
@@ -196,6 +232,7 @@ export async function uploadDocument(
   const { projectId, folderId, file } = input
 
   await requireProjectAccess(session, projectId, 'project:edit')
+  assertUploadTypeAllowed(session, file.name)
 
   let folderPath: string | null = null
   if (folderId) {
@@ -283,6 +320,54 @@ export async function reingestDocument(
   return { id: doc.id, status, jobId }
 }
 
+/**
+ * Replace a document's controlled tags. Requires `project:edit`. The document
+ * row maps to the backend's `(collectionName, filename)` summary key; the edit
+ * is proxied to the Python tag endpoint, which is the authority on the
+ * vocabulary. Tags are also validated here against the mirrored `ALLOWED_TAGS`
+ * so an obviously-bad request fails fast (400) without a backend round-trip;
+ * an empty list clears the tags. A missing summary row surfaces as 404.
+ */
+export async function updateDocumentTags(
+  session: AuthorizedSession,
+  documentId: string,
+  tags: string[],
+): Promise<{ id: string; tags: string[] }> {
+  const doc = await getAccessibleDocument(session, documentId, 'project:edit')
+
+  const offending = tags.filter((tag) => !ALLOWED_TAGS.has(tag))
+  if (offending.length > 0) {
+    throw new BadRequestError('Tags outside the controlled vocabulary are not allowed', {
+      invalidTags: offending,
+    })
+  }
+
+  let res: Response
+  try {
+    res = await fetch(
+      `${getBackendUrl()}/v1/collections/${encodeURIComponent(doc.collectionName)}/documents/${encodeURIComponent(
+        doc.filename,
+      )}/tags`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tags }),
+      },
+    )
+  } catch {
+    throw new UpstreamError('Could not reach the document service')
+  }
+
+  if (res.status === 404) throw new NotFoundError()
+  if (res.status === 400) {
+    throw new BadRequestError('Tags outside the controlled vocabulary are not allowed')
+  }
+  if (!res.ok) throw new UpstreamError('The document service rejected the tag update')
+
+  const body = await res.json().catch(() => ({}))
+  return { id: doc.id, tags: Array.isArray(body.tags) ? body.tags : tags }
+}
+
 /** Presign a browser-facing download URL for a document. */
 export async function getDocumentDownload(
   session: AuthorizedSession,
@@ -357,5 +442,11 @@ export async function getDocumentStatus(session: AuthorizedSession, documentId: 
     errorMessage: reconciled.errorMessage,
     createdAt: reconciled.createdAt,
     updatedAt: reconciled.updatedAt,
+    // Read-only document metadata merged from the backend collection listing.
+    summary: reconciled.summary,
+    pageCount: reconciled.pageCount,
+    chunkCount: reconciled.chunkCount,
+    contentTypes: reconciled.contentTypes,
+    tags: reconciled.tags,
   }
 }

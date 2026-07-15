@@ -41,7 +41,7 @@ export interface ChatThinkingProps {
 const formatDataSourceName = (sourceId: string, t: Translator): string => {
   // Handle special cases
   if (sourceId === 'web_search') return t('thinking.dataSource.webSearch')
-  if (sourceId === 'knowledge_layer') return t('thinking.dataSource.files')
+  if (sourceId === 'knowledge_layer') return t('thinking.dataSource.knowledgeBase')
   if (sourceId === 'ris') return t('thinking.dataSource.ris')
 
   // Convert snake_case to Title Case
@@ -63,9 +63,11 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
   messageFiles = [],
 }) => {
   const t = useTranslations('chat')
-  // Prepare data sources summary (exclude knowledge_layer as we'll show files separately)
+  // Prepare data sources summary. The OIB knowledge base (`knowledge_layer`) is
+  // queried on every chat turn, so it is shown as a first-class source (labelled
+  // "OIB Knowledge Base") rather than hidden — attached files are still listed
+  // separately below via `messageFiles`, so nothing is double-displayed.
   const dataSourcesDisplay = enabledDataSources
-    .filter((source) => source !== 'knowledge_layer')
     .map((source) => formatDataSourceName(source, t))
     .join(', ')
 

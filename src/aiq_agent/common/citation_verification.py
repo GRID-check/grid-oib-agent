@@ -1,18 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 """Deterministic citation and report post-processing for research reports.
 
 This module provides:
@@ -334,6 +319,32 @@ class SourceRegistry:
             if entry_file.lower() == target_lower:
                 return True
         return False
+
+    def entry_for_url(self, url: str) -> SourceEntry | None:
+        """Return the registry entry for a URL already resolved via ``resolve_url``.
+
+        ``resolve_url`` returns the registry's canonical URL string, which is
+        stored (raw and normalized) as a key to its entry, so an exact lookup
+        recovers the owning :class:`SourceEntry` for origin-token labeling.
+        """
+        entry = self._urls.get(url)
+        if entry is not None:
+            return entry
+        return self._urls.get(_normalize_url(url))
+
+    def entry_for_citation_key(self, key: str) -> SourceEntry | None:
+        """Return the registry entry whose filename matches ``key`` (lenient).
+
+        Mirrors :meth:`has_citation_key`'s filename-only, case-insensitive match
+        but returns the owning :class:`SourceEntry` for origin-token labeling.
+        """
+        target_file, _ = _parse_citation_key(key)
+        target_lower = target_file.lower()
+        for entry in self._citation_keys:
+            entry_file, _ = _parse_citation_key(entry.citation_key)
+            if entry_file.lower() == target_lower:
+                return entry
+        return None
 
     def all_sources(self) -> list[SourceEntry]:
         """Return all registered sources."""
@@ -776,13 +787,77 @@ def _is_knowledge_citation(ref_text: str, registry: SourceRegistry | None = None
     return False, None
 
 
+# Austrian RIS (Rechtsinformationssystem) sources arrive via the generic URL
+# parser, so they share ``source_type == "generic"`` with ordinary web hits.
+# They stay cleanly identifiable through the RIS tool names (``ris_search_tool``
+# / ``ris_fetch_tool``, and the ``ris_*`` names the prompts reference) and the
+# official RIS host — either signal is enough to label them as the authoritative
+# legal source rather than generic web.
+_RIS_URL_HOST_RE = re.compile(r"^\s*https?://(?:[\w-]+\.)*ris\.bka\.gv\.at\b", re.IGNORECASE)
+
+
+def _is_ris_source(entry: SourceEntry) -> bool:
+    """Return true when a source originates from the Austrian RIS."""
+    name = (entry.tool_name or "").lower()
+    if name.startswith("ris_") or "ris_search" in name or "ris_fetch" in name:
+        return True
+    return bool(entry.url and _RIS_URL_HOST_RE.match(entry.url))
+
+
+def source_origin_token(entry: SourceEntry) -> str:
+    """Return a stable leading origin token for a source line.
+
+    Deterministic backend output (never LLM-generated): ``[KB]`` for the
+    trusted OIB knowledge base, ``[RIS]`` for the official Austrian legal
+    information system, ``[Web]`` for URL-bearing web sources. Returns an empty
+    string when the origin is not cleanly identifiable, so callers emit no token
+    and the frontend falls open to plain, unlabeled text.
+    """
+    if entry.source_type == "knowledge_layer":
+        return "[KB]"
+    if _is_ris_source(entry):
+        return "[RIS]"
+    if entry.url:
+        return "[Web]"
+    return ""
+
+
+# A leading origin token on the post-``[N]`` text of a source line, e.g. the
+# ``[KB]`` in ``- [1] [KB] file.pdf, p.3``. Kept in sync with
+# ``source_origin_token`` and the frontend ``SOURCE_KIND_TOKEN_RE`` parser.
+# Used to (a) make token injection idempotent and (b) strip a pre-existing
+# token before registry identity-matching so it never pollutes the fuzzy
+# filename comparison in ``_is_knowledge_citation`` / ``has_citation_key``.
+_ORIGIN_TOKEN_RE = re.compile(r"^(\[(?:KB|RIS|Web)\])\s*", re.IGNORECASE)
+
+
+def _inject_origin_token(line: str, token: str) -> str:
+    """Insert ``token`` immediately after the ``[N]`` marker of a source line.
+
+    The token must sit AFTER the number (``- [1] [KB] file.pdf``) so it does
+    not break ``_CITATION_LINE_RE`` parsing or the ``[N]`` renumbering in
+    ``sanitize_report``. Idempotent: a line already carrying a recognized
+    origin token is returned unchanged.
+    """
+    line_match = _CITATION_LINE_RE.match(line)
+    if line_match is None:
+        return line
+    ref_text = line_match.group(2)
+    if _ORIGIN_TOKEN_RE.match(ref_text):
+        return line
+    prefix = line[: line_match.start(2)]
+    return f"{prefix}{token} {ref_text}"
+
+
 def _format_registry_reference(num: int, entry: SourceEntry) -> str | None:
     """Render a registered source as a source-section line."""
     title = entry.title or entry.tool_name or entry.source_type or "Source"
+    token = source_origin_token(entry)
+    prefix = f"{token} " if token else ""
     if entry.url:
-        return f"[{num}] {title}: {entry.url}"
+        return f"[{num}] {prefix}{title}: {entry.url}"
     if entry.citation_key:
-        return f"[{num}] {entry.citation_key}"
+        return f"[{num}] {prefix}{entry.citation_key}"
     return None
 
 
@@ -1001,14 +1076,28 @@ def verify_citations(
     valid_citations: list[dict] = []
     removed_citations: list[dict] = []
     url_replacements: dict[str, str] = {}  # garbled_url -> canonical_url
+    # Origin token per validated citation number, e.g. {1: "[Web]", 3: "[KB]"}.
+    # Applied AFTER the [N] marker in the cleaned_ref_lines pass so the
+    # LLM-written source section gains the same deterministic labels the
+    # fallback-synthesized and shallow-chat paths already carry. Lines that
+    # already start with a token are left as-is (idempotent).
+    origin_tokens: dict[int, str] = {}
 
     for line_match in _CITATION_LINE_RE.finditer(ref_section):
         num = int(line_match.group(1))
         ref_text = line_match.group(2).strip()
         full_line = line_match.group(0)
 
+        # Strip any pre-existing origin token before identity matching so it
+        # never leaks into fuzzy filename comparison (``[KB] file.pdf`` must
+        # still resolve to ``file.pdf``). ``already_tokenized`` suppresses
+        # re-injection so replayed/synthesized lines are not double-prefixed.
+        token_match = _ORIGIN_TOKEN_RE.match(ref_text)
+        already_tokenized = token_match is not None
+        match_text = ref_text[token_match.end() :] if token_match else ref_text
+
         # Try URL match first
-        url_match = _URL_IN_LINE_RE.search(ref_text)
+        url_match = _URL_IN_LINE_RE.search(match_text)
         if url_match:
             url = url_match.group(0).rstrip(_URL_TRIM_CHARS)
             canonical = registry.resolve_url(url)
@@ -1019,17 +1108,23 @@ def verify_citations(
                 else:
                     logger.debug("[CitationVerify]   [%d] VALID  — %s", num, url)
                 valid_citations.append({"number": num, "url": canonical, "citation_key": None, "line": full_line})
+                if not already_tokenized and (entry := registry.entry_for_url(canonical)):
+                    if token := source_origin_token(entry):
+                        origin_tokens[num] = token
             else:
                 logger.info("[CitationVerify]   [%d] REMOVE — url_not_in_registry: %s", num, url)
                 removed_citations.append({"number": num, "line": full_line, "reason": "url_not_in_registry"})
             continue
 
         # Try knowledge-layer citation key (lenient — passes registry for fuzzy filename match)
-        is_kl, citation_key = _is_knowledge_citation(ref_text, registry)
+        is_kl, citation_key = _is_knowledge_citation(match_text, registry)
         if is_kl and citation_key:
             if registry.has_citation_key(citation_key):
                 logger.debug("[CitationVerify]   [%d] VALID  — %s", num, citation_key)
                 valid_citations.append({"number": num, "url": None, "citation_key": citation_key, "line": full_line})
+                if not already_tokenized and (entry := registry.entry_for_citation_key(citation_key)):
+                    if token := source_origin_token(entry):
+                        origin_tokens[num] = token
             else:
                 logger.debug("[CitationVerify]   [%d] REMOVE — citation_key_not_in_registry: %s", num, citation_key)
                 removed_citations.append({"number": num, "line": full_line, "reason": "citation_key_not_in_registry"})
@@ -1091,12 +1186,21 @@ def verify_citations(
 
     removed_numbers = {c["number"] for c in removed_citations}
 
-    # Remove invalid (and duplicate) source lines from the source section.
-    cleaned_ref_lines = [
-        line
-        for line in ref_section.split("\n")
-        if not ((line_match := _CITATION_LINE_RE.match(line)) and int(line_match.group(1)) in removed_numbers)
-    ]
+    # Remove invalid (and duplicate) source lines from the source section, and
+    # inject the origin token (``[KB]``/``[RIS]``/``[Web]``) after the ``[N]``
+    # marker of each kept, validated line. Injection is idempotent and only
+    # touches numbers recorded during the parse loop, so url-repair and dedup
+    # above are undisturbed.
+    cleaned_ref_lines: list[str] = []
+    for line in ref_section.split("\n"):
+        line_match = _CITATION_LINE_RE.match(line)
+        if line_match:
+            num = int(line_match.group(1))
+            if num in removed_numbers:
+                continue
+            if (token := origin_tokens.get(num)) is not None:
+                line = _inject_origin_token(line, token)
+        cleaned_ref_lines.append(line)
     cleaned_ref_section = "\n".join(cleaned_ref_lines)
 
     # Body fixups:

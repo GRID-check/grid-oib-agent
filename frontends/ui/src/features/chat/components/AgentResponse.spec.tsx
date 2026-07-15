@@ -157,6 +157,43 @@ describe('AgentResponse', () => {
     expect(mockImportJobStream).not.toHaveBeenCalled()
   })
 
+  test('renders the confidence chip for each level', () => {
+    const { rerender } = render(<AgentResponse content="Answer" answerConfidence="high" />)
+    expect(screen.getByText('Confidence: high')).toBeInTheDocument()
+
+    rerender(<AgentResponse content="Answer" answerConfidence="medium" />)
+    expect(screen.getByText('Confidence: medium')).toBeInTheDocument()
+
+    rerender(<AgentResponse content="Answer" answerConfidence="low" />)
+    expect(screen.getByText('Confidence: low')).toBeInTheDocument()
+  })
+
+  test('renders no confidence chip when answerConfidence is absent (backward compatible)', () => {
+    render(<AgentResponse content="Answer without a self-assessment" />)
+    expect(screen.queryByText(/Confidence:/)).not.toBeInTheDocument()
+  })
+
+  test('renders the confidence chip in the inline variant too', () => {
+    render(<AgentResponse content="Answer" variant="inline" answerConfidence="high" />)
+    expect(screen.getByText('Confidence: high')).toBeInTheDocument()
+  })
+
+  test('hides the confidence chip when the chat-confidence-chip flag is off (default variant)', () => {
+    // Flag off must suppress the chip even when the model self-assessed a level.
+    render(<AgentResponse content="Answer" answerConfidence="high" showConfidenceChip={false} />)
+    expect(screen.queryByText(/Confidence:/)).not.toBeInTheDocument()
+    // The answer itself still renders — only the chip is gated.
+    expect(screen.getByText('Answer')).toBeInTheDocument()
+  })
+
+  test('hides the confidence chip when the flag is off (inline variant)', () => {
+    render(
+      <AgentResponse content="Answer" variant="inline" answerConfidence="low" showConfidenceChip={false} />
+    )
+    expect(screen.queryByText(/Confidence:/)).not.toBeInTheDocument()
+    expect(screen.getByText('Answer')).toBeInTheDocument()
+  })
+
   test('renders SummaryCard and LegalBasisCard from cards prop', () => {
     const cards = [
       {

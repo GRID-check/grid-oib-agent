@@ -38,6 +38,26 @@ interface MainLayoutProps {
   isAuthenticated?: boolean
   /** Callback when sign in is clicked */
   onSignIn?: () => void
+  /**
+   * Whether report source lines show origin badges (WorkOS
+   * `source-origin-badges` flag, FB-2). Threaded to ResearchPanel → ReportTab.
+   * Defaults to true (fail-open) so existing callers/specs are unaffected.
+   */
+  showSourceBadges?: boolean
+  /**
+   * Whether shallow answers show the confidence chip (WorkOS
+   * `chat-confidence-chip` flag, FB-6). Threaded to ChatArea → AgentResponse.
+   * Defaults to true (fail-open) so existing callers/specs are unaffected.
+   */
+  showConfidenceChip?: boolean
+  /**
+   * Whether the sessions panel shows the Deep Research section and per-session
+   * research labels (WorkOS `research-in-chat-history` flag, FB-10). Threaded to
+   * SessionsPanel. Defaults to false so existing callers/specs are unaffected.
+   */
+  showResearchInHistory?: boolean
+  /** Qdrant collection scoping the Deep Research section's job fetch (FB-10). */
+  projectCollection?: string | null
 }
 
 /**
@@ -45,7 +65,14 @@ interface MainLayoutProps {
  * Manages the overall structure and panel states.
  * Chat state is managed via the useChatStore.
  */
-export const MainLayout: FC<MainLayoutProps> = ({ isAuthenticated = false, onSignIn }) => {
+export const MainLayout: FC<MainLayoutProps> = ({
+  isAuthenticated = false,
+  onSignIn,
+  showSourceBadges = true,
+  showConfidenceChip = true,
+  showResearchInHistory = false,
+  projectCollection = null,
+}) => {
   const {
     currentConversation,
     conversations,
@@ -178,7 +205,11 @@ export const MainLayout: FC<MainLayoutProps> = ({ isAuthenticated = false, onSig
           }}
         >
           {/* Chat Area - Scrollable */}
-          <ChatArea isAuthenticated={isAuthenticated} onSignIn={onSignIn} />
+          <ChatArea
+            isAuthenticated={isAuthenticated}
+            onSignIn={onSignIn}
+            showConfidenceChip={showConfidenceChip}
+          />
 
           {/* No sources warning - shown when no data sources or files available */}
           <NoSourcesBanner isAuthenticated={isAuthenticated} />
@@ -189,7 +220,7 @@ export const MainLayout: FC<MainLayoutProps> = ({ isAuthenticated = false, onSig
         </div>
 
         {/* Research Panel (Right) - Pushes content, shares the width 50/50 */}
-        <ResearchPanel />
+        <ResearchPanel showSourceBadges={showSourceBadges} />
       </div>
 
       {/* Overlay Panels - These slide over the content */}
@@ -203,6 +234,9 @@ export const MainLayout: FC<MainLayoutProps> = ({ isAuthenticated = false, onSig
         onDeleteSession={handleDeleteSession}
         onDeleteAllSessions={handleDeleteAllSessions}
         onRenameSession={updateConversationTitle}
+        showDeepResearchSection={showResearchInHistory}
+        projectId={projectId ?? undefined}
+        projectCollection={projectCollection ?? undefined}
       />
 
       {/* Data Sources Panel (Right) - Overlay */}

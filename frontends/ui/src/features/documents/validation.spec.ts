@@ -25,12 +25,21 @@ describe('validation', () => {
     test('rejects invalid extensions', () => {
       expect(isValidFileExtension('document.exe')).toBe(false)
       expect(isValidFileExtension('document.js')).toBe(false)
-      expect(isValidFileExtension('document.png')).toBe(false)
+      expect(isValidFileExtension('document.zip')).toBe(false)
       expect(isValidFileExtension('document.html')).toBe(false)
     })
 
     test('rejects files without extension', () => {
       expect(isValidFileExtension('document')).toBe(false)
+    })
+
+    test('rejects image extensions by default (opt-in only, needs a VLM)', () => {
+      // Images are not a shipped default; a deployment opts in via
+      // FILE_UPLOAD_ACCEPTED_TYPES, which flows through AppConfig, not the
+      // default validation config used here.
+      expect(isValidFileExtension('photo.png')).toBe(false)
+      expect(isValidFileExtension('photo.jpg')).toBe(false)
+      expect(isValidFileExtension('photo.jpeg')).toBe(false)
     })
 
     test('handles case insensitivity', () => {
@@ -51,9 +60,14 @@ describe('validation', () => {
     })
 
     test('rejects invalid mime types', () => {
-      expect(isValidMimeType('image/png')).toBe(false)
+      expect(isValidMimeType('image/gif')).toBe(false)
       expect(isValidMimeType('application/javascript')).toBe(false)
       expect(isValidMimeType('text/html')).toBe(false)
+    })
+
+    test('rejects image mime types by default (opt-in only, needs a VLM)', () => {
+      expect(isValidMimeType('image/png')).toBe(false)
+      expect(isValidMimeType('image/jpeg')).toBe(false)
     })
   })
 
@@ -258,7 +272,7 @@ describe('validation', () => {
       })
 
       test('generates summary for multiple file errors', () => {
-        const files = [createFile('a.exe'), createFile('b.png')]
+        const files = [createFile('a.exe'), createFile('b.zip')]
 
         const result = validateFileUpload(files)
 

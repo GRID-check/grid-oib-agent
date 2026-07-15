@@ -1,18 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 """Shallow research agent for fast, bounded research with tool-calling."""
 
 from __future__ import annotations
@@ -46,6 +31,7 @@ from aiq_agent.common.citation_verification import get_session_registry
 from aiq_agent.common.citation_verification import reset_session_registry
 from aiq_agent.common.citation_verification import sanitize_report
 from aiq_agent.common.citation_verification import set_session_registry
+from aiq_agent.common.citation_verification import source_origin_token
 from aiq_agent.common.citation_verification import verify_citations
 
 from ...common import LLMProvider
@@ -87,11 +73,13 @@ def _append_minimal_citation(report_text: str, source: SourceEntry) -> str:
     else:
         content = f"{content} [1]"
 
+    token = source_origin_token(source)
+    prefix = f"{token} " if token else ""
     if source.url:
         title = source.title or source.url
-        reference = f"- [1] {title} - {source.url}"
+        reference = f"- [1] {prefix}{title} - {source.url}"
     else:
-        reference = f"- [1] {citation_target}"
+        reference = f"- [1] {prefix}{citation_target}"
 
     return f"{content}\n\n**References:**\n{reference}"
 
@@ -374,6 +362,10 @@ class ShallowResearcherAgent:
 
         # Post-process: verify citations against source registry
         validated_result = dict(result)
+        # Overconfidence guard signal for the chat node: True only when the
+        # final answer carries at least one verified citation (see the
+        # ``answer_citation_grounded`` field docstring). Conservative default.
+        citation_grounded = False
         if validated_result.get("messages"):
             last_msg = validated_result["messages"][-1]
             if hasattr(last_msg, "content") and last_msg.content:
@@ -391,8 +383,15 @@ class ShallowResearcherAgent:
                     )
                     content = verification.verified_report
                     sources = registry.all_sources()
-                    if not verification.valid_citations and len(sources) == 1:
+                    if verification.valid_citations:
+                        # Verification kept at least one grounded citation.
+                        citation_grounded = True
+                    elif len(sources) == 1:
+                        # No model citation survived, but exactly one registry
+                        # source is available: append it as the single minimal
+                        # citation, which grounds the answer in a real source.
                         content = _append_minimal_citation(content, sources[0])
+                        citation_grounded = True
                 elif state.requires_sources:
                     # Distinguish "retrieval genuinely failed" from "the agent
                     # answered from conversation/project context without ever
@@ -451,6 +450,9 @@ class ShallowResearcherAgent:
                     validated_result["messages"][-1] = last_msg.model_copy(update={"content": content})
                 else:
                     validated_result["messages"][-1] = type(last_msg)(content=content)
+
+        # Carry the grounding signal to the chat node's overconfidence guard.
+        validated_result["answer_citation_grounded"] = citation_grounded
 
         return ShallowResearchAgentState.model_validate(validated_result)
 

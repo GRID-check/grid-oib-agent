@@ -12,7 +12,7 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { listResearchRuns, type ResearchRun } from '@/adapters/api/research-runs-client'
 import { conversationsClient } from '@/adapters/api/conversations-client'
 import { useLocale, useTranslations } from '@/i18n'
-import type { Locale } from '@/i18n'
+import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
 
 const DEFAULT_LIMIT = 50
 
@@ -35,60 +35,6 @@ const capitalize = (value: string): string => value.charAt(0).toUpperCase() + va
 const KNOWN_STATUSES = ['running', 'submitted', 'pending', 'completed', 'failed', 'cancelled']
 
 const shortJobId = (jobId: string): string => jobId.slice(0, 8)
-
-const formatRelativeTime = (isoDate: string, locale: Locale): string => {
-  const date = new Date(isoDate)
-  if (Number.isNaN(date.getTime())) return isoDate
-
-  const diffMs = date.getTime() - Date.now()
-  const diffSeconds = Math.round(diffMs / 1000)
-  const absSeconds = Math.abs(diffSeconds)
-
-  const rtf = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' })
-
-  const thresholds: Array<[number, Intl.RelativeTimeFormatUnit]> = [
-    [60, 'second'],
-    [3600, 'minute'],
-    [86400, 'hour'],
-    [2592000, 'day'],
-    [31536000, 'month'],
-    [Infinity, 'year'],
-  ]
-
-  const divisors: Record<string, number> = {
-    second: 1,
-    minute: 60,
-    hour: 3600,
-    day: 86400,
-    week: 604800,
-    month: 2592000,
-    year: 31536000,
-    quarter: 7776000,
-  }
-
-  for (const [limit, unit] of thresholds) {
-    if (absSeconds < limit) {
-      const divisor = divisors[unit]
-      // Truncate toward zero, not round: rounding at a unit boundary yields
-      // "in 60 minutes" / "60 minutes ago" instead of the next unit up.
-      const value = Math.trunc(diffSeconds / divisor)
-      return rtf.format(value, unit)
-    }
-  }
-
-  return rtf.format(Math.round(diffSeconds / divisors.year), 'year')
-}
-
-/**
- * Localized absolute date/time used as the tooltip on relative timestamps,
- * so "vor 3 Tagen" can be pinned to an exact moment on hover.
- */
-const formatAbsoluteTime = (isoDate: string, locale: Locale): string => {
-  const date = new Date(isoDate)
-  if (Number.isNaN(date.getTime())) return isoDate
-
-  return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }).format(date)
-}
 
 export function ResearchRunsList({ projectId, projectCollection }: ResearchRunsListProps): JSX.Element {
   const t = useTranslations('projects')

@@ -1,18 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 """
 Chat Researcher Agent - Orchestrates intent classification, depth routing, and research.
 
@@ -24,9 +9,11 @@ This is the main orchestrator agent that coordinates the full research workflow:
 """
 
 import logging
+import re
 from collections.abc import Awaitable
 from collections.abc import Callable
 from typing import Any
+from typing import Literal
 
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import AIMessage
@@ -80,6 +67,114 @@ def detect_and_strip_escalation_marker(content: Any) -> tuple[Any, bool]:
     # Collapse trailing whitespace and any blank line left where the marker sat.
     stripped = stripped.rstrip()
     return stripped, True
+
+
+# The model ends every research answer with a self-assessment marker of the
+# form ``[CONFIDENCE:low|medium|high]`` (see the shallow researcher prompt). The
+# value is bracketed and case-insensitive; the capture group is validated
+# against the enum below so a malformed value ("certain", empty, …) is stripped
+# from the text but yields no signal.
+CONFIDENCE_MARKER_RE = re.compile(r"\[CONFIDENCE:\s*([^\]]*)\]", re.IGNORECASE)
+_VALID_CONFIDENCE_VALUES = frozenset({"low", "medium", "high"})
+
+ConfidenceLevel = Literal["low", "medium", "high"]
+
+
+def detect_and_strip_confidence_marker(content: Any) -> tuple[Any, ConfidenceLevel | None]:
+    """Detect and remove the model's self-assessed confidence marker.
+
+    Mirrors :func:`detect_and_strip_escalation_marker`: fail-open and
+    tail-tolerant. If ``content`` is not a string it is returned unchanged with
+    ``None``. Otherwise EVERY ``[CONFIDENCE:...]`` marker (matched leniently as a
+    substring, case-insensitive) is stripped so the user never sees it, and the
+    parsed level is returned as ``(stripped, level)``:
+
+    - ``level`` is the well-formed value ("low"/"medium"/"high") — the last one
+      when several appear (the answer's final marker wins).
+    - Absent marker, or a marker whose value is not one of the three, yields
+      ``None`` (no signal). Malformed markers are still stripped from the text.
+
+    Order-insensitive with respect to the escalation marker: each marker is
+    detected and removed independently, so both may co-occur in any order.
+    """
+    if not isinstance(content, str):
+        return content, None
+
+    matches = list(CONFIDENCE_MARKER_RE.finditer(content))
+    if not matches:
+        return content, None
+
+    level: ConfidenceLevel | None = None
+    for match in matches:
+        candidate = match.group(1).strip().lower()
+        if candidate in _VALID_CONFIDENCE_VALUES:
+            level = candidate  # type: ignore[assignment]
+
+    stripped = CONFIDENCE_MARKER_RE.sub("", content).rstrip()
+    return stripped, level
+
+
+def surface_answer_confidence(
+    self_reported: ConfidenceLevel | None,
+    citation_grounded: bool,
+) -> ConfidenceLevel | None:
+    """Apply the deterministic overconfidence guard to a self-reported level.
+
+    Returns ``None`` when there is no self-assessment to surface. Otherwise caps
+    the surfaced value at "low" whenever the answer is not grounded in a verified
+    citation (empty registry or verification removed every citation): a
+    self-reported "high"/"medium" on an ungrounded answer is untrustworthy and
+    becomes "low". A grounded answer surfaces the model's own level verbatim.
+    """
+    if self_reported is None:
+        return None
+    if not citation_grounded:
+        return "low"
+    return self_reported
+
+
+def _finalize_shallow_answer(message: BaseMessage, citation_grounded: bool) -> dict[str, Any]:
+    """Build the node update for a successful/insufficient shallow answer.
+
+    Strips BOTH control markers from the answer text (order-insensitive) so the
+    user never sees either, then routes:
+
+    - Escalation marker present → escalate to deep research (``shallow_result``
+      with ``escalate_to_deep=True``) and surface NO confidence chip. The deep
+      research report supersedes this shallow answer.
+    - Otherwise → a normal success turn (``shallow_result=None``); the parsed
+      confidence level is passed through the overconfidence guard and carried on
+      ``answer_confidence`` (None when the marker was absent/malformed).
+
+    Non-string content is passed through untouched with no confidence signal.
+    """
+    content = message.content
+    if not isinstance(content, str):
+        return {"messages": [message], "shallow_result": None}
+
+    without_escalation, escalation_present = detect_and_strip_escalation_marker(content)
+    clean_content, self_reported = detect_and_strip_confidence_marker(without_escalation)
+
+    updated_message = message.model_copy(update={"content": clean_content}) if clean_content != content else message
+
+    if escalation_present:
+        return {
+            "messages": [updated_message],
+            "shallow_result": ShallowResult(
+                answer=clean_content,
+                confidence="low",
+                escalate_to_deep=True,
+                escalation_reason="Shallow agent emitted insufficiency marker",
+            ),
+            # Escalation supersedes the shallow answer → surface no self-assessment.
+            "answer_confidence": None,
+        }
+
+    return {
+        "messages": [updated_message],
+        "shallow_result": None,
+        "answer_confidence": surface_answer_confidence(self_reported, citation_grounded),
+    }
 
 
 def matches_escalation_keywords(content: str) -> bool:
@@ -334,35 +429,15 @@ class ChatResearcherAgent:
                 (m for m in reversed(new_messages) if isinstance(m, AIMessage) and not m.tool_calls),
                 None,
             )
+            # Whether the shallow answer ended up grounded in a verified citation
+            # (drives the overconfidence guard below). Absent field → conservative
+            # False, so an ungrounded self-report is capped to "low".
+            citation_grounded = bool(getattr(result, "answer_citation_grounded", False))
+
             if final_ai_message:
-                if isinstance(final_ai_message.content, str):
-                    stripped, marker_present = detect_and_strip_escalation_marker(final_ai_message.content)
-                    if marker_present:
-                        return {
-                            "messages": [final_ai_message.model_copy(update={"content": stripped})],
-                            "shallow_result": ShallowResult(
-                                answer=stripped,
-                                confidence="low",
-                                escalate_to_deep=True,
-                                escalation_reason="Shallow agent emitted insufficiency marker",
-                            ),
-                        }
-                return {"messages": [final_ai_message], "shallow_result": None}
+                return _finalize_shallow_answer(final_ai_message, citation_grounded)
             if new_messages:
-                fallback_message = new_messages[-1]
-                if isinstance(fallback_message.content, str):
-                    stripped, marker_present = detect_and_strip_escalation_marker(fallback_message.content)
-                    if marker_present:
-                        return {
-                            "messages": [fallback_message.model_copy(update={"content": stripped})],
-                            "shallow_result": ShallowResult(
-                                answer=stripped,
-                                confidence="low",
-                                escalate_to_deep=True,
-                                escalation_reason="Shallow agent emitted insufficiency marker",
-                            ),
-                        }
-                return {"messages": [fallback_message], "shallow_result": None}
+                return _finalize_shallow_answer(new_messages[-1], citation_grounded)
             return {"messages": [], "shallow_result": None}
 
         async def deep_research_node(state: ChatResearcherState) -> dict[str, Any]:
@@ -542,6 +617,9 @@ class ChatResearcherAgent:
                 # Reset like shallow_result: a persisted job id from a previous
                 # deep-research turn would otherwise be read as this turn's job.
                 "deep_research_job_id": None,
+                # Reset likewise: a stale self-assessment from a prior shallow
+                # turn must not leak onto this turn's answer.
+                "answer_confidence": None,
                 # Reset likewise: the clarifier skip path never overwrites this,
                 # so turn 1's clarification log would otherwise steer turn 2's
                 # deep research toward stale constraints.

@@ -37,12 +37,23 @@ Downloads the file from `file_ref` (presigned MinIO URL), saves to a temporary f
 | Method | Path | Description | Request | Response | Handler |
 |--------|------|-------------|---------|----------|---------|
 | `POST` | `/v1/collections/{collection_name}/documents` | Upload documents | `multipart` with `files` | `{ job_id, file_ids, message }` (202) | `add_document_routes` in `aiq_api.routes.documents` |
-| `GET` | `/v1/collections/{collection_name}/documents` | List documents in a collection | — | `[FileInfo]` | Same |
+| `GET` | `/v1/collections/{collection_name}/documents` | List documents in a collection (enriched with persisted per-document summaries **and tags** from the `summaries` table) | — | `[FileInfo]` | Same |
+| `PATCH` | `/v1/collections/{collection_name}/documents/{file_name}/tags` | Replace a document's controlled tags (never touches the summary). Dedups then validates against the ingestion vocabulary `ALLOWED_TAGS`. | `{ tags: [string] }` | `{ collection_name, file_name, tags }` | Same |
 | `DELETE` | `/v1/collections/{collection_name}/documents` | Delete files from a collection | `{ file_ids }` | `{ message, successful, failed, total_deleted }` | Same |
 | `GET` | `/v1/documents/{job_id}/status` | Get ingestion job status | — | `IngestionJobStatus` (404 if missing) | Same |
 | `POST` | `/v1/documents/status/batch` | Get up to 200 ingestion job statuses in one call (used by the BFF document-list reconciliation) | `{ job_ids: [string] }` | `{ statuses: { [job_id]: IngestionJobStatus \| null } }` | Same |
 
 Uploads save files to temp locations and submit async ingestion jobs. Temp files are cleaned up by the ingestion job after processing (`cleanup_files: true` config).
+
+**Tag edit errors** (`PATCH …/tags`): tags outside `ALLOWED_TAGS` → `400` with `detail.invalid_tags`; more than `MAX_TAGS` (5) after dedup → `400` with `detail.max_tags` + `detail.tag_count`; no summary row for `(collection, file_name)` → `404` (the summary is the anchor — there is nothing to tag without one). An empty list is accepted and clears the tags. End-user access is enforced at the BFF (`project:edit`); this route only requires the knowledge API to be configured, matching the rest of the documents router.
+
+## Project Intake
+
+| Method | Path | Description | Request | Response | Handler |
+|--------|------|-------------|---------|----------|---------|
+| `POST` | `/v1/consistency-check` | End-of-wizard **free-text** intake consistency check (FB-13). Calls an LLM to detect contradictions between the free-text intake answers and the structured answers (passed as read-only context) or within the free text itself; structured-vs-structured checks are done deterministically on the client and never sent here. | `{ free_text: [{field, value}], structured?: [{field, value}], locale? }` | `ConsistencyCheckResponse`: `{ findings: [{ fields, severity: "warning"\|"inconsistency", explanation }] \| null, error? }` | `add_consistency_check_routes` in `aiq_api.routes.consistency_check` |
+
+**Best-effort by design**: always returns HTTP `200`. Any failure (no resolvable LLM key → `error=llm_not_configured`; upstream LLM error/transport failure → `llm_request_failed`; unparseable/odd-shaped LLM output → `llm_response_malformed`) yields `findings: null` + an `error` code so the wizard can save anyway. Empty free text short-circuits to `findings: []`. The LLM is resolved from `CONSISTENCY_LLM_MODEL` / `CONSISTENCY_LLM_API_KEY` / `CONSISTENCY_LLM_BASE_URL` (falling back to `LLM_*` then the OpenRouter/OpenAI defaults — see the environment-variables reference). Proxied by the BFF `POST /api/projects/{id}/consistency-check` (which adds `project:edit` authorization).
 
 ## Chat / Generation
 

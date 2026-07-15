@@ -41,6 +41,12 @@ const CANCEL_FALLBACK_TIMEOUT_MS = 5000
 interface ResearchPanelProps {
   /** Content to display in the panel */
   children?: ReactNode
+  /**
+   * Whether report source lines show origin badges (WorkOS
+   * `source-origin-badges` flag, FB-2). Threaded to ReportTab. Defaults to
+   * true (fail-open) so existing callers/specs are unaffected.
+   */
+  showSourceBadges?: boolean
 }
 
 /**
@@ -50,6 +56,7 @@ interface ResearchPanelProps {
  */
 export const ResearchPanel: FC<ResearchPanelProps> = memo(function ResearchPanel({
   children,
+  showSourceBadges = true,
 }) {
   const t = useTranslations('research')
   const isOpen = useLayoutStore((s) => s.rightPanel === 'research')
@@ -278,7 +285,9 @@ export const ResearchPanel: FC<ResearchPanelProps> = memo(function ResearchPanel
               <>
                 {researchPanelTab === 'tasks' && <TasksTab />}
                 {researchPanelTab === 'thinking' && <ThinkingTab />}
-                {researchPanelTab === 'report' && <ReportTab>{children}</ReportTab>}
+                {researchPanelTab === 'report' && (
+                  <ReportTab showSourceBadges={showSourceBadges}>{children}</ReportTab>
+                )}
               </>
             )}
           </div>

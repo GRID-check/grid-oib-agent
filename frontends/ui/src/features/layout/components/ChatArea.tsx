@@ -36,6 +36,12 @@ interface ChatAreaProps {
   isAuthenticated?: boolean
   /** Callback when sign in is clicked */
   onSignIn?: () => void
+  /**
+   * Whether the AgentResponse confidence chip renders (WorkOS
+   * `chat-confidence-chip` flag, FB-6). Defaults to true (fail-open) so
+   * existing callers/specs are unaffected.
+   */
+  showConfidenceChip?: boolean
 }
 
 /**
@@ -45,6 +51,7 @@ interface ChatAreaProps {
 export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   isAuthenticated = false,
   onSignIn,
+  showConfidenceChip = true,
 }) {
   const { currentConversation, isStreaming, currentUserMessageId } = useChatStore(
     useShallow((s) => ({
@@ -195,6 +202,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                     onPromptRespond={handlePromptRespond}
                     onFileRetry={handleFileRetry}
                     onErrorDismiss={dismissErrorCard}
+                    showConfidenceChip={showConfidenceChip}
                   />
 
                   {/* Render thinking steps after user messages — negative margin lets the next message overlap */}
@@ -235,6 +243,8 @@ interface MessageRendererProps {
   onFileCancel?: (messageId: string) => void
   onFileDelete?: (messageId: string) => void
   onErrorDismiss?: (messageId: string) => void
+  /** Whether the AgentResponse confidence chip renders (feature-flagged). */
+  showConfidenceChip?: boolean
 }
 
 const MessageRenderer: FC<MessageRendererProps> = ({
@@ -245,6 +255,7 @@ const MessageRenderer: FC<MessageRendererProps> = ({
   onFileCancel: _onFileCancel,
   onFileDelete: _onFileDelete,
   onErrorDismiss,
+  showConfidenceChip = true,
 }) => {
   const messageType = message.messageType || (message.role === 'user' ? 'user' : 'assistant')
 
@@ -283,6 +294,8 @@ const MessageRenderer: FC<MessageRendererProps> = ({
           deepResearchJobStatus={message.deepResearchJobStatus}
           cards={message.cards}
           conversationId={conversationId}
+          answerConfidence={message.answerConfidence}
+          showConfidenceChip={showConfidenceChip}
         />
       )
 

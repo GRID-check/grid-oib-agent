@@ -34,3 +34,30 @@ describe('NATSystemResponseMessageSchema content union', () => {
     expect(parsed.content).toBe('plain string')
   })
 })
+
+describe('NATSystemResponseMessageSchema answer_confidence', () => {
+  const base = {
+    type: NATMessageType.SYSTEM_RESPONSE,
+    status: WebSocketMessageStatus.COMPLETE,
+    content: 'an answer',
+  }
+
+  test.each(['low', 'medium', 'high'] as const)('accepts %s', (level) => {
+    const parsed = NATSystemResponseMessageSchema.parse({ ...base, answer_confidence: level })
+    expect(parsed.answer_confidence).toBe(level)
+  })
+
+  test('omitted answer_confidence parses to undefined (backward compatible)', () => {
+    const parsed = NATSystemResponseMessageSchema.parse(base)
+    expect(parsed.answer_confidence).toBeUndefined()
+  })
+
+  test('an out-of-enum level degrades to undefined without dropping the message', () => {
+    // `.catch(undefined)` keeps the message parseable (text preserved) and just
+    // omits the confidence chip, rather than throwing away the whole response.
+    const parsed = NATSystemResponseMessageSchema.parse({ ...base, answer_confidence: 'certain' })
+
+    expect(parsed.answer_confidence).toBeUndefined()
+    expect(parsed.content).toBe('an answer')
+  })
+})

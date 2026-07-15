@@ -4,6 +4,7 @@ import { useRef } from 'react'
 import { Loader2, Upload } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useTranslations } from '@/i18n'
+import { useAppConfig } from '@/shared/context'
 import { DEFAULT_ACCEPTED_FILE_TYPES } from '../constants'
 
 interface ProjectUppyUploadProps {
@@ -33,6 +34,10 @@ export function ProjectUppyUpload({
   const t = useTranslations('files')
   const inputRef = useRef<HTMLInputElement>(null)
   const buttonLabel = label ?? t('upload.upload')
+  // Server-computed, flag-gated accept-list (image types only when the
+  // `image-upload` flag allows). Falls back to the static default if the
+  // AppConfig provider is somehow absent (e.g. isolated tests).
+  const acceptedTypes = useAppConfig().fileUpload?.acceptedTypes ?? DEFAULT_ACCEPTED_FILE_TYPES
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const fileList = e.target.files
@@ -48,7 +53,7 @@ export function ProjectUppyUpload({
         ref={inputRef}
         type="file"
         multiple
-        accept={DEFAULT_ACCEPTED_FILE_TYPES}
+        accept={acceptedTypes}
         className="hidden"
         onChange={handleChange}
         data-testid="project-upload-input"

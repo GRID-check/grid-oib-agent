@@ -46,22 +46,27 @@ import {
   setDocumentIngestJob,
   markDocumentIngestFailed,
   findDocumentInOrg,
+  listProjectDocuments,
 } from './repository'
-import { uploadDocument, reingestDocument, INGEST_DISPATCH_FAILED_MESSAGE } from './service'
-import { ConflictError } from '@/lib/api/errors'
+import { listDocuments, uploadDocument, reingestDocument, INGEST_DISPATCH_FAILED_MESSAGE } from './service'
+import { reconcileDocumentStatuses } from './reconcile-status'
+import { BadRequestError, ConflictError } from '@/lib/api/errors'
 
 const session = {
   userId: 'user-1',
   email: 'user@example.com',
   organizationId: 'org-1',
+  featureFlags: null,
 } as any
 
-const makeInput = () => ({
+const makeInput = (
+  overrides: { name?: string; type?: string } = {},
+) => ({
   projectId: 'proj-1',
   folderId: null,
   file: {
-    name: 'plan.pdf',
-    type: 'application/pdf',
+    name: overrides.name ?? 'plan.pdf',
+    type: overrides.type ?? 'application/pdf',
     size: 1234,
     arrayBuffer: () => Promise.resolve(new ArrayBuffer(8)),
   } as unknown as File,
@@ -81,7 +86,53 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  vi.unstubAllEnvs()
   vi.clearAllMocks()
+})
+
+describe('uploadDocument server-side type gate', () => {
+  it('rejects an image with a 400 when the image-upload flag is off', async () => {
+    // Deployment opted images into the accepted-types list (VLM configured), but
+    // flag enforcement is ON and the session lacks image-upload → images stripped.
+    vi.stubEnv('FILE_UPLOAD_ACCEPTED_TYPES', '.pdf,.docx,.txt,.md,.png,.jpg,.jpeg')
+    vi.stubEnv('GRID_ENFORCE_FEATURE_FLAGS', 'true')
+    const gatedSession = { ...session, featureFlags: [] }
+
+    await expect(
+      uploadDocument(gatedSession, makeInput({ name: 'photo.png', type: 'image/png' }), new Request('http://x')),
+    ).rejects.toBeInstanceOf(BadRequestError)
+
+    // Rejected before any storage/ingest side effects.
+    expect(insertDocument).not.toHaveBeenCalled()
+    expect(mockFetch).not.toHaveBeenCalled()
+  })
+
+  it('accepts an image when the image-upload flag is on', async () => {
+    // Deployment opted images into the accepted-types list (VLM configured); with
+    // the flag on they are permitted. (Images are no longer a shipped default.)
+    vi.stubEnv('FILE_UPLOAD_ACCEPTED_TYPES', '.pdf,.docx,.txt,.md,.png,.jpg,.jpeg')
+    vi.stubEnv('GRID_ENFORCE_FEATURE_FLAGS', 'true')
+    const gatedSession = { ...session, featureFlags: ['image-upload'] }
+    mockFetch.mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve({ job_id: 'job-img' }) })
+
+    const result = await uploadDocument(
+      gatedSession,
+      makeInput({ name: 'photo.png', type: 'image/png' }),
+      new Request('http://x'),
+    )
+
+    expect(result.status).toBe('pending')
+    expect(insertDocument).toHaveBeenCalled()
+  })
+
+  it('rejects a type outside the accepted list regardless of flags (general allow-list)', async () => {
+    // Enforcement off (default) → image-upload fails open, but .exe is still
+    // not in the accepted-types list, so the server rejects it.
+    await expect(
+      uploadDocument(session, makeInput({ name: 'malware.exe', type: 'application/octet-stream' }), new Request('http://x')),
+    ).rejects.toBeInstanceOf(BadRequestError)
+    expect(insertDocument).not.toHaveBeenCalled()
+  })
 })
 
 describe('uploadDocument ingest dispatch', () => {
@@ -134,6 +185,45 @@ describe('uploadDocument ingest dispatch', () => {
       INGEST_DISPATCH_FAILED_MESSAGE,
     )
     expect(setDocumentIngestJob).not.toHaveBeenCalled()
+  })
+})
+
+describe('listDocuments', () => {
+  it('carries the curated metadata subset through and strips the internal metadata column', async () => {
+    vi.mocked(listProjectDocuments).mockResolvedValue([] as any)
+    // reconcile returns rows with the internal `metadata` jsonb (ingestJobId)
+    // plus the curated read-only fields layered on top.
+    vi.mocked(reconcileDocumentStatuses).mockResolvedValue([
+      {
+        id: 'doc-1',
+        filename: 'plan.pdf',
+        fileSize: 1024,
+        contentType: 'application/pdf',
+        status: 'completed',
+        collectionName: 'proj_abc',
+        folderId: null,
+        createdAt: new Date('2026-01-01T00:00:00Z'),
+        updatedAt: new Date('2026-01-02T00:00:00Z'),
+        errorMessage: null,
+        metadata: { ingestJobId: 'job-1' },
+        summary: 'A ground-floor plan.',
+        pageCount: 4,
+        chunkCount: 12,
+        contentTypes: ['text', 'table'],
+        tags: ['Grundriss', 'Brandschutz'],
+      },
+    ] as any)
+
+    const [row] = await listDocuments(session, 'proj-1')
+
+    // Internal metadata jsonb (with ingestJobId) never leaves the BFF.
+    expect(row).not.toHaveProperty('metadata')
+    // Curated read-only fields ride alongside as top-level properties.
+    expect(row.summary).toBe('A ground-floor plan.')
+    expect(row.pageCount).toBe(4)
+    expect(row.chunkCount).toBe(12)
+    expect(row.contentTypes).toEqual(['text', 'table'])
+    expect(row.tags).toEqual(['Grundriss', 'Brandschutz'])
   })
 })
 

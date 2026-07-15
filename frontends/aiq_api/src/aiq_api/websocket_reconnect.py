@@ -1,18 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 """Reconnectable WebSocket handler for HITL interactions."""
 
 from __future__ import annotations
@@ -406,6 +391,13 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
                     data_model.model_extra.get("deep_research_job_id") if data_model.model_extra else None
                 )
 
+            # Pull the model's guarded self-assessed answer confidence (present
+            # only on grounded shallow answers that emitted the marker) so the
+            # frontend can render the honest self-assessment chip.
+            answer_confidence = getattr(data_model, "answer_confidence", None)
+            if answer_confidence is None and isinstance(data_model, BaseModel):
+                answer_confidence = data_model.model_extra.get("answer_confidence") if data_model.model_extra else None
+
             if issubclass(message_schema, WebSocketSystemResponseTokenMessage):
                 message = await self._message_validator.create_system_response_token_message(
                     message_id=message_id,
@@ -426,6 +418,12 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
                         message.deep_research_job_id = deep_research_job_id
                     except Exception:
                         logger.warning("Could not attach deep_research_job_id to websocket message", exc_info=True)
+                # Attach the guarded self-assessed answer confidence, if present.
+                if message_type == WebSocketMessageType.RESPONSE_MESSAGE and answer_confidence:
+                    try:
+                        message.answer_confidence = answer_confidence
+                    except Exception:
+                        logger.warning("Could not attach answer_confidence to websocket message", exc_info=True)
 
             elif issubclass(message_schema, WebSocketSystemIntermediateStepMessage):
                 message = await self._message_validator.create_system_intermediate_step_message(

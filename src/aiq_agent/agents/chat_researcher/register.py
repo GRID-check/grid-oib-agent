@@ -1,18 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 """NAT register function for chat researcher agent."""
 
 import asyncio
@@ -658,6 +643,11 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         deep_research_job_id = getattr(result, "deep_research_job_id", None) or (
             result.get("deep_research_job_id") if isinstance(result, dict) else None
         )
+        # The model's guarded self-assessment of answer grounding (None on error,
+        # escalation, and marker-absent turns → no chip renders).
+        answer_confidence = getattr(result, "answer_confidence", None) or (
+            result.get("answer_confidence") if isinstance(result, dict) else None
+        )
 
         # Exit after response when --input is provided
         if "--input" in sys.argv:
@@ -678,6 +668,8 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
             logger.info("No cards on this turn (cards=%r)", cards)
         if deep_research_job_id:
             response.deep_research_job_id = deep_research_job_id
+        if answer_confidence:
+            response.answer_confidence = answer_confidence
 
         # Post-processing phase: kick off memory reflection AFTER the answer is
         # ready. Fire-and-forget — it runs on the event loop without delaying the

@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 # Extra attributes we want to carry from a ChatResponse onto the derived
 # ChatResponseChunk so they survive NAT's CHAT_STREAM serialization.
-_PRESERVED_EXTRA_FIELDS = ("cards", "deep_research_job_id")
+_PRESERVED_EXTRA_FIELDS = ("cards", "deep_research_job_id", "answer_confidence")
 
 _registered = False
 
@@ -46,8 +46,8 @@ def _chat_response_to_chunk(data: ChatResponse) -> ChatResponseChunk:
     """Direct ChatResponse -> ChatResponseChunk conversion preserving extras.
 
     Produces the same text-bearing chunk NAT would, then copies any GRID extra
-    fields (``cards``, ``deep_research_job_id``) across so downstream WebSocket
-    serialization can attach them to the response message.
+    fields (``cards``, ``deep_research_job_id``, ``answer_confidence``) across so
+    downstream WebSocket serialization can attach them to the response message.
     """
     chunk = ChatResponseChunk.create_streaming_chunk(
         _extract_content(data),

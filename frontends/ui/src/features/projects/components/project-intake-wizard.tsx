@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Check, Loader2, PencilLine } from 'lucide-react'
+import { AlertTriangle, Check, Loader2, PencilLine } from 'lucide-react'
 import { AnimatePresence, easeQuiet, motion } from '@/components/motion'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -28,8 +28,14 @@ import {
   labelForProfileKey,
 } from '@/lib/project-profile/intake-definition'
 import type { ProjectIntakeDefinition, ProjectIntakeQuestion } from '@/lib/project-profile/intake-definition'
+import {
+  checkIntakeConsistencyFromAnswers,
+  collectFreeTextFields,
+  collectStructuredContextFields,
+} from '@/lib/project-profile/intake-consistency'
+import type { ConsistencyFinding } from '@/lib/project-profile/intake-consistency'
 import type { ProjectPrimitiveValue, ProjectProfile } from '@/lib/project-profile/types'
-import { useTranslations } from '@/i18n'
+import { useLocale, useTranslations } from '@/i18n'
 import type { Translator } from '@/i18n'
 
 interface ProjectIntakeWizardProps {
@@ -37,6 +43,8 @@ interface ProjectIntakeWizardProps {
   projectName?: string
   mode?: 'create' | 'edit'
   initialProfile?: ProjectProfile | null
+  /** FB-13: gate the end-of-wizard conflict check. Off → save exactly as before. */
+  conflictCheckEnabled?: boolean
 }
 
 type Answers = Record<string, ProjectPrimitiveValue>
@@ -82,8 +90,10 @@ export function ProjectIntakeWizard({
   projectName,
   mode = 'create',
   initialProfile = null,
+  conflictCheckEnabled = false,
 }: ProjectIntakeWizardProps) {
   const t = useTranslations('projects')
+  const { locale } = useLocale()
   const router = useRouter()
   const [definition, setDefinition] = useState<ProjectIntakeDefinition | null>(null)
   const [loading, setLoading] = useState(true)
@@ -93,6 +103,10 @@ export function ProjectIntakeWizard({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [draftSaved, setDraftSaved] = useState(false)
+  /** FB-13: findings held for confirm/override (null = none / not yet checked). */
+  const [findings, setFindings] = useState<ConsistencyFinding[] | null>(null)
+  /** FB-13: the free-text LLM check is in flight (deterministic part is instant). */
+  const [checking, setChecking] = useState(false)
   /** Bumped by "Try again" to re-run the definition fetch after a load failure. */
   const [loadAttempt, setLoadAttempt] = useState(0)
 
@@ -180,6 +194,8 @@ export function ProjectIntakeWizard({
 
   const setAnswer = useCallback((id: string, value: ProjectPrimitiveValue) => {
     setAnswers((prev) => ({ ...prev, [id]: value }))
+    // Editing invalidates any held conflict findings — the check re-runs on Save.
+    setFindings(null)
     setTouched((prev) => {
       if (!prev.has(id)) return prev
       const next = new Set(prev)
@@ -196,6 +212,7 @@ export function ProjectIntakeWizard({
   const goToStep = useCallback(
     (step: number) => {
       setError(null)
+      setFindings(null)
       setCurrentStep((prev) => {
         const next = Math.max(0, Math.min(step, totalSteps - 1))
         directionRef.current = next >= prev ? 1 : -1
@@ -220,8 +237,10 @@ export function ProjectIntakeWizard({
     goToStep(currentStep + 1)
   }, [stageValid, visibleQuestions, answers, goToStep, currentStep])
 
-  const handleSave = useCallback(async () => {
+  /** Persist the profile and leave for Overview. The actual save, sans checks. */
+  const runSave = useCallback(async () => {
     if (!definition) return
+    setFindings(null)
     setSaving(true)
     setError(null)
     try {
@@ -270,7 +289,74 @@ export function ProjectIntakeWizard({
       )
       setSaving(false)
     }
-  }, [definition, answers, projectId, projectName, router, STORAGE_KEY])
+  }, [definition, answers, projectId, projectName, router, STORAGE_KEY, t])
+
+  /**
+   * FB-13 Save entry point. Flag off → save immediately (unchanged). Flag on →
+   * run the conflict check once for this attempt: structured answers checked
+   * deterministically (instant), free-text answers checked by the LLM (only when
+   * substantive free text is present). Any findings hold the save for
+   * confirm/override; none (or a check that errored) → save proceeds.
+   */
+  const handleSave = useCallback(async () => {
+    if (!definition) return
+    if (!conflictCheckEnabled) {
+      await runSave()
+      return
+    }
+    setError(null)
+
+    const deterministic = checkIntakeConsistencyFromAnswers(answers, definition)
+
+    const freeText = collectFreeTextFields(answers, definition)
+    let aiFindings: ConsistencyFinding[] = []
+    if (freeText.length > 0) {
+      setChecking(true)
+      try {
+        const res = await fetch(`/api/projects/${projectId}/consistency-check`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            freeText,
+            structured: collectStructuredContextFields(answers, definition),
+            locale,
+          }),
+        })
+        if (res.ok) {
+          const data = (await res.json().catch(() => null)) as { findings?: ConsistencyFinding[] | null } | null
+          // null findings = the check errored (fail-open); [] = free text is fine.
+          if (data?.findings) aiFindings = data.findings
+        } else {
+          console.warn('[ProjectIntakeWizard] Consistency check returned a non-ok status (non-fatal):', res.status)
+        }
+      } catch (e) {
+        console.warn('[ProjectIntakeWizard] Consistency check request failed (non-fatal):', e)
+      } finally {
+        setChecking(false)
+      }
+    }
+
+    const all: ConsistencyFinding[] = [...deterministic, ...aiFindings]
+    if (all.length > 0) {
+      setFindings(all)
+      return
+    }
+    await runSave()
+  }, [definition, conflictCheckEnabled, answers, projectId, locale, runSave])
+
+  /** "Trotzdem speichern" — accept the findings and persist (the human gate). */
+  const handleProceedAnyway = useCallback(() => {
+    void runSave()
+  }, [runSave])
+
+  /** "Überarbeiten" — dismiss findings and jump to the stage to fix. */
+  const handleReviseAt = useCallback(
+    (stageIndex: number) => {
+      setFindings(null)
+      goToStep(stageIndex)
+    },
+    [goToStep],
+  )
 
   if (loading) {
     return (
@@ -400,8 +486,10 @@ export function ProjectIntakeWizard({
         noValidate
         onSubmit={(event) => {
           event.preventDefault()
-          if (saving) return
+          if (saving || checking) return
           if (isReview) {
+            // When findings are shown, the user acts via the panel, not Enter.
+            if (findings && findings.length > 0) return
             void handleSave()
           } else {
             handleNext()
@@ -433,11 +521,31 @@ export function ProjectIntakeWizard({
         </div>
 
         {isReview ? (
-          <ReviewStep
-            definition={definition}
-            answers={answers}
-            onEditStage={(stageIndex) => goToStep(stageIndex)}
-          />
+          <div className="space-y-4">
+            <ReviewStep
+              definition={definition}
+              answers={answers}
+              onEditStage={(stageIndex) => goToStep(stageIndex)}
+            />
+            {checking && (
+              <div
+                className="flex items-center gap-2 text-sm text-muted-foreground"
+                aria-live="polite"
+              >
+                <Loader2 className="size-4 animate-spin" aria-hidden />
+                {t('intake.consistency.checking')}
+              </div>
+            )}
+            {findings && findings.length > 0 && (
+              <ConflictFindings
+                definition={definition}
+                findings={findings}
+                saving={saving}
+                onRevise={handleReviseAt}
+                onProceed={handleProceedAnyway}
+              />
+            )}
+          </div>
         ) : (
           <div className="space-y-6">
             {visibleQuestions.map((q) => (
@@ -476,14 +584,22 @@ export function ProjectIntakeWizard({
         </span>
 
         {isReview ? (
-          <Button type="submit" disabled={saving}>
-            {saving && <Loader2 className="size-4 animate-spin" aria-hidden />}
-            {saving
-              ? t('intake.saving')
-              : isEdit
-                ? t('intake.saveChanges')
-                : t('intake.saveAndSee')}
-          </Button>
+          // While findings are shown the save action lives in the findings panel
+          // ("Trotzdem speichern") — hide the duplicate nav button.
+          findings && findings.length > 0 ? (
+            <span aria-hidden />
+          ) : (
+            <Button type="submit" disabled={saving || checking}>
+              {(saving || checking) && <Loader2 className="size-4 animate-spin" aria-hidden />}
+              {checking
+                ? t('intake.consistency.checking')
+                : saving
+                  ? t('intake.saving')
+                  : isEdit
+                    ? t('intake.saveChanges')
+                    : t('intake.saveAndSee')}
+            </Button>
+          )
         ) : (
           <Button type="submit" disabled={saving}>
             {currentStep === reviewStep - 1 ? t('intake.reviewStep') : t('intake.next')}
@@ -561,6 +677,99 @@ function ReviewStep({
         </div>
       )}
     </div>
+  )
+}
+
+/** Find the stage index whose questions include one with this label (or -1). */
+function stageIndexForFieldLabel(definition: ProjectIntakeDefinition, label: string): number {
+  return definition.stages.findIndex((stage) => stage.questions.some((q) => q.label === label))
+}
+
+/** Human text for a finding — deterministic ones resolve their i18n key. */
+function findingMessage(finding: ConsistencyFinding, t: Translator): string {
+  if (finding.kind === 'ai') return finding.message
+  return t(`intake.consistency.rules.${finding.messageKey}`, finding.params)
+}
+
+/**
+ * FB-13 conflict findings panel: renders merged deterministic + AI findings with
+ * per-finding severity tint, the affected question labels, an Edit ("Überarbeiten")
+ * link to the offending stage, and a single "Trotzdem speichern" override that
+ * proceeds with the save (the human gate).
+ */
+function ConflictFindings({
+  definition,
+  findings,
+  saving,
+  onRevise,
+  onProceed,
+}: {
+  definition: ProjectIntakeDefinition
+  findings: ConsistencyFinding[]
+  saving: boolean
+  onRevise: (stageIndex: number) => void
+  onProceed: () => void
+}) {
+  const t = useTranslations('projects')
+  return (
+    <section aria-label={t('intake.consistency.title')} className="rounded-2xl border bg-card p-5 shadow-xs">
+      <div className="flex items-start gap-2">
+        <AlertTriangle className="size-4 shrink-0 translate-y-0.5 text-warning" aria-hidden />
+        <div>
+          <h3 className="text-sm font-semibold">{t('intake.consistency.title')}</h3>
+          <p className="mt-0.5 text-sm text-muted-foreground">{t('intake.consistency.subtitle')}</p>
+        </div>
+      </div>
+
+      <ul className="mt-4 space-y-3">
+        {findings.map((finding, index) => {
+          const isHard = finding.severity === 'inconsistency'
+          const targetStage = finding.fields
+            .map((label) => stageIndexForFieldLabel(definition, label))
+            .find((i) => i >= 0)
+          return (
+            <li
+              key={index}
+              className={cn(
+                'rounded-xl border px-4 py-3 text-sm',
+                isHard
+                  ? 'border-destructive/30 bg-danger-subtle text-destructive'
+                  : 'border-warning/40 bg-warning-subtle text-warning',
+              )}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-xs font-medium uppercase tracking-wide">
+                  {isHard
+                    ? t('intake.consistency.severity.inconsistency')
+                    : t('intake.consistency.severity.warning')}
+                </span>
+                {targetStage !== undefined && (
+                  <button
+                    type="button"
+                    onClick={() => onRevise(targetStage)}
+                    className="inline-flex items-center gap-1 text-xs font-medium underline-offset-2 hover:underline"
+                  >
+                    <PencilLine className="size-3" aria-hidden />
+                    {t('intake.consistency.revise')}
+                  </button>
+                )}
+              </div>
+              <p className="mt-1 text-foreground">{findingMessage(finding, t)}</p>
+              {finding.fields.length > 0 && (
+                <p className="mt-1.5 text-xs text-muted-foreground">{finding.fields.join(' · ')}</p>
+              )}
+            </li>
+          )
+        })}
+      </ul>
+
+      <div className="mt-4 flex items-center justify-end">
+        <Button type="button" onClick={onProceed} disabled={saving}>
+          {saving && <Loader2 className="size-4 animate-spin" aria-hidden />}
+          {t('intake.consistency.proceed')}
+        </Button>
+      </div>
+    </section>
   )
 }
 

@@ -255,6 +255,11 @@ export const research: typeof en.research = {
     contentWhenAvailable: 'Berichtsinhalt erscheint hier, sobald verfügbar.',
     notesBanner: 'Rechercheanmerkungen der Agenten – der finale Bericht wird noch erstellt.',
     sourcesTitle: 'Quellen',
+    sourceBadge: {
+      kb: 'Wissensdatenbank',
+      web: 'Web',
+      ris: 'RIS',
+    },
   },
 
   researchPanel: {
@@ -314,6 +319,10 @@ export const research: typeof en.research = {
     chatSession: 'Chat-Sitzung',
     sessionLabelBusy: 'Sitzung: {title} (Verarbeitung läuft)',
     sessionLabel: 'Sitzung: {title}',
+    // FB-10: Deep-Research-Bereich im Sitzungsbereich.
+    deepResearchHeading: 'Deep Research ({count})',
+    deepResearchChip: 'Deep Research',
+    deepResearchRunLabel: 'Deep-Research-Durchlauf öffnen: {label}',
   },
 
   taskCard: {

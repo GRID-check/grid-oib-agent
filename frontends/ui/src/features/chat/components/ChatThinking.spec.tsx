@@ -261,14 +261,16 @@ describe('ChatThinking', () => {
       expect(screen.getByText('document.pdf')).toBeVisible()
     })
 
-    test('excludes knowledge_layer from data sources display', () => {
+    test('shows knowledge_layer as the OIB Knowledge Base source', () => {
       const steps = [createStep()]
       const enabledDataSources = ['web_search', 'knowledge_layer']
 
       render(<ChatThinking steps={steps} enabledDataSources={enabledDataSources} />)
 
-      expect(screen.getByText('Web Search')).toBeVisible()
-      expect(screen.queryByText(/Knowledge Layer/i)).not.toBeInTheDocument()
+      // The OIB knowledge base is queried on every turn, so it must be visible
+      // (labelled clearly) rather than filtered out — never the raw id.
+      expect(screen.getByText('Web Search, OIB Knowledge Base')).toBeVisible()
+      expect(screen.queryByText(/knowledge_layer/i)).not.toBeInTheDocument()
     })
 
     test('does not show data sources section when no sources or files', () => {

@@ -1,7 +1,8 @@
 import { eq } from 'drizzle-orm'
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import { requireAuthorizedPageSession } from '@/lib/auth/require-auth'
 import { requireProjectAccess } from '@/lib/authz/projects'
+import { FEATURE_FLAGS, isFeatureEnabled } from '@/lib/authz/feature-flags'
 import { getDb } from '@/lib/db'
 import { projects } from '@/lib/db/schema'
 import { type Metadata } from 'next'
@@ -22,6 +23,14 @@ export default async function ProjectResearchPage({ params }: ProjectResearchPag
   const { id } = await params
 
   await requireProjectAccess(session, id, 'project:view')
+
+  // FB-10: with the research-in-chat-history flag on, the standalone runs page
+  // is retired — research lives in the chat-history panel. Send visitors (old
+  // bookmarks, "view report" deep links that still point here) to chat. Fails
+  // open to the merged behavior when flag enforcement is off.
+  if (isFeatureEnabled(session, FEATURE_FLAGS.researchInChatHistory)) {
+    redirect(`/app/projects/${id}/chat`)
+  }
 
   const t = await getTranslations('research')
 

@@ -1,18 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 """Tests for the DeepResearcherAgent."""
 
 import asyncio
@@ -1288,8 +1273,11 @@ class TestDeepResearcherAgent:
             assert result.messages[0].content == "Original query"
             assert result.messages[1].content == "I'll help with that."
             assert result.messages[2].content == "Search results here"
+            # The LLM-written source line is labeled with the deterministic
+            # origin token (URL source → [Web]) injected by verify_citations.
             assert (
-                result.messages[3].content == "Writer markdown [1].\n\n## Sources\n[1] Example: https://example.com\n"
+                result.messages[3].content
+                == "Writer markdown [1].\n\n## Sources\n[1] [Web] Example: https://example.com\n"
             )
 
     def test_extract_last_message_text(self):

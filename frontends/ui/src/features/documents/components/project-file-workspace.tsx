@@ -20,6 +20,12 @@ interface ProjectFileWorkspaceProps {
   projectId: string
   projectName: string
   collectionName: string
+  /**
+   * Whether the file preview's ingestion-metadata block renders (WorkOS
+   * `files-metadata-panel` flag, FB-8). Threaded to FilePreviewPane. Defaults
+   * to true so the feature stays visible with flag enforcement off (fail-open).
+   */
+  showMetadataPanel?: boolean
 }
 
 export interface FolderItem {
@@ -39,9 +45,19 @@ export interface FileItem {
   createdAt: string
   /** Server-persisted reason a document is in `failed` status, if any. */
   errorMessage: string | null
+  /** One-sentence summary of the document content, if the backend generated one. */
+  summary: string | null
+  /** Number of pages the backend indexed for this document. */
+  pageCount: number | null
+  /** Number of retrieval chunks the backend produced for this document. */
+  chunkCount: number | null
+  /** Content categories present in the document (e.g. text, table, chart, image). */
+  contentTypes: string[] | null
+  /** Controlled ingestion-generated tags (document type + OIB discipline). */
+  tags: string[] | null
 }
 
-export function ProjectFileWorkspace({ projectId, projectName, collectionName }: ProjectFileWorkspaceProps) {
+export function ProjectFileWorkspace({ projectId, projectName, collectionName, showMetadataPanel = true }: ProjectFileWorkspaceProps) {
   const t = useTranslations('files')
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null)
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null)
@@ -71,6 +87,11 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName }:
           folderId: d.folderId ?? null,
           createdAt: d.createdAt,
           errorMessage: d.errorMessage ?? null,
+          summary: d.summary ?? null,
+          pageCount: d.pageCount ?? null,
+          chunkCount: d.chunkCount ?? null,
+          contentTypes: d.contentTypes ?? null,
+          tags: d.tags ?? null,
         }))
         setFiles(docs)
       })
@@ -171,6 +192,13 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName }:
     setFiles((prev) =>
       prev.map((f) => (f.id === fileId ? { ...f, status, errorMessage: null } : f))
     )
+  }, [])
+
+  // After the preview pane successfully saves tags, mirror them into the local
+  // files state so the pane's `initialTags` is fresh if the file is reselected
+  // (the pane is reused across files and re-seeds from initialTags on switch).
+  const handleTagsUpdated = useCallback((fileId: string, tags: string[]) => {
+    setFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, tags } : f)))
   }, [])
 
   // In-flight and failed uploads for this project's corpus only.
@@ -351,6 +379,8 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName }:
               projectId={projectId}
               onClose={() => setSelectedFileId(null)}
               onReingested={handleReingested}
+              onTagsUpdated={handleTagsUpdated}
+              showMetadataPanel={showMetadataPanel}
             />
           </div>
         )}

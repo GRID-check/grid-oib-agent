@@ -93,6 +93,58 @@ describe('splitReportSources', () => {
     expect(result.body).toContain('## Appendix')
     expect(result.body).toContain('2. Not a source')
   })
+
+  test('parses leading origin tokens into sourceKind and strips them from the text', () => {
+    const markdown = [
+      '## Sources',
+      '[1] [KB] OIB-Richtlinie 2, p.3',
+      '[2] [Web] Example — https://example.com',
+      '[3] [RIS] BauO — https://www.ris.bka.gv.at/eli/bgbl/1985/446',
+    ].join('\n')
+
+    const result = splitReportSources(markdown)
+
+    expect(result.entries).toEqual([
+      { number: 1, markdown: 'OIB-Richtlinie 2, p.3', sourceKind: 'kb' },
+      { number: 2, markdown: 'Example — https://example.com', sourceKind: 'web' },
+      {
+        number: 3,
+        markdown: 'BauO — https://www.ris.bka.gv.at/eli/bgbl/1985/446',
+        sourceKind: 'ris',
+      },
+    ])
+  })
+
+  test('matches origin tokens case-insensitively', () => {
+    const markdown = ['## Sources', '1. [web] lower — https://example.com'].join('\n')
+
+    const result = splitReportSources(markdown)
+
+    expect(result.entries).toEqual([
+      { number: 1, markdown: 'lower — https://example.com', sourceKind: 'web' },
+    ])
+  })
+
+  test('leaves entries without an origin token unlabeled (backward compatible)', () => {
+    // Older reports and replays predate the token; sourceKind must be undefined
+    // and the display text must be preserved verbatim.
+    const markdown = ['## Sources', '1. OIB Richtlinie 2 — https://oib.or.at/ri2'].join('\n')
+
+    const result = splitReportSources(markdown)
+
+    expect(result.entries).toHaveLength(1)
+    expect(result.entries[0].sourceKind).toBeUndefined()
+    expect(result.entries[0].markdown).toBe('OIB Richtlinie 2 — https://oib.or.at/ri2')
+  })
+
+  test('does not treat a non-origin bracket token as a source kind', () => {
+    const markdown = ['## Sources', '1. [2024] Annual outlook — https://example.com'].join('\n')
+
+    const result = splitReportSources(markdown)
+
+    expect(result.entries[0].sourceKind).toBeUndefined()
+    expect(result.entries[0].markdown).toBe('[2024] Annual outlook — https://example.com')
+  })
 })
 
 describe('linkifyCitationMarkers', () => {

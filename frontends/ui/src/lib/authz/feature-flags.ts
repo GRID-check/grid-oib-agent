@@ -32,6 +32,25 @@ export const FEATURE_FLAGS = {
   byokLlm: 'byok-llm',
   /** Platform-layer web-search gate; tenant toggle lives in org settings (ADR-0022). */
   webSearch: 'web-search',
+  /** [KB]/[RIS]/[Web] origin badges in report source lists (FB-2); off → plain text. */
+  sourceOriginBadges: 'source-origin-badges',
+  /** Self-assessed confidence chip on shallow chat answers (FB-6). */
+  chatConfidenceChip: 'chat-confidence-chip',
+  /** Files preview metadata block: summary/pages/passages/contents rows (FB-8). */
+  filesMetadataPanel: 'files-metadata-panel',
+  /** Standalone PNG/JPG image upload via VLM captioning (FB-15a); gates the
+   *  accept-list (client) and the server-side upload allow-list (BFF). */
+  imageUpload: 'image-upload',
+  /** Fold the Research runs tab into the chat-history panel as a "Deep
+   *  Research" section (FB-10). ON → hide the `research` nav item, redirect
+   *  `/research` to chat, show the Deep Research section in SessionsPanel;
+   *  OFF → keep the legacy Research tab + ResearchRunsList page. */
+  researchInChatHistory: 'research-in-chat-history',
+  /** End-of-wizard AI conflict check (FB-13): on Save, an LLM checks the intake
+   *  answers for internal contradictions and the user confirms/overrides or
+   *  revises. Server-computed in the intake page, prop-drilled to the wizard;
+   *  off → the wizard saves exactly as before (no check). */
+  wizardConflictCheck: 'wizard-conflict-check',
 } as const
 
 export type KnownFeatureFlag = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
