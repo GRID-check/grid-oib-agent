@@ -125,7 +125,9 @@ function checkLowClassTooManyFloors(
       fields: [labelFor(definition, 'gebaeudeklasse'), labelFor(definition, 'geschosse_oberirdisch')],
       severity: 'inconsistency',
       messageKey: 'lowClassTooManyFloors',
-      params: { buildingClass, floors },
+      // Data-driven so the copy can never drift from the rule: `threshold` is the
+      // conservative ceiling this rule actually fires above, `count` the entered value.
+      params: { buildingClass, count: floors, threshold: CONSERVATIVE_LOW_CLASS_FLOOR_CEILING },
     },
   ]
 }

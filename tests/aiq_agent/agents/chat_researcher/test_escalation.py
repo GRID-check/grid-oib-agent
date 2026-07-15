@@ -49,6 +49,34 @@ class TestDetectAndStripEscalationMarker:
         assert present is False
         assert stripped is content
 
+    def test_marker_quoted_above_tail_region_is_untouched(self):
+        # The marker is quoted inside an explanation well above the last three
+        # non-empty lines → body text, not a trailing signal.
+        content = (
+            f"When I lack enough evidence I append {ESCALATION_MARKER} to my reply.\n"
+            "Here, however, I found what you asked for.\n"
+            "The OIB-Richtlinie 2 governs fire safety.\n"
+            "It applies to buildings above 22 metres.\n"
+            "See the reference below [1]."
+        )
+        stripped, present = detect_and_strip_escalation_marker(content)
+        assert present is False
+        assert ESCALATION_MARKER in stripped
+        assert stripped == content
+
+    def test_marker_in_tail_after_references_detected(self):
+        # A trailing marker following a References section is still in the tail.
+        content = (
+            "Partial answer grounded in one source [1].\n\n"
+            "**References:**\n"
+            "- [1] Example - https://example.com\n"
+            f"{ESCALATION_MARKER}"
+        )
+        stripped, present = detect_and_strip_escalation_marker(content)
+        assert present is True
+        assert ESCALATION_MARKER not in stripped
+        assert stripped.endswith("https://example.com")
+
 
 class TestDetectAndStripConfidenceMarker:
     """Tests for detect_and_strip_confidence_marker."""
@@ -116,6 +144,34 @@ class TestDetectAndStripConfidenceMarker:
         assert level2 == "high"
         assert "[CONFIDENCE" not in without_esc2
         assert ESCALATION_MARKER not in without_esc2
+
+    def test_marker_quoted_above_tail_region_is_untouched(self):
+        # A quoted marker inside an explanation, several lines above the tail,
+        # must be left intact and yield no signal.
+        content = (
+            "The answer contract asks me to end with [CONFIDENCE:high] or similar.\n"
+            "In this case I am confident in the finding below.\n"
+            "OIB-Richtlinie 2 regelt den Brandschutz.\n"
+            "Sie gilt für Gebäude über 22 Metern.\n"
+            "Details siehe Quelle [1]."
+        )
+        stripped, level = detect_and_strip_confidence_marker(content)
+        assert level is None
+        assert "[CONFIDENCE:high]" in stripped
+        assert stripped == content
+
+    def test_marker_in_tail_after_references_detected(self):
+        # A trailing confidence marker after a References block is in the tail.
+        content = (
+            "OIB-Richtlinie 2 regelt den Brandschutz [1].\n\n"
+            "**References:**\n"
+            "- [1] Example - https://example.com\n"
+            "[CONFIDENCE:high]"
+        )
+        stripped, level = detect_and_strip_confidence_marker(content)
+        assert level == "high"
+        assert "[CONFIDENCE" not in stripped
+        assert stripped.endswith("https://example.com")
 
     def test_non_str_content_unchanged(self):
         content = [{"type": "text", "text": "structured content"}]

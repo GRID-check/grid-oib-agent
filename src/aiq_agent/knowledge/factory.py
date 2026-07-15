@@ -20,6 +20,8 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 from typing import Any
 
+from aiq_agent.common.db_utils import redact_db_url
+
 from .base import BaseIngestor
 from .base import BaseRetriever
 
@@ -279,7 +281,7 @@ def configure_summary_db(db_url: str) -> None:
     from .summary_store import SummaryStore
 
     _summary_store = SummaryStore(db_url)
-    logger.info("Summary store configured: %s", db_url[:50])
+    logger.info("Summary store configured: %s", redact_db_url(db_url))
 
 
 def _get_summary_store() -> "SummaryStore":

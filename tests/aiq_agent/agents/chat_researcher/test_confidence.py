@@ -87,11 +87,44 @@ class TestConfidenceEndToEnd:
         return deep
 
     def _shallow_returning(self, answer: str, *, grounded: bool):
+        """Simulate a shallow result WITHOUT structured marker extraction.
+
+        Exercises the back-compat FALLBACK path: the answer text still carries the
+        raw markers and ``escalation_requested`` is None (the "not extracted"
+        sentinel), so the chat node detects/strips the markers from the string.
+        """
+
         async def shallow(state_input):
             messages = state_input.messages if hasattr(state_input, "messages") else state_input
             result = MagicMock()
             result.messages = list(messages) + [AIMessage(content=answer)]
             result.answer_citation_grounded = grounded
+            result.escalation_requested = None
+            return result
+
+        return shallow
+
+    def _shallow_returning_structured(
+        self,
+        answer: str,
+        *,
+        grounded: bool,
+        escalation_requested: bool,
+        confidence_marker,
+    ):
+        """Simulate a shallow result WITH structured marker extraction.
+
+        Mirrors the real ShallowResearcherAgent.run(): the answer text is already
+        marker-free and the signals arrive on structured state fields.
+        """
+
+        async def shallow(state_input):
+            messages = state_input.messages if hasattr(state_input, "messages") else state_input
+            result = MagicMock()
+            result.messages = list(messages) + [AIMessage(content=answer)]
+            result.answer_citation_grounded = grounded
+            result.escalation_requested = escalation_requested
+            result.answer_confidence_marker = confidence_marker
             return result
 
         return shallow
@@ -160,3 +193,36 @@ class TestConfidenceEndToEnd:
         state = ChatResearcherState(messages=[HumanMessage(content="Frage?")])
         result = await agent.run(state, thread_id="t6")
         assert result.get("answer_confidence") is None
+
+    @pytest.mark.asyncio
+    async def test_structured_signals_grounded_high_surfaces_high(self, research_orchestration, deep_fn):
+        # Answer text already clean; confidence arrives as a structured field.
+        shallow = self._shallow_returning_structured(
+            "OIB 2 [1].", grounded=True, escalation_requested=False, confidence_marker="high"
+        )
+        agent = self._agent(research_orchestration, shallow, deep_fn, enable_escalation=False)
+        state = ChatResearcherState(messages=[HumanMessage(content="Frage?")])
+        result = await agent.run(state, thread_id="s1")
+        assert result["answer_confidence"] == "high"
+        assert "[CONFIDENCE" not in result["messages"][-1].content
+
+    @pytest.mark.asyncio
+    async def test_structured_signals_ungrounded_high_capped_to_low(self, research_orchestration, deep_fn):
+        shallow = self._shallow_returning_structured(
+            "Claim.", grounded=False, escalation_requested=False, confidence_marker="high"
+        )
+        agent = self._agent(research_orchestration, shallow, deep_fn, enable_escalation=False)
+        state = ChatResearcherState(messages=[HumanMessage(content="Frage?")])
+        result = await agent.run(state, thread_id="s2")
+        assert result["answer_confidence"] == "low"
+
+    @pytest.mark.asyncio
+    async def test_structured_signals_escalation_surfaces_nothing(self, research_orchestration, deep_fn):
+        shallow = self._shallow_returning_structured(
+            "Partial.", grounded=True, escalation_requested=True, confidence_marker="high"
+        )
+        agent = self._agent(research_orchestration, shallow, deep_fn, enable_escalation=True)
+        state = ChatResearcherState(messages=[HumanMessage(content="Frage?")])
+        result = await agent.run(state, thread_id="s3")
+        assert result.get("answer_confidence") is None
+        assert result["messages"][-1].content == "Deep report."

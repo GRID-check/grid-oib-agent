@@ -1,6 +1,8 @@
 """NAT register function for deep research agent."""
 
+import asyncio
 import logging
+from typing import Any
 from typing import TypeVar
 
 from langchain_core.messages import HumanMessage
@@ -160,30 +162,33 @@ async def deep_research_agent(config: DeepResearchAgentConfig, builder: Builder)
     """Deep research agent using multi-phase workflow."""
     skills_config, sandbox_config = resolve_deep_research_runtime_config(config, builder)
 
+    async def _resolve_tools(tool_refs: list[str]) -> list:
+        resolved = await builder.get_tools(tool_names=tool_refs, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
+        if config.exclude_tools:
+            excluded = set(config.exclude_tools)
+            resolved = [t for t in resolved if getattr(t, "name", "") not in excluded]
+        return resolved
+
+    # Tool resolution is eager only when tools are configured explicitly. When
+    # tools are inherited (config.tools empty), the data_source_registry may not
+    # be populated at BUILD time -- NAT adds no build-order dependency in that
+    # case -- so eager resolution would capture an empty list. Resolve those
+    # lazily on the first request instead (see _ensure_resolved below).
+    explicit_tools: list | None = None
     if config.tools:
-        tool_refs = config.tools
-    else:
-        from aiq_agent.common import get_all_tool_refs
+        explicit_tools = await _resolve_tools(list(config.tools))
 
-        tool_refs = get_all_tool_refs()
+        from aiq_agent.common import validate_tool_availability
 
-    tools = await builder.get_tools(tool_names=tool_refs, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
-
-    if config.exclude_tools:
-        excluded = set(config.exclude_tools)
-        tools = [t for t in tools if getattr(t, "name", "") not in excluded]
-
-    from aiq_agent.common import validate_tool_availability
-
-    is_valid, available_count, unavailable = validate_tool_availability(
-        tools,
-        research_type="deep research",
-    )
-    if not is_valid:
-        logger.warning(
-            "Startup check: no tools available for deep research. "
-            "All queries will fail until at least one tool is properly configured.",
+        is_valid, available_count, unavailable = validate_tool_availability(
+            explicit_tools,
+            research_type="deep research",
         )
+        if not is_valid:
+            logger.warning(
+                "Startup check: no tools available for deep research. "
+                "All queries will fail until at least one tool is properly configured.",
+            )
 
     llm = await builder.get_llm(config.orchestrator_llm, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
 
@@ -207,24 +212,66 @@ async def deep_research_agent(config: DeepResearchAgentConfig, builder: Builder)
     verbose = is_verbose(config.verbose)
     callbacks = [VerboseTraceCallback()] if verbose else []
 
-    agent = DeepResearcherAgent(
-        llm_provider=provider,
-        tools=tools,
-        verbose=verbose,
-        callbacks=callbacks,
-        domain_catalog_path=config.domain_catalog_path,
-        enable_source_router=config.enable_source_router,
-        enable_citation_verification=config.enable_citation_verification,
-        skills=skills_config,
-        sandbox=sandbox_config,
-        max_research_concurrency=config.max_research_concurrency,
-        max_concurrent_source_tool_calls=config.max_concurrent_source_tool_calls,
-        max_source_tool_batch_size=config.max_source_tool_batch_size,
-    )
+    def _build_agent(
+        tool_list: list,
+        *,
+        llm_provider: Any = None,
+        job_id: str | None = None,
+    ) -> DeepResearcherAgent:
+        # Optional overrides let per-request paths (model overrides / BYOK
+        # credential, source-filtered tools, sandbox-scoped job_id) reuse this
+        # single constructor call instead of duplicating every kwarg. Omitted
+        # overrides fall back to the module-level provider / a fresh job_id,
+        # matching the eager and lazy build sites.
+        return DeepResearcherAgent(
+            llm_provider=llm_provider if llm_provider is not None else provider,
+            tools=tool_list,
+            verbose=verbose,
+            callbacks=callbacks,
+            domain_catalog_path=config.domain_catalog_path,
+            enable_source_router=config.enable_source_router,
+            enable_citation_verification=config.enable_citation_verification,
+            skills=skills_config,
+            sandbox=sandbox_config,
+            job_id=job_id,
+            max_research_concurrency=config.max_research_concurrency,
+            max_concurrent_source_tool_calls=config.max_concurrent_source_tool_calls,
+            max_source_tool_batch_size=config.max_source_tool_batch_size,
+        )
+
+    # Cache of the lazily-resolved (tools, prebuilt agent) pair. For explicit
+    # config.tools this is populated eagerly at build time; for inherited tools
+    # it is filled on the first request that resolves a non-empty tool set.
+    _resolved: dict[str, Any] = {"tools": None, "agent": None}
+    if explicit_tools is not None:
+        _resolved["tools"] = explicit_tools
+        _resolved["agent"] = _build_agent(explicit_tools)
+    _resolve_lock = asyncio.Lock()
+
+    async def _ensure_resolved() -> tuple[list, DeepResearcherAgent]:
+        """Resolve inherited tools + prebuilt agent, lazily and once."""
+        if _resolved["tools"] is not None:
+            return _resolved["tools"], _resolved["agent"]
+        async with _resolve_lock:
+            if _resolved["tools"] is not None:
+                return _resolved["tools"], _resolved["agent"]
+            from aiq_agent.common import get_all_tool_refs
+
+            tool_refs = get_all_tool_refs()
+            resolved_tools = await _resolve_tools(tool_refs)
+            agent_local = _build_agent(resolved_tools)
+            # Cache only a successful (non-empty) resolution so an early request
+            # that races registry population is retried on the next call. A
+            # genuinely-empty set is handled by the runtime gate below.
+            if resolved_tools:
+                _resolved["tools"] = resolved_tools
+                _resolved["agent"] = agent_local
+            return resolved_tools, agent_local
 
     async def _run(state: DeepResearchAgentState) -> DeepResearchAgentState:
         """Run deep research with a list of messages or payload."""
         try:
+            tools, agent = await _ensure_resolved()
             data_sources = state.data_sources
             selected_tools = filter_tools_by_sources(tools, data_sources)
             # Per-org runtime model overrides (X-Grid-Model-Overrides); identity
@@ -252,21 +299,7 @@ async def deep_research_agent(config: DeepResearchAgentConfig, builder: Builder)
                     job_id = Context.get().workflow_run_id
                 except Exception:  # noqa: BLE001 - Context may be unavailable in sync/eval paths
                     job_id = None
-                active_agent = DeepResearcherAgent(
-                    llm_provider=active_provider,
-                    tools=selected_tools,
-                    verbose=verbose,
-                    callbacks=callbacks,
-                    domain_catalog_path=config.domain_catalog_path,
-                    enable_source_router=config.enable_source_router,
-                    enable_citation_verification=config.enable_citation_verification,
-                    skills=skills_config,
-                    sandbox=sandbox_config,
-                    job_id=job_id,
-                    max_research_concurrency=config.max_research_concurrency,
-                    max_concurrent_source_tool_calls=config.max_concurrent_source_tool_calls,
-                    max_source_tool_batch_size=config.max_source_tool_batch_size,
-                )
+                active_agent = _build_agent(selected_tools, llm_provider=active_provider, job_id=job_id)
 
             if all_mapped_tools_filtered_out(tools, selected_tools, data_sources):
                 logger.warning("Deep research received data_sources with no matching tools")

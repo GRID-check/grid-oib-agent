@@ -12,6 +12,8 @@ import threading
 import time
 from typing import Any
 
+from aiq_agent.common.db_utils import redact_db_url
+
 logger = logging.getLogger(__name__)
 
 
@@ -128,7 +130,7 @@ class EventStore:
                 connect_args=connect_args,
             )
             cls._sync_engine_cache[db_url] = (engine, time.monotonic())
-            logger.debug("Created sync engine for %s", db_url[:50])
+            logger.debug("Created sync engine for %s", redact_db_url(db_url))
             return engine
 
     @classmethod
@@ -154,7 +156,7 @@ class EventStore:
                 pool_recycle=1800,
             )
             cls._async_engine_cache[db_url] = (engine, time.monotonic())
-            logger.debug("Created async engine for %s", db_url[:50])
+            logger.debug("Created async engine for %s", redact_db_url(db_url))
             return engine
 
     @classmethod
@@ -186,7 +188,7 @@ class EventStore:
             return
 
         if log_debug_key:
-            logger.debug("Disposed stale engine for %s", log_debug_key[:50])
+            logger.debug("Disposed stale engine for %s", redact_db_url(log_debug_key))
 
         if asyncio.iscoroutine(dispose_result):
             try:
@@ -275,7 +277,7 @@ class EventStore:
         inspector = inspect(self._sync_engine)
         if not inspector.has_table("job_events"):
             metadata.create_all(self._sync_engine)
-            logger.info("Created job_events table in %s", self.db_url[:50])
+            logger.info("Created job_events table in %s", redact_db_url(self.db_url))
 
         EventStore._tables_initialized.add(self.db_url)
 
@@ -313,7 +315,7 @@ class EventStore:
             await conn.run_sync(lambda sync_conn: metadata.create_all(sync_conn))
 
         cls._tables_initialized.add(db_url)
-        logger.info("Created job_events table (async) in %s", db_url[:50])
+        logger.info("Created job_events table (async) in %s", redact_db_url(db_url))
 
     def store(self, event: dict):
         """
@@ -456,7 +458,7 @@ class EventStore:
                 Index("idx_job_events_job_id_id", "job_id", "id"),
             )
             metadata.create_all(engine)
-            logger.info("Created job_events table in %s", db_url[:50])
+            logger.info("Created job_events table in %s", redact_db_url(db_url))
 
         cls._tables_initialized.add(db_url)
 

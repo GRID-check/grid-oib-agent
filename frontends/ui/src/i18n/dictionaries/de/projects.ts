@@ -147,6 +147,12 @@ export const projects: typeof en.projects = {
     },
     tryAgain: 'Erneut versuchen',
     draftSaved: 'Entwurf gespeichert',
+    salvage: {
+      partial:
+        'Teile des bestehenden Projekt-Briefings konnten nicht geladen werden und werden beim Speichern ersetzt.',
+      full:
+        'Das bestehende Projekt-Briefing konnte nicht geladen werden. Ihre Eingaben ersetzen es beim Speichern.',
+    },
     eyebrowEdit: 'Projekt-Briefing bearbeiten',
     eyebrowCreate: 'Projekteinrichtung',
     titleFallback: 'Erzählen Sie Grid von diesem Projekt',
@@ -183,7 +189,7 @@ export const projects: typeof en.projects = {
       proceed: 'Trotzdem speichern',
       rules: {
         lowClassTooManyFloors:
-          'Gebäudeklasse {buildingClass} lässt höchstens 3 oberirdische Geschoße zu, angegeben sind aber {floors}.',
+          'GK1–GK3-Gebäude haben normalerweise höchstens {threshold} oberirdische Geschoße; angegeben sind {count}.',
         escapeLevelTooFewFloors:
           'Ein Fluchtniveau von {escapeLevel} ist mit nur {floors} oberirdischen Geschoß(en) kaum erreichbar.',
         orphanedAnswer:

@@ -302,6 +302,45 @@ export function flattenIntakeQuestions(definition: ProjectIntakeDefinition): Pro
   return definition.stages.flatMap((stage) => stage.questions)
 }
 
+/**
+ * Remove answers belonging to conditional questions whose visibility condition no
+ * longer holds, e.g. a bed count after the main use is switched away from
+ * Hospitality. Pruning is recursive: dropping one answer can turn a further
+ * question's condition false (a chained condition), so we repeat until nothing
+ * more is removed. Convergence is guaranteed — each pass only ever removes keys.
+ *
+ * Returns the same object reference when nothing is pruned (cheap no-op for the
+ * common case). Answers of unconditional questions are always kept.
+ */
+export function pruneStaleConditionalAnswers(
+  answers: Record<string, ProjectPrimitiveValue>,
+  definition: ProjectIntakeDefinition | null | undefined,
+): Record<string, ProjectPrimitiveValue> {
+  if (!definition) return answers
+  const questions = flattenIntakeQuestions(definition)
+  let current = answers
+  let changedAny = false
+
+  for (;;) {
+    let changedThisPass = false
+    let next: Record<string, ProjectPrimitiveValue> | null = null
+    for (const question of questions) {
+      if (!question.condition) continue
+      if (!(question.id in current)) continue
+      if (evaluateIntakeCondition(question, current)) continue
+      // Condition is false but an answer is present → drop it.
+      if (!next) next = { ...current }
+      delete next[question.id]
+      changedThisPass = true
+    }
+    if (!changedThisPass) break
+    if (next) current = next
+    changedAny = true
+  }
+
+  return changedAny ? current : answers
+}
+
 /** Whether an answer counts as provided (non-empty). */
 export function isIntakeAnswerProvided(answer: ProjectPrimitiveValue | undefined): boolean {
   if (answer === undefined || answer === null || answer === '') return false

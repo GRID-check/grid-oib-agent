@@ -9,11 +9,9 @@ This is the main orchestrator agent that coordinates the full research workflow:
 """
 
 import logging
-import re
 from collections.abc import Awaitable
 from collections.abc import Callable
 from typing import Any
-from typing import Literal
 
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import AIMessage
@@ -29,6 +27,11 @@ from langgraph.types import Command
 from aiq_agent.agents.clarifier.models import ClarifierAgentState
 from aiq_agent.agents.clarifier.models import ClarifierResult
 from aiq_agent.agents.deep_researcher.models import DeepResearchAgentState
+from aiq_agent.agents.shallow_researcher.markers import CONFIDENCE_MARKER_RE  # noqa: F401 (re-exported)
+from aiq_agent.agents.shallow_researcher.markers import ESCALATION_MARKER  # noqa: F401 (re-exported)
+from aiq_agent.agents.shallow_researcher.markers import ConfidenceLevel
+from aiq_agent.agents.shallow_researcher.markers import detect_and_strip_confidence_marker
+from aiq_agent.agents.shallow_researcher.markers import detect_and_strip_escalation_marker
 from aiq_agent.agents.shallow_researcher.models import ShallowResearchAgentState
 from aiq_agent.common import get_latest_user_query
 from aiq_agent.common.citation_verification import EmptySourceRegistryError
@@ -44,74 +47,6 @@ from .models import ShallowResult
 from .utils import trim_message_history
 
 logger = logging.getLogger(__name__)
-
-ESCALATION_MARKER = "[ESCALATE_TO_DEEP]"
-
-
-def detect_and_strip_escalation_marker(content: Any) -> tuple[Any, bool]:
-    """Detect and remove the shallow-agent insufficiency marker from a message.
-
-    If ``content`` is not a string it is returned unchanged with ``False``.
-    Otherwise every literal occurrence of :data:`ESCALATION_MARKER` (matched
-    leniently as a substring anywhere in the text) is removed, the resulting
-    trailing whitespace is collapsed (including any dangling blank line the
-    marker left behind), and ``(stripped, was_present)`` is returned.
-    """
-    if not isinstance(content, str):
-        return content, False
-
-    if ESCALATION_MARKER not in content:
-        return content, False
-
-    stripped = content.replace(ESCALATION_MARKER, "")
-    # Collapse trailing whitespace and any blank line left where the marker sat.
-    stripped = stripped.rstrip()
-    return stripped, True
-
-
-# The model ends every research answer with a self-assessment marker of the
-# form ``[CONFIDENCE:low|medium|high]`` (see the shallow researcher prompt). The
-# value is bracketed and case-insensitive; the capture group is validated
-# against the enum below so a malformed value ("certain", empty, …) is stripped
-# from the text but yields no signal.
-CONFIDENCE_MARKER_RE = re.compile(r"\[CONFIDENCE:\s*([^\]]*)\]", re.IGNORECASE)
-_VALID_CONFIDENCE_VALUES = frozenset({"low", "medium", "high"})
-
-ConfidenceLevel = Literal["low", "medium", "high"]
-
-
-def detect_and_strip_confidence_marker(content: Any) -> tuple[Any, ConfidenceLevel | None]:
-    """Detect and remove the model's self-assessed confidence marker.
-
-    Mirrors :func:`detect_and_strip_escalation_marker`: fail-open and
-    tail-tolerant. If ``content`` is not a string it is returned unchanged with
-    ``None``. Otherwise EVERY ``[CONFIDENCE:...]`` marker (matched leniently as a
-    substring, case-insensitive) is stripped so the user never sees it, and the
-    parsed level is returned as ``(stripped, level)``:
-
-    - ``level`` is the well-formed value ("low"/"medium"/"high") — the last one
-      when several appear (the answer's final marker wins).
-    - Absent marker, or a marker whose value is not one of the three, yields
-      ``None`` (no signal). Malformed markers are still stripped from the text.
-
-    Order-insensitive with respect to the escalation marker: each marker is
-    detected and removed independently, so both may co-occur in any order.
-    """
-    if not isinstance(content, str):
-        return content, None
-
-    matches = list(CONFIDENCE_MARKER_RE.finditer(content))
-    if not matches:
-        return content, None
-
-    level: ConfidenceLevel | None = None
-    for match in matches:
-        candidate = match.group(1).strip().lower()
-        if candidate in _VALID_CONFIDENCE_VALUES:
-            level = candidate  # type: ignore[assignment]
-
-    stripped = CONFIDENCE_MARKER_RE.sub("", content).rstrip()
-    return stripped, level
 
 
 def surface_answer_confidence(
@@ -133,11 +68,25 @@ def surface_answer_confidence(
     return self_reported
 
 
-def _finalize_shallow_answer(message: BaseMessage, citation_grounded: bool) -> dict[str, Any]:
+def _finalize_shallow_answer(
+    message: BaseMessage,
+    citation_grounded: bool,
+    *,
+    escalation_present: bool | None = None,
+    self_reported: ConfidenceLevel | None = None,
+) -> dict[str, Any]:
     """Build the node update for a successful/insufficient shallow answer.
 
-    Strips BOTH control markers from the answer text (order-insensitive) so the
-    user never sees either, then routes:
+    The shallow agent now extracts and strips BOTH control markers inside its
+    own ``run()`` and returns the signals as structured state fields. When those
+    signals are provided here (``escalation_present`` is not ``None``) they are
+    authoritative; the answer text is still stripped defensively in case a
+    different message than the one ``run()`` cleaned reached this node. When they
+    are absent (``escalation_present is None`` — e.g. a caller that predates the
+    structured carrier), we FALL BACK to detecting the markers from the message
+    text, preserving the original behavior.
+
+    Routing:
 
     - Escalation marker present → escalate to deep research (``shallow_result``
       with ``escalate_to_deep=True``) and surface NO confidence chip. The deep
@@ -152,8 +101,15 @@ def _finalize_shallow_answer(message: BaseMessage, citation_grounded: bool) -> d
     if not isinstance(content, str):
         return {"messages": [message], "shallow_result": None}
 
-    without_escalation, escalation_present = detect_and_strip_escalation_marker(content)
-    clean_content, self_reported = detect_and_strip_confidence_marker(without_escalation)
+    if escalation_present is None:
+        # Fallback: no structured signals — detect both markers from the text.
+        without_escalation, escalation_present = detect_and_strip_escalation_marker(content)
+        clean_content, self_reported = detect_and_strip_confidence_marker(without_escalation)
+    else:
+        # Structured signals are authoritative for routing; strip defensively so
+        # no marker can leak even if this message still carries one.
+        without_escalation, _ = detect_and_strip_escalation_marker(content)
+        clean_content, _ = detect_and_strip_confidence_marker(without_escalation)
 
     updated_message = message.model_copy(update={"content": clean_content}) if clean_content != content else message
 
@@ -434,10 +390,34 @@ class ChatResearcherAgent:
             # False, so an ungrounded self-report is capped to "low".
             citation_grounded = bool(getattr(result, "answer_citation_grounded", False))
 
+            # Prefer the structured control-marker signals the shallow agent
+            # extracted in its run(); fall back to string-detection inside
+            # _finalize_shallow_answer when they are absent (older callers). The
+            # shallow agent leaves ``escalation_requested`` None until extraction
+            # actually ran on a real answer message — None is the sentinel for
+            # "not extracted", so a bool (True/False) means trust these fields.
+            raw_escalation = getattr(result, "escalation_requested", None)
+            if raw_escalation is not None:
+                escalation_present: bool | None = bool(raw_escalation)
+                self_reported = getattr(result, "answer_confidence_marker", None)
+            else:
+                escalation_present = None
+                self_reported = None
+
             if final_ai_message:
-                return _finalize_shallow_answer(final_ai_message, citation_grounded)
+                return _finalize_shallow_answer(
+                    final_ai_message,
+                    citation_grounded,
+                    escalation_present=escalation_present,
+                    self_reported=self_reported,
+                )
             if new_messages:
-                return _finalize_shallow_answer(new_messages[-1], citation_grounded)
+                return _finalize_shallow_answer(
+                    new_messages[-1],
+                    citation_grounded,
+                    escalation_present=escalation_present,
+                    self_reported=self_reported,
+                )
             return {"messages": [], "shallow_result": None}
 
         async def deep_research_node(state: ChatResearcherState) -> dict[str, Any]:

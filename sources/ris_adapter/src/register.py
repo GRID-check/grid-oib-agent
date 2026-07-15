@@ -24,8 +24,10 @@ from datetime import UTC
 from datetime import datetime
 from typing import Literal
 
+from langchain_core.exceptions import OutputParserException
 from pydantic import BaseModel
 from pydantic import Field
+from pydantic import ValidationError
 from ris_adapter.client import CONTROLLER_FOR_APPLICATION
 from ris_adapter.client import DEFAULT_BASE_URL
 from ris_adapter.client import PAGE_SIZES
@@ -135,10 +137,12 @@ def _build_search_params(
 class RisSearchPlan(BaseModel):
     """Structured RIS search plan.
 
-    Produced by the planner LLM with ``response_format: json_schema`` +
-    ``strict: true`` (OpenRouter structured outputs), so every field is
-    guaranteed schema-valid — the enum constraints make an invalid
-    application or Bundesland impossible.
+    Requested from the planner LLM with ``response_format: json_schema`` +
+    ``strict: true`` (OpenRouter structured outputs). Not every OpenRouter-served
+    model honors strict schema mode, so a garbled JSON payload can still reach the
+    parser and raise ``ValidationError``; ``_make_planner`` guards that with a
+    bounded corrective retry. The enum constraints reject an invalid application
+    or Bundesland whenever the payload does parse.
     """
 
     application: Literal[
@@ -220,10 +224,12 @@ def _apply_org_llm_policy(llm):
 
 
 def _make_planner(llm):
-    """Wrap a LangChain chat model into a RIS search planner using strict structured outputs.
+    """Wrap a LangChain chat model into a RIS search planner using structured outputs.
 
     ``method="json_schema"`` emits ``response_format: {type: json_schema, strict: true}`` —
-    the OpenRouter structured-outputs wire format — so the plan always validates.
+    the OpenRouter structured-outputs wire format. Not every OpenRouter-served model
+    honors ``strict: true``, so ``_plan`` performs one bounded corrective retry on a
+    parse/validation failure before letting the error surface to the caller's fail-open.
     """
 
     async def _plan(query: str, application: str, title: str, bundesland: str, date_from: str, date_to: str):
@@ -236,12 +242,31 @@ def _make_planner(llm):
             f"date_to: {date_to or '(none)'}\n"
             "Respect the caller suggestion unless it is clearly wrong for this request."
         )
-        return await structured.ainvoke(
-            [
-                {"role": "system", "content": _PLANNER_SYSTEM_PROMPT},
-                {"role": "user", "content": request},
+        messages = [
+            {"role": "system", "content": _PLANNER_SYSTEM_PROMPT},
+            {"role": "user", "content": request},
+        ]
+        try:
+            return await structured.ainvoke(messages)
+        except (ValidationError, OutputParserException):
+            # strict=True is not honored by every OpenRouter-served model, so a
+            # garbled JSON payload can still reach the parser. Retry once with an
+            # explicit corrective instruction; a second failure propagates to the
+            # caller's outer fail-open (which reverts to the caller arguments).
+            # TODO(follow-up): re-evaluate switching method= away from json_schema
+            #   once alternatives are validated against the live model fleet.
+            logger.warning("ris_search planner: invalid structured output, retrying once", exc_info=True)
+            corrective = [
+                *messages,
+                {
+                    "role": "user",
+                    "content": (
+                        "Your previous output was invalid JSON. Return ONLY a single valid "
+                        "JSON object matching the schema."
+                    ),
+                },
             ]
-        )
+            return await structured.ainvoke(corrective)
 
     return _plan
 
