@@ -28,6 +28,7 @@ const mockFetch = (status: number, body: unknown = {}) =>
     json: async () => body,
   })
 
+/** A brief WITH captured facts — summary generation auto-starts for this one. */
 const profile: ProjectProfile = {
   facts: {
     hauptnutzung: {
@@ -42,23 +43,80 @@ const profile: ProjectProfile = {
   assumptions: {},
 }
 
-describe('ProjectBrief summary control', () => {
+/** A started-but-empty brief — nothing to summarise, so no auto-start. */
+const emptyProfile: ProjectProfile = { facts: {}, goals: {}, unknowns: [], assumptions: {} }
+
+describe('ProjectBrief summary auto-generation (post-wizard-save)', () => {
   beforeEach(() => {
     vi.unstubAllGlobals()
     vi.clearAllMocks()
   })
 
-  test('shows a Generate summary action when no prose exists yet', () => {
+  test('auto-starts generation when facts exist but prose does not, then refreshes silently', async () => {
+    const fetchSpy = mockFetch(200, { summary: 'A crisp brief.' })
+    vi.stubGlobal('fetch', fetchSpy)
+
     render(<ProjectBrief projectId="proj-1" profile={profile} summary="" briefStarted />)
-    expect(screen.getByRole('button', { name: /Generate summary/i })).toBeDefined()
+
+    // A visible "writing…" state, not an inviting duplicate-generate button.
+    expect(screen.getByText(/writing the project summary/i)).toBeDefined()
+    expect(screen.queryByRole('button', { name: /Generate summary/i })).toBeNull()
+
+    await waitFor(() => expect(refresh).toHaveBeenCalled())
+    const [url, init] = fetchSpy.mock.calls[0]
+    expect(url).toBe('/api/projects/proj-1/generate-summary')
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(String(init.body))).toEqual({ locale: 'en' })
+    // Silent: the prose appearing IS the feedback; no toast on the auto path.
+    expect(toast.success).not.toHaveBeenCalled()
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
   })
 
-  test('generates a summary and refreshes on success', async () => {
+  test('an auto-run failure degrades silently to the manual Generate button', async () => {
+    vi.stubGlobal('fetch', mockFetch(200, { summary: '', error: 'llm_not_configured' }))
+
+    render(<ProjectBrief projectId="proj-1" profile={profile} summary="" briefStarted />)
+
+    expect(await screen.findByRole('button', { name: /Generate summary/i })).toBeDefined()
+    // No error toast for viewers/every visitor — manual retry surfaces details.
+    expect(toast.error).not.toHaveBeenCalled()
+    expect(refresh).not.toHaveBeenCalled()
+  })
+
+  test('does NOT auto-start when the brief has no facts to summarise', () => {
+    const fetchSpy = mockFetch(200, { summary: '' })
+    vi.stubGlobal('fetch', fetchSpy)
+
+    render(<ProjectBrief projectId="proj-1" profile={emptyProfile} summary="" briefStarted />)
+
+    expect(screen.getByRole('button', { name: /Generate summary/i })).toBeDefined()
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  test('does NOT auto-start when prose already exists', () => {
+    const fetchSpy = mockFetch(200, { summary: '' })
+    vi.stubGlobal('fetch', fetchSpy)
+
+    render(<ProjectBrief projectId="proj-1" profile={profile} summary="Existing prose." briefStarted />)
+
+    expect(screen.getByText('Existing prose.')).toBeDefined()
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+})
+
+describe('ProjectBrief manual summary control', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals()
+    vi.clearAllMocks()
+  })
+
+  test('generates on click and refreshes with a success toast', async () => {
     const fetchSpy = mockFetch(200, { summary: 'A crisp brief.' })
     vi.stubGlobal('fetch', fetchSpy)
     const user = userEvent.setup()
 
-    render(<ProjectBrief projectId="proj-1" profile={profile} summary="" briefStarted />)
+    // Empty profile → no auto-start; the click is the only trigger.
+    render(<ProjectBrief projectId="proj-1" profile={emptyProfile} summary="" briefStarted />)
     await user.click(screen.getByRole('button', { name: /Generate summary/i }))
 
     await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1))
@@ -73,7 +131,7 @@ describe('ProjectBrief summary control', () => {
     vi.stubGlobal('fetch', mockFetch(200, { summary: '', error: 'llm_not_configured' }))
     const user = userEvent.setup()
 
-    render(<ProjectBrief projectId="proj-1" profile={profile} summary="" briefStarted />)
+    render(<ProjectBrief projectId="proj-1" profile={emptyProfile} summary="" briefStarted />)
     await user.click(screen.getByRole('button', { name: /Generate summary/i }))
 
     await waitFor(() =>
@@ -86,7 +144,7 @@ describe('ProjectBrief summary control', () => {
     vi.stubGlobal('fetch', mockFetch(403, { error: 'forbidden' }))
     const user = userEvent.setup()
 
-    render(<ProjectBrief projectId="proj-1" profile={profile} summary="" briefStarted />)
+    render(<ProjectBrief projectId="proj-1" profile={emptyProfile} summary="" briefStarted />)
     await user.click(screen.getByRole('button', { name: /Generate summary/i }))
 
     await waitFor(() =>

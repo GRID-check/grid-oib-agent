@@ -8,12 +8,13 @@ import {
   formatIntakeAnswer,
   humanizeProfileKey,
   labelForProfileKey,
+  mergeIntakeProfile,
   projectIntakeDefinitionV1,
   pruneStaleConditionalAnswers,
   validateProfilePatchVocabulary,
 } from './intake-definition'
 import { ProjectProfileSchema } from './types'
-import type { ProjectPrimitiveValue, ProjectProfilePatchOperation } from './types'
+import type { ProjectPrimitiveValue, ProjectProfile, ProjectProfilePatchOperation } from './types'
 
 const definition = projectIntakeDefinitionV1
 
@@ -224,6 +225,79 @@ describe('pruneStaleConditionalAnswers', () => {
   it('is a no-op when the definition is missing', () => {
     const answers = { hauptnutzung: 'buero', anzahl_betten: 40 }
     expect(pruneStaleConditionalAnswers(answers, null)).toBe(answers)
+  })
+})
+
+describe('mergeIntakeProfile', () => {
+  const fact = (value: ProjectPrimitiveValue) => ({
+    value,
+    confidence: 'confirmed' as const,
+    source: 'user_confirmed' as const,
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  })
+
+  const storedProfile: ProjectProfile = {
+    facts: {
+      // Intake-owned, previously answered:
+      hauptnutzung: fact('buero'),
+      // Agent-recorded NOVEL fact (no intake question owns this key):
+      brandabschnitt_flaeche: fact(1200),
+    },
+    goals: {
+      focus_areas: ['einreichung'],
+      // Agent-recorded novel goal:
+      zieltermin: '2027-03-01',
+    },
+    unknowns: ['gebaeudeklasse', 'statik_gutachten'],
+    assumptions: {
+      widmung: {
+        value: 'bauland',
+        status: 'unconfirmed' as const,
+        reason: 'agent guess',
+        source: 'agent_suggested' as const,
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+    },
+  }
+
+  it('preserves agent-recorded novel facts, goals, unknowns, and assumptions', () => {
+    const built = buildIntakeProfile({ hauptnutzung: 'wohnen', anzahl_einheiten: 8 }, definition)
+    const merged = mergeIntakeProfile(built, storedProfile, definition)
+
+    // The wizard's fresh answers win for intake-owned keys...
+    expect(merged.facts.hauptnutzung?.value).toBe('wohnen')
+    expect(merged.facts.anzahl_einheiten?.value).toBe(8)
+    // ...while everything the wizard doesn't own survives.
+    expect(merged.facts.brandabschnitt_flaeche?.value).toBe(1200)
+    expect(merged.goals.zieltermin).toBe('2027-03-01')
+    expect(merged.unknowns).toContain('statik_gutachten')
+    expect(merged.assumptions.widmung?.value).toBe('bauland')
+    expect(() => ProjectProfileSchema.parse(merged)).not.toThrow()
+  })
+
+  it('does NOT resurrect an intake answer the user just cleared', () => {
+    // hauptnutzung answered before, left blank now → it must land in unknowns,
+    // not silently reappear from the stored profile.
+    const built = buildIntakeProfile({}, definition)
+    const merged = mergeIntakeProfile(built, storedProfile, definition)
+
+    expect(merged.facts.hauptnutzung).toBeUndefined()
+    expect(merged.unknowns).toContain('hauptnutzung')
+  })
+
+  it('drops stored intake-owned unknowns that the wizard has now answered', () => {
+    const built = buildIntakeProfile({ gebaeudeklasse: 'GK3' }, definition)
+    const merged = mergeIntakeProfile(built, storedProfile, definition)
+
+    expect(merged.facts.gebaeudeklasse?.value).toBe('GK3')
+    expect(merged.unknowns).not.toContain('gebaeudeklasse')
+    // Non-intake unknowns are kept, without duplicates.
+    expect(merged.unknowns.filter((k) => k === 'statik_gutachten')).toHaveLength(1)
+  })
+
+  it('returns the built profile unchanged when there is no stored profile', () => {
+    const built = buildIntakeProfile({ hauptnutzung: 'wohnen', anzahl_einheiten: 8 }, definition)
+    expect(mergeIntakeProfile(built, null, definition)).toBe(built)
   })
 })
 

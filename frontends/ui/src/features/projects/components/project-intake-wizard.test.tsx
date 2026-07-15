@@ -215,7 +215,7 @@ describe('ProjectIntakeWizard — FB-13 conflict check', () => {
   })
 })
 
-describe('ProjectIntakeWizard — summary generation is off the save critical path', () => {
+describe('ProjectIntakeWizard — summary generation is fully off the save path', () => {
   beforeEach(() => {
     vi.unstubAllGlobals()
     vi.clearAllMocks()
@@ -223,34 +223,139 @@ describe('ProjectIntakeWizard — summary generation is off the save critical pa
   })
   afterEach(() => sessionStorage.clear())
 
-  it('navigates on save even when generate-summary never resolves (fire-and-forget)', async () => {
+  it('saves and navigates without ever calling generate-summary (the Overview brief owns it)', async () => {
     const user = userEvent.setup()
-    const calls: Recorded[] = []
-    // /generate-summary hangs forever; the save must still complete + navigate.
-    const fetch = vi.fn((url: string, init?: RequestInit) => {
-      const method = init?.method ?? 'GET'
-      calls.push({ url, method, body: init?.body ? JSON.parse(String(init.body)) : undefined })
-      if (url.endsWith('/intake-definition')) {
-        return Promise.resolve({ ok: true, status: 200, json: async () => projectIntakeDefinitionV1 })
-      }
-      if (url.endsWith('/generate-summary')) {
-        return new Promise(() => {}) // never resolves — a hung backend
-      }
-      return Promise.resolve({ ok: true, status: 200, json: async () => ({}) })
-    })
-    vi.stubGlobal('fetch', fetch)
+    const stub = stubFetch()
 
     seedReviewDraft({ gebaeudeklasse: 'GK1', geschosse_oberirdisch: 8 })
     renderWizard(false)
 
     await user.click(await screen.findByRole('button', { name: /save/i }))
 
-    // The profile PUT is the durable save; navigation must not wait on the summary.
     await waitFor(() => expect(pushMock).toHaveBeenCalledWith(`/app/projects/${PROJECT_ID}`))
     expect(refreshMock).toHaveBeenCalled()
-    expect(calls.some((c) => c.url.endsWith(`/projects/${PROJECT_ID}/profile`) && c.method === 'PUT')).toBe(true)
-    // The summary generation was dispatched (fire-and-forget), not awaited.
-    expect(calls.some((c) => c.url.endsWith('/generate-summary') && c.method === 'POST')).toBe(true)
+    expect(putProfileCalls(stub)).toHaveLength(1)
+    // The wizard's old fire-and-forget always lost the race against the redirect
+    // (the summary landed after the Overview rendered) — generation now lives in
+    // the Overview's brief panel, where the result is actually displayed.
+    expect(stub.calls.some((c) => c.url.endsWith('/generate-summary'))).toBe(false)
+  })
+})
+
+describe('ProjectIntakeWizard — optimistic concurrency (If-Match)', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals()
+    vi.clearAllMocks()
+    sessionStorage.clear()
+  })
+  afterEach(() => sessionStorage.clear())
+
+  const recordHeaders = () => {
+    const headers: Array<Record<string, string> | undefined> = []
+    const fetch = vi.fn((url: string, init?: RequestInit) => {
+      if (url.endsWith('/intake-definition')) {
+        return Promise.resolve({ ok: true, status: 200, json: async () => projectIntakeDefinitionV1 })
+      }
+      if (init?.method === 'PUT') headers.push(init.headers as Record<string, string>)
+      return Promise.resolve({ ok: true, status: 200, json: async () => ({}) })
+    })
+    vi.stubGlobal('fetch', fetch)
+    return headers
+  }
+
+  it('sends the loaded profileVersion as If-Match so concurrent edits 409', async () => {
+    const user = userEvent.setup()
+    const headers = recordHeaders()
+    seedReviewDraft({ hauptnutzung: 'wohnen', anzahl_einheiten: 3 })
+    render(
+      <ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" initialProfileVersion={7} />,
+    )
+
+    await user.click(await screen.findByRole('button', { name: /save/i }))
+
+    await waitFor(() => expect(pushMock).toHaveBeenCalled())
+    expect(headers[0]?.['If-Match']).toBe('7')
+  })
+
+  it('omits If-Match when no version was provided (legacy behavior)', async () => {
+    const user = userEvent.setup()
+    const headers = recordHeaders()
+    seedReviewDraft({ hauptnutzung: 'wohnen', anzahl_einheiten: 3 })
+    renderWizard(false)
+
+    await user.click(await screen.findByRole('button', { name: /save/i }))
+
+    await waitFor(() => expect(pushMock).toHaveBeenCalled())
+    expect(headers[0]?.['If-Match']).toBeUndefined()
+  })
+
+  it('a 409 surfaces the conflict message and does not navigate', async () => {
+    const user = userEvent.setup()
+    const fetch = vi.fn((url: string, init?: RequestInit) => {
+      if (url.endsWith('/intake-definition')) {
+        return Promise.resolve({ ok: true, status: 200, json: async () => projectIntakeDefinitionV1 })
+      }
+      if (init?.method === 'PUT') {
+        return Promise.resolve({ ok: false, status: 409, json: async () => ({}) })
+      }
+      return Promise.resolve({ ok: true, status: 200, json: async () => ({}) })
+    })
+    vi.stubGlobal('fetch', fetch)
+    seedReviewDraft({ hauptnutzung: 'wohnen', anzahl_einheiten: 3 })
+    render(
+      <ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" initialProfileVersion={7} />,
+    )
+
+    await user.click(await screen.findByRole('button', { name: /save/i }))
+
+    expect(await screen.findByText(/changed elsewhere/i)).toBeInTheDocument()
+    expect(pushMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('ProjectIntakeWizard — edit-mode save preserves agent-recorded knowledge', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals()
+    vi.clearAllMocks()
+    sessionStorage.clear()
+  })
+  afterEach(() => sessionStorage.clear())
+
+  it('carries novel facts/goals/unknowns through the whole-profile PUT', async () => {
+    const user = userEvent.setup()
+    const stub = stubFetch()
+    seedReviewDraft({ hauptnutzung: 'wohnen', anzahl_einheiten: 3 })
+    const initialProfile = {
+      facts: {
+        // Novel key the agent recorded via the patch flow — no intake question owns it.
+        brandabschnitt_flaeche: {
+          value: 1200,
+          confidence: 'confirmed' as const,
+          source: 'user_confirmed' as const,
+          updatedAt: '2026-01-01T00:00:00.000Z',
+        },
+      },
+      goals: { zieltermin: '2027-03-01' },
+      unknowns: ['statik_gutachten'],
+      assumptions: {},
+    }
+    render(
+      <ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" mode="edit" initialProfile={initialProfile} />,
+    )
+
+    await user.click(await screen.findByRole('button', { name: /save changes/i }))
+
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith(`/app/projects/${PROJECT_ID}`))
+    const body = putProfileCalls(stub)[0].body as {
+      facts: Record<string, { value?: unknown }>
+      goals: Record<string, unknown>
+      unknowns: string[]
+    }
+    expect(body.facts.brandabschnitt_flaeche?.value).toBe(1200)
+    expect(body.goals.zieltermin).toBe('2027-03-01')
+    expect(body.unknowns).toContain('statik_gutachten')
+    // The wizard's own answers still land as usual.
+    expect(body.facts.hauptnutzung?.value).toBe('wohnen')
   })
 })
 

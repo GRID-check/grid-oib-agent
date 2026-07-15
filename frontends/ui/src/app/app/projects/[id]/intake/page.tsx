@@ -27,7 +27,7 @@ export default async function IntakePage({ params }: IntakePageProps): Promise<J
 
   const db = getDb()
   const [project] = await db
-    .select({ name: projects.name, profile: projects.profile })
+    .select({ name: projects.name, profile: projects.profile, profileVersion: projects.profileVersion })
     .from(projects)
     .where(eq(projects.id, id))
     .limit(1)
@@ -56,6 +56,7 @@ export default async function IntakePage({ params }: IntakePageProps): Promise<J
       projectName={project.name}
       mode={mode}
       initialProfile={initialProfile}
+      initialProfileVersion={project.profileVersion}
       conflictCheckEnabled={conflictCheckEnabled}
       salvageNotice={salvageNotice}
     />

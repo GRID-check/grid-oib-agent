@@ -31,7 +31,11 @@ class IngestRequest(BaseModel):
 class GenerateSummaryRequest(BaseModel):
     """Request body for AI project summary generation."""
 
-    profile_text: str = Field(..., description="Structured project profile prompt view text")
+    profile_text: str = Field(..., description="Human-readable project profile text (label: value lines)")
+    locale: str = Field(
+        default="de",
+        description="UI locale ('de' or 'en') — the language the summary must be written in",
+    )
 
 
 class GenerateSummaryResponse(BaseModel):

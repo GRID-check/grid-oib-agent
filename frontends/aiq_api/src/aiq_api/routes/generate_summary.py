@@ -71,13 +71,17 @@ def add_generate_summary_routes(router: APIRouter) -> None:
 
         headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
 
+        # Mirrors consistency_check.py so both endpoints localise identically.
+        language = "German" if request.locale.lower().startswith("de") else "English"
+        user_content = f"Write the summary in {language}.\n\n{profile_text}"
+
         payload = {
             "model": model,
             "temperature": 0.3,
             "max_tokens": 150,
             "messages": [
                 {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": profile_text},
+                {"role": "user", "content": user_content},
             ],
         }
 
