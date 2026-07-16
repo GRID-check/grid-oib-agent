@@ -57,6 +57,7 @@ export default async function ProjectsPage({ searchParams }: ProjectsPageProps):
         canManageOrganization={navFlags.canManageOrganization}
         canViewOrganization={navFlags.canViewOrganization}
         canManagePlatform={navFlags.canManagePlatform}
+        canAccessArchiv={navFlags.canAccessArchiv}
       />
 
       <main id="main-content" className="mx-auto w-full max-w-5xl flex-1 px-4 py-6 md:px-8 md:py-10">

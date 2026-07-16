@@ -8,8 +8,9 @@ import { useAppConfig } from '@/shared/context'
 import { DEFAULT_ACCEPTED_FILE_TYPES } from '../constants'
 
 interface ProjectUppyUploadProps {
-  projectId: string
-  folderId: string | null
+  /** Present for project corpus uploads; omitted for the org-wide Archiv. */
+  projectId?: string
+  folderId?: string | null
   onUpload: (files: File[]) => void
   isUploading: boolean
   /** Visual variant of the trigger button. */
@@ -19,10 +20,11 @@ interface ProjectUppyUploadProps {
 }
 
 /**
- * Upload trigger for the project corpus. Files selected here are persisted to the
- * project's durable document collection (not a throwaway chat session), so they
- * ground Grid's answers for the whole project. Presentation only — validation and
- * orchestration stay in the useFileUpload hook (the onUpload contract).
+ * Upload trigger for a durable document corpus. Files selected here are
+ * persisted to the target collection (a project's corpus or the org-wide
+ * Archiv), not a throwaway chat session. Presentation only — validation and
+ * orchestration stay in the useFileUpload hook (the onUpload contract), so
+ * `projectId`/`folderId` are unused here and optional.
  */
 export function ProjectUppyUpload({
   onUpload,

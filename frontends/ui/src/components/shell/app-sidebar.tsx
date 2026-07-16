@@ -75,6 +75,8 @@ export interface AppSidebarProps {
   canViewOrganization?: boolean
   /** Whether the current user is the platform owner (ADR-0016). */
   canManagePlatform?: boolean
+  /** Whether the org-wide Archiv is reachable (any member, feature-gated — ADR-0024). */
+  canAccessArchiv?: boolean
   /** Whether the project knowledge page is enabled (feature-flagged, default off). */
   showKnowledge?: boolean
   /** Whether the Workflows page is enabled (feature-flagged, default off). */
@@ -95,6 +97,7 @@ export function AppSidebar({
   canManageOrganization = false,
   canViewOrganization = false,
   canManagePlatform = false,
+  canAccessArchiv = false,
   showKnowledge = false,
   showWorkflows = false,
   showResearch = true,
@@ -306,6 +309,7 @@ export function AppSidebar({
                 canManageOrganization={canManageOrganization}
                 canViewOrganization={canViewOrganization}
                 canManagePlatform={canManagePlatform}
+                canAccessArchiv={canAccessArchiv}
               />
             </div>
           </div>
@@ -393,6 +397,7 @@ export function AppSidebar({
             canManageOrganization={canManageOrganization}
             canViewOrganization={canViewOrganization}
             canManagePlatform={canManagePlatform}
+            canAccessArchiv={canAccessArchiv}
           />
         </div>
       </aside>

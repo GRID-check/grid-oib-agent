@@ -45,6 +45,16 @@ export function canViewAuditLogs(session: SessionSlice): boolean {
   return hasPermission(session, ORG_PERMISSIONS.auditView)
 }
 
+/**
+ * May manage the org-wide document Archiv: upload, delete, re-ingest, retag.
+ * Reads (list/preview/download) are open to every org member — the Archiv is
+ * shared knowledge — so only mutations gate on this permission. Org admins hold
+ * it via the `hasPermission` back-compat rule.
+ */
+export function canManageArchiv(session: SessionSlice): boolean {
+  return hasPermission(session, ORG_PERMISSIONS.archivManage)
+}
+
 /** Widget permissions we allow the UI to request a token for, when held. */
 export const ORG_WIDGET_PERMISSIONS = [
   'widgets:users-table:manage',

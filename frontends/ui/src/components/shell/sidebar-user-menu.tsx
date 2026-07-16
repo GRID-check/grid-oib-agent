@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { Building2, Check, Globe, LayoutDashboard, LogOut, Monitor, Moon, Sun, UserRound } from 'lucide-react'
+import { Archive, Building2, Check, Globe, LayoutDashboard, LogOut, Monitor, Moon, Sun, UserRound } from 'lucide-react'
 
 import { useAuth } from '@/adapters/auth/use-auth'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -46,6 +46,8 @@ export interface SidebarUserMenuProps {
   canViewOrganization?: boolean
   /** Show the platform dashboard entry (platform owner only, ADR-0016). */
   canManagePlatform?: boolean
+  /** Show the org-wide Archiv entry (any org member, when enabled — ADR-0024). */
+  canAccessArchiv?: boolean
 }
 
 const THEME_ICONS: Record<ThemeMode, React.ComponentType<{ className?: string }>> = {
@@ -64,6 +66,7 @@ export function SidebarUserMenu({
   canManageOrganization = false,
   canViewOrganization = false,
   canManagePlatform = false,
+  canAccessArchiv = false,
 }: SidebarUserMenuProps) {
   const { signOut } = useAuth()
   const theme = useLayoutStore((s) => s.theme)
@@ -115,6 +118,14 @@ export function SidebarUserMenu({
             {t('userMenu.profile')}
           </Link>
         </DropdownMenuItem>
+        {canAccessArchiv && (
+          <DropdownMenuItem asChild className="gap-2">
+            <Link href="/app/archiv">
+              <Archive className="size-4 text-muted-foreground" aria-hidden />
+              {t('userMenu.archiv')}
+            </Link>
+          </DropdownMenuItem>
+        )}
         {(canViewOrganization || canManageOrganization) && (
           <DropdownMenuItem asChild className="gap-2">
             <Link href="/app/organization">

@@ -27,6 +27,13 @@ interface UseFileUploadOptions {
   collectionName?: string
   projectId?: string
   folderId?: string
+  /**
+   * Upload into the org-wide Archiv instead of a project corpus. Mutually
+   * exclusive with `projectId`: files POST to `/api/archiv/documents/upload`
+   * (the org is resolved server-side from the session) and land in the shared
+   * `archiv_<orgId>` collection passed as `collectionName`.
+   */
+  archiv?: boolean
   onComplete?: () => void
   onError?: (error: Error) => void
 }
@@ -46,7 +53,7 @@ interface UseFileUploadReturn {
 }
 
 export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUploadReturn => {
-  const { collectionName, projectId, folderId, onComplete, onError } = options
+  const { collectionName, projectId, folderId, archiv, onComplete, onError } = options
 
   const { idToken } = useAuth()
   const t = useTranslations('files')
@@ -221,20 +228,26 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
       try {
         await ensureCollectionExists(targetCollection)
 
-        if (projectId) {
-          // Project uploads persist document metadata before backend ingestion.
+        if (projectId || archiv) {
+          // Project AND Archiv uploads persist a durable document row before
+          // backend ingestion (unlike throwaway chat-session uploads). They
+          // share the per-file POST loop; only the endpoint and form fields
+          // differ (Archiv resolves the org server-side, no projectId/folderId).
+          const uploadUrl = archiv ? '/api/archiv/documents/upload' : '/api/documents/upload'
           for (const file of validFiles) {
             const trackedFile = trackedFileMap.get(file.name)
             if (!trackedFile) continue
 
             const formData = new FormData()
-            formData.append('projectId', projectId)
-            if (folderId) {
-              formData.append('folderId', folderId)
+            if (projectId) {
+              formData.append('projectId', projectId)
+              if (folderId) {
+                formData.append('folderId', folderId)
+              }
             }
             formData.append('file', file)
 
-            const response = await fetch('/api/documents/upload', {
+            const response = await fetch(uploadUrl, {
               method: 'POST',
               body: formData,
             })
@@ -317,6 +330,8 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
     [
       collectionName,
       projectId,
+      folderId,
+      archiv,
       validationContext,
       fileUploadConfig,
       ensureCollectionExists,

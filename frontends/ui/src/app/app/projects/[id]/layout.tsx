@@ -93,6 +93,7 @@ export default async function ProjectLayout({ children, params }: ProjectLayoutP
         canManageOrganization={navFlags.canManageOrganization}
         canViewOrganization={navFlags.canViewOrganization}
         canManagePlatform={navFlags.canManagePlatform}
+        canAccessArchiv={navFlags.canAccessArchiv}
         showKnowledge={isProjectKnowledgePageEnabled(session)}
         showWorkflows={isWorkflowsEnabled(session)}
         // FB-10: when research runs live in the chat-history panel, drop the

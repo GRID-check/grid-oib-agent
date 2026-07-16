@@ -27,6 +27,8 @@ export const ORG_PERMISSIONS = {
   complianceManage: 'org:compliance:manage',
   /** View the org's audit trail (native WorkOS Audit Logs viewer/exports). */
   auditView: 'org:audit:view',
+  /** Manage the org-wide document Archiv (upload/delete/reingest/retag). */
+  archivManage: 'org:archiv:manage',
 } as const
 
 /**

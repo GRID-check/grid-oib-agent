@@ -7,6 +7,8 @@ import {
   computeCollectionScope,
   type ScopeContext,
 } from '@/lib/collection-scope'
+import { isOrgArchivEnabled } from '@/lib/authz/feature-flags'
+import { archivCollectionName } from '@/lib/archiv/collection'
 import type { AuthorizedSession, GridSession } from '@/lib/auth/types'
 
 export interface RequestContext {
@@ -109,11 +111,20 @@ export async function buildCollectionScopeFromRequest(
     ? await resolveProjectCollectionName(projectId, session?.organizationId ?? undefined)
     : undefined
 
+  // Inject the org-wide Archiv collection for every authenticated request in an
+  // org that has the feature enabled — this is what makes the Archiv "shared
+  // across every project" (ADR-0024). Anonymous requests have no org, so none.
+  const archivCollection =
+    session?.organizationId && !anonymous && isOrgArchivEnabled(session)
+      ? archivCollectionName(session.organizationId)
+      : undefined
+
   const scope = computeCollectionScope(session, {
     projectId,
     projectCollectionName,
     includeProject,
     conversationId,
+    archivCollectionName: archivCollection,
   } satisfies ScopeContext)
 
   return {
