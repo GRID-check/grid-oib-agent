@@ -214,7 +214,7 @@ This limit is relevant in multi-tenant or multi-project setups where many collec
 
 ---
 
-## Async Deep-Research Jobs: Collection-Scope Re-injection Gap (known limitation, fix pending)
+## Async Deep-Research Jobs: Collection-Scope Re-injection Gap (fixed 2026-07-16, `f8093a0`)
 
 The scope header described above governs synchronous chat requests. Async
 deep-research jobs are different: the `X-Grid-Collection-Scope` header is
@@ -222,7 +222,7 @@ read **once, at job submit time**, in `chat_researcher/register.py`, and
 carried through as a `collection_scope` field on the job payload rather than
 as a live header.
 
-When the Dask worker later runs the job, `frontends/aiq_api/src/aiq_api/jobs/runner.py:591`
+When the Dask worker later runs the job, `frontends/aiq_api/src/aiq_api/jobs/runner.py:641`
 re-injects it into the worker's own request context **only when present**:
 
 ```python
@@ -237,9 +237,13 @@ BFF, or came from an older client that never set the header),
 to `_resolve_target_collections()` — priority 2 in the table below — using
 **base collection + session collection only**. Because `project_collections`
 is `[]` in the shipped configs, project collections are **never** searched in
-that fallback for the affected job. This degradation is silent: no warning is
-logged, and the job completes normally, just without project-scoped RAG
-results.
+that fallback for the affected job. The fallback behavior itself is
+unchanged — this is still a real degradation for the affected job — but it is
+no longer silent: the `elif` branch for `deep_research_agent` jobs now logs a
+one-time WARNING (job id, whether the request looked
+authenticated/project-scoped) at exactly the point re-injection would
+otherwise be skipped, so the gap is diagnosable from logs instead of
+invisible.
 
 ---
 

@@ -76,38 +76,39 @@ bounded by per-org/member/project budgets — see
   (orchestrator/planner/researcher/writer system prompts, tool registry,
   source registry) — every LLM call resends them in full. See
   [`scaling-review-2026-07.md`](scaling-review-2026-07.md) §6.1 for the cost
-  impact. On the deep-research graph specifically, even enabling provider
-  caching would be undercut by `ToolResultPruningMiddleware`'s
-  positional sliding-window truncation, which shifts message bytes on
-  nearly every model call — see
-  `src/aiq_agent/agents/deep_researcher/README.md` "Known limitations".
-- **No LLM request timeout (known limitation, fix pending).** No `llms.*`
-  block in any shipped config sets `request_timeout`. NAT's
-  `OpenAIModelConfig` (`nat/llm/openai_llm.py`) declares
-  `request_timeout: float | None = Field(default=None, ...)`, so an unset
-  value leaves the underlying HTTP client's timeout unbounded. The only
-  app-level ceilings on an LLM call are the intent classifier's
-  `asyncio.wait_for` (`llm_timeout`, default 90 s —
-  `chat_researcher/nodes/intent_classifier.py`) and card generation's 30 s
-  (`cards/generate.py:_CARD_LLM_TIMEOUT_S`); every other call site —
-  deep-research orchestrator/planner/researcher/writer turns, the
-  clarifier, memory reflection — has neither an HTTP-level nor an
-  app-level timeout. `recursion_limit` (2000 for deep research) bounds
-  graph *steps*, not wall-clock time, so a single stalled provider response
-  can block a run indefinitely.
-- **Retry stacking (known limitation, tuning pending).** Retries compound
-  across three independent, uncoordinated layers with no shared budget or
-  deadline: the per-role client-level `max_retries` in the YAML (5 for most
-  roles, 10 for the deep-research orchestrator/planner — see
-  `configs/config_oib_openrouter.yml`), `ModelRetryMiddleware(max_retries=2,
-  ...)` (retries on *any* exception), and `SelectiveToolRetryMiddleware(
-  max_retries=3, ...)` (retries on anything except `ValueError`) — both
-  middleware in the deep-research stack
-  (`agents/deep_researcher/factory.py`). Worst case for a single logical
-  model turn is on the order of ~33 attempts with independently
-  compounding backoff at each layer. See
-  [`scaling-review-2026-07.md`](scaling-review-2026-07.md) §6.3 for how
-  this multiplies again across concurrent runs.
+  impact. On the deep-research graph specifically, provider caching used to
+  be further undercut by `ToolResultPruningMiddleware` shifting message
+  bytes on nearly every model call; that truncation is now monotonic
+  (2026-07-16, `0b5d29d`), removing that specific defeat — see
+  `src/aiq_agent/agents/deep_researcher/README.md` "Known limitations" — but
+  no provider caching hints are actually set yet, so this remains an open
+  cost lever regardless.
+- **LLM request timeouts — fixed 2026-07-16 (`590ba1a`).** Every `llms.*`
+  block in `configs/config_oib_openrouter.yml` now sets `request_timeout`
+  (60–180 s depending on role) and `max_retries: 2`, so an unresponsive
+  upstream call can no longer hang a run indefinitely at the HTTP layer.
+  This is in addition to, not a replacement for, the intent classifier's
+  `asyncio.wait_for` (`llm_timeout`, default 90 s) and card generation's 30 s
+  app-level timeouts. `DeepResearcherAgent` additionally gained a wall-clock
+  `max_run_seconds` budget (config key, default 2400 s; `0` disables) around
+  the whole run via `asyncio.wait_for` — `recursion_limit` still bounds graph
+  *steps*, not time, but the run as a whole is now bounded either way.
+- **Retry stacking — tamed 2026-07-16 (`590ba1a`, `0b5d29d`).** Per-role
+  client-level `max_retries` in the YAML dropped from 5–10 to a uniform `2`
+  across every role (`configs/config_oib_openrouter.yml`). The deep-research
+  middleware retry predicates were also narrowed: `ModelRetryMiddleware`
+  (`agents/deep_researcher/factory.py`) now retries only rate limits,
+  timeouts, transport errors, and 5xx (`_is_transient_model_error`) instead
+  of any exception, and `SelectiveToolRetryMiddleware`
+  (`agents/deep_researcher/custom_middleware.py`) retries on anything except
+  `ValueError` — the model's own "invalid input" signal, which a retry can
+  never fix. Retries across the three layers (client, model middleware, tool
+  middleware) are still independent and uncoordinated (no shared budget or
+  deadline), but the worst case per logical turn is now on the order of a
+  handful of attempts, not ~33. See
+  [`scaling-review-2026-07.md`](scaling-review-2026-07.md) §6.3 for the
+  cross-run multiplication this still doesn't address (bounded fan-out, not
+  a shared retry budget).
 - `reasoning_effort` is a **native** `ChatOpenAI` field
   (`langchain_openai`'s `BaseChatOpenAI.reasoning_effort`), not something
   routed through `extra_body`: NAT's `OpenAIModelConfig` allows extra YAML
@@ -117,3 +118,17 @@ bounded by per-org/member/project budgets — see
   code shuttles it manually — worth knowing so it isn't mistaken for one of
   the `extra_body`-routed OpenRouter-specific knobs (see
   `aiq_agent.common.llm_factory`).
+- **Reasoning-effort contract (2026-07-16, `590ba1a`).** Every shipped
+  config's `reasoning_effort` value is now drawn from OpenRouter's *standard*
+  vocabulary — `none`/`minimal`/`low`/`medium`/`high`/`xhigh` (the reference config
+  currently uses `none` for the cheap/fast roles and `medium` elsewhere) —
+  and sent through verbatim, with no per-provider translation layer in app
+  code. This is intentional and safe, not a gap: OpenRouter maps that
+  standard value to the nearest level the request's *actual* model supports,
+  server-side, per model, so the same YAML value is correctly interpreted
+  regardless of which model ultimately serves the request (including an
+  org's runtime model override — see `org-model-configuration.md`). The
+  corollary is a hard constraint on config authoring: **provider-native tiers
+  that aren't OpenRouter-standard (e.g. DeepSeek's own `max` tier) are not
+  legal values and must never appear in a config** — OpenRouter has no
+  mapping for them, so behavior at the provider is undefined.

@@ -293,14 +293,18 @@ cost of exactly this shape of workload substantially, with no behavior change. T
 the budget ledger: cheaper turns per user = more users per budget.
 
 Caching stable prefixes is necessary but not sufficient for the deep-research graph: its
-`ToolResultPruningMiddleware` (`src/aiq_agent/agents/deep_researcher/custom_middleware.py:424-466`)
-recomputes a *positional* keep-last-N/truncate-the-rest window over `ToolMessage`s on every model
-call, so message bytes at a given offset shift on nearly every turn as the window slides. On the
-~80k-token contexts a deep run accumulates, that invalidates any provider-side prompt-prefix cache
-regardless of how the static prefix is ordered — a fix needs a stable, persisted truncation cutoff
-(the pattern deepagents' own summarization middleware already uses, but the two run uncoordinated
-today). See `src/aiq_agent/agents/deep_researcher/README.md` "Known limitations" for the full
-writeup.
+`ToolResultPruningMiddleware` (`src/aiq_agent/agents/deep_researcher/custom_middleware.py`)
+used to recompute a *positional* keep-last-N/truncate-the-rest window over `ToolMessage`s on every
+model call, so message bytes at a given offset shifted on nearly every turn as the window slid,
+invalidating any provider-side prompt-prefix cache on the ~80k-token contexts a deep run
+accumulates regardless of how the static prefix was ordered. **Fixed 2026-07-16 (`0b5d29d`)**:
+truncation is now monotonic — recorded per message id and frozen once applied, so message bytes at
+a given offset no longer shift turn over turn — and only oversized results occupy window slots, so
+trivial results (`think`, `ls`) stop churning the window for no context savings. This closes the
+pruning-specific defeat; it runs uncoordinated with deepagents' own (stable-cutoff) summarization
+middleware. The larger lever — actually enabling provider prompt-prefix caching, which nothing in
+this codebase does yet — remains open. See `src/aiq_agent/agents/deep_researcher/README.md`
+"Known limitations" for the full writeup.
 
 ### 6.2 Latency/throughput: stop blocking the event loop (largest single defect)
 

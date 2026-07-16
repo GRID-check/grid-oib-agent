@@ -7,10 +7,17 @@ agent is **not** an open agent/tool-calling loop: every LLM call is a single
 structured request/response, and the total call count for a full 6-Richtlinie
 check is bounded and predictable (~10-25 calls, see budget math below).
 
-**Status: unwired.** This package is complete and tested in isolation, but it
-is not yet referenced by any `configs/*.yml` workflow config, nor registered
-as a `nat.plugins` entry point in `pyproject.toml`. See
-[Pending wiring](#pending-wiring) below for the exact snippets needed.
+**Status: wired, v1 shipped, live shakedown pending.** As of `3f1db6a`
+(2026-07-16) this package is registered as the `aiq_compliance_checker`
+`nat.plugins` entry point (`pyproject.toml`) and referenced from
+`configs/config_oib_openrouter.yml` as the `compliance_check` function
+(`_type: compliance_check_agent`, backed by a dedicated `compliance_llm`
+role) — `nat` can resolve and invoke it directly. What's still missing is a
+**caller**: no chat/workflow orchestrator node, slash command, or UI action
+invokes `compliance_check` yet, so it has not been exercised end-to-end
+against a live model. See [Pending wiring](#pending-wiring) below for what
+remains, and [Known limitation](#known-limitation) for the one open item from
+the wiring change itself.
 
 ## Pipeline stages
 
@@ -132,42 +139,37 @@ that asserts `RequirementProfile.model_json_schema()` and
 
 ## Pending wiring
 
-Two changes are needed to make this agent runnable in a workflow -- both
-**out of scope for this change** (owned by other in-flight work per the
-branch's file-ownership split):
+Both of the plugin-registration/config changes originally listed here shipped
+in `3f1db6a` (2026-07-16) -- `pyproject.toml`'s `nat.plugins` entry point and
+the `compliance_check` function block in `configs/config_oib_openrouter.yml`,
+reproduced below for reference:
 
-1. **`pyproject.toml`** -- add a `nat.plugins` entry point next to the other
-   agents so NAT discovers `register.py` on plugin load:
+```toml
+[project.entry-points."nat.plugins"]
+aiq_compliance_checker = "aiq_agent.agents.compliance_checker.register"
+```
 
-   ```toml
-   [project.entry-points."nat.plugins"]
-   aiq_compliance_checker = "aiq_agent.agents.compliance_checker.register"
-   ```
+```yaml
+functions:
+  compliance_check:
+    _type: compliance_check_agent
+    llm: compliance_llm
+    knowledge_search_tool: knowledge_search
+    max_concurrency: 3
+    richtlinien: [1, 2, 3, 4, 5, 6]
+    requirement_batch_size: 9
+    verbose: false
+```
 
-2. **A `configs/*.yml` workflow config** -- add the function block (and
-   reference it from whatever orchestrator/workflow should call it). Copy-paste
-   ready, assuming a `knowledge_search` tool and an LLM named `compliance_llm`
-   are already defined elsewhere in the same config (see
-   `configs/config_oib_openrouter.yml` for both):
-
-   ```yaml
-   functions:
-     compliance_check:
-       _type: compliance_check_agent
-       llm: compliance_llm
-       knowledge_search_tool: knowledge_search
-       max_concurrency: 3
-       richtlinien: [1, 2, 3, 4, 5, 6]
-       requirement_batch_size: 9
-       verbose: false
-   ```
-
-   Invoking it from a chat/workflow node accepts a
-   `ComplianceCheckAgentState` (a `messages` list plus `project_context`,
-   `project_descriptors`, `richtlinien` override, and `collection_name`) and
-   returns the same state with the rendered Markdown report appended as the
-   final `AIMessage` -- the same message-in/message-out contract as
-   `shallow_research_agent` / `clarifier_agent`.
+What remains is invoking it: no chat/workflow node currently calls
+`compliance_check`. Invoking it from a chat/workflow node accepts a
+`ComplianceCheckAgentState` (a `messages` list plus `project_context`,
+`project_descriptors`, `richtlinien` override, and `collection_name`) and
+returns the same state with the rendered Markdown report appended as the
+final `AIMessage` -- the same message-in/message-out contract as
+`shallow_research_agent` / `clarifier_agent`. Wiring a real entry point
+(a dedicated intent/slash command, or a chat-graph branch) is product-owned
+follow-up, not done here.
 
 ## Known limitation
 

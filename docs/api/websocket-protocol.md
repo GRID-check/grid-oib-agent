@@ -51,6 +51,38 @@ The `server.js` gateway handles WebSocket upgrade requests:
 4. **Auth rejection:** If scope resolution returns 401/403, the gateway writes the HTTP error response and destroys the socket without proxying.
 5. **Cookie forwarding:** Cookies from the original request are forwarded to the backend for AuthKit session validation.
 
+### Signed context envelope (backlog T3-9, 2026-07-16)
+
+Alongside every individual `x-grid-*` header above, `server.js` now also sends
+`X-Grid-Request-Context` (base64url JSON consolidating all of them into one
+object, plus `bundesland` — a structured jurisdiction field with no
+individual-header equivalent) and `X-Grid-Request-Context-Sig` (hex
+HMAC-SHA256 of the envelope's raw JSON, keyed on `GRID_INTERNAL_API_TOKEN`).
+This is a **dual-write transition**: the individual headers are unchanged and
+still sent; the envelope rides alongside them. The same envelope is minted by
+every submission path (WS upgrade, the async-jobs REST proxy, the workflows
+internal-submit path) via the shared builder
+(`frontends/ui/src/lib/request-context.ts`'s `buildGridRequestContextWireHeaders`,
+duplicated with a pinning comment in `server.js` since it is plain CommonJS).
+
+Backend-side, `aiq_agent.project_context.GridRequestContext.from_context()`
+prefers a present-and-valid envelope over the individual headers; an
+invalid/missing signature is treated as an ABSENT envelope (logged as a
+WARNING tamper signal), falling back to parsing the individual headers
+exactly as before the envelope existed.
+
+**Enforcement matrix** (`aiq_api.context_envelope.GridContextEnvelopeMiddleware`,
+403 / WS policy-violation close): applies only when ALL of — `REQUIRE_AUTH=true`;
+the caller is a WorkOS-authenticated JWT user (not internal-token, not
+anonymous); the path is on the conservative enforced allowlist (`/websocket`,
+`/v1/jobs/async/submit`, `/v1/internal/workflows/submit`, `/generate`); and no
+valid envelope is present. Exempt regardless of path: anonymous mode
+(`REQUIRE_AUTH=false`), internal-token-authenticated service calls, and every
+non-enumerated path — the enforced-path list is an allowlist, not a denylist.
+See `docs/architecture/backend-deep-dive.md` and
+`frontends/aiq_api/src/aiq_api/context_envelope.py`'s module docstring for the
+full design.
+
 ### Environment Variables
 
 | Variable | Default | Description |

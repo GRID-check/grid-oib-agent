@@ -64,7 +64,7 @@ orchestrator and all subagents:
 | `ToolNameSanitizationMiddleware` | Repairs corrupted/hallucinated tool names |
 | `ToolRetryMiddleware` (langchain) | Retries failed tool calls with backoff |
 | `SourceRegistryMiddleware` | Captures source URLs/citation keys from tool results; feeds `get_verified_sources` and citation verification |
-| `ToolResultPruningMiddleware` | Truncates older tool results to protect the context window. Positional sliding window: keeps the last `keep_last_n` `ToolMessage`s intact (default 10, all agents but the writer, which scales with `max_research_concurrency` to cover every research-note read) and truncates earlier ones to `max_chars` (default 2000; writer gets 20,000). Recomputed on every model call — see [Known limitations](#known-limitations-fix-pending) for the prompt-caching interaction |
+| `ToolResultPruningMiddleware` | Truncates older tool results to protect the context window. Keeps the last `keep_last_n` **oversized** `ToolMessage`s intact (default 10, all agents but the writer, which scales with `max_research_concurrency` to cover every research-note read) and truncates earlier ones to `max_chars` (default 2000; writer gets 20,000). Truncation is monotonic (recorded per message id, frozen once applied) rather than recomputed per call — see [Known limitations](#known-limitations) for the residual prompt-caching gap |
 | `ModelRetryMiddleware` (langchain) | Retries model calls with backoff |
 
 The orchestrator additionally gets DeepAgents runtime middleware
@@ -298,36 +298,49 @@ usable for general research requests.
   registry, which does not exist inside a Dask worker).
 
 
-## Known limitations (fix pending)
+## Known limitations
 
 Verified against the installed `deepagents==0.6.8`, `langchain==1.3.4`, and
 `langgraph==1.2.4` source. These are documented as current behavior, not
-aspirational fixes.
+aspirational fixes. Several items below were fixed 2026-07-16; each is
+marked with the commit that fixed it.
 
-### Tool-result pruning defeats provider prompt-prefix caching
+### Tool-result pruning defeats provider prompt-prefix caching — fixed (`0b5d29d`)
 
-`ToolResultPruningMiddleware` (`custom_middleware.py:424-466`) recomputes its
-keep/truncate split from scratch on **every** model call: it indexes all
-`ToolMessage`s in the running transcript, keeps the last `keep_last_n`
-intact, and truncates everything older to `max_chars`. Because the window is
+`ToolResultPruningMiddleware` (`custom_middleware.py`) previously recomputed
+its keep/truncate split from scratch on **every** model call: it indexed all
+`ToolMessage`s in the running transcript, kept the last `keep_last_n` intact,
+and truncated everything older to `max_chars`. Because the window was
 positional-from-the-end rather than pinned to a stable cutoff, the message
-bytes at any given offset shift on nearly every turn as new tool results
-arrive and old ones roll out of the window. On the ~80k-token contexts a deep
-run accumulates, this invalidates provider-side prompt-prefix caching
-(OpenRouter/DeepSeek) turn over turn, which is a significant latency/cost
-issue — see `docs/architecture/scaling-review-2026-07.md` §6.1 for the
-broader prompt-caching cost lever this compounds. Two additional details:
+bytes at any given offset shifted on nearly every turn as new tool results
+arrived and old ones rolled out of the window — invalidating provider-side
+prompt-prefix caching (OpenRouter/DeepSeek) turn over turn on the ~80k-token
+contexts a deep run accumulates. Truncation is now **monotonic**: a decision
+is recorded per message id and, once a message is truncated, it is sent in
+exactly that truncated form on every later call — message bytes at a given
+offset no longer shift. Two related changes:
 
-- The window counts **all** `ToolMessage`s, including no-op `think` results
-  (`factory.py`'s `think` tool always returns `"Thought recorded."`), so
-  ceremony calls consume slots in the same budget as real tool output.
-- This middleware runs independently of, and uncoordinated with, deepagents'
-  own summarization middleware (`create_summarization_middleware`), which is
-  auto-installed on every subagent (planner, researcher workers, writer) and
-  instead uses a stable, persisted cutoff. The two mechanisms are not aware
-  of each other.
+- The window now only counts **oversized** `ToolMessage`s (content longer
+  than `max_chars`); no-op `think` results (`factory.py`'s `think` tool
+  always returns `"Thought recorded."`) and other trivial results no longer
+  consume window slots for zero context savings.
+- `ModelRetryMiddleware` now retries only rate limits, timeouts, transport
+  errors, and 5xx (`_is_transient_model_error`, `factory.py`) instead of
+  every exception, so a permanent failure (schema rejection, auth error,
+  context overflow) reaches the caller immediately instead of burning
+  retries it can never win.
 
-### Strict structured-output schemas can violate provider constraints
+This middleware still runs independently of, and uncoordinated with,
+deepagents' own summarization middleware (`create_summarization_middleware`),
+which is auto-installed on every subagent (planner, researcher workers,
+writer) and uses its own stable, persisted cutoff — the two mechanisms are
+still not aware of each other, they just no longer fight the cache on their
+own axis. No call site sets provider-side prompt-caching hints yet, so
+enabling that remains a separate, larger cost lever — see
+`docs/architecture/scaling-review-2026-07.md` §6.1 and
+`docs/architecture/llm-providers.md`.
+
+### Strict structured-output schemas can violate provider constraints — fixed (`2db0f7d`)
 
 Researcher workers request `strict_response_format(ResearchNotes)`
 (`factory.py` `build_researcher_runnable`) to force provider-native
@@ -335,30 +348,38 @@ Researcher workers request `strict_response_format(ResearchNotes)`
 `AutoStrategy`, which falls back to a synthetic tool call for models absent
 from its hardcoded allowlist (OpenRouter/DeepSeek slugs have no entry).
 LangChain's `ProviderStrategy` ships the Pydantic schema verbatim with no
-sanitization. `EvidenceJudgment.relevance_score`
-(`models/subagent_contracts.py`) declares `ge=0, le=100`, which compiles to
-JSON-Schema `minimum`/`maximum` — unsupported in strict `json_schema` mode on
-some providers, producing a 400 or inconsistent handling. In practice this
-is one source of the researcher-worker failures that
-`tools/research.py:_structured_research_notes` papers over: when
-`structured_response` comes back empty, it falls back to extracting JSON
-from a ```json-fenced or prose-prefixed final message
-(`tools/research.py:73-90`). That fallback keeps single non-conformant
-completions from failing a whole worker, but the root cause (an
-unsupported bound in the strict schema) is still open.
+sanitization, so a declarative bound like `EvidenceJudgment.relevance_score`'s
+`ge=0, le=100` used to compile to JSON-Schema `minimum`/`maximum` —
+unsupported in strict `json_schema` mode on some providers, producing a 400
+or inconsistent handling. `relevance_score` and `ResearchQuery.preferred_tools`
+(previously `min_length`) are now `field_validator(mode="after")` checks
+instead of declarative bounds: `relevance_score` **clamps** out-of-range
+values (a worker returning 105 degrades to 100 rather than failing the whole
+structured response), while `preferred_tools` still raises on empty (there is
+no tool name to invent, so failing is correct there).
+`ResearchNotes`/`ResearchPlan.model_json_schema()` no longer emit
+`minimum`/`maximum`/`minLength`/`maxLength`/`pattern` anywhere in the nested
+tree (verified by a schema-walk test). `tools/research.py:_structured_research_notes`'s
+fenced-JSON fallback parser (`tools/research.py:73-90`) remains as a second
+line of defense for non-conformant completions in general, but the
+schema-constraint root cause is closed.
 
-### StateBackend write-once plus per-search planner ceremony
+### StateBackend write-once plus per-search planner ceremony — reduced (`77a4d7a`)
 
 deepagents' `StateBackend.write()` is write-once: a second `write_file` to
 an existing path returns an error (`"already exists"`); recovery is via
 `edit_file`. `planner.j2` accounts for this (`write_file` to create
-`/shared/plan.json`, `edit_file` to revise it) but also mandates a
+`/shared/plan.json`, `edit_file` to revise it). It previously also mandated a
 todo-list ceremony (`write_todos` before decomposing) and a `think` call
 after every search ("What did I learn? Internal or external? ... What
-constraints should I add?"). Combined, these add several pure-ceremony LLM
-turns per planning run beyond the discovery searches themselves — prompt
-tuning to shrink the ceremony (e.g. making `think` optional, or batching it)
-is pending.
+constraints should I add?"), adding several pure-ceremony LLM turns per
+planning run beyond the discovery searches themselves. As of the 2026-07-16
+prompt pass: `write_todos` task decomposition is optional instead of
+mandatory, the planner's after-every-search `think` is consolidated into a
+single pre-finalize `think`, and orchestrator `write_todos` updates are
+phase-level instead of per-step. This reduces, but does not eliminate,
+ceremony overhead — there is no hard bound on remaining ceremony turns, so
+further tuning is still possible if production logs show it's warranted.
 
 ### Verified-correct, not bugs
 
@@ -405,6 +426,21 @@ uv pip install -e ./frontends/benchmarks/deepresearch_bench
 dotenv -f deploy/.env run nat eval --config_file frontends/benchmarks/deepresearch_bench/configs/config_nemotron_only.yml
 ```
 
+### OIB Compliance golden eval suite (backlog T4-5, 2026-07-16)
+
+A separate, smaller golden eval suite exercises the real
+`chat_deepresearcher_agent` workflow against 4 hand-authored OIB-compliance
+cases, bounding wall-clock/LLM-calls/completion-tokens and grading
+answer-correctness via a checklist (no LLM judge). It exists specifically to
+make regressions in the 2026-07-16 perf fixes above (latency/cost) and in
+answer correctness measurable instead of vibes — see also the separate,
+deterministic `compliance_checker` package
+(`src/aiq_agent/agents/compliance_checker/README.md`) for the structured
+alternative to running this same class of check through the open-ended deep
+researcher. See
+[frontends/benchmarks/oib_compliance/README.md](../../../../frontends/benchmarks/oib_compliance/README.md)
+— calibration is still pending a live run (`bounds_calibration_pending: true`
+in the fixture).
 
 ## References
 
