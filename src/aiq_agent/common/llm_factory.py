@@ -111,3 +111,16 @@ def strict_response_format(schema: Any) -> Any:
     from langchain.agents.structured_output import ProviderStrategy
 
     return ProviderStrategy(schema, strict=True)
+
+
+def strict_json_response_format(schema: Any) -> dict[str, Any]:
+    """Return the OpenRouter strict json_schema ``response_format`` dict for ``llm.bind()``.
+
+    The ``.bind()`` counterpart of :func:`strict_response_format`, for agents
+    that call the model directly (not via ``create_agent``) and want native
+    structured output — e.g. ``llm.bind(response_format=strict_json_response_format(Model))``.
+    Reuses the same ``ProviderStrategy`` wire generation, so the emitted
+    ``{"type": "json_schema", "json_schema": {..., "strict": true}}`` is identical.
+    Requires ``schema`` to be strict-valid (all properties required; optionals nullable).
+    """
+    return strict_response_format(schema).to_model_kwargs()["response_format"]

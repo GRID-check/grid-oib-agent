@@ -33,13 +33,44 @@ import logging
 import os
 import weakref
 from typing import Any
+from typing import Literal
+
+from pydantic import BaseModel
+from pydantic import ConfigDict
+from pydantic import Field
 
 from aiq_agent.common.json_utils import extract_json
+from aiq_agent.common.llm_factory import strict_json_response_format
 from aiq_agent.knowledge.project_memory import VALID_CONFIDENCES
 from aiq_agent.knowledge.project_memory import VALID_KINDS
 from aiq_agent.knowledge.project_memory import insert_memory_item
 
 logger = logging.getLogger(__name__)
+
+
+class _ReflectionFinding(BaseModel):
+    """One durable project finding proposed by the reflection stage."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["decision", "constraint", "open_question", "derived_fact", "preference"] = Field(
+        description="Finding category."
+    )
+    content: str = Field(description="One concise, self-contained sentence about this project.")
+    confidence: Literal["low", "medium", "high"] = Field(description="Confidence in the finding.")
+
+
+class ReflectionOutput(BaseModel):
+    """Strict structured-output contract for the memory-reflection stage.
+
+    Strict-valid (all fields required, no extras) so it can drive OpenRouter
+    native json_schema structured output. ``findings`` is an empty list when the
+    turn established nothing durable — the common, correct outcome.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    findings: list[_ReflectionFinding] = Field(description="Durable project findings; empty list if none.")
 
 # A reflection turn records a small, curated set — it is a safety net for what
 # the in-turn `remember` tool missed, not a bulk extractor.
@@ -170,7 +201,16 @@ async def run_memory_reflection(
         SystemMessage(content=REFLECTION_SYSTEM_PROMPT),
         HumanMessage(content=_build_user_prompt(query, answer, memory_digest)),
     ]
-    response = await llm.ainvoke(messages)
+    # Request native strict json_schema structured output; the response-healing
+    # plugin (forced on OpenRouter LLMs in llm_factory) repairs any fenced/prose
+    # JSON provider-side. Fall back to a plain call when the model/binding
+    # rejects response_format, since reflection is a best-effort background pass.
+    try:
+        structured_llm = llm.bind(response_format=strict_json_response_format(ReflectionOutput))
+        response = await structured_llm.ainvoke(messages)
+    except Exception as exc:  # noqa: BLE001 - never let a binding quirk drop reflection
+        logger.warning("Reflection structured-output request failed (%s); retrying without response_format", exc)
+        response = await llm.ainvoke(messages)
     content = getattr(response, "content", response)
     text = content if isinstance(content, str) else str(content)
 

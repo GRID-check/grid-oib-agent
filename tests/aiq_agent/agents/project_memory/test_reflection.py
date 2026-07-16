@@ -16,6 +16,13 @@ class _FakeLLM:
     def __init__(self, content: str) -> None:
         self._content = content
         self.calls: list = []
+        self.bind_kwargs: dict | None = None
+
+    def bind(self, **kwargs):
+        # Mirror a LangChain chat model: binding response_format returns a
+        # runnable that still resolves to the canned content on ainvoke.
+        self.bind_kwargs = kwargs
+        return self
 
     async def ainvoke(self, messages):
         self.calls.append(messages)
@@ -109,6 +116,26 @@ class TestRunMemoryReflection:
         assert recorded[0]["provenance_type"] == "distillation"
         # The existing memory digest and the answer both reach the prompt.
         assert llm.calls, "LLM should have been invoked"
+
+    @pytest.mark.asyncio
+    async def test_requests_strict_json_schema_structured_output(self, monkeypatch):
+        monkeypatch.setattr(R, "insert_memory_item", lambda **k: "id-1")
+        llm = _FakeLLM('{"findings": [{"kind": "decision", "content": "Flat roof chosen.", "confidence": "high"}]}')
+
+        await R.run_memory_reflection(
+            llm=llm,
+            query="q",
+            answer="a",
+            project_id="proj-1",
+            organization_id="org-1",
+            conversation_id="conv-1",
+            memory_digest=None,
+        )
+
+        assert llm.bind_kwargs is not None, "reflection should bind a response_format"
+        rf = llm.bind_kwargs["response_format"]
+        assert rf["type"] == "json_schema"
+        assert rf["json_schema"]["strict"] is True
 
     @pytest.mark.asyncio
     async def test_empty_findings_records_nothing(self, monkeypatch):
