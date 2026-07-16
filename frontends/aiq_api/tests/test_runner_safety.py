@@ -182,3 +182,14 @@ class TestSanitizeJobError:
 
         assert message == "A connection error occurred while running the job."
         assert "internal-host" not in message
+
+    def test_budget_exceeded_error_message_persisted_verbatim(self):
+        """RunBudgetExceededError already carries a curated, user-safe message
+        ("run exceeded the configured completion-token budget of N") -- it
+        must be persisted as-is instead of falling through to the generic
+        internal-error classification other unclassified exceptions get."""
+        from aiq_agent.common import RunBudgetExceededError
+
+        message = sanitize_job_error(RunBudgetExceededError(ceiling=50_000, used=50_123))
+
+        assert message == "run exceeded the configured completion-token budget of 50000"

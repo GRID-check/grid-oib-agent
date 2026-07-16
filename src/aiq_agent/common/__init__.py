@@ -21,6 +21,9 @@ from nat.data_models.api_server import ChoiceMessage
 from nat.data_models.api_server import Usage
 from nat.data_models.api_server import UserMessageContentRoleType
 
+from .budget_guard import BudgetGuardCallback
+from .budget_guard import RunBudgetExceededError
+from .budget_guard import create_budget_guard_callback
 from .callbacks import VerboseTraceCallback
 from .citation_verification import SourceRegistry
 from .citation_verification import get_or_create_session_registry
@@ -81,14 +84,17 @@ __all__ = [
     "DEFAULT_DATA_SOURCES",
     "DISABLED_SOURCES_HEADER",
     "AgentGroup",
+    "BudgetGuardCallback",
     "LLMProvider",
     "MODEL_OVERRIDES_HEADER",
     "LLMRole",
     "OrgLLMCredential",
+    "RunBudgetExceededError",
     "SourceRegistry",
     "SpanClosingProfilerHandler",
     "VerboseTraceCallback",
     "all_mapped_tools_filtered_out",
+    "create_budget_guard_callback",
     "apply_model_override",
     "apply_org_credential",
     "get_disabled_sources_from_context",

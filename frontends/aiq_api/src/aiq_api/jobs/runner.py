@@ -23,6 +23,9 @@ from starlette.datastructures import Headers
 from .callbacks import AgentEventCallback
 from .event_store import BatchingEventStore
 from .event_store import EventStore
+from .phase_events import PHASE_DONE
+from .phase_events import PhaseProgressCallback
+from .phase_events import emit_phase_event
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +62,14 @@ def sanitize_job_error(exc: BaseException) -> str:
     NOTE: cancellation paths intentionally bypass this — the UI string-matches
     the exact error "cancelled by user".
     """
+    from aiq_agent.common import RunBudgetExceededError
+
+    if isinstance(exc, RunBudgetExceededError):
+        # Already a curated, user-safe message ("run exceeded the configured
+        # completion-token budget of N") -- persist verbatim instead of
+        # falling through to the generic internal-error classification below.
+        return str(exc)
+
     root_module = (type(exc).__module__ or "").split(".")[0]
     if isinstance(exc, TimeoutError):
         return "The job timed out while waiting on an external service."
@@ -700,6 +711,26 @@ async def run_agent_job(
                     callbacks.append(agent_event_callback)
                     callbacks.append(nat_profiler_callback)
 
+                    # Phase-progress events (T4-4) and the completion-token budget
+                    # cap are deep-research-specific: only that agent has the
+                    # planner/researcher/writer subagent structure the phase
+                    # detector understands, and long-running fan-out research is
+                    # the run-away-cost shape the budget cap exists for.
+                    is_deep_research_job = getattr(fn_config, "type", None) == "deep_research_agent"
+                    if is_deep_research_job:
+                        callbacks.append(
+                            PhaseProgressCallback(
+                                event_store,
+                                max_research_concurrency=getattr(fn_config, "max_research_concurrency", None),
+                            )
+                        )
+
+                        from aiq_agent.common import create_budget_guard_callback
+
+                        budget_guard_callback = create_budget_guard_callback()
+                        if budget_guard_callback is not None:
+                            callbacks.append(budget_guard_callback)
+
                     # Instantiate agent with callbacks
                     agent = _create_agent_instance(
                         agent_cls=agent_cls,
@@ -795,6 +826,9 @@ async def run_agent_job(
                         org_credential=resolved_org_credential,
                         model_overrides=model_overrides,
                     )
+
+                    if is_deep_research_job:
+                        emit_phase_event(event_store, PHASE_DONE)
 
                     # Flush any buffered events before updating status
                     if hasattr(event_store, "flush"):
