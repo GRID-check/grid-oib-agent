@@ -1608,6 +1608,47 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
 
         return None
 
+    def get_document_text_sample(self, collection_name: str, file_name: str, max_chars: int = 4000) -> str | None:
+        """Return representative text for an already-indexed file (fail-open).
+
+        Used exclusively by the reconciliation backfill (see
+        ``aiq_agent.knowledge.factory.reconcile_collection_summaries``) to derive
+        a deterministic fallback summary for a document that is present in the
+        vector index but missing from the summaries table. Queries Chroma
+        directly for chunks tagged with this ``file_name`` — the same metadata
+        key ingestion writes onto every chunk in ``_run_ingestion`` — and
+        concatenates their text, capped at ``max_chars``.
+
+        Not part of the ``BaseIngestor`` interface: the reconciliation driver in
+        the factory duck-types this method (``getattr(..., None)``) so other
+        backends can opt in without a forced interface change. Returns ``None``
+        on any lookup failure or when the file has no indexed text chunks.
+        """
+        try:
+            client = self._get_chroma_client()
+            collection = client.get_collection(name=collection_name)
+        except Exception as e:
+            logger.warning(
+                "Reconciliation: collection %s not found while sampling text for %s: %s",
+                collection_name,
+                file_name,
+                e,
+            )
+            return None
+
+        try:
+            results = collection.get(where={"file_name": file_name}, include=["documents"], limit=5)
+        except Exception as e:
+            logger.warning("Reconciliation: failed to fetch chunks for %s in %s: %s", file_name, collection_name, e)
+            return None
+
+        documents = [doc for doc in (results.get("documents") or []) if doc]
+        if not documents:
+            return None
+
+        combined = "\n".join(documents)
+        return combined[:max_chars] if combined else None
+
     def _run_ingestion(
         self,
         job_id: str,
@@ -2038,6 +2079,21 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             self._update_collection_timestamp(collection_name)
             # Invalidate any cached retrieval results for this collection.
             bump_collection_version(collection_name)
+
+            # Reconciliation backstop: catch any document that ingested
+            # successfully (visible/searchable in Chroma) but whose summary row
+            # silently failed to register — e.g. both the LLM summary and tag
+            # classification calls failed. Runs at the end of every ingestion
+            # job inside the knowledge layer, so every caller (the Knowledge
+            # API, scripts/ingest_oib.py's oib_sync, and any future caller)
+            # gets this for free without having to remember to call it.
+            if successful_files:
+                try:
+                    from aiq_agent.knowledge.factory import reconcile_collection_summaries
+
+                    reconcile_collection_summaries(self, collection_name)
+                except Exception as e:
+                    logger.warning("Reconciliation failed for collection %s: %s", collection_name, e)
 
             logger.info(
                 f"LlamaIndex ingestion completed: {job_id} "

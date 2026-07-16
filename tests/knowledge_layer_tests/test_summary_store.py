@@ -544,6 +544,174 @@ class TestFactoryFunctions:
 
 
 # =============================================================================
+# Reconciliation Backfill Tests
+# =============================================================================
+
+
+class TestReconcileCollectionSummaries:
+    """Tests for the vector-index-vs-summaries-table reconciliation backstop.
+
+    ``reconcile_collection_summaries`` only calls ``ingestor.list_files(...)``
+    and, if present, an optional ``ingestor.get_document_text_sample(...)`` —
+    so a duck-typed fake (not a real ``BaseIngestor`` subclass) is enough to
+    exercise it in isolation, without any real vector store.
+    """
+
+    @pytest.fixture(autouse=True)
+    def reset_summary_store(self):
+        """Reset the global summary store before each test."""
+        from aiq_agent.knowledge import factory
+
+        factory._summary_store = None
+        yield
+        factory._summary_store = None
+
+    @pytest.fixture
+    def temp_db_url(self):
+        """Create a temporary SQLite database URL."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "reconcile_test.db"
+            yield f"sqlite:///{db_path}"
+
+    @staticmethod
+    def _file_info(file_name, status=None):
+        from aiq_agent.knowledge.schema import FileInfo
+        from aiq_agent.knowledge.schema import FileStatus
+
+        return FileInfo(
+            file_id=file_name,
+            file_name=file_name,
+            collection_name="coll",
+            status=status or FileStatus.SUCCESS,
+        )
+
+    class _FakeIngestor:
+        """Stand-in for a backend ingestor with an indexed-file list and an
+        optional text sampler."""
+
+        def __init__(self, files, text_samples=None):
+            self._files = files
+            self._text_samples = text_samples or {}
+
+        def list_files(self, collection_name):
+            return self._files
+
+        def get_document_text_sample(self, collection_name, file_name):
+            return self._text_samples.get(file_name)
+
+    def test_backfills_missing_document_with_text_sample(self, temp_db_url):
+        """A document present in the index but absent from summaries gets a
+        deterministic fallback summary derived from its sampled text."""
+        from aiq_agent.knowledge import configure_summary_db
+        from aiq_agent.knowledge import get_available_documents
+        from aiq_agent.knowledge.factory import reconcile_collection_summaries
+
+        configure_summary_db(temp_db_url)
+
+        ingestor = self._FakeIngestor(
+            files=[self._file_info("orphan.pdf")],
+            text_samples={"orphan.pdf": "Dies ist ein Brandschutzkonzept fuer das Gebaeude."},
+        )
+
+        backfilled = reconcile_collection_summaries(ingestor, "coll")
+
+        assert backfilled == 1
+        docs = {d.file_name: d for d in get_available_documents("coll")}
+        assert "orphan.pdf" in docs
+        assert "Brandschutzkonzept" in docs["orphan.pdf"].summary
+
+    def test_no_sampler_falls_back_to_filename(self, temp_db_url):
+        """Backends without the optional text-sampling hook still get a row —
+        visibility beats a perfect summary."""
+        from aiq_agent.knowledge import configure_summary_db
+        from aiq_agent.knowledge import get_available_documents
+        from aiq_agent.knowledge.factory import reconcile_collection_summaries
+
+        configure_summary_db(temp_db_url)
+
+        class NoSamplerIngestor:
+            def list_files(self, collection_name):
+                return [TestReconcileCollectionSummaries._file_info("mystery.pdf")]
+
+        backfilled = reconcile_collection_summaries(NoSamplerIngestor(), "coll")
+
+        assert backfilled == 1
+        docs = {d.file_name: d for d in get_available_documents("coll")}
+        assert docs["mystery.pdf"].summary == "Indexed document: mystery.pdf"
+
+    def test_noop_when_already_consistent(self, temp_db_url):
+        """A document already present in the summaries table is left alone."""
+        from aiq_agent.knowledge import configure_summary_db
+        from aiq_agent.knowledge import get_available_documents
+        from aiq_agent.knowledge.factory import reconcile_collection_summaries
+        from aiq_agent.knowledge.factory import register_summary
+
+        configure_summary_db(temp_db_url)
+        register_summary("coll", "already.pdf", "Already has a summary.")
+
+        ingestor = self._FakeIngestor(files=[self._file_info("already.pdf")])
+
+        backfilled = reconcile_collection_summaries(ingestor, "coll")
+
+        assert backfilled == 0
+        docs = get_available_documents("coll")
+        assert len(docs) == 1
+        assert docs[0].summary == "Already has a summary."
+
+    def test_ignores_files_not_indexed_successfully(self, temp_db_url):
+        """A FAILED file was never actually indexed, so it must never get a
+        fallback summary row."""
+        from aiq_agent.knowledge import configure_summary_db
+        from aiq_agent.knowledge import get_available_documents
+        from aiq_agent.knowledge.factory import reconcile_collection_summaries
+        from aiq_agent.knowledge.schema import FileStatus
+
+        configure_summary_db(temp_db_url)
+
+        ingestor = self._FakeIngestor(files=[self._file_info("broken.pdf", status=FileStatus.FAILED)])
+
+        backfilled = reconcile_collection_summaries(ingestor, "coll")
+
+        assert backfilled == 0
+        assert get_available_documents("coll") == []
+
+    def test_sampler_exception_falls_back_to_filename(self, temp_db_url):
+        """A broken ``get_document_text_sample`` must not break reconciliation
+        (fail-open, same contract as the primary summary path)."""
+        from aiq_agent.knowledge import configure_summary_db
+        from aiq_agent.knowledge import get_available_documents
+        from aiq_agent.knowledge.factory import reconcile_collection_summaries
+
+        configure_summary_db(temp_db_url)
+
+        class BrokenSamplerIngestor:
+            def list_files(self, collection_name):
+                return [TestReconcileCollectionSummaries._file_info("weird.pdf")]
+
+            def get_document_text_sample(self, collection_name, file_name):
+                raise RuntimeError("chroma unreachable")
+
+        backfilled = reconcile_collection_summaries(BrokenSamplerIngestor(), "coll")
+
+        assert backfilled == 1
+        docs = {d.file_name: d for d in get_available_documents("coll")}
+        assert docs["weird.pdf"].summary == "Indexed document: weird.pdf"
+
+    def test_list_files_exception_returns_zero(self, temp_db_url):
+        """A backend that cannot list files at all fails open (never raises)."""
+        from aiq_agent.knowledge import configure_summary_db
+        from aiq_agent.knowledge.factory import reconcile_collection_summaries
+
+        configure_summary_db(temp_db_url)
+
+        class BrokenListFilesIngestor:
+            def list_files(self, collection_name):
+                raise RuntimeError("chroma down")
+
+        assert reconcile_collection_summaries(BrokenListFilesIngestor(), "coll") == 0
+
+
+# =============================================================================
 # Integration Tests
 # =============================================================================
 
