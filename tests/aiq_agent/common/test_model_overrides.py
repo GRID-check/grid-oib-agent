@@ -116,6 +116,15 @@ class TestProviderWithModelOverrides:
         # Default falls back through get() for unconfigured roles.
         assert derived.get(LLMRole.ORCHESTRATOR).model_name == "vendor/deep"
 
+    def test_applied_overrides_are_logged(self, caplog):
+        provider = self._provider()
+        with caplog.at_level("INFO", logger="aiq_agent.common.llm_provider"):
+            provider.with_model_overrides({"deep_research": "vendor/deep", "unknown_group": "x/y"})
+        assert "Applying model overrides" in caplog.text
+        assert "deep_research" in caplog.text and "vendor/deep" in caplog.text
+        # Untagged/unknown groups are not reported as applied.
+        assert "unknown_group" not in caplog.text
+
     def test_partial_override_leaves_other_groups_untouched(self):
         provider = self._provider()
         derived = provider.with_model_overrides({"deep_research_router": "vendor/router"})
