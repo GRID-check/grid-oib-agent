@@ -3,9 +3,11 @@
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
+import pytest
 from deepagents.middleware.filesystem import _apply_permissions_to_ls_results
 from deepagents.middleware.filesystem import _check_fs_permission
 from langchain.agents.middleware import AgentMiddleware
+from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
 
 from aiq_agent.agents.deep_researcher.custom_middleware import SelectiveToolRetryMiddleware
@@ -329,3 +331,76 @@ def test_researcher_runnable_uses_rendered_prompt_and_runtime_middleware():
     assert "PatchToolCallsMiddleware" in middleware_names
     assert "ToolVisibilityMiddleware" in middleware_names
     assert kwargs["middleware"][-2] is shared_middleware[0]
+
+
+class _FakeModelRequest:
+    """Minimal stand-in for the ModelRequest the middleware sees (messages + override)."""
+
+    def __init__(self, messages):
+        self.messages = messages
+
+    def override(self, *, messages):
+        return _FakeModelRequest(messages)
+
+
+def _tool_msg(idx: int, size: int) -> ToolMessage:
+    return ToolMessage(content="x" * size, tool_call_id=f"call_{idx}", name=f"tool_{idx}", id=f"msg_{idx}")
+
+
+async def _sent_messages(middleware: ToolResultPruningMiddleware, messages: list) -> list:
+    captured: dict[str, list] = {}
+
+    async def handler(request):
+        captured["messages"] = list(request.messages)
+
+    await middleware.awrap_model_call(_FakeModelRequest(messages), handler)
+    return captured["messages"]
+
+
+class TestToolResultPruningCacheStability:
+    """Truncation must be monotonic: once a message is sent truncated, its bytes never change again."""
+
+    @pytest.mark.asyncio
+    async def test_truncated_message_stays_byte_identical_as_history_grows(self):
+        middleware = ToolResultPruningMiddleware(keep_last_n=2, max_chars=100)
+        history = [_tool_msg(i, 500) for i in range(3)]
+
+        first = await _sent_messages(middleware, list(history))
+        # msg_0 fell out of the window and was truncated; the last two stayed full.
+        assert first[0].content.endswith("[... truncated ...]")
+        assert len(first[1].content) == 500
+        frozen = first[0].content
+
+        # History grows: with a naive sliding window msg_1 would now flip to
+        # truncated AND msg_0 already-truncated content must not change.
+        history.append(_tool_msg(3, 500))
+        second = await _sent_messages(middleware, list(history))
+        assert second[0].content == frozen
+        assert second[1].content.endswith("[... truncated ...]")
+
+        # And a third call sends both truncated messages byte-identically again.
+        third = await _sent_messages(middleware, list(history))
+        assert [m.content for m in third[:2]] == [m.content for m in second[:2]]
+
+    @pytest.mark.asyncio
+    async def test_small_results_do_not_occupy_window_slots(self):
+        middleware = ToolResultPruningMiddleware(keep_last_n=2, max_chars=100)
+        # Two big results followed by many trivial ones (think: "Thought recorded.").
+        messages = [_tool_msg(0, 500), _tool_msg(1, 500)] + [_tool_msg(i, 20) for i in range(2, 10)]
+
+        sent = await _sent_messages(middleware, messages)
+
+        # The two oversized results are still within the last-2 OVERSIZED window:
+        # trivial results must not evict them.
+        assert len(sent[0].content) == 500
+        assert len(sent[1].content) == 500
+        assert all(len(m.content) == 20 for m in sent[2:])
+
+    @pytest.mark.asyncio
+    async def test_below_threshold_history_passes_through_untouched(self):
+        middleware = ToolResultPruningMiddleware(keep_last_n=3, max_chars=100)
+        messages = [_tool_msg(i, 500) for i in range(3)]
+
+        sent = await _sent_messages(middleware, messages)
+
+        assert all(len(m.content) == 500 for m in sent)
