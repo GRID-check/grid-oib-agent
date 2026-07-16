@@ -18,12 +18,24 @@ defaults, never an error — model selection must not take chat down).
 import base64
 import json
 import logging
+import os
 import re
+import threading
+import time
 from enum import StrEnum
 
 logger = logging.getLogger(__name__)
 
 MODEL_OVERRIDES_HEADER = "x-grid-model-overrides"
+
+# Org-scoped fallback resolution (mirrors llm_credentials): endpoints the BFF
+# does not front carry no override header, and the WebSocket-scope injection is
+# best-effort — in both cases the backend can still resolve the org's active
+# overrides itself from the internal endpoint, keyed by the org id that already
+# flows on every request.
+_POSITIVE_TTL_SECONDS = 60.0
+_NEGATIVE_TTL_SECONDS = 30.0
+_REQUEST_TIMEOUT_SECONDS = 3.0
 
 # Model ids are OpenRouter's `author/slug` (optional `:variant` suffix, e.g.
 # `meta-llama/llama-4:free`) OR — for orgs on a BYOK credential (ADR-0022) —
@@ -90,15 +102,102 @@ def sanitize_model_overrides(data: object) -> dict[str, str]:
     return overrides
 
 
-def get_model_overrides_from_context() -> dict[str, str]:
-    """Read the current request's model overrides from NAT context.
+class _OverridesCacheEntry:
+    __slots__ = ("expires_at", "overrides")
 
-    Returns ``{}`` outside a request context or when the header is absent —
-    callers then use the YAML-configured models unchanged.
+    def __init__(self, overrides: dict[str, str], ttl: float) -> None:
+        self.overrides = overrides
+        self.expires_at = time.monotonic() + ttl
+
+
+_overrides_cache: dict[str, _OverridesCacheEntry] = {}
+_overrides_cache_lock = threading.Lock()
+
+
+def reset_overrides_cache() -> None:
+    """Test hook: clear the in-process resolution cache."""
+    with _overrides_cache_lock:
+        _overrides_cache.clear()
+
+
+def _fetch_org_overrides(organization_id: str) -> dict[str, str]:
+    """One HTTP round-trip to the BFF's internal model-overrides endpoint."""
+    token = os.environ.get("GRID_INTERNAL_API_TOKEN")
+    if not token:
+        # No internal-token trust channel — fall back to YAML defaults.
+        return {}
+
+    import httpx
+
+    base_url = (os.environ.get("FRONTEND_INTERNAL_URL") or "http://frontend:3000").rstrip("/")
+    response = httpx.get(
+        f"{base_url}/api/internal/model-overrides",
+        params={"organizationId": organization_id},
+        headers={"x-grid-internal-token": token},
+        timeout=_REQUEST_TIMEOUT_SECONDS,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    overrides = payload.get("overrides") if isinstance(payload, dict) else None
+    return sanitize_model_overrides(overrides) if overrides else {}
+
+
+def resolve_org_model_overrides(organization_id: str | None) -> dict[str, str]:
+    """The org's active model overrides, resolved by org id.
+
+    In-process TTL cache (60 s positive / 30 s negative) keeps the hot path
+    free of network calls; errors are negative-cached and fail OPEN to the
+    YAML defaults — model selection must never take chat down.
+    """
+    if not organization_id:
+        return {}
+
+    now = time.monotonic()
+    with _overrides_cache_lock:
+        entry = _overrides_cache.get(organization_id)
+        if entry is not None and entry.expires_at > now:
+            return entry.overrides
+
+    try:
+        overrides = _fetch_org_overrides(organization_id)
+        ttl = _POSITIVE_TTL_SECONDS if overrides else _NEGATIVE_TTL_SECONDS
+    except Exception as exc:  # noqa: BLE001 - fail open by design
+        logger.warning("Model-override resolution failed for org %s: %s", organization_id, type(exc).__name__)
+        overrides = {}
+        ttl = _NEGATIVE_TTL_SECONDS
+
+    with _overrides_cache_lock:
+        _overrides_cache[organization_id] = _OverridesCacheEntry(overrides, ttl)
+        if len(_overrides_cache) > 512:
+            expired = [key for key, value in _overrides_cache.items() if value.expires_at <= now]
+            for key in expired:
+                _overrides_cache.pop(key, None)
+
+    return overrides
+
+
+def get_model_overrides_from_context() -> dict[str, str]:
+    """The current request's model overrides.
+
+    Reads the ``x-grid-model-overrides`` header first (present on BFF-fronted
+    requests; a WebSocket connection keeps its upgrade-time value, preserving
+    the documented per-conversation pinning). When the header is absent —
+    endpoints the BFF does not front, or a failed best-effort injection — falls
+    back to resolving the org's active overrides via the internal endpoint,
+    mirroring BYOK credential resolution.
+
+    Returns ``{}`` when no overrides apply — callers then use the
+    YAML-configured models unchanged.
     """
     from aiq_agent.project_context import _read_header
 
-    return parse_model_overrides(_read_header(MODEL_OVERRIDES_HEADER))
+    raw = _read_header(MODEL_OVERRIDES_HEADER)
+    if raw:
+        return parse_model_overrides(raw)
+
+    from aiq_agent.project_context import get_organization_id_from_context
+
+    return resolve_org_model_overrides(get_organization_id_from_context())
 
 
 def override_model(llm: object, model_id: str) -> object:
