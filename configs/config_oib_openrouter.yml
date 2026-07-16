@@ -57,21 +57,10 @@ llms:
     max_tokens: 4096
     max_retries: 5
     reasoning_effort: none
-    # OpenRouter structured-output routing, defined once here and aliased on
-    # every agent LLM that sends a response_format:
-    #   - provider.require_parameters: only route to backends that actually
-    #     support the parameters we send (e.g. json_schema), instead of silently
-    #     load-balancing to one that ignores them.
-    #   - plugins.response-healing: repair malformed / markdown-fenced JSON
-    #     provider-side before it reaches us (activates only on json_schema /
-    #     json_object requests; a no-op on plain calls).
-    # https://openrouter.ai/docs/guides/features/structured-outputs
-    # https://openrouter.ai/docs/guides/features/plugins/response-healing
-    extra_body: &openrouter_structured_extra_body
-      provider:
-        require_parameters: true
-      plugins:
-        - id: response-healing
+    # NOTE: OpenRouter provider.require_parameters + the response-healing plugin
+    # are forced on every OpenRouter LLM centrally in code
+    # (aiq_agent.common.llm_factory.apply_openrouter_structured_defaults, applied
+    # via get_langchain_llm), so they are intentionally NOT repeated per-LLM here.
 
   # Shallow Research — fast retrieval + synthesis (the quick-answer tier).
   shallow_llm:
@@ -120,7 +109,6 @@ llms:
     max_tokens: 128000
     max_retries: 10
     reasoning_effort: max
-    extra_body: *openrouter_structured_extra_body
 
   # Deep Researcher — Researcher sub-agents (parallel investigations).
   deep_researcher_llm:
@@ -133,7 +121,6 @@ llms:
     max_tokens: 65536
     max_retries: 5
     reasoning_effort: max
-    extra_body: *openrouter_structured_extra_body
 
   # Deep Researcher — source routing (which source to query). Lighter decision.
   deep_router_llm:
@@ -146,7 +133,6 @@ llms:
     max_tokens: 8192
     max_retries: 5
     reasoning_effort: high
-    extra_body: *openrouter_structured_extra_body
 
   # Card generation — structured rich-UI compliance cards.
   card_llm:
@@ -159,7 +145,6 @@ llms:
     max_tokens: 65536
     max_retries: 5
     reasoning_effort: high
-    extra_body: *openrouter_structured_extra_body
 
   # Document / project summaries — trivial one-liners.
   summary_llm:

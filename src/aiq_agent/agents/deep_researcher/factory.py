@@ -16,7 +16,6 @@ from deepagents.middleware.skills import SkillsMiddleware
 from deepagents.middleware.summarization import create_summarization_middleware
 from langchain.agents import create_agent
 from langchain.agents.middleware import ModelRetryMiddleware
-from langchain.agents.structured_output import ProviderStrategy
 from langchain_core.language_models import BaseChatModel
 from langchain_core.tools import BaseTool
 from langchain_core.tools import tool
@@ -25,6 +24,7 @@ from langgraph.store.memory import InMemoryStore
 from aiq_agent.common import LLMProvider
 from aiq_agent.common import LLMRole
 from aiq_agent.common import render_prompt_template
+from aiq_agent.common import strict_response_format
 
 from .custom_middleware import EmptyContentFixMiddleware
 from .custom_middleware import SelectiveToolRetryMiddleware
@@ -341,7 +341,7 @@ def build_researcher_runnable(
         # for OpenRouter/DeepSeek slugs, so it silently downgrades to a tool
         # strategy the model does not reliably honor — the mechanism behind the
         # fenced-JSON "did not return structured ResearchNotes" failures.
-        response_format=ProviderStrategy(ResearchNotes, strict=True),
+        response_format=strict_response_format(ResearchNotes),
     )
 
 
@@ -416,7 +416,7 @@ def build_deep_research_subagents(context: DeepResearchGraphContext) -> list[dic
                 "enable_source_router": context.enable_source_router,
                 "max_research_concurrency": context.max_research_concurrency,
             },
-            response_format=ProviderStrategy(ResearchPlan, strict=True),
+            response_format=strict_response_format(ResearchPlan),
         )
     )
     subagents.append(

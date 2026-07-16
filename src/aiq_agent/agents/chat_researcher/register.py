@@ -15,6 +15,7 @@ from aiq_agent.common import VerboseTraceCallback
 from aiq_agent.common import _create_chat_response
 from aiq_agent.common import format_data_source_tools
 from aiq_agent.common import get_checkpointer
+from aiq_agent.common import get_langchain_llm
 from aiq_agent.common import get_model_overrides_from_context
 from aiq_agent.common import is_verbose
 from aiq_agent.common.citation_verification import get_or_create_session_registry
@@ -109,7 +110,7 @@ async def intent_classifier(config: IntentClassifierConfig, builder: Builder):
     """Combined orchestration: classifies intent, produces meta response, and routes depth in one node."""
     from .nodes import IntentClassifier
 
-    llm = await builder.get_llm(config.llm, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
+    llm = await get_langchain_llm(builder, config.llm)
 
     if config.tools:
         tool_refs = config.tools
@@ -379,9 +380,7 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
     reflection_llm = None
     if config.memory_reflection_llm is not None:
         try:
-            reflection_llm = await builder.get_llm(
-                config.memory_reflection_llm, wrapper_type=LLMFrameworkEnum.LANGCHAIN
-            )
+            reflection_llm = await get_langchain_llm(builder, config.memory_reflection_llm)
         except Exception:
             logger.warning("Could not build memory_reflection_llm; reflection disabled", exc_info=True)
 

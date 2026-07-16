@@ -27,6 +27,7 @@ from aiq_agent.common import all_mapped_tools_filtered_out
 from aiq_agent.common import apply_model_override
 from aiq_agent.common import apply_org_credential
 from aiq_agent.common import filter_tools_by_sources
+from aiq_agent.common import get_langchain_llm
 from aiq_agent.common import get_model_overrides_from_context
 from aiq_agent.common import get_org_llm_credential_from_context
 from aiq_agent.common import is_verbose
@@ -122,16 +123,10 @@ async def clarifier_agent(config: ClarifierConfig, builder: Builder):
         FunctionInfo: A callable that accepts ClarifierAgentState or list[BaseMessage]
             and returns ClarifierAgentState with the clarification dialog results.
     """
-    llm = await builder.get_llm(
-        config.llm,
-        wrapper_type=LLMFrameworkEnum.LANGCHAIN,
-    )
+    llm = await get_langchain_llm(builder, config.llm)
     planner_llm = None
     if config.planner_llm is not None:
-        planner_llm = await builder.get_llm(
-            config.planner_llm,
-            wrapper_type=LLMFrameworkEnum.LANGCHAIN,
-        )
+        planner_llm = await get_langchain_llm(builder, config.planner_llm)
     if config.tools:
         tool_refs = config.tools
     else:

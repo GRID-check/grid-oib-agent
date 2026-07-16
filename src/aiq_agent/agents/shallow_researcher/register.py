@@ -11,6 +11,7 @@ from aiq_agent.common import VerboseTraceCallback
 from aiq_agent.common import _create_chat_response
 from aiq_agent.common import all_mapped_tools_filtered_out
 from aiq_agent.common import filter_tools_by_sources
+from aiq_agent.common import get_langchain_llm
 from aiq_agent.common import get_model_overrides_from_context
 from aiq_agent.common import get_org_llm_credential_from_context
 from aiq_agent.common import is_verbose
@@ -50,7 +51,7 @@ class ShallowResearchAgentConfig(FunctionBaseConfig, name="shallow_research_agen
 @register_function(config_type=ShallowResearchAgentConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])
 async def shallow_research_agent(config: ShallowResearchAgentConfig, builder: Builder):
     """Shallow research agent with tool-calling capabilities."""
-    llm = await builder.get_llm(config.llm, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
+    llm = await get_langchain_llm(builder, config.llm)
 
     if config.tools:
         tool_refs = config.tools

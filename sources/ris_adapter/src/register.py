@@ -323,9 +323,9 @@ async def ris_search(tool_config: RisSearchToolConfig, builder: Builder):
     planner = None
     if tool_config.planner_llm:
         try:
-            from nat.builder.framework_enum import LLMFrameworkEnum
+            from aiq_agent.common import get_langchain_llm
 
-            planner_llm_obj = await builder.get_llm(tool_config.planner_llm, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
+            planner_llm_obj = await get_langchain_llm(builder, tool_config.planner_llm)
             planner = _make_planner(planner_llm_obj)
             logger.info("ris_search: query planner enabled (llm=%s)", tool_config.planner_llm)
         except Exception:

@@ -286,7 +286,7 @@ async def _create_llm_provider(builder: Any, fn_config: Any) -> tuple[Any, Any]:
     from aiq_agent.common import AgentGroup
     from aiq_agent.common import LLMProvider
     from aiq_agent.common import LLMRole
-    from nat.builder.framework_enum import LLMFrameworkEnum
+    from aiq_agent.common import get_langchain_llm
 
     # Agent-group tags mirror the sync registrations (deep_researcher/register.py)
     # so per-org runtime model overrides apply identically to async jobs.
@@ -304,7 +304,7 @@ async def _create_llm_provider(builder: Any, fn_config: Any) -> tuple[Any, Any]:
         llm_ref = getattr(fn_config, config_attr, None)
         if llm_ref:
             if llm_ref not in llm_cache:
-                llm_cache[llm_ref] = await builder.get_llm(llm_ref, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
+                llm_cache[llm_ref] = await get_langchain_llm(builder, llm_ref)
             role_llms[role] = llm_cache[llm_ref]
             role_groups[role] = group
 
@@ -314,7 +314,7 @@ async def _create_llm_provider(builder: Any, fn_config: Any) -> tuple[Any, Any]:
         llm_ref = getattr(fn_config, "llm", None)
         if llm_ref:
             if llm_ref not in llm_cache:
-                llm_cache[llm_ref] = await builder.get_llm(llm_ref, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
+                llm_cache[llm_ref] = await get_langchain_llm(builder, llm_ref)
             default_llm = llm_cache[llm_ref]
             if getattr(fn_config, "type", None) == "shallow_research_agent":
                 default_group = AgentGroup.SHALLOW_RESEARCH
@@ -1125,12 +1125,12 @@ async def _run_deep_research_reflection(
         from aiq_agent.common import AgentGroup
         from aiq_agent.common import apply_model_override
         from aiq_agent.common import apply_org_credential
+        from aiq_agent.common import get_langchain_llm
         from aiq_agent.common import sanitize_model_overrides
         from aiq_agent.common.cost_tracking import BudgetSnapshot
         from aiq_agent.common.cost_tracking import track_llm_costs
-        from nat.builder.framework_enum import LLMFrameworkEnum
 
-        reflection_llm = await builder.get_llm(reflection_llm_ref, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
+        reflection_llm = await get_langchain_llm(builder, reflection_llm_ref)
         overrides = sanitize_model_overrides(model_overrides) if model_overrides else None
         reflection_llm = apply_model_override(reflection_llm, AgentGroup.MEMORY_REFLECTION, overrides)
         # Explicit credential (not context): a Dask worker has no live request,

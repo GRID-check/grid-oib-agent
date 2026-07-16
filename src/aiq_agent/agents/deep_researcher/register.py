@@ -17,6 +17,7 @@ from aiq_agent.common import VerboseTraceCallback
 from aiq_agent.common import _create_chat_response
 from aiq_agent.common import all_mapped_tools_filtered_out
 from aiq_agent.common import filter_tools_by_sources
+from aiq_agent.common import get_langchain_llm
 from aiq_agent.common import get_model_overrides_from_context
 from aiq_agent.common import get_org_llm_credential_from_context
 from aiq_agent.common import is_verbose
@@ -190,23 +191,23 @@ async def deep_research_agent(config: DeepResearchAgentConfig, builder: Builder)
                 "All queries will fail until at least one tool is properly configured.",
             )
 
-    llm = await builder.get_llm(config.orchestrator_llm, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
+    llm = await get_langchain_llm(builder, config.orchestrator_llm)
 
     provider = LLMProvider()
     provider.set_default(llm, group=AgentGroup.DEEP_RESEARCH)
 
     provider.configure(LLMRole.ORCHESTRATOR, llm, group=AgentGroup.DEEP_RESEARCH)
     if config.source_router_llm:
-        source_router_llm = await builder.get_llm(config.source_router_llm, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
+        source_router_llm = await get_langchain_llm(builder, config.source_router_llm)
         provider.configure(LLMRole.ROUTER, source_router_llm, group=AgentGroup.DEEP_RESEARCH_ROUTER)
     if config.researcher_llm:
-        researcher_llm = await builder.get_llm(config.researcher_llm, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
+        researcher_llm = await get_langchain_llm(builder, config.researcher_llm)
         provider.configure(LLMRole.RESEARCHER, researcher_llm, group=AgentGroup.DEEP_RESEARCH)
     if config.planner_llm:
-        planner_llm = await builder.get_llm(config.planner_llm, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
+        planner_llm = await get_langchain_llm(builder, config.planner_llm)
         provider.configure(LLMRole.PLANNER, planner_llm, group=AgentGroup.DEEP_RESEARCH)
     if config.writer_llm:
-        writer_llm = await builder.get_llm(config.writer_llm, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
+        writer_llm = await get_langchain_llm(builder, config.writer_llm)
         provider.configure(LLMRole.REPORT_WRITER, writer_llm, group=AgentGroup.DEEP_RESEARCH)
 
     verbose = is_verbose(config.verbose)

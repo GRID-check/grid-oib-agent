@@ -387,9 +387,9 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
     # Resolve summary LLM if specified (enterprise approach)
     summary_llm_obj = None
     if config.summary_model and config.generate_summary:
-        from nat.builder.framework_enum import LLMFrameworkEnum
+        from aiq_agent.common import get_langchain_llm
 
-        summary_llm_obj = await _builder.get_llm(config.summary_model, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
+        summary_llm_obj = await get_langchain_llm(_builder, config.summary_model)
         logger.info("Resolved summary model: %s", config.summary_model)
 
     # Initialize summary DB with configured URL
