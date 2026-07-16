@@ -1,7 +1,9 @@
 """Tests for per-org runtime model overrides (X-Grid-Model-Overrides)."""
 
 import base64
+import functools
 import json
+import types
 
 import pytest
 from pydantic import BaseModel
@@ -24,6 +26,27 @@ class FakeChatModel(BaseModel):
 
     model_name: str = "deepseek/deepseek-v4-flash"
     max_tokens: int = 4096
+
+
+class RetryPatchedChatModel(FakeChatModel):
+    """Stand-in for a NAT-built ChatOpenAI (patch_with_retry applied)."""
+
+    def invoke_model(self) -> str:
+        """Returns the model the request would actually go out with (self-bound)."""
+        return self.model_name
+
+
+def _patch_with_retry_like_nat(llm: RetryPatchedChatModel) -> RetryPatchedChatModel:
+    """Replicate NAT's patch_with_retry: wrap every public method and store it
+    in the instance __dict__ as a types.MethodType bound to THIS instance."""
+    original_fn = type(llm).invoke_model
+
+    @functools.wraps(original_fn)
+    def wrapper(*args, **kwargs):
+        return original_fn(*args, **kwargs)
+
+    object.__setattr__(llm, "invoke_model", types.MethodType(wrapper, llm))
+    return llm
 
 
 class TestParseModelOverrides:
@@ -89,6 +112,20 @@ class TestOverrideModel:
     def test_apply_without_matching_override_is_identity(self):
         llm = FakeChatModel()
         assert apply_model_override(llm, AgentGroup.INTENT, {"clarifier": "vendor/other"}) is llm
+
+    def test_override_rebinds_instance_patched_methods(self):
+        """Regression: NAT's patch_with_retry stores public methods in the
+        instance __dict__ as MethodTypes bound to the ORIGINAL instance.
+        model_copy shallow-copies __dict__, so the override copy kept invoking
+        the original model (wire payload carried the old model name while logs
+        showed the override)."""
+        llm = _patch_with_retry_like_nat(RetryPatchedChatModel())
+        result = override_model(llm, "x-ai/grok-4.5")
+        assert result.model_name == "x-ai/grok-4.5"
+        # The call must execute against the copy, not the original instance.
+        assert result.invoke_model() == "x-ai/grok-4.5"
+        # Original keeps its own binding and model.
+        assert llm.invoke_model() == "deepseek/deepseek-v4-flash"
 
 
 class TestProviderWithModelOverrides:
@@ -165,9 +202,7 @@ class TestOrgScopedFallbackResolution:
         import aiq_agent.common.model_overrides as M
 
         monkeypatch.setattr("aiq_agent.project_context._read_header", lambda name: None)
-        monkeypatch.setattr(
-            "aiq_agent.project_context.get_organization_id_from_context", lambda: "org_ABC123"
-        )
+        monkeypatch.setattr("aiq_agent.project_context.get_organization_id_from_context", lambda: "org_ABC123")
         monkeypatch.setattr(M, "_fetch_org_overrides", lambda org: {"deep_research": "x-ai/grok-4.5"})
 
         assert M.get_model_overrides_from_context() == {"deep_research": "x-ai/grok-4.5"}

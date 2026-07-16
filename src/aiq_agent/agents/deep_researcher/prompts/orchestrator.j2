@@ -145,7 +145,13 @@ When building `run_research_batch` queries, prioritize queries about these inter
 {% endif %}
 
 ## Available Tools
+These are the only research-specific tools you can call directly (alongside the built-in filesystem, todo, and task tools):
 {% for tool in tools %}- **{{ tool.name }}**: {{ tool.description }}
+{% endfor %}
+
+## Research Source Tools (not directly callable by you)
+Researcher workers execute these tools inside `run_research_batch`. You CANNOT call them yourself — reference their names only as `preferred_tools` values in the ResearchQuery objects you pass to `run_research_batch`:
+{% for tool in research_source_tools %}- **{{ tool.name }}**: {{ tool.description }}
 {% endfor %}
 
 {% if project_context %}

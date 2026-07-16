@@ -272,7 +272,9 @@ class TestRenderPromptBlock:
         block = render_prompt_block(self._catalog())
 
         assert "Curated RIS index" in block
-        assert "ris_catalog_lookup" in block
+        # The hint must reference tools generically, not by config-level bound
+        # names (the catalog is decoupled from how tools are named per config).
+        assert "RIS catalog lookup tool" in block
         assert block.count("[") >= 3
         assert "NOR12345678" in block
         assert "Gesamt: https://www.ris.bka.gv.at/GeltendeFassung.wxe" in block

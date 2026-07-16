@@ -29,7 +29,7 @@ The Project Context below is the project's brief — the hard facts every future
 Prioritize sources based on the query intent:
 
 1. **User Documents (Highest Priority)**: If a knowledge_search or document tool is available, use it first for "my files," "the uploaded doc," or personal/provided data.
-2. **Austrian Law (RIS)**: If RIS tools are available, use them for questions about Austrian statutes, Bauordnungen, or case law. Search with `ris_search` (German terms), then fetch the ENTIRE relevant document with `ris_fetch_document` instead of answering from search snippets — the exact wording of a paragraph matters, and fetched documents become citable knowledge sources.
+2. **Austrian Law (RIS)**: If RIS tools are available, use them for questions about Austrian statutes, Bauordnungen, or case law. Search with the RIS search tool (German terms), then fetch the ENTIRE relevant document with the RIS fetch tool instead of answering from search snippets — the exact wording of a paragraph matters, and fetched documents become citable knowledge sources.
 3. **Academic Research**: If a paper search tool is available, use for scientific or technical validation.
 4. **Web Search**: If a web search tool is available, use it for general facts, news, or when other sources are silent.
 
