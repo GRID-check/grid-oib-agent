@@ -596,6 +596,24 @@ async def run_agent_job(
                     headers={**existing_headers, "x-grid-collection-scope": encoded}
                 )
                 context_state.metadata.set(request_attrs)
+            elif getattr(fn_config, "type", None) == "deep_research_agent":
+                # Audit-confirmed silent fallback: with no collection scope,
+                # get_collection_scope_from_context() returns None and knowledge-retrieval
+                # tools fall back to searching only the base/OIB collection plus the
+                # s_<conversation> session collection for the rest of this job — any
+                # project-specific collection is invisible, with no other user-facing
+                # signal that it happened. Logged once per job (this branch runs once per
+                # run_agent_job call, not per retrieval) so the degradation is diagnosable.
+                _identity = (usage_context or {}).get("identity") or {}
+                logger.warning(
+                    "Job %s: async deep-research job has no collection scope; knowledge "
+                    "retrieval will search only the base/OIB and s_<conversation> session "
+                    "collections for this job — project collections will be invisible "
+                    "(authenticated=%s, project_scoped=%s)",
+                    job_id,
+                    bool(_identity.get("organization_id") or _identity.get("user_id")),
+                    bool(_identity.get("project_id") or project_context),
+                )
 
             if project_context is not None:
                 from aiq_agent.project_context import normalize_project_context
