@@ -60,9 +60,9 @@ Results from multiple collections are merged by relevance score and deduplicated
 
 ## Document Summaries
 
-The document list in the Data Sources panel shows a **summary** for each successfully ingested document (if summarization is enabled in the configuration). Summaries provide quick context about what each document contains without needing to search it first.
+The document list in the Data Sources panel shows a **summary** for each successfully ingested document (if summarization is enabled in the configuration). Summaries provide quick context about what each document contains without needing to search it first, and the AI also uses this same summary list to decide what documents are available before searching.
 
-Summaries are generated during ingestion using the configured `summary_model` LLM and stored in a centralized registry (SQLite by default).
+Summaries are generated during ingestion using the configured `summary_model` LLM and stored in a centralized registry (SQLite by default), which is **separate** from the search index. In rare cases — if summary generation fails during ingestion — a document can be fully searchable (findable via a search query) while missing from this summary list; this is a known limitation. If a document you uploaded isn't answering "what documents do I have" style questions but a targeted search still finds its content, this is why. See `docs/architecture/backend-deep-dive.md` for the technical detail.
 
 ---
 

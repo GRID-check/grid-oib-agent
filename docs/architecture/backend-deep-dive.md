@@ -252,6 +252,55 @@ RAG multi-tenant boundary. Note `resolveProjectCollectionName` short-circuits to
 no project scope when `session.organizationId` is falsy (anonymous /
 `REQUIRE_AUTH=false`).
 
+### Document summaries & `available_documents` (SQL side-table, distinct from the vector index)
+
+Two separate stores back "documents" and **can diverge**: the **ChromaDB
+vector index** that `knowledge_search`/`knowledge_retrieval` queries (what's
+actually retrievable), and a **SQL `summaries` side-table** (`SummaryStore`,
+`src/aiq_agent/knowledge/summary_store.py` + `factory.py
+get_available_documents_async`) that is the **sole source** of the
+`available_documents` list (file name + summary, optionally tags) rendered
+into agent prompts and shown in the Data Sources panel. A document can be
+fully ingested and retrievable via `knowledge_search` yet be **absent** from
+`available_documents` — see the known limitation below.
+
+`available_documents` is fetched **once per turn**, in
+`chat_researcher/register.py` (~lines 530–581), aggregated across the
+collections in the request's header-based scope (or the base + session
+collection fallback when no scope header is present) and deduplicated by file
+name. The same list is then shared by the shallow, clarifier, and deep-research
+paths for that turn — it is not re-fetched per node.
+
+**Prompt gating asymmetry (known limitation, fix pending)**: the shallow
+researcher's prompt (`agents/shallow_researcher/prompts/researcher.j2:31`)
+carries an *unconditional* "use `knowledge_search` first for user documents"
+instruction — the shallow path always tries the tool regardless of
+`available_documents`. The deep-research prompts instead gate document
+awareness purely on `available_documents` being non-empty:
+`agents/deep_researcher/prompts/planner.j2`,
+`agents/deep_researcher/prompts/orchestrator.j2`,
+`agents/deep_researcher/prompts/researcher.j2`, and
+`agents/deep_researcher/prompts/source_router.j2` all wrap their document
+listing in `{% if available_documents %}` (or the length-checked variant).
+When the summaries table has no row for a collection's documents (see below),
+the deep path never surfaces project content in its prompts at all, even
+though `knowledge_search` could still retrieve it.
+
+**Silent summary-row loss on double LLM failure (known limitation, fix
+pending)**: ingestion (`sources/knowledge_layer/src/llamaindex/adapter.py`,
+~lines 1795–1965) runs summary generation and tag classification as two
+concurrent calls to the same `summary_llm`; both independently swallow
+exceptions/timeouts and return `None` on failure. The deterministic,
+text-derived fallback summary only kicks in when `not summary and tags and
+text_documents` — i.e. only when tag classification succeeded but
+summarization did not — and `register_summary()` (the only call that writes a
+`summaries` row) only runs `if summary:`. So when **both** calls fail, no row
+is ever written, even though the file's chunks were embedded successfully and
+the file was already marked `FileStatus.SUCCESS`. The document stays fully
+searchable via `knowledge_search` but is permanently invisible in
+`available_documents` (Data Sources panel summary list, deep-research
+prompts above) until the document is re-ingested or backfilled.
+
 ## 7. Deep research (async jobs)
 
 - The `deep_research` graph node submits a Dask job and returns the stub message
@@ -269,6 +318,20 @@ no project scope when `session.organizationId` is falsy (anonymous /
 **Open items**: synchronous inline deep-research answers (no Dask) do not
 carry Grid cards (§3; the async job path generates them post-hoc in the
 runner). And the research tab can 403 — see §9.
+
+**Collection-scope re-injection gap (known limitation, fix pending)**: the
+`X-Grid-Collection-Scope` header is captured once at submit time
+(`chat_researcher/register.py`) and threaded into the async job payload as
+`collection_scope`. The Dask worker only re-injects it into its own request
+context conditionally —
+`frontends/aiq_api/src/aiq_api/jobs/runner.py:591` does `if collection_scope
+is not None:` before base64url-encoding it back onto the header. When the
+scope is absent, `knowledge_retrieval` inside the worker falls back to legacy
+config-based resolution (base collection + session collection only — see
+`docs/technical-reference/collection-scoping.md`). Because
+`project_collections` is `[]` in the shipped configs, project collections are
+**never** searched in that fallback path for the affected job, and no warning
+is logged — the degradation is silent.
 
 **Workflows (ADR-0023, 2026-07-16)**: saved per-project research briefs can
 fire this same async pipeline on a cron schedule — a dedicated
@@ -361,7 +424,17 @@ full specs in `org-model-configuration.md` (ADR-0014) and
   runtime evidence to fix safely; do not guess-patch auth.**
 - **Deep-research cards** — not delivered on the async path (§3/§7).
 - **Silent LLM failures** — card generation and summary generation both swallow
-  exceptions; consider surfacing a degraded signal to the UI.
+  exceptions; consider surfacing a degraded signal to the UI. This also covers
+  document-ingestion summary/tag generation specifically — see the
+  "Silent summary-row loss on double LLM failure" note in §6.
+- **`available_documents` vs. ChromaDB divergence** — the SQL summaries
+  side-table that feeds `available_documents` can miss documents that are
+  fully indexed and retrievable in ChromaDB (§6). Deep-research prompts gate
+  document awareness entirely on this list being non-empty, unlike the
+  shallow path (§6).
+- **Async job collection-scope fallback** — `collection_scope` is only
+  re-injected into the Dask worker context when present; absent scope
+  silently drops project-collection search for that job (§7).
 - Infra: live secrets in `deploy/.env`; backend DBs have no migration mechanism
   (init only); config drift between the two config files.
 

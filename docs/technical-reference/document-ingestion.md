@@ -123,7 +123,7 @@ For each file:
 1. **Text extraction** — `SimpleDirectoryReader(input_files=[file_path])` loads the file content into LlamaIndex `Document` objects
 2. **Table extraction** (PDF only, optional) — Uses `pdfplumber` to extract tables as markdown; each table becomes a `Document` with `content_type: "table"` metadata
 3. **Image extraction** (PDF only, optional) — Uses `pypdfium2` to extract images (min 100×100px to filter icons); each image is sent to NVIDIA's VLM API (default: `nvidia/nemotron-nano-12b-v2-vl`) for classification (chart vs image) and captioning; captions become `Document` objects with `content_type: "chart"` or `"image"` metadata
-4. **Summarization** (optional) — If `generate_summary` is enabled, the first and last chunks are combined and sent to the configured `summary_model` LLM for a one-sentence summary
+4. **Summarization** (optional) — If `generate_summary` is enabled, the first and last chunks are combined and sent, as two **concurrent** calls to the same `summary_model` LLM, for a one-sentence summary and a tag classification (document type + OIB discipline; see "Backfilling tags" below). Both calls independently swallow exceptions/timeouts and return nothing on failure. A deterministic, text-derived fallback summary is used only when tag classification succeeded but summarization did not; if **both** calls fail, no `summaries` row is written for that document at all, even though the file still ingests successfully (see "Known limitation" below).
 5. **Indexing** — All `Document` objects are inserted into a `VectorStoreIndex` backed by ChromaDB with NVIDIA embeddings (`nvidia/llama-nemotron-embed-vl-1b-v2`)
 6. **Job completion** — Status updated to `JobState.COMPLETED` with metadata about chunks, tables, charts, and images created
 
@@ -160,6 +160,24 @@ python scripts/backfill_document_tags.py --force            # re-classify rows t
 ```
 
 It never re-ingests or re-embeds and never touches the summary — it only fills the `tags` column. It is idempotent (rows with tags are skipped unless `--force`) and fail-soft per document.
+
+### Known limitation: silent summary-row loss on double LLM failure (fix pending)
+
+The summary and tag-classification calls in Step 4 above run concurrently
+against the same `summary_llm` (`sources/knowledge_layer/src/llamaindex/adapter.py`,
+~lines 1795–1965) and both fail open (log a warning, return `None`) on
+error/timeout. `register_summary()` — the only call that writes a row into
+the `summaries` table — only runs when a summary value exists. The
+deterministic fallback summary (derived from already-extracted text) only
+covers the case where *tagging* succeeded but *summarization* didn't; it does
+not cover a **double** failure. When both calls fail, the document is still
+indexed into ChromaDB and marked `SUCCESS`, so it remains fully searchable via
+`knowledge_search`, but it never gets a `summaries` row — it will not appear
+in `available_documents` (agent prompts, Data Sources panel summary list) and
+the backfill script above only fills `tags` on rows that already exist, so it
+cannot recover a missing row either. Recovery today requires re-ingesting the
+file. See `docs/architecture/backend-deep-dive.md` §6 for the full trace and
+the related prompt-gating asymmetry this causes downstream.
 
 - **Text source**: the document's already-indexed Chroma chunk text when available (the same text ingestion classified from), falling back to the stored summary otherwise.
 - **LLM access**: it runs outside the NAT runtime, so it builds an OpenAI-compatible client from env vars that must match the `summary_llm` block in `configs/config_*.yml`: `BACKFILL_SUMMARY_API_KEY` (falls back to `NVIDIA_API_KEY`), `BACKFILL_SUMMARY_BASE_URL` (default `https://integrate.api.nvidia.com/v1`), `BACKFILL_SUMMARY_MODEL` (default `nvidia/nemotron-mini-4b-instruct`).
@@ -213,6 +231,14 @@ At query time, the `knowledge_retrieval` NAT function:
 3. The `LlamaIndexRetriever` queries ChromaDB for the `top_k` most similar chunks
 4. Results from all collections are merged by relevance score (cosine similarity) and truncated to `top_k`
 5. Formatted with citations (filename, page number) for LLM consumption
+
+Note this search path reads **only** the ChromaDB vector index — it is
+independent of the SQL `summaries` table that feeds `available_documents`
+(the per-document summary list injected into agent prompts, described above
+and in `docs/architecture/backend-deep-dive.md` §6). A document can be
+returned here even when it has no row in `summaries` (double-LLM-failure
+case above), and conversely `available_documents` cannot show a document that
+failed to index into ChromaDB.
 
 ---
 

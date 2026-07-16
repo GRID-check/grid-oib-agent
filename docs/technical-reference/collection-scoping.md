@@ -214,6 +214,35 @@ This limit is relevant in multi-tenant or multi-project setups where many collec
 
 ---
 
+## Async Deep-Research Jobs: Collection-Scope Re-injection Gap (known limitation, fix pending)
+
+The scope header described above governs synchronous chat requests. Async
+deep-research jobs are different: the `X-Grid-Collection-Scope` header is
+read **once, at job submit time**, in `chat_researcher/register.py`, and
+carried through as a `collection_scope` field on the job payload rather than
+as a live header.
+
+When the Dask worker later runs the job, `frontends/aiq_api/src/aiq_api/jobs/runner.py:591`
+re-injects it into the worker's own request context **only when present**:
+
+```python
+if collection_scope is not None:
+    encoded = base64.urlsafe_b64encode(json.dumps(collection_scope).encode()).rstrip(b"=").decode()
+    # ... set back onto the header the worker's NAT context reads
+```
+
+If `collection_scope` is `None` at submit time (e.g. the request bypassed the
+BFF, or came from an older client that never set the header),
+`knowledge_retrieval` inside the worker has no header to read and falls back
+to `_resolve_target_collections()` — priority 2 in the table below — using
+**base collection + session collection only**. Because `project_collections`
+is `[]` in the shipped configs, project collections are **never** searched in
+that fallback for the affected job. This degradation is silent: no warning is
+logged, and the job completes normally, just without project-scoped RAG
+results.
+
+---
+
 ## Summary of Scope Resolution Priority
 
 | Priority | Source | When |
