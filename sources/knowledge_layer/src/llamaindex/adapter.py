@@ -1945,16 +1945,22 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
 
                     self._update_file_status(job, i, FileStatus.SUCCESS, chunks_created=chunks_created)
 
-                    # If summarization failed/timed out but tag classification
-                    # succeeded, still persist the row (and its tags) with a
-                    # deterministic, LLM-free fallback summary derived from the
-                    # already-extracted text — otherwise the tag work is wasted
-                    # (the summary column is NOT NULL). Standalone images already
-                    # fell back to their VLM caption above.
-                    if not summary and tags and text_documents:
+                    # Structural "ingested ⇒ visible" backstop: ANY successfully
+                    # ingested text document must get a summary row, or it becomes
+                    # invisible to agents (available_documents is sourced SOLELY
+                    # from the summaries table). This fires whenever the LLM
+                    # summary is missing — summarization disabled, LLM failure, or
+                    # timeout — and deliberately does NOT require tag
+                    # classification to have succeeded; tags ride along
+                    # independently and may still be None. Standalone images
+                    # already fell back to their VLM caption above.
+                    if not summary and text_documents:
                         from aiq_agent.knowledge.document_classification import fallback_summary_from_text
 
-                        summary = fallback_summary_from_text(text_documents[0].get_content())
+                        first_text = text_documents[0].get_content()
+                        last_text = text_documents[-1].get_content() if len(text_documents) > 1 else ""
+                        fallback_source = f"{first_text}\n{last_text}" if last_text else first_text
+                        summary = fallback_summary_from_text(fallback_source)
 
                     # Store summary + tags in FileInfo and centralized registry
                     if summary:

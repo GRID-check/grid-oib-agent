@@ -259,6 +259,7 @@ def summary_db(tmp_path):
 @pytest.fixture
 def ingestor(tmp_path, monkeypatch):
     """A LlamaIndexIngestor with embeddings + vector index mocked out."""
+
     # Deterministic summary + tag LLM: routes by prompt prefix.
     def fake_invoke(prompt):
         if prompt.startswith("Summarize"):
@@ -308,9 +309,7 @@ class TestRunIngestionImageBranch:
         img = tmp_path / "grundriss.png"
         img.write_bytes(_png_bytes())
 
-        job_id = ingestor.submit_job(
-            [str(img)], "coll_img", config={"original_filenames": ["grundriss.png"]}
-        )
+        job_id = ingestor.submit_job([str(img)], "coll_img", config={"original_filenames": ["grundriss.png"]})
         status = _wait_terminal(ingestor, job_id)
 
         assert status.is_success
@@ -365,6 +364,35 @@ class TestRunIngestionImageBranch:
         # Summary is the deterministic text fallback (not an LLM sentence).
         assert docs[0].summary is not None
         assert "Brandschutzkonzept" in docs[0].summary
+
+    def test_summary_and_tags_both_fail_still_persists_fallback_summary(
+        self, tmp_path, monkeypatch, ingestor, summary_db
+    ):
+        """T3-10 ("ingested ⇒ visible"): a double LLM failure (summary AND
+        tags) must not leave the document invisible. Both concurrent LLM calls
+        fail; the deterministic text fallback must still register a summary
+        row (tags stay None) so the file remains visible in
+        available_documents even though it is fully searchable in Chroma."""
+        from aiq_agent.knowledge import get_available_documents
+
+        def both_fail(prompt):
+            raise RuntimeError("LLM completely unavailable")
+
+        ingestor.summary_llm.invoke.side_effect = both_fail
+
+        doc = tmp_path / "statik.txt"
+        doc.write_text("Statischer Nachweis fuer die Deckenkonstruktion.", encoding="utf-8")
+
+        job_id = ingestor.submit_job([str(doc)], "coll_double_fail", config={"original_filenames": ["statik.txt"]})
+        status = _wait_terminal(ingestor, job_id)
+        assert status.is_success
+
+        docs = get_available_documents("coll_double_fail")
+        assert len(docs) == 1
+        assert docs[0].file_name == "statik.txt"
+        assert docs[0].tags is None
+        assert docs[0].summary is not None
+        assert "Statischer Nachweis" in docs[0].summary
 
     def test_corrupt_image_fails_without_crashing(self, tmp_path, monkeypatch, ingestor, summary_db):
         monkeypatch.setattr(adapter, "_get_vlm_api_key", lambda: "vlm-key")
