@@ -15,6 +15,7 @@ export const nav: typeof en.nav = {
     files: 'Dateien',
     knowledge: 'Wissen',
     research: 'Recherche',
+    workflows: 'Workflows',
     members: 'Mitglieder',
   },
   tabTitle: {

@@ -54,3 +54,23 @@ describe('AppSidebar - Research nav item (FB-10)', () => {
     expect(screen.getAllByText('Files').length).toBeGreaterThan(0)
   })
 })
+
+describe('AppSidebar - Workflows nav item', () => {
+  test('shows the Workflows nav item when showWorkflows is true', () => {
+    render(<AppSidebar {...baseProps} showWorkflows />)
+    expect(screen.getAllByText('Workflows').length).toBeGreaterThan(0)
+  })
+
+  test('hides the Workflows nav item by default (feature-flagged, default off)', () => {
+    render(<AppSidebar {...baseProps} />)
+    expect(screen.queryByText('Workflows')).not.toBeInTheDocument()
+    // Sibling items remain.
+    expect(screen.getAllByText('Chat').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Members').length).toBeGreaterThan(0)
+  })
+
+  test('hides the Workflows nav item when showWorkflows is false', () => {
+    render(<AppSidebar {...baseProps} showWorkflows={false} />)
+    expect(screen.queryByText('Workflows')).not.toBeInTheDocument()
+  })
+})

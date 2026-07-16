@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { FEATURE_FLAGS, isFeatureEnabled, requireFeature } from './feature-flags'
+import {
+  FEATURE_FLAGS,
+  isFeatureEnabled,
+  isWorkflowsEnabled,
+  requireFeature,
+  requireWorkflowsEnabled,
+} from './feature-flags'
 
 const FLAG = FEATURE_FLAGS.modelConfiguration
 
@@ -45,5 +51,45 @@ describe('feature flags (WorkOS-native, JWT claim)', () => {
     expect(res).not.toBeNull()
     expect(res?.status).toBe(403)
     expect(await res?.json()).toEqual({ error: 'feature-disabled', feature: FLAG })
+  })
+})
+
+describe('isWorkflowsEnabled (dark-launch gate)', () => {
+  afterEach(() => {
+    delete process.env.GRID_ENFORCE_FEATURE_FLAGS
+    delete process.env.GRID_WORKFLOWS_ENABLED
+  })
+
+  it('registry carries the workflows slug', () => {
+    expect(FEATURE_FLAGS.workflows).toBe('workflows')
+  })
+
+  it('unenforced: default OFF, ignoring the JWT claim', () => {
+    expect(isWorkflowsEnabled({ featureFlags: [FEATURE_FLAGS.workflows] })).toBe(false)
+    expect(isWorkflowsEnabled({ featureFlags: null })).toBe(false)
+  })
+
+  it('unenforced: the GRID_WORKFLOWS_ENABLED env opt-in turns it on', () => {
+    process.env.GRID_WORKFLOWS_ENABLED = 'true'
+    expect(isWorkflowsEnabled({ featureFlags: [] })).toBe(true)
+    expect(isWorkflowsEnabled({ featureFlags: null })).toBe(true)
+  })
+
+  it('enforced: follows the per-org WorkOS flag, not the env var', () => {
+    process.env.GRID_ENFORCE_FEATURE_FLAGS = 'true'
+    process.env.GRID_WORKFLOWS_ENABLED = 'true' // ignored while enforcement is on
+    expect(isWorkflowsEnabled({ featureFlags: [FEATURE_FLAGS.workflows] })).toBe(true)
+    expect(isWorkflowsEnabled({ featureFlags: [] })).toBe(false)
+    expect(isWorkflowsEnabled({ featureFlags: null })).toBe(false)
+  })
+
+  it('requireWorkflowsEnabled: null when allowed, stable-coded 403 when off', async () => {
+    process.env.GRID_WORKFLOWS_ENABLED = 'true'
+    expect(requireWorkflowsEnabled({ featureFlags: [] })).toBeNull()
+
+    delete process.env.GRID_WORKFLOWS_ENABLED
+    const res = requireWorkflowsEnabled({ featureFlags: [] })
+    expect(res?.status).toBe(403)
+    expect(await res?.json()).toEqual({ error: 'feature-disabled', feature: 'workflows' })
   })
 })

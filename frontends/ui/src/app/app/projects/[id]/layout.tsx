@@ -4,7 +4,12 @@ import { notFound } from 'next/navigation'
 import { requireAuthorizedPageSession } from '@/lib/auth/require-auth'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { getNavFlags } from '@/lib/authz/nav'
-import { FEATURE_FLAGS, isFeatureEnabled, isProjectKnowledgePageEnabled } from '@/lib/authz/feature-flags'
+import {
+  FEATURE_FLAGS,
+  isFeatureEnabled,
+  isProjectKnowledgePageEnabled,
+  isWorkflowsEnabled,
+} from '@/lib/authz/feature-flags'
 import { getDb } from '@/lib/db'
 import { projects } from '@/lib/db/schema'
 import { AppSidebar } from '@/components/shell'
@@ -89,6 +94,7 @@ export default async function ProjectLayout({ children, params }: ProjectLayoutP
         canViewOrganization={navFlags.canViewOrganization}
         canManagePlatform={navFlags.canManagePlatform}
         showKnowledge={isProjectKnowledgePageEnabled(session)}
+        showWorkflows={isWorkflowsEnabled(session)}
         // FB-10: when research runs live in the chat-history panel, drop the
         // standalone Research nav item. Fails open to the merged behavior
         // (item hidden) when flag enforcement is off.

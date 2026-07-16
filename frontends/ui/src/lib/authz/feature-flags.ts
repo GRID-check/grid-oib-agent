@@ -51,11 +51,22 @@ export const FEATURE_FLAGS = {
    *  revises. Server-computed in the intake page, prop-drilled to the wizard;
    *  off → the wizard saves exactly as before (no check). */
   wizardConflictCheck: 'wizard-conflict-check',
+  /** Scheduled deep-research workflows (ADR-0023): saved research briefs per
+   *  project, run manually or on a cron schedule. Dark-launched — gated by the
+   *  WorkOS flag when enforcement is on, else the GRID_WORKFLOWS_ENABLED env
+   *  opt-in (default off). Gates the nav item, the page (404 when off), and
+   *  every BFF workflow route. */
+  workflows: 'workflows',
 } as const
 
 export type KnownFeatureFlag = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
-function enforcementOn(): boolean {
+/**
+ * Whether WorkOS flag enforcement is on for this deployment. Exported so
+ * session-less gates (e.g. the workflows scheduled-fire path) share this one
+ * definition instead of re-parsing GRID_ENFORCE_FEATURE_FLAGS themselves.
+ */
+export function enforcementOn(): boolean {
   return (process.env.GRID_ENFORCE_FEATURE_FLAGS ?? '').toLowerCase() === 'true'
 }
 
@@ -82,6 +93,31 @@ export function isProjectKnowledgePageEnabled(session: Pick<GridSession, 'featur
     return isFeatureEnabled(session, FEATURE_FLAGS.projectKnowledgePage)
   }
   return (process.env.GRID_PROJECT_KNOWLEDGE_PAGE_ENABLED ?? '').toLowerCase() === 'true'
+}
+
+/**
+ * Default-OFF gate for scheduled workflows (ADR-0023). Like
+ * isProjectKnowledgePageEnabled, this feature launches dark: with WorkOS flag
+ * enforcement it follows the per-org `workflows` flag; without enforcement it
+ * is only available when a deployment explicitly opts in via
+ * GRID_WORKFLOWS_ENABLED=true (mirrors the project-knowledge-page fallback).
+ */
+export function isWorkflowsEnabled(session: Pick<GridSession, 'featureFlags'>): boolean {
+  if (enforcementOn()) {
+    return isFeatureEnabled(session, FEATURE_FLAGS.workflows)
+  }
+  return (process.env.GRID_WORKFLOWS_ENABLED ?? '').toLowerCase() === 'true'
+}
+
+/**
+ * Route guard for the workflows feature: stable-coded 403 when off (matching
+ * requireFeature's envelope), null when allowed. Distinct from requireFeature
+ * because the gate is the dark-launch isWorkflowsEnabled(), not a plain flag
+ * check. Usage: `const gated = requireWorkflowsEnabled(session); if (gated) return gated`
+ */
+export function requireWorkflowsEnabled(session: Pick<GridSession, 'featureFlags'>): Response | null {
+  if (isWorkflowsEnabled(session)) return null
+  return NextResponse.json({ error: 'feature-disabled', feature: FEATURE_FLAGS.workflows }, { status: 403 })
 }
 
 /**

@@ -13,6 +13,7 @@ export const nav = {
     files: 'Files',
     knowledge: 'Knowledge',
     research: 'Research',
+    workflows: 'Workflows',
     members: 'Members',
   },
   /**

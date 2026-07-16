@@ -84,7 +84,7 @@ Read = `project:view`; mutate & run = the standard project edit permission
 - `GET/PATCH/DELETE /api/projects/[id]/workflows/[workflowId]` — PATCH recompiles/revalidates and recomputes `next_run_at`; every query double-filters by `organization_id`
 - `POST /api/projects/[id]/workflows/[workflowId]/run` — manual fire via `fireWorkflow(workflow, 'manual', session.user.id)`; 409 when disabled; surfaces backend 429 (caps) as a friendly skipped result
 - `GET  /api/projects/[id]/workflows/[workflowId]/runs?limit&offset` — run history (newest first)
-- `POST /api/internal/workflows/fire` — `internalApiRoute` (shared-token, like `/api/internal/memory`), body `{workflowId}`; used by the scheduler. Re-checks `enabled`, then `fireWorkflow(workflow, 'schedule', 'scheduler')`.
+- `POST /api/internal/workflows/fire` — `internalApiRoute` (shared-token, like `/api/internal/memory`), body `{workflowId}`; used by the scheduler. Delegates to `fireScheduledWorkflow`, which re-checks `enabled` AND the org's `workflows` gate (per-org WorkOS flag via `isOrgFeatureEnabled` under enforcement — fail-closed, so flag revocation/outage pauses schedules with visible `skipped` runs; the `GRID_WORKFLOWS_ENABLED` env gate otherwise) before `fireWorkflow(workflow, 'schedule', 'scheduler')`.
 
 `fireWorkflow()` (service) is the single submission path:
 1. Build identity (org, project, workflow creator as owner) + the same

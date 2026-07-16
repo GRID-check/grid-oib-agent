@@ -162,6 +162,22 @@ SSE streams pass through the response body unmodified. The `?token=` query param
 
 Source: `frontends/ui/src/app/api/jobs/async/[...path]/route.ts`
 
+## Workflows (ADR-0023, feature-gated)
+
+All routes 403 (`feature-disabled`) unless the Workflows feature is on (`workflows` WorkOS flag under enforcement, else `GRID_WORKFLOWS_ENABLED=true`). Read = `project:view`, mutate/run = `project:edit` via `requireProjectAccess`; every query is additionally org-filtered.
+
+| Method | Path | Auth | Description | Request Body / Params | Response |
+|--------|------|------|-------------|-----------------------|----------|
+| `GET` | `/api/projects/{id}/workflows` | project:view | List the project's workflows. | — | `{ workflows }` |
+| `POST` | `/api/projects/{id}/workflows` | project:edit | Create a workflow. Compiles the prompt server-side, validates cron (+ min interval, IANA timezone), computes `next_run_at`. | `{ name, description?, definition, dataSources?, enabled?, scheduleCron?, scheduleTimezone? }` | `Workflow` (201) |
+| `GET` | `/api/projects/{id}/workflows/{workflowId}` | project:view | Get one workflow (incl. definition + compiled prompt). | — | `Workflow` |
+| `PATCH` | `/api/projects/{id}/workflows/{workflowId}` | project:edit | Update; recompiles/revalidates and recomputes `next_run_at`. | partial create body | `Workflow` |
+| `DELETE` | `/api/projects/{id}/workflows/{workflowId}` | project:edit | Delete the workflow (runs cascade). | — | `{ deleted: true }` |
+| `POST` | `/api/projects/{id}/workflows/{workflowId}/run` | project:edit | Manual "Run now" through the shared fire path. 409 when disabled; a backend 429 (job caps) comes back as a `skipped` run, not an error. | — | `{ run }` |
+| `GET` | `/api/projects/{id}/workflows/{workflowId}/runs` | project:view | Run history, newest first. | `?limit&offset` | `{ runs }` |
+
+Source: `frontends/ui/src/app/api/projects/[id]/workflows/…`, service in `frontends/ui/src/lib/workflows/`. See `docs/architecture/workflows.md`.
+
 ## Organizations
 
 | Method | Path | Auth | Description | Request Body | Response |
@@ -204,6 +220,7 @@ Sources: `frontends/ui/src/app/api/organization/{model-config,budgets,usage,audi
 |--------|------|------|-------------|
 | `POST` | `/api/internal/memory` | `x-grid-internal-token` | Backend `remember`/reflection memory writes (single-writer bridge). |
 | `POST` | `/api/internal/usage` | `x-grid-internal-token` | Backend cost tracker's LLM usage-event batches into the `llm_usage_events` ledger. Org-less (anonymous) events are skipped. |
+| `POST` | `/api/internal/workflows/fire` | `x-grid-internal-token` | Scheduler-fired workflow run (`{ workflowId }`). Re-checks `enabled` + the org's workflows gate, then submits through the shared fire path (ADR-0023). |
 
 ## User Preferences
 

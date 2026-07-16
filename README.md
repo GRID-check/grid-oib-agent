@@ -66,6 +66,7 @@ flowchart TB
     subgraph Storage["Infrastructure"]
         MINIO["MinIO — OIB PDFs + project documents"]
         PURGER["purger — grace-period hard-delete worker"]
+        WFS["workflow-scheduler — cron fires for saved research briefs"]
     end
 
     subgraph External["External AI"]
@@ -84,6 +85,8 @@ flowchart TB
     FAST -.->|/v1/ingest| CHROMA
     PURGER --> DB
     PURGER --> MINIO
+    WFS --> DB
+    WFS -->|internal fire API| BFF
     NAT -->|LLM| OR
     NAT -->|web| TAVILY
 
@@ -128,7 +131,7 @@ open http://localhost:3000
 
 > **LLM-agnostic.** Grid runs against **any OpenAI-compatible API** — OpenRouter, a self-hosted vLLM/Ollama server, Azure OpenAI, NVIDIA NIM, etc. The LLM/embedding provider is not baked in: point the `base_url`, `model_name`, and API-key env at your endpoint in the workflow config (`configs/*.yml`) and set `CONFIG_FILE` accordingly. The shipped **reference config** is `configs/config_oib_openrouter.yml` (DeepSeek + embeddings via OpenRouter); the legacy Kimi config (`config_grid_oib.yml`) is not currently maintained.
 
-The stack runs seven Compose services: `postgres`, `minio` (+ `minio-init`), `aiq-agent` (+ a one-shot `aiq-data-permissions`), `frontend`, and the `purger` deletion worker.
+The stack runs eight Compose services: `postgres`, `minio` (+ `minio-init`), `aiq-agent` (+ a one-shot `aiq-data-permissions`), `frontend`, the `purger` deletion worker, and the `workflow-scheduler` cron worker (ADR-0023; a clean no-op unless workflows are enabled).
 
 ## Tech Stack
 

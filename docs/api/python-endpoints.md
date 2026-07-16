@@ -92,6 +92,12 @@ These routes are **not registered by custom code** — they are provided by the 
 - `db_url`: Job store database URL (default `sqlite+aiosqlite:///./jobs.db`)
 - `expiry_seconds`: Job TTL (default 86400, min 600, max 604800)
 
+## Workflows (internal, ADR-0023)
+
+| Method | Path | Auth | Description | Request | Response | Handler |
+|--------|------|------|-------------|---------|----------|---------|
+| `POST` | `/v1/internal/workflows/submit` | Internal token (`X-Internal-Token` matching `GRID_INTERNAL_API_TOKEN`; dev-default refused outside dev; not on the external-path allowlist) | Submit a workflow-fired deep-research job on behalf of the workflow creator (no user JWT — called by the BFF fire path for scheduled and manual workflow runs). Wraps `submit_agent_job`, so admission control, cost tracking (explicit identity), and `job_access` ownership apply exactly like the public submit route. | `{ agent_type, input, job_id?, data_sources?, collection_scope?, project_context?, organization_id, user_id?, project_id?, owner_email?, budget_header?, model_overrides? }` | `{ job_id }`; 429 + `Retry-After` (caps), 409 (duplicate job id), 503 (Dask/scheduler unconfigured), 400 (unknown agent), 403 (token) | `add_workflow_routes` in `aiq_api.routes.workflows` |
+
 ## OIB Admin
 
 | Method | Path | Auth | Description | Request | Response | Handler |

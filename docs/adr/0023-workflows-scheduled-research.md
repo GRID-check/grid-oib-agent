@@ -150,11 +150,14 @@ service refuses to start when the deployment-level gate is off.
 
 ### Risks
 
-- **Per-org flag revocation doesn't stop existing schedules.** Flag delivery
-  is JWT-based; the scheduler has no session. Revoking an org's WorkOS flag
-  blocks the UI/API (view/create/edit/run-now) but already-scheduled
-  workflows keep firing until disabled/deleted. Documented runbook step;
-  scheduler-side org-flag lookup (WorkOS API + cache) is a follow-up.
+- **Per-org flag revocation and scheduled fires.** Flag delivery to sessions
+  is JWT-based, but the scheduled-fire path re-evaluates the org's
+  `workflows` flag server-side (`isOrgFeatureEnabled`, the cached fail-closed
+  evaluator memory-reflection already uses) before firing: revoking an org's
+  flag pauses its schedules within the cache TTL, recorded as visible
+  `skipped` runs. Fail-closed means a WorkOS flag outage pauses scheduled
+  research rather than running it ungated — the safe direction for an
+  expensive gated feature.
 - **Budget enforcement parity**: scheduled runs carry identity for the ledger,
   and the BFF fire path attaches the same budget context as interactive
   submits; if the budget-header builder is bypassed by a future refactor,
@@ -184,8 +187,6 @@ service refuses to start when the deployment-level gate is off.
 
 ## Open Questions / Follow-ups
 
-- Scheduler-side per-org feature-flag check (WorkOS API + Dragonfly cache) so
-  flag revocation also pauses firing.
 - Multi-step workflows (chained agents) — `definition.version` reserves room.
 - Notifications on run completion (email/in-app) — today results appear in
   the project's research-runs surface.
