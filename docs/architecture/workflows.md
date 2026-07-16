@@ -30,7 +30,7 @@ dark-launch env fallback `GRID_WORKFLOWS_ENABLED` (default off) while
 - `definition` jsonb NOT NULL — versioned builder state (below)
 - `compiled_prompt` text NOT NULL (≤ 32000 chars — matches backend `JobSubmitRequest.input` cap)
 - `agent_type` text NOT NULL default `'deep_researcher'`
-- `data_sources` jsonb — `string[] | null`; null = all sources available to the agent
+- `data_sources` jsonb — `string[] | null`. User-selected entries are **additional** sources; the `knowledge_layer` source (project documents + OIB base corpus) is **always included** and is prepended on save (`withAlwaysOnKnowledge` in `src/lib/workflows/types.ts`), so a stored non-null array always contains `knowledge_layer` (an empty selection stores `['knowledge_layer']`). `null` still = all sources available to the agent. Rationale: those documents plus the base corpus are the product's factual/normative basis — a run without them is never intended
 - `enabled` boolean NOT NULL default true — master switch (schedule + run-now stay listed but a disabled workflow never fires and run-now is rejected)
 - `schedule_cron` text — 5-field cron; NULL = manual-only
 - `schedule_timezone` text NOT NULL default `'UTC'` (IANA name)
@@ -80,7 +80,7 @@ Read = `project:view`; mutate & run = the standard project edit permission
 (same slug used by existing project-content mutation routes).
 
 - `GET  /api/projects/[id]/workflows` — list (id, name, description, enabled, schedule, next/last run, updatedAt)
-- `POST /api/projects/[id]/workflows` — create `{name, description?, definition, dataSources?, enabled?, scheduleCron?, scheduleTimezone?}`; server compiles the prompt, validates cron + min interval, computes `next_run_at`
+- `POST /api/projects/[id]/workflows` — create `{name, description?, definition, dataSources?, enabled?, scheduleCron?, scheduleTimezone?}`; server compiles the prompt, validates cron + min interval, computes `next_run_at`. `dataSources` is the list of **additional** sources (max `MAX_DATA_SOURCES`); the always-on `knowledge_layer` source is added by the service before persisting (enforced again at fire time, so legacy rows are covered) — `null` still means all sources
 - `GET/PATCH/DELETE /api/projects/[id]/workflows/[workflowId]` — PATCH recompiles/revalidates and recomputes `next_run_at`; every query double-filters by `organization_id`
 - `POST /api/projects/[id]/workflows/[workflowId]/run` — manual fire via `fireWorkflow(workflow, 'manual', session.user.id)`; 409 when disabled; surfaces backend 429 (caps) as a friendly skipped result
 - `GET  /api/projects/[id]/workflows/[workflowId]/runs?limit&offset` — run history (newest first)

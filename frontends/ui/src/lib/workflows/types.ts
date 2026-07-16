@@ -16,6 +16,36 @@ export const MAX_WORKFLOW_DESCRIPTION_LENGTH = 2000
 export const MAX_COMPILED_PROMPT_LENGTH = 32000
 export const MAX_DATA_SOURCES = 50
 
+/**
+ * The `knowledge_layer` data source (project documents + OIB base corpus) is the
+ * product's factual/normative basis, so it is ALWAYS included in every workflow
+ * run — a research run without it is never intended (product decision). The
+ * stored/user-selectable `dataSources` list therefore means "additional sources"
+ * on top of this one; the backend contract stays `data_sources: string[] | null`
+ * (null = all sources available to the agent).
+ *
+ * This is the config-defined source id from the `data_source_registry` — keep in
+ * sync with `configs/*.yml` (`config_oib_openrouter.yml` → data_sources).
+ */
+export const KNOWLEDGE_SOURCE_ID = 'knowledge_layer'
+
+/**
+ * Normalize a stored/submitted `dataSources` value so the always-on
+ * `knowledge_layer` source is present:
+ * - `null` (all sources) is returned unchanged.
+ * - an array is returned as a copy with `knowledge_layer` prepended when absent
+ *   (an empty array becomes `['knowledge_layer']`); when already present the
+ *   array is returned unchanged (copied).
+ *
+ * Applied both when persisting (create/update) and when building the fire
+ * payload, so legacy rows written before this rule still submit with knowledge.
+ */
+export function withAlwaysOnKnowledge(dataSources: string[] | null): string[] | null {
+  if (dataSources === null) return null
+  if (dataSources.includes(KNOWLEDGE_SOURCE_ID)) return [...dataSources]
+  return [KNOWLEDGE_SOURCE_ID, ...dataSources]
+}
+
 /** Version-1 block-based research brief. Objective required; the rest optional. */
 export const workflowDefinitionSchema = z.object({
   version: z.literal(WORKFLOW_DEFINITION_VERSION),

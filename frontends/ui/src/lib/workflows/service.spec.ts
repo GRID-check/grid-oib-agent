@@ -208,6 +208,95 @@ describe('createWorkflow', () => {
   })
 })
 
+describe('always-on knowledge_layer data source', () => {
+  beforeEach(() => {
+    repo.insertWorkflow.mockImplementation(async (v) => ({ ...workflow, ...v }) as Workflow)
+    repo.findWorkflow.mockResolvedValue(workflow)
+    repo.updateWorkflow.mockImplementation(async (_id, _org, patch) => ({ ...workflow, ...patch }) as Workflow)
+  })
+
+  it('createWorkflow prepends knowledge_layer to a user-selected list', async () => {
+    await createWorkflow(session, PROJECT_ID, {
+      name: 'WF',
+      definition: { version: 1, blocks: { objective: 'y' } },
+      dataSources: ['web_search', 'ris'],
+    })
+    expect(repo.insertWorkflow.mock.calls[0][0].dataSources).toEqual(['knowledge_layer', 'web_search', 'ris'])
+  })
+
+  it('createWorkflow turns an empty additional-sources list into [knowledge_layer]', async () => {
+    await createWorkflow(session, PROJECT_ID, {
+      name: 'WF',
+      definition: { version: 1, blocks: { objective: 'y' } },
+      dataSources: [],
+    })
+    expect(repo.insertWorkflow.mock.calls[0][0].dataSources).toEqual(['knowledge_layer'])
+  })
+
+  it('createWorkflow does not duplicate knowledge_layer when already selected', async () => {
+    await createWorkflow(session, PROJECT_ID, {
+      name: 'WF',
+      definition: { version: 1, blocks: { objective: 'y' } },
+      dataSources: ['knowledge_layer', 'web_search'],
+    })
+    expect(repo.insertWorkflow.mock.calls[0][0].dataSources).toEqual(['knowledge_layer', 'web_search'])
+  })
+
+  it('createWorkflow leaves null (all sources) unchanged', async () => {
+    await createWorkflow(session, PROJECT_ID, {
+      name: 'WF',
+      definition: { version: 1, blocks: { objective: 'y' } },
+      dataSources: null,
+    })
+    expect(repo.insertWorkflow.mock.calls[0][0].dataSources).toBeNull()
+  })
+
+  it('createWorkflow leaves an omitted dataSources as null', async () => {
+    await createWorkflow(session, PROJECT_ID, {
+      name: 'WF',
+      definition: { version: 1, blocks: { objective: 'y' } },
+    })
+    expect(repo.insertWorkflow.mock.calls[0][0].dataSources).toBeNull()
+  })
+
+  it('updateWorkflow persists a knowledge_layer-included list when dataSources is patched', async () => {
+    await updateWorkflow(session, PROJECT_ID, 'wf-1', { dataSources: ['ris'] })
+    expect(repo.updateWorkflow.mock.calls[0][2].dataSources).toEqual(['knowledge_layer', 'ris'])
+  })
+
+  it('updateWorkflow normalizes an existing (legacy) list when dataSources is not patched', async () => {
+    // existing.dataSources is ['web_search'] (pre-change legacy row) — a patch
+    // that does not touch dataSources still re-normalizes it on save.
+    await updateWorkflow(session, PROJECT_ID, 'wf-1', { name: 'renamed' })
+    expect(repo.updateWorkflow.mock.calls[0][2].dataSources).toEqual(['knowledge_layer', 'web_search'])
+  })
+
+  it('updateWorkflow keeps null (all sources) when patched to null', async () => {
+    await updateWorkflow(session, PROJECT_ID, 'wf-1', { dataSources: null })
+    expect(repo.updateWorkflow.mock.calls[0][2].dataSources).toBeNull()
+  })
+
+  it('fireWorkflow includes knowledge_layer for a legacy row whose stored array lacks it', async () => {
+    mockSubmit.mockResolvedValue({ job_id: 'job-legacy' })
+    repo.insertWorkflowRun.mockImplementation(async (v) => ({ ...v, id: 'run-l', createdAt: new Date() }) as any)
+
+    const legacyRow = { ...workflow, dataSources: ['web_search'] }
+    await fireWorkflow(legacyRow, 'schedule', 'scheduler')
+
+    expect(mockSubmit.mock.calls[0][0].data_sources).toEqual(['knowledge_layer', 'web_search'])
+  })
+
+  it('fireWorkflow keeps null (all sources) for a row with null dataSources', async () => {
+    mockSubmit.mockResolvedValue({ job_id: 'job-null' })
+    repo.insertWorkflowRun.mockImplementation(async (v) => ({ ...v, id: 'run-n', createdAt: new Date() }) as any)
+
+    const nullRow = { ...workflow, dataSources: null }
+    await fireWorkflow(nullRow, 'schedule', 'scheduler')
+
+    expect(mockSubmit.mock.calls[0][0].data_sources).toBeNull()
+  })
+})
+
 describe('updateWorkflow', () => {
   it('recompiles the prompt and recomputes next_run_at', async () => {
     repo.findWorkflow.mockResolvedValue(workflow)
@@ -259,7 +348,8 @@ describe('fireWorkflow (single submission path)', () => {
       user_id: 'creator-9', // workflow creator, not the actor
       project_id: PROJECT_ID,
       owner_email: 'creator@example.com',
-      data_sources: ['web_search'],
+      // knowledge_layer is always prepended, even for this stored ['web_search'] row.
+      data_sources: ['knowledge_layer', 'web_search'],
       model_overrides: { deep_research: 'some/model' },
       project_context: 'Project context here',
     })

@@ -13,7 +13,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowLeft, Plus, X } from 'lucide-react'
+import { ArrowLeft, Lock, Plus, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { z } from 'zod'
 import { useAppForm } from '@/components/form'
@@ -52,12 +52,21 @@ import {
   supportedTimezones,
   type SchedulePreset,
 } from '../lib/schedule'
+import type { ResolvedTemplate } from '../lib/templates'
 import { BriefPreview } from './brief-preview'
+
+// The always-included knowledge source is rendered as a pinned, non-interactive
+// row (never a checkbox); it is server-guaranteed on every run, so we defensively
+// drop it from the fetched additional-source list even though the data-sources
+// client already filters it out.
+const KNOWLEDGE_LAYER_ID = 'knowledge_layer'
 
 interface WorkflowBuilderProps {
   projectId: string
   /** The workflow being edited, or null when creating. */
   workflow: WorkflowDetail | null
+  /** A GRID template to pre-fill from when creating (ignored while editing). */
+  template?: ResolvedTemplate | null
   onSaved: () => void
   onCancel: () => void
 }
@@ -87,24 +96,28 @@ function buildDefinition(values: BuilderValues, questions: string[]): WorkflowDe
 export function WorkflowBuilder({
   projectId,
   workflow,
+  template = null,
   onSaved,
   onCancel,
 }: WorkflowBuilderProps): JSX.Element {
   const t = useTranslations('workflows')
   const isEdit = workflow !== null
 
+  // When creating from a GRID template, its content seeds every field; the user
+  // reviews the pre-filled brief and saves it (templates never auto-create).
+  // While editing an existing workflow, the template is ignored.
+  const seed = workflow ?? template
+
   // --- Auxiliary (non-TanStack) state -------------------------------------
-  const [questions, setQuestions] = useState<string[]>(workflow?.definition.blocks.questions ?? [])
+  const [questions, setQuestions] = useState<string[]>(seed?.definition.blocks.questions ?? [])
   const [selectedSources, setSelectedSources] = useState<Set<string>>(
-    new Set(workflow?.dataSources ?? []),
+    new Set(seed?.dataSources ?? []),
   )
   const [enabled, setEnabled] = useState<boolean>(workflow?.enabled ?? true)
-  const [scheduleEnabled, setScheduleEnabled] = useState<boolean>(Boolean(workflow?.scheduleCron))
-  const [preset, setPreset] = useState<SchedulePreset>(presetForCron(workflow?.scheduleCron))
-  const [cron, setCron] = useState<string>(workflow?.scheduleCron ?? PRESET_CRON.daily)
-  const [timezone, setTimezone] = useState<string>(
-    workflow?.scheduleTimezone ?? browserTimezone(),
-  )
+  const [scheduleEnabled, setScheduleEnabled] = useState<boolean>(Boolean(seed?.scheduleCron))
+  const [preset, setPreset] = useState<SchedulePreset>(presetForCron(seed?.scheduleCron))
+  const [cron, setCron] = useState<string>(seed?.scheduleCron ?? PRESET_CRON.daily)
+  const [timezone, setTimezone] = useState<string>(seed?.scheduleTimezone ?? browserTimezone())
   const [scheduleError, setScheduleError] = useState<string | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
 
@@ -122,6 +135,13 @@ export function WorkflowBuilder({
       })
     return () => controller.abort()
   }, [])
+
+  // The knowledge layer is rendered as the pinned always-included row, so it is
+  // never offered as a checkbox even if the API includes it in the list.
+  const additionalSources = useMemo(
+    () => sources?.filter((source) => source.id !== KNOWLEDGE_LAYER_ID) ?? null,
+    [sources],
+  )
 
   const timezones = useMemo(() => supportedTimezones(), [])
 
@@ -142,11 +162,11 @@ export function WorkflowBuilder({
 
   const form = useAppForm({
     defaultValues: {
-      name: workflow?.name ?? '',
-      description: workflow?.description ?? '',
-      objective: workflow?.definition.blocks.objective ?? '',
-      context: workflow?.definition.blocks.context ?? '',
-      outputFormat: workflow?.definition.blocks.outputFormat ?? '',
+      name: seed?.name ?? '',
+      description: seed?.description ?? '',
+      objective: seed?.definition.blocks.objective ?? '',
+      context: seed?.definition.blocks.context ?? '',
+      outputFormat: seed?.definition.blocks.outputFormat ?? '',
     } satisfies BuilderValues,
     validators: { onChange: schema },
     onSubmit: async ({ value }) => {
@@ -366,16 +386,29 @@ export function WorkflowBuilder({
                 <CardTitle className="text-base">{t('builder.sourcesSection')}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
-                <p className="text-xs text-muted-foreground">{t('builder.sourcesHint')}</p>
+                {/* Always-included knowledge source: a pinned, non-interactive row
+                    (never a checkbox). The knowledge layer is guaranteed on every
+                    run server-side, so it is shown here regardless of the API list. */}
+                <div className="flex items-start gap-2.5 rounded-lg border border-border bg-muted/40 px-2.5 py-2">
+                  <Lock className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
+                  <span className="text-sm text-foreground">{t('builder.knowledgeAlways')}</span>
+                </div>
+
+                <div className="space-y-1 border-t border-border pt-3">
+                  <p className="text-sm font-medium text-foreground">
+                    {t('builder.additionalSourcesLabel')}
+                  </p>
+                  <p className="text-xs text-muted-foreground">{t('builder.sourcesHint')}</p>
+                </div>
                 {sources === null && !sourcesError && (
                   <p className="text-sm text-muted-foreground">{t('builder.sourcesLoading')}</p>
                 )}
                 {sourcesError && (
                   <p className="text-sm text-muted-foreground">{t('builder.sourcesError')}</p>
                 )}
-                {sources !== null && sources.length > 0 && (
+                {additionalSources !== null && additionalSources.length > 0 && (
                   <div className="space-y-2">
-                    {sources.map((source) => {
+                    {additionalSources.map((source) => {
                       const checked = selectedSources.has(source.id)
                       return (
                         <label
