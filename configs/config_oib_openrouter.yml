@@ -181,6 +181,7 @@ functions:
         tools:
           - ris_search_tool
           - ris_fetch_tool
+          - ris_catalog_lookup_tool
 
   web_search_tool:
     _type: tavily_web_search
@@ -225,6 +226,14 @@ functions:
     max_chars: 40000
     ingest_into_knowledge: true
 
+  # Curated RIS index (configs/ris_catalog.yml, override via RIS_CATALOG_PATH):
+  # deterministic pointers to the verified building-relevant norms. ris_search
+  # short-circuits to these pointers on a catalog match (catalog_shortcut),
+  # and the researcher prompts show the index as a block.
+  ris_catalog_lookup_tool:
+    _type: ris_catalog_lookup
+    max_matches: 5
+
   knowledge_search:
     _type: knowledge_retrieval
     backend: llamaindex
@@ -260,6 +269,7 @@ functions:
       - knowledge_search
       - ris_search_tool
       - ris_fetch_tool
+      - ris_catalog_lookup_tool
       - remember
     verbose: true
 
@@ -282,6 +292,7 @@ functions:
       - knowledge_search
       - ris_search_tool
       - ris_fetch_tool
+      - ris_catalog_lookup_tool
       - remember
       - emit_card
     verbose: true
@@ -305,6 +316,7 @@ functions:
       - knowledge_search
       - ris_search_tool
       - ris_fetch_tool
+      - ris_catalog_lookup_tool
       - advanced_web_search_tool
       - remember
       - emit_card
