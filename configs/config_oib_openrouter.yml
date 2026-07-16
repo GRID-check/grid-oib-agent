@@ -369,10 +369,13 @@ functions:
     verbose: true
     # Durable checkpointing for async deep-research jobs (T3-8), mirroring
     # workflow.checkpoint_db below: re-invoking the same job_id resumes from
-    # the last persisted checkpoint instead of starting over. The
-    # deep_research_agent field itself defaults to None (no durability) when
-    # omitted -- this config opts in with a local sqlite file by default.
-    checkpoint_db: ${AIQ_DEEP_CHECKPOINT_DB:-./deep_research_checkpoints.db}
+    # the last persisted checkpoint instead of starting over. STRICTLY OPT-IN:
+    # empty/unset AIQ_DEEP_CHECKPOINT_DB means no durability (in-memory graph,
+    # today's behavior). Do NOT default to a relative sqlite path here — the
+    # container's working directory is not guaranteed writable, and a default-on
+    # value took application startup down (post-#72 incident). Point the env var
+    # at a writable volume path or a Postgres DSN to enable resume-by-job_id.
+    checkpoint_db: ${AIQ_DEEP_CHECKPOINT_DB:-}
 
 workflow:
   _type: chat_deepresearcher_agent

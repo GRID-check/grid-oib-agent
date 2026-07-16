@@ -237,7 +237,20 @@ async def deep_research_agent(config: DeepResearchAgentConfig, builder: Builder)
     if config.checkpoint_db:
         from aiq_agent.common import get_checkpointer
 
-        checkpointer = await get_checkpointer(config.checkpoint_db)
+        # Fail OPEN: durable checkpointing is an optional resilience feature —
+        # an unopenable/unwritable checkpoint DB (read-only container FS,
+        # missing volume, bad DSN) must degrade to the in-memory default with
+        # a loud warning, never take application startup down.
+        try:
+            checkpointer = await get_checkpointer(config.checkpoint_db)
+        except Exception:  # noqa: BLE001 - deliberate fail-open boundary
+            logger.warning(
+                "Durable deep-research checkpointing DISABLED: cannot open checkpoint_db %r "
+                "(set AIQ_DEEP_CHECKPOINT_DB to a writable path/DSN to enable resume-by-job_id)",
+                config.checkpoint_db,
+                exc_info=True,
+            )
+            checkpointer = None
 
     def _build_agent(
         tool_list: list,
