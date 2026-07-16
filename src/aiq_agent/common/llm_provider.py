@@ -1,5 +1,6 @@
 """LLM Provider for role-based LLM access and A/B testing."""
 
+import logging
 from collections.abc import Mapping
 from enum import StrEnum
 
@@ -7,6 +8,8 @@ from langchain_core.language_models import BaseChatModel
 
 from aiq_agent.common.model_overrides import AgentGroup
 from aiq_agent.common.model_overrides import override_model
+
+logger = logging.getLogger(__name__)
 
 
 class LLMRole(StrEnum):
@@ -117,8 +120,17 @@ class LLMProvider:
         """
         override_groups = {g for g in AgentGroup if g.value in overrides}
         tagged_groups = {g for g in (self._default_group, *self._groups.values()) if g is not None}
-        if not (override_groups & tagged_groups):
+        applied_groups = override_groups & tagged_groups
+        if not applied_groups:
             return self
+
+        # Observability: this per-group override path (used by the async deep
+        # research worker) was previously silent, unlike apply_model_override.
+        # Log which groups actually take an override so a run can be diagnosed.
+        logger.info(
+            "Applying model overrides: %s",
+            {g.value: overrides[g.value] for g in sorted(applied_groups, key=lambda g: g.value)},
+        )
 
         derived = LLMProvider()
         derived._groups = dict(self._groups)

@@ -240,6 +240,29 @@ async def run_with_cancellation(
         monitor.stop()
 
 
+def _resolve_worker_tool_refs(fn_config: Any) -> list[str]:
+    """Resolve the tool refs a worker agent should build with.
+
+    Uses the config's explicit ``tools`` list, or auto-inherits the entire
+    data_source_registry when none are configured.
+
+    The empty check is falsy (not ``is None``): agent configs declare ``tools``
+    with ``default_factory=list``, so an omitted list arrives as ``[]``, never
+    ``None``. A prior ``is None`` guard therefore never inherited and silently
+    built a tool-less agent — the researcher workers received no source tools
+    while validation elsewhere reported the inherited tools as available. This
+    matches the two other resolution sites (the sync agent build in
+    deep_researcher/register.py and the chat-route validator in
+    chat_researcher/register.py), which both treat an empty list as "inherit".
+    """
+    tool_refs = getattr(fn_config, "tools", None)
+    if not tool_refs:
+        from aiq_agent.common import get_all_tool_refs
+
+        return get_all_tool_refs()
+    return list(tool_refs)
+
+
 def _load_agent_class(agent_class_path: str) -> type:
     """
     Dynamically load an agent class from its module path.
@@ -263,7 +286,7 @@ async def _create_llm_provider(builder: Any, fn_config: Any) -> tuple[Any, Any]:
     from aiq_agent.common import AgentGroup
     from aiq_agent.common import LLMProvider
     from aiq_agent.common import LLMRole
-    from nat.builder.framework_enum import LLMFrameworkEnum
+    from aiq_agent.common import get_langchain_llm
 
     # Agent-group tags mirror the sync registrations (deep_researcher/register.py)
     # so per-org runtime model overrides apply identically to async jobs.
@@ -281,7 +304,7 @@ async def _create_llm_provider(builder: Any, fn_config: Any) -> tuple[Any, Any]:
         llm_ref = getattr(fn_config, config_attr, None)
         if llm_ref:
             if llm_ref not in llm_cache:
-                llm_cache[llm_ref] = await builder.get_llm(llm_ref, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
+                llm_cache[llm_ref] = await get_langchain_llm(builder, llm_ref)
             role_llms[role] = llm_cache[llm_ref]
             role_groups[role] = group
 
@@ -291,7 +314,7 @@ async def _create_llm_provider(builder: Any, fn_config: Any) -> tuple[Any, Any]:
         llm_ref = getattr(fn_config, "llm", None)
         if llm_ref:
             if llm_ref not in llm_cache:
-                llm_cache[llm_ref] = await builder.get_llm(llm_ref, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
+                llm_cache[llm_ref] = await get_langchain_llm(builder, llm_ref)
             default_llm = llm_cache[llm_ref]
             if getattr(fn_config, "type", None) == "shallow_research_agent":
                 default_group = AgentGroup.SHALLOW_RESEARCH
@@ -500,16 +523,9 @@ async def run_agent_job(
                         if llm is not None:
                             llm = provider.get(LLMRole.ORCHESTRATOR)
 
-            # Resolve tools: use explicit list or auto-inherit from
-            # data_source_registry. `is None` (not falsy): an explicit
-            # `tools: []` means a tool-less agent — the submit-route validator
-            # treats it that way, and `not []` would silently hand such an
-            # agent every registry tool instead.
-            tool_refs = fn_config.tools
-            if tool_refs is None:
-                from aiq_agent.common import get_all_tool_refs
-
-                tool_refs = get_all_tool_refs()
+            # Resolve tools: use the explicit list or auto-inherit the whole
+            # data_source_registry when none are configured.
+            tool_refs = _resolve_worker_tool_refs(fn_config)
 
             tools = await builder.get_tools(tool_names=tool_refs, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
 
@@ -1109,12 +1125,12 @@ async def _run_deep_research_reflection(
         from aiq_agent.common import AgentGroup
         from aiq_agent.common import apply_model_override
         from aiq_agent.common import apply_org_credential
+        from aiq_agent.common import get_langchain_llm
         from aiq_agent.common import sanitize_model_overrides
         from aiq_agent.common.cost_tracking import BudgetSnapshot
         from aiq_agent.common.cost_tracking import track_llm_costs
-        from nat.builder.framework_enum import LLMFrameworkEnum
 
-        reflection_llm = await builder.get_llm(reflection_llm_ref, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
+        reflection_llm = await get_langchain_llm(builder, reflection_llm_ref)
         overrides = sanitize_model_overrides(model_overrides) if model_overrides else None
         reflection_llm = apply_model_override(reflection_llm, AgentGroup.MEMORY_REFLECTION, overrides)
         # Explicit credential (not context): a Dask worker has no live request,

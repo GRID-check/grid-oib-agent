@@ -656,6 +656,46 @@ class TestRunAgentStateFields:
         assert not hasattr(state, "clarifier_result")
 
 
+class TestResolveWorkerToolRefs:
+    """Tests for worker tool-ref resolution (registry inheritance)."""
+
+    def test_empty_tools_inherits_registry(self):
+        """An omitted/empty tools list (the config default) inherits the whole registry.
+
+        Regression: DeepResearchAgentConfig.tools uses default_factory=list, so an
+        omitted list is [] (never None). A prior `is None` guard skipped
+        inheritance and built a tool-less worker whose researcher sub-agents got
+        no source tools.
+        """
+        from aiq_api.jobs.runner import _resolve_worker_tool_refs
+
+        class FakeConfig:
+            tools = []
+
+        with patch("aiq_agent.common.get_all_tool_refs", return_value=["ris_search_tool", "knowledge_search"]):
+            assert _resolve_worker_tool_refs(FakeConfig()) == ["ris_search_tool", "knowledge_search"]
+
+    def test_none_tools_inherits_registry(self):
+        """A missing tools attribute also inherits the registry."""
+        from aiq_api.jobs.runner import _resolve_worker_tool_refs
+
+        class FakeConfig:
+            pass
+
+        with patch("aiq_agent.common.get_all_tool_refs", return_value=["web_search_tool"]):
+            assert _resolve_worker_tool_refs(FakeConfig()) == ["web_search_tool"]
+
+    def test_explicit_tools_are_used_verbatim_without_inheriting(self):
+        """A non-empty explicit list is used as-is; the registry is never consulted."""
+        from aiq_api.jobs.runner import _resolve_worker_tool_refs
+
+        class FakeConfig:
+            tools = ["web_search_tool"]
+
+        with patch("aiq_agent.common.get_all_tool_refs", side_effect=AssertionError("must not inherit")):
+            assert _resolve_worker_tool_refs(FakeConfig()) == ["web_search_tool"]
+
+
 class TestEventStore:
     """Tests for the EventStore class."""
 

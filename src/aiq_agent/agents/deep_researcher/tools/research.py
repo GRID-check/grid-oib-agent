@@ -15,6 +15,8 @@ from langchain_core.messages import HumanMessage
 from langchain_core.tools import BaseTool
 from langchain_core.tools import tool
 
+from aiq_agent.common import extract_json
+
 from ..models import ResearchNotes
 from ..models import ResearchQuery
 
@@ -46,6 +48,48 @@ def researcher_invoke_state(query: ResearchQuery, runtime: ToolRuntime | None) -
     return invoke_state
 
 
+def _last_message_text(result: Any) -> str | None:
+    """Return the final assistant message text from a researcher runnable result."""
+    messages = result.get("messages") if isinstance(result, dict) else None
+    if not messages:
+        return None
+    content = getattr(messages[-1], "content", None)
+    if isinstance(content, str):
+        return content.strip() or None
+    if isinstance(content, list):
+        # Structured block content: join text blocks rather than repr the list.
+        parts: list[str] = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict) and isinstance(block.get("text"), str):
+                parts.append(block["text"])
+            elif isinstance(getattr(block, "text", None), str):
+                parts.append(block.text)
+        return "\n".join(parts).strip() or None
+    return None
+
+
+def _structured_research_notes(result: Any) -> ResearchNotes:
+    """Coerce a researcher runnable result into ResearchNotes.
+
+    Prefers the agent's ``structured_response``. Some models (notably
+    DeepSeek-class ones) intermittently emit the notes as a ```json-fenced or
+    natural-language-prefixed assistant message instead of through the
+    structured-output channel, which leaves ``structured_response`` empty. Fall
+    back to extracting the JSON from the final message so one non-conformant but
+    well-formed completion does not fail the worker and force a full
+    orchestrator resubmit cycle.
+    """
+    structured = result.get("structured_response") if isinstance(result, dict) else None
+    if structured is None:
+        text = _last_message_text(result)
+        structured = extract_json(text) if text else None
+    if structured is None:
+        raise ValueError("researcher worker did not return structured ResearchNotes")
+    return ResearchNotes.model_validate(structured)
+
+
 async def _run_research_query(
     *,
     query: ResearchQuery,
@@ -65,14 +109,21 @@ async def _run_research_query(
             raise RuntimeError(f"researcher worker failed for query {query.query!r}: {exc}") from exc
 
         try:
-            structured = result.get("structured_response") if isinstance(result, dict) else None
-            if structured is None:
-                raise ValueError("researcher worker did not return structured ResearchNotes")
-            note = ResearchNotes.model_validate(structured)
+            note = _structured_research_notes(result)
         except Exception as exc:  # noqa: BLE001 - captured as per-item failure
             raise ValueError(
                 f"researcher worker returned invalid ResearchNotes for query {query.query!r}: {exc}"
             ) from exc
+
+        # A note with no findings and an empty summary carries no research
+        # result — it is schema-valid only because the contract sets no minimum
+        # length. Treat it as a failed worker so the orchestrator resubmits the
+        # query instead of persisting an empty note that silently drops the work.
+        if not note.findings and not note.summary.strip():
+            raise ValueError(
+                f"researcher worker returned an empty ResearchNotes (no findings and blank summary) "
+                f"for query {query.query!r}"
+            )
 
         return note
 
@@ -98,11 +149,16 @@ def _research_note_path(query: ResearchQuery) -> str:
 
 
 def _research_note_files(queries: list[ResearchQuery], notes: list[ResearchNotes]) -> list[tuple[str, bytes]]:
-    """Serialize returned research notes as shared JSON files."""
+    """Serialize returned research notes as shared JSON files.
+
+    Serialized without ``exclude_none`` so the sole nullable field
+    (``evidence_judgment``) is written as ``null`` rather than dropped, keeping
+    the persisted JSON a round-trip-valid ResearchNotes.
+    """
     return [
         (
             _research_note_path(query),
-            json.dumps(note.model_dump(mode="json", exclude_none=True), indent=2, ensure_ascii=False).encode("utf-8"),
+            json.dumps(note.model_dump(mode="json"), indent=2, ensure_ascii=False).encode("utf-8"),
         )
         for query, note in zip(queries, notes, strict=False)
     ]
@@ -161,11 +217,35 @@ async def _run_research_queries(
     return successful_queries, notes, errors
 
 
+def _assert_preferred_tools_available(queries: list[ResearchQuery], researcher_tool_names: set[str]) -> None:
+    """Fail the batch before spawning workers if any query prefers an unavailable tool.
+
+    A query whose ``preferred_tools`` are not in the researcher worker's actual
+    tool registry can never be executed as planned — the worker would fall back
+    to answering from model memory. Surface that as a submission error so the
+    orchestrator/planner rewrites the query instead of the worker improvising.
+    """
+    missing = {
+        tool_name
+        for query in queries
+        for tool_name in query.preferred_tools
+        if tool_name not in researcher_tool_names
+    }
+    if missing:
+        available = ", ".join(sorted(researcher_tool_names)) or "(none)"
+        raise ValueError(
+            f"run_research_batch received queries whose preferred_tools are not available to researcher "
+            f"workers: {', '.join(sorted(missing))}. Available researcher tools: {available}. "
+            "Re-plan the queries to use only available tools."
+        )
+
+
 def build_research_batch_tool(
     *,
     researcher_runnable: Any,
     callbacks: list[Any],
     max_research_concurrency: int,
+    researcher_tool_names: set[str],
     backend: Any | None = None,
     source_registry_middleware: Any | None = None,
 ) -> BaseTool:
@@ -185,6 +265,8 @@ def build_research_batch_tool(
                 f"run_research_batch accepts at most {max_research_concurrency} curated queries. "
                 f"Received {len(queries)}. Rank, merge, or drop lower-priority queries and call again."
             )
+
+        _assert_preferred_tools_available(queries, researcher_tool_names)
         successful_queries, notes, errors = await _run_research_queries(
             queries=queries,
             researcher_runnable=researcher_runnable,

@@ -47,6 +47,10 @@ from .llm_credentials import OrgLLMCredential
 from .llm_credentials import apply_org_credential
 from .llm_credentials import get_org_llm_credential_from_context
 from .llm_credentials import resolve_org_llm_credential
+from .llm_factory import apply_openrouter_structured_defaults
+from .llm_factory import get_langchain_llm
+from .llm_factory import strict_json_response_format
+from .llm_factory import strict_response_format
 from .llm_provider import LLMProvider
 from .llm_provider import LLMRole
 from .message_utils import get_latest_user_query
@@ -114,6 +118,10 @@ __all__ = [
     "sanitize_report",
     "set_session_registry",
     "validate_tool_availability",
+    "apply_openrouter_structured_defaults",
+    "get_langchain_llm",
+    "strict_response_format",
+    "strict_json_response_format",
     "verify_citations",
 ]
 

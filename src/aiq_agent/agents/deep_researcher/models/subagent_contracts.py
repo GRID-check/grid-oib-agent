@@ -86,10 +86,9 @@ class ResearchQuery(_StrictContract):
 
     query: str = Field(description="Specific, self-contained search or document query.")
     subqueries: list[str] = Field(
-        default_factory=list,
         description=(
-            "Optional ordered concrete search angles for distinct facets unlikely to be covered by the main query. "
-            "Prefer leaving this empty for focused queries and creating separate ResearchQuery items for independent "
+            "Ordered concrete search angles for distinct facets unlikely to be covered by the main query. "
+            "Emit an empty list for focused queries; prefer creating separate ResearchQuery items for independent "
             "evidence needs."
         ),
     )
@@ -101,8 +100,7 @@ class ResearchQuery(_StrictContract):
         ),
     )
     fallback_tools: list[str] = Field(
-        default_factory=list,
-        description="Ordered exact available source tool names to use for corroboration or gaps.",
+        description="Ordered exact available source tool names to use for corroboration or gaps; empty list if none.",
     )
     target_components: list[str] = Field(description="Answer components this query is intended to support.")
     rationale: str = Field(description="Why this query is needed.")
@@ -175,6 +173,5 @@ class ResearchNotes(_StrictContract):
     narrative_notes: str = Field(description="Detailed synthesis preserving nuance for final answer writing.")
     language: str = Field(description="Language used in these research notes.")
     evidence_judgment: EvidenceJudgment | None = Field(
-        default=None,
-        description="Researcher self-assessment of this note's usefulness for final synthesis.",
+        description="Researcher self-assessment of this note's usefulness for final synthesis; null if not assessed.",
     )

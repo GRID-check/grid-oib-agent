@@ -57,6 +57,10 @@ llms:
     max_tokens: 4096
     max_retries: 5
     reasoning_effort: none
+    # NOTE: OpenRouter provider.require_parameters + the response-healing plugin
+    # are forced on every OpenRouter LLM centrally in code
+    # (aiq_agent.common.llm_factory.apply_openrouter_structured_defaults, applied
+    # via get_langchain_llm), so they are intentionally NOT repeated per-LLM here.
 
   # Shallow Research — fast retrieval + synthesis (the quick-answer tier).
   shallow_llm:
@@ -290,8 +294,18 @@ functions:
     researcher_llm: deep_researcher_llm
     planner_llm: deep_planner_llm
     writer_llm: deep_orchestrator_llm
-    exclude_tools:
-      - web_search_tool
+    # Explicit tool list (mirrors shallow_research_agent) so deep research
+    # workers get the same OIB knowledge base + RIS access, plus remember and
+    # emit_card. Deep uses advanced_web_search_tool (the deep-tuned Tavily
+    # instance), not web_search_tool. Pinning the list also avoids depending on
+    # data_source_registry inheritance in the async job-worker build path.
+    tools:
+      - knowledge_search
+      - ris_search_tool
+      - ris_fetch_tool
+      - advanced_web_search_tool
+      - remember
+      - emit_card
     verbose: true
 
 workflow:

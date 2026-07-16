@@ -24,6 +24,7 @@ from langgraph.store.memory import InMemoryStore
 from aiq_agent.common import LLMProvider
 from aiq_agent.common import LLMRole
 from aiq_agent.common import render_prompt_template
+from aiq_agent.common import strict_response_format
 
 from .custom_middleware import EmptyContentFixMiddleware
 from .custom_middleware import SelectiveToolRetryMiddleware
@@ -333,7 +334,14 @@ def build_researcher_runnable(
         tools=researcher_tools,
         system_prompt=system_prompt,
         middleware=middleware,
-        response_format=ResearchNotes,
+        # Force provider-native structured output (response_format: json_schema,
+        # strict) instead of letting create_agent's AutoStrategy fall back to a
+        # synthetic forced tool call. AutoStrategy keys off a hardcoded
+        # model-name allowlist / langchain profile registry that has no entry
+        # for OpenRouter/DeepSeek slugs, so it silently downgrades to a tool
+        # strategy the model does not reliably honor — the mechanism behind the
+        # fenced-JSON "did not return structured ResearchNotes" failures.
+        response_format=strict_response_format(ResearchNotes),
     )
 
 
@@ -408,7 +416,7 @@ def build_deep_research_subagents(context: DeepResearchGraphContext) -> list[dic
                 "enable_source_router": context.enable_source_router,
                 "max_research_concurrency": context.max_research_concurrency,
             },
-            response_format=ResearchPlan,
+            response_format=strict_response_format(ResearchPlan),
         )
     )
     subagents.append(
@@ -483,6 +491,7 @@ def build_deep_research_graph(
         backend=context.backend,
         callbacks=callbacks,
         max_research_concurrency=max_research_concurrency,
+        researcher_tool_names={tool.name for tool in context.tool_set.researcher_tools},
         source_registry_middleware=source_registry_middleware,
     )
 

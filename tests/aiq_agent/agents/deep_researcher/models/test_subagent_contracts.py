@@ -147,6 +147,7 @@ def test_research_notes_contract_validates_expected_shape():
             ],
             "narrative_notes": "OpenCL offers broader portability, while CUDA typically has deeper vendor tooling.",
             "language": "English",
+            "evidence_judgment": None,
         }
     )
 

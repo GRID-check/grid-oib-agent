@@ -125,20 +125,26 @@ class TestDeepResearcherAgent:
         """Create a real LangChain tool."""
         return web_search_tool
 
-    def _build_batch_tool(self, agent, researcher_runnable, backend=None):
+    def _build_batch_tool(self, agent, researcher_runnable, backend=None, researcher_tool_names=None):
         """Build a batch tool plus the run-scoped middleware it registers into.
 
         Mirrors _prepare_run(): the source registry middleware is per-run
-        state, so tests construct one alongside the tool (ADR-0018).
+        state, so tests construct one alongside the tool (ADR-0018). The
+        researcher tool-name set mirrors the worker's real registry (source
+        tools plus the always-present helper tools) so preferred_tools
+        validation matches production.
         """
         from aiq_agent.agents.deep_researcher.custom_middleware import SourceRegistryMiddleware
 
+        if researcher_tool_names is None:
+            researcher_tool_names = set(agent.source_tool_names) | {"think", "get_verified_sources"}
         source_registry_middleware = SourceRegistryMiddleware(source_tool_names=agent.source_tool_names)
         batch_tool = build_research_batch_tool(
             researcher_runnable=researcher_runnable,
             backend=backend,
             callbacks=agent.callbacks,
             max_research_concurrency=agent.max_research_concurrency,
+            researcher_tool_names=researcher_tool_names,
             source_registry_middleware=source_registry_middleware,
         )
         return batch_tool, source_registry_middleware
@@ -169,6 +175,7 @@ class TestDeepResearcherAgent:
                 ],
                 "narrative_notes": "Useful narrative notes.",
                 "language": "English",
+                "evidence_judgment": None,
             }
         }
 
@@ -384,7 +391,7 @@ class TestDeepResearcherAgent:
             assert create_researcher.call_count == 1
             researcher_kwargs = create_researcher.call_args.kwargs
             kwargs = create.call_args.kwargs
-            assert researcher_kwargs["response_format"] is ResearchNotes
+            assert researcher_kwargs["response_format"].schema is ResearchNotes
             researcher_middleware = researcher_kwargs["middleware"]
             assert not any(m.__class__.__name__ == "TodoListMiddleware" for m in researcher_middleware)
             researcher_skills = [m for m in researcher_middleware if m.__class__.__name__ == "SkillsMiddleware"]
@@ -449,7 +456,7 @@ class TestDeepResearcherAgent:
             assert "write_todos" in subagents["source-router-agent"]["system_prompt"]
             assert "Use at most two tool calls total" in subagents["source-router-agent"]["system_prompt"]
             assert real_tool.name not in {tool.name for tool in subagents["source-router-agent"]["tools"]}
-            assert subagents["planner-agent"]["response_format"] is ResearchPlan
+            assert subagents["planner-agent"]["response_format"].schema is ResearchPlan
             assert "skills" not in subagents["planner-agent"]
             assert real_tool.name in {tool.name for tool in subagents["planner-agent"]["tools"]}
             assert "response_format" not in subagents["writer-agent"]
@@ -578,7 +585,7 @@ class TestDeepResearcherAgent:
             assert create.call_count == 1
             assert create_researcher.call_count == 1
             researcher_kwargs = create_researcher.call_args.kwargs
-            assert researcher_kwargs["response_format"] is ResearchNotes
+            assert researcher_kwargs["response_format"].schema is ResearchNotes
             researcher_middleware = researcher_kwargs["middleware"]
             assert not any(m.__class__.__name__ == "TodoListMiddleware" for m in researcher_middleware)
             assert not any(m.__class__.__name__ == "SkillsMiddleware" for m in researcher_middleware)
@@ -601,7 +608,7 @@ class TestDeepResearcherAgent:
             assert set(subagents) == {"source-router-agent", "planner-agent", "writer-agent"}
             assert "response_format" not in subagents["source-router-agent"]
             assert "skills" not in subagents["source-router-agent"]
-            assert subagents["planner-agent"]["response_format"] is ResearchPlan
+            assert subagents["planner-agent"]["response_format"].schema is ResearchPlan
             assert real_tool.name in {tool.name for tool in subagents["planner-agent"]["tools"]}
             assert "response_format" not in subagents["writer-agent"]
             assert [tool.name for tool in subagents["writer-agent"]["tools"]] == [
@@ -661,7 +668,7 @@ class TestDeepResearcherAgent:
             assert "Never repeat a covered query" in prompt
             assert "re-attempt each failed query at most 2 times" in prompt
             assert "state what could not be researched" in prompt
-            assert subagents["planner-agent"]["response_format"] is ResearchPlan
+            assert subagents["planner-agent"]["response_format"].schema is ResearchPlan
             assert "/shared/source_routing.json" not in subagents["planner-agent"]["system_prompt"]
             assert real_tool.name in {tool.name for tool in subagents["planner-agent"]["tools"]}
             assert [tool.name for tool in subagents["writer-agent"]["tools"]] == [
@@ -713,6 +720,7 @@ class TestDeepResearcherAgent:
                         ],
                         "narrative_notes": "OpenCL emphasizes portability; CUDA emphasizes NVIDIA ecosystem depth.",
                         "language": "English",
+                        "evidence_judgment": None,
                     }
                 }
 
@@ -794,6 +802,7 @@ class TestDeepResearcherAgent:
                     "queries": [
                         {
                             "query": f"query {i}",
+                            "subqueries": [],
                             "preferred_tools": ["web_search_tool"],
                             "fallback_tools": [],
                             "target_components": [f"component_{i}"],
@@ -806,12 +815,12 @@ class TestDeepResearcherAgent:
         fake_runnable.ainvoke.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_run_research_batch_delegates_tool_names_without_extra_validation(
+    async def test_run_research_batch_rejects_unavailable_preferred_tools(
         self,
         mock_llm_provider,
         real_tool,
     ):
-        """The simplified batch tool delegates the planned query shape to the researcher."""
+        """A query preferring a tool absent from the worker registry fails at submission."""
         from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
 
         fake_runnable = MagicMock()
@@ -819,26 +828,108 @@ class TestDeepResearcherAgent:
         agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
         batch_tool, _source_mw = self._build_batch_tool(agent, fake_runnable)
 
+        with pytest.raises(ValueError, match="preferred_tools are not available"):
+            await batch_tool.ainvoke(
+                {
+                    "queries": [
+                        {
+                            "query": "AI agents overview",
+                            "subqueries": ["AI agents definition 2025", "LLM agents architecture 2025"],
+                            "preferred_tools": ["external"],
+                            "fallback_tools": [],
+                            "target_components": ["overview"],
+                            "rationale": "External overview.",
+                        }
+                    ]
+                }
+            )
+
+        # Fail fast: no researcher worker is spawned for an unexecutable query.
+        fake_runnable.ainvoke.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_run_research_batch_recovers_fenced_json_notes(
+        self,
+        mock_llm_provider,
+        real_tool,
+    ):
+        """Notes emitted as a ```json-fenced message (no structured_response) are recovered.
+
+        DeepSeek-class models intermittently wrap the ResearchNotes JSON in a
+        markdown fence (sometimes with a natural-language preamble) instead of
+        using the structured-output channel. The worker should recover the
+        well-formed JSON instead of failing and forcing an orchestrator resubmit.
+        """
+        from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+
+        note_json = json.dumps(self._structured_notes_response()["structured_response"])
+        fenced = f"以下为研究笔记：\n\n```json\n{note_json}\n```"
+        fake_runnable = MagicMock()
+        fake_runnable.ainvoke = AsyncMock(return_value={"messages": [AIMessage(content=fenced)]})
+        agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
+        batch_tool, _source_mw = self._build_batch_tool(agent, fake_runnable)
+
         result = await batch_tool.ainvoke(
             {
                 "queries": [
                     {
-                        "query": "AI agents overview",
-                        "subqueries": ["AI agents definition 2025", "LLM agents architecture 2025"],
-                        "preferred_tools": ["external"],
+                        "query": "fenced output query",
+                        "subqueries": [],
+                        "preferred_tools": ["web_search_tool"],
                         "fallback_tools": [],
                         "target_components": ["overview"],
-                        "rationale": "External overview.",
+                        "rationale": "coverage",
                     }
                 ]
             }
         )
 
-        assert json.loads(result)[0]["query_topic"] == "AI agents overview"
-        fake_runnable.ainvoke.assert_awaited_once()
-        call_state = fake_runnable.ainvoke.call_args.args[0]
-        assert '"preferred_tools": [' in call_state["messages"][0].content
-        assert '"external"' in call_state["messages"][0].content
+        payload = json.loads(result)
+        assert len(payload) == 1
+        assert payload[0]["query_topic"] == "Research Topic"
+
+    @pytest.mark.asyncio
+    async def test_run_research_batch_rejects_empty_notes_as_failed_worker(
+        self,
+        mock_llm_provider,
+        real_tool,
+    ):
+        """A note with no findings and a blank summary is a failed worker, not a success."""
+        from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+
+        empty_note = {
+            "structured_response": {
+                "query_topic": "Empty",
+                "target_components": ["overview"],
+                "summary": "   ",
+                "findings": [],
+                "gaps": [],
+                "sources": [],
+                "narrative_notes": "",
+                "language": "English",
+                "evidence_judgment": None,
+            }
+        }
+        fake_runnable = MagicMock()
+        fake_runnable.ainvoke = AsyncMock(return_value=empty_note)
+        agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
+        batch_tool, _source_mw = self._build_batch_tool(agent, fake_runnable)
+
+        with pytest.raises(RuntimeError, match="empty ResearchNotes"):
+            await batch_tool.ainvoke(
+                {
+                    "queries": [
+                        {
+                            "query": "survey of AI agents 2023-2025",
+                            "subqueries": [],
+                            "preferred_tools": ["web_search_tool"],
+                            "fallback_tools": [],
+                            "target_components": ["overview"],
+                            "rationale": "Gather coverage.",
+                        }
+                    ]
+                }
+            )
 
     @pytest.mark.asyncio
     async def test_run_research_batch_delegates_empty_subqueries(
@@ -925,6 +1016,7 @@ class TestDeepResearcherAgent:
                         ],
                         "narrative_notes": "Useful narrative notes.",
                         "language": "English",
+                        "evidence_judgment": None,
                     }
                 }
 
@@ -945,6 +1037,7 @@ class TestDeepResearcherAgent:
         query_payloads = [
             {
                 "query": "good query",
+                "subqueries": [],
                 "preferred_tools": ["web_search_tool"],
                 "fallback_tools": [],
                 "target_components": ["a"],
@@ -952,6 +1045,7 @@ class TestDeepResearcherAgent:
             },
             {
                 "query": "bad query",
+                "subqueries": [],
                 "preferred_tools": ["web_search_tool"],
                 "fallback_tools": [],
                 "target_components": ["b"],
@@ -959,6 +1053,7 @@ class TestDeepResearcherAgent:
             },
             {
                 "query": "slow query",
+                "subqueries": [],
                 "preferred_tools": ["web_search_tool"],
                 "fallback_tools": [],
                 "target_components": ["c"],
@@ -995,6 +1090,7 @@ class TestDeepResearcherAgent:
         """Nested researcher invocations inherit parent files for StateBackend-backed skills."""
         query = ResearchQuery(
             query="CUDA OpenCL portability comparison",
+            subqueries=[],
             preferred_tools=["web_search_tool"],
             fallback_tools=[],
             target_components=["programming_model"],
@@ -1316,6 +1412,7 @@ class TestDeepResearcherAgent:
 
         query = ResearchQuery(
             query="OIB Richtlinie 2 Brandschutz Anforderungen",
+            subqueries=[],
             preferred_tools=["web_search_tool"],
             fallback_tools=[],
             target_components=["fire_safety"],
@@ -1511,13 +1608,15 @@ class TestPerRunIsolation:
             assert "Deep research answer" in first_result.messages[-1].content
 
             # Second run without a session registry sees none of the first
-            # run's sources: its fresh per-run registry is empty. The completed
-            # report is still returned (degraded, without citation
-            # verification) instead of being discarded.
-            state = DeepResearchAgentState(messages=[HumanMessage(content="Next request")])
-            second_result = await agent.run(state)
+            # run's sources: its fresh per-run registry is empty. An empty
+            # registry at the end of a run now fails loudly — which also proves
+            # the second run did not inherit run-one's captured source (it would
+            # otherwise have a non-empty registry and succeed).
+            from aiq_agent.common.citation_verification import EmptySourceRegistryError
 
-            assert "Deep research answer" in second_result.messages[-1].content
+            state = DeepResearchAgentState(messages=[HumanMessage(content="Next request")])
+            with pytest.raises(EmptySourceRegistryError):
+                await agent.run(state)
 
 
 class TestFinalMarkdownExtraction:
@@ -1716,9 +1815,10 @@ class TestDeepResearcherCitationVerification:
         assert "Citation verification found no valid citations" in caplog.text
 
     @pytest.mark.asyncio
-    async def test_run_returns_completed_report_when_registry_is_empty(self, mock_llm_provider, real_tool, caplog):
-        """An empty source registry degrades to a warning when a report was produced."""
+    async def test_run_fails_when_registry_is_empty_despite_report(self, mock_llm_provider, real_tool):
+        """A report produced with zero captured sources is unverifiable, so the run fails."""
         from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+        from aiq_agent.common.citation_verification import EmptySourceRegistryError
 
         report = "Completed report without captured sources."
         deep_result = {
@@ -1736,11 +1836,8 @@ class TestDeepResearcherCitationVerification:
             agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
 
             state = DeepResearchAgentState(messages=[HumanMessage(content="Write a report")])
-            with caplog.at_level("WARNING", logger="aiq_agent.agents.deep_researcher.agent"):
-                result = await agent.run(state)
-
-        assert result.messages[-1].content.strip() == report
-        assert "No sources were captured during deep research" in caplog.text
+            with pytest.raises(EmptySourceRegistryError):
+                await agent.run(state)
 
     @pytest.mark.asyncio
     async def test_run_raises_empty_registry_error_when_nothing_to_salvage(self, mock_llm_provider, real_tool):

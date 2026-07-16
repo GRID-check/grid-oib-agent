@@ -196,7 +196,7 @@ def test_subagents_route_tools_and_writer_skills():
     assert "response_format" not in by_name["source-router-agent"]
     assert _tool_names(by_name["source-router-agent"]["tools"]) == ["lookup_source_catalog"]
     assert "web_search_tool" not in _tool_names(by_name["source-router-agent"]["tools"])
-    assert by_name["planner-agent"]["response_format"] is ResearchPlan
+    assert by_name["planner-agent"]["response_format"].schema is ResearchPlan
     assert "web_search_tool" in _tool_names(by_name["planner-agent"]["tools"])
     assert _tool_names(by_name["writer-agent"]["tools"]) == ["think", "get_verified_sources"]
     assert by_name["writer-agent"]["skills"] == ["/skills/synthesis/"]
@@ -272,7 +272,7 @@ def test_subagents_can_disable_source_router():
 
     by_name = {subagent["name"]: subagent for subagent in subagents}
     assert set(by_name) == {"planner-agent", "writer-agent"}
-    assert by_name["planner-agent"]["response_format"] is ResearchPlan
+    assert by_name["planner-agent"]["response_format"].schema is ResearchPlan
     assert "web_search_tool" in _tool_names(by_name["planner-agent"]["tools"])
     assert _tool_names(by_name["writer-agent"]["tools"]) == ["think", "get_verified_sources"]
     requested_roles = [args[0] for args, _kwargs in provider.get.call_args_list]
@@ -317,7 +317,11 @@ def test_researcher_runnable_uses_rendered_prompt_and_runtime_middleware():
     assert kwargs["model"] is researcher_model
     assert kwargs["tools"] == [web_search_tool]
     assert kwargs["system_prompt"] == "rendered researcher prompt"
-    assert kwargs["response_format"] is ResearchNotes
+    assert kwargs["response_format"].schema is ResearchNotes
+    # Native provider-strict structured output, not create_agent's tool-strategy fallback.
+    wire = kwargs["response_format"].to_model_kwargs()["response_format"]
+    assert wire["type"] == "json_schema"
+    assert wire["json_schema"]["strict"] is True
     assert "TodoListMiddleware" not in middleware_names
     assert "SkillsMiddleware" in middleware_names
     assert "FilesystemMiddleware" in middleware_names
