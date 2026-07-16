@@ -149,11 +149,16 @@ def _research_note_path(query: ResearchQuery) -> str:
 
 
 def _research_note_files(queries: list[ResearchQuery], notes: list[ResearchNotes]) -> list[tuple[str, bytes]]:
-    """Serialize returned research notes as shared JSON files."""
+    """Serialize returned research notes as shared JSON files.
+
+    Serialized without ``exclude_none`` so the sole nullable field
+    (``evidence_judgment``) is written as ``null`` rather than dropped, keeping
+    the persisted JSON a round-trip-valid ResearchNotes.
+    """
     return [
         (
             _research_note_path(query),
-            json.dumps(note.model_dump(mode="json", exclude_none=True), indent=2, ensure_ascii=False).encode("utf-8"),
+            json.dumps(note.model_dump(mode="json"), indent=2, ensure_ascii=False).encode("utf-8"),
         )
         for query, note in zip(queries, notes, strict=False)
     ]

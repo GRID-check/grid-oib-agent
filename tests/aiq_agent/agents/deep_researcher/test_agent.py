@@ -175,6 +175,7 @@ class TestDeepResearcherAgent:
                 ],
                 "narrative_notes": "Useful narrative notes.",
                 "language": "English",
+                "evidence_judgment": None,
             }
         }
 
@@ -390,7 +391,7 @@ class TestDeepResearcherAgent:
             assert create_researcher.call_count == 1
             researcher_kwargs = create_researcher.call_args.kwargs
             kwargs = create.call_args.kwargs
-            assert researcher_kwargs["response_format"] is ResearchNotes
+            assert researcher_kwargs["response_format"].schema is ResearchNotes
             researcher_middleware = researcher_kwargs["middleware"]
             assert not any(m.__class__.__name__ == "TodoListMiddleware" for m in researcher_middleware)
             researcher_skills = [m for m in researcher_middleware if m.__class__.__name__ == "SkillsMiddleware"]
@@ -455,7 +456,7 @@ class TestDeepResearcherAgent:
             assert "write_todos" in subagents["source-router-agent"]["system_prompt"]
             assert "Use at most two tool calls total" in subagents["source-router-agent"]["system_prompt"]
             assert real_tool.name not in {tool.name for tool in subagents["source-router-agent"]["tools"]}
-            assert subagents["planner-agent"]["response_format"] is ResearchPlan
+            assert subagents["planner-agent"]["response_format"].schema is ResearchPlan
             assert "skills" not in subagents["planner-agent"]
             assert real_tool.name in {tool.name for tool in subagents["planner-agent"]["tools"]}
             assert "response_format" not in subagents["writer-agent"]
@@ -584,7 +585,7 @@ class TestDeepResearcherAgent:
             assert create.call_count == 1
             assert create_researcher.call_count == 1
             researcher_kwargs = create_researcher.call_args.kwargs
-            assert researcher_kwargs["response_format"] is ResearchNotes
+            assert researcher_kwargs["response_format"].schema is ResearchNotes
             researcher_middleware = researcher_kwargs["middleware"]
             assert not any(m.__class__.__name__ == "TodoListMiddleware" for m in researcher_middleware)
             assert not any(m.__class__.__name__ == "SkillsMiddleware" for m in researcher_middleware)
@@ -607,7 +608,7 @@ class TestDeepResearcherAgent:
             assert set(subagents) == {"source-router-agent", "planner-agent", "writer-agent"}
             assert "response_format" not in subagents["source-router-agent"]
             assert "skills" not in subagents["source-router-agent"]
-            assert subagents["planner-agent"]["response_format"] is ResearchPlan
+            assert subagents["planner-agent"]["response_format"].schema is ResearchPlan
             assert real_tool.name in {tool.name for tool in subagents["planner-agent"]["tools"]}
             assert "response_format" not in subagents["writer-agent"]
             assert [tool.name for tool in subagents["writer-agent"]["tools"]] == [
@@ -667,7 +668,7 @@ class TestDeepResearcherAgent:
             assert "Never repeat a covered query" in prompt
             assert "re-attempt each failed query at most 2 times" in prompt
             assert "state what could not be researched" in prompt
-            assert subagents["planner-agent"]["response_format"] is ResearchPlan
+            assert subagents["planner-agent"]["response_format"].schema is ResearchPlan
             assert "/shared/source_routing.json" not in subagents["planner-agent"]["system_prompt"]
             assert real_tool.name in {tool.name for tool in subagents["planner-agent"]["tools"]}
             assert [tool.name for tool in subagents["writer-agent"]["tools"]] == [
@@ -719,6 +720,7 @@ class TestDeepResearcherAgent:
                         ],
                         "narrative_notes": "OpenCL emphasizes portability; CUDA emphasizes NVIDIA ecosystem depth.",
                         "language": "English",
+                        "evidence_judgment": None,
                     }
                 }
 
@@ -800,6 +802,7 @@ class TestDeepResearcherAgent:
                     "queries": [
                         {
                             "query": f"query {i}",
+                            "subqueries": [],
                             "preferred_tools": ["web_search_tool"],
                             "fallback_tools": [],
                             "target_components": [f"component_{i}"],
@@ -904,6 +907,7 @@ class TestDeepResearcherAgent:
                 "sources": [],
                 "narrative_notes": "",
                 "language": "English",
+                "evidence_judgment": None,
             }
         }
         fake_runnable = MagicMock()
@@ -1012,6 +1016,7 @@ class TestDeepResearcherAgent:
                         ],
                         "narrative_notes": "Useful narrative notes.",
                         "language": "English",
+                        "evidence_judgment": None,
                     }
                 }
 
@@ -1032,6 +1037,7 @@ class TestDeepResearcherAgent:
         query_payloads = [
             {
                 "query": "good query",
+                "subqueries": [],
                 "preferred_tools": ["web_search_tool"],
                 "fallback_tools": [],
                 "target_components": ["a"],
@@ -1039,6 +1045,7 @@ class TestDeepResearcherAgent:
             },
             {
                 "query": "bad query",
+                "subqueries": [],
                 "preferred_tools": ["web_search_tool"],
                 "fallback_tools": [],
                 "target_components": ["b"],
@@ -1046,6 +1053,7 @@ class TestDeepResearcherAgent:
             },
             {
                 "query": "slow query",
+                "subqueries": [],
                 "preferred_tools": ["web_search_tool"],
                 "fallback_tools": [],
                 "target_components": ["c"],
@@ -1082,6 +1090,7 @@ class TestDeepResearcherAgent:
         """Nested researcher invocations inherit parent files for StateBackend-backed skills."""
         query = ResearchQuery(
             query="CUDA OpenCL portability comparison",
+            subqueries=[],
             preferred_tools=["web_search_tool"],
             fallback_tools=[],
             target_components=["programming_model"],
@@ -1403,6 +1412,7 @@ class TestDeepResearcherAgent:
 
         query = ResearchQuery(
             query="OIB Richtlinie 2 Brandschutz Anforderungen",
+            subqueries=[],
             preferred_tools=["web_search_tool"],
             fallback_tools=[],
             target_components=["fire_safety"],
