@@ -81,3 +81,39 @@ bounded by per-org/member/project budgets — see
   positional sliding-window truncation, which shifts message bytes on
   nearly every model call — see
   `src/aiq_agent/agents/deep_researcher/README.md` "Known limitations".
+- **No LLM request timeout (known limitation, fix pending).** No `llms.*`
+  block in any shipped config sets `request_timeout`. NAT's
+  `OpenAIModelConfig` (`nat/llm/openai_llm.py`) declares
+  `request_timeout: float | None = Field(default=None, ...)`, so an unset
+  value leaves the underlying HTTP client's timeout unbounded. The only
+  app-level ceilings on an LLM call are the intent classifier's
+  `asyncio.wait_for` (`llm_timeout`, default 90 s —
+  `chat_researcher/nodes/intent_classifier.py`) and card generation's 30 s
+  (`cards/generate.py:_CARD_LLM_TIMEOUT_S`); every other call site —
+  deep-research orchestrator/planner/researcher/writer turns, the
+  clarifier, memory reflection — has neither an HTTP-level nor an
+  app-level timeout. `recursion_limit` (2000 for deep research) bounds
+  graph *steps*, not wall-clock time, so a single stalled provider response
+  can block a run indefinitely.
+- **Retry stacking (known limitation, tuning pending).** Retries compound
+  across three independent, uncoordinated layers with no shared budget or
+  deadline: the per-role client-level `max_retries` in the YAML (5 for most
+  roles, 10 for the deep-research orchestrator/planner — see
+  `configs/config_oib_openrouter.yml`), `ModelRetryMiddleware(max_retries=2,
+  ...)` (retries on *any* exception), and `SelectiveToolRetryMiddleware(
+  max_retries=3, ...)` (retries on anything except `ValueError`) — both
+  middleware in the deep-research stack
+  (`agents/deep_researcher/factory.py`). Worst case for a single logical
+  model turn is on the order of ~33 attempts with independently
+  compounding backoff at each layer. See
+  [`scaling-review-2026-07.md`](scaling-review-2026-07.md) §6.3 for how
+  this multiplies again across concurrent runs.
+- `reasoning_effort` is a **native** `ChatOpenAI` field
+  (`langchain_openai`'s `BaseChatOpenAI.reasoning_effort`), not something
+  routed through `extra_body`: NAT's `OpenAIModelConfig` allows extra YAML
+  keys (`model_config = ConfigDict(..., extra="allow")`) and the LangChain
+  client picks the field up directly, translating it to the provider's
+  native `reasoning` payload shape where needed (e.g. OpenRouter). No app
+  code shuttles it manually — worth knowing so it isn't mistaken for one of
+  the `extra_body`-routed OpenRouter-specific knobs (see
+  `aiq_agent.common.llm_factory`).

@@ -463,6 +463,54 @@ full specs in `org-model-configuration.md` (ADR-0014) and
   ceremony and a `think` call after every search, adding several
   pure-ceremony LLM turns per planning run. Prompt tuning to reduce this is
   pending.
+- **NAT step-tree/span corruption after a retried call (known limitation,
+  local wrapper fix pending)** — the recurring log warnings `Step id ... not
+  the last step in the stack` / `span ID stack is not equal` come from NAT's
+  `LangchainProfilerHandler`
+  (`nat/plugins/langchain/callback_handler.py`, `nvidia-nat==1.7.0`), which
+  implements `on_llm_start`/`on_chat_model_start`/`on_llm_new_token`/
+  `on_llm_end`/`on_tool_start`/`on_tool_end` but no `on_llm_error` or
+  `on_tool_error`. An errored (then retried) model or tool attempt therefore
+  never closes its intermediate-step span; the orphaned span makes the next
+  legitimate `END` pop more than one frame off the stack, producing the
+  warnings. Consequence: the NAT step tree / OTel span tree is malformed for
+  any run that retried anything — which, given the retry stacking below, is
+  most deep-research runs that hit any transient error — but `run_id`-keyed
+  token/cost accounting (§8b) is **not** corrupted by this. Root cause is
+  upstream NAT, amplified by our own broad retry policy; no NAT-side fix is
+  available today, so any correction has to be a local wrapper around the
+  handler.
+- **Shared trace-callback state across concurrent researcher workers (known
+  limitation, fix pending)** — `VerboseTraceCallback` mutates per-run state
+  (`current_input`, `active_chains`, `depth` — `common/callbacks.py`) and
+  exists specifically to avoid leaking that state *across* runs: `for_new_run()`
+  hands each deep-research run a fresh instance
+  (`DeepResearcherAgent._prepare_run()`, ADR-0018). That fix operates at
+  run granularity, not worker granularity — the one fresh instance a run
+  gets is then passed as a shared `callbacks` entry into the graph and used
+  by every concurrent researcher worker inside that run (up to
+  `max_research_concurrency`, default 6, workers via
+  `run_research_batch`'s `asyncio.Semaphore`/`asyncio.gather`). Concurrent
+  workers mutating the same `depth`/`current_input`/`active_chains` can
+  misattribute verbose trace log lines (indentation, "current input") across
+  workers. The same pattern recurs in the async job runner: `runner.py`
+  builds one `VerboseTraceCallback()` and one `LangchainProfilerHandler()`
+  per job (not per worker) and both are shared across that job's concurrent
+  researcher workers.
+- **Async deep-research jobs are not restart-safe (known limitation)** — the
+  deepagents graph is built with `store=InMemoryStore()`
+  (`agents/deep_researcher/factory.py`), and `checkpoint_db`/
+  `get_checkpointer()` (`common/__init__.py`) is wired only into the
+  synchronous chat graph (`chat_researcher/register.py`); nothing persists
+  deep-research graph/agent state. If the process running a deep-research
+  job dies mid-run (worker crash, restart), only the SQL job-store status
+  row survives — the run itself is gone, not paused. The ghost-job reaper
+  (ADR-0021, `scaling-review-2026-07.md` §2.4) flips the orphaned row to
+  `FAILURE` after its timeout; there is no queueing or resume, and a future
+  DB-claimed-worker migration (ADR-0021) fixes replica pinning/cross-node
+  cancel but does not by itself add resume — that also needs the
+  deepagents graph state to move off `InMemoryStore` onto a persisted
+  store.
 - Infra: live secrets in `deploy/.env`; backend DBs have no migration mechanism
   (init only); config drift between the two config files.
 
