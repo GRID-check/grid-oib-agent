@@ -3,6 +3,7 @@
 import base64
 import json
 
+import pytest
 from pydantic import BaseModel
 
 from aiq_agent.common.llm_provider import LLMProvider
@@ -141,3 +142,87 @@ class TestProviderWithModelOverrides:
         provider = LLMProvider()
         provider.set_default(FakeChatModel())
         assert provider.with_model_overrides({"deep_research": "vendor/deep"}) is provider
+
+
+class TestOrgScopedFallbackResolution:
+    """Header absent -> resolve the org's overrides via the internal endpoint."""
+
+    def setup_method(self):
+        from aiq_agent.common.model_overrides import reset_overrides_cache
+
+        reset_overrides_cache()
+
+    def test_header_takes_precedence_over_fetch(self, monkeypatch):
+        import aiq_agent.common.model_overrides as M
+
+        encoded = base64.urlsafe_b64encode(json.dumps({"intent": "vendor/x"}).encode()).decode()
+        monkeypatch.setattr("aiq_agent.project_context._read_header", lambda name: encoded)
+        monkeypatch.setattr(M, "_fetch_org_overrides", lambda org: pytest.fail("must not fetch when header present"))
+
+        assert M.get_model_overrides_from_context() == {"intent": "vendor/x"}
+
+    def test_absent_header_falls_back_to_org_resolution(self, monkeypatch):
+        import aiq_agent.common.model_overrides as M
+
+        monkeypatch.setattr("aiq_agent.project_context._read_header", lambda name: None)
+        monkeypatch.setattr(
+            "aiq_agent.project_context.get_organization_id_from_context", lambda: "org_ABC123"
+        )
+        monkeypatch.setattr(M, "_fetch_org_overrides", lambda org: {"deep_research": "x-ai/grok-4.5"})
+
+        assert M.get_model_overrides_from_context() == {"deep_research": "x-ai/grok-4.5"}
+
+    def test_no_org_in_context_returns_empty_without_fetch(self, monkeypatch):
+        import aiq_agent.common.model_overrides as M
+
+        monkeypatch.setattr("aiq_agent.project_context._read_header", lambda name: None)
+        monkeypatch.setattr("aiq_agent.project_context.get_organization_id_from_context", lambda: None)
+        monkeypatch.setattr(M, "_fetch_org_overrides", lambda org: pytest.fail("must not fetch without an org"))
+
+        assert M.get_model_overrides_from_context() == {}
+
+    def test_resolution_is_cached(self, monkeypatch):
+        import aiq_agent.common.model_overrides as M
+
+        calls = []
+
+        def fake_fetch(org):
+            calls.append(org)
+            return {"intent": "vendor/x"}
+
+        monkeypatch.setattr(M, "_fetch_org_overrides", fake_fetch)
+        assert M.resolve_org_model_overrides("org_A") == {"intent": "vendor/x"}
+        assert M.resolve_org_model_overrides("org_A") == {"intent": "vendor/x"}
+        assert calls == ["org_A"]
+
+    def test_fetch_failure_fails_open_to_empty(self, monkeypatch):
+        import aiq_agent.common.model_overrides as M
+
+        def boom(org):
+            raise RuntimeError("bff down")
+
+        monkeypatch.setattr(M, "_fetch_org_overrides", boom)
+        assert M.resolve_org_model_overrides("org_A") == {}
+        # Negative-cached: the failure is not retried within the TTL.
+        monkeypatch.setattr(M, "_fetch_org_overrides", lambda org: pytest.fail("negative cache must hold"))
+        assert M.resolve_org_model_overrides("org_A") == {}
+
+    def test_fetch_sanitizes_payload(self, monkeypatch):
+        import aiq_agent.common.model_overrides as M
+
+        class FakeResponse:
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return {"overrides": {"deep_research": "x-ai/grok-4.5", "bogus_group": "x/y", "intent": "bad id!!"}}
+
+        monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "t")
+        monkeypatch.setattr("httpx.get", lambda *a, **k: FakeResponse())
+        assert M._fetch_org_overrides("org_A") == {"deep_research": "x-ai/grok-4.5"}
+
+    def test_no_internal_token_returns_empty(self, monkeypatch):
+        import aiq_agent.common.model_overrides as M
+
+        monkeypatch.delenv("GRID_INTERNAL_API_TOKEN", raising=False)
+        assert M._fetch_org_overrides("org_A") == {}
