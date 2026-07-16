@@ -724,7 +724,7 @@ class TestDeepResearcherAgent:
                     }
                 }
 
-        agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool], callbacks=[MagicMock()])
+        agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool], callbacks=[MagicMock(spec=[])])
         fake_runnable = FakeResearcherRunnable()
         fake_backend = MagicMock()
         fake_backend.upload_files.side_effect = lambda files: [
@@ -1085,6 +1085,90 @@ class TestDeepResearcherAgent:
         assert "https://example.test/good" in compact_sources
         assert "https://example.test/slow" in compact_sources
         assert "https://example.test/unused" not in compact_sources
+
+    @pytest.mark.asyncio
+    async def test_run_research_queries_isolates_stateful_callbacks_per_worker(self):
+        """Concurrent researcher workers must not share one stateful callback instance.
+
+        _run_research_queries fans out to up to max_concurrency concurrent
+        researcher invocations. Passing the exact same callbacks list to all
+        of them would let concurrent workers race on one handler's mutable
+        state (VerboseTraceCallback's docstring warns a single instance must
+        not span concurrent runs, ADR-0018). Each worker must instead receive
+        callbacks built via for_new_run(); callbacks without for_new_run are
+        forwarded unchanged.
+        """
+        from aiq_agent.agents.deep_researcher.tools.research import _run_research_queries
+
+        class FakeIsolatingCallback:
+            """Stand-in for VerboseTraceCallback's for_new_run() contract."""
+
+            def __init__(self) -> None:
+                self.spawned: list[FakeIsolatingCallback] = []
+
+            def for_new_run(self) -> "FakeIsolatingCallback":
+                fresh = FakeIsolatingCallback()
+                self.spawned.append(fresh)
+                return fresh
+
+        shared_cb = FakeIsolatingCallback()
+        passthrough_cb = MagicMock(spec=[])  # no for_new_run -> forwarded unchanged
+        seen_callbacks_per_call: list[list] = []
+
+        class FakeResearcherRunnable:
+            async def ainvoke(self, state, config=None):
+                seen_callbacks_per_call.append(config["callbacks"])
+                return {
+                    "structured_response": {
+                        "query_topic": "topic",
+                        "target_components": ["overview"],
+                        "summary": "note",
+                        "findings": [],
+                        "gaps": [],
+                        "sources": [],
+                        "narrative_notes": "note",
+                        "language": "English",
+                        "evidence_judgment": None,
+                    }
+                }
+
+        queries = [
+            ResearchQuery(
+                query=f"query {i}",
+                subqueries=[],
+                preferred_tools=["web_search_tool"],
+                fallback_tools=[],
+                target_components=["overview"],
+                rationale="coverage",
+            )
+            for i in range(4)
+        ]
+
+        successful, notes, errors = await _run_research_queries(
+            queries=queries,
+            researcher_runnable=FakeResearcherRunnable(),
+            runtime=None,
+            callbacks=[shared_cb, passthrough_cb],
+            max_concurrency=4,
+        )
+
+        assert errors == []
+        assert len(successful) == 4
+        assert len(notes) == 4
+        assert len(seen_callbacks_per_call) == 4
+
+        # Every concurrent worker received its own fresh instance, never the
+        # shared original, and no two workers received the same instance.
+        assert len(shared_cb.spawned) == 4
+        assert len(set(id(cb) for cb in shared_cb.spawned)) == 4
+        spawned_per_call = [callbacks[0] for callbacks in seen_callbacks_per_call]
+        assert shared_cb not in spawned_per_call
+        assert len(set(id(cb) for cb in spawned_per_call)) == 4
+        for callbacks in seen_callbacks_per_call:
+            spawned_cb, forwarded_cb = callbacks
+            assert spawned_cb in shared_cb.spawned
+            # The plain callback (no for_new_run) is forwarded unchanged.
+            assert forwarded_cb is passthrough_cb
 
     def test_researcher_invoke_state_carries_parent_files(self):
         """Nested researcher invocations inherit parent files for StateBackend-backed skills."""

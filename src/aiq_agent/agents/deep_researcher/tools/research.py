@@ -100,10 +100,19 @@ async def _run_research_query(
 ) -> ResearchNotes:
     """Run one researcher worker and return its structured notes."""
     async with semaphore:
+        # Build a per-worker callbacks list rather than reusing the shared
+        # batch-level list across concurrent invocations. Stateful handlers
+        # (e.g. VerboseTraceCallback) mutate per-run instance state and their
+        # own docstrings warn a single instance must not span concurrent runs
+        # (ADR-0018); for_new_run() hands back a fresh instance per worker so
+        # up to max_research_concurrency researchers running at once don't
+        # race on the same handler's state. Callbacks without for_new_run are
+        # passed through unchanged.
+        worker_callbacks = [cb.for_new_run() if hasattr(cb, "for_new_run") else cb for cb in callbacks]
         try:
             result = await researcher_runnable.ainvoke(
                 researcher_invoke_state(query, runtime),
-                config={"callbacks": callbacks} if callbacks else None,
+                config={"callbacks": worker_callbacks} if worker_callbacks else None,
             )
         except Exception as exc:  # noqa: BLE001 - captured as per-item failure
             raise RuntimeError(f"researcher worker failed for query {query.query!r}: {exc}") from exc
@@ -226,10 +235,7 @@ def _assert_preferred_tools_available(queries: list[ResearchQuery], researcher_t
     orchestrator/planner rewrites the query instead of the worker improvising.
     """
     missing = {
-        tool_name
-        for query in queries
-        for tool_name in query.preferred_tools
-        if tool_name not in researcher_tool_names
+        tool_name for query in queries for tool_name in query.preferred_tools if tool_name not in researcher_tool_names
     }
     if missing:
         available = ", ".join(sorted(researcher_tool_names)) or "(none)"
