@@ -55,6 +55,12 @@ function buildGridRequestContextEnvelopeHeaders(input) {
   if (input.budget) payload.budget = input.budget
   if (input.disabledSources && input.disabledSources.length > 0) payload.disabledSources = input.disabledSources
   if (input.memoryReflectionEnabled !== undefined) payload.memoryReflectionEnabled = input.memoryReflectionEnabled
+  // `bundesland` (backlog T3-9 follow-up, 2026-07-16, user-mandated):
+  // envelope-only structured jurisdiction field, appended LAST in key order
+  // to keep every pre-existing signed payload byte-identical — see
+  // `buildGridRequestContextEnvelopePayload`'s docstring in request-context.ts
+  // (the canonical definition this function is pinned to).
+  if (input.bundesland) payload.bundesland = input.bundesland
 
   const json = JSON.stringify(payload)
   const headers = {
@@ -429,6 +435,7 @@ const startServer = async () => {
               budget: result.data?.budget,
               disabledSources: result.data?.disabledSources,
               memoryReflectionEnabled: result.data?.memoryReflectionEnabled,
+              bundesland: result.data?.bundesland,
             })
           )
         } else if (result.status === 401 || result.status === 403) {

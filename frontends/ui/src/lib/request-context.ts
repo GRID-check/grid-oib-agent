@@ -42,6 +42,14 @@
  * and it already has a single centralized producer/consumer pair, so it
  * doesn't belong to the "hand-forwarded, easy to drop" bug class this module
  * targets.
+ *
+ * `bundesland` (backlog T3-9 follow-up, 2026-07-16, user-mandated) is
+ * DELIBERATELY envelope-only: unlike every field in the table above it never
+ * had an individual `X-Grid-*` header to dual-write, so
+ * `buildGridRequestContextHeaders` below has no case for it — only
+ * `buildGridRequestContextEnvelopePayload` does. See
+ * `aiq_agent.project_context`'s module docstring for the matching Python-side
+ * choice (envelope-only parsing, no legacy individual-header fallback).
  */
 
 import { createHmac } from 'node:crypto'
@@ -89,6 +97,23 @@ export interface GridRequestContextInput {
    * header as `false`).
    */
   memoryReflectionEnabled?: boolean
+  /**
+   * → envelope payload field `bundesland` ONLY (backlog T3-9 follow-up,
+   * 2026-07-16, user-mandated) — there is no individual `X-Grid-Bundesland`
+   * header; see `buildGridRequestContextEnvelopePayload`'s docstring for why.
+   * The validated jurisdiction token the intake wizard collects (PR #71) as
+   * a structured project-profile fact (nine Bundesland tokens plus
+   * `ausserhalb_oesterreichs` — see
+   * `@/lib/project-profile/intake-definition`'s `BUNDESLAND_TOKENS`),
+   * carried STRUCTURED alongside the unchanged `bundesland=<token>` text
+   * line inside `projectContext` (still read by the LLM — this is a
+   * parallel channel, not a replacement). Omitted when falsy: a producer
+   * with no project scope (or an unresolved/unknown token) must omit the
+   * field rather than send an unvalidated value — the backend's fallback
+   * (structured prompt-text line, then free-text probing) takes over
+   * exactly as it did before this field existed.
+   */
+  bundesland?: string | null
 }
 
 /** Canonical header names, exact casing as sent on the wire. */
@@ -239,6 +264,12 @@ export interface GridRequestContextEnvelope {
  * signed bytes are deterministic across producers/runs for the same input —
  * required for the fixture's precomputed `header`/`signature` values to be
  * exact-match assertable rather than semantic-JSON-equal.
+ *
+ * `bundesland` (backlog T3-9 follow-up, 2026-07-16, user-mandated) was added
+ * LAST in the key order (after `memoryReflectionEnabled`) specifically so
+ * every pre-existing fixture case's signed bytes stay byte-identical — an
+ * earlier position would have required recomputing every prior case's
+ * `header`/`signature`.
  */
 export function buildGridRequestContextEnvelopePayload(input: GridRequestContextInput): Record<string, unknown> {
   const payload: Record<string, unknown> = {}
@@ -272,6 +303,9 @@ export function buildGridRequestContextEnvelopePayload(input: GridRequestContext
   }
   if (input.memoryReflectionEnabled !== undefined) {
     payload.memoryReflectionEnabled = input.memoryReflectionEnabled
+  }
+  if (input.bundesland) {
+    payload.bundesland = input.bundesland
   }
 
   return payload

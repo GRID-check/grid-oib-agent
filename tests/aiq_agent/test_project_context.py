@@ -20,6 +20,7 @@ _INPUT_FIELD_MAP = {
     "budget": "budget",
     "disabledSources": "disabled_sources",
     "memoryReflectionEnabled": "memory_reflection_enabled",
+    "bundesland": "bundesland",
 }
 
 
@@ -361,3 +362,73 @@ class TestGridRequestContextEnvelopePrecedence:
 
         ctx = pc.GridRequestContext.from_headers(headers)
         assert ctx.organization_id == "org_from_envelope"
+
+
+class TestBundeslandField:
+    """`bundesland` (backlog T3-9 follow-up, 2026-07-16, user-mandated):
+    ENVELOPE-ONLY structured jurisdiction field — no individual
+    `X-Grid-Bundesland` header exists, so it can only ever come from
+    `from_envelope`/the fixture's `envelopeCases`, never from the individual
+    header parsing path.
+    """
+
+    SECRET = "bundesland-test-secret"  # noqa: S105 - test fixture value, not a real credential
+
+    def _envelope(self, payload: dict) -> tuple[str, str]:
+        raw = json.dumps(payload)
+        header = base64.urlsafe_b64encode(raw.encode("utf-8")).decode("ascii").rstrip("=")
+        sig = TestGridRequestContextFromEnvelope._sign(raw, self.SECRET)
+        return header, sig
+
+    def test_valid_token_round_trips(self):
+        header, sig = self._envelope({"organizationId": "org_1", "bundesland": "tirol"})
+        ctx = pc.GridRequestContext.from_envelope(header, sig, self.SECRET)
+        assert ctx is not None
+        assert ctx.bundesland == "tirol"
+
+    def test_ausserhalb_oesterreichs_token_round_trips_literally(self):
+        # project_context.py only validates against the vocabulary; mapping
+        # "ausserhalb_oesterreichs" to "no state prioritized" (None) is
+        # ris_catalog.resolve_bundesland's job, not the parser's.
+        header, sig = self._envelope({"bundesland": "ausserhalb_oesterreichs"})
+        ctx = pc.GridRequestContext.from_envelope(header, sig, self.SECRET)
+        assert ctx is not None
+        assert ctx.bundesland == "ausserhalb_oesterreichs"
+
+    def test_unknown_token_treated_as_absent(self, caplog):
+        header, sig = self._envelope({"organizationId": "org_1", "bundesland": "atlantis"})
+        with caplog.at_level("DEBUG", logger="aiq_agent.project_context"):
+            ctx = pc.GridRequestContext.from_envelope(header, sig, self.SECRET)
+        assert ctx is not None
+        assert ctx.bundesland is None
+        assert any("bundesland" in record.message.lower() for record in caplog.records)
+
+    def test_non_string_token_treated_as_absent(self):
+        header, sig = self._envelope({"bundesland": 42})
+        ctx = pc.GridRequestContext.from_envelope(header, sig, self.SECRET)
+        assert ctx is not None
+        assert ctx.bundesland is None
+
+    def test_case_and_whitespace_insensitive(self):
+        header, sig = self._envelope({"bundesland": "  WIEN  "})
+        ctx = pc.GridRequestContext.from_envelope(header, sig, self.SECRET)
+        assert ctx is not None
+        assert ctx.bundesland == "wien"
+
+    def test_absent_field_defaults_to_none(self):
+        header, sig = self._envelope({"organizationId": "org_1"})
+        ctx = pc.GridRequestContext.from_envelope(header, sig, self.SECRET)
+        assert ctx is not None
+        assert ctx.bundesland is None
+
+    def test_from_context_legacy_individual_headers_never_populate_bundesland(self, monkeypatch):
+        # No envelope at all -- from_context falls back to individual
+        # headers, which have no bundesland source whatsoever.
+        headers = {pc.ORGANIZATION_ID_HEADER: "org_1"}
+        monkeypatch.setattr(pc, "_read_header", lambda name: headers.get(name))
+        ctx = pc.GridRequestContext.from_context()
+        assert ctx.bundesland is None
+
+    def test_from_headers_legacy_individual_headers_never_populate_bundesland(self):
+        ctx = pc.GridRequestContext.from_headers({pc.ORGANIZATION_ID_HEADER: "org_1"})
+        assert ctx.bundesland is None

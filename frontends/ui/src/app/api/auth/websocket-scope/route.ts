@@ -9,7 +9,7 @@
 import { NextResponse } from 'next/server'
 import { getGridSession } from '@/lib/auth/session'
 import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
-import { loadProjectPromptView } from '@/lib/project-profile/prompt-view'
+import { loadProjectBundesland, loadProjectPromptView } from '@/lib/project-profile/prompt-view'
 import { buildProjectMemoryDigest } from '@/lib/projects/memory-service'
 import { isOrgFeatureEnabled, MEMORY_REFLECTION_FLAG } from '@/lib/workos/feature-flags'
 import { isWebSearchEnabledForOrg } from '@/lib/organizations/service'
@@ -127,6 +127,21 @@ export async function GET(req: Request): Promise<Response> {
       const projectContext = await loadProjectPromptView(projectId)
       if (projectContext) {
         response.projectContext = projectContext
+      }
+
+      // Structured jurisdiction fact (backlog T3-9 follow-up, 2026-07-16,
+      // user-mandated) — becomes the envelope's `bundesland` field on the WS
+      // upgrade (server.js), a parallel channel alongside the unchanged
+      // `bundesland=<token>` line already inside `projectContext` above.
+      // Best-effort: a lookup failure must not block the chat handshake, it
+      // just means the backend falls back to prompt-text parsing.
+      try {
+        const bundesland = await loadProjectBundesland(projectId)
+        if (bundesland) {
+          response.bundesland = bundesland
+        }
+      } catch (error) {
+        console.warn('[WebSocket Scope API] Failed to load bundesland fact:', error)
       }
     }
 

@@ -2,11 +2,13 @@ import { describe, expect, it } from 'vitest'
 
 import {
   answersFromProfile,
+  BUNDESLAND_TOKENS,
   buildIntakeProfile,
   evaluateIntakeCondition,
   flattenIntakeQuestions,
   formatIntakeAnswer,
   humanizeProfileKey,
+  isValidBundeslandToken,
   labelForProfileKey,
   mergeIntakeProfile,
   projectIntakeDefinitionV1,
@@ -346,5 +348,46 @@ describe('projectIntakeDefinitionV1 shape', () => {
 
     expect(evaluateIntakeCondition(goalDetails, { focus_areas: ['einreichung'] })).toBe(false)
     expect(evaluateIntakeCondition(goalDetails, { focus_areas: ['einreichung', 'sonstiges'] })).toBe(true)
+  })
+})
+
+describe('BUNDESLAND_TOKENS / isValidBundeslandToken', () => {
+  // Backlog T3-9 follow-up (2026-07-16, user-mandated): the structured
+  // `bundesland` envelope field must validate against the exact same
+  // vocabulary the intake wizard offers (nine states + ausserhalb_oesterreichs)
+  // -- mirrored (not imported) on the Python side by
+  // aiq_agent.project_context's `_BUNDESLAND_TOKENS`.
+  it('contains exactly the nine Bundesland tokens plus ausserhalb_oesterreichs', () => {
+    expect(new Set(BUNDESLAND_TOKENS)).toEqual(
+      new Set([
+        'wien',
+        'niederoesterreich',
+        'oberoesterreich',
+        'steiermark',
+        'kaernten',
+        'salzburg',
+        'tirol',
+        'vorarlberg',
+        'burgenland',
+        'ausserhalb_oesterreichs',
+      ]),
+    )
+  })
+
+  it('stays byte-identical to the bundesland question options (single source of truth)', () => {
+    const bundeslandQuestion = flattenIntakeQuestions(definition).find((q) => q.id === 'bundesland')!
+    expect(BUNDESLAND_TOKENS).toEqual(bundeslandQuestion.options?.map((option) => option.value))
+  })
+
+  it('isValidBundeslandToken accepts every known token', () => {
+    for (const token of BUNDESLAND_TOKENS) {
+      expect(isValidBundeslandToken(token)).toBe(true)
+    }
+  })
+
+  it('isValidBundeslandToken rejects unknown/malformed tokens', () => {
+    expect(isValidBundeslandToken('atlantis')).toBe(false)
+    expect(isValidBundeslandToken('')).toBe(false)
+    expect(isValidBundeslandToken('Wien')).toBe(false) // case-sensitive: the wire token is lowercase
   })
 })

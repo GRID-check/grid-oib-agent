@@ -317,9 +317,10 @@ building-law corpus:
   seed against the live OGD-RIS API and fails loudly on unverifiable entries.
 - `src/aiq_agent/common/ris_catalog.py` is the shared loader/matcher/renderer
   (lru-cached by path+mtime, umlaut-normalized substring matching,
-  `extract_bundesland` scans project_context). Everything is fail-open: a
-  missing/invalid catalog disables the feature with a warning; live search is
-  unaffected.
+  `resolve_bundesland` resolves jurisdiction — see below —
+  `extract_bundesland` scans free text as its fallback). Everything is
+  fail-open: a missing/invalid catalog disables the feature with a warning;
+  live search is unaffected.
 
 Three consumers:
 
@@ -334,19 +335,39 @@ Three consumers:
 **Jurisdiction is a structured fact, not an inference.** The project-intake
 wizard captures the building's location as a validated `bundesland` fact (nine
 states + `ausserhalb_oesterreichs`, with a free-text `standort_details` for
-projects outside Austria); it flows into the `PROJECT_CONTEXT` prompt view as a
-`bundesland=<token>` line. `extract_bundesland` treats that structured token as
-authoritative — free-text state-name probing is only the fallback (a mention of
-"Wiener Neustadt", a Lower Austrian town, must not flip the jurisdiction to
-Wien). Both catalog consumers then call `focus_entries` BEFORE truncating:
-other states' law is dropped, the project's own state sorts first, federal law
-always stays — the nine state codes share generic topics ("bauordnung"), so
-without this a Tyrolean query would return the catalog-order head (Wien, NÖ, …)
-and crowd Tirol out. Projects created before the wizard asked for the location
-are backfilled (drizzle migration 0018) with an *unconfirmed* `bundesland=wien`
-assumption (`onboarding_default`) that the Project Brief asks the user to
-confirm; a confirmed fact under the same key retires it automatically
-(`pruneResolvedAssumptions`, applied in `persistProfile`).
+projects outside Austria). Two channels carry it to the backend (backlog T3-9
+follow-up, 2026-07-16, user-mandated):
+
+1. **The structured `X-Grid-Request-Context` envelope's `bundesland` field**
+   (authoritative) — the BFF resolves it straight from the project profile
+   (the same source that renders the prompt-text line below) at each producer
+   (WS upgrade, workflow submit, async-jobs submit) and validates it against
+   the intake vocabulary before sending; the backend
+   (`aiq_agent.project_context.GridRequestContext`) independently re-validates
+   it and treats an unrecognized token as absent.
+2. **The `PROJECT_CONTEXT` prompt view's `bundesland=<token>` text line**
+   (unchanged, still read by the LLM) — fallback #1 when the envelope carries
+   no `bundesland` field (pre-envelope traffic, or an entrypoint — e.g. an
+   async job worker — with no live request context).
+3. Free-text state-name probing — fallback #2, only when neither of the above
+   is present (a mention of "Wiener Neustadt", a Lower Austrian town, must not
+   flip the jurisdiction to Wien; the structured channels exist precisely to
+   make that impossible).
+
+`ris_catalog.resolve_bundesland` implements this precedence chain (calling
+`extract_bundesland` for fallbacks #1/#2); `render_block_for_prompt` uses it.
+`ausserhalb_oesterreichs` — from either channel — means "no state's law should
+be prioritized" and that resolves to `None` immediately, without falling
+through to text probing. Both catalog consumers then call `focus_entries`
+BEFORE truncating: other states' law is dropped, the project's own state sorts
+first, federal law always stays — the nine state codes share generic topics
+("bauordnung"), so without this a Tyrolean query would return the
+catalog-order head (Wien, NÖ, …) and crowd Tirol out. Projects created before
+the wizard asked for the location are backfilled (drizzle migration 0018) with
+an *unconfirmed* `bundesland=wien` assumption (`onboarding_default`) that the
+Project Brief asks the user to confirm; a confirmed fact under the same key
+retires it automatically (`pruneResolvedAssumptions`, applied in
+`persistProfile`).
 
 ## 7. Deep research (async jobs)
 

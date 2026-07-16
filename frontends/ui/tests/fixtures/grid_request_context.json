@@ -103,7 +103,7 @@
     },
     {
       "name": "signed_envelope_minimal_scope",
-      "comment": "Same input as the anonymous_minimal_scope case above, minted as an envelope. Exercises the case where most fields are omitted from the payload entirely (falsy/empty-array omission rules identical to buildGridRequestContextHeaders).",
+      "comment": "Same input as the anonymous_minimal_scope case above, minted as an envelope. Exercises the case where most fields are omitted from the payload entirely (falsy/empty-array omission rules identical to buildGridRequestContextHeaders) -- including bundesland, pinning the envelope-WITHOUT-bundesland case (backlog T3-9 follow-up, 2026-07-16).",
       "secret": "grid-envelope-fixture-secret",
       "input": {
         "collectionScope": ["oib_knowledge"],
@@ -112,6 +112,34 @@
       "envelopeJson": "{\"collectionScope\":[\"oib_knowledge\"],\"memoryReflectionEnabled\":false}",
       "header": "eyJjb2xsZWN0aW9uU2NvcGUiOlsib2liX2tub3dsZWRnZSJdLCJtZW1vcnlSZWZsZWN0aW9uRW5hYmxlZCI6ZmFsc2V9",
       "signature": "7d7b5b164d46cd4cc773c19b60682d4cd897c424794b60f4dfb7944565824783"
+    },
+    {
+      "name": "signed_envelope_with_bundesland",
+      "comment": "Backlog T3-9 follow-up (2026-07-16, user-mandated): jurisdiction rides the envelope as a validated structured field (`bundesland`), a parallel channel alongside the unchanged `bundesland=<token>` line inside `projectContext` (still read by the LLM). `bundesland` is appended as the LAST payload key (fixed key order) so the signed bytes of every pre-existing case above stay byte-identical after this field was added -- ENVELOPE-ONLY: unlike every other field there is no individual `X-Grid-Bundesland` header (see request-context.ts's module docstring / aiq_agent.project_context's module docstring for why).",
+      "secret": "grid-envelope-fixture-secret",
+      "input": {
+        "organizationId": "org_123",
+        "userId": "user_456",
+        "projectId": "proj_789",
+        "collectionScope": ["oib_knowledge", "proj_proj_789", "s_conv_1"],
+        "projectContext": "PROJECT_CONTEXT v1\n\nconfirmed:\n- bundesland=wien",
+        "projectMemory": "- Prefers concise citations\n- Based in Germany",
+        "modelOverrides": {
+          "deep_research": "openrouter/anthropic/claude-3.7-sonnet",
+          "shallow_research": "openrouter/openai/gpt-4o-mini"
+        },
+        "budget": {
+          "remainingOrgUsd": 42.5,
+          "remainingUserUsd": 10,
+          "remainingProjectUsd": 5.25
+        },
+        "disabledSources": ["web_search"],
+        "memoryReflectionEnabled": true,
+        "bundesland": "wien"
+      },
+      "envelopeJson": "{\"organizationId\":\"org_123\",\"userId\":\"user_456\",\"projectId\":\"proj_789\",\"collectionScope\":[\"oib_knowledge\",\"proj_proj_789\",\"s_conv_1\"],\"projectContext\":\"PROJECT_CONTEXT v1\\n\\nconfirmed:\\n- bundesland=wien\",\"projectMemory\":\"- Prefers concise citations\\n- Based in Germany\",\"modelOverrides\":{\"deep_research\":\"openrouter/anthropic/claude-3.7-sonnet\",\"shallow_research\":\"openrouter/openai/gpt-4o-mini\"},\"budget\":{\"remainingOrgUsd\":42.5,\"remainingUserUsd\":10,\"remainingProjectUsd\":5.25},\"disabledSources\":[\"web_search\"],\"memoryReflectionEnabled\":true,\"bundesland\":\"wien\"}",
+      "header": "eyJvcmdhbml6YXRpb25JZCI6Im9yZ18xMjMiLCJ1c2VySWQiOiJ1c2VyXzQ1NiIsInByb2plY3RJZCI6InByb2pfNzg5IiwiY29sbGVjdGlvblNjb3BlIjpbIm9pYl9rbm93bGVkZ2UiLCJwcm9qX3Byb2pfNzg5Iiwic19jb252XzEiXSwicHJvamVjdENvbnRleHQiOiJQUk9KRUNUX0NPTlRFWFQgdjFcblxuY29uZmlybWVkOlxuLSBidW5kZXNsYW5kPXdpZW4iLCJwcm9qZWN0TWVtb3J5IjoiLSBQcmVmZXJzIGNvbmNpc2UgY2l0YXRpb25zXG4tIEJhc2VkIGluIEdlcm1hbnkiLCJtb2RlbE92ZXJyaWRlcyI6eyJkZWVwX3Jlc2VhcmNoIjoib3BlbnJvdXRlci9hbnRocm9waWMvY2xhdWRlLTMuNy1zb25uZXQiLCJzaGFsbG93X3Jlc2VhcmNoIjoib3BlbnJvdXRlci9vcGVuYWkvZ3B0LTRvLW1pbmkifSwiYnVkZ2V0Ijp7InJlbWFpbmluZ09yZ1VzZCI6NDIuNSwicmVtYWluaW5nVXNlclVzZCI6MTAsInJlbWFpbmluZ1Byb2plY3RVc2QiOjUuMjV9LCJkaXNhYmxlZFNvdXJjZXMiOlsid2ViX3NlYXJjaCJdLCJtZW1vcnlSZWZsZWN0aW9uRW5hYmxlZCI6dHJ1ZSwiYnVuZGVzbGFuZCI6IndpZW4ifQ",
+      "signature": "c786ba6104bef5300166b6443e53cd9e5b541eae5cc2c80d5e1c9de80c65374d"
     }
   ]
 }

@@ -21,10 +21,18 @@ vi.mock('@/lib/model-config/service', () => ({
   getActiveModelOverrides: vi.fn(),
 }))
 
+// Structured bundesland fact lookup (backlog T3-9 follow-up, 2026-07-16,
+// user-mandated) — avoids pulling in the real @/lib/db chain; controlled
+// per-test below like getActiveModelOverrides.
+vi.mock('@/lib/project-profile/prompt-view', () => ({
+  loadProjectBundesland: vi.fn().mockResolvedValue(null),
+}))
+
 import { GET, POST } from './route'
 import { requireAuthorizedSession } from '@/lib/auth/require-auth'
 import { getActiveModelOverrides } from '@/lib/model-config/service'
 import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
+import { loadProjectBundesland } from '@/lib/project-profile/prompt-view'
 
 const originalRequireAuth = process.env.REQUIRE_AUTH
 const originalInternalToken = process.env.GRID_INTERNAL_API_TOKEN
@@ -153,6 +161,7 @@ describe('/api/jobs/async/[...path] proxy — POST org model overrides', () => {
     // suites above.
     process.env.REQUIRE_AUTH = 'true'
     vi.mocked(requireAuthorizedSession).mockResolvedValue(session)
+    vi.mocked(loadProjectBundesland).mockResolvedValue(null)
     fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(JSON.stringify({ job_id: 'job-1' }), {
         status: 200,
@@ -246,6 +255,7 @@ describe('/api/jobs/async/[...path] proxy — signed X-Grid-Request-Context enve
       conversationId: undefined,
     } as any)
     vi.mocked(getActiveModelOverrides).mockResolvedValue(null)
+    vi.mocked(loadProjectBundesland).mockResolvedValue(null)
     fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(JSON.stringify({ job_id: 'job-1' }), {
         status: 200,
@@ -319,5 +329,52 @@ describe('/api/jobs/async/[...path] proxy — signed X-Grid-Request-Context enve
     const init = fetchSpy.mock.calls[0][1] as RequestInit
     const headers = init.headers as Record<string, string>
     expect(headers['X-Grid-Request-Context']).toBeDefined()
+  })
+
+  it('carries the resolved bundesland fact structurally on the envelope (backlog T3-9 follow-up, 2026-07-16)', async () => {
+    vi.mocked(loadProjectBundesland).mockResolvedValue('tirol')
+
+    const res = await POST(
+      postRequest('https://grid.example/api/jobs/async/submit', { agent_type: 'deep_research' }),
+      postParams(['submit'])
+    )
+
+    expect(res.status).toBe(200)
+    expect(loadProjectBundesland).toHaveBeenCalledWith('proj-1')
+    const init = fetchSpy.mock.calls[0][1] as RequestInit
+    const headers = init.headers as Record<string, string>
+    const decoded = JSON.parse(Buffer.from(headers['X-Grid-Request-Context'], 'base64url').toString('utf8'))
+    expect(decoded.bundesland).toBe('tirol')
+  })
+
+  it('omits bundesland from the envelope cleanly when the project has no valid fact', async () => {
+    vi.mocked(loadProjectBundesland).mockResolvedValue(null)
+
+    const res = await POST(
+      postRequest('https://grid.example/api/jobs/async/submit', { agent_type: 'deep_research' }),
+      postParams(['submit'])
+    )
+
+    expect(res.status).toBe(200)
+    const init = fetchSpy.mock.calls[0][1] as RequestInit
+    const headers = init.headers as Record<string, string>
+    const decoded = JSON.parse(Buffer.from(headers['X-Grid-Request-Context'], 'base64url').toString('utf8'))
+    expect(decoded.bundesland).toBeUndefined()
+  })
+
+  it('still proxies the submission without bundesland when the lookup throws (best-effort)', async () => {
+    vi.mocked(loadProjectBundesland).mockRejectedValue(new Error('db unavailable'))
+
+    const res = await POST(
+      postRequest('https://grid.example/api/jobs/async/submit', { agent_type: 'deep_research' }),
+      postParams(['submit'])
+    )
+
+    expect(res.status).toBe(200)
+    const init = fetchSpy.mock.calls[0][1] as RequestInit
+    const headers = init.headers as Record<string, string>
+    expect(headers['X-Grid-Request-Context']).toBeDefined()
+    const decoded = JSON.parse(Buffer.from(headers['X-Grid-Request-Context'], 'base64url').toString('utf8'))
+    expect(decoded.bundesland).toBeUndefined()
   })
 })

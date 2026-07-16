@@ -30,6 +30,7 @@ import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
 import { FEATURE_FLAGS, requireFeature } from '@/lib/authz/feature-flags'
 import { isAuthzError } from '@/lib/auth-utils'
 import { getActiveModelOverrides } from '@/lib/model-config/service'
+import { loadProjectBundesland } from '@/lib/project-profile/prompt-view'
 import { buildGridRequestContextWireHeaders, type GridRequestContextInput } from '@/lib/request-context'
 import {
   buildAuthHeaders,
@@ -84,6 +85,21 @@ async function resolveGridContextHeaders(
       }
     } catch (error) {
       console.warn('[Deep Research API] Failed to load model overrides:', error)
+    }
+  }
+
+  if (extra.projectId) {
+    // Structured jurisdiction fact (backlog T3-9 follow-up, 2026-07-16,
+    // user-mandated) — rides the envelope's `bundesland` field. Best-effort:
+    // a lookup failure must not block job submission; the backend falls back
+    // to prompt-text parsing of `project_context` (unaffected either way).
+    try {
+      const bundesland = await loadProjectBundesland(extra.projectId)
+      if (bundesland) {
+        input.bundesland = bundesland
+      }
+    } catch (error) {
+      console.warn('[Deep Research API] Failed to load bundesland fact:', error)
     }
   }
 

@@ -70,7 +70,60 @@ MODEL_OVERRIDES_HEADER = "x-grid-model-overrides"
 BUDGET_HEADER = "x-grid-budget"
 DISABLED_SOURCES_HEADER = "x-grid-disabled-sources"
 
+# `bundesland` (backlog T3-9 follow-up, 2026-07-16, user-mandated): the
+# validated jurisdiction token the intake wizard collects (PR #71) as a
+# structured project-profile fact, carried STRUCTURED on the signed envelope
+# instead of being re-parsed out of the `project_context` prompt text. This
+# is ENVELOPE-ONLY by design — unlike the headers above there never was an
+# individual `X-Grid-Bundesland` header to dual-write (see
+# `frontends/ui/src/lib/request-context.ts`'s module docstring for the TS
+# side of this decision), so `from_context`/`from_headers`'s legacy
+# individual-header fallback path simply has no source for it and leaves it
+# `None` — a pre-envelope caller falls through to
+# `aiq_agent.common.ris_catalog.extract_bundesland`'s existing prompt-text
+# parsing exactly as before this field existed.
+#
+# Vocabulary mirrored (not imported) from `ris_catalog.py`'s
+# `_BUNDESLAND_TOKENS` / the intake wizard's `bundesland` question options
+# (`frontends/ui/src/lib/project-profile/intake-definition.ts`) — same
+# "parse independently, don't import" rationale as the headers above. An
+# unrecognized token is treated as absent (debug-logged, not raised): a
+# forward-incompatible token from a newer frontend must degrade to "no
+# structured signal" rather than break the request.
+_BUNDESLAND_TOKENS = frozenset(
+    {
+        "wien",
+        "niederoesterreich",
+        "oberoesterreich",
+        "steiermark",
+        "kaernten",
+        "salzburg",
+        "tirol",
+        "vorarlberg",
+        "burgenland",
+        "ausserhalb_oesterreichs",
+    }
+)
+
 logger = logging.getLogger(__name__)
+
+
+def _normalize_bundesland(value: Any) -> str | None:
+    """Validate a raw envelope `bundesland` value against the token vocabulary.
+
+    Anything that isn't a known token — wrong type, typo, stale/unknown value
+    from a future frontend — is treated as absent (debug-logged) so a caller
+    always gets either a trustworthy token or `None`, never a raw
+    unvalidated string.
+    """
+    if not isinstance(value, str):
+        return None
+    token = value.strip().lower()
+    if token in _BUNDESLAND_TOKENS:
+        return token
+    if token:
+        logger.debug("GridRequestContext: unknown bundesland token %r — treating as absent", token)
+    return None
 
 
 def normalize_project_context(value: str | None, *, max_chars: int = 4000) -> str | None:
@@ -193,6 +246,7 @@ class GridRequestContext:
     budget: dict[str, Any] | None = None
     disabled_sources: list[str] | None = None
     memory_reflection_enabled: bool = False
+    bundesland: str | None = None
 
     @classmethod
     def from_context(cls) -> "GridRequestContext":
@@ -297,6 +351,7 @@ class GridRequestContext:
             budget=_as_dict(payload.get("budget")),
             disabled_sources=_as_str_list(payload.get("disabledSources")),
             memory_reflection_enabled=bool(payload.get("memoryReflectionEnabled", False)),
+            bundesland=_normalize_bundesland(payload.get("bundesland")),
         )
 
     @classmethod

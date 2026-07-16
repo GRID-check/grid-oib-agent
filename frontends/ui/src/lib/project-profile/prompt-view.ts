@@ -3,6 +3,7 @@ import { getDb } from '@/lib/db'
 import { projects } from '@/lib/db/schema'
 import { getCached, invalidateCached } from '@/lib/cache'
 import { buildProjectBriefView } from './brief-view'
+import { isValidBundeslandToken } from './intake-definition'
 import { ProjectProfileSchema } from './types'
 import type { ProjectPrimitiveValue, ProjectProfile, ProjectProfileDisplay } from './types'
 
@@ -36,6 +37,35 @@ export async function loadProjectPromptView(projectId: string | undefined): Prom
 
 export async function invalidateProjectPromptViewCache(projectId: string): Promise<void> {
   await invalidateCached(`promptview:${projectId}`)
+}
+
+/**
+ * Cached read of the project's validated `bundesland` fact, straight off the
+ * stored structured profile (`projects.profile.facts.bundesland.value`) —
+ * the SAME source `buildProjectPromptView` reads to emit the
+ * `bundesland=<token>` text line `loadProjectPromptView` above serves.
+ *
+ * Backlog T3-9 follow-up (2026-07-16, user-mandated): jurisdiction is a
+ * cross-cutting request fact and must travel STRUCTURED on the
+ * `X-Grid-Request-Context` envelope, not be re-parsed out of that prompt
+ * text — this is the read producers resolve `GridRequestContextInput.bundesland`
+ * from. Returns `null` for no project, no fact, or a value outside the
+ * validated intake vocabulary (a stale/corrupt row must never leak an
+ * unvalidated token onto the wire).
+ */
+export async function loadProjectBundesland(projectId: string | undefined): Promise<string | null> {
+  if (!projectId) return null
+
+  return getCached(`bundesland:${projectId}`, PROMPT_VIEW_CACHE_TTL_MS, async () => {
+    const db = getDb()
+    const [project] = await db
+      .select({ profile: projects.profile })
+      .from(projects)
+      .where(eq(projects.id, projectId))
+      .limit(1)
+    const value = project?.profile?.facts?.bundesland?.value
+    return typeof value === 'string' && isValidBundeslandToken(value) ? value : null
+  })
 }
 
 export function buildProjectPromptView(profile: ProjectProfile): string {

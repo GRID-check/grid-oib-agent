@@ -114,6 +114,38 @@ describe('buildGridRequestContextHeaders — omission rules', () => {
   })
 })
 
+describe('bundesland (backlog T3-9 follow-up, 2026-07-16, user-mandated) — envelope-only', () => {
+  it('buildGridRequestContextHeaders never emits a header for it (no individual X-Grid-Bundesland header)', () => {
+    const headers = buildGridRequestContextHeaders({ bundesland: 'wien' })
+    expect(headers).toEqual({})
+    expect(Object.keys(headers).some((name) => name.toLowerCase().includes('bundesland'))).toBe(false)
+  })
+
+  it('buildGridRequestContextEnvelopePayload includes it when present', () => {
+    expect(buildGridRequestContextEnvelopePayload({ bundesland: 'tirol' })).toEqual({ bundesland: 'tirol' })
+  })
+
+  it('buildGridRequestContextEnvelopePayload omits it for falsy values', () => {
+    expect(buildGridRequestContextEnvelopePayload({ bundesland: null })).toEqual({})
+    expect(buildGridRequestContextEnvelopePayload({ bundesland: undefined })).toEqual({})
+    expect(buildGridRequestContextEnvelopePayload({ bundesland: '' })).toEqual({})
+  })
+
+  it('is appended as the LAST payload key so pre-existing signed cases stay byte-identical', () => {
+    const json = JSON.stringify(
+      buildGridRequestContextEnvelopePayload({ organizationId: 'org_1', memoryReflectionEnabled: true, bundesland: 'wien' }),
+    )
+    expect(json).toBe('{"organizationId":"org_1","memoryReflectionEnabled":true,"bundesland":"wien"}')
+  })
+
+  it('buildGridRequestContextWireHeaders carries it only on the envelope, not the individual headers', () => {
+    const wire = buildGridRequestContextWireHeaders({ organizationId: 'org_1', bundesland: 'wien' }, 'secret')
+    const decoded = JSON.parse(Buffer.from(wire[GRID_HEADER_NAMES.REQUEST_CONTEXT], 'base64url').toString('utf8'))
+    expect(decoded.bundesland).toBe('wien')
+    expect(Object.keys(wire).some((name) => name.toLowerCase().includes('bundesland'))).toBe(false)
+  })
+})
+
 describe('low-level encoders', () => {
   it('encodeGridJsonHeader matches Buffer.from(JSON.stringify(x)).toString("base64url")', () => {
     const value = { a: 1, b: ['x', 'y'] }

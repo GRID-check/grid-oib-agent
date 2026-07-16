@@ -120,14 +120,7 @@ class RisCatalog(BaseModel):
 
 def _normalize(text: str) -> str:
     """Lowercase and expand umlauts so matching tolerates spelling variants."""
-    return (
-        text.strip()
-        .lower()
-        .replace("ä", "ae")
-        .replace("ö", "oe")
-        .replace("ü", "ue")
-        .replace("ß", "ss")
-    )
+    return text.strip().lower().replace("ä", "ae").replace("ö", "oe").replace("ü", "ue").replace("ß", "ss")
 
 
 def _catalog_path(path: str | None) -> Path:
@@ -198,6 +191,12 @@ def match_entries(catalog: RisCatalog, query: str) -> list[CatalogEntry]:
 def extract_bundesland(text: str | None) -> str | None:
     """The Bundesland the text points at, or None.
 
+    Pure text-matching, with no awareness of the structured envelope field —
+    see ``resolve_bundesland`` for the full precedence chain that prefers it.
+    This function is `resolve_bundesland`'s fallback (and is still used
+    directly by ``sources/ris_adapter``'s tool-argument matching, which has
+    no ``project_context`` to resolve structurally):
+
     The structured `bundesland=<token>` fact line (written by the intake wizard
     into the project-context prompt view) is authoritative when present — name
     probing must not override it, or a mention like "Wiener Neustadt" (a Lower
@@ -214,6 +213,38 @@ def extract_bundesland(text: str | None) -> str | None:
         if _normalize(land) in normalized:
             return land
     return None
+
+
+def resolve_bundesland(text: str | None) -> str | None:
+    """The Bundesland to focus/rank the catalog on, structured-first.
+
+    Precedence (backlog T3-9 follow-up, 2026-07-16, user-mandated — jurisdiction
+    is a cross-cutting request fact and must travel STRUCTURED, not be
+    re-parsed from prompt text):
+
+    1. ``GridRequestContext.from_context().bundesland`` — the validated token
+       carried on the signed ``X-Grid-Request-Context`` envelope, resolved
+       once by the intake wizard (PR #71) straight from the project profile.
+       Immune to free-text drift (a mention like "Wiener Neustadt", a Lower
+       Austrian town, can never flip this). ``ausserhalb_oesterreichs`` maps
+       to ``None`` here (the project is explicitly outside Austria, so no
+       state's law should be prioritized) and that ``None`` is FINAL — it
+       does not fall through to text probing.
+    2. ``extract_bundesland(text)`` — the structured ``bundesland=<token>``
+       prompt-text line, then free-text state-name probing. Used whenever
+       there is no structured envelope field (pre-envelope traffic, tests
+       without a live NAT context, or entrypoints — e.g. async job workers —
+       that have no live request context to read).
+    """
+    # Local import: avoids a module-level dependency from this file (imported
+    # by the ris_adapter source package) onto aiq_agent.project_context for
+    # environments that only need the pure text-matching helpers below.
+    from aiq_agent.project_context import GridRequestContext
+
+    structured_token = GridRequestContext.from_context().bundesland
+    if structured_token is not None:
+        return _BUNDESLAND_TOKENS.get(structured_token)
+    return extract_bundesland(text)
 
 
 def focus_entries(entries: list[CatalogEntry], bundesland: str | None) -> list[CatalogEntry]:
@@ -261,8 +292,12 @@ def render_prompt_block(catalog: RisCatalog, bundesland: str | None = None) -> s
 
 
 def render_block_for_prompt(project_context: str | None, path: str | None = None) -> str | None:
-    """Prompt-ready block, Bundesland-aware when detectable; None when the catalog is unavailable."""
+    """Prompt-ready block, Bundesland-aware when detectable; None when the catalog is unavailable.
+
+    Bundesland resolution prefers the structured envelope field over prompt
+    text — see ``resolve_bundesland``.
+    """
     catalog = load_catalog(path)
     if catalog is None or not catalog.entries:
         return None
-    return render_prompt_block(catalog, bundesland=extract_bundesland(project_context))
+    return render_prompt_block(catalog, bundesland=resolve_bundesland(project_context))

@@ -1,10 +1,15 @@
 """Tests for the curated RIS catalog (aiq_agent.common.ris_catalog)."""
 
+import base64
+import hashlib
+import hmac
+import json
 from pathlib import Path
 
 import pytest
 import yaml
 
+from aiq_agent import project_context as pc
 from aiq_agent.common.ris_catalog import KNOWN_APPLICATIONS
 from aiq_agent.common.ris_catalog import CatalogEntry
 from aiq_agent.common.ris_catalog import RisCatalog
@@ -16,6 +21,7 @@ from aiq_agent.common.ris_catalog import match_entries
 from aiq_agent.common.ris_catalog import render_block_for_prompt
 from aiq_agent.common.ris_catalog import render_prompt_block
 from aiq_agent.common.ris_catalog import reset_catalog_cache
+from aiq_agent.common.ris_catalog import resolve_bundesland
 
 
 def _entry(**overrides) -> dict:
@@ -172,6 +178,59 @@ class TestExtractBundesland:
         assert extract_bundesland("Projekt Salzburg\n- bundesland=atlantis") is None
 
 
+class TestResolveBundesland:
+    """`resolve_bundesland` (backlog T3-9 follow-up, 2026-07-16, user-mandated):
+    structured envelope field first, then `extract_bundesland`'s existing
+    prompt-text fallbacks (structured line, then free-text probing).
+    """
+
+    SECRET = "resolve-bundesland-test-secret"  # noqa: S105 - test fixture value, not a real credential
+
+    def _mock_envelope(self, monkeypatch, bundesland: str, *, secret: str | None = SECRET) -> None:
+        raw = json.dumps({"bundesland": bundesland})
+        header = base64.urlsafe_b64encode(raw.encode("utf-8")).decode("ascii").rstrip("=")
+        sig = hmac.new(self.SECRET.encode("utf-8"), raw.encode("utf-8"), hashlib.sha256).hexdigest()
+        headers = {
+            pc.REQUEST_CONTEXT_ENVELOPE_HEADER: header,
+            pc.REQUEST_CONTEXT_ENVELOPE_SIG_HEADER: sig,
+        }
+        monkeypatch.setattr(pc, "_read_header", lambda name: headers.get(name))
+        if secret is not None:
+            monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", secret)
+        else:
+            monkeypatch.delenv("GRID_INTERNAL_API_TOKEN", raising=False)
+
+    def test_no_context_falls_back_to_text(self, monkeypatch):
+        monkeypatch.setattr(pc, "_read_header", lambda name: None)
+        assert resolve_bundesland("Projektstandort: Wien, Österreich") == "Wien"
+
+    def test_envelope_beats_conflicting_prompt_text_token(self, monkeypatch):
+        # The structured envelope field says Tirol; the prompt-text token
+        # line (and a free-text mention) says Wien. The envelope must win.
+        self._mock_envelope(monkeypatch, "tirol")
+        text = "Projekt: Halle Wien\n\nconfirmed:\n- bundesland=wien"
+
+        assert resolve_bundesland(text) == "Tirol"
+
+    def test_envelope_ausserhalb_oesterreichs_disables_prioritization(self, monkeypatch):
+        # Even though the prompt text names a state, the structured
+        # "explicitly outside Austria" signal is final -- no fallback probing.
+        self._mock_envelope(monkeypatch, "ausserhalb_oesterreichs")
+        text = "Projekt bei Salzburg, Bayern\n\nconfirmed:\n- bundesland=salzburg"
+
+        assert resolve_bundesland(text) is None
+
+    def test_no_envelope_falls_back_to_structured_text_line(self, monkeypatch):
+        monkeypatch.setattr(pc, "_read_header", lambda name: None)
+        text = "Projekt: Halle Wiener Neustadt\n\nconfirmed:\n- bundesland=niederoesterreich"
+
+        assert resolve_bundesland(text) == "Niederösterreich"
+
+    def test_invalid_envelope_signature_falls_back_to_text(self, monkeypatch):
+        self._mock_envelope(monkeypatch, "tirol", secret="a-different-secret")
+        assert resolve_bundesland("Projekt in Wien") == "Wien"
+
+
 class TestFocusEntries:
     def _entries(self) -> list[CatalogEntry]:
         return [
@@ -195,10 +254,16 @@ class TestRenderPromptBlock:
     def _catalog(self) -> RisCatalog:
         return RisCatalog(
             entries=[
-                CatalogEntry(**_entry(id="aschg", title="ArbeitnehmerInnenschutzgesetz", short="ASchG",
-                                      application="BrKons", bundesland="")),
-                CatalogEntry(**_entry(id="bo-tirol", title="Tiroler Bauordnung", short="BO Tirol",
-                                      bundesland="Tirol")),
+                CatalogEntry(
+                    **_entry(
+                        id="aschg",
+                        title="ArbeitnehmerInnenschutzgesetz",
+                        short="ASchG",
+                        application="BrKons",
+                        bundesland="",
+                    )
+                ),
+                CatalogEntry(**_entry(id="bo-tirol", title="Tiroler Bauordnung", short="BO Tirol", bundesland="Tirol")),
                 CatalogEntry(**_entry(id="bo-wien")),
             ]
         )
@@ -241,6 +306,37 @@ class TestRenderBlockForPrompt:
 
         assert block is not None
         assert block.index("BO Wien") < block.index("BO Tirol")
+
+    def test_bundesland_comes_from_structured_context_over_conflicting_text(self, tmp_path, monkeypatch):
+        # The prompt text names Wien; the structured envelope field (backlog
+        # T3-9 follow-up, 2026-07-16, user-mandated) says Tirol and must win,
+        # focusing/ranking the curated index on Tirol instead.
+        raw = json.dumps({"bundesland": "tirol"})
+        header = base64.urlsafe_b64encode(raw.encode("utf-8")).decode("ascii").rstrip("=")
+        sig = hmac.new(b"shipping-secret", raw.encode("utf-8"), hashlib.sha256).hexdigest()
+        headers = {
+            pc.REQUEST_CONTEXT_ENVELOPE_HEADER: header,
+            pc.REQUEST_CONTEXT_ENVELOPE_SIG_HEADER: sig,
+        }
+        monkeypatch.setattr(pc, "_read_header", lambda name: headers.get(name))
+        monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "shipping-secret")
+
+        path = _write_catalog(
+            tmp_path,
+            [
+                _entry(id="bo-tirol", title="Tiroler Bauordnung", short="BO Tirol", bundesland="Tirol"),
+                _entry(id="bo-wien"),
+            ],
+        )
+
+        block = render_block_for_prompt("Standort: Wien", path=path)
+
+        # render_block_for_prompt sorts (federal, then the resolved state,
+        # then the rest) rather than dropping entries -- Tirol (the
+        # structured Bundesland) must sort ahead of Wien (the conflicting
+        # text mention), the reverse of the plain-text-only ordering.
+        assert block is not None
+        assert block.index("BO Tirol") < block.index("BO Wien")
 
 
 SHIPPED_CATALOG = Path(__file__).resolve().parents[3] / "configs" / "ris_catalog.yml"
