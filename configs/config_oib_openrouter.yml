@@ -38,8 +38,10 @@ llms:
   # three under the hood (minimal/low/medium/high all resolve to "high";
   # xhigh/max resolve to "max"). We set values to their *actual* resolved tier
   # directly so the config isn't misleading. Policy: none for pure routing/
-  # trivial one-liners, high for the medium-effort tier, max for roles that
-  # need real multi-step reasoning depth. To retune a role, change its
+  # trivial one-liners, high (the "medium/standard" tier) for everything else.
+  # "max" is deliberately not used anywhere: it multiplied hidden reasoning
+  # tokens across hundreds of agent turns per deep-research run for no
+  # measurable quality gain (observed 20+ min runs stuck in planning). To retune a role, change its
   # `reasoning_effort` below — each role has its own LLM definition so they
   # are independently settable. All roles share one OpenAI-compatible
   # endpoint; swap model_name/base_url/api_key to change provider (the system
@@ -86,7 +88,7 @@ llms:
     top_p: 0.95
     max_tokens: 65536
     max_retries: 5
-    reasoning_effort: max
+    reasoning_effort: high
 
   # Deep Researcher — Orchestrator (also the report writer): top-level control.
   deep_orchestrator_llm:
@@ -98,7 +100,7 @@ llms:
     top_p: 0.95
     max_tokens: 128000
     max_retries: 10
-    reasoning_effort: max
+    reasoning_effort: high
 
   # Deep Researcher — Planning sub-agents.
   deep_planner_llm:
@@ -110,7 +112,7 @@ llms:
     top_p: 0.95
     max_tokens: 128000
     max_retries: 10
-    reasoning_effort: max
+    reasoning_effort: high
 
   # Deep Researcher — Researcher sub-agents (parallel investigations).
   deep_researcher_llm:
@@ -122,7 +124,7 @@ llms:
     top_p: 0.95
     max_tokens: 65536
     max_retries: 5
-    reasoning_effort: max
+    reasoning_effort: high
 
   # Deep Researcher — source routing (which source to query). Lighter decision.
   deep_router_llm:
