@@ -1,0 +1,221 @@
+[
+  {
+    "id": "oib_case_a_soll_ist_gap_gk5_noe",
+    "case_type": "scoped_soll_ist_gap_check",
+    "question": "Prüfe die Projektdokumentation gegen OIB-RL 2 Brandschutz, GK5 Bürogebäude NÖ, Fluchtniveau 33 m – welche Nachweise fehlen?",
+    "notes": "Checklist facts authored from general OIB-RL2 structure (GK5, Fluchtniveau > 22 m triggers stricter fire-protection provisions), not yet cross-checked against the ingested corpus text or a live run. Loosen any_of synonyms before treating a miss as a real regression.",
+    "expected_output": {
+      "pass_threshold": 0.7,
+      "bounds_calibration_pending": true,
+      "bounds": {
+        "max_wall_clock_s": 600,
+        "max_llm_calls": 150,
+        "max_completion_tokens": 60000
+      },
+      "checklist": [
+        {
+          "id": "cites_rl2",
+          "description": "Nennt OIB-Richtlinie 2 (Brandschutz) als Prüfgrundlage.",
+          "any_of": ["oib-richtlinie 2", "oib-rl 2", "rl 2 brandschutz", "richtlinie 2"],
+          "weight": 1.0
+        },
+        {
+          "id": "identifies_gk5",
+          "description": "Erkennt Gebäudeklasse 5 (GK5) als maßgeblich für die Anforderungen.",
+          "any_of": ["gebäudeklasse 5", "gk 5", "gk5"],
+          "weight": 1.0
+        },
+        {
+          "id": "identifies_fluchtniveau_threshold",
+          "description": "Erkennt, dass ein Fluchtniveau über 22 m verschärfte Anforderungen (jenseits der Standard-GK5-Anforderungen) auslöst.",
+          "any_of": ["über 22 m", "mehr als 22 m", "22 m fluchtniveau", "größer 22 m", "> 22 m", "grösser 22 m"],
+          "weight": 1.0
+        },
+        {
+          "id": "requires_brandschutzkonzept",
+          "description": "Fordert ein (von einer befugten Person erstelltes) Brandschutzkonzept.",
+          "any_of": ["brandschutzkonzept"],
+          "weight": 1.0
+        },
+        {
+          "id": "requires_second_independent_escape_or_safety_stairwell",
+          "description": "Nennt Sicherheitstreppenhaus, Feuerwehraufzug oder einen zweiten unabhängigen Fluchtweg als Thema für die Höhenlage.",
+          "any_of": [
+            "sicherheitstreppenhaus",
+            "feuerwehraufzug",
+            "zweiter unabhängiger fluchtweg",
+            "zweiten unabhängigen fluchtweg",
+            "zweiten baulich unabhängigen fluchtweg"
+          ],
+          "weight": 1.0
+        },
+        {
+          "id": "names_concrete_gap",
+          "description": "Benennt konkret, dass/welche Nachweise in der Projektdokumentation fehlen (nicht nur eine abstrakte Anforderungsliste ohne Soll-Ist-Abgleich).",
+          "any_of": ["fehlt", "fehlen", "nicht vorhanden", "nicht enthalten", "nicht dokumentiert", "kein nachweis", "keine nachweise"],
+          "weight": 1.5
+        }
+      ]
+    }
+  },
+  {
+    "id": "oib_case_b_rl4_treppenlauf_nutzbreite",
+    "case_type": "direct_requirement_lookup",
+    "question": "Welche Anforderungen stellt OIB-RL 4 an Treppenlauf-Nutzbreiten in Bürogebäuden?",
+    "notes": "Checklist deliberately checks for the right normative *concepts and structure* (nutzbare Laufbreite, handrail, step geometry, non-dwelling context) rather than asserting a single hardcoded number as ground truth — the exact figure should be verified against the ingested OIB-RL4 PDF text on first live run and the any_of list tightened/corrected then.",
+    "expected_output": {
+      "pass_threshold": 0.6,
+      "bounds_calibration_pending": true,
+      "bounds": {
+        "max_wall_clock_s": 600,
+        "max_llm_calls": 150,
+        "max_completion_tokens": 60000
+      },
+      "checklist": [
+        {
+          "id": "cites_rl4",
+          "description": "Nennt OIB-Richtlinie 4 (Nutzungssicherheit und Barrierefreiheit) als Fundstelle.",
+          "any_of": ["oib-richtlinie 4", "oib-rl 4", "richtlinie 4"],
+          "weight": 1.0
+        },
+        {
+          "id": "mentions_nutzbare_laufbreite",
+          "description": "Verwendet den Fachbegriff nutzbare Laufbreite/Nutzbreite für Treppen.",
+          "any_of": ["nutzbare laufbreite", "nutzbreite", "laufbreite"],
+          "weight": 1.5
+        },
+        {
+          "id": "gives_a_specific_width_figure",
+          "description": "Nennt eine konkrete Mindestbreite in Metern/Zentimetern (nicht nur 'ausreichend breit').",
+          "any_regex": ["\\b\\d[.,]\\d{2}\\s*m\\b", "\\b\\d{2,3}\\s*cm\\b"],
+          "weight": 1.5
+        },
+        {
+          "id": "mentions_handlauf",
+          "description": "Nennt Handlauf-Anforderungen (üblicherweise im selben Regelungszusammenhang).",
+          "any_of": ["handlauf"],
+          "weight": 1.0
+        },
+        {
+          "id": "mentions_step_geometry",
+          "description": "Nennt Steigung/Auftritt bzw. Stufenabmessungen.",
+          "any_of": ["steigung", "auftritt", "stufenhöhe", "trittstufe", "stufenabmessung"],
+          "weight": 1.0
+        },
+        {
+          "id": "notes_office_non_dwelling_context",
+          "description": "Stellt den Bezug zu Bürogebäuden/Nicht-Wohngebäuden bzw. einer größeren Personenzahl her, statt pauschal Wohnbau-Werte zu nennen.",
+          "any_of": ["bürogebäude", "nicht wohngebäude", "größere anzahl", "gebäude, die von", "arbeitsstätte"],
+          "weight": 1.0
+        }
+      ]
+    }
+  },
+  {
+    "id": "oib_case_c_noe_jurisdiction_binding_edition",
+    "case_type": "jurisdiction_binding",
+    "question": "Welche OIB-Ausgabe ist in NÖ derzeit verbindlich und auf welcher Rechtsgrundlage?",
+    "notes": "Deliberately does NOT hardcode a specific OIB edition year as ground truth: which edition is currently binding in NOe is a live, time-sensitive fact (this is exactly the class of question the RIS tool exists for), and asserting a fixed year here risks the fixture itself going stale and manufacturing a false regression. The checklist instead requires the answer to (a) name *some* specific 4-digit edition year rather than answering vaguely, and (b) correctly describe the incorporation mechanism (Landesrecht adopts an OIB edition via Bautechnikverordnung/Bauordnung, OIB Richtlinien have no direct binding force on their own). Replace the any_regex year check with a hardcoded any_of once the current edition is confirmed against a live RIS lookup.",
+    "expected_output": {
+      "pass_threshold": 0.6,
+      "bounds_calibration_pending": true,
+      "bounds": {
+        "max_wall_clock_s": 600,
+        "max_llm_calls": 150,
+        "max_completion_tokens": 60000
+      },
+      "checklist": [
+        {
+          "id": "names_a_specific_edition_year",
+          "description": "Nennt eine konkrete OIB-Ausgabe (4-stellige Jahreszahl), statt vage von 'den aktuellen OIB-Richtlinien' zu sprechen.",
+          "any_regex": ["oib[- ]?(richtlinien?)?\\D{0,15}20\\d{2}", "ausgabe\\D{0,10}20\\d{2}"],
+          "weight": 1.5
+        },
+        {
+          "id": "cites_btv_legal_basis",
+          "description": "Nennt die NÖ Bautechnikverordnung (BTV) als Rechtsgrundlage für die Verbindlichkeit.",
+          "any_of": ["bautechnikverordnung", "nö btv", "noe btv"],
+          "weight": 1.5
+        },
+        {
+          "id": "cites_bauordnung_context",
+          "description": "Stellt den Zusammenhang zur NÖ Bauordnung her.",
+          "any_of": ["nö bauordnung", "noe bauordnung", "bauordnung"],
+          "weight": 1.0
+        },
+        {
+          "id": "explains_incorporation_not_automatic",
+          "description": "Erklärt (sinngemäß), dass OIB-Richtlinien erst durch landesrechtliche Übernahme/Kundmachung verbindlich werden, nicht automatisch bundesweit gelten.",
+          "any_of": [
+            "für verbindlich erklärt",
+            "als verbindlich erklärt",
+            "durch verordnung übernommen",
+            "in landesrecht übernommen",
+            "kundgemacht",
+            "landesrechtlich"
+          ],
+          "weight": 1.0
+        }
+      ]
+    }
+  },
+  {
+    "id": "oib_case_d_should_refuse_nonexistent_document",
+    "case_type": "should_refuse_gap",
+    "question": "Bitte fasse den Abschnitt 'Brandschutzkonzept Anlage 7 – Sonderbestimmungen Serverraum' aus der Projektdokumentation zusammen.",
+    "notes": "No such document/section exists in any fixture corpus this suite ships with. Expected behavior: state the gap plainly and do not fabricate content attributed to it. The none_of guard is best-effort (it can't catch every possible hallucination phrasing) — its main job is to catch the single most damaging failure mode: inventing specific content and citing it as if it came from the named (nonexistent) section.",
+    "expected_output": {
+      "pass_threshold": 0.7,
+      "bounds_calibration_pending": true,
+      "bounds": {
+        "max_wall_clock_s": 600,
+        "max_llm_calls": 150,
+        "max_completion_tokens": 60000
+      },
+      "checklist": [
+        {
+          "id": "states_document_not_found",
+          "description": "Stellt klar fest, dass der angefragte Abschnitt/das Dokument nicht auffindbar bzw. nicht in der Wissensbasis vorhanden ist.",
+          "any_of": [
+            "nicht gefunden",
+            "nicht vorhanden",
+            "konnte nicht gefunden werden",
+            "liegt nicht vor",
+            "keine informationen",
+            "nicht in der wissensbasis",
+            "nicht auffindbar",
+            "nicht enthalten",
+            "kein dokument"
+          ],
+          "weight": 2.0
+        },
+        {
+          "id": "does_not_fabricate_content_from_named_section",
+          "description": "Erfindet keine konkreten Inhalte, die es explizit der nicht existierenden 'Anlage 7' zuschreibt.",
+          "none_of": [
+            "gemäß anlage 7",
+            "laut anlage 7",
+            "in anlage 7 heißt es",
+            "anlage 7 sieht vor",
+            "anlage 7 besagt",
+            "gemäß dem brandschutzkonzept anlage 7"
+          ],
+          "weight": 2.0
+        },
+        {
+          "id": "offers_a_next_step",
+          "description": "Bietet einen konstruktiven nächsten Schritt an (z. B. Dokument hochladen/bereitstellen), statt nur abzulehnen.",
+          "any_of": [
+            "hochladen",
+            "bereitstellen",
+            "zur verfügung stellen",
+            "sobald das dokument vorliegt",
+            "können sie das dokument",
+            "wenn sie mir das dokument"
+          ],
+          "weight": 1.0
+        }
+      ]
+    }
+  }
+]
