@@ -376,6 +376,7 @@ class TestShallowResearcherAgent:
             current_datetime="2026-07-15",
             available_documents=[],
             project_context=None,
+            ris_catalog=None,
             requires_sources=requires_sources,
         )
 

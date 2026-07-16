@@ -26,6 +26,7 @@ from aiq_agent.common import LLMProvider
 from aiq_agent.common import LLMRole
 from aiq_agent.common import render_prompt_template
 from aiq_agent.common import strict_response_format
+from aiq_agent.common.ris_catalog import render_block_for_prompt
 
 from .custom_middleware import EmptyContentFixMiddleware
 from .custom_middleware import SelectiveToolRetryMiddleware
@@ -117,6 +118,11 @@ class DeepResearchGraphContext:
     def project_context(self) -> str | None:
         return self.state.project_context
 
+    @property
+    def ris_catalog(self) -> str | None:
+        """Curated RIS index block for prompts; None when the catalog is unavailable."""
+        return render_block_for_prompt(self.project_context)
+
     def render_prompt(self, prompt_name: str, **values: Any) -> str:
         return render_prompt_template(
             self.prompts[prompt_name],
@@ -124,6 +130,7 @@ class DeepResearchGraphContext:
             user_info=self.state.user_info,
             available_documents=self.available_documents,
             project_context=self.project_context,
+            ris_catalog=self.ris_catalog,
             **values,
         )
 

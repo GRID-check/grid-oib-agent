@@ -108,6 +108,12 @@ The following documents are available via knowledge_search:
 {% endfor %}
 {% endif %}
 
+{% if ris_catalog %}
+## Curated RIS index (verified building-law norms)
+
+{{ ris_catalog }}
+{% endif %}
+
 {% if project_context %}
 ## Project Context
 <project_context>

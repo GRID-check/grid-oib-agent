@@ -61,6 +61,34 @@ describe('buildIntakeProfile', () => {
     expect(profile.unknowns).not.toContain('anzahl_betten')
   })
 
+  it('captures the Bundesland as a confirmed fact (jurisdiction is a hard fact)', () => {
+    const profile = buildIntakeProfile({ bundesland: 'tirol' }, definition)
+
+    expect(profile.facts.bundesland?.value).toBe('tirol')
+    expect(profile.facts.bundesland?.confidence).toBe('confirmed')
+    expect(profile.unknowns).not.toContain('bundesland')
+    // standort_details applies only outside Austria -> not an unknown here.
+    expect(profile.unknowns).not.toContain('standort_details')
+  })
+
+  it('records the missing Bundesland as an unknown', () => {
+    const profile = buildIntakeProfile({ hauptnutzung: 'wohnen' }, definition)
+
+    expect(profile.unknowns).toContain('bundesland')
+  })
+
+  it('asks for a free-text location only outside Austria', () => {
+    const profile = buildIntakeProfile({ bundesland: 'ausserhalb_oesterreichs' }, definition)
+
+    expect(profile.unknowns).toContain('standort_details')
+
+    const withDetails = buildIntakeProfile(
+      { bundesland: 'ausserhalb_oesterreichs', standort_details: 'Bayern, Deutschland' },
+      definition,
+    )
+    expect(withDetails.facts.standort_details?.value).toBe('Bayern, Deutschland')
+  })
+
   it('does not treat conditionally-hidden questions as unknown', () => {
     const answers: Record<string, ProjectPrimitiveValue> = {
       hauptnutzung: 'buero',
@@ -134,6 +162,12 @@ describe('validateProfilePatchVocabulary', () => {
 
   it('rejects a single-select value outside the options', () => {
     expect(() => validate('add', '/facts/gebaeudeklasse', 'GK9')).toThrow(/Building class/)
+  })
+
+  it('rejects a Bundesland outside the vocabulary', () => {
+    expect(() => validate('add', '/facts/bundesland', 'bayern')).toThrow(/located/)
+    expect(() => validate('add', '/facts/bundesland', 'wien')).not.toThrow()
+    expect(() => validate('add', '/facts/bundesland', 'ausserhalb_oesterreichs')).not.toThrow()
   })
 
   it('rejects a non-boolean for a boolean fact', () => {
