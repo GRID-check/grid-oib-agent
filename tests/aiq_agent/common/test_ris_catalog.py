@@ -10,6 +10,7 @@ from aiq_agent.common.ris_catalog import CatalogEntry
 from aiq_agent.common.ris_catalog import RisCatalog
 from aiq_agent.common.ris_catalog import _normalize
 from aiq_agent.common.ris_catalog import extract_bundesland
+from aiq_agent.common.ris_catalog import focus_entries
 from aiq_agent.common.ris_catalog import load_catalog
 from aiq_agent.common.ris_catalog import match_entries
 from aiq_agent.common.ris_catalog import render_block_for_prompt
@@ -154,6 +155,41 @@ class TestExtractBundesland:
     def test_no_state_present(self):
         assert extract_bundesland("Bürogebäude, 5 Geschoße") is None
 
+    def test_structured_fact_token_beats_name_probing(self):
+        # "Wiener Neustadt" is a Lower Austrian town: name probing alone would
+        # flip the jurisdiction to Wien. The intake wizard's structured fact
+        # line (prompt view) is authoritative.
+        context = "Projekt: Halle Wiener Neustadt\n\nconfirmed:\n- bundesland=niederoesterreich"
+        assert extract_bundesland(context) == "Niederösterreich"
+
+    def test_structured_token_outside_austria_yields_none(self):
+        # Explicitly outside Austria: no state's law may be prioritized even
+        # when Austrian state names appear in the free text around the token.
+        context = "confirmed:\n- bundesland=ausserhalb_oesterreichs\n- standort_details=bei Salzburg, Bayern"
+        assert extract_bundesland(context) is None
+
+    def test_structured_token_unknown_value_yields_none(self):
+        assert extract_bundesland("Projekt Salzburg\n- bundesland=atlantis") is None
+
+
+class TestFocusEntries:
+    def _entries(self) -> list[CatalogEntry]:
+        return [
+            CatalogEntry(**_entry(id="bo-wien", bundesland="Wien")),
+            CatalogEntry(**_entry(id="bo-tirol", short="BO Tirol", bundesland="Tirol")),
+            CatalogEntry(**_entry(id="aschg", short="ASchG", application="BrKons", bundesland="")),
+        ]
+
+    def test_drops_other_states_and_puts_own_state_first(self):
+        focused = focus_entries(self._entries(), "Tirol")
+
+        assert [entry.id for entry in focused] == ["bo-tirol", "aschg"]
+
+    def test_without_bundesland_keeps_everything_in_match_order(self):
+        entries = self._entries()
+
+        assert focus_entries(entries, None) == entries
+
 
 class TestRenderPromptBlock:
     def _catalog(self) -> RisCatalog:
@@ -177,14 +213,15 @@ class TestRenderPromptBlock:
         assert "Gesamt: https://www.ris.bka.gv.at/GeltendeFassung.wxe" in block
 
     def test_federal_first_then_project_state_then_rest(self):
+        # The block renders the entries' SHORT names, so assert on those.
         block = render_prompt_block(self._catalog(), bundesland="Wien")
 
-        assert block.index("ASchG") < block.index("bo-wien") < block.index("bo-tirol")
+        assert block.index("ASchG") < block.index("BO Wien") < block.index("BO Tirol")
 
     def test_without_bundesland_states_sort_alphabetically(self):
         block = render_prompt_block(self._catalog())
 
-        assert block.index("ASchG") < block.index("bo-tirol") < block.index("bo-wien")
+        assert block.index("ASchG") < block.index("BO Tirol") < block.index("BO Wien")
 
 
 class TestRenderBlockForPrompt:
@@ -203,7 +240,7 @@ class TestRenderBlockForPrompt:
         block = render_block_for_prompt("Standort: Wien", path=path)
 
         assert block is not None
-        assert block.index("bo-wien") < block.index("bo-tirol")
+        assert block.index("BO Wien") < block.index("BO Tirol")
 
 
 SHIPPED_CATALOG = Path(__file__).resolve().parents[3] / "configs" / "ris_catalog.yml"

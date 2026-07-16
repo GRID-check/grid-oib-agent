@@ -44,12 +44,16 @@ from nat.data_models.function import FunctionBaseConfig
 
 try:
     from aiq_agent.common.ris_catalog import CatalogEntry
+    from aiq_agent.common.ris_catalog import extract_bundesland
+    from aiq_agent.common.ris_catalog import focus_entries
     from aiq_agent.common.ris_catalog import load_catalog
     from aiq_agent.common.ris_catalog import match_entries
 
     _CATALOG_AVAILABLE = True
 except ImportError:  # adapter used standalone, without the Grid agent package
     CatalogEntry = None  # type: ignore[assignment]
+    extract_bundesland = None  # type: ignore[assignment]
+    focus_entries = None  # type: ignore[assignment]
     load_catalog = None  # type: ignore[assignment]
     match_entries = None  # type: ignore[assignment]
     _CATALOG_AVAILABLE = False
@@ -421,7 +425,18 @@ async def ris_search(tool_config: RisSearchToolConfig, builder: Builder):
             catalog = load_catalog(tool_config.catalog_path or None)
             if catalog is not None:
                 matches = match_entries(catalog, query)
-                if matches and (application == "BrKons" or any(m.application == application for m in matches)):
+                # An explicitly non-default application narrows the pointers to
+                # that application ("BrKons" is the signature default, so it is
+                # indistinguishable from "not specified" and filters nothing).
+                if application != "BrKons":
+                    matches = [m for m in matches if m.application == application]
+                # Jurisdiction: the explicit bundesland argument wins, else the
+                # state named in the query. Other states' law is dropped and the
+                # project's own state sorts first — never hand a Tyrolean
+                # project the Viennese Bauordnung.
+                detected_land = extract_bundesland(bundesland) or extract_bundesland(query)
+                matches = focus_entries(matches, detected_land)
+                if matches:
                     shown = matches[: tool_config.max_results]
                     lines = [
                         f"Curated RIS catalog match(es) for '{query}' - verified pointers, no live search performed:",
@@ -570,8 +585,10 @@ async def ris_catalog_lookup(tool_config: RisCatalogLookupToolConfig, builder: B
           draft bills, gazettes, or anything beyond it, use ris_search (live RIS search).
 
         Args:
-            topic (str): German building-law topic, e.g. "Bauordnung Wien",
-                "Bauantrag", "ArbeitnehmerInnenschutz".
+            topic (str): German building-law topic. ALWAYS name the Bundesland for
+                state-law topics (e.g. "Bauordnung Tirol", "Stellplatz Wien") — the
+                nine state building codes differ, and the lookup returns the named
+                state's law (plus federal law) instead of all nine.
 
         Returns:
             str: Verified pointer blocks (application, document number, citation URL,
@@ -585,7 +602,12 @@ async def ris_catalog_lookup(tool_config: RisCatalogLookupToolConfig, builder: B
                 "Error: RIS catalog unavailable (file missing or invalid) - "
                 "use ris_search (live RIS search) instead."
             )
-        matches = match_entries(catalog, topic)[: tool_config.max_matches]
+        # Jurisdiction filter BEFORE truncation: for "Bauordnung Tirol" the nine
+        # state codes all match the generic "bauordnung" topic, and without the
+        # filter the catalog-order head (Wien, NÖ, ...) would crowd Tirol out of
+        # max_matches entirely.
+        matches = focus_entries(match_entries(catalog, topic), extract_bundesland(topic))
+        matches = matches[: tool_config.max_matches]
         if not matches:
             return (
                 f"No curated RIS catalog entry matches '{topic}'. The catalog covers only the core "

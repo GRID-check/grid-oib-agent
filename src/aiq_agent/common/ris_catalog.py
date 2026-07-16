@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from functools import lru_cache
 from pathlib import Path
 
@@ -70,6 +71,27 @@ _BUNDESLAENDER = (
     "Vorarlberg",
     "Burgenland",
 )
+
+# Structured `bundesland` fact tokens (intake wizard vocabulary, see
+# frontends/ui/src/lib/project-profile/intake-definition.ts) -> canonical names.
+# `ausserhalb_oesterreichs` maps to None on purpose: the project is explicitly
+# outside Austria, so no state's law should be prioritized.
+_BUNDESLAND_TOKENS: dict[str, str | None] = {
+    "wien": "Wien",
+    "niederoesterreich": "Niederösterreich",
+    "oberoesterreich": "Oberösterreich",
+    "steiermark": "Steiermark",
+    "kaernten": "Kärnten",
+    "salzburg": "Salzburg",
+    "tirol": "Tirol",
+    "vorarlberg": "Vorarlberg",
+    "burgenland": "Burgenland",
+    "ausserhalb_oesterreichs": None,
+}
+
+# `- bundesland=wien` line from the structured project-context prompt view
+# (confirmed fact or backfilled assumption — both use the same line format).
+_STRUCTURED_BUNDESLAND_RE = re.compile(r"\bbundesland=([a-z_]+)")
 
 # Terms shorter than this never match (guards against noise words).
 _MIN_TOPIC_LENGTH = 4
@@ -173,15 +195,39 @@ def match_entries(catalog: RisCatalog, query: str) -> list[CatalogEntry]:
     return matches
 
 
-def extract_bundesland(project_context: str | None) -> str | None:
-    """First canonical Bundesland name found in the project-context text, if any."""
-    if not project_context:
+def extract_bundesland(text: str | None) -> str | None:
+    """The Bundesland the text points at, or None.
+
+    The structured `bundesland=<token>` fact line (written by the intake wizard
+    into the project-context prompt view) is authoritative when present — name
+    probing must not override it, or a mention like "Wiener Neustadt" (a Lower
+    Austrian town) would flip the jurisdiction to Wien. Free text without the
+    token falls back to probing for state names (spelling variants tolerated).
+    """
+    if not text:
         return None
-    normalized = _normalize(project_context)
+    normalized = _normalize(text)
+    structured = _STRUCTURED_BUNDESLAND_RE.search(normalized)
+    if structured:
+        return _BUNDESLAND_TOKENS.get(structured.group(1))
     for land in _BUNDESLAENDER:
         if _normalize(land) in normalized:
             return land
     return None
+
+
+def focus_entries(entries: list[CatalogEntry], bundesland: str | None) -> list[CatalogEntry]:
+    """Restrict matches to the known Bundesland and put that state's law first.
+
+    State-law entries of OTHER states are dropped — a Tyrolean project must
+    never be handed the Viennese Bauordnung. Federal/stateless entries always
+    stay. With no known Bundesland this is a no-op (the caller keeps every
+    match rather than guessing).
+    """
+    if not bundesland:
+        return entries
+    kept = [entry for entry in entries if not entry.bundesland or entry.bundesland == bundesland]
+    return sorted(kept, key=lambda entry: 0 if entry.bundesland == bundesland else 1)
 
 
 def _sort_entries(entries: list[CatalogEntry], bundesland: str | None) -> list[CatalogEntry]:
