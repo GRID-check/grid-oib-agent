@@ -165,6 +165,20 @@ llms:
     request_timeout: 120
     reasoning_effort: medium
 
+  # Compliance pipeline — Stage 1 requirement derivation + Stage 2 evidence
+  # judging (structured outputs; ~10-16 calls per full 6-Richtlinien check).
+  compliance_llm:
+    _type: openai
+    model_name: deepseek/deepseek-v4-flash
+    base_url: "https://openrouter.ai/api/v1"
+    api_key: ${OPENROUTER_API_KEY}
+    temperature: 1.0
+    top_p: 0.95
+    max_tokens: 65536
+    max_retries: 2
+    request_timeout: 120
+    reasoning_effort: medium
+
   # Document / project summaries — trivial one-liners.
   summary_llm:
     _type: openai
@@ -266,6 +280,20 @@ functions:
   # are validated and delivered alongside the written answer.
   emit_card:
     _type: emit_card
+
+  # Purpose-built OIB Soll-Ist-Abgleich (backlog T4-3): staged pipeline
+  # (requirement profile per Richtlinie -> batched evidence judgment ->
+  # deterministic matrix + German report) — the structured alternative to
+  # running compliance checks through open-ended deep research. See
+  # src/aiq_agent/agents/compliance_checker/README.md.
+  compliance_check:
+    _type: compliance_check_agent
+    llm: compliance_llm
+    knowledge_search_tool: knowledge_search
+    max_concurrency: 3
+    richtlinien: [1, 2, 3, 4, 5, 6]
+    requirement_batch_size: 9
+    verbose: false
 
   intent_classifier:
     _type: intent_classifier
