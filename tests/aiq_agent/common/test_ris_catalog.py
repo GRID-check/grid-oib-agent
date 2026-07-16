@@ -4,8 +4,9 @@ from pathlib import Path
 
 import pytest
 import yaml
-from aiq_agent.common.ris_catalog import CatalogEntry
+
 from aiq_agent.common.ris_catalog import KNOWN_APPLICATIONS
+from aiq_agent.common.ris_catalog import CatalogEntry
 from aiq_agent.common.ris_catalog import RisCatalog
 from aiq_agent.common.ris_catalog import _normalize
 from aiq_agent.common.ris_catalog import extract_bundesland

@@ -20,7 +20,6 @@ from ris_adapter.register import ris_search
 
 from aiq_agent.common.ris_catalog import CatalogEntry
 from aiq_agent.common.ris_catalog import RisCatalog
-
 from nat.data_models.function import FunctionBaseConfig
 
 
@@ -576,7 +575,9 @@ class TestRisCatalogLookupTool:
         catalog = RisCatalog(
             entries=[
                 _catalog_entry(),
-                _catalog_entry(id="bo-noe", short="BO NÖ", bundesland="Niederösterreich", document_number="NOR87654321"),
+                _catalog_entry(
+                    id="bo-noe", short="BO NÖ", bundesland="Niederösterreich", document_number="NOR87654321"
+                ),
             ]
         )
         monkeypatch.setattr("ris_adapter.register.load_catalog", lambda path=None: catalog)

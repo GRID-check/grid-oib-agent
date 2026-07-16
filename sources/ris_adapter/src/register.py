@@ -523,7 +523,7 @@ async def _plan_with(planner, query, application, title, bundesland, date_from, 
     return await planner(query, application, title, bundesland, date_from, date_to)
 
 
-def _format_catalog_entry(index: int, entry: "CatalogEntry") -> str:
+def _format_catalog_entry(index: int, entry: CatalogEntry) -> str:
     """Format one curated catalog entry as an agent-readable pointer block."""
     lines = [f"--- Catalog match {index} ---"]
     lines.append(f"Title: {entry.title}")
@@ -581,7 +581,10 @@ async def ris_catalog_lookup(tool_config: RisCatalogLookupToolConfig, builder: B
             return "Error: RIS catalog lookup unavailable - catalog module not importable. Use ris_search."
         catalog = load_catalog(catalog_path)
         if catalog is None:
-            return "Error: RIS catalog unavailable (file missing or invalid) - use ris_search (live RIS search) instead."
+            return (
+                "Error: RIS catalog unavailable (file missing or invalid) - "
+                "use ris_search (live RIS search) instead."
+            )
         matches = match_entries(catalog, topic)[: tool_config.max_matches]
         if not matches:
             return (

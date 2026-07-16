@@ -24,8 +24,8 @@ from langgraph.store.memory import InMemoryStore
 from aiq_agent.common import LLMProvider
 from aiq_agent.common import LLMRole
 from aiq_agent.common import render_prompt_template
-from aiq_agent.common.ris_catalog import render_block_for_prompt
 from aiq_agent.common import strict_response_format
+from aiq_agent.common.ris_catalog import render_block_for_prompt
 
 from .custom_middleware import EmptyContentFixMiddleware
 from .custom_middleware import SelectiveToolRetryMiddleware
