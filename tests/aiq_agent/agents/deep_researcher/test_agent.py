@@ -15,6 +15,7 @@ from langchain_core.messages import HumanMessage
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
 
+from aiq_agent.agents.deep_researcher.custom_middleware import DeferredStructuredOutputMiddleware
 from aiq_agent.agents.deep_researcher.models import DeepResearchAgentState
 from aiq_agent.agents.deep_researcher.models import ResearchNotes
 from aiq_agent.agents.deep_researcher.models import ResearchPlan
@@ -534,7 +535,11 @@ class TestDeepResearcherAgent:
             assert create_researcher.call_count == 1
             researcher_kwargs = create_researcher.call_args.kwargs
             kwargs = create.call_args.kwargs
-            assert researcher_kwargs["response_format"].schema is ResearchNotes
+            assert "response_format" not in researcher_kwargs
+            researcher_deferred = [
+                m for m in researcher_kwargs["middleware"] if isinstance(m, DeferredStructuredOutputMiddleware)
+            ]
+            assert [m.strategy.schema for m in researcher_deferred] == [ResearchNotes]
             researcher_middleware = researcher_kwargs["middleware"]
             assert not any(m.__class__.__name__ == "TodoListMiddleware" for m in researcher_middleware)
             researcher_skills = [m for m in researcher_middleware if m.__class__.__name__ == "SkillsMiddleware"]
@@ -599,7 +604,11 @@ class TestDeepResearcherAgent:
             assert "write_todos" in subagents["source-router-agent"]["system_prompt"]
             assert "Use at most two tool calls total" in subagents["source-router-agent"]["system_prompt"]
             assert real_tool.name not in {tool.name for tool in subagents["source-router-agent"]["tools"]}
-            assert subagents["planner-agent"]["response_format"].schema is ResearchPlan
+            assert "response_format" not in subagents["planner-agent"]
+            planner_deferred = [
+                m for m in subagents["planner-agent"]["middleware"] if isinstance(m, DeferredStructuredOutputMiddleware)
+            ]
+            assert [m.strategy.schema for m in planner_deferred] == [ResearchPlan]
             assert "skills" not in subagents["planner-agent"]
             assert real_tool.name in {tool.name for tool in subagents["planner-agent"]["tools"]}
             assert "response_format" not in subagents["writer-agent"]
@@ -728,7 +737,11 @@ class TestDeepResearcherAgent:
             assert create.call_count == 1
             assert create_researcher.call_count == 1
             researcher_kwargs = create_researcher.call_args.kwargs
-            assert researcher_kwargs["response_format"].schema is ResearchNotes
+            assert "response_format" not in researcher_kwargs
+            researcher_deferred = [
+                m for m in researcher_kwargs["middleware"] if isinstance(m, DeferredStructuredOutputMiddleware)
+            ]
+            assert [m.strategy.schema for m in researcher_deferred] == [ResearchNotes]
             researcher_middleware = researcher_kwargs["middleware"]
             assert not any(m.__class__.__name__ == "TodoListMiddleware" for m in researcher_middleware)
             assert not any(m.__class__.__name__ == "SkillsMiddleware" for m in researcher_middleware)
@@ -751,7 +764,11 @@ class TestDeepResearcherAgent:
             assert set(subagents) == {"source-router-agent", "planner-agent", "writer-agent"}
             assert "response_format" not in subagents["source-router-agent"]
             assert "skills" not in subagents["source-router-agent"]
-            assert subagents["planner-agent"]["response_format"].schema is ResearchPlan
+            assert "response_format" not in subagents["planner-agent"]
+            planner_deferred = [
+                m for m in subagents["planner-agent"]["middleware"] if isinstance(m, DeferredStructuredOutputMiddleware)
+            ]
+            assert [m.strategy.schema for m in planner_deferred] == [ResearchPlan]
             assert real_tool.name in {tool.name for tool in subagents["planner-agent"]["tools"]}
             assert "response_format" not in subagents["writer-agent"]
             assert [tool.name for tool in subagents["writer-agent"]["tools"]] == [
@@ -811,7 +828,11 @@ class TestDeepResearcherAgent:
             assert "Never repeat a covered query" in prompt
             assert "re-attempt each failed query at most 2 times" in prompt
             assert "state what could not be researched" in prompt
-            assert subagents["planner-agent"]["response_format"].schema is ResearchPlan
+            assert "response_format" not in subagents["planner-agent"]
+            planner_deferred = [
+                m for m in subagents["planner-agent"]["middleware"] if isinstance(m, DeferredStructuredOutputMiddleware)
+            ]
+            assert [m.strategy.schema for m in planner_deferred] == [ResearchPlan]
             assert "/shared/source_routing.json" not in subagents["planner-agent"]["system_prompt"]
             assert real_tool.name in {tool.name for tool in subagents["planner-agent"]["tools"]}
             assert [tool.name for tool in subagents["writer-agent"]["tools"]] == [

@@ -4,6 +4,7 @@ import asyncio
 import logging
 from collections.abc import Iterable
 from pathlib import Path
+from typing import Any
 
 from langchain.agents.middleware import AgentMiddleware
 from langchain.agents.middleware import ToolRetryMiddleware
@@ -198,6 +199,57 @@ class ToolNameSanitizationMiddleware(AgentMiddleware):
                 new_result.append(msg)
 
         return ModelResponse(result=new_result, structured_response=response.structured_response)
+
+
+class DeferredStructuredOutputMiddleware(AgentMiddleware):
+    """Apply a strict structured-output contract only on the agent's exit turn.
+
+    ``create_agent(response_format=ProviderStrategy(..., strict=True))`` binds
+    ``response_format: json_schema strict`` on EVERY model call of the tool
+    loop. OpenRouter/DeepSeek-class endpoints do not reliably combine tools
+    with a strict schema: the constrained decoder satisfies the schema
+    immediately — a schema-valid but empty (or hallucinated) structured answer
+    with no tool calls on turn 1 — so the agent never researches (backlog
+    T2-8; reproduced live against deepseek/deepseek-v4-flash, where the
+    "researched" notes were fabricated from model memory).
+
+    This middleware decouples the two concerns. The tool loop runs with no
+    ``response_format`` at all; only when the model stops calling tools is the
+    call re-issued once — draft message appended, strict schema applied — so
+    the model formats the answer it already researched instead of deciding
+    whether to research under a decoding constraint. The parsed object lands
+    in ``structured_response`` exactly as with
+    ``create_agent(response_format=...)``.
+
+    If the formatting call itself fails (e.g. a provider schema rejection),
+    the draft response is returned unchanged so downstream content-based
+    recovery (``extract_json`` in ``tools/research.py``) still applies.
+    """
+
+    def __init__(self, schema: Any) -> None:
+        from langchain.agents.structured_output import ProviderStrategy
+
+        self.strategy = ProviderStrategy(schema, strict=True)
+
+    async def awrap_model_call(self, request, handler):
+        """Keep the tool loop format-free; re-issue the exit turn with the strict schema."""
+        response = await handler(request)
+        draft = response.result[-1] if response.result else None
+        if not isinstance(draft, AIMessage) or draft.tool_calls:
+            return response
+        try:
+            return await handler(
+                request.override(
+                    messages=[*request.messages, draft],
+                    response_format=self.strategy,
+                )
+            )
+        except Exception:
+            logger.warning(
+                "Structured-output formatting call failed; returning unformatted draft",
+                exc_info=True,
+            )
+            return response
 
 
 def _request_tool_name(tool: object) -> str | None:

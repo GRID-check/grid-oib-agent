@@ -342,27 +342,67 @@ enabling that remains a separate, larger cost lever — see
 
 ### Strict structured-output schemas can violate provider constraints — fixed (`2db0f7d`)
 
-Researcher workers request `strict_response_format(ResearchNotes)`
-(`factory.py` `build_researcher_runnable`) to force provider-native
-`response_format: json_schema, strict` instead of `create_agent`'s
-`AutoStrategy`, which falls back to a synthetic tool call for models absent
-from its hardcoded allowlist (OpenRouter/DeepSeek slugs have no entry).
-LangChain's `ProviderStrategy` ships the Pydantic schema verbatim with no
-sanitization, so a declarative bound like `EvidenceJudgment.relevance_score`'s
-`ge=0, le=100` used to compile to JSON-Schema `minimum`/`maximum` —
-unsupported in strict `json_schema` mode on some providers, producing a 400
-or inconsistent handling. `relevance_score` and `ResearchQuery.preferred_tools`
-(previously `min_length`) are now `field_validator(mode="after")` checks
-instead of declarative bounds: `relevance_score` **clamps** out-of-range
-values (a worker returning 105 degrades to 100 rather than failing the whole
-structured response), while `preferred_tools` still raises on empty (there is
-no tool name to invent, so failing is correct there).
-`ResearchNotes`/`ResearchPlan.model_json_schema()` no longer emit
-`minimum`/`maximum`/`minLength`/`maxLength`/`pattern` anywhere in the nested
-tree (verified by a schema-walk test). `tools/research.py:_structured_research_notes`'s
-fenced-JSON fallback parser (`tools/research.py:73-90`) remains as a second
-line of defense for non-conformant completions in general, but the
-schema-constraint root cause is closed.
+> Note: since the T2-8 fix (next section), the strict schema is applied via
+> `DeferredStructuredOutputMiddleware` on the agent's exit turn rather than via
+> `create_agent(response_format=...)` on every call. The schema-sanitization
+> constraints described here still apply to that deferred call.
+
+Researcher workers request provider-native `response_format: json_schema,
+strict` output instead of `create_agent`'s `AutoStrategy`, which falls back to
+a synthetic tool call for models absent from its hardcoded allowlist
+(OpenRouter/DeepSeek slugs have no entry). LangChain's `ProviderStrategy` ships
+the Pydantic schema verbatim with no sanitization, so a declarative bound like
+`EvidenceJudgment.relevance_score`'s `ge=0, le=100` used to compile to
+JSON-Schema `minimum`/`maximum` — unsupported in strict `json_schema` mode on
+some providers, producing a 400 or inconsistent handling.
+`relevance_score` and `ResearchQuery.preferred_tools` (previously `min_length`)
+are now `field_validator(mode="after")` checks instead of declarative bounds:
+`relevance_score` **clamps** out-of-range values (a worker returning 105
+degrades to 100 rather than failing the whole structured response), while
+`preferred_tools` still raises on empty (there is no tool name to invent, so
+failing is correct there). `ResearchNotes`/`ResearchPlan.model_json_schema()`
+no longer emit `minimum`/`maximum`/`minLength`/`maxLength`/`pattern` anywhere
+in the nested tree (verified by a schema-walk test).
+`tools/research.py:_structured_research_notes`'s fenced-JSON fallback parser
+(`tools/research.py:73-90`) remains as a second line of defense for
+non-conformant completions in general, but the schema-constraint root cause is
+closed.
+
+### Strict response_format on every tool-loop turn suppressed research entirely — fixed (T2-8)
+
+`create_agent(response_format=ProviderStrategy(schema, strict=True))` binds
+`response_format: json_schema strict` on EVERY model call of the agent loop
+(langchain `agents/factory.py` `_get_bound_model`). OpenRouter/DeepSeek-class
+endpoints do not reliably combine tools with a strict schema: the constrained
+decoder satisfies the schema on turn 1 — emitting a schema-valid but empty (or
+fabricated-from-memory) ResearchNotes with no tool calls — and the loop exits
+before any research happens. Reproduced live against
+`deepseek/deepseek-v4-flash`: zero tool calls, notes invented by the model.
+This was the root cause of the production "researcher workers returned empty
+ResearchNotes" failures (backlog T2-8).
+
+Fix: `DeferredStructuredOutputMiddleware(schema)` (`custom_middleware.py`)
+decouples researching from formatting. The tool loop runs with no
+`response_format` at all; when the model stops calling tools, the middleware
+re-issues the call once — draft message appended, strict schema applied — so
+the model formats the answer it already researched. The parsed object lands in
+`structured_response` exactly as with `create_agent(response_format=...)`. If
+the formatting call itself fails (provider schema rejection), the draft passes
+through and the fenced-JSON fallback in `_structured_research_notes` still
+applies. Researcher workers (`ResearchNotes`) and the planner (`ResearchPlan`)
+both use it; `llm_factory.strict_response_format` remains for non-tool call
+sites (e.g. the intent classifier's `.bind()` path).
+
+Related (T2-9): the orchestrator prompt's "Available Tools" section is now
+rendered from the same list that is bound to `create_deep_agent(tools=...)`
+(`factory.py` `build_deep_research_graph`), while configured source tools are
+listed separately as researcher-only (to be referenced via
+`ResearchQuery.preferred_tools`). The prompt previously advertised source
+tools the orchestrator cannot call, and the model tried to call them directly
+("not a valid tool" errors). Prompt prose likewise no longer hardcodes
+config-level tool names (`ris_search`, `ris_fetch_document`,
+`ris_catalog_lookup`): it refers to the RIS search/fetch/catalog-lookup tools
+generically, since bound names are a config concern.
 
 ### StateBackend write-once plus per-search planner ceremony — reduced (`77a4d7a`)
 

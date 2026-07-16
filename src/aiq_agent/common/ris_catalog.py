@@ -278,8 +278,9 @@ def render_prompt_block(catalog: RisCatalog, bundesland: str | None = None) -> s
     """One compact line per entry; federal first, then the given Bundesland, then the rest."""
     lines = [
         "Curated RIS index (verified pointers to the building-relevant Austrian norms).",
-        "For these norms do NOT use ris_search: fetch directly with ris_fetch_document using the",
-        "document number or the 'Gesamt' URL. Use ris_catalog_lookup for topic search in this index.",
+        "For these norms do NOT use RIS search: fetch the document directly via the RIS fetch",
+        "tool using the document number or the 'Gesamt' URL. For topic search in this index,",
+        "use the RIS catalog lookup tool listed among your available tools.",
     ]
     for entry in _sort_entries(catalog.entries, bundesland):
         line = f"- {entry.short} — {entry.title} [{entry.application}/{entry.document_number}]"

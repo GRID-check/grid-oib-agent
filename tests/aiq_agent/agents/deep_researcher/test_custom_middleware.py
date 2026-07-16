@@ -6,13 +6,16 @@ from unittest.mock import MagicMock
 
 import pytest
 from langchain_core.messages import AIMessage
+from langchain_core.messages import HumanMessage
 from langchain_core.messages import ToolMessage
 
+from aiq_agent.agents.deep_researcher.custom_middleware import DeferredStructuredOutputMiddleware
 from aiq_agent.agents.deep_researcher.custom_middleware import SelectiveToolRetryMiddleware
 from aiq_agent.agents.deep_researcher.custom_middleware import SourceRegistryMiddleware
 from aiq_agent.agents.deep_researcher.custom_middleware import ToolNameSanitizationMiddleware
 from aiq_agent.agents.deep_researcher.custom_middleware import ToolVisibilityMiddleware
 from aiq_agent.agents.deep_researcher.custom_middleware import is_retryable_tool_error
+from aiq_agent.agents.deep_researcher.models import ResearchNotes
 from aiq_agent.agents.deep_researcher.tools.source_registry import build_get_verified_sources_tool
 from aiq_agent.common.citation_verification import SourceEntry
 from aiq_agent.common.data_source_registry import populate_from_config
@@ -587,3 +590,94 @@ class TestSourceRegistryMiddleware:
         result = await middleware.awrap_tool_call(request, handler)
 
         assert result.content == content
+
+
+class _FakeModelRequest:
+    """Minimal stand-in for the ModelRequest the middleware sees (messages + override)."""
+
+    def __init__(self, messages, response_format=None):
+        self.messages = messages
+        self.response_format = response_format
+
+    def override(self, *, messages=None, response_format=None):
+        return _FakeModelRequest(
+            self.messages if messages is None else messages,
+            self.response_format if response_format is None else response_format,
+        )
+
+
+class TestDeferredStructuredOutputMiddleware:
+    """Strict structured output must bind only on the agent's exit turn (backlog T2-8).
+
+    Binding response_format on every tool-loop call makes constrained decoders
+    answer immediately with no tool calls; the middleware keeps the loop
+    format-free and re-issues only the final, no-tool-call turn with the
+    strict schema.
+    """
+
+    @pytest.fixture
+    def middleware(self):
+        return DeferredStructuredOutputMiddleware(ResearchNotes)
+
+    @pytest.mark.asyncio
+    async def test_tool_call_turn_passes_through_without_formatting(self, middleware):
+        """A response with tool calls continues the loop untouched."""
+        draft = AIMessage(content="", tool_calls=[{"name": "ris_search_tool", "args": {}, "id": "c1"}])
+        response = SimpleNamespace(result=[draft], structured_response=None)
+        handler = AsyncMock(return_value=response)
+
+        result = await middleware.awrap_model_call(_FakeModelRequest([HumanMessage(content="q")]), handler)
+
+        assert result is response
+        handler.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_non_ai_last_message_passes_through(self, middleware):
+        response = SimpleNamespace(
+            result=[ToolMessage(content="t", tool_call_id="c1")],
+            structured_response=None,
+        )
+        handler = AsyncMock(return_value=response)
+
+        result = await middleware.awrap_model_call(_FakeModelRequest([HumanMessage(content="q")]), handler)
+
+        assert result is response
+        handler.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_exit_turn_reissues_with_draft_and_strict_schema(self, middleware):
+        """The first no-tool-call turn is re-issued with the draft appended and the strict schema."""
+        request = _FakeModelRequest([HumanMessage(content="q")])
+        draft = AIMessage(content="researched findings ...")
+        first = SimpleNamespace(result=[draft], structured_response=None)
+        formatted = SimpleNamespace(
+            result=[AIMessage(content='{"query_topic": "t"}')],
+            structured_response={"query_topic": "t"},
+        )
+        handler = AsyncMock(side_effect=[first, formatted])
+
+        result = await middleware.awrap_model_call(request, handler)
+
+        assert result is formatted
+        assert handler.await_count == 2
+        second_request = handler.await_args_list[1].args[0]
+        assert second_request.response_format is middleware.strategy
+        assert second_request.messages[-1] is draft
+        assert second_request.messages[:-1] == request.messages
+
+    @pytest.mark.asyncio
+    async def test_formatting_failure_returns_draft_for_content_fallback(self, middleware):
+        """A provider schema rejection must not lose the researched draft."""
+        draft = AIMessage(content='```json\n{"query_topic": "t"}\n```')
+        first = SimpleNamespace(result=[draft], structured_response=None)
+        handler = AsyncMock(side_effect=[first, RuntimeError("provider 400: schema rejected")])
+
+        result = await middleware.awrap_model_call(_FakeModelRequest([HumanMessage(content="q")]), handler)
+
+        assert result is first
+
+    def test_strategy_is_strict_json_schema(self, middleware):
+        """The deferred contract keeps the provider-native strict json_schema shape."""
+        wire = middleware.strategy.to_model_kwargs()["response_format"]
+        assert wire["type"] == "json_schema"
+        assert wire["json_schema"]["strict"] is True

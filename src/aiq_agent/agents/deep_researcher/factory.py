@@ -25,9 +25,9 @@ from langgraph.types import Checkpointer
 from aiq_agent.common import LLMProvider
 from aiq_agent.common import LLMRole
 from aiq_agent.common import render_prompt_template
-from aiq_agent.common import strict_response_format
 from aiq_agent.common.ris_catalog import render_block_for_prompt
 
+from .custom_middleware import DeferredStructuredOutputMiddleware
 from .custom_middleware import EmptyContentFixMiddleware
 from .custom_middleware import SelectiveToolRetryMiddleware
 from .custom_middleware import SourceRegistryMiddleware
@@ -358,6 +358,10 @@ def build_researcher_runnable(
             FilesystemMiddleware(backend=backend, _permissions=filesystem_permissions),
             create_summarization_middleware(researcher_model, backend),
             PatchToolCallsMiddleware(),
+            # Strict structured output is deferred to the researcher's exit
+            # turn: binding response_format on every tool-loop call makes
+            # constrained decoders skip research entirely (backlog T2-8).
+            DeferredStructuredOutputMiddleware(ResearchNotes),
             *researcher_middleware,
             *(visibility_middleware or []),
         ]
@@ -367,14 +371,6 @@ def build_researcher_runnable(
         tools=researcher_tools,
         system_prompt=system_prompt,
         middleware=middleware,
-        # Force provider-native structured output (response_format: json_schema,
-        # strict) instead of letting create_agent's AutoStrategy fall back to a
-        # synthetic forced tool call. AutoStrategy keys off a hardcoded
-        # model-name allowlist / langchain profile registry that has no entry
-        # for OpenRouter/DeepSeek slugs, so it silently downgrades to a tool
-        # strategy the model does not reliably honor — the mechanism behind the
-        # fenced-JSON "did not return structured ResearchNotes" failures.
-        response_format=strict_response_format(ResearchNotes),
     )
 
 
@@ -443,13 +439,15 @@ def build_deep_research_subagents(context: DeepResearchGraphContext) -> list[dic
             prompt_name="planner",
             role=LLMRole.PLANNER,
             tools=context.tool_set.researcher_tools,
-            middleware=context.middleware_set.planner,
+            # Same deferred structured output as the researcher (T2-8): the
+            # planner also runs a tool loop, so the strict ResearchPlan schema
+            # is applied only on its exit turn.
+            middleware=[DeferredStructuredOutputMiddleware(ResearchPlan), *context.middleware_set.planner],
             prompt_values={
                 "tools": context.tool_set.tools_info,
                 "enable_source_router": context.enable_source_router,
                 "max_research_concurrency": context.max_research_concurrency,
             },
-            response_format=strict_response_format(ResearchPlan),
         )
     )
     subagents.append(
@@ -539,13 +537,20 @@ def build_deep_research_graph(
         source_registry_middleware=source_registry_middleware,
     )
 
+    # Single source of truth for the orchestrator's toolset: the prompt's
+    # "Available Tools" section is rendered from the same list that is bound
+    # here, so it can never advertise tools the orchestrator cannot call
+    # (backlog T2-9 — the prompt previously listed every configured source
+    # tool, and the model tried to call them directly).
+    orchestrator_tools = [*context.tool_set.helper_tools, research_batch_tool]
     agent = create_deep_agent(
         model=context.llm_provider.get(LLMRole.ORCHESTRATOR),
-        tools=[*context.tool_set.helper_tools, research_batch_tool],
+        tools=orchestrator_tools,
         system_prompt=context.render_prompt(
             "orchestrator",
             clarifier_result=context.state.clarifier_result,
-            tools=context.tool_set.tools_info,
+            tools=[{"name": tool.name, "description": tool.description} for tool in orchestrator_tools],
+            research_source_tools=context.tool_set.tools_info,
             enable_source_router=context.enable_source_router,
             max_research_concurrency=context.max_research_concurrency,
             execution_enabled=context.runtime.execution_enabled,

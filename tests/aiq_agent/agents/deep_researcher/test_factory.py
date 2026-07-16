@@ -10,6 +10,7 @@ from langchain.agents.middleware import AgentMiddleware
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
 
+from aiq_agent.agents.deep_researcher.custom_middleware import DeferredStructuredOutputMiddleware
 from aiq_agent.agents.deep_researcher.custom_middleware import SelectiveToolRetryMiddleware
 from aiq_agent.agents.deep_researcher.custom_middleware import SourceRegistryMiddleware
 from aiq_agent.agents.deep_researcher.custom_middleware import ToolNameSanitizationMiddleware
@@ -49,6 +50,11 @@ def _llm_provider() -> LLMProvider:
     provider.configure(LLMRole.REPORT_WRITER, llm)
     provider.configure(LLMRole.ORCHESTRATOR, llm)
     return provider
+
+
+def _deferred_schemas(middleware: list) -> list:
+    """Schemas of the DeferredStructuredOutputMiddleware instances in a middleware stack."""
+    return [m.strategy.schema for m in middleware if isinstance(m, DeferredStructuredOutputMiddleware)]
 
 
 def _prompts() -> dict[str, str]:
@@ -198,7 +204,8 @@ def test_subagents_route_tools_and_writer_skills():
     assert "response_format" not in by_name["source-router-agent"]
     assert _tool_names(by_name["source-router-agent"]["tools"]) == ["lookup_source_catalog"]
     assert "web_search_tool" not in _tool_names(by_name["source-router-agent"]["tools"])
-    assert by_name["planner-agent"]["response_format"].schema is ResearchPlan
+    assert "response_format" not in by_name["planner-agent"]
+    assert _deferred_schemas(by_name["planner-agent"]["middleware"]) == [ResearchPlan]
     assert "web_search_tool" in _tool_names(by_name["planner-agent"]["tools"])
     assert _tool_names(by_name["writer-agent"]["tools"]) == ["think", "get_verified_sources"]
     assert by_name["writer-agent"]["skills"] == ["/skills/synthesis/"]
@@ -340,7 +347,8 @@ def test_subagents_can_disable_source_router():
 
     by_name = {subagent["name"]: subagent for subagent in subagents}
     assert set(by_name) == {"planner-agent", "writer-agent"}
-    assert by_name["planner-agent"]["response_format"].schema is ResearchPlan
+    assert "response_format" not in by_name["planner-agent"]
+    assert _deferred_schemas(by_name["planner-agent"]["middleware"]) == [ResearchPlan]
     assert "web_search_tool" in _tool_names(by_name["planner-agent"]["tools"])
     assert _tool_names(by_name["writer-agent"]["tools"]) == ["think", "get_verified_sources"]
     requested_roles = [args[0] for args, _kwargs in provider.get.call_args_list]
@@ -385,11 +393,11 @@ def test_researcher_runnable_uses_rendered_prompt_and_runtime_middleware():
     assert kwargs["model"] is researcher_model
     assert kwargs["tools"] == [web_search_tool]
     assert kwargs["system_prompt"] == "rendered researcher prompt"
-    assert kwargs["response_format"].schema is ResearchNotes
-    # Native provider-strict structured output, not create_agent's tool-strategy fallback.
-    wire = kwargs["response_format"].to_model_kwargs()["response_format"]
-    assert wire["type"] == "json_schema"
-    assert wire["json_schema"]["strict"] is True
+    # No response_format on the tool loop: strict structured output is deferred
+    # to the researcher's exit turn via middleware (backlog T2-8).
+    assert "response_format" not in kwargs
+    assert _deferred_schemas(kwargs["middleware"]) == [ResearchNotes]
+    assert middleware_names.index("DeferredStructuredOutputMiddleware") < middleware_names.index("MagicMock")
     assert "TodoListMiddleware" not in middleware_names
     assert "SkillsMiddleware" in middleware_names
     assert "FilesystemMiddleware" in middleware_names
