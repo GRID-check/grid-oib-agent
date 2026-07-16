@@ -57,10 +57,12 @@ llms:
     max_tokens: 4096
     max_retries: 5
     reasoning_effort: none
-    # NOTE: OpenRouter provider.require_parameters + the response-healing plugin
-    # are forced on every OpenRouter LLM centrally in code
-    # (aiq_agent.common.llm_factory.apply_openrouter_structured_defaults, applied
-    # via get_langchain_llm), so they are intentionally NOT repeated per-LLM here.
+    # NOTE: the OpenRouter response-healing plugin is forced on every OpenRouter
+    # LLM centrally in code (aiq_agent.common.llm_factory
+    # .apply_openrouter_structured_defaults, applied via get_langchain_llm), so
+    # it is intentionally NOT repeated per-LLM here. provider.require_parameters
+    # is deliberately NOT set — it 404s when a group is overridden to a model
+    # whose endpoints don't support every param we send.
 
   # Shallow Research — fast retrieval + synthesis (the quick-answer tier).
   shallow_llm:
