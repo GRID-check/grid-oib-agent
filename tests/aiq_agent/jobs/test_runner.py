@@ -1534,6 +1534,7 @@ class TestAsyncJobRunnerAgentFactory:
                 max_research_concurrency=None,
                 max_concurrent_source_tool_calls=None,
                 max_source_tool_batch_size=None,
+                checkpointer=None,
             ):
                 self.llm_provider = llm_provider
                 self.tools = tools
@@ -1548,6 +1549,7 @@ class TestAsyncJobRunnerAgentFactory:
                 self.max_research_concurrency = max_research_concurrency
                 self.max_concurrent_source_tool_calls = max_concurrent_source_tool_calls
                 self.max_source_tool_batch_size = max_source_tool_batch_size
+                self.checkpointer = checkpointer
 
         fn_config = DeepResearchAgentConfig(
             orchestrator_llm="llm",
@@ -1789,6 +1791,7 @@ class TestAsyncJobRunnerAgentFactory:
                 max_research_concurrency=None,
                 max_concurrent_source_tool_calls=None,
                 max_source_tool_batch_size=None,
+                checkpointer=None,
             ):
                 raise TypeError("internal constructor failure")
 
