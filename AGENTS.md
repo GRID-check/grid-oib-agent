@@ -145,6 +145,49 @@ Updating documentation is **not optional and not a follow-up** — it is part of
 
 Rules of thumb: prefer updating an existing doc over adding a new one; delete docs that a change makes wrong rather than leaving them stale; keep the `docs/architecture/` deep-dives and the ADR log as the source of truth. If a change is significant enough to explain in a PR, it is significant enough to document in the repo.
 
+## Multi-agent feature playbook (obligation for agent-built features)
+
+Substantial features (a new subsystem, several components, anything cross-service) built by AI agents MUST follow this phased process. It is how the Workflows feature (ADR-0023, PR #65) was built end-to-end; small fixes skip the ceremony, but the documentation obligations above always apply. Model tiering throughout: **exploration = mid-tier** (Sonnet-class, read-only, cheap to fan out), **implementation = high tier** (Opus-class), **architecture, orchestration, and reconciliation = the lead agent itself** (the most capable model in the session) — hard decisions are never delegated.
+
+### Phase 0 — Parallel exploration (read-only)
+
+- Before writing anything, fan out parallel **read-only** exploration subagents, one per relevant area (e.g. frontend conventions, backend infrastructure, docs/ADR conventions + backlog precedent).
+- Each explorer returns a structured report with concrete file paths and code snippets of the exact patterns to copy. Explorers never edit.
+
+### Phase 1 — Architecture and binding spec (lead agent, docs-first)
+
+- The lead agent makes the architectural decisions itself and writes them down as an **ADR** (next number, from `docs/adr/0000-template.md`) plus a **subsystem doc in `docs/architecture/`** that doubles as the binding implementation contract: components table, data model, API contracts, env vars, cron/queue/algorithm semantics, testing expectations.
+- Land the ADR + spec as a **docs-first commit** before any implementation (precedent: ADR-0021, ADR-0023). The spec — not inter-agent chatter — is where implementation agents get their interfaces.
+
+### Phase 2 — Implementation waves (parallel, disjoint ownership)
+
+- Launch implementation subagents in parallel waves. Non-negotiable rules:
+  - **Strictly disjoint file ownership.** Every prompt lists the paths the agent owns AND an explicit "do NOT touch" list (other agents' trees, migrations, package manifests).
+  - **Contracts come from the spec.** Every agent reads the ADR + subsystem doc first and codes against the documented contract; agents never negotiate interfaces with each other.
+  - **Sequence only real dependencies.** Exactly one agent owns shared chokepoints (drizzle migrations + `_journal.json`, `package.json`); dependents launch after it lands. Everything else runs concurrently.
+  - **Subagents never run git commands.** They leave changes in the working tree; the lead agent reviews, commits, and pushes.
+  - **Require verification evidence.** Each agent reports the exact commands it ran with results, plus any deviation from the spec with justification. Claims without a tool result behind them don't count.
+
+### Phase 3 — Multi-angle adversarial review
+
+- Fan out independent review finders over the **full diff including untracked files** (`git add -A -N` first), one angle each: line-by-line scan, removed-behavior audit, cross-file contract tracing, reuse, simplification, efficiency, altitude (is each fix at the right depth, or a bandaid on shared infrastructure?), and conventions-vs-this-file.
+- Finding is **recall-biased**: report everything with a nameable failure scenario; do not self-filter for severity — verification happens downstream. Fresh-context verification (a separate agent or the lead re-reading the code) beats self-critique.
+- Dedupe, verify each candidate, fix what survives, and re-run the affected test suites before shipping.
+
+### Phase 4 — Verify, document, ship
+
+- Run the full verification matrix (see Verification workflow), and additionally apply DB migrations 0000→latest against a real Postgres when the change adds one.
+- Complete every applicable row of the documentation-obligations table in the same change — including compose `environment:` wiring for every new env var (a documented-but-unwired var is a bug, not a docs gap).
+- Conventional commits; PR against `develop` per the Git workflow below.
+
+### Prompting subagents (from Anthropic's Claude Fable 5 prompting guidance)
+
+- **Goal, constraints, and intent up front — not step-by-step scaffolding.** Over-prescriptive prompts reduce output quality on strong models; state what "done" looks like and the boundaries, give the full task spec in one well-specified prompt, and let the agent choose the steps.
+- **Say why, not just what.** Agents connect the task to the right context when they know who the output is for and what it enables.
+- **Explicit boundaries beat implied ones**: owned paths, forbidden paths, when to stop, and what to do when blocked (report, don't improvise around the spec).
+- **Evidence-grounded reporting**: instruct agents to audit every progress claim against a tool result and report failures verbatim — never "should work".
+- **Review prompts ask for coverage, not judgment**: "report every issue you find, including uncertain/low-severity ones, with confidence and severity" — a downstream verify step filters; conservative-reporting instructions silently destroy recall.
+
 ## Git workflow (branching & commits)
 
 - **One feature, one branch.** Each distinct feature/fix gets its **own branch cut
