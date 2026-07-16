@@ -96,7 +96,9 @@ export const workflows = {
     compiledTooLong: 'The compiled brief is too long (max 32,000 characters). Shorten the sections.',
 
     sourcesSection: 'Data sources',
-    sourcesHint: 'Limit which sources the agent may use. Leave all unchecked to allow every available source.',
+    knowledgeAlways: 'Project documents & OIB knowledge base — always included in every run',
+    additionalSourcesLabel: 'Additional sources',
+    sourcesHint: 'Add sources beyond the knowledge base. Leave all unchecked to allow every available additional source.',
     sourcesAll: 'All available sources',
     sourcesLoading: 'Loading sources…',
     sourcesError: 'Sources could not be loaded — the workflow will use all available sources.',
@@ -143,6 +145,56 @@ export const workflows = {
       submitted: 'Submitted',
       skipped: 'Skipped',
       error: 'Error',
+    },
+  },
+
+  // GRID-authored default templates. Cards in the list, pre-fill the builder on
+  // selection — they never auto-create a workflow (the user reviews and saves).
+  templates: {
+    badge: 'By GRID',
+    useTemplate: 'Use template',
+    fromTemplate: 'From template',
+    emptyHeading: 'Start from a GRID template',
+    emptyHint: 'Prefilled research briefs you can review, adjust and save.',
+    scheduleWeekly: 'Weekly',
+    scheduleManual: 'Manual',
+
+    regulatoryWatch: {
+      name: 'Regulatory watch: OIB & Austrian building law',
+      description:
+        'Weekly scan of RIS and the web for changed laws, ordinances, case law and OIB guideline releases that affect this project — with a concrete impact assessment.',
+      objective:
+        'Identify changes to Austrian building law and the OIB Richtlinien that are relevant to this project — new or amended federal and state laws and ordinances (RIS), new OIB guideline releases or drafts, and relevant case law — and assess their concrete impact on this project.',
+      context:
+        "Work from this project's documents to understand its scope (building type, location/Bundesland, permit status, current planning stage). Prioritize primary sources: RIS for federal and state law (including Bauordnungen and Bautechnikgesetze/-verordnungen) and case law; official OIB publications for guideline releases; use web search only for announcements, drafts and expert commentary. Focus on developments from the last 30 days, plus anything older that has an upcoming transition deadline.",
+      outputFormat:
+        'Start with an executive summary of at most half a page. Then a table of changes: source (with exact RIS/OIB citation), date, what changed, impact on this project (high/medium/low), recommended action, deadline. Close with open questions for the planning team. Cite every claim with its source.',
+      questions: {
+        q1: 'Which laws, ordinances or OIB guidelines relevant to this project have changed recently, or have announced upcoming changes?',
+        q2: 'What exactly changed compared to the previous legal situation?',
+        q3: 'Which parts of this project (design, permits, documentation) are affected, and how severely?',
+        q4: 'Which deadlines or transition periods (Übergangsfristen) apply?',
+        q5: 'What concrete actions should the planning team take, and how urgent is each one?',
+      },
+    },
+
+    complianceGapCheck: {
+      name: 'OIB compliance gap check',
+      description:
+        'Cross-checks the project documentation against the applicable OIB Richtlinien and returns a prioritized list of gaps, contradictions and missing evidence.',
+      objective:
+        "Systematically cross-check this project's current documentation against the applicable requirements of the OIB Richtlinien (1–6) and identify compliance gaps, contradictions and missing evidence.",
+      context:
+        "Use the project's uploaded documents as the factual basis for what is planned, and the OIB knowledge base as the normative basis. First determine which OIB Richtlinien and which requirement classes apply to this building type, use and location. Where the project documentation is silent on an applicable requirement, treat it as missing evidence — not as compliant. Note where a planned solution deviates from an OIB requirement and would require a formal deviation (Abweichung) under the applicable state building code, including possible compensating measures.",
+      outputFormat:
+        'A compliance matrix grouped by OIB Richtlinie: requirement, status (compliant / gap / missing evidence / deviation), evidence citation, comment. Then a risk-ranked gap list with recommended next steps, and open questions for the planning team. Cite OIB clauses and project documents precisely.',
+      questions: {
+        q1: 'Which OIB Richtlinien and which specific requirements apply to this project (building class, use, location)?',
+        q2: 'For each applicable requirement: where does the project documentation demonstrate compliance? Cite the document and passage.',
+        q3: 'Which applicable requirements have no supporting evidence in the documentation, or contradictory statements across documents?',
+        q4: 'Which planned solutions deviate from OIB requirements and would need a formal Abweichungsantrag or compensating measures?',
+        q5: 'Which gaps carry the highest risk and should be resolved before the next permit milestone?',
+      },
     },
   },
 }

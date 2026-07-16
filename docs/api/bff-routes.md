@@ -176,6 +176,8 @@ All routes 403 (`feature-disabled`) unless the Workflows feature is on (`workflo
 | `POST` | `/api/projects/{id}/workflows/{workflowId}/run` | project:edit | Manual "Run now" through the shared fire path. 409 when disabled; a backend 429 (job caps) comes back as a `skipped` run, not an error. | — | `{ run }` |
 | `GET` | `/api/projects/{id}/workflows/{workflowId}/runs` | project:view | Run history, newest first. | `?limit&offset` | `{ runs }` |
 
+`dataSources` on create/PATCH is the list of **additional** sources; the `knowledge_layer` source (project documents + OIB base corpus) is always included — the service prepends it on save and again at fire time — so a stored non-null array always contains it. `null` still means all sources.
+
 Source: `frontends/ui/src/app/api/projects/[id]/workflows/…`, service in `frontends/ui/src/lib/workflows/`. See `docs/architecture/workflows.md`.
 
 ## Organizations

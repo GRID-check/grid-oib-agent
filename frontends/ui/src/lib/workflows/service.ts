@@ -37,6 +37,7 @@ import {
   type WorkflowSubmitPayload,
 } from './backend-client'
 import * as repository from './repository'
+import { withAlwaysOnKnowledge } from './types'
 import type { CreateWorkflowInput, PatchWorkflowInput } from './types'
 
 // ---------------------------------------------------------------------------
@@ -83,7 +84,8 @@ export async function createWorkflow(
     definition: input.definition,
     compiledPrompt,
     agentType: DEFAULT_WORKFLOW_AGENT_TYPE,
-    dataSources: input.dataSources ?? null,
+    // knowledge_layer is always included; the stored list is "additional sources".
+    dataSources: withAlwaysOnKnowledge(input.dataSources ?? null),
     enabled,
     scheduleCron,
     scheduleTimezone: timezone,
@@ -117,7 +119,10 @@ export async function updateWorkflow(
     description: patch.description !== undefined ? patch.description : existing.description,
     definition,
     compiledPrompt,
-    dataSources: patch.dataSources !== undefined ? patch.dataSources : existing.dataSources,
+    // knowledge_layer is always included; the stored list is "additional sources".
+    dataSources: withAlwaysOnKnowledge(
+      patch.dataSources !== undefined ? (patch.dataSources ?? null) : existing.dataSources,
+    ),
     enabled,
     scheduleCron,
     scheduleTimezone: timezone,
@@ -265,7 +270,8 @@ export async function fireWorkflow(
     const payload: WorkflowSubmitPayload = {
       agent_type: workflow.agentType,
       input: workflow.compiledPrompt,
-      data_sources: workflow.dataSources ?? null,
+      // Defense for legacy rows persisted before knowledge_layer was always-on.
+      data_sources: withAlwaysOnKnowledge(workflow.dataSources ?? null),
       collection_scope: collectionScope,
       project_context: projectContext,
       organization_id: organizationId,

@@ -11,6 +11,7 @@ import { useCallback, useState } from 'react'
 import { toast } from 'sonner'
 import { useTranslations } from '@/i18n'
 import { getWorkflow, type WorkflowDetail } from '@/adapters/api/workflows-client'
+import type { ResolvedTemplate } from '../lib/templates'
 import { WorkflowList } from './workflow-list'
 import { WorkflowBuilder } from './workflow-builder'
 
@@ -24,10 +25,18 @@ export function WorkflowsPanel({ projectId }: WorkflowsPanelProps): JSX.Element 
   const t = useTranslations('workflows')
   const [mode, setMode] = useState<Mode>('list')
   const [editWorkflow, setEditWorkflow] = useState<WorkflowDetail | null>(null)
+  const [template, setTemplate] = useState<ResolvedTemplate | null>(null)
   const [openingId, setOpeningId] = useState<string | null>(null)
 
   const openCreate = useCallback(() => {
     setEditWorkflow(null)
+    setTemplate(null)
+    setMode('create')
+  }, [])
+
+  const openTemplate = useCallback((selected: ResolvedTemplate) => {
+    setEditWorkflow(null)
+    setTemplate(selected)
     setMode('create')
   }, [])
 
@@ -37,6 +46,7 @@ export function WorkflowsPanel({ projectId }: WorkflowsPanelProps): JSX.Element 
       try {
         const detail = await getWorkflow(projectId, workflowId)
         setEditWorkflow(detail)
+        setTemplate(null)
         setMode('edit')
       } catch {
         toast.error(t('loadError'))
@@ -49,6 +59,7 @@ export function WorkflowsPanel({ projectId }: WorkflowsPanelProps): JSX.Element 
 
   const backToList = useCallback(() => {
     setEditWorkflow(null)
+    setTemplate(null)
     setMode('list')
   }, [])
 
@@ -57,6 +68,7 @@ export function WorkflowsPanel({ projectId }: WorkflowsPanelProps): JSX.Element 
       <WorkflowList
         projectId={projectId}
         onCreate={openCreate}
+        onUseTemplate={openTemplate}
         onEdit={openEdit}
         openingId={openingId}
       />
@@ -67,6 +79,7 @@ export function WorkflowsPanel({ projectId }: WorkflowsPanelProps): JSX.Element 
     <WorkflowBuilder
       projectId={projectId}
       workflow={editWorkflow}
+      template={template}
       onSaved={backToList}
       onCancel={backToList}
     />

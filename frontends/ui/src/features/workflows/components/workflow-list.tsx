@@ -16,6 +16,7 @@ import {
   Pencil,
   Play,
   Plus,
+  Sparkles,
   Trash2,
   Workflow as WorkflowIcon,
 } from 'lucide-react'
@@ -25,6 +26,14 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
@@ -41,12 +50,16 @@ import {
   type WorkflowSummary,
 } from '@/adapters/api/workflows-client'
 import { presetForCron } from '../lib/schedule'
+import { resolveAllTemplates, type ResolvedTemplate } from '../lib/templates'
 import { RunHistory } from './run-history'
+import { TemplateCards } from './template-cards'
 import { ConfirmDeleteDialog } from './confirm-delete-dialog'
 
 interface WorkflowListProps {
   projectId: string
   onCreate: () => void
+  /** Open the builder pre-filled from a GRID default template. */
+  onUseTemplate: (template: ResolvedTemplate) => void
   onEdit: (workflowId: string) => void
   /** Id whose detail is currently being fetched for editing (shows a spinner). */
   openingId: string | null
@@ -242,8 +255,15 @@ function WorkflowCard({
   )
 }
 
-export function WorkflowList({ projectId, onCreate, onEdit, openingId }: WorkflowListProps): JSX.Element {
+export function WorkflowList({
+  projectId,
+  onCreate,
+  onUseTemplate,
+  onEdit,
+  openingId,
+}: WorkflowListProps): JSX.Element {
   const t = useTranslations('workflows')
+  const templates = resolveAllTemplates(t)
   const [workflows, setWorkflows] = useState<WorkflowSummary[] | null>(null)
   const [error, setError] = useState(false)
 
@@ -277,10 +297,41 @@ export function WorkflowList({ projectId, onCreate, onEdit, openingId }: Workflo
           </h1>
           <p className="max-w-3xl text-sm text-muted-foreground">{t('subtitle')}</p>
         </div>
-        <Button onClick={onCreate}>
-          <Plus className="size-4" aria-hidden />
-          {t('newWorkflow')}
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          {templates.length > 0 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline">
+                  <Sparkles className="size-4" aria-hidden />
+                  {t('templates.fromTemplate')}
+                  <ChevronDown className="size-4" aria-hidden />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="max-w-xs">
+                <DropdownMenuLabel>{t('templates.emptyHeading')}</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {templates.map((template) => (
+                  <DropdownMenuItem
+                    key={template.id}
+                    onSelect={() => onUseTemplate(template)}
+                    className="flex-col items-start gap-0.5"
+                  >
+                    <span className="font-medium">{template.name}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {template.scheduleCron
+                        ? t('templates.scheduleWeekly')
+                        : t('templates.scheduleManual')}
+                    </span>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+          <Button onClick={onCreate}>
+            <Plus className="size-4" aria-hidden />
+            {t('newWorkflow')}
+          </Button>
+        </div>
       </header>
 
       {workflows === null && !error && (
@@ -303,17 +354,30 @@ export function WorkflowList({ projectId, onCreate, onEdit, openingId }: Workflo
       )}
 
       {workflows !== null && !error && workflows.length === 0 && (
-        <EmptyState
-          icon={WorkflowIcon}
-          title={t('list.empty.title')}
-          description={t('list.empty.description')}
-          action={
-            <Button onClick={onCreate}>
-              <Plus className="size-4" aria-hidden />
-              {t('list.empty.action')}
-            </Button>
-          }
-        />
+        <div className="space-y-8">
+          <EmptyState
+            icon={WorkflowIcon}
+            title={t('list.empty.title')}
+            description={t('list.empty.description')}
+            action={
+              <Button onClick={onCreate}>
+                <Plus className="size-4" aria-hidden />
+                {t('list.empty.action')}
+              </Button>
+            }
+          />
+          {templates.length > 0 && (
+            <section className="space-y-3">
+              <div className="space-y-1">
+                <h2 className="text-sm font-semibold text-foreground">
+                  {t('templates.emptyHeading')}
+                </h2>
+                <p className="text-sm text-muted-foreground">{t('templates.emptyHint')}</p>
+              </div>
+              <TemplateCards onUse={onUseTemplate} />
+            </section>
+          )}
+        </div>
       )}
 
       {workflows !== null && !error && workflows.length > 0 && (

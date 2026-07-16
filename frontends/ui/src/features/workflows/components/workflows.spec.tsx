@@ -27,9 +27,13 @@ vi.mock('@/adapters/api/data-sources-client', () => ({
   }),
 }))
 
+import { getDictionary } from '@/i18n/dictionaries'
+import { createTranslator } from '@/i18n/translate'
 import * as client from '@/adapters/api/workflows-client'
+import { resolveTemplate } from '../lib/templates'
 import { WorkflowList } from './workflow-list'
 import { WorkflowBuilder } from './workflow-builder'
+import { TemplateCards } from './template-cards'
 
 const listWorkflowsMock = vi.mocked(client.listWorkflows)
 const createWorkflowMock = vi.mocked(client.createWorkflow)
@@ -55,7 +59,7 @@ describe('WorkflowList', () => {
 
   test('renders workflow cards from the client', async () => {
     listWorkflowsMock.mockResolvedValue([sampleWorkflow])
-    render(<WorkflowList projectId="p1" onCreate={noop} onEdit={noop} openingId={null} />)
+    render(<WorkflowList projectId="p1" onCreate={noop} onUseTemplate={noop} onEdit={noop} openingId={null} />)
 
     expect(await screen.findByText('Weekly OIB scan')).toBeInTheDocument()
     // Humanized schedule summary with the timezone.
@@ -65,14 +69,14 @@ describe('WorkflowList', () => {
 
   test('shows the empty state when there are no workflows', async () => {
     listWorkflowsMock.mockResolvedValue([])
-    render(<WorkflowList projectId="p1" onCreate={noop} onEdit={noop} openingId={null} />)
+    render(<WorkflowList projectId="p1" onCreate={noop} onUseTemplate={noop} onEdit={noop} openingId={null} />)
 
     expect(await screen.findByText('No workflows yet')).toBeInTheDocument()
   })
 
   test('surfaces a retryable error when the list fails to load', async () => {
     listWorkflowsMock.mockRejectedValue(new Error('boom'))
-    render(<WorkflowList projectId="p1" onCreate={noop} onEdit={noop} openingId={null} />)
+    render(<WorkflowList projectId="p1" onCreate={noop} onUseTemplate={noop} onEdit={noop} openingId={null} />)
 
     expect(await screen.findByText('The workflows could not be loaded.')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument()
@@ -128,5 +132,59 @@ describe('WorkflowBuilder', () => {
     expect(payload.definition.blocks.objective).toBe('Investigate OIB-2')
     // No schedule enabled by default → manual-only.
     expect(payload.scheduleCron).toBeNull()
+  })
+
+  test('pre-fills every field (incl. the schedule) from a GRID template', async () => {
+    createWorkflowMock.mockResolvedValue({} as client.WorkflowDetail)
+    const t = createTranslator(getDictionary('en'), 'workflows')
+    const template = resolveTemplate(t, 'regulatory-watch')
+    expect(template).not.toBeNull()
+
+    render(
+      <WorkflowBuilder
+        projectId="p1"
+        workflow={null}
+        template={template}
+        onSaved={noop}
+        onCancel={noop}
+      />,
+    )
+
+    // Name + objective are seeded from the template content.
+    expect(
+      await screen.findByDisplayValue('Regulatory watch: OIB & Austrian building law'),
+    ).toBeInTheDocument()
+
+    // Saving submits the pre-filled brief, schedule and additional sources —
+    // the template only ever pre-fills; the user's save is what creates it.
+    const saveButton = screen.getByRole('button', { name: 'Save workflow' })
+    await waitFor(() => expect(saveButton).toBeEnabled())
+    fireEvent.click(saveButton)
+
+    await waitFor(() => expect(createWorkflowMock).toHaveBeenCalledTimes(1))
+    const [, payload] = createWorkflowMock.mock.calls[0]
+    expect(payload.definition.blocks.objective).toContain('Austrian building law')
+    expect(payload.definition.blocks.questions?.length).toBe(5)
+    // Schedule pre-filled ENABLED with the weekly Vienna preset.
+    expect(payload.scheduleCron).toBe('0 6 * * 1')
+    expect(payload.scheduleTimezone).toBe('Europe/Vienna')
+    expect(payload.dataSources).toEqual(['ris', 'web_search'])
+  })
+})
+
+describe('TemplateCards', () => {
+  test('renders both GRID templates with a By GRID badge and calls onUse', () => {
+    const onUse = vi.fn()
+    render(<TemplateCards onUse={onUse} />)
+
+    expect(screen.getByText('Regulatory watch: OIB & Austrian building law')).toBeInTheDocument()
+    expect(screen.getByText('OIB compliance gap check')).toBeInTheDocument()
+    expect(screen.getAllByText('By GRID')).toHaveLength(2)
+
+    const useButtons = screen.getAllByRole('button', { name: 'Use template' })
+    expect(useButtons).toHaveLength(2)
+    fireEvent.click(useButtons[0])
+    expect(onUse).toHaveBeenCalledTimes(1)
+    expect(onUse.mock.calls[0][0]).toMatchObject({ id: 'regulatory-watch' })
   })
 })
