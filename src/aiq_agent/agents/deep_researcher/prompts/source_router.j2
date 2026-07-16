@@ -25,6 +25,7 @@ Do not check whether `/shared/source_routing.json` exists before writing. Do not
 - If the request explicitly names selected sources, only recommend configured available sources that match those names.
 - If an ideal source is unavailable, do not recommend it. Explain the fallback in `routing_reason` or `planner_guidance`.
 - If no configured domain fits well, use the catalog's `default_domain_id` when present.
+- The User Uploaded Documents list below can lag ingestion and be empty even when project documents actually exist, so when the request could depend on project/user content, still recommend a knowledge/document source if one is configured, regardless of that list.
 - If the catalog contains no domains, set `domain_id` to `unconfigured`, `domain_name` to `Unconfigured`, and use default fallback sources.
 - Keep planner_guidance short and actionable: mention preferred source IDs and exact tool names, plus any fallback order.
 - This route is advisory. The planner will still build the final ResearchPlan and exact ResearchQuery list.

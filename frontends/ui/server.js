@@ -21,6 +21,62 @@
 const http = require('http')
 const httpProxy = require('http-proxy')
 const { parse } = require('url')
+const crypto = require('crypto')
+
+// ── Signed context envelope (backlog T3-9 follow-up, 2026-07-16, user-mandated) ──
+// One consolidated, signed `X-Grid-Request-Context` header (+ integrity
+// signature `X-Grid-Request-Context-Sig`) carrying every x-grid-* field this
+// file already forwards individually below. Minted in ONE canonical place on
+// the TS side: `buildGridRequestContextEnvelope` /
+// `buildGridRequestContextEnvelopePayload` in
+// `frontends/ui/src/lib/request-context.ts`. server.js is plain CommonJS
+// (see the `require(...)` calls above — no ESM/TS imports anywhere in this
+// file) and cannot import that module, so the payload shape + signing logic
+// is DUPLICATED here. If the TS builder's field list, omission rules, or key
+// order ever change, this function must change identically — the
+// cross-language contract fixture (`tests/fixtures/grid_request_context.json`
+// `envelopeCases`) pins both sides' *output* so drift fails a test instead of
+// degrading silently in prod, but it cannot catch drift in this file's
+// *source* automatically since server.js has no test harness in this repo.
+// DUAL-WRITE: called alongside (not instead of) the individual x-grid-*
+// header assignments below — this is the transition-safety design agreed
+// with the user; removing the individual headers is a later cleanup.
+function buildGridRequestContextEnvelopeHeaders(input) {
+  const payload = {}
+  if (input.organizationId) payload.organizationId = input.organizationId
+  if (input.userId) payload.userId = input.userId
+  if (input.projectId) payload.projectId = input.projectId
+  if (input.collectionScope && input.collectionScope.length > 0) payload.collectionScope = input.collectionScope
+  if (input.projectContext) payload.projectContext = input.projectContext
+  if (input.projectMemory) payload.projectMemory = input.projectMemory
+  if (input.modelOverrides && Object.keys(input.modelOverrides).length > 0) {
+    payload.modelOverrides = input.modelOverrides
+  }
+  if (input.budget) payload.budget = input.budget
+  if (input.disabledSources && input.disabledSources.length > 0) payload.disabledSources = input.disabledSources
+  if (input.memoryReflectionEnabled !== undefined) payload.memoryReflectionEnabled = input.memoryReflectionEnabled
+  // `bundesland` (backlog T3-9 follow-up, 2026-07-16, user-mandated):
+  // envelope-only structured jurisdiction field, appended LAST in key order
+  // to keep every pre-existing signed payload byte-identical — see
+  // `buildGridRequestContextEnvelopePayload`'s docstring in request-context.ts
+  // (the canonical definition this function is pinned to).
+  if (input.bundesland) payload.bundesland = input.bundesland
+
+  const json = JSON.stringify(payload)
+  const headers = {
+    'x-grid-request-context': Buffer.from(json, 'utf8').toString('base64url'),
+  }
+  // Fail-open note (dev): when GRID_INTERNAL_API_TOKEN is unset, the envelope
+  // is still minted and forwarded (unsigned) — the backend's enforcement
+  // middleware mirrors this: signature verification is skipped when it also
+  // has no token configured, but envelope PRESENCE is still required for
+  // authenticated requests either way.
+  const secret = process.env.GRID_INTERNAL_API_TOKEN
+  if (secret) {
+    headers['x-grid-request-context-sig'] = crypto.createHmac('sha256', secret).update(json, 'utf8').digest('hex')
+  }
+  return headers
+}
 
 const dev = process.env.NODE_ENV !== 'production'
 const hostname = process.env.HOSTNAME || '0.0.0.0'
@@ -360,6 +416,28 @@ const startServer = async () => {
               'utf8'
             ).toString('base64url')
           }
+          // Consolidated, signed context envelope (backlog T3-9 follow-up,
+          // 2026-07-16, user-mandated) — DUAL-WRITE alongside every
+          // individual x-grid-* header set above, built from the SAME
+          // `result.data` values. See buildGridRequestContextEnvelopeHeaders'
+          // own comment (top of file) for why this is duplicated rather than
+          // imported from request-context.ts.
+          Object.assign(
+            req.headers,
+            buildGridRequestContextEnvelopeHeaders({
+              organizationId: result.data?.organizationId,
+              userId: result.data?.userId,
+              projectId: result.data?.projectId,
+              collectionScope: result.data?.scope,
+              projectContext: result.data?.projectContext,
+              projectMemory: result.data?.projectMemory,
+              modelOverrides: result.data?.modelOverrides,
+              budget: result.data?.budget,
+              disabledSources: result.data?.disabledSources,
+              memoryReflectionEnabled: result.data?.memoryReflectionEnabled,
+              bundesland: result.data?.bundesland,
+            })
+          )
         } else if (result.status === 401 || result.status === 403) {
           const statusText = result.status === 401 ? 'Unauthorized' : 'Forbidden'
           try {

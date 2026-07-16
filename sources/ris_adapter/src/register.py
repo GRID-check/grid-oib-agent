@@ -42,6 +42,22 @@ from nat.cli.register_workflow import register_function
 from nat.data_models.component_ref import LLMRef
 from nat.data_models.function import FunctionBaseConfig
 
+try:
+    from aiq_agent.common.ris_catalog import CatalogEntry
+    from aiq_agent.common.ris_catalog import extract_bundesland
+    from aiq_agent.common.ris_catalog import focus_entries
+    from aiq_agent.common.ris_catalog import load_catalog
+    from aiq_agent.common.ris_catalog import match_entries
+
+    _CATALOG_AVAILABLE = True
+except ImportError:  # adapter used standalone, without the Grid agent package
+    CatalogEntry = None  # type: ignore[assignment]
+    extract_bundesland = None  # type: ignore[assignment]
+    focus_entries = None  # type: ignore[assignment]
+    load_catalog = None  # type: ignore[assignment]
+    match_entries = None  # type: ignore[assignment]
+    _CATALOG_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 # Austrian federal states accepted by the Landesrecht (LrKons) filter.
@@ -71,6 +87,11 @@ _KONSOLIDIERT_NOTE = (
 )
 
 _DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+_CASE_LAW_SIGNALS = re.compile(
+    r"(vwgh|vfgh|judikatur|erkenntnis|entscheidung|geschäftszahl|geschaeftszahl|beschluss|urteil)",
+    re.IGNORECASE,
+)
 
 
 def _normalize_bundesland(value: str) -> str:
@@ -310,6 +331,17 @@ class RisSearchToolConfig(FunctionBaseConfig, name="ris_search"):
             "dependency and instantiates the LLM before this tool is built."
         ),
     )
+    catalog_shortcut: bool = Field(
+        default=True,
+        description=(
+            "Return curated-catalog pointers directly when the query matches the catalog "
+            "(no live search, no planner). Live search stays the fallback."
+        ),
+    )
+    catalog_path: str = Field(
+        default="",
+        description="Path to the curated catalog YAML. Empty = RIS_CATALOG_PATH env var or configs/ris_catalog.yml.",
+    )
 
 
 @register_function(config_type=RisSearchToolConfig)
@@ -382,6 +414,42 @@ async def ris_search(tool_config: RisSearchToolConfig, builder: Builder):
         Returns:
             str: Numbered document references with citation URLs and fetch instructions.
         """
+        if (
+            tool_config.catalog_shortcut
+            and _CATALOG_AVAILABLE
+            and not title
+            and not date_from
+            and not date_to
+            and not _CASE_LAW_SIGNALS.search(query)
+        ):
+            catalog = load_catalog(tool_config.catalog_path or None)
+            if catalog is not None:
+                matches = match_entries(catalog, query)
+                # An explicitly non-default application narrows the pointers to
+                # that application ("BrKons" is the signature default, so it is
+                # indistinguishable from "not specified" and filters nothing).
+                if application != "BrKons":
+                    matches = [m for m in matches if m.application == application]
+                # Jurisdiction: the explicit bundesland argument wins, else the
+                # state named in the query. Other states' law is dropped and the
+                # project's own state sorts first — never hand a Tyrolean
+                # project the Viennese Bauordnung.
+                detected_land = extract_bundesland(bundesland) or extract_bundesland(query)
+                matches = focus_entries(matches, detected_land)
+                if matches:
+                    shown = matches[: tool_config.max_results]
+                    lines = [
+                        f"Curated RIS catalog match(es) for '{query}' - verified pointers, no live search performed:",
+                        "",
+                    ]
+                    lines.extend(_format_catalog_entry(i, entry) + "\n" for i, entry in enumerate(shown, 1))
+                    lines.append(
+                        "Fetch the full text with ris_fetch_document using the document number or the "
+                        "'Entire consolidated law' URL. This answer comes from the curated catalog; "
+                        "refine the query (e.g. name a court, set an explicit application, or a date) "
+                        "to force a live RIS search."
+                    )
+                    return "\n".join(lines)
         effective = {
             "application": application,
             "query": query,
@@ -468,6 +536,96 @@ async def ris_search(tool_config: RisSearchToolConfig, builder: Builder):
 async def _plan_with(planner, query, application, title, bundesland, date_from, date_to) -> RisSearchPlan | None:
     """Run the planner; isolated for testability."""
     return await planner(query, application, title, bundesland, date_from, date_to)
+
+
+def _format_catalog_entry(index: int, entry: CatalogEntry) -> str:
+    """Format one curated catalog entry as an agent-readable pointer block."""
+    lines = [f"--- Catalog match {index} ---"]
+    lines.append(f"Title: {entry.title}")
+    if entry.bundesland:
+        lines.append(f"Bundesland: {entry.bundesland}")
+    lines.append(f"Application: {entry.application}")
+    lines.append(f"Document number: {entry.document_number}")
+    if entry.citation_url:
+        lines.append(f"Source: {entry.citation_url}")
+    if entry.full_law_url:
+        lines.append(f"Entire consolidated law (all paragraphs): {entry.full_law_url}")
+    if entry.relevance:
+        lines.append(f"Relevance: {entry.relevance}")
+    return "\n".join(lines)
+
+
+class RisCatalogLookupToolConfig(FunctionBaseConfig, name="ris_catalog_lookup"):
+    """Look up building-law topics in the curated RIS catalog of verified norms."""
+
+    catalog_path: str = Field(
+        default="",
+        description="Path to the curated catalog YAML. Empty = RIS_CATALOG_PATH env var or configs/ris_catalog.yml.",
+    )
+    max_matches: int = Field(default=5, ge=1, description="Maximum catalog entries returned per lookup")
+
+
+@register_function(config_type=RisCatalogLookupToolConfig)
+async def ris_catalog_lookup(tool_config: RisCatalogLookupToolConfig, builder: Builder):
+    catalog_path = tool_config.catalog_path or None
+
+    async def _ris_catalog_lookup(topic: str) -> str:
+        """Look up an Austrian building-law topic in the curated RIS catalog of verified norms.
+
+        WHEN TO USE THIS TOOL:
+        - First stop for any question about Austrian building law: Bauordnungen,
+          Bautechnikgesetze/-verordnungen, and the adjacent federal acts. The catalog
+          maps topics to VERIFIED RIS pointers (application, document number, citation
+          URL, 'entire consolidated law' URL) - no keyword guessing, no wrong silo.
+        - Then call ris_fetch_document with the returned document number or the
+          'Entire consolidated law' URL to read the full text before citing anything.
+
+        WHEN NOT TO USE:
+        - The catalog covers only the core building-relevant norms. For case law,
+          draft bills, gazettes, or anything beyond it, use ris_search (live RIS search).
+
+        Args:
+            topic (str): German building-law topic. ALWAYS name the Bundesland for
+                state-law topics (e.g. "Bauordnung Tirol", "Stellplatz Wien") — the
+                nine state building codes differ, and the lookup returns the named
+                state's law (plus federal law) instead of all nine.
+
+        Returns:
+            str: Verified pointer blocks (application, document number, citation URL,
+                entire-law URL) or guidance to use ris_search when nothing matches.
+        """
+        if not _CATALOG_AVAILABLE:
+            return "Error: RIS catalog lookup unavailable - catalog module not importable. Use ris_search."
+        catalog = load_catalog(catalog_path)
+        if catalog is None:
+            return (
+                "Error: RIS catalog unavailable (file missing or invalid) - "
+                "use ris_search (live RIS search) instead."
+            )
+        # Jurisdiction filter BEFORE truncation: for "Bauordnung Tirol" the nine
+        # state codes all match the generic "bauordnung" topic, and without the
+        # filter the catalog-order head (Wien, NÖ, ...) would crowd Tirol out of
+        # max_matches entirely.
+        matches = focus_entries(match_entries(catalog, topic), extract_bundesland(topic))
+        matches = matches[: tool_config.max_matches]
+        if not matches:
+            return (
+                f"No curated RIS catalog entry matches '{topic}'. The catalog covers only the core "
+                "building-relevant norms (Bauordnungen, Bautechnik, adjacent federal law) - use "
+                "ris_search (live RIS search) for anything else."
+            )
+        lines = [f"Curated RIS catalog: {len(matches)} verified match(es) for '{topic}':", ""]
+        lines.extend(_format_catalog_entry(i, entry) + "\n" for i, entry in enumerate(matches, 1))
+        lines.append(
+            "These are verified pointers - fetch the full text with ris_fetch_document using the "
+            "document number or the 'Entire consolidated law' URL. No ris_search needed."
+        )
+        return "\n".join(lines)
+
+    yield FunctionInfo.from_fn(
+        _ris_catalog_lookup,
+        description=_ris_catalog_lookup.__doc__,
+    )
 
 
 class RisFetchDocumentToolConfig(FunctionBaseConfig, name="ris_fetch_document"):

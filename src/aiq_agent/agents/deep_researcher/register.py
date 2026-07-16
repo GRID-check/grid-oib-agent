@@ -33,6 +33,7 @@ from nat.data_models.function import FunctionBaseConfig
 
 from .agent import DEFAULT_MAX_CONCURRENT_SOURCE_TOOL_CALLS
 from .agent import DEFAULT_MAX_RESEARCH_CONCURRENCY
+from .agent import DEFAULT_MAX_RUN_SECONDS
 from .agent import DEFAULT_MAX_SOURCE_TOOL_BATCH_SIZE
 from .agent import DeepResearcherAgent
 from .deepagents_runtime import DeepResearchSandboxConfig
@@ -97,6 +98,19 @@ class DeepResearchAgentConfig(FunctionBaseConfig, name="deep_research_agent"):
         default=DEFAULT_MAX_SOURCE_TOOL_BATCH_SIZE,
         ge=1,
         description="Maximum concrete inputs accepted by batch-capable source tool wrappers.",
+    )
+    max_run_seconds: int = Field(
+        default=DEFAULT_MAX_RUN_SECONDS,
+        ge=0,
+        description="Wall-clock budget for one deep-research run in seconds; 0 disables the guard.",
+    )
+    checkpoint_db: str | None = Field(
+        default=None,
+        description="Optional SQLite database path or Postgres DSN for durable per-job checkpointing of "
+        "deep-research runs (LangGraph thread_id = job_id), enabling resume of a re-invoked job after a "
+        "worker crash. None (default) keeps current behavior: an in-memory-only graph with no execution-"
+        "state durability. Mirrors the workflow-level chat_researcher checkpoint_db pattern, but opt-in "
+        "here since deep-research jobs run in ephemeral Dask worker processes.",
     )
 
     @field_validator("skills", mode="before")
@@ -213,6 +227,18 @@ async def deep_research_agent(config: DeepResearchAgentConfig, builder: Builder)
     verbose = is_verbose(config.verbose)
     callbacks = [VerboseTraceCallback()] if verbose else []
 
+    # Optional durable checkpointer (T3-8): built once at registration time and
+    # shared by every agent instance this function builds, matching the
+    # chat_researcher precedent (register.py:387). get_checkpointer caches by
+    # checkpoint_db path/DSN, so this is a no-op cache hit if the async job
+    # runner (frontends/aiq_api/.../jobs/runner.py) already built the same
+    # checkpointer for this config's checkpoint_db.
+    checkpointer = None
+    if config.checkpoint_db:
+        from aiq_agent.common import get_checkpointer
+
+        checkpointer = await get_checkpointer(config.checkpoint_db)
+
     def _build_agent(
         tool_list: list,
         *,
@@ -238,6 +264,8 @@ async def deep_research_agent(config: DeepResearchAgentConfig, builder: Builder)
             max_research_concurrency=config.max_research_concurrency,
             max_concurrent_source_tool_calls=config.max_concurrent_source_tool_calls,
             max_source_tool_batch_size=config.max_source_tool_batch_size,
+            max_run_seconds=config.max_run_seconds,
+            checkpointer=checkpointer,
         )
 
     # Cache of the lazily-resolved (tools, prebuilt agent) pair. For explicit

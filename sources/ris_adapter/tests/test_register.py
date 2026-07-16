@@ -7,14 +7,20 @@ from ris_adapter.client import RisDocument
 from ris_adapter.client import RisError
 from ris_adapter.client import RisHit
 from ris_adapter.client import RisSearchResult
+from ris_adapter.register import RisCatalogLookupToolConfig
 from ris_adapter.register import RisFetchDocumentToolConfig
 from ris_adapter.register import RisSearchToolConfig
 from ris_adapter.register import _build_search_params
+from ris_adapter.register import _format_catalog_entry
 from ris_adapter.register import _format_hit
 from ris_adapter.register import _safe_document_name
+from ris_adapter.register import ris_catalog_lookup
 from ris_adapter.register import ris_fetch_document
 from ris_adapter.register import ris_search
 
+from aiq_agent.common.ris_catalog import CatalogEntry
+from aiq_agent.common.ris_catalog import RisCatalog
+from nat.builder.function import LambdaFunction
 from nat.data_models.function import FunctionBaseConfig
 
 
@@ -38,6 +44,8 @@ class TestConfigs:
         assert config.timeout == 30.0
         assert config.page_size == 20
         assert config.max_results == 10
+        assert config.catalog_shortcut is True
+        assert config.catalog_path == ""
 
     def test_fetch_defaults(self):
         config = RisFetchDocumentToolConfig()
@@ -136,9 +144,20 @@ class _FakeClient:
         pass
 
 
+class _CallProbeToolConfig(FunctionBaseConfig, name="test_register_call_probe"):
+    """Dummy config so _call can wrap a FunctionInfo in the real runtime Function."""
+
+
 async def _call(info, **kwargs):
-    """Invoke a registered NAT tool: multi-arg tools take one input_schema instance."""
-    return await info.single_fn(info.input_schema(**kwargs))
+    """Invoke a registered NAT tool through the real runtime path.
+
+    LambdaFunction.ainvoke converts the kwargs into the tool's input schema and
+    unpacks it per the function's arity — calling info.single_fn(...) directly
+    would hand SINGLE-argument tools (ris_catalog_lookup) the whole schema
+    object instead of the value, which production never does.
+    """
+    fn = LambdaFunction.from_info(config=_CallProbeToolConfig(), info=info)
+    return await fn.ainvoke(kwargs, to_type=str)
 
 
 @pytest.fixture
@@ -148,7 +167,34 @@ def fake_client(monkeypatch):
     _FakeClient.search_calls = []
     _FakeClient.fetch_calls = []
     monkeypatch.setattr("ris_adapter.register.RisClient", _FakeClient)
+    # Keep every live-search test on the live path even when a shipped catalog exists.
+    monkeypatch.setattr("ris_adapter.register.load_catalog", lambda path=None: None)
     return _FakeClient
+
+
+def _catalog_entry(**overrides) -> CatalogEntry:
+    data = {
+        "id": "bo-wien",
+        "title": "Bauordnung für Wien",
+        "short": "BO Wien",
+        "application": "LrKons",
+        "document_number": "NOR12345678",
+        "citation_url": "https://www.ris.bka.gv.at/eli/lgbl/WI/1930/11",
+        "full_law_url": "https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=LrW&Gesetzesnummer=20000123",
+        "bundesland": "Wien",
+        "topics": ["bauordnung", "bauantrag"],
+        "relevance": "State building code for Vienna",
+        "verified_at": "2026-07-16",
+    }
+    data.update(overrides)
+    return CatalogEntry(**data)
+
+
+@pytest.fixture
+def fake_catalog(monkeypatch):
+    catalog = RisCatalog(entries=[_catalog_entry()])
+    monkeypatch.setattr("ris_adapter.register.load_catalog", lambda path=None: catalog)
+    return catalog
 
 
 class TestRisSearchTool:
@@ -486,3 +532,224 @@ class TestRisFetchDocumentTool:
         assert "Volltext" in output
         assert "added to the knowledge base" not in output
         assert not output.startswith("Error")
+
+
+class TestFormatCatalogEntry:
+    def test_contains_pointer_lines(self):
+        output = _format_catalog_entry(1, _catalog_entry())
+
+        assert "--- Catalog match 1 ---" in output
+        assert "Title: Bauordnung für Wien" in output
+        assert "Bundesland: Wien" in output
+        assert "Application: LrKons" in output
+        assert "Document number: NOR12345678" in output
+        assert "Source: https://www.ris.bka.gv.at/eli/lgbl/WI/1930/11" in output
+        assert "Entire consolidated law (all paragraphs):" in output
+        assert "Relevance: State building code for Vienna" in output
+
+    def test_skips_empty_optional_fields(self):
+        output = _format_catalog_entry(1, _catalog_entry(bundesland="", citation_url="", full_law_url="", relevance=""))
+
+        assert "Bundesland:" not in output
+        assert "Source:" not in output
+        assert "Entire consolidated law" not in output
+        assert "Relevance:" not in output
+
+
+class TestRisCatalogLookupTool:
+    def test_config_defaults(self):
+        config = RisCatalogLookupToolConfig()
+
+        assert config.catalog_path == ""
+        assert config.max_matches == 5
+
+    def test_inherits_from_function_base_config(self):
+        assert issubclass(RisCatalogLookupToolConfig, FunctionBaseConfig)
+
+    async def test_returns_verified_pointers(self, fake_catalog):
+        async with ris_catalog_lookup(RisCatalogLookupToolConfig(), MagicMock()) as info:
+            output = await _call(info, topic="bauordnung wien")
+
+        assert "1 verified match(es)" in output
+        assert "NOR12345678" in output
+        assert "Entire consolidated law" in output
+        assert "ris_fetch_document" in output
+        assert "No ris_search needed" in output
+
+    async def test_no_match_guides_to_ris_search(self, fake_catalog):
+        async with ris_catalog_lookup(RisCatalogLookupToolConfig(), MagicMock()) as info:
+            output = await _call(info, topic="mietzins")
+
+        assert "No curated RIS catalog entry matches 'mietzins'" in output
+        assert "ris_search" in output
+
+    async def test_max_matches_respected(self, monkeypatch):
+        catalog = RisCatalog(
+            entries=[
+                _catalog_entry(),
+                _catalog_entry(
+                    id="bo-noe", short="BO NÖ", bundesland="Niederösterreich", document_number="NOR87654321"
+                ),
+            ]
+        )
+        monkeypatch.setattr("ris_adapter.register.load_catalog", lambda path=None: catalog)
+
+        async with ris_catalog_lookup(RisCatalogLookupToolConfig(max_matches=1), MagicMock()) as info:
+            output = await _call(info, topic="bauordnung")
+
+        assert "1 verified match(es)" in output
+        assert "NOR12345678" in output
+        assert "NOR87654321" not in output
+
+    async def test_state_specific_topic_returns_that_state_not_the_catalog_head(self, monkeypatch):
+        # All nine state building codes share the generic "bauordnung" topic. A
+        # state-specific lookup must return THAT state (plus federal law) — not
+        # the first max_matches entries in catalog order, which would crowd the
+        # right state out entirely.
+        catalog = RisCatalog(
+            entries=[
+                _catalog_entry(),  # Wien, catalog head
+                _catalog_entry(
+                    id="bo-noe", short="NÖ BO", bundesland="Niederösterreich", document_number="NOR00000002"
+                ),
+                _catalog_entry(
+                    id="bo-ooe", short="Oö. BauO", bundesland="Oberösterreich", document_number="NOR00000003"
+                ),
+                _catalog_entry(
+                    id="bo-stmk", short="Stmk. BauG", bundesland="Steiermark", document_number="NOR00000004"
+                ),
+                _catalog_entry(id="bo-ktn", short="Ktn. BO", bundesland="Kärnten", document_number="NOR00000005"),
+                _catalog_entry(id="bo-tirol", short="Tiroler BO", bundesland="Tirol", document_number="NOR00000006"),
+                _catalog_entry(
+                    id="aschg", short="ASchG", application="BrKons", bundesland="", document_number="NOR00000007"
+                ),
+            ]
+        )
+        monkeypatch.setattr("ris_adapter.register.load_catalog", lambda path=None: catalog)
+
+        async with ris_catalog_lookup(RisCatalogLookupToolConfig(max_matches=5), MagicMock()) as info:
+            output = await _call(info, topic="Bauordnung Tirol")
+
+        assert "NOR00000006" in output  # Tirol — was truncated out before the fix
+        assert "NOR00000007" in output  # federal law is never dropped
+        assert "NOR12345678" not in output  # Wien
+        assert "NOR00000002" not in output  # NÖ
+        # The named state sorts before federal law.
+        assert output.index("NOR00000006") < output.index("NOR00000007")
+
+    async def test_catalog_unavailable(self, monkeypatch):
+        monkeypatch.setattr("ris_adapter.register.load_catalog", lambda path=None: None)
+
+        async with ris_catalog_lookup(RisCatalogLookupToolConfig(), MagicMock()) as info:
+            output = await _call(info, topic="bauordnung")
+
+        assert "RIS catalog unavailable" in output
+        assert "ris_search" in output
+
+    async def test_module_unavailable(self, monkeypatch):
+        monkeypatch.setattr("ris_adapter.register._CATALOG_AVAILABLE", False)
+
+        async with ris_catalog_lookup(RisCatalogLookupToolConfig(), MagicMock()) as info:
+            output = await _call(info, topic="bauordnung")
+
+        assert "catalog module not importable" in output
+        assert "ris_search" in output
+
+
+class TestRisSearchCatalogShortcut:
+    async def test_match_returns_pointers_without_live_search(self, fake_client, fake_catalog):
+        async with ris_search(RisSearchToolConfig(), MagicMock()) as info:
+            output = await _call(info, query="bauordnung wien")
+
+        assert "Curated RIS catalog match(es)" in output
+        assert "no live search performed" in output
+        assert "NOR12345678" in output
+        assert "ris_fetch_document" in output
+        assert fake_client.search_calls == []
+
+    async def test_match_with_matching_explicit_application_shortcuts(self, fake_client, fake_catalog):
+        async with ris_search(RisSearchToolConfig(), MagicMock()) as info:
+            output = await _call(info, query="bauordnung", application="LrKons")
+
+        assert "Curated RIS catalog match(es)" in output
+        assert fake_client.search_calls == []
+
+    async def test_bundesland_argument_selects_that_states_law(self, fake_client, monkeypatch):
+        catalog = RisCatalog(
+            entries=[
+                _catalog_entry(),  # Wien
+                _catalog_entry(id="bo-tirol", short="Tiroler BO", bundesland="Tirol", document_number="NOR00000006"),
+            ]
+        )
+        monkeypatch.setattr("ris_adapter.register.load_catalog", lambda path=None: catalog)
+
+        async with ris_search(RisSearchToolConfig(), MagicMock()) as info:
+            output = await _call(info, query="bauordnung", bundesland="Tirol")
+
+        assert fake_client.search_calls == []
+        assert "NOR00000006" in output
+        # The explicitly requested state wins: no Viennese pointers for Tirol.
+        assert "NOR12345678" not in output
+
+    async def test_explicit_application_filters_pointers(self, fake_client, monkeypatch):
+        catalog = RisCatalog(
+            entries=[
+                _catalog_entry(),  # LrKons Wien
+                _catalog_entry(
+                    id="aschg", short="ASchG", application="BrKons", bundesland="", document_number="NOR00000007"
+                ),
+            ]
+        )
+        monkeypatch.setattr("ris_adapter.register.load_catalog", lambda path=None: catalog)
+
+        async with ris_search(RisSearchToolConfig(), MagicMock()) as info:
+            output = await _call(info, query="bauordnung wien", application="LrKons")
+
+        assert fake_client.search_calls == []
+        assert "NOR12345678" in output
+        # Explicit LrKons request -> federal pointers are not mixed in.
+        assert "NOR00000007" not in output
+
+    async def test_no_match_falls_through_to_live_search(self, fake_client, fake_catalog):
+        async with ris_search(RisSearchToolConfig(), MagicMock()) as info:
+            await _call(info, query="garagengesetz")
+
+        assert len(fake_client.search_calls) == 1
+
+    async def test_case_law_signal_forces_live_search(self, fake_client, fake_catalog):
+        async with ris_search(RisSearchToolConfig(), MagicMock()) as info:
+            await _call(info, query="VwGH Erkenntnis Bauordnung")
+
+        assert len(fake_client.search_calls) == 1
+
+    async def test_mismatched_application_forces_live_search(self, fake_client, fake_catalog):
+        async with ris_search(RisSearchToolConfig(), MagicMock()) as info:
+            await _call(info, query="bauordnung", application="Vwgh")
+
+        assert len(fake_client.search_calls) == 1
+
+    async def test_date_argument_forces_live_search(self, fake_client, fake_catalog):
+        async with ris_search(RisSearchToolConfig(), MagicMock()) as info:
+            await _call(info, query="bauordnung", date_from="2020-01-01")
+
+        assert len(fake_client.search_calls) == 1
+
+    async def test_title_argument_forces_live_search(self, fake_client, fake_catalog):
+        async with ris_search(RisSearchToolConfig(), MagicMock()) as info:
+            await _call(info, query="bauordnung", title="Bauordnung für Wien")
+
+        assert len(fake_client.search_calls) == 1
+
+    async def test_shortcut_disabled_via_config(self, fake_client, fake_catalog):
+        async with ris_search(RisSearchToolConfig(catalog_shortcut=False), MagicMock()) as info:
+            await _call(info, query="bauordnung wien")
+
+        assert len(fake_client.search_calls) == 1
+
+    async def test_catalog_unavailable_falls_through(self, fake_client, monkeypatch):
+        monkeypatch.setattr("ris_adapter.register.load_catalog", lambda path=None: None)
+
+        async with ris_search(RisSearchToolConfig(), MagicMock()) as info:
+            await _call(info, query="bauordnung wien")
+
+        assert len(fake_client.search_calls) == 1

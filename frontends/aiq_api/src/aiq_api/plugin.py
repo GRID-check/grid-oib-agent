@@ -31,6 +31,7 @@ from pydantic import Field
 from typing_extensions import override
 
 from aiq_api.auth.middleware import AuthMiddleware
+from aiq_api.context_envelope import GridContextEnvelopeMiddleware
 from nat.builder.workflow_builder import WorkflowBuilder
 from nat.cli.register_workflow import register_front_end
 from nat.data_models.config import Config
@@ -188,6 +189,10 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
 
     @override
     def build_app(self) -> FastAPI:
+        from aiq_agent.common.logging_utils import suppress_noisy_dependency_logs
+
+        suppress_noisy_dependency_logs()
+
         app = super().build_app()
 
         app.title = "AI-Q API"
@@ -218,6 +223,15 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
                 "Either call aiq_api.plugin.register_validator() before starting the server, "
                 "or declare an 'aiq_api.validators' entry point in your package."
             )
+        # NOTE on ordering: Starlette's add_middleware() makes each newly
+        # added middleware the new OUTERMOST layer, so whichever is added
+        # LAST runs FIRST on the way in. GridContextEnvelopeMiddleware is
+        # added BEFORE AuthMiddleware here so that AuthMiddleware (added,
+        # and therefore outer, second) always resolves scope["state"]["user"]
+        # before the envelope-enforcement middleware reads it for HTTP
+        # requests. See aiq_api.context_envelope's module docstring for the
+        # full enforcement design (matrix, WebSocket handling, exemptions).
+        app.add_middleware(GridContextEnvelopeMiddleware, require_auth=require_auth, validators=validators)
         app.add_middleware(AuthMiddleware, validators=validators, require_auth=require_auth)
         configure_websocket_auth(validators=validators, require_auth=require_auth)
         logger.info(

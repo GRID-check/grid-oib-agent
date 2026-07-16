@@ -40,6 +40,7 @@ Browser WebSocket
       • calls internal /api/websocket-scope?projectId=…  to fetch:
           - projectContext  → sets header  x-grid-project-context
           - collection scope → sets header  x-grid-collection-scope
+      • ALSO sets the signed X-Grid-Request-Context envelope (below)
       • proxies the upgrade to the aiq-agent backend
   → NAT workflow  chat_deepresearcher_agent
       LangGraph:  intent_classifier
@@ -73,6 +74,42 @@ so the frontend can read them at `message.<field>` (not nested under
 
 If you add another structured signal to the chat response, this is where it must
 be lifted, and the frontend Zod schema (`schemas.ts`) must declare it.
+
+### 2b. Signed context envelope (backlog T3-9, 2026-07-16)
+
+Every submission path used to hand-roll its own subset of the `x-grid-*`
+context headers (org/user/project id, collection scope, project
+context/memory, model overrides, budget, disabled sources) — one audited case
+(async-job submit, §8b) simply forgot one. `frontends/ui/src/lib/request-context.ts`
+is now the single builder: `buildGridRequestContextWireHeaders` returns every
+individual header PLUS one consolidated, signed `X-Grid-Request-Context`
+header (base64url JSON of the same fields, plus the structured `bundesland`
+fact — §6b) and `X-Grid-Request-Context-Sig` (hex HMAC-SHA256 of the raw
+JSON, keyed on `GRID_INTERNAL_API_TOKEN`). This is a **dual-write
+transition**: the individual headers are still sent unchanged; the envelope
+rides alongside them, and removing the legacy headers is a later cleanup.
+`server.js` duplicates the same builder logic (with a pinning comment) since
+it is plain CommonJS and cannot import the TS module.
+
+On the backend, `aiq_agent.project_context.GridRequestContext.from_context()`
+/`from_envelope()` verifies the signature with `hmac.compare_digest` and
+prefers a present-and-valid envelope over the individual headers; an
+invalid/missing signature is treated as an ABSENT envelope (logged as a
+WARNING tamper signal), falling back to the individual headers exactly as
+before the envelope existed.
+
+`frontends/aiq_api/src/aiq_api/context_envelope.py`'s
+`GridContextEnvelopeMiddleware` (raw ASGI, same pattern as `AuthMiddleware` —
+never buffers the response body, so SSE routes are unaffected) fail-closed
+rejects (403 / WS policy-violation close) a workflow-invoking request when
+ALL of: `REQUIRE_AUTH=true`; the caller is a WorkOS-authenticated JWT user;
+the path is on the conservative enforced allowlist (`/websocket`,
+`/v1/jobs/async/submit`, `/v1/internal/workflows/submit`, `/generate`); and no
+valid envelope is present. Exempt regardless of path: anonymous mode,
+internal-token-authenticated service calls, and every non-enumerated path —
+the enforced-path list is an allowlist, not a denylist. Dev fail-open note:
+when `GRID_INTERNAL_API_TOKEN` is unset, signature verification is skipped
+but envelope *presence* is still required for authenticated requests.
 
 ## 3. The card pipeline
 
@@ -252,6 +289,151 @@ RAG multi-tenant boundary. Note `resolveProjectCollectionName` short-circuits to
 no project scope when `session.organizationId` is falsy (anonymous /
 `REQUIRE_AUTH=false`).
 
+### Document summaries & `available_documents` (SQL side-table, distinct from the vector index)
+
+Two separate stores back "documents" and are **architecturally distinct**:
+the **ChromaDB vector index** that `knowledge_search`/`knowledge_retrieval`
+queries (what's actually retrievable), and a **SQL `summaries` side-table**
+(`SummaryStore`, `src/aiq_agent/knowledge/summary_store.py` + `factory.py
+get_available_documents_async`) that is the **sole source** of the
+`available_documents` list (file name + summary, optionally tags) rendered
+into agent prompts and shown in the Data Sources panel. A document could
+previously end up fully ingested and retrievable via `knowledge_search` yet
+**absent** from `available_documents` — see "Silent summary-row loss on
+double LLM failure" below for the fix that closed the practical case of
+this.
+
+`available_documents` is fetched **once per turn**, in
+`chat_researcher/register.py` (~lines 530–581), aggregated across the
+collections in the request's header-based scope (or the base + session
+collection fallback when no scope header is present) and deduplicated by file
+name. The same list is then shared by the shallow, clarifier, and deep-research
+paths for that turn — it is not re-fetched per node.
+
+**Prompt gating asymmetry — fixed 2026-07-16 (`77a4d7a`)**: the deep-research
+prompts (`agents/deep_researcher/prompts/planner.j2`,
+`agents/deep_researcher/prompts/orchestrator.j2`,
+`agents/deep_researcher/prompts/researcher.j2`, and
+`agents/deep_researcher/prompts/source_router.j2`) used to gate document
+*awareness* purely on `available_documents` being non-empty, unlike the
+shallow researcher's unconditional "use `knowledge_search` first" instruction
+(`agents/shallow_researcher/prompts/researcher.j2:31`). The document
+*listing* block is still wrapped in `{% if available_documents %}` (nothing
+to list when the summaries table has no row), but `planner.j2` and
+`researcher.j2` now separately instruct the agent to probe `knowledge_search`
+unconditionally whenever the query concerns project/user content — "do this
+regardless of whether the ... list below is empty or missing" — explaining
+that the list "comes from a summaries index that can lag ingestion and
+silently omit fully-ingested documents", so an empty/missing list is never
+treated as proof no project documents exist. Combined with the reconciliation
+backfill below, the list itself should now rarely be wrong in practice, but
+the prompt-level distrust remains as defense in depth.
+
+**Silent summary-row loss on double LLM failure — fixed 2026-07-16**:
+ingestion (`sources/knowledge_layer/src/llamaindex/adapter.py`, ~lines
+1795–1965) runs summary generation and tag classification as two concurrent
+calls to the same `summary_llm`; both independently swallow
+exceptions/timeouts and return `None` on failure. Previously the
+deterministic, text-derived fallback summary only kicked in when `not
+summary and tags and text_documents` — i.e. only when tag classification
+succeeded but summarization did not — so when **both** calls failed, no
+`summaries` row was ever written even though the file's chunks were embedded
+successfully and the file was already `FileStatus.SUCCESS`. Two fixes landed
+together:
+
+1. **Fallback ungated (`7bc5cc7`)**: `register_summary()`'s fallback now
+   fires whenever the LLM summary is missing and `text_documents` exist,
+   independent of tag success, and reads a wider source sample (first + last
+   chunk) so a sparse first chunk can't starve it.
+2. **Reconciliation backfill (`42a4fa3`)**: `reconcile_collection_summaries()`
+   (knowledge-layer factory) runs at the end of every `LlamaIndexIngestor`
+   ingestion job — the Knowledge API, `scripts/ingest_oib.py`'s `oib_sync`,
+   and any future caller get it for free. It diffs a collection's indexed,
+   successfully-ingested files (`BaseIngestor.list_files`) against the
+   `summaries` table and registers a deterministic fallback summary for any
+   gap, logging a WARNING per backfilled document (a gap still means the
+   primary summary path failed silently — this is a backstop, not a silent
+   fix). Backends may optionally expose `get_document_text_sample()` to give
+   the fallback a real text sample; `LlamaIndexIngestor` does, reading chunk
+   text back out of Chroma.
+
+Together these implement backlog T3-10's cure (reconciliation pass +
+ungating `fallback_summary_from_text` from tag success) and make "ingested ⇒
+visible in `available_documents`" hold for every ingestion path — a document
+that finishes ingestion always gets a `summaries` row, either from the
+primary LLM path or, on backfill, from the reconciliation pass. The two
+stores remain architecturally distinct (SQL side-table vs. ChromaDB vector
+index), so this is a structural backstop rather than a merge of the two
+sources — see backlog T3-10 for the closed status and rationale.
+
+## 6b. Curated RIS index (deterministic legal pointers)
+
+The live `ris_search` tool is keyword-blind: an LLM planner guesses one of ~40
+OGD-RIS application silos plus German statutory terms, and a wrong guess yields
+"No documents found". The curated index removes the guesswork for the core
+building-law corpus:
+
+- `configs/ris_catalog.yml` (override: `RIS_CATALOG_PATH`) maps topics to
+  **verified** pointers — application, document number, citation URL,
+  entire-consolidated-law URL, Bundesland — for the nine state building codes,
+  the Wiener Garagengesetz, and adjacent federal acts (ASchG, AStV, BKAG, ZTG,
+  WGG). Pointer index only: full texts still go through `ris_fetch_document`.
+- Generated, never hand-edited: `scripts/build_ris_catalog.py` re-verifies every
+  seed against the live OGD-RIS API and fails loudly on unverifiable entries.
+- `src/aiq_agent/common/ris_catalog.py` is the shared loader/matcher/renderer
+  (lru-cached by path+mtime, umlaut-normalized substring matching,
+  `resolve_bundesland` resolves jurisdiction — see below —
+  `extract_bundesland` scans free text as its fallback). Everything is
+  fail-open: a missing/invalid catalog disables the feature with a warning;
+  live search is unaffected.
+
+Three consumers:
+
+1. `ris_search` short-circuit (`catalog_shortcut`, default on): a catalog match
+   with no title/date args and no case-law signal returns the verified pointers
+   directly — no HTTP call, no planner LLM.
+2. `ris_catalog_lookup` tool: explicit topic search in the catalog.
+3. Prompt block: `render_block_for_prompt` is injected as `ris_catalog` into the
+   shallow and deep researcher prompts (federal first, then the project's
+   Bundesland), so the agent fetches known norms directly instead of searching.
+
+**Jurisdiction is a structured fact, not an inference.** The project-intake
+wizard captures the building's location as a validated `bundesland` fact (nine
+states + `ausserhalb_oesterreichs`, with a free-text `standort_details` for
+projects outside Austria). Two channels carry it to the backend (backlog T3-9
+follow-up, 2026-07-16, user-mandated):
+
+1. **The structured `X-Grid-Request-Context` envelope's `bundesland` field**
+   (authoritative) — the BFF resolves it straight from the project profile
+   (the same source that renders the prompt-text line below) at each producer
+   (WS upgrade, workflow submit, async-jobs submit) and validates it against
+   the intake vocabulary before sending; the backend
+   (`aiq_agent.project_context.GridRequestContext`) independently re-validates
+   it and treats an unrecognized token as absent.
+2. **The `PROJECT_CONTEXT` prompt view's `bundesland=<token>` text line**
+   (unchanged, still read by the LLM) — fallback #1 when the envelope carries
+   no `bundesland` field (pre-envelope traffic, or an entrypoint — e.g. an
+   async job worker — with no live request context).
+3. Free-text state-name probing — fallback #2, only when neither of the above
+   is present (a mention of "Wiener Neustadt", a Lower Austrian town, must not
+   flip the jurisdiction to Wien; the structured channels exist precisely to
+   make that impossible).
+
+`ris_catalog.resolve_bundesland` implements this precedence chain (calling
+`extract_bundesland` for fallbacks #1/#2); `render_block_for_prompt` uses it.
+`ausserhalb_oesterreichs` — from either channel — means "no state's law should
+be prioritized" and that resolves to `None` immediately, without falling
+through to text probing. Both catalog consumers then call `focus_entries`
+BEFORE truncating: other states' law is dropped, the project's own state sorts
+first, federal law always stays — the nine state codes share generic topics
+("bauordnung"), so without this a Tyrolean query would return the
+catalog-order head (Wien, NÖ, …) and crowd Tirol out. Projects created before
+the wizard asked for the location are backfilled (drizzle migration 0018) with
+an *unconfirmed* `bundesland=wien` assumption (`onboarding_default`) that the
+Project Brief asks the user to confirm; a confirmed fact under the same key
+retires it automatically (`pruneResolvedAssumptions`, applied in
+`persistProfile`).
+
 ## 7. Deep research (async jobs)
 
 - The `deep_research` graph node submits a Dask job and returns the stub message
@@ -270,6 +452,28 @@ no project scope when `session.organizationId` is falsy (anonymous /
 carry Grid cards (§3; the async job path generates them post-hoc in the
 runner). And the research tab can 403 — see §9.
 
+**Collection-scope re-injection gap — now diagnosable (fixed 2026-07-16,
+`f8093a0`)**: the `X-Grid-Collection-Scope` header is captured once at submit
+time (`chat_researcher/register.py`) and threaded into the async job payload
+as `collection_scope`. The Dask worker only re-injects it into its own
+request context conditionally — `frontends/aiq_api/src/aiq_api/jobs/runner.py:641`
+does `if collection_scope is not None:` before base64url-encoding it back
+onto the header. When the scope is absent, `knowledge_retrieval` inside the
+worker falls back to legacy config-based resolution (base collection +
+session collection only — see `docs/technical-reference/collection-scoping.md`).
+Because `project_collections` is `[]` in the shipped configs, project
+collections are **never** searched in that fallback path for the affected
+job. The fallback behavior is unchanged, but it is no longer silent: the
+`elif` branch for `deep_research_agent` jobs now logs a one-time WARNING
+(job id, whether the request looked authenticated/project-scoped) at exactly
+the point the re-injection would otherwise be skipped.
+
+**Durable checkpointing (backlog T3-8, 2026-07-16, `5bea711`)**: optional
+LangGraph checkpointing for the deep-research graph, configured via
+`deep_research_agent.checkpoint_db` (env `AIQ_DEEP_CHECKPOINT_DB`; unset by
+default) — see §9's "Async deep-research jobs are not restart-safe" bullet
+for the full mechanism and its manual-resubmit resume contract.
+
 **Workflows (ADR-0023, 2026-07-16)**: saved per-project research briefs can
 fire this same async pipeline on a cron schedule — a dedicated
 `workflow-scheduler` container claims due rows in `grid_app`
@@ -277,6 +481,18 @@ fire this same async pipeline on a cron schedule — a dedicated
 `POST /v1/internal/workflows/submit` (internal-token-guarded wrapper around
 `submit_agent_job`, so admission control and cost tracking apply unchanged).
 See `docs/architecture/workflows.md`.
+
+**Deep-research agent graph internals**: the orchestrator/planner/researcher/
+writer middleware stack, structured-output contracts, and graph invariants
+(concurrency, recursion limit, skill filesystem permissions) live in
+`src/aiq_agent/agents/deep_researcher/README.md`. Its "Known limitations"
+section covers the remaining open defects found by a source audit against the
+installed `deepagents`/`langchain`/`langgraph` versions, several of which are
+now fixed — summarized in §9 below.
+
+**Compliance pipeline (backlog T4-3, 2026-07-16)**: `src/aiq_agent/agents/compliance_checker/README.md`
+documents a separate, purpose-built alternative to running an OIB
+Soll-Ist-Abgleich through this open-ended deep-research harness — see §8c.
 
 ## 8. Backend agent architecture & DRY debt
 
@@ -335,7 +551,13 @@ full specs in `org-model-configuration.md` (ADR-0014) and
   `apply_model_override()` at the intent-classifier invocation, the
   clarifier planner, and the reflection scheduling site. Async jobs carry
   the map through `submit_agent_job` → `jobs/runner.py` (provider + header
-  re-injection). Only the model id changes; params/keys stay from YAML.
+  re-injection). Only the model id changes; params/keys stay from YAML. When
+  no header/envelope carries the map (e.g. the generic async-job proxy before
+  2026-07-16, or any future endpoint the BFF doesn't front),
+  `get_model_overrides_from_context()` falls back to a just-in-time org-side
+  resolution against the BFF's internal `GET /api/internal/model-overrides`
+  — see `docs/architecture/org-model-configuration.md`'s submission-paths
+  table.
 - **Cost capture (DRY)**: `src/aiq_agent/common/cost_tracking.py` installs
   `GridCostTracker` through LangChain's `register_configure_hook` ContextVar
   seam — every callback manager configured inside the request picks it up,
@@ -346,7 +568,46 @@ full specs in `org-model-configuration.md` (ADR-0014) and
 - **Budgets**: `x-grid-budget` carries remaining USD per scope
   (org/member/project); the tracker raises `BudgetExceededError` before the
   next LLM call once exhausted (sync path returns a friendly chat response);
-  the BFF refuses the WS upgrade outright when already over.
+  the BFF refuses the WS upgrade outright when already over. A separate,
+  per-run **completion-token** ceiling (backlog T4-4, 2026-07-16) —
+  `GRID_MAX_RUN_COMPLETION_TOKENS`, default `0` = disabled — bounds one job's
+  total output tokens across every LLM call including concurrent researcher
+  workers (`BudgetGuardCallback`, `src/aiq_agent/common/budget_guard.py`),
+  independent of the USD budget ledger.
+- **Phase progress events** (backlog T4-4, 2026-07-16): `PhaseProgressCallback`
+  (`aiq_api.jobs.phase_events`) observes the deep-research orchestrator's
+  existing task-dispatch and `run_research_batch` callback events to detect
+  planning/research/writing/citation-verification/done transitions, without
+  any change to the `deep_researcher` package itself, and persists each as a
+  `job.phase` `job_events` row on the existing SSE stream. The UI status pill
+  consumes these to show live progress instead of staying silent for the
+  first minutes of a run.
+
+## 8c. Compliance-check pipeline (backlog T4-3, 2026-07-16)
+
+`src/aiq_agent/agents/compliance_checker/` is a separate, **deterministic**
+3-stage pipeline for the OIB Soll-Ist-Abgleich (requirements-vs-evidence
+compliance check) — the structured alternative to running the same check
+through the open-ended `deep_research_agent` (which the audit that opened
+T4-3 measured at ~300 LLM turns / 20+ minutes for the same job). Stage 1
+derives applicable requirements per Richtlinie (one structured LLM call each,
+grounded by tool-free `knowledge_search` retrieval against the base OIB
+collection); Stage 2 checks project-document evidence per batch of ~8-10
+requirements (one structured LLM call each); Stage 3 assembles the compliance
+matrix, ranks gaps by risk, and renders a German Markdown report — pure
+Python, no LLM calls. A full 6-Richtlinien check is ~10-25 LLM calls total,
+bounded and predictable.
+
+Registered as the `compliance_check` function (`_type: compliance_check_agent`)
+in `configs/config_oib_openrouter.yml`, backed by a dedicated `compliance_llm`
+role and the `aiq_compliance_checker` `nat.plugins` entry point
+(`pyproject.toml`). **Not yet invoked by any chat/workflow entry point** — the
+function is registered and directly callable, but no orchestrator node, slash
+command, or UI action calls it yet, so it needs a live shakedown before
+user-facing use. See `src/aiq_agent/agents/compliance_checker/README.md` for
+the full stage design, budget math, and its own still-open known limitation
+(`AgentGroup` has no dedicated member for this pipeline's model overrides
+yet).
 
 ## 9. Known issues / open items
 
@@ -361,7 +622,122 @@ full specs in `org-model-configuration.md` (ADR-0014) and
   runtime evidence to fix safely; do not guess-patch auth.**
 - **Deep-research cards** — not delivered on the async path (§3/§7).
 - **Silent LLM failures** — card generation and summary generation both swallow
-  exceptions; consider surfacing a degraded signal to the UI.
+  exceptions; consider surfacing a degraded signal to the UI. Document-ingestion
+  summary/tag generation used to be the sharpest instance of this (a double LLM
+  failure left a document permanently invisible) — that specific consequence is
+  fixed (§6, "Silent summary-row loss on double LLM failure"); the LLM calls
+  themselves can still fail silently, just without the visibility consequence
+  anymore.
+- **`available_documents` vs. ChromaDB divergence — mitigated 2026-07-16** —
+  the SQL summaries side-table that feeds `available_documents` can still, in
+  principle, diverge from what's indexed in ChromaDB (they remain
+  architecturally distinct stores), but the reconciliation backfill (§6) now
+  closes every gap the double-LLM-failure case could produce, and the
+  deep-research prompts no longer gate document *awareness* on the list being
+  non-empty (§6) — only the *listing* still is, which is cosmetic once the
+  list itself is reliable.
+- **Async job collection-scope fallback — fixed 2026-07-16 (`f8093a0`)** —
+  `collection_scope` is still only re-injected into the Dask worker context
+  when present (behavior unchanged: absent scope still drops
+  project-collection search for that job, §7), but the degradation is no
+  longer silent: `runner.py` logs a one-time WARNING (job id, whether the
+  request looked authenticated/project-scoped) at the point it would
+  otherwise skip re-injection, so the gap is diagnosable from logs instead of
+  invisible.
+- **Deep-research tool-result pruning defeats prompt-prefix caching — fixed
+  2026-07-16 (`0b5d29d`)** — `ToolResultPruningMiddleware` now records
+  truncation per message id and freezes it once applied (monotonic), instead
+  of recomputing a positional keep-last-N window from scratch on every model
+  call — message bytes at a given offset no longer shift turn over turn, so
+  the ~80k-token contexts a deep run accumulates stop invalidating
+  OpenRouter/DeepSeek prompt-prefix caching on that axis. Trivial results
+  (`think`, `ls`) no longer occupy window slots — only oversized results do.
+  It still runs uncoordinated with deepagents' own (stable-cutoff)
+  summarization middleware, and no call site sets provider prompt-caching
+  hints yet (that's a separate, still-open lever — see
+  `docs/architecture/llm-providers.md` and `scaling-review-2026-07.md` §6.1).
+  Model-call retries were narrowed in the same change: `ModelRetryMiddleware`
+  now retries only rate limits, timeouts, transport errors, and 5xx (was any
+  exception). See `src/aiq_agent/agents/deep_researcher/README.md`
+  "Known limitations" for details.
+- **Deep-research strict structured-output schema bounds — fixed 2026-07-16
+  (`2db0f7d`)** — `EvidenceJudgment.relevance_score` (`ge=0`/`le=100`) and
+  `ResearchQuery.preferred_tools` (`min_length`) used to compile to
+  JSON-Schema `minimum`/`maximum`/`minLength`, unsupported in strict
+  `json_schema` mode on some providers. Both are now
+  `field_validator(mode="after")` checks instead of declarative bounds:
+  `relevance_score` clamps out-of-range values (a worker returning 105
+  degrades to 100 instead of failing) while `preferred_tools` still raises on
+  empty (no tool name to invent). `ResearchNotes`/`ResearchPlan.model_json_schema()`
+  no longer emit `minimum`/`maximum`/`minLength`/`maxLength`/`pattern`
+  anywhere in the nested tree. `tools/research.py`'s fenced-JSON fallback
+  parser remains as a second line of defense for non-conformant completions
+  in general. See the same README section.
+- **Deep-research planner ceremony overhead** — deepagents' `StateBackend`
+  is write-once (a second `write_file` to an existing path errors; recovery
+  is via `edit_file`); the planner prompt mandates `write_todos` before
+  decomposing. As of the 2026-07-16 prompt pass (`77a4d7a`) the todo-list
+  ceremony is optional rather than mandatory, the planner's after-every-search
+  `think` call is consolidated into a single pre-finalize `think`, and
+  orchestrator `write_todos` updates are phase-level instead of per-step —
+  reducing but not eliminating pure-ceremony LLM turns per planning run.
+- **NAT step-tree/span corruption after a retried call — root cause fixed
+  2026-07-16 (`6e57c08`)** — the log warnings `Step id ... not the last step
+  in the stack` / `span ID stack is not equal` had two causes. (1) NAT's
+  `LangchainProfilerHandler` (`nat/plugins/langchain/callback_handler.py`,
+  `nvidia-nat==1.7.0`) implements `on_llm_start`/`on_tool_start` etc. but no
+  `on_llm_error`/`on_tool_error`, so an errored (then retried) model or tool
+  attempt never closed its intermediate-step span, corrupting the stack for
+  every later step — this is now fixed by
+  `SpanClosingProfilerHandler` (`src/aiq_agent/common/nat_step_repair.py`), a
+  local subclass adding `on_llm_error`/`on_tool_error` overrides that push
+  the matching `END` event, mirroring the installed handler's
+  `on_llm_end`/`on_tool_end` construction field-for-field. (2) The remaining
+  cause is NOT a bug: the deep-research pipeline legitimately runs sibling
+  steps concurrently (parallel researcher workers, batched source-tool
+  fan-out), which NAT's single-chain step model cannot represent — those
+  residual warnings are deliberately suppressed (raised to `ERROR` level,
+  `src/aiq_agent/common/logging_utils.py`) rather than fixed, since the steps
+  themselves are still recorded correctly. `run_id`-keyed token/cost
+  accounting (§8b) was never corrupted by either cause.
+- **Shared trace-callback state across concurrent researcher workers — fixed
+  2026-07-16 (`de67efd`)** — `VerboseTraceCallback` mutates per-run state
+  (`current_input`, `active_chains`, `depth` — `common/callbacks.py`);
+  `for_new_run()` already gave each deep-research *run* a fresh instance
+  (`DeepResearcherAgent._prepare_run()`, ADR-0018), but that one instance was
+  then shared as a single `callbacks` entry across every concurrent
+  researcher *worker* inside the run (up to `max_research_concurrency`,
+  default 6). `_run_research_query` (`tools/research.py`) now builds a
+  per-worker callbacks list via `cb.for_new_run()` (falling back to the same
+  instance for callbacks without it) before each `researcher_runnable.ainvoke()`
+  call — the outer/batch-level callbacks list itself is untouched. This
+  applies uniformly to both the sync chat path and the async job runner
+  (both go through the same `_run_research_query`), so `runner.py` building
+  one `VerboseTraceCallback()`/`LangchainProfilerHandler()` per job (not per
+  worker) no longer means those workers race on shared state.
+- **Async deep-research jobs are not restart-safe — mitigated 2026-07-16
+  (`5bea711`, backlog T3-8)** — the deepagents graph's `store=InMemoryStore()`
+  (longterm memory) is unchanged, but `build_deep_research_graph` now accepts
+  an optional `checkpointer` (per-thread execution state, an independent axis
+  from `store`) passed through to `create_deep_agent`. When
+  `deep_research_agent.checkpoint_db` is configured (env
+  `AIQ_DEEP_CHECKPOINT_DB`; unset by default, opt-in since jobs run in
+  ephemeral Dask worker processes — the reference config sets it to
+  `./deep_research_checkpoints.db`), `DeepResearcherAgent.run()` wires
+  `configurable.thread_id = job_id` and `durability="async"` (LangGraph's
+  canonical durable-execution mode for long batch-style runs), so a worker
+  crash no longer silently loses all execution state — the checkpointed
+  thread survives. **Resume is manual-resubmit-based, not automatic**:
+  `submit_agent_job` still rejects a duplicate `job_id`
+  (`DuplicateJobIdError`), and `run()` always passes the full initial state
+  rather than `None`, so a resubmitted call layers new input onto the
+  checkpointed thread via the state schema's reducers rather than continuing
+  exactly from the interrupted step — there is no automatic queueing/resume
+  entry point yet, and the ghost-job reaper (ADR-0021,
+  `scaling-review-2026-07.md` §2.4) still flips an orphaned `RUNNING` row to
+  `FAILURE` after its timeout. A future DB-claimed-worker migration
+  (ADR-0021) fixes replica pinning/cross-node cancel but is orthogonal to
+  this checkpointing layer.
 - Infra: live secrets in `deploy/.env`; backend DBs have no migration mechanism
   (init only); config drift between the two config files.
 

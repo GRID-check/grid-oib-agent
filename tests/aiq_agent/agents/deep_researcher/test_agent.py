@@ -246,6 +246,51 @@ class TestDeepResearcherAgent:
             assert agent.deepagents_runtime.skill_sources_for("orchestrator") is None
             assert agent.deepagents_runtime.skill_sources_for("researcher-agent") == ["/skills/research/"]
 
+    def test_init_defaults_checkpointer_to_none(self, mock_llm_provider, real_tool, mock_create_deep_agent):
+        """No checkpoint_db configured -> no durable checkpointer (current in-memory-only behavior)."""
+        with patch("aiq_agent.agents.deep_researcher.factory.create_deep_agent", return_value=mock_create_deep_agent):
+            from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+
+            agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
+
+            assert agent.checkpointer is None
+
+    def test_init_stores_configured_checkpointer(self, mock_llm_provider, real_tool, mock_create_deep_agent):
+        """An explicitly configured checkpointer is retained on the agent instance."""
+        with patch("aiq_agent.agents.deep_researcher.factory.create_deep_agent", return_value=mock_create_deep_agent):
+            from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+
+            fake_checkpointer = MagicMock(name="fake_checkpointer")
+            agent = DeepResearcherAgent(
+                llm_provider=mock_llm_provider,
+                tools=[real_tool],
+                checkpointer=fake_checkpointer,
+            )
+
+            assert agent.checkpointer is fake_checkpointer
+
+    def test_prepare_run_forwards_checkpointer_to_graph_builder(
+        self, mock_llm_provider, real_tool, mock_create_deep_agent
+    ):
+        """_prepare_run passes the configured checkpointer into build_deep_research_graph (T3-8)."""
+        fake_checkpointer = MagicMock(name="fake_checkpointer")
+        with patch(
+            "aiq_agent.agents.deep_researcher.agent.build_deep_research_graph",
+            return_value=mock_create_deep_agent,
+        ) as build_graph:
+            from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+
+            agent = DeepResearcherAgent(
+                llm_provider=mock_llm_provider,
+                tools=[real_tool],
+                checkpointer=fake_checkpointer,
+            )
+            state = DeepResearchAgentState(messages=[HumanMessage(content="q")])
+
+            agent._prepare_run(state)
+
+        assert build_graph.call_args.kwargs["checkpointer"] is fake_checkpointer
+
     def test_sandbox_config_rejects_unsupported_provider(self):
         """Unsupported sandbox providers fail early with a clear error."""
         from pydantic import ValidationError
@@ -314,6 +359,104 @@ class TestDeepResearcherAgent:
 
         assert resolved_skills is skills
         assert resolved_sandbox is sandbox
+
+    def test_register_checkpoint_db_defaults_to_none(self):
+        """checkpoint_db is opt-in; omitting it preserves current in-memory-only behavior (T3-8)."""
+        from aiq_agent.agents.deep_researcher.register import DeepResearchAgentConfig
+
+        config = DeepResearchAgentConfig(orchestrator_llm="llm")
+
+        assert config.checkpoint_db is None
+
+    @pytest.mark.asyncio
+    async def test_register_builds_checkpointer_when_checkpoint_db_configured(self):
+        """A configured checkpoint_db resolves a durable checkpointer and threads it into the agent.
+
+        Mirrors chat_researcher/register.py's ``get_checkpointer`` precedent: the checkpointer is built
+        once via ``aiq_agent.common.get_checkpointer`` (cached by db path/DSN) and passed to every
+        DeepResearcherAgent this registration builds.
+        """
+        import aiq_agent.common as common_module
+        from aiq_agent.agents.deep_researcher import register as register_module
+        from aiq_agent.agents.deep_researcher.register import DeepResearchAgentConfig
+        from aiq_agent.agents.deep_researcher.register import deep_research_agent
+
+        fake_checkpointer = MagicMock(name="fake_checkpointer")
+        get_checkpointer_mock = AsyncMock(return_value=fake_checkpointer)
+        captured_kwargs = {}
+
+        def _stub_agent(*args, **kwargs):
+            captured_kwargs.update(kwargs)
+            agent = MagicMock()
+            agent.run = AsyncMock(side_effect=lambda state: state)
+            return agent
+
+        class _FakeBuilder:
+            async def get_tools(self, tool_names, wrapper_type):
+                return [web_search_tool] if "web_search_tool" in tool_names else []
+
+            async def get_llm(self, ref, wrapper_type):
+                return MagicMock()
+
+            def get_function_config(self, ref):
+                return None
+
+        config = DeepResearchAgentConfig(
+            orchestrator_llm="orch_llm",
+            tools=["web_search_tool"],
+            checkpoint_db="./deep_research_checkpoints.db",
+        )
+
+        with (
+            patch.object(register_module, "DeepResearcherAgent", _stub_agent),
+            patch.object(common_module, "get_checkpointer", get_checkpointer_mock),
+        ):
+            gen = deep_research_agent.__wrapped__(config, _FakeBuilder())
+            await gen.__anext__()
+            await gen.aclose()
+
+        get_checkpointer_mock.assert_awaited_once_with("./deep_research_checkpoints.db")
+        assert captured_kwargs["checkpointer"] is fake_checkpointer
+
+    @pytest.mark.asyncio
+    async def test_register_omits_checkpointer_when_checkpoint_db_unset(self):
+        """Default (no checkpoint_db) behavior is unchanged: no get_checkpointer call, checkpointer=None."""
+        import aiq_agent.common as common_module
+        from aiq_agent.agents.deep_researcher import register as register_module
+        from aiq_agent.agents.deep_researcher.register import DeepResearchAgentConfig
+        from aiq_agent.agents.deep_researcher.register import deep_research_agent
+
+        get_checkpointer_mock = AsyncMock()
+        captured_kwargs = {}
+
+        def _stub_agent(*args, **kwargs):
+            captured_kwargs.update(kwargs)
+            agent = MagicMock()
+            agent.run = AsyncMock(side_effect=lambda state: state)
+            return agent
+
+        class _FakeBuilder:
+            async def get_tools(self, tool_names, wrapper_type):
+                return [web_search_tool] if "web_search_tool" in tool_names else []
+
+            async def get_llm(self, ref, wrapper_type):
+                return MagicMock()
+
+            def get_function_config(self, ref):
+                return None
+
+        config = DeepResearchAgentConfig(orchestrator_llm="orch_llm", tools=["web_search_tool"])
+
+        with (
+            patch.object(register_module, "DeepResearcherAgent", _stub_agent),
+            patch.object(common_module, "get_checkpointer", get_checkpointer_mock),
+        ):
+            gen = deep_research_agent.__wrapped__(config, _FakeBuilder())
+            await gen.__anext__()
+            await gen.aclose()
+
+        get_checkpointer_mock.assert_not_awaited()
+        assert captured_kwargs["checkpointer"] is None
 
     def test_modal_sandbox_name_is_job_id(self):
         """Modal sandbox names use the resolved job ID directly."""
@@ -724,7 +867,7 @@ class TestDeepResearcherAgent:
                     }
                 }
 
-        agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool], callbacks=[MagicMock()])
+        agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool], callbacks=[MagicMock(spec=[])])
         fake_runnable = FakeResearcherRunnable()
         fake_backend = MagicMock()
         fake_backend.upload_files.side_effect = lambda files: [
@@ -1086,6 +1229,90 @@ class TestDeepResearcherAgent:
         assert "https://example.test/slow" in compact_sources
         assert "https://example.test/unused" not in compact_sources
 
+    @pytest.mark.asyncio
+    async def test_run_research_queries_isolates_stateful_callbacks_per_worker(self):
+        """Concurrent researcher workers must not share one stateful callback instance.
+
+        _run_research_queries fans out to up to max_concurrency concurrent
+        researcher invocations. Passing the exact same callbacks list to all
+        of them would let concurrent workers race on one handler's mutable
+        state (VerboseTraceCallback's docstring warns a single instance must
+        not span concurrent runs, ADR-0018). Each worker must instead receive
+        callbacks built via for_new_run(); callbacks without for_new_run are
+        forwarded unchanged.
+        """
+        from aiq_agent.agents.deep_researcher.tools.research import _run_research_queries
+
+        class FakeIsolatingCallback:
+            """Stand-in for VerboseTraceCallback's for_new_run() contract."""
+
+            def __init__(self) -> None:
+                self.spawned: list[FakeIsolatingCallback] = []
+
+            def for_new_run(self) -> "FakeIsolatingCallback":
+                fresh = FakeIsolatingCallback()
+                self.spawned.append(fresh)
+                return fresh
+
+        shared_cb = FakeIsolatingCallback()
+        passthrough_cb = MagicMock(spec=[])  # no for_new_run -> forwarded unchanged
+        seen_callbacks_per_call: list[list] = []
+
+        class FakeResearcherRunnable:
+            async def ainvoke(self, state, config=None):
+                seen_callbacks_per_call.append(config["callbacks"])
+                return {
+                    "structured_response": {
+                        "query_topic": "topic",
+                        "target_components": ["overview"],
+                        "summary": "note",
+                        "findings": [],
+                        "gaps": [],
+                        "sources": [],
+                        "narrative_notes": "note",
+                        "language": "English",
+                        "evidence_judgment": None,
+                    }
+                }
+
+        queries = [
+            ResearchQuery(
+                query=f"query {i}",
+                subqueries=[],
+                preferred_tools=["web_search_tool"],
+                fallback_tools=[],
+                target_components=["overview"],
+                rationale="coverage",
+            )
+            for i in range(4)
+        ]
+
+        successful, notes, errors = await _run_research_queries(
+            queries=queries,
+            researcher_runnable=FakeResearcherRunnable(),
+            runtime=None,
+            callbacks=[shared_cb, passthrough_cb],
+            max_concurrency=4,
+        )
+
+        assert errors == []
+        assert len(successful) == 4
+        assert len(notes) == 4
+        assert len(seen_callbacks_per_call) == 4
+
+        # Every concurrent worker received its own fresh instance, never the
+        # shared original, and no two workers received the same instance.
+        assert len(shared_cb.spawned) == 4
+        assert len(set(id(cb) for cb in shared_cb.spawned)) == 4
+        spawned_per_call = [callbacks[0] for callbacks in seen_callbacks_per_call]
+        assert shared_cb not in spawned_per_call
+        assert len(set(id(cb) for cb in spawned_per_call)) == 4
+        for callbacks in seen_callbacks_per_call:
+            spawned_cb, forwarded_cb = callbacks
+            assert spawned_cb in shared_cb.spawned
+            # The plain callback (no for_new_run) is forwarded unchanged.
+            assert forwarded_cb is passthrough_cb
+
     def test_researcher_invoke_state_carries_parent_files(self):
         """Nested researcher invocations inherit parent files for StateBackend-backed skills."""
         query = ResearchQuery(
@@ -1272,6 +1499,48 @@ class TestDeepResearcherAgent:
             assert result is not None
 
     @pytest.mark.asyncio
+    async def test_run_enforces_wall_clock_budget(self, mock_llm_provider, real_tool):
+        """A run past max_run_seconds fails with a clear budget error instead of hanging."""
+        import asyncio
+
+        mock_agent = MagicMock()
+
+        async def never_finishes(*args, **kwargs):
+            await asyncio.sleep(3600)
+
+        mock_agent.ainvoke = never_finishes
+        mock_agent.with_config = MagicMock(return_value=mock_agent)
+        with patch("aiq_agent.agents.deep_researcher.factory.create_deep_agent", return_value=mock_agent):
+            from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+
+            agent = DeepResearcherAgent(
+                llm_provider=mock_llm_provider,
+                tools=[real_tool],
+                max_run_seconds=1,
+            )
+            state = DeepResearchAgentState(messages=[HumanMessage(content="Test query")])
+            with pytest.raises(RuntimeError, match="wall-clock budget"):
+                await agent.run(state)
+
+    @pytest.mark.asyncio
+    async def test_run_zero_budget_disables_wall_clock_guard(
+        self, mock_llm_provider, real_tool, mock_create_deep_agent
+    ):
+        """max_run_seconds=0 runs unguarded (no wait_for wrapper)."""
+        with patch("aiq_agent.agents.deep_researcher.factory.create_deep_agent", return_value=mock_create_deep_agent):
+            from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+
+            agent = DeepResearcherAgent(
+                llm_provider=mock_llm_provider,
+                tools=[real_tool],
+                max_run_seconds=0,
+            )
+            state = DeepResearchAgentState(messages=[HumanMessage(content="Test query")])
+            with seeded_session_registry(SourceEntry(url="https://example.com")):
+                result = await agent.run(state)
+            assert result is not None
+
+    @pytest.mark.asyncio
     async def test_run_with_callbacks(self, mock_llm_provider, real_tool, mock_create_deep_agent):
         """Test run() uses callbacks."""
         with patch("aiq_agent.agents.deep_researcher.factory.create_deep_agent", return_value=mock_create_deep_agent):
@@ -1291,6 +1560,46 @@ class TestDeepResearcherAgent:
             # Callbacks should have been passed to ainvoke
             call_kwargs = mock_create_deep_agent.ainvoke.call_args
             assert call_kwargs is not None
+
+    @pytest.mark.asyncio
+    async def test_run_wires_thread_id_and_durability_when_checkpointer_set(
+        self, mock_llm_provider, real_tool, mock_create_deep_agent
+    ):
+        """A configured checkpointer threads job_id as thread_id and requests async durability (T3-8)."""
+        with patch("aiq_agent.agents.deep_researcher.factory.create_deep_agent", return_value=mock_create_deep_agent):
+            from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+
+            fake_checkpointer = MagicMock(name="fake_checkpointer")
+            agent = DeepResearcherAgent(
+                llm_provider=mock_llm_provider,
+                tools=[real_tool],
+                checkpointer=fake_checkpointer,
+                job_id="job-durable-1",
+            )
+            state = DeepResearchAgentState(messages=[HumanMessage(content="Test query")])
+            with seeded_session_registry(SourceEntry(url="https://example.com")):
+                await agent.run(state)
+
+            call = mock_create_deep_agent.ainvoke.call_args
+            assert call.kwargs["config"]["configurable"] == {"thread_id": "job-durable-1"}
+            assert call.kwargs["durability"] == "async"
+
+    @pytest.mark.asyncio
+    async def test_run_omits_thread_id_and_durability_when_no_checkpointer(
+        self, mock_llm_provider, real_tool, mock_create_deep_agent
+    ):
+        """Default (no checkpointer) behavior is unchanged: no configurable/durability kwargs reach ainvoke."""
+        with patch("aiq_agent.agents.deep_researcher.factory.create_deep_agent", return_value=mock_create_deep_agent):
+            from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+
+            agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
+            state = DeepResearchAgentState(messages=[HumanMessage(content="Test query")])
+            with seeded_session_registry(SourceEntry(url="https://example.com")):
+                await agent.run(state)
+
+            call = mock_create_deep_agent.ainvoke.call_args
+            assert call.kwargs.get("config") is None
+            assert "durability" not in call.kwargs
 
     @pytest.mark.asyncio
     async def test_run_handles_error(self, mock_llm_provider, real_tool):

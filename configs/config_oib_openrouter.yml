@@ -31,19 +31,28 @@ general:
 
 llms:
   # ───────────────────────────────────────────────────────────────────────────
-  # REASONING EFFORT PER AGENT ROLE
-  # DeepSeek V4 Flash natively supports only 3 reasoning tiers: none (Non-Think),
-  # high (Think High), max (Think Max) — the OpenAI-style minimal/low/medium
-  # naming is a compatibility alias that OpenRouter coerces to one of these
-  # three under the hood (minimal/low/medium/high all resolve to "high";
-  # xhigh/max resolve to "max"). We set values to their *actual* resolved tier
-  # directly so the config isn't misleading. Policy: none for pure routing/
-  # trivial one-liners, high for the medium-effort tier, max for roles that
-  # need real multi-step reasoning depth. To retune a role, change its
-  # `reasoning_effort` below — each role has its own LLM definition so they
-  # are independently settable. All roles share one OpenAI-compatible
-  # endpoint; swap model_name/base_url/api_key to change provider (the system
-  # is LLM-agnostic — see docs/architecture/llm-providers.md).
+  # REASONING EFFORT PER AGENT ROLE — OPENROUTER-STANDARD VALUES, PASSED THROUGH
+  # reasoning_effort uses OpenRouter's unified vocabulary (none/minimal/low/
+  # medium/high/xhigh) and is sent verbatim: OpenRouter maps the requested
+  # effort to the nearest level the EFFECTIVE model supports, per model,
+  # server-side — including models selected by org overrides (ADR-0014). We
+  # deliberately keep NO app-side per-provider mapping (it would duplicate and
+  # drift from OpenRouter's contract). Never use provider-native tier names
+  # here (e.g. DeepSeek's "max") — OpenRouter rejects/ignores them; the
+  # highest unified level is "xhigh". See
+  # https://openrouter.ai/docs/guides/best-practices/reasoning-tokens
+  # Policy: none for pure routing/trivial one-liners, medium for everything
+  # else — high tiers multiplied hidden reasoning tokens across hundreds of
+  # agent turns per run for no measurable quality gain (observed 20+ min runs
+  # stuck in planning). Each role has its own LLM definition so roles are
+  # independently tunable; swap model_name/base_url/api_key to change provider
+  # (the system is LLM-agnostic — see docs/architecture/llm-providers.md).
+  #
+  # request_timeout (seconds) bounds every HTTP call — NAT's default is None
+  # (UNBOUNDED), which let one stalled provider call hang a whole deep-research
+  # run indefinitely. max_retries is the OpenAI-client retry count; kept low
+  # because the middleware layers (ModelRetryMiddleware,
+  # SelectiveToolRetryMiddleware) add their own retries on top.
   # ───────────────────────────────────────────────────────────────────────────
 
   # Intent Router — classify meta-vs-research + shallow-vs-deep depth. Pure routing.
@@ -55,7 +64,8 @@ llms:
     temperature: 1.0
     top_p: 0.95
     max_tokens: 4096
-    max_retries: 5
+    max_retries: 2
+    request_timeout: 60
     reasoning_effort: none
     # NOTE: the OpenRouter response-healing plugin is forced on every OpenRouter
     # LLM centrally in code (aiq_agent.common.llm_factory
@@ -73,8 +83,9 @@ llms:
     temperature: 1.0
     top_p: 0.95
     max_tokens: 65536
-    max_retries: 5
-    reasoning_effort: high
+    max_retries: 2
+    request_timeout: 120
+    reasoning_effort: medium
 
   # HITL Clarification & Planning — clarify ambiguity, generate the research plan.
   clarifier_llm:
@@ -85,8 +96,9 @@ llms:
     temperature: 1.0
     top_p: 0.95
     max_tokens: 65536
-    max_retries: 5
-    reasoning_effort: max
+    max_retries: 2
+    request_timeout: 120
+    reasoning_effort: medium
 
   # Deep Researcher — Orchestrator (also the report writer): top-level control.
   deep_orchestrator_llm:
@@ -97,8 +109,9 @@ llms:
     temperature: 1.0
     top_p: 0.95
     max_tokens: 128000
-    max_retries: 10
-    reasoning_effort: max
+    max_retries: 2
+    request_timeout: 180
+    reasoning_effort: medium
 
   # Deep Researcher — Planning sub-agents.
   deep_planner_llm:
@@ -109,8 +122,9 @@ llms:
     temperature: 1.0
     top_p: 0.95
     max_tokens: 128000
-    max_retries: 10
-    reasoning_effort: max
+    max_retries: 2
+    request_timeout: 180
+    reasoning_effort: medium
 
   # Deep Researcher — Researcher sub-agents (parallel investigations).
   deep_researcher_llm:
@@ -121,8 +135,9 @@ llms:
     temperature: 1.0
     top_p: 0.95
     max_tokens: 65536
-    max_retries: 5
-    reasoning_effort: max
+    max_retries: 2
+    request_timeout: 120
+    reasoning_effort: medium
 
   # Deep Researcher — source routing (which source to query). Lighter decision.
   deep_router_llm:
@@ -133,8 +148,9 @@ llms:
     temperature: 1.0
     top_p: 0.95
     max_tokens: 8192
-    max_retries: 5
-    reasoning_effort: high
+    max_retries: 2
+    request_timeout: 60
+    reasoning_effort: medium
 
   # Card generation — structured rich-UI compliance cards.
   card_llm:
@@ -145,8 +161,23 @@ llms:
     temperature: 1.0
     top_p: 0.95
     max_tokens: 65536
-    max_retries: 5
-    reasoning_effort: high
+    max_retries: 2
+    request_timeout: 120
+    reasoning_effort: medium
+
+  # Compliance pipeline — Stage 1 requirement derivation + Stage 2 evidence
+  # judging (structured outputs; ~10-16 calls per full 6-Richtlinien check).
+  compliance_llm:
+    _type: openai
+    model_name: deepseek/deepseek-v4-flash
+    base_url: "https://openrouter.ai/api/v1"
+    api_key: ${OPENROUTER_API_KEY}
+    temperature: 1.0
+    top_p: 0.95
+    max_tokens: 65536
+    max_retries: 2
+    request_timeout: 120
+    reasoning_effort: medium
 
   # Document / project summaries — trivial one-liners.
   summary_llm:
@@ -157,7 +188,8 @@ llms:
     temperature: 1.0
     top_p: 0.95
     max_tokens: 100
-    max_retries: 5
+    max_retries: 2
+    request_timeout: 30
     reasoning_effort: none
 
 functions:
@@ -181,6 +213,7 @@ functions:
         tools:
           - ris_search_tool
           - ris_fetch_tool
+          - ris_catalog_lookup_tool
 
   web_search_tool:
     _type: tavily_web_search
@@ -225,6 +258,14 @@ functions:
     max_chars: 40000
     ingest_into_knowledge: true
 
+  # Curated RIS index (configs/ris_catalog.yml, override via RIS_CATALOG_PATH):
+  # deterministic pointers to the verified building-relevant norms. ris_search
+  # short-circuits to these pointers on a catalog match (catalog_shortcut),
+  # and the researcher prompts show the index as a block.
+  ris_catalog_lookup_tool:
+    _type: ris_catalog_lookup
+    max_matches: 5
+
   knowledge_search:
     _type: knowledge_retrieval
     backend: llamaindex
@@ -249,6 +290,20 @@ functions:
   emit_card:
     _type: emit_card
 
+  # Purpose-built OIB Soll-Ist-Abgleich (backlog T4-3): staged pipeline
+  # (requirement profile per Richtlinie -> batched evidence judgment ->
+  # deterministic matrix + German report) — the structured alternative to
+  # running compliance checks through open-ended deep research. See
+  # src/aiq_agent/agents/compliance_checker/README.md.
+  compliance_check:
+    _type: compliance_check_agent
+    llm: compliance_llm
+    knowledge_search_tool: knowledge_search
+    max_concurrency: 3
+    richtlinien: [1, 2, 3, 4, 5, 6]
+    requirement_batch_size: 9
+    verbose: false
+
   intent_classifier:
     _type: intent_classifier
     llm: intent_llm
@@ -260,6 +315,7 @@ functions:
       - knowledge_search
       - ris_search_tool
       - ris_fetch_tool
+      - ris_catalog_lookup_tool
       - remember
     verbose: true
 
@@ -282,6 +338,7 @@ functions:
       - knowledge_search
       - ris_search_tool
       - ris_fetch_tool
+      - ris_catalog_lookup_tool
       - remember
       - emit_card
     verbose: true
@@ -305,10 +362,17 @@ functions:
       - knowledge_search
       - ris_search_tool
       - ris_fetch_tool
+      - ris_catalog_lookup_tool
       - advanced_web_search_tool
       - remember
       - emit_card
     verbose: true
+    # Durable checkpointing for async deep-research jobs (T3-8), mirroring
+    # workflow.checkpoint_db below: re-invoking the same job_id resumes from
+    # the last persisted checkpoint instead of starting over. The
+    # deep_research_agent field itself defaults to None (no durability) when
+    # omitted -- this config opts in with a local sqlite file by default.
+    checkpoint_db: ${AIQ_DEEP_CHECKPOINT_DB:-./deep_research_checkpoints.db}
 
 workflow:
   _type: chat_deepresearcher_agent

@@ -6,6 +6,7 @@ from typing import Literal
 from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
+from pydantic import field_validator
 
 
 class _StrictContract(BaseModel):
@@ -93,7 +94,6 @@ class ResearchQuery(_StrictContract):
         ),
     )
     preferred_tools: list[str] = Field(
-        min_length=1,
         description=(
             "Ordered exact available source tool names to prioritize for this query. "
             "The first item is the primary tool the researcher should use first."
@@ -104,6 +104,22 @@ class ResearchQuery(_StrictContract):
     )
     target_components: list[str] = Field(description="Answer components this query is intended to support.")
     rationale: str = Field(description="Why this query is needed.")
+
+    @field_validator("preferred_tools", mode="after")
+    @classmethod
+    def _require_preferred_tools(cls, value: list[str]) -> list[str]:
+        """Enforce non-empty preferred_tools without a JSON-Schema minLength.
+
+        Field(min_length=1) compiles to a JSON-Schema minLength constraint,
+        which strict json_schema structured-output mode does not support (see
+        EvidenceJudgment.relevance_score below for the ge/le equivalent).
+        Unlike relevance_score, an empty preferred_tools list cannot be
+        clamped to a valid value -- there is no tool name to invent -- so this
+        raises, matching the previous Field(min_length=1) failure semantics.
+        """
+        if not value:
+            raise ValueError("preferred_tools must include at least one tool name")
+        return value
 
 
 class ResearchPlan(_StrictContract):
@@ -153,12 +169,25 @@ class EvidenceJudgment(_StrictContract):
     """Post-research judgment attached to a research note."""
 
     relevance_score: int = Field(
-        ge=0,
-        le=100,
         description="How useful this note is for the final answer, from 0 to 100.",
     )
     confidence: Literal["low", "medium", "high"] = Field(description="Confidence in this judgment.")
     rationale: str = Field(description="Concise explanation of the relevance score and confidence.")
+
+    @field_validator("relevance_score", mode="after")
+    @classmethod
+    def _clamp_relevance_score(cls, value: int) -> int:
+        """Clamp out-of-range scores instead of raising.
+
+        Field(ge=0, le=100) compiles to JSON-Schema minimum/maximum, which
+        strict json_schema structured-output mode does not support --
+        langchain's ProviderStrategy ships the schema verbatim (no
+        sanitization), causing provider 400s or inconsistent handling for
+        researcher-worker structured responses. A model returning 105 should
+        degrade gracefully to 100 rather than raising and killing the whole
+        research worker over a minor numeric overshoot.
+        """
+        return max(0, min(100, value))
 
 
 class ResearchNotes(_StrictContract):

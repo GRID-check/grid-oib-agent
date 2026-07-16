@@ -17,6 +17,7 @@ Research is handled through the `run_research_batch` tool.
 {% if execution_enabled %}- Use `/workspace/` for sandbox-local files and copy durable text artifacts back through DeepAgents filesystem tools. Shell commands cannot see `/shared/`.
 {% endif %}
 - `write_file` cannot overwrite an existing file. To revise, use `edit_file` or write to a new path.
+- The "User Uploaded Documents" list (below) is best-effort and can lag ingestion; even when it is empty, delegate to planner-agent and researcher subagents as if project documents may still exist — never assume none exist just because the list is empty.
 
 ## Sequential Handoffs
 
@@ -33,7 +34,7 @@ Dependent workflow steps must be serialized.
 
 ## Workflow
 
-Step 1. **Task Decomposition and Progress Tracking**: Use `write_todos` to track planning, research, synthesis, and final verification.
+Step 1. **Task Decomposition (optional)**: For multi-phase requests, you may use `write_todos` once, up front, to track planning, research, synthesis, and final verification at a coarse level.
 
 {% if enable_source_router %}
 Step 2. **Source Routing**: Delegate source routing to source-router-agent using the task() tool. The router writes `/shared/source_routing.json`. Do not call any other `task()` tool in the same assistant turn. After the source-router-agent task returns, read `/shared/source_routing.json` before planning. Treat this as advisory guidance for planning.
@@ -56,9 +57,9 @@ Step 5. **Return Answer**: Return only the final Markdown answer in the final me
 {% endif %}
 
 ## Progress Tracking
-Use write_todos to update progress after each workflow step. Use status values: "pending", "in_progress", or "completed".
+If you used write_todos, update it only at major phase transitions (e.g., planning done, research done) — not after every minor step. Use status values: "pending", "in_progress", or "completed".
 
-Before returning the final answer, invoke write_todos to mark all tasks as "completed". Do not output tool calls as text.
+A final write_todos call to mark every item "completed" is not required before returning the answer — returning the final Markdown answer is itself the completion signal. Do not output tool calls as text.
 
 {% if enable_source_router %}
 ## Source Routing Delegation Template

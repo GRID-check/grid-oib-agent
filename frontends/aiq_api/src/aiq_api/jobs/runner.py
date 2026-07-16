@@ -23,6 +23,9 @@ from starlette.datastructures import Headers
 from .callbacks import AgentEventCallback
 from .event_store import BatchingEventStore
 from .event_store import EventStore
+from .phase_events import PHASE_DONE
+from .phase_events import PhaseProgressCallback
+from .phase_events import emit_phase_event
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +62,14 @@ def sanitize_job_error(exc: BaseException) -> str:
     NOTE: cancellation paths intentionally bypass this — the UI string-matches
     the exact error "cancelled by user".
     """
+    from aiq_agent.common import RunBudgetExceededError
+
+    if isinstance(exc, RunBudgetExceededError):
+        # Already a curated, user-safe message ("run exceeded the configured
+        # completion-token budget of N") -- persist verbatim instead of
+        # falling through to the generic internal-error classification below.
+        return str(exc)
+
     root_module = (type(exc).__module__ or "").split(".")[0]
     if isinstance(exc, TimeoutError):
         return "The job timed out while waiting on an external service."
@@ -263,6 +274,38 @@ def _resolve_worker_tool_refs(fn_config: Any) -> list[str]:
     return list(tool_refs)
 
 
+async def _resolve_deep_research_checkpointer(fn_config: Any) -> Any | None:
+    """Build the durable checkpointer for a deep-research async job, if configured.
+
+    Async deep-research jobs have no restart safety by default (T3-8): each
+    Dask job builds a fresh in-memory-only DeepAgents graph via a new
+    DeepResearcherAgent, so a worker crash mid-run loses all execution state
+    -- only the SQL JobStore row survives, and the ghost-job reaper eventually
+    marks it FAILURE with nothing to resume.
+
+    When ``deep_research_agent.checkpoint_db`` is configured, this builds (and
+    caches, via ``aiq_agent.common.get_checkpointer``) a durable checkpointer
+    keyed by that database path/DSN. ``DeepResearcherAgent.run()`` then uses
+    the job_id as the graph's thread_id, so a re-invocation of the same
+    job_id resumes from the last persisted checkpoint instead of starting
+    over -- see ``DeepResearcherAgent.run`` for the exact resume contract and
+    its current manual-resubmit-only limitation.
+
+    Returns None (current default behavior, no durability) for any agent
+    type other than ``deep_research_agent``, or when ``checkpoint_db`` is
+    unset -- both keep the prior in-memory-only, non-durable behavior.
+    """
+    if getattr(fn_config, "type", None) != "deep_research_agent":
+        return None
+    checkpoint_db = getattr(fn_config, "checkpoint_db", None)
+    if not checkpoint_db:
+        return None
+
+    from aiq_agent.common import get_checkpointer
+
+    return await get_checkpointer(checkpoint_db)
+
+
 def _load_agent_class(agent_class_path: str) -> type:
     """
     Dynamically load an agent class from its module path.
@@ -448,6 +491,13 @@ async def run_agent_job(
 
             std_logging.basicConfig(level=log_level)
 
+    # Quiet NAT's per-parallel-step span-stack warnings in the worker too —
+    # deep research's concurrent researcher/tool fan-out triggers them on
+    # essentially every parallel call (see logging_utils for details).
+    from aiq_agent.common.logging_utils import suppress_noisy_dependency_logs
+
+    suppress_noisy_dependency_logs()
+
     job_store: JobStore | None = None
     cancellation_monitor: CancellationMonitor | None = None
     event_store: EventStore | BatchingEventStore | None = None
@@ -540,6 +590,7 @@ async def run_agent_job(
                 tools = filter_tools_by_sources(tools, data_sources)
 
             # Set up telemetry/observability for Phoenix and OpenTelemetry
+            from aiq_agent.common.nat_step_repair import SpanClosingProfilerHandler
             from nat.builder.context import Context
             from nat.builder.context import ContextState
             from nat.data_models.intermediate_step import IntermediateStepPayload
@@ -548,7 +599,6 @@ async def run_agent_job(
             from nat.data_models.intermediate_step import TraceMetadata
             from nat.data_models.invocation_node import InvocationNode
             from nat.observability.exporter_manager import ExporterManager
-            from nat.plugins.langchain.callback_handler import LangchainProfilerHandler
             from nat.utils.reactive.subject import Subject
 
             telemetry_exporters = {
@@ -596,6 +646,24 @@ async def run_agent_job(
                     headers={**existing_headers, "x-grid-collection-scope": encoded}
                 )
                 context_state.metadata.set(request_attrs)
+            elif getattr(fn_config, "type", None) == "deep_research_agent":
+                # Audit-confirmed silent fallback: with no collection scope,
+                # get_collection_scope_from_context() returns None and knowledge-retrieval
+                # tools fall back to searching only the base/OIB collection plus the
+                # s_<conversation> session collection for the rest of this job — any
+                # project-specific collection is invisible, with no other user-facing
+                # signal that it happened. Logged once per job (this branch runs once per
+                # run_agent_job call, not per retrieval) so the degradation is diagnosable.
+                _identity = (usage_context or {}).get("identity") or {}
+                logger.warning(
+                    "Job %s: async deep-research job has no collection scope; knowledge "
+                    "retrieval will search only the base/OIB and s_<conversation> session "
+                    "collections for this job — project collections will be invisible "
+                    "(authenticated=%s, project_scoped=%s)",
+                    job_id,
+                    bool(_identity.get("organization_id") or _identity.get("user_id")),
+                    bool(_identity.get("project_id") or project_context),
+                )
 
             if project_context is not None:
                 from aiq_agent.project_context import normalize_project_context
@@ -666,8 +734,12 @@ async def run_agent_job(
                         )
                     )
 
-                    # Create profiler callback AFTER workflow starts (ensures correct parent)
-                    nat_profiler_callback = LangchainProfilerHandler()
+                    # Create profiler callback AFTER workflow starts (ensures correct parent).
+                    # SpanClosingProfilerHandler closes errored LLM/tool spans (missing
+                    # on_llm_error/on_tool_error upstream orphan a frame on retry, corrupting
+                    # IntermediateStepManager's span stack) and supports for_new_run() so it
+                    # gets a fresh instance per researcher worker like VerboseTraceCallback.
+                    nat_profiler_callback = SpanClosingProfilerHandler()
 
                     verbose = is_verbose(getattr(fn_config, "verbose", False))
                     callbacks = [VerboseTraceCallback()] if verbose else []
@@ -677,6 +749,30 @@ async def run_agent_job(
                     agent_event_callback = AgentEventCallback(event_store)
                     callbacks.append(agent_event_callback)
                     callbacks.append(nat_profiler_callback)
+
+                    # Phase-progress events (T4-4) and the completion-token budget
+                    # cap are deep-research-specific: only that agent has the
+                    # planner/researcher/writer subagent structure the phase
+                    # detector understands, and long-running fan-out research is
+                    # the run-away-cost shape the budget cap exists for.
+                    is_deep_research_job = getattr(fn_config, "type", None) == "deep_research_agent"
+                    if is_deep_research_job:
+                        callbacks.append(
+                            PhaseProgressCallback(
+                                event_store,
+                                max_research_concurrency=getattr(fn_config, "max_research_concurrency", None),
+                            )
+                        )
+
+                        from aiq_agent.common import create_budget_guard_callback
+
+                        budget_guard_callback = create_budget_guard_callback()
+                        if budget_guard_callback is not None:
+                            callbacks.append(budget_guard_callback)
+
+                    # Durable checkpointing (T3-8): None unless deep_research_agent.checkpoint_db is
+                    # configured, in which case DeepResearcherAgent resumes via job_id as thread_id.
+                    checkpointer = await _resolve_deep_research_checkpointer(fn_config)
 
                     # Instantiate agent with callbacks
                     agent = _create_agent_instance(
@@ -688,6 +784,7 @@ async def run_agent_job(
                         verbose=verbose,
                         callbacks=callbacks,
                         job_id=job_id,
+                        checkpointer=checkpointer,
                     )
 
                     # Run agent - LLM/tool events will be nested under workflow span.
@@ -773,6 +870,9 @@ async def run_agent_job(
                         org_credential=resolved_org_credential,
                         model_overrides=model_overrides,
                     )
+
+                    if is_deep_research_job:
+                        emit_phase_event(event_store, PHASE_DONE)
 
                     # Flush any buffered events before updating status
                     if hasattr(event_store, "flush"):
@@ -868,6 +968,7 @@ def _create_agent_instance(
     verbose: bool,
     callbacks: list,
     job_id: str | None = None,
+    checkpointer: Any | None = None,
 ):
     """
     Create an agent instance, supporting different constructor patterns.
@@ -893,6 +994,7 @@ def _create_agent_instance(
             max_research_concurrency=fn_config.max_research_concurrency,
             max_concurrent_source_tool_calls=fn_config.max_concurrent_source_tool_calls,
             max_source_tool_batch_size=fn_config.max_source_tool_batch_size,
+            checkpointer=checkpointer,
         )
 
     # Try original deep_researcher pattern (llm_provider + tools + verbose)

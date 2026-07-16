@@ -422,45 +422,75 @@ class SourceRegistryMiddleware(AgentMiddleware):
 
 
 class ToolResultPruningMiddleware(AgentMiddleware):
-    """Truncates older tool results to keep context manageable.
+    """Truncates older tool results to keep context manageable — cache-stably.
 
-    Keeps the last N tool results intact and truncates older ones to
-    reduce "lost in the middle" degradation. Operates on awrap_model_call
-    so the full results are still available for SourceRegistryMiddleware.
+    Keeps the last N oversized tool results intact and truncates older ones to
+    reduce "lost in the middle" degradation. Operates on awrap_model_call so
+    the full results are still available for SourceRegistryMiddleware.
+
+    Truncation is MONOTONIC: once a message has been sent truncated, it is
+    sent in exactly that truncated form on every later call. A naive
+    sliding window recomputed per call changes message bytes mid-history on
+    almost every turn, which invalidates the provider's prompt-prefix cache
+    (OpenRouter/DeepSeek) from that point on — on ~80k-token deep-research
+    contexts that meant re-processing the full prompt every single turn.
+    Decisions are recorded per message id; entries are deterministic and
+    idempotent, so the plain dict is safe even when one middleware instance
+    is shared across concurrently-running subagents (concurrent writers can
+    only ever write the same value for the same id).
+
+    Only messages whose content exceeds max_chars occupy window slots:
+    trivial results (``think``'s "Thought recorded.", ``ls`` listings) need
+    no truncation, and letting them consume protected slots would churn the
+    window — and thus the cache — for zero context savings.
     """
+
+    _TRUNCATION_SUFFIX = "\n\n[... truncated ...]"
 
     def __init__(self, keep_last_n: int = 3, max_chars: int = 500):
         self.keep_last_n = keep_last_n
         self.max_chars = max_chars
+        # message id -> permanently truncated content for that message.
+        self._truncated_by_id: dict[str, str] = {}
 
     async def awrap_model_call(self, request, handler):
-        """Truncate older ToolMessage content before sending to the model."""
-        # Find all ToolMessage indices
-        tool_indices = [i for i, msg in enumerate(request.messages) if isinstance(msg, ToolMessage)]
+        """Truncate older oversized ToolMessage content before sending to the model."""
+        # Window candidates: oversized ToolMessages only (see class docstring).
+        oversized_indices = [
+            i
+            for i, msg in enumerate(request.messages)
+            if isinstance(msg, ToolMessage) and msg.content and len(str(msg.content)) > self.max_chars
+        ]
 
-        if len(tool_indices) <= self.keep_last_n:
+        # Newly evict everything that fell out of the last-N window. Messages
+        # already truncated on an earlier call stay truncated regardless of
+        # where the window sits now (monotonicity).
+        newly_evicted = oversized_indices[: -self.keep_last_n] if len(oversized_indices) > self.keep_last_n else []
+        for i in newly_evicted:
+            msg = request.messages[i]
+            if msg.id is not None and msg.id not in self._truncated_by_id:
+                self._truncated_by_id[msg.id] = str(msg.content)[: self.max_chars] + self._TRUNCATION_SUFFIX
+
+        if not self._truncated_by_id:
             return await handler(request)
 
-        # Indices to truncate: all but the last keep_last_n
-        truncate_indices = set(tool_indices[: -self.keep_last_n])
-
         pruned_messages = []
-        for i, msg in enumerate(request.messages):
-            if i in truncate_indices and isinstance(msg, ToolMessage) and msg.content:
-                content = str(msg.content)
-                if len(content) > self.max_chars:
-                    truncated_content = content[: self.max_chars] + "\n\n[... truncated ...]"
-                    pruned_messages.append(
-                        ToolMessage(
-                            content=truncated_content,
-                            tool_call_id=msg.tool_call_id,
-                            name=getattr(msg, "name", None),
-                            id=msg.id,
-                        )
+        changed = False
+        for msg in request.messages:
+            truncated = self._truncated_by_id.get(msg.id) if isinstance(msg, ToolMessage) else None
+            if truncated is not None:
+                changed = True
+                pruned_messages.append(
+                    ToolMessage(
+                        content=truncated,
+                        tool_call_id=msg.tool_call_id,
+                        name=getattr(msg, "name", None),
+                        id=msg.id,
                     )
-                else:
-                    pruned_messages.append(msg)
+                )
             else:
                 pruned_messages.append(msg)
 
+        if not changed:
+            return await handler(request)
         return await handler(request.override(messages=pruned_messages))

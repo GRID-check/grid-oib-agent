@@ -20,11 +20,13 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.tools import BaseTool
 from langchain_core.tools import tool
 from langgraph.store.memory import InMemoryStore
+from langgraph.types import Checkpointer
 
 from aiq_agent.common import LLMProvider
 from aiq_agent.common import LLMRole
 from aiq_agent.common import render_prompt_template
 from aiq_agent.common import strict_response_format
+from aiq_agent.common.ris_catalog import render_block_for_prompt
 
 from .custom_middleware import EmptyContentFixMiddleware
 from .custom_middleware import SelectiveToolRetryMiddleware
@@ -116,6 +118,11 @@ class DeepResearchGraphContext:
     def project_context(self) -> str | None:
         return self.state.project_context
 
+    @property
+    def ris_catalog(self) -> str | None:
+        """Curated RIS index block for prompts; None when the catalog is unavailable."""
+        return render_block_for_prompt(self.project_context)
+
     def render_prompt(self, prompt_name: str, **values: Any) -> str:
         return render_prompt_template(
             self.prompts[prompt_name],
@@ -123,6 +130,7 @@ class DeepResearchGraphContext:
             user_info=self.state.user_info,
             available_documents=self.available_documents,
             project_context=self.project_context,
+            ris_catalog=self.ris_catalog,
             **values,
         )
 
@@ -168,6 +176,31 @@ def build_deep_research_tool_set(
 # below the LLM would re-run every already-successful multi-LLM-call worker.
 _NO_RETRY_TOOL_NAMES = frozenset({"run_research_batch"})
 
+
+def _is_transient_model_error(exc: Exception) -> bool:
+    """Retry model calls only on transient provider errors.
+
+    The default retry_on=(Exception,) also retried permanent failures (schema
+    rejections, auth errors, context overflow), stacking on top of the OpenAI
+    client's own max_retries and multiplying latency for calls that can never
+    succeed. Retry only what a wait can fix: rate limits, timeouts, transport
+    errors, and 5xx.
+    """
+    import openai
+
+    if isinstance(exc, (openai.RateLimitError, openai.APITimeoutError, openai.APIConnectionError)):
+        return True
+    if isinstance(exc, openai.APIStatusError):
+        return 500 <= exc.status_code < 600
+    return False
+
+
+def _model_retry_middleware() -> ModelRetryMiddleware:
+    return ModelRetryMiddleware(
+        max_retries=2, backoff_factor=2.0, initial_delay=1.0, retry_on=_is_transient_model_error
+    )
+
+
 # The writer must read the plan, EVERY research note file, get_verified_sources,
 # and skill files without truncation; pruning any of them corrupts the final
 # synthesis and the citation whitelist. Sized as assumed-max research batches
@@ -209,7 +242,7 @@ def build_common_middleware(
         ),
         source_registry_middleware,
         ToolResultPruningMiddleware(keep_last_n=tool_result_keep_last_n, max_chars=tool_result_max_chars),
-        ModelRetryMiddleware(max_retries=2, backoff_factor=2.0, initial_delay=1.0),
+        _model_retry_middleware(),
     ]
 
 
@@ -224,7 +257,7 @@ def build_source_router_middleware(*, extra_valid_tool_names: Sequence[str] = ()
             initial_delay=1.0,
             retry_on=is_retryable_tool_error,
         ),
-        ModelRetryMiddleware(max_retries=2, backoff_factor=2.0, initial_delay=1.0),
+        _model_retry_middleware(),
     ]
 
 
@@ -451,8 +484,19 @@ def build_deep_research_graph(
     domain_catalog_path: str | None,
     max_research_concurrency: int,
     enable_source_router: bool = True,
+    checkpointer: Checkpointer | None = None,
 ) -> Any:
-    """Build the full DeepAgents graph for one deep research run."""
+    """Build the full DeepAgents graph for one deep research run.
+
+    ``checkpointer`` is execution-state durability (LangGraph's
+    per-thread checkpoint log: messages, DeepAgents filesystem, todos),
+    distinct from ``store`` below (longterm cross-thread memory, always
+    an in-memory store here). None (default) matches current behavior:
+    an ephemeral in-process run with no restart safety. When set, the
+    caller (``DeepResearcherAgent``) also invokes the compiled graph with
+    a stable ``thread_id`` so a re-run of the same job resumes from the
+    last persisted checkpoint instead of starting over.
+    """
     context = DeepResearchGraphContext(
         llm_provider=llm_provider,
         state=state,
@@ -508,6 +552,7 @@ def build_deep_research_graph(
         ),
         subagents=build_deep_research_subagents(context),
         store=InMemoryStore(),
+        checkpointer=checkpointer,
         middleware=context.middleware(context.middleware_set.orchestrator),
         permissions=context.permissions(ORCHESTRATOR_AGENT),
         backend=context.backend,

@@ -2,11 +2,13 @@ import { describe, expect, it } from 'vitest'
 
 import {
   answersFromProfile,
+  BUNDESLAND_TOKENS,
   buildIntakeProfile,
   evaluateIntakeCondition,
   flattenIntakeQuestions,
   formatIntakeAnswer,
   humanizeProfileKey,
+  isValidBundeslandToken,
   labelForProfileKey,
   mergeIntakeProfile,
   projectIntakeDefinitionV1,
@@ -59,6 +61,34 @@ describe('buildIntakeProfile', () => {
     expect(profile.unknowns).toContain('widmung')
     // anzahl_betten only applies to beherbergung -> NOT an unknown here.
     expect(profile.unknowns).not.toContain('anzahl_betten')
+  })
+
+  it('captures the Bundesland as a confirmed fact (jurisdiction is a hard fact)', () => {
+    const profile = buildIntakeProfile({ bundesland: 'tirol' }, definition)
+
+    expect(profile.facts.bundesland?.value).toBe('tirol')
+    expect(profile.facts.bundesland?.confidence).toBe('confirmed')
+    expect(profile.unknowns).not.toContain('bundesland')
+    // standort_details applies only outside Austria -> not an unknown here.
+    expect(profile.unknowns).not.toContain('standort_details')
+  })
+
+  it('records the missing Bundesland as an unknown', () => {
+    const profile = buildIntakeProfile({ hauptnutzung: 'wohnen' }, definition)
+
+    expect(profile.unknowns).toContain('bundesland')
+  })
+
+  it('asks for a free-text location only outside Austria', () => {
+    const profile = buildIntakeProfile({ bundesland: 'ausserhalb_oesterreichs' }, definition)
+
+    expect(profile.unknowns).toContain('standort_details')
+
+    const withDetails = buildIntakeProfile(
+      { bundesland: 'ausserhalb_oesterreichs', standort_details: 'Bayern, Deutschland' },
+      definition,
+    )
+    expect(withDetails.facts.standort_details?.value).toBe('Bayern, Deutschland')
   })
 
   it('does not treat conditionally-hidden questions as unknown', () => {
@@ -134,6 +164,12 @@ describe('validateProfilePatchVocabulary', () => {
 
   it('rejects a single-select value outside the options', () => {
     expect(() => validate('add', '/facts/gebaeudeklasse', 'GK9')).toThrow(/Building class/)
+  })
+
+  it('rejects a Bundesland outside the vocabulary', () => {
+    expect(() => validate('add', '/facts/bundesland', 'bayern')).toThrow(/located/)
+    expect(() => validate('add', '/facts/bundesland', 'wien')).not.toThrow()
+    expect(() => validate('add', '/facts/bundesland', 'ausserhalb_oesterreichs')).not.toThrow()
   })
 
   it('rejects a non-boolean for a boolean fact', () => {
@@ -312,5 +348,46 @@ describe('projectIntakeDefinitionV1 shape', () => {
 
     expect(evaluateIntakeCondition(goalDetails, { focus_areas: ['einreichung'] })).toBe(false)
     expect(evaluateIntakeCondition(goalDetails, { focus_areas: ['einreichung', 'sonstiges'] })).toBe(true)
+  })
+})
+
+describe('BUNDESLAND_TOKENS / isValidBundeslandToken', () => {
+  // Backlog T3-9 follow-up (2026-07-16, user-mandated): the structured
+  // `bundesland` envelope field must validate against the exact same
+  // vocabulary the intake wizard offers (nine states + ausserhalb_oesterreichs)
+  // -- mirrored (not imported) on the Python side by
+  // aiq_agent.project_context's `_BUNDESLAND_TOKENS`.
+  it('contains exactly the nine Bundesland tokens plus ausserhalb_oesterreichs', () => {
+    expect(new Set(BUNDESLAND_TOKENS)).toEqual(
+      new Set([
+        'wien',
+        'niederoesterreich',
+        'oberoesterreich',
+        'steiermark',
+        'kaernten',
+        'salzburg',
+        'tirol',
+        'vorarlberg',
+        'burgenland',
+        'ausserhalb_oesterreichs',
+      ]),
+    )
+  })
+
+  it('stays byte-identical to the bundesland question options (single source of truth)', () => {
+    const bundeslandQuestion = flattenIntakeQuestions(definition).find((q) => q.id === 'bundesland')!
+    expect(BUNDESLAND_TOKENS).toEqual(bundeslandQuestion.options?.map((option) => option.value))
+  })
+
+  it('isValidBundeslandToken accepts every known token', () => {
+    for (const token of BUNDESLAND_TOKENS) {
+      expect(isValidBundeslandToken(token)).toBe(true)
+    }
+  })
+
+  it('isValidBundeslandToken rejects unknown/malformed tokens', () => {
+    expect(isValidBundeslandToken('atlantis')).toBe(false)
+    expect(isValidBundeslandToken('')).toBe(false)
+    expect(isValidBundeslandToken('Wien')).toBe(false) // case-sensitive: the wire token is lowercase
   })
 })

@@ -21,6 +21,9 @@ from nat.data_models.api_server import ChoiceMessage
 from nat.data_models.api_server import Usage
 from nat.data_models.api_server import UserMessageContentRoleType
 
+from .budget_guard import BudgetGuardCallback
+from .budget_guard import RunBudgetExceededError
+from .budget_guard import create_budget_guard_callback
 from .callbacks import VerboseTraceCallback
 from .citation_verification import SourceRegistry
 from .citation_verification import get_or_create_session_registry
@@ -60,6 +63,7 @@ from .model_overrides import apply_model_override
 from .model_overrides import get_model_overrides_from_context
 from .model_overrides import parse_model_overrides
 from .model_overrides import sanitize_model_overrides
+from .nat_step_repair import SpanClosingProfilerHandler
 from .prompt_utils import load_prompt
 from .prompt_utils import render_prompt_template
 from .tool_validation import format_tool_unavailability_error
@@ -80,13 +84,17 @@ __all__ = [
     "DEFAULT_DATA_SOURCES",
     "DISABLED_SOURCES_HEADER",
     "AgentGroup",
+    "BudgetGuardCallback",
     "LLMProvider",
     "MODEL_OVERRIDES_HEADER",
     "LLMRole",
     "OrgLLMCredential",
+    "RunBudgetExceededError",
     "SourceRegistry",
+    "SpanClosingProfilerHandler",
     "VerboseTraceCallback",
     "all_mapped_tools_filtered_out",
+    "create_budget_guard_callback",
     "apply_model_override",
     "apply_org_credential",
     "get_disabled_sources_from_context",

@@ -86,4 +86,17 @@ describe('submitWorkflowJob', () => {
     fetchMock.mockResolvedValue(new Response(JSON.stringify({}), { status: 200 }))
     await expect(submitWorkflowJob(payload)).rejects.toBeInstanceOf(WorkflowSubmitError)
   })
+
+  it('merges extraHeaders (the signed context envelope) alongside X-Internal-Token', async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ job_id: 'job-2' }), { status: 200 }))
+    await submitWorkflowJob(payload, {
+      'X-Grid-Request-Context': 'envelope-header-value',
+      'X-Grid-Request-Context-Sig': 'deadbeef',
+    })
+    const [, init] = fetchMock.mock.calls[0]
+    const headers = (init as any).headers
+    expect(headers['X-Internal-Token']).toBe('secret')
+    expect(headers['X-Grid-Request-Context']).toBe('envelope-header-value')
+    expect(headers['X-Grid-Request-Context-Sig']).toBe('deadbeef')
+  })
 })

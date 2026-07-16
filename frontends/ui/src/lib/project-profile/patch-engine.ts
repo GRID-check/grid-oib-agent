@@ -145,6 +145,21 @@ export function pruneResolvedUnknowns(profile: ProjectProfile): ProjectProfile {
   return { ...profile, unknowns }
 }
 
+/**
+ * Drop assumptions superseded by a confirmed fact under the same key: once the
+ * user has answered (wizard, patch card, or Brief confirm), the unconfirmed
+ * default must not linger next to the fact — a stale `bundesland=wien`
+ * assumption beside a confirmed `bundesland=tirol` fact would feed the agent
+ * two contradictory jurisdictions.
+ */
+export function pruneResolvedAssumptions(profile: ProjectProfile): ProjectProfile {
+  const stale = Object.keys(profile.assumptions).filter((key) => key in profile.facts)
+  if (stale.length === 0) return profile
+  const assumptions = { ...profile.assumptions }
+  for (const key of stale) delete assumptions[key]
+  return { ...profile, assumptions }
+}
+
 /** `/facts/<key>` (exactly one segment below the section) → `<key>`, else null. */
 function matchTopLevelKey(path: string, section: 'facts' | 'assumptions'): string | null {
   const parts = path.split('/')

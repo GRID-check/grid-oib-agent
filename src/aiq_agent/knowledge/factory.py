@@ -24,6 +24,7 @@ from aiq_agent.common.db_utils import redact_db_url
 
 from .base import BaseIngestor
 from .base import BaseRetriever
+from .schema import FileStatus
 
 if TYPE_CHECKING:
     from .schema import AvailableDocument
@@ -337,6 +338,97 @@ def get_available_documents(collection: str) -> list["AvailableDocument"]:
 async def get_available_documents_async(collection: str) -> list["AvailableDocument"]:
     """Get documents with summaries (async)."""
     return await _get_summary_store().get_all_async(collection)
+
+
+def reconcile_collection_summaries(ingestor: BaseIngestor, collection: str) -> int:
+    """Backfill fallback summary rows for documents the vector index has but the summaries table doesn't.
+
+    Structural backstop for "ingested ⇒ visible": ``available_documents`` (the
+    per-turn prompt line agents rely on to know what's searchable) is sourced
+    SOLELY from the summaries table, while search itself works off the vector
+    index. If the primary summary path (LLM summary + tag classification, both
+    fail-open) ever produces no row for a document that nonetheless ingested
+    successfully, that document becomes silently unusable in chat even though
+    it is fully searchable. This diffs the ingestor's indexed, successfully-
+    ingested file names (``BaseIngestor.list_files``, part of every backend's
+    interface) against the summaries table (``get_available_documents``) and
+    registers a deterministic, LLM-free fallback summary for every gap.
+
+    Backend-agnostic by design: only calls the required ``BaseIngestor``
+    interface. Backends that can supply a representative text sample for a
+    document expose an optional ``get_document_text_sample(collection,
+    file_name) -> str | None`` method (duck-typed via ``getattr`` — deliberately
+    not part of the abstract ``BaseIngestor`` interface, so this stays opt-in
+    per backend); see ``LlamaIndexIngestor.get_document_text_sample`` for the
+    reference implementation, which reads chunk text back out of Chroma. When a
+    backend has no such method, or the sample comes back empty, the filename
+    itself becomes the fallback summary — a row that exists beats no row at
+    all.
+
+    Intended to run at the end of every ingestion job (wired into
+    ``LlamaIndexIngestor._run_ingestion``) so every caller — the Knowledge API,
+    ``scripts/ingest_oib.py``'s ``oib_sync.sync()``, and any future caller —
+    gets this backstop automatically.
+
+    Args:
+        ingestor: The backend ingestor to reconcile against.
+        collection: Collection/index name to reconcile.
+
+    Returns:
+        The number of documents backfilled (0 when already consistent, or on
+        any lookup failure — this never raises).
+    """
+    try:
+        indexed_files = ingestor.list_files(collection)
+    except Exception as e:
+        logger.warning("Reconciliation: failed to list indexed files for %s: %s", collection, e)
+        return 0
+
+    indexed_names = {f.file_name for f in indexed_files if f.status == FileStatus.SUCCESS}
+    if not indexed_names:
+        return 0
+
+    existing_names = {doc.file_name for doc in get_available_documents(collection)}
+    missing_names = indexed_names - existing_names
+    if not missing_names:
+        return 0
+
+    from .document_classification import fallback_summary_from_text
+
+    sample_fn = getattr(ingestor, "get_document_text_sample", None)
+
+    backfilled = 0
+    for file_name in sorted(missing_names):
+        text_sample = None
+        if callable(sample_fn):
+            try:
+                text_sample = sample_fn(collection, file_name)
+            except Exception as e:
+                logger.warning("Reconciliation: failed to sample text for %s in %s: %s", file_name, collection, e)
+
+        summary = fallback_summary_from_text(text_sample) if text_sample else None
+        if not summary:
+            # No usable text sample (no sampler on this backend, or the indexed
+            # chunks came back empty) — fall back to the filename itself so a
+            # row exists at all. Visibility beats a perfect summary here.
+            summary = f"Indexed document: {file_name}"
+
+        register_summary(collection, file_name, summary)
+        backfilled += 1
+        logger.warning(
+            "Reconciliation: backfilled missing summary for %s in %s "
+            "(primary summary path silently produced no row for an ingested document)",
+            file_name,
+            collection,
+        )
+
+    logger.warning(
+        "Reconciliation: backfilled %d/%d document(s) missing summaries in %s",
+        backfilled,
+        len(indexed_names),
+        collection,
+    )
+    return backfilled
 
 
 def unregister_summary(collection: str, filename: str) -> None:

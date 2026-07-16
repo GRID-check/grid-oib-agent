@@ -38,7 +38,7 @@ export interface ProjectIntakeDefinition {
 }
 
 export const projectIntakeDefinitionV1: ProjectIntakeDefinition = {
-  version: 2,
+  version: 3,
   stages: [
     {
       // Focus comes FIRST: once someone has named what they want out of the project,
@@ -79,6 +79,37 @@ export const projectIntakeDefinitionV1: ProjectIntakeDefinition = {
       title: 'Project core',
       description: 'The essentials Grid needs to frame the building.',
       questions: [
+        {
+          // Jurisdiction is a HARD fact: building law is state law (the nine
+          // Landesbauordnungen differ), so every regulatory answer downstream —
+          // RIS research, applicable standards, prompt context — depends on it.
+          // It must never be inferred from free text.
+          id: 'bundesland',
+          label: 'Where is the building located?',
+          help: 'The location decides which building code applies.',
+          type: 'single_select',
+          options: [
+            { value: 'wien', label: 'Vienna (Wien)' },
+            { value: 'niederoesterreich', label: 'Lower Austria (Niederösterreich)' },
+            { value: 'oberoesterreich', label: 'Upper Austria (Oberösterreich)' },
+            { value: 'steiermark', label: 'Styria (Steiermark)' },
+            { value: 'kaernten', label: 'Carinthia (Kärnten)' },
+            { value: 'salzburg', label: 'Salzburg' },
+            { value: 'tirol', label: 'Tyrol (Tirol)' },
+            { value: 'vorarlberg', label: 'Vorarlberg' },
+            { value: 'burgenland', label: 'Burgenland' },
+            { value: 'ausserhalb_oesterreichs', label: 'Outside Austria' },
+          ],
+          writesTo: '/facts/bundesland/value',
+        },
+        {
+          id: 'standort_details',
+          label: 'Project location',
+          help: 'Country and region/city, e.g. "Bayern, Deutschland" — Grid uses this to frame which law applies.',
+          type: 'text',
+          condition: { field: 'bundesland', equals: 'ausserhalb_oesterreichs' },
+          writesTo: '/facts/standort_details/value',
+        },
         {
           id: 'hauptnutzung',
           label: 'Main use',
@@ -277,6 +308,30 @@ export const projectIntakeDefinitionV1: ProjectIntakeDefinition = {
 // Shared intake helpers — used by both the wizard (client) and, where relevant,
 // server routes. Pure and isomorphic.
 // ---------------------------------------------------------------------------
+
+/**
+ * The validated `bundesland` token vocabulary (nine Bundesland tokens plus
+ * `ausserhalb_oesterreichs`), read straight off the intake question's own
+ * options so it can never drift from what the wizard actually offers.
+ * Reused by `@/lib/project-profile/prompt-view`'s `loadProjectBundesland`
+ * (backlog T3-9 follow-up, 2026-07-16, user-mandated) to validate the fact
+ * pulled from the stored profile before it rides the structured
+ * `X-Grid-Request-Context` envelope — the backend independently validates
+ * the same vocabulary (`aiq_agent.project_context`'s `_BUNDESLAND_TOKENS`),
+ * mirrored (not shared) across the language boundary like every other
+ * cross-cutting request fact in this module family.
+ */
+export const BUNDESLAND_TOKENS: readonly string[] = (() => {
+  const question = projectIntakeDefinitionV1.stages
+    .flatMap((stage) => stage.questions)
+    .find((q) => q.id === 'bundesland')
+  return question?.options?.map((option) => option.value) ?? []
+})()
+
+/** Whether `token` is a recognized `bundesland` intake answer. */
+export function isValidBundeslandToken(token: string): boolean {
+  return BUNDESLAND_TOKENS.includes(token)
+}
 
 /** Whether a question is currently relevant given the answers collected so far. */
 export function evaluateIntakeCondition(

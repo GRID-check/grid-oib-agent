@@ -16,8 +16,9 @@ import { ConflictError, NotFoundError } from '@/lib/api/errors'
 import { findProjectInOrg } from '@/lib/projects/repository'
 import { getBudgetStatus } from '@/lib/budgets/service'
 import { getActiveModelOverrides } from '@/lib/model-config/service'
-import { loadProjectPromptView } from '@/lib/project-profile/prompt-view'
+import { loadProjectBundesland, loadProjectPromptView } from '@/lib/project-profile/prompt-view'
 import { computeCollectionScope } from '@/lib/collection-scope'
+import { buildGridRequestContextWireHeaders, encodeGridBudgetHeader, type GridBudgetSnapshot } from '@/lib/request-context'
 import { isOrgFeatureEnabled, WORKFLOWS_FLAG } from '@/lib/workos/feature-flags'
 import { enforcementOn } from '@/lib/authz/feature-flags'
 import type { AuthorizedSession } from '@/lib/auth/types'
@@ -260,12 +261,19 @@ export async function fireWorkflow(
     // (e.g. the project lookup for the collection scope) must surface as an
     // 'error' run row, not an unrecorded throw — the schedule has already
     // advanced past this occurrence, so a silent loss would leave no trace.
-    const [budgetHeader, modelOverrides, collectionScope, projectContext] = await Promise.all([
-      buildBudgetHeader(organizationId, createdBy, projectId),
+    const [budgetSnapshot, modelOverrides, collectionScope, projectContext, bundesland] = await Promise.all([
+      resolveBudgetSnapshot(organizationId, createdBy, projectId),
       getActiveModelOverrides(organizationId).catch(() => null),
       buildProjectCollectionScope(projectId, organizationId),
       loadProjectPromptView(projectId).catch(() => null),
+      // Structured jurisdiction fact (backlog T3-9 follow-up, 2026-07-16,
+      // user-mandated) — rides the envelope's `bundesland` field alongside
+      // the unchanged `bundesland=<token>` line already inside
+      // `projectContext` above. Best-effort: a lookup failure must not
+      // block the scheduled run.
+      loadProjectBundesland(projectId).catch(() => null),
     ])
+    const budgetHeader = budgetSnapshot ? encodeGridBudgetHeader(budgetSnapshot) : null
 
     const payload: WorkflowSubmitPayload = {
       agent_type: workflow.agentType,
@@ -282,7 +290,32 @@ export async function fireWorkflow(
       model_overrides: modelOverrides,
     }
 
-    const { job_id } = await submitWorkflowJob(payload)
+    // Signed context envelope (backlog T3-9 follow-up, 2026-07-16,
+    // user-mandated): DUAL-WRITE alongside the payload's own identity/context
+    // fields above, built from the exact same values via the shared
+    // GridRequestContext builder so this path's wire format can never drift
+    // from the interactive submit path (server.js WS upgrade / the
+    // async-jobs proxy route). `fireWorkflow` has no live JWT request to
+    // read `X-Grid-*` individual headers off of (it's the session-less
+    // scheduler/internal path — see the module docstring), so
+    // `buildGridRequestContextWireHeaders`'s "individual headers" half is
+    // built fresh here rather than forwarded; the envelope is what the
+    // backend's enforcement middleware actually checks.
+    const contextHeaders = buildGridRequestContextWireHeaders(
+      {
+        organizationId,
+        userId: createdBy,
+        projectId,
+        collectionScope,
+        projectContext,
+        modelOverrides,
+        budget: budgetSnapshot,
+        bundesland,
+      },
+      process.env.GRID_INTERNAL_API_TOKEN,
+    )
+
+    const { job_id } = await submitWorkflowJob(payload, contextHeaders)
     return await recordRun(workflow, trigger, actor, 'submitted', job_id, null)
   } catch (err) {
     if (err instanceof WorkflowSubmitSkippedError) {
@@ -333,24 +366,25 @@ function computeNextRunAt(scheduleCron: string | null, timezone: string, enabled
 }
 
 /**
- * The base64url budget snapshot the backend cost tracker reads — identical
- * value to the interactive path's `x-grid-budget` header. Fail-open (null) on
- * read error, mirroring the WS-scope route: a broken budget lookup must not
- * take firing down.
+ * The raw remaining-budget snapshot — identical values to the interactive
+ * path's `x-grid-budget` header. `fireWorkflow` derives BOTH the legacy
+ * base64url `budget_header` payload field (`encodeGridBudgetHeader`) and the
+ * signed context envelope's `budget` field from this single fetch, so the
+ * two can never disagree. Fail-open (null) on read error, mirroring the
+ * WS-scope route: a broken budget lookup must not take firing down.
  */
-async function buildBudgetHeader(
+async function resolveBudgetSnapshot(
   organizationId: string,
   userId: string,
   projectId: string,
-): Promise<string | null> {
+): Promise<GridBudgetSnapshot | null> {
   try {
     const status = await getBudgetStatus(organizationId, userId, projectId)
-    const snapshot = {
+    return {
       remainingOrgUsd: status.remainingOrgUsd,
       remainingUserUsd: status.remainingUserUsd,
       remainingProjectUsd: status.remainingProjectUsd,
     }
-    return Buffer.from(JSON.stringify(snapshot), 'utf8').toString('base64url')
   } catch {
     return null
   }

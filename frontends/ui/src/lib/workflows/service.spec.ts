@@ -18,6 +18,7 @@ vi.mock('@/lib/model-config/service', () => ({
 
 vi.mock('@/lib/project-profile/prompt-view', () => ({
   loadProjectPromptView: vi.fn(),
+  loadProjectBundesland: vi.fn(),
 }))
 
 vi.mock('@/lib/workos/feature-flags', () => ({
@@ -48,7 +49,7 @@ import { requireProjectAccess } from '@/lib/authz/projects'
 import { findProjectInOrg } from '@/lib/projects/repository'
 import { getBudgetStatus } from '@/lib/budgets/service'
 import { getActiveModelOverrides } from '@/lib/model-config/service'
-import { loadProjectPromptView } from '@/lib/project-profile/prompt-view'
+import { loadProjectBundesland, loadProjectPromptView } from '@/lib/project-profile/prompt-view'
 import { ConflictError, NotFoundError } from '@/lib/api/errors'
 import * as repository from './repository'
 import {
@@ -74,6 +75,7 @@ const mockFindProjectInOrg = vi.mocked(findProjectInOrg)
 const mockGetBudgetStatus = vi.mocked(getBudgetStatus)
 const mockGetModelOverrides = vi.mocked(getActiveModelOverrides)
 const mockLoadPromptView = vi.mocked(loadProjectPromptView)
+const mockLoadBundesland = vi.mocked(loadProjectBundesland)
 const mockSubmit = vi.mocked(submitWorkflowJob)
 const repo = vi.mocked(repository)
 
@@ -124,6 +126,7 @@ beforeEach(() => {
   })
   mockGetModelOverrides.mockResolvedValue({ deep_research: 'some/model' })
   mockLoadPromptView.mockResolvedValue('Project context here')
+  mockLoadBundesland.mockResolvedValue(null)
 })
 
 afterEach(() => {
@@ -362,6 +365,23 @@ describe('fireWorkflow (single submission path)', () => {
     // Collection scope includes the project's real collection name.
     expect(payload.collection_scope).toContain('proj_abc')
 
+    // Signed context envelope (backlog T3-9 follow-up, 2026-07-16): dual-write
+    // alongside the payload, built from the same org/user/project/budget/
+    // overrides/scope values.
+    const contextHeaders = mockSubmit.mock.calls[0][1] as Record<string, string>
+    expect(contextHeaders['X-Grid-Request-Context']).toBeDefined()
+    const decodedEnvelope = JSON.parse(Buffer.from(contextHeaders['X-Grid-Request-Context'], 'base64url').toString())
+    expect(decodedEnvelope).toMatchObject({
+      organizationId: ORG_ID,
+      userId: 'creator-9',
+      projectId: PROJECT_ID,
+      modelOverrides: { deep_research: 'some/model' },
+      budget: { remainingOrgUsd: 5, remainingUserUsd: null, remainingProjectUsd: 2 },
+    })
+    expect(decodedEnvelope.collectionScope).toContain('proj_abc')
+    // No GRID_INTERNAL_API_TOKEN stubbed in this test -> envelope is unsigned.
+    expect(contextHeaders['X-Grid-Request-Context-Sig']).toBeUndefined()
+
     expect(repo.insertWorkflowRun).toHaveBeenCalledWith(
       expect.objectContaining({
         workflowId: 'wf-1',
@@ -375,6 +395,46 @@ describe('fireWorkflow (single submission path)', () => {
     )
     expect(repo.touchWorkflowLastRun).toHaveBeenCalledWith('wf-1', run.createdAt)
     expect(run.status).toBe('submitted')
+  })
+
+  it('carries the resolved bundesland fact structurally on the envelope (backlog T3-9 follow-up, 2026-07-16)', async () => {
+    mockLoadBundesland.mockResolvedValue('tirol')
+    mockSubmit.mockResolvedValue({ job_id: 'job-bundesland' })
+    repo.insertWorkflowRun.mockImplementation(
+      async (v) => ({ ...v, id: 'run-bundesland', createdAt: new Date() }) as any,
+    )
+
+    await fireWorkflow(workflow, 'schedule', 'scheduler')
+
+    expect(mockLoadBundesland).toHaveBeenCalledWith(PROJECT_ID)
+    const contextHeaders = mockSubmit.mock.calls[0][1] as Record<string, string>
+    const decodedEnvelope = JSON.parse(Buffer.from(contextHeaders['X-Grid-Request-Context'], 'base64url').toString())
+    expect(decodedEnvelope.bundesland).toBe('tirol')
+  })
+
+  it('omits bundesland from the envelope cleanly when the project has no valid fact', async () => {
+    mockLoadBundesland.mockResolvedValue(null)
+    mockSubmit.mockResolvedValue({ job_id: 'job-no-bundesland' })
+    repo.insertWorkflowRun.mockImplementation(
+      async (v) => ({ ...v, id: 'run-no-bundesland', createdAt: new Date() }) as any,
+    )
+
+    await fireWorkflow(workflow, 'schedule', 'scheduler')
+
+    const contextHeaders = mockSubmit.mock.calls[0][1] as Record<string, string>
+    const decodedEnvelope = JSON.parse(Buffer.from(contextHeaders['X-Grid-Request-Context'], 'base64url').toString())
+    expect(decodedEnvelope.bundesland).toBeUndefined()
+  })
+
+  it('signs the context envelope when GRID_INTERNAL_API_TOKEN is configured', async () => {
+    vi.stubEnv('GRID_INTERNAL_API_TOKEN', 'test-secret')
+    mockSubmit.mockResolvedValue({ job_id: 'job-signed' })
+    repo.insertWorkflowRun.mockImplementation(async (v) => ({ ...v, id: 'run-signed', createdAt: new Date() }) as any)
+
+    await fireWorkflow(workflow, 'schedule', 'scheduler')
+
+    const contextHeaders = mockSubmit.mock.calls[0][1] as Record<string, string>
+    expect(contextHeaders['X-Grid-Request-Context-Sig']).toMatch(/^[0-9a-f]{64}$/)
   })
 
   it('records a 429 as a skipped run WITHOUT throwing', async () => {
