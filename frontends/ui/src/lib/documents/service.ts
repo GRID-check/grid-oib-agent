@@ -13,6 +13,8 @@ import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { s3Client, signingS3Client, bucketName, buildMinioKey } from '@/lib/s3'
 import { requireProjectAccess } from '@/lib/authz/projects'
+import { canManageArchiv } from '@/lib/authz/organizations'
+import { ForbiddenError } from '@/lib/api/errors'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { getBackendUrl } from '@/lib/backend-proxy'
 import { findProjectInOrg } from '@/lib/projects/repository'
@@ -90,7 +92,14 @@ function contentDisposition(type: 'attachment' | 'inline', rawFilename: string):
 }
 
 /**
- * Load a document (org-scoped in SQL) and enforce per-project access.
+ * Load a document (org-scoped in SQL) and enforce access appropriate to its
+ * scope, so the SAME item routes (download/preview/status/reingest/tags) serve
+ * both project documents and org-wide Archiv documents:
+ *
+ *   - `project` documents → per-project FGA via `requireProjectAccess`.
+ *   - `archiv` documents (org-wide, `projectId` NULL) → any org member may read
+ *     (`view`); mutations (`edit`) require `org:archiv:manage`.
+ *
  * Cross-tenant and no-access lookups both surface as 404. Reads default to
  * `project:view`; mutating actions (e.g. re-ingestion) pass `project:edit`.
  */
@@ -101,6 +110,17 @@ async function getAccessibleDocument(
 ): Promise<Document> {
   const doc = await findDocumentInOrg(documentId, session.organizationId)
   if (!doc) throw new NotFoundError()
+
+  if (doc.scope === 'archiv' || doc.projectId === null) {
+    // The Archiv is org-scoped: findDocumentInOrg already confirmed the row
+    // belongs to the caller's org (so any member may read it). Only mutations
+    // need the manage permission.
+    if (permission === 'project:edit' && !canManageArchiv(session)) {
+      throw new ForbiddenError()
+    }
+    return doc
+  }
+
   await requireProjectAccess(session, doc.projectId, permission)
   return doc
 }
@@ -115,7 +135,7 @@ async function getAccessibleDocument(
  *   - dispatch failed     → status failed   (markDocumentIngestFailed)
  *   - ok but no job id    → status left as-is ('uploaded' on first upload)
  */
-async function dispatchIngest(
+export async function dispatchIngest(
   documentId: string,
   collectionName: string,
   minioKey: string,
@@ -218,7 +238,7 @@ function fileExtension(name: string): string {
  * and the client's accepted-types list are ONE truth. Fail-closed: an
  * unconfirmable capability excludes images (never a silent-failure upload).
  */
-async function assertUploadTypeAllowed(session: AuthorizedSession, filename: string): Promise<void> {
+export async function assertUploadTypeAllowed(session: AuthorizedSession, filename: string): Promise<void> {
   const imageUploadEnabled = isFeatureEnabled(session, FEATURE_FLAGS.imageUpload)
   const vlmAvailable = await isVlmConfigured()
   const { acceptedTypes } = getFileUploadConfigFromEnv(process.env, { imageUploadEnabled, vlmAvailable })

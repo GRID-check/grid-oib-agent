@@ -109,6 +109,32 @@ Document upload stores files in MinIO at key `{orgId}/{projectId}/{documentId}/{
 
 Source: `frontends/ui/src/app/api/documents/route.ts`, `frontends/ui/src/app/api/documents/upload/route.ts`, `frontends/ui/src/app/api/documents/[id]/download/route.ts`, `frontends/ui/src/app/api/documents/[id]/status/route.ts`, `frontends/ui/src/app/api/documents/[id]/reingest/route.ts`, `frontends/ui/src/app/api/documents/[id]/tags/route.ts`
 
+## Archiv (org-wide documents, ADR-0024, feature-gated)
+
+The org-wide **Archiv** is a top-level document store shared by every project in
+the organization. It reuses the whole document pipeline: an Archiv document is a
+`documents` row with `project_id = NULL`, `scope = 'archiv'`, and
+`collection_name = archiv_<orgId>`, and its download/preview/status/reingest/tags
+go through the **same** `/api/documents/{id}/*` routes above (those routes are
+scope-aware: for an `archiv` document they authorize at the org level instead of
+per-project FGA). Only the org-scoped list/upload/delete need their own routes.
+All routes are gated by the dark-launch `organization-archiv` flag
+(`GRID_ORG_ARCHIV_ENABLED` while enforcement is off); a disabled org gets `403 { error: 'feature-disabled' }`.
+
+| Method | Path | Auth | Notes | Request | Response |
+|--------|------|------|-------|---------|----------|
+| `GET` | `/api/archiv/documents` | Any org member | List the org's Archiv documents (bounded, lazily status-reconciled + metadata-merged, same as the project list). | — | `{ documents: [...], collectionName, canManage }` |
+| `POST` | `/api/archiv/documents/upload` | `org:archiv:manage` | Upload a file into the Archiv. Writes to MinIO under `org/{orgId}/archiv/doc/{documentId}/{filename}`, creates an `archiv`-scoped DB row, and dispatches `POST /v1/ingest` into `archiv_<orgId>`. Best-effort ingest, same as the project path. | `multipart/form-data` with `file` | `{ documentId, jobId?, status, filename }` |
+| `DELETE` | `/api/archiv/documents/{id}` | `org:archiv:manage` | Delete an Archiv document: purges the RAG chunks (best-effort), removes the MinIO object, deletes the row, audits. | — | `204 No Content` |
+
+Every project in the org retrieves across its Archiv automatically: the
+`archiv_<orgId>` collection is injected into the retrieval scope by
+`computeCollectionScope` (see `buildCollectionScopeFromRequest`), so no per-project
+copy and no backend retrieval change are needed. Audited as
+`archiv.document.uploaded` / `archiv.document.deleted`.
+
+Source: `frontends/ui/src/app/api/archiv/documents/route.ts`, `.../upload/route.ts`, `.../[id]/route.ts`; `frontends/ui/src/lib/archiv/*`.
+
 ## Knowledge base
 
 | Method | Path | Auth | Description | Request Body / Params | Response |

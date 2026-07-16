@@ -15,6 +15,7 @@ import { landing } from './landing'
 import { projects } from './projects'
 import { chat } from './chat'
 import { files } from './files'
+import { archiv } from './archiv'
 import { knowledge } from './knowledge'
 import { research } from './research'
 import { workflows } from './workflows'
@@ -39,6 +40,7 @@ export const de: Dictionary = {
   projects,
   chat,
   files,
+  archiv,
   knowledge,
   research,
   workflows,

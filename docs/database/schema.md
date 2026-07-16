@@ -146,7 +146,8 @@ export const documents = pgTable('documents', {
 |--------|------|-------------|-------|
 | `id` | `uuid` | PK, `defaultRandom()` | |
 | `organization_id` | `text` | NOT NULL | |
-| `project_id` | `uuid` | NOT NULL, FK → `projects.id` ON DELETE CASCADE | |
+| `project_id` | `uuid` | FK → `projects.id` ON DELETE CASCADE | **Nullable since ADR-0024**: `NULL` for org-wide `archiv` documents; set for `project` documents. |
+| `scope` | `text` | NOT NULL, DEFAULT `'project'` | ADR-0024 discriminator: `'project'` (hangs off `project_id`) or `'archiv'` (org-wide, `project_id` NULL, `collection_name = archiv_<orgId>`). |
 | `created_by` | `text` | NOT NULL | Uploading user ID |
 | `filename` | `text` | NOT NULL | Original filename |
 | `minio_key` | `text` | NOT NULL | Object storage key |
@@ -163,6 +164,7 @@ export const documents = pgTable('documents', {
 - `documents_project_idx` — on `project_id`
 - `documents_collection_idx` — on `collection_name`
 - `documents_status_idx` — on `status`
+- `documents_org_scope_idx` — on (`organization_id`, `scope`) — bounds the org-wide Archiv listing (ADR-0024)
 
 ---
 

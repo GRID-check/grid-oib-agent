@@ -6,6 +6,12 @@ export interface ScopeContext {
   includeProject?: boolean
   conversationId?: string
   baseCollection?: string
+  /**
+   * The org-wide Archiv collection (`archiv_<orgId>`), when the feature is
+   * enabled for the caller's org. Added to every scope alongside the base
+   * corpus so every project's retrieval also sees the shared Archiv (ADR-0024).
+   */
+  archivCollectionName?: string
 }
 
 export function computeCollectionScope(
@@ -15,6 +21,12 @@ export function computeCollectionScope(
   const scope: string[] = []
   const base = context.baseCollection || process.env.BASE_COLLECTION_NAME || 'oib_knowledge'
   scope.push(base)
+
+  // Org-wide Archiv: shared across every project in the org, so it rides in the
+  // scope right next to the base corpus (independent of the active project).
+  if (context.archivCollectionName) {
+    scope.push(context.archivCollectionName)
+  }
 
   if (context.includeProject !== false) {
     const projectCollectionName = context.projectCollectionName || (context.projectId ? `proj_${context.projectId}` : undefined)

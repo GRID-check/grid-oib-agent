@@ -37,6 +37,7 @@ export const nav = {
     defaultUser: 'Default User',
     authNotConfigured: 'Authentication not configured',
     profile: 'Profile',
+    archiv: 'Archiv',
     organization: 'Organization',
     platform: 'Platform',
     settings: 'Settings',

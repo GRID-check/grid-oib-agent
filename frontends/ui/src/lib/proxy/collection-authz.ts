@@ -19,6 +19,8 @@ import { and, eq } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { projects } from '@/lib/db/schema'
 import { requireProjectAccess } from '@/lib/authz/projects'
+import { canManageArchiv } from '@/lib/authz/organizations'
+import { archivCollectionName } from '@/lib/archiv/collection'
 import type { AuthorizedSession, GridSession } from '@/lib/auth/types'
 import { errorEnvelope, handleAuthzError } from '@/lib/backend-proxy'
 
@@ -132,6 +134,20 @@ export async function validateCollectionName(
       await deps.requireProjectAccess(session as AuthorizedSession, projectId, 'project:edit')
     } catch (error) {
       return handleAuthzError(error)
+    }
+    return null
+  }
+
+  if (collectionName.startsWith('archiv_')) {
+    // The org-wide Archiv collection (ADR-0024). It must be THIS org's Archiv,
+    // and — because proxy collection routes cover writes (upload/delete) — the
+    // caller needs the manage permission. Reads of the Archiv corpus go through
+    // the dedicated `/api/archiv/documents` endpoint, not this proxy.
+    if (!session?.organizationId) {
+      return handleAuthzError(new Error('Forbidden'))
+    }
+    if (collectionName !== archivCollectionName(session.organizationId) || !canManageArchiv(session)) {
+      return handleAuthzError(new Error('Forbidden'))
     }
     return null
   }

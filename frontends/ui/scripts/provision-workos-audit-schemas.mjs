@@ -124,6 +124,16 @@ const SCHEMAS = [
     targets: [{ type: 'document' }],
     metadata: { projectId: 'uuid', filename: 'plan.pdf', fileSize: 1024 },
   },
+  {
+    action: 'archiv.document.uploaded',
+    targets: [{ type: 'document' }],
+    metadata: { filename: 'plan.pdf', fileSize: 1024, collectionName: 'archiv_org_x' },
+  },
+  {
+    action: 'archiv.document.deleted',
+    targets: [{ type: 'document' }],
+    metadata: { filename: 'plan.pdf', collectionName: 'archiv_org_x' },
+  },
 ]
 
 const apiKey = process.env.WORKOS_API_KEY

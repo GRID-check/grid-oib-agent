@@ -111,10 +111,23 @@ The **Document List** component (`document-list.tsx`) renders all tracked files 
 
 | Scope | Collection Pattern | Visibility | TTL Cleanup |
 |-------|--------------------|------------|-------------|
+| **Archiv (org-wide)** | `archiv_{orgId}` | Every project in the organization | Never (persistent) |
 | **Project** | `proj_{projectId}` | All project members | Never (persistent) |
 | **Session** | `s_{conversationId}` | Only within that conversation | Deleted after 24 hours (configurable via `AIQ_COLLECTION_TTL_HOURS`) |
 
 Session-scoped collections are prefixed with `s_` and are automatically reaped by the `TTLCleanupMixin` background thread that runs periodically (every `AIQ_TTL_CLEANUP_INTERVAL_SECONDS`, default 3600s).
+
+### The org-wide Archiv (ADR-0024)
+
+The **Archiv** is a top-level document store that lives above projects, reachable
+from the user menu (Archiv). Anything uploaded there is shared with **every
+project in your organization** — every project's chat automatically searches the
+Archiv alongside its own documents and the base corpus, with no per-project
+re-upload. Any member can browse, preview, and download Archiv documents;
+uploading and deleting require the **`org:archiv:manage`** permission (org admins
+have it). It reuses the exact same upload/ingestion/preview experience as the
+project Files tab. The feature is dark-launched behind the `organization-archiv`
+flag (`GRID_ORG_ARCHIV_ENABLED` while flag enforcement is off).
 
 ---
 

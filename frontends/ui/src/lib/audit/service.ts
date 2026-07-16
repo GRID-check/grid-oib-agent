@@ -40,6 +40,8 @@ export const AUDIT_ACTIONS = [
   'project.role.assigned',
   'project.role.removed',
   'document.uploaded',
+  'archiv.document.uploaded',
+  'archiv.document.deleted',
 ] as const
 export type AuditAction = (typeof AUDIT_ACTIONS)[number]
 

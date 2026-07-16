@@ -15,7 +15,14 @@ import { DocumentStatusBadge, fileTypeIcon } from './document-status'
 
 interface FilePreviewPaneProps {
   file: FileItem
-  projectId: string
+  /** Present for project documents; omitted for the org-wide Archiv (unused here). */
+  projectId?: string
+  /**
+   * Whether the viewer may mutate the document (edit tags, re-ingest). Defaults
+   * to true (all project callers). The Archiv passes the caller's manage
+   * capability so members without `org:archiv:manage` get a read-only pane.
+   */
+  canManage?: boolean
   onClose?: () => void
   /** Notify the parent to flip local state after a successful re-ingestion. */
   onReingested?: (fileId: string, status: string) => void
@@ -33,11 +40,16 @@ interface FilePreviewPaneProps {
    * gated — they predate the feature.
    */
   showMetadataPanel?: boolean
+  /**
+   * Extra action controls rendered under the download button (e.g. the Archiv's
+   * Delete affordance). Omitted for project documents, which have no delete.
+   */
+  extraActions?: ReactNode
 }
 
 const PREVIEW_TYPES = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp', 'image/svg+xml']
 
-export function FilePreviewPane({ file, onClose, onReingested, onTagsUpdated, showMetadataPanel = true }: FilePreviewPaneProps) {
+export function FilePreviewPane({ file, canManage = true, onClose, onReingested, onTagsUpdated, showMetadataPanel = true, extraActions }: FilePreviewPaneProps) {
   const t = useTranslations('files')
   const { locale } = useLocale()
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
@@ -207,7 +219,12 @@ export function FilePreviewPane({ file, onClose, onReingested, onTagsUpdated, sh
           Editable via a small popover of toggleable chips (same flag as the rest
           of the metadata block). */}
       {showMetadataPanel && (
-        <DocumentTagsSection fileId={file.id} initialTags={file.tags ?? []} onTagsUpdated={onTagsUpdated} />
+        <DocumentTagsSection
+          fileId={file.id}
+          initialTags={file.tags ?? []}
+          onTagsUpdated={onTagsUpdated}
+          readOnly={!canManage}
+        />
       )}
 
       {/* Metadata */}
@@ -242,7 +259,8 @@ export function FilePreviewPane({ file, onClose, onReingested, onTagsUpdated, sh
         )}
       </div>
 
-      {/* Failure reason + re-ingestion affordance */}
+      {/* Failure reason + re-ingestion affordance (re-ingest is a mutation, so
+          the button is hidden for read-only viewers). */}
       {isFailed && (
         <div className="space-y-2.5 border-t px-4 py-3">
           <div className="flex items-start gap-2">
@@ -254,6 +272,7 @@ export function FilePreviewPane({ file, onClose, onReingested, onTagsUpdated, sh
               </p>
             </div>
           </div>
+          {canManage && (
           <Button
             type="button"
             variant="outline"
@@ -264,6 +283,7 @@ export function FilePreviewPane({ file, onClose, onReingested, onTagsUpdated, sh
             <RotateCcw className="size-4" aria-hidden />
             {isReingesting ? t('preview.retryingIngestion') : t('preview.retryIngestion')}
           </Button>
+          )}
         </div>
       )}
 
@@ -284,6 +304,7 @@ export function FilePreviewPane({ file, onClose, onReingested, onTagsUpdated, sh
             {t('preview.downloadFailed')}
           </p>
         )}
+        {extraActions}
       </div>
     </div>
   )
@@ -299,10 +320,13 @@ function DocumentTagsSection({
   fileId,
   initialTags,
   onTagsUpdated,
+  readOnly = false,
 }: {
   fileId: string
   initialTags: string[]
   onTagsUpdated?: (fileId: string, tags: string[]) => void
+  /** Hide the edit affordance and render the tags as static chips. */
+  readOnly?: boolean
 }) {
   const t = useTranslations('files')
   const [tags, setTags] = useState<string[]>(initialTags)
@@ -363,6 +387,7 @@ function DocumentTagsSection({
     <div className="space-y-1.5 border-t px-4 py-3">
       <div className="flex items-center justify-between gap-2">
         <p className="text-xs text-muted-foreground">{t('preview.tags')}</p>
+        {!readOnly && (
         <Popover open={open} onOpenChange={setOpen}>
           <PopoverTrigger asChild>
             <Button
@@ -420,6 +445,7 @@ function DocumentTagsSection({
             </div>
           </PopoverContent>
         </Popover>
+        )}
       </div>
       {tags.length > 0 ? (
         <div className="flex flex-wrap gap-1.5">

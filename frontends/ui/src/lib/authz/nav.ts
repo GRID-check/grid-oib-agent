@@ -9,6 +9,7 @@ import 'server-only'
 import type { GridSession } from '@/lib/auth/types'
 import { isOrgAdmin } from './organizations'
 import { isPlatformOwner } from './platform'
+import { isOrgArchivEnabled } from './feature-flags'
 
 export interface NavFlags {
   canManageOrganization: boolean
@@ -21,15 +22,28 @@ export interface NavFlags {
    */
   canViewOrganization: boolean
   canManagePlatform: boolean
+  /**
+   * Whether the org-wide Archiv is reachable (ADR-0024). True for any org
+   * member once the feature is enabled — the Archiv is shared, read-open
+   * knowledge; only uploads/deletes gate on `org:archiv:manage`, enforced on
+   * the page and its routes. Reflects the dark-launch gate.
+   */
+  canAccessArchiv: boolean
 }
 
 export async function getNavFlags(session: GridSession | null): Promise<NavFlags> {
   if (!session) {
-    return { canManageOrganization: false, canViewOrganization: false, canManagePlatform: false }
+    return {
+      canManageOrganization: false,
+      canViewOrganization: false,
+      canManagePlatform: false,
+      canAccessArchiv: false,
+    }
   }
   return {
     canManageOrganization: isOrgAdmin(session),
     canViewOrganization: true,
     canManagePlatform: await isPlatformOwner(session),
+    canAccessArchiv: isOrgArchivEnabled(session),
   }
 }

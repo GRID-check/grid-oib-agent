@@ -114,6 +114,40 @@ describe('validateCollectionName', () => {
     expect(response?.status).toBe(400)
     expect((await errorBody(response as Response)).error.code).toBe('INVALID_COLLECTION')
   })
+
+  // The org-wide Archiv collection (ADR-0024): must be THIS org's Archiv AND the
+  // caller must hold org:archiv:manage (proxy routes cover writes).
+  const archivManager = {
+    organizationId: 'org-1',
+    userId: 'user-1',
+    role: 'member',
+    permissions: ['org:archiv:manage'],
+  } as unknown as GridSession
+  const archivMember = {
+    organizationId: 'org-1',
+    userId: 'user-2',
+    role: 'member',
+    permissions: [],
+  } as unknown as GridSession
+
+  it('accepts the caller-org Archiv collection for a manager', async () => {
+    expect(await validateCollectionName(['collections', 'archiv_org-1'], archivManager, {}, deps())).toBeNull()
+  })
+
+  it('rejects the Archiv collection for a member without manage (403)', async () => {
+    const response = await validateCollectionName(['collections', 'archiv_org-1'], archivMember, {}, deps())
+    expect(response?.status).toBe(403)
+  })
+
+  it("rejects another org's Archiv collection (403)", async () => {
+    const response = await validateCollectionName(['collections', 'archiv_org-2'], archivManager, {}, deps())
+    expect(response?.status).toBe(403)
+  })
+
+  it('rejects the Archiv collection without an org session (403)', async () => {
+    const response = await validateCollectionName(['collections', 'archiv_org-1'], null, {}, deps())
+    expect(response?.status).toBe(403)
+  })
 })
 
 describe('request context extraction', () => {

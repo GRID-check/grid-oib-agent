@@ -57,6 +57,13 @@ export const FEATURE_FLAGS = {
    *  opt-in (default off). Gates the nav item, the page (404 when off), and
    *  every BFF workflow route. */
   workflows: 'workflows',
+  /** Org-wide document Archiv (ADR-0024): a top-level, cross-project document
+   *  store shared by every project in the org. Dark-launched — gated by the
+   *  WorkOS flag when enforcement is on, else the GRID_ORG_ARCHIV_ENABLED env
+   *  opt-in (default off). Gates the `/archiv` nav entry + page, every BFF
+   *  `/api/archiv/*` route, and the injection of the org archive collection
+   *  into project retrieval scope. */
+  orgArchiv: 'organization-archiv',
 } as const
 
 export type KnownFeatureFlag = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
@@ -118,6 +125,30 @@ export function isWorkflowsEnabled(session: Pick<GridSession, 'featureFlags'>): 
 export function requireWorkflowsEnabled(session: Pick<GridSession, 'featureFlags'>): Response | null {
   if (isWorkflowsEnabled(session)) return null
   return NextResponse.json({ error: 'feature-disabled', feature: FEATURE_FLAGS.workflows }, { status: 403 })
+}
+
+/**
+ * Default-OFF gate for the org-wide Archiv (ADR-0024). Like the workflows and
+ * project-knowledge-page gates, this feature launches dark: with WorkOS flag
+ * enforcement it follows the per-org `organization-archiv` flag; without
+ * enforcement it is only available when a deployment explicitly opts in via
+ * GRID_ORG_ARCHIV_ENABLED=true.
+ */
+export function isOrgArchivEnabled(session: Pick<GridSession, 'featureFlags'>): boolean {
+  if (enforcementOn()) {
+    return isFeatureEnabled(session, FEATURE_FLAGS.orgArchiv)
+  }
+  return (process.env.GRID_ORG_ARCHIV_ENABLED ?? '').toLowerCase() === 'true'
+}
+
+/**
+ * Route guard for the Archiv feature: stable-coded 403 when off, null when
+ * allowed. Gate is the dark-launch isOrgArchivEnabled(), not a plain flag check.
+ * Usage: `const gated = requireOrgArchivEnabled(session); if (gated) return gated`
+ */
+export function requireOrgArchivEnabled(session: Pick<GridSession, 'featureFlags'>): Response | null {
+  if (isOrgArchivEnabled(session)) return null
+  return NextResponse.json({ error: 'feature-disabled', feature: FEATURE_FLAGS.orgArchiv }, { status: 403 })
 }
 
 /**

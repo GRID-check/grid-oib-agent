@@ -47,3 +47,16 @@ export function buildMinioKey(
   const folder = folderPath ? `${folderPath}/` : ''
   return `org/${organizationId}/project/${projectId}/${folder}doc/${documentId}/${filename}`
 }
+
+/**
+ * Storage key for an org-wide Archiv document. Mirrors {@link buildMinioKey} but
+ * scopes under the organization instead of a project (Archiv documents belong to
+ * the org, not any single project) — so the same bucket layout convention holds.
+ */
+export function buildArchivMinioKey(
+  organizationId: string,
+  documentId: string,
+  filename: string,
+): string {
+  return `org/${organizationId}/archiv/doc/${documentId}/${filename}`
+}

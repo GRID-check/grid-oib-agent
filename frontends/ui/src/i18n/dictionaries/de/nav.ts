@@ -35,6 +35,7 @@ export const nav: typeof en.nav = {
     defaultUser: 'Standardbenutzer',
     authNotConfigured: 'Authentifizierung nicht konfiguriert',
     profile: 'Profil',
+    archiv: 'Archiv',
     organization: 'Organisation',
     platform: 'Plattform',
     settings: 'Einstellungen',

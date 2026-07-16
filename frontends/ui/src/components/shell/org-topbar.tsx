@@ -24,9 +24,11 @@ export interface OrgTopbarProps {
   /** Show the organization entry to any org member (UX-16). */
   canViewOrganization?: boolean
   canManagePlatform?: boolean
+  /** Show the org-wide Archiv entry (any org member, when enabled — ADR-0024). */
+  canAccessArchiv?: boolean
 }
 
-export async function OrgTopbar({ user, authRequired, heading, canManageOrganization, canViewOrganization, canManagePlatform }: OrgTopbarProps) {
+export async function OrgTopbar({ user, authRequired, heading, canManageOrganization, canViewOrganization, canManagePlatform, canAccessArchiv }: OrgTopbarProps) {
   const t = await getTranslations('nav')
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-background/80 backdrop-blur-xl">
@@ -60,6 +62,7 @@ export async function OrgTopbar({ user, authRequired, heading, canManageOrganiza
             canManageOrganization={canManageOrganization}
             canViewOrganization={canViewOrganization}
             canManagePlatform={canManagePlatform}
+            canAccessArchiv={canAccessArchiv}
           />
         </div>
       </FadeIn>
