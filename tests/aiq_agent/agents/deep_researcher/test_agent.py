@@ -845,6 +845,47 @@ class TestDeepResearcherAgent:
         fake_runnable.ainvoke.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_run_research_batch_recovers_fenced_json_notes(
+        self,
+        mock_llm_provider,
+        real_tool,
+    ):
+        """Notes emitted as a ```json-fenced message (no structured_response) are recovered.
+
+        DeepSeek-class models intermittently wrap the ResearchNotes JSON in a
+        markdown fence (sometimes with a natural-language preamble) instead of
+        using the structured-output channel. The worker should recover the
+        well-formed JSON instead of failing and forcing an orchestrator resubmit.
+        """
+        from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+
+        note_json = json.dumps(self._structured_notes_response()["structured_response"])
+        fenced = f"以下为研究笔记：\n\n```json\n{note_json}\n```"
+        fake_runnable = MagicMock()
+        fake_runnable.ainvoke = AsyncMock(return_value={"messages": [AIMessage(content=fenced)]})
+        agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
+        batch_tool, _source_mw = self._build_batch_tool(agent, fake_runnable)
+
+        result = await batch_tool.ainvoke(
+            {
+                "queries": [
+                    {
+                        "query": "fenced output query",
+                        "subqueries": [],
+                        "preferred_tools": ["web_search_tool"],
+                        "fallback_tools": [],
+                        "target_components": ["overview"],
+                        "rationale": "coverage",
+                    }
+                ]
+            }
+        )
+
+        payload = json.loads(result)
+        assert len(payload) == 1
+        assert payload[0]["query_topic"] == "Research Topic"
+
+    @pytest.mark.asyncio
     async def test_run_research_batch_rejects_empty_notes_as_failed_worker(
         self,
         mock_llm_provider,

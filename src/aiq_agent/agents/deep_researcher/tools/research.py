@@ -15,6 +15,8 @@ from langchain_core.messages import HumanMessage
 from langchain_core.tools import BaseTool
 from langchain_core.tools import tool
 
+from aiq_agent.common import extract_json
+
 from ..models import ResearchNotes
 from ..models import ResearchQuery
 
@@ -46,6 +48,48 @@ def researcher_invoke_state(query: ResearchQuery, runtime: ToolRuntime | None) -
     return invoke_state
 
 
+def _last_message_text(result: Any) -> str | None:
+    """Return the final assistant message text from a researcher runnable result."""
+    messages = result.get("messages") if isinstance(result, dict) else None
+    if not messages:
+        return None
+    content = getattr(messages[-1], "content", None)
+    if isinstance(content, str):
+        return content.strip() or None
+    if isinstance(content, list):
+        # Structured block content: join text blocks rather than repr the list.
+        parts: list[str] = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict) and isinstance(block.get("text"), str):
+                parts.append(block["text"])
+            elif isinstance(getattr(block, "text", None), str):
+                parts.append(block.text)
+        return "\n".join(parts).strip() or None
+    return None
+
+
+def _structured_research_notes(result: Any) -> ResearchNotes:
+    """Coerce a researcher runnable result into ResearchNotes.
+
+    Prefers the agent's ``structured_response``. Some models (notably
+    DeepSeek-class ones) intermittently emit the notes as a ```json-fenced or
+    natural-language-prefixed assistant message instead of through the
+    structured-output channel, which leaves ``structured_response`` empty. Fall
+    back to extracting the JSON from the final message so one non-conformant but
+    well-formed completion does not fail the worker and force a full
+    orchestrator resubmit cycle.
+    """
+    structured = result.get("structured_response") if isinstance(result, dict) else None
+    if structured is None:
+        text = _last_message_text(result)
+        structured = extract_json(text) if text else None
+    if structured is None:
+        raise ValueError("researcher worker did not return structured ResearchNotes")
+    return ResearchNotes.model_validate(structured)
+
+
 async def _run_research_query(
     *,
     query: ResearchQuery,
@@ -65,10 +109,7 @@ async def _run_research_query(
             raise RuntimeError(f"researcher worker failed for query {query.query!r}: {exc}") from exc
 
         try:
-            structured = result.get("structured_response") if isinstance(result, dict) else None
-            if structured is None:
-                raise ValueError("researcher worker did not return structured ResearchNotes")
-            note = ResearchNotes.model_validate(structured)
+            note = _structured_research_notes(result)
         except Exception as exc:  # noqa: BLE001 - captured as per-item failure
             raise ValueError(
                 f"researcher worker returned invalid ResearchNotes for query {query.query!r}: {exc}"
