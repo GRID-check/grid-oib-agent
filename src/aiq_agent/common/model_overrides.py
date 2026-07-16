@@ -22,6 +22,7 @@ import os
 import re
 import threading
 import time
+import types
 from enum import StrEnum
 
 logger = logging.getLogger(__name__)
@@ -200,6 +201,26 @@ def get_model_overrides_from_context() -> dict[str, str]:
     return resolve_org_model_overrides(get_organization_id_from_context())
 
 
+def _rebind_instance_method_patches(original: object, copy_obj: object) -> None:
+    """Rebind instance-level method wrappers (e.g. NAT ``patch_with_retry``) to the copy.
+
+    NAT's LLM builders wrap every public method of the chat model with retry
+    wrappers stored in the instance ``__dict__`` as ``types.MethodType`` bound
+    to the *original* instance. Pydantic ``model_copy`` shallow-copies
+    ``__dict__``, so without rebinding every call on the override copy keeps
+    executing against the original instance — the copied ``model_name`` field
+    looks overridden, but the request payload still carries the original's
+    model. Rebind any such instance-level bound methods to the copy.
+    """
+    try:
+        attrs = list(vars(copy_obj).items())
+    except TypeError:
+        return
+    for name, attr in attrs:
+        if isinstance(attr, types.MethodType) and attr.__self__ is original:
+            object.__setattr__(copy_obj, name, types.MethodType(attr.__func__, copy_obj))
+
+
 def override_model(llm: object, model_id: str) -> object:
     """Return a copy of a LangChain chat model pointed at ``model_id``.
 
@@ -221,10 +242,12 @@ def override_model(llm: object, model_id: str) -> object:
     # OpenRouter-standard values and OpenRouter maps them to the nearest level
     # the overridden model supports (see the note in llm_factory).
     try:
-        return llm.model_copy(update={field: model_id})
+        overridden = llm.model_copy(update={field: model_id})
     except Exception:
         logger.warning("Failed to apply model override %r to %s", model_id, type(llm).__name__, exc_info=True)
         return llm
+    _rebind_instance_method_patches(llm, overridden)
+    return overridden
 
 
 def apply_model_override(llm: object, group: AgentGroup, overrides: dict[str, str] | None = None) -> object:
