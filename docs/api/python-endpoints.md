@@ -70,7 +70,7 @@ These routes are **not registered by custom code** — they are provided by the 
 | Method | Path | Description | Request | Response | Handler |
 |--------|------|-------------|---------|----------|---------|
 | `GET` | `/v1/jobs/async/agents` | List available agent types | — | `{ agents: [{ agent_type, description }] }` | `register_job_routes` in `aiq_api.routes.jobs` |
-| `POST` | `/v1/jobs/async/submit` | Submit a new async job. Admission-controlled: returns `429` (+`Retry-After`) when `GRID_MAX_ACTIVE_JOBS` / `GRID_MAX_ACTIVE_JOBS_PER_ORG` active-job caps are reached. | `{ agent_type, input, job_id?, expiry_seconds?, data_sources? }` | `{ job_id, status, agent_type }` | Same |
+| `POST` | `/v1/jobs/async/submit` | Submit a new async job. Admission-controlled: returns `429` (+`Retry-After`) when `GRID_MAX_ACTIVE_JOBS` / `GRID_MAX_ACTIVE_JOBS_PER_ORG` active-job caps are reached. **Known limitation**: this route (`aiq_api.routes.jobs`) neither reads `x-grid-model-overrides` nor accepts a `model_overrides` field — org model-config overrides (ADR-0014) are never applied here, unlike `/v1/internal/workflows/submit` below. Jobs submitted through this route always run on the workflow-YAML default models. | `{ agent_type, input, job_id?, expiry_seconds?, data_sources? }` | `{ job_id, status, agent_type }` | Same |
 | `GET` | `/v1/jobs/async/job/{job_id}` | Get job status | — | `{ job_id, status, agent_type, error?, created_at }` | Same |
 | `GET` | `/v1/jobs/async/job/{job_id}/stream` | SSE event stream (from beginning) | — | SSE stream (`text/event-stream`) | Same |
 | `GET` | `/v1/jobs/async/job/{job_id}/stream/{last_event_id}` | SSE event stream (reconnection) | — | SSE stream | Same |
