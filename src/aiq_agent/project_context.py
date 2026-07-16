@@ -31,8 +31,11 @@ accessors, not ``GridRequestContext``.
 """
 
 import base64
+import hashlib
+import hmac
 import json
 import logging
+import os
 from dataclasses import dataclass
 from typing import Any
 
@@ -42,6 +45,21 @@ PROJECT_ID_HEADER = "x-grid-project-id"
 MEMORY_REFLECTION_FEATURE_HEADER = "x-grid-feature-memory-reflection"
 ORGANIZATION_ID_HEADER = "x-grid-organization-id"
 USER_ID_HEADER = "x-grid-user-id"
+
+# Consolidated signed context envelope (backlog T3-9 follow-up, 2026-07-16).
+# `X-Grid-Request-Context` carries base64url(JSON) of the SAME fields the
+# individual x-grid-* headers above carry (minus the internal token, which is
+# deliberately out of scope — see the module docstring), and
+# `X-Grid-Request-Context-Sig` carries the hex HMAC-SHA256 of the raw JSON
+# keyed on GRID_INTERNAL_API_TOKEN. Minted in one place on the TS side
+# (`buildGridRequestContextEnvelope` in `frontends/ui/src/lib/request-context.ts`,
+# duplicated with a pinning comment in `server.js` because it is plain
+# CommonJS). Producers DUAL-WRITE: the envelope is sent ALONGSIDE the
+# individual headers during the transition; `from_context`/`from_headers`
+# below prefer the envelope when present+valid, mirroring the individual
+# headers otherwise.
+REQUEST_CONTEXT_ENVELOPE_HEADER = "x-grid-request-context"
+REQUEST_CONTEXT_ENVELOPE_SIG_HEADER = "x-grid-request-context-sig"
 
 # Mirrored (not imported) from their owning modules — see the module
 # docstring above for why. Values must stay byte-identical to
@@ -183,7 +201,21 @@ class GridRequestContext:
         functions below (``get_project_id_from_context`` etc.) delegate to —
         call this directly when you need more than one field, so the request
         is only walked once.
+
+        The signed ``X-Grid-Request-Context`` envelope (see
+        ``from_envelope``) takes precedence when present and valid: an
+        invalid signature is treated as an ABSENT envelope (logged as a
+        WARNING — a tamper signal) and this method falls back to parsing the
+        individual headers below, exactly as before the envelope existed.
         """
+        envelope = cls.from_envelope(
+            _read_header(REQUEST_CONTEXT_ENVELOPE_HEADER),
+            _read_header(REQUEST_CONTEXT_ENVELOPE_SIG_HEADER),
+            os.environ.get("GRID_INTERNAL_API_TOKEN"),
+        )
+        if envelope is not None:
+            return envelope
+
         return cls(
             organization_id=_normalize_raw_id(_read_header(ORGANIZATION_ID_HEADER)),
             user_id=_normalize_raw_id(_read_header(USER_ID_HEADER)),
@@ -198,7 +230,77 @@ class GridRequestContext:
         )
 
     @classmethod
-    def from_headers(cls, headers: dict[str, str]) -> "GridRequestContext":
+    def from_envelope(
+        cls,
+        header_value: str | None,
+        sig: str | None,
+        secret: str | None,
+    ) -> "GridRequestContext | None":
+        """Parse + verify the signed ``X-Grid-Request-Context`` envelope.
+
+        Returns ``None`` (treated as ABSENT by every caller — ``from_context``
+        falls back to the individual headers, and the enforcement middleware
+        in ``aiq_api`` treats it as "no envelope") when:
+
+        - ``header_value`` is missing/blank;
+        - the base64url payload fails to decode or does not parse as a JSON
+          object;
+        - ``secret`` is configured (the normal, production case) and ``sig``
+          is missing or does not match the HMAC-SHA256 of the raw JSON —
+          logged as a WARNING, since a present-but-wrong signature is a
+          tamper signal worth surfacing, not routine absence.
+
+        When ``secret`` is falsy (``GRID_INTERNAL_API_TOKEN`` unset — dev
+        only), signature verification is skipped and the envelope is
+        accepted on shape alone: the token is how the two BFF/backend
+        processes share a secret, so without it there is nothing to verify
+        against, but that must not silently disable the envelope mechanism
+        itself. The enforcement middleware documents the same fail-open
+        choice at its call site: envelope PRESENCE is still required for
+        authenticated requests even when signature verification is skipped.
+        """
+        if not header_value:
+            return None
+
+        try:
+            raw_json = _base64url_decode_text(header_value)
+        except Exception:
+            logger.warning("Failed to base64url-decode X-Grid-Request-Context envelope", exc_info=True)
+            return None
+
+        if secret:
+            expected = hmac.new(secret.encode("utf-8"), raw_json.encode("utf-8"), hashlib.sha256).hexdigest()
+            if not sig or not hmac.compare_digest(expected, sig):
+                logger.warning(
+                    "X-Grid-Request-Context envelope signature missing or invalid; "
+                    "treating the envelope as absent (possible tamper)"
+                )
+                return None
+
+        try:
+            payload = json.loads(raw_json)
+        except Exception:
+            logger.warning("Failed to JSON-parse X-Grid-Request-Context envelope", exc_info=True)
+            return None
+        if not isinstance(payload, dict):
+            logger.warning("X-Grid-Request-Context envelope JSON is not an object; ignoring")
+            return None
+
+        return cls(
+            organization_id=_normalize_raw_id(payload.get("organizationId")),
+            user_id=_normalize_raw_id(payload.get("userId")),
+            project_id=_normalize_raw_id(payload.get("projectId")),
+            collection_scope=_as_str_list(payload.get("collectionScope")),
+            project_context=normalize_project_context(payload.get("projectContext"), max_chars=4000),
+            project_memory=normalize_project_context(payload.get("projectMemory"), max_chars=2000),
+            model_overrides=_as_str_dict(payload.get("modelOverrides")),
+            budget=_as_dict(payload.get("budget")),
+            disabled_sources=_as_str_list(payload.get("disabledSources")),
+            memory_reflection_enabled=bool(payload.get("memoryReflectionEnabled", False)),
+        )
+
+    @classmethod
+    def from_headers(cls, headers: dict[str, str], *, secret: str | None = None) -> "GridRequestContext":
         """Parse a ``GridRequestContext`` from an explicit header map instead
         of a live NAT Context.
 
@@ -213,11 +315,25 @@ class GridRequestContext:
 
         Header names are matched case-insensitively, mirroring how the
         ASGI/WS layer populates ``Context.metadata.headers``.
+
+        When the header map carries a signed envelope
+        (``X-Grid-Request-Context`` / ``-Sig``), it takes precedence over the
+        individual headers, exactly like ``from_context`` — pass ``secret``
+        to verify it (omit/None to skip verification, e.g. when a test case
+        only exercises the individual-header path).
         """
         lower = {k.lower(): v for k, v in headers.items()}
 
         def raw(name: str) -> str | None:
             return lower.get(name)
+
+        envelope = cls.from_envelope(
+            raw(REQUEST_CONTEXT_ENVELOPE_HEADER),
+            raw(REQUEST_CONTEXT_ENVELOPE_SIG_HEADER),
+            secret,
+        )
+        if envelope is not None:
+            return envelope
 
         def json_field(name: str) -> Any | None:
             value = raw(name)
