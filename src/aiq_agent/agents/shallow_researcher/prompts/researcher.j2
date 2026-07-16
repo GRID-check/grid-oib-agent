@@ -110,6 +110,12 @@ The user has uploaded the following documents to the knowledge base:
 **CRITICAL**: When the user asks to summarize, describe, explain, or query their uploaded documents, you MUST use the **knowledge_search** tool — NOT web search. Only **knowledge_search** has access to these uploaded documents.
 {% endif %}
 
+{% if ris_catalog %}
+## Curated RIS index (verified building-law norms)
+
+{{ ris_catalog }}
+{% endif %}
+
 {% if project_context %}
 ## Project Context
 <project_context>

@@ -34,6 +34,7 @@ from aiq_agent.common.citation_verification import sanitize_report
 from aiq_agent.common.citation_verification import set_session_registry
 from aiq_agent.common.citation_verification import source_origin_token
 from aiq_agent.common.citation_verification import verify_citations
+from aiq_agent.common.ris_catalog import render_block_for_prompt
 
 from ...common import LLMProvider
 from ...common import LLMRole
@@ -213,6 +214,7 @@ class ShallowResearcherAgent:
                 current_datetime=current_datetime,
                 available_documents=[doc.model_dump() for doc in available_documents],
                 project_context=state.project_context,
+                ris_catalog=render_block_for_prompt(state.project_context),
                 # Deterministically suppress the control-marker mandate on
                 # conversational/meta turns instead of relying on model judgment.
                 requires_sources=state.requires_sources,
