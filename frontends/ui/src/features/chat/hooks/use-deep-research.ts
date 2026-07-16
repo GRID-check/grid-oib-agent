@@ -479,6 +479,19 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
             setCurrentStatus('researching')
           },
 
+          onPhase: (phase) => {
+            // Coarse backend phase transitions drive the status pill directly, so
+            // the UI reflects progress even before any tool/artifact event lands.
+            if (buf.active) return
+            if (!isActiveJob()) return
+            resetTimeout()
+            if (phase === 'planning_started') setCurrentStatus('planning')
+            else if (phase === 'research_started') setCurrentStatus('researching')
+            else if (phase === 'writing_started' || phase === 'citation_verification_started') {
+              setCurrentStatus('writing')
+            }
+          },
+
           onTodoUpdate: (todos: TodoItem[], workflow?: string) => {
             // Workflow-scoped todo artifacts belong to sub-agent-local plans.
             // The Tasks tab shows only the top-level research todo list.

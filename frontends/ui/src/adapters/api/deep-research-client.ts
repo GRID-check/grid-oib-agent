@@ -33,6 +33,7 @@ export type DeepResearchEventType =
   | 'stream.mode'
   | 'job.status'
   | 'job.heartbeat'
+  | 'job.phase'
   | 'workflow.start'
   | 'workflow.end'
   | 'llm.start'
@@ -226,6 +227,8 @@ export interface DeepResearchCallbacks {
   ) => void
   /** Called on job heartbeat (confirms job is alive during long operations) */
   onHeartbeat?: (uptimeSeconds: number) => void
+  /** Called on coarse deep-research phase transitions (planning/research/writing/…) */
+  onPhase?: (phase: string, data?: Record<string, unknown>) => void
   /** Called when job completes successfully */
   onComplete?: () => void
   /** Called on errors */
@@ -400,6 +403,20 @@ export const createDeepResearchClient = (options: DeepResearchStreamOptions): De
         const heartbeatData = rawData as { data?: { uptime_seconds?: number }; uptime_seconds?: number }
         const uptimeSeconds = heartbeatData.data?.uptime_seconds ?? heartbeatData.uptime_seconds ?? 0
         callbacks.onHeartbeat?.(uptimeSeconds)
+        break
+      }
+
+      case 'job.phase': {
+        // Coarse phase transitions emitted by the backend job runner
+        // (planning_started, research_started, writing_started, …).
+        const phaseWrapper = rawData as { data?: { phase?: string } & Record<string, unknown>; phase?: string }
+        const phaseData = phaseWrapper.data || phaseWrapper
+        const phase = phaseData.phase
+        if (typeof phase === 'string' && phase.length > 0) {
+          callbacks.onPhase?.(phase, phaseData as Record<string, unknown>)
+        } else if (process.env.NODE_ENV === 'development') {
+          console.warn('[SSE:job.phase] Ignoring event without a phase string')
+        }
         break
       }
 
