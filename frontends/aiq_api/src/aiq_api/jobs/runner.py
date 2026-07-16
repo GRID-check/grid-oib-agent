@@ -448,6 +448,13 @@ async def run_agent_job(
 
             std_logging.basicConfig(level=log_level)
 
+    # Quiet NAT's per-parallel-step span-stack warnings in the worker too —
+    # deep research's concurrent researcher/tool fan-out triggers them on
+    # essentially every parallel call (see logging_utils for details).
+    from aiq_agent.common.logging_utils import suppress_noisy_dependency_logs
+
+    suppress_noisy_dependency_logs()
+
     job_store: JobStore | None = None
     cancellation_monitor: CancellationMonitor | None = None
     event_store: EventStore | BatchingEventStore | None = None
