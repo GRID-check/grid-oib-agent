@@ -341,6 +341,14 @@ fire this same async pipeline on a cron schedule — a dedicated
 `submit_agent_job`, so admission control and cost tracking apply unchanged).
 See `docs/architecture/workflows.md`.
 
+**Deep-research agent graph internals**: the orchestrator/planner/researcher/
+writer middleware stack, structured-output contracts, and graph invariants
+(concurrency, recursion limit, skill filesystem permissions) live in
+`src/aiq_agent/agents/deep_researcher/README.md`. Its "Known limitations"
+section documents three known-but-unfixed defects found by a source audit
+against the installed `deepagents`/`langchain`/`langgraph` versions —
+summarized in §9 below.
+
 ## 8. Backend agent architecture & DRY debt
 
 Registered agents (via NAT `@register_function` + `FunctionBaseConfig`):
@@ -435,6 +443,26 @@ full specs in `org-model-configuration.md` (ADR-0014) and
 - **Async job collection-scope fallback** — `collection_scope` is only
   re-injected into the Dask worker context when present; absent scope
   silently drops project-collection search for that job (§7).
+- **Deep-research tool-result pruning defeats prompt-prefix caching** —
+  `ToolResultPruningMiddleware` recomputes a positional sliding window on
+  every model call, so message bytes shift turn over turn on the ~80k-token
+  contexts a deep run accumulates, invalidating OpenRouter/DeepSeek
+  prompt-prefix caching; it also runs uncoordinated with deepagents' own
+  (stable-cutoff) summarization middleware and counts no-op `think` results
+  toward its window. See `src/aiq_agent/agents/deep_researcher/README.md`
+  "Known limitations" for details.
+- **Deep-research strict structured-output schema bounds** —
+  `EvidenceJudgment.relevance_score`'s `ge=0`/`le=100` bounds compile to
+  JSON-Schema `minimum`/`maximum`, unsupported in strict `json_schema` mode
+  on some providers; `tools/research.py`'s fenced-JSON fallback parser papers
+  over the resulting researcher-worker failures without fixing the root
+  cause. See the same README section.
+- **Deep-research planner ceremony overhead** — deepagents' `StateBackend`
+  is write-once (a second `write_file` to an existing path errors; recovery
+  is via `edit_file`); the planner prompt additionally mandates a todo-list
+  ceremony and a `think` call after every search, adding several
+  pure-ceremony LLM turns per planning run. Prompt tuning to reduce this is
+  pending.
 - Infra: live secrets in `deploy/.env`; backend DBs have no migration mechanism
   (init only); config drift between the two config files.
 

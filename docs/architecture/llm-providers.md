@@ -72,3 +72,12 @@ bounded by per-org/member/project budgets — see
   sending unauthenticated requests.
 - The legacy Kimi config (`config_grid_oib.yml`) is **unmaintained/broken** — do
   not use it as a starting point; base new configs on the OpenRouter reference.
+- No call site sets provider prompt-caching hints on static prompt prefixes
+  (orchestrator/planner/researcher/writer system prompts, tool registry,
+  source registry) — every LLM call resends them in full. See
+  [`scaling-review-2026-07.md`](scaling-review-2026-07.md) §6.1 for the cost
+  impact. On the deep-research graph specifically, even enabling provider
+  caching would be undercut by `ToolResultPruningMiddleware`'s
+  positional sliding-window truncation, which shifts message bytes on
+  nearly every model call — see
+  `src/aiq_agent/agents/deep_researcher/README.md` "Known limitations".

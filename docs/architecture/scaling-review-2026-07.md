@@ -292,6 +292,16 @@ on stable prefixes (order prompts static-first, keep volatile content last) typi
 cost of exactly this shape of workload substantially, with no behavior change. This composes with
 the budget ledger: cheaper turns per user = more users per budget.
 
+Caching stable prefixes is necessary but not sufficient for the deep-research graph: its
+`ToolResultPruningMiddleware` (`src/aiq_agent/agents/deep_researcher/custom_middleware.py:424-466`)
+recomputes a *positional* keep-last-N/truncate-the-rest window over `ToolMessage`s on every model
+call, so message bytes at a given offset shift on nearly every turn as the window slides. On the
+~80k-token contexts a deep run accumulates, that invalidates any provider-side prompt-prefix cache
+regardless of how the static prefix is ordered — a fix needs a stable, persisted truncation cutoff
+(the pattern deepagents' own summarization middleware already uses, but the two run uncoordinated
+today). See `src/aiq_agent/agents/deep_researcher/README.md` "Known limitations" for the full
+writeup.
+
 ### 6.2 Latency/throughput: stop blocking the event loop (largest single defect)
 
 `LlamaIndexRetriever.retrieve` (`adapter.py:1821-1856`) performs a remote embedding HTTP call and

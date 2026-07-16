@@ -64,7 +64,7 @@ orchestrator and all subagents:
 | `ToolNameSanitizationMiddleware` | Repairs corrupted/hallucinated tool names |
 | `ToolRetryMiddleware` (langchain) | Retries failed tool calls with backoff |
 | `SourceRegistryMiddleware` | Captures source URLs/citation keys from tool results; feeds `get_verified_sources` and citation verification |
-| `ToolResultPruningMiddleware` | Truncates older tool results to protect the context window |
+| `ToolResultPruningMiddleware` | Truncates older tool results to protect the context window. Positional sliding window: keeps the last `keep_last_n` `ToolMessage`s intact (default 10, all agents but the writer, which scales with `max_research_concurrency` to cover every research-note read) and truncates earlier ones to `max_chars` (default 2000; writer gets 20,000). Recomputed on every model call — see [Known limitations](#known-limitations-fix-pending) for the prompt-caching interaction |
 | `ModelRetryMiddleware` (langchain) | Retries model calls with backoff |
 
 The orchestrator additionally gets DeepAgents runtime middleware
@@ -95,10 +95,16 @@ answer strategy with required components, constraints, and self-contained
 
 The orchestrator submits planned queries to the **`run_research_batch`**
 tool (at most `max_research_concurrency` per call). Each query runs a
-researcher worker concurrently; workers return structured `ResearchNotes`
+researcher worker concurrently — bounded by an `asyncio.Semaphore` and
+gathered via `asyncio.gather(..., return_exceptions=True)`, so one worker's
+failure doesn't cancel the others. Workers return structured `ResearchNotes`
 (findings, sources, gaps, evidence judgment) which the tool persists under
 `/shared/` and registers with the source registry. Failed workers surface
-as tool errors listing only the queries to resubmit.
+as tool errors listing only the queries to resubmit — `run_research_batch`
+is registered `no_retry` (`factory.py`'s `_NO_RETRY_TOOL_NAMES`) precisely
+so the *orchestrator* reacts to a partial failure (resubmitting only the
+failed queries), instead of the tool-retry middleware blindly re-running the
+whole batch and repeating every already-successful multi-LLM-call worker.
 
 ### Phase 4: Final Synthesis
 
@@ -291,6 +297,95 @@ usable for general research requests.
   shallow agent requires the chat request's conversation-scoped card
   registry, which does not exist inside a Dask worker).
 
+
+## Known limitations (fix pending)
+
+Verified against the installed `deepagents==0.6.8`, `langchain==1.3.4`, and
+`langgraph==1.2.4` source. These are documented as current behavior, not
+aspirational fixes.
+
+### Tool-result pruning defeats provider prompt-prefix caching
+
+`ToolResultPruningMiddleware` (`custom_middleware.py:424-466`) recomputes its
+keep/truncate split from scratch on **every** model call: it indexes all
+`ToolMessage`s in the running transcript, keeps the last `keep_last_n`
+intact, and truncates everything older to `max_chars`. Because the window is
+positional-from-the-end rather than pinned to a stable cutoff, the message
+bytes at any given offset shift on nearly every turn as new tool results
+arrive and old ones roll out of the window. On the ~80k-token contexts a deep
+run accumulates, this invalidates provider-side prompt-prefix caching
+(OpenRouter/DeepSeek) turn over turn, which is a significant latency/cost
+issue — see `docs/architecture/scaling-review-2026-07.md` §6.1 for the
+broader prompt-caching cost lever this compounds. Two additional details:
+
+- The window counts **all** `ToolMessage`s, including no-op `think` results
+  (`factory.py`'s `think` tool always returns `"Thought recorded."`), so
+  ceremony calls consume slots in the same budget as real tool output.
+- This middleware runs independently of, and uncoordinated with, deepagents'
+  own summarization middleware (`create_summarization_middleware`), which is
+  auto-installed on every subagent (planner, researcher workers, writer) and
+  instead uses a stable, persisted cutoff. The two mechanisms are not aware
+  of each other.
+
+### Strict structured-output schemas can violate provider constraints
+
+Researcher workers request `strict_response_format(ResearchNotes)`
+(`factory.py` `build_researcher_runnable`) to force provider-native
+`response_format: json_schema, strict` instead of `create_agent`'s
+`AutoStrategy`, which falls back to a synthetic tool call for models absent
+from its hardcoded allowlist (OpenRouter/DeepSeek slugs have no entry).
+LangChain's `ProviderStrategy` ships the Pydantic schema verbatim with no
+sanitization. `EvidenceJudgment.relevance_score`
+(`models/subagent_contracts.py`) declares `ge=0, le=100`, which compiles to
+JSON-Schema `minimum`/`maximum` — unsupported in strict `json_schema` mode on
+some providers, producing a 400 or inconsistent handling. In practice this
+is one source of the researcher-worker failures that
+`tools/research.py:_structured_research_notes` papers over: when
+`structured_response` comes back empty, it falls back to extracting JSON
+from a ```json-fenced or prose-prefixed final message
+(`tools/research.py:73-90`). That fallback keeps single non-conformant
+completions from failing a whole worker, but the root cause (an
+unsupported bound in the strict schema) is still open.
+
+### StateBackend write-once plus per-search planner ceremony
+
+deepagents' `StateBackend.write()` is write-once: a second `write_file` to
+an existing path returns an error (`"already exists"`); recovery is via
+`edit_file`. `planner.j2` accounts for this (`write_file` to create
+`/shared/plan.json`, `edit_file` to revise it) but also mandates a
+todo-list ceremony (`write_todos` before decomposing) and a `think` call
+after every search ("What did I learn? Internal or external? ... What
+constraints should I add?"). Combined, these add several pure-ceremony LLM
+turns per planning run beyond the discovery searches themselves — prompt
+tuning to shrink the ceremony (e.g. making `think` optional, or batching it)
+is pending.
+
+### Verified-correct, not bugs
+
+Worth stating explicitly since they look similar to the issues above at a
+glance:
+
+- `run_research_batch` researcher workers genuinely run concurrently
+  (`asyncio.Semaphore` + `asyncio.gather(..., return_exceptions=True)`, see
+  Phase 3 above), with partial-failure separation and `no_retry` on the
+  batch tool so the *orchestrator* reacts to a failed subset rather than the
+  tool-retry middleware blindly re-executing the whole batch.
+- `recursion_limit: 2000` (`factory.py:515`) is a deliberate reduction from
+  deepagents' `9999` default, not an oversight.
+- Skill filesystem permission rules
+  (`factory.py:skill_filesystem_permissions`) are evaluated first-match-wins
+  (deepagents' `_check_fs_permission` walks the rule list in order and
+  returns on the first path match) and are ordered correctly for that
+  semantics: deny-write-builtin, then allow-read-builtin (only if skill
+  sources are assigned), then allow-read-per-source, then a catch-all
+  deny-read-builtin.
+- The manually-built researcher runnable (`factory.py:build_researcher_runnable`)
+  places `SkillsMiddleware` *before* `FilesystemMiddleware`/summarization/
+  `PatchToolCallsMiddleware`, whereas deepagents' auto-assembled subagent
+  stack (`deepagents/graph.py`) places `SkillsMiddleware` *after* those
+  three (plus an `AnthropicPromptCachingMiddleware` that no-ops for
+  non-Anthropic models). The ordering differs cosmetically between the two
+  paths but is stable per agent — not a runtime bug.
 
 ## Evaluation
 
