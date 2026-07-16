@@ -27,7 +27,7 @@ import {
   invalidateProjectPromptViewCache,
 } from './prompt-view'
 import { buildProjectSummaryText } from './brief-view'
-import { normalizeProfilePatchOperations, pruneResolvedUnknowns } from './patch-engine'
+import { normalizeProfilePatchOperations, pruneResolvedAssumptions, pruneResolvedUnknowns } from './patch-engine'
 import {
   projectIntakeDefinitionV1,
   validateProfilePatchVocabulary,
@@ -128,7 +128,7 @@ export async function patchProjectProfile(
 async function persistProfile(
   projectId: string,
   organizationId: string,
-  profile: ProjectProfile,
+  rawProfile: ProjectProfile,
   current: ProjectProfileState,
   options?: {
     /**
@@ -139,6 +139,11 @@ async function persistProfile(
     resetSummary?: boolean
   },
 ): Promise<ProjectProfileState> {
+  // Single choke point for BOTH the wizard save and agent patches: a confirmed
+  // fact always retires an unconfirmed assumption under the same key (e.g. the
+  // migration-backfilled `bundesland=wien` default once the user answers the
+  // location question).
+  const profile = pruneResolvedAssumptions(rawProfile)
   const updated = await updateProjectProfileIfVersion(projectId, organizationId, current.profileVersion, {
     profile,
     profileVersion: current.profileVersion + 1,

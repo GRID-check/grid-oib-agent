@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { buildProjectBriefView } from './brief-view'
-import { normalizeProfilePatchOperations, pruneResolvedUnknowns } from './patch-engine'
+import { normalizeProfilePatchOperations, pruneResolvedAssumptions, pruneResolvedUnknowns } from './patch-engine'
 import type { ProjectProfile } from './types'
 
 const NOW = '2026-07-08T00:00:00.000Z'
@@ -143,5 +143,41 @@ describe('pruneResolvedUnknowns', () => {
   it('returns the same object when nothing changes', () => {
     const profile: ProjectProfile = { facts: {}, goals: {}, unknowns: ['fluchtniveau'], assumptions: {} }
     expect(pruneResolvedUnknowns(profile)).toBe(profile)
+  })
+})
+
+describe('pruneResolvedAssumptions', () => {
+  const assumption = (value: string): ProjectProfile['assumptions'][string] => ({
+    value,
+    status: 'unconfirmed',
+    reason: 'Defaulted for projects created before the location question existed.',
+    source: 'onboarding_default',
+    updatedAt: NOW,
+  })
+
+  it('drops an assumption once a confirmed fact exists under the same key', () => {
+    // The migration-backfilled bundesland=wien default must vanish when the
+    // user answers the location question — never two jurisdictions at once.
+    const profile: ProjectProfile = {
+      facts: { bundesland: fact('tirol') },
+      goals: {},
+      unknowns: [],
+      assumptions: { bundesland: assumption('wien'), widmung: assumption('bauland') },
+    }
+
+    const pruned = pruneResolvedAssumptions(profile)
+
+    expect(pruned.assumptions).toEqual({ widmung: assumption('bauland') })
+  })
+
+  it('returns the same object when no assumption is superseded', () => {
+    const profile: ProjectProfile = {
+      facts: { hauptnutzung: fact('wohnen') },
+      goals: {},
+      unknowns: [],
+      assumptions: { bundesland: assumption('wien') },
+    }
+
+    expect(pruneResolvedAssumptions(profile)).toBe(profile)
   })
 })
