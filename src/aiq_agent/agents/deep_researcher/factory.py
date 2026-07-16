@@ -20,6 +20,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.tools import BaseTool
 from langchain_core.tools import tool
 from langgraph.store.memory import InMemoryStore
+from langgraph.types import Checkpointer
 
 from aiq_agent.common import LLMProvider
 from aiq_agent.common import LLMRole
@@ -476,8 +477,19 @@ def build_deep_research_graph(
     domain_catalog_path: str | None,
     max_research_concurrency: int,
     enable_source_router: bool = True,
+    checkpointer: Checkpointer | None = None,
 ) -> Any:
-    """Build the full DeepAgents graph for one deep research run."""
+    """Build the full DeepAgents graph for one deep research run.
+
+    ``checkpointer`` is execution-state durability (LangGraph's
+    per-thread checkpoint log: messages, DeepAgents filesystem, todos),
+    distinct from ``store`` below (longterm cross-thread memory, always
+    an in-memory store here). None (default) matches current behavior:
+    an ephemeral in-process run with no restart safety. When set, the
+    caller (``DeepResearcherAgent``) also invokes the compiled graph with
+    a stable ``thread_id`` so a re-run of the same job resumes from the
+    last persisted checkpoint instead of starting over.
+    """
     context = DeepResearchGraphContext(
         llm_provider=llm_provider,
         state=state,
@@ -533,6 +545,7 @@ def build_deep_research_graph(
         ),
         subagents=build_deep_research_subagents(context),
         store=InMemoryStore(),
+        checkpointer=checkpointer,
         middleware=context.middleware(context.middleware_set.orchestrator),
         permissions=context.permissions(ORCHESTRATOR_AGENT),
         backend=context.backend,

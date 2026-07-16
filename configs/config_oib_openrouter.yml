@@ -355,6 +355,12 @@ functions:
       - remember
       - emit_card
     verbose: true
+    # Durable checkpointing for async deep-research jobs (T3-8), mirroring
+    # workflow.checkpoint_db below: re-invoking the same job_id resumes from
+    # the last persisted checkpoint instead of starting over. The
+    # deep_research_agent field itself defaults to None (no durability) when
+    # omitted -- this config opts in with a local sqlite file by default.
+    checkpoint_db: ${AIQ_DEEP_CHECKPOINT_DB:-./deep_research_checkpoints.db}
 
 workflow:
   _type: chat_deepresearcher_agent

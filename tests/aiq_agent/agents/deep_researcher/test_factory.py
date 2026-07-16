@@ -263,6 +263,72 @@ def test_graph_uses_researcher_config_key_for_researcher_skills():
     assert skills_middleware[0].sources == ["/skills/research/"]
 
 
+def test_graph_passes_checkpointer_through_alongside_inmemory_store():
+    """checkpointer (execution-state durability) and store (longterm memory) are independent (T3-8)."""
+    registry, tool_set, middleware_set = _tool_set_and_middleware()
+    runtime = DeepAgentsRuntime()
+    fake_graph = MagicMock()
+    fake_graph.with_config.return_value = fake_graph
+    fake_checkpointer = MagicMock(name="fake_checkpointer")
+
+    with (
+        patch("aiq_agent.agents.deep_researcher.factory.create_deep_agent", return_value=fake_graph) as create,
+        patch("aiq_agent.agents.deep_researcher.factory.create_agent", return_value=MagicMock()),
+        patch("aiq_agent.agents.deep_researcher.factory.create_summarization_middleware", return_value=MagicMock()),
+    ):
+        build_deep_research_graph(
+            llm_provider=_llm_provider(),
+            state=DeepResearchAgentState(messages=[]),
+            prompts=_prompts(),
+            tools=[web_search_tool],
+            runtime=runtime,
+            tool_set=tool_set,
+            middleware_set=middleware_set,
+            source_registry_middleware=registry,
+            callbacks=[],
+            domain_catalog_path=None,
+            max_research_concurrency=6,
+            checkpointer=fake_checkpointer,
+        )
+
+    kwargs = create.call_args.kwargs
+    assert kwargs["checkpointer"] is fake_checkpointer
+    # The longterm-memory store stays an independent, always-in-memory instance
+    # regardless of whether a durable checkpointer is configured.
+    from langgraph.store.memory import InMemoryStore
+
+    assert isinstance(kwargs["store"], InMemoryStore)
+
+
+def test_graph_defaults_checkpointer_to_none():
+    """Omitting checkpointer preserves current in-memory-only behavior."""
+    registry, tool_set, middleware_set = _tool_set_and_middleware()
+    runtime = DeepAgentsRuntime()
+    fake_graph = MagicMock()
+    fake_graph.with_config.return_value = fake_graph
+
+    with (
+        patch("aiq_agent.agents.deep_researcher.factory.create_deep_agent", return_value=fake_graph) as create,
+        patch("aiq_agent.agents.deep_researcher.factory.create_agent", return_value=MagicMock()),
+        patch("aiq_agent.agents.deep_researcher.factory.create_summarization_middleware", return_value=MagicMock()),
+    ):
+        build_deep_research_graph(
+            llm_provider=_llm_provider(),
+            state=DeepResearchAgentState(messages=[]),
+            prompts=_prompts(),
+            tools=[web_search_tool],
+            runtime=runtime,
+            tool_set=tool_set,
+            middleware_set=middleware_set,
+            source_registry_middleware=registry,
+            callbacks=[],
+            domain_catalog_path=None,
+            max_research_concurrency=6,
+        )
+
+    assert create.call_args.kwargs["checkpointer"] is None
+
+
 def test_subagents_can_disable_source_router():
     """The source-router subagent can be omitted without changing the rest of the workflow."""
     provider = _llm_provider()

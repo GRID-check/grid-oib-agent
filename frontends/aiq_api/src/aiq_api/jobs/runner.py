@@ -274,6 +274,38 @@ def _resolve_worker_tool_refs(fn_config: Any) -> list[str]:
     return list(tool_refs)
 
 
+async def _resolve_deep_research_checkpointer(fn_config: Any) -> Any | None:
+    """Build the durable checkpointer for a deep-research async job, if configured.
+
+    Async deep-research jobs have no restart safety by default (T3-8): each
+    Dask job builds a fresh in-memory-only DeepAgents graph via a new
+    DeepResearcherAgent, so a worker crash mid-run loses all execution state
+    -- only the SQL JobStore row survives, and the ghost-job reaper eventually
+    marks it FAILURE with nothing to resume.
+
+    When ``deep_research_agent.checkpoint_db`` is configured, this builds (and
+    caches, via ``aiq_agent.common.get_checkpointer``) a durable checkpointer
+    keyed by that database path/DSN. ``DeepResearcherAgent.run()`` then uses
+    the job_id as the graph's thread_id, so a re-invocation of the same
+    job_id resumes from the last persisted checkpoint instead of starting
+    over -- see ``DeepResearcherAgent.run`` for the exact resume contract and
+    its current manual-resubmit-only limitation.
+
+    Returns None (current default behavior, no durability) for any agent
+    type other than ``deep_research_agent``, or when ``checkpoint_db`` is
+    unset -- both keep the prior in-memory-only, non-durable behavior.
+    """
+    if getattr(fn_config, "type", None) != "deep_research_agent":
+        return None
+    checkpoint_db = getattr(fn_config, "checkpoint_db", None)
+    if not checkpoint_db:
+        return None
+
+    from aiq_agent.common import get_checkpointer
+
+    return await get_checkpointer(checkpoint_db)
+
+
 def _load_agent_class(agent_class_path: str) -> type:
     """
     Dynamically load an agent class from its module path.
@@ -738,6 +770,10 @@ async def run_agent_job(
                         if budget_guard_callback is not None:
                             callbacks.append(budget_guard_callback)
 
+                    # Durable checkpointing (T3-8): None unless deep_research_agent.checkpoint_db is
+                    # configured, in which case DeepResearcherAgent resumes via job_id as thread_id.
+                    checkpointer = await _resolve_deep_research_checkpointer(fn_config)
+
                     # Instantiate agent with callbacks
                     agent = _create_agent_instance(
                         agent_cls=agent_cls,
@@ -748,6 +784,7 @@ async def run_agent_job(
                         verbose=verbose,
                         callbacks=callbacks,
                         job_id=job_id,
+                        checkpointer=checkpointer,
                     )
 
                     # Run agent - LLM/tool events will be nested under workflow span.
@@ -931,6 +968,7 @@ def _create_agent_instance(
     verbose: bool,
     callbacks: list,
     job_id: str | None = None,
+    checkpointer: Any | None = None,
 ):
     """
     Create an agent instance, supporting different constructor patterns.
@@ -956,6 +994,7 @@ def _create_agent_instance(
             max_research_concurrency=fn_config.max_research_concurrency,
             max_concurrent_source_tool_calls=fn_config.max_concurrent_source_tool_calls,
             max_source_tool_batch_size=fn_config.max_source_tool_batch_size,
+            checkpointer=checkpointer,
         )
 
     # Try original deep_researcher pattern (llm_provider + tools + verbose)

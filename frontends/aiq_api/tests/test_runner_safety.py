@@ -10,10 +10,14 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+from unittest.mock import MagicMock
+from unittest.mock import patch
 
 import pytest
 
 from aiq_api.jobs.runner import CancellationMonitor
+from aiq_api.jobs.runner import _create_agent_instance
+from aiq_api.jobs.runner import _resolve_deep_research_checkpointer
 from aiq_api.jobs.runner import _update_status_if_not_terminal
 from aiq_api.jobs.runner import sanitize_job_error
 
@@ -193,3 +197,99 @@ class TestSanitizeJobError:
         message = sanitize_job_error(RunBudgetExceededError(ceiling=50_000, used=50_123))
 
         assert message == "run exceeded the configured completion-token budget of 50000"
+
+
+class TestResolveDeepResearchCheckpointer:
+    """Async-job checkpointer seam (T3-8): restart-safe deep-research jobs.
+
+    A worker crash mid-run currently loses all execution state; only the SQL
+    JobStore row survives (the ghost-job reaper eventually marks it FAILURE).
+    _resolve_deep_research_checkpointer builds the optional durable
+    checkpointer that lets a manually re-invoked job_id resume instead.
+    """
+
+    @pytest.mark.asyncio
+    async def test_returns_none_for_non_deep_research_agent(self):
+        """Other agent types (e.g. shallow_research_agent) are never given a checkpointer."""
+        fn_config = SimpleNamespace(type="shallow_research_agent", checkpoint_db="./checkpoints.db")
+
+        result = await _resolve_deep_research_checkpointer(fn_config)
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_checkpoint_db_unset(self):
+        """No checkpoint_db configured -> current in-memory-only behavior, no checkpointer."""
+        fn_config = SimpleNamespace(type="deep_research_agent", checkpoint_db=None)
+
+        result = await _resolve_deep_research_checkpointer(fn_config)
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_builds_checkpointer_via_get_checkpointer_when_configured(self):
+        """A configured checkpoint_db resolves through aiq_agent.common.get_checkpointer (shared cache)."""
+        import aiq_agent.common as common_module
+
+        fn_config = SimpleNamespace(type="deep_research_agent", checkpoint_db="./deep_research_checkpoints.db")
+        fake_checkpointer = MagicMock(name="fake_checkpointer")
+        get_checkpointer_mock = AsyncMock(return_value=fake_checkpointer)
+
+        with patch.object(common_module, "get_checkpointer", get_checkpointer_mock):
+            result = await _resolve_deep_research_checkpointer(fn_config)
+
+        get_checkpointer_mock.assert_awaited_once_with("./deep_research_checkpoints.db")
+        assert result is fake_checkpointer
+
+
+class TestCreateAgentInstanceForwardsCheckpointer:
+    """_create_agent_instance threads the resolved checkpointer into DeepResearcherAgent (T3-8)."""
+
+    def test_deep_research_agent_receives_checkpointer(self):
+        from aiq_agent.agents.deep_researcher.register import DeepResearchAgentConfig
+
+        fn_config = DeepResearchAgentConfig(orchestrator_llm="llm")
+        fake_checkpointer = MagicMock(name="fake_checkpointer")
+        captured_kwargs = {}
+
+        def _agent_cls(*args, **kwargs):
+            captured_kwargs.update(kwargs)
+            return MagicMock()
+
+        _create_agent_instance(
+            agent_cls=_agent_cls,
+            llm_provider=MagicMock(),
+            llm=MagicMock(),
+            tools=[],
+            fn_config=fn_config,
+            verbose=False,
+            callbacks=[],
+            job_id="job-1",
+            checkpointer=fake_checkpointer,
+        )
+
+        assert captured_kwargs["checkpointer"] is fake_checkpointer
+
+    def test_deep_research_agent_defaults_checkpointer_to_none(self):
+        """Omitting checkpointer at the call site preserves current behavior."""
+        from aiq_agent.agents.deep_researcher.register import DeepResearchAgentConfig
+
+        fn_config = DeepResearchAgentConfig(orchestrator_llm="llm")
+        captured_kwargs = {}
+
+        def _agent_cls(*args, **kwargs):
+            captured_kwargs.update(kwargs)
+            return MagicMock()
+
+        _create_agent_instance(
+            agent_cls=_agent_cls,
+            llm_provider=MagicMock(),
+            llm=MagicMock(),
+            tools=[],
+            fn_config=fn_config,
+            verbose=False,
+            callbacks=[],
+            job_id="job-1",
+        )
+
+        assert captured_kwargs["checkpointer"] is None
