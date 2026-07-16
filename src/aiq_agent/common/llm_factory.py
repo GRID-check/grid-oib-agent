@@ -96,6 +96,17 @@ def apply_openrouter_structured_defaults(llm: Any) -> Any:
     return llm
 
 
+# NOTE on reasoning_effort: we deliberately do NOT translate effort values
+# per model family app-side. Configs use the OpenRouter/OpenAI-standard
+# vocabulary (none/minimal/low/medium/high/xhigh) and the value is passed
+# through verbatim — OpenRouter's unified reasoning API maps a requested
+# effort to the nearest level each model supports, per model, server-side
+# (https://openrouter.ai/docs/guides/best-practices/reasoning-tokens). An
+# app-side mapping table would duplicate (and inevitably drift from) that
+# contract; provider-native tier names like DeepSeek's "max" must NOT appear
+# in configs — OpenRouter rejects/ignores them (use "xhigh").
+
+
 async def get_langchain_llm(builder: Any, ref: Any) -> Any:
     """Resolve a LangChain chat model with fleet-wide OpenRouter defaults applied.
 

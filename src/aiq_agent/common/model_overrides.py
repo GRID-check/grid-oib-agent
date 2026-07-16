@@ -118,6 +118,9 @@ def override_model(llm: object, model_id: str) -> object:
     if field is None or not hasattr(llm, "model_copy"):
         logger.warning("Cannot apply model override to %s: no model field/model_copy", type(llm).__name__)
         return llm
+    # reasoning_effort is deliberately NOT touched here: configs hold
+    # OpenRouter-standard values and OpenRouter maps them to the nearest level
+    # the overridden model supports (see the note in llm_factory).
     try:
         return llm.model_copy(update={field: model_id})
     except Exception:

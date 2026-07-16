@@ -31,21 +31,28 @@ general:
 
 llms:
   # ───────────────────────────────────────────────────────────────────────────
-  # REASONING EFFORT PER AGENT ROLE
-  # DeepSeek V4 Flash natively supports only 3 reasoning tiers: none (Non-Think),
-  # high (Think High), max (Think Max) — the OpenAI-style minimal/low/medium
-  # naming is a compatibility alias that OpenRouter coerces to one of these
-  # three under the hood (minimal/low/medium/high all resolve to "high";
-  # xhigh/max resolve to "max"). We set values to their *actual* resolved tier
-  # directly so the config isn't misleading. Policy: none for pure routing/
-  # trivial one-liners, high (the "medium/standard" tier) for everything else.
-  # "max" is deliberately not used anywhere: it multiplied hidden reasoning
-  # tokens across hundreds of agent turns per deep-research run for no
-  # measurable quality gain (observed 20+ min runs stuck in planning). To retune a role, change its
-  # `reasoning_effort` below — each role has its own LLM definition so they
-  # are independently settable. All roles share one OpenAI-compatible
-  # endpoint; swap model_name/base_url/api_key to change provider (the system
-  # is LLM-agnostic — see docs/architecture/llm-providers.md).
+  # REASONING EFFORT PER AGENT ROLE — OPENROUTER-STANDARD VALUES, PASSED THROUGH
+  # reasoning_effort uses OpenRouter's unified vocabulary (none/minimal/low/
+  # medium/high/xhigh) and is sent verbatim: OpenRouter maps the requested
+  # effort to the nearest level the EFFECTIVE model supports, per model,
+  # server-side — including models selected by org overrides (ADR-0014). We
+  # deliberately keep NO app-side per-provider mapping (it would duplicate and
+  # drift from OpenRouter's contract). Never use provider-native tier names
+  # here (e.g. DeepSeek's "max") — OpenRouter rejects/ignores them; the
+  # highest unified level is "xhigh". See
+  # https://openrouter.ai/docs/guides/best-practices/reasoning-tokens
+  # Policy: none for pure routing/trivial one-liners, medium for everything
+  # else — high tiers multiplied hidden reasoning tokens across hundreds of
+  # agent turns per run for no measurable quality gain (observed 20+ min runs
+  # stuck in planning). Each role has its own LLM definition so roles are
+  # independently tunable; swap model_name/base_url/api_key to change provider
+  # (the system is LLM-agnostic — see docs/architecture/llm-providers.md).
+  #
+  # request_timeout (seconds) bounds every HTTP call — NAT's default is None
+  # (UNBOUNDED), which let one stalled provider call hang a whole deep-research
+  # run indefinitely. max_retries is the OpenAI-client retry count; kept low
+  # because the middleware layers (ModelRetryMiddleware,
+  # SelectiveToolRetryMiddleware) add their own retries on top.
   # ───────────────────────────────────────────────────────────────────────────
 
   # Intent Router — classify meta-vs-research + shallow-vs-deep depth. Pure routing.
@@ -57,7 +64,8 @@ llms:
     temperature: 1.0
     top_p: 0.95
     max_tokens: 4096
-    max_retries: 5
+    max_retries: 2
+    request_timeout: 60
     reasoning_effort: none
     # NOTE: the OpenRouter response-healing plugin is forced on every OpenRouter
     # LLM centrally in code (aiq_agent.common.llm_factory
@@ -75,8 +83,9 @@ llms:
     temperature: 1.0
     top_p: 0.95
     max_tokens: 65536
-    max_retries: 5
-    reasoning_effort: high
+    max_retries: 2
+    request_timeout: 120
+    reasoning_effort: medium
 
   # HITL Clarification & Planning — clarify ambiguity, generate the research plan.
   clarifier_llm:
@@ -87,8 +96,9 @@ llms:
     temperature: 1.0
     top_p: 0.95
     max_tokens: 65536
-    max_retries: 5
-    reasoning_effort: high
+    max_retries: 2
+    request_timeout: 120
+    reasoning_effort: medium
 
   # Deep Researcher — Orchestrator (also the report writer): top-level control.
   deep_orchestrator_llm:
@@ -99,8 +109,9 @@ llms:
     temperature: 1.0
     top_p: 0.95
     max_tokens: 128000
-    max_retries: 10
-    reasoning_effort: high
+    max_retries: 2
+    request_timeout: 180
+    reasoning_effort: medium
 
   # Deep Researcher — Planning sub-agents.
   deep_planner_llm:
@@ -111,8 +122,9 @@ llms:
     temperature: 1.0
     top_p: 0.95
     max_tokens: 128000
-    max_retries: 10
-    reasoning_effort: high
+    max_retries: 2
+    request_timeout: 180
+    reasoning_effort: medium
 
   # Deep Researcher — Researcher sub-agents (parallel investigations).
   deep_researcher_llm:
@@ -123,8 +135,9 @@ llms:
     temperature: 1.0
     top_p: 0.95
     max_tokens: 65536
-    max_retries: 5
-    reasoning_effort: high
+    max_retries: 2
+    request_timeout: 120
+    reasoning_effort: medium
 
   # Deep Researcher — source routing (which source to query). Lighter decision.
   deep_router_llm:
@@ -135,8 +148,9 @@ llms:
     temperature: 1.0
     top_p: 0.95
     max_tokens: 8192
-    max_retries: 5
-    reasoning_effort: high
+    max_retries: 2
+    request_timeout: 60
+    reasoning_effort: medium
 
   # Card generation — structured rich-UI compliance cards.
   card_llm:
@@ -147,8 +161,9 @@ llms:
     temperature: 1.0
     top_p: 0.95
     max_tokens: 65536
-    max_retries: 5
-    reasoning_effort: high
+    max_retries: 2
+    request_timeout: 120
+    reasoning_effort: medium
 
   # Document / project summaries — trivial one-liners.
   summary_llm:
@@ -159,7 +174,8 @@ llms:
     temperature: 1.0
     top_p: 0.95
     max_tokens: 100
-    max_retries: 5
+    max_retries: 2
+    request_timeout: 30
     reasoning_effort: none
 
 functions:

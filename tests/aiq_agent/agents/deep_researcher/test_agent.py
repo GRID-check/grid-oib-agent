@@ -1356,6 +1356,48 @@ class TestDeepResearcherAgent:
             assert result is not None
 
     @pytest.mark.asyncio
+    async def test_run_enforces_wall_clock_budget(self, mock_llm_provider, real_tool):
+        """A run past max_run_seconds fails with a clear budget error instead of hanging."""
+        import asyncio
+
+        mock_agent = MagicMock()
+
+        async def never_finishes(*args, **kwargs):
+            await asyncio.sleep(3600)
+
+        mock_agent.ainvoke = never_finishes
+        mock_agent.with_config = MagicMock(return_value=mock_agent)
+        with patch("aiq_agent.agents.deep_researcher.factory.create_deep_agent", return_value=mock_agent):
+            from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+
+            agent = DeepResearcherAgent(
+                llm_provider=mock_llm_provider,
+                tools=[real_tool],
+                max_run_seconds=1,
+            )
+            state = DeepResearchAgentState(messages=[HumanMessage(content="Test query")])
+            with pytest.raises(RuntimeError, match="wall-clock budget"):
+                await agent.run(state)
+
+    @pytest.mark.asyncio
+    async def test_run_zero_budget_disables_wall_clock_guard(
+        self, mock_llm_provider, real_tool, mock_create_deep_agent
+    ):
+        """max_run_seconds=0 runs unguarded (no wait_for wrapper)."""
+        with patch("aiq_agent.agents.deep_researcher.factory.create_deep_agent", return_value=mock_create_deep_agent):
+            from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+
+            agent = DeepResearcherAgent(
+                llm_provider=mock_llm_provider,
+                tools=[real_tool],
+                max_run_seconds=0,
+            )
+            state = DeepResearchAgentState(messages=[HumanMessage(content="Test query")])
+            with seeded_session_registry(SourceEntry(url="https://example.com")):
+                result = await agent.run(state)
+            assert result is not None
+
+    @pytest.mark.asyncio
     async def test_run_with_callbacks(self, mock_llm_provider, real_tool, mock_create_deep_agent):
         """Test run() uses callbacks."""
         with patch("aiq_agent.agents.deep_researcher.factory.create_deep_agent", return_value=mock_create_deep_agent):

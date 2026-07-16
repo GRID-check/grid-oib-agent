@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from collections.abc import Sequence
@@ -34,6 +35,10 @@ from .tools.source_tool_batching import DEFAULT_MAX_SOURCE_TOOL_BATCH_SIZE
 logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_RESEARCH_CONCURRENCY = 6
+
+# Wall-clock budget for one deep-research run (40 min). Generous relative to a
+# healthy run so it only fires on pathological ones; 0 disables the guard.
+DEFAULT_MAX_RUN_SECONDS = 2400
 
 # Path to this agent's directory (for loading prompts)
 AGENT_DIR = Path(__file__).parent
@@ -77,6 +82,7 @@ class DeepResearcherAgent:
         max_research_concurrency: int = DEFAULT_MAX_RESEARCH_CONCURRENCY,
         max_concurrent_source_tool_calls: int = DEFAULT_MAX_CONCURRENT_SOURCE_TOOL_CALLS,
         max_source_tool_batch_size: int = DEFAULT_MAX_SOURCE_TOOL_BATCH_SIZE,
+        max_run_seconds: int = DEFAULT_MAX_RUN_SECONDS,
     ) -> None:
         """
         Initialize the deep researcher agent.
@@ -96,6 +102,7 @@ class DeepResearcherAgent:
                 run_research_batch call.
             max_concurrent_source_tool_calls: Shared source-tool concurrency limit across researcher workers.
             max_source_tool_batch_size: Maximum concrete inputs per batch-capable source tool call.
+            max_run_seconds: Wall-clock budget for one run; 0 disables the guard.
         """
         self.llm_provider = llm_provider
         self.tools = list(tools) if tools else []
@@ -104,6 +111,7 @@ class DeepResearcherAgent:
         self.max_research_concurrency = max_research_concurrency
         self.max_concurrent_source_tool_calls = max_concurrent_source_tool_calls
         self.max_source_tool_batch_size = max_source_tool_batch_size
+        self.max_run_seconds = max_run_seconds
         self.domain_catalog_path = domain_catalog_path
         self.enable_source_router = enable_source_router
         self.enable_citation_verification = enable_citation_verification
@@ -267,7 +275,20 @@ class DeepResearcherAgent:
             logger.info("=" * 80)
 
         try:
-            result = await agent.ainvoke(state, config={"callbacks": callbacks} if callbacks else None)
+            # Wall-clock budget: per-call request_timeout bounds a single HTTP
+            # request, recursion_limit bounds step COUNT — neither bounds total
+            # run time, so a pathological run could otherwise hold a worker
+            # slot forever.
+            invocation = agent.ainvoke(state, config={"callbacks": callbacks} if callbacks else None)
+            if self.max_run_seconds > 0:
+                try:
+                    result = await asyncio.wait_for(invocation, timeout=self.max_run_seconds)
+                except TimeoutError as exc:
+                    raise RuntimeError(
+                        f"deep research exceeded the {self.max_run_seconds} s wall-clock budget"
+                    ) from exc
+            else:
+                result = await invocation
 
             final_message = self._extract_final_markdown(result)
             if final_message is None:

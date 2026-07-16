@@ -33,6 +33,7 @@ from nat.data_models.function import FunctionBaseConfig
 
 from .agent import DEFAULT_MAX_CONCURRENT_SOURCE_TOOL_CALLS
 from .agent import DEFAULT_MAX_RESEARCH_CONCURRENCY
+from .agent import DEFAULT_MAX_RUN_SECONDS
 from .agent import DEFAULT_MAX_SOURCE_TOOL_BATCH_SIZE
 from .agent import DeepResearcherAgent
 from .deepagents_runtime import DeepResearchSandboxConfig
@@ -97,6 +98,11 @@ class DeepResearchAgentConfig(FunctionBaseConfig, name="deep_research_agent"):
         default=DEFAULT_MAX_SOURCE_TOOL_BATCH_SIZE,
         ge=1,
         description="Maximum concrete inputs accepted by batch-capable source tool wrappers.",
+    )
+    max_run_seconds: int = Field(
+        default=DEFAULT_MAX_RUN_SECONDS,
+        ge=0,
+        description="Wall-clock budget for one deep-research run in seconds; 0 disables the guard.",
     )
 
     @field_validator("skills", mode="before")
@@ -238,6 +244,7 @@ async def deep_research_agent(config: DeepResearchAgentConfig, builder: Builder)
             max_research_concurrency=config.max_research_concurrency,
             max_concurrent_source_tool_calls=config.max_concurrent_source_tool_calls,
             max_source_tool_batch_size=config.max_source_tool_batch_size,
+            max_run_seconds=config.max_run_seconds,
         )
 
     # Cache of the lazily-resolved (tools, prebuilt agent) pair. For explicit
