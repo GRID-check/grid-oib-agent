@@ -330,6 +330,12 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
     import logging as std_logging
     import os
 
+    from .builder_state import set_active_builder
+
+    # Publish the builder so the internal workflows submit route (registered
+    # without one) can reuse _validate_data_sources_for_agent.
+    set_active_builder(builder)
+
     from aiq_agent.common.data_source_registry import get_all_sources
     from nat.front_ends.fastapi.async_jobs.job_store import JobStatus
 

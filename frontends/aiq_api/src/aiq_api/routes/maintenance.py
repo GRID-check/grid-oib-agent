@@ -6,15 +6,20 @@ Guarded by GRID_INTERNAL_API_TOKEN; never exposed to end users.
 All operations are idempotent — re-running on already-deleted data is a no-op.
 """
 
-import hmac
 import logging
 import os
 
 import psycopg
 from fastapi import APIRouter
-from fastapi import HTTPException
 from fastapi import Request
 from pydantic import BaseModel
+
+# The internal-token guard is shared with the workflows submit route. Re-exported
+# here so existing imports (and tests) of these names from routes.maintenance
+# keep working while a single implementation lives in one place.
+from .internal_auth import _DEV_APP_ENVS  # noqa: F401 - re-export for backwards compatibility
+from .internal_auth import _DEV_DEFAULT_TOKEN  # noqa: F401 - re-export for backwards compatibility
+from .internal_auth import _require_internal_token
 
 logger = logging.getLogger(__name__)
 
@@ -22,33 +27,6 @@ logger = logging.getLogger(__name__)
 class PurgeProjectResourcesRequest(BaseModel):
     collection_name: str | None = None
     conversation_ids: list[str] = []
-
-
-# Well-known default shipped in docker-compose for local development. It must
-# never authenticate anything outside a dev environment.
-_DEV_DEFAULT_TOKEN = "grid-internal-dev-token"
-_DEV_APP_ENVS = {"development", "dev", "local"}
-
-
-def _require_internal_token(request: Request) -> None:
-    token = os.environ.get("GRID_INTERNAL_API_TOKEN")
-    if not token:
-        raise HTTPException(status_code=403, detail="Forbidden")
-    app_env = os.environ.get("APP_ENV", "production").lower()
-    if token == _DEV_DEFAULT_TOKEN and app_env not in _DEV_APP_ENVS:
-        logger.error(
-            "GRID_INTERNAL_API_TOKEN is the well-known dev default "
-            "('%s') but APP_ENV=%s is not a dev environment - refusing to "
-            "serve internal maintenance requests. Set a real token in the "
-            "deployment environment.",
-            _DEV_DEFAULT_TOKEN,
-            app_env,
-        )
-        raise HTTPException(status_code=503, detail="Internal API disabled")
-    # Constant-time compare: a plain != leaks the token via response timing.
-    provided = request.headers.get("x-internal-token") or ""
-    if not hmac.compare_digest(provided, token):
-        raise HTTPException(status_code=403, detail="Forbidden")
 
 
 def _jobs_dsn() -> str | None:
@@ -81,15 +59,9 @@ async def _purge_jobs(collection_name: str) -> int:
             job_ids = [row[0] for row in await cur.fetchall()]
             if not job_ids:
                 return 0
-            await cur.execute(
-                "DELETE FROM job_events WHERE job_id = ANY(%s)", (job_ids,)
-            )
-            await cur.execute(
-                "DELETE FROM job_access WHERE job_id = ANY(%s)", (job_ids,)
-            )
-            await cur.execute(
-                "DELETE FROM job_info WHERE job_id = ANY(%s)", (job_ids,)
-            )
+            await cur.execute("DELETE FROM job_events WHERE job_id = ANY(%s)", (job_ids,))
+            await cur.execute("DELETE FROM job_access WHERE job_id = ANY(%s)", (job_ids,))
+            await cur.execute("DELETE FROM job_info WHERE job_id = ANY(%s)", (job_ids,))
         await conn.commit()
     return len(job_ids)
 

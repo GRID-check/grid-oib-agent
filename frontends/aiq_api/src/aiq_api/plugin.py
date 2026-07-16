@@ -24,11 +24,11 @@ import logging
 import os
 import signal
 from collections.abc import Callable
-from typing_extensions import override
 
 from fastapi import APIRouter
 from fastapi import FastAPI
 from pydantic import Field
+from typing_extensions import override
 
 from aiq_api.auth.middleware import AuthMiddleware
 from nat.builder.workflow_builder import WorkflowBuilder
@@ -50,6 +50,7 @@ from .routes.ingest import add_ingest_routes
 from .routes.jobs import register_job_routes
 from .routes.maintenance import add_maintenance_routes
 from .routes.oib import add_oib_routes
+from .routes.workflows import add_workflow_routes
 from .websocket_reconnect import configure_websocket_auth
 from .websocket_reconnect import install_reconnectable_handler
 
@@ -201,6 +202,9 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
         add_ingest_routes(knowledge_router)
         add_oib_routes(knowledge_router)
         add_maintenance_routes(knowledge_router)
+        # Internal workflows submit route (ADR-0023): same router/middleware
+        # treatment as maintenance, so it stays off the external allowlist.
+        add_workflow_routes(knowledge_router)
         # Workflow-default model names for the org model-config UI (ADR-0014).
         add_config_info_routes(knowledge_router, self.config.llms)
         app.include_router(knowledge_router)

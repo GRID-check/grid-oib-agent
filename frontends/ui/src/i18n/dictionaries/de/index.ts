@@ -17,6 +17,7 @@ import { chat } from './chat'
 import { files } from './files'
 import { knowledge } from './knowledge'
 import { research } from './research'
+import { workflows } from './workflows'
 import { members } from './members'
 import { onboarding } from './onboarding'
 import { organization } from './organization'
@@ -40,6 +41,7 @@ export const de: Dictionary = {
   files,
   knowledge,
   research,
+  workflows,
   members,
   onboarding,
   organization,

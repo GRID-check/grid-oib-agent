@@ -168,6 +168,22 @@ The one-off tag-backfill script runs **outside** the NAT runtime, so it builds a
 
 ---
 
+## Workflows (ADR-0023)
+
+Scheduled deep research: saved per-project research briefs fired manually or on a cron schedule by the `workflow-scheduler` worker container. See `docs/architecture/workflows.md`.
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `GRID_WORKFLOWS_ENABLED` | No | `false` | Dark-launch gate while `GRID_ENFORCE_FEATURE_FLAGS` is off: `true` shows the Workflows tab and enables the BFF workflow routes. Also the `workflow-scheduler` service's start gate — when neither this nor flag enforcement is on, the scheduler exits cleanly at boot. With enforcement on, the per-org `workflows` WorkOS flag controls the UI/API instead. Frontend + workflow-scheduler services. |
+| `GRID_WORKFLOW_SCHEDULER_POLL_MS` | No | `30000` | Scheduler tick interval. Each tick claims due schedules (`FOR UPDATE SKIP LOCKED`), advances `next_run_at`, then fires them through the BFF internal endpoint. workflow-scheduler service. |
+| `GRID_WORKFLOW_SCHEDULER_BATCH` | No | `20` | Max due workflows claimed per tick. workflow-scheduler service. |
+| `GRID_WORKFLOW_MIN_INTERVAL_MINUTES` | No | `15` | Minimum cadence a workflow cron expression may have; enforced at save time in the BFF. Frontend service. |
+| `GRID_WORKFLOW_RUNS_RETENTION_DAYS` | No | `90` | Run-history retention; the scheduler prunes older `workflow_runs` rows. workflow-scheduler service. |
+
+The scheduler also reuses `GRID_APP_DATABASE_URL`, `FRONTEND_INTERNAL_URL`, and `GRID_INTERNAL_API_TOKEN`. Scheduled runs go through the same async-job admission control as interactive research (`GRID_MAX_ACTIVE_JOBS[_PER_ORG]`); cap-rejected occurrences are recorded as `skipped` runs and not retried until their next scheduled slot.
+
+---
+
 ## Application
 
 | Variable | Required | Default | Description |

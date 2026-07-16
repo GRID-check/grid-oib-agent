@@ -297,3 +297,25 @@ LLM budgets and the usage ledger (ADR-0015).
   `cost_usd`, `events`. Incremented in the same transaction as every ledger
   insert; budget enforcement reads these rows instead of aggregating the
   ledger per WebSocket upgrade. Backfilled from the ledger by the migration.
+
+## workflows / workflow_runs (migration 0017)
+
+Saved research briefs with cron scheduling (ADR-0023,
+`docs/architecture/workflows.md`).
+
+- `workflows`: one row per saved brief — `project_id` (cascade FK) +
+  denormalized `organization_id`, `name`/`description`, versioned `definition`
+  jsonb (block-based builder state), denormalized `compiled_prompt` (compiled
+  once at save time; what the scheduler submits), `agent_type`
+  (`deep_researcher`), `data_sources` jsonb (NULL = all), `enabled`,
+  `schedule_cron` (5-field, NULL = manual-only) + `schedule_timezone` (IANA),
+  `next_run_at`/`last_run_at`, `created_by`/`created_by_email`. Partial index
+  `idx_workflows_due` on `next_run_at` (WHERE scheduled AND enabled) serves
+  the scheduler's FOR UPDATE SKIP LOCKED due-scan.
+- `workflow_runs`: append-only submission history — `workflow_id` (cascade
+  FK), denormalized `project_id`/`organization_id`, `job_id` (backend async
+  job; NULL when skipped/error), `trigger` (`manual`/`schedule`), `status`
+  (`submitted`/`skipped`/`error`), `detail`, `prompt_snapshot`,
+  `triggered_by`. Live job progress/results stay in the backend job store.
+  `idx_workflow_runs_created_at` serves the scheduler's retention prune.
+  Schema: `frontends/ui/src/lib/db/schema/workflows.ts`.

@@ -63,6 +63,7 @@ a new ADR. Small clarifications and typo fixes are fine.
 | [0020](0020-dragonfly-shared-cache.md) | Dragonfly as the shared cache tier | Accepted |
 | [0021](0021-db-claimed-research-workers.md) | DB-claimed workers for deep-research execution | Proposed |
 | [0022](0022-org-byok-llm-credentials.md) | Enterprise BYOK LLM credentials per organization (WorkOS Vault) and the org web-search setting | Accepted |
+| [0023](0023-workflows-scheduled-research.md) | Workflows — saved research briefs with cron scheduling | Proposed |
 
 ## Related documents
 

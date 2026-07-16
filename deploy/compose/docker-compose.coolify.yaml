@@ -257,6 +257,9 @@ services:
       # ── Shared cache (Dragonfly, ADR-0020) ──
       - REDIS_URL=redis://dragonfly:6379/0
       - GRID_WS_UPGRADE_RATE_LIMIT=${GRID_WS_UPGRADE_RATE_LIMIT:-30}
+      # ── Workflows (ADR-0023): dark-launch gate + save-time cron validation ──
+      - GRID_WORKFLOWS_ENABLED=${GRID_WORKFLOWS_ENABLED:-false}
+      - GRID_WORKFLOW_MIN_INTERVAL_MINUTES=${GRID_WORKFLOW_MIN_INTERVAL_MINUTES:-15}
     expose:
       - "3000"
     depends_on:
@@ -299,6 +302,31 @@ services:
       minio:
         condition: service_healthy
       aiq-agent:
+        condition: service_healthy
+    restart: unless-stopped
+
+  workflow-scheduler:
+    # Workflows cron scheduler (ADR-0023) — dedicated worker off the frontend
+    # image (like the purger). DB-claimed ticks advance each due workflow's
+    # next_run_at, then POST the BFF internal fire endpoint. No-ops and exits 0
+    # unless the workflows feature gate is on.
+    build:
+      context: ./frontends/ui
+      dockerfile: deploy/Dockerfile
+    command: ["node", "scheduler/index.js"]
+    environment:
+      - GRID_APP_DATABASE_URL=postgresql://aiq:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/grid_app
+      - FRONTEND_INTERNAL_URL=http://frontend:3000
+      - GRID_INTERNAL_API_TOKEN=${SERVICE_PASSWORD_INTERNALTOKEN}
+      - GRID_WORKFLOWS_ENABLED=${GRID_WORKFLOWS_ENABLED:-false}
+      - GRID_ENFORCE_FEATURE_FLAGS=${GRID_ENFORCE_FEATURE_FLAGS:-false}
+      - GRID_WORKFLOW_SCHEDULER_POLL_MS=${GRID_WORKFLOW_SCHEDULER_POLL_MS:-30000}
+      - GRID_WORKFLOW_SCHEDULER_BATCH=${GRID_WORKFLOW_SCHEDULER_BATCH:-20}
+      - GRID_WORKFLOW_RUNS_RETENTION_DAYS=${GRID_WORKFLOW_RUNS_RETENTION_DAYS:-90}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      frontend:
         condition: service_healthy
     restart: unless-stopped
 

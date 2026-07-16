@@ -27,6 +27,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Users,
+  Workflow,
   X,
 } from 'lucide-react'
 
@@ -41,7 +42,7 @@ import { SidebarUserMenu, type SidebarUser } from './sidebar-user-menu'
 
 interface NavItem {
   /** i18n key under `nav.sections` and stable React key. */
-  key: 'overview' | 'chat' | 'files' | 'knowledge' | 'research' | 'members'
+  key: 'overview' | 'chat' | 'files' | 'knowledge' | 'research' | 'workflows' | 'members'
   segment: string | null // null = the project root (Overview)
   icon: React.ComponentType<{ className?: string }>
 }
@@ -52,6 +53,7 @@ const NAV_ITEMS: NavItem[] = [
   { key: 'files', segment: 'files', icon: FolderOpen },
   { key: 'knowledge', segment: 'knowledge', icon: BookOpenCheck },
   { key: 'research', segment: 'research', icon: FlaskConical },
+  { key: 'workflows', segment: 'workflows', icon: Workflow },
   { key: 'members', segment: 'members', icon: Users },
 ]
 
@@ -75,6 +77,8 @@ export interface AppSidebarProps {
   canManagePlatform?: boolean
   /** Whether the project knowledge page is enabled (feature-flagged, default off). */
   showKnowledge?: boolean
+  /** Whether the Workflows page is enabled (feature-flagged, default off). */
+  showWorkflows?: boolean
   /**
    * Whether the standalone Research nav item is shown. False when the
    * `research-in-chat-history` flag folds research runs into the chat-history
@@ -92,6 +96,7 @@ export function AppSidebar({
   canViewOrganization = false,
   canManagePlatform = false,
   showKnowledge = false,
+  showWorkflows = false,
   showResearch = true,
 }: AppSidebarProps) {
   const pathname = usePathname() ?? ''
@@ -150,12 +155,14 @@ export function AppSidebar({
 
   // Members is shown to every project member: the roster page renders a
   // dignified read-only view for viewers/editors and full controls for admins,
-  // so the nav item never dead-ends. Knowledge is feature-flagged (default off).
-  // Research is hidden when its runs are folded into the chat-history panel
-  // (research-in-chat-history flag, FB-10).
+  // so the nav item never dead-ends. Knowledge and Workflows are feature-flagged
+  // (default off). Research is hidden when its runs are folded into the
+  // chat-history panel (research-in-chat-history flag, FB-10).
   const navItems = NAV_ITEMS.filter(
     (item) =>
-      (item.key !== 'knowledge' || showKnowledge) && (item.key !== 'research' || showResearch),
+      (item.key !== 'knowledge' || showKnowledge) &&
+      (item.key !== 'workflows' || showWorkflows) &&
+      (item.key !== 'research' || showResearch),
   )
 
   const activeItem = navItems.find(isActive)

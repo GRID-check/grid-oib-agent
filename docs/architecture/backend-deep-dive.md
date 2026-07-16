@@ -270,6 +270,14 @@ no project scope when `session.organizationId` is falsy (anonymous /
 carry Grid cards (§3; the async job path generates them post-hoc in the
 runner). And the research tab can 403 — see §9.
 
+**Workflows (ADR-0023, 2026-07-16)**: saved per-project research briefs can
+fire this same async pipeline on a cron schedule — a dedicated
+`workflow-scheduler` container claims due rows in `grid_app`
+(`FOR UPDATE SKIP LOCKED`) and fires through the BFF's internal endpoint into
+`POST /v1/internal/workflows/submit` (internal-token-guarded wrapper around
+`submit_agent_job`, so admission control and cost tracking apply unchanged).
+See `docs/architecture/workflows.md`.
+
 ## 8. Backend agent architecture & DRY debt
 
 Registered agents (via NAT `@register_function` + `FunctionBaseConfig`):

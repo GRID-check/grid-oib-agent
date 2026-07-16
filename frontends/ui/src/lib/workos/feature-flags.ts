@@ -20,6 +20,14 @@ export const MEMORY_REFLECTION_FLAG = 'memory-reflection'
 export const BYOK_LLM_FLAG = 'byok-llm'
 
 /**
+ * Slug of the flag gating the Workflows feature (ADR-0023). Session paths use
+ * `isWorkflowsEnabled` (authz/feature-flags); the session-less scheduled-fire
+ * path evaluates this slug per-org so revoking an org's flag also pauses its
+ * schedules (fail-closed, like memory-reflection).
+ */
+export const WORKFLOWS_FLAG = 'workflows'
+
+/**
  * Slug of the platform-layer web-search flag (ADR-0022). Participates only
  * when GRID_ENFORCE_FEATURE_FLAGS=true — see `isWebSearchEnabledForOrg` in
  * `@/lib/organizations/service`, which combines it with the tenant's own
