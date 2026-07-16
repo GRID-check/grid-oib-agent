@@ -60,6 +60,7 @@ from .model_overrides import apply_model_override
 from .model_overrides import get_model_overrides_from_context
 from .model_overrides import parse_model_overrides
 from .model_overrides import sanitize_model_overrides
+from .nat_step_repair import SpanClosingProfilerHandler
 from .prompt_utils import load_prompt
 from .prompt_utils import render_prompt_template
 from .tool_validation import format_tool_unavailability_error
@@ -85,6 +86,7 @@ __all__ = [
     "LLMRole",
     "OrgLLMCredential",
     "SourceRegistry",
+    "SpanClosingProfilerHandler",
     "VerboseTraceCallback",
     "all_mapped_tools_filtered_out",
     "apply_model_override",

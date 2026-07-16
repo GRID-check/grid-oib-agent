@@ -540,6 +540,7 @@ async def run_agent_job(
                 tools = filter_tools_by_sources(tools, data_sources)
 
             # Set up telemetry/observability for Phoenix and OpenTelemetry
+            from aiq_agent.common.nat_step_repair import SpanClosingProfilerHandler
             from nat.builder.context import Context
             from nat.builder.context import ContextState
             from nat.data_models.intermediate_step import IntermediateStepPayload
@@ -548,7 +549,6 @@ async def run_agent_job(
             from nat.data_models.intermediate_step import TraceMetadata
             from nat.data_models.invocation_node import InvocationNode
             from nat.observability.exporter_manager import ExporterManager
-            from nat.plugins.langchain.callback_handler import LangchainProfilerHandler
             from nat.utils.reactive.subject import Subject
 
             telemetry_exporters = {
@@ -684,8 +684,12 @@ async def run_agent_job(
                         )
                     )
 
-                    # Create profiler callback AFTER workflow starts (ensures correct parent)
-                    nat_profiler_callback = LangchainProfilerHandler()
+                    # Create profiler callback AFTER workflow starts (ensures correct parent).
+                    # SpanClosingProfilerHandler closes errored LLM/tool spans (missing
+                    # on_llm_error/on_tool_error upstream orphan a frame on retry, corrupting
+                    # IntermediateStepManager's span stack) and supports for_new_run() so it
+                    # gets a fresh instance per researcher worker like VerboseTraceCallback.
+                    nat_profiler_callback = SpanClosingProfilerHandler()
 
                     verbose = is_verbose(getattr(fn_config, "verbose", False))
                     callbacks = [VerboseTraceCallback()] if verbose else []
