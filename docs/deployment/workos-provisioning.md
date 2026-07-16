@@ -116,6 +116,7 @@ delivered in the AuthKit JWT `feature_flags` claim (registry:
 | `image-upload` | Standalone PNG/JPG upload via VLM captioning (FB-15a). Availability = this flag **AND** a derived VLM capability (`vlm_available` on `GET /v1/data_sources`, computed from the VLM key). Server-computed in the root layout, prop-drilled into `AppConfig.fileUpload.acceptedTypes` (client accept-list includes image types only when flag AND capability hold); the BFF upload route (`uploadDocument`) independently re-applies the same flag∧capability rule via a short-TTL-cached backend probe and rejects image extensions with a 400 (fail-closed when the capability can't be confirmed). **Prerequisite (in addition to this flag):** a configured VLM (`AIQ_VLM_*`). No `FILE_UPLOAD_ACCEPTED_TYPES` image opt-in is needed — images are derived from the capability, not the env list (env-listed images without a VLM stay excluded) |
 | `research-in-chat-history` | Fold the Research runs tab into the chat-history panel as a "Deep Research" section (FB-10). Server-computed in the project layout (hide the `research` nav item) and the chat route (SessionsPanel section + `?job=` deep links); the `/research` route redirects to chat when on. Off → legacy Research tab + `ResearchRunsList` page remain |
 | `wizard-conflict-check` | End-of-wizard intake conflict check (FB-13). Server-computed in the intake page, prop-drilled to `ProjectIntakeWizard`. On Save: structured answers are checked deterministically on the client (instant), free-text answers by the LLM (`POST /api/projects/[id]/consistency-check` → backend `/v1/consistency-check`, skipped when there is no substantive free text); findings hold the save for "Trotzdem speichern" / "Überarbeiten". Off → the wizard saves exactly as before |
+| `workflows` | Workflows (ADR-0023): saved per-project research briefs with cron scheduling. Gates the Workflows nav item + page, every `/api/projects/[id]/workflows*` BFF route, and manual runs; the session-less scheduled-fire path re-evaluates this flag **per org, live and fail-closed** (`isOrgFeatureEnabled`, like `memory-reflection`), so revoking an org's flag also pauses its schedules (recorded as visible `skipped` runs). While enforcement is off, `GRID_WORKFLOWS_ENABLED=true` is the deployment-wide dark-launch fallback and the `workflow-scheduler` container's start gate |
 
 Rollout order (per environment): 1) create the flags in the WorkOS
 dashboard (Feature Flags — flag create/update events are covered by
@@ -151,7 +152,15 @@ flip it on in Production once the IA change is signed off. The
 Production** pending a review of the end-of-wizard conflict check (deterministic
 structured-answer rules plus a free-text LLM check, with a "Trotzdem speichern"
 override) — flip it on in Production once the review is signed off and the
-free-text check has been smoke-tested against a configured LLM.
+free-text check has been smoke-tested against a configured LLM. ⚠️ The
+`workflows` flag (ADR-0023) does **NOT exist in Staging or Production yet**
+(as of 2026-07-16) — it lives only in the code registry. Nothing is broken
+while enforcement is off (`GRID_WORKFLOWS_ENABLED` gates the feature
+deployment-wide instead), but the flag MUST be created (and target orgs
+set) before Workflows is used in an enforcement-mode environment; without
+it, every org fails closed for the UI/API, and the scheduler skips every
+scheduled fire with a `feature-disabled` run row. Update this paragraph
+with the ✅ + date once created.
 
 ## Replay into a fresh environment (e.g. Production)
 
