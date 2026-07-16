@@ -144,3 +144,32 @@ pytest in `sources/ris_adapter/tests/`:
 - Automatic/scheduled catalog refresh; metadata auto-refresh.
 - DB-backed catalog or admin UI.
 - Web UI changes.
+
+## Addendum (same-day follow-up): jurisdiction as a structured fact
+
+Review of the first cut exposed a ranking hole: the nine state building codes
+all share generic topics ("bauordnung"), matches were returned in catalog
+order, and truncation happened before any jurisdiction filter — a lookup for
+"Bauordnung Tirol" with `max_matches: 5` returned Wien/NÖ/OÖ/Stmk/Ktn and
+dropped Tirol entirely. The deeper root cause: the Bundesland was never a
+structured fact anywhere in the system, only free text.
+
+Shipped in this PR on top of the original design:
+
+- **Intake wizard** (`intake-definition.ts`): required `bundesland`
+  single-select (nine states + "Outside Austria") writing to
+  `/facts/bundesland/value`, plus a conditional free-text `standort_details`
+  for non-Austrian projects. Vocabulary-validated like every intake fact.
+- **Backfill** (drizzle `0018`): pre-existing projects get an *unconfirmed*
+  `bundesland=wien` assumption (`onboarding_default`) — surfaced in the
+  Project Brief for one-click confirm/correct, spliced into the stored prompt
+  view, retired automatically once a confirmed fact exists
+  (`pruneResolvedAssumptions` in `persistProfile`).
+- **Matcher** (`ris_catalog.py`): `extract_bundesland` reads the structured
+  `bundesland=<token>` prompt-view line as authoritative (free-text state-name
+  probing is the fallback); new `focus_entries` drops other states' law and
+  sorts the project's state first, federal law always kept.
+- **Tools** (`register.py`): both the `ris_search` short-circuit (explicit
+  `bundesland` argument wins, query text is fallback; non-default
+  `application` narrows) and `ris_catalog_lookup` (state named in the topic)
+  filter via `focus_entries` BEFORE truncation.

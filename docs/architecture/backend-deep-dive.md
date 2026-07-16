@@ -282,6 +282,23 @@ Three consumers:
    shallow and deep researcher prompts (federal first, then the project's
    Bundesland), so the agent fetches known norms directly instead of searching.
 
+**Jurisdiction is a structured fact, not an inference.** The project-intake
+wizard captures the building's location as a validated `bundesland` fact (nine
+states + `ausserhalb_oesterreichs`, with a free-text `standort_details` for
+projects outside Austria); it flows into the `PROJECT_CONTEXT` prompt view as a
+`bundesland=<token>` line. `extract_bundesland` treats that structured token as
+authoritative — free-text state-name probing is only the fallback (a mention of
+"Wiener Neustadt", a Lower Austrian town, must not flip the jurisdiction to
+Wien). Both catalog consumers then call `focus_entries` BEFORE truncating:
+other states' law is dropped, the project's own state sorts first, federal law
+always stays — the nine state codes share generic topics ("bauordnung"), so
+without this a Tyrolean query would return the catalog-order head (Wien, NÖ, …)
+and crowd Tirol out. Projects created before the wizard asked for the location
+are backfilled (drizzle migration 0018) with an *unconfirmed* `bundesland=wien`
+assumption (`onboarding_default`) that the Project Brief asks the user to
+confirm; a confirmed fact under the same key retires it automatically
+(`pruneResolvedAssumptions`, applied in `persistProfile`).
+
 ## 7. Deep research (async jobs)
 
 - The `deep_research` graph node submits a Dask job and returns the stub message

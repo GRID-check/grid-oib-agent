@@ -37,6 +37,18 @@ behavior with a warning):
    renders the index (federal first, then the project's Bundesland) into the
    shallow/deep researcher prompts.
 
+**Jurisdiction-aware matching.** Building law is state law, and the nine state
+codes all match generic topics like "bauordnung", so both tool consumers
+resolve the Bundesland before truncating results (`focus_entries`): the
+explicit `bundesland` argument (`ris_search`) or the state named in the topic
+(`ris_catalog_lookup`) drops the OTHER states' law and sorts the project's own
+state first; federal law always stays. The Bundesland itself comes from the
+structured `bundesland=<token>` fact the project-intake wizard writes into the
+project context (authoritative), falling back to state-name probing in free
+text. A project explicitly outside Austria (`ausserhalb_oesterreichs`) gets no
+state prioritization. An explicit non-default `application` argument narrows
+the short-circuit's pointers to that application.
+
 The catalog is generated — **do not hand-edit**. Rebuild/re-verify every entry
 against the live API (fails loudly on unverifiable seeds):
 
