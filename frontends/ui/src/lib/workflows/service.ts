@@ -18,6 +18,7 @@ import { getBudgetStatus } from '@/lib/budgets/service'
 import { getActiveModelOverrides } from '@/lib/model-config/service'
 import { loadProjectPromptView } from '@/lib/project-profile/prompt-view'
 import { computeCollectionScope } from '@/lib/collection-scope'
+import { encodeGridBudgetHeader } from '@/lib/request-context'
 import { isOrgFeatureEnabled, WORKFLOWS_FLAG } from '@/lib/workos/feature-flags'
 import { enforcementOn } from '@/lib/authz/feature-flags'
 import type { AuthorizedSession } from '@/lib/auth/types'
@@ -334,9 +335,12 @@ function computeNextRunAt(scheduleCron: string | null, timezone: string, enabled
 
 /**
  * The base64url budget snapshot the backend cost tracker reads — identical
- * value to the interactive path's `x-grid-budget` header. Fail-open (null) on
- * read error, mirroring the WS-scope route: a broken budget lookup must not
- * take firing down.
+ * value to the interactive path's `x-grid-budget` header. Encoded via the
+ * shared `GridRequestContext` budget encoder (`@/lib/request-context`,
+ * backlog T3-9) so this value can never drift from the WS-upgrade encoding
+ * in server.js or the async-jobs proxy. Fail-open (null) on read error,
+ * mirroring the WS-scope route: a broken budget lookup must not take firing
+ * down.
  */
 async function buildBudgetHeader(
   organizationId: string,
@@ -345,12 +349,11 @@ async function buildBudgetHeader(
 ): Promise<string | null> {
   try {
     const status = await getBudgetStatus(organizationId, userId, projectId)
-    const snapshot = {
+    return encodeGridBudgetHeader({
       remainingOrgUsd: status.remainingOrgUsd,
       remainingUserUsd: status.remainingUserUsd,
       remainingProjectUsd: status.remainingProjectUsd,
-    }
-    return Buffer.from(JSON.stringify(snapshot), 'utf8').toString('base64url')
+    })
   } catch {
     return null
   }

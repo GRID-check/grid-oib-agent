@@ -1,15 +1,13 @@
 /**
  * Shared encoding for the `X-Grid-Model-Overrides` header.
  *
- * The header carries the org's active `{agentGroup: modelId}` map (see
- * `getActiveModelOverrides` in `./service`) as base64url-encoded JSON — the
- * same scheme `server.js` uses for the WebSocket upgrade path (and that
- * `buildCollectionScopeHeader` in `@/lib/collection-scope` uses for the
- * collection-scope header). Kept here, separate from `service.ts`, so proxy
- * routes that only need the wire encoding don't have to pull in the
- * DB-backed service module.
+ * Absorbed into `@/lib/request-context` (backlog T3-9: one typed
+ * builder/parser pair for every `X-Grid-*` cross-cutting context header,
+ * instead of each header's encoding living wherever its first caller
+ * happened to need it). Re-exported here so existing importers of this
+ * module — and proxy routes that only need this one header's wire encoding,
+ * not the full `GridRequestContext` builder — don't have to change their
+ * import path.
  */
 
-export function encodeModelOverridesHeader(overrides: Record<string, string>): string {
-  return Buffer.from(JSON.stringify(overrides), 'utf8').toString('base64url')
-}
+export { encodeModelOverridesHeader } from '@/lib/request-context'

@@ -1,20 +1,56 @@
-"""Project context extraction from the ``X-Grid-Project-Context`` header.
+"""Grid cross-cutting request-context headers (backlog T3-9).
 
-The Next.js BFF sends an internal header::
+The Next.js BFF sends a family of internal ``X-Grid-*`` headers on every
+submission path (WS upgrade in ``server.js``, the async-jobs REST proxy, the
+workflow-scheduler's internal submit) carrying the caller's org/project
+identity, collection scope, project context/memory, per-org model overrides,
+budget snapshot, and org-disabled data sources. In Python/NAT these headers
+are accessed lowercased via ``Context`` metadata.
 
-    X-Grid-Project-Context: <project context string>
+``GridRequestContext`` (below) is the single dataclass + parse function that
+reads ALL of them in one place, mirroring the TS builder at
+``frontends/ui/src/lib/request-context.ts`` (see that module's docstring for
+the full header-inventory table and encodings). The two are pinned together
+by the cross-language contract fixture ``tests/fixtures/grid_request_context.json``::
 
-In Python/NAT this header is accessed lowercased via ``Context`` metadata.
-When the header is missing the system falls back to returning ``None``, and
-prompt templates skip the project context block.
+    X-Grid-Project-Context: base64url(<project context string>)
+
+When a header is missing the system falls back to ``None``/defaults, and
+prompt templates skip the corresponding context block.
+
+Canonical *runtime* parsers for ``collection_scope``, ``model_overrides``,
+``budget``, and ``disabled_sources`` continue to live in their own modules —
+``knowledge/scoping.py``, ``common/model_overrides.py``,
+``common/cost_tracking.py``, ``common/data_sources.py`` respectively. Those
+modules are owned elsewhere; ``GridRequestContext`` parses the same headers
+independently (not by importing them) purely so the contract fixture can pin
+the wire format from the Python side without creating a dependency on
+modules this file doesn't own. Agent code that needs model overrides,
+budget, or disabled sources should keep calling those modules' own
+accessors, not ``GridRequestContext``.
 """
 
+import base64
+import json
 import logging
+from dataclasses import dataclass
+from typing import Any
 
 PROJECT_CONTEXT_HEADER = "x-grid-project-context"
 PROJECT_MEMORY_HEADER = "x-grid-project-memory"
 PROJECT_ID_HEADER = "x-grid-project-id"
 MEMORY_REFLECTION_FEATURE_HEADER = "x-grid-feature-memory-reflection"
+ORGANIZATION_ID_HEADER = "x-grid-organization-id"
+USER_ID_HEADER = "x-grid-user-id"
+
+# Mirrored (not imported) from their owning modules — see the module
+# docstring above for why. Values must stay byte-identical to
+# knowledge/scoping.py, common/model_overrides.py, common/cost_tracking.py,
+# and common/data_sources.py; the contract fixture is what catches drift.
+COLLECTION_SCOPE_HEADER = "x-grid-collection-scope"
+MODEL_OVERRIDES_HEADER = "x-grid-model-overrides"
+BUDGET_HEADER = "x-grid-budget"
+DISABLED_SOURCES_HEADER = "x-grid-disabled-sources"
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +82,18 @@ def _read_header(name: str) -> str | None:
         return None
 
 
+def _base64url_decode_text(raw: str) -> str:
+    """Base64url-decode *raw* to text, falling back to *raw* unchanged if
+    decoding — or the decoded bytes not being valid UTF-8 — fails (older
+    proxy sending a raw, unencoded value).
+    """
+    try:
+        padded = raw + "=" * (-len(raw) % 4)
+        return base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8")
+    except Exception:
+        return raw
+
+
 def _read_encoded_header(name: str) -> str | None:
     """Read a base64url-encoded multi-line header (falls back to raw).
 
@@ -57,13 +105,147 @@ def _read_encoded_header(name: str) -> str | None:
     raw = _read_header(name)
     if not raw:
         return None
-    try:
-        import base64
+    return _base64url_decode_text(raw)
 
-        padded = raw + "=" * (-len(raw) % 4)
-        return base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8")
+
+def _read_json_header(name: str) -> Any | None:
+    """Base64url-decode + JSON-parse a structured header value.
+
+    Absent or malformed values decode to ``None`` — a caller asking "what did
+    the org configure" must never see an exception just because a header was
+    missing or mangled; that must read the same as "nothing configured".
+    """
+    raw = _read_header(name)
+    if not raw:
+        return None
+    try:
+        return json.loads(_base64url_decode_text(raw))
     except Exception:
-        return raw
+        logger.debug("Failed to decode/parse %s as JSON", name, exc_info=True)
+        return None
+
+
+def _normalize_raw_id(value: str | None) -> str | None:
+    """Trim a raw single-value header (org/user/project id) to None-or-str."""
+    if not value:
+        return None
+    value = value.strip()
+    return value or None
+
+
+def _as_str_list(value: Any) -> list[str] | None:
+    if isinstance(value, list) and all(isinstance(item, str) for item in value):
+        return value
+    return None
+
+
+def _as_str_dict(value: Any) -> dict[str, str] | None:
+    if isinstance(value, dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in value.items()):
+        return value
+    return None
+
+
+def _as_dict(value: Any) -> dict[str, Any] | None:
+    return value if isinstance(value, dict) else None
+
+
+def _read_memory_reflection_flag() -> bool:
+    """Fails closed: absent/anything-but-'true' header → False, so a missing
+    header (older proxy, non-WS entrypoint) keeps the stage off rather than
+    silently on.
+    """
+    raw = _read_header(MEMORY_REFLECTION_FEATURE_HEADER)
+    return (raw or "").strip().lower() == "true"
+
+
+@dataclass(frozen=True)
+class GridRequestContext:
+    """Every ``X-Grid-*`` cross-cutting context header for one request,
+    parsed in one place. See the module docstring for scope/ownership notes
+    and the TS twin (``frontends/ui/src/lib/request-context.ts``).
+    """
+
+    organization_id: str | None = None
+    user_id: str | None = None
+    project_id: str | None = None
+    collection_scope: list[str] | None = None
+    project_context: str | None = None
+    project_memory: str | None = None
+    model_overrides: dict[str, str] | None = None
+    budget: dict[str, Any] | None = None
+    disabled_sources: list[str] | None = None
+    memory_reflection_enabled: bool = False
+
+    @classmethod
+    def from_context(cls) -> "GridRequestContext":
+        """Read every ``X-Grid-*`` header from the current NAT Context in one
+        pass. This is the low-level parse the module-level accessor
+        functions below (``get_project_id_from_context`` etc.) delegate to —
+        call this directly when you need more than one field, so the request
+        is only walked once.
+        """
+        return cls(
+            organization_id=_normalize_raw_id(_read_header(ORGANIZATION_ID_HEADER)),
+            user_id=_normalize_raw_id(_read_header(USER_ID_HEADER)),
+            project_id=_normalize_raw_id(_read_header(PROJECT_ID_HEADER)),
+            collection_scope=_as_str_list(_read_json_header(COLLECTION_SCOPE_HEADER)),
+            project_context=normalize_project_context(_read_encoded_header(PROJECT_CONTEXT_HEADER)),
+            project_memory=normalize_project_context(_read_encoded_header(PROJECT_MEMORY_HEADER), max_chars=2000),
+            model_overrides=_as_str_dict(_read_json_header(MODEL_OVERRIDES_HEADER)),
+            budget=_as_dict(_read_json_header(BUDGET_HEADER)),
+            disabled_sources=_as_str_list(_read_json_header(DISABLED_SOURCES_HEADER)),
+            memory_reflection_enabled=_read_memory_reflection_flag(),
+        )
+
+    @classmethod
+    def from_headers(cls, headers: dict[str, str]) -> "GridRequestContext":
+        """Parse a ``GridRequestContext`` from an explicit header map instead
+        of a live NAT Context.
+
+        This is the cross-language contract-test entry point: the fixture at
+        ``tests/fixtures/grid_request_context.json`` carries
+        ``{name, input, headers}`` cases; the TS side asserts
+        ``buildGridRequestContextHeaders(input) == headers`` and the Python
+        side (``tests/aiq_agent/test_project_context.py``) asserts
+        ``GridRequestContext.from_headers(headers)`` matches ``input``. A
+        producer that forgets a header, or that encodes one differently,
+        fails this fixture instead of silently degrading in production.
+
+        Header names are matched case-insensitively, mirroring how the
+        ASGI/WS layer populates ``Context.metadata.headers``.
+        """
+        lower = {k.lower(): v for k, v in headers.items()}
+
+        def raw(name: str) -> str | None:
+            return lower.get(name)
+
+        def json_field(name: str) -> Any | None:
+            value = raw(name)
+            if not value:
+                return None
+            try:
+                return json.loads(_base64url_decode_text(value))
+            except Exception:
+                return None
+
+        def text_field(name: str, max_chars: int) -> str | None:
+            value = raw(name)
+            if not value:
+                return None
+            return normalize_project_context(_base64url_decode_text(value), max_chars=max_chars)
+
+        return cls(
+            organization_id=_normalize_raw_id(raw(ORGANIZATION_ID_HEADER)),
+            user_id=_normalize_raw_id(raw(USER_ID_HEADER)),
+            project_id=_normalize_raw_id(raw(PROJECT_ID_HEADER)),
+            collection_scope=_as_str_list(json_field(COLLECTION_SCOPE_HEADER)),
+            project_context=text_field(PROJECT_CONTEXT_HEADER, 4000),
+            project_memory=text_field(PROJECT_MEMORY_HEADER, 2000),
+            model_overrides=_as_str_dict(json_field(MODEL_OVERRIDES_HEADER)),
+            budget=_as_dict(json_field(BUDGET_HEADER)),
+            disabled_sources=_as_str_list(json_field(DISABLED_SOURCES_HEADER)),
+            memory_reflection_enabled=(raw(MEMORY_REFLECTION_FEATURE_HEADER) or "").strip().lower() == "true",
+        )
 
 
 def get_profile_context_from_context() -> str | None:
@@ -73,7 +255,7 @@ def get_profile_context_from_context() -> str | None:
     header value is fine. Memory, by contrast, is re-served per turn (see
     ``compose_project_context``).
     """
-    return normalize_project_context(_read_encoded_header(PROJECT_CONTEXT_HEADER))
+    return GridRequestContext.from_context().project_context
 
 
 def get_memory_digest_from_context() -> str | None:
@@ -83,7 +265,7 @@ def get_memory_digest_from_context() -> str | None:
     The chat entrypoint re-fetches a live digest each turn and only falls back to
     this header value when the live fetch is unavailable.
     """
-    return normalize_project_context(_read_encoded_header(PROJECT_MEMORY_HEADER), max_chars=2000)
+    return GridRequestContext.from_context().project_memory
 
 
 def compose_project_context(context: str | None, memory: str | None) -> str | None:
@@ -105,10 +287,8 @@ def get_project_context_from_context() -> str | None:
     docs/architecture/project-memory-design.md). Used as the fallback when a
     per-turn live memory fetch is not available.
     """
-    return compose_project_context(
-        get_profile_context_from_context(),
-        get_memory_digest_from_context(),
-    )
+    ctx = GridRequestContext.from_context()
+    return compose_project_context(ctx.project_context, ctx.project_memory)
 
 
 def get_project_id_from_context() -> str | None:
@@ -117,11 +297,7 @@ def get_project_id_from_context() -> str | None:
     Used by project-scoped tools (e.g. ``remember``) to write rows for the
     right project. None outside a project-scoped conversation.
     """
-    raw = _read_header(PROJECT_ID_HEADER)
-    if not raw:
-        return None
-    raw = raw.strip()
-    return raw or None
+    return GridRequestContext.from_context().project_id
 
 
 def get_organization_id_from_context() -> str | None:
@@ -130,11 +306,7 @@ def get_organization_id_from_context() -> str | None:
     Set by server.js on the WS upgrade for authenticated sessions. Used by
     organization-scoped memory writes. None in anonymous mode.
     """
-    raw = _read_header("x-grid-organization-id")
-    if not raw:
-        return None
-    raw = raw.strip()
-    return raw or None
+    return GridRequestContext.from_context().organization_id
 
 
 def get_memory_reflection_enabled_from_context() -> bool:
@@ -146,8 +318,7 @@ def get_memory_reflection_enabled_from_context() -> bool:
     header → False, so a missing header (older proxy, non-WS entrypoint) keeps the
     stage off rather than silently on.
     """
-    raw = _read_header(MEMORY_REFLECTION_FEATURE_HEADER)
-    return (raw or "").strip().lower() == "true"
+    return GridRequestContext.from_context().memory_reflection_enabled
 
 
 def get_conversation_id_from_context() -> str | None:
