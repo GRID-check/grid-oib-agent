@@ -252,6 +252,36 @@ RAG multi-tenant boundary. Note `resolveProjectCollectionName` short-circuits to
 no project scope when `session.organizationId` is falsy (anonymous /
 `REQUIRE_AUTH=false`).
 
+## 6b. Curated RIS index (deterministic legal pointers)
+
+The live `ris_search` tool is keyword-blind: an LLM planner guesses one of ~40
+OGD-RIS application silos plus German statutory terms, and a wrong guess yields
+"No documents found". The curated index removes the guesswork for the core
+building-law corpus:
+
+- `configs/ris_catalog.yml` (override: `RIS_CATALOG_PATH`) maps topics to
+  **verified** pointers — application, document number, citation URL,
+  entire-consolidated-law URL, Bundesland — for the nine state building codes,
+  the Wiener Garagengesetz, and adjacent federal acts (ASchG, AStV, BKAG, ZTG,
+  WGG). Pointer index only: full texts still go through `ris_fetch_document`.
+- Generated, never hand-edited: `scripts/build_ris_catalog.py` re-verifies every
+  seed against the live OGD-RIS API and fails loudly on unverifiable entries.
+- `src/aiq_agent/common/ris_catalog.py` is the shared loader/matcher/renderer
+  (lru-cached by path+mtime, umlaut-normalized substring matching,
+  `extract_bundesland` scans project_context). Everything is fail-open: a
+  missing/invalid catalog disables the feature with a warning; live search is
+  unaffected.
+
+Three consumers:
+
+1. `ris_search` short-circuit (`catalog_shortcut`, default on): a catalog match
+   with no title/date args and no case-law signal returns the verified pointers
+   directly — no HTTP call, no planner LLM.
+2. `ris_catalog_lookup` tool: explicit topic search in the catalog.
+3. Prompt block: `render_block_for_prompt` is injected as `ris_catalog` into the
+   shallow and deep researcher prompts (federal first, then the project's
+   Bundesland), so the agent fetches known norms directly instead of searching.
+
 ## 7. Deep research (async jobs)
 
 - The `deep_research` graph node submits a Dask job and returns the stub message
