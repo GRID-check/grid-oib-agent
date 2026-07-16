@@ -17,11 +17,19 @@ class FakeLLM:
         self.extra_body = extra_body
 
 
-def test_openrouter_llm_gets_require_parameters_and_healing():
+def test_openrouter_llm_gets_response_healing():
     llm = FakeLLM()
     apply_openrouter_structured_defaults(llm)
-    assert llm.extra_body["provider"]["require_parameters"] is True
     assert {"id": "response-healing"} in llm.extra_body["plugins"]
+
+
+def test_require_parameters_is_not_set():
+    # require_parameters is deliberately omitted: it 404s ("No endpoints found
+    # that can handle the requested parameters") when a group is overridden to a
+    # model whose endpoints don't support every param we send.
+    llm = FakeLLM()
+    apply_openrouter_structured_defaults(llm)
+    assert "provider" not in llm.extra_body
 
 
 def test_is_idempotent():
@@ -35,8 +43,8 @@ def test_is_idempotent():
 def test_preserves_existing_extra_body():
     llm = FakeLLM(extra_body={"provider": {"order": ["A"]}, "plugins": [{"id": "web"}]})
     apply_openrouter_structured_defaults(llm)
-    assert llm.extra_body["provider"]["order"] == ["A"]
-    assert llm.extra_body["provider"]["require_parameters"] is True
+    # Pre-existing provider prefs are left untouched (we neither add nor remove).
+    assert llm.extra_body["provider"] == {"order": ["A"]}
     ids = {p["id"] for p in llm.extra_body["plugins"]}
     assert ids == {"web", "response-healing"}
 
@@ -62,7 +70,7 @@ def test_base_url_falls_back_to_client():
         extra_body=None,
     )
     apply_openrouter_structured_defaults(llm)
-    assert llm.extra_body["provider"]["require_parameters"] is True
+    assert {"id": "response-healing"} in llm.extra_body["plugins"]
 
 
 @pytest.mark.asyncio
