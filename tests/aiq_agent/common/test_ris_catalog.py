@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 import yaml
 from aiq_agent.common.ris_catalog import CatalogEntry
+from aiq_agent.common.ris_catalog import KNOWN_APPLICATIONS
 from aiq_agent.common.ris_catalog import RisCatalog
 from aiq_agent.common.ris_catalog import _normalize
 from aiq_agent.common.ris_catalog import extract_bundesland
@@ -202,3 +203,59 @@ class TestRenderBlockForPrompt:
 
         assert block is not None
         assert block.index("bo-wien") < block.index("bo-tirol")
+
+
+SHIPPED_CATALOG = Path(__file__).resolve().parents[3] / "configs" / "ris_catalog.yml"
+
+
+class TestShippedCatalog:
+    """Schema + coverage guard for the curated catalog (regenerate: scripts/build_ris_catalog.py)."""
+
+    def _catalog(self) -> RisCatalog:
+        assert SHIPPED_CATALOG.is_file(), "configs/ris_catalog.yml missing — run scripts/build_ris_catalog.py"
+        data = yaml.safe_load(SHIPPED_CATALOG.read_text(encoding="utf-8"))
+        return RisCatalog.model_validate(data)
+
+    def test_validates_and_has_coverage(self):
+        catalog = self._catalog()
+
+        assert len(catalog.entries) >= 15
+
+    def test_unique_ids(self):
+        catalog = self._catalog()
+        ids = [entry.id for entry in catalog.entries]
+
+        assert len(ids) == len(set(ids))
+
+    def test_all_entries_fully_specified(self):
+        catalog = self._catalog()
+
+        for entry in catalog.entries:
+            assert entry.application in KNOWN_APPLICATIONS, entry.id
+            assert entry.document_number, entry.id
+            assert entry.citation_url.startswith("https://www.ris.bka.gv.at/"), entry.id
+            assert "Gesetzesnummer=" in entry.full_law_url, entry.id
+            assert entry.topics, entry.id
+            assert entry.verified_at, entry.id
+
+    def test_all_nine_bundeslaender_covered(self):
+        catalog = self._catalog()
+        covered = {entry.bundesland for entry in catalog.entries if entry.application == "LrKons"}
+
+        assert covered == {
+            "Wien",
+            "Niederösterreich",
+            "Oberösterreich",
+            "Steiermark",
+            "Kärnten",
+            "Salzburg",
+            "Tirol",
+            "Vorarlberg",
+            "Burgenland",
+        }
+
+    def test_loader_accepts_shipped_file(self):
+        catalog = load_catalog(str(SHIPPED_CATALOG))
+
+        assert catalog is not None
+        assert catalog.entries
