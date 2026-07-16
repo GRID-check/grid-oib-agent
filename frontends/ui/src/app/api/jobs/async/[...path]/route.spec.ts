@@ -15,14 +15,34 @@ vi.mock('@/lib/collection-scope-request', () => ({
   buildCollectionScopeFromRequest: vi.fn().mockResolvedValue({ headerValue: 'scope' }),
 }))
 
-import { GET } from './route'
+// Org model overrides lookup used by the POST handler to build
+// X-Grid-Model-Overrides — controlled per-test below.
+vi.mock('@/lib/model-config/service', () => ({
+  getActiveModelOverrides: vi.fn(),
+}))
+
+import { GET, POST } from './route'
+import { requireAuthorizedSession } from '@/lib/auth/require-auth'
+import { getActiveModelOverrides } from '@/lib/model-config/service'
 
 const originalRequireAuth = process.env.REQUIRE_AUTH
 
 const getRequest = (url: string, headers: Record<string, string> = {}): Request =>
   new Request(url, { method: 'GET', headers })
 
+const postRequest = (url: string, body?: unknown): Request =>
+  new Request(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+  })
+
 const streamParams = (path: string[]) => ({ params: Promise.resolve({ path }) })
+const postParams = (path: string[]) => ({ params: Promise.resolve({ path }) })
+
+/** Decodes the base64url JSON payload the way the Python backend does. */
+const decodeModelOverridesHeader = (value: string): unknown =>
+  JSON.parse(Buffer.from(value, 'base64url').toString('utf8'))
 
 describe('/api/jobs/async/[...path] proxy — SSE reconnection resume', () => {
   let fetchSpy: ReturnType<typeof vi.spyOn>
@@ -107,5 +127,93 @@ describe('/api/jobs/async/[...path] proxy — SSE reconnection resume', () => {
 
     const upstreamUrl = String(fetchSpy.mock.calls[0][0])
     expect(upstreamUrl).toMatch(/\/v1\/jobs\/async\/job\/job-1$/)
+  })
+})
+
+describe('/api/jobs/async/[...path] proxy — POST org model overrides', () => {
+  let fetchSpy: ReturnType<typeof vi.spyOn>
+
+  const session = {
+    userId: 'user-1',
+    organizationId: 'org-1',
+    email: 'user@grid.example',
+    name: 'Test User',
+    accessToken: 'token-abc',
+    organizationMembershipId: 'membership-1',
+    role: 'member',
+    permissions: [] as string[],
+    featureFlags: null,
+  }
+
+  beforeEach(() => {
+    // These tests need a resolved org, so run with auth required and a
+    // session that carries organizationId — unlike the anonymous-mode
+    // suites above.
+    process.env.REQUIRE_AUTH = 'true'
+    vi.mocked(requireAuthorizedSession).mockResolvedValue(session)
+    fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ job_id: 'job-1' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    )
+    vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    if (originalRequireAuth === undefined) {
+      delete process.env.REQUIRE_AUTH
+    } else {
+      process.env.REQUIRE_AUTH = originalRequireAuth
+    }
+  })
+
+  it('forwards X-Grid-Model-Overrides with the base64url payload when the org has overrides', async () => {
+    vi.mocked(getActiveModelOverrides).mockResolvedValue({ deep_research: 'openrouter/model-x' })
+
+    const res = await POST(
+      postRequest('https://grid.example/api/jobs/async/submit', { agent_type: 'deep_research' }),
+      postParams(['submit'])
+    )
+
+    expect(res.status).toBe(200)
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+    const init = fetchSpy.mock.calls[0][1] as RequestInit
+    const headers = init.headers as Record<string, string>
+    expect(headers['X-Grid-Model-Overrides']).toBeDefined()
+    expect(decodeModelOverridesHeader(headers['X-Grid-Model-Overrides'])).toEqual({
+      deep_research: 'openrouter/model-x',
+    })
+  })
+
+  it('omits the header cleanly when the org has no overrides configured', async () => {
+    vi.mocked(getActiveModelOverrides).mockResolvedValue(null)
+
+    const res = await POST(
+      postRequest('https://grid.example/api/jobs/async/submit', { agent_type: 'deep_research' }),
+      postParams(['submit'])
+    )
+
+    expect(res.status).toBe(200)
+    const init = fetchSpy.mock.calls[0][1] as RequestInit
+    const headers = init.headers as Record<string, string>
+    expect(headers['X-Grid-Model-Overrides']).toBeUndefined()
+  })
+
+  it('still proxies the submission without the header when override resolution throws', async () => {
+    vi.mocked(getActiveModelOverrides).mockRejectedValue(new Error('db unavailable'))
+
+    const res = await POST(
+      postRequest('https://grid.example/api/jobs/async/submit', { agent_type: 'deep_research' }),
+      postParams(['submit'])
+    )
+
+    expect(res.status).toBe(200)
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+    const init = fetchSpy.mock.calls[0][1] as RequestInit
+    const headers = init.headers as Record<string, string>
+    expect(headers['X-Grid-Model-Overrides']).toBeUndefined()
   })
 })

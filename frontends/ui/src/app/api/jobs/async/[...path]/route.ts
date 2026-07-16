@@ -29,6 +29,8 @@ import { NextResponse } from 'next/server'
 import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
 import { FEATURE_FLAGS, requireFeature } from '@/lib/authz/feature-flags'
 import { isAuthzError } from '@/lib/auth-utils'
+import { getActiveModelOverrides } from '@/lib/model-config/service'
+import { encodeModelOverridesHeader } from '@/lib/model-config/header-encoding'
 import {
   buildAuthHeaders,
   backendErrorEnvelope,
@@ -39,6 +41,30 @@ import {
 } from '@/lib/backend-proxy'
 import { parseBodyContext, parseQueryContext } from '@/lib/proxy/collection-authz'
 import { buildProxyUrl, resolveSessionAndBearer } from '@/lib/proxy/proxy-request'
+import type { GridSession } from '@/lib/auth/types'
+
+/**
+ * Per-org runtime model overrides ({agentGroup: openrouterModelId}) for the
+ * async-submit proxy — same header/encoding server.js forwards on the
+ * WebSocket upgrade (x-grid-model-overrides, base64url JSON), decoded by the
+ * backend (model_overrides.py). Without it, submit falls through to the
+ * WS-only override path and jobs silently run on YAML-default models even
+ * when the org has configured overrides.
+ *
+ * Best-effort: a lookup failure must not block job submission — the caller
+ * proceeds without the header (backend defaults apply), matching the
+ * fail-open contract of every other override consumer.
+ */
+async function resolveModelOverridesHeader(session: GridSession | null): Promise<string | undefined> {
+  if (!session?.organizationId) return undefined
+  try {
+    const overrides = await getActiveModelOverrides(session.organizationId)
+    return overrides ? encodeModelOverridesHeader(overrides) : undefined
+  } catch (error) {
+    console.warn('[Deep Research API] Failed to load model overrides:', error)
+    return undefined
+  }
+}
 
 const LOG_LABEL = 'Deep Research API'
 const JOBS_BASE_PATH = '/v1/jobs/async'
@@ -167,6 +193,7 @@ export async function POST(
     }
 
     const { headerValue } = await buildCollectionScopeFromRequest(session, parseBodyContext(parsedBody))
+    const modelOverridesHeader = await resolveModelOverridesHeader(session)
 
     // Forward the request to the backend
     const response = await fetch(backendUrl, {
@@ -175,6 +202,7 @@ export async function POST(
         'Content-Type': 'application/json',
         ...authHeaders,
         'X-Grid-Collection-Scope': headerValue,
+        ...(modelOverridesHeader ? { 'X-Grid-Model-Overrides': modelOverridesHeader } : {}),
       },
       ...(body ? { body } : {}),
     })
