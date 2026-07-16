@@ -72,5 +72,46 @@
         "X-Grid-Feature-Memory-Reflection": "true"
       }
     }
+  ],
+  "envelopeCases": [
+    {
+      "name": "signed_envelope_full_context",
+      "comment": "Same input as the full_authenticated_project_context case above, minted as the consolidated signed X-Grid-Request-Context envelope instead of individual headers. TS: buildGridRequestContextEnvelope(case.input, case.secret) must equal {header: case.header, signature: case.signature}. Python: GridRequestContext.from_envelope(case.header, case.signature, case.secret) must reproduce the input-equivalent fields, and a wrong secret/signature must make it return None (treated as absent). envelopeJson is the exact raw JSON string signed and base64url-encoded, included for readability/debugging — both sides derive header/signature from it, not the other way around.",
+      "secret": "grid-envelope-fixture-secret",
+      "input": {
+        "organizationId": "org_123",
+        "userId": "user_456",
+        "projectId": "proj_789",
+        "collectionScope": ["oib_knowledge", "proj_proj_789", "s_conv_1"],
+        "projectContext": "Project: Acme widget audit\nFocus: supply chain resilience",
+        "projectMemory": "- Prefers concise citations\n- Based in Germany",
+        "modelOverrides": {
+          "deep_research": "openrouter/anthropic/claude-3.7-sonnet",
+          "shallow_research": "openrouter/openai/gpt-4o-mini"
+        },
+        "budget": {
+          "remainingOrgUsd": 42.5,
+          "remainingUserUsd": 10,
+          "remainingProjectUsd": 5.25
+        },
+        "disabledSources": ["web_search"],
+        "memoryReflectionEnabled": true
+      },
+      "envelopeJson": "{\"organizationId\":\"org_123\",\"userId\":\"user_456\",\"projectId\":\"proj_789\",\"collectionScope\":[\"oib_knowledge\",\"proj_proj_789\",\"s_conv_1\"],\"projectContext\":\"Project: Acme widget audit\\nFocus: supply chain resilience\",\"projectMemory\":\"- Prefers concise citations\\n- Based in Germany\",\"modelOverrides\":{\"deep_research\":\"openrouter/anthropic/claude-3.7-sonnet\",\"shallow_research\":\"openrouter/openai/gpt-4o-mini\"},\"budget\":{\"remainingOrgUsd\":42.5,\"remainingUserUsd\":10,\"remainingProjectUsd\":5.25},\"disabledSources\":[\"web_search\"],\"memoryReflectionEnabled\":true}",
+      "header": "eyJvcmdhbml6YXRpb25JZCI6Im9yZ18xMjMiLCJ1c2VySWQiOiJ1c2VyXzQ1NiIsInByb2plY3RJZCI6InByb2pfNzg5IiwiY29sbGVjdGlvblNjb3BlIjpbIm9pYl9rbm93bGVkZ2UiLCJwcm9qX3Byb2pfNzg5Iiwic19jb252XzEiXSwicHJvamVjdENvbnRleHQiOiJQcm9qZWN0OiBBY21lIHdpZGdldCBhdWRpdFxuRm9jdXM6IHN1cHBseSBjaGFpbiByZXNpbGllbmNlIiwicHJvamVjdE1lbW9yeSI6Ii0gUHJlZmVycyBjb25jaXNlIGNpdGF0aW9uc1xuLSBCYXNlZCBpbiBHZXJtYW55IiwibW9kZWxPdmVycmlkZXMiOnsiZGVlcF9yZXNlYXJjaCI6Im9wZW5yb3V0ZXIvYW50aHJvcGljL2NsYXVkZS0zLjctc29ubmV0Iiwic2hhbGxvd19yZXNlYXJjaCI6Im9wZW5yb3V0ZXIvb3BlbmFpL2dwdC00by1taW5pIn0sImJ1ZGdldCI6eyJyZW1haW5pbmdPcmdVc2QiOjQyLjUsInJlbWFpbmluZ1VzZXJVc2QiOjEwLCJyZW1haW5pbmdQcm9qZWN0VXNkIjo1LjI1fSwiZGlzYWJsZWRTb3VyY2VzIjpbIndlYl9zZWFyY2giXSwibWVtb3J5UmVmbGVjdGlvbkVuYWJsZWQiOnRydWV9",
+      "signature": "321d7d0b286149b87b5b84f630c96f96f7c677af69b8d939ba345d7ad41d61d1"
+    },
+    {
+      "name": "signed_envelope_minimal_scope",
+      "comment": "Same input as the anonymous_minimal_scope case above, minted as an envelope. Exercises the case where most fields are omitted from the payload entirely (falsy/empty-array omission rules identical to buildGridRequestContextHeaders).",
+      "secret": "grid-envelope-fixture-secret",
+      "input": {
+        "collectionScope": ["oib_knowledge"],
+        "memoryReflectionEnabled": false
+      },
+      "envelopeJson": "{\"collectionScope\":[\"oib_knowledge\"],\"memoryReflectionEnabled\":false}",
+      "header": "eyJjb2xsZWN0aW9uU2NvcGUiOlsib2liX2tub3dsZWRnZSJdLCJtZW1vcnlSZWZsZWN0aW9uRW5hYmxlZCI6ZmFsc2V9",
+      "signature": "7d7b5b164d46cd4cc773c19b60682d4cd897c424794b60f4dfb7944565824783"
+    }
   ]
 }

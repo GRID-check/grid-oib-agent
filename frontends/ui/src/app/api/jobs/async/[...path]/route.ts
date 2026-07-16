@@ -30,7 +30,7 @@ import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
 import { FEATURE_FLAGS, requireFeature } from '@/lib/authz/feature-flags'
 import { isAuthzError } from '@/lib/auth-utils'
 import { getActiveModelOverrides } from '@/lib/model-config/service'
-import { buildGridRequestContextHeaders } from '@/lib/request-context'
+import { buildGridRequestContextWireHeaders, type GridRequestContextInput } from '@/lib/request-context'
 import {
   buildAuthHeaders,
   backendErrorEnvelope,
@@ -44,32 +44,50 @@ import { buildProxyUrl, resolveSessionAndBearer } from '@/lib/proxy/proxy-reques
 import type { GridSession } from '@/lib/auth/types'
 
 /**
- * Per-org runtime model overrides ({agentGroup: openrouterModelId}) for the
- * async-submit proxy — same header/encoding server.js forwards on the
- * WebSocket upgrade (x-grid-model-overrides, base64url JSON), decoded by the
- * backend (model_overrides.py). Without it, submit falls through to the
- * WS-only override path and jobs silently run on YAML-default models even
- * when the org has configured overrides.
+ * Per-org runtime model overrides ({agentGroup: openrouterModelId}) plus the
+ * signed context envelope (backlog T3-9 follow-up, 2026-07-16, user-mandated)
+ * for the async-submit proxy — same header/encoding server.js forwards on
+ * the WebSocket upgrade (x-grid-model-overrides, base64url JSON), decoded by
+ * the backend (model_overrides.py). Without the overrides header, submit
+ * falls through to the WS-only override path and jobs silently run on
+ * YAML-default models even when the org has configured overrides; without
+ * the envelope, the backend's enforcement middleware rejects the submit
+ * outright for an authenticated caller (REQUIRE_AUTH=true).
  *
- * Routed through the shared `GridRequestContext` builder (`@/lib/request-context`,
- * backlog T3-9) so this path's `X-Grid-Model-Overrides` encoding can never
- * drift from every other producer/consumer of that header. Returns an empty
- * object (not just an omitted header) so the caller can unconditionally
- * spread it into the fetch headers.
+ * Routed through the shared `GridRequestContext` builder
+ * (`@/lib/request-context`, backlog T3-9) so this path's headers can never
+ * drift from every other producer/consumer. Always returns at least the
+ * envelope headers (never just `{}`) so the caller can unconditionally
+ * spread the result into the fetch headers.
  *
- * Best-effort: a lookup failure must not block job submission — the caller
- * proceeds without the header (backend defaults apply), matching the
+ * The model-overrides lookup is best-effort: a failure must not block job
+ * submission — the rest of the context (org/user/project/scope, still
+ * enough to satisfy the envelope requirement) is still sent, matching the
  * fail-open contract of every other override consumer.
  */
-async function resolveGridContextHeaders(session: GridSession | null): Promise<Record<string, string>> {
-  if (!session?.organizationId) return {}
-  try {
-    const overrides = await getActiveModelOverrides(session.organizationId)
-    return overrides ? buildGridRequestContextHeaders({ modelOverrides: overrides }) : {}
-  } catch (error) {
-    console.warn('[Deep Research API] Failed to load model overrides:', error)
-    return {}
+async function resolveGridContextHeaders(
+  session: GridSession | null,
+  extra: { projectId?: string; collectionScope?: string[] },
+): Promise<Record<string, string>> {
+  const input: GridRequestContextInput = {
+    organizationId: session?.organizationId ?? null,
+    userId: session?.userId ?? null,
+    projectId: extra.projectId ?? null,
+    collectionScope: extra.collectionScope ?? null,
   }
+
+  if (session?.organizationId) {
+    try {
+      const overrides = await getActiveModelOverrides(session.organizationId)
+      if (overrides) {
+        input.modelOverrides = overrides
+      }
+    } catch (error) {
+      console.warn('[Deep Research API] Failed to load model overrides:', error)
+    }
+  }
+
+  return buildGridRequestContextWireHeaders(input, process.env.GRID_INTERNAL_API_TOKEN)
 }
 
 const LOG_LABEL = 'Deep Research API'
@@ -198,8 +216,11 @@ export async function POST(
       if (gated) return gated
     }
 
-    const { headerValue } = await buildCollectionScopeFromRequest(session, parseBodyContext(parsedBody))
-    const gridContextHeaders = await resolveGridContextHeaders(session)
+    const { headerValue, scope, projectId } = await buildCollectionScopeFromRequest(
+      session,
+      parseBodyContext(parsedBody),
+    )
+    const gridContextHeaders = await resolveGridContextHeaders(session, { projectId, collectionScope: scope })
 
     // Forward the request to the backend
     const response = await fetch(backendUrl, {

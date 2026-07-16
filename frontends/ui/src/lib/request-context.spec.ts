@@ -3,12 +3,17 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 import {
+  buildGridRequestContextEnvelope,
+  buildGridRequestContextEnvelopeHeaders,
+  buildGridRequestContextEnvelopePayload,
   buildGridRequestContextHeaders,
+  buildGridRequestContextWireHeaders,
   encodeGridBudgetHeader,
   encodeGridJsonHeader,
   encodeGridTextHeader,
   encodeModelOverridesHeader,
   GRID_HEADER_NAMES,
+  signGridRequestContextEnvelope,
   type GridRequestContextInput,
 } from './request-context'
 import { encodeModelOverridesHeader as reExportedEncodeModelOverridesHeader } from './model-config/header-encoding'
@@ -30,8 +35,19 @@ interface GridRequestContextFixtureCase {
   headers: Record<string, string>
 }
 
+interface GridRequestContextEnvelopeFixtureCase {
+  name: string
+  comment?: string
+  secret: string
+  input: GridRequestContextInput
+  envelopeJson: string
+  header: string
+  signature: string
+}
+
 interface GridRequestContextFixture {
   cases: GridRequestContextFixtureCase[]
+  envelopeCases: GridRequestContextEnvelopeFixtureCase[]
 }
 
 const fixturePath = fileURLToPath(new URL('../../tests/fixtures/grid_request_context.json', import.meta.url))
@@ -123,5 +139,93 @@ describe('low-level encoders', () => {
 describe('model-config/header-encoding re-export', () => {
   it('re-exports the exact same function as @/lib/request-context (no drift between the two import paths)', () => {
     expect(reExportedEncodeModelOverridesHeader).toBe(encodeModelOverridesHeader)
+  })
+})
+
+describe('buildGridRequestContextEnvelope — cross-language contract fixture', () => {
+  it('the fixture actually has envelope cases', () => {
+    expect(fixture.envelopeCases.length).toBeGreaterThanOrEqual(2)
+  })
+
+  for (const testCase of fixture.envelopeCases) {
+    it(`matches the signed wire contract: ${testCase.name}`, () => {
+      const envelope = buildGridRequestContextEnvelope(testCase.input, testCase.secret)
+      expect(envelope.header).toBe(testCase.header)
+      expect(envelope.signature).toBe(testCase.signature)
+    })
+
+    it(`the envelope payload JSON matches the fixture's documented envelopeJson: ${testCase.name}`, () => {
+      const json = JSON.stringify(buildGridRequestContextEnvelopePayload(testCase.input))
+      expect(json).toBe(testCase.envelopeJson)
+    })
+  }
+})
+
+describe('buildGridRequestContextEnvelope — omission rules', () => {
+  it('an empty input still mints an envelope of "{}" (presence, not omission)', () => {
+    const envelope = buildGridRequestContextEnvelope({}, 'secret')
+    expect(envelope.header).toBe(Buffer.from('{}', 'utf8').toString('base64url'))
+  })
+
+  it('omits every field the individual-header builder also omits', () => {
+    const input: GridRequestContextInput = {
+      organizationId: '',
+      collectionScope: [],
+      modelOverrides: {},
+      disabledSources: [],
+      budget: null,
+    }
+    expect(buildGridRequestContextEnvelopePayload(input)).toEqual({})
+  })
+})
+
+describe('buildGridRequestContextEnvelope — signing', () => {
+  const input: GridRequestContextInput = { organizationId: 'org_1' }
+
+  it('signature is null when no secret is supplied', () => {
+    expect(buildGridRequestContextEnvelope(input, undefined).signature).toBeNull()
+    expect(buildGridRequestContextEnvelope(input, null).signature).toBeNull()
+    expect(buildGridRequestContextEnvelope(input, '').signature).toBeNull()
+  })
+
+  it('signature is a deterministic HMAC-SHA256 hex digest of the payload JSON', () => {
+    const envelope = buildGridRequestContextEnvelope(input, 'my-secret')
+    const json = JSON.stringify(buildGridRequestContextEnvelopePayload(input))
+    expect(envelope.signature).toBe(signGridRequestContextEnvelope(json, 'my-secret'))
+    expect(envelope.signature).toMatch(/^[0-9a-f]{64}$/)
+  })
+
+  it('different secrets produce different signatures for the same payload', () => {
+    const a = buildGridRequestContextEnvelope(input, 'secret-a')
+    const b = buildGridRequestContextEnvelope(input, 'secret-b')
+    expect(a.signature).not.toBe(b.signature)
+    expect(a.header).toBe(b.header) // unsigned payload identical
+  })
+})
+
+describe('buildGridRequestContextEnvelopeHeaders', () => {
+  it('always sets X-Grid-Request-Context, only sets -Sig when signed', () => {
+    const unsigned = buildGridRequestContextEnvelopeHeaders({ organizationId: 'org_1' }, undefined)
+    expect(unsigned[GRID_HEADER_NAMES.REQUEST_CONTEXT]).toBeDefined()
+    expect(unsigned[GRID_HEADER_NAMES.REQUEST_CONTEXT_SIG]).toBeUndefined()
+
+    const signed = buildGridRequestContextEnvelopeHeaders({ organizationId: 'org_1' }, 'secret')
+    expect(signed[GRID_HEADER_NAMES.REQUEST_CONTEXT]).toBeDefined()
+    expect(signed[GRID_HEADER_NAMES.REQUEST_CONTEXT_SIG]).toBeDefined()
+  })
+})
+
+describe('buildGridRequestContextWireHeaders', () => {
+  it('dual-writes: contains every individual header AND the envelope', () => {
+    const input: GridRequestContextInput = {
+      organizationId: 'org_1',
+      userId: 'user_1',
+      memoryReflectionEnabled: true,
+    }
+    const wire = buildGridRequestContextWireHeaders(input, 'secret')
+
+    expect(wire).toMatchObject(buildGridRequestContextHeaders(input))
+    expect(wire[GRID_HEADER_NAMES.REQUEST_CONTEXT]).toBeDefined()
+    expect(wire[GRID_HEADER_NAMES.REQUEST_CONTEXT_SIG]).toBeDefined()
   })
 })

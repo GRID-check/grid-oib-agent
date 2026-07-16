@@ -12,7 +12,7 @@ vi.mock('@/lib/proxy/collection-authz', () => ({
 }))
 
 vi.mock('@/lib/collection-scope-request', () => ({
-  buildCollectionScopeFromRequest: vi.fn().mockResolvedValue({ headerValue: 'scope' }),
+  buildCollectionScopeFromRequest: vi.fn().mockResolvedValue({ headerValue: 'scope', scope: [], projectId: undefined }),
 }))
 
 // Org model overrides lookup used by the POST handler to build
@@ -24,8 +24,10 @@ vi.mock('@/lib/model-config/service', () => ({
 import { GET, POST } from './route'
 import { requireAuthorizedSession } from '@/lib/auth/require-auth'
 import { getActiveModelOverrides } from '@/lib/model-config/service'
+import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
 
 const originalRequireAuth = process.env.REQUIRE_AUTH
+const originalInternalToken = process.env.GRID_INTERNAL_API_TOKEN
 
 const getRequest = (url: string, headers: Record<string, string> = {}): Request =>
   new Request(url, { method: 'GET', headers })
@@ -215,5 +217,107 @@ describe('/api/jobs/async/[...path] proxy — POST org model overrides', () => {
     const init = fetchSpy.mock.calls[0][1] as RequestInit
     const headers = init.headers as Record<string, string>
     expect(headers['X-Grid-Model-Overrides']).toBeUndefined()
+  })
+})
+
+describe('/api/jobs/async/[...path] proxy — signed X-Grid-Request-Context envelope', () => {
+  let fetchSpy: ReturnType<typeof vi.spyOn>
+
+  const session = {
+    userId: 'user-1',
+    organizationId: 'org-1',
+    email: 'user@grid.example',
+    name: 'Test User',
+    accessToken: 'token-abc',
+    organizationMembershipId: 'membership-1',
+    role: 'member',
+    permissions: [] as string[],
+    featureFlags: null,
+  }
+
+  beforeEach(() => {
+    process.env.REQUIRE_AUTH = 'true'
+    vi.mocked(requireAuthorizedSession).mockResolvedValue(session)
+    vi.mocked(buildCollectionScopeFromRequest).mockResolvedValue({
+      headerValue: 'scope',
+      scope: ['oib_knowledge', 'proj_abc'],
+      projectId: 'proj-1',
+      projectCollectionName: 'proj_abc',
+      conversationId: undefined,
+    } as any)
+    vi.mocked(getActiveModelOverrides).mockResolvedValue(null)
+    fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ job_id: 'job-1' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    )
+    vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    if (originalRequireAuth === undefined) {
+      delete process.env.REQUIRE_AUTH
+    } else {
+      process.env.REQUIRE_AUTH = originalRequireAuth
+    }
+    if (originalInternalToken === undefined) {
+      delete process.env.GRID_INTERNAL_API_TOKEN
+    } else {
+      process.env.GRID_INTERNAL_API_TOKEN = originalInternalToken
+    }
+  })
+
+  it('attaches an unsigned envelope carrying org/user/project/scope when no internal token is configured', async () => {
+    delete process.env.GRID_INTERNAL_API_TOKEN
+
+    const res = await POST(
+      postRequest('https://grid.example/api/jobs/async/submit', { agent_type: 'deep_research' }),
+      postParams(['submit'])
+    )
+
+    expect(res.status).toBe(200)
+    const init = fetchSpy.mock.calls[0][1] as RequestInit
+    const headers = init.headers as Record<string, string>
+    expect(headers['X-Grid-Request-Context']).toBeDefined()
+    expect(headers['X-Grid-Request-Context-Sig']).toBeUndefined()
+
+    const decoded = JSON.parse(Buffer.from(headers['X-Grid-Request-Context'], 'base64url').toString('utf8'))
+    expect(decoded).toEqual({
+      organizationId: 'org-1',
+      userId: 'user-1',
+      projectId: 'proj-1',
+      collectionScope: ['oib_knowledge', 'proj_abc'],
+    })
+  })
+
+  it('signs the envelope when GRID_INTERNAL_API_TOKEN is configured', async () => {
+    process.env.GRID_INTERNAL_API_TOKEN = 'test-secret'
+
+    const res = await POST(
+      postRequest('https://grid.example/api/jobs/async/submit', { agent_type: 'deep_research' }),
+      postParams(['submit'])
+    )
+
+    expect(res.status).toBe(200)
+    const init = fetchSpy.mock.calls[0][1] as RequestInit
+    const headers = init.headers as Record<string, string>
+    expect(headers['X-Grid-Request-Context-Sig']).toMatch(/^[0-9a-f]{64}$/)
+  })
+
+  it('still attaches the envelope when model-overrides resolution throws (envelope is not best-effort)', async () => {
+    vi.mocked(getActiveModelOverrides).mockRejectedValue(new Error('db unavailable'))
+
+    const res = await POST(
+      postRequest('https://grid.example/api/jobs/async/submit', { agent_type: 'deep_research' }),
+      postParams(['submit'])
+    )
+
+    expect(res.status).toBe(200)
+    const init = fetchSpy.mock.calls[0][1] as RequestInit
+    const headers = init.headers as Record<string, string>
+    expect(headers['X-Grid-Request-Context']).toBeDefined()
   })
 })

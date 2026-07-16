@@ -80,8 +80,18 @@ async function readBody(response: Response): Promise<string> {
 /**
  * Submit a workflow run to the backend. Returns `{ job_id }` on success.
  * Throws WorkflowSubmitSkippedError on 429 and WorkflowSubmitError otherwise.
+ *
+ * `extraHeaders` carries the signed `X-Grid-Request-Context`(-Sig) envelope
+ * (backlog T3-9 follow-up, 2026-07-16) `fireWorkflow` (service.ts) builds
+ * from this same payload's identity/context fields — attached here rather
+ * than added to `WorkflowSubmitPayload` because it is wire-transport
+ * metadata (an HTTP header), not part of the backend's request body contract
+ * (`WorkflowSubmitRequest` in `routes/workflows.py`).
  */
-export async function submitWorkflowJob(payload: WorkflowSubmitPayload): Promise<{ job_id: string }> {
+export async function submitWorkflowJob(
+  payload: WorkflowSubmitPayload,
+  extraHeaders?: Record<string, string>,
+): Promise<{ job_id: string }> {
   const token = process.env.GRID_INTERNAL_API_TOKEN
   if (!token) {
     throw new WorkflowSubmitError('GRID_INTERNAL_API_TOKEN is not configured', 503)
@@ -94,6 +104,7 @@ export async function submitWorkflowJob(payload: WorkflowSubmitPayload): Promise
       headers: {
         'Content-Type': 'application/json',
         'X-Internal-Token': token,
+        ...extraHeaders,
       },
       body: JSON.stringify(payload),
     })

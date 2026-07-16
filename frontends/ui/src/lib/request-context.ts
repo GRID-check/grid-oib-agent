@@ -44,6 +44,8 @@
  * targets.
  */
 
+import { createHmac } from 'node:crypto'
+
 export interface GridBudgetSnapshot {
   remainingOrgUsd: number | null
   remainingUserUsd: number | null
@@ -101,6 +103,18 @@ export const GRID_HEADER_NAMES = {
   BUDGET: 'X-Grid-Budget',
   DISABLED_SOURCES: 'X-Grid-Disabled-Sources',
   MEMORY_REFLECTION: 'X-Grid-Feature-Memory-Reflection',
+  /**
+   * Consolidated, signed context envelope (backlog T3-9 follow-up,
+   * 2026-07-16, user-mandated): base64url(JSON) of every field above (minus
+   * the internal token — see the module docstring), sent ALONGSIDE the
+   * individual headers (dual-write; legacy removal is a later cleanup). See
+   * `buildGridRequestContextEnvelope` below for the exact payload shape and
+   * `aiq_agent.project_context.GridRequestContext.from_envelope` for the
+   * Python-side verify+parse counterpart.
+   */
+  REQUEST_CONTEXT: 'X-Grid-Request-Context',
+  /** HMAC-SHA256 (hex) of the envelope's raw JSON, keyed on `GRID_INTERNAL_API_TOKEN`. */
+  REQUEST_CONTEXT_SIG: 'X-Grid-Request-Context-Sig',
 } as const
 
 /** base64url(JSON.stringify(value)) — the scheme every structured header uses. */
@@ -177,4 +191,153 @@ export function buildGridRequestContextHeaders(input: GridRequestContextInput): 
   }
 
   return headers
+}
+
+// ---------------------------------------------------------------------------
+// Signed context envelope (backlog T3-9 follow-up, 2026-07-16, user-mandated)
+// ---------------------------------------------------------------------------
+//
+// "This consolidated header must be present, because without it we cannot
+// verify who the user is, which organization he belongs to, and what model
+// overrides the organization — without it, it is just not a valid request."
+//
+// One consolidated, signed envelope carrying every field above (minus the
+// internal token) as a single `X-Grid-Request-Context` header, plus an
+// integrity signature (`X-Grid-Request-Context-Sig`, HMAC-SHA256 hex over
+// the raw JSON, keyed on `GRID_INTERNAL_API_TOKEN`). This is the ONE place
+// that builds it — every producer (this module's own callers, the
+// async-jobs proxy route, the workflows service, and `server.js`'s WS-upgrade
+// block, which duplicates this logic with a pinning comment because it is
+// plain CommonJS and cannot import this TS module) reduces to calling
+// `buildGridRequestContextEnvelope`/`buildGridRequestContextWireHeaders` so
+// the wire format can never drift between paths. The backend
+// (`aiq_agent.project_context.GridRequestContext.from_envelope`) verifies the
+// signature with `hmac.compare_digest` and treats an invalid/missing
+// signature as an ABSENT envelope (logged as a WARNING tamper signal), not
+// an error — callers fall back to the individual headers during the DUAL-WRITE
+// transition.
+
+/** Signed envelope wire values for one request. */
+export interface GridRequestContextEnvelope {
+  /** → `X-Grid-Request-Context`: base64url(JSON) of the envelope payload. */
+  header: string
+  /**
+   * → `X-Grid-Request-Context-Sig`: hex HMAC-SHA256 of the raw JSON, or
+   * `null` when no secret was supplied (dev only — see
+   * `buildGridRequestContextEnvelope`'s docstring for the fail-open note).
+   */
+  signature: string | null
+}
+
+/**
+ * Build the JSON payload embedded in the envelope. Uses the EXACT SAME
+ * omission rules as `buildGridRequestContextHeaders` (a field absent from
+ * the individual headers is also absent here — see the cross-language
+ * contract fixture's `envelopeCases`), and a FIXED key order (organizationId,
+ * userId, projectId, collectionScope, projectContext, projectMemory,
+ * modelOverrides, budget, disabledSources, memoryReflectionEnabled) so the
+ * signed bytes are deterministic across producers/runs for the same input —
+ * required for the fixture's precomputed `header`/`signature` values to be
+ * exact-match assertable rather than semantic-JSON-equal.
+ */
+export function buildGridRequestContextEnvelopePayload(input: GridRequestContextInput): Record<string, unknown> {
+  const payload: Record<string, unknown> = {}
+
+  if (input.organizationId) {
+    payload.organizationId = input.organizationId
+  }
+  if (input.userId) {
+    payload.userId = input.userId
+  }
+  if (input.projectId) {
+    payload.projectId = input.projectId
+  }
+  if (input.collectionScope && input.collectionScope.length > 0) {
+    payload.collectionScope = input.collectionScope
+  }
+  if (input.projectContext) {
+    payload.projectContext = input.projectContext
+  }
+  if (input.projectMemory) {
+    payload.projectMemory = input.projectMemory
+  }
+  if (input.modelOverrides && Object.keys(input.modelOverrides).length > 0) {
+    payload.modelOverrides = input.modelOverrides
+  }
+  if (input.budget) {
+    payload.budget = input.budget
+  }
+  if (input.disabledSources && input.disabledSources.length > 0) {
+    payload.disabledSources = input.disabledSources
+  }
+  if (input.memoryReflectionEnabled !== undefined) {
+    payload.memoryReflectionEnabled = input.memoryReflectionEnabled
+  }
+
+  return payload
+}
+
+/** HMAC-SHA256 (hex) of `json`, keyed on `secret` — the envelope's integrity signature. */
+export function signGridRequestContextEnvelope(json: string, secret: string): string {
+  return createHmac('sha256', secret).update(json, 'utf8').digest('hex')
+}
+
+/**
+ * Mint the signed context envelope for one request.
+ *
+ * `secret` is normally `process.env.GRID_INTERNAL_API_TOKEN`. When falsy
+ * (local dev without the token configured), the envelope is still minted
+ * but UNSIGNED (`signature: null`) — the backend's enforcement middleware
+ * mirrors this exact fail-open choice: signature verification is skipped
+ * when the backend also has no token configured, but envelope PRESENCE is
+ * still required for authenticated requests either way, so dev still
+ * exercises "did this producer remember to attach the envelope at all".
+ */
+export function buildGridRequestContextEnvelope(
+  input: GridRequestContextInput,
+  secret: string | null | undefined,
+): GridRequestContextEnvelope {
+  const json = JSON.stringify(buildGridRequestContextEnvelopePayload(input))
+  const header = Buffer.from(json, 'utf8').toString('base64url')
+  const signature = secret ? signGridRequestContextEnvelope(json, secret) : null
+  return { header, signature }
+}
+
+/**
+ * The envelope as a ready-to-spread header map: always sets
+ * `X-Grid-Request-Context`; sets `X-Grid-Request-Context-Sig` only when
+ * `secret` was supplied. Called by `buildGridRequestContextWireHeaders`
+ * below — most producers should call that instead so they dual-write the
+ * individual headers and the envelope in one call.
+ */
+export function buildGridRequestContextEnvelopeHeaders(
+  input: GridRequestContextInput,
+  secret: string | null | undefined,
+): Record<string, string> {
+  const { header, signature } = buildGridRequestContextEnvelope(input, secret)
+  const headers: Record<string, string> = {
+    [GRID_HEADER_NAMES.REQUEST_CONTEXT]: header,
+  }
+  if (signature) {
+    headers[GRID_HEADER_NAMES.REQUEST_CONTEXT_SIG] = signature
+  }
+  return headers
+}
+
+/**
+ * The full dual-write header set for one request: every individual
+ * `X-Grid-*` header (`buildGridRequestContextHeaders`, unchanged, kept for
+ * transition safety) PLUS the signed envelope
+ * (`buildGridRequestContextEnvelopeHeaders`). This is the function
+ * submission-path producers should call — a caller that uses this instead
+ * of the two builders separately cannot forget one side of the dual-write.
+ */
+export function buildGridRequestContextWireHeaders(
+  input: GridRequestContextInput,
+  secret: string | null | undefined,
+): Record<string, string> {
+  return {
+    ...buildGridRequestContextHeaders(input),
+    ...buildGridRequestContextEnvelopeHeaders(input, secret),
+  }
 }

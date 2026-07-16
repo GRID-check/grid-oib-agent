@@ -362,6 +362,23 @@ describe('fireWorkflow (single submission path)', () => {
     // Collection scope includes the project's real collection name.
     expect(payload.collection_scope).toContain('proj_abc')
 
+    // Signed context envelope (backlog T3-9 follow-up, 2026-07-16): dual-write
+    // alongside the payload, built from the same org/user/project/budget/
+    // overrides/scope values.
+    const contextHeaders = mockSubmit.mock.calls[0][1] as Record<string, string>
+    expect(contextHeaders['X-Grid-Request-Context']).toBeDefined()
+    const decodedEnvelope = JSON.parse(Buffer.from(contextHeaders['X-Grid-Request-Context'], 'base64url').toString())
+    expect(decodedEnvelope).toMatchObject({
+      organizationId: ORG_ID,
+      userId: 'creator-9',
+      projectId: PROJECT_ID,
+      modelOverrides: { deep_research: 'some/model' },
+      budget: { remainingOrgUsd: 5, remainingUserUsd: null, remainingProjectUsd: 2 },
+    })
+    expect(decodedEnvelope.collectionScope).toContain('proj_abc')
+    // No GRID_INTERNAL_API_TOKEN stubbed in this test -> envelope is unsigned.
+    expect(contextHeaders['X-Grid-Request-Context-Sig']).toBeUndefined()
+
     expect(repo.insertWorkflowRun).toHaveBeenCalledWith(
       expect.objectContaining({
         workflowId: 'wf-1',
@@ -375,6 +392,17 @@ describe('fireWorkflow (single submission path)', () => {
     )
     expect(repo.touchWorkflowLastRun).toHaveBeenCalledWith('wf-1', run.createdAt)
     expect(run.status).toBe('submitted')
+  })
+
+  it('signs the context envelope when GRID_INTERNAL_API_TOKEN is configured', async () => {
+    vi.stubEnv('GRID_INTERNAL_API_TOKEN', 'test-secret')
+    mockSubmit.mockResolvedValue({ job_id: 'job-signed' })
+    repo.insertWorkflowRun.mockImplementation(async (v) => ({ ...v, id: 'run-signed', createdAt: new Date() }) as any)
+
+    await fireWorkflow(workflow, 'schedule', 'scheduler')
+
+    const contextHeaders = mockSubmit.mock.calls[0][1] as Record<string, string>
+    expect(contextHeaders['X-Grid-Request-Context-Sig']).toMatch(/^[0-9a-f]{64}$/)
   })
 
   it('records a 429 as a skipped run WITHOUT throwing', async () => {
