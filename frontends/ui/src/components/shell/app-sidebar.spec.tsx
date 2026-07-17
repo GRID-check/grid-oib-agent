@@ -34,24 +34,37 @@ const baseProps = {
   authRequired: false,
 }
 
-describe('AppSidebar - Research nav item (FB-10)', () => {
-  test('shows the Research nav item when showResearch is true (legacy tab)', () => {
-    render(<AppSidebar {...baseProps} showResearch />)
-    // Desktop + mobile both render the label; at least one is present.
-    expect(screen.getAllByText('Research').length).toBeGreaterThan(0)
-  })
-
-  test('defaults to showing Research when the prop is omitted (back-compat)', () => {
+describe('AppSidebar - click-dummy IA (FB-9/FB-10)', () => {
+  test('renders the core nav set: Chat, Files, History', () => {
     render(<AppSidebar {...baseProps} />)
-    expect(screen.getAllByText('Research').length).toBeGreaterThan(0)
-  })
-
-  test('hides the Research nav item when showResearch is false (folded into chat)', () => {
-    render(<AppSidebar {...baseProps} showResearch={false} />)
-    expect(screen.queryByText('Research')).not.toBeInTheDocument()
-    // Sibling items remain.
     expect(screen.getAllByText('Chat').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Files').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('History').length).toBeGreaterThan(0)
+  })
+
+  test('Overview, Members, Research and Knowledge no longer appear in the nav', () => {
+    render(<AppSidebar {...baseProps} showWorkflows canAccessArchiv />)
+    expect(screen.queryByText('Overview')).not.toBeInTheDocument()
+    expect(screen.queryByText('Members')).not.toBeInTheDocument()
+    expect(screen.queryByText('Research')).not.toBeInTheDocument()
+    expect(screen.queryByText('Knowledge')).not.toBeInTheDocument()
+  })
+
+  test('renders a pinned Settings entry linking to the project settings page', () => {
+    render(<AppSidebar {...baseProps} />)
+    const links = screen.getAllByText('Settings').map((el) => el.closest('a'))
+    expect(links.length).toBeGreaterThan(0)
+    for (const link of links) {
+      expect(link).toHaveAttribute('href', '/app/projects/p1/settings')
+    }
+  })
+
+  test('History links into the project subtree', () => {
+    render(<AppSidebar {...baseProps} />)
+    const links = screen.getAllByText('History').map((el) => el.closest('a'))
+    for (const link of links) {
+      expect(link).toHaveAttribute('href', '/app/projects/p1/history')
+    }
   })
 })
 
@@ -66,11 +79,39 @@ describe('AppSidebar - Workflows nav item', () => {
     expect(screen.queryByText('Workflows')).not.toBeInTheDocument()
     // Sibling items remain.
     expect(screen.getAllByText('Chat').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('Members').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('History').length).toBeGreaterThan(0)
   })
 
   test('hides the Workflows nav item when showWorkflows is false', () => {
     render(<AppSidebar {...baseProps} showWorkflows={false} />)
     expect(screen.queryByText('Workflows')).not.toBeInTheDocument()
+  })
+})
+
+describe('AppSidebar - Archiv nav item (ADR-0024)', () => {
+  test('shows Archiv when canAccessArchiv is true, linking to the org Archiv', () => {
+    render(<AppSidebar {...baseProps} canAccessArchiv />)
+    const links = screen.getAllByText('Archiv').map((el) => el.closest('a'))
+    expect(links.length).toBeGreaterThan(0)
+    for (const link of links) {
+      expect(link).toHaveAttribute('href', '/app/archiv')
+    }
+  })
+
+  test('hides Archiv by default (org feature flag off)', () => {
+    render(<AppSidebar {...baseProps} />)
+    expect(screen.queryByText('Archiv')).not.toBeInTheDocument()
+  })
+})
+
+describe('AppSidebar - active state', () => {
+  test('marks the Chat item as the current page on the chat route', () => {
+    render(<AppSidebar {...baseProps} />)
+    const chatLinks = screen.getAllByText('Chat').map((el) => el.closest('a'))
+    expect(chatLinks.some((link) => link?.getAttribute('aria-current') === 'page')).toBe(true)
+    const settingsLinks = screen.getAllByText('Settings').map((el) => el.closest('a'))
+    for (const link of settingsLinks) {
+      expect(link).not.toHaveAttribute('aria-current')
+    }
   })
 })

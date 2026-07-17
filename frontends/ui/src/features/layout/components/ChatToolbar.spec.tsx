@@ -41,18 +41,24 @@ vi.mock('@/adapters/auth', () => ({
 let mockIsDeepResearchStreaming = false
 let mockDeepResearchJobId: string | null = null
 let mockIsLoadJobDataLoading = false
+let mockCurrentSessionId: string | null = 'session-1'
 const mockLoadResearchPanelTab = vi.fn()
+const mockUpdateConversationTitle = vi.fn()
 
 vi.mock('@/features/chat', () => ({
   useChatStore: (
     selector: (state: {
       isDeepResearchStreaming: boolean
       deepResearchJobId: string | null
+      currentConversation: { id: string } | null
+      updateConversationTitle: (id: string, title: string) => void
     }) => unknown
   ) =>
     selector({
       isDeepResearchStreaming: mockIsDeepResearchStreaming,
       deepResearchJobId: mockDeepResearchJobId,
+      currentConversation: mockCurrentSessionId ? { id: mockCurrentSessionId } : null,
+      updateConversationTitle: mockUpdateConversationTitle,
     }),
   useLoadJobData: () => ({
     loadResearchPanelTab: mockLoadResearchPanelTab,
@@ -69,6 +75,7 @@ describe('ChatToolbar', () => {
     mockIsDeepResearchStreaming = false
     mockDeepResearchJobId = null
     mockIsLoadJobDataLoading = false
+    mockCurrentSessionId = 'session-1'
   })
 
   describe('research toggle', () => {
@@ -199,11 +206,78 @@ describe('ChatToolbar', () => {
     })
   })
 
-  describe('session title', () => {
+  describe('breadcrumb + inline rename', () => {
     test('renders the current session title', () => {
       render(<ChatToolbar sessionTitle="My Session" />)
 
       expect(screen.getByText('My Session')).toBeInTheDocument()
+    })
+
+    test('renders "{project} / {session title}" when a project name is given', () => {
+      render(<ChatToolbar sessionTitle="My Session" projectName="Wohnbau Favoriten" />)
+
+      expect(screen.getByText('Wohnbau Favoriten')).toBeInTheDocument()
+      expect(screen.getByText('/')).toBeInTheDocument()
+      expect(screen.getByText('My Session')).toBeInTheDocument()
+    })
+
+    test('clicking the title switches to an input; Enter commits via the store rename action', async () => {
+      const user = userEvent.setup()
+      render(<ChatToolbar sessionTitle="My Session" />)
+
+      await user.click(screen.getByRole('button', { name: /rename session/i }))
+
+      const input = screen.getByRole('textbox', { name: /session title/i })
+      expect(input).toHaveValue('My Session')
+
+      await user.clear(input)
+      await user.type(input, 'Fluchtweg OG2{Enter}')
+
+      expect(mockUpdateConversationTitle).toHaveBeenCalledWith('session-1', 'Fluchtweg OG2')
+      expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+    })
+
+    test('Escape cancels the edit without renaming', async () => {
+      const user = userEvent.setup()
+      render(<ChatToolbar sessionTitle="My Session" />)
+
+      await user.click(screen.getByRole('button', { name: /rename session/i }))
+      const input = screen.getByRole('textbox', { name: /session title/i })
+      await user.clear(input)
+      await user.type(input, 'discarded{Escape}')
+
+      expect(mockUpdateConversationTitle).not.toHaveBeenCalled()
+      expect(screen.getByText('My Session')).toBeInTheDocument()
+    })
+
+    test('blur commits the edit', async () => {
+      const user = userEvent.setup()
+      render(<ChatToolbar sessionTitle="My Session" />)
+
+      await user.click(screen.getByRole('button', { name: /rename session/i }))
+      const input = screen.getByRole('textbox', { name: /session title/i })
+      await user.clear(input)
+      await user.type(input, 'Renamed on blur')
+      await user.tab()
+
+      expect(mockUpdateConversationTitle).toHaveBeenCalledWith('session-1', 'Renamed on blur')
+    })
+
+    test('committing an unchanged or empty title does not rename', async () => {
+      const user = userEvent.setup()
+      render(<ChatToolbar sessionTitle="My Session" />)
+
+      await user.click(screen.getByRole('button', { name: /rename session/i }))
+      await user.keyboard('{Enter}')
+
+      expect(mockUpdateConversationTitle).not.toHaveBeenCalled()
+    })
+
+    test('rename is disabled without an active session', () => {
+      mockCurrentSessionId = null
+      render(<ChatToolbar sessionTitle="My Session" />)
+
+      expect(screen.getByRole('button', { name: /rename session/i })).toBeDisabled()
     })
   })
 })

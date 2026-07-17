@@ -13,7 +13,20 @@ There are two upload zones in the UI:
 
 To upload, drag and drop files onto the upload zone or click to browse. Multiple files can be uploaded at once.
 
-The project Files workspace shows folders, the file list, and the preview side by side on desktop. On small screens the panes stack — folders above the file list — and selecting a file opens the preview as a full-screen overlay with a close button.
+The project Files workspace shows folders, the file grid, and the preview side by side on desktop. On small screens the panes stack — folders above the file grid — and selecting a file opens the preview as a full-screen overlay with a close button.
+
+### The file card grid
+
+Files render as cards in a responsive grid. Each card shows:
+
+- a **content-aware skeleton thumbnail** — the sketch is picked from the document's ingestion tags (or, absent tags, filename heuristics / content type): floor plan (Grundriss), section/elevation (Schnitt/Ansicht), site plan (Lageplan), official notice (Bescheid), photo, or a generic document
+- the file name and, when ingestion generated one, a one-line **AI description**
+- a tinted **extension chip** (PDF, DOCX, …), the file size and a relative upload time
+- the **ingestion status badge** (Ready / Processing / Failed) — failed cards show the failure reason inline
+
+The last tile of the grid is a dashed **upload card** listing the actually accepted file types and the size limit; drag-and-drop anywhere on the workspace also works.
+
+A **search field** above the grid filters the current listing client-side by file name, ingestion tags, and the AI description. Top-level folders additionally appear as a quick-filter **chip row** above the grid (the same selection the sidebar folder tree drives — no separate navigation model).
 
 ### Supported File Types
 
@@ -94,6 +107,28 @@ User uploads file
 
 ---
 
+## The "Indexed by GRID" Panel (files-metadata-panel flag)
+
+With the `files-metadata-panel` feature flag on (the default while flag
+enforcement is off), the preview pane leads with an **Indexed by GRID** panel
+showing what ingestion extracted from the document:
+
+- the one-sentence **AI summary** that grounds the agent's answers
+- key-value rows from real metadata only: detected **document type** (first
+  document-type tag), **project**, **pages**, **passages** (retrieval chunks),
+  **contents** (when the document holds more than plain text), and the
+  **updated** timestamp
+- **editable tags**: remove a tag via its ×, add one through the inline input
+  (Enter commits, Escape clears, clicking a suggestion adds it). Tags come from
+  a controlled vocabulary (document types + OIB disciplines), so the input
+  suggests the allowed labels and free-form values are rejected. Each change
+  saves immediately.
+- the caption "Automatically detected on upload — your corrections improve
+  future answers": tag corrections feed back into retrieval quality.
+
+With the flag off, the preview pane shows only the ungated status/type/size
+rows, the raw preview, and download — unchanged behavior.
+
 ## Viewing and Downloading Documents
 
 The **Document List** component (`document-list.tsx`) renders all tracked files for the current session, showing:
@@ -128,6 +163,23 @@ uploading and deleting require the **`org:archiv:manage`** permission (org admin
 have it). It reuses the exact same upload/ingestion/preview experience as the
 project Files tab. The feature is gated by the `organization-archiv` feature flag
 (available to all orgs while flag enforcement is off; targeted per-org once on).
+
+The Archiv presents itself as the office's **knowledge library** (gold archive
+mark = the Büroarchiv provenance signal used across the app):
+
+- **Card grid** — the same content-aware skeleton thumbnails, extension chips,
+  one-line AI descriptions, and ingestion-status badges as the project file
+  grid; failed cards show the failure reason inline.
+- **Category chips** — a filter row derived from the controlled ingestion tags
+  actually present on the archive's documents (document type + OIB discipline),
+  plus an "All" chip. Categories come from the documents themselves; creating
+  custom categories is not (yet) supported.
+- **Provenance footer** — cards whose documents carry ingestion tags show them
+  as an "Aus: …"/"From: …" line with the gold archive mark. Documents without
+  tags simply show none, and there is no "verified" marker — the Archiv has no
+  review workflow.
+- **Search** — filters the listing client-side by file name, ingestion tags,
+  and the AI description, combinable with the category chips.
 
 ---
 

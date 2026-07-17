@@ -1,6 +1,6 @@
 import type { en } from '../en'
 
-/** Navigation shell: sidebar, topbar, user menu. */
+/** Navigation shell: sidebar, topbar, user menu, and the History page. */
 export const nav: typeof en.nav = {
   projectNavigation: 'Projektnavigation',
   projectSections: 'Projektbereiche',
@@ -10,13 +10,14 @@ export const nav: typeof en.nav = {
   openNavigation: 'Navigation öffnen',
   closeNavigation: 'Navigation schließen',
   sections: {
-    overview: 'Übersicht',
     chat: 'Chat',
     files: 'Dateien',
     knowledge: 'Wissen',
     research: 'Recherche',
     workflows: 'Workflows',
-    members: 'Mitglieder',
+    archiv: 'Archiv',
+    history: 'Historie',
+    settings: 'Einstellungen',
   },
   tabTitle: {
     intake: 'Einrichtung',
@@ -39,5 +40,23 @@ export const nav: typeof en.nav = {
     organization: 'Organisation',
     platform: 'Plattform',
     settings: 'Einstellungen',
+  },
+  /** Die Projekt-Historie: Unterhaltungen + Deep-Research-Läufe (FB-10). */
+  history: {
+    subtitle: 'Alle Unterhaltungen und Deep-Research-Läufe dieses Projekts.',
+    conversationsHeading: 'Unterhaltungen',
+    researchHeading: 'Deep Research',
+    searchPlaceholder: 'Unterhaltungen durchsuchen…',
+    searchAria: 'Unterhaltungen nach Titel durchsuchen',
+    untitledConversation: 'Unbenannte Unterhaltung',
+    openConversation: 'Unterhaltung "{title}" im Chat öffnen',
+    emptyTitle: 'Noch keine Unterhaltungen',
+    emptyDescription:
+      'Stellen Sie Grid im Chat eine Frage — jede Unterhaltung erscheint anschließend hier.',
+    emptyAction: 'Chat öffnen',
+    noMatchesTitle: 'Keine passenden Unterhaltungen',
+    noMatchesDescription: 'Versuchen Sie einen anderen Suchbegriff.',
+    errorTitle: 'Unterhaltungen konnten nicht geladen werden',
+    tryAgain: 'Erneut versuchen',
   },
 }

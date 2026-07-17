@@ -7,6 +7,8 @@ export const files: typeof en.files = {
     orDragAndDrop: ' oder per Drag-and-drop ablegen',
     maxSize: 'Bis zu {size} MB',
     accepts: 'Zulässig: {types}',
+    dragOrBrowse: 'Dateien hierher ziehen oder auswählen',
+    maxSizeShort: 'max. {size} MB',
   },
   activeUploads: {
     heading: 'Uploads',
@@ -30,16 +32,21 @@ export const files: typeof en.files = {
     status: 'Status',
     type: 'Typ',
     size: 'Größe',
-    summary: 'Zusammenfassung',
     tags: 'Schlagwörter',
-    editTags: 'Schlagwörter bearbeiten',
     noTags: 'Keine Schlagwörter',
-    tagsSave: 'Speichern',
-    tagsCancel: 'Abbrechen',
     tagsSaveError: 'Schlagwörter konnten nicht gespeichert werden. Bitte erneut versuchen.',
-    tagGroups: {
+    addTagPlaceholder: 'Schlagwort hinzufügen',
+    addTagLabel: 'Schlagwort hinzufügen',
+    removeTag: 'Schlagwort {tag} entfernen',
+    suggestionsLabel: 'Schlagwort-Vorschläge',
+    noTagMatch: 'Kein passendes Schlagwort – bitte einen der Vorschläge wählen.',
+    indexed: {
+      title: 'Von GRID indexiert',
       documentType: 'Dokumenttyp',
-      discipline: 'Fachbereich',
+      project: 'Projekt',
+      updated: 'Aktualisiert',
+      caption:
+        'Beim Hochladen automatisch erkannt – Ihre Korrekturen verbessern künftige Antworten.',
     },
     pages: 'Seiten',
     chunks: 'Passagen',
@@ -72,8 +79,9 @@ export const files: typeof en.files = {
     searchLabel: 'Dateien durchsuchen',
     noMatch: 'Keine Dateien entsprechen „{query}“',
     noMatchDescription:
-      'Versuchen Sie einen anderen Namen oder löschen Sie die Suche, um alle Dateien zu sehen.',
-    clearSearch: 'Suche zurücksetzen',
+      'Versuchen Sie einen anderen Namen, ein Schlagwort oder eine Beschreibung – oder löschen Sie die Suche, um alle Dateien zu sehen.',
+    clearSearch: 'Suche löschen',
+    resetSearch: 'Suche zurücksetzen',
   },
   folders: {
     heading: 'Ordner',

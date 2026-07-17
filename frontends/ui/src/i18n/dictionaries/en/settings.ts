@@ -1,4 +1,4 @@
-/** The right-side settings panel. */
+/** The right-side settings panel + the project Settings page. */
 export const settings = {
   title: 'Settings',
   ariaLabel: 'Settings',
@@ -12,4 +12,32 @@ export const settings = {
     ariaLabel: 'Interface language',
   },
   openProfile: 'Open full profile',
+  /**
+   * The project Settings page (spec §5, FB-9): project parameters + members +
+   * memory + insights + danger zone, consolidated from the old Overview and
+   * Members pages.
+   */
+  project: {
+    eyebrow: 'Project settings',
+    createdOn: 'Created {date}',
+    status: {
+      active: 'Active',
+    },
+    sections: {
+      parameters: 'Project parameters',
+      members: 'Members',
+      memory: 'Project memory',
+      insights: 'Insights',
+    },
+    membersDescriptionManage:
+      'Assign project roles to organization members. Organization admins always have access.',
+    membersDescriptionReadOnly:
+      'Who has access to this project. Only project admins can change assignments.',
+    knowledgeLink: 'Open knowledge base',
+    insights: {
+      emptyTitle: 'No insights yet',
+      emptyDescription:
+        'Usage and source-mix insights for this project will appear here once evaluation is available.',
+    },
+  },
 }

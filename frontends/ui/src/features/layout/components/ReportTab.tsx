@@ -24,6 +24,7 @@ import { FileText } from 'lucide-react'
 import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
 import { Badge, type BadgeProps } from '@/components/ui/badge'
 import { useChatStore } from '@/features/chat'
+import { ReportSourcePreviewChip } from '@/features/chat/components/SourcePreview'
 import { GridCards } from '@/features/grid-cards'
 import { useTranslations } from '@/i18n'
 import {
@@ -95,6 +96,11 @@ const ReportSourcesList: FC<{
             <div className="min-w-0">
               <MarkdownRenderer content={entry.markdown} compact className="max-w-none" />
             </div>
+            {/* WS-9: [KB] entries that resolve to an openable document get an
+                in-app preview affordance; unresolvable ones stay plain. */}
+            {entry.sourceKind === 'kb' && (
+              <ReportSourcePreviewChip locatorText={entry.markdown} />
+            )}
           </div>
         </li>
       ))}

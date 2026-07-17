@@ -135,6 +135,25 @@ copy and no backend retrieval change are needed. Audited as
 
 Source: `frontends/ui/src/app/api/archiv/documents/route.ts`, `.../upload/route.ts`, `.../[id]/route.ts`; `frontends/ui/src/lib/archiv/*`.
 
+## Answer feedback (per-answer thumbs, feature-gated)
+
+Per-answer thumbs feedback (WS-7 of the click-dummy overhaul spec): one vote
+per (user, answer), where `messageId` is the **client-side** assistant message
+identifier (shallow chat turns are not persisted as `messages` rows). Voting
+model: re-vote = upsert, toggle-off = `DELETE` (no tombstones). All routes are
+gated by the `answer-feedback` feature flag (available to all while
+`GRID_ENFORCE_FEATURE_FLAGS` is off; stable `feature-disabled` 403 once on).
+Users only ever read/write their **own** votes; when a vote carries a
+`projectId`, `project:view` FGA is additionally enforced.
+
+| Method | Path | Auth | Description | Request | Response |
+|--------|------|------|-------------|---------|----------|
+| `POST` | `/api/feedback/answers` | Required | Upsert the caller's vote on one answer. `reason` (fixed keys `inaccurate`/`too_slow`/`wrong_source`/`other`) is only valid with `verdict: "down"`. | `{ messageId, verdict: 'up'\|'down', reason?, conversationId?, projectId? }` | `{ messageId, verdict, reason }` |
+| `DELETE` | `/api/feedback/answers?messageId=` | Required | Retract (toggle off) the caller's vote. Idempotent. | — | `204 No Content` |
+| `GET` | `/api/feedback/answers?conversationId=` | Required | The caller's own votes in one conversation (bounded to 200), for client hydration. | — | `{ feedback: [{ messageId, verdict, reason }] }` |
+
+Source: `frontends/ui/src/app/api/feedback/answers/route.ts`; `frontends/ui/src/lib/feedback/*`.
+
 ## Knowledge base
 
 | Method | Path | Auth | Description | Request Body / Params | Response |

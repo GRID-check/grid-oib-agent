@@ -17,17 +17,16 @@ import {
   BookOpenCheck,
   Building2,
   ClipboardList,
-  FlaskConical,
   FolderKanban,
   FolderOpen,
-  LayoutDashboard,
+  History,
   LogOut,
   MessageSquare,
   Moon,
   Plus,
+  Settings,
   Sun,
   UserRound,
-  Users,
 } from 'lucide-react'
 
 import { useAuth } from '@/adapters/auth/use-auth'
@@ -50,18 +49,20 @@ interface PaletteProject {
 
 interface SectionItem {
   /** i18n key under `nav.sections` (intake lives in the shortcuts namespace). */
-  key: 'overview' | 'chat' | 'files' | 'knowledge' | 'research' | 'members' | 'intake'
-  segment: string | null // null = the project root (Overview)
+  key: 'chat' | 'files' | 'knowledge' | 'history' | 'settings' | 'intake'
+  segment: string
   icon: React.ComponentType<{ className?: string }>
 }
 
+// Mirrors the sidebar IA (spec §5): Chat/Files/History plus the Settings and
+// Intake destinations. Overview/Members/Research left the IA — their content
+// lives in Settings and History respectively (FB-9/FB-10).
 const SECTION_ITEMS: SectionItem[] = [
-  { key: 'overview', segment: null, icon: LayoutDashboard },
   { key: 'chat', segment: 'chat', icon: MessageSquare },
   { key: 'files', segment: 'files', icon: FolderOpen },
   { key: 'knowledge', segment: 'knowledge', icon: BookOpenCheck },
-  { key: 'research', segment: 'research', icon: FlaskConical },
-  { key: 'members', segment: 'members', icon: Users },
+  { key: 'history', segment: 'history', icon: History },
+  { key: 'settings', segment: 'settings', icon: Settings },
   { key: 'intake', segment: 'intake', icon: ClipboardList },
 ]
 

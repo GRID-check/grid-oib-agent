@@ -6,6 +6,7 @@
 
 import type { DataSourceFromAPI } from '@/adapters/api'
 
+
 /** Theme mode options */
 export type ThemeMode = 'light' | 'dark' | 'system'
 
@@ -17,6 +18,13 @@ export type ResearchPanelTab = 'tasks' | 'thinking' | 'report'
 
 /** Tabs within the DataSources panel */
 export type DataSourcesPanelTab = 'connections' | 'files'
+
+/**
+ * Composer source-preset shortcuts (WS-3). Each preset maps onto a subset of
+ * the REAL data sources returned by the backend registry — see
+ * `lib/source-presets.ts`. `null` = no preset active (manual selection).
+ */
+export type SourcePresetId = 'law' | 'project' | 'office'
 
 /** Layout state for managing panels */
 export interface LayoutState {
@@ -48,6 +56,18 @@ export interface LayoutState {
   /** Error message if data sources fetch failed */
   dataSourcesError: string | null
   /**
+   * User's Deep-Research preference (composer pill). This is an INTENT HINT,
+   * not a hard switch: the agent auto-escalates to deep research on its own
+   * (spec §2.2(6)); no protocol field exists to force it, so the toggle only
+   * records the user's preference and the composer shows an honest hint.
+   */
+  deepResearchIntent: boolean
+  /**
+   * Active composer source preset (shortcut chips), or null when the user
+   * manually manages sources. Cleared by any manual source toggle.
+   */
+  activeSourcePreset: SourcePresetId | null
+  /**
    * @deprecated Use researchPanelTab instead
    */
   detailsPanelTab: ResearchPanelTab
@@ -77,6 +97,15 @@ export interface LayoutActions {
   setEnabledDataSources: (ids: string[]) => void
   /** Set the theme mode */
   setTheme: (theme: ThemeMode) => void
+  /** Record the user's Deep-Research preference (intent hint, not a guarantee) */
+  setDeepResearchIntent: (on: boolean) => void
+  /**
+   * Apply a composer source preset: sets the preset AND its computed enabled
+   * source ids in one action (so the manual-toggle preset-clearing in
+   * toggleDataSource/setEnabledDataSources doesn't fight it). Pass null to
+   * clear the preset while restoring the given ids.
+   */
+  applySourcePreset: (preset: SourcePresetId | null, enabledIds: string[]) => void
   /** Fetch data sources from API. Only web_search is enabled by default */
   fetchDataSources: (authToken?: string) => Promise<void>
   /** Disable sources that require authentication */

@@ -347,6 +347,9 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
               onSelectFile={setSelectedFileId}
               isLoading={isLoadingFiles}
               hasFolderSelected={selectedFolderId !== null}
+              folders={folders}
+              selectedFolderId={selectedFolderId}
+              onSelectFolder={setSelectedFolderId}
               uploadControl={
                 <ProjectUppyUpload
                   projectId={projectId}
@@ -356,6 +359,15 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
                   variant="default"
                   size="default"
                   label={t('workspace.uploadDocuments')}
+                />
+              }
+              uploadCard={
+                <ProjectUppyUpload
+                  projectId={projectId}
+                  folderId={selectedFolderId}
+                  onUpload={(files) => uploadFiles(files)}
+                  isUploading={isUploading}
+                  variant="dropcard"
                 />
               }
             />
@@ -377,6 +389,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
             <FilePreviewPane
               file={selectedFile}
               projectId={projectId}
+              projectName={projectName}
               onClose={() => setSelectedFileId(null)}
               onReingested={handleReingested}
               onTagsUpdated={handleTagsUpdated}

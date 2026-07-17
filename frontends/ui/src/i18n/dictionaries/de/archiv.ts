@@ -3,6 +3,20 @@ export const archiv = {
   title: 'Archiv',
   subtitle: 'Gemeinsame Dokumente, die jedem Projekt Ihrer Organisation zur Verfügung stehen',
   backToApp: 'Zurück zu den Projekten',
+  library: {
+    searchPlaceholder: 'Archiv durchsuchen…',
+    searchLabel: 'Archivdokumente durchsuchen',
+    resetSearch: 'Suche zurücksetzen',
+    categoriesLabel: 'Nach Kategorie filtern',
+    allCategories: 'Alle',
+    emptyTitle: 'Das Archiv ist leer',
+    emptyDescription:
+      'Hier abgelegte Dokumente werden zu Bürowissen und stehen jedem Projekt Ihrer Organisation zur Verfügung.',
+    noMatchTitle: 'Keine passenden Dokumente',
+    noMatchDescription: 'Kein Archivdokument entspricht Ihrer Suche oder der gewählten Kategorie.',
+    clearFilters: 'Filter zurücksetzen',
+    provenance: 'Aus: {source}',
+  },
   workspace: {
     dropToUpload: 'Dateien hier ablegen, um sie ins Archiv aufzunehmen',
     dropUnsupported: 'Einige Dateien haben einen nicht unterstützten Typ',

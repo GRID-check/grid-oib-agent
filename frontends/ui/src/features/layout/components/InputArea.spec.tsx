@@ -19,6 +19,8 @@ let mockComposerPrefill: string | null = null
 // save/restore/clear behaviour rather than asserting on spy calls alone.
 let mockDrafts: Record<string, string> = {}
 
+const mockSaveDataSourcesToConversation = vi.fn()
+
 vi.mock('@/features/chat', () => ({
   useWebSocketChat: vi.fn(() => ({
     sendMessage: mockSendMessage,
@@ -32,6 +34,7 @@ vi.mock('@/features/chat', () => ({
       currentConversation: mockCurrentSessionId
         ? { id: mockCurrentSessionId, messages: mockConversationMessages }
         : null,
+      saveDataSourcesToConversation: mockSaveDataSourcesToConversation,
       ensureSession: vi.fn(() => {
         if (!mockCurrentSessionId) mockCurrentSessionId = 'session-new'
         return mockCurrentSessionId
@@ -70,6 +73,14 @@ const mockSetDataSourcePanelTab = vi.fn()
 
 const mockCloseRightPanel = vi.fn()
 const mockSetDataSourcesPanelTab = vi.fn()
+const mockSetDeepResearchIntent = vi.fn()
+const mockApplySourcePreset = vi.fn()
+let mockDeepResearchIntent = false
+let mockActiveSourcePreset: string | null = null
+let mockAvailableDataSources: Array<{ id: string; name?: string }> = [
+  { id: 'source-1' },
+  { id: 'source-2' },
+]
 
 const mockLayoutState = () => ({
   openRightPanel: mockOpenRightPanel,
@@ -78,8 +89,12 @@ const mockLayoutState = () => ({
   setDataSourcePanelTab: mockSetDataSourcePanelTab,
   enabledDataSourceIds: ['source-1', 'source-2'],
   knowledgeLayerAvailable: true,
-  availableDataSources: [{ id: 'source-1' }, { id: 'source-2' }],
+  availableDataSources: mockAvailableDataSources,
   rightPanel: null as string | null,
+  deepResearchIntent: mockDeepResearchIntent,
+  setDeepResearchIntent: mockSetDeepResearchIntent,
+  activeSourcePreset: mockActiveSourcePreset,
+  applySourcePreset: mockApplySourcePreset,
 })
 
 type MockLayoutState = ReturnType<typeof mockLayoutState>
@@ -146,6 +161,9 @@ describe('InputArea', () => {
     mockCurrentSessionId = 'session-1'
     mockComposerPrefill = null
     mockDrafts = {}
+    mockDeepResearchIntent = false
+    mockActiveSourcePreset = null
+    mockAvailableDataSources = [{ id: 'source-1' }, { id: 'source-2' }]
     // Reset mocks to defaults - clearAllMocks doesn't reset mockReturnValue
     vi.mocked(useIsCurrentSessionBusy).mockReturnValue(false)
     vi.mocked(useWebSocketChat).mockReturnValue({
@@ -206,9 +224,13 @@ describe('InputArea', () => {
 
     await user.type(input, 'Hello')
     await user.tab()
-    expect(
-      screen.getByRole('button', { name: /toggle data sources connections/i })
-    ).toHaveFocus()
+    expect(screen.getByRole('button', { name: /data basis/i })).toHaveFocus()
+
+    await user.tab()
+    expect(screen.getByRole('button', { name: /search scope/i })).toHaveFocus()
+
+    await user.tab()
+    expect(screen.getByRole('button', { name: /deep research preference/i })).toHaveFocus()
 
     await user.tab()
     expect(screen.getByRole('button', { name: /open uploaded files/i })).toHaveFocus()
@@ -392,7 +414,7 @@ describe('InputArea', () => {
 
     render(<InputArea isAuthenticated={true} />)
 
-    expect(screen.getByText('2')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /open uploaded files/i })).toHaveTextContent('2')
   })
 
   test('shows upload error when present', () => {
@@ -741,6 +763,116 @@ describe('InputArea', () => {
       expect(screen.getByRole('textbox')).toHaveValue('my own in-progress text')
       expect(mockDrafts['session-1']).toBe('my own in-progress text')
       expect(mockComposerPrefill).toBeNull()
+    })
+  })
+
+  describe('composer control row (WS-3)', () => {
+    test('sources summary chip shows the enabled count and opens the data sources panel', async () => {
+      const user = userEvent.setup()
+      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+
+      const chip = screen.getByRole('button', { name: /data basis/i })
+      expect(chip).toHaveTextContent('2')
+
+      await user.click(chip)
+
+      expect(mockSetDataSourcesPanelTab).toHaveBeenCalledWith('connections')
+      expect(mockOpenRightPanel).toHaveBeenCalledWith('data-sources')
+    })
+
+    test('deep research pill toggles the stored intent (off → on)', async () => {
+      const user = userEvent.setup()
+      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+
+      const pill = screen.getByRole('button', { name: /deep research preference/i })
+      expect(pill).toHaveAttribute('aria-pressed', 'false')
+
+      await user.click(pill)
+
+      expect(mockSetDeepResearchIntent).toHaveBeenCalledWith(true)
+    })
+
+    test('deep research pill shows the honest auto-escalation hint when on', () => {
+      mockDeepResearchIntent = true
+
+      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+
+      expect(
+        screen.getByRole('button', { name: /deep research preference/i })
+      ).toHaveAttribute('aria-pressed', 'true')
+      expect(screen.getByText(/escalates to deep research automatically/i)).toBeInTheDocument()
+    })
+
+    test('scope chip shows the project name and a disabled "All projects" option', async () => {
+      const user = userEvent.setup()
+      render(
+        <InputArea isAuthenticated={true} connectionMode="sse" projectName="Wohnbau Favoriten" />
+      )
+
+      const scopeChip = screen.getByRole('button', { name: /search scope/i })
+      expect(scopeChip).toHaveTextContent('Wohnbau Favoriten')
+
+      await user.click(scopeChip)
+
+      const allProjects = screen.getByRole('button', { name: /all projects/i })
+      expect(allProjects).toBeDisabled()
+    })
+
+    test('shortcut preset chip applies the mapped source subset and persists it', async () => {
+      const user = userEvent.setup()
+      mockAvailableDataSources = [
+        { id: 'web_search', name: 'Web Search' },
+        { id: 'ris', name: 'RIS – Österreichisches Recht' },
+      ]
+
+      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+
+      await user.click(screen.getByRole('button', { name: /building law & guidelines/i }))
+
+      // Law preset maps onto the REAL sources: only `ris` matches.
+      expect(mockApplySourcePreset).toHaveBeenCalledWith('law', ['ris'])
+      expect(mockSaveDataSourcesToConversation).toHaveBeenCalledWith(['ris'])
+    })
+
+    test('clicking the active preset restores all sources and clears the preset', async () => {
+      const user = userEvent.setup()
+      mockActiveSourcePreset = 'law'
+      mockAvailableDataSources = [
+        { id: 'web_search', name: 'Web Search' },
+        { id: 'ris', name: 'RIS – Österreichisches Recht' },
+      ]
+
+      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+
+      const lawChip = screen.getByRole('button', { name: /building law & guidelines/i })
+      expect(lawChip).toHaveAttribute('aria-pressed', 'true')
+
+      await user.click(lawChip)
+
+      expect(mockApplySourcePreset).toHaveBeenCalledWith(null, ['web_search', 'ris'])
+      expect(mockSaveDataSourcesToConversation).toHaveBeenCalledWith(['web_search', 'ris'])
+    })
+
+    test('active preset renders a provenance chip inside the composer', () => {
+      mockActiveSourcePreset = 'law'
+
+      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+
+      // The colored provenance chip (icon + label) inside the composer card,
+      // in addition to the pressed shortcut chip below it.
+      expect(screen.getAllByText('Building law & guidelines').length).toBeGreaterThanOrEqual(2)
+    })
+
+    test('shortcut chips are hidden once the thread has messages', () => {
+      mockConversationMessages = [
+        { id: 'msg-1', role: 'user', content: 'Hello', messageType: 'user' },
+      ]
+
+      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+
+      expect(
+        screen.queryByRole('button', { name: /building law & guidelines/i })
+      ).not.toBeInTheDocument()
     })
   })
 })

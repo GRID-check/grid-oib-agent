@@ -187,12 +187,12 @@ describe('ProjectFileWorkspace — saved tags survive reselect', () => {
     const user = userEvent.setup()
     render(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
 
-    // Open doc-a and add a discipline tag.
+    // Open doc-a and add a discipline tag via the inline add-tag input.
     fireEvent.click(await screen.findByRole('button', { name: /alpha\.txt/i }))
-    await user.click(await screen.findByRole('button', { name: /edit tags/i }))
-    await user.click(await screen.findByRole('button', { name: 'Brandschutz', pressed: false }))
-    await user.click(screen.getByRole('button', { name: /^Save$/i }))
-    await waitFor(() => expect(screen.getByText('Brandschutz')).toBeDefined())
+    await user.type(await screen.findByRole('textbox', { name: /add tag/i }), 'Brandschutz{Enter}')
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Remove tag Brandschutz' })).toBeDefined()
+    )
 
     // Switch to doc-b (the pane re-seeds from the newly selected file's tags)...
     fireEvent.keyDown(document, { key: 'Escape' })
@@ -207,7 +207,9 @@ describe('ProjectFileWorkspace — saved tags survive reselect', () => {
     fireEvent.click(await screen.findByRole('button', { name: /alpha\.txt/i }))
     await screen.findByRole('dialog')
 
-    await waitFor(() => expect(screen.getByText('Brandschutz')).toBeDefined())
-    expect(screen.getByText('Grundriss')).toBeDefined()
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Remove tag Brandschutz' })).toBeDefined()
+    )
+    expect(screen.getByRole('button', { name: 'Remove tag Grundriss' })).toBeDefined()
   })
 })

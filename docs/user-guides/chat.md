@@ -6,7 +6,22 @@ On small screens (below the `md` breakpoint) the chat is mobile-first: the sessi
 
 ## Starting a conversation
 
-Click **New Session** in the sessions panel (left sidebar) to start a fresh conversation. Type your message in the input area at the bottom of the screen and press Enter. The first user message sets the conversation title (truncated to 50 characters).
+Click **New Session** in the sessions panel (left sidebar) or the quiet **New chat** button in the thread header to start a fresh conversation. On an empty thread the chat shows a time-of-day greeting (with your first name when available). Type your message in the composer at the bottom of the screen and press Enter. The first user message sets the conversation title (truncated to 50 characters).
+
+## Thread header
+
+The header shows a breadcrumb **{project} / {session title}**. Click the session title to rename it inline — Enter or clicking away commits, Escape cancels. This uses the same rename action as the sessions panel. The header also hosts the sessions-panel toggle and the Research/Sources panel buttons.
+
+## The composer
+
+The composer is a white card with the message field on top and a control row below, separated by a hairline:
+
+- **Datengrundlage chip**: shows how many data sources are currently enabled and opens the existing Data Sources panel.
+- **Scope chip**: shows the current project with a lock icon. Retrieval is always scoped to this project; the popover lists a disabled "All projects" option — cross-project search is not available yet.
+- **Deep Research pill**: an on/off *preference*. Grid escalates to deep research automatically when a question calls for it; the pill records your intent and shows an honest hint — it does not force a deep-research run.
+- **Attach / file counter / send**: unchanged file-upload and send affordances.
+
+Under the composer, on an empty thread, a **Shortcuts** row offers three source presets — *Baurecht & Richtlinien* (law sources such as RIS), *Projektunterlagen* (project documents; external sources off), and *Büroarchiv* (office archive). A preset maps onto the data sources the backend actually exposes; selecting one shows a colored provenance chip inside the composer, and any manual change in the Data Sources panel takes you off the preset again.
 
 ## Sessions panel
 
@@ -63,6 +78,20 @@ Deep research submits a job to the backend and receives progress via SSE events 
 - **Tool Calls tab**: Tool invocations with inputs/outputs
 - **Files tab**: Generated files
 - **Tasks tab**: Progress checklist
+
+## Answer source chips ("Belegt durch")
+
+Answers that already carry source data show a provenance chip row: citations collected during deep research (origin parsed from the backend's `[KB]/[RIS]/[Web]` tokens, with URL heuristics as fallback) and the laws named by `legal_basis` cards on shallow answers. Chips are tinted by origin (law / project / web) and always pair icon + label with the color; web and RIS chips link out. Answers without source data show no row — chips are never fabricated.
+
+### Source preview (clicking a chip)
+
+Clicking a source chip opens a preview of the source instead of doing nothing:
+
+- **Web / RIS chips** keep linking out to the real source (RIS citations always hit the official Rechtsinformationssystem).
+- **Knowledge chips (`[KB]`)** whose citation names a document that exists for the current project — a project upload (PDF or image) or a base-corpus PDF (OIB Richtlinien) — open an in-app viewer dialog: a provenance-tinted document-type chip plus the title in the header, the document itself in the body (deep-linked to the cited page when the citation carries one, e.g. `file.pdf, p.3`), and the cited passage in a tinted "Fundstelle" box when the citation carries passage text.
+- **Anything unresolvable** (unknown document, non-previewable file type) shows a light popover with the source's origin, title, and passage instead — never a broken viewer. Chips with nothing beyond their label stay plain.
+
+The same affordance appears in the deep-research report's sources list: `[KB]` entries that resolve to an openable document get a small **View / Ansehen** button next to the entry.
 
 ## Human-in-the-loop (HITL)
 

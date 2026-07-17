@@ -14,19 +14,40 @@
 'use client'
 
 import { type FC, memo, useState, useCallback, useRef, useEffect, type KeyboardEvent } from 'react'
-import { Globe, FileText, Paperclip, SendHorizontal, X, XCircle } from 'lucide-react'
+import {
+  Check,
+  Database,
+  FileText,
+  Lock,
+  Paperclip,
+  SendHorizontal,
+  Sparkles,
+  X,
+  XCircle,
+} from 'lucide-react'
 import { toast } from 'sonner'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Textarea } from '@/components/ui/textarea'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { AnimatePresence, motion, easeQuiet, springSnappy } from '@/components/motion'
 import { useWebSocketChat, useChatStore, useIsCurrentSessionBusy } from '@/features/chat'
 import { useLayoutStore } from '../store'
+import { computePresetSourceIds } from '../lib/source-presets'
+import type { SourcePresetId } from '../types'
+import { SourceSignalChip, SourceSignalChipToggle } from './SourceSignalChip'
 import { useAppConfig } from '@/shared/context'
 import { useTranslations } from '@/i18n'
 import { useFileUpload, useFileDragDrop, useFileUploadBanners } from '@/features/documents'
+
+/** Preset chip order + their provenance signals (spec §4 --source-* family). */
+const SOURCE_PRESETS: Array<{ id: SourcePresetId; signal: SourcePresetId }> = [
+  { id: 'law', signal: 'law' },
+  { id: 'project', signal: 'project' },
+  { id: 'office', signal: 'office' },
+]
 
 /** Connection mode for the chat */
 export type ConnectionMode = 'sse' | 'websocket'
@@ -41,6 +62,8 @@ interface InputAreaProps {
   isAuthenticated?: boolean
   /** Connection mode: 'websocket' auto-connects, 'sse' disables auto-connect (default: 'websocket') */
   connectionMode?: ConnectionMode
+  /** Name of the active project, shown in the composer scope chip */
+  projectName?: string
 }
 
 /**
@@ -59,8 +82,10 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   placeholder,
   isAuthenticated = false,
   connectionMode = 'websocket',
+  projectName,
 }) {
   const t = useTranslations('research')
+  const tChat = useTranslations('chat')
   const [message, setMessage] = useState('')
 
   // File input ref for attachment button
@@ -236,6 +261,32 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   const openRightPanel = useLayoutStore((s) => s.openRightPanel)
   const closeRightPanel = useLayoutStore((s) => s.closeRightPanel)
   const setDataSourcesPanelTab = useLayoutStore((s) => s.setDataSourcesPanelTab)
+  const deepResearchIntent = useLayoutStore((s) => s.deepResearchIntent)
+  const setDeepResearchIntent = useLayoutStore((s) => s.setDeepResearchIntent)
+  const activeSourcePreset = useLayoutStore((s) => s.activeSourcePreset)
+  const applySourcePreset = useLayoutStore((s) => s.applySourcePreset)
+
+  // Persist source selection per conversation, exactly like the panel does.
+  const saveDataSourcesToConversation = useChatStore((s) => s.saveDataSourcesToConversation)
+
+  /**
+   * Shortcut preset chips: apply the subset of REAL sources the preset stands
+   * for (see lib/source-presets.ts). Clicking the active preset again restores
+   * the default all-enabled state.
+   */
+  const handlePresetClick = useCallback(
+    (preset: SourcePresetId) => {
+      const { availableDataSources: sources, activeSourcePreset: current } =
+        useLayoutStore.getState()
+      const nextIds =
+        current === preset
+          ? (sources ?? []).map((s) => s.id)
+          : computePresetSourceIds(preset, sources ?? [])
+      applySourcePreset(current === preset ? null : preset, nextIds)
+      saveDataSourcesToConversation?.(nextIds)
+    },
+    [applySourcePreset, saveDataSourcesToConversation]
+  )
 
   // Check if we're in response mode (responding to a HITL prompt)
   const isResponseMode = !!pendingInteraction
@@ -482,13 +533,21 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   const enabledSourcesCount = enabledDataSourceIds.length
   const totalSourcesCount = availableDataSources?.length ?? 0
 
+  // Empty thread → the shortcut preset chips render under the composer.
+  const isEmptyThread = !currentConversation || currentConversation.messages.length === 0
+
+  // Scope chip label: the active project (display-only scope; cross-project
+  // search does not exist yet — spec §2.3, honest disabled option).
+  const scopeLabel = projectName || tChat('composer.scopeFallback')
+
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:p-4 sm:pb-4">
       <div
         className={cn(
-          // Floating composer: translucent + blurred so scrolled messages show
-          // through behind it, with a lifted shadow instead of a docked look.
-          'relative flex flex-col rounded-2xl border bg-card/80 p-4 shadow-lg backdrop-blur-xl transition-[box-shadow,border-color] duration-200 ease-out focus-within:ring-2 focus-within:ring-ring/30',
+          // Composer card per the click dummy: white card, hairline border,
+          // layered soft shadow; textarea on top, hairline-separated control
+          // row below.
+          'relative flex flex-col rounded-2xl border bg-card p-3 shadow-lg transition-[box-shadow,border-color] duration-200 ease-out focus-within:ring-2 focus-within:ring-ring/30 sm:p-4',
           isDisabledByAuth && 'opacity-60',
           isDragging && isUnsupportedDrag
             ? 'border-dashed border-error'
@@ -563,15 +622,15 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           )}
         </AnimatePresence>
 
-        {/* Bottom Actions Bar */}
-        <div className="mt-3 flex items-center justify-end">
-          {/* Right Actions: Counters, Attach, Research, Submit */}
-          <div className="flex items-center gap-2">
-            {/* Sources indicator - clickable to toggle data connections tab */}
+        {/* Bottom control row — hairline-separated from the textarea */}
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5 border-t pt-3">
+          {/* Left: Datengrundlage summary chip, scope chip, Deep-Research pill */}
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+            {/* Sources summary chip — opens the EXISTING DataSourcesPanel */}
             <Button
-              variant="ghost"
+              variant="outline"
               size="sm"
-              className="h-8 rounded-full px-2.5 text-muted-foreground"
+              className="h-7 gap-1.5 rounded-full px-2.5 text-xs font-medium text-muted-foreground"
               onClick={() => {
                 if (useLayoutStore.getState().rightPanel === 'data-sources') {
                   closeRightPanel()
@@ -581,15 +640,102 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                 }
               }}
               disabled={isDisabledByAuth}
-              aria-label={t('inputArea.toggleDataSources')}
+              aria-label={tChat('composer.sourcesAria', {
+                enabled: enabledSourcesCount,
+                total: totalSourcesCount,
+              })}
               title={t('inputArea.selectedConnections')}
             >
-              <Globe className="size-3" aria-hidden="true" />
-              <span className="text-xs font-semibold">
-                {enabledSourcesCount}/{totalSourcesCount}
+              <Database className="size-3" aria-hidden="true" />
+              <span>{tChat('composer.sources')}</span>
+              <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-muted px-1 text-[10px] font-semibold tabular-nums text-foreground">
+                {enabledSourcesCount}
               </span>
             </Button>
 
+            {/* Active source preset — colored provenance chip (icon+label+color) */}
+            {activeSourcePreset && (
+              <SourceSignalChip
+                signal={activeSourcePreset}
+                className="max-w-40"
+                title={tChat(`shortcuts.presets.${activeSourcePreset}`)}
+              >
+                {tChat(`shortcuts.presets.${activeSourcePreset}`)}
+              </SourceSignalChip>
+            )}
+
+            {/* Scope chip — current project; cross-project is honestly disabled */}
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 max-w-44 gap-1.5 rounded-full px-2.5 text-xs font-medium text-muted-foreground"
+                  disabled={isDisabledByAuth}
+                  aria-label={tChat('composer.scopeAria', { project: scopeLabel })}
+                  title={tChat('composer.scopeAria', { project: scopeLabel })}
+                >
+                  <Lock className="size-3" aria-hidden="true" />
+                  <span className="truncate">{scopeLabel}</span>
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent side="top" align="start" className="w-64 p-1.5">
+                <div
+                  className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm"
+                  aria-current="true"
+                >
+                  <Check className="size-3.5 shrink-0 text-foreground" aria-hidden="true" />
+                  <span className="min-w-0 flex-1 truncate font-medium">{scopeLabel}</span>
+                  <span className="shrink-0 text-xs text-muted-foreground">
+                    {tChat('composer.scopeCurrent')}
+                  </span>
+                </div>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    {/* span wrapper: disabled elements don't emit hover events */}
+                    <span className="block" tabIndex={0}>
+                      <button
+                        type="button"
+                        disabled
+                        aria-disabled="true"
+                        className="flex w-full cursor-not-allowed items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-muted-foreground opacity-60"
+                      >
+                        <span className="size-3.5 shrink-0" aria-hidden="true" />
+                        <span className="truncate">{tChat('composer.scopeAll')}</span>
+                      </button>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="max-w-60">
+                    {tChat('composer.scopeAllSoon')}
+                  </TooltipContent>
+                </Tooltip>
+              </PopoverContent>
+            </Popover>
+
+            {/* Deep-Research intent pill — preference, NOT a hard trigger:
+                the agent auto-escalates on its own (spec §2.2(6)) */}
+            <button
+              type="button"
+              aria-pressed={deepResearchIntent}
+              aria-label={tChat('composer.deepResearchAria')}
+              title={tChat('composer.deepResearchHint')}
+              disabled={isDisabledByAuth}
+              onClick={() => setDeepResearchIntent(!deepResearchIntent)}
+              className={cn(
+                'inline-flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-[color,background-color,box-shadow] duration-200 ease-out',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50',
+                deepResearchIntent
+                  ? 'border-transparent bg-primary text-primary-foreground shadow-xs'
+                  : 'border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground'
+              )}
+            >
+              <Sparkles className="size-3" aria-hidden="true" />
+              <span>{tChat('composer.deepResearch')}</span>
+            </button>
+          </div>
+
+          {/* Right Actions: files counter, attach, submit */}
+          <div className="flex items-center gap-2">
             {/* Files indicator - clickable to toggle files tab */}
             <Button
               variant="ghost"
@@ -724,7 +870,42 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
             )}
           </div>
         </div>
+
+        {/* Honest Deep-Research hint: the pill records intent; escalation
+            stays automatic. Never promises a forced deep-research run. */}
+        {deepResearchIntent && (
+          <p className="mt-2 text-xs leading-relaxed text-muted-foreground" role="note">
+            {tChat('composer.deepResearchHint')}
+          </p>
+        )}
       </div>
+
+      {/* Shortcut preset chips (empty thread only): map onto the REAL data
+          sources in the store — see lib/source-presets.ts. */}
+      {isEmptyThread && !isDisabledByAuth && (
+        <div
+          className="mt-3 flex flex-wrap items-center justify-center gap-1.5"
+          role="group"
+          aria-label={tChat('shortcuts.label')}
+        >
+          <span className="text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
+            {tChat('shortcuts.label')}
+          </span>
+          {SOURCE_PRESETS.map(({ id, signal }) => (
+            <SourceSignalChipToggle
+              key={id}
+              signal={signal}
+              active={activeSourcePreset === id}
+              onClick={() => handlePresetClick(id)}
+              aria-label={tChat('shortcuts.presetAria', {
+                label: tChat(`shortcuts.presets.${id}`),
+              })}
+            >
+              {tChat(`shortcuts.presets.${id}`)}
+            </SourceSignalChipToggle>
+          ))}
+        </div>
+      )}
       {/* AI-transparency disclosure (EU AI Act Art. 50): users must know they
           interact with an AI system and that answers need verification. */}
       <p className="mt-2 text-center text-xs leading-relaxed text-muted-foreground">

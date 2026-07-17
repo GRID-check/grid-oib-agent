@@ -2,27 +2,42 @@
 
 Projects group related documents and chat conversations under a shared context. A project has its own document collection, and conversations created within a project are automatically scoped to query only that project's documents.
 
+## The projects home
+
+The **Projects** page (`/app/projects`) is the app's home. It shows every project in your organization as a card grid (three columns on desktop, collapsing responsively). Each card is split into a raised header — project name, an **Active** status chip, and the project summary from the brief — and a footer with the **last activity** time (relative, e.g. "2 hours ago", from the most recent brief update) plus a gear icon that jumps straight to that project's settings page. Clicking anywhere else on the card opens the project, resuming the section you last used.
+
+The header row carries the page title, a search field that filters the grid by project name as you type, and the **New project** button.
+
+When the organization-wide Archiv is enabled for your org, a full-width **Archiv** entry card appears below the grid and opens `/app/archiv` — the office's shared, org-wide knowledge.
+
+Organization admins additionally see a **Recently deleted** section at the bottom, from which soft-deleted projects can be restored during the grace period.
+
+Source: `frontends/ui/src/app/app/projects/page.tsx`, `frontends/ui/src/components/projects/`
+
 ## Creating a project
 
-On the **Projects** page (`/projects`), enter a name in the inline form and click **Create**. The project is created in your current WorkOS organization. The creator is automatically assigned the `project-admin` role.
+Click **New project** (or follow `/app/projects?new=1`, which opens the dialog automatically). Enter a name — optionally starting from a template — and create the project in your current WorkOS organization. The creator is automatically assigned the `project-admin` role.
 
-If no projects exist yet, the page shows a centered creation form with the message "No projects yet. Create one to get started."
+If no projects exist yet, the page shows a centered empty state with a **Create your first project** action.
 
-Source: `frontends/ui/src/app/projects/page.tsx:12`
+Source: `frontends/ui/src/components/projects/create-project-dialog.tsx`
 
 ## Project page layout
 
-Each project has a dedicated page at `/projects/{id}` with three tabs in the header:
+Opening a project (`/app/projects/{id}`) lands you in **Chat** — the project root redirects there. The left sidebar navigates the project's sections:
 
-| Tab | Route | Purpose |
+| Section | Route | Purpose |
 |-----|-------|---------|
-| **Documents** | `/projects/{id}` | List, upload, and manage files |
-| **Chat** | `/projects/{id}/chat` | Project-scoped conversations |
-| **Members** | `/projects/{id}/members` | Manage project-level role assignments |
+| **Chat** | `/app/projects/{id}/chat` | Project-scoped conversations (the landing surface) |
+| **Files** | `/app/projects/{id}/files` | List, upload, and manage files |
+| **Workflows** | `/app/projects/{id}/workflows` | Scheduled deep research (feature-flagged) |
+| **Archiv** | `/app/archiv` | The org-wide office archive (feature-flagged) |
+| **History** | `/app/projects/{id}/history` | All conversations and deep-research runs; rows reopen in chat |
+| **Settings** | `/app/projects/{id}/settings` | Project parameters, members, memory, insights, danger zone (pinned at the bottom of the sidebar) |
 
-A link back to **All Projects** (`/projects`) is always visible in the header.
+The former **Overview** and **Members** pages were consolidated into **Settings**; their old routes redirect there (the root redirects to Chat). The legacy **Research** page redirects to **History**. The wordmark at the top of the sidebar links back to **All projects** (`/app/projects`).
 
-Source: `frontends/ui/src/app/projects/[id]/layout.tsx:12`
+Source: `frontends/ui/src/components/shell/app-sidebar.tsx`, `frontends/ui/src/app/app/projects/[id]/layout.tsx`
 
 ## Project-scoped chat
 
@@ -44,9 +59,22 @@ Documents are listed with their filename, content type, file size, status, and c
 
 Source: `frontends/ui/src/app/api/documents/upload/route.ts:20`, `frontends/ui/src/app/projects/[id]/page.tsx:24`
 
+## Workflows (feature-flagged)
+
+The **Workflows** tab (`/app/projects/{id}/workflows`) manages saved research briefs that run through the same deep-research pipeline as a chat request — on demand or on a cron schedule (ADR-0023). The page only exists when the workflows flag is enabled for your org; otherwise the route 404s.
+
+The page has two parts:
+
+1. **Template gallery** (always at the top): curated GRID templates — currently **Vorprüfung Einreichung** (a manual pre-submission research run: which requirements the permit submission must satisfy under the state building code and the OIB Richtlinien, and which points remain open), **Richtlinien-Monitoring** (a weekly scan of RIS and the web for regulation changes relevant to the project), and an **OIB compliance gap check** (project documentation cross-checked against the applicable OIB Richtlinien). Each card shows a provenance-tinted icon, an honest description of what the research run produces, and a cadence hint derived from the template's real schedule. **Set up** opens the builder pre-filled with the template's brief, sources and schedule — a template never creates or runs anything by itself; you review and save. A dashed "More coming" card marks the end of the gallery.
+2. **Your workflows**: the configured workflows with enable switch, humanized schedule (incl. timezone), next/last run, run-now/edit/delete actions, and an expandable per-workflow run history linking to each run's report.
+
+Schedules are validated server-side: 5-field cron, per-workflow IANA timezone, and a minimum cadence of `GRID_WORKFLOW_MIN_INTERVAL_MINUTES` (default 15 minutes). Every run — scheduled or manual — is subject to the async-job admission caps; rejected occurrences appear as *skipped* runs in the history.
+
+Source: `frontends/ui/src/features/workflows/`, `frontends/ui/src/features/workflows/lib/templates.ts`
+
 ## Members and permissions
 
-The **Members** tab lists all organization members who have been assigned a project-level role via WorkOS FGA. Available roles:
+The **Members** section of the project **Settings** page (`/app/projects/{id}/settings`) lists all organization members who have been assigned a project-level role via WorkOS FGA. Available roles:
 
 | Role | Permission slug | Capabilities |
 |------|----------------|--------------|
@@ -60,8 +88,8 @@ Source: `frontends/ui/src/lib/authz/projects.ts:7`, `frontends/ui/src/app/api/pr
 
 ## Navigating between projects
 
-Use the **Projects** link in the main navigation or go to `/projects`. The projects page shows all projects in your organization as a card grid. Click a project card to view its documents. Use the **All Projects** link in any project's header to return to the list.
+Go to `/app/projects` (the wordmark in the sidebar links there). The projects home shows all projects in your organization as a card grid; clicking a card opens the project in the section you last used, and each card's gear icon opens that project's settings directly.
 
-On desktop, project sections (Overview, Chat, Files, Research, Members) are reached via the left sidebar rail; on small screens the rail is replaced by a slim top bar whose menu button opens the same navigation as a drawer.
+On desktop, project sections (Chat, Files, Workflows, Archiv, History, Settings) are reached via the left sidebar rail; on small screens the rail is replaced by a slim top bar whose menu button opens the same navigation as a drawer.
 
 The user's active project ID is stored in user preferences (upserted via `POST /api/user/preferences`).

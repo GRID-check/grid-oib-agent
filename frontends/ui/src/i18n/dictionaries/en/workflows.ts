@@ -9,10 +9,11 @@ export const workflows = {
   tryAgain: 'Try again',
 
   list: {
+    heading: 'Your workflows',
     empty: {
       title: 'No workflows yet',
       description:
-        'Create a workflow to save a research brief you want to run again — manually or on a recurring schedule.',
+        'Set up a template above or create a workflow from scratch to save a research brief you want to run again — manually or on a recurring schedule.',
       action: 'New workflow',
     },
     manualOnly: 'Manual only',
@@ -148,16 +149,47 @@ export const workflows = {
     },
   },
 
-  // GRID-authored default templates. Cards in the list, pre-fill the builder on
-  // selection — they never auto-create a workflow (the user reviews and saves).
+  // GRID-authored default templates — the always-visible gallery at the top of
+  // the Workflows page. Selecting a card pre-fills the builder; templates never
+  // auto-create or run a workflow (the user reviews and saves).
   templates: {
     badge: 'By GRID',
-    useTemplate: 'Use template',
-    fromTemplate: 'From template',
-    emptyHeading: 'Start from a GRID template',
-    emptyHint: 'Prefilled research briefs you can review, adjust and save.',
-    scheduleWeekly: 'Weekly',
-    scheduleManual: 'Manual',
+    heading: 'GRID templates',
+    hint: 'Prefilled research briefs — review, adjust and save. Nothing runs until you save the workflow.',
+    setUp: 'Set up',
+    setUpAria: 'Set up template “{name}”',
+    // Honest cadence hints derived from the template's real cron.
+    cadence: {
+      manual: 'On demand',
+      hourly: 'Runs hourly',
+      daily: 'Runs daily',
+      weekly: 'Runs weekly',
+      monthly: 'Runs monthly',
+      custom: 'Custom schedule ({cron})',
+    },
+    moreComing: {
+      title: 'More coming',
+      hint: 'Further GRID templates will appear here.',
+    },
+
+    submissionPrecheck: {
+      name: 'Submission pre-check',
+      description:
+        "Researches which requirements apply to this project's permit submission (state building code, OIB Richtlinien) and reports open points and missing evidence in a deep-research report.",
+      objective:
+        "Determine the requirements this project's permit submission (Einreichung) must satisfy — under the applicable state building code (Bauordnung) and the OIB Richtlinien — and report which points the project documentation already covers and which remain open.",
+      context:
+        "Use the project's documents to establish what is planned and what has already been prepared (drawings, reports, evidence). Use the OIB knowledge base and RIS (the Bauordnung and related ordinances of the project's Bundesland) as the normative basis. This is a preparatory research report for the planning team — it does not replace the authority's formal review of the submission.",
+      outputFormat:
+        'A checklist grouped by topic: requirement, legal basis (exact citation), status (covered / open / unclear), reference to the project document, recommended action. Close with a short summary of the biggest open points. Cite every requirement with its source.',
+      questions: {
+        q1: 'Which authority requirements and which submission documents (Einreichunterlagen) does the applicable state building code demand for this project type and location?',
+        q2: 'Which OIB requirements must the submission demonstrably address for this building class and use?',
+        q3: 'Which of these points does the current project documentation already cover? Cite the document.',
+        q4: 'Which points are open — missing documents, missing evidence, or unresolved contradictions?',
+        q5: 'What should the planning team prioritize before submitting, and are formal deviations (Abweichungen) foreseeable?',
+      },
+    },
 
     regulatoryWatch: {
       name: 'Regulatory watch: OIB & Austrian building law',

@@ -51,6 +51,12 @@ interface MainLayoutProps {
    */
   showConfidenceChip?: boolean
   /**
+   * Whether answers show the per-answer thumbs feedback row (WorkOS
+   * `answer-feedback` flag, WS-7). Threaded to ChatArea → AgentResponse.
+   * Defaults to true (fail-open) so existing callers/specs are unaffected.
+   */
+  showAnswerFeedback?: boolean
+  /**
    * Whether the sessions panel shows the Deep Research section and per-session
    * research labels (WorkOS `research-in-chat-history` flag, FB-10). Threaded to
    * SessionsPanel. Defaults to false so existing callers/specs are unaffected.
@@ -58,6 +64,8 @@ interface MainLayoutProps {
   showResearchInHistory?: boolean
   /** Qdrant collection scoping the Deep Research section's job fetch (FB-10). */
   projectCollection?: string | null
+  /** Active project name — thread-header breadcrumb + composer scope chip. */
+  projectName?: string | null
 }
 
 /**
@@ -70,8 +78,10 @@ export const MainLayout: FC<MainLayoutProps> = ({
   onSignIn,
   showSourceBadges = true,
   showConfidenceChip = true,
+  showAnswerFeedback = true,
   showResearchInHistory = false,
   projectCollection = null,
+  projectName = null,
 }) => {
   const {
     currentConversation,
@@ -187,6 +197,7 @@ export const MainLayout: FC<MainLayoutProps> = ({
     <div className="flex h-full min-w-0 flex-col overflow-hidden">
       <ChatToolbar
         sessionTitle={currentConversation?.title}
+        projectName={projectName ?? undefined}
         onNewSession={handleNewSession}
         isNewSessionDisabled={isNavigationBlocked}
       />
@@ -209,6 +220,7 @@ export const MainLayout: FC<MainLayoutProps> = ({
             isAuthenticated={isAuthenticated}
             onSignIn={onSignIn}
             showConfidenceChip={showConfidenceChip}
+            showAnswerFeedback={showAnswerFeedback}
           />
 
           {/* Floating composer stack: overlays the bottom of the chat scroll
@@ -220,7 +232,11 @@ export const MainLayout: FC<MainLayoutProps> = ({
             <NoSourcesBanner isAuthenticated={isAuthenticated} />
 
             {/* Input Area - Using WebSocket mode for full HITL (human-in-the-loop) support */}
-            <InputArea isAuthenticated={isAuthenticated} connectionMode="websocket" />
+            <InputArea
+              isAuthenticated={isAuthenticated}
+              connectionMode="websocket"
+              projectName={projectName ?? undefined}
+            />
           </div>
         </div>
 

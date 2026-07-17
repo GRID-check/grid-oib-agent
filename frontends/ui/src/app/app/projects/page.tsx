@@ -1,13 +1,11 @@
 import { and, asc, count, eq, isNull } from 'drizzle-orm'
-import { FolderOpen } from 'lucide-react'
 import { requireAuthorizedPageSession } from '@/lib/auth/require-auth'
 import { getNavFlags } from '@/lib/authz/nav'
 import { canManageCompliance } from '@/lib/authz/organizations'
 import { getDb } from '@/lib/db'
 import { documents, projects } from '@/lib/db/schema'
 import { ProjectsGrid } from '@/components/projects/projects-grid'
-import { CreateProjectDialog } from '@/components/projects/create-project-dialog'
-import { EmptyState } from '@/components/ui/empty-state'
+import { ArchivEntryCard } from '@/components/projects/archiv-entry-card'
 import { OrgTopbar } from '@/components/shell'
 import { RecentlyDeleted } from '@/features/projects/components/recently-deleted'
 import { getTranslations } from '@/i18n/server'
@@ -61,27 +59,15 @@ export default async function ProjectsPage({ searchParams }: ProjectsPageProps):
       />
 
       <main id="main-content" className="mx-auto w-full max-w-5xl flex-1 px-4 py-6 md:px-8 md:py-10">
-        <header className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-end">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">{t('list.heading')}</h1>
-            <p className="mt-1 text-sm text-muted-foreground">{t('list.description')}</p>
-          </div>
-          <CreateProjectDialog defaultOpen={autoOpenCreate} />
-        </header>
+        <ProjectsGrid projects={rows} docCounts={docCountByProject} autoOpenCreate={autoOpenCreate} />
 
-        <section className="mt-8">
-          {rows.length === 0 ? (
-            <EmptyState
-              icon={FolderOpen}
-              title={t('list.empty.title')}
-              description={t('list.empty.description')}
-              action={<CreateProjectDialog label={t('list.empty.action')} />}
-              className="min-h-96 justify-center"
-            />
-          ) : (
-            <ProjectsGrid projects={rows} docCounts={docCountByProject} />
-          )}
-        </section>
+        {/* Org-wide Archiv entry — gated server-side on the `organization-archiv`
+            flag, the same check the /app/archiv page enforces (ADR-0024). */}
+        {navFlags.canAccessArchiv && (
+          <section className="mt-8" aria-label={t('archivCard.title')}>
+            <ArchivEntryCard />
+          </section>
+        )}
 
         <RecentlyDeleted canManageCompliance={canManageCompliance(session)} />
       </main>

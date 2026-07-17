@@ -70,187 +70,239 @@ describe('FilePreviewPane', () => {
     expect(screen.queryByRole('button', { name: /open large preview/i })).toBeNull()
   })
 
-  it('renders the summary, page and chunk counts when present', () => {
-    render(
-      <FilePreviewPane
-        file={{
-          ...mockFile,
-          summary: 'A ground-floor plan of the east wing.',
-          pageCount: 4,
-          chunkCount: 12,
-        }}
-        projectId="proj-1"
-      />
-    )
-    expect(screen.getByText('Summary')).toBeDefined()
-    expect(screen.getByText('A ground-floor plan of the east wing.')).toBeDefined()
-    expect(screen.getByText('Pages')).toBeDefined()
-    expect(screen.getByText('4')).toBeDefined()
-    expect(screen.getByText('Passages')).toBeDefined()
-    expect(screen.getByText('12')).toBeDefined()
-  })
+  describe('"Indexed by GRID" panel', () => {
+    it('renders the AI summary, page and chunk counts inside the panel when present', () => {
+      render(
+        <FilePreviewPane
+          file={{
+            ...mockFile,
+            summary: 'A ground-floor plan of the east wing.',
+            pageCount: 4,
+            chunkCount: 12,
+          }}
+          projectId="proj-1"
+        />
+      )
+      expect(screen.getByText('Indexed by GRID')).toBeDefined()
+      expect(screen.getByText('A ground-floor plan of the east wing.')).toBeDefined()
+      expect(screen.getByText('Pages')).toBeDefined()
+      expect(screen.getByText('4')).toBeDefined()
+      expect(screen.getByText('Passages')).toBeDefined()
+      expect(screen.getByText('12')).toBeDefined()
+    })
 
-  it('hides the summary and count rows when the metadata is absent', () => {
-    render(<FilePreviewPane file={mockFile} projectId="proj-1" />)
-    expect(screen.queryByText('Summary')).toBeNull()
-    expect(screen.queryByText('Pages')).toBeNull()
-    expect(screen.queryByText('Passages')).toBeNull()
-  })
+    it('renders the HITL caption and the Updated row from real metadata', () => {
+      render(<FilePreviewPane file={mockFile} projectId="proj-1" />)
+      expect(
+        screen.getByText(/Automatically detected on upload — your corrections improve future answers\./)
+      ).toBeDefined()
+      expect(screen.getByText('Updated')).toBeDefined()
+    })
 
-  it('renders ingestion-generated tags as chips when present', () => {
-    render(
-      <FilePreviewPane
-        file={{ ...mockFile, tags: ['Grundriss', 'Brandschutz'] }}
-        projectId="proj-1"
-      />
-    )
-    expect(screen.getByText('Tags')).toBeDefined()
-    expect(screen.getByText('Grundriss')).toBeDefined()
-    expect(screen.getByText('Brandschutz')).toBeDefined()
-  })
+    it('shows the detected document type and project rows only from real metadata', () => {
+      render(
+        <FilePreviewPane
+          file={{ ...mockFile, tags: ['Grundriss', 'Brandschutz'] }}
+          projectId="proj-1"
+          projectName="Stadthaus Linz"
+        />
+      )
+      expect(screen.getByText('Document type')).toBeDefined()
+      // 'Grundriss' appears both as the Type value and as a tag chip.
+      expect(screen.getAllByText('Grundriss').length).toBeGreaterThanOrEqual(2)
+      expect(screen.getByText('Project')).toBeDefined()
+      expect(screen.getByText('Stadthaus Linz')).toBeDefined()
+    })
 
-  it('shows the tags block with a placeholder and edit affordance when there are no tags', () => {
-    render(<FilePreviewPane file={mockFile} projectId="proj-1" />)
-    // The block is now always present (with the flag on) so tags can be added.
-    expect(screen.getByText('Tags')).toBeDefined()
-    expect(screen.getByText('No tags')).toBeDefined()
-    expect(screen.getByRole('button', { name: /edit tags/i })).toBeDefined()
-  })
+    it('omits the document-type and project rows without the metadata', () => {
+      render(<FilePreviewPane file={mockFile} projectId="proj-1" />)
+      expect(screen.queryByText('Document type')).toBeNull()
+      expect(screen.queryByText('Project')).toBeNull()
+      expect(screen.queryByText('Pages')).toBeNull()
+      expect(screen.queryByText('Passages')).toBeNull()
+    })
 
-  it('does not offer the tags edit affordance when the flag is off', () => {
-    render(<FilePreviewPane file={mockFile} projectId="proj-1" showMetadataPanel={false} />)
-    expect(screen.queryByText('Tags')).toBeNull()
-    expect(screen.queryByRole('button', { name: /edit tags/i })).toBeNull()
-  })
+    it('hides the whole panel when the files-metadata-panel flag is off, keeping status/type/size', () => {
+      render(
+        <FilePreviewPane
+          file={{
+            ...mockFile,
+            summary: 'A ground-floor plan of the east wing.',
+            pageCount: 4,
+            chunkCount: 12,
+            contentTypes: ['text', 'table'],
+          }}
+          projectId="proj-1"
+          showMetadataPanel={false}
+        />
+      )
+      // The flag-gated panel is absent…
+      expect(screen.queryByText('Indexed by GRID')).toBeNull()
+      expect(screen.queryByText('A ground-floor plan of the east wing.')).toBeNull()
+      expect(screen.queryByText('Pages')).toBeNull()
+      expect(screen.queryByText('Passages')).toBeNull()
+      expect(screen.queryByText('Contents')).toBeNull()
+      // …but the pre-existing status/type/size rows stay (never gated).
+      expect(screen.getByText('Status')).toBeDefined()
+      expect(screen.getByText('Type')).toBeDefined()
+      expect(screen.getByText('Size')).toBeDefined()
+      expect(screen.getByText(/1\.0 MB/i)).toBeDefined()
+    })
 
-  it('edits tags via the popover: toggle, save, optimistic update, PATCH shape', async () => {
-    const user = userEvent.setup()
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, json: async () => ({}) } as Response)
+    it('shows content types only when the document holds more than plain text', () => {
+      const { rerender } = render(
+        <FilePreviewPane file={{ ...mockFile, contentTypes: ['text'] }} projectId="proj-1" />
+      )
+      // Text-only → no redundant contents row.
+      expect(screen.queryByText('Contents')).toBeNull()
 
-    render(<FilePreviewPane file={{ ...mockFile, tags: ['Grundriss'] }} projectId="proj-1" />)
-
-    await user.click(screen.getByRole('button', { name: /edit tags/i }))
-
-    // Grouped by Dokumenttyp / Fachbereich.
-    expect(await screen.findByText('Document type')).toBeDefined()
-    expect(screen.getByText('Discipline')).toBeDefined()
-
-    // Toggle a discipline tag on, then save.
-    await user.click(screen.getByRole('button', { name: 'Brandschutz', pressed: false }))
-    await user.click(screen.getByRole('button', { name: /^Save$/i }))
-
-    // Optimistic: the new chip is present immediately.
-    await waitFor(() => expect(screen.getByText('Brandschutz')).toBeDefined())
-
-    const tagsCall = fetchMock.mock.calls.find(([url]) => String(url) === '/api/documents/doc-1/tags')
-    expect(tagsCall).toBeDefined()
-    expect(tagsCall![1]).toMatchObject({ method: 'PATCH' })
-    expect(JSON.parse((tagsCall![1] as RequestInit).body as string)).toEqual({
-      tags: ['Grundriss', 'Brandschutz'],
+      rerender(
+        <FilePreviewPane file={{ ...mockFile, contentTypes: ['text', 'table'] }} projectId="proj-1" />
+      )
+      expect(screen.getByText('Contents')).toBeDefined()
+      expect(screen.getByText('Text, Tables')).toBeDefined()
     })
   })
 
-  it('notifies the parent with the saved tags after a successful PATCH', async () => {
-    const user = userEvent.setup()
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, json: async () => ({}) } as Response)
-    const onTagsUpdated = vi.fn()
+  describe('editable tags', () => {
+    it('renders ingestion-generated tags as chips when present', () => {
+      render(
+        <FilePreviewPane
+          file={{ ...mockFile, tags: ['Grundriss', 'Brandschutz'] }}
+          projectId="proj-1"
+        />
+      )
+      expect(screen.getByText('Tags')).toBeDefined()
+      // 'Grundriss' also appears as the detected document-type row value.
+      expect(screen.getByRole('button', { name: 'Remove tag Grundriss' })).toBeDefined()
+      expect(screen.getByRole('button', { name: 'Remove tag Brandschutz' })).toBeDefined()
+    })
 
-    render(
-      <FilePreviewPane file={{ ...mockFile, tags: ['Grundriss'] }} projectId="proj-1" onTagsUpdated={onTagsUpdated} />
-    )
+    it('offers the add-tag input when there are no tags yet', () => {
+      render(<FilePreviewPane file={mockFile} projectId="proj-1" />)
+      expect(screen.getByText('Tags')).toBeDefined()
+      expect(screen.getByRole('textbox', { name: /add tag/i })).toBeDefined()
+    })
 
-    await user.click(screen.getByRole('button', { name: /edit tags/i }))
-    await user.click(screen.getByRole('button', { name: 'Brandschutz', pressed: false }))
-    await user.click(screen.getByRole('button', { name: /^Save$/i }))
+    it('shows a read-only placeholder instead of the input when the viewer cannot manage', () => {
+      render(<FilePreviewPane file={mockFile} projectId="proj-1" canManage={false} />)
+      expect(screen.getByText('No tags')).toBeDefined()
+      expect(screen.queryByRole('textbox', { name: /add tag/i })).toBeNull()
+      expect(screen.queryByRole('button', { name: /remove tag/i })).toBeNull()
+    })
 
-    await waitFor(() =>
-      expect(onTagsUpdated).toHaveBeenCalledWith('doc-1', ['Grundriss', 'Brandschutz'])
-    )
-  })
+    it('hides tags entirely when the files-metadata-panel flag is off', () => {
+      render(
+        <FilePreviewPane
+          file={{ ...mockFile, tags: ['Grundriss', 'Brandschutz'] }}
+          projectId="proj-1"
+          showMetadataPanel={false}
+        />
+      )
+      expect(screen.queryByText('Tags')).toBeNull()
+      expect(screen.queryByText('Grundriss')).toBeNull()
+      expect(screen.queryByText('Brandschutz')).toBeNull()
+      expect(screen.queryByRole('textbox', { name: /add tag/i })).toBeNull()
+    })
 
-  it('does not notify the parent when the PATCH fails', async () => {
-    const user = userEvent.setup()
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: false, status: 500, json: async () => ({}) } as Response)
-    const onTagsUpdated = vi.fn()
+    it('adds a tag typed into the input on Enter: optimistic chip + PATCH shape', async () => {
+      const user = userEvent.setup()
+      const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, json: async () => ({}) } as Response)
 
-    render(
-      <FilePreviewPane file={{ ...mockFile, tags: ['Grundriss'] }} projectId="proj-1" onTagsUpdated={onTagsUpdated} />
-    )
+      render(<FilePreviewPane file={{ ...mockFile, tags: ['Grundriss'] }} projectId="proj-1" />)
 
-    await user.click(screen.getByRole('button', { name: /edit tags/i }))
-    await user.click(screen.getByRole('button', { name: 'Brandschutz', pressed: false }))
-    await user.click(screen.getByRole('button', { name: /^Save$/i }))
+      await user.type(screen.getByRole('textbox', { name: /add tag/i }), 'Brandschutz{Enter}')
 
-    await waitFor(() => expect(screen.getByText('Grundriss')).toBeDefined())
-    expect(onTagsUpdated).not.toHaveBeenCalled()
-  })
+      // Optimistic: the new chip is present immediately.
+      await waitFor(() => expect(screen.getByText('Brandschutz')).toBeDefined())
 
-  it('reverts the optimistic tag update when the PATCH fails', async () => {
-    const user = userEvent.setup()
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: false, status: 500, json: async () => ({}) } as Response)
+      const tagsCall = fetchMock.mock.calls.find(([url]) => String(url) === '/api/documents/doc-1/tags')
+      expect(tagsCall).toBeDefined()
+      expect(tagsCall![1]).toMatchObject({ method: 'PATCH' })
+      expect(JSON.parse((tagsCall![1] as RequestInit).body as string)).toEqual({
+        tags: ['Grundriss', 'Brandschutz'],
+      })
+    })
 
-    render(<FilePreviewPane file={{ ...mockFile, tags: ['Grundriss'] }} projectId="proj-1" />)
+    it('offers vocabulary suggestions while typing and adds one on click', async () => {
+      const user = userEvent.setup()
+      const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, json: async () => ({}) } as Response)
 
-    await user.click(screen.getByRole('button', { name: /edit tags/i }))
-    await user.click(screen.getByRole('button', { name: 'Grundriss', pressed: true }))
-    await user.click(screen.getByRole('button', { name: /^Save$/i }))
+      render(<FilePreviewPane file={{ ...mockFile, tags: [] }} projectId="proj-1" />)
 
-    // After the failed save, the original tag is restored and the added-none stays.
-    await waitFor(() => expect(screen.getByText('Grundriss')).toBeDefined())
-  })
+      await user.type(screen.getByRole('textbox', { name: /add tag/i }), 'schall')
+      await user.click(await screen.findByRole('button', { name: 'Schallschutz' }))
 
-  it('hides tags when the files-metadata-panel flag is off', () => {
-    render(
-      <FilePreviewPane
-        file={{ ...mockFile, tags: ['Grundriss', 'Brandschutz'] }}
-        projectId="proj-1"
-        showMetadataPanel={false}
-      />
-    )
-    expect(screen.queryByText('Tags')).toBeNull()
-    expect(screen.queryByText('Grundriss')).toBeNull()
-    expect(screen.queryByText('Brandschutz')).toBeNull()
-  })
+      await waitFor(() => expect(screen.getByText('Schallschutz')).toBeDefined())
+      const tagsCall = fetchMock.mock.calls.find(([url]) => String(url) === '/api/documents/doc-1/tags')
+      expect(JSON.parse((tagsCall![1] as RequestInit).body as string)).toEqual({ tags: ['Schallschutz'] })
+    })
 
-  it('hides the metadata block when the files-metadata-panel flag is off, keeping status/type/size', () => {
-    render(
-      <FilePreviewPane
-        file={{
-          ...mockFile,
-          summary: 'A ground-floor plan of the east wing.',
-          pageCount: 4,
-          chunkCount: 12,
-          contentTypes: ['text', 'table'],
-        }}
-        projectId="proj-1"
-        showMetadataPanel={false}
-      />
-    )
-    // The flag-gated metadata block is absent…
-    expect(screen.queryByText('Summary')).toBeNull()
-    expect(screen.queryByText('A ground-floor plan of the east wing.')).toBeNull()
-    expect(screen.queryByText('Pages')).toBeNull()
-    expect(screen.queryByText('Passages')).toBeNull()
-    expect(screen.queryByText('Contents')).toBeNull()
-    // …but the pre-existing status/type/size rows stay (never gated).
-    expect(screen.getByText('Status')).toBeDefined()
-    expect(screen.getByText('Type')).toBeDefined()
-    expect(screen.getByText('Size')).toBeDefined()
-    expect(screen.getByText(/1\.0 MB/i)).toBeDefined()
-  })
+    it('does not add free-form values outside the controlled vocabulary', async () => {
+      const user = userEvent.setup()
+      const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, json: async () => ({}) } as Response)
 
-  it('shows content types only when the document holds more than plain text', () => {
-    const { rerender } = render(
-      <FilePreviewPane file={{ ...mockFile, contentTypes: ['text'] }} projectId="proj-1" />
-    )
-    // Text-only → no redundant contents row.
-    expect(screen.queryByText('Contents')).toBeNull()
+      render(<FilePreviewPane file={{ ...mockFile, tags: [] }} projectId="proj-1" />)
 
-    rerender(
-      <FilePreviewPane file={{ ...mockFile, contentTypes: ['text', 'table'] }} projectId="proj-1" />
-    )
-    expect(screen.getByText('Contents')).toBeDefined()
-    expect(screen.getByText('Text, Tables')).toBeDefined()
+      await user.type(screen.getByRole('textbox', { name: /add tag/i }), 'made-up-tag{Enter}')
+
+      expect(screen.getByText(/no matching tag/i)).toBeDefined()
+      const tagsCall = fetchMock.mock.calls.find(([url]) => String(url) === '/api/documents/doc-1/tags')
+      expect(tagsCall).toBeUndefined()
+    })
+
+    it('removes a tag via its × affordance and PATCHes the remainder', async () => {
+      const user = userEvent.setup()
+      const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, json: async () => ({}) } as Response)
+
+      render(
+        <FilePreviewPane file={{ ...mockFile, tags: ['Grundriss', 'Brandschutz'] }} projectId="proj-1" />
+      )
+
+      await user.click(screen.getByRole('button', { name: 'Remove tag Brandschutz' }))
+
+      await waitFor(() => expect(screen.queryByText('Brandschutz')).toBeNull())
+      const tagsCall = fetchMock.mock.calls.find(([url]) => String(url) === '/api/documents/doc-1/tags')
+      expect(tagsCall![1]).toMatchObject({ method: 'PATCH' })
+      expect(JSON.parse((tagsCall![1] as RequestInit).body as string)).toEqual({ tags: ['Grundriss'] })
+    })
+
+    it('notifies the parent with the saved tags after a successful PATCH', async () => {
+      const user = userEvent.setup()
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, json: async () => ({}) } as Response)
+      const onTagsUpdated = vi.fn()
+
+      render(
+        <FilePreviewPane file={{ ...mockFile, tags: ['Grundriss'] }} projectId="proj-1" onTagsUpdated={onTagsUpdated} />
+      )
+
+      await user.type(screen.getByRole('textbox', { name: /add tag/i }), 'Brandschutz{Enter}')
+
+      await waitFor(() =>
+        expect(onTagsUpdated).toHaveBeenCalledWith('doc-1', ['Grundriss', 'Brandschutz'])
+      )
+    })
+
+    it('does not notify the parent and reverts the optimistic chip when the PATCH fails', async () => {
+      const user = userEvent.setup()
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: false, status: 500, json: async () => ({}) } as Response)
+      const onTagsUpdated = vi.fn()
+
+      render(
+        <FilePreviewPane file={{ ...mockFile, tags: ['Grundriss'] }} projectId="proj-1" onTagsUpdated={onTagsUpdated} />
+      )
+
+      await user.type(screen.getByRole('textbox', { name: /add tag/i }), 'Brandschutz{Enter}')
+
+      // Optimistic chip appears, then reverts once the PATCH failure lands.
+      // (Query the chip via its remove affordance — the plain text also occurs
+      // in the suggestion list while the input is focused.)
+      await waitFor(() =>
+        expect(screen.queryByRole('button', { name: 'Remove tag Brandschutz' })).toBeNull()
+      )
+      expect(screen.getByRole('button', { name: 'Remove tag Grundriss' })).toBeDefined()
+      expect(onTagsUpdated).not.toHaveBeenCalled()
+    })
   })
 
   it('surfaces the failure reason and a retry-ingestion affordance for failed documents', () => {

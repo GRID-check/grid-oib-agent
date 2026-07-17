@@ -1,0 +1,110 @@
+import { describe, expect, it } from 'vitest'
+import { extChipTint, fileExtensionLabel, inferDocumentKind } from './document-kind'
+
+describe('inferDocumentKind', () => {
+  describe('tag-based inference (controlled vocabulary wins)', () => {
+    it('maps the controlled tags onto their kinds', () => {
+      expect(inferDocumentKind({ filename: 'x.pdf', tags: ['Grundriss'] })).toBe('floorplan')
+      expect(inferDocumentKind({ filename: 'x.pdf', tags: ['Schnitt'] })).toBe('section')
+      expect(inferDocumentKind({ filename: 'x.pdf', tags: ['Ansicht'] })).toBe('section')
+      expect(inferDocumentKind({ filename: 'x.pdf', tags: ['Bebauungsplan'] })).toBe('siteplan')
+      expect(inferDocumentKind({ filename: 'x.pdf', tags: ['Flächenwidmungsplan'] })).toBe('siteplan')
+      expect(inferDocumentKind({ filename: 'x.pdf', tags: ['Bescheid'] })).toBe('notice')
+      expect(inferDocumentKind({ filename: 'x.pdf', tags: ['Foto'] })).toBe('photo')
+    })
+
+    it('prefers tags over filename heuristics', () => {
+      expect(
+        inferDocumentKind({ filename: 'grundriss_eg.pdf', tags: ['Bescheid'] })
+      ).toBe('notice')
+    })
+
+    it('skips non-distinctive tags and keeps scanning', () => {
+      expect(
+        inferDocumentKind({ filename: 'x.pdf', tags: ['Brandschutz', 'Schnitt'] })
+      ).toBe('section')
+    })
+
+    it('falls through to other signals when no tag matches', () => {
+      expect(inferDocumentKind({ filename: 'gutachten.pdf', tags: ['Gutachten'] })).toBe('document')
+    })
+  })
+
+  describe('content-type inference', () => {
+    it('treats any image/* content type as a photo', () => {
+      expect(inferDocumentKind({ filename: 'scan_001.tif', contentType: 'image/tiff' })).toBe('photo')
+      expect(inferDocumentKind({ filename: 'baustelle', contentType: 'image/jpeg' })).toBe('photo')
+    })
+  })
+
+  describe('filename heuristics', () => {
+    it('detects floor plans', () => {
+      expect(inferDocumentKind({ filename: 'Grundriss_EG.pdf' })).toBe('floorplan')
+      expect(inferDocumentKind({ filename: 'floor-plan-L2.pdf' })).toBe('floorplan')
+      expect(inferDocumentKind({ filename: 'einreichplan.pdf' })).toBe('floorplan')
+    })
+
+    it('detects sections and elevations', () => {
+      expect(inferDocumentKind({ filename: 'Schnitt_A-A.pdf' })).toBe('section')
+      expect(inferDocumentKind({ filename: 'ansicht-nord.pdf' })).toBe('section')
+    })
+
+    it('detects site plans before the generic plan pattern', () => {
+      expect(inferDocumentKind({ filename: 'Lageplan_1-500.pdf' })).toBe('siteplan')
+      expect(inferDocumentKind({ filename: 'site-plan.pdf' })).toBe('siteplan')
+      expect(inferDocumentKind({ filename: 'Bebauungsplan_7769.pdf' })).toBe('siteplan')
+      expect(inferDocumentKind({ filename: 'flaechenwidmung.pdf' })).toBe('siteplan')
+    })
+
+    it('detects official notices', () => {
+      expect(inferDocumentKind({ filename: 'Baubescheid_2025.pdf' })).toBe('notice')
+      expect(inferDocumentKind({ filename: 'baugenehmigung.pdf' })).toBe('notice')
+    })
+
+    it('detects photos by extension and name', () => {
+      expect(inferDocumentKind({ filename: 'IMG_2041.jpeg' })).toBe('photo')
+      expect(inferDocumentKind({ filename: 'baustellenfoto.pdf' })).toBe('photo')
+    })
+
+    it('defaults to a generic document', () => {
+      expect(inferDocumentKind({ filename: 'notes.txt' })).toBe('document')
+      expect(inferDocumentKind({ filename: 'vertrag_2024.docx', tags: [], contentType: null })).toBe(
+        'document'
+      )
+    })
+  })
+})
+
+describe('fileExtensionLabel', () => {
+  it('extracts and uppercases the extension', () => {
+    expect(fileExtensionLabel('plan.pdf')).toBe('PDF')
+    expect(fileExtensionLabel('archive.tar.gz')).toBe('GZ')
+    expect(fileExtensionLabel('Entwurf.DOCX')).toBe('DOCX')
+  })
+
+  it('returns an empty string when there is no extension', () => {
+    expect(fileExtensionLabel('README')).toBe('')
+    expect(fileExtensionLabel('')).toBe('')
+  })
+})
+
+describe('extChipTint', () => {
+  it('uses token-based CSS values only (no hex)', () => {
+    for (const ext of ['pdf', 'docx', 'dwg', 'ifc', 'jpg', 'zzz', '']) {
+      const tint = extChipTint(ext)
+      expect(tint.background).toMatch(/^var\(--/)
+      expect(tint.color).toMatch(/^var\(--/)
+      expect(tint.background).not.toMatch(/#/)
+      expect(tint.color).not.toMatch(/#/)
+    }
+  })
+
+  it('groups extensions sensibly and is case-insensitive', () => {
+    expect(extChipTint('PDF')).toEqual(extChipTint('docx'))
+    expect(extChipTint('dwg')).toEqual(extChipTint('ifc'))
+    expect(extChipTint('jpg')).toEqual(extChipTint('png'))
+    expect(extChipTint('pdf')).not.toEqual(extChipTint('dwg'))
+    // Unknown extensions get the neutral tint.
+    expect(extChipTint('zzz')).toEqual(extChipTint(''))
+  })
+})

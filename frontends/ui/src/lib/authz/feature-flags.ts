@@ -64,6 +64,12 @@ export const FEATURE_FLAGS = {
    *  `/archiv` nav entry + page, every BFF `/api/archiv/*` route, and the
    *  injection of the org archive collection into project retrieval scope. */
   orgArchiv: 'organization-archiv',
+  /** Per-answer thumbs feedback (WS-7, click-dummy overhaul spec §6): the
+   *  "Was this helpful?" row under assistant answers + the
+   *  `/api/feedback/answers` routes. A standard flag — fail-open while
+   *  enforcement is off; provision it default-off in WorkOS and target the
+   *  orgs that should collect feedback. */
+  answerFeedback: 'answer-feedback',
 } as const
 
 export type KnownFeatureFlag = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]

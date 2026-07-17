@@ -7,6 +7,7 @@
  * `page` deep-links via the standard `#page=N` viewer fragment.
  */
 
+import type { ReactNode } from 'react'
 import { ExternalLink } from 'lucide-react'
 import {
   Dialog,
@@ -39,9 +40,20 @@ export interface PdfViewerDialogProps {
    * standalone image uploads (FB-15a). The `#page=N` fragment does not apply.
    */
   isImage?: boolean
+  /**
+   * Optional chip rendered inline before the title (WS-9 source preview:
+   * the provenance-tinted document-type chip). Purely additive — omitted,
+   * the header renders exactly as before.
+   */
+  headerChip?: ReactNode
+  /**
+   * Optional content rendered between the header and the document frame
+   * (WS-9: the tinted "Fundstelle"/cited-passage box). Purely additive.
+   */
+  children?: ReactNode
 }
 
-export function PdfViewerDialog({ open, onOpenChange, fileName, page, title, src: srcOverride, isImage }: PdfViewerDialogProps) {
+export function PdfViewerDialog({ open, onOpenChange, fileName, page, title, src: srcOverride, isImage, headerChip, children }: PdfViewerDialogProps) {
   const t = useTranslations('knowledge')
   const baseSrc = srcOverride ?? `/api/knowledge-base/documents/${encodeURIComponent(fileName)}`
   const src = page && !isImage ? `${baseSrc}#page=${page}` : baseSrc
@@ -50,7 +62,10 @@ export function PdfViewerDialog({ open, onOpenChange, fileName, page, title, src
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex h-[85vh] w-[95vw] max-w-5xl flex-col gap-3 p-4 sm:p-5">
         <DialogHeader className="shrink-0 pr-8 text-left">
-          <DialogTitle className="truncate text-base">{title ?? fileName}</DialogTitle>
+          <DialogTitle className="flex items-center gap-2 text-base">
+            {headerChip}
+            <span className="min-w-0 truncate">{title ?? fileName}</span>
+          </DialogTitle>
           <DialogDescription className="flex items-center gap-3 text-xs">
             {t('viewer.description')}
             <a
@@ -64,6 +79,7 @@ export function PdfViewerDialog({ open, onOpenChange, fileName, page, title, src
             </a>
           </DialogDescription>
         </DialogHeader>
+        {children}
         {open &&
           (isImage ? (
             <div className="min-h-0 w-full flex-1 overflow-auto rounded-lg border border-border bg-surface-sunken">

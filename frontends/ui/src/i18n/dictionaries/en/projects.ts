@@ -25,14 +25,21 @@ export const projects = {
   card: {
     summaryFallback:
       'OIB/RIS building-compliance workspace. Add documents and a brief to ground Grid.',
-    updated: 'Updated {date}',
-    created: 'Created {date}',
-    active: 'Active',
-    draft: 'Draft',
+    status: {
+      active: 'Active',
+    },
+    lastActivity: 'Last activity',
     document: 'document',
     documents: 'documents',
     docLabel: '{count} {unit}',
     open: 'Open {name}',
+    settingsAria: 'Open settings for {name}',
+  },
+  archivCard: {
+    title: 'Archiv',
+    subtitle:
+      "Your office's organization-wide knowledge — shared documents and proven details, available in every project.",
+    aria: 'Open the organization-wide Archiv',
   },
   dialog: {
     newProject: 'New project',

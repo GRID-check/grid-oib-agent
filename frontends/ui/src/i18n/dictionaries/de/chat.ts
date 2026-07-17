@@ -5,6 +5,57 @@ export const chat: typeof en.chat = {
   actions: {
     dismiss: 'Schließen',
   },
+  sourcePreview: {
+    chipAria: 'Quelle ansehen: {label}',
+    view: 'Ansehen',
+    projectDocument: 'Projektunterlage',
+    corpusDocument: 'Baurecht & Richtlinien',
+    citedPassage: 'Fundstelle',
+    loadFailed: 'Die Quellenvorschau konnte nicht geladen werden. Bitte versuchen Sie es erneut.',
+    origins: {
+      kb: 'Projektwissen',
+      ris: 'Recht & Richtlinien (RIS)',
+      web: 'Webquelle',
+    },
+  },
+  composer: {
+    sources: 'Datengrundlage',
+    sourcesAria: 'Datengrundlage – {enabled} von {total} Quellen aktiv. Öffnet die Datenquellen.',
+    deepResearch: 'Deep Research',
+    deepResearchAria: 'Deep-Research-Präferenz',
+    deepResearchHint:
+      'Präferenz vermerkt – Grid eskaliert automatisch zu Deep Research, wenn eine Frage es erfordert.',
+    scopeAria: 'Suchbereich: {project}',
+    scopeFallback: 'Dieses Projekt',
+    scopeCurrent: 'Aktuelles Projekt',
+    scopeAll: 'Alle Projekte',
+    scopeAllSoon: 'Bald verfügbar – projektübergreifende Suche ist noch nicht möglich.',
+  },
+  shortcuts: {
+    label: 'Schnellzugriff',
+    presetAria: 'Quellen-Voreinstellung: {label}',
+    presets: {
+      law: 'Baurecht & Richtlinien',
+      project: 'Projektunterlagen',
+      office: 'Büroarchiv',
+    },
+  },
+  greeting: {
+    morning: 'Guten Morgen',
+    afternoon: 'Guten Tag',
+    evening: 'Guten Abend',
+    withName: '{greeting}, {name}',
+    subtitle: 'Fragen Sie zu Ihrem Projekt – Antworten belegen ihre Quellen.',
+  },
+  answerSources: {
+    label: 'Belegt durch',
+    ariaLabel: 'Quellen, auf die sich diese Antwort stützt',
+  },
+  breadcrumb: {
+    ariaLabel: 'Navigationspfad',
+    renameAria: 'Sitzung umbenennen – zum Bearbeiten klicken',
+    renameInputAria: 'Sitzungstitel',
+  },
   cards: {
     aiGenerated:
       'KI-generierte Zitierung — prüfen Sie den Auszug anhand der Primärquelle (OIB / RIS).',
@@ -226,5 +277,19 @@ export const chat: typeof en.chat = {
     ariaLabel: 'Selbsteinschätzung des Assistenten: {level}',
     tooltip:
       'Die eigene Einschätzung des Assistenten, wie gut diese Antwort durch seine Quellen gestützt ist. Sie kann falsch sein.',
+  },
+  // Antwort-Feedback per Daumen (WS-7, Feature-Flag `answer-feedback`).
+  feedback: {
+    question: 'War das hilfreich?',
+    helpfulAria: 'Diese Antwort als hilfreich markieren',
+    notHelpfulAria: 'Diese Antwort als nicht hilfreich markieren',
+    reasonPrompt: 'Was war das Problem?',
+    reasons: {
+      inaccurate: 'Ungenau',
+      too_slow: 'Zu langsam',
+      wrong_source: 'Falsche Quelle',
+      other: 'Sonstiges',
+    },
+    thanks: 'Danke für Ihr Feedback.',
   },
 }

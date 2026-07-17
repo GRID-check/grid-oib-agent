@@ -19,10 +19,13 @@ import { formatTime } from '@/shared/utils/format-time'
 import { useLayoutStore } from '@/features/layout/store'
 import { GridCards } from '@/features/grid-cards/components/GridCards'
 import type { GridCard } from '@/shared/cards/schemas'
+import type { CitationSource } from '../types'
 import { useChatStore } from '../store'
 import { useLoadJobData } from '../hooks'
+import { AnswerSourcesRow } from './AnswerSourcesRow'
 import { MemoryNotedChip } from './MemoryNotedChip'
 import { ConfidenceChip } from './ConfidenceChip'
+import { AnswerFeedback } from './AnswerFeedback'
 
 export interface AgentResponseProps {
   /** Response content from the agent */
@@ -41,6 +44,11 @@ export interface AgentResponseProps {
   deepResearchJobStatus?: 'submitted' | 'running' | 'success' | 'failure' | 'interrupted'
   /** Grid cards to render before the response content */
   cards?: GridCard[]
+  /**
+   * Citations already collected for this answer (deep-research path). Drives
+   * the "Belegt durch" chip row — renders nothing when absent (no fake chips).
+   */
+  citations?: CitationSource[]
   /** Conversation this response belongs to (for the "Grid noted N" memory chip) */
   conversationId?: string | null
   /** The assistant's guarded self-assessed answer confidence (shallow answers only) */
@@ -52,6 +60,18 @@ export interface AgentResponseProps {
    * are unaffected.
    */
   showConfidenceChip?: boolean
+  /**
+   * Client-side message identifier of this answer — keys the per-answer
+   * thumbs feedback row (WS-7). No feedback row renders when absent (e.g.
+   * legacy callers), so existing usages are unaffected.
+   */
+  messageId?: string
+  /**
+   * Whether the per-answer thumbs feedback row renders (WorkOS
+   * `answer-feedback` flag). Defaults to true (fail-open, matching the other
+   * flag props) — the row still requires a `messageId` to appear.
+   */
+  showAnswerFeedback?: boolean
 }
 
 /**
@@ -66,9 +86,12 @@ export const AgentResponse: FC<AgentResponseProps> = ({
   isDeepResearchActive = false,
   deepResearchJobStatus,
   cards,
+  citations,
   conversationId,
   answerConfidence,
   showConfidenceChip = true,
+  messageId,
+  showAnswerFeedback = true,
 }) => {
   const t = useTranslations('chat')
   const openRightPanel = useLayoutStore((s) => s.openRightPanel)
@@ -184,11 +207,19 @@ export const AgentResponse: FC<AgentResponseProps> = ({
           </div>
         )}
 
+        {/* "Belegt durch": provenance chips for sources this answer carries */}
+        <AnswerSourcesRow citations={citations} cards={cards} />
+
         {/* Footer chips: self-assessed confidence + what Grid recorded this turn */}
         <div className="flex flex-wrap items-center gap-2">
           {showConfidenceChip && <ConfidenceChip confidence={answerConfidence} />}
           <MemoryNotedChip projectId={projectId} conversationId={conversationId} />
         </div>
+
+        {/* Per-answer thumbs feedback (WS-7, `answer-feedback` flag) */}
+        {showAnswerFeedback && messageId && (
+          <AnswerFeedback messageId={messageId} conversationId={conversationId} className="mt-0.5" />
+        )}
 
         {/* Timestamp outside content, right-aligned */}
         {timestamp && (
@@ -238,6 +269,9 @@ export const AgentResponse: FC<AgentResponseProps> = ({
               </Button>
             </div>
           )}
+
+          {/* "Belegt durch": provenance chips for sources this answer carries */}
+          <AnswerSourcesRow citations={citations} cards={cards} />
         </div>
 
         {/* Footer chips: self-assessed confidence + what Grid recorded this turn */}
@@ -245,6 +279,11 @@ export const AgentResponse: FC<AgentResponseProps> = ({
           {showConfidenceChip && <ConfidenceChip confidence={answerConfidence} />}
           <MemoryNotedChip projectId={projectId} conversationId={conversationId} />
         </div>
+
+        {/* Per-answer thumbs feedback (WS-7, `answer-feedback` flag) */}
+        {showAnswerFeedback && messageId && (
+          <AnswerFeedback messageId={messageId} conversationId={conversationId} className="mt-1.5 px-1" />
+        )}
 
         {/* Timestamp outside bubble, right-aligned */}
         {timestamp && (
