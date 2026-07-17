@@ -2,10 +2,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   FEATURE_FLAGS,
   isFeatureEnabled,
-  isOrgArchivEnabled,
   isWorkflowsEnabled,
   requireFeature,
-  requireOrgArchivEnabled,
   requireWorkflowsEnabled,
 } from './feature-flags'
 
@@ -96,41 +94,32 @@ describe('isWorkflowsEnabled (dark-launch gate)', () => {
   })
 })
 
-describe('isOrgArchivEnabled (dark-launch gate, ADR-0024)', () => {
+describe('organization-archiv flag (standard WorkOS flag, ADR-0024)', () => {
   afterEach(() => {
     delete process.env.GRID_ENFORCE_FEATURE_FLAGS
-    delete process.env.GRID_ORG_ARCHIV_ENABLED
   })
 
   it('registry carries the organization-archiv slug', () => {
     expect(FEATURE_FLAGS.orgArchiv).toBe('organization-archiv')
   })
 
-  it('unenforced: default OFF, ignoring the JWT claim', () => {
-    expect(isOrgArchivEnabled({ featureFlags: [FEATURE_FLAGS.orgArchiv] })).toBe(false)
-    expect(isOrgArchivEnabled({ featureFlags: null })).toBe(false)
+  it('unenforced: available to all (fail-open like every flag) — no env var involved', () => {
+    expect(isFeatureEnabled({ featureFlags: null }, FEATURE_FLAGS.orgArchiv)).toBe(true)
+    expect(isFeatureEnabled({ featureFlags: [] }, FEATURE_FLAGS.orgArchiv)).toBe(true)
   })
 
-  it('unenforced: the GRID_ORG_ARCHIV_ENABLED env opt-in turns it on', () => {
-    process.env.GRID_ORG_ARCHIV_ENABLED = 'true'
-    expect(isOrgArchivEnabled({ featureFlags: [] })).toBe(true)
-    expect(isOrgArchivEnabled({ featureFlags: null })).toBe(true)
-  })
-
-  it('enforced: follows the per-org WorkOS flag, not the env var', () => {
+  it('enforced: gated per-org by the WorkOS flag claim', () => {
     process.env.GRID_ENFORCE_FEATURE_FLAGS = 'true'
-    process.env.GRID_ORG_ARCHIV_ENABLED = 'true' // ignored while enforcement is on
-    expect(isOrgArchivEnabled({ featureFlags: [FEATURE_FLAGS.orgArchiv] })).toBe(true)
-    expect(isOrgArchivEnabled({ featureFlags: [] })).toBe(false)
-    expect(isOrgArchivEnabled({ featureFlags: null })).toBe(false)
+    expect(isFeatureEnabled({ featureFlags: [FEATURE_FLAGS.orgArchiv] }, FEATURE_FLAGS.orgArchiv)).toBe(true)
+    expect(isFeatureEnabled({ featureFlags: [] }, FEATURE_FLAGS.orgArchiv)).toBe(false)
+    expect(isFeatureEnabled({ featureFlags: null }, FEATURE_FLAGS.orgArchiv)).toBe(false)
   })
 
-  it('requireOrgArchivEnabled: null when allowed, stable-coded 403 when off', async () => {
-    process.env.GRID_ORG_ARCHIV_ENABLED = 'true'
-    expect(requireOrgArchivEnabled({ featureFlags: [] })).toBeNull()
+  it('requireFeature: null when allowed, stable-coded 403 when off', async () => {
+    process.env.GRID_ENFORCE_FEATURE_FLAGS = 'true'
+    expect(requireFeature({ featureFlags: [FEATURE_FLAGS.orgArchiv] }, FEATURE_FLAGS.orgArchiv)).toBeNull()
 
-    delete process.env.GRID_ORG_ARCHIV_ENABLED
-    const res = requireOrgArchivEnabled({ featureFlags: [] })
+    const res = requireFeature({ featureFlags: [] }, FEATURE_FLAGS.orgArchiv)
     expect(res?.status).toBe(403)
     expect(await res?.json()).toEqual({ error: 'feature-disabled', feature: 'organization-archiv' })
   })

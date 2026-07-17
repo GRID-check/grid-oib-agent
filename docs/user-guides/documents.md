@@ -126,8 +126,8 @@ Archiv alongside its own documents and the base corpus, with no per-project
 re-upload. Any member can browse, preview, and download Archiv documents;
 uploading and deleting require the **`org:archiv:manage`** permission (org admins
 have it). It reuses the exact same upload/ingestion/preview experience as the
-project Files tab. The feature is dark-launched behind the `organization-archiv`
-flag (`GRID_ORG_ARCHIV_ENABLED` while flag enforcement is off).
+project Files tab. The feature is gated by the `organization-archiv` feature flag
+(available to all orgs while flag enforcement is off; targeted per-org once on).
 
 ---
 

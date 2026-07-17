@@ -118,8 +118,8 @@ the organization. It reuses the whole document pipeline: an Archiv document is a
 go through the **same** `/api/documents/{id}/*` routes above (those routes are
 scope-aware: for an `archiv` document they authorize at the org level instead of
 per-project FGA). Only the org-scoped list/upload/delete need their own routes.
-All routes are gated by the dark-launch `organization-archiv` flag
-(`GRID_ORG_ARCHIV_ENABLED` while enforcement is off); a disabled org gets `403 { error: 'feature-disabled' }`.
+All routes are gated by the `organization-archiv` feature flag (available to all
+while flag enforcement is off; per-org once on); a disabled org gets `403 { error: 'feature-disabled' }`.
 
 | Method | Path | Auth | Notes | Request | Response |
 |--------|------|------|-------|---------|----------|

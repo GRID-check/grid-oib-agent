@@ -58,9 +58,11 @@ authorization scope.
   permission-registry back-compat rule). The `/api/v1` proxy's collection-authz
   gains an `archiv_*` branch that verifies the collection is the caller-org's
   Archiv and the caller holds `org:archiv:manage`.
-- **Rollout.** Dark-launched behind the `organization-archiv` WorkOS feature
-  flag, with the `GRID_ORG_ARCHIV_ENABLED` env fallback while enforcement is off
-  — mirroring `isWorkflowsEnabled` / `isProjectKnowledgePageEnabled`.
+- **Rollout.** Gated by the `organization-archiv` WorkOS feature flag through the
+  standard `isFeatureEnabled` / `requireFeature` helpers (like
+  `runtime-model-config` / `deep-research`) — no bespoke env var. While
+  `GRID_ENFORCE_FEATURE_FLAGS` is off the flag fails open (available to all
+  orgs); once enforcement is on it is targeted per-org in WorkOS.
 
 ## Consequences
 

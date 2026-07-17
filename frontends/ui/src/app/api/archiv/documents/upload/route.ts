@@ -8,11 +8,11 @@
 
 import { apiRoute } from '@/lib/api/handler'
 import { BadRequestError } from '@/lib/api/errors'
-import { requireOrgArchivEnabled } from '@/lib/authz/feature-flags'
+import { FEATURE_FLAGS, requireFeature } from '@/lib/authz/feature-flags'
 import { uploadArchivDocument } from '@/lib/archiv/service'
 
 export const POST = apiRoute(async ({ session, request }) => {
-  const gated = requireOrgArchivEnabled(session)
+  const gated = requireFeature(session, FEATURE_FLAGS.orgArchiv)
   if (gated) return gated
 
   const formData = await request.formData()

@@ -7,7 +7,7 @@ import {
   computeCollectionScope,
   type ScopeContext,
 } from '@/lib/collection-scope'
-import { isOrgArchivEnabled } from '@/lib/authz/feature-flags'
+import { FEATURE_FLAGS, isFeatureEnabled } from '@/lib/authz/feature-flags'
 import { archivCollectionName } from '@/lib/archiv/collection'
 import type { AuthorizedSession, GridSession } from '@/lib/auth/types'
 
@@ -115,7 +115,7 @@ export async function buildCollectionScopeFromRequest(
   // org that has the feature enabled — this is what makes the Archiv "shared
   // across every project" (ADR-0024). Anonymous requests have no org, so none.
   const archivCollection =
-    session?.organizationId && !anonymous && isOrgArchivEnabled(session)
+    session?.organizationId && !anonymous && isFeatureEnabled(session, FEATURE_FLAGS.orgArchiv)
       ? archivCollectionName(session.organizationId)
       : undefined
 
