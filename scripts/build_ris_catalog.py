@@ -1,17 +1,31 @@
-"""Build configs/ris_catalog.yml from verified live OGD-RIS API data.
+"""Verify RIS seeds live against OGD-RIS and merge the pointers into the norm registry.
 
-Curates the building-relevant Austrian norms (Bauordnungen of all nine states,
-Bautechnik/Garagen state law, and adjacent federal acts) by searching the live
-OGD-RIS API v2.6 for each seed and recording the verified pointers (application,
-document number, citation URL, entire-consolidated-law URL, Bundesland).
+Successor of the old flat-catalog builder (which wrote configs/ris_catalog.yml).
+Seeds now live in ``configs/norms/<country>/seeds_ris.yml`` and the verified
+pointers (application, document number, citation URL, entire-consolidated-law
+URL, verified_at) are merged into ``configs/norms/<country>/registry.yml``.
+
+Merge semantics (ADR-0025):
+
+- Only the four RIS pointer fields plus ``verified_at`` are written. Curated
+  registry fields (rank, role, relations, aliases, applicability, access,
+  corpus editions) are NEVER clobbered.
+- A seed whose id is already in the registry updates the matching
+  ``kind: ris`` edition in place (or appends one when none exists).
+- A seed with an unknown id creates a SKELETON entry with an inferred rank
+  (LrKons+state -> landesgesetz, BrKons -> bundesgesetz) and a prominent
+  warning — a human must curate rank/role/relations afterwards.
+- Registry files are loaded and dumped with ruamel round-trip mode so the
+  hand-written comments survive a merge.
 
 Fails loudly: any seed without an unambiguous live hit aborts the build with a
-non-zero exit code and the catalog file is left untouched.
+non-zero exit code and the registry files are left untouched. After writing,
+the merged registry is re-loaded in strict mode (OIB id-convention check).
 
 Run (no project env needed):
 
     uv run --no-project --with httpx --with pydantic --with beautifulsoup4 \
-        --with pyyaml python scripts/build_ris_catalog.py
+        --with pyyaml --with ruamel.yaml python scripts/build_ris_catalog.py
 """
 
 from __future__ import annotations
@@ -30,21 +44,41 @@ import importlib.util  # noqa: E402
 
 import yaml  # noqa: E402
 from ris_adapter.client import RisClient  # noqa: E402
+from ruamel.yaml import YAML  # noqa: E402
 
 
-def _load_ris_catalog_module():
-    """Import ris_catalog.py standalone (the package __init__ pulls langgraph/nat)."""
-    module_path = REPO_ROOT / "src" / "aiq_agent" / "common" / "ris_catalog.py"
-    spec = importlib.util.spec_from_file_location("ris_catalog", module_path)
+def _standalone_module(module_name: str, module_path: Path):
+    spec = importlib.util.spec_from_file_location(module_name, module_path)
     module = importlib.util.module_from_spec(spec)
-    sys.modules["ris_catalog"] = module
+    sys.modules[module_name] = module
     spec.loader.exec_module(module)
     return module
 
 
-RisCatalog = _load_ris_catalog_module().RisCatalog
+def _load_norm_registry_module():
+    """Import norm_registry.py standalone (the package __init__ pulls langgraph/nat).
 
-CATALOG_PATH = REPO_ROOT / "configs" / "ris_catalog.yml"
+    Stubs the aiq_agent package chain and path-loads the country_packs modules
+    norm_registry depends on, in dependency order.
+    """
+    import types
+
+    common_dir = REPO_ROOT / "src" / "aiq_agent" / "common"
+    for package in ("aiq_agent", "aiq_agent.common", "aiq_agent.common.country_packs"):
+        if package not in sys.modules:
+            stub = types.ModuleType(package)
+            stub.__path__ = []  # package marker: no real __init__ is executed
+            sys.modules[package] = stub
+    packs_dir = common_dir / "country_packs"
+    _standalone_module("aiq_agent.common.country_packs.base", packs_dir / "base.py")
+    _standalone_module("aiq_agent.common.country_packs.at", packs_dir / "at.py")
+    _standalone_module("aiq_agent.common.country_packs", packs_dir / "__init__.py")
+    return _standalone_module("aiq_agent.common.norm_registry", common_dir / "norm_registry.py")
+
+
+_norm_registry = _load_norm_registry_module()
+
+NORMS_ROOT = REPO_ROOT / "configs" / "norms"
 
 _BUNDESLAND_PARAMS: dict[str, str] = {
     "Wien": "SucheInWien",
@@ -60,166 +94,29 @@ _BUNDESLAND_PARAMS: dict[str, str] = {
 
 _GESETZESNUMMER_RE = re.compile(r"Gesetzesnummer=(\d+)")
 
-# Each seed: the German Titel query, a substring the Kurztitel of the selected
-# hit must contain (guard against picking up a similarly-named law), plus the
-# curated topics/relevance the API cannot provide.
-SEEDS: list[dict] = [
-    # --- State building codes (LrKons) -------------------------------------
-    {
-        "id": "bo-wien",
-        "short": "BO für Wien",
-        "application": "LrKons",
-        "bundesland": "Wien",
-        "title_query": "Bauordnung für Wien",
-        "expect": "Bauordnung",
-        "topics": ["bauordnung", "bauantrag", "baubewilligung", "bauklasse", "widmung"],
-        "relevance": "Viennese building code (Stadtentwicklungs-, Stadtplanungs- und Baugesetzbuch)",
-    },
-    {
-        "id": "garagengesetz-wien",
-        "short": "Garagengesetz Wien",
-        "application": "LrKons",
-        "bundesland": "Wien",
-        "title_query": "Garagengesetz",
-        "expect": "Garagen",
-        "topics": ["garagengesetz", "garage", "stellplatz", "stellplatzverpflichtung", "kraftfahrzeugabstellplatz"],
-        "relevance": "Vienna: garage construction and parking-space obligations",
-    },
-    {
-        "id": "bo-noe",
-        "short": "NÖ BO 2014",
-        "application": "LrKons",
-        "bundesland": "Niederösterreich",
-        "title_query": "NÖ Bauordnung 2014",
-        "expect": "Bauordnung",
-        "exclude": ["Interpretation"],
-        "topics": ["bauordnung", "bauantrag", "baubewilligung", "bebauungsplan"],
-        "relevance": "Lower Austrian building code",
-    },
-    {
-        "id": "bo-ooe",
-        "short": "Oö. BauO 1994",
-        "application": "LrKons",
-        "bundesland": "Oberösterreich",
-        "title_query": "Oö. Bauordnung 1994",
-        "expect": "Bauordnung",
-        "topics": ["bauordnung", "bauantrag", "baubewilligung", "bautechnik"],
-        "relevance": "Upper Austrian building code",
-    },
-    {
-        "id": "bo-stmk",
-        "short": "Stmk. BauG",
-        "application": "LrKons",
-        "bundesland": "Steiermark",
-        "title_query": "Baugesetz Steiermark",
-        "expect": "Bau",
-        "topics": ["baugesetz", "bauordnung", "bauantrag", "baubewilligung"],
-        "relevance": "Styrian building act",
-    },
-    {
-        "id": "bo-ktn",
-        "short": "Ktn. BO",
-        "application": "LrKons",
-        "bundesland": "Kärnten",
-        "title_query": "Kärntner Bauordnung",
-        "expect": "Bauordnung",
-        "topics": ["bauordnung", "bauantrag", "baubewilligung"],
-        "relevance": "Carinthian building code",
-    },
-    {
-        "id": "bo-sbg",
-        "short": "Sbg. BTG",
-        "application": "LrKons",
-        "bundesland": "Salzburg",
-        "title_query": "Bautechnikgesetz",
-        "expect": "Bautechnikgesetz",
-        "topics": ["bautechnikgesetz", "bauordnung", "bauantrag", "baubewilligung"],
-        "relevance": "Salzburg building technics act (the Salzburg building code)",
-    },
-    {
-        "id": "bo-tirol",
-        "short": "Tiroler BO",
-        "application": "LrKons",
-        "bundesland": "Tirol",
-        "title_query": "Tiroler Bauordnung",
-        "expect": "Bauordnung",
-        "topics": ["bauordnung", "bauantrag", "baubewilligung"],
-        "relevance": "Tyrolean building code",
-    },
-    {
-        "id": "bo-vbg",
-        "short": "Vbg. BauG",
-        "application": "LrKons",
-        "bundesland": "Vorarlberg",
-        "title_query": "Baugesetz",
-        "expect": "Baugesetz",
-        "gesetzesnummer": "20000734",
-        "topics": ["baugesetz", "bauordnung", "bauantrag", "baubewilligung"],
-        "relevance": "Vorarlberg building act",
-    },
-    {
-        "id": "bo-bgld",
-        "short": "Bgld. BO",
-        "application": "LrKons",
-        "bundesland": "Burgenland",
-        "title_query": "Burgenländisches Baugesetz",
-        "expect": "Baugesetz",
-        "topics": ["bauordnung", "bauantrag", "baubewilligung"],
-        "relevance": "Burgenland building code",
-    },
-    # --- Adjacent federal law (BrKons) --------------------------------------
-    {
-        "id": "aschg",
-        "short": "ASchG",
-        "application": "BrKons",
-        "bundesland": "",
-        "title_query": "ArbeitnehmerInnenschutzgesetz",
-        "expect": "Arbeitnehmer",
-        "topics": ["arbeitnehmerinnenschutz", "arbeitsstätten", "baustelle", "arbeitssicherheit"],
-        "relevance": "Federal employee-protection act (workplace and construction-site safety)",
-    },
-    {
-        "id": "astv",
-        "short": "AStV",
-        "application": "BrKons",
-        "bundesland": "",
-        "title_query": "Arbeitsstättenverordnung",
-        "expect": "Arbeitsstätten",
-        "gesetzesnummer": "10009098",
-        "topics": ["arbeitsstättenverordnung", "arbeitsstätten", "fluchtweg", "notausgang"],
-        "relevance": "Workplace ordinance (dimensions, escape routes, sanitary facilities)",
-    },
-    {
-        "id": "bkag",
-        "short": "BKAG",
-        "application": "BrKons",
-        "bundesland": "",
-        "title_query": "Bauarbeitenkoordinationsgesetz",
-        "expect": "Bauarbeitenkoordination",
-        "topics": ["bauarbeitenkoordination", "baustellenkoordination", "sicherheitskoordinator", "sigeko"],
-        "relevance": "Construction-site coordination act (SiGeKo duties)",
-    },
-    {
-        "id": "ztg",
-        "short": "ZTG 2019",
-        "application": "BrKons",
-        "bundesland": "",
-        "title_query": "Ziviltechnikergesetz",
-        "expect": "Ziviltechniker",
-        "topics": ["ziviltechnikergesetz", "ziviltechniker", "baumeister", "architekt"],
-        "relevance": "Civil engineers act (professional duties of Baumeister/architects)",
-    },
-    {
-        "id": "wgg",
-        "short": "WGG",
-        "application": "BrKons",
-        "bundesland": "",
-        "title_query": "Wohnungsgemeinnützigkeitsgesetz",
-        "expect": "Wohnungsgemeinnützigkeits",
-        "topics": ["wohnungsgemeinnützigkeit", "gemeinnütziger wohnbau", "wohnbauförderung"],
-        "relevance": "Non-profit housing act (subsidised housing developers)",
-    },
-]
+# Seeds only verify RIS-sourced norms; everything else is curated by hand.
+_KONSOLIDIERT_LABEL = "Konsolidierte Fassung (laufend)"
+
+
+def _load_seeds(norms_root: Path) -> list[dict]:
+    """All per-country seeds, each tagged with its registry file and country."""
+    seeds: list[dict] = []
+    for seeds_path in sorted(norms_root.glob("*/seeds_ris.yml")):
+        data = yaml.safe_load(seeds_path.read_text(encoding="utf-8")) or {}
+        country = data.get("country")
+        if not country:
+            raise SystemExit(f"ERROR: {seeds_path} has no top-level 'country' key")
+        registry_path = seeds_path.parent / "registry.yml"
+        for seed in data.get("seeds") or []:
+            for key in ("id", "short", "application", "title_query", "expect"):
+                if not seed.get(key):
+                    raise SystemExit(f"ERROR: seed in {seeds_path} missing required key '{key}': {seed!r}")
+            seed["_country"] = country
+            seed["_registry_path"] = registry_path
+            seeds.append(seed)
+    if not seeds:
+        raise SystemExit(f"ERROR: no seeds found under {norms_root}/*/seeds_ris.yml")
+    return seeds
 
 
 def _pick_hit(seed: dict, hits) -> object:
@@ -250,7 +147,7 @@ def _pick_hit(seed: dict, hits) -> object:
 
 async def _verify_seed(client: RisClient, seed: dict) -> dict:
     params: dict[str, str] = {"Titel": seed["title_query"]}
-    if seed["bundesland"]:
+    if seed.get("bundesland"):
         params[f"Bundesland.{_BUNDESLAND_PARAMS[seed['bundesland']]}"] = "true"
     hits = []
     page = 1
@@ -270,33 +167,132 @@ async def _verify_seed(client: RisClient, seed: dict) -> dict:
     return {
         "id": seed["id"],
         "title": kurztitel,
-        "short": seed["short"],
         "application": seed["application"],
         "document_number": hit.document_number,
         "citation_url": hit.citation_url,
         "full_law_url": hit.full_law_url,
-        "bundesland": seed["bundesland"],
-        "topics": seed["topics"],
-        "relevance": seed["relevance"],
         "verified_at": date.today().isoformat(),
     }
 
 
+def _infer_rank(seed: dict) -> str:
+    if seed["application"] == "LrKons":
+        return "landesgesetz"
+    if seed["application"] == "BrKons":
+        return "bundesgesetz"
+    print(
+        f"WARNING: seed '{seed['id']}': application {seed['application']!r} has no rank inference - using 'verordnung'"
+    )
+    return "verordnung"
+
+
+def _skeleton_entry(seed: dict, verified: dict) -> dict:
+    state_token = _norm_registry.state_name_to_token(seed.get("bundesland") or None)
+    return {
+        "id": seed["id"],
+        "title": verified["title"],
+        "short": seed["short"],
+        "rank": _infer_rank(seed),
+        "role": "normativ",
+        "jurisdiction": {"country": seed["_country"], "state": state_token},
+        "topics": list(seed.get("topics") or []),
+        "relevance": seed.get("relevance") or "",
+        "editions": [
+            {
+                "id": "konsolidiert",
+                "label": _KONSOLIDIERT_LABEL,
+                "status": "current",
+                "source": {
+                    "kind": "ris",
+                    "application": verified["application"],
+                    "document_number": verified["document_number"],
+                    "citation_url": verified["citation_url"],
+                    "full_law_url": verified["full_law_url"],
+                },
+            }
+        ],
+        "verified_at": verified["verified_at"],
+    }
+
+
+def _merge_entry(entry: dict, verified: dict) -> None:
+    """Update the matching kind:ris edition in place; never touch curated fields."""
+    for edition in entry.get("editions") or []:
+        source = edition.get("source") or {}
+        if source.get("kind") == "ris" and source.get("application") == verified["application"]:
+            source["document_number"] = verified["document_number"]
+            source["citation_url"] = verified["citation_url"]
+            source["full_law_url"] = verified["full_law_url"]
+            break
+    else:
+        entry.setdefault("editions", []).append(
+            {
+                "id": "konsolidiert",
+                "label": _KONSOLIDIERT_LABEL,
+                "status": "current",
+                "source": {
+                    "kind": "ris",
+                    "application": verified["application"],
+                    "document_number": verified["document_number"],
+                    "citation_url": verified["citation_url"],
+                    "full_law_url": verified["full_law_url"],
+                },
+            }
+        )
+    entry["verified_at"] = verified["verified_at"]
+
+
+def _merge_into_registry(registry_path: Path, verified_by_id: dict[str, dict], seeds_by_id: dict[str, dict]) -> int:
+    ryaml = YAML()
+    if registry_path.is_file():
+        data = ryaml.load(registry_path.read_text(encoding="utf-8"))
+    else:
+        print(f"WARNING: {registry_path} does not exist — creating it (curate the header comment!)")
+        data = {"version": 1, "country": next(iter(seeds_by_id.values()))["_country"], "entries": []}
+    entries = data.setdefault("entries", [])
+    by_id = {entry.get("id"): entry for entry in entries}
+    skeletons = 0
+    for entry_id, verified in verified_by_id.items():
+        entry = by_id.get(entry_id)
+        if entry is None:
+            seed = seeds_by_id[entry_id]
+            entries.append(_skeleton_entry(seed, verified))
+            skeletons += 1
+            print(
+                f"WARNING: seed '{entry_id}' was not in {registry_path.name} — created a SKELETON entry "
+                "(inferred rank, no relations). Curate rank/role/relations/applicability by hand."
+            )
+        else:
+            _merge_entry(entry, verified)
+    text_path = registry_path
+    with text_path.open("w", encoding="utf-8") as handle:
+        ryaml.dump(data, handle)
+    return skeletons
+
+
 async def _main() -> None:
+    seeds = _load_seeds(NORMS_ROOT)
     client = RisClient()
     try:
-        entries = [await _verify_seed(client, seed) for seed in SEEDS]
+        verified = [await _verify_seed(client, seed) for seed in seeds]
     finally:
         await client.aclose()
-    catalog = RisCatalog.model_validate({"version": 1, "entries": entries})
-    header = (
-        "# Curated RIS catalog — verified pointers to the building-relevant Austrian norms.\n"
-        "# REGENERATE, do not hand-edit: scripts/build_ris_catalog.py (verifies every entry\n"
-        "# against the live OGD-RIS API and fails loudly on unverifiable seeds).\n"
+    # Group per registry file (a file only gets rewritten when one of its seeds ran).
+    per_file: dict[Path, dict[str, dict]] = {}
+    seeds_by_file: dict[Path, dict[str, dict]] = {}
+    for seed, ver in zip(seeds, verified, strict=True):
+        path = seed["_registry_path"]
+        per_file.setdefault(path, {})[seed["id"]] = ver
+        seeds_by_file.setdefault(path, {})[seed["id"]] = seed
+    total_skeletons = 0
+    for path, verified_by_id in per_file.items():
+        total_skeletons += _merge_into_registry(path, verified_by_id, seeds_by_file[path])
+    # Strict reload catches id-convention violations and schema drift in the merged files.
+    _norm_registry.load_registry(str(NORMS_ROOT), strict=True)
+    print(
+        f"\nMerged {len(verified)} verified RIS pointer(s) into {len(per_file)} registry file(s)"
+        + (f" — {total_skeletons} SKELETON entr(ies) need curation!" if total_skeletons else "")
     )
-    body = yaml.safe_dump(catalog.model_dump(), allow_unicode=True, sort_keys=False, width=120)
-    CATALOG_PATH.write_text(header + body, encoding="utf-8")
-    print(f"\nWrote {len(entries)} verified entries to {CATALOG_PATH}")
 
 
 if __name__ == "__main__":

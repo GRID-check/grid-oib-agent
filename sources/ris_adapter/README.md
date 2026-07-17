@@ -11,19 +11,25 @@ OGD-RIS is an open-government-data service.
 |------|---------|---------|
 | RIS search | `ris_search` | Search federal law (`BrKons`, `BgblAuth`, …), state law (`LrKons`, …), and case law (`Vfgh`, `Vwgh`, `Justiz`, `Bvwg`, `Lvwg`, …). Returns document references with citation URLs. |
 | RIS document fetch | `ris_fetch_document` | Fetch an **entire document on demand** — a law paragraph, a complete consolidated law (`GesamteRechtsvorschrift`), or a court decision — and return its full text to the agent. |
-| RIS catalog lookup | `ris_catalog_lookup` | Topic search in the **curated RIS index** — verified pointers to the building-relevant norms, no keyword guessing. |
+| RIS catalog lookup | `ris_catalog_lookup` | Topic search in the **norm registry** — verified pointers plus rank/role/relations for the building-relevant norms, no keyword guessing. |
 
-### Curated RIS index (deterministic pointers)
+### Norm registry (deterministic pointers + legal metadata)
 
 Live `ris_search` is keyword-blind: it guesses one of ~40 OGD-RIS application
-silos and fires a full-text query. The curated index removes the guesswork for
-the core building-law corpus: `configs/ris_catalog.yml` (override via the
-`RIS_CATALOG_PATH` env var) maps building-law topics to **verified** RIS
-pointers — application, document number, citation URL, entire-consolidated-law
-URL, Bundesland — covering the nine state building codes (Bauordnungen /
-Baugesetze / Bautechnikgesetze), the Wiener Garagengesetz, and adjacent federal
-acts (ASchG, AStV, BKAG, ZTG, WGG). It is a **pointer index only**: full texts
-are still fetched live with `ris_fetch_document`.
+silos and fires a full-text query. The norm registry (ADR-0025) removes the
+guesswork for the core building-law corpus: `configs/norms/<country>/registry.yml`
+(env override `GRID_NORMS_DIR`) is the typed spine for every known legal
+document — rank, role, editions (corpus file or **verified** RIS pointer:
+application, document number, citation URL, entire-consolidated-law URL),
+relations, applicability rules. Austria ships 38 entries: the nine state
+building codes (Bauordnungen / Baugesetze / Bautechnikgesetze), the Wiener
+Garagengesetz, adjacent federal acts (ASchG, AStV, BKAG, ZTG, WGG) — and the
+full OIB corpus (Richtlinien, Leitfäden, Erläuterungen, Referenzdokumente with
+their editions and roles). It is a **pointer index only** for RIS documents:
+full texts are still fetched live with `ris_fetch_document`. The legacy flat
+`configs/ris_catalog.yml` is retired; the `ris_catalog` module remains as a
+backward-compatible shim (`RIS_CATALOG_PATH` still honored with a deprecation
+warning).
 
 Three consumers, all fail-open (missing/invalid catalog → today's live-search
 behavior with a warning):
@@ -33,9 +39,10 @@ behavior with a warning):
    query has no case-law signal (VwGH, Erkenntnis, …), the tool returns the
    verified pointers directly — no HTTP call, no planner LLM.
 2. **`ris_catalog_lookup`**: explicit topic search in the catalog for the agent.
-3. **Prompt block**: `aiq_agent.common.ris_catalog.render_block_for_prompt`
-   renders the index (federal first, then the project's Bundesland) into the
-   shallow/deep researcher prompts.
+3. **Prompt block**: `aiq_agent.common.norm_registry.render_block_for_prompt`
+   renders the norm registry — lane-grouped by rank (Bundesrecht → Landesrecht,
+   project state first → OIB-Richtlinien with role/edition annotations →
+   Referenz → externe Normen) — into the shallow/deep researcher prompts.
 
 **Jurisdiction-aware matching.** Building law is state law, and the nine state
 codes all match generic topics like "bauordnung", so both tool consumers
@@ -49,12 +56,14 @@ text. A project explicitly outside Austria (`ausserhalb_oesterreichs`) gets no
 state prioritization. An explicit non-default `application` argument narrows
 the short-circuit's pointers to that application.
 
-The catalog is generated — **do not hand-edit**. Rebuild/re-verify every entry
-against the live API (fails loudly on unverifiable seeds):
+The registry (`configs/norms/<country>/registry.yml`, ADR-0025) is curated by
+hand; the RIS pointers inside it are re-verified against the live API and merged
+back (never clobbering curated fields; fails loudly on unverifiable seeds). New
+seeds go into `configs/norms/<country>/seeds_ris.yml`:
 
 ```bash
 uv run --no-project --with httpx --with pydantic --with beautifulsoup4 \
-    --with pyyaml python scripts/build_ris_catalog.py
+    --with pyyaml --with ruamel.yaml python scripts/build_ris_catalog.py
 ```
 
 ### On-demand documents as knowledge sources

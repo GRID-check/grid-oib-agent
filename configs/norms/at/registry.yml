@@ -1,0 +1,967 @@
+# Norm registry — Austria (at). The typed spine for building-relevant norms.
+# RIS-sourced entries are verified live by scripts/build_ris_catalog.py (merge mode:
+# it refreshes document_number/URLs/verified_at and never clobbers curated fields).
+# OIB corpus entries are hand-curated against data/oib/ (the registry is the contract
+# for what gets ingested — see spec docs/superpowers/specs/2026-07-17-norm-registry-design.md).
+version: 1
+country: at
+entries:
+  # --- Landesrecht (RIS) ---------------------------------------------------
+- id: bo-wien
+  title: Bauordnung für Wien
+  short: BO für Wien
+  rank: landesgesetz
+  role: normativ
+  jurisdiction: {country: at, state: wien}
+  topics: [bauordnung, bauantrag, baubewilligung, bauklasse, widmung]
+  relevance: Viennese building code (Stadtentwicklungs-, Stadtplanungs- und 
+    Baugesetzbuch)
+  editions:
+  - id: konsolidiert
+    label: Konsolidierte Fassung (laufend)
+    status: current
+    source:
+      kind: ris
+      application: LrKons
+      document_number: LWI40000225
+      citation_url: https://www.ris.bka.gv.at/eli/lgbl/WI/1930/11/P0/LWI40000225
+      full_law_url: 
+        https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=LrW&Gesetzesnummer=20000006
+  verified_at: '2026-07-17'
+- id: garagengesetz-wien
+  title: Wiener Garagengesetz 2008
+  short: Garagengesetz Wien
+  rank: landesgesetz
+  role: normativ
+  jurisdiction: {country: at, state: wien}
+  topics: [garagengesetz, garage, stellplatz, stellplatzverpflichtung, 
+      kraftfahrzeugabstellplatz]
+  relevance: 'Vienna: garage construction and parking-space obligations'
+  editions:
+  - id: konsolidiert
+    label: Konsolidierte Fassung (laufend)
+    status: current
+    source:
+      kind: ris
+      application: LrKons
+      document_number: LWI40010002
+      citation_url: https://www.ris.bka.gv.at/eli/lgbl/WI/2009/34/P0/LWI40010002
+      full_law_url: 
+        https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=LrW&Gesetzesnummer=20000052
+  verified_at: '2026-07-17'
+- id: bo-noe
+  title: NÖ Bauordnung 2014
+  short: NÖ BO 2014
+  rank: landesgesetz
+  role: normativ
+  jurisdiction: {country: at, state: niederoesterreich}
+  topics: [bauordnung, bauantrag, baubewilligung, bebauungsplan]
+  relevance: Lower Austrian building code
+  editions:
+  - id: konsolidiert
+    label: Konsolidierte Fassung (laufend)
+    status: current
+    source:
+      kind: ris
+      application: LrKons
+      document_number: LNO40085504
+      citation_url: https://www.ris.bka.gv.at/eli/lgbl/NI/2015/1/P0/LNO40085504
+      full_law_url: 
+        https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=LrNO&Gesetzesnummer=20001079
+  verified_at: '2026-07-17'
+- id: bo-ooe
+  title: Oö. Bauordnung 1994
+  short: Oö. BauO 1994
+  rank: landesgesetz
+  role: normativ
+  jurisdiction: {country: at, state: oberoesterreich}
+  topics: [bauordnung, bauantrag, baubewilligung, bautechnik]
+  relevance: Upper Austrian building code
+  editions:
+  - id: konsolidiert
+    label: Konsolidierte Fassung (laufend)
+    status: current
+    source:
+      kind: ris
+      application: LrKons
+      document_number: LOO11000699
+      citation_url: https://www.ris.bka.gv.at/eli/lgbl/OB/1994/66/P0/LOO11000699
+      full_law_url: 
+        https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=LrOO&Gesetzesnummer=10000411
+  verified_at: '2026-07-17'
+- id: bo-stmk
+  title: Steiermärkisches Baugesetz
+  short: Stmk. BauG
+  rank: landesgesetz
+  role: normativ
+  jurisdiction: {country: at, state: steiermark}
+  topics: [baugesetz, bauordnung, bauantrag, baubewilligung]
+  relevance: Styrian building act
+  editions:
+  - id: konsolidiert
+    label: Konsolidierte Fassung (laufend)
+    status: current
+    source:
+      kind: ris
+      application: LrKons
+      document_number: LST40035828
+      citation_url: https://www.ris.bka.gv.at/eli/lgbl/ST/1995/59/P0/LST40035828
+      full_law_url: 
+        https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=LrStmk&Gesetzesnummer=20000070
+  verified_at: '2026-07-17'
+- id: bo-ktn
+  title: Kärntner Bauordnung 1996 - K-BO 1996
+  short: Ktn. BO
+  rank: landesgesetz
+  role: normativ
+  jurisdiction: {country: at, state: kaernten}
+  topics: [bauordnung, bauantrag, baubewilligung]
+  relevance: Carinthian building code
+  editions:
+  - id: konsolidiert
+    label: Konsolidierte Fassung (laufend)
+    status: current
+    source:
+      kind: ris
+      application: LrKons
+      document_number: LKT11000201
+      citation_url: https://www.ris.bka.gv.at/eli/lgbl/KA/1996/62/P0/LKT11000201
+      full_law_url: 
+        https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=LrK&Gesetzesnummer=10000201
+  verified_at: '2026-07-17'
+- id: bo-sbg
+  title: Salzburger Bautechnikgesetz 2015
+  short: Sbg. BTG
+  rank: landesgesetz
+  role: normativ
+  jurisdiction: {country: at, state: salzburg}
+  topics: [bautechnikgesetz, bauordnung, bauantrag, baubewilligung]
+  relevance: Salzburg building technics act (the Salzburg building code)
+  editions:
+  - id: konsolidiert
+    label: Konsolidierte Fassung (laufend)
+    status: current
+    source:
+      kind: ris
+      application: LrKons
+      document_number: LSB40029658
+      citation_url: https://www.ris.bka.gv.at/eli/lgbl/SA/2016/1/P0/LSB40029658
+      full_law_url: 
+        https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=LrSbg&Gesetzesnummer=20001000
+  verified_at: '2026-07-17'
+- id: bo-tirol
+  title: Bauordnung 2022, Tiroler
+  short: Tiroler BO
+  rank: landesgesetz
+  role: normativ
+  jurisdiction: {country: at, state: tirol}
+  topics: [bauordnung, bauantrag, baubewilligung]
+  relevance: Tyrolean building code
+  editions:
+  - id: konsolidiert
+    label: Konsolidierte Fassung (laufend)
+    status: current
+    source:
+      kind: ris
+      application: LrKons
+      document_number: LTI40047551
+      citation_url: https://www.ris.bka.gv.at/eli/lgbl/TI/2022/44/P0/LTI40047551
+      full_law_url: 
+        https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=LrT&Gesetzesnummer=20000911
+  verified_at: '2026-07-17'
+- id: bo-vbg
+  title: Baugesetz
+  short: Vbg. BauG
+  rank: landesgesetz
+  role: normativ
+  jurisdiction: {country: at, state: vorarlberg}
+  topics: [baugesetz, bauordnung, bauantrag, baubewilligung]
+  relevance: Vorarlberg building act
+  editions:
+  - id: konsolidiert
+    label: Konsolidierte Fassung (laufend)
+    status: current
+    source:
+      kind: ris
+      application: LrKons
+      document_number: LVB40009302
+      citation_url: https://www.ris.bka.gv.at/eli/lgbl/VO/2001/52/P0/LVB40009302
+      full_law_url: 
+        https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=LrVbg&Gesetzesnummer=20000734
+  verified_at: '2026-07-17'
+- id: bo-bgld
+  title: Burgenländisches Baugesetz 1997
+  short: Bgld. BO
+  rank: landesgesetz
+  role: normativ
+  jurisdiction: {country: at, state: burgenland}
+  topics: [bauordnung, bauantrag, baubewilligung]
+  relevance: Burgenland building code
+  editions:
+  - id: konsolidiert
+    label: Konsolidierte Fassung (laufend)
+    status: current
+    source:
+      kind: ris
+      application: LrKons
+      document_number: LBG40028940
+      citation_url: https://www.ris.bka.gv.at/eli/lgbl/BU/1998/10/P0/LBG40028940
+      full_law_url: 
+        https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=LrBgld&Gesetzesnummer=10000504
+  verified_at: '2026-07-17'
+  # --- Bundesrecht (RIS) ---------------------------------------------------
+- id: aschg
+  title: ArbeitnehmerInnenschutzgesetz
+  short: ASchG
+  rank: bundesgesetz
+  role: normativ
+  jurisdiction: {country: at, state: null}
+  topics: [arbeitnehmerinnenschutz, arbeitsstätten, baustelle, arbeitssicherheit]
+  relevance: Federal employee-protection act (workplace and construction-site 
+    safety)
+  editions:
+  - id: konsolidiert
+    label: Konsolidierte Fassung (laufend)
+    status: current
+    source:
+      kind: ris
+      application: BrKons
+      document_number: NOR40262244
+      citation_url: https://www.ris.bka.gv.at/eli/bgbl/1994/450/P0/NOR40262244
+      full_law_url: 
+        https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=Bundesnormen&Gesetzesnummer=10008910
+  verified_at: '2026-07-17'
+- id: astv
+  title: Arbeitsstättenverordnung
+  short: AStV
+  rank: verordnung
+  role: normativ
+  jurisdiction: {country: at, state: null}
+  topics: [arbeitsstättenverordnung, arbeitsstätten, fluchtweg, notausgang]
+  relevance: Workplace ordinance (dimensions, escape routes, sanitary 
+    facilities)
+  editions:
+  - id: konsolidiert
+    label: Konsolidierte Fassung (laufend)
+    status: current
+    source:
+      kind: ris
+      application: BrKons
+      document_number: NOR40166316
+      citation_url: 
+        https://www.ris.bka.gv.at/eli/bgbl/ii/1998/368/P0/NOR40166316
+      full_law_url: 
+        https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=Bundesnormen&Gesetzesnummer=10009098
+  verified_at: '2026-07-17'
+- id: bkag
+  title: Bauarbeitenkoordinationsgesetz
+  short: BKAG
+  rank: bundesgesetz
+  role: normativ
+  jurisdiction: {country: at, state: null}
+  topics: [bauarbeitenkoordination, baustellenkoordination, 
+      sicherheitskoordinator, sigeko]
+  relevance: Construction-site coordination act (SiGeKo duties)
+  editions:
+  - id: konsolidiert
+    label: Konsolidierte Fassung (laufend)
+    status: current
+    source:
+      kind: ris
+      application: BrKons
+      document_number: NOR30005856
+      citation_url: https://www.ris.bka.gv.at/eli/bgbl/i/1999/37/P0/NOR30005856
+      full_law_url: 
+        https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=Bundesnormen&Gesetzesnummer=10009146
+  verified_at: '2026-07-17'
+- id: ztg
+  title: Ziviltechnikergesetz 2019
+  short: ZTG 2019
+  rank: bundesgesetz
+  role: normativ
+  jurisdiction: {country: at, state: null}
+  topics: [ziviltechnikergesetz, ziviltechniker, baumeister, architekt]
+  relevance: Civil engineers act (professional duties of Baumeister/architects)
+  editions:
+  - id: konsolidiert
+    label: Konsolidierte Fassung (laufend)
+    status: current
+    source:
+      kind: ris
+      application: BrKons
+      document_number: NOR40271449
+      citation_url: https://www.ris.bka.gv.at/eli/bgbl/i/2019/29/P0/NOR40271449
+      full_law_url: 
+        https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=Bundesnormen&Gesetzesnummer=20010625
+  verified_at: '2026-07-17'
+- id: wgg
+  title: Wohnungsgemeinnützigkeitsgesetz
+  short: WGG
+  rank: bundesgesetz
+  role: normativ
+  jurisdiction: {country: at, state: null}
+  topics: [wohnungsgemeinnützigkeit, gemeinnütziger wohnbau, wohnbauförderung]
+  relevance: Non-profit housing act (subsidised housing developers)
+  editions:
+  - id: konsolidiert
+    label: Konsolidierte Fassung (laufend)
+    status: current
+    source:
+      kind: ris
+      application: BrKons
+      document_number: NOR11011774
+      citation_url: https://www.ris.bka.gv.at/eli/bgbl/1979/139/P0/NOR11011774
+      full_law_url: 
+        https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=Bundesnormen&Gesetzesnummer=10011509
+  verified_at: '2026-07-17'
+  # --- OIB-Richtlinien (Basis-Korpus) ---------------------------------------
+- id: oib-rl-1
+  title: OIB-Richtlinie 1 — Mechanische Festigkeit und Standsicherheit
+  short: OIB-RL 1
+  rank: oib_richtlinie
+  role: normativ
+  jurisdiction: {country: at, state: null}
+  aliases: [RL 1, Richtlinie 1]
+  topics: [standsicherheit, mechanische festigkeit, tragwerk]
+  editions:
+  - id: 2023-05
+    label: Ausgabe Mai 2023
+    status: current
+    source: {kind: corpus, file: oib-rl_1_ausgabe_mai_2023.pdf}
+  - id: 2023-05-aenderungen
+    label: Änderungen Ausgabe Mai 2023
+    status: current
+    role: diff
+    source: {kind: corpus, file: aenderungen_oib-rl_1_ausgabe_mai_2023.pdf}
+  verified_at: '2026-07-17'
+- id: oib-rl-2
+  title: OIB-Richtlinie 2 — Brandschutz
+  short: OIB-RL 2
+  rank: oib_richtlinie
+  role: normativ
+  jurisdiction: {country: at, state: null}
+  aliases: [RL 2, Richtlinie 2, Brandschutzrichtlinie]
+  topics: [brandschutz, fluchtweg, brandabschnitt, feuerwiderstand]
+  editions:
+  - id: 2023-05
+    label: Ausgabe Mai 2023
+    status: current
+    source: {kind: corpus, file: oib-rl_2_ausgabe_mai_2023.pdf}
+  - id: 2023-05-aenderungen
+    label: Änderungen Ausgabe Mai 2023
+    status: current
+    role: diff
+    source: {kind: corpus, file: aenderungen_oib-rl_2_ausgabe_mai_2023.pdf}
+  verified_at: '2026-07-17'
+- id: oib-rl-2.1
+  title: OIB-Richtlinie 2.1 — Brandschutz bei Betriebsbauten
+  short: OIB-RL 2.1
+  rank: oib_richtlinie
+  role: normativ
+  jurisdiction: {country: at, state: null}
+  aliases: [RL 2.1, Richtlinie 2.1]
+  topics: [brandschutz, betriebsbau, industriebau]
+  editions:
+  - id: 2023-05
+    label: Ausgabe Mai 2023
+    status: current
+    source: {kind: corpus, file: oib-rl_2.1_ausgabe_mai_2023.pdf}
+  - id: 2023-05-aenderungen
+    label: Änderungen Ausgabe Mai 2023
+    status: current
+    role: diff
+    source: {kind: corpus, file: aenderungen_oib-rl_2.1_ausgabe_mai_2023.pdf}
+  verified_at: '2026-07-17'
+- id: oib-rl-2.2
+  title: OIB-Richtlinie 2.2 — Brandschutz bei Garagen, überdachten Stellplätzen 
+    und Parkdecks
+  short: OIB-RL 2.2
+  rank: oib_richtlinie
+  role: normativ
+  jurisdiction: {country: at, state: null}
+  aliases: [RL 2.2, Richtlinie 2.2]
+  topics: [brandschutz, garage, stellplatz, parkdeck]
+  editions:
+  - id: 2023-05
+    label: Ausgabe Mai 2023
+    status: current
+    source: {kind: corpus, file: oib-rl_2.2_ausgabe_mai_2023.pdf}
+  - id: 2023-05-aenderungen
+    label: Änderungen Ausgabe Mai 2023
+    status: current
+    role: diff
+    source: {kind: corpus, file: aenderungen_oib-rl_2.2_ausgabe_mai_2023.pdf}
+  verified_at: '2026-07-17'
+- id: oib-rl-2.3
+  title: OIB-Richtlinie 2.3 — Brandschutz bei Gebäuden mit einem Fluchtniveau 
+    von mehr als 22 m
+  short: OIB-RL 2.3
+  rank: oib_richtlinie
+  role: normativ
+  jurisdiction: {country: at, state: null}
+  aliases: [RL 2.3, Richtlinie 2.3, Hochhausrichtlinie]
+  topics: [brandschutz, hochhaus, fluchtniveau]
+  editions:
+  - id: 2023-05
+    label: Ausgabe Mai 2023
+    status: current
+    source: {kind: corpus, file: oib-rl_2.3_ausgabe_mai_2023.pdf}
+  - id: 2023-05-aenderungen
+    label: Änderungen Ausgabe Mai 2023
+    status: current
+    role: diff
+    source: {kind: corpus, file: aenderungen_oib-rl_2.3_ausgabe_mai_2023.pdf}
+  verified_at: '2026-07-17'
+- id: oib-rl-3
+  title: OIB-Richtlinie 3 — Hygiene, Gesundheit und Umweltschutz
+  short: OIB-RL 3
+  rank: oib_richtlinie
+  role: normativ
+  jurisdiction: {country: at, state: null}
+  aliases: [RL 3, Richtlinie 3]
+  topics: [hygiene, gesundheit, umweltschutz, tageslicht, lüftung]
+  editions:
+  - id: 2023-05
+    label: Ausgabe Mai 2023
+    status: current
+    source: {kind: corpus, file: oib-rl_3_ausgabe_mai_2023.pdf}
+  - id: 2023-05-aenderungen
+    label: Änderungen Ausgabe Mai 2023
+    status: current
+    role: diff
+    source: {kind: corpus, file: aenderungen_oib-rl_3_ausgabe_mai_2023.pdf}
+  verified_at: '2026-07-17'
+- id: oib-rl-4
+  title: OIB-Richtlinie 4 — Nutzungssicherheit und Barrierefreiheit
+  short: OIB-RL 4
+  rank: oib_richtlinie
+  role: normativ
+  jurisdiction: {country: at, state: null}
+  aliases: [RL 4, Richtlinie 4]
+  topics: [nutzungssicherheit, barrierefreiheit, absturzsicherung]
+  editions:
+  - id: 2023-05
+    label: Ausgabe Mai 2023
+    status: current
+    source: {kind: corpus, file: oib-rl_4_ausgabe_mai_2023.pdf}
+  - id: 2023-05-aenderungen
+    label: Änderungen Ausgabe Mai 2023
+    status: current
+    role: diff
+    source: {kind: corpus, file: aenderungen_oib-rl_4_ausgabe_mai_2023.pdf}
+  verified_at: '2026-07-17'
+- id: oib-rl-5
+  title: OIB-Richtlinie 5 — Schallschutz
+  short: OIB-RL 5
+  rank: oib_richtlinie
+  role: normativ
+  jurisdiction: {country: at, state: null}
+  aliases: [RL 5, Richtlinie 5]
+  topics: [schallschutz, schall, trittschall, luftschall]
+  editions:
+  - id: 2023-05
+    label: Ausgabe Mai 2023
+    status: current
+    source: {kind: corpus, file: oib-rl_5_ausgabe_mai_2023.pdf}
+  - id: 2023-05-aenderungen
+    label: Änderungen Ausgabe Mai 2023
+    status: current
+    role: diff
+    source: {kind: corpus, file: aenderungen_oib-rl_5_ausgabe_mai_2023.pdf}
+  verified_at: '2026-07-17'
+- id: oib-rl-6
+  title: OIB-Richtlinie 6 — Energieeinsparung und Wärmeschutz
+  short: OIB-RL 6
+  rank: oib_richtlinie
+  role: normativ
+  jurisdiction: {country: at, state: null}
+  aliases: [RL 6, Richtlinie 6]
+  topics: [energieeinsparung, wärmeschutz, energieausweis, u-wert]
+  editions:
+  - id: 2023-05
+    label: Ausgabe Mai 2023
+    status: current
+    source: {kind: corpus, file: oib-rl_6_ausgabe_mai_2023.pdf}
+  - id: 2023-05-aenderungen
+    label: Änderungen Ausgabe Mai 2023
+    status: current
+    role: diff
+    source: {kind: corpus, file: aenderungen_oib-rl_6_ausgabe_mai_2023.pdf}
+  verified_at: '2026-07-17'
+  # --- OIB-Leitfäden (anwendend) --------------------------------------------
+- id: oib-rl-1-leitfaden
+  title: OIB-Richtlinie 1 — Leitfaden
+  short: OIB-RL 1 Leitfaden
+  rank: oib_leitfaden
+  role: anwendend
+  jurisdiction: {country: at, state: null}
+  aliases: [Leitfaden RL 1]
+  topics: [standsicherheit, leitfaden]
+  editions:
+  - id: 2023-05
+    label: Ausgabe Mai 2023
+    status: current
+    source: {kind: corpus, file: oib-rl_1_leitfaden_ausgabe_mai_2023.pdf}
+  - id: 2023-05-aenderungen
+    label: Änderungen Ausgabe Mai 2023
+    status: current
+    role: diff
+    source: {kind: corpus, file: 
+        aenderungen_oib-rl_1_leitfaden_ausgabe_mai_2023.pdf}
+  verified_at: '2026-07-17'
+- id: oib-rl-2-leitfaden
+  title: OIB-Richtlinie 2 — Leitfaden Brandschutz
+  short: OIB-RL 2 Leitfaden
+  rank: oib_leitfaden
+  role: anwendend
+  jurisdiction: {country: at, state: null}
+  aliases: [Leitfaden RL 2, Brandschutzleitfaden]
+  topics: [brandschutz, leitfaden]
+  editions:
+  - id: 2023-05
+    label: Ausgabe Mai 2023
+    status: current
+    source: {kind: corpus, file: oib-rl_2_leitfaden_ausgabe_mai_2023.pdf}
+  - id: 2023-05-aenderungen
+    label: Änderungen Ausgabe Mai 2023
+    status: current
+    role: diff
+    source: {kind: corpus, file: 
+        aenderungen_oib-rl_2_leitfaden_ausgabe_mai_2023.pdf}
+  verified_at: '2026-07-17'
+- id: oib-rl-6-leitfaden
+  title: OIB-Richtlinie 6 — Leitfaden Energieeinsparung und Wärmeschutz
+  short: OIB-RL 6 Leitfaden
+  rank: oib_leitfaden
+  role: anwendend
+  jurisdiction: {country: at, state: null}
+  aliases: [Leitfaden RL 6]
+  topics: [energieeinsparung, wärmeschutz, leitfaden]
+  editions:
+  - id: 2023-05
+    label: Ausgabe Mai 2023
+    status: current
+    source: {kind: corpus, file: oib-rl_6-leitfaden_ausgabe_mai_2023.pdf}
+  - id: 2023-05-aenderungen
+    label: Änderungen Ausgabe Mai 2023
+    status: current
+    role: diff
+    source: {kind: corpus, file: 
+        aenderungen_oib-rl_6-leitfaden_ausgabe_mai_2023.pdf}
+  verified_at: '2026-07-17'
+  # --- OIB-Erläuterungen (erklaerend) ----------------------------------------
+- id: oib-rl-1-erlaeuterungen
+  title: OIB-Richtlinie 1 — Erläuterungen
+  short: OIB-RL 1 Erläuterungen
+  rank: oib_erklaerung
+  role: erklaerend
+  jurisdiction: {country: at, state: null}
+  topics: [standsicherheit, erläuterungen]
+  editions:
+  - id: 2023-05
+    label: Ausgabe Mai 2023
+    status: current
+    source: {kind: corpus, file: erlaeuterungen_oib-rl_1_ausgabe_mai_2023.pdf}
+  verified_at: '2026-07-17'
+- id: oib-rl-2-erlaeuterungen
+  title: OIB-Richtlinie 2 — Erläuterungen
+  short: OIB-RL 2 Erläuterungen
+  rank: oib_erklaerung
+  role: erklaerend
+  jurisdiction: {country: at, state: null}
+  topics: [brandschutz, erläuterungen]
+  editions:
+  - id: 2023-05
+    label: Ausgabe Mai 2023
+    status: current
+    source: {kind: corpus, file: erlaeuterungen_oib-rl_2_ausgabe_mai_2023.pdf}
+  verified_at: '2026-07-17'
+- id: oib-rl-2.1-erlaeuterungen
+  title: OIB-Richtlinie 2.1 — Erläuterungen
+  short: OIB-RL 2.1 Erläuterungen
+  rank: oib_erklaerung
+  role: erklaerend
+  jurisdiction: {country: at, state: null}
+  topics: [brandschutz, betriebsbau, erläuterungen]
+  editions:
+  - id: 2023-05
+    label: Ausgabe Mai 2023
+    status: current
+    source: {kind: corpus, file: erlaeuterungen_oib-rl_2.1_ausgabe_mai_2023.pdf}
+  verified_at: '2026-07-17'
+- id: oib-rl-2.2-erlaeuterungen
+  title: OIB-Richtlinie 2.2 — Erläuterungen
+  short: OIB-RL 2.2 Erläuterungen
+  rank: oib_erklaerung
+  role: erklaerend
+  jurisdiction: {country: at, state: null}
+  topics: [brandschutz, garage, erläuterungen]
+  editions:
+  - id: 2023-05
+    label: Ausgabe Mai 2023
+    status: current
+    source: {kind: corpus, file: erlaeuterungen_oib-rl_2.2_ausgabe_mai_2023.pdf}
+  verified_at: '2026-07-17'
+- id: oib-rl-2.3-erlaeuterungen
+  title: OIB-Richtlinie 2.3 — Erläuterungen
+  short: OIB-RL 2.3 Erläuterungen
+  rank: oib_erklaerung
+  role: erklaerend
+  jurisdiction: {country: at, state: null}
+  topics: [brandschutz, hochhaus, erläuterungen]
+  editions:
+  - id: 2023-05
+    label: Ausgabe Mai 2023
+    status: current
+    source: {kind: corpus, file: erlaeuterungen_oib-rl_2.3_ausgabe_mai_2023.pdf}
+  verified_at: '2026-07-17'
+- id: oib-rl-3-erlaeuterungen
+  title: OIB-Richtlinie 3 — Erläuterungen
+  short: OIB-RL 3 Erläuterungen
+  rank: oib_erklaerung
+  role: erklaerend
+  jurisdiction: {country: at, state: null}
+  topics: [hygiene, erläuterungen]
+  editions:
+  - id: 2023-05
+    label: Ausgabe Mai 2023
+    status: current
+    source: {kind: corpus, file: erlaeuterungen_oib-rl_3_ausgabe_mai_2023.pdf}
+  verified_at: '2026-07-17'
+- id: oib-rl-4-erlaeuterungen
+  title: OIB-Richtlinie 4 — Erläuterungen
+  short: OIB-RL 4 Erläuterungen
+  rank: oib_erklaerung
+  role: erklaerend
+  jurisdiction: {country: at, state: null}
+  topics: [nutzungssicherheit, barrierefreiheit, erläuterungen]
+  editions:
+  - id: 2023-05
+    label: Ausgabe Mai 2023
+    status: current
+    source: {kind: corpus, file: erlaeuterungen_oib-rl_4_ausgabe_mai_2023.pdf}
+  verified_at: '2026-07-17'
+- id: oib-rl-5-erlaeuterungen
+  title: OIB-Richtlinie 5 — Erläuterungen
+  short: OIB-RL 5 Erläuterungen
+  rank: oib_erklaerung
+  role: erklaerend
+  jurisdiction: {country: at, state: null}
+  topics: [schallschutz, erläuterungen]
+  editions:
+  - id: 2023-05
+    label: Ausgabe Mai 2023
+    status: current
+    source: {kind: corpus, file: erlaeuterungen_oib-rl_5_ausgabe_mai_2023.pdf}
+  verified_at: '2026-07-17'
+- id: oib-rl-6-erlaeuterungen
+  title: OIB-Richtlinie 6 — Erläuterungen
+  short: OIB-RL 6 Erläuterungen
+  rank: oib_erklaerung
+  role: erklaerend
+  jurisdiction: {country: at, state: null}
+  topics: [energieeinsparung, wärmeschutz, erläuterungen]
+  editions:
+  - id: 2023-05
+    label: Ausgabe Mai 2023
+    status: current
+    source: {kind: corpus, file: erlaeuterungen_oib-rl_6_ausgabe_mai_2023.pdf}
+  verified_at: '2026-07-17'
+  # --- OIB-Referenzdokumente --------------------------------------------------
+- id: oib-rl-begriffsbestimmungen
+  title: OIB-Richtlinien — Begriffsbestimmungen
+  short: OIB Begriffsbestimmungen
+  rank: oib_referenz
+  role: definierend
+  jurisdiction: {country: at, state: null}
+  aliases: [Begriffsbestimmungen, OIB Begriffe]
+  topics: [begriffsbestimmungen, definitionen, gebäudehöhe, geschoß]
+  editions:
+  - id: 2023-05
+    label: Ausgabe Mai 2023
+    status: current
+    source: {kind: corpus, file: 
+        oib-rl_begriffsbestimmungen_ausgabe_mai_2023.pdf}
+  - id: 2023-05-aenderungen
+    label: Änderungen Ausgabe Mai 2023
+    status: current
+    role: diff
+    source: {kind: corpus, file: 
+        aenderungen_oib-rl_begriffsbestimmungen_ausgabe_mai_2023.pdf}
+  verified_at: '2026-07-17'
+- id: oib-rl-zitierte-normen
+  title: OIB-Richtlinien — Zitierte Normen und sonstige technische Regelwerke
+  short: OIB Zitierte Normen
+  rank: oib_referenz
+  role: normativ
+  jurisdiction: {country: at, state: null}
+  aliases: [Zitierte Normen, OIB Normenliste]
+  topics: [zitierte normen, önorm, technische regelwerke, bezugsnormen]
+  editions:
+  - id: 2023-05
+    label: Ausgabe Mai 2023
+    status: superseded
+    source: {kind: corpus, file: 
+        oib-rl_zitierte_normen_und_sonstige_technische_regelwerke_ausgabe_mai_2023.pdf}
+  - id: 2023-05-rev.1
+    label: Ausgabe Mai 2023, Rev. 1
+    status: current
+    source: {kind: corpus, file: 
+        oib-rl_zitierte_normen_und_sonstige_technische_regelwerke_ausgabe_mai_2023_rev.1.pdf}
+  - id: 2023-05-aenderungen
+    label: Änderungen Ausgabe Mai 2023
+    status: superseded
+    role: diff
+    source: {kind: corpus, file: 
+        aenderungen_oib-rl_zitierte_normen_und_sonstige_technische_regelwerke_ausgabe_mai_2023.pdf}
+  - id: 2023-05-rev.1-aenderungen
+    label: Änderungen Ausgabe Mai 2023, Rev. 1
+    status: current
+    role: diff
+    source: {kind: corpus, file: 
+        aenderungen_oib-rl_zitierte_normen_und_sonstige_technische_regelwerke_ausgabe_mai_2023_rev.1.pdf}
+  verified_at: '2026-07-17'
+- id: wbtv
+  title: Wiener Bautechnikverordnung 2023
+  short: WBTV
+  rank: verordnung
+  role: normativ
+  jurisdiction:
+    country: at
+    state: wien
+  topics:
+  - bautechnikverordnung
+  - wbtv
+  - bautechnik
+  - bauvorschriften
+  - oib-richtlinien
+  relevance: Vienna building technics ordinance (declares the OIB-Richtlinien
+    binding for Vienna, with deviation annex)
+  relations:
+  - type: implements
+    target: bo-wien
+    status: verified
+    note: 'Präambel: auf Grund der §§ 118 Abs. 5 und 122 BauO Wien'
+  - type: declares_binding
+    target: oib-rl-1
+    status: unknown
+    note: 'WBTV § 1: die in den Anlagen enthaltenen OIB-Richtlinien sind einzuhalten
+      (Ausnahmen: Anl. 11 Pkt 2.1.5/2.1.6, Anl. 12 Pkt 5); § 2: Abweichung bei gleichem
+      Schutzniveau. Anlagen-Mapping und Ausgabe aus den Begleitdokumenten verifizieren.'
+  - type: declares_binding
+    target: oib-rl-2
+    status: unknown
+    note: 'WBTV § 1: die in den Anlagen enthaltenen OIB-Richtlinien sind einzuhalten
+      (Ausnahmen: Anl. 11 Pkt 2.1.5/2.1.6, Anl. 12 Pkt 5); § 2: Abweichung bei gleichem
+      Schutzniveau. Anlagen-Mapping und Ausgabe aus den Begleitdokumenten verifizieren.'
+  - type: declares_binding
+    target: oib-rl-2.1
+    status: unknown
+    note: 'WBTV § 1: die in den Anlagen enthaltenen OIB-Richtlinien sind einzuhalten
+      (Ausnahmen: Anl. 11 Pkt 2.1.5/2.1.6, Anl. 12 Pkt 5); § 2: Abweichung bei gleichem
+      Schutzniveau. Anlagen-Mapping und Ausgabe aus den Begleitdokumenten verifizieren.'
+  - type: declares_binding
+    target: oib-rl-2.2
+    status: unknown
+    note: 'WBTV § 1: die in den Anlagen enthaltenen OIB-Richtlinien sind einzuhalten
+      (Ausnahmen: Anl. 11 Pkt 2.1.5/2.1.6, Anl. 12 Pkt 5); § 2: Abweichung bei gleichem
+      Schutzniveau. Anlagen-Mapping und Ausgabe aus den Begleitdokumenten verifizieren.'
+  - type: declares_binding
+    target: oib-rl-2.3
+    status: unknown
+    note: 'WBTV § 1: die in den Anlagen enthaltenen OIB-Richtlinien sind einzuhalten
+      (Ausnahmen: Anl. 11 Pkt 2.1.5/2.1.6, Anl. 12 Pkt 5); § 2: Abweichung bei gleichem
+      Schutzniveau. Anlagen-Mapping und Ausgabe aus den Begleitdokumenten verifizieren.'
+  - type: declares_binding
+    target: oib-rl-3
+    status: unknown
+    note: 'WBTV § 1: die in den Anlagen enthaltenen OIB-Richtlinien sind einzuhalten
+      (Ausnahmen: Anl. 11 Pkt 2.1.5/2.1.6, Anl. 12 Pkt 5); § 2: Abweichung bei gleichem
+      Schutzniveau. Anlagen-Mapping und Ausgabe aus den Begleitdokumenten verifizieren.'
+  - type: declares_binding
+    target: oib-rl-4
+    status: unknown
+    note: 'WBTV § 1: die in den Anlagen enthaltenen OIB-Richtlinien sind einzuhalten
+      (Ausnahmen: Anl. 11 Pkt 2.1.5/2.1.6, Anl. 12 Pkt 5); § 2: Abweichung bei gleichem
+      Schutzniveau. Anlagen-Mapping und Ausgabe aus den Begleitdokumenten verifizieren.'
+  - type: declares_binding
+    target: oib-rl-5
+    status: unknown
+    note: 'WBTV § 1: die in den Anlagen enthaltenen OIB-Richtlinien sind einzuhalten
+      (Ausnahmen: Anl. 11 Pkt 2.1.5/2.1.6, Anl. 12 Pkt 5); § 2: Abweichung bei gleichem
+      Schutzniveau. Anlagen-Mapping und Ausgabe aus den Begleitdokumenten verifizieren.'
+  - type: declares_binding
+    target: oib-rl-6
+    status: unknown
+    note: 'WBTV § 1: die in den Anlagen enthaltenen OIB-Richtlinien sind einzuhalten
+      (Ausnahmen: Anl. 11 Pkt 2.1.5/2.1.6, Anl. 12 Pkt 5); § 2: Abweichung bei gleichem
+      Schutzniveau. Anlagen-Mapping und Ausgabe aus den Begleitdokumenten verifizieren.'
+  editions:
+  - id: konsolidiert
+    label: Konsolidierte Fassung (laufend)
+    status: current
+    source:
+      kind: ris
+      application: LrKons
+      document_number: LWI40016790
+      citation_url: https://www.ris.bka.gv.at/eli/lgbl/WI/2024/14/P0/LWI40016790
+      full_law_url:
+        https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=LrW&Gesetzesnummer=20000702
+  verified_at: '2026-07-17'
+- id: klgg-wien
+  title: Wiener Kleingartengesetz 1996
+  short: KlGG Wien
+  rank: landesgesetz
+  role: normativ
+  jurisdiction:
+    country: at
+    state: wien
+  topics:
+  - kleingartengesetz
+  - kleingarten
+  - schrebergarten
+  - kleingartenanlage
+  relevance: Vienna allotment-gardens act (Kleingartengebiet zoning trigger)
+  editions:
+  - id: konsolidiert
+    label: Konsolidierte Fassung (laufend)
+    status: current
+    source:
+      kind: ris
+      application: LrKons
+      document_number: LWI40010079
+      citation_url: https://www.ris.bka.gv.at/eli/lgbl/WI/1996/57/P0/LWI40010079
+      full_law_url: 
+        https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=LrW&Gesetzesnummer=20000061
+  verified_at: '2026-07-17'
+- id: dmsg
+  title: Denkmalschutzgesetz
+  short: DMSG
+  rank: bundesgesetz
+  role: normativ
+  jurisdiction:
+    country: at
+    state:
+  topics:
+  - denkmalschutz
+  - denkmalschutzgesetz
+  - denkmal
+  - bda
+  - ensembleschutz
+  relevance: Federal monuments-protection act (Denkmalschutz trigger)
+  editions:
+  - id: konsolidiert
+    label: Konsolidierte Fassung (laufend)
+    status: current
+    source:
+      kind: ris
+      application: BrKons
+      document_number: NOR40261002
+      citation_url: https://www.ris.bka.gv.at/eli/bgbl/1923/533/P0/NOR40261002
+      full_law_url: 
+        https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=Bundesnormen&Gesetzesnummer=10009184
+  verified_at: '2026-07-17'
+- id: uvpg
+  title: Umweltverträglichkeitsprüfungsgesetz 2000
+  short: UVP-G 2000
+  rank: bundesgesetz
+  role: normativ
+  jurisdiction:
+    country: at
+    state:
+  topics:
+  - umweltverträglichkeitsprüfung
+  - uvp
+  - umweltverträglichkeit
+  relevance: Federal environmental-impact assessment act
+  editions:
+  - id: konsolidiert
+    label: Konsolidierte Fassung (laufend)
+    status: current
+    source:
+      kind: ris
+      application: BrKons
+      document_number: NOR40209738
+      citation_url: https://www.ris.bka.gv.at/eli/bgbl/1993/697/P0/NOR40209738
+      full_law_url: 
+        https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=Bundesnormen&Gesetzesnummer=10010767
+  verified_at: '2026-07-17'
+- id: wrg
+  title: Wasserrechtsgesetz 1959
+  short: WRG 1959
+  rank: bundesgesetz
+  role: normativ
+  jurisdiction:
+    country: at
+    state:
+  topics:
+  - wasserrechtsgesetz
+  - wasserrecht
+  - gewässer
+  - hochwasser
+  relevance: Federal water-rights act
+  editions:
+  - id: konsolidiert
+    label: Konsolidierte Fassung (laufend)
+    status: current
+    source:
+      kind: ris
+      application: BrKons
+      document_number: NOR40191806
+      citation_url: https://www.ris.bka.gv.at/eli/bgbl/1959/215/P0/NOR40191806
+      full_law_url: 
+        https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=Bundesnormen&Gesetzesnummer=10010290
+  verified_at: '2026-07-17'
+- id: forstg
+  title: Forstgesetz 1975
+  short: ForstG 1975
+  rank: bundesgesetz
+  role: normativ
+  jurisdiction:
+    country: at
+    state:
+  topics:
+  - forstgesetz
+  - wald
+  - abholzung
+  - schutzwald
+  relevance: Federal forestry act (forest clearing / Schutzwald)
+  editions:
+  - id: konsolidiert
+    label: Konsolidierte Fassung (laufend)
+    status: current
+    source:
+      kind: ris
+      application: BrKons
+      document_number: NOR40256543
+      citation_url: https://www.ris.bka.gv.at/eli/bgbl/1975/440/P0/NOR40256543
+      full_law_url: 
+        https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=Bundesnormen&Gesetzesnummer=10010371
+  verified_at: '2026-07-17'
+- id: gewo
+  title: Gewerbeordnung 1994
+  short: GewO 1994
+  rank: bundesgesetz
+  role: normativ
+  jurisdiction:
+    country: at
+    state:
+  topics:
+  - gewerbeordnung
+  - betriebsanlage
+  - betriebsanlagengenehmigung
+  - gewerbeberechtigung
+  relevance: Federal trade code (§ 74 ff Betriebsanlagen — commercial facility 
+    permits)
+  editions:
+  - id: konsolidiert
+    label: Konsolidierte Fassung (laufend)
+    status: current
+    source:
+      kind: ris
+      application: BrKons
+      document_number: NOR11007641
+      citation_url: https://www.ris.bka.gv.at/eli/bgbl/1994/194/P0/NOR11007641
+      full_law_url: 
+        https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=Bundesnormen&Gesetzesnummer=10007517
+  verified_at: '2026-07-17'

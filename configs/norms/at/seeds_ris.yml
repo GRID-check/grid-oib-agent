@@ -1,0 +1,195 @@
+# RIS verification seeds for scripts/build_ris_catalog.py (merge mode).
+# Each seed: the German Titel query, a substring the Kurztitel of the selected hit
+# must contain (`expect`, guard against similarly-named laws), optional `exclude`
+# substrings and a `gesetzesnummer` pin, plus the curated topics/relevance the API
+# cannot provide. The build script verifies every seed live against OGD-RIS and
+# merges document_number/URLs/verified_at into registry.yml — curated registry
+# fields (rank, role, relations, aliases, applicability) are never clobbered.
+version: 1
+country: at
+seeds:
+  # --- State building codes (LrKons) ---
+  - id: bo-wien
+    short: BO für Wien
+    application: LrKons
+    bundesland: Wien
+    title_query: Bauordnung für Wien
+    expect: Bauordnung
+    topics: [bauordnung, bauantrag, baubewilligung, bauklasse, widmung]
+    relevance: Viennese building code (Stadtentwicklungs-, Stadtplanungs- und Baugesetzbuch)
+  - id: garagengesetz-wien
+    short: Garagengesetz Wien
+    application: LrKons
+    bundesland: Wien
+    title_query: Garagengesetz
+    expect: Garagen
+    topics: [garagengesetz, garage, stellplatz, stellplatzverpflichtung, kraftfahrzeugabstellplatz]
+    relevance: 'Vienna: garage construction and parking-space obligations'
+  - id: bo-noe
+    short: NÖ BO 2014
+    application: LrKons
+    bundesland: Niederösterreich
+    title_query: NÖ Bauordnung 2014
+    expect: Bauordnung
+    exclude: [Interpretation]
+    topics: [bauordnung, bauantrag, baubewilligung, bebauungsplan]
+    relevance: Lower Austrian building code
+  - id: bo-ooe
+    short: Oö. BauO 1994
+    application: LrKons
+    bundesland: Oberösterreich
+    title_query: Oö. Bauordnung 1994
+    expect: Bauordnung
+    topics: [bauordnung, bauantrag, baubewilligung, bautechnik]
+    relevance: Upper Austrian building code
+  - id: bo-stmk
+    short: Stmk. BauG
+    application: LrKons
+    bundesland: Steiermark
+    title_query: Baugesetz Steiermark
+    expect: Bau
+    topics: [baugesetz, bauordnung, bauantrag, baubewilligung]
+    relevance: Styrian building act
+  - id: bo-ktn
+    short: Ktn. BO
+    application: LrKons
+    bundesland: Kärnten
+    title_query: Kärntner Bauordnung
+    expect: Bauordnung
+    topics: [bauordnung, bauantrag, baubewilligung]
+    relevance: Carinthian building code
+  - id: bo-sbg
+    short: Sbg. BTG
+    application: LrKons
+    bundesland: Salzburg
+    title_query: Bautechnikgesetz
+    expect: Bautechnikgesetz
+    topics: [bautechnikgesetz, bauordnung, bauantrag, baubewilligung]
+    relevance: Salzburg building technics act (the Salzburg building code)
+  - id: bo-tirol
+    short: Tiroler BO
+    application: LrKons
+    bundesland: Tirol
+    title_query: Tiroler Bauordnung
+    expect: Bauordnung
+    topics: [bauordnung, bauantrag, baubewilligung]
+    relevance: Tyrolean building code
+  - id: bo-vbg
+    short: Vbg. BauG
+    application: LrKons
+    bundesland: Vorarlberg
+    title_query: Baugesetz
+    expect: Baugesetz
+    gesetzesnummer: '20000734'
+    topics: [baugesetz, bauordnung, bauantrag, baubewilligung]
+    relevance: Vorarlberg building act
+  - id: bo-bgld
+    short: Bgld. BO
+    application: LrKons
+    bundesland: Burgenland
+    title_query: Burgenländisches Baugesetz
+    expect: Baugesetz
+    topics: [bauordnung, bauantrag, baubewilligung]
+    relevance: Burgenland building code
+  # --- Adjacent federal law (BrKons) ---
+  - id: aschg
+    short: ASchG
+    application: BrKons
+    bundesland: ''
+    title_query: ArbeitnehmerInnenschutzgesetz
+    expect: Arbeitnehmer
+    topics: [arbeitnehmerinnenschutz, arbeitsstätten, baustelle, arbeitssicherheit]
+    relevance: Federal employee-protection act (workplace and construction-site safety)
+  - id: astv
+    short: AStV
+    application: BrKons
+    bundesland: ''
+    title_query: Arbeitsstättenverordnung
+    expect: Arbeitsstätten
+    gesetzesnummer: '10009098'
+    topics: [arbeitsstättenverordnung, arbeitsstätten, fluchtweg, notausgang]
+    relevance: Workplace ordinance (dimensions, escape routes, sanitary facilities)
+  - id: bkag
+    short: BKAG
+    application: BrKons
+    bundesland: ''
+    title_query: Bauarbeitenkoordinationsgesetz
+    expect: Bauarbeitenkoordination
+    topics: [bauarbeitenkoordination, baustellenkoordination, sicherheitskoordinator, sigeko]
+    relevance: Construction-site coordination act (SiGeKo duties)
+  - id: ztg
+    short: ZTG 2019
+    application: BrKons
+    bundesland: ''
+    title_query: Ziviltechnikergesetz
+    expect: Ziviltechniker
+    topics: [ziviltechnikergesetz, ziviltechniker, baumeister, architekt]
+    relevance: Civil engineers act (professional duties of Baumeister/architects)
+  - id: wgg
+    short: WGG
+    application: BrKons
+    bundesland: ''
+    title_query: Wohnungsgemeinnützigkeitsgesetz
+    expect: Wohnungsgemeinnützigkeits
+    topics: [wohnungsgemeinnützigkeit, gemeinnütziger wohnbau, wohnbauförderung]
+    relevance: Non-profit housing act (subsidised housing developers)
+  # --- Vienna Verordnungen / Nebengesetze (Phase 1b coverage) ---
+  - id: wbtv
+    short: WBTV
+    application: LrKons
+    bundesland: Wien
+    title_query: Bautechnikverordnung
+    expect: Bautechnikverordnung
+    topics: [bautechnikverordnung, wbtv, bautechnik, bauvorschriften, oib-richtlinien]
+    relevance: Vienna building technics ordinance (declares the OIB-Richtlinien binding for Vienna, with deviation annex)
+  - id: klgg-wien
+    short: KlGG Wien
+    application: LrKons
+    bundesland: Wien
+    title_query: Kleingartengesetz
+    expect: Kleingarten
+    topics: [kleingartengesetz, kleingarten, schrebergarten, kleingartenanlage]
+    relevance: Vienna allotment-gardens act (Kleingartengebiet zoning trigger)
+  # --- Federal cluster (BrKons) ---
+  - id: dmsg
+    short: DMSG
+    application: BrKons
+    bundesland: ''
+    title_query: Denkmalschutzgesetz
+    expect: Denkmalschutz
+    topics: [denkmalschutz, denkmalschutzgesetz, denkmal, bda, ensembleschutz]
+    relevance: Federal monuments-protection act (Denkmalschutz trigger)
+  - id: uvpg
+    short: UVP-G 2000
+    application: BrKons
+    bundesland: ''
+    title_query: Umweltverträglichkeitsprüfungsgesetz
+    expect: Umweltverträglichkeitsprüfung
+    topics: [umweltverträglichkeitsprüfung, uvp, umweltverträglichkeit]
+    relevance: Federal environmental-impact assessment act
+  - id: wrg
+    short: WRG 1959
+    application: BrKons
+    bundesland: ''
+    title_query: Wasserrechtsgesetz
+    expect: Wasserrecht
+    gesetzesnummer: '10010290'
+    topics: [wasserrechtsgesetz, wasserrecht, gewässer, hochwasser]
+    relevance: Federal water-rights act
+  - id: forstg
+    short: ForstG 1975
+    application: BrKons
+    bundesland: ''
+    title_query: Forstgesetz
+    expect: Forstgesetz
+    topics: [forstgesetz, wald, abholzung, schutzwald]
+    relevance: Federal forestry act (forest clearing / Schutzwald)
+  - id: gewo
+    short: GewO 1994
+    application: BrKons
+    bundesland: ''
+    title_query: Gewerbeordnung
+    expect: Gewerbeordnung
+    gesetzesnummer: '10007517'
+    topics: [gewerbeordnung, betriebsanlage, betriebsanlagengenehmigung, gewerbeberechtigung]
+    relevance: Federal trade code (§ 74 ff Betriebsanlagen — commercial facility permits)

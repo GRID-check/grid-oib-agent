@@ -10,10 +10,13 @@ import pytest
 import yaml
 
 from aiq_agent import project_context as pc
+from aiq_agent.common.norm_registry import ENV_NORMS_DIR
+from aiq_agent.common.norm_registry import load_registry
 from aiq_agent.common.ris_catalog import KNOWN_APPLICATIONS
 from aiq_agent.common.ris_catalog import CatalogEntry
 from aiq_agent.common.ris_catalog import RisCatalog
 from aiq_agent.common.ris_catalog import _normalize
+from aiq_agent.common.ris_catalog import catalog_from_registry
 from aiq_agent.common.ris_catalog import extract_bundesland
 from aiq_agent.common.ris_catalog import focus_entries
 from aiq_agent.common.ris_catalog import load_catalog
@@ -341,16 +344,18 @@ class TestRenderBlockForPrompt:
         assert block.index("BO Tirol") < block.index("BO Wien")
 
 
-SHIPPED_CATALOG = Path(__file__).resolve().parents[3] / "configs" / "ris_catalog.yml"
+SHIPPED_NORMS_DIR = Path(__file__).resolve().parents[3] / "configs" / "norms"
+SHIPPED_REGISTRY = SHIPPED_NORMS_DIR / "at" / "registry.yml"
 
 
-class TestShippedCatalog:
-    """Schema + coverage guard for the curated catalog (regenerate: scripts/build_ris_catalog.py)."""
+class TestShippedRegistry:
+    """Schema + coverage guard for the shipped norm registry (RIS pointers: scripts/build_ris_catalog.py)."""
 
     def _catalog(self) -> RisCatalog:
-        assert SHIPPED_CATALOG.is_file(), "configs/ris_catalog.yml missing — run scripts/build_ris_catalog.py"
-        data = yaml.safe_load(SHIPPED_CATALOG.read_text(encoding="utf-8"))
-        return RisCatalog.model_validate(data)
+        assert SHIPPED_REGISTRY.is_file(), "configs/norms/at/registry.yml missing — norm registry migration incomplete"
+        registry = load_registry(str(SHIPPED_NORMS_DIR), strict=True)
+        assert registry is not None
+        return catalog_from_registry(registry)
 
     def test_validates_and_has_coverage(self):
         catalog = self._catalog()
@@ -390,8 +395,12 @@ class TestShippedCatalog:
             "Burgenland",
         }
 
-    def test_loader_accepts_shipped_file(self):
-        catalog = load_catalog(str(SHIPPED_CATALOG))
+    def test_loader_derives_shipped_view(self, monkeypatch):
+        monkeypatch.setenv(ENV_NORMS_DIR, str(SHIPPED_NORMS_DIR))
+        reset_catalog_cache()
 
+        catalog = load_catalog()
+
+        reset_catalog_cache()
         assert catalog is not None
         assert catalog.entries

@@ -1,44 +1,39 @@
-"""Curated RIS catalog: deterministic pointers to the building-relevant Austrian norms.
+"""Backward-compatible shim over ``aiq_agent.common.norm_registry``.
 
-RIS is the Rechtsinformationssystem des Bundes (Austrian federal legal information
-system). The live ``ris_search`` tool is keyword-blind: it guesses one of ~40 OGD-RIS
-application silos and fires a full-text query. This module provides the deterministic
-alternative — a curated, version-controlled pointer index
-(``configs/ris_catalog.yml``, override via the ``RIS_CATALOG_PATH`` env var) mapping
-building-law topics to exact RIS locations (application, NOR document number,
-citation URL, full-law URL, Bundesland scope).
+The curated RIS catalog (flat ``configs/ris_catalog.yml``) was superseded by the
+per-country norm registry (``configs/norms/<country>/registry.yml``) — see
+docs/superpowers/specs/2026-07-17-norm-registry-design.md and ADR-0025. This
+module keeps the old import path and API working:
 
-The catalog is a POINTER index only: full texts are still fetched live via
-``ris_fetch_document``. Consumers:
+- ``load_catalog()`` with an explicit path (or the deprecated ``RIS_CATALOG_PATH``
+  env var) still loads a legacy flat catalog file, with a deprecation warning.
+- ``load_catalog()`` without arguments derives the RIS-pointer view from the norm
+  registry (only entries with a ``kind: ris`` edition source appear).
+- Matching, Bundesland resolution, focus/sort, and the flat prompt block are
+  unchanged. New consumers should use ``norm_registry`` directly (lane rendering,
+  relations, roles/editions).
 
-- ``ris_catalog_lookup`` / ``ris_search`` (ris_adapter): tool-time lookup and
-  short-circuit,
-- the researcher agents: ``render_block_for_prompt`` injects the index into prompts.
-
-Everything here is fail-open: a missing or invalid catalog disables the feature with
-a warning and never breaks the existing live-search path.
+Everything here stays fail-open: a missing or invalid source disables the feature
+with a warning and never breaks the existing live-search path.
 """
 
 from __future__ import annotations
 
 import logging
 import os
-import re
+import warnings
 from functools import lru_cache
 from pathlib import Path
 
-import yaml
 from pydantic import BaseModel
 from pydantic import Field
-from pydantic import ValidationError
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_CATALOG_PATH = "configs/ris_catalog.yml"
 ENV_CATALOG_PATH = "RIS_CATALOG_PATH"
 
-# OGD-RIS applications the curated catalog may point into (subset of the applications
-# the adapter supports; see ris_adapter.client.CONTROLLER_FOR_APPLICATION).
+# Re-exported so existing imports keep working; norm_registry is the source of truth.
 KNOWN_APPLICATIONS = frozenset(
     {
         "BrKons",
@@ -59,46 +54,9 @@ KNOWN_APPLICATIONS = frozenset(
     }
 )
 
-# Canonical Bundesland names, in the order extract_bundesland probes them.
-_BUNDESLAENDER = (
-    "Wien",
-    "Niederösterreich",
-    "Oberösterreich",
-    "Steiermark",
-    "Kärnten",
-    "Salzburg",
-    "Tirol",
-    "Vorarlberg",
-    "Burgenland",
-)
-
-# Structured `bundesland` fact tokens (intake wizard vocabulary, see
-# frontends/ui/src/lib/project-profile/intake-definition.ts) -> canonical names.
-# `ausserhalb_oesterreichs` maps to None on purpose: the project is explicitly
-# outside Austria, so no state's law should be prioritized.
-_BUNDESLAND_TOKENS: dict[str, str | None] = {
-    "wien": "Wien",
-    "niederoesterreich": "Niederösterreich",
-    "oberoesterreich": "Oberösterreich",
-    "steiermark": "Steiermark",
-    "kaernten": "Kärnten",
-    "salzburg": "Salzburg",
-    "tirol": "Tirol",
-    "vorarlberg": "Vorarlberg",
-    "burgenland": "Burgenland",
-    "ausserhalb_oesterreichs": None,
-}
-
-# `- bundesland=wien` line from the structured project-context prompt view
-# (confirmed fact or backfilled assumption — both use the same line format).
-_STRUCTURED_BUNDESLAND_RE = re.compile(r"\bbundesland=([a-z_]+)")
-
-# Terms shorter than this never match (guards against noise words).
-_MIN_TOPIC_LENGTH = 4
-
 
 class CatalogEntry(BaseModel):
-    """One curated norm: a verified pointer into a RIS application."""
+    """One curated norm: a verified pointer into a RIS application (legacy flat view)."""
 
     id: str
     title: str
@@ -118,28 +76,62 @@ class RisCatalog(BaseModel):
     entries: list[CatalogEntry] = Field(default_factory=list)
 
 
+def _norm_registry():
+    """Lazy import: keeps this module importable standalone (build script)."""
+    from aiq_agent.common import norm_registry
+
+    return norm_registry
+
+
 def _normalize(text: str) -> str:
     """Lowercase and expand umlauts so matching tolerates spelling variants."""
     return text.strip().lower().replace("ä", "ae").replace("ö", "oe").replace("ü", "ue").replace("ß", "ss")
 
 
-def _catalog_path(path: str | None) -> Path:
-    return Path(path or os.environ.get(ENV_CATALOG_PATH, DEFAULT_CATALOG_PATH))
+def catalog_from_registry(registry) -> RisCatalog:
+    """Flatten a NormRegistry into the legacy RIS-pointer view.
+
+    Only entries with at least one ``kind: ris`` edition source appear; the
+    OIB corpus entries are corpus-sourced and not RIS pointers.
+    """
+    nr = _norm_registry()
+    entries: list[CatalogEntry] = []
+    for entry in registry.entries:
+        source = next((e.source for e in entry.editions if e.source.kind == "ris"), None)
+        if source is None or not source.application:
+            continue
+        entries.append(
+            CatalogEntry(
+                id=entry.id,
+                title=entry.title,
+                short=entry.short,
+                application=source.application,
+                document_number=source.document_number,
+                citation_url=source.citation_url,
+                full_law_url=source.full_law_url,
+                bundesland=nr.state_token_to_name(entry.jurisdiction.state) or "",
+                topics=list(entry.topics),
+                relevance=entry.relevance,
+                verified_at=entry.verified_at,
+            )
+        )
+    return RisCatalog(version=1, entries=entries)
 
 
-@lru_cache(maxsize=8)
-def _load_cached(resolved_path: str, mtime_ns: int) -> RisCatalog | None:
-    del mtime_ns  # cache key only: a regenerated catalog file invalidates itself
+def _load_legacy_file(resolved: Path) -> RisCatalog | None:
+    import yaml
+    from pydantic import ValidationError
+
     try:
-        raw = Path(resolved_path).read_text(encoding="utf-8")
+        raw = resolved.read_text(encoding="utf-8")
     except OSError:
-        logger.warning("ris_catalog: catalog file not readable at %s — catalog disabled", resolved_path)
+        logger.warning("ris_catalog: catalog file not readable at %s — catalog disabled", resolved)
         return None
     try:
         data = yaml.safe_load(raw)
         catalog = RisCatalog.model_validate(data)
     except (yaml.YAMLError, ValidationError) as exc:
-        logger.warning("ris_catalog: invalid catalog at %s (%s) — catalog disabled", resolved_path, exc)
+        logger.warning("ris_catalog: invalid catalog at %s (%s) — catalog disabled", resolved, exc)
         return None
     unknown = {entry.application for entry in catalog.entries} - KNOWN_APPLICATIONS
     if unknown:
@@ -150,19 +142,46 @@ def _load_cached(resolved_path: str, mtime_ns: int) -> RisCatalog | None:
     return catalog
 
 
+@lru_cache(maxsize=8)
+def _load_legacy_cached(resolved: str, mtime_ns: int) -> RisCatalog | None:
+    """mtime-keyed cache: a regenerated file (new mtime) is reloaded."""
+    del mtime_ns
+    return _load_legacy_file(Path(resolved))
+
+
 def load_catalog(path: str | None = None) -> RisCatalog | None:
-    """Load and validate the curated catalog; None when missing/invalid (fail-open)."""
-    resolved = _catalog_path(path)
-    try:
-        mtime_ns = resolved.stat().st_mtime_ns
-    except OSError:
-        mtime_ns = -1
-    return _load_cached(str(resolved), mtime_ns)
+    """Load the curated catalog; None when missing/invalid (fail-open).
+
+    Default source is the norm registry (configs/norms/*/registry.yml). An
+    explicit ``path`` or the deprecated ``RIS_CATALOG_PATH`` env var loads a
+    legacy flat catalog file instead (deprecation warning).
+    """
+    if path is None and os.environ.get(ENV_CATALOG_PATH):
+        path = os.environ[ENV_CATALOG_PATH]
+    if path is not None:
+        warnings.warn(
+            "RIS_CATALOG_PATH / explicit catalog paths are deprecated; migrate to the norm registry "
+            "(configs/norms/<country>/registry.yml, GRID_NORMS_DIR).",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        resolved = Path(path)
+        try:
+            mtime = resolved.stat().st_mtime_ns
+        except OSError:
+            mtime = -1
+        return _load_legacy_cached(str(resolved), mtime)
+    registry = _norm_registry().load_registry()
+    if registry is None:
+        return None
+    catalog = catalog_from_registry(registry)
+    return catalog if catalog.entries else None
 
 
 def reset_catalog_cache() -> None:
-    """Drop the cached catalog (tests, and after regenerating the catalog file)."""
-    _load_cached.cache_clear()
+    """Drop cached catalog/registry state (tests, and after regenerating files)."""
+    _load_legacy_cached.cache_clear()
+    _norm_registry().reset_registry_cache()
 
 
 def _entry_needles(entry: CatalogEntry) -> list[str]:
@@ -182,69 +201,20 @@ def match_entries(catalog: RisCatalog, query: str) -> list[CatalogEntry]:
     for entry in catalog.entries:
         for needle in _entry_needles(entry):
             term = _normalize(needle)
-            if len(term) >= _MIN_TOPIC_LENGTH and term in normalized_query:
+            if len(term) >= 4 and term in normalized_query:
                 matches.append(entry)
                 break
     return matches
 
 
 def extract_bundesland(text: str | None) -> str | None:
-    """The Bundesland the text points at, or None.
-
-    Pure text-matching, with no awareness of the structured envelope field —
-    see ``resolve_bundesland`` for the full precedence chain that prefers it.
-    This function is `resolve_bundesland`'s fallback (and is still used
-    directly by ``sources/ris_adapter``'s tool-argument matching, which has
-    no ``project_context`` to resolve structurally):
-
-    The structured `bundesland=<token>` fact line (written by the intake wizard
-    into the project-context prompt view) is authoritative when present — name
-    probing must not override it, or a mention like "Wiener Neustadt" (a Lower
-    Austrian town) would flip the jurisdiction to Wien. Free text without the
-    token falls back to probing for state names (spelling variants tolerated).
-    """
-    if not text:
-        return None
-    normalized = _normalize(text)
-    structured = _STRUCTURED_BUNDESLAND_RE.search(normalized)
-    if structured:
-        return _BUNDESLAND_TOKENS.get(structured.group(1))
-    for land in _BUNDESLAENDER:
-        if _normalize(land) in normalized:
-            return land
-    return None
+    """The Bundesland the text points at, or None (delegates to norm_registry)."""
+    return _norm_registry().extract_bundesland(text)
 
 
 def resolve_bundesland(text: str | None) -> str | None:
-    """The Bundesland to focus/rank the catalog on, structured-first.
-
-    Precedence (backlog T3-9 follow-up, 2026-07-16, user-mandated — jurisdiction
-    is a cross-cutting request fact and must travel STRUCTURED, not be
-    re-parsed from prompt text):
-
-    1. ``GridRequestContext.from_context().bundesland`` — the validated token
-       carried on the signed ``X-Grid-Request-Context`` envelope, resolved
-       once by the intake wizard (PR #71) straight from the project profile.
-       Immune to free-text drift (a mention like "Wiener Neustadt", a Lower
-       Austrian town, can never flip this). ``ausserhalb_oesterreichs`` maps
-       to ``None`` here (the project is explicitly outside Austria, so no
-       state's law should be prioritized) and that ``None`` is FINAL — it
-       does not fall through to text probing.
-    2. ``extract_bundesland(text)`` — the structured ``bundesland=<token>``
-       prompt-text line, then free-text state-name probing. Used whenever
-       there is no structured envelope field (pre-envelope traffic, tests
-       without a live NAT context, or entrypoints — e.g. async job workers —
-       that have no live request context to read).
-    """
-    # Local import: avoids a module-level dependency from this file (imported
-    # by the ris_adapter source package) onto aiq_agent.project_context for
-    # environments that only need the pure text-matching helpers below.
-    from aiq_agent.project_context import GridRequestContext
-
-    structured_token = GridRequestContext.from_context().bundesland
-    if structured_token is not None:
-        return _BUNDESLAND_TOKENS.get(structured_token)
-    return extract_bundesland(text)
+    """The Bundesland to focus/rank the catalog on, structured-first (delegates)."""
+    return _norm_registry().resolve_bundesland(text)
 
 
 def focus_entries(entries: list[CatalogEntry], bundesland: str | None) -> list[CatalogEntry]:
@@ -252,8 +222,7 @@ def focus_entries(entries: list[CatalogEntry], bundesland: str | None) -> list[C
 
     State-law entries of OTHER states are dropped — a Tyrolean project must
     never be handed the Viennese Bauordnung. Federal/stateless entries always
-    stay. With no known Bundesland this is a no-op (the caller keeps every
-    match rather than guessing).
+    stay. With no known Bundesland this is a no-op.
     """
     if not bundesland:
         return entries
@@ -275,7 +244,11 @@ def _sort_entries(entries: list[CatalogEntry], bundesland: str | None) -> list[C
 
 
 def render_prompt_block(catalog: RisCatalog, bundesland: str | None = None) -> str:
-    """One compact line per entry; federal first, then the given Bundesland, then the rest."""
+    """One compact line per entry; federal first, then the given Bundesland, then the rest.
+
+    Legacy flat rendering — new consumers should use the lane rendering in
+    ``norm_registry.render_prompt_block`` instead.
+    """
     lines = [
         "Curated RIS index (verified pointers to the building-relevant Austrian norms).",
         "For these norms do NOT use RIS search: fetch the document directly via the RIS fetch",
@@ -293,10 +266,11 @@ def render_prompt_block(catalog: RisCatalog, bundesland: str | None = None) -> s
 
 
 def render_block_for_prompt(project_context: str | None, path: str | None = None) -> str | None:
-    """Prompt-ready block, Bundesland-aware when detectable; None when the catalog is unavailable.
+    """Prompt-ready block, Bundesland-aware when detectable; None when unavailable.
 
-    Bundesland resolution prefers the structured envelope field over prompt
-    text — see ``resolve_bundesland``.
+    Legacy flat rendering kept for the two researcher templates still consuming
+    this module; ``norm_registry.render_block_for_prompt`` is the lane-rendered
+    successor.
     """
     catalog = load_catalog(path)
     if catalog is None or not catalog.entries:

@@ -43,6 +43,7 @@ from nat.data_models.component_ref import LLMRef
 from nat.data_models.function import FunctionBaseConfig
 
 try:
+    from aiq_agent.common.norm_registry import load_registry as _load_norm_registry
     from aiq_agent.common.ris_catalog import CatalogEntry
     from aiq_agent.common.ris_catalog import extract_bundesland
     from aiq_agent.common.ris_catalog import focus_entries
@@ -56,6 +57,7 @@ except ImportError:  # adapter used standalone, without the Grid agent package
     focus_entries = None  # type: ignore[assignment]
     load_catalog = None  # type: ignore[assignment]
     match_entries = None  # type: ignore[assignment]
+    _load_norm_registry = None  # type: ignore[assignment]
     _CATALOG_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
@@ -340,7 +342,10 @@ class RisSearchToolConfig(FunctionBaseConfig, name="ris_search"):
     )
     catalog_path: str = Field(
         default="",
-        description="Path to the curated catalog YAML. Empty = RIS_CATALOG_PATH env var or configs/ris_catalog.yml.",
+        description=(
+            "DEPRECATED (ADR-0025): path to a legacy flat catalog YAML. Empty = the norm registry "
+            "(configs/norms/*/registry.yml, GRID_NORMS_DIR). Set only for legacy override."
+        ),
     )
 
 
@@ -555,12 +560,38 @@ def _format_catalog_entry(index: int, entry: CatalogEntry) -> str:
     return "\n".join(lines)
 
 
+def _format_relations_line(entry_id: str) -> str | None:
+    """Norm-registry relations for one catalog entry (implements/declares_binding/supersedes).
+
+    Unverified legal facts stay visibly marked `[unknown]` — the model must not
+    treat them as established. Fail-open: no registry -> no relations line.
+    """
+    if _load_norm_registry is None:
+        return None
+    registry = _load_norm_registry()
+    if registry is None:
+        return None
+    norm = registry.by_id(entry_id)
+    if norm is None or not norm.relations:
+        return None
+    parts = []
+    for rel in norm.relations:
+        target = rel.target + (f" (edition {rel.edition})" if rel.edition else "")
+        marker = "" if rel.status == "verified" else " [unknown]"
+        note = f" — {rel.note}" if rel.note else ""
+        parts.append(f"{rel.type} -> {target}{marker}{note}")
+    return "Relations: " + "; ".join(parts)
+
+
 class RisCatalogLookupToolConfig(FunctionBaseConfig, name="ris_catalog_lookup"):
     """Look up building-law topics in the curated RIS catalog of verified norms."""
 
     catalog_path: str = Field(
         default="",
-        description="Path to the curated catalog YAML. Empty = RIS_CATALOG_PATH env var or configs/ris_catalog.yml.",
+        description=(
+            "DEPRECATED (ADR-0025): path to a legacy flat catalog YAML. Empty = the norm registry "
+            "(configs/norms/*/registry.yml, GRID_NORMS_DIR). Set only for legacy override."
+        ),
     )
     max_matches: int = Field(default=5, ge=1, description="Maximum catalog entries returned per lookup")
 
@@ -615,7 +646,12 @@ async def ris_catalog_lookup(tool_config: RisCatalogLookupToolConfig, builder: B
                 "ris_search (live RIS search) for anything else."
             )
         lines = [f"Curated RIS catalog: {len(matches)} verified match(es) for '{topic}':", ""]
-        lines.extend(_format_catalog_entry(i, entry) + "\n" for i, entry in enumerate(matches, 1))
+        for i, entry in enumerate(matches, 1):
+            block = _format_catalog_entry(i, entry)
+            relations_line = _format_relations_line(entry.id)
+            if relations_line:
+                block += "\n" + relations_line
+            lines.append(block + "\n")
         lines.append(
             "These are verified pointers - fetch the full text with ris_fetch_document using the "
             "document number or the 'Entire consolidated law' URL. No ris_search needed."
