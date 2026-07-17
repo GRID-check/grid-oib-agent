@@ -1,6 +1,7 @@
 import { render, screen } from '@/test-utils'
 import { describe, test, expect } from 'vitest'
 import { ProjectCard } from './project-card'
+import { getProjectStatus } from './project-status'
 import type { Project } from '@/lib/db/schema'
 
 const createProject = (overrides: Partial<Project> = {}): Project =>
@@ -31,5 +32,41 @@ describe('ProjectCard', () => {
       'href',
       '/app/projects/proj-abc',
     )
+  })
+
+  test('carries a per-card settings link to the project settings page', () => {
+    render(<ProjectCard project={createProject({ id: 'proj-abc', name: 'Beta' })} />)
+
+    expect(screen.getByRole('link', { name: /settings for beta/i })).toHaveAttribute(
+      'href',
+      '/app/projects/proj-abc/settings',
+    )
+  })
+
+  test('shows the Active status chip — the only status the data model supports', () => {
+    render(<ProjectCard project={createProject()} />)
+
+    expect(screen.getByText('Active')).toBeInTheDocument()
+  })
+
+  test('renders last activity as a relative time from the newest timestamp', () => {
+    const twoHoursAgo = new Date(Date.now() - 2 * 3600 * 1000)
+    render(
+      <ProjectCard
+        project={createProject({
+          createdAt: new Date('2026-01-01T00:00:00Z'),
+          profileUpdatedAt: twoHoursAgo,
+        })}
+      />,
+    )
+
+    expect(screen.getByText('Last activity')).toBeInTheDocument()
+    expect(screen.getByText('2 hours ago')).toBeInTheDocument()
+  })
+})
+
+describe('getProjectStatus', () => {
+  test('is honest about the data: every non-deleted project is active (no fake "Done")', () => {
+    expect(getProjectStatus({ deletedAt: null })).toBe('active')
   })
 })

@@ -27,14 +27,21 @@ export const projects: typeof en.projects = {
   card: {
     summaryFallback:
       'Arbeitsbereich für OIB/RIS-Baukonformität. Fügen Sie Dokumente und ein Briefing hinzu, um Grid zu fundieren.',
-    updated: 'Aktualisiert {date}',
-    created: 'Erstellt {date}',
-    active: 'Aktiv',
-    draft: 'Entwurf',
+    status: {
+      active: 'Aktiv',
+    },
+    lastActivity: 'Letzte Aktivität',
     document: 'Dokument',
     documents: 'Dokumente',
     docLabel: '{count} {unit}',
     open: '{name} öffnen',
+    settingsAria: 'Einstellungen für {name} öffnen',
+  },
+  archivCard: {
+    title: 'Archiv',
+    subtitle:
+      'Das organisationsweite Wissen Ihres Büros — geteilte Dokumente und bewährte Details, in jedem Projekt verfügbar.',
+    aria: 'Organisationsweites Archiv öffnen',
   },
   dialog: {
     newProject: 'Neues Projekt',
