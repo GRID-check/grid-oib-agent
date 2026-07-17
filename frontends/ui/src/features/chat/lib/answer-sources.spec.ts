@@ -1,5 +1,11 @@
 import { describe, test, expect } from 'vitest'
-import { deriveAnswerSources } from './answer-sources'
+import {
+  citationSnippet,
+  deriveAnswerSources,
+  parseKbLocator,
+  resolveCitationTarget,
+  type ProjectDocumentRef,
+} from './answer-sources'
 import type { CitationSource } from '../types'
 import type { GridCard } from '@/shared/cards/schemas'
 
@@ -108,5 +114,204 @@ describe('deriveAnswerSources', () => {
     )
 
     expect(deriveAnswerSources(many)).toHaveLength(8)
+  })
+
+  test('citation refs carry the underlying citation for preview resolution', () => {
+    const source = citation({ url: 'kb://doc-1', content: '[KB] Einreichplan.pdf' })
+    const [ref] = deriveAnswerSources([source])
+
+    expect(ref.citation).toBe(source)
+  })
+
+  test('legal_basis refs carry the original text as snippet', () => {
+    const cards = [
+      {
+        type: 'legal_basis',
+        law: 'OIB-Richtlinie 2',
+        section: 'Pkt. 5.1.1',
+        article: null,
+        original_text: 'Der zweite Fluchtweg ist …',
+        summary: 'Zusammenfassung',
+      },
+    ] as GridCard[]
+
+    const [ref] = deriveAnswerSources(undefined, cards)
+
+    expect(ref.citation).toBeUndefined()
+    expect(ref.snippet).toBe('Der zweite Fluchtweg ist …')
+  })
+})
+
+describe('parseKbLocator', () => {
+  test('parses filename and page from a citation key', () => {
+    expect(parseKbLocator('Brandschutzkonzept.pdf, p.3')).toEqual({
+      filename: 'Brandschutzkonzept.pdf',
+      page: 3,
+    })
+    expect(parseKbLocator('report.pdf, page 15')).toEqual({ filename: 'report.pdf', page: 15 })
+  })
+
+  test('parses a bare filename without page', () => {
+    expect(parseKbLocator('Einreichplan.pdf')).toEqual({
+      filename: 'Einreichplan.pdf',
+      page: undefined,
+    })
+  })
+
+  test('does not truncate filenames containing p+digits into bogus pages', () => {
+    expect(parseKbLocator('Top2.pdf')).toEqual({ filename: 'Top2.pdf', page: undefined })
+  })
+
+  test('strips a leading origin token', () => {
+    expect(parseKbLocator('[KB] file.pdf, p.2')).toEqual({ filename: 'file.pdf', page: 2 })
+  })
+
+  test('returns null for text that is not a document reference', () => {
+    expect(parseKbLocator('Some cited sentence without a file')).toBeNull()
+    expect(parseKbLocator('')).toBeNull()
+  })
+})
+
+describe('citationSnippet', () => {
+  test('URL-as-content (deep-research SSE shape) yields no snippet', () => {
+    expect(
+      citationSnippet({ url: 'https://example.com/a', content: 'https://example.com/a' })
+    ).toBeUndefined()
+  })
+
+  test('a pure locator line is a reference, not a passage', () => {
+    expect(citationSnippet({ url: '', content: '[KB] file.pdf, p.3' })).toBeUndefined()
+  })
+
+  test('passage lines after the locator become the snippet', () => {
+    expect(
+      citationSnippet({ url: '', content: '[KB] file.pdf, p.3\nDer zweite Fluchtweg …' })
+    ).toBe('Der zweite Fluchtweg …')
+  })
+
+  test('plain passage text without a locator is kept', () => {
+    expect(citationSnippet({ url: 'kb://x', content: 'Ein zitierter Absatz.' })).toBe(
+      'Ein zitierter Absatz.'
+    )
+  })
+})
+
+describe('resolveCitationTarget', () => {
+  const projectDocuments: ProjectDocumentRef[] = [
+    { id: 'doc-1', filename: 'Brandschutzkonzept.pdf', contentType: 'application/pdf' },
+    { id: 'doc-2', filename: 'Vermessung.docx', contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
+    { id: 'doc-3', filename: 'Lageplan.png', contentType: 'image/png' },
+  ]
+  const baseCorpusFiles = ['oib-rl_2_ausgabe_mai_2023.pdf']
+
+  test('http(s) URLs always link out, with origin from the host', () => {
+    expect(
+      resolveCitationTarget({ url: 'https://example.com/article', content: '' })
+    ).toEqual({ kind: 'url', url: 'https://example.com/article', origin: 'web' })
+    expect(
+      resolveCitationTarget({ url: 'https://www.ris.bka.gv.at/Norm', content: '' })
+    ).toEqual({ kind: 'url', url: 'https://www.ris.bka.gv.at/Norm', origin: 'ris' })
+  })
+
+  test('KB locator matching a previewable project document opens it', () => {
+    const target = resolveCitationTarget(
+      { url: '', content: '[KB] Brandschutzkonzept.pdf, p.3' },
+      projectDocuments,
+      baseCorpusFiles
+    )
+
+    expect(target).toEqual({
+      kind: 'document',
+      origin: 'kb',
+      title: 'Brandschutzkonzept.pdf',
+      page: 3,
+      snippet: undefined,
+      document: {
+        type: 'project',
+        id: 'doc-1',
+        filename: 'Brandschutzkonzept.pdf',
+        contentType: 'application/pdf',
+      },
+    })
+  })
+
+  test('project filename matching is case-insensitive', () => {
+    const target = resolveCitationTarget(
+      { url: '', content: '[KB] brandschutzkonzept.PDF' },
+      projectDocuments
+    )
+
+    expect(target.kind).toBe('document')
+  })
+
+  test('image project documents are previewable', () => {
+    const target = resolveCitationTarget({ url: '', content: '[KB] Lageplan.png' }, projectDocuments)
+
+    expect(target).toMatchObject({
+      kind: 'document',
+      document: { type: 'project', id: 'doc-3', contentType: 'image/png' },
+    })
+  })
+
+  test('non-previewable project documents degrade to info — never a broken viewer', () => {
+    const target = resolveCitationTarget(
+      { url: '', content: '[KB] Vermessung.docx' },
+      projectDocuments,
+      baseCorpusFiles
+    )
+
+    expect(target).toEqual({
+      kind: 'info',
+      origin: 'kb',
+      title: 'Vermessung.docx',
+      snippet: undefined,
+    })
+  })
+
+  test('KB locator matching a base-corpus PDF opens the corpus viewer', () => {
+    const target = resolveCitationTarget(
+      { url: '', content: '[KB] oib-rl_2_ausgabe_mai_2023.pdf, p.12' },
+      projectDocuments,
+      baseCorpusFiles
+    )
+
+    expect(target).toEqual({
+      kind: 'document',
+      origin: 'kb',
+      title: 'oib-rl_2_ausgabe_mai_2023.pdf',
+      page: 12,
+      snippet: undefined,
+      document: { type: 'base', fileName: 'oib-rl_2_ausgabe_mai_2023.pdf' },
+    })
+  })
+
+  test('a pseudo-URL basename resolves when the content carries no locator', () => {
+    const target = resolveCitationTarget(
+      { url: 'kb://Brandschutzkonzept.pdf', content: '' },
+      projectDocuments
+    )
+
+    expect(target).toMatchObject({ kind: 'document', document: { id: 'doc-1' } })
+  })
+
+  test('unresolvable citations become info with title and snippet', () => {
+    const target = resolveCitationTarget(
+      { url: '', content: '[KB] unbekannt.pdf, p.4\nZitierter Absatz.' },
+      projectDocuments,
+      baseCorpusFiles
+    )
+
+    expect(target).toEqual({
+      kind: 'info',
+      origin: 'kb',
+      title: 'unbekannt.pdf',
+      snippet: 'Zitierter Absatz.',
+    })
+  })
+
+  test('without document lists everything degrades to info', () => {
+    const target = resolveCitationTarget({ url: '', content: '[KB] Brandschutzkonzept.pdf' })
+
+    expect(target.kind).toBe('info')
   })
 })

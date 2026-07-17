@@ -14,6 +14,9 @@ export type { AgentPromptProps, PromptType } from './AgentPrompt'
 export { AgentResponse } from './AgentResponse'
 export type { AgentResponseProps } from './AgentResponse'
 
+export { AnswerFeedback } from './AnswerFeedback'
+export type { AnswerFeedbackProps } from './AnswerFeedback'
+
 // Banner components
 export { FileUploadBanner } from './FileUploadBanner'
 export type { FileUploadBannerProps } from './FileUploadBanner'

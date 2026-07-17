@@ -83,6 +83,16 @@ Deep research submits a job to the backend and receives progress via SSE events 
 
 Answers that already carry source data show a provenance chip row: citations collected during deep research (origin parsed from the backend's `[KB]/[RIS]/[Web]` tokens, with URL heuristics as fallback) and the laws named by `legal_basis` cards on shallow answers. Chips are tinted by origin (law / project / web) and always pair icon + label with the color; web and RIS chips link out. Answers without source data show no row — chips are never fabricated.
 
+### Source preview (clicking a chip)
+
+Clicking a source chip opens a preview of the source instead of doing nothing:
+
+- **Web / RIS chips** keep linking out to the real source (RIS citations always hit the official Rechtsinformationssystem).
+- **Knowledge chips (`[KB]`)** whose citation names a document that exists for the current project — a project upload (PDF or image) or a base-corpus PDF (OIB Richtlinien) — open an in-app viewer dialog: a provenance-tinted document-type chip plus the title in the header, the document itself in the body (deep-linked to the cited page when the citation carries one, e.g. `file.pdf, p.3`), and the cited passage in a tinted "Fundstelle" box when the citation carries passage text.
+- **Anything unresolvable** (unknown document, non-previewable file type) shows a light popover with the source's origin, title, and passage instead — never a broken viewer. Chips with nothing beyond their label stay plain.
+
+The same affordance appears in the deep-research report's sources list: `[KB]` entries that resolve to an openable document get a small **View / Ansehen** button next to the entry.
+
 ## Human-in-the-loop (HITL)
 
 When the agent needs input — clarification, approval, or a choice — it sends a prompt message. The chat switches to a waiting state with input controls matching the prompt type:
