@@ -1,15 +1,15 @@
 'use client'
 
-import { useState, useEffect, useCallback, type ReactNode } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import type { FileItem } from './project-file-workspace'
-import { AlertCircle, Check, Download, FileQuestion, Maximize2, Pencil, RotateCcw, X } from 'lucide-react'
+import { AlertCircle, Download, FileQuestion, Maximize2, Plus, RotateCcw, Sparkles, X } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { TAG_GROUPS, MAX_TAGS } from '@/lib/documents/tag-vocabulary'
+import { DOCUMENT_TYPE_TAGS, DISCIPLINE_TAGS, MAX_TAGS } from '@/lib/documents/tag-vocabulary'
 import { useLocale, useTranslations } from '@/i18n'
 import { formatFileSize } from '@/lib/utils/format-file-size'
+import { formatAbsoluteTime } from '@/lib/format'
 import { PdfViewerDialog } from '@/features/knowledge/components/pdf-viewer-dialog'
 import { DocumentStatusBadge, fileTypeIcon } from './document-status'
 
@@ -17,6 +17,8 @@ interface FilePreviewPaneProps {
   file: FileItem
   /** Present for project documents; omitted for the org-wide Archiv (unused here). */
   projectId?: string
+  /** Project display name for the indexed-metadata panel's Project row. */
+  projectName?: string
   /**
    * Whether the viewer may mutate the document (edit tags, re-ingest). Defaults
    * to true (all project callers). The Archiv passes the caller's manage
@@ -33,10 +35,10 @@ interface FilePreviewPaneProps {
    */
   onTagsUpdated?: (fileId: string, tags: string[]) => void
   /**
-   * Whether the ingestion-metadata block (summary + pages/passages/contents
-   * rows) renders (WorkOS `files-metadata-panel` flag, FB-8). Defaults to true
-   * so the feature stays visible with flag enforcement off (fail-open) and
-   * existing callers/specs are unaffected. Status/type/size rows are never
+   * Whether the "Indexed by GRID" metadata panel (AI summary, key-value props,
+   * editable tags) renders (WorkOS `files-metadata-panel` flag, FB-8). Defaults
+   * to true so the feature stays visible with flag enforcement off (fail-open)
+   * and existing callers/specs are unaffected. Status/type/size rows are never
    * gated — they predate the feature.
    */
   showMetadataPanel?: boolean
@@ -49,7 +51,7 @@ interface FilePreviewPaneProps {
 
 const PREVIEW_TYPES = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp', 'image/svg+xml']
 
-export function FilePreviewPane({ file, canManage = true, onClose, onReingested, onTagsUpdated, showMetadataPanel = true, extraActions }: FilePreviewPaneProps) {
+export function FilePreviewPane({ file, projectName, canManage = true, onClose, onReingested, onTagsUpdated, showMetadataPanel = true, extraActions }: FilePreviewPaneProps) {
   const t = useTranslations('files')
   const { locale } = useLocale()
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
@@ -69,6 +71,9 @@ export function FilePreviewPane({ file, canManage = true, onClose, onReingested,
   // Only surface content categories when there is something beyond plain text;
   // a lone "Text" row is noise for the text-only documents that dominate here.
   const hasRichContent = (file.contentTypes ?? []).some((c) => c !== 'text')
+  // The ingestion-detected document type (first document-type tag), shown as
+  // the indexed panel's Type row. Only real metadata — nothing is inferred here.
+  const detectedType = (file.tags ?? []).find((tag) => (DOCUMENT_TYPE_TAGS as readonly string[]).includes(tag))
 
   const loadPreview = useCallback(() => {
     setPreviewFailed(false)
@@ -159,17 +164,61 @@ export function FilePreviewPane({ file, canManage = true, onClose, onReingested,
         </div>
       </div>
 
-      {/* Document description — the one-sentence summary the backend generated at
-          ingestion. It's what grounds the agent's answers, so lead with it: place
-          it directly under the header, above the preview, rather than burying it
-          below. Read-only; calm accented panel so it reads as the document's gist. */}
-      {showMetadataPanel && file.summary && (
-        <div className="space-y-1 border-b bg-muted/40 px-4 py-3">
-          <p className="text-[0.6875rem] font-medium uppercase tracking-wider text-muted-foreground">
-            {t('preview.summary')}
+      {/* "Indexed by GRID" panel (files-metadata-panel flag, FB-8) — the AI
+          summary that grounds the agent's answers, the ingestion-detected
+          key-value props, and the user-correctable tags. Leads the pane, above
+          the raw preview, because it is the document's machine-readable gist. */}
+      {showMetadataPanel && (
+        <section className="space-y-3 border-b bg-muted/40 px-4 py-3" aria-label={t('preview.indexed.title')}>
+          <p className="flex items-center gap-1.5 text-[0.6875rem] font-medium uppercase tracking-wider text-muted-foreground">
+            <Sparkles className="size-3.5 shrink-0" aria-hidden />
+            {t('preview.indexed.title')}
           </p>
-          <p className="text-sm leading-relaxed text-foreground">{file.summary}</p>
-        </div>
+          {file.summary && <p className="text-sm leading-relaxed text-foreground">{file.summary}</p>}
+          <div className="space-y-2">
+            {detectedType && (
+              <MetaRow label={t('preview.indexed.documentType')}>
+                <span className="text-xs font-medium text-foreground">{detectedType}</span>
+              </MetaRow>
+            )}
+            {projectName && (
+              <MetaRow label={t('preview.indexed.project')}>
+                <span className="truncate text-xs font-medium text-foreground">{projectName}</span>
+              </MetaRow>
+            )}
+            {typeof file.pageCount === 'number' && file.pageCount > 0 && (
+              <MetaRow label={t('preview.pages')}>
+                <span className="text-xs font-medium tabular-nums text-foreground">{file.pageCount}</span>
+              </MetaRow>
+            )}
+            {typeof file.chunkCount === 'number' && file.chunkCount > 0 && (
+              <MetaRow label={t('preview.chunks')}>
+                <span className="text-xs font-medium tabular-nums text-foreground">{file.chunkCount}</span>
+              </MetaRow>
+            )}
+            {/* Content categories, shown only when the document holds more than
+                plain text (text-only documents dominate — no redundant row). */}
+            {hasRichContent && (
+              <MetaRow label={t('preview.contents')}>
+                <span className="text-xs text-foreground">
+                  {file.contentTypes!.map((c) => t(`preview.contentTypeNames.${c}`)).join(', ')}
+                </span>
+              </MetaRow>
+            )}
+            <MetaRow label={t('preview.indexed.updated')}>
+              <span className="text-xs font-medium tabular-nums text-foreground">
+                {formatAbsoluteTime(file.createdAt, locale)}
+              </span>
+            </MetaRow>
+          </div>
+          <DocumentTagsSection
+            fileId={file.id}
+            initialTags={file.tags ?? []}
+            onTagsUpdated={onTagsUpdated}
+            readOnly={!canManage}
+          />
+          <p className="text-xs leading-relaxed text-muted-foreground/80">{t('preview.indexed.caption')}</p>
+        </section>
       )}
 
       {canExpandPreview && previewUrl && (
@@ -215,18 +264,6 @@ export function FilePreviewPane({ file, canManage = true, onClose, onReingested,
         )}
       </div>
 
-      {/* Ingestion-generated tags — controlled document-type/discipline labels.
-          Editable via a small popover of toggleable chips (same flag as the rest
-          of the metadata block). */}
-      {showMetadataPanel && (
-        <DocumentTagsSection
-          fileId={file.id}
-          initialTags={file.tags ?? []}
-          onTagsUpdated={onTagsUpdated}
-          readOnly={!canManage}
-        />
-      )}
-
       {/* Metadata */}
       <div className="space-y-2.5 border-t px-4 py-3">
         <MetaRow label={t('preview.status')}>
@@ -238,25 +275,6 @@ export function FilePreviewPane({ file, canManage = true, onClose, onReingested,
         <MetaRow label={t('preview.size')}>
           <span className="text-xs font-medium tabular-nums text-foreground">{formatFileSize(file.fileSize, locale)}</span>
         </MetaRow>
-        {showMetadataPanel && typeof file.pageCount === 'number' && file.pageCount > 0 && (
-          <MetaRow label={t('preview.pages')}>
-            <span className="text-xs font-medium tabular-nums text-foreground">{file.pageCount}</span>
-          </MetaRow>
-        )}
-        {showMetadataPanel && typeof file.chunkCount === 'number' && file.chunkCount > 0 && (
-          <MetaRow label={t('preview.chunks')}>
-            <span className="text-xs font-medium tabular-nums text-foreground">{file.chunkCount}</span>
-          </MetaRow>
-        )}
-        {/* Content categories, shown only when the document holds more than plain
-            text (production documents are usually text-only — no redundant row). */}
-        {showMetadataPanel && hasRichContent && (
-          <MetaRow label={t('preview.contents')}>
-            <span className="text-xs text-foreground">
-              {file.contentTypes!.map((c) => t(`preview.contentTypeNames.${c}`)).join(', ')}
-            </span>
-          </MetaRow>
-        )}
       </div>
 
       {/* Failure reason + re-ingestion affordance (re-ingest is a mutation, so
@@ -310,11 +328,17 @@ export function FilePreviewPane({ file, canManage = true, onClose, onReingested,
   )
 }
 
+/** Every tag a user may assign, in vocabulary order (Dokumenttyp then Fachbereich). */
+const ALL_VOCABULARY_TAGS: readonly string[] = [...DOCUMENT_TYPE_TAGS, ...DISCIPLINE_TAGS]
+
 /**
- * Editable controlled-tag block. Renders the current tags as calm muted chips
- * with an edit affordance; the popover offers the full vocabulary as toggleable
- * chips, grouped Dokumenttyp / Fachbereich. Save is optimistic: the chips update
- * immediately and revert (with a toast) if the PATCH fails.
+ * Editable tag block inside the indexed panel. Current tags render as chips
+ * with a remove (×) affordance; new tags are added through an inline input —
+ * Enter commits, Escape clears, blur commits an exact match — backed by
+ * suggestion chips because the vocabulary is controlled (the tags PATCH
+ * endpoint rejects out-of-vocabulary values server-side). Every add/remove
+ * persists immediately and optimistically via the existing FB-8 tags API,
+ * reverting with a toast on failure.
  */
 function DocumentTagsSection({
   fileId,
@@ -325,141 +349,169 @@ function DocumentTagsSection({
   fileId: string
   initialTags: string[]
   onTagsUpdated?: (fileId: string, tags: string[]) => void
-  /** Hide the edit affordance and render the tags as static chips. */
+  /** Hide the editing affordances and render the tags as static chips. */
   readOnly?: boolean
 }) {
   const t = useTranslations('files')
   const [tags, setTags] = useState<string[]>(initialTags)
-  const [draft, setDraft] = useState<string[]>(initialTags)
-  const [open, setOpen] = useState(false)
+  const [input, setInput] = useState('')
+  const [isEditing, setIsEditing] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
 
   // Reset when a different file is selected (the pane is reused across files).
   useEffect(() => {
     setTags(initialTags)
-    setOpen(false)
+    setInput('')
+    setIsEditing(false)
     // initialTags identity changes per file; fileId gates the reset intent.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fileId])
 
-  const openEditor = useCallback(() => {
-    setDraft(tags)
-    setOpen(true)
-  }, [tags])
+  /** PATCH the full replacement tag list; optimistic with revert on failure. */
+  const persist = useCallback(
+    async (next: string[], previous: string[]) => {
+      setTags(next)
+      setIsSaving(true)
+      try {
+        const res = await fetch(`/api/documents/${fileId}/tags`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tags: next }),
+        })
+        if (!res.ok) throw new Error(`Tag update failed (${res.status})`)
+        // Propagate so the workspace's file state (and initialTags on reselect)
+        // reflects the save — otherwise switching away and back reverts.
+        onTagsUpdated?.(fileId, next)
+      } catch {
+        setTags(previous)
+        toast.error(t('preview.tagsSaveError'))
+      } finally {
+        setIsSaving(false)
+      }
+    },
+    [fileId, onTagsUpdated, t]
+  )
 
-  const toggleTag = useCallback((tag: string) => {
-    setDraft((current) =>
-      current.includes(tag)
-        ? current.filter((existing) => existing !== tag)
-        : current.length >= MAX_TAGS
-          ? current
-          : [...current, tag],
-    )
-  }, [])
+  const removeTag = useCallback(
+    (tag: string) => {
+      void persist(tags.filter((existing) => existing !== tag), tags)
+    },
+    [persist, tags]
+  )
 
-  const handleSave = useCallback(async () => {
-    const next = draft
-    const previous = tags
-    // Optimistic: commit locally and close before the network round-trip.
-    setTags(next)
-    setOpen(false)
-    setIsSaving(true)
-    try {
-      const res = await fetch(`/api/documents/${fileId}/tags`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tags: next }),
-      })
-      if (!res.ok) throw new Error(`Tag update failed (${res.status})`)
-      // Propagate to the parent so the workspace's file state (and initialTags on
-      // reselect) reflects the save — without this the pane reverts to the
-      // pre-edit tags when the file is switched away and back.
-      onTagsUpdated?.(fileId, next)
-    } catch {
-      setTags(previous) // revert on failure
-      toast.error(t('preview.tagsSaveError'))
-    } finally {
-      setIsSaving(false)
-    }
-  }, [draft, tags, fileId, onTagsUpdated, t])
+  const addTag = useCallback(
+    (tag: string) => {
+      if (tags.includes(tag) || tags.length >= MAX_TAGS) return
+      setInput('')
+      void persist([...tags, tag], tags)
+    },
+    [persist, tags]
+  )
+
+  // Vocabulary entries still assignable, narrowed by the typed query.
+  const suggestions = useMemo(() => {
+    const q = input.trim().toLowerCase()
+    const available = ALL_VOCABULARY_TAGS.filter((tag) => !tags.includes(tag))
+    return q ? available.filter((tag) => tag.toLowerCase().includes(q)) : available
+  }, [input, tags])
+
+  /** Resolve the free-typed input to a canonical vocabulary entry, if any. */
+  const resolveInput = useCallback((): string | null => {
+    const q = input.trim().toLowerCase()
+    if (!q) return null
+    const exact = ALL_VOCABULARY_TAGS.find((tag) => tag.toLowerCase() === q)
+    if (exact && !tags.includes(exact)) return exact
+    // A query narrowing to exactly one candidate is unambiguous — accept it.
+    return suggestions.length === 1 ? suggestions[0] : null
+  }, [input, suggestions, tags])
+
+  const atCap = tags.length >= MAX_TAGS
+  const showNoMatchHint = isEditing && input.trim() !== '' && suggestions.length === 0
 
   return (
-    <div className="space-y-1.5 border-t px-4 py-3">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-xs text-muted-foreground">{t('preview.tags')}</p>
-        {!readOnly && (
-        <Popover open={open} onOpenChange={setOpen}>
-          <PopoverTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="size-6"
-              onClick={openEditor}
+    <div className="space-y-1.5">
+      <p className="text-xs text-muted-foreground">{t('preview.tags')}</p>
+      <div className="flex flex-wrap items-center gap-1.5">
+        {tags.map((tag) => (
+          <span
+            key={tag}
+            className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground"
+          >
+            {tag}
+            {!readOnly && (
+              <button
+                type="button"
+                onClick={() => removeTag(tag)}
+                disabled={isSaving}
+                aria-label={t('preview.removeTag', { tag })}
+                className="-mr-0.5 rounded-sm p-0.5 transition-colors hover:bg-background/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+              >
+                <X className="size-3" aria-hidden />
+              </button>
+            )}
+          </span>
+        ))}
+        {tags.length === 0 && readOnly && (
+          <span className="text-xs text-muted-foreground/70">{t('preview.noTags')}</span>
+        )}
+        {!readOnly && !atCap && (
+          <span className="relative inline-flex items-center">
+            <Plus className="pointer-events-none absolute left-1.5 size-3 text-muted-foreground" aria-hidden />
+            <input
+              ref={inputRef}
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onFocus={() => setIsEditing(true)}
+              onBlur={() => {
+                // Blur commits an exact/unambiguous match, otherwise discards.
+                const resolved = resolveInput()
+                if (resolved) addTag(resolved)
+                else setInput('')
+                setIsEditing(false)
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  const resolved = resolveInput()
+                  if (resolved) addTag(resolved)
+                }
+                if (e.key === 'Escape') {
+                  setInput('')
+                  setIsEditing(false)
+                  inputRef.current?.blur()
+                }
+              }}
               disabled={isSaving}
-              aria-label={t('preview.editTags')}
-              title={t('preview.editTags')}
-            >
-              <Pencil className="size-3.5" aria-hidden />
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent align="end" className="w-72 space-y-3">
-            {TAG_GROUPS.map((group) => (
-              <div key={group.id} className="space-y-1.5">
-                <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                  {t(`preview.tagGroups.${group.id}`)}
-                </p>
-                <div className="flex flex-wrap gap-1.5">
-                  {group.tags.map((tag) => {
-                    const selected = draft.includes(tag)
-                    const atCap = !selected && draft.length >= MAX_TAGS
-                    return (
-                      <button
-                        key={tag}
-                        type="button"
-                        onClick={() => toggleTag(tag)}
-                        disabled={atCap}
-                        aria-pressed={selected}
-                        className={
-                          'inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium transition-colors ' +
-                          (selected
-                            ? 'border-primary bg-primary text-primary-foreground'
-                            : 'border-border bg-transparent text-muted-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40')
-                        }
-                      >
-                        {tag}
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-            ))}
-            <div className="flex justify-end gap-2 pt-1">
-              <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(false)}>
-                {t('preview.tagsCancel')}
-              </Button>
-              <Button type="button" size="sm" className="gap-1.5" onClick={handleSave}>
-                <Check className="size-3.5" aria-hidden />
-                {t('preview.tagsSave')}
-              </Button>
-            </div>
-          </PopoverContent>
-        </Popover>
+              placeholder={t('preview.addTagPlaceholder')}
+              aria-label={t('preview.addTagLabel')}
+              className="h-6 w-28 rounded-md border border-dashed border-input bg-transparent pl-6 pr-1.5 text-xs text-foreground placeholder:text-muted-foreground/70 focus-visible:border-solid focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+            />
+          </span>
         )}
       </div>
-      {tags.length > 0 ? (
-        <div className="flex flex-wrap gap-1.5">
-          {tags.map((tag) => (
-            <span
+      {/* Controlled-vocabulary suggestions while the input is active: the PATCH
+          endpoint rejects free-form values, so offer the real choices. */}
+      {!readOnly && isEditing && suggestions.length > 0 && (
+        <div className="flex flex-wrap gap-1" role="group" aria-label={t('preview.suggestionsLabel')}>
+          {suggestions.map((tag) => (
+            <button
               key={tag}
-              className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground"
+              type="button"
+              // Keep the input focused so blur doesn't race the click.
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => addTag(tag)}
+              disabled={isSaving}
+              className="inline-flex items-center rounded-md border border-border bg-transparent px-2 py-0.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
             >
               {tag}
-            </span>
+            </button>
           ))}
         </div>
-      ) : (
-        <p className="text-xs text-muted-foreground/70">{t('preview.noTags')}</p>
+      )}
+      {showNoMatchHint && (
+        <p className="text-xs text-muted-foreground/70">{t('preview.noTagMatch')}</p>
       )}
     </div>
   )
