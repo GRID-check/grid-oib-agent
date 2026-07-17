@@ -67,11 +67,24 @@ describe('WorkflowList', () => {
     expect(screen.getByRole('button', { name: /Run now/ })).toBeInTheDocument()
   })
 
-  test('shows the empty state when there are no workflows', async () => {
+  test('the template gallery is always visible, even with configured workflows', async () => {
+    listWorkflowsMock.mockResolvedValue([sampleWorkflow])
+    render(<WorkflowList projectId="p1" onCreate={noop} onUseTemplate={noop} onEdit={noop} openingId={null} />)
+
+    expect(await screen.findByText('Weekly OIB scan')).toBeInTheDocument()
+    expect(screen.getByText('GRID templates')).toBeInTheDocument()
+    expect(screen.getByTestId('workflow-templates')).toBeInTheDocument()
+    expect(screen.getByTestId('workflow-templates-placeholder')).toBeInTheDocument()
+    expect(screen.getByText('Your workflows')).toBeInTheDocument()
+  })
+
+  test('shows the empty state (below the gallery) when there are no workflows', async () => {
     listWorkflowsMock.mockResolvedValue([])
     render(<WorkflowList projectId="p1" onCreate={noop} onUseTemplate={noop} onEdit={noop} openingId={null} />)
 
     expect(await screen.findByText('No workflows yet')).toBeInTheDocument()
+    // The gallery still renders above the empty state.
+    expect(screen.getByTestId('workflow-templates')).toBeInTheDocument()
   })
 
   test('surfaces a retryable error when the list fails to load', async () => {
@@ -173,18 +186,27 @@ describe('WorkflowBuilder', () => {
 })
 
 describe('TemplateCards', () => {
-  test('renders both GRID templates with a By GRID badge and calls onUse', () => {
+  test('renders every GRID template with badge, cadence hint and placeholder, and calls onUse', () => {
     const onUse = vi.fn()
     render(<TemplateCards onUse={onUse} />)
 
+    expect(screen.getByText('Submission pre-check')).toBeInTheDocument()
     expect(screen.getByText('Regulatory watch: OIB & Austrian building law')).toBeInTheDocument()
     expect(screen.getByText('OIB compliance gap check')).toBeInTheDocument()
-    expect(screen.getAllByText('By GRID')).toHaveLength(2)
+    expect(screen.getAllByText('By GRID')).toHaveLength(3)
 
-    const useButtons = screen.getAllByRole('button', { name: 'Use template' })
-    expect(useButtons).toHaveLength(2)
-    fireEvent.click(useButtons[0])
+    // Honest cadence hints derived from the templates' real crons.
+    expect(screen.getByText('Runs weekly')).toBeInTheDocument()
+    expect(screen.getAllByText('On demand')).toHaveLength(2)
+
+    // The dashed "More coming" placeholder closes the grid.
+    expect(screen.getByTestId('workflow-templates-placeholder')).toBeInTheDocument()
+    expect(screen.getByText('More coming')).toBeInTheDocument()
+
+    const setUpButtons = screen.getAllByRole('button', { name: /Set up template/ })
+    expect(setUpButtons).toHaveLength(3)
+    fireEvent.click(setUpButtons[0])
     expect(onUse).toHaveBeenCalledTimes(1)
-    expect(onUse.mock.calls[0][0]).toMatchObject({ id: 'regulatory-watch' })
+    expect(onUse.mock.calls[0][0]).toMatchObject({ id: 'submission-precheck' })
   })
 })

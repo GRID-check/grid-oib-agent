@@ -18,12 +18,21 @@
 import type { Translator } from '@/i18n'
 import type { WorkflowDefinition } from '@/adapters/api/workflows-client'
 
+/**
+ * Provenance signal the gallery uses for a template's icon tile (spec §4:
+ * `--source-*` token families). Purely presentational — it never changes what
+ * a run does.
+ */
+export type TemplateProvenance = 'law' | 'project' | 'office' | 'auto'
+
 /** Structural definition of a default template (content is in the dictionaries). */
 export interface WorkflowTemplate {
   /** Stable id (also the value passed around the UI). */
   readonly id: string
   /** Key under `workflows.templates` holding this template's localized content. */
   readonly i18nKey: string
+  /** Which provenance tint the gallery card's icon carries. */
+  readonly provenance: TemplateProvenance
   /** How many `questions.qN` keys the dictionary provides for this template. */
   readonly questionCount: number
   /** Additional data sources beyond the always-included knowledge layer. */
@@ -34,11 +43,24 @@ export interface WorkflowTemplate {
   readonly scheduleTimezone?: string
 }
 
-/** The GRID default templates, in display order. */
+/** The GRID default templates, in display order (= gallery order). */
 export const WORKFLOW_TEMPLATES: readonly WorkflowTemplate[] = [
   {
+    // "Vorprüfung Einreichung": research the requirements the project's permit
+    // submission must satisfy (state building code + OIB) and report open
+    // points. Manual-only — it is run deliberately before a submission.
+    id: 'submission-precheck',
+    i18nKey: 'submissionPrecheck',
+    provenance: 'law',
+    questionCount: 5,
+    dataSources: ['ris'],
+  },
+  {
+    // "Richtlinien-Monitoring": weekly deep-research scan for regulation
+    // changes relevant to the project profile.
     id: 'regulatory-watch',
     i18nKey: 'regulatoryWatch',
+    provenance: 'law',
     questionCount: 5,
     dataSources: ['ris', 'web_search'],
     scheduleCron: '0 6 * * 1',
@@ -47,6 +69,7 @@ export const WORKFLOW_TEMPLATES: readonly WorkflowTemplate[] = [
   {
     id: 'compliance-gap-check',
     i18nKey: 'complianceGapCheck',
+    provenance: 'project',
     questionCount: 5,
     dataSources: [],
   },
@@ -57,6 +80,7 @@ export interface ResolvedTemplate {
   id: string
   name: string
   description: string
+  provenance: TemplateProvenance
   definition: WorkflowDefinition
   /** Additional data sources (knowledge layer is always included server-side). */
   dataSources: string[]
@@ -98,6 +122,7 @@ export function resolveTemplate(t: Translator, id: string): ResolvedTemplate | n
     id: template.id,
     name: t(`${base}.name`),
     description: t(`${base}.description`),
+    provenance: template.provenance,
     definition,
     dataSources: [...template.dataSources],
     scheduleCron: template.scheduleCron,

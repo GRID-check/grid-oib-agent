@@ -1,10 +1,12 @@
 'use client'
 
 /**
- * Workflows list view — the default Workflows tab surface. Cards for each
- * saved brief: name/description, an enable switch (PATCH), a humanized
- * schedule summary, next/last run, and actions (run now, edit, delete, and an
- * expandable run history). Empty and error states reuse the shared primitives.
+ * Workflows list view — the default Workflows tab surface. The GRID template
+ * gallery sits at the top (always visible; cards open the builder pre-filled),
+ * followed by the configured workflows: cards for each saved brief with
+ * name/description, an enable switch (PATCH), a humanized schedule summary,
+ * next/last run, and actions (run now, edit, delete, and an expandable run
+ * history). Empty and error states reuse the shared primitives.
  */
 
 import { useCallback, useEffect, useState } from 'react'
@@ -16,7 +18,6 @@ import {
   Pencil,
   Play,
   Plus,
-  Sparkles,
   Trash2,
   Workflow as WorkflowIcon,
 } from 'lucide-react'
@@ -26,14 +27,6 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
@@ -297,64 +290,54 @@ export function WorkflowList({
           </h1>
           <p className="max-w-3xl text-sm text-muted-foreground">{t('subtitle')}</p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {templates.length > 0 && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline">
-                  <Sparkles className="size-4" aria-hidden />
-                  {t('templates.fromTemplate')}
-                  <ChevronDown className="size-4" aria-hidden />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="max-w-xs">
-                <DropdownMenuLabel>{t('templates.emptyHeading')}</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                {templates.map((template) => (
-                  <DropdownMenuItem
-                    key={template.id}
-                    onSelect={() => onUseTemplate(template)}
-                    className="flex-col items-start gap-0.5"
-                  >
-                    <span className="font-medium">{template.name}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {template.scheduleCron
-                        ? t('templates.scheduleWeekly')
-                        : t('templates.scheduleManual')}
-                    </span>
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-          <Button onClick={onCreate}>
-            <Plus className="size-4" aria-hidden />
-            {t('newWorkflow')}
-          </Button>
-        </div>
+        <Button onClick={onCreate}>
+          <Plus className="size-4" aria-hidden />
+          {t('newWorkflow')}
+        </Button>
       </header>
 
-      {workflows === null && !error && (
-        <div className="space-y-3" data-testid="workflows-loading">
-          <Skeleton className="h-36 w-full rounded-xl" />
-          <Skeleton className="h-36 w-full rounded-xl" />
-        </div>
+      {/* Curated template gallery — always visible, cards pre-fill the builder. */}
+      {templates.length > 0 && (
+        <section className="space-y-3" aria-labelledby="workflow-templates-heading">
+          <div className="space-y-1">
+            <h2
+              id="workflow-templates-heading"
+              className="text-sm font-semibold text-foreground"
+            >
+              {t('templates.heading')}
+            </h2>
+            <p className="max-w-3xl text-sm text-muted-foreground">{t('templates.hint')}</p>
+          </div>
+          <TemplateCards onUse={onUseTemplate} />
+        </section>
       )}
 
-      {error && (
-        <Alert variant="destructive">
-          <AlertCircle className="size-4" aria-hidden />
-          <AlertTitle>{t('loadError')}</AlertTitle>
-          <AlertDescription>
-            <Button variant="outline" size="sm" onClick={load}>
-              {t('tryAgain')}
-            </Button>
-          </AlertDescription>
-        </Alert>
-      )}
+      {/* Configured workflows + their run history. */}
+      <section className="space-y-4" aria-labelledby="configured-workflows-heading">
+        <h2 id="configured-workflows-heading" className="text-sm font-semibold text-foreground">
+          {t('list.heading')}
+        </h2>
 
-      {workflows !== null && !error && workflows.length === 0 && (
-        <div className="space-y-8">
+        {workflows === null && !error && (
+          <div className="space-y-3" data-testid="workflows-loading">
+            <Skeleton className="h-36 w-full rounded-xl" />
+            <Skeleton className="h-36 w-full rounded-xl" />
+          </div>
+        )}
+
+        {error && (
+          <Alert variant="destructive">
+            <AlertCircle className="size-4" aria-hidden />
+            <AlertTitle>{t('loadError')}</AlertTitle>
+            <AlertDescription>
+              <Button variant="outline" size="sm" onClick={load}>
+                {t('tryAgain')}
+              </Button>
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {workflows !== null && !error && workflows.length === 0 && (
           <EmptyState
             icon={WorkflowIcon}
             title={t('list.empty.title')}
@@ -366,35 +349,24 @@ export function WorkflowList({
               </Button>
             }
           />
-          {templates.length > 0 && (
-            <section className="space-y-3">
-              <div className="space-y-1">
-                <h2 className="text-sm font-semibold text-foreground">
-                  {t('templates.emptyHeading')}
-                </h2>
-                <p className="text-sm text-muted-foreground">{t('templates.emptyHint')}</p>
-              </div>
-              <TemplateCards onUse={onUseTemplate} />
-            </section>
-          )}
-        </div>
-      )}
+        )}
 
-      {workflows !== null && !error && workflows.length > 0 && (
-        <div className="space-y-4">
-          {workflows.map((workflow) => (
-            <WorkflowCard
-              key={workflow.id}
-              projectId={projectId}
-              workflow={workflow}
-              onEdit={onEdit}
-              opening={openingId === workflow.id}
-              onChanged={handleChanged}
-              onDeleted={handleDeleted}
-            />
-          ))}
-        </div>
-      )}
+        {workflows !== null && !error && workflows.length > 0 && (
+          <div className="space-y-4">
+            {workflows.map((workflow) => (
+              <WorkflowCard
+                key={workflow.id}
+                projectId={projectId}
+                workflow={workflow}
+                onEdit={onEdit}
+                opening={openingId === workflow.id}
+                onChanged={handleChanged}
+                onDeleted={handleDeleted}
+              />
+            ))}
+          </div>
+        )}
+      </section>
     </div>
   )
 }

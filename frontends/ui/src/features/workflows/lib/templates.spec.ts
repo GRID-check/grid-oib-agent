@@ -12,8 +12,9 @@ const translators = {
 } as const
 
 describe('workflow templates', () => {
-  test('ships the two GRID default templates', () => {
+  test('ships the three GRID default templates in gallery order', () => {
     expect(WORKFLOW_TEMPLATES.map((template) => template.id)).toEqual([
+      'submission-precheck',
       'regulatory-watch',
       'compliance-gap-check',
     ])
@@ -72,5 +73,13 @@ describe('workflow templates', () => {
     expect(template).not.toBeNull()
     expect(template?.dataSources).toEqual([])
     expect(template?.scheduleCron).toBeUndefined()
+  })
+
+  test('submission-precheck is manual-only with RIS as additional source', () => {
+    const template = resolveTemplate(translators.en, 'submission-precheck')
+    expect(template).not.toBeNull()
+    expect(template?.dataSources).toEqual(['ris'])
+    expect(template?.scheduleCron).toBeUndefined()
+    expect(template?.provenance).toBe('law')
   })
 })

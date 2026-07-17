@@ -11,10 +11,11 @@ export const workflows: typeof en.workflows = {
   tryAgain: 'Erneut versuchen',
 
   list: {
+    heading: 'Ihre Workflows',
     empty: {
       title: 'Noch keine Workflows',
       description:
-        'Erstellen Sie einen Workflow, um ein Recherche-Briefing zu speichern, das Sie wiederholen möchten — manuell oder nach einem wiederkehrenden Zeitplan.',
+        'Richten Sie oben eine Vorlage ein oder erstellen Sie einen Workflow von Grund auf, um ein Recherche-Briefing zu speichern, das Sie wiederholen möchten — manuell oder nach einem wiederkehrenden Zeitplan.',
       action: 'Neuer Workflow',
     },
     manualOnly: 'Nur manuell',
@@ -159,20 +160,51 @@ export const workflows: typeof en.workflows = {
     },
   },
 
-  // Von GRID erstellte Standardvorlagen. Karten in der Liste, füllen den Builder
-  // bei Auswahl vor — sie erstellen nie automatisch einen Workflow (die Nutzerin
-  // prüft und speichert).
+  // Von GRID erstellte Standardvorlagen — die stets sichtbare Galerie oben auf
+  // der Workflows-Seite. Eine Karte füllt den Builder vor; Vorlagen erstellen
+  // oder starten nie automatisch einen Workflow (die Nutzerin prüft und
+  // speichert).
   templates: {
     badge: 'Von GRID',
-    useTemplate: 'Vorlage verwenden',
-    fromTemplate: 'Aus Vorlage',
-    emptyHeading: 'Mit einer GRID-Vorlage starten',
-    emptyHint: 'Vorausgefüllte Recherche-Briefings, die Sie prüfen, anpassen und speichern können.',
-    scheduleWeekly: 'Wöchentlich',
-    scheduleManual: 'Manuell',
+    heading: 'Vorlagen von GRID',
+    hint: 'Vorausgefüllte Recherche-Briefings — prüfen, anpassen und speichern. Es läuft nichts, bevor Sie den Workflow speichern.',
+    setUp: 'Einrichten',
+    setUpAria: 'Vorlage „{name}“ einrichten',
+    // Ehrliche Kadenz-Hinweise, abgeleitet aus dem echten Cron der Vorlage.
+    cadence: {
+      manual: 'Auf Abruf',
+      hourly: 'Läuft stündlich',
+      daily: 'Läuft täglich',
+      weekly: 'Läuft wöchentlich',
+      monthly: 'Läuft monatlich',
+      custom: 'Eigener Zeitplan ({cron})',
+    },
+    moreComing: {
+      title: 'Weitere folgen',
+      hint: 'Hier erscheinen künftig weitere GRID-Vorlagen.',
+    },
+
+    submissionPrecheck: {
+      name: 'Vorprüfung Einreichung',
+      description:
+        'Recherchiert, welche Anforderungen für die Einreichung dieses Projekts gelten (Landes-Bauordnung, OIB-Richtlinien), und berichtet offene Punkte und fehlende Nachweise als Deep-Research-Bericht.',
+      objective:
+        'Ermitteln, welche Anforderungen die Einreichung dieses Projekts erfüllen muss — nach der anwendbaren Landes-Bauordnung und den OIB-Richtlinien — und berichten, welche Punkte die Projektdokumentation bereits abdeckt und welche offen bleiben.',
+      context:
+        'Nutzen Sie die Projektdokumente, um festzustellen, was geplant und bereits vorbereitet ist (Pläne, Berichte, Nachweise). Verwenden Sie die OIB-Wissensbasis und RIS (Bauordnung und einschlägige Verordnungen des Projekt-Bundeslands) als normative Grundlage. Dies ist ein vorbereitender Recherchebericht für das Planungsteam — er ersetzt nicht die formelle Prüfung der Einreichung durch die Behörde.',
+      outputFormat:
+        'Eine nach Themen gruppierte Checkliste: Anforderung, Rechtsgrundlage (exakte Fundstelle), Status (abgedeckt / offen / unklar), Verweis auf das Projektdokument, empfohlene Maßnahme. Schließen Sie mit einer kurzen Zusammenfassung der größten offenen Punkte. Belegen Sie jede Anforderung mit ihrer Quelle.',
+      questions: {
+        q1: 'Welche behördlichen Anforderungen und welche Einreichunterlagen verlangt die anwendbare Landes-Bauordnung für diesen Projekttyp und Standort?',
+        q2: 'Welche OIB-Anforderungen muss die Einreichung für diese Gebäudeklasse und Nutzung nachweislich behandeln?',
+        q3: 'Welche dieser Punkte deckt die aktuelle Projektdokumentation bereits ab? Nennen Sie das Dokument.',
+        q4: 'Welche Punkte sind offen — fehlende Unterlagen, fehlende Nachweise oder ungeklärte Widersprüche?',
+        q5: 'Was sollte das Planungsteam vor der Einreichung priorisieren, und zeichnen sich formelle Abweichungen ab?',
+      },
+    },
 
     regulatoryWatch: {
-      name: 'Regelwerks-Monitor: OIB & österreichisches Baurecht',
+      name: 'Richtlinien-Monitoring: OIB & österreichisches Baurecht',
       description:
         'Wöchentlicher Scan von RIS und Web nach geänderten Gesetzen, Verordnungen, Judikatur und OIB-Richtlinien-Veröffentlichungen, die dieses Projekt betreffen — mit konkreter Auswirkungsbewertung.',
       objective:
