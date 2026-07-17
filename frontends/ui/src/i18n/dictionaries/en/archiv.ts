@@ -3,6 +3,20 @@ export const archiv = {
   title: 'Archiv',
   subtitle: 'Shared documents available to every project in your organization',
   backToApp: 'Back to projects',
+  library: {
+    searchPlaceholder: 'Search the Archiv…',
+    searchLabel: 'Search Archiv documents',
+    resetSearch: 'Reset search',
+    categoriesLabel: 'Filter by category',
+    allCategories: 'All',
+    emptyTitle: 'The Archiv is empty',
+    emptyDescription:
+      'Documents stored here become office knowledge, available to every project in your organization.',
+    noMatchTitle: 'No matching documents',
+    noMatchDescription: 'No Archiv document matches your search or the selected category.',
+    clearFilters: 'Clear filters',
+    provenance: 'From: {source}',
+  },
   workspace: {
     dropToUpload: 'Drop files to add them to the Archiv',
     dropUnsupported: 'Some files are not a supported type',

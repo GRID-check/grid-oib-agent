@@ -164,6 +164,23 @@ have it). It reuses the exact same upload/ingestion/preview experience as the
 project Files tab. The feature is gated by the `organization-archiv` feature flag
 (available to all orgs while flag enforcement is off; targeted per-org once on).
 
+The Archiv presents itself as the office's **knowledge library** (gold archive
+mark = the Büroarchiv provenance signal used across the app):
+
+- **Card grid** — the same content-aware skeleton thumbnails, extension chips,
+  one-line AI descriptions, and ingestion-status badges as the project file
+  grid; failed cards show the failure reason inline.
+- **Category chips** — a filter row derived from the controlled ingestion tags
+  actually present on the archive's documents (document type + OIB discipline),
+  plus an "All" chip. Categories come from the documents themselves; creating
+  custom categories is not (yet) supported.
+- **Provenance footer** — cards whose documents carry ingestion tags show them
+  as an "Aus: …"/"From: …" line with the gold archive mark. Documents without
+  tags simply show none, and there is no "verified" marker — the Archiv has no
+  review workflow.
+- **Search** — filters the listing client-side by file name, ingestion tags,
+  and the AI description, combinable with the category chips.
+
 ---
 
 ## How Documents Become Searchable

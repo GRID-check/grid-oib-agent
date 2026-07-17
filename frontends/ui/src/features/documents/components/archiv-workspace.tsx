@@ -1,12 +1,12 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { toast } from 'sonner'
 import { AlertCircle, Archive, RotateCcw, Trash2, Upload, X } from 'lucide-react'
 import type { FileItem } from './project-file-workspace'
 import { useArchivDocuments } from '../hooks/use-archiv-documents'
 import { useFileDragDrop } from '../hooks/use-file-drag-drop'
-import { FileBrowserPane } from './file-browser-pane'
+import { ArchivLibraryPane } from './archiv-library-pane'
 import { FilePreviewPane } from './file-preview-pane'
 import { ProjectUppyUpload } from './project-uppy-upload'
 import { ActiveUploads } from './active-uploads'
@@ -23,6 +23,16 @@ interface ArchivWorkspaceProps {
   showMetadataPanel?: boolean
 }
 
+/**
+ * Gold Büroarchiv identity mark (spec §4, `--source-office`): icon + label
+ * together so color is never the only carrier (a11y). Semantic tokens with
+ * pre-retune fallbacks — no hex.
+ */
+const OFFICE_TINT: CSSProperties = {
+  backgroundColor: 'var(--source-office-tint, var(--background-color-feedback-warning-subtle))',
+  color: 'var(--source-office-text, var(--source-office, var(--text-color-feedback-warning)))',
+}
+
 interface ArchivListResponse {
   documents?: Array<Record<string, unknown>>
   collectionName?: string
@@ -31,12 +41,14 @@ interface ArchivListResponse {
 
 /**
  * Org-wide Archiv workspace — the cross-project counterpart to
- * {@link import('./project-file-workspace').ProjectFileWorkspace}. It reuses the
- * same presentational panes ({@link FileBrowserPane}, {@link FilePreviewPane},
- * {@link ActiveUploads}) and the same upload engine (via
- * {@link useArchivDocuments}); only the data source (`/api/archiv/documents`),
- * the flat (folder-less) layout, and the org-level authorization differ. Members
- * without manage rights get a read-only view (list + preview + download).
+ * {@link import('./project-file-workspace').ProjectFileWorkspace}. The listing
+ * is the curated {@link ArchivLibraryPane} (card grid + category chips over the
+ * real ingestion tags, WS-6); preview ({@link FilePreviewPane}), upload progress
+ * ({@link ActiveUploads}) and the upload engine (via {@link useArchivDocuments})
+ * are shared with the project Files workspace. Only the data source
+ * (`/api/archiv/documents`), the flat (folder-less) layout, and the org-level
+ * authorization differ. Members without manage rights get a read-only view
+ * (list + preview + download).
  */
 export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivWorkspaceProps) {
   const t = useTranslations('archiv')
@@ -177,12 +189,18 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
 
       {/* Top action bar */}
       <div className="flex items-center justify-between gap-4 border-b px-4 py-3">
-        <div className="min-w-0">
-          <h2 className="flex items-center gap-1.5 truncate text-sm font-semibold text-foreground">
-            <Archive className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-            {t('title')}
-          </h2>
-          <p className="text-xs text-muted-foreground">{t('subtitle')}</p>
+        <div className="flex min-w-0 items-center gap-2.5">
+          <span
+            className="flex size-8 shrink-0 items-center justify-center rounded-lg"
+            style={OFFICE_TINT}
+            aria-hidden
+          >
+            <Archive className="size-4" />
+          </span>
+          <div className="min-w-0">
+            <h2 className="truncate text-sm font-semibold text-foreground">{t('title')}</h2>
+            <p className="truncate text-xs text-muted-foreground">{t('subtitle')}</p>
+          </div>
         </div>
         {uploadButton}
       </div>
@@ -210,7 +228,7 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
       {/* Live upload progress */}
       <ActiveUploads files={activeUploads} onRetry={retryFile} />
 
-      {/* Two-pane layout (no folders): file browser + preview overlay/column. */}
+      {/* Two-pane layout (no folders): library grid + preview overlay/column. */}
       <div className="flex flex-1 flex-col overflow-hidden md:flex-row">
         <div className="flex-1 overflow-y-auto">
           {loadError ? (
@@ -223,12 +241,11 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
               </Button>
             </div>
           ) : (
-            <FileBrowserPane
+            <ArchivLibraryPane
               files={files}
               selectedFileId={selectedFileId}
               onSelectFile={setSelectedFileId}
               isLoading={isLoading}
-              hasFolderSelected={false}
               uploadControl={uploadButton}
             />
           )}
