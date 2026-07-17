@@ -22,6 +22,7 @@ before go-live.**
 | `org:budgets:manage` | LLM budgets + org-wide usage (ADR-0015) |
 | `org:compliance:manage` | Legal holds + deletion queue |
 | `org:audit:view` | Open the org's native audit-log viewer (Admin Portal). ⚠️ Added after the 2026-07-08 provisioning run — create it in Staging + attach to Admin (until then, legacy-`admin` back-compat covers admins). |
+| `org:archiv:manage` | Upload/delete/reingest/retag in the org-wide document Archiv (ADR-0024). Reads are open to any member, so only mutations need it. ⚠️ Added with ADR-0024 — create it + attach to Admin; until then legacy-`admin` back-compat covers admins, and custom non-admin roles that should upload need it explicitly. |
 
 Attached to the environment **Admin** role (which keeps its six
 `widgets:*` permissions). The **Member** role has none — members rely on
@@ -84,7 +85,9 @@ Actions emitted (registry: `AUDIT_ACTIONS` in that file): `org.created`,
 Platform org's trail, throttled to once per actor per hour),
 `project.created`, `project.deleted`, `project.restored`,
 `project.role.assigned`, `project.role.removed` (FGA access-control
-changes), `document.uploaded` (data provenance). Deliberately NOT audited:
+changes), `document.uploaded`, `archiv.document.uploaded`,
+`archiv.document.deleted` (data provenance; the last two are ADR-0024 — re-run
+`provision:audit-schemas` after that change). Deliberately NOT audited:
 high-frequency content activity (memory items, profile edits, conversation
 messages, renames, user preferences) — it would drown the admin trail.
 
@@ -116,6 +119,7 @@ delivered in the AuthKit JWT `feature_flags` claim (registry:
 | `image-upload` | Standalone PNG/JPG upload via VLM captioning (FB-15a). Availability = this flag **AND** a derived VLM capability (`vlm_available` on `GET /v1/data_sources`, computed from the VLM key). Server-computed in the root layout, prop-drilled into `AppConfig.fileUpload.acceptedTypes` (client accept-list includes image types only when flag AND capability hold); the BFF upload route (`uploadDocument`) independently re-applies the same flag∧capability rule via a short-TTL-cached backend probe and rejects image extensions with a 400 (fail-closed when the capability can't be confirmed). **Prerequisite (in addition to this flag):** a configured VLM (`AIQ_VLM_*`). No `FILE_UPLOAD_ACCEPTED_TYPES` image opt-in is needed — images are derived from the capability, not the env list (env-listed images without a VLM stay excluded) |
 | `research-in-chat-history` | Fold the Research runs tab into the chat-history panel as a "Deep Research" section (FB-10). Server-computed in the project layout (hide the `research` nav item) and the chat route (SessionsPanel section + `?job=` deep links); the `/research` route redirects to chat when on. Off → legacy Research tab + `ResearchRunsList` page remain |
 | `wizard-conflict-check` | End-of-wizard intake conflict check (FB-13). Server-computed in the intake page, prop-drilled to `ProjectIntakeWizard`. On Save: structured answers are checked deterministically on the client (instant), free-text answers by the LLM (`POST /api/projects/[id]/consistency-check` → backend `/v1/consistency-check`, skipped when there is no substantive free text); findings hold the save for "Trotzdem speichern" / "Überarbeiten". Off → the wizard saves exactly as before |
+| `organization-archiv` | Org-wide document Archiv (ADR-0024): `/app/archiv` page + user-menu entry, `/api/archiv/*` routes, and injection of the `archiv_<orgId>` collection into every project's retrieval scope. **Dark-launch flag** — while `GRID_ENFORCE_FEATURE_FLAGS` is off it is gated by the `GRID_ORG_ARCHIV_ENABLED` env var instead (default off), so this WorkOS flag only takes over once enforcement is on. Uploads/deletes additionally require the `org:archiv:manage` permission (table §1) |
 
 Rollout order (per environment): 1) create the flags in the WorkOS
 dashboard (Feature Flags — flag create/update events are covered by
