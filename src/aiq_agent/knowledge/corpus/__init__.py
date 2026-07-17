@@ -79,6 +79,10 @@ def build_corpus_chunks(
     """
     if registry is None:
         return None
+    if file_name.startswith("RIS_") and file_name.lower().endswith(".txt"):
+        from aiq_agent.knowledge.corpus.ris import build_ris_corpus_chunks
+
+        return build_ris_corpus_chunks(file_name, pages, registry)
     resolved = resolve_corpus_source(registry, file_name)
     if resolved is None:
         return None

@@ -60,6 +60,15 @@ except ImportError:  # adapter used standalone, without the Grid agent package
     _load_norm_registry = None  # type: ignore[assignment]
     _CATALOG_AVAILABLE = False
 
+try:
+    from aiq_agent.knowledge.ris_cache import RisCacheStore as _RisCacheStore
+    from aiq_agent.knowledge.ris_cache import cache_ttl_days as _cache_ttl_days
+except ImportError:  # adapter used standalone, without the Grid agent package
+    _RisCacheStore = None  # type: ignore[assignment]
+    _cache_ttl_days = None  # type: ignore[assignment]
+
+RIS_KNOWLEDGE_COLLECTION = "ris_knowledge"
+
 logger = logging.getLogger(__name__)
 
 # Austrian federal states accepted by the Landesrecht (LrKons) filter.
@@ -676,9 +685,20 @@ class RisFetchDocumentToolConfig(FunctionBaseConfig, name="ris_fetch_document"):
     ingest_into_knowledge: bool = Field(
         default=True,
         description=(
-            "Ingest fetched documents into the per-session knowledge collection so "
-            "knowledge_search can retrieve and cite them afterwards"
+            "Ingest the fetched document's full text into the persistent `ris_knowledge` cache "
+            "collection and add a small pointer note to the session collection"
         ),
+    )
+    persistent_cache: bool = Field(
+        default=True,
+        description=(
+            "Reuse previously fetched documents from the on-disk RIS cache when fresh; stale copies "
+            "are re-validated against the live Fassung date before being served. False always re-fetches."
+        ),
+    )
+    cache_dir: str = Field(
+        default="data/ris_cache",
+        description="Directory of the persistent RIS document cache (JSON registry + plain-text files).",
     )
     cache_ttl_seconds: float = Field(default=3600.0, description="How long fetched documents are cached in memory")
 
@@ -688,6 +708,71 @@ def _safe_document_name(reference: str, title: str) -> str:
     base = title or reference
     base = re.sub(r"[^\w.\- ]+", "_", base).strip("_ ").replace(" ", "_")
     return f"RIS_{base[:80] or 'Dokument'}.txt"
+
+
+_DOC_NUMBER_IN_URL_RE = re.compile(r"/Dokumente/[^/]+/([A-Z0-9_]+)/")
+_FASSUNG_SCAN_CHARS = 4000
+_FASSUNG_PATTERNS = re.compile(r"(?:Stand|Fassung vom|zuletzt geändert am)[:\s]+(\d{1,2}\.\d{1,2}\.\d{4})")
+
+
+def _document_number_from_url_or_reference(reference: str, url: str | None) -> str | None:
+    """Extract the OGD document number (e.g. ``NOR40262244``) from a resolved RIS URL or reference."""
+    if url:
+        match = _DOC_NUMBER_IN_URL_RE.search(url)
+        if match:
+            return match.group(1)
+    candidate = (reference or "").strip()
+    if re.fullmatch(r"[A-Z0-9_]{6,}", candidate):
+        return candidate
+    return None
+
+
+def _fassung_date_from_text(text: str) -> str | None:
+    """Extract the RIS ``Stand:``/``Fassung vom:`` date marker from the start of a fetched document."""
+    head = re.sub(r"\s+", " ", (text or "")[:_FASSUNG_SCAN_CHARS])
+    match = _FASSUNG_PATTERNS.search(head)
+    return match.group(1) if match else None
+
+
+def _decide_after_revalidation(record: object, new_fassung: str | None) -> str:
+    """Decide whether a stale cached copy can be served after a metadata re-validation."""
+    old = getattr(record, "fassung", None)
+    if new_fassung is not None and new_fassung != old:
+        return "refetch"
+    if old is None and new_fassung is not None:
+        return "refetch"
+    return "serve_touch"
+
+
+async def _revalidate_fassung(url: str) -> str | None:
+    """Cheap freshness probe: stream the first chunk of the document and read its Fassung date.
+
+    Any failure returns ``None`` (treated as "unchanged" so the stale copy is served rather
+    than failing the request).
+    """
+    try:
+        import httpx
+    except ImportError:  # pragma: no cover - httpx is a ris_adapter dependency
+        return None
+
+    def _probe() -> str | None:
+        try:
+            with (
+                httpx.Client(timeout=15.0, follow_redirects=True) as client,
+                client.stream("GET", url) as resp,
+            ):
+                if resp.status_code != 200:
+                    return None
+                buf = ""
+                for chunk in resp.iter_text():
+                    buf += chunk
+                    if len(buf) >= _FASSUNG_SCAN_CHARS:
+                        break
+                return _fassung_date_from_text(buf)
+        except Exception:
+            return None
+
+    return await asyncio.to_thread(_probe)
 
 
 def _resolve_session_collection() -> str | None:
@@ -707,7 +792,7 @@ def _resolve_session_collection() -> str | None:
     return f"{SESSION_COLLECTION_PREFIX}{session_id}"
 
 
-def _ingest_document_sync(text: str, file_name: str, source_url: str) -> str | None:
+def _ingest_document_sync(text: str, file_name: str, source_url: str, collection: str | None) -> str | None:
     """Write the document to a temp file and submit it to the active ingestor.
 
     Returns the ingested file name, or None when ingestion is unavailable.
@@ -720,9 +805,8 @@ def _ingest_document_sync(text: str, file_name: str, source_url: str) -> str | N
         logger.debug("ris_fetch_document: no active ingestor, skipping ingestion")
         return None
 
-    collection = _resolve_session_collection()
     if not collection:
-        logger.debug("ris_fetch_document: no session collection, skipping ingestion")
+        logger.debug("ris_fetch_document: no target collection, skipping ingestion")
         return None
 
     staging_dir = tempfile.mkdtemp(prefix="ris_adapter_")
@@ -733,6 +817,50 @@ def _ingest_document_sync(text: str, file_name: str, source_url: str) -> str | N
     ingestor.submit_job([file_path], collection)
     logger.info("ris_fetch_document: submitted '%s' for ingestion into '%s'", file_name, collection)
     return file_name
+
+
+def _delete_from_collection_sync(file_name: str, collection: str) -> None:
+    """Best-effort removal of a previously ingested file from a collection (replace semantics)."""
+    from aiq_agent.knowledge.factory import get_active_ingestor
+
+    ingestor = get_active_ingestor()
+    if ingestor is None:
+        return
+    try:
+        ingestor.delete_file(file_name, collection)
+    except Exception:
+        logger.debug("ris_fetch_document: delete of '%s' from '%s' failed (non-fatal)", file_name, collection)
+
+
+def _cache_serve_header(record: object, source: str) -> list[str]:
+    """Header lines for a document served from the persistent RIS cache."""
+    fetched = getattr(record, "fetched_at", None)
+    fetched_str = fetched.strftime("%Y-%m-%d") if fetched is not None else "unbekannt"
+    fassung = getattr(record, "fassung", None) or "unbekannt"
+    title = getattr(record, "title", "") or ""
+    lines = [f"Source: {source}"]
+    if title:
+        lines.append(f"Title: {title}")
+    lines.append(f"Cache: persistent ris_knowledge (erfasst {fetched_str}; Fassung {fassung})")
+    return lines
+
+
+def _render_fetch_result(header: list[str], text: str, max_chars: int, ingested_name: str | None) -> str:
+    """Assemble the tool output: header lines, (truncated) text, optional footers."""
+    footer: list[str] = []
+    if len(text) > max_chars:
+        total = len(text)
+        text = text[:max_chars]
+        footer.append(f"[Document truncated: showing {max_chars:,} of {total:,} characters.]")
+    if ingested_name:
+        footer.append(
+            f'[The complete document was added to the knowledge base as "{ingested_name}" — '
+            "use knowledge_search to query specific sections.]"
+        )
+    parts = ["\n".join(header), "", text]
+    if footer:
+        parts.extend(["", "\n".join(footer)])
+    return "\n".join(parts)
 
 
 def _legal_status_note(url: str) -> str | None:
@@ -783,6 +911,42 @@ async def ris_fetch_document(tool_config: RisFetchDocumentToolConfig, builder: B
                 url = reference
             else:
                 url = build_document_url(reference, application)
+        except RisError as exc:
+            return f"Error: RIS document fetch failed - {exc}"
+        except Exception as exc:  # a tool must always hand the agent a string
+            logger.exception("ris_fetch_document failed")
+            return f"Error: RIS document fetch failed - {exc}"
+
+        cache_enabled = tool_config.persistent_cache and _RisCacheStore is not None and _cache_ttl_days is not None
+        doc_number = _document_number_from_url_or_reference(reference, url) if cache_enabled else None
+        store = _RisCacheStore(tool_config.cache_dir) if doc_number else None
+        record = store.lookup(doc_number) if store is not None else None
+
+        if store is not None and record is not None:
+            decision = "serve"
+            if not store.is_fresh(record, _cache_ttl_days()):
+                new_fassung = await _revalidate_fassung(url)
+                decision = _decide_after_revalidation(record, new_fassung)
+            if decision in ("serve", "serve_touch"):
+                if decision == "serve_touch":
+                    store.touch(record)
+                text = store.read_text(record)
+                if tool_config.ingest_into_knowledge and getattr(record, "ingested_at", None) is None:
+                    try:
+                        ingested = await asyncio.to_thread(
+                            _ingest_document_sync, text, record.file_name, record.url, RIS_KNOWLEDGE_COLLECTION
+                        )
+                        if ingested:
+                            store.mark_ingested(record)
+                    except Exception:
+                        logger.warning("ris_fetch_document: cache ingestion failed (non-fatal)", exc_info=True)
+                header = _cache_serve_header(record, record.url)
+                header.append("Retrieved from the persistent RIS cache. Full document text follows.")
+                return _render_fetch_result(
+                    header, text, tool_config.max_chars, record.file_name if tool_config.ingest_into_knowledge else None
+                )
+
+        try:
             document = await client.fetch_document_text(url)
         except RisError as exc:
             return f"Error: RIS document fetch failed - {exc}"
@@ -790,11 +954,67 @@ async def ris_fetch_document(tool_config: RisFetchDocumentToolConfig, builder: B
             logger.exception("ris_fetch_document failed")
             return f"Error: RIS document fetch failed - {exc}"
 
+        if store is not None and doc_number:
+            file_name = _safe_document_name(reference, document.title)
+            new_record = store.store(
+                doc_number,
+                text=document.text,
+                url=document.url,
+                title=document.title or doc_number,
+                fassung=_fassung_date_from_text(document.text),
+                file_name=file_name,
+            )
+            if tool_config.ingest_into_knowledge:
+                previous_name = record.file_name if record is not None else file_name
+                try:
+                    await asyncio.to_thread(_delete_from_collection_sync, previous_name, RIS_KNOWLEDGE_COLLECTION)
+                    ingested = await asyncio.to_thread(
+                        _ingest_document_sync, document.text, file_name, document.url, RIS_KNOWLEDGE_COLLECTION
+                    )
+                    if ingested:
+                        store.mark_ingested(new_record)
+                except Exception:
+                    logger.warning("ris_fetch_document: knowledge ingestion failed (non-fatal)", exc_info=True)
+                session_collection = _resolve_session_collection()
+                if session_collection:
+                    pointer_name = f"RIS_POINTER_{doc_number}.txt"
+                    pointer_text = (
+                        f"RIS-Cache: {document.title or doc_number} ({doc_number}) liegt im persistenten Cache "
+                        f"'{RIS_KNOWLEDGE_COLLECTION}' als '{file_name}'. Quelle: {document.url}"
+                    )
+                    try:
+                        await asyncio.to_thread(_delete_from_collection_sync, pointer_name, session_collection)
+                        await asyncio.to_thread(
+                            _ingest_document_sync, pointer_text, pointer_name, document.url, session_collection
+                        )
+                    except Exception:
+                        logger.warning("ris_fetch_document: pointer ingestion failed (non-fatal)", exc_info=True)
+            fassung = new_record.fassung or "unbekannt"
+            header = [f"Source: {document.url}"]
+            if document.title:
+                header.append(f"Title: {document.title}")
+            header.append(f"Retrieved: {datetime.now(UTC).date().isoformat()}")
+            status_note = _legal_status_note(document.url)
+            if status_note:
+                header.append(status_note)
+            header.append(
+                f"Cache: neu abgerufen und im persistenten Cache ({RIS_KNOWLEDGE_COLLECTION}) abgelegt "
+                f"(Fassung {fassung}). Full document text follows."
+            )
+            return _render_fetch_result(
+                header,
+                document.text,
+                tool_config.max_chars,
+                file_name if tool_config.ingest_into_knowledge else None,
+            )
+
         ingested_name: str | None = None
         if tool_config.ingest_into_knowledge:
             file_name = _safe_document_name(reference, document.title)
             try:
-                ingested_name = await asyncio.to_thread(_ingest_document_sync, document.text, file_name, document.url)
+                ingested_name = await asyncio.to_thread(
+                    _ingest_document_sync, document.text, file_name, document.url, _resolve_session_collection()
+                )
             except Exception:
                 logger.warning("ris_fetch_document: knowledge ingestion failed (non-fatal)", exc_info=True)
 
@@ -806,23 +1026,7 @@ async def ris_fetch_document(tool_config: RisFetchDocumentToolConfig, builder: B
         if status_note:
             header.append(status_note)
         header.append("Retrieved from RIS (Rechtsinformationssystem des Bundes). Full document text follows.")
-
-        text = document.text
-        footer: list[str] = []
-        if len(text) > tool_config.max_chars:
-            total = len(text)
-            text = text[: tool_config.max_chars]
-            footer.append(f"[Document truncated: showing {tool_config.max_chars:,} of {total:,} characters.]")
-        if ingested_name:
-            footer.append(
-                f'[The complete document was added to the knowledge base as "{ingested_name}" — '
-                "use knowledge_search to query specific sections.]"
-            )
-
-        parts = ["\n".join(header), "", text]
-        if footer:
-            parts.extend(["", "\n".join(footer)])
-        return "\n".join(parts)
+        return _render_fetch_result(header, document.text, tool_config.max_chars, ingested_name)
 
     try:
         yield FunctionInfo.from_fn(

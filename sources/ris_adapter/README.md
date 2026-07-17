@@ -68,14 +68,27 @@ uv run --no-project --with httpx --with pydantic --with beautifulsoup4 \
 
 ### On-demand documents as knowledge sources
 
-`ris_fetch_document` does two things with a fetched document:
+`ris_fetch_document` does three things with a fetched document:
 
-1. Returns the full text (truncated at `max_chars` for the agent's context) with
+1. Serves it from the **persistent norm cache** when possible (ADR-0025 Phase
+   3, `persistent_cache: true` by default): fetched full texts are kept on disk
+   (`cache_dir`, default `data/ris_cache`) keyed by RIS document number with a
+   content hash and parsed Fassung date. Fresh entries
+   (`GRID_RIS_CACHE_TTL_DAYS`, default 7 days) skip the HTTP call entirely;
+   stale entries are re-validated cheaply (first ~4 KB, `Stand:`/`Fassung vom`
+   date) and only re-fetched when a Novelle actually changed the Fassung —
+   network failure during re-validation serves the stale copy rather than
+   failing the tool. Documents whose number cannot be resolved fall back to the
+   legacy behavior below.
+2. Returns the full text (truncated at `max_chars` for the agent's context) with
    a `Source:` line carrying the canonical `ris.bka.gv.at` URL. The citation
    verification layer picks that URL up automatically, so answers grounded in
    the document are citable.
-2. Ingests the **complete** text into the per-session knowledge collection
-   (best-effort, `ingest_into_knowledge: true` by default). From then on
+3. Ingests the **complete** text into the persistent `ris_knowledge` knowledge
+   collection (best-effort, `ingest_into_knowledge: true` by default), chunked
+   on `§` boundaries with norm-registry metadata. The session collection only
+   receives a small `RIS_POINTER_<docnr>.txt` pointer; without the cache the
+   full text goes to the per-session collection as before. From then on
    `knowledge_search` retrieves and cites specific sections of the document —
    the document has become a regular knowledge-layer source.
 

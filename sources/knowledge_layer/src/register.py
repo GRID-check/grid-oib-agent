@@ -250,6 +250,14 @@ def _normalize_session_collection_name(session_id: str | None) -> str | None:
     return f"{SESSION_COLLECTION_PREFIX}{session_id}"
 
 
+RIS_KNOWLEDGE_COLLECTION = "ris_knowledge"
+
+
+def _is_norm_collection(config: KnowledgeRetrievalConfig, coll: str) -> bool:
+    """Norm-metadata collections: default filters, parent expansion, stratum labels apply."""
+    return coll in (config.collection_name, RIS_KNOWLEDGE_COLLECTION)
+
+
 def _resolve_target_collections(config: KnowledgeRetrievalConfig, session_id: str | None) -> list[str]:
     """
     Build the ordered, de-duplicated set of collections to search.
@@ -278,7 +286,10 @@ def _resolve_target_collections(config: KnowledgeRetrievalConfig, session_id: st
 
         header_scope = get_collection_scope_from_context()
         if header_scope:
-            return header_scope
+            scope = list(header_scope)
+            if RIS_KNOWLEDGE_COLLECTION not in scope and RIS_KNOWLEDGE_COLLECTION != config.collection_name:
+                scope.append(RIS_KNOWLEDGE_COLLECTION)
+            return scope
     except ImportError:
         pass
 
@@ -314,6 +325,15 @@ def _resolve_target_collections(config: KnowledgeRetrievalConfig, session_id: st
     # Empty search set -> fall back to the configured base collection.
     if not ordered:
         return [config.collection_name]
+    # The persistent RIS norm cache rides with the base corpus: appended only when
+    # the base collection is in play (never when the base layer is disabled).
+    if (
+        config.include_base_collection
+        and config.collection_name
+        and RIS_KNOWLEDGE_COLLECTION != config.collection_name
+        and RIS_KNOWLEDGE_COLLECTION not in ordered
+    ):
+        ordered.append(RIS_KNOWLEDGE_COLLECTION)
     return ordered
 
 
@@ -351,23 +371,42 @@ def _base_collection_filters(config: KnowledgeRetrievalConfig, caller_filters: d
     return {"$and": clauses}
 
 
+def _norm_anchor_field(metadata: dict | None) -> str | None:
+    """Anchor metadata field of a norm chunk: ``punkt`` (OIB corpus) or ``paragraph`` (RIS)."""
+    if not metadata:
+        return None
+    if metadata.get("punkt"):
+        return "punkt"
+    if metadata.get("paragraph"):
+        return "paragraph"
+    return None
+
+
 def _norm_parent_key(metadata: dict | None) -> tuple[str, str, str] | None:
-    """Return the (doc_id, edition, punkt) parent key for a norm chunk, else None."""
+    """Return the (doc_id, edition, anchor) parent key for a norm chunk, else None."""
     if not metadata:
         return None
     doc_id = metadata.get("doc_id")
     edition = metadata.get("edition")
-    punkt = metadata.get("punkt")
-    if doc_id and edition and punkt:
-        return (doc_id, edition, punkt)
+    field = _norm_anchor_field(metadata)
+    if doc_id and edition and field:
+        return (doc_id, edition, metadata[field])
     return None
 
 
 def _strip_known_prefix(text: str, metadata: dict) -> tuple[str, str]:
     """Split a corpus chunk into its deterministic context prefix and body."""
+    field = _norm_anchor_field(metadata)
+    if field == "punkt":
+        anchor = f"Pkt {metadata.get('punkt')}"
+    elif field == "paragraph":
+        anchor = f"§ {metadata.get('paragraph')}"
+    else:
+        return "", text
+    role = metadata.get("role")
     prefix = (
         f"{metadata.get('doc_short')} - {metadata.get('doc_title')} "
-        f"({metadata.get('edition_label')}), Pkt {metadata.get('punkt')}, {metadata.get('role')}\n"
+        f"({metadata.get('edition_label')}), {anchor}{f', {role}' if role else ''}\n"
     )
     if text.startswith(prefix):
         return prefix, text[len(prefix) :]
@@ -486,11 +525,14 @@ def _format_results(retrieval_result, query: str) -> str:
     for i, chunk in enumerate(retrieval_result.chunks, 1):
         meta = chunk.metadata or {}
 
-        # Build citation string: registry-derived "OIB-RL 2, Pkt 3.1.2, <edition>" for
-        # norm chunks; "filename, p.X" or just "filename" otherwise.
+        # Build citation string: registry-derived "OIB-RL 2, Pkt 3.1.2, <edition>" or
+        # "BauO Wien, § 5, <edition>" for norm chunks; "filename, p.X" or just "filename" otherwise.
         if meta.get("doc_short") and meta.get("punkt"):
             edition = meta.get("edition_label") or meta.get("edition") or ""
             citation = f"{meta['doc_short']}, Pkt {meta['punkt']}, {edition}".rstrip(", ")
+        elif meta.get("doc_short") and meta.get("paragraph"):
+            edition = meta.get("edition_label") or meta.get("edition") or ""
+            citation = f"{meta['doc_short']}, § {meta['paragraph']}, {edition}".rstrip(", ")
         elif chunk.page_number and chunk.page_number > 0:
             citation = f"{chunk.file_name}, p.{chunk.page_number}"
         else:
@@ -592,30 +634,40 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             if not keys:
                 return result
             siblings_by_key = {}
-            for doc_id, edition, punkt in keys:
+            for doc_id, edition, anchor in keys:
+                field = next(
+                    (
+                        _norm_anchor_field(c.metadata)
+                        for c in result.chunks
+                        if _norm_parent_key(c.metadata) == (doc_id, edition, anchor)
+                    ),
+                    None,
+                )
+                if field is None:
+                    continue
                 try:
                     sib = await retriever.retrieve(
                         query=query,
                         collection_name=coll,
                         top_k=_PARENT_EXPANSION_TOP_K,
-                        filters={"doc_id": doc_id, "edition": edition, "punkt": punkt},
+                        filters={"doc_id": doc_id, "edition": edition, field: anchor},
                     )
                 except Exception:
-                    logger.debug("Parent expansion fetch failed for %s/%s/%s", doc_id, edition, punkt)
+                    logger.debug("Parent expansion fetch failed for %s/%s/%s", doc_id, edition, anchor)
                     continue
                 if getattr(sib, "success", False) and sib.chunks:
-                    siblings_by_key[(doc_id, edition, punkt)] = sib.chunks
+                    siblings_by_key[(doc_id, edition, anchor)] = sib.chunks
             if not siblings_by_key:
                 return result
             result.chunks = _expand_norm_parents(result.chunks, siblings_by_key)
             return result
 
         async def _retrieve_collection(coll: str):
-            # Default norm filters + Phase-0 exclusions apply to the base corpus only;
-            # session/project collections are user content.
-            coll_filters = _base_collection_filters(config, filters) if coll == config.collection_name else None
+            # Default norm filters + Phase-0 exclusions apply to the norm collections
+            # (base corpus + ris_knowledge); session/project collections are user content.
+            coll_filters = _base_collection_filters(config, filters) if _is_norm_collection(config, coll) else None
             result = await retriever.retrieve(query=query, collection_name=coll, top_k=top_k, filters=coll_filters)
-            if config.parent_expansion and coll == config.collection_name:
+            if config.parent_expansion and _is_norm_collection(config, coll):
                 result = await _expand_base_result(result, coll)
             return result
 

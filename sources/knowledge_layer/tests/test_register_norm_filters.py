@@ -179,3 +179,83 @@ class TestFormatStratumLabels:
         out = reg._format_results(self._result([chunk]), "q")
         assert "z" * 2000 not in out
         assert "[truncated]" in out
+
+RIS_META = {
+    "doc_id": "bo-wien",
+    "doc_short": "BauO Wien",
+    "doc_title": "Bauordnung für Wien",
+    "edition": "konsolidiert",
+    "edition_label": "Konsolidierte Fassung (laufend)",
+    "edition_status": "current",
+    "rank": "landesgesetz",
+    "role": "normativ",
+    "country": "at",
+    "document_number": "LWI40000225",
+    "paragraph": "5",
+}
+
+RIS_PREFIX = "BauO Wien - Bauordnung für Wien (Konsolidierte Fassung (laufend)), § 5, normativ\n"
+
+
+class TestRisKnowledgeFanOut:
+    def test_header_scope_appended(self, monkeypatch):
+        monkeypatch.setattr(
+            "aiq_agent.knowledge.scoping.get_collection_scope_from_context",
+            lambda: ["oib_knowledge", "s_conv"],
+        )
+        config = KnowledgeRetrievalConfig(collection_name="oib_knowledge")
+        assert reg._resolve_target_collections(config, None) == ["oib_knowledge", "s_conv", "ris_knowledge"]
+
+    def test_header_scope_deduped_when_present(self, monkeypatch):
+        monkeypatch.setattr(
+            "aiq_agent.knowledge.scoping.get_collection_scope_from_context",
+            lambda: ["oib_knowledge", "ris_knowledge"],
+        )
+        config = KnowledgeRetrievalConfig(collection_name="oib_knowledge")
+        assert reg._resolve_target_collections(config, None) == ["oib_knowledge", "ris_knowledge"]
+
+    def test_legacy_path_appended(self, monkeypatch):
+        monkeypatch.setattr("aiq_agent.knowledge.scoping.get_collection_scope_from_context", lambda: None)
+        config = KnowledgeRetrievalConfig(collection_name="oib_knowledge", include_base_collection=True)
+        assert reg._resolve_target_collections(config, None) == ["oib_knowledge", "ris_knowledge"]
+
+    def test_fixed_collection_stays_pinned(self, monkeypatch):
+        monkeypatch.setattr("aiq_agent.knowledge.scoping.get_collection_scope_from_context", lambda: None)
+        config = KnowledgeRetrievalConfig(collection_name="oib_knowledge", use_fixed_collection=True)
+        assert reg._resolve_target_collections(config, None) == ["oib_knowledge"]
+
+
+class TestNormCollectionGate:
+    def test_base_and_ris_knowledge_are_norm_collections(self):
+        config = KnowledgeRetrievalConfig(collection_name="oib_knowledge")
+        assert reg._is_norm_collection(config, "oib_knowledge")
+        assert reg._is_norm_collection(config, "ris_knowledge")
+        assert not reg._is_norm_collection(config, "proj_123")
+        assert not reg._is_norm_collection(config, "s_conv")
+
+
+class TestParagraphAnchors:
+    def test_parent_key_falls_back_to_paragraph(self):
+        assert reg._norm_parent_key(RIS_META) == ("bo-wien", "konsolidiert", "5")
+
+    def test_anchor_field_prefers_punkt(self):
+        assert reg._norm_anchor_field({**RIS_META, "punkt": "3.1"}) == "punkt"
+        assert reg._norm_anchor_field(RIS_META) == "paragraph"
+        assert reg._norm_anchor_field({"doc_id": "x"}) is None
+
+    def test_strip_paragraph_prefix_with_role(self):
+        prefix, body = reg._strip_known_prefix(RIS_PREFIX + "Paragraph body.", RIS_META)
+        assert prefix == RIS_PREFIX
+        assert body == "Paragraph body."
+
+    def test_strip_paragraph_prefix_without_role(self):
+        meta = {k: v for k, v in RIS_META.items() if k != "role"}
+        text = "BauO Wien - Bauordnung für Wien (Konsolidierte Fassung (laufend)), § 5\nbody"
+        prefix, body = reg._strip_known_prefix(text, meta)
+        assert body == "body"
+
+    def test_ris_chunk_gets_paragraph_citation(self):
+        chunk = _chunk("body", metadata={**RIS_META, "chunk_index": 0})
+        out = reg._format_results(RetrievalResult(chunks=[chunk], query="q", backend="llamaindex"), "q")
+        assert "Citation: BauO Wien, § 5, Konsolidierte Fassung (laufend)" in out
+        assert "Stratum: landesgesetz" in out

@@ -128,6 +128,16 @@ def _filters_fingerprint(filters: dict[str, Any] | None) -> str:
     return json.dumps(filters, sort_keys=True, default=str)
 
 
+def _read_text_with_fallback(file_path: Path | str) -> str:
+    """Read a text file as UTF-8, falling back to latin-1 with replacement on decode errors."""
+    path = Path(file_path)
+    try:
+        return path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        logger.warning("Non-UTF-8 text file %s; decoding with latin-1 fallback", path.name)
+        return path.read_text(encoding="latin-1", errors="replace")
+
+
 def _corpus_text_documents(resolver, file_name: str, pages: list[dict], file_size: int, document_cls):
     """Build LlamaIndex Documents from corpus chunks when the resolver knows the file.
 
@@ -1929,14 +1939,26 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         else:
                             total_images += 1
                     else:
-                        from llama_index.core import SimpleDirectoryReader
+                        # Norm-registry corpus hook for fetched RIS texts: the
+                        # resolver pre-chunks on § boundaries with doc metadata
+                        # (Phase 3); unknown files keep the reader fallback.
+                        text = _read_text_with_fallback(file_path)
+                        text_documents = _corpus_text_documents(
+                            config.get("corpus_resolver"),
+                            file_name,
+                            [{"text": text, "page_number": ""}],
+                            file_size,
+                            Document,
+                        )
+                        if text_documents is None:
+                            from llama_index.core import SimpleDirectoryReader
 
-                        text_documents = SimpleDirectoryReader(input_files=[file_path]).load_data()
+                            text_documents = SimpleDirectoryReader(input_files=[file_path]).load_data()
 
-                        # Override file_name metadata (SimpleDirectoryReader uses temp path)
-                        for doc in text_documents:
-                            doc.metadata["file_name"] = file_name
-                            doc.metadata["file_size"] = file_size
+                            # Override file_name metadata (SimpleDirectoryReader uses temp path)
+                            for doc in text_documents:
+                                doc.metadata["file_name"] = file_name
+                                doc.metadata["file_size"] = file_size
 
                     all_documents.extend(text_documents)
                     logger.info(f"  Text extraction: {len(text_documents)} documents")

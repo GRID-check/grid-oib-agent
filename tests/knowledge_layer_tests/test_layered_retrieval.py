@@ -63,7 +63,7 @@ class TestResolveTargetCollections:
             include_base_collection=True,
             include_session_collection=True,
         )
-        assert _resolve_target_collections(config, "s_abc") == ["oib_knowledge", "s_abc"]
+        assert _resolve_target_collections(config, "s_abc") == ["oib_knowledge", "s_abc", "ris_knowledge"]
 
     def test_raw_conversation_id_is_normalized_to_session_collection(self):
         config = KnowledgeRetrievalConfig(
@@ -71,7 +71,7 @@ class TestResolveTargetCollections:
             include_base_collection=True,
             include_session_collection=True,
         )
-        assert _resolve_target_collections(config, "abc") == ["oib_knowledge", "s_abc"]
+        assert _resolve_target_collections(config, "abc") == ["oib_knowledge", "s_abc", "ris_knowledge"]
 
     def test_session_only_when_base_disabled(self):
         config = KnowledgeRetrievalConfig(
@@ -93,6 +93,7 @@ class TestResolveTargetCollections:
             "s_abc",
             "proj_a",
             "proj_b",
+            "ris_knowledge",
         ]
 
     def test_dedup_preserves_order(self):
@@ -102,7 +103,7 @@ class TestResolveTargetCollections:
             include_session_collection=True,
             project_collections=["oib_knowledge", "s_abc", "proj_a", "proj_a"],
         )
-        assert _resolve_target_collections(config, "s_abc") == ["oib_knowledge", "s_abc", "proj_a"]
+        assert _resolve_target_collections(config, "s_abc") == ["oib_knowledge", "s_abc", "proj_a", "ris_knowledge"]
 
     def test_no_session_available(self):
         config = KnowledgeRetrievalConfig(
@@ -110,7 +111,7 @@ class TestResolveTargetCollections:
             include_base_collection=True,
             include_session_collection=True,
         )
-        assert _resolve_target_collections(config, None) == ["oib_knowledge"]
+        assert _resolve_target_collections(config, None) == ["oib_knowledge", "ris_knowledge"]
 
     def test_empty_falls_back_to_base(self):
         # Nothing selected: no base, no session, no projects -> fall back to base name.
@@ -150,17 +151,13 @@ class TestMergeResults:
 
     def test_tolerates_exception_layer(self):
         ok = _result([_chunk(0.6)])
-        merged = _merge_results(
-            [ok, RuntimeError("boom")], query="q", top_k=5, backend_name="llamaindex"
-        )
+        merged = _merge_results([ok, RuntimeError("boom")], query="q", top_k=5, backend_name="llamaindex")
         assert merged.success is True
         assert [c.score for c in merged.chunks] == [0.6]
 
     def test_all_failed_returns_empty_success(self):
         failed = _result([], success=False, error="Collection not found")
-        merged = _merge_results(
-            [failed, RuntimeError("boom")], query="q", top_k=5, backend_name="llamaindex"
-        )
+        merged = _merge_results([failed, RuntimeError("boom")], query="q", top_k=5, backend_name="llamaindex")
         # success=True with empty chunks so _format_results renders "No relevant documents found"
         assert merged.success is True
         assert merged.chunks == []

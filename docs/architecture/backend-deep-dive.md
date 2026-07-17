@@ -485,6 +485,34 @@ Three consumers:
   materialize in Chroma; until then the Phase-0 filename exclusion keeps diff
   chunks out of default retrieval.
 
+**Phase-3 persistent RIS norm cache** (spec §4.4, 2026-07-17):
+
+- `ris_fetch_document` no longer re-downloads consolidated statutes on every
+  call. A JSON-registry + plain-text cache (`src/aiq_agent/knowledge/ris_cache.py`,
+  default dir `data/ris_cache`) keys fetched full texts by RIS
+  `document_number` with a SHA-256 content hash, fetch timestamp, and parsed
+  Fassung date. Fresh records (`GRID_RIS_CACHE_TTL_DAYS`, default 7) are
+  served without any HTTP call; stale records are re-validated cheaply (first
+  ~4 KB of the page, `Stand:`/`Fassung vom` date extraction — network failure
+  means "serve stale", never break the tool) and only re-fetched when the
+  Fassung actually changed (Novelle). Config knobs on the fetch tool:
+  `persistent_cache` (default true) and `cache_dir`; unresolvable document
+  numbers fall back to the legacy per-session behavior.
+- Fetched full texts are ingested into a **persistent `ris_knowledge`
+  collection** instead of the per-session `s_<conversation>` collection
+  (previously every session re-embedded the same statute). The session
+  collection now receives only a small `RIS_POINTER_<docnr>.txt` pointer. The
+  collection joins the retrieval fan-out inside
+  `_resolve_target_collections` — backend-side only, appended to header scopes
+  and to the legacy path whenever the base corpus is in play (never when the
+  base layer is disabled; the empty-set base fallback is unchanged).
+- `src/aiq_agent/knowledge/corpus/ris.py` chunks fetched RIS texts on `§`
+  boundaries with the same registry-metadata stamping as the OIB corpus
+  (registry-known documents get rank/role/edition; "blind" fetches get a
+  `ris:<docnr>` id and no rank/role). Parent expansion anchors on `paragraph`
+  for these chunks; citations render as `BauO Wien, § 5, Konsolidierte Fassung
+  (laufend)`.
+
 **Jurisdiction is a structured fact, not an inference.** The project-intake
 wizard captures the building's location as a validated `bundesland` fact (nine
 states + `ausserhalb_oesterreichs`, with a free-text `standort_details` for

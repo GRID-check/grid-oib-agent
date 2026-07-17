@@ -446,7 +446,7 @@ class TestRisFetchDocumentTool:
             text="§ 1 Text des Gesetzes",
         )
 
-        config = RisFetchDocumentToolConfig(ingest_into_knowledge=False)
+        config = RisFetchDocumentToolConfig(ingest_into_knowledge=False, persistent_cache=False)
         async with ris_fetch_document(config, MagicMock()) as info:
             output = await _call(info, reference="https://www.ris.bka.gv.at/Dokumente/Bundesnormen/NOR1/NOR1.html")
 
@@ -457,7 +457,7 @@ class TestRisFetchDocumentTool:
     async def test_fetches_by_document_number(self, fake_client):
         fake_client.fetch_result = RisDocument(url="https://x", title="", text="text")
 
-        config = RisFetchDocumentToolConfig(ingest_into_knowledge=False)
+        config = RisFetchDocumentToolConfig(ingest_into_knowledge=False, persistent_cache=False)
         async with ris_fetch_document(config, MagicMock()) as info:
             await _call(info, reference="NOR40217157")
 
@@ -466,7 +466,7 @@ class TestRisFetchDocumentTool:
         ]
 
     async def test_unresolvable_reference_returns_error(self, fake_client):
-        config = RisFetchDocumentToolConfig(ingest_into_knowledge=False)
+        config = RisFetchDocumentToolConfig(ingest_into_knowledge=False, persistent_cache=False)
         async with ris_fetch_document(config, MagicMock()) as info:
             output = await _call(info, reference="XYZ123")
 
@@ -475,7 +475,7 @@ class TestRisFetchDocumentTool:
         assert fake_client.fetch_calls == []
 
     async def test_empty_reference_returns_error(self, fake_client):
-        config = RisFetchDocumentToolConfig(ingest_into_knowledge=False)
+        config = RisFetchDocumentToolConfig(ingest_into_knowledge=False, persistent_cache=False)
         async with ris_fetch_document(config, MagicMock()) as info:
             output = await _call(info, reference="   ")
 
@@ -484,7 +484,7 @@ class TestRisFetchDocumentTool:
     async def test_truncates_long_documents(self, fake_client):
         fake_client.fetch_result = RisDocument(url="https://www.ris.bka.gv.at/d", title="Lang", text="x" * 5000)
 
-        config = RisFetchDocumentToolConfig(ingest_into_knowledge=False, max_chars=1000)
+        config = RisFetchDocumentToolConfig(ingest_into_knowledge=False, max_chars=1000, persistent_cache=False)
         async with ris_fetch_document(config, MagicMock()) as info:
             output = await _call(info, reference="NOR1")
 
@@ -493,7 +493,7 @@ class TestRisFetchDocumentTool:
     async def test_fetch_error_returned_as_string(self, fake_client):
         fake_client.fetch_result = RisError("Fetching RIS document failed with HTTP 404")
 
-        config = RisFetchDocumentToolConfig(ingest_into_knowledge=False)
+        config = RisFetchDocumentToolConfig(ingest_into_knowledge=False, persistent_cache=False)
         async with ris_fetch_document(config, MagicMock()) as info:
             output = await _call(info, reference="NOR1")
 
@@ -503,14 +503,14 @@ class TestRisFetchDocumentTool:
     async def test_ingestion_success_is_reported(self, fake_client, monkeypatch):
         fake_client.fetch_result = RisDocument(url="https://www.ris.bka.gv.at/d", title="Gesetz", text="Volltext")
 
-        def _fake_ingest(text, file_name, source_url):
+        def _fake_ingest(text, file_name, source_url, collection):
             assert text == "Volltext"
             assert source_url == "https://www.ris.bka.gv.at/d"
             return file_name
 
         monkeypatch.setattr("ris_adapter.register._ingest_document_sync", _fake_ingest)
 
-        config = RisFetchDocumentToolConfig(ingest_into_knowledge=True)
+        config = RisFetchDocumentToolConfig(ingest_into_knowledge=True, persistent_cache=False)
         async with ris_fetch_document(config, MagicMock()) as info:
             output = await _call(info, reference="NOR1")
 
@@ -520,12 +520,12 @@ class TestRisFetchDocumentTool:
     async def test_ingestion_failure_is_non_fatal(self, fake_client, monkeypatch):
         fake_client.fetch_result = RisDocument(url="https://www.ris.bka.gv.at/d", title="Gesetz", text="Volltext")
 
-        def _boom(text, file_name, source_url):
+        def _boom(text, file_name, source_url, collection):
             raise RuntimeError("no ingestor")
 
         monkeypatch.setattr("ris_adapter.register._ingest_document_sync", _boom)
 
-        config = RisFetchDocumentToolConfig(ingest_into_knowledge=True)
+        config = RisFetchDocumentToolConfig(ingest_into_knowledge=True, persistent_cache=False)
         async with ris_fetch_document(config, MagicMock()) as info:
             output = await _call(info, reference="NOR1")
 
