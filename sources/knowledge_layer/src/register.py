@@ -22,6 +22,15 @@ from nat.data_models.function import FunctionBaseConfig
 
 logger = logging.getLogger(__name__)
 
+try:  # Norm registry (Phase 2): default norm filters for the base corpus
+    from aiq_agent.common.norm_registry import default_norm_filters as _default_norm_filters
+    from aiq_agent.common.norm_registry import load_registry as _load_norm_registry
+    from aiq_agent.common.norm_registry import resolve_bundesland as _resolve_norm_bundesland
+except Exception:  # pragma: no cover - registry is optional
+    _default_norm_filters = None
+    _load_norm_registry = None
+    _resolve_norm_bundesland = None
+
 
 # Type-safe backend selection - Pydantic validates at config load time
 BackendType = Literal["llamaindex", "foundational_rag"]
@@ -61,6 +70,24 @@ class KnowledgeRetrievalConfig(FunctionBaseConfig, name="knowledge_retrieval"):
         ),
     )
     top_k: int = Field(default=5, description="Number of results to return")
+    exclude_file_names: list[str] = Field(
+        default_factory=list,
+        description=(
+            "File names whose chunks are excluded from results of the base collection "
+            "(e.g. OIB Änderungsdokumente and superseded editions). Applied as a "
+            "metadata filter (file_name NOT IN ...). Phase-0 default-exclusion "
+            "mechanism; superseded by role/edition metadata filters once corpus "
+            "chunks are stamped with doc metadata."
+        ),
+    )
+    parent_expansion: bool = Field(
+        default=True,
+        description=(
+            "When a base-corpus hit carries norm metadata (doc_id/edition/punkt), fetch the "
+            "sibling chunks of the same Punkt and present the merged parent text instead of "
+            "the isolated fragment. Base collection only."
+        ),
+    )
     # Summarization options (applies to all backends)
     generate_summary: bool = Field(
         default=False, description="Generate one-sentence summary for each ingested document"
@@ -116,6 +143,15 @@ class KnowledgeRetrievalConfig(FunctionBaseConfig, name="knowledge_retrieval"):
         return self
 
 
+def _default_corpus_resolver():
+    """Norm-registry corpus resolver for the ingestor (fail-open when unavailable)."""
+    try:
+        from aiq_agent.knowledge.corpus import registry_corpus_resolver
+    except Exception:
+        return None
+    return registry_corpus_resolver()
+
+
 def _setup_backend(config: KnowledgeRetrievalConfig, summary_llm_obj=None) -> tuple[str, dict]:
     """
     Import the backend adapter and build its configuration.
@@ -144,6 +180,7 @@ def _setup_backend(config: KnowledgeRetrievalConfig, summary_llm_obj=None) -> tu
         os.environ.setdefault("AIQ_CHROMA_DIR", config.chroma_dir)
         backend_config = {
             "persist_dir": config.chroma_dir,
+            "corpus_resolver": _default_corpus_resolver(),
             **summary_config,
         }
 
@@ -280,6 +317,109 @@ def _resolve_target_collections(config: KnowledgeRetrievalConfig, session_id: st
     return ordered
 
 
+_PARENT_EXPANSION_TOP_K = 50
+_EXPANDED_TRUNCATION = 8000
+_REGULAR_TRUNCATION = 1500
+
+
+def _base_collection_filters(config: KnowledgeRetrievalConfig, caller_filters: dict | None) -> dict | None:
+    """Merge Phase-0 file exclusions with the registry-derived default norm filter.
+
+    Caller-supplied filters override the registry-derived default (spec §5.1);
+    ``exclude_file_names`` is explicit operator config and always applies.
+    Returns None when no clause applies. Never raises (registry load is fail-open).
+    """
+    excluded = sorted(set(config.exclude_file_names))
+    clauses: list[dict] = []
+    if excluded:
+        clauses.append({"file_name": {"$nin": excluded}})
+
+    effective = caller_filters
+    if effective is None and _default_norm_filters is not None and _load_norm_registry is not None:
+        try:
+            bundesland = _resolve_norm_bundesland("") if _resolve_norm_bundesland else None
+            effective = _default_norm_filters(_load_norm_registry(), bundesland)
+        except Exception:
+            logger.warning("Norm registry default filters unavailable; searching without them", exc_info=True)
+    if effective:
+        clauses.append(effective)
+
+    if not clauses:
+        return None
+    if len(clauses) == 1:
+        return clauses[0]
+    return {"$and": clauses}
+
+
+def _norm_parent_key(metadata: dict | None) -> tuple[str, str, str] | None:
+    """Return the (doc_id, edition, punkt) parent key for a norm chunk, else None."""
+    if not metadata:
+        return None
+    doc_id = metadata.get("doc_id")
+    edition = metadata.get("edition")
+    punkt = metadata.get("punkt")
+    if doc_id and edition and punkt:
+        return (doc_id, edition, punkt)
+    return None
+
+
+def _strip_known_prefix(text: str, metadata: dict) -> tuple[str, str]:
+    """Split a corpus chunk into its deterministic context prefix and body."""
+    prefix = (
+        f"{metadata.get('doc_short')} - {metadata.get('doc_title')} "
+        f"({metadata.get('edition_label')}), Pkt {metadata.get('punkt')}, {metadata.get('role')}\n"
+    )
+    if text.startswith(prefix):
+        return prefix, text[len(prefix) :]
+    return "", text
+
+
+def _build_parent_content(siblings: list, max_chars: int = _EXPANDED_TRUNCATION) -> str:
+    """Join sibling chunks of one Punkt in chunk_index order under a single context prefix."""
+    ordered = sorted(siblings, key=lambda c: (getattr(c, "metadata", None) or {}).get("chunk_index", 0))
+    prefix = ""
+    bodies: list[str] = []
+    for chunk in ordered:
+        chunk_prefix, body = _strip_known_prefix(chunk.content or "", getattr(chunk, "metadata", None) or {})
+        if chunk_prefix and not prefix:
+            prefix = chunk_prefix
+        if body:
+            bodies.append(body)
+    joined = prefix + "\n\n".join(bodies)
+    if len(joined) > max_chars:
+        return joined[:max_chars] + "… [truncated]"
+    return joined
+
+
+def _expand_norm_parents(chunks: list, siblings_by_key: dict, max_chars: int = _EXPANDED_TRUNCATION) -> list:
+    """Collapse each norm-parent group to its highest-score member with joined sibling text.
+
+    Chunks without a (doc_id, edition, punkt) key, or whose key has no fetched
+    siblings, pass through untouched. Group representatives are marked with
+    ``metadata['_expanded'] = True``.
+    """
+    groups: dict[tuple[str, str, str], list[int]] = {}
+    for idx, chunk in enumerate(chunks):
+        key = _norm_parent_key(getattr(chunk, "metadata", None))
+        if key is not None and key in siblings_by_key:
+            groups.setdefault(key, []).append(idx)
+    if not groups:
+        return chunks
+
+    reps = {key: max(idxs, key=lambda i: chunks[i].score) for key, idxs in groups.items()}
+    out = []
+    for idx, chunk in enumerate(chunks):
+        key = _norm_parent_key(getattr(chunk, "metadata", None))
+        if key is None or key not in reps:
+            out.append(chunk)
+            continue
+        if idx != reps[key]:
+            continue
+        content = _build_parent_content(siblings_by_key[key], max_chars=max_chars)
+        out.append(chunk.model_copy(update={"content": content, "metadata": {**chunk.metadata, "_expanded": True}}))
+    return out
+
+
 def _merge_results(results, query: str, top_k: int, backend_name: str):
     """
     Merge per-collection retrieval results into a single scored result.
@@ -344,8 +484,14 @@ def _format_results(retrieval_result, query: str) -> str:
     lines = [f"Found {len(retrieval_result.chunks)} relevant document(s):\n"]
 
     for i, chunk in enumerate(retrieval_result.chunks, 1):
-        # Build citation string: "filename, p.X" or just "filename"
-        if chunk.page_number and chunk.page_number > 0:
+        meta = chunk.metadata or {}
+
+        # Build citation string: registry-derived "OIB-RL 2, Pkt 3.1.2, <edition>" for
+        # norm chunks; "filename, p.X" or just "filename" otherwise.
+        if meta.get("doc_short") and meta.get("punkt"):
+            edition = meta.get("edition_label") or meta.get("edition") or ""
+            citation = f"{meta['doc_short']}, Pkt {meta['punkt']}, {edition}".rstrip(", ")
+        elif chunk.page_number and chunk.page_number > 0:
             citation = f"{chunk.file_name}, p.{chunk.page_number}"
         else:
             citation = chunk.file_name
@@ -356,14 +502,18 @@ def _format_results(retrieval_result, query: str) -> str:
         if chunk.page_number and chunk.page_number > 0:
             lines.append(f"Page: {chunk.page_number}")
         lines.append(f"Citation: {citation}")
+        if meta.get("rank") or meta.get("role"):
+            stratum = " · ".join(str(p) for p in (meta.get("rank"), meta.get("role"), meta.get("edition_label")) if p)
+            lines.append(f"Stratum: {stratum}")
         lines.append(f"Content Type: {chunk.content_type.value}")
         lines.append(f"Relevance Score: {chunk.score:.2f}")
         lines.append("")
 
-        # Content (truncate if very long)
+        # Content (expanded parent chunks get the higher cap)
+        cap = _EXPANDED_TRUNCATION if meta.get("_expanded") else _REGULAR_TRUNCATION
         content = chunk.content
-        if len(content) > 1500:
-            content = content[:1500] + "... [truncated]"
+        if len(content) > cap:
+            content = content[:cap] + "... [truncated]"
         lines.append(content)
         lines.append("")
 
@@ -408,11 +558,16 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
         "Knowledge retrieval initialized: backend=%s, collection=%s, top_k=%d", config.backend, collection, top_k
     )
 
-    async def search(query: str) -> str:
+    async def search(query: str, filters: dict | None = None) -> str:
         """Search for documents relevant to the query.
 
         Args:
             query (str): Natural language query describing what information you need.
+            filters (dict | None): Optional metadata filter for the base norm corpus
+                (e.g. {"role": "normativ"} or nested {"$and": [...]}/{"$or": [...]}).
+                Overrides the registry-derived default filter (which excludes
+                role:diff and superseded editions); configured exclude_file_names
+                still apply. Session/project collections are never filtered.
 
         Returns:
             str: Formatted string containing relevant document excerpts with citations.
@@ -429,13 +584,45 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
 
         logger.info(f"Knowledge search: query='{query[:100]}...' collections={target_collections}")
 
+        async def _expand_base_result(result, coll: str):
+            """Parent expansion (spec §5.2): merge hits of one Punkt into the full parent text."""
+            if not getattr(result, "success", False) or not result.chunks:
+                return result
+            keys = {key for c in result.chunks if (key := _norm_parent_key(c.metadata))}
+            if not keys:
+                return result
+            siblings_by_key = {}
+            for doc_id, edition, punkt in keys:
+                try:
+                    sib = await retriever.retrieve(
+                        query=query,
+                        collection_name=coll,
+                        top_k=_PARENT_EXPANSION_TOP_K,
+                        filters={"doc_id": doc_id, "edition": edition, "punkt": punkt},
+                    )
+                except Exception:
+                    logger.debug("Parent expansion fetch failed for %s/%s/%s", doc_id, edition, punkt)
+                    continue
+                if getattr(sib, "success", False) and sib.chunks:
+                    siblings_by_key[(doc_id, edition, punkt)] = sib.chunks
+            if not siblings_by_key:
+                return result
+            result.chunks = _expand_norm_parents(result.chunks, siblings_by_key)
+            return result
+
+        async def _retrieve_collection(coll: str):
+            # Default norm filters + Phase-0 exclusions apply to the base corpus only;
+            # session/project collections are user content.
+            coll_filters = _base_collection_filters(config, filters) if coll == config.collection_name else None
+            result = await retriever.retrieve(query=query, collection_name=coll, top_k=top_k, filters=coll_filters)
+            if config.parent_expansion and coll == config.collection_name:
+                result = await _expand_base_result(result, coll)
+            return result
+
         try:
             # Fan out across all layers concurrently; tolerate empty/missing layers.
             results = await asyncio.gather(
-                *(
-                    retriever.retrieve(query=query, collection_name=coll, top_k=top_k)
-                    for coll in target_collections
-                ),
+                *(_retrieve_collection(coll) for coll in target_collections),
                 return_exceptions=True,
             )
 

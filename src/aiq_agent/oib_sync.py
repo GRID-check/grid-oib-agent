@@ -108,6 +108,8 @@ def _get_oib_ingestor():
     # without importing the full NAT/LlamaIndex stack.
     import knowledge_layer.llamaindex.adapter  # noqa: F401
 
+    from aiq_agent.knowledge.corpus import registry_corpus_resolver
+
     return get_ingestor(
         "llamaindex",
         {
@@ -115,8 +117,35 @@ def _get_oib_ingestor():
             "extract_tables": os.environ.get("AIQ_EXTRACT_TABLES", "false").lower() == "true",
             "extract_images": os.environ.get("AIQ_EXTRACT_IMAGES", "false").lower() == "true",
             "extract_charts": os.environ.get("AIQ_EXTRACT_CHARTS", "false").lower() == "true",
+            # Norm-registry corpus hook (ADR-0025 Phase 2): Punkt-aware chunking
+            # + doc metadata for registry-known corpus files.
+            "corpus_resolver": registry_corpus_resolver(),
         },
     )
+
+
+def _referenced_corpus_files() -> set[str] | None:
+    """Filenames referenced by norm-registry corpus editions (ADR-0025 §4.1).
+
+    Returns None when the registry is unavailable or fails to load — sync then
+    falls back to ingesting everything it discovers (fail-open).
+    """
+    try:
+        from aiq_agent.common.norm_registry import load_registry
+
+        registry = load_registry()
+    except Exception:
+        logger.warning("Norm registry unavailable; ingesting all discovered PDFs", exc_info=True)
+        return None
+    if registry is None:
+        return None
+    files: set[str] = set()
+    for entry in registry.entries:
+        for edition in entry.editions:
+            source = edition.source
+            if source is not None and source.kind == "corpus" and source.file:
+                files.add(source.file)
+    return files
 
 
 def discover_pdfs() -> list[Path]:
@@ -224,6 +253,21 @@ def sync() -> tuple[int, int]:
     if not pdf_paths:
         logger.warning("No PDF files found in %s", OIB_DIR)
         return 0, 0
+
+    # The norm registry is the contract for the repo corpus (ADR-0025 §4.1):
+    # unreferenced files under OIB_DIR are skipped (uploads stay user content).
+    referenced = _referenced_corpus_files()
+    if referenced is not None:
+        kept: list[Path] = []
+        for pdf in pdf_paths:
+            if pdf.name not in referenced and pdf.is_relative_to(OIB_DIR):
+                logger.warning("Skipping corpus file not referenced by the norm registry: %s", pdf.name)
+                continue
+            kept.append(pdf)
+        pdf_paths = kept
+        if not pdf_paths:
+            logger.warning("No registry-referenced OIB PDFs to ingest.")
+            return 0, 0
 
     registry = _load_registry()
     new_or_changed: list[tuple[Path, str]] = []
