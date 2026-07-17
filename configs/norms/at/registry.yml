@@ -49,6 +49,14 @@ entries:
       full_law_url: 
         https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=LrW&Gesetzesnummer=20000052
   verified_at: '2026-07-17'
+  applicability:
+  - when:
+      all:
+      - {fact: stellplatz_relevant, op: eq, value: true}
+      - {fact: bundesland, op: eq, value: wien}
+    verdict: check
+    reason_de: 'Stellplatzpflicht in Wien: Wiener Garagengesetz prüfen.'
+    reason_en: 'Parking-space obligation in Vienna: check the Wiener Garagengesetz.'
 - id: bo-noe
   title: NÖ Bauordnung 2014
   short: NÖ BO 2014
@@ -334,6 +342,11 @@ entries:
     role: diff
     source: {kind: corpus, file: aenderungen_oib-rl_1_ausgabe_mai_2023.pdf}
   verified_at: '2026-07-17'
+  applicability:
+  - when: {}
+    verdict: required
+    reason_de: 'Gilt für jedes Bauvorhaben (mechanische Festigkeit und Standsicherheit).'
+    reason_en: 'Applies to every building project (mechanical strength and stability).'
 - id: oib-rl-2
   title: OIB-Richtlinie 2 — Brandschutz
   short: OIB-RL 2
@@ -353,6 +366,11 @@ entries:
     role: diff
     source: {kind: corpus, file: aenderungen_oib-rl_2_ausgabe_mai_2023.pdf}
   verified_at: '2026-07-17'
+  applicability:
+  - when: {}
+    verdict: required
+    reason_de: 'Brandschutz ist für jedes Bauwerk verbindlich.'
+    reason_en: 'Fire safety is mandatory for every structure.'
 - id: oib-rl-2.1
   title: OIB-Richtlinie 2.1 — Brandschutz bei Betriebsbauten
   short: OIB-RL 2.1
@@ -372,6 +390,20 @@ entries:
     role: diff
     source: {kind: corpus, file: aenderungen_oib-rl_2.1_ausgabe_mai_2023.pdf}
   verified_at: '2026-07-17'
+  applicability:
+  - when:
+      all:
+      - {fact: hauptnutzung, op: in, value: [produzierend, lager]}
+    verdict: required
+    reason_de: 'Betriebsbauten (Produktion/Lager) fallen in den Geltungsbereich.'
+    reason_en: 'Industrial and storage buildings are in scope.'
+  - when:
+      any:
+      - {fact: hauptnutzung, op: in, value: [landwirtschaft, sonstiges]}
+      - {fact: hauptnutzung, op: undefined}
+    verdict: check
+    reason_de: 'Bei landwirtschaftlichen/sonstigen Nutzungen oder fehlender Angabe prüfen.'
+    reason_en: 'Check for agricultural/other uses or missing information.'
 - id: oib-rl-2.2
   title: OIB-Richtlinie 2.2 — Brandschutz bei Garagen, überdachten Stellplätzen 
     und Parkdecks
@@ -392,6 +424,13 @@ entries:
     role: diff
     source: {kind: corpus, file: aenderungen_oib-rl_2.2_ausgabe_mai_2023.pdf}
   verified_at: '2026-07-17'
+  applicability:
+  - when:
+      all:
+      - {fact: geschosse_unterirdisch, op: gte, value: 1}
+    verdict: check
+    reason_de: 'Unterirdische Garagen oder Stellplätze können in den Geltungsbereich fallen.'
+    reason_en: 'Underground garages or parking decks may be in scope.'
 - id: oib-rl-2.3
   title: OIB-Richtlinie 2.3 — Brandschutz bei Gebäuden mit einem Fluchtniveau 
     von mehr als 22 m
@@ -412,6 +451,20 @@ entries:
     role: diff
     source: {kind: corpus, file: aenderungen_oib-rl_2.3_ausgabe_mai_2023.pdf}
   verified_at: '2026-07-17'
+  applicability:
+  - when:
+      all:
+      - {fact: fluchtniveau, op: eq, value: '>22m'}
+    verdict: required
+    reason_de: 'Fluchtniveau über 22 m (Hochhaus): RL 2.3 ist verbindlich.'
+    reason_en: 'Escape level above 22 m (high-rise): RL 2.3 is mandatory.'
+  - when:
+      all:
+      - {fact: gebaeudeklasse, op: eq, value: GK5}
+      - {fact: fluchtniveau, op: undefined}
+    verdict: check
+    reason_de: 'Gebäudeklasse 5 ohne Fluchtniveau-Angabe: Hochhaus-Prüfung erforderlich.'
+    reason_en: 'Building class 5 with unknown escape level: high-rise check required.'
 - id: oib-rl-3
   title: OIB-Richtlinie 3 — Hygiene, Gesundheit und Umweltschutz
   short: OIB-RL 3
@@ -431,6 +484,11 @@ entries:
     role: diff
     source: {kind: corpus, file: aenderungen_oib-rl_3_ausgabe_mai_2023.pdf}
   verified_at: '2026-07-17'
+  applicability:
+  - when: {}
+    verdict: required
+    reason_de: 'Hygiene, Gesundheit und Umweltschutz gelten für jedes Bauwerk.'
+    reason_en: 'Hygiene, health and environmental protection apply to every structure.'
 - id: oib-rl-4
   title: OIB-Richtlinie 4 — Nutzungssicherheit und Barrierefreiheit
   short: OIB-RL 4
@@ -450,6 +508,17 @@ entries:
     role: diff
     source: {kind: corpus, file: aenderungen_oib-rl_4_ausgabe_mai_2023.pdf}
   verified_at: '2026-07-17'
+  applicability:
+  - when:
+      all:
+      - {fact: hauptnutzung, op: in, value: [beherbergung, gesundheit, versammlung, buero]}
+    verdict: required
+    reason_de: 'Öffentlich genutzte Gebäude: barrierefreier Zugang und barrierefreie Nutzung sind verbindlich.'
+    reason_en: 'Publicly used buildings: barrier-free access and use are mandatory.'
+  - when: {}
+    verdict: required
+    reason_de: 'Grundanforderungen der Barrierefreiheit gelten allgemein.'
+    reason_en: 'Baseline accessibility requirements apply generally.'
 - id: oib-rl-5
   title: OIB-Richtlinie 5 — Schallschutz
   short: OIB-RL 5
@@ -469,6 +538,17 @@ entries:
     role: diff
     source: {kind: corpus, file: aenderungen_oib-rl_5_ausgabe_mai_2023.pdf}
   verified_at: '2026-07-17'
+  applicability:
+  - when:
+      all:
+      - {fact: hauptnutzung, op: in, value: [wohnen, beherbergung, gesundheit, buero, versammlung]}
+    verdict: required
+    reason_de: 'Schallempfindliche Nutzungseinheiten: Schallschutz ist verbindlich.'
+    reason_en: 'Noise-sensitive usage units: sound insulation is mandatory.'
+  - when: {}
+    verdict: likely
+    reason_de: 'Schallschutz-Anforderungen hängen von der Nutzungseinheit ab.'
+    reason_en: 'Sound-insulation requirements depend on the usage unit.'
 - id: oib-rl-6
   title: OIB-Richtlinie 6 — Energieeinsparung und Wärmeschutz
   short: OIB-RL 6
@@ -489,6 +569,17 @@ entries:
     source: {kind: corpus, file: aenderungen_oib-rl_6_ausgabe_mai_2023.pdf}
   verified_at: '2026-07-17'
   # --- OIB-Leitfäden (anwendend) --------------------------------------------
+  applicability:
+  - when:
+      all:
+      - {fact: hauptnutzung, op: in, value: [lager, landwirtschaft]}
+    verdict: check
+    reason_de: 'Bei Lager- oder Landwirtschaftsnutzung Anforderungen an Energieeinsparung prüfen.'
+    reason_en: 'Check energy-saving requirements for storage or agricultural use.'
+  - when: {}
+    verdict: required
+    reason_de: 'Energieeinsparung und Wärmeschutz sind grundsätzlich verbindlich.'
+    reason_en: 'Energy saving and thermal insulation are mandatory in principle.'
 - id: oib-rl-1-leitfaden
   title: OIB-Richtlinie 1 — Leitfaden
   short: OIB-RL 1 Leitfaden
@@ -834,6 +925,14 @@ entries:
       full_law_url: 
         https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=LrW&Gesetzesnummer=20000061
   verified_at: '2026-07-17'
+  applicability:
+  - when:
+      all:
+      - {fact: kleingartengebiet, op: eq, value: true}
+      - {fact: bundesland, op: eq, value: wien}
+    verdict: check
+    reason_de: 'Vorhaben im Kleingartengebiet: Wiener Kleingartengesetz beachten.'
+    reason_en: 'Project in an allotment-garden zone: observe the Wiener Kleingartengesetz.'
 - id: dmsg
   title: Denkmalschutzgesetz
   short: DMSG
@@ -861,6 +960,13 @@ entries:
       full_law_url: 
         https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=Bundesnormen&Gesetzesnummer=10009184
   verified_at: '2026-07-17'
+  applicability:
+  - when:
+      all:
+      - {fact: denkmalschutz, op: eq, value: true}
+    verdict: check
+    reason_de: 'Denkmalschutz: Abstimmung mit dem Bundesdenkmalamt erforderlich.'
+    reason_en: 'Heritage protection: coordination with the Federal Monuments Office required.'
 - id: uvpg
   title: Umweltverträglichkeitsprüfungsgesetz 2000
   short: UVP-G 2000
@@ -964,4 +1070,11 @@ entries:
       citation_url: https://www.ris.bka.gv.at/eli/bgbl/1994/194/P0/NOR11007641
       full_law_url: 
         https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=Bundesnormen&Gesetzesnummer=10007517
+  applicability:
+  - when:
+      all:
+      - {fact: betriebsanlage, op: eq, value: true}
+    verdict: check
+    reason_de: 'Betriebsanlage: Gewerbeordnung §§ 74ff (Nachbarrechte) prüfen.'
+    reason_en: 'Commercial facility: check Trade Code §§ 74ff (neighbour protection).'
   verified_at: '2026-07-17'

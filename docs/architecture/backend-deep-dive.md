@@ -513,6 +513,37 @@ Three consumers:
   for these chunks; citations render as `BauO Wien, § 5, Konsolidierte Fassung
   (laufend)`.
 
+**Phase-4 applicability engine** (spec §6.2, 2026-07-17):
+
+- Applicability rules live **only** in the registry (`applicability:` on
+  entries; pinned DSL: `when.all/any` conditions over intake facts with ops
+  `eq/in/defined/undefined/gt/gte/lt/lte`, first-match-wins, verdicts
+  `required|likely|check`, bilingual `reason_de`/`reason_en`). The nine OIB
+  Richtlinien carry rules ported from the old hardcoded TS mapping; four
+  trigger norms (`garagengesetz-wien` — stellplatz_relevant + wien,
+  `klgg-wien` — kleingartengebiet + wien, `dmsg` — denkmalschutz, `gewo` —
+  betriebsanlage) gate on four new boolean intake questions (Regulatory
+  context stage).
+- Backend: `src/aiq_agent/common/applicability.py` evaluates rules against
+  facts parsed from the `PROJECT_CONTEXT` text (`facts_from_project_context`,
+  `confirmed:` section; boolean facts cross the language boundary as
+  `true`/`false` strings and are compared case-insensitively).
+  `render_block_for_prompt` appends a German `### Anwendbare Normen` section
+  (verbindlich / voraussichtlich anwendbar / zu prüfen + reasons) after the
+  lane block when facts are present.
+- Frontend: `scripts/build_applicability_rules.py` generates
+  `lib/oib/applicability-rules.generated.ts` (rules payload) and
+  `applicability-parity.generated.json` (12 fixture profiles with expected
+  verdicts) from the registry (`--check` = drift detection, asserted by a
+  Python test); `lib/oib/applicable-standards.ts` is now a mirror evaluator
+  over the generated payload with a vitest parity suite proving UI and backend
+  produce identical verdicts. The old hardcoded per-Richtlinie mapping is
+  gone; `genericSix` remains the UI-only no-facts fallback.
+- Compliance checker: `build_request_from_state` narrows the Richtlinie scope
+  to verdicts `required`/`likely` when facts are parseable (fail-open to the
+  original scope on unparseable context, missing registry, or an empty
+  intersection).
+
 **Jurisdiction is a structured fact, not an inference.** The project-intake
 wizard captures the building's location as a validated `bundesland` fact (nine
 states + `ausserhalb_oesterreichs`, with a free-text `standort_details` for

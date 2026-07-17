@@ -627,4 +627,15 @@ def render_block_for_prompt(
     if registry is None or not registry.entries:
         return None
     resolved_country = country or resolve_country(project_context)
-    return render_prompt_block(registry, bundesland=resolve_bundesland(project_context), country=resolved_country)
+    block = render_prompt_block(registry, bundesland=resolve_bundesland(project_context), country=resolved_country)
+    if block is None:
+        return None
+    from aiq_agent.common.applicability import facts_from_project_context
+    from aiq_agent.common.applicability import render_applicability_block
+
+    facts = facts_from_project_context(project_context or "")
+    if facts:
+        section = render_applicability_block(registry, facts)
+        if section is not None:
+            return block.rstrip() + "\n\n" + section
+    return block

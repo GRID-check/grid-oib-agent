@@ -1,0 +1,527 @@
+[
+  {
+    "name": "wohnen-gk2-lowrise",
+    "facts": {
+      "hauptnutzung": "wohnen",
+      "gebaeudeklasse": "GK2",
+      "fluchtniveau": "<=7m"
+    },
+    "expected": {
+      "oib-rl-1": {
+        "verdict": "required",
+        "reasonDe": "Gilt für jedes Bauvorhaben (mechanische Festigkeit und Standsicherheit).",
+        "reasonEn": "Applies to every building project (mechanical strength and stability)."
+      },
+      "oib-rl-2": {
+        "verdict": "required",
+        "reasonDe": "Brandschutz ist für jedes Bauwerk verbindlich.",
+        "reasonEn": "Fire safety is mandatory for every structure."
+      },
+      "oib-rl-3": {
+        "verdict": "required",
+        "reasonDe": "Hygiene, Gesundheit und Umweltschutz gelten für jedes Bauwerk.",
+        "reasonEn": "Hygiene, health and environmental protection apply to every structure."
+      },
+      "oib-rl-4": {
+        "verdict": "required",
+        "reasonDe": "Grundanforderungen der Barrierefreiheit gelten allgemein.",
+        "reasonEn": "Baseline accessibility requirements apply generally."
+      },
+      "oib-rl-5": {
+        "verdict": "required",
+        "reasonDe": "Schallempfindliche Nutzungseinheiten: Schallschutz ist verbindlich.",
+        "reasonEn": "Noise-sensitive usage units: sound insulation is mandatory."
+      },
+      "oib-rl-6": {
+        "verdict": "required",
+        "reasonDe": "Energieeinsparung und Wärmeschutz sind grundsätzlich verbindlich.",
+        "reasonEn": "Energy saving and thermal insulation are mandatory in principle."
+      }
+    }
+  },
+  {
+    "name": "hochhaus",
+    "facts": {
+      "hauptnutzung": "wohnen",
+      "gebaeudeklasse": "GK5",
+      "fluchtniveau": ">22m"
+    },
+    "expected": {
+      "oib-rl-1": {
+        "verdict": "required",
+        "reasonDe": "Gilt für jedes Bauvorhaben (mechanische Festigkeit und Standsicherheit).",
+        "reasonEn": "Applies to every building project (mechanical strength and stability)."
+      },
+      "oib-rl-2": {
+        "verdict": "required",
+        "reasonDe": "Brandschutz ist für jedes Bauwerk verbindlich.",
+        "reasonEn": "Fire safety is mandatory for every structure."
+      },
+      "oib-rl-2.3": {
+        "verdict": "required",
+        "reasonDe": "Fluchtniveau über 22 m (Hochhaus): RL 2.3 ist verbindlich.",
+        "reasonEn": "Escape level above 22 m (high-rise): RL 2.3 is mandatory."
+      },
+      "oib-rl-3": {
+        "verdict": "required",
+        "reasonDe": "Hygiene, Gesundheit und Umweltschutz gelten für jedes Bauwerk.",
+        "reasonEn": "Hygiene, health and environmental protection apply to every structure."
+      },
+      "oib-rl-4": {
+        "verdict": "required",
+        "reasonDe": "Grundanforderungen der Barrierefreiheit gelten allgemein.",
+        "reasonEn": "Baseline accessibility requirements apply generally."
+      },
+      "oib-rl-5": {
+        "verdict": "required",
+        "reasonDe": "Schallempfindliche Nutzungseinheiten: Schallschutz ist verbindlich.",
+        "reasonEn": "Noise-sensitive usage units: sound insulation is mandatory."
+      },
+      "oib-rl-6": {
+        "verdict": "required",
+        "reasonDe": "Energieeinsparung und Wärmeschutz sind grundsätzlich verbindlich.",
+        "reasonEn": "Energy saving and thermal insulation are mandatory in principle."
+      }
+    }
+  },
+  {
+    "name": "gk5-unknown-fluchtniveau",
+    "facts": {
+      "hauptnutzung": "wohnen",
+      "gebaeudeklasse": "GK5"
+    },
+    "expected": {
+      "oib-rl-1": {
+        "verdict": "required",
+        "reasonDe": "Gilt für jedes Bauvorhaben (mechanische Festigkeit und Standsicherheit).",
+        "reasonEn": "Applies to every building project (mechanical strength and stability)."
+      },
+      "oib-rl-2": {
+        "verdict": "required",
+        "reasonDe": "Brandschutz ist für jedes Bauwerk verbindlich.",
+        "reasonEn": "Fire safety is mandatory for every structure."
+      },
+      "oib-rl-2.3": {
+        "verdict": "check",
+        "reasonDe": "Gebäudeklasse 5 ohne Fluchtniveau-Angabe: Hochhaus-Prüfung erforderlich.",
+        "reasonEn": "Building class 5 with unknown escape level: high-rise check required."
+      },
+      "oib-rl-3": {
+        "verdict": "required",
+        "reasonDe": "Hygiene, Gesundheit und Umweltschutz gelten für jedes Bauwerk.",
+        "reasonEn": "Hygiene, health and environmental protection apply to every structure."
+      },
+      "oib-rl-4": {
+        "verdict": "required",
+        "reasonDe": "Grundanforderungen der Barrierefreiheit gelten allgemein.",
+        "reasonEn": "Baseline accessibility requirements apply generally."
+      },
+      "oib-rl-5": {
+        "verdict": "required",
+        "reasonDe": "Schallempfindliche Nutzungseinheiten: Schallschutz ist verbindlich.",
+        "reasonEn": "Noise-sensitive usage units: sound insulation is mandatory."
+      },
+      "oib-rl-6": {
+        "verdict": "required",
+        "reasonDe": "Energieeinsparung und Wärmeschutz sind grundsätzlich verbindlich.",
+        "reasonEn": "Energy saving and thermal insulation are mandatory in principle."
+      }
+    }
+  },
+  {
+    "name": "lager-basement",
+    "facts": {
+      "hauptnutzung": "lager",
+      "geschosse_unterirdisch": 2
+    },
+    "expected": {
+      "oib-rl-1": {
+        "verdict": "required",
+        "reasonDe": "Gilt für jedes Bauvorhaben (mechanische Festigkeit und Standsicherheit).",
+        "reasonEn": "Applies to every building project (mechanical strength and stability)."
+      },
+      "oib-rl-2": {
+        "verdict": "required",
+        "reasonDe": "Brandschutz ist für jedes Bauwerk verbindlich.",
+        "reasonEn": "Fire safety is mandatory for every structure."
+      },
+      "oib-rl-2.1": {
+        "verdict": "required",
+        "reasonDe": "Betriebsbauten (Produktion/Lager) fallen in den Geltungsbereich.",
+        "reasonEn": "Industrial and storage buildings are in scope."
+      },
+      "oib-rl-2.2": {
+        "verdict": "check",
+        "reasonDe": "Unterirdische Garagen oder Stellplätze können in den Geltungsbereich fallen.",
+        "reasonEn": "Underground garages or parking decks may be in scope."
+      },
+      "oib-rl-3": {
+        "verdict": "required",
+        "reasonDe": "Hygiene, Gesundheit und Umweltschutz gelten für jedes Bauwerk.",
+        "reasonEn": "Hygiene, health and environmental protection apply to every structure."
+      },
+      "oib-rl-4": {
+        "verdict": "required",
+        "reasonDe": "Grundanforderungen der Barrierefreiheit gelten allgemein.",
+        "reasonEn": "Baseline accessibility requirements apply generally."
+      },
+      "oib-rl-5": {
+        "verdict": "likely",
+        "reasonDe": "Schallschutz-Anforderungen hängen von der Nutzungseinheit ab.",
+        "reasonEn": "Sound-insulation requirements depend on the usage unit."
+      },
+      "oib-rl-6": {
+        "verdict": "check",
+        "reasonDe": "Bei Lager- oder Landwirtschaftsnutzung Anforderungen an Energieeinsparung prüfen.",
+        "reasonEn": "Check energy-saving requirements for storage or agricultural use."
+      }
+    }
+  },
+  {
+    "name": "produzierend",
+    "facts": {
+      "hauptnutzung": "produzierend"
+    },
+    "expected": {
+      "oib-rl-1": {
+        "verdict": "required",
+        "reasonDe": "Gilt für jedes Bauvorhaben (mechanische Festigkeit und Standsicherheit).",
+        "reasonEn": "Applies to every building project (mechanical strength and stability)."
+      },
+      "oib-rl-2": {
+        "verdict": "required",
+        "reasonDe": "Brandschutz ist für jedes Bauwerk verbindlich.",
+        "reasonEn": "Fire safety is mandatory for every structure."
+      },
+      "oib-rl-2.1": {
+        "verdict": "required",
+        "reasonDe": "Betriebsbauten (Produktion/Lager) fallen in den Geltungsbereich.",
+        "reasonEn": "Industrial and storage buildings are in scope."
+      },
+      "oib-rl-3": {
+        "verdict": "required",
+        "reasonDe": "Hygiene, Gesundheit und Umweltschutz gelten für jedes Bauwerk.",
+        "reasonEn": "Hygiene, health and environmental protection apply to every structure."
+      },
+      "oib-rl-4": {
+        "verdict": "required",
+        "reasonDe": "Grundanforderungen der Barrierefreiheit gelten allgemein.",
+        "reasonEn": "Baseline accessibility requirements apply generally."
+      },
+      "oib-rl-5": {
+        "verdict": "likely",
+        "reasonDe": "Schallschutz-Anforderungen hängen von der Nutzungseinheit ab.",
+        "reasonEn": "Sound-insulation requirements depend on the usage unit."
+      },
+      "oib-rl-6": {
+        "verdict": "required",
+        "reasonDe": "Energieeinsparung und Wärmeschutz sind grundsätzlich verbindlich.",
+        "reasonEn": "Energy saving and thermal insulation are mandatory in principle."
+      }
+    }
+  },
+  {
+    "name": "buero-public",
+    "facts": {
+      "hauptnutzung": "buero"
+    },
+    "expected": {
+      "oib-rl-1": {
+        "verdict": "required",
+        "reasonDe": "Gilt für jedes Bauvorhaben (mechanische Festigkeit und Standsicherheit).",
+        "reasonEn": "Applies to every building project (mechanical strength and stability)."
+      },
+      "oib-rl-2": {
+        "verdict": "required",
+        "reasonDe": "Brandschutz ist für jedes Bauwerk verbindlich.",
+        "reasonEn": "Fire safety is mandatory for every structure."
+      },
+      "oib-rl-3": {
+        "verdict": "required",
+        "reasonDe": "Hygiene, Gesundheit und Umweltschutz gelten für jedes Bauwerk.",
+        "reasonEn": "Hygiene, health and environmental protection apply to every structure."
+      },
+      "oib-rl-4": {
+        "verdict": "required",
+        "reasonDe": "Öffentlich genutzte Gebäude: barrierefreier Zugang und barrierefreie Nutzung sind verbindlich.",
+        "reasonEn": "Publicly used buildings: barrier-free access and use are mandatory."
+      },
+      "oib-rl-5": {
+        "verdict": "required",
+        "reasonDe": "Schallempfindliche Nutzungseinheiten: Schallschutz ist verbindlich.",
+        "reasonEn": "Noise-sensitive usage units: sound insulation is mandatory."
+      },
+      "oib-rl-6": {
+        "verdict": "required",
+        "reasonDe": "Energieeinsparung und Wärmeschutz sind grundsätzlich verbindlich.",
+        "reasonEn": "Energy saving and thermal insulation are mandatory in principle."
+      }
+    }
+  },
+  {
+    "name": "landwirtschaft",
+    "facts": {
+      "hauptnutzung": "landwirtschaft"
+    },
+    "expected": {
+      "oib-rl-1": {
+        "verdict": "required",
+        "reasonDe": "Gilt für jedes Bauvorhaben (mechanische Festigkeit und Standsicherheit).",
+        "reasonEn": "Applies to every building project (mechanical strength and stability)."
+      },
+      "oib-rl-2": {
+        "verdict": "required",
+        "reasonDe": "Brandschutz ist für jedes Bauwerk verbindlich.",
+        "reasonEn": "Fire safety is mandatory for every structure."
+      },
+      "oib-rl-2.1": {
+        "verdict": "check",
+        "reasonDe": "Bei landwirtschaftlichen/sonstigen Nutzungen oder fehlender Angabe prüfen.",
+        "reasonEn": "Check for agricultural/other uses or missing information."
+      },
+      "oib-rl-3": {
+        "verdict": "required",
+        "reasonDe": "Hygiene, Gesundheit und Umweltschutz gelten für jedes Bauwerk.",
+        "reasonEn": "Hygiene, health and environmental protection apply to every structure."
+      },
+      "oib-rl-4": {
+        "verdict": "required",
+        "reasonDe": "Grundanforderungen der Barrierefreiheit gelten allgemein.",
+        "reasonEn": "Baseline accessibility requirements apply generally."
+      },
+      "oib-rl-5": {
+        "verdict": "likely",
+        "reasonDe": "Schallschutz-Anforderungen hängen von der Nutzungseinheit ab.",
+        "reasonEn": "Sound-insulation requirements depend on the usage unit."
+      },
+      "oib-rl-6": {
+        "verdict": "check",
+        "reasonDe": "Bei Lager- oder Landwirtschaftsnutzung Anforderungen an Energieeinsparung prüfen.",
+        "reasonEn": "Check energy-saving requirements for storage or agricultural use."
+      }
+    }
+  },
+  {
+    "name": "wien-kleingarten",
+    "facts": {
+      "bundesland": "wien",
+      "hauptnutzung": "wohnen",
+      "kleingartengebiet": true
+    },
+    "expected": {
+      "oib-rl-1": {
+        "verdict": "required",
+        "reasonDe": "Gilt für jedes Bauvorhaben (mechanische Festigkeit und Standsicherheit).",
+        "reasonEn": "Applies to every building project (mechanical strength and stability)."
+      },
+      "oib-rl-2": {
+        "verdict": "required",
+        "reasonDe": "Brandschutz ist für jedes Bauwerk verbindlich.",
+        "reasonEn": "Fire safety is mandatory for every structure."
+      },
+      "oib-rl-3": {
+        "verdict": "required",
+        "reasonDe": "Hygiene, Gesundheit und Umweltschutz gelten für jedes Bauwerk.",
+        "reasonEn": "Hygiene, health and environmental protection apply to every structure."
+      },
+      "oib-rl-4": {
+        "verdict": "required",
+        "reasonDe": "Grundanforderungen der Barrierefreiheit gelten allgemein.",
+        "reasonEn": "Baseline accessibility requirements apply generally."
+      },
+      "oib-rl-5": {
+        "verdict": "required",
+        "reasonDe": "Schallempfindliche Nutzungseinheiten: Schallschutz ist verbindlich.",
+        "reasonEn": "Noise-sensitive usage units: sound insulation is mandatory."
+      },
+      "oib-rl-6": {
+        "verdict": "required",
+        "reasonDe": "Energieeinsparung und Wärmeschutz sind grundsätzlich verbindlich.",
+        "reasonEn": "Energy saving and thermal insulation are mandatory in principle."
+      },
+      "klgg-wien": {
+        "verdict": "check",
+        "reasonDe": "Vorhaben im Kleingartengebiet: Wiener Kleingartengesetz beachten.",
+        "reasonEn": "Project in an allotment-garden zone: observe the Wiener Kleingartengesetz."
+      }
+    }
+  },
+  {
+    "name": "noe-kleingarten",
+    "facts": {
+      "bundesland": "niederoesterreich",
+      "hauptnutzung": "wohnen",
+      "kleingartengebiet": true
+    },
+    "expected": {
+      "oib-rl-1": {
+        "verdict": "required",
+        "reasonDe": "Gilt für jedes Bauvorhaben (mechanische Festigkeit und Standsicherheit).",
+        "reasonEn": "Applies to every building project (mechanical strength and stability)."
+      },
+      "oib-rl-2": {
+        "verdict": "required",
+        "reasonDe": "Brandschutz ist für jedes Bauwerk verbindlich.",
+        "reasonEn": "Fire safety is mandatory for every structure."
+      },
+      "oib-rl-3": {
+        "verdict": "required",
+        "reasonDe": "Hygiene, Gesundheit und Umweltschutz gelten für jedes Bauwerk.",
+        "reasonEn": "Hygiene, health and environmental protection apply to every structure."
+      },
+      "oib-rl-4": {
+        "verdict": "required",
+        "reasonDe": "Grundanforderungen der Barrierefreiheit gelten allgemein.",
+        "reasonEn": "Baseline accessibility requirements apply generally."
+      },
+      "oib-rl-5": {
+        "verdict": "required",
+        "reasonDe": "Schallempfindliche Nutzungseinheiten: Schallschutz ist verbindlich.",
+        "reasonEn": "Noise-sensitive usage units: sound insulation is mandatory."
+      },
+      "oib-rl-6": {
+        "verdict": "required",
+        "reasonDe": "Energieeinsparung und Wärmeschutz sind grundsätzlich verbindlich.",
+        "reasonEn": "Energy saving and thermal insulation are mandatory in principle."
+      }
+    }
+  },
+  {
+    "name": "denkmal",
+    "facts": {
+      "hauptnutzung": "wohnen",
+      "denkmalschutz": true
+    },
+    "expected": {
+      "oib-rl-1": {
+        "verdict": "required",
+        "reasonDe": "Gilt für jedes Bauvorhaben (mechanische Festigkeit und Standsicherheit).",
+        "reasonEn": "Applies to every building project (mechanical strength and stability)."
+      },
+      "oib-rl-2": {
+        "verdict": "required",
+        "reasonDe": "Brandschutz ist für jedes Bauwerk verbindlich.",
+        "reasonEn": "Fire safety is mandatory for every structure."
+      },
+      "oib-rl-3": {
+        "verdict": "required",
+        "reasonDe": "Hygiene, Gesundheit und Umweltschutz gelten für jedes Bauwerk.",
+        "reasonEn": "Hygiene, health and environmental protection apply to every structure."
+      },
+      "oib-rl-4": {
+        "verdict": "required",
+        "reasonDe": "Grundanforderungen der Barrierefreiheit gelten allgemein.",
+        "reasonEn": "Baseline accessibility requirements apply generally."
+      },
+      "oib-rl-5": {
+        "verdict": "required",
+        "reasonDe": "Schallempfindliche Nutzungseinheiten: Schallschutz ist verbindlich.",
+        "reasonEn": "Noise-sensitive usage units: sound insulation is mandatory."
+      },
+      "oib-rl-6": {
+        "verdict": "required",
+        "reasonDe": "Energieeinsparung und Wärmeschutz sind grundsätzlich verbindlich.",
+        "reasonEn": "Energy saving and thermal insulation are mandatory in principle."
+      },
+      "dmsg": {
+        "verdict": "check",
+        "reasonDe": "Denkmalschutz: Abstimmung mit dem Bundesdenkmalamt erforderlich.",
+        "reasonEn": "Heritage protection: coordination with the Federal Monuments Office required."
+      }
+    }
+  },
+  {
+    "name": "betriebsanlage",
+    "facts": {
+      "hauptnutzung": "produzierend",
+      "betriebsanlage": true
+    },
+    "expected": {
+      "oib-rl-1": {
+        "verdict": "required",
+        "reasonDe": "Gilt für jedes Bauvorhaben (mechanische Festigkeit und Standsicherheit).",
+        "reasonEn": "Applies to every building project (mechanical strength and stability)."
+      },
+      "oib-rl-2": {
+        "verdict": "required",
+        "reasonDe": "Brandschutz ist für jedes Bauwerk verbindlich.",
+        "reasonEn": "Fire safety is mandatory for every structure."
+      },
+      "oib-rl-2.1": {
+        "verdict": "required",
+        "reasonDe": "Betriebsbauten (Produktion/Lager) fallen in den Geltungsbereich.",
+        "reasonEn": "Industrial and storage buildings are in scope."
+      },
+      "oib-rl-3": {
+        "verdict": "required",
+        "reasonDe": "Hygiene, Gesundheit und Umweltschutz gelten für jedes Bauwerk.",
+        "reasonEn": "Hygiene, health and environmental protection apply to every structure."
+      },
+      "oib-rl-4": {
+        "verdict": "required",
+        "reasonDe": "Grundanforderungen der Barrierefreiheit gelten allgemein.",
+        "reasonEn": "Baseline accessibility requirements apply generally."
+      },
+      "oib-rl-5": {
+        "verdict": "likely",
+        "reasonDe": "Schallschutz-Anforderungen hängen von der Nutzungseinheit ab.",
+        "reasonEn": "Sound-insulation requirements depend on the usage unit."
+      },
+      "oib-rl-6": {
+        "verdict": "required",
+        "reasonDe": "Energieeinsparung und Wärmeschutz sind grundsätzlich verbindlich.",
+        "reasonEn": "Energy saving and thermal insulation are mandatory in principle."
+      },
+      "gewo": {
+        "verdict": "check",
+        "reasonDe": "Betriebsanlage: Gewerbeordnung §§ 74ff (Nachbarrechte) prüfen.",
+        "reasonEn": "Commercial facility: check Trade Code §§ 74ff (neighbour protection)."
+      }
+    }
+  },
+  {
+    "name": "wien-stellplatz",
+    "facts": {
+      "bundesland": "wien",
+      "hauptnutzung": "buero",
+      "stellplatz_relevant": true
+    },
+    "expected": {
+      "garagengesetz-wien": {
+        "verdict": "check",
+        "reasonDe": "Stellplatzpflicht in Wien: Wiener Garagengesetz prüfen.",
+        "reasonEn": "Parking-space obligation in Vienna: check the Wiener Garagengesetz."
+      },
+      "oib-rl-1": {
+        "verdict": "required",
+        "reasonDe": "Gilt für jedes Bauvorhaben (mechanische Festigkeit und Standsicherheit).",
+        "reasonEn": "Applies to every building project (mechanical strength and stability)."
+      },
+      "oib-rl-2": {
+        "verdict": "required",
+        "reasonDe": "Brandschutz ist für jedes Bauwerk verbindlich.",
+        "reasonEn": "Fire safety is mandatory for every structure."
+      },
+      "oib-rl-3": {
+        "verdict": "required",
+        "reasonDe": "Hygiene, Gesundheit und Umweltschutz gelten für jedes Bauwerk.",
+        "reasonEn": "Hygiene, health and environmental protection apply to every structure."
+      },
+      "oib-rl-4": {
+        "verdict": "required",
+        "reasonDe": "Öffentlich genutzte Gebäude: barrierefreier Zugang und barrierefreie Nutzung sind verbindlich.",
+        "reasonEn": "Publicly used buildings: barrier-free access and use are mandatory."
+      },
+      "oib-rl-5": {
+        "verdict": "required",
+        "reasonDe": "Schallempfindliche Nutzungseinheiten: Schallschutz ist verbindlich.",
+        "reasonEn": "Noise-sensitive usage units: sound insulation is mandatory."
+      },
+      "oib-rl-6": {
+        "verdict": "required",
+        "reasonDe": "Energieeinsparung und Wärmeschutz sind grundsätzlich verbindlich.",
+        "reasonEn": "Energy saving and thermal insulation are mandatory in principle."
+      }
+    }
+  }
+]
