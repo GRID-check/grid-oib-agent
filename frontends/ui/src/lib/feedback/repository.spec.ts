@@ -31,7 +31,7 @@ beforeEach(() => {
 describe('upsertAnswerFeedback', () => {
   it('inserts with ON CONFLICT (user_id, message_id) DO UPDATE', async () => {
     const returning = vi.fn().mockResolvedValue([{ id: 'fb_1', ...values }])
-    const onConflictDoUpdate = vi.fn(() => ({ returning }))
+    const onConflictDoUpdate = vi.fn((_config: unknown) => ({ returning }))
     const valuesFn = vi.fn(() => ({ onConflictDoUpdate }))
     mockGetDb.mockReturnValue({ insert: vi.fn(() => ({ values: valuesFn })) } as never)
 
@@ -53,7 +53,7 @@ describe('upsertAnswerFeedback', () => {
 describe('deleteAnswerFeedbackForUser', () => {
   function mockDelete(rows: unknown[]) {
     const returning = vi.fn().mockResolvedValue(rows)
-    const where = vi.fn(() => ({ returning }))
+    const where = vi.fn((_condition: unknown) => ({ returning }))
     mockGetDb.mockReturnValue({ delete: vi.fn(() => ({ where })) } as never)
     return { where }
   }
