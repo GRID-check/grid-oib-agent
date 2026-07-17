@@ -69,9 +69,14 @@ describe('KeyboardShortcuts', () => {
     pressCmdK()
 
     expect(await screen.findByText('Current project')).toBeInTheDocument()
-    for (const section of ['Overview', 'Chat', 'Files', 'Research', 'Members', 'Setup']) {
+    // Click-dummy IA (spec §5): Chat/Files/History/Settings + Setup (intake).
+    for (const section of ['Chat', 'Files', 'History', 'Settings', 'Setup']) {
       expect(screen.getByText(section)).toBeInTheDocument()
     }
+    // Overview/Members/Research left the IA (FB-9/FB-10).
+    expect(screen.queryByText('Overview')).toBeNull()
+    expect(screen.queryByText('Members')).toBeNull()
+    expect(screen.queryByText('Research')).toBeNull()
   })
 
   test('org and sign-out entries follow their capability props', async () => {

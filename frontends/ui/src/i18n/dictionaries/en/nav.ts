@@ -1,4 +1,4 @@
-/** Navigation shell: sidebar, topbar, user menu. */
+/** Navigation shell: sidebar, topbar, user menu, and the History page. */
 export const nav = {
   projectNavigation: 'Project navigation',
   projectSections: 'Project sections',
@@ -8,13 +8,14 @@ export const nav = {
   openNavigation: 'Open navigation',
   closeNavigation: 'Close navigation',
   sections: {
-    overview: 'Overview',
     chat: 'Chat',
     files: 'Files',
     knowledge: 'Knowledge',
     research: 'Research',
     workflows: 'Workflows',
-    members: 'Members',
+    archiv: 'Archiv',
+    history: 'History',
+    settings: 'Settings',
   },
   /**
    * Browser-tab title fragments. `{label}` is the localized section name; the
@@ -41,5 +42,22 @@ export const nav = {
     organization: 'Organization',
     platform: 'Platform',
     settings: 'Settings',
+  },
+  /** The project History page: conversations + research runs (FB-10). */
+  history: {
+    subtitle: 'Every conversation and deep-research run in this project.',
+    conversationsHeading: 'Conversations',
+    researchHeading: 'Deep research',
+    searchPlaceholder: 'Search conversations…',
+    searchAria: 'Search conversations by title',
+    untitledConversation: 'Untitled conversation',
+    openConversation: 'Open conversation "{title}" in chat',
+    emptyTitle: 'No conversations yet',
+    emptyDescription: 'Ask Grid a question in chat — every conversation shows up here.',
+    emptyAction: 'Open chat',
+    noMatchesTitle: 'No matching conversations',
+    noMatchesDescription: 'Try a different search term.',
+    errorTitle: 'Conversations could not be loaded',
+    tryAgain: 'Try again',
   },
 }

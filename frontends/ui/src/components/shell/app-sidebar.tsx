@@ -3,10 +3,14 @@
 /**
  * The GRID application sidebar — the product's primary navigation surface.
  *
- * Project-centric IA: wordmark → project switcher → section nav → user footer.
- * Quiet by design: sunken surface, hairline border, one accent color reserved
- * for the active section and the brand mark. The rail collapses to an
- * icon-only strip (persisted per browser) for architects who want more room.
+ * Project-centric IA (click-dummy overhaul §5, FB-9/FB-10): wordmark →
+ * project switcher → Chat / Files / Workflows* / Archiv* / History →
+ * (spacer) → Settings → user footer. Overview and Members left the nav —
+ * their content lives in the project Settings page; the project root
+ * redirects to Chat. Quiet by design: sunken surface, hairline border, one
+ * accent color reserved for the active section and the brand mark. The rail
+ * collapses to an icon-only strip (persisted per browser) for architects who
+ * want more room.
  *
  * Mobile-first: below `md` the rail disappears entirely and the shell becomes
  * a slim top bar with a hamburger that opens the same navigation as a
@@ -18,15 +22,14 @@ import * as React from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
-  BookOpenCheck,
-  FlaskConical,
+  Archive,
   FolderOpen,
-  LayoutDashboard,
+  History,
   Menu,
   MessageSquare,
   PanelLeftClose,
   PanelLeftOpen,
-  Users,
+  Settings,
   Workflow,
   X,
 } from 'lucide-react'
@@ -42,20 +45,27 @@ import { SidebarUserMenu, type SidebarUser } from './sidebar-user-menu'
 
 interface NavItem {
   /** i18n key under `nav.sections` and stable React key. */
-  key: 'overview' | 'chat' | 'files' | 'knowledge' | 'research' | 'workflows' | 'members'
-  segment: string | null // null = the project root (Overview)
+  key: 'chat' | 'files' | 'workflows' | 'archiv' | 'history' | 'settings'
+  /** Project path segment, or null when `href` carries an absolute target. */
+  segment: string | null
+  /** Absolute href for items outside the project subtree (the org Archiv). */
+  href?: string
   icon: React.ComponentType<{ className?: string }>
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { key: 'overview', segment: null, icon: LayoutDashboard },
   { key: 'chat', segment: 'chat', icon: MessageSquare },
   { key: 'files', segment: 'files', icon: FolderOpen },
-  { key: 'knowledge', segment: 'knowledge', icon: BookOpenCheck },
-  { key: 'research', segment: 'research', icon: FlaskConical },
   { key: 'workflows', segment: 'workflows', icon: Workflow },
-  { key: 'members', segment: 'members', icon: Users },
+  // The org-wide Archiv (ADR-0024) keeps its org-scoped route; the sidebar
+  // entry is a doorway, not a project subpage (spec §5: project-chrome Archiv
+  // is a later phase — until then this links to the existing org page).
+  { key: 'archiv', segment: null, href: '/app/archiv', icon: Archive },
+  { key: 'history', segment: 'history', icon: History },
 ]
+
+/** Pinned bottom entry, rendered above the user footer (spec §5). */
+const SETTINGS_ITEM: NavItem = { key: 'settings', segment: 'settings', icon: Settings }
 
 const COLLAPSE_STORAGE_KEY = 'grid.sidebar.collapsed'
 
@@ -75,18 +85,14 @@ export interface AppSidebarProps {
   canViewOrganization?: boolean
   /** Whether the current user is the platform owner (ADR-0016). */
   canManagePlatform?: boolean
-  /** Whether the org-wide Archiv is reachable (any member, feature-gated — ADR-0024). */
+  /**
+   * Whether the org-wide Archiv is reachable (any member, gated by the
+   * `organization-archiv` feature flag — ADR-0024). Also gates the Archiv
+   * nav item.
+   */
   canAccessArchiv?: boolean
-  /** Whether the project knowledge page is enabled (feature-flagged, default off). */
-  showKnowledge?: boolean
   /** Whether the Workflows page is enabled (feature-flagged, default off). */
   showWorkflows?: boolean
-  /**
-   * Whether the standalone Research nav item is shown. False when the
-   * `research-in-chat-history` flag folds research runs into the chat-history
-   * panel (FB-10). Defaults to true (legacy tab visible) for back-compat.
-   */
-  showResearch?: boolean
 }
 
 export function AppSidebar({
@@ -98,9 +104,7 @@ export function AppSidebar({
   canViewOrganization = false,
   canManagePlatform = false,
   canAccessArchiv = false,
-  showKnowledge = false,
   showWorkflows = false,
-  showResearch = true,
 }: AppSidebarProps) {
   const pathname = usePathname() ?? ''
   const base = `/app/projects/${projectId}`
@@ -110,8 +114,7 @@ export function AppSidebar({
 
   // "Resume where you left off": remember the section the user is currently on
   // for this project so entry points (project card / switcher) can land them
-  // back here next time. Records Overview too — an explicit Overview visit is a
-  // real visit and becomes the new memory, so resume never traps the user.
+  // back here next time.
   useRecordProjectSection(projectId)
 
   // Keep the memory tidy: drop entries for projects that no longer exist
@@ -151,24 +154,78 @@ export function AppSidebar({
     })
   }, [])
 
-  const isActive = (item: NavItem) => {
-    const href = item.segment ? `${base}/${item.segment}` : base
-    return item.segment ? pathname.startsWith(href) : pathname === base
-  }
+  const itemHref = (item: NavItem) => item.href ?? `${base}/${item.segment}`
 
-  // Members is shown to every project member: the roster page renders a
-  // dignified read-only view for viewers/editors and full controls for admins,
-  // so the nav item never dead-ends. Knowledge and Workflows are feature-flagged
-  // (default off). Research is hidden when its runs are folded into the
-  // chat-history panel (research-in-chat-history flag, FB-10).
+  const isActive = (item: NavItem) => pathname.startsWith(itemHref(item))
+
+  // Workflows is feature-flagged (default off). Archiv shows for any member of
+  // an org with the `organization-archiv` flag — the same gate the user menu's
+  // Archiv entry uses (the layout passes both from getNavFlags).
   const navItems = NAV_ITEMS.filter(
     (item) =>
-      (item.key !== 'knowledge' || showKnowledge) &&
       (item.key !== 'workflows' || showWorkflows) &&
-      (item.key !== 'research' || showResearch),
+      (item.key !== 'archiv' || canAccessArchiv),
   )
 
-  const activeItem = navItems.find(isActive)
+  const activeItem = [...navItems, SETTINGS_ITEM].find(isActive)
+
+  const renderNavLink = (item: NavItem, variant: 'desktop' | 'mobile') => {
+    const href = itemHref(item)
+    const active = isActive(item)
+    const Icon = item.icon
+    const showLabel = variant === 'mobile' || !collapsed
+    return (
+      <Link
+        key={item.key}
+        href={href}
+        aria-current={active ? 'page' : undefined}
+        title={!showLabel ? t(`sections.${item.key}`) : undefined}
+        className={cn(
+          'relative flex shrink-0 items-center gap-3 rounded-lg text-sm transition-colors duration-200 ease-out',
+          'focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none',
+          // Roomier touch targets in the drawer; the compact desktop rail keeps h-9.
+          variant === 'mobile' ? 'h-11' : 'h-9',
+          showLabel ? 'px-3' : 'justify-center px-0',
+          active
+            ? 'font-medium text-foreground'
+            : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
+        )}
+      >
+        {active && (
+          <motion.span
+            layoutId={variant === 'mobile' ? 'sidebar-active-mobile' : 'sidebar-active'}
+            className="absolute inset-0 rounded-lg bg-accent"
+            transition={springSnappy}
+            aria-hidden
+          />
+        )}
+        <Icon
+          aria-hidden
+          className={cn(
+            'relative z-10 size-4 shrink-0',
+            active ? 'text-foreground' : 'text-muted-foreground',
+          )}
+        />
+        {variant === 'mobile' ? (
+          <span className="relative z-10 truncate">{t(`sections.${item.key}`)}</span>
+        ) : (
+          <AnimatePresence initial={false}>
+            {!collapsed && (
+              <motion.span
+                className="relative z-10 truncate"
+                initial={{ opacity: 0, x: -4 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -4 }}
+                transition={{ ...easeQuiet, duration: 0.15 }}
+              >
+                {t(`sections.${item.key}`)}
+              </motion.span>
+            )}
+          </AnimatePresence>
+        )}
+      </Link>
+    )
+  }
 
   const renderNav = (variant: 'desktop' | 'mobile') => (
     <nav
@@ -178,64 +235,22 @@ export function AppSidebar({
       )}
       aria-label={t('projectSections')}
     >
-      {navItems.map((item) => {
-        const href = item.segment ? `${base}/${item.segment}` : base
-        const active = isActive(item)
-        const Icon = item.icon
-        const showLabel = variant === 'mobile' || !collapsed
-        return (
-          <Link
-            key={item.key}
-            href={href}
-            aria-current={active ? 'page' : undefined}
-            title={!showLabel ? t(`sections.${item.key}`) : undefined}
-            className={cn(
-              'relative flex shrink-0 items-center gap-3 rounded-lg text-sm transition-colors duration-200 ease-out',
-              'focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none',
-              // Roomier touch targets in the drawer; the compact desktop rail keeps h-9.
-              variant === 'mobile' ? 'h-11' : 'h-9',
-              showLabel ? 'px-3' : 'justify-center px-0',
-              active
-                ? 'font-medium text-foreground'
-                : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
-            )}
-          >
-            {active && (
-              <motion.span
-                layoutId={variant === 'mobile' ? 'sidebar-active-mobile' : 'sidebar-active'}
-                className="absolute inset-0 rounded-lg bg-accent"
-                transition={springSnappy}
-                aria-hidden
-              />
-            )}
-            <Icon
-              aria-hidden
-              className={cn(
-                'relative z-10 size-4 shrink-0',
-                active ? 'text-foreground' : 'text-muted-foreground',
-              )}
-            />
-            {variant === 'mobile' ? (
-              <span className="relative z-10 truncate">{t(`sections.${item.key}`)}</span>
-            ) : (
-              <AnimatePresence initial={false}>
-                {!collapsed && (
-                  <motion.span
-                    className="relative z-10 truncate"
-                    initial={{ opacity: 0, x: -4 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -4 }}
-                    transition={{ ...easeQuiet, duration: 0.15 }}
-                  >
-                    {t(`sections.${item.key}`)}
-                  </motion.span>
-                )}
-              </AnimatePresence>
-            )}
-          </Link>
-        )
-      })}
+      {navItems.map((item) => renderNavLink(item, variant))}
     </nav>
+  )
+
+  // Settings sits pinned at the bottom, visually separated from the section
+  // nav by the flexible spacer above it (spec §5) — same link anatomy, same
+  // active treatment, so it still participates in the shared active pill.
+  const renderSettings = (variant: 'desktop' | 'mobile') => (
+    <div
+      className={cn(
+        'flex flex-col pb-2',
+        variant === 'desktop' && collapsed ? 'px-2' : 'px-3',
+      )}
+    >
+      {renderNavLink(SETTINGS_ITEM, variant)}
+    </div>
   )
 
   return (
@@ -299,6 +314,8 @@ export function AppSidebar({
             </div>
 
             {renderNav('mobile')}
+
+            {renderSettings('mobile')}
 
             <div className="flex flex-col gap-2 border-t border-border p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
               <ConnectionPresenceIndicator className="px-1" />
@@ -384,10 +401,13 @@ export function AppSidebar({
           <ProjectSwitcher projects={projects} activeProjectId={projectId} collapsed={collapsed} />
         </div>
 
-        {/* Section nav */}
+        {/* Section nav (flex-1 — doubles as the spacer above Settings) */}
         {renderNav('desktop')}
 
-        {/* Footer: connection presence + user + settings */}
+        {/* Pinned Settings entry */}
+        {renderSettings('desktop')}
+
+        {/* Footer: connection presence + user */}
         <div className={cn('flex flex-col gap-2 border-t border-border', collapsed ? 'items-center p-2' : 'p-3')}>
           <ConnectionPresenceIndicator compact={collapsed} className={collapsed ? undefined : 'px-1'} />
           <SidebarUserMenu

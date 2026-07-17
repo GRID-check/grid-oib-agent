@@ -4,12 +4,7 @@ import { notFound } from 'next/navigation'
 import { requireAuthorizedPageSession } from '@/lib/auth/require-auth'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { getNavFlags } from '@/lib/authz/nav'
-import {
-  FEATURE_FLAGS,
-  isFeatureEnabled,
-  isProjectKnowledgePageEnabled,
-  isWorkflowsEnabled,
-} from '@/lib/authz/feature-flags'
+import { isWorkflowsEnabled } from '@/lib/authz/feature-flags'
 import { getDb } from '@/lib/db'
 import { projects } from '@/lib/db/schema'
 import { AppSidebar } from '@/components/shell'
@@ -24,11 +19,11 @@ interface ProjectLayoutProps {
 
 /**
  * Seed the browser-tab title with the project name and a per-section template,
- * so nested pages resolve to "<Project> · <Section> — Grid" (and the overview,
- * which sets no section title, to "<Project> — Grid"). The project name is user
- * data and is not translated; sections localize their own `title`. Fails soft:
- * any lookup problem falls back to the root template rather than crashing
- * metadata generation.
+ * so nested pages resolve to "<Project> · <Section> — Grid" (the project root
+ * redirects to Chat and never renders a title of its own). The project name is
+ * user data and is not translated; sections localize their own `title`. Fails
+ * soft: any lookup problem falls back to the root template rather than
+ * crashing metadata generation.
  */
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   try {
@@ -94,12 +89,7 @@ export default async function ProjectLayout({ children, params }: ProjectLayoutP
         canViewOrganization={navFlags.canViewOrganization}
         canManagePlatform={navFlags.canManagePlatform}
         canAccessArchiv={navFlags.canAccessArchiv}
-        showKnowledge={isProjectKnowledgePageEnabled(session)}
         showWorkflows={isWorkflowsEnabled(session)}
-        // FB-10: when research runs live in the chat-history panel, drop the
-        // standalone Research nav item. Fails open to the merged behavior
-        // (item hidden) when flag enforcement is off.
-        showResearch={!isFeatureEnabled(session, FEATURE_FLAGS.researchInChatHistory)}
       />
       {/* tabIndex={-1} makes the landmark programmatically focusable so
           RouteFocus can move focus here on client-side section changes. */}
