@@ -12,7 +12,7 @@ import Link from 'next/link'
 import { requireAuthorizedPageSession } from '@/lib/auth/require-auth'
 import { getNavFlags } from '@/lib/authz/nav'
 import { canManageArchiv } from '@/lib/authz/organizations'
-import { FEATURE_FLAGS, isFeatureEnabled, isOrgArchivEnabled } from '@/lib/authz/feature-flags'
+import { FEATURE_FLAGS, isFeatureEnabled } from '@/lib/authz/feature-flags'
 import { OrgTopbar } from '@/components/shell'
 import { getTranslations } from '@/i18n/server'
 import { ArchivWorkspace } from '@/features/documents/components/archiv-workspace'
@@ -27,8 +27,8 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function ArchivPage(): Promise<JSX.Element> {
   const session = await requireAuthorizedPageSession()
 
-  // Dark-launch gate — a disabled org gets a 404, matching the workflows page.
-  if (!isOrgArchivEnabled(session)) {
+  // Feature-flag gate — an org without the flag gets a 404.
+  if (!isFeatureEnabled(session, FEATURE_FLAGS.orgArchiv)) {
     notFound()
   }
 
