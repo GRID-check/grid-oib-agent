@@ -21,6 +21,7 @@ interface ProjectChatPageProps {
  *   - `source-origin-badges`    → ReportTab origin badges
  *   - `chat-confidence-chip`     → AgentResponse confidence chip
  *   - `research-in-chat-history` → SessionsPanel Deep Research section (FB-10)
+ *   - `answer-feedback`          → AgentResponse per-answer thumbs row (WS-7)
  * All fail open (visible) when enforcement is off. The project layout already
  * guards auth/access, so reaching here implies an authorized session; session
  * lookup is still wrapped defensively so a transient failure never blanks chat.
@@ -31,12 +32,14 @@ const ProjectChatPage = async ({ params }: ProjectChatPageProps): Promise<ReactN
   let showSourceBadges = true
   let showConfidenceChip = true
   let showResearchInHistory = true
+  let showAnswerFeedback = true
   try {
     const session = await getGridSession()
     if (session) {
       showSourceBadges = isFeatureEnabled(session, FEATURE_FLAGS.sourceOriginBadges)
       showConfidenceChip = isFeatureEnabled(session, FEATURE_FLAGS.chatConfidenceChip)
       showResearchInHistory = isFeatureEnabled(session, FEATURE_FLAGS.researchInChatHistory)
+      showAnswerFeedback = isFeatureEnabled(session, FEATURE_FLAGS.answerFeedback)
     }
   } catch {
     // Fail open: a session-lookup problem must not hide chat affordances.
@@ -69,6 +72,7 @@ const ProjectChatPage = async ({ params }: ProjectChatPageProps): Promise<ReactN
       projectId={id}
       showSourceBadges={showSourceBadges}
       showConfidenceChip={showConfidenceChip}
+      showAnswerFeedback={showAnswerFeedback}
       showResearchInHistory={showResearchInHistory}
       projectCollection={projectCollection}
       projectName={projectName}

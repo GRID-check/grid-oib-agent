@@ -310,6 +310,7 @@ update user-guide docs it invalidates.
 - **WS-7 Feedback** — new `lib/feedback` domain (repository/service/route per
   ADR-0017), `answer_feedback` table (+ drizzle migration), thumbs + reason
   chips on answers, NPS popover with §2.2(5) cadence, flag `answer-feedback`.
+  (shipped: thumbs; NPS deferred)
 - **WS-8 Workflows gallery** — template cards over existing builder
   (flag-gated as today), `i18n/*/workflows.ts`.
 - **WS-9 Source preview** — citation chip → source preview surface (doc

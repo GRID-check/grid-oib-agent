@@ -51,6 +51,12 @@ interface MainLayoutProps {
    */
   showConfidenceChip?: boolean
   /**
+   * Whether answers show the per-answer thumbs feedback row (WorkOS
+   * `answer-feedback` flag, WS-7). Threaded to ChatArea → AgentResponse.
+   * Defaults to true (fail-open) so existing callers/specs are unaffected.
+   */
+  showAnswerFeedback?: boolean
+  /**
    * Whether the sessions panel shows the Deep Research section and per-session
    * research labels (WorkOS `research-in-chat-history` flag, FB-10). Threaded to
    * SessionsPanel. Defaults to false so existing callers/specs are unaffected.
@@ -72,6 +78,7 @@ export const MainLayout: FC<MainLayoutProps> = ({
   onSignIn,
   showSourceBadges = true,
   showConfidenceChip = true,
+  showAnswerFeedback = true,
   showResearchInHistory = false,
   projectCollection = null,
   projectName = null,
@@ -213,6 +220,7 @@ export const MainLayout: FC<MainLayoutProps> = ({
             isAuthenticated={isAuthenticated}
             onSignIn={onSignIn}
             showConfidenceChip={showConfidenceChip}
+            showAnswerFeedback={showAnswerFeedback}
           />
 
           {/* Floating composer stack: overlays the bottom of the chat scroll

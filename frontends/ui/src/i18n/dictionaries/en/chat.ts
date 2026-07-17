@@ -3,6 +3,23 @@ export const chat = {
   actions: {
     dismiss: 'Dismiss',
   },
+  // Source preview (WS-9, FB-4): citation chips open a preview of the source.
+  sourcePreview: {
+    chipAria: 'Preview source: {label}',
+    view: 'View',
+    // Document-type chip in the preview dialog header.
+    projectDocument: 'Project document',
+    corpusDocument: 'Building law & guidelines',
+    // Tinted box with the passage the answer cites.
+    citedPassage: 'Cited passage',
+    loadFailed: 'The source preview could not be loaded. Please try again.',
+    // Origin line in the info popover (no openable document).
+    origins: {
+      kb: 'Project knowledge',
+      ris: 'Law & guidelines (RIS)',
+      web: 'Web source',
+    },
+  },
   // Composer (InputArea) control row — WS-3 click-dummy overhaul.
   composer: {
     sources: 'Data basis',
@@ -273,5 +290,19 @@ export const chat = {
     ariaLabel: 'Assistant self-assessed confidence: {level}',
     tooltip:
       "The assistant's own assessment of how well this answer is supported by its sources. It can be wrong.",
+  },
+  // Per-answer thumbs feedback (WS-7, `answer-feedback` flag).
+  feedback: {
+    question: 'Was this helpful?',
+    helpfulAria: 'Mark this answer as helpful',
+    notHelpfulAria: 'Mark this answer as not helpful',
+    reasonPrompt: 'What was the problem?',
+    reasons: {
+      inaccurate: 'Inaccurate',
+      too_slow: 'Too slow',
+      wrong_source: 'Wrong source',
+      other: 'Other',
+    },
+    thanks: 'Thanks for your feedback.',
   },
 }

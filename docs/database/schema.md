@@ -15,6 +15,7 @@ All schemas are in `frontends/ui/src/lib/db/schema/` and barrel-exported from `i
 | `messages.ts` | `messages` |
 | `documents.ts` | `documents` |
 | `user-preferences.ts` | `user_preferences` |
+| `answer-feedback.ts` | `answer_feedback` |
 
 ---
 
@@ -321,3 +322,27 @@ Saved research briefs with cron scheduling (ADR-0023,
   `triggered_by`. Live job progress/results stay in the backend job store.
   `idx_workflow_runs_created_at` serves the scheduler's retention prune.
   Schema: `frontends/ui/src/lib/db/schema/workflows.ts`.
+
+---
+
+## answer_feedback (migration 0020)
+
+Per-answer thumbs feedback (WS-7, click-dummy overhaul spec §1/§6; flag
+`answer-feedback`). One row per (user, assistant answer).
+
+- Columns: `organization_id` (denormalized, scopes every query in SQL),
+  `project_id` (nullable, **cascade FK** to `projects` so a purged project
+  takes its feedback along), `conversation_id` (nullable plain text — no FK,
+  the vote must not race the async conversation insert), `message_id` (the
+  **client-side** assistant message identifier; shallow chat turns are not
+  persisted as `messages` rows, so no FK), `user_id`, `verdict`
+  (`up`/`down`), `reason` (nullable, fixed keys
+  `inaccurate`/`too_slow`/`wrong_source`/`other`; down-votes only),
+  `created_at`/`updated_at`.
+- Voting model (the simplest honest one): **re-vote = upsert** on the unique
+  `(user_id, message_id)` index (`answer_feedback_user_message_uidx`);
+  **toggle-off = delete** — no "retracted" tombstone state.
+- Indexes: `answer_feedback_org_conversation_idx`
+  (`organization_id`,`conversation_id`) serves the per-conversation hydration
+  list; `answer_feedback_org_project_idx` (`organization_id`,`project_id`).
+  Schema: `frontends/ui/src/lib/db/schema/answer-feedback.ts`.

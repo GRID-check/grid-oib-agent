@@ -25,6 +25,7 @@ import { useLoadJobData } from '../hooks'
 import { AnswerSourcesRow } from './AnswerSourcesRow'
 import { MemoryNotedChip } from './MemoryNotedChip'
 import { ConfidenceChip } from './ConfidenceChip'
+import { AnswerFeedback } from './AnswerFeedback'
 
 export interface AgentResponseProps {
   /** Response content from the agent */
@@ -59,6 +60,18 @@ export interface AgentResponseProps {
    * are unaffected.
    */
   showConfidenceChip?: boolean
+  /**
+   * Client-side message identifier of this answer — keys the per-answer
+   * thumbs feedback row (WS-7). No feedback row renders when absent (e.g.
+   * legacy callers), so existing usages are unaffected.
+   */
+  messageId?: string
+  /**
+   * Whether the per-answer thumbs feedback row renders (WorkOS
+   * `answer-feedback` flag). Defaults to true (fail-open, matching the other
+   * flag props) — the row still requires a `messageId` to appear.
+   */
+  showAnswerFeedback?: boolean
 }
 
 /**
@@ -77,6 +90,8 @@ export const AgentResponse: FC<AgentResponseProps> = ({
   conversationId,
   answerConfidence,
   showConfidenceChip = true,
+  messageId,
+  showAnswerFeedback = true,
 }) => {
   const t = useTranslations('chat')
   const openRightPanel = useLayoutStore((s) => s.openRightPanel)
@@ -201,6 +216,11 @@ export const AgentResponse: FC<AgentResponseProps> = ({
           <MemoryNotedChip projectId={projectId} conversationId={conversationId} />
         </div>
 
+        {/* Per-answer thumbs feedback (WS-7, `answer-feedback` flag) */}
+        {showAnswerFeedback && messageId && (
+          <AnswerFeedback messageId={messageId} conversationId={conversationId} className="mt-0.5" />
+        )}
+
         {/* Timestamp outside content, right-aligned */}
         {timestamp && (
           <span className="text-subtle mr-3 mt-1 self-end text-xs">
@@ -259,6 +279,11 @@ export const AgentResponse: FC<AgentResponseProps> = ({
           {showConfidenceChip && <ConfidenceChip confidence={answerConfidence} />}
           <MemoryNotedChip projectId={projectId} conversationId={conversationId} />
         </div>
+
+        {/* Per-answer thumbs feedback (WS-7, `answer-feedback` flag) */}
+        {showAnswerFeedback && messageId && (
+          <AnswerFeedback messageId={messageId} conversationId={conversationId} className="mt-1.5 px-1" />
+        )}
 
         {/* Timestamp outside bubble, right-aligned */}
         {timestamp && (

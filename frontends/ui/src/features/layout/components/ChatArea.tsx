@@ -41,6 +41,12 @@ interface ChatAreaProps {
    * existing callers/specs are unaffected.
    */
   showConfidenceChip?: boolean
+  /**
+   * Whether answers show the per-answer thumbs feedback row (WorkOS
+   * `answer-feedback` flag, WS-7). Defaults to true (fail-open) so existing
+   * callers/specs are unaffected.
+   */
+  showAnswerFeedback?: boolean
 }
 
 /**
@@ -51,6 +57,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   isAuthenticated = false,
   onSignIn,
   showConfidenceChip = true,
+  showAnswerFeedback = true,
 }) {
   const { currentConversation, isStreaming, currentUserMessageId } = useChatStore(
     useShallow((s) => ({
@@ -204,6 +211,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                     onFileRetry={handleFileRetry}
                     onErrorDismiss={dismissErrorCard}
                     showConfidenceChip={showConfidenceChip}
+                    showAnswerFeedback={showAnswerFeedback}
                   />
 
                   {/* Render thinking steps after user messages — negative margin lets the next message overlap */}
@@ -246,6 +254,8 @@ interface MessageRendererProps {
   onErrorDismiss?: (messageId: string) => void
   /** Whether the AgentResponse confidence chip renders (feature-flagged). */
   showConfidenceChip?: boolean
+  /** Whether the AgentResponse thumbs feedback row renders (feature-flagged). */
+  showAnswerFeedback?: boolean
 }
 
 const MessageRenderer: FC<MessageRendererProps> = ({
@@ -257,6 +267,7 @@ const MessageRenderer: FC<MessageRendererProps> = ({
   onFileDelete: _onFileDelete,
   onErrorDismiss,
   showConfidenceChip = true,
+  showAnswerFeedback = true,
 }) => {
   const messageType = message.messageType || (message.role === 'user' ? 'user' : 'assistant')
 
@@ -298,6 +309,8 @@ const MessageRenderer: FC<MessageRendererProps> = ({
           conversationId={conversationId}
           answerConfidence={message.answerConfidence}
           showConfidenceChip={showConfidenceChip}
+          messageId={message.id}
+          showAnswerFeedback={showAnswerFeedback}
         />
       )
 
