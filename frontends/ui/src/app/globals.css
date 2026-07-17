@@ -52,7 +52,8 @@ body {
   height: 100%;
 }
 
-/* Quiet, brand-tinted text selection */
+/* Quiet, ink-tinted text selection (--primary is near-black ink in the warm
+   paper language; selection reads as a calm warm gray) */
 ::selection {
   background-color: color-mix(in oklch, var(--primary) 22%, transparent);
 }
