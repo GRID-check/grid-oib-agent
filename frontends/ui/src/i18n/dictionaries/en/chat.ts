@@ -3,6 +3,51 @@ export const chat = {
   actions: {
     dismiss: 'Dismiss',
   },
+  // Composer (InputArea) control row — WS-3 click-dummy overhaul.
+  composer: {
+    sources: 'Data basis',
+    sourcesAria: 'Data basis — {enabled} of {total} sources enabled. Opens the data sources panel.',
+    deepResearch: 'Deep Research',
+    deepResearchAria: 'Deep Research preference',
+    // Honest intent hint: the agent auto-escalates; the pill records a
+    // preference, it does not force a deep-research run.
+    deepResearchHint:
+      'Preference noted — Grid escalates to Deep Research automatically when a question calls for it.',
+    scopeAria: 'Search scope: {project}',
+    scopeFallback: 'This project',
+    scopeCurrent: 'Current project',
+    scopeAll: 'All projects',
+    scopeAllSoon: 'Coming soon — cross-project search is not available yet.',
+  },
+  // Source-preset shortcut chips under the composer (empty thread).
+  shortcuts: {
+    label: 'Shortcuts',
+    presetAria: 'Source preset: {label}',
+    presets: {
+      law: 'Building law & guidelines',
+      project: 'Project documents',
+      office: 'Office archive',
+    },
+  },
+  // Time-of-day greeting on the empty chat state.
+  greeting: {
+    morning: 'Good morning',
+    afternoon: 'Good afternoon',
+    evening: 'Good evening',
+    withName: '{greeting}, {name}',
+    subtitle: 'Ask about your project — answers cite their sources.',
+  },
+  // "Belegt durch" provenance chip row under answers that carry source data.
+  answerSources: {
+    label: 'Sources',
+    ariaLabel: 'Sources this answer is backed by',
+  },
+  // Thread-header breadcrumb (project / session title) with inline rename.
+  breadcrumb: {
+    ariaLabel: 'Conversation breadcrumb',
+    renameAria: 'Rename session — click to edit the title',
+    renameInputAria: 'Session title',
+  },
   cards: {
     aiGenerated:
       'AI-generated citation — check the excerpt against the primary source (OIB / RIS).',

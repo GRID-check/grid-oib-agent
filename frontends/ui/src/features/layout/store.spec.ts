@@ -24,6 +24,8 @@ describe('useLayoutStore', () => {
       knowledgeLayerAvailable: false,
       dataSourcesLoading: false,
       dataSourcesError: null,
+      deepResearchIntent: false,
+      activeSourcePreset: null,
     })
   })
 
@@ -183,6 +185,52 @@ describe('useLayoutStore', () => {
     })
   })
 
+  describe('setDeepResearchIntent', () => {
+    test('records the intent hint on and off', () => {
+      useLayoutStore.getState().setDeepResearchIntent(true)
+      expect(useLayoutStore.getState().deepResearchIntent).toBe(true)
+
+      useLayoutStore.getState().setDeepResearchIntent(false)
+      expect(useLayoutStore.getState().deepResearchIntent).toBe(false)
+    })
+  })
+
+  describe('applySourcePreset', () => {
+    test('sets the preset and its enabled ids together', () => {
+      useLayoutStore.getState().applySourcePreset('law', ['ris'])
+
+      expect(useLayoutStore.getState().activeSourcePreset).toBe('law')
+      expect(useLayoutStore.getState().enabledDataSourceIds).toEqual(['ris'])
+    })
+
+    test('clears the preset while restoring the given ids', () => {
+      useLayoutStore.getState().applySourcePreset('law', ['ris'])
+
+      useLayoutStore.getState().applySourcePreset(null, ['web_search', 'ris'])
+
+      expect(useLayoutStore.getState().activeSourcePreset).toBeNull()
+      expect(useLayoutStore.getState().enabledDataSourceIds).toEqual(['web_search', 'ris'])
+    })
+
+    test('a manual per-source toggle leaves the preset behind', () => {
+      useLayoutStore.getState().applySourcePreset('law', ['ris'])
+
+      useLayoutStore.getState().toggleDataSource('web_search')
+
+      expect(useLayoutStore.getState().activeSourcePreset).toBeNull()
+      expect(useLayoutStore.getState().enabledDataSourceIds).toEqual(['ris', 'web_search'])
+    })
+
+    test('a manual bulk selection leaves the preset behind', () => {
+      useLayoutStore.getState().applySourcePreset('law', ['ris'])
+
+      useLayoutStore.getState().setEnabledDataSources([])
+
+      expect(useLayoutStore.getState().activeSourcePreset).toBeNull()
+      expect(useLayoutStore.getState().enabledDataSourceIds).toEqual([])
+    })
+  })
+
   describe('fetchDataSources', () => {
     test('enables all returned sources by default', async () => {
       mockGetDataSources.mockResolvedValueOnce({
@@ -213,6 +261,23 @@ describe('useLayoutStore', () => {
       expect(useLayoutStore.getState().vlmAvailable).toBe(false)
       await useLayoutStore.getState().fetchDataSources('token-1')
       expect(useLayoutStore.getState().vlmAvailable).toBe(true)
+    })
+
+    test('a fresh fetch clears any active source preset (all sources re-enabled)', async () => {
+      useLayoutStore.getState().applySourcePreset('law', ['ris'])
+      mockGetDataSources.mockResolvedValueOnce({
+        data_sources: [
+          { id: 'web_search', name: 'Web Search', requires_auth: false },
+          { id: 'ris', name: 'RIS', requires_auth: false },
+        ],
+        knowledge_layer: true,
+        vlm_available: false,
+      })
+
+      await useLayoutStore.getState().fetchDataSources('token-1')
+
+      expect(useLayoutStore.getState().activeSourcePreset).toBeNull()
+      expect(useLayoutStore.getState().enabledDataSourceIds).toEqual(['web_search', 'ris'])
     })
   })
 })

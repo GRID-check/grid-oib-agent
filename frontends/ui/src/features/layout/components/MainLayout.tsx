@@ -58,6 +58,8 @@ interface MainLayoutProps {
   showResearchInHistory?: boolean
   /** Qdrant collection scoping the Deep Research section's job fetch (FB-10). */
   projectCollection?: string | null
+  /** Active project name — thread-header breadcrumb + composer scope chip. */
+  projectName?: string | null
 }
 
 /**
@@ -72,6 +74,7 @@ export const MainLayout: FC<MainLayoutProps> = ({
   showConfidenceChip = true,
   showResearchInHistory = false,
   projectCollection = null,
+  projectName = null,
 }) => {
   const {
     currentConversation,
@@ -187,6 +190,7 @@ export const MainLayout: FC<MainLayoutProps> = ({
     <div className="flex h-full min-w-0 flex-col overflow-hidden">
       <ChatToolbar
         sessionTitle={currentConversation?.title}
+        projectName={projectName ?? undefined}
         onNewSession={handleNewSession}
         isNewSessionDisabled={isNavigationBlocked}
       />
@@ -220,7 +224,11 @@ export const MainLayout: FC<MainLayoutProps> = ({
             <NoSourcesBanner isAuthenticated={isAuthenticated} />
 
             {/* Input Area - Using WebSocket mode for full HITL (human-in-the-loop) support */}
-            <InputArea isAuthenticated={isAuthenticated} connectionMode="websocket" />
+            <InputArea
+              isAuthenticated={isAuthenticated}
+              connectionMode="websocket"
+              projectName={projectName ?? undefined}
+            />
           </div>
         </div>
 

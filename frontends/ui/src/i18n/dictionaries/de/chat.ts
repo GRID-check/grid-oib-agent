@@ -5,6 +5,44 @@ export const chat: typeof en.chat = {
   actions: {
     dismiss: 'Schließen',
   },
+  composer: {
+    sources: 'Datengrundlage',
+    sourcesAria: 'Datengrundlage – {enabled} von {total} Quellen aktiv. Öffnet die Datenquellen.',
+    deepResearch: 'Deep Research',
+    deepResearchAria: 'Deep-Research-Präferenz',
+    deepResearchHint:
+      'Präferenz vermerkt – Grid eskaliert automatisch zu Deep Research, wenn eine Frage es erfordert.',
+    scopeAria: 'Suchbereich: {project}',
+    scopeFallback: 'Dieses Projekt',
+    scopeCurrent: 'Aktuelles Projekt',
+    scopeAll: 'Alle Projekte',
+    scopeAllSoon: 'Bald verfügbar – projektübergreifende Suche ist noch nicht möglich.',
+  },
+  shortcuts: {
+    label: 'Schnellzugriff',
+    presetAria: 'Quellen-Voreinstellung: {label}',
+    presets: {
+      law: 'Baurecht & Richtlinien',
+      project: 'Projektunterlagen',
+      office: 'Büroarchiv',
+    },
+  },
+  greeting: {
+    morning: 'Guten Morgen',
+    afternoon: 'Guten Tag',
+    evening: 'Guten Abend',
+    withName: '{greeting}, {name}',
+    subtitle: 'Fragen Sie zu Ihrem Projekt – Antworten belegen ihre Quellen.',
+  },
+  answerSources: {
+    label: 'Belegt durch',
+    ariaLabel: 'Quellen, auf die sich diese Antwort stützt',
+  },
+  breadcrumb: {
+    ariaLabel: 'Navigationspfad',
+    renameAria: 'Sitzung umbenennen – zum Bearbeiten klicken',
+    renameInputAria: 'Sitzungstitel',
+  },
   cards: {
     aiGenerated:
       'KI-generierte Zitierung — prüfen Sie den Auszug anhand der Primärquelle (OIB / RIS).',

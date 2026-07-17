@@ -9,6 +9,17 @@ const mockDismissErrorCard = vi.fn()
 const mockGetThinkingStepsForMessage = vi.fn((_messageId: string) => [] as { id: string; displayName: string }[])
 const mockChatThinking = vi.fn((_props: unknown) => <div data-testid="chat-thinking">Thinking...</div>)
 
+// The welcome state greets the user by first name via useAuth; mocked here so
+// tests don't need the AppConfig/AuthKit provider stack.
+let mockUserName: string | null = 'Max Mustermann'
+
+vi.mock('@/adapters/auth', () => ({
+  useAuth: vi.fn(() => ({
+    isAuthenticated: true,
+    user: mockUserName ? { id: 'user-1', name: mockUserName } : null,
+  })),
+}))
+
 vi.mock('@/features/chat', () => ({
   useChatStore: vi.fn((selector?: (s: any) => any) => {
     const state = {
@@ -38,9 +49,13 @@ vi.mock('@/features/chat', () => ({
 
 import { useChatStore } from '@/features/chat'
 
+// Time-of-day greeting shown on the authenticated empty state.
+const GREETING_RE = /good (morning|afternoon|evening)/i
+
 describe('ChatArea', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockUserName = 'Max Mustermann'
   })
 
   test('renders welcome state when not authenticated', () => {
@@ -53,11 +68,24 @@ describe('ChatArea', () => {
     expect(screen.getByRole('button', { name: /sign in with.*sso/i })).toBeInTheDocument()
   })
 
-  test('renders welcome state when authenticated with no messages', () => {
+  test('renders the time-of-day greeting with the first name when authenticated with no messages', () => {
     render(<ChatArea isAuthenticated={true} />)
 
-    expect(screen.getByText(/how can grid help with your project/i)).toBeInTheDocument()
-    expect(screen.getByText(/compare oib 2 fire resistance/i)).toBeInTheDocument()
+    const heading = screen.getByRole('heading', { level: 1 })
+    expect(heading).toHaveTextContent(GREETING_RE)
+    expect(heading).toHaveTextContent('Max')
+    // Only the FIRST name is used in the greeting.
+    expect(heading).not.toHaveTextContent('Mustermann')
+  })
+
+  test('renders the plain greeting when no user name is available', () => {
+    mockUserName = null
+
+    render(<ChatArea isAuthenticated={true} />)
+
+    const heading = screen.getByRole('heading', { level: 1 })
+    expect(heading).toHaveTextContent(GREETING_RE)
+    expect(heading).not.toHaveTextContent(',')
   })
 
   test('calls onSignIn when sign in button clicked', async () => {
@@ -265,7 +293,7 @@ describe('ChatArea', () => {
     render(<ChatArea isAuthenticated={true} />)
 
     // Should show welcome state since assistant messages are filtered out
-    expect(screen.getByText(/how can grid help with your project/i)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(GREETING_RE)
   })
 
   test('renders chat messages area with aria-label', () => {
@@ -290,7 +318,7 @@ describe('ChatArea', () => {
     render(<ChatArea isAuthenticated={true} />)
 
     // Should render welcome state
-    expect(screen.getByText(/how can grid help with your project/i)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(GREETING_RE)
   })
 
   test('renders file upload banners', () => {

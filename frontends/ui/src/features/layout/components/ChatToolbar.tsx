@@ -1,6 +1,14 @@
 'use client'
 
-import { type FC, memo, useCallback } from 'react'
+import {
+  type FC,
+  type KeyboardEvent,
+  memo,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from 'react'
 import { Globe, MessageSquareText, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
@@ -12,22 +20,81 @@ import { useLayoutStore } from '../store'
 
 interface ChatToolbarProps {
   sessionTitle?: string
+  /** Active project name — first breadcrumb segment when present. */
+  projectName?: string
   onNewSession?: () => void
   isNewSessionDisabled?: boolean
 }
 
 export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
   sessionTitle = '',
+  projectName,
   onNewSession,
   isNewSessionDisabled = false,
 }) {
   const { isAuthenticated } = useAuth()
   const t = useTranslations('research')
+  const tChat = useTranslations('chat')
   const toggleSessionsPanel = useLayoutStore((s) => s.toggleSessionsPanel)
   const isResearchPanelOpen = useLayoutStore((s) => s.rightPanel === 'research')
   const isDeepResearchStreaming = useChatStore((s) => s.isDeepResearchStreaming)
   const deepResearchJobId = useChatStore((s) => s.deepResearchJobId)
+  // Inline rename reuses the SAME store action the sessions panel uses.
+  const currentSessionId = useChatStore((s) => s.currentConversation?.id)
+  const updateConversationTitle = useChatStore((s) => s.updateConversationTitle)
   const { loadResearchPanelTab, isLoading: isStreamLoading } = useLoadJobData()
+
+  // Inline title editing state (Enter commits / Escape cancels / blur commits).
+  const [isEditingTitle, setIsEditingTitle] = useState(false)
+  const [editedTitle, setEditedTitle] = useState(sessionTitle)
+  const titleInputRef = useRef<HTMLInputElement>(null)
+  // Blur fires after Escape/Enter too — this ref suppresses the double-commit.
+  const editResolvedRef = useRef(false)
+
+  useEffect(() => {
+    if (isEditingTitle) {
+      titleInputRef.current?.focus()
+      titleInputRef.current?.select()
+    }
+  }, [isEditingTitle])
+
+  const canRename = isAuthenticated && !!currentSessionId && !!updateConversationTitle
+
+  const startEditingTitle = useCallback(() => {
+    if (!canRename) return
+    setEditedTitle(sessionTitle)
+    editResolvedRef.current = false
+    setIsEditingTitle(true)
+  }, [canRename, sessionTitle])
+
+  const commitTitle = useCallback(() => {
+    if (editResolvedRef.current) return
+    editResolvedRef.current = true
+    setIsEditingTitle(false)
+    const trimmed = editedTitle.trim()
+    if (trimmed && trimmed !== sessionTitle && currentSessionId && updateConversationTitle) {
+      updateConversationTitle(currentSessionId, trimmed)
+    }
+  }, [editedTitle, sessionTitle, currentSessionId, updateConversationTitle])
+
+  const cancelTitleEdit = useCallback(() => {
+    editResolvedRef.current = true
+    setIsEditingTitle(false)
+    setEditedTitle(sessionTitle)
+  }, [sessionTitle])
+
+  const handleTitleKeyDown = useCallback(
+    (e: KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        commitTitle()
+      } else if (e.key === 'Escape') {
+        e.preventDefault()
+        cancelTitleEdit()
+      }
+    },
+    [commitTitle, cancelTitleEdit]
+  )
 
   const handleMenuClick = useCallback(() => {
     if (isAuthenticated) toggleSessionsPanel()
@@ -65,9 +132,11 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
     <header className="shrink-0 border-b bg-muted/30">
       <div className="flex h-12 items-center justify-between gap-4 px-4">
         <div className="flex min-w-0 flex-1 items-center gap-2">
+          {/* Quiet bordered "new session" affordance */}
           <Button
             variant="outline"
             size="sm"
+            className="shadow-none"
             onClick={handleNewSessionClick}
             disabled={!isAuthenticated || isNewSessionDisabled}
             aria-label={t('chatToolbar.createNewSession')}
@@ -92,12 +161,52 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
             <MessageSquareText className="h-4 w-4" aria-hidden="true" />
             <span className="hidden text-sm font-semibold sm:inline">{t('chatToolbar.sessions')}</span>
           </Button>
-          {sessionTitle ? <Separator orientation="vertical" className="h-5" /> : null}
-          {sessionTitle ? (
-            <span className="hidden max-w-[520px] truncate text-sm font-medium text-foreground md:block">
-              {sessionTitle}
-            </span>
+          {sessionTitle || projectName ? (
+            <Separator orientation="vertical" className="h-5" />
           ) : null}
+
+          {/* Breadcrumb: {project} / {session title (click-to-rename)} */}
+          {(sessionTitle || projectName) && (
+            <nav
+              className="hidden min-w-0 items-center gap-1.5 text-sm md:flex"
+              aria-label={tChat('breadcrumb.ariaLabel')}
+            >
+              {projectName ? (
+                <>
+                  <span className="max-w-44 truncate text-muted-foreground">{projectName}</span>
+                  {sessionTitle ? (
+                    <span className="text-muted-foreground/60" aria-hidden="true">
+                      /
+                    </span>
+                  ) : null}
+                </>
+              ) : null}
+              {sessionTitle ? (
+                isEditingTitle ? (
+                  <input
+                    ref={titleInputRef}
+                    value={editedTitle}
+                    onChange={(e) => setEditedTitle(e.target.value)}
+                    onKeyDown={handleTitleKeyDown}
+                    onBlur={commitTitle}
+                    aria-label={tChat('breadcrumb.renameInputAria')}
+                    className="h-7 w-56 max-w-full rounded-md border bg-card px-2 text-sm font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    onClick={startEditingTitle}
+                    disabled={!canRename}
+                    aria-label={tChat('breadcrumb.renameAria')}
+                    title={canRename ? tChat('breadcrumb.renameAria') : undefined}
+                    className="max-w-[420px] truncate rounded-md px-1 py-0.5 text-left text-sm font-medium text-foreground transition-colors duration-200 ease-out enabled:cursor-text enabled:hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                  >
+                    {sessionTitle}
+                  </button>
+                )
+              ) : null}
+            </nav>
+          )}
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <Button

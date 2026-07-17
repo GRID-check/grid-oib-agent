@@ -19,8 +19,10 @@ import { formatTime } from '@/shared/utils/format-time'
 import { useLayoutStore } from '@/features/layout/store'
 import { GridCards } from '@/features/grid-cards/components/GridCards'
 import type { GridCard } from '@/shared/cards/schemas'
+import type { CitationSource } from '../types'
 import { useChatStore } from '../store'
 import { useLoadJobData } from '../hooks'
+import { AnswerSourcesRow } from './AnswerSourcesRow'
 import { MemoryNotedChip } from './MemoryNotedChip'
 import { ConfidenceChip } from './ConfidenceChip'
 
@@ -41,6 +43,11 @@ export interface AgentResponseProps {
   deepResearchJobStatus?: 'submitted' | 'running' | 'success' | 'failure' | 'interrupted'
   /** Grid cards to render before the response content */
   cards?: GridCard[]
+  /**
+   * Citations already collected for this answer (deep-research path). Drives
+   * the "Belegt durch" chip row — renders nothing when absent (no fake chips).
+   */
+  citations?: CitationSource[]
   /** Conversation this response belongs to (for the "Grid noted N" memory chip) */
   conversationId?: string | null
   /** The assistant's guarded self-assessed answer confidence (shallow answers only) */
@@ -66,6 +73,7 @@ export const AgentResponse: FC<AgentResponseProps> = ({
   isDeepResearchActive = false,
   deepResearchJobStatus,
   cards,
+  citations,
   conversationId,
   answerConfidence,
   showConfidenceChip = true,
@@ -184,6 +192,9 @@ export const AgentResponse: FC<AgentResponseProps> = ({
           </div>
         )}
 
+        {/* "Belegt durch": provenance chips for sources this answer carries */}
+        <AnswerSourcesRow citations={citations} cards={cards} />
+
         {/* Footer chips: self-assessed confidence + what Grid recorded this turn */}
         <div className="flex flex-wrap items-center gap-2">
           {showConfidenceChip && <ConfidenceChip confidence={answerConfidence} />}
@@ -238,6 +249,9 @@ export const AgentResponse: FC<AgentResponseProps> = ({
               </Button>
             </div>
           )}
+
+          {/* "Belegt durch": provenance chips for sources this answer carries */}
+          <AnswerSourcesRow citations={citations} cards={cards} />
         </div>
 
         {/* Footer chips: self-assessed confidence + what Grid recorded this turn */}

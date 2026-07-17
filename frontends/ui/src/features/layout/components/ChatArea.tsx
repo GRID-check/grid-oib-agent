@@ -27,6 +27,7 @@ import {
 } from '@/features/chat'
 import type { ChatMessage } from '@/features/chat'
 import { AnimatePresence, motion, fadeRise, springGentle } from '@/components/motion'
+import { useAuth } from '@/adapters/auth'
 import { useTranslations } from '@/i18n'
 
 interface ChatAreaProps {
@@ -293,6 +294,7 @@ const MessageRenderer: FC<MessageRendererProps> = ({
           isDeepResearchActive={message.isDeepResearchActive}
           deepResearchJobStatus={message.deepResearchJobStatus}
           cards={message.cards}
+          citations={message.citations}
           conversationId={conversationId}
           answerConfidence={message.answerConfidence}
           showConfidenceChip={showConfidenceChip}
@@ -373,8 +375,11 @@ const MessageRenderer: FC<MessageRendererProps> = ({
 
 /**
  * Welcome state shown when no messages exist.
- * Deliberately minimal: a short heading plus suggestion chips (signed in), or
- * a compact sign-in prompt (signed out). Bottom padding keeps the centered
+ *
+ * Signed in: a time-of-day greeting (with the user's first name when known),
+ * hero-sized per the click dummy, centered above the floating composer — the
+ * source-preset shortcut chips render with the composer itself (InputArea).
+ * Signed out: a compact sign-in prompt. Bottom padding keeps the centered
  * content clear of the floating composer.
  */
 interface WelcomeStateProps {
@@ -382,14 +387,17 @@ interface WelcomeStateProps {
   onSignIn?: () => void
 }
 
+/** Time-of-day bucket for the greeting (morning / afternoon / evening). */
+const greetingKeyForHour = (hour: number): 'morning' | 'afternoon' | 'evening' => {
+  if (hour < 12) return 'morning'
+  if (hour < 17) return 'afternoon'
+  return 'evening'
+}
+
 const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn }) => {
   const t = useTranslations('research')
-  const setComposerPrefill = useChatStore((s) => s.setComposerPrefill)
-  const prompts = [
-    t('chatArea.prompt1'),
-    t('chatArea.prompt2'),
-    t('chatArea.prompt3'),
-  ]
+  const tChat = useTranslations('chat')
+  const { user } = useAuth()
 
   if (!isAuthenticated) {
     return (
@@ -414,26 +422,17 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
     )
   }
 
+  const greeting = tChat(`greeting.${greetingKeyForHour(new Date().getHours())}`)
+  const firstName = user?.name?.trim().split(/\s+/)[0]
+  const heading = firstName
+    ? tChat('greeting.withName', { greeting, name: firstName })
+    : greeting
+
   return (
     <div className="flex flex-1 items-center justify-center px-4 pb-44 pt-6">
-      <div className="flex w-full max-w-xl flex-col items-center gap-8 text-center">
-        <h1 className="text-3xl font-semibold tracking-display sm:text-4xl">
-          {t('chatArea.welcomeTitle')}
-        </h1>
-        <div className="flex w-full flex-col gap-2">
-          {prompts.map((prompt, index) => (
-            <button
-              key={prompt}
-              type="button"
-              onClick={() => setComposerPrefill(prompt)}
-              aria-label={t('chatArea.usePrompt', { prompt })}
-              className="animate-in fade-in-0 slide-in-from-bottom-2 cursor-pointer rounded-xl border bg-muted/30 px-4 py-3 text-left text-sm transition-all duration-200 ease-out fill-mode-backwards hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-              style={{ animationDelay: `${index * 80}ms` }}
-            >
-              {prompt}
-            </button>
-          ))}
-        </div>
+      <div className="flex w-full max-w-xl flex-col items-center gap-3 text-center">
+        <h1 className="text-2xl font-semibold tracking-display sm:text-3xl">{heading}</h1>
+        <p className="text-sm text-muted-foreground">{tChat('greeting.subtitle')}</p>
       </div>
     </div>
   )

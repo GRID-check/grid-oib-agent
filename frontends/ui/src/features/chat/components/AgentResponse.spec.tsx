@@ -222,4 +222,72 @@ describe('AgentResponse', () => {
     expect(screen.getByText('Summary of the legal basis')).toBeInTheDocument()
     expect(screen.getByText('Original legal text')).toBeInTheDocument()
   })
+
+  describe('"Belegt durch" answer sources row (WS-3)', () => {
+    const citations = [
+      {
+        id: 'c-1',
+        url: 'https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=1',
+        content: '[RIS] BO Wien §111',
+        timestamp: new Date('2026-07-17T10:00:00Z'),
+        isCited: true,
+      },
+      {
+        id: 'c-2',
+        url: 'https://example.com/article',
+        content: '[Web] Some article',
+        timestamp: new Date('2026-07-17T10:00:00Z'),
+        isCited: true,
+      },
+    ]
+
+    test('renders provenance chips when the message carries citations', () => {
+      render(<AgentResponse content="Cited answer" citations={citations} />)
+
+      const row = screen.getByRole('list', { name: /sources this answer is backed by/i })
+      expect(row).toBeInTheDocument()
+      expect(screen.getByText('ris.bka.gv.at')).toBeInTheDocument()
+      expect(screen.getByText('example.com')).toBeInTheDocument()
+      // Web citations link out.
+      expect(screen.getByRole('link', { name: /example\.com/i })).toHaveAttribute(
+        'href',
+        'https://example.com/article'
+      )
+    })
+
+    test('renders no sources row when the message has no citation/source data', () => {
+      render(<AgentResponse content="Plain answer" />)
+
+      expect(
+        screen.queryByRole('list', { name: /sources this answer is backed by/i })
+      ).not.toBeInTheDocument()
+    })
+
+    test('derives a law chip from a legal_basis card on shallow answers', () => {
+      const cards = [
+        {
+          type: 'legal_basis' as const,
+          law: 'OIB-Richtlinie 2',
+          article: null,
+          section: 'Pkt. 5.1.1',
+          summary: null,
+          original_text: null,
+        },
+      ]
+
+      render(<AgentResponse content="Shallow answer" cards={cards} />)
+
+      const row = screen.getByRole('list', { name: /sources this answer is backed by/i })
+      expect(row).toBeInTheDocument()
+      expect(screen.getByText('OIB-Richtlinie 2 Pkt. 5.1.1')).toBeInTheDocument()
+    })
+
+    test('renders the sources row in the inline variant too', () => {
+      render(<AgentResponse content="Cited answer" variant="inline" citations={citations} />)
+
+      expect(
+        screen.getByRole('list', { name: /sources this answer is backed by/i })
+      ).toBeInTheDocument()
+    })
+  })
 })

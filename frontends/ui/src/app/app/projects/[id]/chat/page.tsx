@@ -42,23 +42,26 @@ const ProjectChatPage = async ({ params }: ProjectChatPageProps): Promise<ReactN
     // Fail open: a session-lookup problem must not hide chat affordances.
   }
 
-  // The Deep Research section scopes its job fetch to this project's Qdrant
-  // collection (the same identifier the runs list uses). Looked up here so the
-  // client panel can pass it straight to listResearchRuns. Fail-soft: a missing
-  // collection just yields an unscoped/empty section, never a broken chat.
+  // Project lookup serves two consumers: the Deep Research section scopes its
+  // job fetch to this project's Qdrant collection (FB-10), and the chat
+  // surface shows the project name in the thread-header breadcrumb and the
+  // composer scope chip (WS-3). Fail-soft: a missing row just degrades to an
+  // unscoped section / nameless scope chip, never a broken chat.
   let projectCollection: string | null = null
-  if (showResearchInHistory) {
-    try {
-      const db = getDb()
-      const [project] = await db
-        .select({ collectionName: projects.collectionName })
-        .from(projects)
-        .where(eq(projects.id, id))
-        .limit(1)
+  let projectName: string | null = null
+  try {
+    const db = getDb()
+    const [project] = await db
+      .select({ collectionName: projects.collectionName, name: projects.name })
+      .from(projects)
+      .where(eq(projects.id, id))
+      .limit(1)
+    if (showResearchInHistory) {
       projectCollection = project?.collectionName ?? null
-    } catch {
-      // Fail open: the section degrades to empty rather than blanking chat.
     }
+    projectName = project?.name ?? null
+  } catch {
+    // Fail open: the affordances degrade rather than blanking chat.
   }
 
   return (
@@ -68,6 +71,7 @@ const ProjectChatPage = async ({ params }: ProjectChatPageProps): Promise<ReactN
       showConfidenceChip={showConfidenceChip}
       showResearchInHistory={showResearchInHistory}
       projectCollection={projectCollection}
+      projectName={projectName}
     />
   )
 }

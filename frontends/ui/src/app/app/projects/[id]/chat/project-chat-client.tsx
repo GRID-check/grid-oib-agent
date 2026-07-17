@@ -20,6 +20,8 @@ export interface ProjectChatClientProps {
   showResearchInHistory: boolean
   /** Qdrant collection scoping the Deep Research section's job fetch (FB-10). */
   projectCollection: string | null
+  /** Project name for the thread-header breadcrumb + composer scope chip. */
+  projectName: string | null
 }
 
 const ProjectChatContent = ({
@@ -28,6 +30,7 @@ const ProjectChatContent = ({
   showConfidenceChip,
   showResearchInHistory,
   projectCollection,
+  projectName,
 }: ProjectChatClientProps): ReactNode => {
   const { isAuthenticated, signIn } = useAuth()
   const setProjectId = useChatStore((s) => s.setProjectId)
@@ -101,6 +104,7 @@ const ProjectChatContent = ({
       showConfidenceChip={showConfidenceChip}
       showResearchInHistory={showResearchInHistory}
       projectCollection={projectCollection}
+      projectName={projectName}
     />
   )
 }
