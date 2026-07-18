@@ -26,6 +26,7 @@ export const AUDIT_ACTIONS = [
   'budget.policy.set',
   'budget.policy.cleared',
   'model_config.version.activated',
+  'model_config.zdr.updated',
   'llm_credential.created',
   'llm_credential.rotated',
   'llm_credential.revoked',

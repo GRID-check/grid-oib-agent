@@ -20,6 +20,7 @@ from aiq_agent.common import filter_tools_by_sources
 from aiq_agent.common import get_langchain_llm
 from aiq_agent.common import get_model_overrides_from_context
 from aiq_agent.common import get_org_llm_credential_from_context
+from aiq_agent.common import get_zdr_only_from_context
 from aiq_agent.common import is_verbose
 from nat.builder.builder import Builder
 from nat.builder.framework_enum import LLMFrameworkEnum
@@ -320,8 +321,10 @@ async def deep_research_agent(config: DeepResearchAgentConfig, builder: Builder)
             # check means "no override for deep research" keeps the prebuilt agent.
             # Model overrides + the org's BYOK credential (ADR-0022); identity
             # check means "nothing to apply" keeps the prebuilt agent.
-            active_provider = provider.with_model_overrides(get_model_overrides_from_context()).with_credential(
-                get_org_llm_credential_from_context()
+            active_provider = (
+                provider.with_model_overrides(get_model_overrides_from_context())
+                .with_credential(get_org_llm_credential_from_context())
+                .with_zdr(get_zdr_only_from_context())
             )
             active_agent = agent
             if (

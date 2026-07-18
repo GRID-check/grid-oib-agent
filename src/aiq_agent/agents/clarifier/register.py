@@ -30,6 +30,7 @@ from aiq_agent.common import filter_tools_by_sources
 from aiq_agent.common import get_langchain_llm
 from aiq_agent.common import get_model_overrides_from_context
 from aiq_agent.common import get_org_llm_credential_from_context
+from aiq_agent.common import get_zdr_only_from_context
 from aiq_agent.common import is_verbose
 from nat.builder.builder import Builder
 from nat.builder.context import Context
@@ -205,7 +206,11 @@ async def clarifier_agent(config: ClarifierConfig, builder: Builder):
         # BYOK (ADR-0022): the org's own provider credential applies to every
         # LLM in the request, on top of any per-group model override.
         org_credential = get_org_llm_credential_from_context()
-        active_provider = provider.with_model_overrides(model_overrides).with_credential(org_credential)
+        active_provider = (
+            provider.with_model_overrides(model_overrides)
+            .with_credential(org_credential)
+            .with_zdr(get_zdr_only_from_context())
+        )
         active_agent = agent
         # No `data_sources is not None` guard: org-disabled sources (ADR-0022)
         # narrow selected_tools even when the request selects "all tools".

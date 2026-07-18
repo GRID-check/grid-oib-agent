@@ -192,6 +192,51 @@ export async function isWebSearchEnabledForOrg(organizationId: string | null | u
   })
 }
 
+const ZDR_ONLY_CACHE_TTL_MS = 30_000
+const zdrOnlyCacheKey = (organizationId: string): string => `zdronly:${organizationId}`
+
+/**
+ * Whether the org restricts model selection AND inference to Zero-Data-
+ * Retention endpoints (ADR-0014 privacy control). Stored in the org settings
+ * JSON (`settings.zdrOnly`, default FALSE), gated by `org:models:manage`.
+ *
+ * Read by the model-config picker/save path (to filter the OpenRouter catalog)
+ * and by the Python backend via `/api/internal/model-overrides` (to add
+ * `provider.zdr` to every OpenRouter request). Cached briefly, write-
+ * invalidated by `setOrgZdrOnly`/`saveOrgSettings`. No org = disabled.
+ */
+export async function isZdrOnlyForOrg(organizationId: string | null | undefined): Promise<boolean> {
+  if (!organizationId) return false
+  return getCached(zdrOnlyCacheKey(organizationId), ZDR_ONLY_CACHE_TTL_MS, async () => {
+    const { settings } = await getOrgSettings(organizationId)
+    return settings.zdrOnly === true
+  })
+}
+
+/**
+ * Toggle the org's Zero-Data-Retention-only policy and record the audit trail.
+ * The gate (`org:models:manage`) is enforced at the route — the same
+ * permission that governs the rest of model configuration.
+ */
+export async function setOrgZdrOnly(
+  session: AuthorizedSession,
+  enabled: boolean,
+  request: Request,
+): Promise<boolean> {
+  await updateOrgSettings(session.organizationId, { settings: { zdrOnly: enabled } })
+  await invalidateCached(zdrOnlyCacheKey(session.organizationId))
+  await recordAuditEvent({
+    organizationId: session.organizationId,
+    actor: { userId: session.userId, email: session.email },
+    action: 'model_config.zdr.updated',
+    targetType: 'organization',
+    targetId: session.organizationId,
+    metadata: { zdrOnly: String(enabled) },
+    request,
+  })
+  return enabled
+}
+
 /**
  * Update the caller's org settings and record the audit trail. The coarse
  * gate (`org:settings:manage`) is enforced at the route via `apiRoute`'s
@@ -204,6 +249,7 @@ export async function saveOrgSettings(
 ): Promise<OrgSettings> {
   const settings = await updateOrgSettings(session.organizationId, patch)
   await invalidateCached(webSearchCacheKey(session.organizationId))
+  await invalidateCached(zdrOnlyCacheKey(session.organizationId))
   await recordAuditEvent({
     organizationId: session.organizationId,
     actor: { userId: session.userId, email: session.email },

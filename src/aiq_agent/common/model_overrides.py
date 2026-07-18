@@ -104,10 +104,11 @@ def sanitize_model_overrides(data: object) -> dict[str, str]:
 
 
 class _OverridesCacheEntry:
-    __slots__ = ("expires_at", "overrides")
+    __slots__ = ("expires_at", "overrides", "zdr_only")
 
-    def __init__(self, overrides: dict[str, str], ttl: float) -> None:
+    def __init__(self, overrides: dict[str, str], zdr_only: bool, ttl: float) -> None:
         self.overrides = overrides
+        self.zdr_only = zdr_only
         self.expires_at = time.monotonic() + ttl
 
 
@@ -121,12 +122,17 @@ def reset_overrides_cache() -> None:
         _overrides_cache.clear()
 
 
-def _fetch_org_overrides(organization_id: str) -> dict[str, str]:
-    """One HTTP round-trip to the BFF's internal model-overrides endpoint."""
+def _fetch_org_config(organization_id: str) -> tuple[dict[str, str], bool]:
+    """One HTTP round-trip to the BFF's internal model-overrides endpoint.
+
+    Returns ``(overrides, zdr_only)`` — the org's active model selection plus
+    its Zero-Data-Retention policy (whether every OpenRouter request must pin to
+    a ZDR endpoint).
+    """
     token = os.environ.get("GRID_INTERNAL_API_TOKEN")
     if not token:
         # No internal-token trust channel — fall back to YAML defaults.
-        return {}
+        return {}, False
 
     import httpx
 
@@ -139,42 +145,65 @@ def _fetch_org_overrides(organization_id: str) -> dict[str, str]:
     )
     response.raise_for_status()
     payload = response.json()
-    overrides = payload.get("overrides") if isinstance(payload, dict) else None
-    return sanitize_model_overrides(overrides) if overrides else {}
+    if not isinstance(payload, dict):
+        return {}, False
+    overrides = payload.get("overrides")
+    zdr_only = payload.get("zdrOnly") is True
+    return (sanitize_model_overrides(overrides) if overrides else {}), zdr_only
 
 
-def resolve_org_model_overrides(organization_id: str | None) -> dict[str, str]:
-    """The org's active model overrides, resolved by org id.
+def _resolve_org_config(organization_id: str | None) -> _OverridesCacheEntry | None:
+    """Cached resolution of an org's overrides + ZDR policy (shared hot path).
 
     In-process TTL cache (60 s positive / 30 s negative) keeps the hot path
-    free of network calls; errors are negative-cached and fail OPEN to the
-    YAML defaults — model selection must never take chat down.
+    free of network calls; errors are negative-cached and fail OPEN (no
+    overrides, ZDR off) — model selection and privacy pinning must never take
+    chat down. Returns ``None`` only when no org id is available.
     """
     if not organization_id:
-        return {}
+        return None
 
     now = time.monotonic()
     with _overrides_cache_lock:
         entry = _overrides_cache.get(organization_id)
         if entry is not None and entry.expires_at > now:
-            return entry.overrides
+            return entry
 
     try:
-        overrides = _fetch_org_overrides(organization_id)
-        ttl = _POSITIVE_TTL_SECONDS if overrides else _NEGATIVE_TTL_SECONDS
+        overrides, zdr_only = _fetch_org_config(organization_id)
+        ttl = _POSITIVE_TTL_SECONDS if (overrides or zdr_only) else _NEGATIVE_TTL_SECONDS
     except Exception as exc:  # noqa: BLE001 - fail open by design
-        logger.warning("Model-override resolution failed for org %s: %s", organization_id, type(exc).__name__)
-        overrides = {}
+        logger.warning("Org model-config resolution failed for org %s: %s", organization_id, type(exc).__name__)
+        overrides, zdr_only = {}, False
         ttl = _NEGATIVE_TTL_SECONDS
 
+    entry = _OverridesCacheEntry(overrides, zdr_only, ttl)
     with _overrides_cache_lock:
-        _overrides_cache[organization_id] = _OverridesCacheEntry(overrides, ttl)
+        _overrides_cache[organization_id] = entry
         if len(_overrides_cache) > 512:
             expired = [key for key, value in _overrides_cache.items() if value.expires_at <= now]
             for key in expired:
                 _overrides_cache.pop(key, None)
 
-    return overrides
+    return entry
+
+
+def resolve_org_model_overrides(organization_id: str | None) -> dict[str, str]:
+    """The org's active model overrides, resolved by org id (fail-open to {})."""
+    entry = _resolve_org_config(organization_id)
+    return entry.overrides if entry is not None else {}
+
+
+def resolve_org_zdr_only(organization_id: str | None) -> bool:
+    """Whether the org pins every OpenRouter request to a ZDR endpoint.
+
+    Resolved by org id via the same cached internal round-trip as the model
+    overrides. Fails OPEN to ``False`` (no extra restriction) so a BFF hiccup
+    never takes chat down — the org can still see, in the settings UI, that the
+    toggle is on.
+    """
+    entry = _resolve_org_config(organization_id)
+    return entry.zdr_only if entry is not None else False
 
 
 def get_model_overrides_from_context() -> dict[str, str]:
@@ -199,6 +228,19 @@ def get_model_overrides_from_context() -> dict[str, str]:
     from aiq_agent.project_context import get_organization_id_from_context
 
     return resolve_org_model_overrides(get_organization_id_from_context())
+
+
+def get_zdr_only_from_context() -> bool:
+    """Whether the current request's org enforces Zero-Data-Retention routing.
+
+    Org-scoped policy (not part of the per-conversation model-overrides header),
+    so it is always resolved by org id via the internal endpoint. Returns
+    ``False`` when no org applies — anonymous deployments impose no extra
+    routing restriction.
+    """
+    from aiq_agent.project_context import get_organization_id_from_context
+
+    return resolve_org_zdr_only(get_organization_id_from_context())
 
 
 def _rebind_instance_method_patches(original: object, copy_obj: object) -> None:
@@ -250,6 +292,52 @@ def override_model(llm: object, model_id: str) -> object:
     return overridden
 
 
+def _merge_zdr_extra_body(extra_body: object) -> dict[str, object]:
+    """Return a NEW extra_body dict with Zero-Data-Retention provider routing.
+
+    ``provider.zdr = true`` routes only to endpoints with a Zero-Data-Retention
+    policy; ``provider.data_collection = "deny"`` additionally skips providers
+    that store/train on inputs. Non-destructive: any other provider routing
+    keys already present are preserved. A fresh dict (never an in-place mutation
+    of the shared build-time instance's extra_body) keeps this request-scoped.
+    See https://openrouter.ai/docs — Zero Data Retention.
+    """
+    merged: dict[str, object] = dict(extra_body) if isinstance(extra_body, dict) else {}
+    provider = dict(merged.get("provider") or {}) if isinstance(merged.get("provider"), dict) else {}
+    provider["zdr"] = True
+    provider["data_collection"] = "deny"
+    merged["provider"] = provider
+    return merged
+
+
+def apply_zdr_routing(llm: object) -> object:
+    """Return a copy of an OpenRouter chat model pinned to ZDR endpoints.
+
+    No-op (returns the original) for non-OpenRouter models, models without an
+    ``extra_body`` field, or when the ZDR routing is already present. Like
+    :func:`override_model`, uses ``model_copy`` so the returned object is a real
+    chat model that shares the underlying HTTP client, and rebinds NAT's
+    instance-level retry wrappers to the copy. Request-scoped: the shared
+    build-time instance is never mutated.
+    """
+    if not hasattr(llm, "extra_body") or not hasattr(llm, "model_copy"):
+        return llm
+    from aiq_agent.common.llm_factory import llm_targets_openrouter
+
+    if not llm_targets_openrouter(llm):
+        return llm
+    merged = _merge_zdr_extra_body(getattr(llm, "extra_body", None))
+    if merged == getattr(llm, "extra_body", None):
+        return llm
+    try:
+        overridden = llm.model_copy(update={"extra_body": merged})
+    except Exception:
+        logger.warning("Failed to apply ZDR routing to %s", type(llm).__name__, exc_info=True)
+        return llm
+    _rebind_instance_method_patches(llm, overridden)
+    return overridden
+
+
 def is_reasoning_incompatible_error(err: BaseException) -> bool:
     """True when a provider rejected the call because the model cannot disable reasoning.
 
@@ -267,17 +355,34 @@ def is_reasoning_incompatible_error(err: BaseException) -> bool:
     return "mandatory" in msg or "cannot be disabled" in msg or "code: 400" in msg or "[400]" in msg
 
 
-def apply_model_override(llm: object, group: AgentGroup, overrides: dict[str, str] | None = None) -> object:
-    """Apply the current request's override for ``group`` to ``llm``, if any.
+def apply_model_override(
+    llm: object,
+    group: AgentGroup,
+    overrides: dict[str, str] | None = None,
+    zdr_only: bool | None = None,
+) -> object:
+    """Apply the current request's per-org LLM policy for ``group`` to ``llm``.
 
-    ``overrides`` may be passed explicitly when the caller already read them
-    (e.g. captured before scheduling background work); defaults to reading the
-    live request context.
+    Two independent, request-scoped transforms — both applied on a copy, never
+    mutating the shared build-time instance:
+
+    - Model override: re-point the group at the org's chosen model, if any.
+    - Zero-Data-Retention: pin OpenRouter traffic to ZDR endpoints when the org
+      enforces its ZDR policy (``provider.zdr`` + ``data_collection: deny``).
+
+    ``overrides`` / ``zdr_only`` may be passed explicitly when the caller
+    already read them (e.g. captured before scheduling background work);
+    otherwise they default to the live request context.
     """
     if overrides is None:
         overrides = get_model_overrides_from_context()
+    if zdr_only is None:
+        zdr_only = get_zdr_only_from_context()
     model_id = overrides.get(group.value)
-    if not model_id:
-        return llm
-    logger.info("Model override active: agent group %s -> %s", group.value, model_id)
-    return override_model(llm, model_id)
+    result = llm
+    if model_id:
+        logger.info("Model override active: agent group %s -> %s", group.value, model_id)
+        result = override_model(llm, model_id)
+    if zdr_only:
+        result = apply_zdr_routing(result)
+    return result

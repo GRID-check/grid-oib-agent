@@ -19,12 +19,13 @@ vi.mock('./openrouter', async (importOriginal) => {
         supportedParameters: ['tools'],
       },
     ]),
+    fetchZdrModelIds: vi.fn(),
   }
 })
 
 import { getCatalogForOrg } from './org-catalog'
 import { resolveActiveCredentialForBackend } from '@/lib/llm-credentials/service'
-import { fetchModelCatalog } from './openrouter'
+import { fetchModelCatalog, fetchZdrModelIds } from './openrouter'
 
 const fetchSpy = vi.spyOn(globalThis, 'fetch')
 
@@ -77,6 +78,44 @@ describe('getCatalogForOrg', () => {
     const [url, init] = fetchSpy.mock.calls[0]
     expect(String(url)).toBe('https://api.openai.com/v1/models')
     expect((init?.headers as Record<string, string>).Authorization).toBe('Bearer sk-org')
+  })
+
+  it('narrows the platform catalog to ZDR models when zdrOnly is requested', async () => {
+    vi.mocked(resolveActiveCredentialForBackend).mockResolvedValue(null)
+    vi.mocked(fetchZdrModelIds).mockResolvedValue(new Set(['vendor/capable']))
+    const catalog = await getCatalogForOrg('org_1', { zdrOnly: true })
+    expect(catalog.zdrOnly).toBe(true)
+    expect(catalog.models.map((m) => m.id)).toEqual(['vendor/capable'])
+  })
+
+  it('drops non-ZDR models under zdrOnly (fail-closed filter)', async () => {
+    vi.mocked(resolveActiveCredentialForBackend).mockResolvedValue(null)
+    vi.mocked(fetchZdrModelIds).mockResolvedValue(new Set(['vendor/other']))
+    const catalog = await getCatalogForOrg('org_1', { zdrOnly: true })
+    expect(catalog.models).toEqual([])
+  })
+
+  it('propagates a ZDR-list outage (fail-closed, callers surface 503)', async () => {
+    vi.mocked(resolveActiveCredentialForBackend).mockResolvedValue(null)
+    vi.mocked(fetchZdrModelIds).mockRejectedValue(new Error('ZDR listing HTTP 503'))
+    await expect(getCatalogForOrg('org_1', { zdrOnly: true })).rejects.toThrow('503')
+  })
+
+  it('does not apply ZDR to a provider-native BYOK listing (reports zdrOnly:false)', async () => {
+    vi.mocked(resolveActiveCredentialForBackend).mockResolvedValue({
+      // Distinct org+cred so the per-(org,cred) BYOK listing cache from the
+      // other tests does not satisfy this fetch.
+      id: 'cred-zdr',
+      provider: 'openai',
+      baseUrl: 'https://api.openai.com/v1',
+      apiKey: 'sk-org',
+      keyFingerprint: 'f',
+    })
+    fetchSpy.mockResolvedValue(new Response(JSON.stringify({ data: [{ id: 'gpt-4o' }] }), { status: 200 }))
+    const catalog = await getCatalogForOrg('org_zdr_byok', { zdrOnly: true })
+    expect(catalog.zdrOnly).toBe(false)
+    expect(catalog.models.map((m) => m.id)).toEqual(['gpt-4o'])
+    expect(fetchZdrModelIds).not.toHaveBeenCalled()
   })
 
   it('throws when the provider listing fails (callers surface 503)', async () => {

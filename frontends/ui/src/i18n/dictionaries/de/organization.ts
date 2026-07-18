@@ -88,6 +88,12 @@ export const organization: typeof en.organization = {
     loadError: 'Die Modellkonfiguration konnte nicht geladen werden.',
     byokCatalogHint:
       'Ihr Organisationsschlüssel ({provider}) ist aktiv: Die Auswahl zeigt die Modelle, die IHR Provider-Konto anbietet, und der gesamte Traffic wird darüber abgerechnet. Wird der Schlüssel entfernt, gilt wieder der Plattformkatalog.',
+    zdrTitle: 'Nur Zero Data Retention',
+    zdrHint:
+      'Zeigt nur Modelle mit einem Zero-Data-Retention-Endpunkt und leitet jede Anfrage an einen solchen weiter, sodass der Anbieter keine Prompts oder Antworten speichert. Gilt für OpenRouter-Modelle.',
+    zdrEnabled: 'Zero Data Retention aktiviert',
+    zdrDisabled: 'Zero Data Retention deaktiviert',
+    zdrError: 'Die Zero-Data-Retention-Richtlinie konnte nicht geändert werden.',
   },
   byok: {
     title: 'LLM-API-Schlüssel (BYOK)',

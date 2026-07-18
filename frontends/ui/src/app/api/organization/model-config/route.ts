@@ -18,24 +18,26 @@ import { getGroupDefaults } from '@/lib/model-config/backend-defaults'
 import { validateOverrides } from '@/lib/model-config/openrouter'
 import { getCatalogForOrg } from '@/lib/model-config/org-catalog'
 import { createAndActivateVersion, getOrgModelConfig } from '@/lib/model-config/service'
+import { isZdrOnlyForOrg } from '@/lib/organizations/service'
 import { recordAuditEvent } from '@/lib/audit/service'
 
 export const GET = apiRoute(
   async ({ session }) => {
     const gated = requireFeature(session, FEATURE_FLAGS.modelConfiguration)
     if (gated) return gated
-    const [config, defaults] = await Promise.all([
+    const [config, defaults, zdrOnly] = await Promise.all([
       getOrgModelConfig(session.organizationId),
       // Workflow-default model per group, from the backend's loaded YAML
       // (best-effort — nulls when the backend is unreachable).
       getGroupDefaults(),
+      isZdrOnlyForOrg(session.organizationId),
     ])
     // Where the picker's models come from (ADR-0022): the platform OpenRouter
     // catalog, or — with a BYOK credential — the org's own provider. Best-
     // effort: a catalog hiccup must not block rendering the config.
     let catalogSource: { source: string; provider: string | null; validation: string } | null = null
     try {
-      const catalog = await getCatalogForOrg(session.organizationId)
+      const catalog = await getCatalogForOrg(session.organizationId, { zdrOnly })
       catalogSource = { source: catalog.source, provider: catalog.provider, validation: catalog.validation }
     } catch (error) {
       console.warn('[Model Config API] Could not resolve the org catalog source:', error)
@@ -44,6 +46,7 @@ export const GET = apiRoute(
       agentGroups: AGENT_GROUPS,
       defaults,
       catalogSource,
+      zdrOnly,
       activeVersion: config.activeVersion,
       updatedBy: config.updatedBy,
       updatedAt: config.updatedAt,
@@ -73,9 +76,12 @@ export const PUT = apiRoute(
     // never trusted. A catalog outage rejects the save (503) rather than
     // accepting unvalidated model ids. With a BYOK credential the catalog is
     // the ORG's provider listing (relaxed capability checks, ADR-0022).
+    // When the org enforces ZDR, the save is validated against the ZDR-filtered
+    // catalog — a non-ZDR model is rejected server-side, not just hidden.
+    const zdrOnly = await isZdrOnlyForOrg(session.organizationId)
     let catalog
     try {
-      catalog = await getCatalogForOrg(session.organizationId)
+      catalog = await getCatalogForOrg(session.organizationId, { zdrOnly })
     } catch (error) {
       console.error('[Model Config API] Model catalog unavailable:', error)
       throw new ServiceUnavailableError('The model catalog is unavailable; try again later')
@@ -91,7 +97,12 @@ export const PUT = apiRoute(
       overrides: input.overrides,
       modelSnapshot: {
         ...validation.snapshot,
-        _catalog: { source: catalog.source, provider: catalog.provider, validation: catalog.validation },
+        _catalog: {
+          source: catalog.source,
+          provider: catalog.provider,
+          validation: catalog.validation,
+          zdrOnly: catalog.zdrOnly,
+        },
       },
       comment: input.comment ?? null,
       actorUserId: session.userId,

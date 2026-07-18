@@ -146,6 +146,37 @@ class LLMProvider:
             derived._llms[role] = _resolve(llm, self._groups.get(role))
         return derived
 
+    def with_zdr(self, zdr_only: bool) -> "LLMProvider":
+        """Return a provider whose every OpenRouter LLM is pinned to ZDR endpoints.
+
+        Like ``with_credential``, a ZDR policy applies to ALL groups — it is a
+        tenant-wide privacy control, not a per-group choice. Returns ``self``
+        when ``zdr_only`` is false. Non-OpenRouter LLMs are returned unchanged
+        by ``apply_zdr_routing``. Shared instances are rebuilt once (identity-
+        deduped) so the derived provider preserves the original sharing topology.
+        """
+        if not zdr_only:
+            return self
+
+        from aiq_agent.common.model_overrides import apply_zdr_routing
+
+        rebuilt: dict[int, BaseChatModel] = {}
+
+        def _resolve(llm: BaseChatModel) -> BaseChatModel:
+            key = id(llm)
+            if key not in rebuilt:
+                rebuilt[key] = apply_zdr_routing(llm)
+            return rebuilt[key]
+
+        derived = LLMProvider()
+        derived._groups = dict(self._groups)
+        derived._default_group = self._default_group
+        if self._default is not None:
+            derived._default = _resolve(self._default)
+        for role, llm in self._llms.items():
+            derived._llms[role] = _resolve(llm)
+        return derived
+
     def with_credential(self, credential) -> "LLMProvider":
         """Return a provider whose every LLM uses the org's BYOK credential.
 

@@ -27,6 +27,7 @@ from aiq_agent.common import VerboseTraceCallback
 from aiq_agent.common import get_langchain_llm
 from aiq_agent.common import get_model_overrides_from_context
 from aiq_agent.common import get_org_llm_credential_from_context
+from aiq_agent.common import get_zdr_only_from_context
 from aiq_agent.common import is_verbose
 from nat.builder.builder import Builder
 from nat.builder.framework_enum import LLMFrameworkEnum
@@ -119,8 +120,10 @@ async def compliance_check_agent(config: ComplianceCheckAgentConfig, builder: Bu
             # (ADR-0022), same pattern as shallow_researcher/clarifier
             # register.py: both return the build-time provider unchanged when
             # inactive, so the identity check below keeps the prebuilt agent.
-            active_provider = provider.with_model_overrides(get_model_overrides_from_context()).with_credential(
-                get_org_llm_credential_from_context()
+            active_provider = (
+                provider.with_model_overrides(get_model_overrides_from_context())
+                .with_credential(get_org_llm_credential_from_context())
+                .with_zdr(get_zdr_only_from_context())
             )
             active_agent = agent
             if active_provider is not provider:

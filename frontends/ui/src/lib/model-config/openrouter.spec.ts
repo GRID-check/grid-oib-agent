@@ -12,6 +12,8 @@ import { getAgentGroup } from './agent-groups'
 import {
   _clearCatalogCache,
   fetchModelCatalog,
+  fetchZdrModelIds,
+  filterCatalogToZdr,
   searchModelsForGroup,
   validateModelForGroup,
   validateOverrides,
@@ -108,7 +110,10 @@ describe('reasoning-off enforcement (intent group runs reasoning_effort:none)', 
 describe('searchModelsForGroup', () => {
   it('filters to appropriate models only', () => {
     const results = searchModelsForGroup(CATALOG, 'deep_research', '')
-    expect(results.map((m) => m.id)).toEqual(['vendor/full-model'])
+    // vendor/full-model and x-ai/grok-4.5 both satisfy deep_research (tools +
+    // 200k context); deep_research does not disable reasoning, so grok's
+    // declared reasoning is fine here (same as the shallow_research case above).
+    expect(results.map((m) => m.id)).toEqual(['vendor/full-model', 'x-ai/grok-4.5'])
   })
 
   it('applies the text query', () => {
@@ -196,5 +201,58 @@ describe('fetchModelCatalog', () => {
   it('throws on upstream failure (callers translate to 503)', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 502 }))
     await expect(fetchModelCatalog()).rejects.toThrow('HTTP 502')
+  })
+})
+
+describe('filterCatalogToZdr', () => {
+  it('keeps only models whose base id is on the ZDR set (variant-insensitive)', () => {
+    const zdr = new Set(['vendor/full-model', 'x-ai/grok-4.5'])
+    const catalog = [
+      model({ id: 'vendor/full-model' }),
+      model({ id: 'x-ai/grok-4.5:free' }), // :variant still matches its base id
+      model({ id: 'vendor/no-tools' }), // not on the ZDR set
+    ]
+    expect(filterCatalogToZdr(catalog, zdr).map((m) => m.id)).toEqual(['vendor/full-model', 'x-ai/grok-4.5:free'])
+  })
+})
+
+describe('fetchZdrModelIds', () => {
+  afterEach(async () => {
+    await _clearCatalogCache()
+    vi.unstubAllGlobals()
+  })
+
+  it('collects base model ids from the ZDR endpoint listing, whatever the shape', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        data: [
+          { name: 'DeepSeek | ZDR', model: { slug: 'deepseek/deepseek-v4-flash:nitro' } },
+          { id: 'anthropic/claude-sonnet-4.5', provider_name: 'anthropic' },
+          { name: 'not-a-model', model_variant_slug: 'x-ai/grok-4.5' },
+        ],
+      }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const ids = await fetchZdrModelIds()
+    expect([...ids].sort()).toEqual([
+      'anthropic/claude-sonnet-4.5',
+      'deepseek/deepseek-v4-flash',
+      'x-ai/grok-4.5',
+    ])
+    // cached
+    await fetchZdrModelIds()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('fails CLOSED — throws on upstream error (never an empty allowlist)', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 503 }))
+    await expect(fetchZdrModelIds()).rejects.toThrow('HTTP 503')
+  })
+
+  it('throws when the listing yields no model ids (never silently allow-all/none)', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: [] }) }))
+    await expect(fetchZdrModelIds()).rejects.toThrow('no model ids')
   })
 })

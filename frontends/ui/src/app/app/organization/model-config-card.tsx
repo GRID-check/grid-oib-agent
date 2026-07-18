@@ -11,7 +11,7 @@
  */
 
 import { type FC, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronDown, History, RotateCcw, Search } from 'lucide-react'
+import { ChevronDown, History, RotateCcw, Search, ShieldCheck } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Badge } from '@/components/ui/badge'
@@ -23,6 +23,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
+import { Switch } from '@/components/ui/switch'
 import { useLocale, useTranslations } from '@/i18n'
 
 interface AgentGroupDto {
@@ -57,8 +58,10 @@ const perMillion = (perToken: number): string => `$${(perToken * 1_000_000).toFi
 
 const ModelPicker: FC<{
   group: AgentGroupDto
+  /** Bumping this re-runs the search (e.g. after the ZDR filter changes). */
+  epoch: number
   onPick: (modelId: string) => void
-}> = ({ group, onPick }) => {
+}> = ({ group, epoch, onPick }) => {
   const t = useTranslations('organization')
   const [query, setQuery] = useState('')
   const [models, setModels] = useState<ModelDto[] | null>(null)
@@ -83,7 +86,7 @@ const ModelPicker: FC<{
   useEffect(() => {
     search('')
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [group.id])
+  }, [group.id, epoch])
 
   const onQueryChange = (value: string): void => {
     setQuery(value)
@@ -149,6 +152,11 @@ export const ModelConfigCard: FC = () => {
   const [activeVersionId, setActiveVersionId] = useState<string | null>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [catalogSource, setCatalogSource] = useState<{ source: string; provider: string | null } | null>(null)
+  const [zdrOnly, setZdrOnly] = useState(false)
+  const [zdrSaving, setZdrSaving] = useState(false)
+  // Bumped whenever the catalog-shaping ZDR policy changes, so an open picker
+  // re-runs its search against the newly filtered catalog.
+  const [catalogEpoch, setCatalogEpoch] = useState(0)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -159,11 +167,13 @@ export const ModelConfigCard: FC = () => {
         agentGroups: AgentGroupDto[]
         defaults: Record<string, string | null>
         catalogSource: { source: string; provider: string | null } | null
+        zdrOnly?: boolean
         activeVersion: VersionDto | null
       }
       setGroups(body.agentGroups)
       setDefaults(body.defaults ?? {})
       setCatalogSource(body.catalogSource ?? null)
+      setZdrOnly(body.zdrOnly === true)
       const flat: Record<string, string> = {}
       for (const [groupId, value] of Object.entries(body.activeVersion?.overrides ?? {})) {
         if (value?.model) flat[groupId] = value.model
@@ -237,6 +247,33 @@ export const ModelConfigCard: FC = () => {
     [t, load, loadVersions],
   )
 
+  const handleZdrToggle = useCallback(
+    async (enabled: boolean) => {
+      setZdrSaving(true)
+      // Optimistic — the picker's next fetch reflects the new filter.
+      setZdrOnly(enabled)
+      setPickerGroup(null)
+      try {
+        const res = await fetch('/api/organization/model-config/zdr', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled }),
+        })
+        if (!res.ok) throw new Error(String(res.status))
+        const body = (await res.json()) as { zdrOnly: boolean }
+        setZdrOnly(body.zdrOnly)
+        setCatalogEpoch((n) => n + 1)
+        toast.success(body.zdrOnly ? t('models.zdrEnabled') : t('models.zdrDisabled'))
+      } catch {
+        setZdrOnly(!enabled) // revert
+        toast.error(t('models.zdrError'))
+      } finally {
+        setZdrSaving(false)
+      }
+    },
+    [t],
+  )
+
   if (loading) {
     return (
       <div className="flex flex-col gap-3">
@@ -255,6 +292,27 @@ export const ModelConfigCard: FC = () => {
 
   return (
     <div className="flex flex-col gap-4">
+      {/* Zero-Data-Retention policy — filters the picker to ZDR models and
+          makes the backend pin every request to ZDR endpoints. */}
+      <div className="flex items-start justify-between gap-4 rounded-lg border p-4">
+        <div className="flex min-w-0 gap-3">
+          <ShieldCheck className="mt-0.5 size-5 shrink-0 text-muted-foreground" aria-hidden />
+          <div className="min-w-0">
+            <Label htmlFor="zdr-only-toggle" className="text-sm font-medium">
+              {t('models.zdrTitle')}
+            </Label>
+            <p className="mt-0.5 text-xs text-muted-foreground">{t('models.zdrHint')}</p>
+          </div>
+        </div>
+        <Switch
+          id="zdr-only-toggle"
+          checked={zdrOnly}
+          disabled={zdrSaving}
+          onCheckedChange={handleZdrToggle}
+          aria-label={t('models.zdrTitle')}
+        />
+      </div>
+
       {/* BYOK (ADR-0022): the picker lists the org's own provider models. */}
       {catalogSource?.source === 'byok' && (
         <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
@@ -317,6 +375,7 @@ export const ModelConfigCard: FC = () => {
                   <PopoverContent align="end" className="w-auto p-3">
                     <ModelPicker
                       group={group}
+                      epoch={catalogEpoch}
                       onPick={(modelId) => {
                         setDraft((prev) => ({ ...prev, [group.id]: modelId }))
                         setPickerGroup(null)

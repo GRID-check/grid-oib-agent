@@ -73,6 +73,15 @@ def _with_openrouter_structured_defaults(extra_body: Any) -> dict[str, Any]:
     return merged
 
 
+def llm_targets_openrouter(llm: Any) -> bool:
+    """True when a LangChain chat model's traffic goes to OpenRouter.
+
+    Shared with the per-request ZDR seam (``model_overrides``) so both use the
+    same base-URL detection.
+    """
+    return _OPENROUTER_HOST in _llm_base_url(llm)
+
+
 def apply_openrouter_structured_defaults(llm: Any) -> Any:
     """Force OpenRouter structured-output routing + JSON healing on an LLM.
 
@@ -111,6 +120,11 @@ async def get_langchain_llm(builder: Any, ref: Any) -> Any:
     """Resolve a LangChain chat model with fleet-wide OpenRouter defaults applied.
 
     Drop-in replacement for ``builder.get_llm(ref, wrapper_type=LANGCHAIN)``.
+
+    NOTE: this runs at workflow BUILD time (once, shared across tenants), so
+    per-org variation — model overrides AND Zero-Data-Retention routing — is
+    applied later at the per-request seam in ``model_overrides`` (which copies
+    the instance), never here.
     """
     llm = await builder.get_llm(ref, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
     return apply_openrouter_structured_defaults(llm)
