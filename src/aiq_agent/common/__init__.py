@@ -60,7 +60,9 @@ from .message_utils import get_latest_user_query
 from .model_overrides import MODEL_OVERRIDES_HEADER
 from .model_overrides import AgentGroup
 from .model_overrides import apply_model_override
+from .model_overrides import apply_zdr_routing
 from .model_overrides import get_model_overrides_from_context
+from .model_overrides import get_zdr_only_from_context
 from .model_overrides import is_reasoning_incompatible_error
 from .model_overrides import parse_model_overrides
 from .model_overrides import sanitize_model_overrides
@@ -97,6 +99,8 @@ __all__ = [
     "all_mapped_tools_filtered_out",
     "create_budget_guard_callback",
     "apply_model_override",
+    "apply_zdr_routing",
+    "get_zdr_only_from_context",
     "is_reasoning_incompatible_error",
     "apply_org_credential",
     "get_disabled_sources_from_context",

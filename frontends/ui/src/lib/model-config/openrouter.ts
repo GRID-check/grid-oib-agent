@@ -41,9 +41,15 @@ export interface ModelValidationResult {
 
 const CATALOG_TTL_MS = 5 * 60 * 1000
 const CATALOG_CACHE_KEY = 'openrouter:catalog'
+const ZDR_CACHE_KEY = 'openrouter:zdr-endpoints'
 
 function baseUrl(): string {
   return (process.env.OPENROUTER_BASE_URL ?? 'https://openrouter.ai/api/v1').replace(/\/$/, '')
+}
+
+/** The base `author/slug`, dropping any `:variant` suffix (`:free`, `:nitro`, …). */
+function baseModelId(id: string): string {
+  return id.split(':', 1)[0]
 }
 
 function toNumber(value: unknown): number {
@@ -96,6 +102,70 @@ export async function fetchModelCatalog(): Promise<OpenRouterModel[]> {
 /** Test hook. */
 export async function _clearCatalogCache(): Promise<void> {
   await invalidateCached(CATALOG_CACHE_KEY)
+  await invalidateCached(ZDR_CACHE_KEY)
+}
+
+/**
+ * Recursively collect every plausible OpenRouter model id (`author/slug`) from
+ * a ZDR-endpoint entry, whatever the exact response shape is. `/endpoints/zdr`
+ * returns provider endpoints with a Zero-Data-Retention policy; each entry
+ * references its model under a field whose name has varied across OpenRouter
+ * revisions (`id`, `slug`, `canonical_slug`, nested `model.slug`, …), so we
+ * scan defensively rather than pin one path. Ids are normalised to the base
+ * `author/slug` so they match catalog ids regardless of `:variant` suffix.
+ */
+function collectZdrModelIds(node: unknown, into: Set<string>, depth = 0): void {
+  if (depth > 6 || node === null) return
+  if (typeof node === 'string') {
+    if (OPENROUTER_MODEL_ID_PATTERN.test(node)) into.add(baseModelId(node))
+    return
+  }
+  if (Array.isArray(node)) {
+    for (const item of node) collectZdrModelIds(item, into, depth + 1)
+    return
+  }
+  if (typeof node === 'object') {
+    for (const value of Object.values(node as Record<string, unknown>)) {
+      collectZdrModelIds(value, into, depth + 1)
+    }
+  }
+}
+
+/**
+ * The set of base model ids that have at least one Zero-Data-Retention
+ * endpoint, from OpenRouter's `GET /api/v1/endpoints/zdr` listing. Cached like
+ * the catalog. Throws on upstream failure so callers fail CLOSED — a model may
+ * only be offered under a ZDR policy when we can positively confirm it is on
+ * the ZDR list, never on a best-guess.
+ *
+ * (See openrouter.ai/docs — Zero Data Retention. The list is per-model/provider
+ * and account-independent, so it is the correct source for a per-organization
+ * ZDR filter in a multi-tenant deployment; the account-wide `/models/user`
+ * privacy filter is not.)
+ */
+export async function fetchZdrModelIds(): Promise<Set<string>> {
+  return getCached(ZDR_CACHE_KEY, CATALOG_TTL_MS, async () => {
+    const headers: Record<string, string> = { Accept: 'application/json' }
+    const apiKey = process.env.OPENROUTER_API_KEY
+    if (apiKey) headers.Authorization = `Bearer ${apiKey}`
+
+    const response = await fetch(`${baseUrl()}/endpoints/zdr`, { headers, cache: 'no-store' })
+    if (!response.ok) {
+      throw new Error(`OpenRouter ZDR endpoint listing request failed: HTTP ${response.status}`)
+    }
+    const body = (await response.json()) as { data?: unknown }
+    const ids = new Set<string>()
+    collectZdrModelIds(body.data ?? body, ids)
+    if (ids.size === 0) {
+      throw new Error('OpenRouter ZDR endpoint listing contained no model ids')
+    }
+    return ids
+  })
+}
+
+/** Keep only catalog models whose base id has a Zero-Data-Retention endpoint. */
+export function filterCatalogToZdr(catalog: OpenRouterModel[], zdrModelIds: Set<string>): OpenRouterModel[] {
+  return catalog.filter((model) => zdrModelIds.has(baseModelId(model.id)))
 }
 
 /**

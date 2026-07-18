@@ -86,6 +86,12 @@ export const organization = {
     loadError: 'Could not load the model configuration.',
     byokCatalogHint:
       'Your organization key ({provider}) is active: the picker lists the models available to YOUR provider account, and all traffic is billed to it. Removing the key switches back to the platform catalog.',
+    zdrTitle: 'Zero data retention only',
+    zdrHint:
+      'Show only models with a zero-data-retention endpoint and route every request to one, so no prompt or response is stored by the provider. Applies to OpenRouter models.',
+    zdrEnabled: 'Zero data retention enabled',
+    zdrDisabled: 'Zero data retention disabled',
+    zdrError: 'Could not change the zero-data-retention policy.',
   },
   byok: {
     title: 'LLM API key (BYOK)',

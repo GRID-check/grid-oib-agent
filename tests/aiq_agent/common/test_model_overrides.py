@@ -128,6 +128,86 @@ class TestOverrideModel:
         assert llm.invoke_model() == "deepseek/deepseek-v4-flash"
 
 
+class FakeOpenRouterModel(BaseModel):
+    """Pydantic stand-in for a ChatOpenAI pointed at OpenRouter (has extra_body)."""
+
+    model_name: str = "deepseek/deepseek-v4-flash"
+    openai_api_base: str = "https://openrouter.ai/api/v1"
+    extra_body: dict = {}
+
+
+class FakeNonOpenRouterModel(BaseModel):
+    """Pydantic stand-in for a non-OpenRouter (e.g. NVIDIA-hosted) chat model."""
+
+    model_name: str = "meta/llama-3.1"
+    openai_api_base: str = "https://integrate.api.nvidia.com/v1"
+    extra_body: dict = {}
+
+
+class TestMergeZdrExtraBody:
+    def test_sets_provider_zdr_and_data_collection(self):
+        from aiq_agent.common.model_overrides import _merge_zdr_extra_body
+
+        merged = _merge_zdr_extra_body(None)
+        assert merged == {"provider": {"zdr": True, "data_collection": "deny"}}
+
+    def test_preserves_other_provider_and_plugins(self):
+        from aiq_agent.common.model_overrides import _merge_zdr_extra_body
+
+        merged = _merge_zdr_extra_body({"plugins": [{"id": "response-healing"}], "provider": {"order": ["a"]}})
+        assert merged["plugins"] == [{"id": "response-healing"}]
+        assert merged["provider"] == {"order": ["a"], "zdr": True, "data_collection": "deny"}
+
+
+class TestApplyZdrRouting:
+    def test_copies_openrouter_model_with_zdr(self):
+        from aiq_agent.common.model_overrides import apply_zdr_routing
+
+        llm = FakeOpenRouterModel(extra_body={"plugins": [{"id": "response-healing"}]})
+        result = apply_zdr_routing(llm)
+        assert result is not llm
+        assert result.extra_body["provider"] == {"zdr": True, "data_collection": "deny"}
+        assert result.extra_body["plugins"] == [{"id": "response-healing"}]
+        # Original untouched — the policy is request-scoped.
+        assert "provider" not in llm.extra_body
+
+    def test_non_openrouter_model_unchanged(self):
+        from aiq_agent.common.model_overrides import apply_zdr_routing
+
+        llm = FakeNonOpenRouterModel()
+        assert apply_zdr_routing(llm) is llm
+
+    def test_idempotent_when_already_zdr(self):
+        from aiq_agent.common.model_overrides import apply_zdr_routing
+
+        llm = FakeOpenRouterModel(extra_body={"provider": {"zdr": True, "data_collection": "deny"}})
+        assert apply_zdr_routing(llm) is llm
+
+    def test_unrecognized_object_returned_unchanged(self):
+        from aiq_agent.common.model_overrides import apply_zdr_routing
+
+        sentinel = object()
+        assert apply_zdr_routing(sentinel) is sentinel
+
+    def test_apply_model_override_applies_zdr_without_model_change(self):
+        llm = FakeOpenRouterModel()
+        # No model override for this group, but ZDR is on -> still a ZDR copy.
+        result = apply_model_override(llm, AgentGroup.INTENT, {}, zdr_only=True)
+        assert result is not llm
+        assert result.model_name == "deepseek/deepseek-v4-flash"
+        assert result.extra_body["provider"]["zdr"] is True
+
+    def test_apply_model_override_applies_both_model_and_zdr(self):
+        llm = FakeOpenRouterModel()
+        result = apply_model_override(llm, AgentGroup.INTENT, {"intent": "x-ai/grok-4.5"}, zdr_only=True)
+        assert result.model_name == "x-ai/grok-4.5"
+        assert result.extra_body["provider"]["zdr"] is True
+
+    def test_apply_model_override_zdr_off_is_identity(self):
+        llm = FakeOpenRouterModel()
+        assert apply_model_override(llm, AgentGroup.INTENT, {}, zdr_only=False) is llm
+
+
 class TestProviderWithModelOverrides:
     def _provider(self) -> LLMProvider:
         provider = LLMProvider()
@@ -194,7 +274,7 @@ class TestOrgScopedFallbackResolution:
 
         encoded = base64.urlsafe_b64encode(json.dumps({"intent": "vendor/x"}).encode()).decode()
         monkeypatch.setattr("aiq_agent.project_context._read_header", lambda name: encoded)
-        monkeypatch.setattr(M, "_fetch_org_overrides", lambda org: pytest.fail("must not fetch when header present"))
+        monkeypatch.setattr(M, "_fetch_org_config", lambda org: pytest.fail("must not fetch when header present"))
 
         assert M.get_model_overrides_from_context() == {"intent": "vendor/x"}
 
@@ -203,7 +283,7 @@ class TestOrgScopedFallbackResolution:
 
         monkeypatch.setattr("aiq_agent.project_context._read_header", lambda name: None)
         monkeypatch.setattr("aiq_agent.project_context.get_organization_id_from_context", lambda: "org_ABC123")
-        monkeypatch.setattr(M, "_fetch_org_overrides", lambda org: {"deep_research": "x-ai/grok-4.5"})
+        monkeypatch.setattr(M, "_fetch_org_config", lambda org: ({"deep_research": "x-ai/grok-4.5"}, False))
 
         assert M.get_model_overrides_from_context() == {"deep_research": "x-ai/grok-4.5"}
 
@@ -212,7 +292,7 @@ class TestOrgScopedFallbackResolution:
 
         monkeypatch.setattr("aiq_agent.project_context._read_header", lambda name: None)
         monkeypatch.setattr("aiq_agent.project_context.get_organization_id_from_context", lambda: None)
-        monkeypatch.setattr(M, "_fetch_org_overrides", lambda org: pytest.fail("must not fetch without an org"))
+        monkeypatch.setattr(M, "_fetch_org_config", lambda org: pytest.fail("must not fetch without an org"))
 
         assert M.get_model_overrides_from_context() == {}
 
@@ -223,10 +303,12 @@ class TestOrgScopedFallbackResolution:
 
         def fake_fetch(org):
             calls.append(org)
-            return {"intent": "vendor/x"}
+            return {"intent": "vendor/x"}, True
 
-        monkeypatch.setattr(M, "_fetch_org_overrides", fake_fetch)
+        monkeypatch.setattr(M, "_fetch_org_config", fake_fetch)
+        # A single fetch populates BOTH the overrides and the ZDR flag.
         assert M.resolve_org_model_overrides("org_A") == {"intent": "vendor/x"}
+        assert M.resolve_org_zdr_only("org_A") is True
         assert M.resolve_org_model_overrides("org_A") == {"intent": "vendor/x"}
         assert calls == ["org_A"]
 
@@ -236,13 +318,14 @@ class TestOrgScopedFallbackResolution:
         def boom(org):
             raise RuntimeError("bff down")
 
-        monkeypatch.setattr(M, "_fetch_org_overrides", boom)
+        monkeypatch.setattr(M, "_fetch_org_config", boom)
         assert M.resolve_org_model_overrides("org_A") == {}
+        assert M.resolve_org_zdr_only("org_A") is False
         # Negative-cached: the failure is not retried within the TTL.
-        monkeypatch.setattr(M, "_fetch_org_overrides", lambda org: pytest.fail("negative cache must hold"))
+        monkeypatch.setattr(M, "_fetch_org_config", lambda org: pytest.fail("negative cache must hold"))
         assert M.resolve_org_model_overrides("org_A") == {}
 
-    def test_fetch_sanitizes_payload(self, monkeypatch):
+    def test_fetch_sanitizes_payload_and_reads_zdr(self, monkeypatch):
         import aiq_agent.common.model_overrides as M
 
         class FakeResponse:
@@ -250,14 +333,30 @@ class TestOrgScopedFallbackResolution:
                 pass
 
             def json(self):
-                return {"overrides": {"deep_research": "x-ai/grok-4.5", "bogus_group": "x/y", "intent": "bad id!!"}}
+                return {
+                    "overrides": {"deep_research": "x-ai/grok-4.5", "bogus_group": "x/y", "intent": "bad id!!"},
+                    "zdrOnly": True,
+                }
 
         monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "t")
         monkeypatch.setattr("httpx.get", lambda *a, **k: FakeResponse())
-        assert M._fetch_org_overrides("org_A") == {"deep_research": "x-ai/grok-4.5"}
+        assert M._fetch_org_config("org_A") == ({"deep_research": "x-ai/grok-4.5"}, True)
 
     def test_no_internal_token_returns_empty(self, monkeypatch):
         import aiq_agent.common.model_overrides as M
 
         monkeypatch.delenv("GRID_INTERNAL_API_TOKEN", raising=False)
-        assert M._fetch_org_overrides("org_A") == {}
+        assert M._fetch_org_config("org_A") == ({}, False)
+
+    def test_zdr_only_resolves_via_org_id(self, monkeypatch):
+        import aiq_agent.common.model_overrides as M
+
+        monkeypatch.setattr("aiq_agent.project_context.get_organization_id_from_context", lambda: "org_ZDR")
+        monkeypatch.setattr(M, "_fetch_org_config", lambda org: ({}, True))
+        assert M.get_zdr_only_from_context() is True
+
+    def test_zdr_only_defaults_false_without_org(self, monkeypatch):
+        import aiq_agent.common.model_overrides as M
+
+        monkeypatch.setattr("aiq_agent.project_context.get_organization_id_from_context", lambda: None)
+        assert M.get_zdr_only_from_context() is False

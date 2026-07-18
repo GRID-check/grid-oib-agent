@@ -161,3 +161,60 @@ class TestLLMProvider:
         assert provider.get(LLMRole.RESEARCHER) is researcher_llm
         assert provider.get(LLMRole.GRADER) is default_llm  # Falls back to default
         assert provider.get(LLMRole.SUMMARIZER) is default_llm  # Falls back to default
+
+
+class TestProviderWithZdr:
+    """Tests for the tenant-wide Zero-Data-Retention routing (with_zdr)."""
+
+    def test_zdr_off_is_identity(self):
+        """zdr_only=False returns the same provider (no rebuild)."""
+        provider = LLMProvider()
+        provider.set_default(MagicMock(name="default"))
+        assert provider.with_zdr(False) is provider
+
+    def test_zdr_on_rebuilds_all_llms_via_apply_zdr_routing(self, monkeypatch):
+        """zdr_only=True returns a new provider whose every LLM went through
+        apply_zdr_routing, preserving the role topology and default fallback."""
+        import aiq_agent.common.model_overrides as M
+
+        wrapped = {}
+
+        def fake_apply(llm):
+            marker = MagicMock(name=f"zdr({llm._mock_name})")
+            wrapped[llm] = marker
+            return marker
+
+        monkeypatch.setattr(M, "apply_zdr_routing", fake_apply)
+
+        provider = LLMProvider()
+        default_llm = MagicMock(name="default")
+        router_llm = MagicMock(name="router")
+        provider.set_default(default_llm)
+        provider.configure(LLMRole.ROUTER, router_llm)
+
+        derived = provider.with_zdr(True)
+        assert derived is not provider
+        assert derived.get(LLMRole.ROUTER) is wrapped[router_llm]
+        # Unconfigured role falls back to the ZDR-wrapped default.
+        assert derived.get(LLMRole.PLANNER) is wrapped[default_llm]
+        # Original provider is never mutated.
+        assert provider.get(LLMRole.ROUTER) is router_llm
+
+    def test_shared_instances_deduped(self, monkeypatch):
+        """An LLM shared across roles is ZDR-wrapped exactly once."""
+        import aiq_agent.common.model_overrides as M
+
+        calls = []
+
+        def fake_apply(llm):
+            calls.append(llm)
+            return MagicMock(name="zdr")
+
+        monkeypatch.setattr(M, "apply_zdr_routing", fake_apply)
+
+        shared = MagicMock(name="shared")
+        provider = LLMProvider()
+        provider.set_default(shared)
+        provider.configure(LLMRole.ROUTER, shared)
+        provider.with_zdr(True)
+        assert calls.count(shared) == 1

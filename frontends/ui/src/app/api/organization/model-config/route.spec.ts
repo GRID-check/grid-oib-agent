@@ -60,11 +60,17 @@ vi.mock('@/lib/model-config/org-catalog', () => ({
     source: 'openrouter',
     provider: null,
     validation: 'full',
+    zdrOnly: false,
   }),
+}))
+
+vi.mock('@/lib/organizations/service', () => ({
+  isZdrOnlyForOrg: vi.fn().mockResolvedValue(false),
 }))
 
 import { GET, PUT } from './route'
 import { createAndActivateVersion } from '@/lib/model-config/service'
+import { isZdrOnlyForOrg } from '@/lib/organizations/service'
 
 const get = (): Request => new Request('http://localhost/api/organization/model-config')
 
@@ -149,6 +155,7 @@ describe('/api/organization/model-config', () => {
       source: 'byok',
       provider: 'openai',
       validation: 'listed',
+      zdrOnly: false,
     })
     const res = await PUT(put({ overrides: { deep_research: { model: 'gpt-4o' } } }))
     expect(res.status).toBe(201)
@@ -156,9 +163,22 @@ describe('/api/organization/model-config', () => {
       expect.objectContaining({
         overrides: { deep_research: { model: 'gpt-4o' } },
         modelSnapshot: expect.objectContaining({
-          _catalog: { source: 'byok', provider: 'openai', validation: 'listed' },
+          _catalog: { source: 'byok', provider: 'openai', validation: 'listed', zdrOnly: false },
         }),
       }),
     )
+  })
+
+  it('GET reports the org ZDR policy', async () => {
+    vi.mocked(isZdrOnlyForOrg).mockResolvedValueOnce(true)
+    const body = await (await GET(get())).json()
+    expect(body.zdrOnly).toBe(true)
+  })
+
+  it('PUT validates against the ZDR-filtered catalog when the policy is on', async () => {
+    const { getCatalogForOrg } = await import('@/lib/model-config/org-catalog')
+    vi.mocked(isZdrOnlyForOrg).mockResolvedValueOnce(true)
+    await PUT(put({ overrides: { deep_research: { model: 'vendor/capable' } } }))
+    expect(getCatalogForOrg).toHaveBeenCalledWith('org-1', { zdrOnly: true })
   })
 })
