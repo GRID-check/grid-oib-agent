@@ -465,6 +465,15 @@ export interface ChatState {
   thinkingSteps: ThinkingStep[]
   /** ID of the currently active thinking step (for appending content) */
   activeThinkingStepId: string | null
+  /**
+   * ID of the assistant `agent_response` bubble currently accumulating streamed
+   * answer deltas for the active turn. Set on the first `in_progress` delta,
+   * cleared when the turn finalizes (terminal `complete` frame) or a new user
+   * turn begins. Null when no answer is mid-stream. This is what keeps N delta
+   * frames collapsing into ONE bubble instead of appending a fresh bubble per
+   * frame.
+   */
+  streamingAssistantMessageId: string | null
   /** Active project ID for scoping (set by project chat page) */
   projectId: string | null
   /**
@@ -643,6 +652,34 @@ export interface ChatActions {
   addAgentResponse: (
     content: string,
     showViewReport?: boolean,
+    cards?: GridCard[],
+    answerConfidence?: 'low' | 'medium' | 'high',
+    citations?: CitationSource[]
+  ) => void
+  /**
+   * Accumulate a streamed answer delta (`in_progress` content frame) into a
+   * single assistant bubble for the active turn. Creates the bubble on the
+   * first delta and appends text on each subsequent one. Meta (cards/
+   * confidence/citations) is normally absent on deltas but merged when present
+   * so the legacy single-`in_progress`-frame path (full text + cards on one
+   * delta) still attaches its cards.
+   */
+  appendAgentResponseDelta: (
+    content: string,
+    cards?: GridCard[],
+    answerConfidence?: 'low' | 'medium' | 'high',
+    citations?: CitationSource[]
+  ) => void
+  /**
+   * Finalize the accumulating answer bubble on the terminal `complete` frame:
+   * replace its content with the authoritative full text (idempotent — equals
+   * the accumulation), attach cards/sources/confidence, and mark it final. An
+   * EMPTY terminal (the legacy synthetic `complete` frame) keeps the
+   * accumulated text rather than wiping it. Falls back to a one-shot
+   * `addAgentResponse` when no delta ever opened a bubble.
+   */
+  finalizeAgentResponse: (
+    content: string,
     cards?: GridCard[],
     answerConfidence?: 'low' | 'medium' | 'high',
     citations?: CitationSource[]

@@ -1,14 +1,150 @@
 """Tests for chat_researcher register.py helper functions."""
 
+import asyncio
 from unittest.mock import MagicMock
 
 from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
 
+from aiq_agent.agents.chat_researcher.register import _aggregate_documents_across_collections
+from aiq_agent.agents.chat_researcher.register import _fold_chunks_to_response
+from aiq_agent.agents.chat_researcher.register import _iter_answer_deltas
 from aiq_agent.agents.chat_researcher.register import _reflection_answer_is_substantive
+from aiq_agent.agents.chat_researcher.register import _response_to_chunks
 from aiq_agent.agents.chat_researcher.utils import _extract_query_and_sources
 from aiq_agent.agents.chat_researcher.utils import _extract_query_from_text
 from aiq_agent.agents.chat_researcher.utils import _extract_text_from_message
+from aiq_agent.common import _create_chat_response
+
+
+class _Doc:
+    """Minimal stand-in for a document summary (only file_name is used)."""
+
+    def __init__(self, file_name):
+        self.file_name = file_name
+
+    def __eq__(self, other):
+        return isinstance(other, _Doc) and other.file_name == self.file_name
+
+    def __hash__(self):
+        return hash(self.file_name)
+
+    def __repr__(self):
+        return f"_Doc({self.file_name!r})"
+
+
+def _sequential_reference(collections, per_collection):
+    """The old sequential loop, kept as an oracle for the concurrent version."""
+    aggregated = []
+    seen = set()
+    for coll in collections:
+        docs = per_collection.get(coll)
+        if docs is None:  # a raising collection contributed nothing
+            continue
+        for doc in docs:
+            if doc.file_name in seen:
+                continue
+            seen.add(doc.file_name)
+            aggregated.append(doc)
+    return aggregated
+
+
+class TestAggregateDocumentsAcrossCollections:
+    """The concurrent per-collection loader must return the SAME merged data as
+    the old sequential loop: same order, same dedup, same per-collection
+    fail-open behavior — only the round-trips now overlap."""
+
+    def _run(self, collections, per_collection):
+        """Drive the concurrent helper against a mock async fetch_one."""
+        call_order = []
+
+        async def fetch_one(coll):
+            call_order.append(coll)
+            # Yield control so collections genuinely interleave (proves the
+            # merge does not depend on completion order).
+            await asyncio.sleep(0)
+            docs = per_collection.get(coll)
+            if docs is None:
+                raise RuntimeError(f"no summaries for {coll}")
+            return list(docs)
+
+        result = asyncio.run(_aggregate_documents_across_collections(collections, fetch_one))
+        return result, call_order
+
+    def test_matches_sequential_merge_order(self):
+        collections = ["base", "session"]
+        per_collection = {
+            "base": [_Doc("a.pdf"), _Doc("b.pdf")],
+            "session": [_Doc("c.pdf")],
+        }
+        result, _ = self._run(collections, per_collection)
+        assert result == _sequential_reference(collections, per_collection)
+        assert [d.file_name for d in result] == ["a.pdf", "b.pdf", "c.pdf"]
+
+    def test_dedup_first_seen_wins_across_collections(self):
+        collections = ["base", "session"]
+        per_collection = {
+            "base": [_Doc("dup.pdf"), _Doc("a.pdf")],
+            "session": [_Doc("dup.pdf"), _Doc("b.pdf")],
+        }
+        result, _ = self._run(collections, per_collection)
+        assert result == _sequential_reference(collections, per_collection)
+        assert [d.file_name for d in result] == ["dup.pdf", "a.pdf", "b.pdf"]
+
+    def test_dedup_within_a_single_collection(self):
+        collections = ["base"]
+        per_collection = {"base": [_Doc("x.pdf"), _Doc("x.pdf"), _Doc("y.pdf")]}
+        result, _ = self._run(collections, per_collection)
+        assert [d.file_name for d in result] == ["x.pdf", "y.pdf"]
+
+    def test_one_collection_failing_still_merges_the_rest(self):
+        # Fail-open per collection: the raising one yields empty, not a wipeout.
+        collections = ["base", "session"]
+        per_collection = {
+            "base": [_Doc("a.pdf")],
+            "session": None,  # raises inside fetch_one
+        }
+        result, _ = self._run(collections, per_collection)
+        assert result == _sequential_reference(collections, per_collection)
+        assert [d.file_name for d in result] == ["a.pdf"]
+
+    def test_first_collection_failing_keeps_second(self):
+        collections = ["base", "session"]
+        per_collection = {
+            "base": None,  # raises
+            "session": [_Doc("only.pdf")],
+        }
+        result, _ = self._run(collections, per_collection)
+        assert [d.file_name for d in result] == ["only.pdf"]
+
+    def test_all_collections_empty_returns_empty(self):
+        collections = ["base", "session"]
+        result, _ = self._run(collections, {"base": [], "session": []})
+        assert result == []
+
+    def test_no_collections_returns_empty(self):
+        result, call_order = self._run([], {})
+        assert result == []
+        assert call_order == []
+
+    def test_every_collection_is_fetched(self):
+        collections = ["base", "session", "extra"]
+        per_collection = {"base": [_Doc("a")], "session": [_Doc("b")], "extra": [_Doc("c")]}
+        _, call_order = self._run(collections, per_collection)
+        assert sorted(call_order) == ["base", "extra", "session"]
+
+    def test_merge_is_order_deterministic_regardless_of_completion(self):
+        # session resolves before base (base sleeps longer), but the merged
+        # order must still follow the input order, not the completion order.
+        async def fetch_one(coll):
+            if coll == "base":
+                await asyncio.sleep(0.02)
+                return [_Doc("base.pdf")]
+            await asyncio.sleep(0)
+            return [_Doc("session.pdf")]
+
+        result = asyncio.run(_aggregate_documents_across_collections(["base", "session"], fetch_one))
+        assert [d.file_name for d in result] == ["base.pdf", "session.pdf"]
 
 
 class _Intent:
@@ -49,6 +185,117 @@ class TestReflectionAnswerIsSubstantive:
     def test_works_with_dict_result(self):
         assert _reflection_answer_is_substantive({"user_intent": _Intent("research")}, "A concrete finding.")
         assert not _reflection_answer_is_substantive({"user_intent": _Intent("meta")}, "hi there")
+
+
+def _answer_response(text, *, cards=None, sources=None, confidence=None):
+    """A fully-built ChatResponse like the one _run assembles before delivery."""
+    resp = _create_chat_response(text, response_id="research_response", model="m")
+    if cards is not None:
+        resp.cards = cards
+    if sources is not None:
+        resp.sources = sources
+    if confidence is not None:
+        resp.answer_confidence = confidence
+    return resp
+
+
+def _finish(chunk):
+    return chunk.choices[0].finish_reason
+
+
+def _content(chunk):
+    return chunk.choices[0].delta.content
+
+
+class TestIterAnswerDeltas:
+    """Deltas must tile the answer exactly — no bytes added or lost."""
+
+    def test_join_reproduces_text_verbatim(self):
+        for text in [
+            "Gebäudeklasse 4 [1].\n\n## Quellen\n[1] OIB-RL 2",
+            "  leading and  double   spaces\tand\ttabs ",
+            "single",
+            "a\n\nb\n\nc",
+        ]:
+            assert "".join(_iter_answer_deltas(text)) == text
+
+    def test_empty_text_yields_no_deltas(self):
+        assert _iter_answer_deltas("") == []
+
+    def test_words_are_not_split_across_deltas(self):
+        # Each delta boundary falls on whitespace, so no delta starts mid-word
+        # (every non-first delta begins after a space the prior delta absorbed).
+        deltas = _iter_answer_deltas("the quick brown fox jumps over the lazy dog", target_size=8)
+        assert len(deltas) > 1
+        assert "".join(deltas) == "the quick brown fox jumps over the lazy dog"
+
+
+class TestResponseToChunks:
+    """The chunk sequence _run yields for a fully-built response."""
+
+    def test_flag_off_single_terminal_chunk(self):
+        resp = _answer_response("The answer.", cards=[{"type": "summary"}])
+        chunks = _response_to_chunks(resp, stream=False)
+        assert len(chunks) == 1
+        assert _finish(chunks[0]) == "stop"
+        assert _content(chunks[0]) == "The answer."
+        assert getattr(chunks[0], "cards", None) == [{"type": "summary"}]
+
+    def test_stream_deltas_then_terminal(self):
+        text = "Gebäudeklasse 4 gilt hier [1]. Die OIB-Richtlinie 2 ist maßgeblich [2]."
+        resp = _answer_response(text, cards=[{"type": "summary"}], sources=[{"citation_key": "k"}], confidence="high")
+        chunks = _response_to_chunks(resp, stream=True)
+        # last chunk is the terminal; all others are deltas
+        assert _finish(chunks[-1]) == "stop"
+        assert all(_finish(c) is None for c in chunks[:-1])
+        assert len(chunks) > 1
+        # delta contents concatenate to exactly the answer text
+        assert "".join(_content(c) for c in chunks[:-1]) == text
+
+    def test_extras_only_on_terminal_never_on_deltas(self):
+        resp = _answer_response("some answer text here", cards=[{"type": "summary"}], sources=[{"citation_key": "k"}])
+        chunks = _response_to_chunks(resp, stream=True)
+        assert getattr(chunks[-1], "cards", None) == [{"type": "summary"}]
+        assert getattr(chunks[-1], "sources", None) == [{"citation_key": "k"}]
+        for delta in chunks[:-1]:
+            assert getattr(delta, "cards", None) is None
+            assert getattr(delta, "sources", None) is None
+
+    def test_terminal_carries_full_content_for_persistence(self):
+        # The terminal must carry the FULL text (not empty) so the disconnect
+        # persistence path stores the complete answer, not a partial.
+        text = "a somewhat longer answer that spans multiple streaming deltas for sure"
+        resp = _answer_response(text)
+        chunks = _response_to_chunks(resp, stream=True)
+        assert _content(chunks[-1]) == text
+
+
+class TestFoldChunksToResponse:
+    """Single-output consumers (--input CLI, single-shot HTTP) get one response
+    folded from the stream — never a doubled body."""
+
+    def test_fold_stream_uses_terminal_not_doubled(self):
+        text = "Antwort mit Beleg [1]."
+        resp = _answer_response(text, cards=[{"type": "summary"}], sources=[{"citation_key": "k"}], confidence="high")
+        folded = _fold_chunks_to_response(_response_to_chunks(resp, stream=True))
+        assert folded.choices[0].message.content == text  # NOT doubled
+        assert folded.cards == [{"type": "summary"}]
+        assert folded.sources == [{"citation_key": "k"}]
+        assert folded.answer_confidence == "high"
+
+    def test_fold_single_terminal_reproduces_response(self):
+        resp = _answer_response("Just one chunk.", cards=[{"type": "summary"}])
+        folded = _fold_chunks_to_response(_response_to_chunks(resp, stream=False))
+        assert folded.choices[0].message.content == "Just one chunk."
+        assert folded.cards == [{"type": "summary"}]
+
+    def test_fold_deltas_only_concatenates(self):
+        # Defensive: a stream with no terminal folds to the concatenation.
+        from nat.data_models.api_server import ChatResponseChunk
+
+        deltas = [ChatResponseChunk.create_streaming_chunk(t, finish_reason=None) for t in ["Hel", "lo!"]]
+        folded = _fold_chunks_to_response(deltas)
+        assert folded.choices[0].message.content == "Hello!"
 
 
 class TestExtractTextFromMessageString:

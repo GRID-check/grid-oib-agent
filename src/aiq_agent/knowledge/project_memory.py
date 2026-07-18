@@ -37,6 +37,11 @@ VALID_CONFIDENCES = {"low", "medium", "high"}
 VALID_SCOPES = {"project", "organization"}
 
 _REQUEST_TIMEOUT_SECONDS = 5
+# The digest read runs on the per-turn critical path, right before intent
+# classification, so a slow BFF must never stall the turn for the full 5s the
+# write calls allow. Keep it tight; on timeout fetch_memory_digest raises and
+# the caller falls back to the frozen connection-time digest (fail-open).
+_DIGEST_TIMEOUT_SECONDS = 1.5
 
 
 class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -123,7 +128,7 @@ def fetch_memory_digest(
         method="GET",
     )
 
-    with _opener.open(request, timeout=_REQUEST_TIMEOUT_SECONDS) as response:
+    with _opener.open(request, timeout=_DIGEST_TIMEOUT_SECONDS) as response:
         body = json.loads(response.read().decode("utf-8"))
     digest = body.get("digest")
     return digest if isinstance(digest, str) and digest.strip() else None
@@ -216,9 +221,7 @@ def insert_memory_item(
                     "Internal memory endpoint declined an agent organization-scoped write "
                     "(403 ORG_MEMORY_DISABLED); routing to the user confirmation card"
                 )
-                raise OrgMemoryDisabledError(
-                    "agent organization-scoped memory is disabled on the frontend"
-                ) from exc
+                raise OrgMemoryDisabledError("agent organization-scoped memory is disabled on the frontend") from exc
             logger.error(
                 "Internal memory endpoint rejected the service token (403) — GRID_INTERNAL_API_TOKEN "
                 "mismatch between the aiq-agent and frontend services (the same value must be set on both)."

@@ -24,6 +24,7 @@ export type MessagesSlice = {
   currentUserMessageId: string | null
   thinkingSteps: ThinkingStep[]
   activeThinkingStepId: string | null
+  streamingAssistantMessageId: string | null
   reportContent: string
   reportContentCategory: 'research_notes' | 'final_report' | null
   currentStatus: StatusType | null
@@ -83,6 +84,18 @@ export type MessagesSlice = {
   addAgentResponse: (
     content: string,
     showViewReport?: boolean,
+    cards?: GridCard[],
+    answerConfidence?: 'low' | 'medium' | 'high',
+    citations?: CitationSource[]
+  ) => void
+  appendAgentResponseDelta: (
+    content: string,
+    cards?: GridCard[],
+    answerConfidence?: 'low' | 'medium' | 'high',
+    citations?: CitationSource[]
+  ) => void
+  finalizeAgentResponse: (
+    content: string,
     cards?: GridCard[],
     answerConfidence?: 'low' | 'medium' | 'high',
     citations?: CitationSource[]
@@ -208,12 +221,78 @@ export const initialMessagesState = {
   currentUserMessageId: null as string | null,
   thinkingSteps: [] as ThinkingStep[],
   activeThinkingStepId: null as string | null,
+  streamingAssistantMessageId: null as string | null,
   reportContent: '',
   reportContentCategory: null as 'research_notes' | 'final_report' | null,
   currentStatus: null as StatusType | null,
   projectId: null as string | null,
   composerPrefill: null as string | null,
   composerDrafts: {} as Record<string, string>,
+}
+
+/**
+ * Build an `agent_response` ChatMessage, folding in the deep-research /
+ * plan / citation context carried on the store at emit time. Shared by
+ * `addAgentResponse` (one-shot bubble) and `appendAgentResponseDelta` (first
+ * delta of a streamed answer) so a finalized streamed bubble is byte-identical
+ * to today's single-shot response for the same store state — this is what
+ * preserves backward compatibility.
+ */
+const buildAgentResponseMessage = (
+  state: ChatStore,
+  id: string,
+  content: string,
+  opts: {
+    showViewReport?: boolean
+    cards?: GridCard[]
+    answerConfidence?: 'low' | 'medium' | 'high'
+    citations?: CitationSource[]
+    isStreaming?: boolean
+  }
+): ChatMessage => {
+  const {
+    reportContent,
+    deepResearchCitations,
+    planMessages,
+    deepResearchTodos,
+    deepResearchLLMSteps,
+    deepResearchAgents,
+    deepResearchToolCalls,
+    deepResearchFiles,
+    deepResearchJobId,
+    deepResearchLastEventId,
+    deepResearchStatus,
+  } = state
+
+  return {
+    id,
+    role: 'assistant',
+    content,
+    timestamp: new Date(),
+    messageType: 'agent_response',
+    showViewReport: opts.showViewReport,
+    cards: opts.cards,
+    answerConfidence: opts.answerConfidence,
+    reportContent: reportContent || undefined,
+    citations:
+      opts.citations && opts.citations.length > 0
+        ? opts.citations
+        : deepResearchCitations.length > 0
+          ? [...deepResearchCitations]
+          : undefined,
+    planMessages: planMessages.length > 0 ? [...planMessages] : undefined,
+    deepResearchTodos: deepResearchTodos.length > 0 ? [...deepResearchTodos] : undefined,
+    deepResearchLLMSteps:
+      deepResearchLLMSteps.length > 0 ? [...deepResearchLLMSteps] : undefined,
+    deepResearchAgents: deepResearchAgents.length > 0 ? [...deepResearchAgents] : undefined,
+    deepResearchToolCalls:
+      deepResearchToolCalls.length > 0 ? [...deepResearchToolCalls] : undefined,
+    deepResearchFiles: deepResearchFiles.length > 0 ? [...deepResearchFiles] : undefined,
+    deepResearchJobId: deepResearchJobId || undefined,
+    deepResearchLastEventId: deepResearchLastEventId || undefined,
+    deepResearchJobStatus: deepResearchStatus || undefined,
+    ...(opts.isStreaming ? { isStreaming: true } : {}),
+  }
 }
 
 export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", never]], [], MessagesSlice> = (set, get) => ({
@@ -708,6 +787,9 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
         isLoading: true,
         currentUserMessageId: newMessage.id,
         activeThinkingStepId: null,
+        // A new turn starts a fresh answer bubble — never accumulate onto the
+        // previous turn's (already finalized) streaming bubble.
+        streamingAssistantMessageId: null,
       },
       false,
       'addUserMessage'
@@ -724,51 +806,16 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
     answerConfidence?: 'low' | 'medium' | 'high',
     citations?: CitationSource[]
   ) => {
-    const {
-      currentConversation,
-      conversations,
-      reportContent,
-      deepResearchCitations,
-      planMessages,
-      deepResearchTodos,
-      deepResearchLLMSteps,
-      deepResearchAgents,
-      deepResearchToolCalls,
-      deepResearchFiles,
-      deepResearchJobId,
-      deepResearchLastEventId,
-      deepResearchStatus,
-    } = get()
+    const state = get()
+    const { currentConversation, conversations } = state
     if (!currentConversation) return
 
-    const responseMessage: ChatMessage = {
-      id: uuidv4(),
-      role: 'assistant',
-      content,
-      timestamp: new Date(),
-      messageType: 'agent_response',
+    const responseMessage = buildAgentResponseMessage(state, uuidv4(), content, {
       showViewReport,
       cards,
       answerConfidence,
-      reportContent: reportContent || undefined,
-      citations:
-        citations && citations.length > 0
-          ? citations
-          : deepResearchCitations.length > 0
-            ? [...deepResearchCitations]
-            : undefined,
-      planMessages: planMessages.length > 0 ? [...planMessages] : undefined,
-      deepResearchTodos: deepResearchTodos.length > 0 ? [...deepResearchTodos] : undefined,
-      deepResearchLLMSteps:
-        deepResearchLLMSteps.length > 0 ? [...deepResearchLLMSteps] : undefined,
-      deepResearchAgents: deepResearchAgents.length > 0 ? [...deepResearchAgents] : undefined,
-      deepResearchToolCalls:
-        deepResearchToolCalls.length > 0 ? [...deepResearchToolCalls] : undefined,
-      deepResearchFiles: deepResearchFiles.length > 0 ? [...deepResearchFiles] : undefined,
-      deepResearchJobId: deepResearchJobId || undefined,
-      deepResearchLastEventId: deepResearchLastEventId || undefined,
-      deepResearchJobStatus: deepResearchStatus || undefined,
-    }
+      citations,
+    })
 
     const updatedConversation: Conversation = {
       ...currentConversation,
@@ -803,6 +850,154 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
     }
 
     get()._appendMessage(responseMessage)
+  },
+
+  appendAgentResponseDelta: (
+    content: string,
+    cards?: GridCard[],
+    answerConfidence?: 'low' | 'medium' | 'high',
+    citations?: CitationSource[]
+  ) => {
+    const state = get()
+    const { currentConversation, conversations, streamingAssistantMessageId } = state
+    if (!currentConversation) return
+
+    // First delta of the turn: open a single streaming bubble. Any meta present
+    // (the legacy backend attaches cards to its one and only in_progress frame)
+    // is captured here so it survives to the finalize step.
+    if (!streamingAssistantMessageId) {
+      const id = uuidv4()
+      const message = buildAgentResponseMessage(state, id, content, {
+        showViewReport: false,
+        cards: cards && cards.length > 0 ? cards : undefined,
+        answerConfidence,
+        citations,
+        isStreaming: true,
+      })
+
+      const updatedConversation: Conversation = {
+        ...currentConversation,
+        messages: [...currentConversation.messages, message],
+        updatedAt: new Date(),
+      }
+
+      set(
+        {
+          currentConversation: updatedConversation,
+          conversations: updateConversationInList(conversations, updatedConversation),
+          streamingAssistantMessageId: id,
+        },
+        false,
+        'appendAgentResponseDelta:create'
+      )
+      return
+    }
+
+    // Subsequent delta: append text to the existing bubble. Deltas normally
+    // carry no meta, but merge any that arrives so nothing sent mid-stream is
+    // dropped.
+    const updatedMessages = currentConversation.messages.map((msg) =>
+      msg.id === streamingAssistantMessageId
+        ? {
+            ...msg,
+            content: msg.content + content,
+            ...(cards && cards.length > 0 ? { cards } : {}),
+            ...(answerConfidence ? { answerConfidence } : {}),
+            ...(citations && citations.length > 0 ? { citations } : {}),
+          }
+        : msg
+    )
+
+    const updatedConversation: Conversation = {
+      ...currentConversation,
+      messages: updatedMessages,
+      updatedAt: new Date(),
+    }
+
+    set(
+      {
+        currentConversation: updatedConversation,
+        conversations: updateConversationInList(conversations, updatedConversation),
+      },
+      false,
+      'appendAgentResponseDelta:append'
+    )
+  },
+
+  finalizeAgentResponse: (
+    content: string,
+    cards?: GridCard[],
+    answerConfidence?: 'low' | 'medium' | 'high',
+    citations?: CitationSource[]
+  ) => {
+    const { currentConversation, conversations, streamingAssistantMessageId } = get()
+    if (!currentConversation) return
+
+    // No bubble was ever opened (no delta arrived) — e.g. a complete-only frame
+    // that carries the whole answer. Fall back to a one-shot response so there
+    // is still exactly one bubble, and skip entirely on the legacy empty
+    // synthetic complete when nothing preceded it.
+    if (!streamingAssistantMessageId) {
+      if ((content && content.trim()) || (cards && cards.length > 0)) {
+        get().addAgentResponse(content, false, cards, answerConfidence, citations)
+      }
+      return
+    }
+
+    const updatedMessages = currentConversation.messages.map((msg) => {
+      if (msg.id !== streamingAssistantMessageId) return msg
+      return {
+        ...msg,
+        // Authoritative full text on the terminal frame equals the accumulation
+        // (idempotent replace). An EMPTY terminal — the legacy synthetic
+        // `complete` frame — must NOT wipe the accumulated bubble.
+        content: content && content.length > 0 ? content : msg.content,
+        // Cards/sources/confidence ride the terminal frame when streaming; keep
+        // whatever the delta already attached when the terminal omits them (the
+        // legacy path attaches cards on the in_progress frame).
+        ...(cards && cards.length > 0 ? { cards } : {}),
+        ...(answerConfidence ? { answerConfidence } : {}),
+        ...(citations && citations.length > 0 ? { citations } : {}),
+        isStreaming: false,
+      }
+    })
+
+    const finalizedMessage = updatedMessages.find((m) => m.id === streamingAssistantMessageId)
+
+    const updatedConversation: Conversation = {
+      ...currentConversation,
+      messages: updatedMessages,
+      updatedAt: new Date(),
+    }
+
+    set(
+      {
+        currentConversation: updatedConversation,
+        conversations: updateConversationInList(conversations, updatedConversation),
+        streamingAssistantMessageId: null,
+      },
+      false,
+      'finalizeAgentResponse'
+    )
+
+    // Mirror addAgentResponse's storage-health guard and server persistence,
+    // but run them ONCE at finalize rather than per delta.
+    if (!checkStorageHealth().isHealthy) {
+      const { currentUserId } = get()
+      const cleanedUpIds = ensureStorageCapacity(currentConversation.id, currentUserId)
+      if (cleanedUpIds.length > 0) {
+        const deleted = new Set(cleanedUpIds)
+        set(
+          (state) => ({ conversations: state.conversations.filter((c) => !deleted.has(c.id)) }),
+          false,
+          'storageCleanupPrune'
+        )
+      }
+    }
+
+    if (finalizedMessage) {
+      get()._appendMessage(finalizedMessage)
+    }
   },
 
   addAgentResponseWithMeta: (
@@ -1177,6 +1372,7 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
           currentUserMessageId: null,
           thinkingSteps: [],
           activeThinkingStepId: null,
+          streamingAssistantMessageId: null,
           reportContent: '',
           reportContentCategory: null,
           currentStatus: null,

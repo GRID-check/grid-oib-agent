@@ -431,7 +431,8 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
 
   // Actions — stable references, individual selectors won't cause re-renders
   const addUserMessage = useChatStore((s) => s.addUserMessage)
-  const addAgentResponse = useChatStore((s) => s.addAgentResponse)
+  const appendAgentResponseDelta = useChatStore((s) => s.appendAgentResponseDelta)
+  const finalizeAgentResponse = useChatStore((s) => s.finalizeAgentResponse)
   const addAgentResponseWithMeta = useChatStore((s) => s.addAgentResponseWithMeta)
   const addThinkingStep = useChatStore((s) => s.addThinkingStep)
   const appendToThinkingStep = useChatStore((s) => s.appendToThinkingStep)
@@ -850,10 +851,19 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
 
         // reportContent is only populated by deep research SSE events
         // (use-deep-research.ts), not by regular WebSocket responses.
-        if ((content && content.trim()) || validatedCards.length > 0) {
-          // Add to chat area as AgentResponse
-          // Note: reportContent is only set by deep research SSE events (use-deep-research.ts)
-          addAgentResponse(content, false, validatedCards, answerConfidence, citationsFromWireList(sources))
+        //
+        // Answer frames are routed by their frame SEMANTICS (status), not any
+        // client flag: `in_progress` frames are deltas that accumulate into a
+        // single bubble; the terminal `complete` frame replaces the text with
+        // the authoritative full answer and attaches cards/sources/confidence.
+        // With the legacy single-frame backend this collapses to "one delta
+        // (full text + cards) then an empty complete", which finalizes the same
+        // one bubble — identical to the previous single-shot behaviour.
+        const citations = citationsFromWireList(sources)
+        if (isFinal) {
+          finalizeAgentResponse(content, validatedCards, answerConfidence, citations)
+        } else if ((content && content.trim()) || validatedCards.length > 0) {
+          appendAgentResponseDelta(content, validatedCards, answerConfidence, citations)
         }
 
         // status: "complete" with null text signals task completion
@@ -1207,7 +1217,8 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
       },
     }
   }, [
-    addAgentResponse,
+    appendAgentResponseDelta,
+    finalizeAgentResponse,
     addAgentResponseWithMeta,
     addThinkingStep,
     appendToThinkingStep,
