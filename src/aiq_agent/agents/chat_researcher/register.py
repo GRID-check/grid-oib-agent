@@ -270,6 +270,83 @@ class IntentClassifierConfig(FunctionBaseConfig, name="intent_classifier"):
     )
 
 
+# Strong references to in-flight fire-and-forget persistence tasks so the event
+# loop cannot garbage-collect them mid-run (and so an unretrieved exception is
+# never logged as a warning). Entries are discarded on completion.
+_persist_tasks: set[asyncio.Task] = set()
+
+
+def _schedule_registry_persist(conversation_id: str) -> None:
+    """Persist the turn's citation registry to the shared cache off the TTFT path.
+
+    The write is best-effort/fail-open (ADR-0020 cross-replica/restart source
+    recovery) and nothing downstream reads its result, so it must not gate the
+    first streamed token. Mirrors ``schedule_memory_reflection``: run the
+    blocking cache write in a thread, swallow/log any failure, and hold a strong
+    reference until the task completes.
+    """
+
+    async def _persist() -> None:
+        try:
+            from aiq_agent.common.citation_verification import persist_session_registry
+
+            await asyncio.to_thread(persist_session_registry, conversation_id)
+        except Exception:
+            logger.debug("Citation registry persistence failed (non-fatal)", exc_info=True)
+
+    try:
+        task = asyncio.get_running_loop().create_task(_persist())
+    except RuntimeError:
+        # No running loop (e.g. sync test context) — persist inline as a fallback.
+        try:
+            from aiq_agent.common.citation_verification import persist_session_registry
+
+            persist_session_registry(conversation_id)
+        except Exception:
+            logger.debug("Citation registry persistence failed (non-fatal)", exc_info=True)
+        return
+    _persist_tasks.add(task)
+    task.add_done_callback(_persist_tasks.discard)
+
+
+def _compact_tool_blurb(tool_name: str, full_description: str) -> str:
+    """One-line routing blurb for a tool used by the intent classifier.
+
+    The classifier only needs each tool's PURPOSE to route (meta-vs-research,
+    shallow-vs-deep) — not its argument-level usage contract. It renders the
+    tool list below the KV-cache boundary and does not ``bind_tools``, so a
+    full agent-facing docstring (e.g. ris_search's ~40 lines) is pure prefill
+    weight on the gating LLM call of every turn.
+
+    Prefer the data-source registry's short description — the exact text the
+    pinned-sources path already renders via ``format_data_source_tools`` — so
+    the two paths converge. Fall back to the first sentence of the tool's own
+    description for non-registry tools (e.g. ``remember``). Always single-line.
+    """
+    try:
+        from aiq_agent.common.data_source_registry import get_source
+        from aiq_agent.common.data_source_registry import get_source_id_for_tool
+
+        source_id = get_source_id_for_tool(tool_name)
+        if source_id:
+            meta = get_source(source_id)
+            if meta and meta.description:
+                return " ".join(meta.description.split())
+    except Exception:
+        pass
+
+    text = " ".join((full_description or "").split())
+    if not text:
+        return ""
+    # First sentence, so a non-registry tool still conveys its purpose.
+    for sep in (". ", "! ", "? "):
+        idx = text.find(sep)
+        if idx != -1:
+            return text[: idx + 1]
+    # No sentence terminator: cap length so a stray long docstring can't bloat.
+    return text if len(text) <= 240 else text[:237] + "..."
+
+
 @register_function(config_type=IntentClassifierConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])
 async def intent_classifier(config: IntentClassifierConfig, builder: Builder):
     """Combined orchestration: classifies intent, produces meta response, and routes depth in one node."""
@@ -293,7 +370,16 @@ async def intent_classifier(config: IntentClassifierConfig, builder: Builder):
     verbose = is_verbose(config.verbose)
     callbacks = [VerboseTraceCallback()] if verbose else []
 
-    tools_info = [{"name": getattr(t, "name", str(t)), "description": getattr(t, "description", "")} for t in tools]
+    # Routing only needs each tool's purpose, not its full call docstring: keep
+    # the exact tool name (the registry/non-registry split below keys on it) but
+    # collapse the description to a short single-line blurb (see helper).
+    tools_info = [
+        {
+            "name": getattr(t, "name", str(t)),
+            "description": _compact_tool_blurb(getattr(t, "name", str(t)), getattr(t, "description", "")),
+        }
+        for t in tools
+    ]
     classifier = IntentClassifier(
         llm=llm,
         tools_info=tools_info,
@@ -603,19 +689,21 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
             _reflection_memory_digest = None
             _reflection_flag_enabled = False
             try:
+                from aiq_agent.project_context import GridRequestContext
                 from aiq_agent.project_context import compose_project_context
-                from aiq_agent.project_context import get_memory_digest_from_context
-                from aiq_agent.project_context import get_memory_reflection_enabled_from_context
-                from aiq_agent.project_context import get_organization_id_from_context
-                from aiq_agent.project_context import get_profile_context_from_context
-                from aiq_agent.project_context import get_project_id_from_context
 
-                _profile_context = get_profile_context_from_context()
-                _project_id = get_project_id_from_context()
-                _org_id = get_organization_id_from_context()
+                # Parse the signed request-context envelope ONCE per turn: each
+                # accessor helper otherwise re-reads the header and re-runs the
+                # base64 + HMAC-SHA256 + JSON parse of the same payload (the
+                # module docstring instructs calling from_context() once when
+                # more than one field is needed).
+                _ctx = GridRequestContext.from_context()
+                _profile_context = _ctx.project_context
+                _project_id = _ctx.project_id
+                _org_id = _ctx.organization_id
 
                 # Live per-turn digest; fall back to the connection-time header value.
-                _memory_digest = get_memory_digest_from_context()
+                _memory_digest = _ctx.project_memory
                 if _project_id or _org_id:
                     try:
                         from aiq_agent.knowledge.project_memory import fetch_memory_digest
@@ -632,7 +720,7 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                 _project_context = compose_project_context(_profile_context, _memory_digest)
 
                 if reflection_llm is not None:
-                    _reflection_flag_enabled = get_memory_reflection_enabled_from_context()
+                    _reflection_flag_enabled = _ctx.memory_reflection_enabled
                     _reflection_project_id = _project_id
                     _reflection_org_id = _org_id
                     # Reflect against the digest the agent actually saw this turn.
@@ -724,10 +812,11 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
             available_documents = None
             try:
                 from aiq_agent.knowledge import get_available_documents_async
-                from aiq_agent.knowledge.scoping import get_collection_scope_from_context
 
-                # Header-based collection scope takes precedence.
-                header_scope = get_collection_scope_from_context()
+                # Header-based collection scope takes precedence. Reuse the value
+                # already decoded once at the top of the turn (_collection_scope)
+                # instead of re-reading and re-normalizing the same header here.
+                header_scope = _collection_scope
                 if header_scope:
                     collections_to_check = header_scope
                 else:
@@ -825,14 +914,10 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
             reset_card_registry(card_token)
             # Persist the turn's captured citation sources to the shared cache
             # (ADR-0020) so the conversation keeps prior-turn sources after a
-            # restart or on another replica. Best-effort, off the event loop.
+            # restart or on another replica. Best-effort and fire-and-forget: it
+            # must not sit between "answer ready" and "first streamed token".
             if nat_context_conversation_id:
-                try:
-                    from aiq_agent.common.citation_verification import persist_session_registry
-
-                    await asyncio.to_thread(persist_session_registry, nat_context_conversation_id)
-                except Exception:
-                    logger.debug("Citation registry persistence failed (non-fatal)", exc_info=True)
+                _schedule_registry_persist(nat_context_conversation_id)
 
         if isinstance(result, dict):
             messages = result.get("messages", [])

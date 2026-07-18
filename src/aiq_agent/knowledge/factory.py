@@ -340,6 +340,15 @@ def get_document_doc_class(collection: str, filename: str) -> str | None:
     return _get_summary_store().get_doc_class(collection, filename)
 
 
+def get_document_doc_classes(collection: str, filenames: list[str]) -> dict[str, str]:
+    """Return stored ``doc_class`` values for many documents in one query.
+
+    Batched equivalent of :func:`get_document_doc_class`; only documents with a
+    truthy stored ``doc_class`` appear in the map (same coercion).
+    """
+    return _get_summary_store().get_doc_classes_batch(collection, filenames)
+
+
 def list_summary_collections() -> list[str]:
     """List every collection that has at least one persisted summary."""
     return _get_summary_store().list_collections()

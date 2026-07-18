@@ -95,8 +95,11 @@ User: {{ user_info.name or "Unknown" }} ({{ user_info.email or "Unknown" }})
 {% endif %}
 
 ## Available Tools
+{# Names only: each tool's full description is already sent authoritatively via
+   the bound tool schemas (OpenAI `tools` field). Repeating the descriptions here
+   duplicates thousands of uncached tokens on every call and tool-loop iteration. #}
 {% if tools %}
-{% for tool in tools %}- **{{ tool.name }}**: {{ tool.description }}
+{% for tool in tools %}- **{{ tool.name }}**
 {% endfor %}
 {% else %}
 **No research tools available.**
