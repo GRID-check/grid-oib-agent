@@ -89,9 +89,11 @@ export const DockedPanel: FC<DockedPanelProps> = ({
       aria-hidden={!open}
       data-state={open ? 'open' : 'closed'}
       className={cn(
-        // Mobile docks under the h-14 top bar; desktop has no global header —
-        // panels align to the bottom edge of the h-12 chat toolbar instead.
-        'fixed top-[var(--header-height)] z-40 flex h-[calc(100dvh-var(--header-height))] w-full max-w-[400px] flex-col bg-background md:top-12 md:h-[calc(100dvh-3rem)]',
+        // Mobile docks under the top bar as a lifted modal; desktop has no
+        // global header — the panel stays FLUSH on the shared chat plane
+        // (bg-background), joined by a single hairline edge, and aligns to the
+        // bottom of the h-12 chat toolbar. No desktop elevation → one surface.
+        'fixed top-[var(--header-height)] z-40 flex h-[calc(100dvh-var(--header-height))] w-full max-w-[400px] flex-col bg-background shadow-lg md:top-12 md:h-[calc(100dvh-3rem)] md:shadow-none',
         side === 'left' ? 'left-0 border-r' : 'right-0 border-l',
         // Slide transition; reduced-motion users get an instant swap
         'transition-transform duration-300 ease-in-out motion-reduce:transition-none',
@@ -100,8 +102,8 @@ export const DockedPanel: FC<DockedPanelProps> = ({
         className
       )}
     >
-      {/* Heading row */}
-      <div className="flex h-14 shrink-0 items-center justify-between gap-2 border-b px-4">
+      {/* Heading row — 48px to match the chat toolbar so the seams register */}
+      <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-b border-border/60 px-4">
         <div className="flex min-w-0 items-center gap-2 text-sm font-semibold">{heading}</div>
         <Button
           ref={closeButtonRef}
@@ -120,7 +122,7 @@ export const DockedPanel: FC<DockedPanelProps> = ({
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-4">{children}</div>
 
       {/* Footer */}
-      {footer && <div className="shrink-0 border-t px-4 py-3">{footer}</div>}
+      {footer && <div className="shrink-0 border-t border-border/60 px-4 py-3">{footer}</div>}
     </aside>
   )
 }

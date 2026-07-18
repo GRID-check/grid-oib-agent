@@ -165,7 +165,7 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
       {/* Basis footer — the data sources + files this query ran against, always
           visible as clean pills (does not require expanding the Herleitung). */}
       {contextChips.length > 0 && (
-        <div className="border-base flex flex-col gap-2 border-t px-4 pb-4 pt-3">
+        <div className="flex flex-col gap-2 border-t border-border/60 px-4 pb-4 pt-3">
           <span className="text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
             {t('thinking.selectedDataSources')}
           </span>
@@ -173,7 +173,7 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
             {contextChips.map((chip) => (
               <span
                 key={chip}
-                className="whitespace-nowrap rounded-md border bg-secondary px-2 py-[3px] text-[11px] text-muted-foreground"
+                className="whitespace-nowrap rounded-full bg-secondary px-2.5 py-1 text-[11px] font-medium text-muted-foreground"
               >
                 {chip}
               </span>

@@ -230,7 +230,7 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
   }, [])
 
   const uploadTargetControls = projectId ? (
-    <div className="flex flex-col gap-2 rounded-xl border bg-muted/40 p-3">
+    <div className="flex flex-col gap-2 rounded-xl bg-muted/50 p-3">
       <span className="text-xs font-semibold uppercase text-muted-foreground">{t('fileSourcesTab.uploadTo')}</span>
       <div className="flex gap-2">
         <Button

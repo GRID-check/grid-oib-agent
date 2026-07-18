@@ -213,7 +213,7 @@ export const DataSourcesPanel: FC<DataSourcesPanelProps> = memo(function DataSou
               }
             }}
             className={cn(
-              'mb-4 flex items-center justify-between rounded-lg border p-3 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50',
+              'mb-4 flex items-center justify-between rounded-2xl bg-card p-3 shadow-xs outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50',
               isBusy ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:bg-accent'
             )}
             aria-pressed={allAvailableEnabled}
