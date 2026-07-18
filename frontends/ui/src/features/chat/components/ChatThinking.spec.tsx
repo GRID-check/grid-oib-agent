@@ -253,18 +253,20 @@ describe('ChatThinking', () => {
     })
   })
 
-  describe('data sources summary', () => {
-    test('data sources are visible without expanding the collapsible', () => {
+  describe('data sources footer (always visible)', () => {
+    // The basis footer (data sources + files as pills) stays visible WITHOUT
+    // expanding the Herleitung — an always-present chip row.
+    test('shows enabled data sources as chips without expanding', () => {
       const steps = [createStep()]
-      const enabledDataSources = ['web_search', 'knowledge_base']
 
-      render(<ChatThinking steps={steps} enabledDataSources={enabledDataSources} />)
+      render(<ChatThinking steps={steps} enabledDataSources={['web_search', 'knowledge_base']} />)
 
       expect(screen.getByText('Selected Data Sources:')).toBeVisible()
-      expect(screen.getByText('Web Search, Knowledge Base')).toBeVisible()
+      expect(screen.getByText('Web Search')).toBeVisible()
+      expect(screen.getByText('Knowledge Base')).toBeVisible()
     })
 
-    test('displays files when provided', () => {
+    test('shows files as chips', () => {
       const steps = [createStep()]
       const messageFiles = [
         { id: 'file-1', fileName: 'document.pdf' },
@@ -273,53 +275,161 @@ describe('ChatThinking', () => {
 
       render(<ChatThinking steps={steps} messageFiles={messageFiles} />)
 
-      expect(screen.getByText('Selected Data Sources:')).toBeVisible()
-      expect(screen.getByText('document.pdf, report.docx')).toBeVisible()
+      expect(screen.getByText('document.pdf')).toBeVisible()
+      expect(screen.getByText('report.docx')).toBeVisible()
     })
 
-    test('displays both data sources and files', () => {
+    test('shows both data sources and files as chips', () => {
       const steps = [createStep()]
-      const enabledDataSources = ['web_search']
-      const messageFiles = [{ id: 'file-1', fileName: 'document.pdf' }]
 
       render(
         <ChatThinking
           steps={steps}
-          enabledDataSources={enabledDataSources}
-          messageFiles={messageFiles}
+          enabledDataSources={['web_search']}
+          messageFiles={[{ id: 'file-1', fileName: 'document.pdf' }]}
         />
       )
 
-      expect(screen.getByText('Selected Data Sources:')).toBeVisible()
       expect(screen.getByText('Web Search')).toBeVisible()
       expect(screen.getByText('document.pdf')).toBeVisible()
     })
 
-    test('shows knowledge_layer as the OIB Knowledge Base source', () => {
+    test('maps knowledge_layer to the OIB Knowledge Base chip', () => {
       const steps = [createStep()]
-      const enabledDataSources = ['web_search', 'knowledge_layer']
 
-      render(<ChatThinking steps={steps} enabledDataSources={enabledDataSources} />)
+      render(<ChatThinking steps={steps} enabledDataSources={['web_search', 'knowledge_layer']} />)
 
-      expect(screen.getByText('Web Search, OIB Knowledge Base')).toBeVisible()
+      expect(screen.getByText('OIB Knowledge Base')).toBeVisible()
       expect(screen.queryByText(/knowledge_layer/i)).not.toBeInTheDocument()
     })
 
-    test('does not show data sources section when no sources or files', () => {
+    test('title-cases unknown data source ids into chips', () => {
+      const steps = [createStep()]
+
+      render(
+        <ChatThinking steps={steps} enabledDataSources={['web_search', 'onedrive', 'google_drive']} />
+      )
+
+      expect(screen.getByText('Web Search')).toBeVisible()
+      expect(screen.getByText('Onedrive')).toBeVisible()
+      expect(screen.getByText('Google Drive')).toBeVisible()
+    })
+
+    test('shows no footer when there are no data sources or files', () => {
       const steps = [createStep()]
 
       render(<ChatThinking steps={steps} />)
 
-      expect(screen.queryByText('Selected Data Sources')).not.toBeInTheDocument()
+      expect(screen.queryByText('Selected Data Sources:')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('reasoning chain nodes', () => {
+    const expandChain = async (user: ReturnType<typeof userEvent.setup>) => {
+      await user.click(screen.getByText(/Trace ·/))
+    }
+
+    test('framing node restates the user question', async () => {
+      const user = userEvent.setup()
+      const steps = [createStep()]
+
+      render(<ChatThinking steps={steps} userQuestion="Wie viele Rettungswege brauche ich?" />)
+
+      await expandChain(user)
+
+      expect(screen.getByText('Question understood')).toBeVisible()
+      expect(
+        screen.getByText(/Wie viele Rettungswege brauche ich\?/)
+      ).toBeVisible()
     })
 
-    test('formats data source names correctly', () => {
+    test('assessment node renders a confidence pill when answerConfidence is set', async () => {
+      const user = userEvent.setup()
       const steps = [createStep()]
-      const enabledDataSources = ['web_search', 'onedrive', 'google_drive']
 
-      render(<ChatThinking steps={steps} enabledDataSources={enabledDataSources} />)
+      render(<ChatThinking steps={steps} answerConfidence="high" />)
 
-      expect(screen.getByText('Web Search, Onedrive, Google Drive')).toBeVisible()
+      await expandChain(user)
+
+      expect(screen.getByText('Well supported')).toBeVisible()
+    })
+
+    test('assessment node renders citation chips (deduped by lane)', async () => {
+      const user = userEvent.setup()
+      const steps = [createStep()]
+      const citations = [
+        {
+          id: 'c1',
+          content: '',
+          timestamp: new Date(),
+          kind: 'baurecht' as const,
+          lane: 'baurecht_oib',
+          laneLabel: 'OIB-Richtlinie',
+        },
+        {
+          id: 'c2',
+          content: '',
+          timestamp: new Date(),
+          kind: 'baurecht' as const,
+          lane: 'baurecht_oib',
+          laneLabel: 'OIB-Richtlinie',
+        },
+      ]
+
+      render(<ChatThinking steps={steps} citations={citations} />)
+
+      await expandChain(user)
+
+      expect(screen.getByText('Backed by')).toBeVisible()
+      // Deduped to a single lane chip.
+      expect(screen.getAllByText('OIB-Richtlinie')).toHaveLength(1)
+    })
+
+    test('assessment node is hidden without confidence or citations', async () => {
+      const user = userEvent.setup()
+      const steps = [createStep()]
+
+      render(<ChatThinking steps={steps} userQuestion="Frage?" />)
+
+      await expandChain(user)
+
+      expect(screen.queryByText('Backed by')).not.toBeInTheDocument()
+    })
+
+    test('next-steps node renders a live choice prompt and responds', async () => {
+      const user = userEvent.setup()
+      const onChoiceRespond = vi.fn()
+      const steps = [createStep()]
+
+      render(
+        <ChatThinking
+          steps={steps}
+          choicePrompt={{
+            promptId: 'p1',
+            text: 'How do you want to proceed?',
+            options: ['Option Alpha', 'Option Beta'],
+            isResponded: false,
+          }}
+          onChoiceRespond={onChoiceRespond}
+        />
+      )
+
+      await expandChain(user)
+
+      expect(screen.getByText('Option Alpha')).toBeVisible()
+      await user.click(screen.getByText('Option Beta'))
+      expect(onChoiceRespond).toHaveBeenCalledWith('p1', 'Option Beta')
+    })
+
+    test('next-steps node is hidden without a choice prompt', async () => {
+      const user = userEvent.setup()
+      const steps = [createStep()]
+
+      render(<ChatThinking steps={steps} userQuestion="Frage?" />)
+
+      await expandChain(user)
+
+      expect(screen.queryByText('Option Alpha')).not.toBeInTheDocument()
     })
   })
 })

@@ -941,7 +941,8 @@ describe('useDeepResearch', () => {
       expect(mockAddDeepResearchCitation).toHaveBeenCalledWith(
         'https://example.com',
         'Citation content',
-        true
+        true,
+        undefined
       )
     })
 
@@ -1227,7 +1228,12 @@ describe('useDeepResearch', () => {
       act(() => {
         mockClient?.callbacks.onCitationUpdate?.('https://example.com', 'Citation', true)
       })
-      expect(mockAddDeepResearchCitation).toHaveBeenCalledWith('https://example.com', 'Citation', true)
+      expect(mockAddDeepResearchCitation).toHaveBeenCalledWith(
+        'https://example.com',
+        'Citation',
+        true,
+        undefined
+      )
     })
 
     test('reconnect falls back to a full buffered replay while the replay buffer is still active', async () => {

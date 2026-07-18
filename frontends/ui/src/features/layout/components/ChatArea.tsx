@@ -159,9 +159,14 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
       {isEmpty ? (
         <WelcomeState isAuthenticated={isAuthenticated} onSignIn={onSignIn} />
       ) : (
-        // Generous bottom padding keeps the last message clear of the floating
-        // composer, which now overlays the bottom of this scroll area.
-        <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 pb-44 pt-4">
+        // Bottom padding tracks the floating composer's REAL height (published
+        // as --composer-h by MainLayout's ResizeObserver) plus a breathing gap,
+        // so the last message/Herleitung never renders behind the composer no
+        // matter how tall it grows. The 11rem fallback matches the old pb-44.
+        <div
+          className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 pt-4"
+          style={{ paddingBottom: 'calc(var(--composer-h, 11rem) + 1.5rem)' }}
+        >
           <AnimatePresence initial={false}>
             {displayableMessages.map((message, index) => {
               const isUserMessage = message.messageType === 'user' || message.role === 'user'
@@ -192,6 +197,30 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
               )
               const isInterrupted = shouldCheckPostState && !isWaiting && !hasResponse
 
+              // Real data threaded into the Herleitung assessment/next-steps
+              // nodes: the turn's answer (confidence + citations) and any live
+              // multiple-choice HITL prompt. Absent on streaming/shallow turns —
+              // those nodes then hide themselves.
+              const agentMsg = turnMessages.find(
+                (m) => m.messageType === 'assistant' || m.messageType === 'agent_response'
+              )
+              const choicePromptMsg = turnMessages.find(
+                (m) =>
+                  m.messageType === 'prompt' &&
+                  m.promptType === 'choice' &&
+                  (m.promptOptions?.length ?? 0) > 0
+              )
+              const choicePrompt = choicePromptMsg
+                ? {
+                    promptId: choicePromptMsg.promptId ?? choicePromptMsg.id,
+                    text: choicePromptMsg.content,
+                    options: choicePromptMsg.promptOptions ?? [],
+                    isResponded: !!choicePromptMsg.isPromptResponded,
+                    selected: choicePromptMsg.promptResponse,
+                  }
+                : undefined
+              const isLastMessage = index === displayableMessages.length - 1
+
               return (
                 <motion.div
                   key={message.id}
@@ -214,9 +243,14 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                     showAnswerFeedback={showAnswerFeedback}
                   />
 
-                  {/* Render thinking steps after user messages — negative margin lets the next message overlap */}
+                  {/* Render thinking steps after user messages. The negative
+                      margin only lets a FOLLOWING message overlap — on the last
+                      message it would pull the panel behind the composer, so
+                      it's dropped there. */}
                   {isUserMessage && hasThinkingSteps && (
-                    <div className="-mb-8 flex w-[85%] justify-start">
+                    <div
+                      className={`flex w-[85%] justify-start ${isLastMessage ? '' : '-mb-8'}`}
+                    >
                       <ChatThinking
                         steps={messageSteps}
                         isThinking={isStreaming && message.id === currentUserMessageId}
@@ -224,6 +258,11 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                         isInterrupted={isInterrupted}
                         enabledDataSources={message.enabledDataSources}
                         messageFiles={message.messageFiles}
+                        userQuestion={message.content}
+                        answerConfidence={agentMsg?.answerConfidence}
+                        citations={agentMsg?.citations}
+                        choicePrompt={choicePrompt}
+                        onChoiceRespond={handlePromptRespond}
                       />
                     </div>
                   )}
@@ -414,7 +453,10 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
 
   if (!isAuthenticated) {
     return (
-      <div className="flex flex-1 items-center justify-center px-4 pb-44 pt-6">
+      <div
+        className="flex flex-1 items-center justify-center px-4 pt-6"
+        style={{ paddingBottom: 'calc(var(--composer-h, 11rem) + 1.5rem)' }}
+      >
         <div className="flex w-full max-w-md flex-col items-center gap-4 text-center">
           <div className="flex h-12 w-12 items-center justify-center rounded-xl border bg-muted text-brand">
             <Lock className="h-5 w-5" aria-hidden="true" />
@@ -442,7 +484,10 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
     : greeting
 
   return (
-    <div className="flex flex-1 flex-col items-center justify-center px-6 pb-44 pt-6">
+    <div
+      className="flex flex-1 flex-col items-center justify-center px-6 pt-6"
+      style={{ paddingBottom: 'calc(var(--composer-h, 11rem) + 1.5rem)' }}
+    >
       {/* "Privater Workspace" lock chip — h28, radius8, hairline, raised */}
       <div className="mb-4 inline-flex h-7 items-center gap-[7px] rounded-md border bg-card px-[11px] shadow-xs">
         <Lock className="size-3 shrink-0 text-subtle" aria-hidden="true" />

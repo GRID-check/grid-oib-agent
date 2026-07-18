@@ -148,6 +148,25 @@ export const chat: typeof en.chat = {
       knowledgeBase: 'OIB-Wissensdatenbank',
       ris: 'RIS (Österreichisches Recht)',
     },
+    node: {
+      framingTab: 'Zwischenschritt',
+      framingTitle: 'Frage verstanden',
+      framingQuestion: 'Du fragst: „{question}“',
+      contextLabel: 'Kontext',
+      sourcesTab: 'Quellen',
+      sourcesTitle: 'Geprüfte Quellen',
+      findingsTab: 'Einschätzung',
+      findingsTitle: 'Belegt durch',
+      confidenceLabel: 'Belegt',
+      confidence: {
+        high: 'Gut belegt',
+        medium: 'Teilweise belegt',
+        low: 'Schwach belegt',
+      },
+      branchesTab: 'Folgewege',
+      branchesTitle: 'Wie willst du weiter vorgehen?',
+      branchesSub: 'Wähle eine Option — das Ergebnis wird für deine Wahl zusammengestellt.',
+    },
   },
   deepResearch: {
     stats: {

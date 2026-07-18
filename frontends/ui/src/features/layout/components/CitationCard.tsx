@@ -99,9 +99,11 @@ export const CitationCard: FC<CitationCardProps> = ({ citation, index }) => {
             <p className="line-clamp-3 text-sm leading-relaxed text-muted-foreground">{excerpt}</p>
           )}
 
-          {/* Full URL or structured locator — traceable source */}
+          {/* Full URL or structured locator — traceable source. Falls back to
+              the raw url (even when not a clickable http(s) link) so a citation
+              always shows something traceable. */}
           <span className="truncate break-all font-mono text-xs text-muted-foreground/80">
-            {href || citation.citationKey || citation.fileName || ''}
+            {href || citation.url || citation.citationKey || citation.fileName || ''}
           </span>
         </div>
       </div>
