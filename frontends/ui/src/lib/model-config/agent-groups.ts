@@ -18,6 +18,14 @@ export interface AgentGroupRequirements {
   requiredParameters: string[]
   /** Model's `context_length` must be at least this. */
   minContextLength: number
+  /**
+   * True when this group runs with reasoning DISABLED at the backend
+   * (`reasoning_effort: none`). Reasoning-mandatory models must not be
+   * selectable here — OpenRouter returns HTTP 400 "Reasoning is mandatory
+   * for this endpoint and cannot be disabled" and breaks every call.
+   * Enforced via `isReasoningSafeForOff` in openrouter.ts.
+   */
+  reasoningOff?: boolean
 }
 
 export interface AgentGroupDefinition {
@@ -40,7 +48,13 @@ export const AGENT_GROUPS: AgentGroupDefinition[] = [
     description:
       'Classifies each message (meta vs research, shallow vs deep) and writes short meta answers. High-frequency, latency-sensitive.',
     configLlmRefs: ['intent_llm'],
-    requirements: { requiredParameters: [], minContextLength: 16384 },
+    // The intent LLM runs with reasoning disabled: config_oib_openrouter.yml
+    // `intent_llm` sets `reasoning_effort: none`. Pointing this group at a
+    // reasoning-mandatory model (incident: org override `intent ->
+    // x-ai/grok-4.5`) makes OpenRouter reject every intent call with HTTP 400
+    // "Reasoning is mandatory for this endpoint and cannot be disabled".
+    // `reasoningOff` filters those models out of the picker and the save path.
+    requirements: { requiredParameters: [], minContextLength: 16384, reasoningOff: true },
   },
   {
     id: 'clarifier',

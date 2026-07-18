@@ -99,6 +99,43 @@ export async function _clearCatalogCache(): Promise<void> {
 }
 
 /**
+ * Allowlist of reasoning-capable model families that are known to ACCEPT
+ * reasoning-off (`reasoning_effort: none` / `reasoning: {enabled:false}`) —
+ * i.e. hybrid "reasoning is optional" models. Exported so ops can extend
+ * both lists without a code review of the rule itself.
+ *
+ * `REASONING_OPTIONAL_PREFIXES` is matched with `startsWith` (a whole family);
+ * `REASONING_OPTIONAL_IDS` is matched by exact id.
+ */
+export const REASONING_OPTIONAL_PREFIXES: string[] = ['deepseek/']
+export const REASONING_OPTIONAL_IDS: string[] = []
+
+/**
+ * Whether a model is safe to select for a group that runs with reasoning
+ * DISABLED (`reasoning_effort: none`).
+ *
+ * Rationale (verbatim — do not "optimize" this asymmetry away):
+ *   - Models that do NOT list 'reasoning' (or 'include_reasoning') in
+ *     supportedParameters never reason → always safe.
+ *   - Models that DO list reasoning are UNSAFE by default, because
+ *     OpenRouter's catalog cannot distinguish "supports optional reasoning"
+ *     from "reasoning is mandatory". The costs are asymmetric: a
+ *     false-exclusion merely loses one picker option, while a false-inclusion
+ *     breaks EVERY turn of that group (OpenRouter 400 "Reasoning is mandatory
+ *     for this endpoint and cannot be disabled"). We therefore fail closed.
+ *   - EXCEPT ids on the allowlist (REASONING_OPTIONAL_PREFIXES via startsWith,
+ *     REASONING_OPTIONAL_IDS via exact match): known hybrid families that
+ *     accept reasoning-off, which ops can extend.
+ */
+export function isReasoningSafeForOff(model: OpenRouterModel): boolean {
+  const declaresReasoning =
+    model.supportedParameters.includes('reasoning') || model.supportedParameters.includes('include_reasoning')
+  if (!declaresReasoning) return true
+  if (REASONING_OPTIONAL_IDS.includes(model.id)) return true
+  return REASONING_OPTIONAL_PREFIXES.some((prefix) => model.id.startsWith(prefix))
+}
+
+/**
  * Check one model against one agent group's requirements.
  * Text input is required for every group — all agents converse in text.
  *
@@ -128,6 +165,13 @@ export function validateModelForGroup(
         reasons.push(`model does not support required parameter '${param}'`)
       }
     }
+  }
+  // Reasoning-off groups (e.g. intent, `reasoning_effort: none`) must not
+  // select a reasoning-mandatory model. Runs regardless of strictCapabilities:
+  // relaxed BYOK catalogs carry no `supported_parameters`, so isReasoningSafeForOff
+  // treats them as safe (fails open only when there is no reasoning evidence).
+  if (group.requirements.reasoningOff && !isReasoningSafeForOff(model)) {
+    reasons.push('Modell erfordert Reasoning — für diese Aufgabe ist Reasoning deaktiviert')
   }
   return { ok: reasons.length === 0, reasons }
 }

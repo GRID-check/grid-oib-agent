@@ -34,6 +34,7 @@ const CATALOG: OpenRouterModel[] = [
   model({ id: 'vendor/no-tools', supportedParameters: ['temperature'] }),
   model({ id: 'vendor/small-context', contextLength: 8192 }),
   model({ id: 'vendor/vision-only', inputModalities: ['image'] }),
+  model({ id: 'x-ai/grok-4.5', supportedParameters: ['tools', 'temperature', 'reasoning'] }),
 ]
 
 describe('validateModelForGroup', () => {
@@ -64,6 +65,43 @@ describe('validateModelForGroup', () => {
 
   it('small-context model is still fine for low-context groups', () => {
     expect(validateModelForGroup(model({ contextLength: 32768 }), intent).ok).toBe(true)
+  })
+})
+
+describe('reasoning-off enforcement (intent group runs reasoning_effort:none)', () => {
+  const intent = getAgentGroup('intent')!
+  const shallow = getAgentGroup('shallow_research')!
+  const REASON = 'Modell erfordert Reasoning — für diese Aufgabe ist Reasoning deaktiviert'
+
+  it('non-reasoning model passes for the reasoning-off intent group', () => {
+    const nonReasoning = model({ id: 'vendor/plain', supportedParameters: ['tools', 'temperature'] })
+    expect(validateModelForGroup(nonReasoning, intent).ok).toBe(true)
+  })
+
+  it('grok-style model (declares reasoning) fails for intent but passes for shallow_research', () => {
+    const grok = model({
+      id: 'x-ai/grok-4.5',
+      supportedParameters: ['tools', 'temperature', 'reasoning'],
+    })
+    const forIntent = validateModelForGroup(grok, intent)
+    expect(forIntent.ok).toBe(false)
+    expect(forIntent.reasons).toContain(REASON)
+
+    // shallow_research does not disable reasoning, so the same model is fine.
+    expect(validateModelForGroup(grok, shallow).ok).toBe(true)
+  })
+
+  it('allowlisted hybrid family (deepseek/ prefix) passes for intent even with reasoning declared', () => {
+    const deepseek = model({
+      id: 'deepseek/deepseek-v4-flash',
+      supportedParameters: ['tools', 'temperature', 'reasoning'],
+    })
+    expect(validateModelForGroup(deepseek, intent).ok).toBe(true)
+  })
+
+  it('include_reasoning also counts as declaring reasoning', () => {
+    const m = model({ id: 'vendor/reasoner', supportedParameters: ['tools', 'include_reasoning'] })
+    expect(validateModelForGroup(m, intent).ok).toBe(false)
   })
 })
 
@@ -101,6 +139,19 @@ describe('validateOverrides', () => {
     expect(result.errors.bogus_group).toContain('unknown agent group')
     expect(result.errors.intent).toContain('not found')
     expect(result.errors.shallow_research).toContain('tools')
+  })
+
+  it('rejects a reasoning-mandatory model for the reasoning-off intent group (save-path 422)', () => {
+    const result = validateOverrides(CATALOG, { intent: 'x-ai/grok-4.5' })
+    expect(result.ok).toBe(false)
+    expect(result.errors.intent).toContain('Reasoning deaktiviert')
+    expect(result.snapshot.intent).toBeUndefined()
+  })
+
+  it('accepts the same reasoning model for a group that keeps reasoning on', () => {
+    const result = validateOverrides(CATALOG, { shallow_research: 'x-ai/grok-4.5' })
+    expect(result.ok).toBe(true)
+    expect(result.snapshot.shallow_research.id).toBe('x-ai/grok-4.5')
   })
 })
 

@@ -342,3 +342,71 @@ class TestIntentClassifierRobustness:
         result = await classifier.run(state)
 
         assert result["user_intent"].intent == "meta"
+
+
+_REASONING_400 = (
+    "Error code: 400 - {'error': {'message': 'Reasoning is mandatory for this endpoint "
+    "and cannot be disabled.', 'code': 400}}"
+)
+
+
+class _ReasoningMandatoryChatModel(FakeMessagesListChatModel):
+    """Fake overridden model that 400s like grok-4.5 with reasoning_effort none."""
+
+    def bind(self, **kwargs):
+        failing = MagicMock()
+        failing.ainvoke = AsyncMock(side_effect=Exception(_REASONING_400))
+        return failing
+
+    async def ainvoke(self, *args, **kwargs):
+        raise Exception(_REASONING_400)  # noqa: TRY002 — mirrors provider error shape
+
+
+class TestReasoningIncompatibleOverrideFallback:
+    """Regression: org override intent -> reasoning-mandatory model must not kill the turn.
+
+    Production incident 2026-07-18: override `intent -> x-ai/grok-4.5` with the
+    YAML's reasoning_effort:none 400'd on both classifier attempts and every
+    greeting returned 'temporary error'. The classifier now falls back to the
+    workflow-default model when the override is reasoning-incompatible.
+    """
+
+    _META_JSON = '{"intent":"meta","research_depth":null,"depth_reasoning":null}'
+
+    def test_error_matcher(self):
+        from aiq_agent.common import is_reasoning_incompatible_error
+
+        assert is_reasoning_incompatible_error(Exception(_REASONING_400))
+        assert is_reasoning_incompatible_error(Exception("[400] reasoning cannot be disabled"))
+        assert not is_reasoning_incompatible_error(Exception("400: response_format not supported"))
+        assert not is_reasoning_incompatible_error(Exception("the reasoning in this answer is wrong"))
+
+    @pytest.mark.asyncio
+    async def test_fallback_to_default_model_when_override_incompatible(self, monkeypatch):
+        from langchain_core.messages import AIMessage as _AI
+
+        default_llm = FakeMessagesListChatModel(responses=[_AI(content=self._META_JSON)])
+        broken_override = _ReasoningMandatoryChatModel(responses=[_AI(content="unused")])
+
+        classifier = IntentClassifier(llm=default_llm)
+        monkeypatch.setattr(
+            "aiq_agent.common.apply_model_override",
+            lambda llm, group, overrides=None: broken_override,
+        )
+        monkeypatch.setattr("aiq_agent.common.apply_org_credential", lambda llm: llm)
+
+        state = ChatResearcherState(messages=[HumanMessage(content="hello")])
+        result = await classifier.run(state)
+        assert result["user_intent"].intent == "meta"  # answered via the default model, turn not dead
+
+    @pytest.mark.asyncio
+    async def test_no_fallback_when_default_model_itself_fails(self, monkeypatch):
+        """A reasoning-400 from the un-overridden default must surface, not loop."""
+        broken_default = _ReasoningMandatoryChatModel(responses=[])
+        classifier = IntentClassifier(llm=broken_default)
+        monkeypatch.setattr("aiq_agent.common.apply_model_override", lambda llm, group, overrides=None: llm)
+        monkeypatch.setattr("aiq_agent.common.apply_org_credential", lambda llm: llm)
+
+        state = ChatResearcherState(messages=[HumanMessage(content="hello")])
+        result = await classifier.run(state)
+        assert result["user_intent"].intent == "error"

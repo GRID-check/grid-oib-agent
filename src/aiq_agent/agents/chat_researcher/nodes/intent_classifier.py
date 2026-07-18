@@ -129,6 +129,13 @@ class IntentClassifier:
             except Exception as e:
                 if _is_timeout_error(e) or _is_llm_api_unavailable(e):
                     raise
+                from aiq_agent.common import is_reasoning_incompatible_error
+
+                if is_reasoning_incompatible_error(e):
+                    # The model itself cannot run with reasoning disabled — the
+                    # plain retry below would 400 identically. Propagate so the
+                    # caller falls back to the workflow-default model.
+                    raise
                 logger.warning(
                     "Structured-output classification failed (%s); retrying without response_format",
                     str(e).split("\n")[0],
@@ -200,9 +207,26 @@ class IntentClassifier:
             from aiq_agent.common import AgentGroup
             from aiq_agent.common import apply_model_override
             from aiq_agent.common import apply_org_credential
+            from aiq_agent.common import is_reasoning_incompatible_error
 
-            llm = apply_org_credential(apply_model_override(self.llm, AgentGroup.INTENT))
-            response = await self._ainvoke_classifier(llm, messages, config)
+            overridden = apply_model_override(self.llm, AgentGroup.INTENT)
+            llm = apply_org_credential(overridden)
+            try:
+                response = await self._ainvoke_classifier(llm, messages, config)
+            except Exception as e:
+                # An org override can point this reasoning-off role at a model
+                # that cannot disable reasoning (e.g. grok-4.5) — the provider
+                # 400s on every call. Fall back to the workflow-default model
+                # instead of failing the turn; the picker filters such models
+                # at selection time, this is the runtime safety net.
+                if overridden is self.llm or not is_reasoning_incompatible_error(e):
+                    raise
+                logger.warning(
+                    "Intent model override is reasoning-incompatible (%s); falling back to the workflow default",
+                    str(e).split("\n")[0],
+                )
+                llm = apply_org_credential(self.llm)
+                response = await self._ainvoke_classifier(llm, messages, config)
 
             response_text = (response.content or "").strip()
             parsed = extract_json(response_text)
@@ -221,8 +245,7 @@ class IntentClassifier:
 
             if not parsed or not isinstance(parsed, dict):
                 logger.warning(
-                    "Intent classification returned no parseable JSON after retry; "
-                    "defaulting to research/shallow",
+                    "Intent classification returned no parseable JSON after retry; defaulting to research/shallow",
                 )
                 return {
                     "user_intent": IntentResult(intent="research", raw=None),

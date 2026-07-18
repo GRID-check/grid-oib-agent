@@ -250,6 +250,23 @@ def override_model(llm: object, model_id: str) -> object:
     return overridden
 
 
+def is_reasoning_incompatible_error(err: BaseException) -> bool:
+    """True when a provider rejected the call because the model cannot disable reasoning.
+
+    An org override can point a ``reasoning_effort: none`` role (today: the
+    intent group) at a reasoning-mandatory model (e.g. ``x-ai/grok-4.5``);
+    OpenRouter then 400s with "Reasoning is mandatory for this endpoint and
+    cannot be disabled". Callers use this to fall back to the workflow-default
+    model instead of failing the turn. Matched conservatively: the message must
+    mention reasoning AND carry a mandatory/cannot-disable/400 signal, so
+    ordinary reasoning-themed content errors do not trigger a fallback.
+    """
+    msg = str(err).lower()
+    if "reasoning" not in msg:
+        return False
+    return "mandatory" in msg or "cannot be disabled" in msg or "code: 400" in msg or "[400]" in msg
+
+
 def apply_model_override(llm: object, group: AgentGroup, overrides: dict[str, str] | None = None) -> object:
     """Apply the current request's override for ``group`` to ``llm``, if any.
 
