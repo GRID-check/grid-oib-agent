@@ -60,6 +60,7 @@ def _configure(monkeypatch, tmp_path: Path) -> Path:
     monkeypatch.setattr(oib_sync, "OIB_DIR", oib_dir)
     monkeypatch.setattr(oib_sync, "OIB_UPLOADS_DIR", tmp_path / "oib_uploads")
     monkeypatch.setattr(oib_sync, "REGISTRY_PATH", registry_path)
+    monkeypatch.setattr(oib_sync, "EXCLUDED_PATH", tmp_path / "oib_excluded.json")
     monkeypatch.setattr(oib_sync, "COLLECTION_NAME", "test_collection")
     monkeypatch.setattr(oib_status, "_load_summaries", lambda _name: {})
     monkeypatch.setattr(oib_status, "_HASH_CACHE", {})
@@ -153,7 +154,7 @@ def test_status_attaches_document_summaries(monkeypatch, tmp_path):
     oib_dir = tmp_path / "oib"
     _write_pdf(oib_dir / "a.pdf", b"a")
     registry_path.write_text(json.dumps({str(oib_dir / "a.pdf"): _sha256(b"a")}), encoding="utf-8")
-    monkeypatch.setattr(oib_status, "_load_summaries", lambda _name: {"a.pdf": "Brandschutz basics."})
+    monkeypatch.setattr(oib_status, "_load_summaries", lambda _name: {"a.pdf": ("Brandschutz basics.", None)})
     ingestor = FakeIngestor(_collection(), files=[_file_info("a.pdf", 3)])
 
     status = oib_status.get_status(ingestor=ingestor)
@@ -220,6 +221,32 @@ def test_uploaded_documents_get_uploaded_origin(monkeypatch, tmp_path):
     assert by_name["custom.pdf"].origin == oib_status.OibFileOrigin.UPLOADED
     assert by_name["custom.pdf"].state == OibFileState.INGESTED
     assert by_name["shipped.pdf"].origin == oib_status.OibFileOrigin.CORPUS
+
+
+def test_status_omits_excluded_files(monkeypatch, tmp_path):
+    """A repo file removed via exclusion disappears from the status view even if
+    its source still sits on disk and lingering chunks/registry entries remain."""
+    registry_path = _configure(monkeypatch, tmp_path)
+    oib_dir = tmp_path / "oib"
+    _write_pdf(oib_dir / "excluded.pdf", b"gone")
+    _write_pdf(oib_dir / "kept.pdf", b"here")
+    registry_path.write_text(
+        json.dumps(
+            {
+                str(oib_dir / "excluded.pdf"): _sha256(b"gone"),
+                str(oib_dir / "kept.pdf"): _sha256(b"here"),
+            }
+        ),
+        encoding="utf-8",
+    )
+    # Simulate a lagging chunk cleanup: the collection still reports the excluded file.
+    (tmp_path / "oib_excluded.json").write_text(json.dumps(["excluded.pdf"]), encoding="utf-8")
+    ingestor = FakeIngestor(_collection(), files=[_file_info("excluded.pdf", 3), _file_info("kept.pdf", 2)])
+
+    status = oib_status.get_status(ingestor=ingestor)
+
+    names = {f.file_name for f in status.files}
+    assert names == {"kept.pdf"}
 
 
 def test_disk_file_matching_registry_hash_under_other_path_counts_ingested(monkeypatch, tmp_path):

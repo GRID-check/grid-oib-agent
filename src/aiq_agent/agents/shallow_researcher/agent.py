@@ -379,6 +379,13 @@ class ShallowResearcherAgent:
         # final answer carries at least one verified citation (see the
         # ``answer_citation_grounded`` field docstring). Conservative default.
         citation_grounded = False
+        # Sources the model actually cited in THIS turn's answer (its own
+        # relevance decision), resolved from ``verification.valid_citations``.
+        # These — NOT the cumulative session registry — become the turn's
+        # "Belegt durch" chips, so a greeting/meta turn never re-emits a prior
+        # turn's RIS sources. Defaults to empty; populated in the verification
+        # block below where ``verification`` is in scope.
+        relevant_sources: list[SourceEntry] = []
         # Control-marker signals extracted from the model's answer. Populated
         # below and carried as STRUCTURED state so the chat node does not have to
         # re-parse the answer string (which also leaked the markers downstream).
@@ -438,12 +445,34 @@ class ShallowResearcherAgent:
                     if verification.valid_citations:
                         # Verification kept at least one grounded citation.
                         citation_grounded = True
+                        # Resolve each surviving citation back to its registry
+                        # SourceEntry — these are the sources the model actually
+                        # cited in THIS answer, and only these become chips.
+                        # Dedup while preserving first-cited order. Gated on
+                        # requires_sources so a meta turn that reaches this
+                        # branch only because the cumulative registry carried
+                        # prior-turn sources still emits no chips.
+                        if state.requires_sources:
+                            seen_ids: set[int] = set()
+                            for citation in verification.valid_citations:
+                                entry: SourceEntry | None = None
+                                if citation.get("citation_key"):
+                                    entry = registry.entry_for_citation_key(citation["citation_key"])
+                                elif citation.get("url"):
+                                    entry = registry.entry_for_url(citation["url"])
+                                if entry is not None and id(entry) not in seen_ids:
+                                    seen_ids.add(id(entry))
+                                    relevant_sources.append(entry)
                     elif len(sources) == 1:
                         # No model citation survived, but exactly one registry
                         # source is available: append it as the single minimal
                         # citation, which grounds the answer in a real source.
+                        # That one source IS the relevant one for this turn — but
+                        # only surface it as a chip on a research turn.
                         content = _append_minimal_citation(content, sources[0])
                         citation_grounded = True
+                        if state.requires_sources:
+                            relevant_sources = [sources[0]]
                 elif state.requires_sources:
                     # Distinguish "retrieval genuinely failed" from "the agent
                     # answered from conversation/project context without ever
@@ -511,12 +540,16 @@ class ShallowResearcherAgent:
         validated_result["escalation_requested"] = escalation_requested
         validated_result["answer_confidence_marker"] = answer_confidence_marker
         # Wire-ready sources for Belegt-durch chips / PDF open (file/page/collection).
+        # Emit ONLY the sources the model cited in THIS turn's answer
+        # (``relevant_sources``), never the cumulative session registry — a
+        # conversational/meta turn cites nothing, so it emits no chips instead
+        # of leaking the previous turn's RIS sources.
         # Serialize per-entry so a single malformed source can't zero out the
         # whole turn's chips — a bad entry is skipped, the rest still render.
         from aiq_agent.common.citation_verification import source_entry_to_wire
 
         wire_sources: list[dict[str, Any]] = []
-        for entry in registry.all_sources():
+        for entry in relevant_sources:
             try:
                 wire_sources.append(source_entry_to_wire(entry))
             except Exception:

@@ -65,6 +65,13 @@ export const platform: typeof en.platform = {
     deleteCancel: 'Abbrechen',
     deleteSuccess: '{name} aus dem Basis-Korpus entfernt',
     deleteFailed: '{name} konnte nicht entfernt werden',
+    // Entfernen eines mitgelieferten Basisdokuments (aus dem aktiven Korpus ausgeschlossen).
+    corpusDelete: 'Aus Korpus entfernen',
+    corpusDeleteTitle: '{name} aus dem Korpus entfernen?',
+    corpusDeleteDescription:
+      'Dies entfernt ein mitgeliefertes Basisgesetz aus dem aktiven Korpus: Die indexierten Inhalte werden gelöscht und bei der nächsten Synchronisierung nicht erneut ingestiert. Piloti prüft Antworten nicht mehr dagegen.',
+    corpusDeleteConfirm: 'Aus Korpus entfernen',
+    corpusDeleteSuccess: '{name} aus dem Korpus entfernt',
     loadError: 'Die Wissensbasis konnte nicht geladen werden.',
     retry: 'Erneut versuchen',
     chunkCount: '{count} Abschnitte',

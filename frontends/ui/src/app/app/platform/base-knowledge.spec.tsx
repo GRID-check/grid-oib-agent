@@ -115,6 +115,37 @@ describe('BaseKnowledge', () => {
     expect(JSON.parse((patchCall![1] as RequestInit).body as string)).toEqual({ doc_class: 'gesetz' })
   })
 
+  test('a repo-shipped (corpus) row exposes a delete action that calls the service on confirm', async () => {
+    const fetchSpy = vi.fn((url: string, init?: RequestInit) => {
+      if (typeof url === 'string' && url.includes('/api/platform/knowledge/documents/') && init?.method === 'DELETE') {
+        return Promise.resolve(jsonResponse({ success: true, fileName: 'oib-richtlinie-2.pdf', mode: 'excluded' }))
+      }
+      return Promise.resolve(jsonResponse(STATUS))
+    })
+    vi.stubGlobal('fetch', fetchSpy as unknown as typeof fetch)
+    const user = userEvent.setup()
+
+    render(<BaseKnowledge />)
+    await screen.findByText('oib-richtlinie-2.pdf')
+
+    // The corpus row (origin: 'corpus') carries a "Remove from corpus" action.
+    await user.click(screen.getByRole('button', { name: 'Remove from corpus: oib-richtlinie-2.pdf' }))
+
+    // The confirm dialog uses the corpus-specific wording; confirm it.
+    await user.click(screen.getByRole('button', { name: 'Remove from corpus' }))
+
+    await waitFor(() => {
+      expect(
+        fetchSpy.mock.calls.some(
+          ([url, init]) =>
+            typeof url === 'string' &&
+            url.includes('/api/platform/knowledge/documents/oib-richtlinie-2.pdf') &&
+            (init as RequestInit | undefined)?.method === 'DELETE',
+        ),
+      ).toBe(true)
+    })
+  })
+
   test('the upload input accepts PDF and ZIP', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(STATUS)))
 

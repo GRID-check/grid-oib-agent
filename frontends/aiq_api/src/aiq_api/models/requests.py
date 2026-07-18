@@ -161,7 +161,14 @@ class OibDocumentUploadResponse(BaseModel):
 
 
 class OibDocumentDeleteResponse(BaseModel):
-    """Response for deleting an uploaded OIB base-corpus document."""
+    """Response for removing an OIB base-corpus document.
+
+    ``mode`` distinguishes how the document was removed: ``'deleted'`` for an
+    admin upload (source file + registry + chunks physically removed), or
+    ``'excluded'`` for a repo-shipped file (chunks dropped and the basename
+    recorded in the persistent exclusion set so a sync never re-ingests it).
+    """
 
     success: bool
     file_name: str
+    mode: str = Field("deleted", description="'deleted' for an admin upload, 'excluded' for a repo-shipped file.")
