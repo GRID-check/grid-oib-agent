@@ -25,7 +25,7 @@ from langgraph.types import Checkpointer
 from aiq_agent.common import LLMProvider
 from aiq_agent.common import LLMRole
 from aiq_agent.common import render_prompt_template
-from aiq_agent.common.norm_registry import NORM_DOCTRINE
+from aiq_agent.common.norm_registry import doctrine_for
 from aiq_agent.common.norm_registry import parcel_note
 from aiq_agent.common.norm_registry import render_block_for_prompt
 
@@ -133,7 +133,7 @@ class DeepResearchGraphContext:
             available_documents=self.available_documents,
             project_context=self.project_context,
             ris_catalog=self.ris_catalog,
-            norm_doctrine=NORM_DOCTRINE,
+            norm_doctrine=doctrine_for(self.project_context),
             parcel_note=parcel_note(self.available_documents),
             **values,
         )

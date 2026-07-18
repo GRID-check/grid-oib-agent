@@ -200,6 +200,13 @@ class NormsFile(BaseModel):
 
     version: int = 1
     corpus_collection: str = "oib_knowledge"
+    # Optional CountryProfile data overrides (empty = code defaults win; see
+    # aiq_agent.common.country_profile). Admin-editable through the norms store.
+    language: str = ""
+    states: dict[str, str | None] = Field(default_factory=dict)
+    corpus_note: str = ""
+    doctrine: str = ""
+    parcel_tags: list[str] = Field(default_factory=list)
     entries: list[NormEntry] = Field(default_factory=list)
 
 
@@ -407,6 +414,58 @@ def resolve_bundesland(text: str | None) -> str | None:
     return extract_bundesland(text)
 
 
+_STRUCTURED_COUNTRY_RE = re.compile(r"\bcountry=([a-z]{2})\b")
+
+
+def resolve_country(text: str | None) -> str:
+    """ISO country code for the project: structured `country=<cc>` fact, else 'at'.
+
+    Austria-only intake today; the structured fact ships with the first second
+    country. Consumer: CountryProfile selection (doctrine, corpus note, parcel
+    tags, retrieval base collection).
+    """
+    if text:
+        match = _STRUCTURED_COUNTRY_RE.search(text.lower())
+        if match:
+            return match.group(1)
+    return "at"
+
+
+def load_norms_file(country: str = "at") -> NormsFile | None:
+    """The raw NormsFile for a country (store-first for the default country).
+
+    Used by CountryProfile to apply admin-edited data overrides. The admin
+    store currently keys the default country; other countries read their YAML
+    seed directly (the store grows a country column with country #2).
+    """
+    if country == "at" and _db_loader is not None:
+        try:
+            stored = _db_loader()
+        except Exception:  # noqa: BLE001
+            stored = None
+        if stored is not None and stored.entries:
+            return stored
+    path = _norms_dir(None) / country / "registry.yml"
+    try:
+        mtime = path.stat().st_mtime_ns
+    except OSError:
+        return None
+    return _load_yaml_cached(str(path), mtime)
+
+
+def doctrine_for(project_context: str | None) -> str:
+    """The Normenhierarchie doctrine for the project's country (fail-open to AT)."""
+    try:
+        from aiq_agent.common.country_profile import get_country_profile
+
+        profile = get_country_profile(resolve_country(project_context))
+        if profile is not None:
+            return profile.doctrine
+    except Exception:  # noqa: BLE001 — prompt building must never break on profile lookup
+        logger.warning("norm_registry: doctrine profile lookup failed", exc_info=True)
+    return NORM_DOCTRINE
+
+
 def focus_entries(entries: list[NormEntry], bundesland: str | None) -> list[NormEntry]:
     """Restrict matches to the known Bundesland and put that state's law first.
 
@@ -433,7 +492,7 @@ _BLOCK_HEADER = (
     "RIS-Catalog-Lookup-Tool verwenden."
 )
 
-_OIB_CORPUS_NOTE = (
+OIB_CORPUS_NOTE = (
     "OIB-Korpus (bereits in der Wissensbasis, keine RIS-Abfrage nötig): OIB-Richtlinien 1–6\n"
     "samt Leitfäden, Erläuterungen, Begriffsbestimmungen und zitierten Normen, Ausgabe Mai 2023.\n"
     'Zitieren als "OIB-RL <N>, Pkt <x>, Ausgabe Mai 2023". Anforderungen nur aus der Richtlinie\n'
@@ -460,7 +519,7 @@ def _render_entry_line(entry: NormEntry) -> str:
     return line
 
 
-def render_prompt_block(registry: NormRegistry, bundesland: str | None = None) -> str:
+def render_prompt_block(registry: NormRegistry, bundesland: str | None = None, corpus_note: str | None = None) -> str:
     """Compact catalog block: federal lane, then the focused state lane.
 
     Other states' law is dropped entirely (same rule as ``focus_entries``) —
@@ -498,7 +557,7 @@ def render_prompt_block(registry: NormRegistry, bundesland: str | None = None) -
         for entry in notes:
             lines.append(f"- {entry.short}: {entry.binding_note}")
     lines.append("")
-    lines.append(_OIB_CORPUS_NOTE)
+    lines.append(corpus_note or OIB_CORPUS_NOTE)
     return "\n".join(lines)
 
 
@@ -507,7 +566,15 @@ def render_block_for_prompt(project_context: str | None, norms_dir: str | None =
     registry = load_registry(norms_dir)
     if registry is None or not registry.entries:
         return None
-    block = render_prompt_block(registry, bundesland=resolve_bundesland(project_context))
+    corpus_note = None
+    try:
+        from aiq_agent.common.country_profile import get_country_profile
+
+        profile = get_country_profile(resolve_country(project_context))
+        corpus_note = profile.corpus_note if profile else None
+    except Exception:  # noqa: BLE001
+        logger.warning("norm_registry: corpus-note profile lookup failed", exc_info=True)
+    block = render_prompt_block(registry, bundesland=resolve_bundesland(project_context), corpus_note=corpus_note)
     try:
         from aiq_agent.common.applicability import render_project_block
 
@@ -530,7 +597,19 @@ def render_block_for_prompt(project_context: str | None, norms_dir: str | None =
 _PARCEL_TAGS = ("Bebauungsplan", "Flächenwidmungsplan")
 
 
-def parcel_note(available_documents: list[dict] | None) -> str | None:
+def _parcel_tags_for(country: str | None) -> tuple[str, ...]:
+    try:
+        from aiq_agent.common.country_profile import get_country_profile
+
+        profile = get_country_profile(country)
+        if profile is not None:
+            return tuple(profile.parcel_tags)
+    except Exception:  # noqa: BLE001
+        logger.warning("norm_registry: parcel-tag profile lookup failed", exc_info=True)
+    return _PARCEL_TAGS
+
+
+def parcel_note(available_documents: list[dict] | None, country: str | None = None) -> str | None:
     """Prompt note naming the project's parcel documents as the governing source.
 
     ``available_documents`` are the per-turn document dicts (file_name/summary/
@@ -540,19 +619,20 @@ def parcel_note(available_documents: list[dict] | None) -> str | None:
     """
     if not available_documents:
         return None
+    parcel_tags = _parcel_tags_for(country)
     by_tag: dict[str, list[str]] = {}
     for doc in available_documents:
         tags = doc.get("tags") or []
         name = doc.get("file_name")
         if not name:
             continue
-        for tag in _PARCEL_TAGS:
+        for tag in parcel_tags:
             if tag in tags:
                 by_tag.setdefault(tag, []).append(name)
     if not by_tag:
         return None
     lines = ["## Parzellen-Quellen dieses Projekts (maßgeblich für Widmung, Bauklasse, Gebäudehöhe, Fluchtlinien)"]
-    for tag in _PARCEL_TAGS:
+    for tag in parcel_tags:
         if tag in by_tag:
             files = ", ".join(sorted(by_tag[tag]))
             lines.append(f"- {tag}: {files}")
