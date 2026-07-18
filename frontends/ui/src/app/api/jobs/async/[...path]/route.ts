@@ -238,14 +238,21 @@ export async function POST(
     )
     const gridContextHeaders = await resolveGridContextHeaders(session, { projectId, collectionScope: scope })
 
-    // Forward the request to the backend
+    // Forward the request to the backend.
+    //
+    // `resolveGridContextHeaders` also emits `X-Grid-Collection-Scope` (it
+    // encodes the same `scope` for the signed envelope), so it must NOT be
+    // spread over the authoritative header the route computed. Set the scope
+    // header from `buildCollectionScopeFromRequest`'s `headerValue` LAST so it
+    // is the single source of truth — identical to the envelope's encoding in
+    // production, and consistent with the GET/DELETE handlers.
     const response = await fetch(backendUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         ...authHeaders,
-        'X-Grid-Collection-Scope': headerValue,
         ...gridContextHeaders,
+        'X-Grid-Collection-Scope': headerValue,
       },
       ...(body ? { body } : {}),
     })
