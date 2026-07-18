@@ -64,9 +64,12 @@ KNOWN_APPLICATIONS = frozenset(
     }
 )
 
-# Legal rank: the lane an entry renders under. Flat pointer entries only —
-# the OIB corpus is not in the registry, so no OIB ranks here.
-NormRank = Literal["bundesgesetz", "landesgesetz", "verordnung"]
+# Legal rank: the lane an entry renders under. Law ranks carry RIS pointers;
+# `behoerdliche_info` (MA-37 Merkblätter etc. — practice guidance, never new law)
+# and `norm_extern` (ÖNORM/TRVB/EU-Normen — usually no accessible full text)
+# cover the diagram lanes that are NOT in RIS. The OIB corpus itself stays out
+# of the registry (knowledge base is its source of truth).
+NormRank = Literal["bundesgesetz", "landesgesetz", "verordnung", "behoerdliche_info", "norm_extern"]
 
 # Canonical Bundesland names, in free-text probe order.
 BUNDESLAENDER: tuple[str, ...] = (
@@ -150,7 +153,15 @@ class VerifySeed(BaseModel):
 
 
 class NormEntry(BaseModel):
-    """One curated norm: a verified pointer into a RIS application, plus prose notes."""
+    """One curated norm: a RIS pointer, a plain web source, or a known-but-unavailable stub.
+
+    Exactly one source shape per entry:
+    - RIS-sourced law: ``application`` + ``document_number`` (+ URLs), live-verifiable.
+    - Non-RIS source (MA-37 Merkblätter, …): ``source_url`` — a plain link.
+    - Unavailable norm (ÖNORM/TRVB …): no pointer at all — the entry documents that
+      the norm exists and is rendered with an explicit "kein Volltext" marker so the
+      agent references it honestly instead of guessing.
+    """
 
     id: str
     title: str
@@ -159,15 +170,20 @@ class NormEntry(BaseModel):
     bundesland: str = ""  # canonical name ("Wien"); "" = federal/stateless
     topics: list[str] = Field(default_factory=list)
     relevance: str = ""
-    application: str
-    document_number: str
+    application: str = ""  # OGD-RIS application; empty for non-RIS entries
+    document_number: str = ""
     citation_url: str = ""
     full_law_url: str = ""
+    source_url: str = ""  # direct link for non-RIS sources (wien.gv.at, oib.or.at, …)
     aliases: list[str] = Field(default_factory=list)
     binding_note: str = ""  # prose legal fact, rendered into the prompt block
     review_note: str = ""  # open verification TODO (admin UI only, never prompt fact)
     verify: VerifySeed | None = None
     verified_at: str = ""
+
+    @property
+    def is_ris(self) -> bool:
+        return bool(self.application and self.document_number)
 
 
 class NormsFile(BaseModel):
@@ -225,11 +241,18 @@ def _validated_entries(norms_file: NormsFile, origin: str) -> list[NormEntry]:
         if entry.id in seen:
             logger.warning("norm_registry: duplicate entry id '%s' in %s — later copy dropped", entry.id, origin)
             continue
-        if entry.application not in KNOWN_APPLICATIONS:
+        if entry.application and entry.application not in KNOWN_APPLICATIONS:
             logger.warning(
                 "norm_registry: entry '%s' has unknown RIS application '%s' — entry dropped",
                 entry.id,
                 entry.application,
+            )
+            continue
+        if entry.rank in ("bundesgesetz", "landesgesetz", "verordnung") and not entry.is_ris:
+            logger.warning(
+                "norm_registry: law entry '%s' (rank %s) has no RIS pointer — entry dropped",
+                entry.id,
+                entry.rank,
             )
             continue
         if entry.bundesland and entry.bundesland not in BUNDESLAENDER:
@@ -408,12 +431,22 @@ _OIB_CORPUS_NOTE = (
 )
 
 
+_LAW_RANKS = ("bundesgesetz", "landesgesetz", "verordnung")
+
+
 def _render_entry_line(entry: NormEntry) -> str:
-    line = f"- {entry.short} — {entry.title} [{entry.application}/{entry.document_number}]"
+    if entry.is_ris:
+        line = f"- {entry.short} — {entry.title} [{entry.application}/{entry.document_number}]"
+    else:
+        line = f"- {entry.short} — {entry.title}"
     if entry.bundesland:
         line += f" ({entry.bundesland})"
     if entry.full_law_url:
         line += f" Gesamt: {entry.full_law_url}"
+    elif entry.source_url:
+        line += f" Quelle: {entry.source_url}"
+    elif not entry.is_ris:
+        line += " (kein Volltext verfügbar — nur referenzieren)"
     return line
 
 
@@ -425,18 +458,29 @@ def render_prompt_block(registry: NormRegistry, bundesland: str | None = None) -
     """
     lines = [_BLOCK_HEADER, ""]
     focused = focus_entries(registry.entries, bundesland)
-    federal = [entry for entry in focused if not entry.bundesland]
+    law = [entry for entry in focused if entry.rank in _LAW_RANKS]
+    federal = [entry for entry in law if not entry.bundesland]
     if federal:
         lines.append("Bundesrecht:")
         lines.extend(_render_entry_line(entry) for entry in sorted(federal, key=lambda e: e.short.lower()))
     by_state: dict[str, list[NormEntry]] = {}
-    for entry in focused:
+    for entry in law:
         if entry.bundesland:
             by_state.setdefault(entry.bundesland, []).append(entry)
     for state in sorted(by_state, key=lambda s: (s != bundesland, s)):
         lines.append("")
         lines.append(f"Landesrecht — {state}:")
         lines.extend(_render_entry_line(entry) for entry in sorted(by_state[state], key=lambda e: e.short.lower()))
+    behoerdlich = [entry for entry in focused if entry.rank == "behoerdliche_info"]
+    if behoerdlich:
+        lines.append("")
+        lines.append("Behördliche Informationen (Praxis-Hinweise — nur Ergänzungen, niemals neue Normen):")
+        lines.extend(_render_entry_line(entry) for entry in sorted(behoerdlich, key=lambda e: e.short.lower()))
+    extern = [entry for entry in focused if entry.rank == "norm_extern"]
+    if extern:
+        lines.append("")
+        lines.append("Externe Normen (Bezugsnormen — Volltext i. d. R. nicht verfügbar, ehrlich kennzeichnen):")
+        lines.extend(_render_entry_line(entry) for entry in sorted(extern, key=lambda e: e.short.lower()))
     notes = [entry for entry in focused if entry.binding_note]
     if notes:
         lines.append("")
@@ -483,6 +527,8 @@ _RANK_LANES: dict[str, tuple[str, str]] = {
     "bundesgesetz": ("baurecht_bund", "Bundesrecht"),
     "landesgesetz": ("baurecht_land", "Landesrecht"),
     "verordnung": ("baurecht_verordnung", "Verordnung"),
+    "behoerdliche_info": ("behoerde", "Behördliche Information"),
+    "norm_extern": ("norm_extern", "Externe Norm"),
 }
 
 _OIB_CLASS_LANES: dict[str, tuple[str, str]] = {

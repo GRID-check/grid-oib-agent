@@ -407,8 +407,63 @@ class TestLaneForHit:
 # ---------------------------------------------------------------------------
 
 
-def test_repo_registry_has_22_entries():
+def test_repo_registry_has_23_entries():
     registry = nr.load_registry(str(REPO_ROOT / "configs" / "norms"))
 
     assert registry is not None
-    assert len(registry.entries) == 22
+    assert len(registry.entries) == 23
+
+
+class TestNonRisEntries:
+    """Non-RIS lanes: behoerdliche_info (web source) and norm_extern (no full text)."""
+
+    @staticmethod
+    def _write(tmp_path, entries):
+        import yaml
+
+        d = tmp_path / "at"
+        d.mkdir(parents=True)
+        (d / "registry.yml").write_text(
+            yaml.safe_dump({"version": 1, "entries": entries}, allow_unicode=True), encoding="utf-8"
+        )
+        return str(tmp_path)
+
+    def _base(self, **over):
+        entry = {
+            "id": "ma37",
+            "title": "MA 37 Merkblätter",
+            "short": "MA 37",
+            "rank": "behoerdliche_info",
+            "bundesland": "Wien",
+            "source_url": "https://www.wien.gv.at/x",
+        }
+        entry.update(over)
+        return entry
+
+    def test_web_source_entry_loads_and_renders_with_quelle(self, tmp_path):
+        registry = nr.load_registry(self._write(tmp_path, [self._base()]))
+        assert registry is not None and registry.entries[0].id == "ma37"
+        block = nr.render_prompt_block(registry, bundesland="Wien")
+        assert "Behördliche Informationen" in block
+        assert "Quelle: https://www.wien.gv.at/x" in block
+
+    def test_norm_extern_stub_renders_kein_volltext(self, tmp_path):
+        stub = self._base(id="oenorm", rank="norm_extern", bundesland="", source_url="")
+        registry = nr.load_registry(self._write(tmp_path, [stub]))
+        block = nr.render_prompt_block(registry)
+        assert "Externe Normen" in block
+        assert "kein Volltext verfügbar" in block
+
+    def test_law_rank_without_ris_pointer_is_dropped(self, tmp_path):
+        bad = self._base(id="bad-law", rank="landesgesetz")
+        registry = nr.load_registry(self._write(tmp_path, [bad]))
+        assert registry is None
+
+    def test_non_ris_ranks_map_to_lanes(self):
+        assert nr._RANK_LANES["behoerdliche_info"] == ("behoerde", "Behördliche Information")
+        assert nr._RANK_LANES["norm_extern"] == ("norm_extern", "Externe Norm")
+
+    def test_repo_seed_contains_ma37_entry(self):
+        registry = nr.load_registry("configs/norms")
+        entry = registry.by_id("ma37-merkblaetter")
+        assert entry is not None and entry.rank == "behoerdliche_info" and not entry.is_ris

@@ -56,6 +56,7 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
 import {
+  isLawRank,
   NORM_RANKS,
   type NormEntry,
   type NormRank,
@@ -74,11 +75,26 @@ const RANK_LABELS: Record<NormRank, string> = {
   bundesgesetz: 'Bundesgesetz',
   landesgesetz: 'Landesgesetz',
   verordnung: 'Verordnung',
+  behoerdliche_info: 'Behördliche Information (z. B. MA 37)',
+  norm_extern: 'Externe Norm (ÖNORM/TRVB — kein Volltext)',
 }
 
 const RANK_OPTIONS = NORM_RANKS.map((value) => ({ value, label: RANK_LABELS[value] }))
 
 const BUNDESRECHT_LANE = 'Bundesrecht'
+const BEHOERDLICHE_INFO_LANE = 'Behördliche Informationen'
+const NORM_EXTERN_LANE = 'Externe Normen'
+
+/** Host of a plain source URL, e.g. 'www.wien.gv.at', or '' when unparseable. */
+function sourceHost(url: string): string {
+  const trimmed = url.trim()
+  if (!trimmed) return ''
+  try {
+    return new URL(trimmed).host
+  } catch {
+    return trimmed
+  }
+}
 
 const splitList = (value: string): string[] =>
   value
@@ -110,6 +126,7 @@ interface EntryFormValues {
   relevance: string
   application: string
   document_number: string
+  source_url: string
   citation_url: string
   full_law_url: string
   aliases: string
@@ -132,6 +149,7 @@ const entryFormSchema = z.object({
   relevance: z.string(),
   application: z.string(),
   document_number: z.string(),
+  source_url: z.string(),
   citation_url: z.string(),
   full_law_url: z.string(),
   aliases: z.string(),
@@ -155,6 +173,7 @@ function entryToForm(entry: NormEntry): EntryFormValues {
     relevance: entry.relevance,
     application: entry.application,
     document_number: entry.document_number,
+    source_url: entry.source_url,
     citation_url: entry.citation_url,
     full_law_url: entry.full_law_url,
     aliases: joinList(entry.aliases),
@@ -193,6 +212,7 @@ function formToEntry(values: EntryFormValues): NormEntry {
     relevance: values.relevance.trim(),
     application: values.application.trim(),
     document_number: values.document_number.trim(),
+    source_url: values.source_url.trim(),
     citation_url: values.citation_url.trim(),
     full_law_url: values.full_law_url.trim(),
     aliases: splitList(values.aliases),
@@ -214,6 +234,7 @@ function emptyEntry(): NormEntry {
     relevance: '',
     application: '',
     document_number: '',
+    source_url: '',
     citation_url: '',
     full_law_url: '',
     aliases: [],
@@ -489,9 +510,13 @@ interface Lane {
 }
 
 function groupIntoLanes(entries: NormEntry[]): Lane[] {
-  const federal = entries.filter((e) => e.bundesland.trim() === '')
+  const behoerdlich = entries.filter((e) => e.rank === 'behoerdliche_info')
+  const externe = entries.filter((e) => e.rank === 'norm_extern')
+  const lawEntries = entries.filter((e) => isLawRank(e.rank))
+
+  const federal = lawEntries.filter((e) => e.bundesland.trim() === '')
   const byLand = new Map<string, NormEntry[]>()
-  for (const entry of entries) {
+  for (const entry of lawEntries) {
     const land = entry.bundesland.trim()
     if (!land) continue
     const bucket = byLand.get(land) ?? []
@@ -503,6 +528,8 @@ function groupIntoLanes(entries: NormEntry[]): Lane[] {
   for (const land of [...byLand.keys()].sort((a, b) => a.localeCompare(b, 'de'))) {
     lanes.push({ name: land, entries: byLand.get(land) ?? [] })
   }
+  if (behoerdlich.length > 0) lanes.push({ name: BEHOERDLICHE_INFO_LANE, entries: behoerdlich })
+  if (externe.length > 0) lanes.push({ name: NORM_EXTERN_LANE, entries: externe })
   return lanes
 }
 

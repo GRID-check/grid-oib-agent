@@ -441,3 +441,19 @@ entries:
     expect: Gewerbeordnung
     gesetzesnummer: '10007517'
   verified_at: '2026-07-17'
+- id: ma37-merkblaetter
+  title: MA 37 (Baupolizei Wien) — Merkblätter, Weisungen und Checklisten
+  short: MA-37-Merkblätter
+  rank: behoerdliche_info
+  bundesland: Wien
+  topics:
+  - merkblatt
+  - weisung
+  - checkliste
+  - baupolizei
+  - einreichung
+  relevance: Vienna building authority practice guidance (submission requirements, interpretations)
+  source_url: https://www.wien.gv.at/wohnen/gebaude-bauten-planung-baupolizei
+  binding_note: Nur Ergänzungen zur BauO Wien und zu den OIB-Richtlinien — begründen keine neuen Gesetze
+    oder Verordnungen. Als behördliche Praxis zitieren, nie als Norm.
+  verified_at: '2026-07-18'

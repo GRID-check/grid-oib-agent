@@ -376,8 +376,11 @@ variant (ranks/roles/editions/relations, Punkt chunking, applicability DSL) was
 built, adversarially reviewed, and reduced; ADR-0025's Context records why.
 
 - **Data** — `configs/norms/<country>/registry.yml` (env override
-  `GRID_NORMS_DIR`; `at` ships 22 entries): per entry `id`, `title`, `short`,
-  `rank` (bundesgesetz | landesgesetz | verordnung — the prompt lane),
+  `GRID_NORMS_DIR`; `at` ships 23 entries): per entry `id`, `title`, `short`,
+  `rank` (bundesgesetz | landesgesetz | verordnung — RIS-backed law lanes —
+  plus behoerdliche_info for non-RIS practice guidance with a plain
+  `source_url`, e.g. the MA-37 Merkblätter, and norm_extern for
+  ÖNORM/TRVB stubs without accessible full text),
   `bundesland` (canonical name, empty = federal), `topics`, `relevance`, the
   **verified** RIS pointer (application, document number, citation URL,
   entire-consolidated-law URL), optional `aliases`, `binding_note` (curated

@@ -14,10 +14,30 @@
 
 import { z } from 'zod'
 
-/** Legal rank of a pointer — federal act, state act, or ordinance. */
-export const NORM_RANKS = ['bundesgesetz', 'landesgesetz', 'verordnung'] as const
+/**
+ * Legal rank of a pointer. The first three are RIS-backed law ranks (federal
+ * act, state act, ordinance); the last two are NON-RIS ranks — authority
+ * information (e.g. MA-37 Merkblätter) and external norms (ÖNORM/TRVB) that may
+ * have no accessible full text.
+ */
+export const NORM_RANKS = [
+  'bundesgesetz',
+  'landesgesetz',
+  'verordnung',
+  'behoerdliche_info',
+  'norm_extern',
+] as const
 export const normRankSchema = z.enum(NORM_RANKS)
 export type NormRank = (typeof NORM_RANKS)[number]
+
+/** The RIS-backed law ranks — application + document_number are required for these. */
+export const LAW_RANKS = ['bundesgesetz', 'landesgesetz', 'verordnung'] as const
+export type LawRank = (typeof LAW_RANKS)[number]
+
+/** True when the rank is one of the three RIS-backed law ranks. */
+export function isLawRank(rank: NormRank): rank is LawRank {
+  return (LAW_RANKS as readonly string[]).includes(rank)
+}
 
 /**
  * Verification seed carried on an entry: the RIS query the admin curated, plus
@@ -42,9 +62,14 @@ export const normEntrySchema = z.object({
   bundesland: z.string().default(''),
   topics: z.array(z.string()).default([]),
   relevance: z.string().default(''),
-  /** RIS consolidation application, e.g. 'LrKons' / 'BrKons'. */
+  /**
+   * RIS consolidation application, e.g. 'LrKons' / 'BrKons'. Optional in the
+   * schema but REQUIRED by the backend (400) for the three law ranks.
+   */
   application: z.string().default(''),
   document_number: z.string().default(''),
+  /** Plain web link for non-RIS sources (e.g. MA-37 Merkblätter). */
+  source_url: z.string().default(''),
   citation_url: z.string().default(''),
   full_law_url: z.string().default(''),
   aliases: z.array(z.string()).default([]),

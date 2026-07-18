@@ -52,7 +52,10 @@ labels, not as a typed graph.**
 
 1. **Flat catalog** (`src/aiq_agent/common/norm_registry.py`,
    `configs/norms/at/registry.yml`): one entry per norm — id, title, short,
-   `rank` (bundesgesetz | landesgesetz | verordnung), `bundesland` (canonical
+   `rank` (bundesgesetz | landesgesetz | verordnung for RIS-backed law;
+   behoerdliche_info for practice guidance like MA-37 Merkblätter with a plain
+   `source_url`; norm_extern for ÖNORM/TRVB stubs with no accessible full
+   text — rendered with an explicit "kein Volltext" marker), `bundesland` (canonical
    name, empty = federal), topics, RIS pointer fields, aliases, and two prose
    fields: `binding_note` (a curated legal fact rendered into researcher
    prompts — this is how the WBTV→OIB chain reaches the model) and

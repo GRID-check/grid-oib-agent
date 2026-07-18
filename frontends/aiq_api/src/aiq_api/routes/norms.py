@@ -83,8 +83,14 @@ def _rejection_reasons(norms_file: NormsFile) -> list[str]:
         if entry.id in seen:
             problems.append(f"duplicate entry id '{entry.id}'")
         seen.add(entry.id)
-        if entry.application not in KNOWN_APPLICATIONS:
+        if entry.application and entry.application not in KNOWN_APPLICATIONS:
             problems.append(f"entry '{entry.id}': unknown RIS application '{entry.application}'")
+        if entry.rank in ("bundesgesetz", "landesgesetz", "verordnung") and not entry.is_ris:
+            problems.append(
+                f"entry '{entry.id}': rank '{entry.rank}' requires a RIS pointer "
+                "(application + document number) — use rank 'behoerdliche_info' or "
+                "'norm_extern' for non-RIS sources"
+            )
         if entry.bundesland and entry.bundesland not in BUNDESLAENDER:
             problems.append(f"entry '{entry.id}': unknown Bundesland '{entry.bundesland}'")
     return problems

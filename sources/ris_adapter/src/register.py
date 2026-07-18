@@ -547,12 +547,19 @@ def _format_catalog_entry(index: int, entry: NormEntry) -> str:
     lines.append(f"Title: {entry.title}")
     if entry.bundesland:
         lines.append(f"Bundesland: {entry.bundesland}")
-    lines.append(f"Application: {entry.application}")
-    lines.append(f"Document number: {entry.document_number}")
-    if entry.citation_url:
-        lines.append(f"Source: {entry.citation_url}")
-    if entry.full_law_url:
-        lines.append(f"Entire consolidated law (all paragraphs): {entry.full_law_url}")
+    if entry.is_ris:
+        lines.append(f"Application: {entry.application}")
+        lines.append(f"Document number: {entry.document_number}")
+        if entry.citation_url:
+            lines.append(f"Source: {entry.citation_url}")
+        if entry.full_law_url:
+            lines.append(f"Entire consolidated law (all paragraphs): {entry.full_law_url}")
+    elif entry.source_url:
+        # Non-RIS source (behoerdliche_info etc.): a plain link — NOT fetchable
+        # via ris_fetch_document; the agent reads it with the web tools.
+        lines.append(f"Not in RIS - web source: {entry.source_url}")
+    else:
+        lines.append("Not in RIS - no accessible full text (reference only, say so openly)")
     if entry.relevance:
         lines.append(f"Relevance: {entry.relevance}")
     if entry.binding_note:
