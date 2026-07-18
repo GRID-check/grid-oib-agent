@@ -9,9 +9,8 @@ import {
   useRef,
   useState,
 } from 'react'
-import { Globe, MessageSquareText, Sparkles } from 'lucide-react'
+import { MessageSquareText, Sparkles, SquarePen } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Separator } from '@/components/ui/separator'
 import { Spinner } from '@/components/ui/spinner'
 import { useAuth } from '@/adapters/auth'
 import { useChatStore, useLoadJobData } from '@/features/chat'
@@ -100,13 +99,6 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
     if (isAuthenticated) toggleSessionsPanel()
   }, [toggleSessionsPanel, isAuthenticated])
 
-  const handleAddSourcesClick = useCallback(() => {
-    if (!isAuthenticated) return
-    const { rightPanel, closeRightPanel, openRightPanel } = useLayoutStore.getState()
-    if (rightPanel === 'data-sources') closeRightPanel()
-    else openRightPanel('data-sources')
-  }, [isAuthenticated])
-
   const handleResearchClick = useCallback(() => {
     if (!isAuthenticated) return
     const { rightPanel, closeRightPanel, openRightPanel, researchPanelTab } =
@@ -129,14 +121,19 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
   }, [isAuthenticated, isNewSessionDisabled, onNewSession])
 
   return (
-    <header className="shrink-0 border-b bg-background">
-      <div className="flex h-12 items-center justify-between gap-4 px-4">
-        <div className="flex min-w-0 flex-1 items-center gap-2">
-          {/* Quiet bordered "new session" affordance */}
+    // Dissolved navbar: no border, no distinct band — the chat plane runs to
+    // the top edge and the controls float on it as quiet icon affordances.
+    // Sources / deep-research / project scope live in the composer, so the
+    // top row keeps only what the composer can't: sessions, new chat, rename,
+    // and reopening the research report.
+    <header className="shrink-0">
+      <div className="flex h-12 items-center justify-between gap-3 px-3">
+        <div className="flex min-w-0 flex-1 items-center gap-0.5">
+          {/* New chat — icon-forward, borderless */}
           <Button
-            variant="outline"
+            variant="ghost"
             size="sm"
-            className="shadow-none"
+            className="gap-1.5"
             onClick={handleNewSessionClick}
             disabled={!isAuthenticated || isNewSessionDisabled}
             aria-label={t('chatToolbar.createNewSession')}
@@ -148,27 +145,26 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
                   : t('chatToolbar.createNewSession')
             }
           >
-            {t('chatToolbar.newChat')}
+            <SquarePen className="h-4 w-4" aria-hidden="true" />
+            <span className="hidden text-sm font-medium sm:inline">{t('chatToolbar.newChat')}</span>
           </Button>
+          {/* Sessions — icon-only toggle for the history panel */}
           <Button
             variant="ghost"
-            size="sm"
+            size="icon"
+            className="size-8"
             onClick={handleMenuClick}
             disabled={!isAuthenticated}
             aria-label={t('chatToolbar.toggleSessions')}
             title={!isAuthenticated ? t('chatToolbar.signInToView') : t('chatToolbar.toggleSessions')}
           >
             <MessageSquareText className="h-4 w-4" aria-hidden="true" />
-            <span className="hidden text-sm font-semibold sm:inline">{t('chatToolbar.sessions')}</span>
           </Button>
-          {sessionTitle || projectName ? (
-            <Separator orientation="vertical" className="h-5" />
-          ) : null}
 
           {/* Breadcrumb: {project} / {session title (click-to-rename)} */}
           {(sessionTitle || projectName) && (
             <nav
-              className="hidden min-w-0 items-center gap-1.5 text-sm md:flex"
+              className="hidden min-w-0 items-center gap-1.5 pl-1.5 text-sm md:flex"
               aria-label={tChat('breadcrumb.ariaLabel')}
             >
               {projectName ? (
@@ -208,10 +204,14 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
             </nav>
           )}
         </div>
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="flex shrink-0 items-center">
+          {/* Research report panel toggle — the one right-side control the
+              composer doesn't already cover (its deep-research pill is intent,
+              this reopens the finished report). */}
           <Button
             variant={isResearchPanelOpen ? 'secondary' : 'ghost'}
             size="sm"
+            className="gap-1.5"
             onClick={handleResearchClick}
             disabled={!isAuthenticated}
             aria-label={
@@ -233,17 +233,6 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
               <Sparkles className="h-4 w-4" aria-hidden="true" />
             )}
             <span className="hidden text-sm sm:inline">{t('chatToolbar.research')}</span>
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleAddSourcesClick}
-            disabled={!isAuthenticated}
-            aria-label={t('chatToolbar.addSources')}
-            title={!isAuthenticated ? t('chatToolbar.signInToManage') : t('chatToolbar.addSources')}
-          >
-            <Globe className="h-4 w-4" aria-hidden="true" />
-            <span className="hidden text-sm sm:inline">{t('chatToolbar.sources')}</span>
           </Button>
         </div>
       </div>

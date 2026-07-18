@@ -182,27 +182,18 @@ describe('ChatToolbar', () => {
     })
   })
 
-  describe('sources button', () => {
-    test('opens the data sources panel when closed', async () => {
-      mockRightPanel = null
+  // The data-sources toggle was removed from the toolbar: the composer's
+  // Datengrundlage chip already owns opening that panel, so the navbar no
+  // longer duplicates it.
+  describe('sessions toggle', () => {
+    test('toggles the sessions panel', async () => {
       const user = userEvent.setup()
 
       render(<ChatToolbar />)
 
-      await user.click(screen.getByRole('button', { name: 'Add data sources' }))
+      await user.click(screen.getByRole('button', { name: 'Toggle sessions sidebar' }))
 
-      expect(mockOpenRightPanel).toHaveBeenCalledWith('data-sources')
-    })
-
-    test('closes the data sources panel when open', async () => {
-      mockRightPanel = 'data-sources'
-      const user = userEvent.setup()
-
-      render(<ChatToolbar />)
-
-      await user.click(screen.getByRole('button', { name: 'Add data sources' }))
-
-      expect(mockCloseRightPanel).toHaveBeenCalled()
+      expect(mockToggleSessionsPanel).toHaveBeenCalledOnce()
     })
   })
 
