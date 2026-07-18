@@ -172,7 +172,11 @@ class SourceRegistry:
         self._urls: dict[str, SourceEntry] = {}
         self._parsed_urls: dict[str, _ParsedURL] = {}
         self._citation_keys: list[SourceEntry] = []
-        self._citation_key_files: set[str] = set()
+        # Dedup key is (filename, page): two chunks from the SAME document at
+        # DIFFERENT pages are distinct evidence and must both become chips.
+        # Keying on filename alone silently dropped every page after the first
+        # (and mismatched the page-aware Trace-Lanes fan-out — see ADR-0026).
+        self._citation_key_files: set[tuple[str, int | None]] = set()
         self._all: list[SourceEntry] = []
 
     def add(self, entry: SourceEntry) -> None:
@@ -201,10 +205,10 @@ class SourceRegistry:
             if raw != normalized:
                 self._urls[raw] = self._urls[normalized]
         if entry.citation_key:
-            filename, _ = _parse_citation_key(entry.citation_key)
-            key_lower = filename.lower()
-            if key_lower not in self._citation_key_files:
-                self._citation_key_files.add(key_lower)
+            filename, page = _parse_citation_key(entry.citation_key)
+            dedup_key = (filename.lower(), page)
+            if dedup_key not in self._citation_key_files:
+                self._citation_key_files.add(dedup_key)
                 self._citation_keys.append(entry)
                 if not added:
                     added = True

@@ -102,8 +102,43 @@ Rollout is phased on `claude/citation-source-system-redesign-g8ni16`:
 1. Backend taxonomy + wire `kind` (**this ADR**).
 2. Frontend: collapse the three taxonomies onto the wire `kind`; one chip
    component; fix the storage-prune asymmetry so chips survive reload.
+   2b. Bindingness note (norm-registry `binding_note`) on the wire → popover.
 3. Herleitung rebuilt to the click-dummy nodes over the same source set.
 4. RIS Redis caching (ADR-0020 reuse) + stop re-patching sources every turn.
+
+### Source-integrity audit — a source captured but never becoming a chip
+
+A full-pipeline audit (capture → registry → wire → chip) surfaced these
+loss points. Fixed in this rollout:
+
+- **KB page-dedup drop (fixed).** `SourceRegistry.add` deduped citation-key
+  (knowledge-base) hits on **filename only**, silently dropping every hit after
+  the first from a document returned at multiple pages — while the page-aware
+  `## Trace-Lanes` fan-out still showed them. This was the concrete
+  chip-vs-Herleitung asymmetry ("shows in thinking, no chip"). Dedup is now
+  keyed on `(filename, page)`.
+- **All-or-nothing wire serialization (fixed).** The shallow researcher wrapped
+  the whole `verified_sources` serialization in one `try/except`; a single bad
+  `SourceEntry` zeroed every chip for the turn. Now per-entry best-effort.
+
+Deferred (tracked; larger / deep-research-scoped, not the primary shallow-chat
+chip path):
+
+- **Shallow capture double-gate** (`shallow_researcher/agent.py`): a tool in the
+  loaded set but not declared under `data_sources` has *all* its sources dropped
+  at `debug` level. Intended to filter interaction tools (`emit_card`,
+  `remember`), but fragile — an evidence tool desynced from `data_sources`
+  vanishes silently. Needs a config-coverage guard, not a behavior change.
+- **Deep-research `citation_use` is URL-only** (`jobs/callbacks.py`
+  `_emit_cited_urls`): KB citations can never be marked "cited" (no
+  `has_citation_key` path), so they stay "discovered" and can be hidden when a
+  web source is cited. Needs a KB-key cited-detection path.
+- **Deep-research jobs never bind the session `SourceRegistry`** (Dask worker
+  process; `set_session_registry` is a chat-only contextvar): sources found in a
+  deep-research job are invisible to later chat-turn verification in the same
+  conversation.
+- **`_session_registries` LRU vs. persist race** and the **`top_k` retrieval
+  ceiling** are low-severity/intended caps — documented, not changed.
 
 ## References
 

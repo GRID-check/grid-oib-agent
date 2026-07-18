@@ -157,12 +157,20 @@ class TestSourceRegistry:
         assert registry.has_url("https://example.com/page")
         assert len(registry.all_sources()) == 1  # deduplicated by normalized URL
 
-    def test_deduplicates_citation_keys_by_filename(self, registry):
+    def test_keeps_distinct_pages_of_same_file(self, registry):
         registry.add(SourceEntry(citation_key="report.pdf, p.5"))
         registry.add(SourceEntry(citation_key="report.pdf, p.10"))
-        # Same file, different pages — deduplicated by filename
-        assert len(registry.all_sources()) == 1
+        # Same file, DIFFERENT pages — distinct evidence, both kept as chips
+        # (ADR-0026: fixes the drop that hid page 10 from the chips while the
+        # Herleitung fan-out still showed it).
+        assert len(registry.all_sources()) == 2
         assert registry.has_citation_key("report.pdf")
+
+    def test_deduplicates_same_file_same_page(self, registry):
+        registry.add(SourceEntry(citation_key="report.pdf, p.5"))
+        registry.add(SourceEntry(citation_key="report.pdf, p.5"))
+        # Same file, SAME page — a genuine duplicate, collapsed to one.
+        assert len(registry.all_sources()) == 1
 
     def test_different_citation_key_files_not_deduped(self, registry):
         registry.add(SourceEntry(citation_key="report.pdf, p.5"))
