@@ -6,6 +6,7 @@
  */
 
 import { type FC } from 'react'
+import { PRODUCT_NAME } from '@/lib/brand'
 import { cn } from '@/lib/utils'
 
 interface GridLogoProps {
@@ -18,7 +19,7 @@ interface GridLogoProps {
 export const GridLogo: FC<GridLogoProps> = ({ size = 20, className }) => (
   <span
     role="img"
-    aria-label="Grid"
+    aria-label={PRODUCT_NAME}
     className={cn('inline-flex shrink-0 items-center text-brand', className)}
   >
     <svg

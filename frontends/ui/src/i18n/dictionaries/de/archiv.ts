@@ -15,7 +15,15 @@ export const archiv = {
     noMatchTitle: 'Keine passenden Dokumente',
     noMatchDescription: 'Kein Archivdokument entspricht Ihrer Suche oder der gewählten Kategorie.',
     clearFilters: 'Filter zurücksetzen',
-    provenance: 'Aus: {source}',
+    provenance: 'Aus „{source}“',
+    kind: {
+      floorplan: 'Grundriss',
+      section: 'Schnitt',
+      siteplan: 'Lageplan',
+      notice: 'Bescheid',
+      photo: 'Foto',
+      document: 'Dokument',
+    },
   },
   workspace: {
     dropToUpload: 'Dateien hier ablegen, um sie ins Archiv aufzunehmen',

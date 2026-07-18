@@ -44,7 +44,7 @@ function askGridHref(projectId: string, standard: ApplicableStandard, locale: Lo
 /**
  * Compliance-orientation panel: which OIB-Richtlinien are relevant to this
  * project, derived from the brief, each with a project-grounded reason, a link to
- * the source, and an "Ask Grid" action.
+ * the source, and an "Ask Piloti" action.
  */
 export function ApplicableStandards({ projectId, standards, briefComplete }: ApplicableStandardsProps) {
   const t = useTranslations('projects')

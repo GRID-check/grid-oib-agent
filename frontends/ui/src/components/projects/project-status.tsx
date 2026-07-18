@@ -13,6 +13,7 @@
  */
 
 import type { CSSProperties } from 'react'
+import { Activity } from 'lucide-react'
 import type { Project } from '@/lib/db/schema'
 import { useTranslations } from '@/i18n'
 
@@ -50,9 +51,10 @@ export function ProjectStatusChip({ status }: ProjectStatusChipProps): JSX.Eleme
   const t = useTranslations('projects')
   return (
     <span
-      className="inline-flex shrink-0 items-center whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-medium"
+      className="inline-flex h-6 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-2.5 text-[11px] font-medium"
       style={STATUS_STYLE[status]}
     >
+      <Activity className="size-[11px]" strokeWidth={2.4} aria-hidden />
       {t(`card.status.${status}`)}
     </span>
   )

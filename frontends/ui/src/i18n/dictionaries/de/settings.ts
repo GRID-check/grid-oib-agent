@@ -24,6 +24,19 @@ export const settings: typeof en.settings = {
     createdOn: 'Erstellt am {date}',
     status: {
       active: 'Aktiv',
+      completed: 'Abgeschlossen',
+    },
+    parameters: {
+      fields: {
+        name: 'Projektname',
+        location: 'Standort',
+        buildingClass: 'Gebäudeklasse',
+        constructionType: 'Bauart',
+        use: 'Nutzung',
+        status: 'Status',
+      },
+      notProvided: 'Nicht angegeben',
+      edit: 'Angaben bearbeiten',
     },
     sections: {
       parameters: 'Projektparameter',

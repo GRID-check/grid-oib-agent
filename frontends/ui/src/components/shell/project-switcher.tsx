@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { Check, ChevronsUpDown, FolderKanban, Plus } from 'lucide-react'
+import { ChevronDown, Settings } from 'lucide-react'
 
 import {
   DropdownMenu,
@@ -28,6 +28,24 @@ export interface ProjectSwitcherProps {
   collapsed?: boolean
 }
 
+/**
+ * A small dashed-ring status dot — the click dummy's project marker. Green
+ * (`--status-active`) for the active project, quiet ink otherwise. The color
+ * always travels with the project label beside it, never alone.
+ */
+function StatusDot({ active }: { active?: boolean }) {
+  const color = active ? 'var(--status-active)' : 'var(--muted-foreground)'
+  return (
+    <span
+      className="flex size-3.5 shrink-0 items-center justify-center rounded-full border border-dashed"
+      style={{ borderColor: color }}
+      aria-hidden
+    >
+      <span className="size-[5px] rounded-full" style={{ backgroundColor: color }} />
+    </span>
+  )
+}
+
 export function ProjectSwitcher({ projects, activeProjectId, collapsed }: ProjectSwitcherProps) {
   const router = useRouter()
   const t = useTranslations('nav')
@@ -38,9 +56,9 @@ export function ProjectSwitcher({ projects, activeProjectId, collapsed }: Projec
     <DropdownMenu onOpenChange={setOpen}>
       <DropdownMenuTrigger
         className={cn(
-          'flex h-9 w-full items-center gap-2.5 rounded-lg px-2 text-left text-sm font-medium',
+          'flex h-9 w-full items-center gap-2.5 rounded-[10px] border border-border bg-card px-3 text-left shadow-xs',
           'transition-colors duration-200 ease-out hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none',
-          collapsed && 'justify-center px-0',
+          collapsed && 'w-10 justify-center px-0',
         )}
         aria-label={
           active
@@ -48,15 +66,12 @@ export function ProjectSwitcher({ projects, activeProjectId, collapsed }: Projec
             : t('projectSwitcher.select')
         }
       >
-        <span
-          className="flex size-6 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground"
-          aria-hidden
-        >
-          <FolderKanban className="size-3.5" />
-        </span>
+        <StatusDot active={Boolean(active)} />
         {!collapsed && (
           <>
-            <span className="min-w-0 flex-1 truncate">{active?.name ?? t('projectSwitcher.select')}</span>
+            <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-foreground">
+              {active?.name ?? t('projectSwitcher.select')}
+            </span>
             <motion.span
               className="flex shrink-0"
               initial={false}
@@ -64,35 +79,57 @@ export function ProjectSwitcher({ projects, activeProjectId, collapsed }: Projec
               transition={springSnappy}
               aria-hidden
             >
-              <ChevronsUpDown className="size-3.5 text-muted-foreground" aria-hidden />
+              <ChevronDown className="size-3.5 text-muted-foreground" aria-hidden />
             </motion.span>
           </>
         )}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" side="bottom" className="w-60">
-        <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">{t('projectSwitcher.projects')}</DropdownMenuLabel>
-        {projects.map((project) => (
-          <DropdownMenuItem
-            key={project.id}
-            // Resume into the section last used for this project (read from
-            // localStorage at click time), else the project root.
-            onSelect={() =>
-              router.push(buildProjectHref(project.id, readLastProjectSection(project.id)))
-            }
-            className="gap-2"
-          >
-            <span className="min-w-0 flex-1 truncate">{project.name}</span>
-            {project.id === activeProjectId && <Check className="size-4 shrink-0" />}
-          </DropdownMenuItem>
-        ))}
+        <DropdownMenuLabel className="text-[10.5px] font-semibold tracking-[0.05em] text-muted-foreground uppercase">
+          {t('projectSwitcher.switchHeading')}
+        </DropdownMenuLabel>
+        {projects.map((project) => {
+          const isCurrent = project.id === activeProjectId
+          return (
+            <DropdownMenuItem
+              key={project.id}
+              // Resume into the section last used for this project (read from
+              // localStorage at click time), else the project root.
+              onSelect={() =>
+                router.push(buildProjectHref(project.id, readLastProjectSection(project.id)))
+              }
+              className="gap-2.5 pr-1.5"
+            >
+              <StatusDot active={isCurrent} />
+              <span
+                className={cn(
+                  'min-w-0 flex-1 truncate text-[13px]',
+                  isCurrent ? 'font-medium text-foreground' : 'text-foreground/90',
+                )}
+              >
+                {project.name}
+              </span>
+              <button
+                type="button"
+                aria-label={t('projectSwitcher.projectSettings', { name: project.name })}
+                onClick={(event) => {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  router.push(`/app/projects/${project.id}/settings`)
+                }}
+                className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
+              >
+                <Settings className="size-3.5" aria-hidden />
+              </button>
+            </DropdownMenuItem>
+          )
+        })}
         <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={() => router.push('/app/projects')} className="gap-2">
-          <FolderKanban className="size-4 text-muted-foreground" aria-hidden />
-          {t('projectSwitcher.allProjects')}
-        </DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => router.push('/app/projects?new=1')} className="gap-2">
-          <Plus className="size-4 text-muted-foreground" aria-hidden />
-          {t('projectSwitcher.newProject')}
+        <DropdownMenuItem
+          onSelect={() => router.push('/app/projects')}
+          className="text-[13px] font-medium text-foreground"
+        >
+          {t('projectSwitcher.viewAllProjects')}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

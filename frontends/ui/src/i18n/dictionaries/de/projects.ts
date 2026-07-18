@@ -17,7 +17,7 @@ export const projects: typeof en.projects = {
     empty: {
       title: 'Starten Sie Ihr erstes Projekt',
       description:
-        'Grid ist ein Copilot für die OIB/RIS-Baukonformität. Legen Sie ein Projekt an, um dessen Dokumente, Mitglieder und Recherche in einem Arbeitsbereich zu bündeln — und stellen Sie Grid Fragen, fundiert im österreichischen Baurecht.',
+        'Piloti ist ein Copilot für die OIB/RIS-Baukonformität. Legen Sie ein Projekt an, um dessen Dokumente, Mitglieder und Recherche in einem Arbeitsbereich zu bündeln — und stellen Sie Piloti Fragen, fundiert im österreichischen Baurecht.',
       action: 'Erstellen Sie Ihr erstes Projekt',
     },
   },
@@ -26,7 +26,7 @@ export const projects: typeof en.projects = {
   },
   card: {
     summaryFallback:
-      'Arbeitsbereich für OIB/RIS-Baukonformität. Fügen Sie Dokumente und ein Briefing hinzu, um Grid zu fundieren.',
+      'Arbeitsbereich für OIB/RIS-Baukonformität. Fügen Sie Dokumente und ein Briefing hinzu, um Piloti zu fundieren.',
     status: {
       active: 'Aktiv',
     },
@@ -81,12 +81,12 @@ export const projects: typeof en.projects = {
     source: 'Quelle',
     sourceAria: 'Quelle für {code} öffnen',
     sourceTitle: 'OIB-Quelle öffnen',
-    askGrid: 'Grid fragen',
-    askGridAria: 'Grid zu {code} fragen',
-    askGridTitle: 'Grid zu dieser Richtlinie fragen',
+    askGrid: 'Piloti fragen',
+    askGridAria: 'Piloti zu {code} fragen',
+    askGridTitle: 'Piloti zu dieser Richtlinie fragen',
     emptyTitle: 'Noch keine anwendbaren Standards',
     emptyDescription:
-      'Vervollständigen Sie das Projekt-Briefing, damit Grid ermitteln kann, welche OIB-Richtlinien auf dieses Gebäude zutreffen.',
+      'Vervollständigen Sie das Projekt-Briefing, damit Piloti ermitteln kann, welche OIB-Richtlinien auf dieses Gebäude zutreffen.',
     disclaimer:
       'Nur zur Orientierung — keine Rechtsberatung. Prüfen Sie die Anwendbarkeit anhand der aktuellen Bauordnung und der zuständigen Behörde.',
   },
@@ -134,7 +134,7 @@ export const projects: typeof en.projects = {
     tryAgain: 'Erneut versuchen',
     emptyTitle: 'Noch keine Rechercheläufe',
     emptyDescription:
-      'Tiefe Rechercheläufe erscheinen hier, sobald Sie Grid im Chat eine komplexe Frage stellen — es durchsucht die OIB/RIS-Quellen und liefert einen belegten Bericht, den Sie erneut aufrufen können.',
+      'Tiefe Rechercheläufe erscheinen hier, sobald Sie Piloti im Chat eine komplexe Frage stellen — es durchsucht die OIB/RIS-Quellen und liefert einen belegten Bericht, den Sie erneut aufrufen können.',
     emptyAction: 'Einen Lauf im Chat starten',
     viewReport: 'Bericht ansehen',
   },
@@ -162,23 +162,23 @@ export const projects: typeof en.projects = {
     },
     eyebrowEdit: 'Projekt-Briefing bearbeiten',
     eyebrowCreate: 'Projekteinrichtung',
-    titleFallback: 'Erzählen Sie Grid von diesem Projekt',
+    titleFallback: 'Erzählen Sie Piloti von diesem Projekt',
     subtitle:
-      'Etwa 2 Minuten. Grid nutzt dieses Briefing, um jede Antwort zu fundieren — und um zu zeigen, welche OIB-Richtlinien auf dieses Gebäude zutreffen.',
+      'Etwa 2 Minuten. Piloti nutzt dieses Briefing, um jede Antwort zu fundieren — und um zu zeigen, welche OIB-Richtlinien auf dieses Gebäude zutreffen.',
     progressAria: 'Fortschritt',
     reviewTitle: 'Prüfen & bestätigen',
     reviewStep: 'Prüfen',
     reviewDescription:
-      'Bestätigen Sie, was Grid über dieses Projekt verstanden hat, bevor Sie speichern.',
+      'Bestätigen Sie, was Piloti über dieses Projekt verstanden hat, bevor Sie speichern.',
     back: 'Zurück',
     stepCounter: 'Schritt {current} von {total}',
     saving: 'Wird gespeichert…',
     saveChanges: 'Änderungen speichern',
     saveAndSee: 'Speichern & meine Standards ansehen',
     next: 'Weiter',
-    unknownsTitle: 'Grid wird weiterhin nicht wissen',
+    unknownsTitle: 'Piloti wird weiterhin nicht wissen',
     unknownsHint:
-      'Sie können jetzt speichern und dies später ergänzen — Grid markiert diese Punkte als offene Fragen.',
+      'Sie können jetzt speichern und dies später ergänzen — Piloti markiert diese Punkte als offene Fragen.',
     edit: 'Bearbeiten',
     optional: '(optional)',
     yes: 'Ja',
@@ -232,7 +232,7 @@ export const projects: typeof en.projects = {
     },
     provenance: {
       user: 'von Ihnen hinzugefügt',
-      grid: 'von Grid notiert',
+      grid: 'von Piloti notiert',
     },
     time: {
       justNow: 'gerade eben',
@@ -249,7 +249,7 @@ export const projects: typeof en.projects = {
       title: 'Beim Projektspeicher ist etwas schiefgelaufen',
     },
     heading: 'Projektspeicher',
-    description: 'Was Grid über dieses Projekt gelernt hat — bearbeitbar.',
+    description: 'Was Piloti über dieses Projekt gelernt hat — bearbeitbar.',
     addMemory: 'Eintrag hinzufügen',
     kindAria: 'Art des Eintrags',
     scopeAria: 'Geltungsbereich des Eintrags',
@@ -261,7 +261,7 @@ export const projects: typeof en.projects = {
     tryAgain: 'Erneut versuchen',
     emptyTitle: 'Noch nichts erfasst',
     emptyDescription:
-      'Grid hat zu diesem Projekt noch nichts erfasst. Das geschieht, während Sie chatten — oder fügen Sie selbst etwas hinzu.',
+      'Piloti hat zu diesem Projekt noch nichts erfasst. Das geschieht, während Sie chatten — oder fügen Sie selbst etwas hinzu.',
     orgWide: 'organisationsweit',
     confidence: 'Konfidenz {confidence}',
     save: 'Speichern',
@@ -296,7 +296,7 @@ export const projects: typeof en.projects = {
     },
     workspaceCreated: 'Projekt-Arbeitsbereich · erstellt {date}',
     workspace: 'Projekt-Arbeitsbereich',
-    askGrid: 'Grid fragen',
+    askGrid: 'Piloti fragen',
     uploadFiles: 'Dateien hochladen',
     rename: {
       action: 'Projekt umbenennen',
@@ -317,7 +317,7 @@ export const projects: typeof en.projects = {
       summaryGenerate: 'Zusammenfassung erstellen',
       summaryRegenerate: 'Neu erstellen',
       summaryGenerating: 'Wird erstellt…',
-      summaryWriting: 'Grid schreibt die Projekt-Zusammenfassung…',
+      summaryWriting: 'Piloti schreibt die Projekt-Zusammenfassung…',
       summarySuccess: 'Zusammenfassung aktualisiert.',
       summaryError: 'Die Zusammenfassung konnte nicht erstellt werden. Bitte versuchen Sie es erneut.',
       summaryLlmNotConfigured:
@@ -328,9 +328,9 @@ export const projects: typeof en.projects = {
       startedNoDetailsBefore:
         'Das Briefing wurde begonnen, aber es sind noch keine Details erfasst. ',
       completeBrief: 'Briefing vervollständigen',
-      startedNoDetailsAfter: ', damit Grid seine Antworten fundieren kann.',
-      missingHeading: 'Grid weiß noch nicht',
-      assumptionsHeading: 'Von Grid vorgeschlagen — bestätigen, um es als Projektfakt zu übernehmen',
+      startedNoDetailsAfter: ', damit Piloti seine Antworten fundieren kann.',
+      missingHeading: 'Piloti weiß noch nicht',
+      assumptionsHeading: 'Von Piloti vorgeschlagen — bestätigen, um es als Projektfakt zu übernehmen',
       assumptionConfirm: 'Bestätigen',
       assumptionDismiss: 'Verwerfen',
       assumptionError: 'Das Briefing konnte nicht aktualisiert werden. Bitte erneut versuchen.',
@@ -341,7 +341,7 @@ export const projects: typeof en.projects = {
       },
       emptyTitle: 'Projekt-Briefing einrichten',
       emptyDescription:
-        'Erzählen Sie Grid von diesem Gebäude — Nutzung, Klasse, Geschosse und Ziele. Ein vollständiges Briefing lässt Grid jede Antwort im realen Kontext Ihres Projekts fundieren.',
+        'Erzählen Sie Piloti von diesem Gebäude — Nutzung, Klasse, Geschosse und Ziele. Ein vollständiges Briefing lässt Piloti jede Antwort im realen Kontext Ihres Projekts fundieren.',
       emptyAction: 'Projektkontext einrichten',
     },
     stats: {
@@ -354,7 +354,7 @@ export const projects: typeof en.projects = {
       viewAll: 'Alle ansehen',
       emptyTitle: 'Noch keine Dateien',
       emptyDescription:
-        'Laden Sie Baudokumente hoch — Pläne, Berichte, Auszüge der Bauordnung — damit Grid Ihr Projekt in seinen Antworten zitieren kann.',
+        'Laden Sie Baudokumente hoch — Pläne, Berichte, Auszüge der Bauordnung — damit Piloti Ihr Projekt in seinen Antworten zitieren kann.',
       emptyAction: 'Dateien hochladen',
     },
   },

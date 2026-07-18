@@ -19,9 +19,9 @@ export const organization = {
   },
   settings: {
     title: 'Organization settings',
-    description: 'Grid-specific settings for your organization.',
+    description: 'Piloti-specific settings for your organization.',
     displayName: 'Display name',
-    displayNameHint: 'Shown inside Grid. Leave blank to use the WorkOS organization name.',
+    displayNameHint: 'Shown inside Piloti. Leave blank to use the WorkOS organization name.',
     displayNamePlaceholder: 'e.g. Acme Architektur GmbH',
     defaultLocale: 'Default language for new members',
     defaultLocaleHint: 'New members start in this language until they choose their own.',
@@ -93,7 +93,7 @@ export const organization = {
       'Bring your own LLM provider key: research traffic is billed to your provider account and the key is envelope-encrypted per organization in WorkOS Vault. Keys are verified live before activation; rotation and revocation are audited.',
     loading: 'Loading credentials…',
     loadError: 'Could not load the LLM credentials.',
-    noCredential: 'No organization key connected — Grid uses the platform key.',
+    noCredential: 'No organization key connected — Piloti uses the platform key.',
     storageVaultNote: 'New keys are stored encrypted in WorkOS Vault under your organization’s key context.',
     storageLocalNote: 'New keys are stored encrypted with this deployment’s local key.',
     activeBadge: 'Active',
@@ -102,9 +102,9 @@ export const organization = {
     modeByokHint:
       'Research traffic runs on your key and is billed to your provider account. The model picker lists your provider’s models.',
     modePlatformHint:
-      'Research traffic runs on the Grid platform service. Your key stays stored securely and can be re-enabled anytime.',
+      'Research traffic runs on the Piloti platform service. Your key stays stored securely and can be re-enabled anytime.',
     modeByokSet: 'Switched to your own key — new conversations use it within a minute.',
-    modePlatformSet: 'Switched to the Grid platform service — your key is kept but not used.',
+    modePlatformSet: 'Switched to the Piloti platform service — your key is kept but not used.',
     modeError: 'Could not change the provider mode.',
     keyLabel: 'Key',
     storageLabel: 'Storage',

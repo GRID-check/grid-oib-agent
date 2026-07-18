@@ -149,12 +149,12 @@ export const workflows = {
     },
   },
 
-  // GRID-authored default templates — the always-visible gallery at the top of
+  // Piloti-authored default templates — the always-visible gallery at the top of
   // the Workflows page. Selecting a card pre-fills the builder; templates never
   // auto-create or run a workflow (the user reviews and saves).
   templates: {
-    badge: 'By GRID',
-    heading: 'GRID templates',
+    badge: 'By Piloti',
+    heading: 'Piloti templates',
     hint: 'Prefilled research briefs — review, adjust and save. Nothing runs until you save the workflow.',
     setUp: 'Set up',
     setUpAria: 'Set up template “{name}”',
@@ -168,12 +168,13 @@ export const workflows = {
       custom: 'Custom schedule ({cron})',
     },
     moreComing: {
-      title: 'More coming',
-      hint: 'Further GRID templates will appear here.',
+      title: 'More workflows coming',
+      hint: 'Further Piloti templates will appear here.',
     },
 
     submissionPrecheck: {
       name: 'Submission pre-check',
+      category: 'Building law',
       description:
         "Researches which requirements apply to this project's permit submission (state building code, OIB Richtlinien) and reports open points and missing evidence in a deep-research report.",
       objective:
@@ -193,6 +194,7 @@ export const workflows = {
 
     regulatoryWatch: {
       name: 'Regulatory watch: OIB & Austrian building law',
+      category: 'Guidelines',
       description:
         'Weekly scan of RIS and the web for changed laws, ordinances, case law and OIB guideline releases that affect this project — with a concrete impact assessment.',
       objective:
@@ -212,6 +214,7 @@ export const workflows = {
 
     complianceGapCheck: {
       name: 'OIB compliance gap check',
+      category: 'Compliance',
       description:
         'Cross-checks the project documentation against the applicable OIB Richtlinien and returns a prioritized list of gaps, contradictions and missing evidence.',
       objective:

@@ -107,7 +107,7 @@ export async function listProjectMemory(
     conditions.push(eq(projectMemory.status, 'active'))
   }
   if (options.sourceConversationId) {
-    // Used by the chat "Grid noted N" chip to show only what this turn recorded.
+    // Used by the chat "Piloti noted N" chip to show only what this turn recorded.
     conditions.push(eq(projectMemory.sourceConversationId, options.sourceConversationId))
   }
   return db

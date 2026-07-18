@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 
 /**
- * A memory item as surfaced to the chat "Grid noted N" chip. Mirrors the subset
+ * A memory item as surfaced to the chat "Piloti noted N" chip. Mirrors the subset
  * of the project_memory row the chip renders (see lib/db/schema/project-memory).
  */
 export interface ConversationMemoryItem {

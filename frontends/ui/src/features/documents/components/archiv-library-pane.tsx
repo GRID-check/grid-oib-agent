@@ -41,10 +41,6 @@ const OFFICE_TINT: CSSProperties = {
   color: 'var(--source-office-text, var(--source-office, var(--text-color-feedback-warning)))',
 }
 
-const OFFICE_TEXT: CSSProperties = {
-  color: 'var(--source-office-text, var(--source-office, var(--text-color-feedback-warning)))',
-}
-
 interface ArchivLibraryPaneProps {
   files: FileItem[]
   selectedFileId: string | null
@@ -106,13 +102,19 @@ export function ArchivLibraryPane({
     return (
       <div className="space-y-3 p-4">
         <Skeleton className="h-9 w-full" />
-        <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(236px,1fr))]">
+        <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
           {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="overflow-hidden rounded-xl border">
-              <Skeleton className="h-[132px] w-full rounded-none" />
-              <div className="space-y-2 p-3">
-                <Skeleton className="h-3.5 w-2/3" />
-                <Skeleton className="h-3 w-24" />
+            <div key={i} className="overflow-hidden rounded-xl border bg-secondary shadow-sm">
+              <div className="overflow-hidden rounded-b-[10px] bg-card shadow-xs">
+                <Skeleton className="h-[190px] w-full rounded-none" />
+                <div className="space-y-2.5 px-4 pb-[13px] pt-3.5">
+                  <Skeleton className="h-[30px] w-full" />
+                  <Skeleton className="h-3.5 w-2/3" />
+                  <Skeleton className="h-3 w-24" />
+                </div>
+              </div>
+              <div className="px-4 pb-2.5 pt-[9px]">
+                <Skeleton className="h-3 w-1/2" />
               </div>
             </div>
           ))}
@@ -215,7 +217,7 @@ export function ArchivLibraryPane({
           />
         </div>
       ) : (
-        <div className="grid gap-3 p-4 [grid-template-columns:repeat(auto-fill,minmax(236px,1fr))]">
+        <div className="grid grid-cols-1 gap-3.5 p-4 sm:grid-cols-2 lg:grid-cols-3">
           {filteredFiles.map((file) => (
             <ArchivDocumentCard
               key={file.id}
@@ -237,12 +239,11 @@ function CategoryChip({ label, active, onClick }: { label: string; active: boole
       type="button"
       onClick={onClick}
       aria-pressed={active}
-      style={active ? OFFICE_TINT : undefined}
       className={cn(
-        'shrink-0 whitespace-nowrap rounded-full border px-3 py-1 text-xs font-medium transition-colors duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none',
+        'inline-flex h-7 shrink-0 items-center whitespace-nowrap rounded-md border px-3 text-[0.78125rem] transition-colors duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none',
         active
-          ? 'border-transparent font-semibold'
-          : 'border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground',
+          ? 'border-border bg-card font-medium text-foreground shadow-xs'
+          : 'border-border/50 bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground',
       )}
     >
       {label}
@@ -251,12 +252,14 @@ function CategoryChip({ label, active, onClick }: { label: string; active: boole
 }
 
 /**
- * One archive-document card: content-aware skeleton thumbnail, name, one-line
- * AI summary (only when the backend generated one — nothing fake), tinted
- * extension chip, size + relative time, ingestion-status badge (kept — critical
- * operational info the click dummy lacks), and a provenance footer showing the
- * document's real ingestion tags with the gold Büroarchiv mark. Documents
- * without tags get no provenance line, and there is deliberately no
+ * One archive-document card (click-dummy detail-card anatomy): an inner white
+ * block — h190 skeleton thumbnail by inferred kind + hairline divider, a gold
+ * Büroarchiv kind chip (`--source-office`) beside a 30×30 tinted extension tile,
+ * the name, and a one-line AI summary (only when the backend generated one) —
+ * sitting proud of a subtle outer surface, with a footer tab carrying the real
+ * tag provenance (left) and the operational size · time (right). The
+ * ingestion-status badge is kept (critical operational info the dummy lacks).
+ * Documents without tags get no provenance line, and there is deliberately no
  * "verified/Geprüft" marker — that workflow does not exist (spec §2.3).
  */
 function ArchivDocumentCard({
@@ -273,6 +276,7 @@ function ArchivDocumentCard({
   const t = useTranslations('archiv')
   const tFiles = useTranslations('files')
   const kind = inferDocumentKind(file)
+  const kindLabel = t(`library.kind.${kind}` as 'library.kind.document')
   const ext = fileExtensionLabel(file.filename)
   const isFailed = file.status === 'failed'
   const failureReason = isFailed ? file.errorMessage || tFiles('preview.ingestionFailedGeneric') : undefined
@@ -285,60 +289,82 @@ function ArchivDocumentCard({
       aria-pressed={isSelected}
       data-testid="archiv-document-card"
       className={cn(
-        'group flex flex-col overflow-hidden rounded-xl border bg-card text-left shadow-2xs transition-shadow duration-200 ease-out hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none',
+        'group flex flex-col overflow-hidden rounded-xl border bg-secondary text-left shadow-sm transition-shadow duration-200 ease-out hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none',
         isSelected && 'ring-2 ring-ring',
       )}
     >
-      {/* Thumbnail header — skeleton sketch by inferred kind, hairline divider. */}
-      <div className="relative flex h-[132px] w-full shrink-0 items-center justify-center border-b bg-card">
-        <DocumentKindThumbnail kind={kind} className="h-20 w-auto text-muted-foreground" />
-        <DocumentStatusBadge status={file.status} className="absolute right-2 top-2" />
+      {/* Inner white block: thumbnail + metadata, sitting proud of the subtle
+          outer surface so the footer reads as a separate tab (dummy anatomy). */}
+      <div className="w-full overflow-hidden rounded-b-[10px] bg-card shadow-xs">
+        {/* Thumbnail — skeleton sketch by inferred kind, hairline divider. */}
+        <div className="relative flex h-[190px] w-full items-center justify-center border-b bg-card">
+          <DocumentKindThumbnail kind={kind} className="h-[88px] w-auto text-muted-foreground/70" />
+          <DocumentStatusBadge status={file.status} className="absolute right-2.5 top-2.5" />
+        </div>
+
+        {/* Metadata block */}
+        <div className="px-4 pb-[13px] pt-3.5">
+          <div className="flex items-center gap-2">
+            <span
+              className="inline-flex shrink-0 items-center rounded-[6px] px-2 py-[3px] text-[11px] font-semibold leading-none tracking-[0.03em]"
+              style={OFFICE_TINT}
+            >
+              {kindLabel}
+            </span>
+            <span className="flex-1" />
+            {ext !== '' && (
+              <span
+                className="flex size-[30px] shrink-0 items-center justify-center rounded-[6px] text-[9px] font-bold leading-none tracking-[0.03em]"
+                style={extChipTint(ext)}
+              >
+                {ext}
+              </span>
+            )}
+          </div>
+          <p className="mt-[11px] truncate text-[0.84375rem] font-medium leading-[1.4] text-foreground" title={file.filename}>
+            {file.filename}
+          </p>
+          {isFailed ? (
+            <p className="mt-[3px] line-clamp-2 text-xs text-destructive" title={failureReason}>
+              {failureReason}
+            </p>
+          ) : (
+            file.summary && (
+              <p className="mt-[3px] line-clamp-1 text-xs text-muted-foreground" title={file.summary}>
+                {file.summary}
+              </p>
+            )
+          )}
+        </div>
       </div>
 
-      {/* Body */}
-      <div className="flex w-full flex-1 flex-col gap-1 p-3">
-        <p className="truncate text-sm font-medium text-foreground" title={file.filename}>
-          {file.filename}
-        </p>
-        {isFailed ? (
-          <p className="line-clamp-2 text-xs text-destructive" title={failureReason}>
-            {failureReason}
-          </p>
-        ) : (
-          file.summary && (
-            <p className="line-clamp-1 text-xs leading-relaxed text-muted-foreground" title={file.summary}>
-              {file.summary}
-            </p>
-          )
-        )}
-        <div className="mt-auto flex min-w-0 items-center gap-1.5 pt-1.5 text-xs text-muted-foreground/80">
-          {ext !== '' && (
-            <span
-              className="inline-flex shrink-0 items-center rounded-md px-1.5 py-0.5 text-[0.6875rem] font-semibold leading-none"
-              style={extChipTint(ext)}
-            >
-              {ext}
-            </span>
-          )}
-          <span className="shrink-0 tabular-nums">{formatFileSize(file.fileSize, locale)}</span>
-          <span aria-hidden>·</span>
-          <span className="truncate" title={formatAbsoluteTime(file.createdAt, locale)}>
-            {formatRelativeTime(file.createdAt, locale)}
-          </span>
-        </div>
-        {/* Provenance footer — only real tag data; rendered not at all otherwise. */}
-        {provenance !== '' && (
-          <p
-            className="flex min-w-0 items-center gap-1 border-t pt-1.5 text-[0.6875rem] font-medium"
-            style={OFFICE_TEXT}
+      {/* Footer tab on the subtle outer surface: real provenance (left) and the
+          operational size/time (right). Provenance renders only from real tag
+          data — no fake source, and deliberately no "verified/Geprüft" marker. */}
+      <div className="flex w-full items-center gap-2 px-4 pb-2.5 pt-[9px] text-[0.71875rem]">
+        {provenance !== '' ? (
+          <span
+            className="min-w-0 flex-1 truncate text-muted-foreground/80"
             data-testid="archiv-provenance"
+            title={t('library.provenance', { source: provenance })}
           >
-            <Archive className="size-3 shrink-0" aria-hidden />
-            <span className="truncate" title={t('library.provenance', { source: provenance })}>
-              {t('library.provenance', { source: provenance })}
-            </span>
-          </p>
+            {t('library.provenance', { source: provenance })}
+          </span>
+        ) : (
+          <span className="flex-1" />
         )}
+        <span className="shrink-0 tabular-nums text-muted-foreground/70">
+          {formatFileSize(file.fileSize, locale)}
+        </span>
+        <span aria-hidden className="text-muted-foreground/40">
+          ·
+        </span>
+        <span
+          className="shrink-0 truncate text-muted-foreground/70"
+          title={formatAbsoluteTime(file.createdAt, locale)}
+        >
+          {formatRelativeTime(file.createdAt, locale)}
+        </span>
       </div>
     </button>
   )

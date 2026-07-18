@@ -160,13 +160,13 @@ export const workflows: typeof en.workflows = {
     },
   },
 
-  // Von GRID erstellte Standardvorlagen — die stets sichtbare Galerie oben auf
+  // Von Piloti erstellte Standardvorlagen — die stets sichtbare Galerie oben auf
   // der Workflows-Seite. Eine Karte füllt den Builder vor; Vorlagen erstellen
   // oder starten nie automatisch einen Workflow (die Nutzerin prüft und
   // speichert).
   templates: {
-    badge: 'Von GRID',
-    heading: 'Vorlagen von GRID',
+    badge: 'Von Piloti',
+    heading: 'Vorlagen von Piloti',
     hint: 'Vorausgefüllte Recherche-Briefings — prüfen, anpassen und speichern. Es läuft nichts, bevor Sie den Workflow speichern.',
     setUp: 'Einrichten',
     setUpAria: 'Vorlage „{name}“ einrichten',
@@ -180,12 +180,13 @@ export const workflows: typeof en.workflows = {
       custom: 'Eigener Zeitplan ({cron})',
     },
     moreComing: {
-      title: 'Weitere folgen',
-      hint: 'Hier erscheinen künftig weitere GRID-Vorlagen.',
+      title: 'Weitere Workflows folgen',
+      hint: 'Hier erscheinen künftig weitere Piloti-Vorlagen.',
     },
 
     submissionPrecheck: {
       name: 'Vorprüfung Einreichung',
+      category: 'Baurecht',
       description:
         'Recherchiert, welche Anforderungen für die Einreichung dieses Projekts gelten (Landes-Bauordnung, OIB-Richtlinien), und berichtet offene Punkte und fehlende Nachweise als Deep-Research-Bericht.',
       objective:
@@ -205,6 +206,7 @@ export const workflows: typeof en.workflows = {
 
     regulatoryWatch: {
       name: 'Richtlinien-Monitoring: OIB & österreichisches Baurecht',
+      category: 'Richtlinien',
       description:
         'Wöchentlicher Scan von RIS und Web nach geänderten Gesetzen, Verordnungen, Judikatur und OIB-Richtlinien-Veröffentlichungen, die dieses Projekt betreffen — mit konkreter Auswirkungsbewertung.',
       objective:
@@ -224,6 +226,7 @@ export const workflows: typeof en.workflows = {
 
     complianceGapCheck: {
       name: 'OIB-Konformitätscheck',
+      category: 'Konformität',
       description:
         'Gleicht die Projektdokumentation mit den anwendbaren OIB-Richtlinien ab und liefert eine priorisierte Liste von Lücken, Widersprüchen und fehlenden Nachweisen.',
       objective:

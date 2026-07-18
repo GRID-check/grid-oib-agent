@@ -10,7 +10,7 @@ export const profile: typeof en.profile = {
   saveError: 'Ihre Einstellungen konnten nicht gespeichert werden. Bitte versuchen Sie es erneut.',
   account: {
     title: 'Konto',
-    description: 'Ihre Identität innerhalb von Grid.',
+    description: 'Ihre Identität innerhalb von Piloti.',
     name: 'Name',
     email: 'E-Mail',
     organization: 'Organisation',
@@ -25,12 +25,12 @@ export const profile: typeof en.profile = {
   },
   appearance: {
     title: 'Erscheinungsbild',
-    description: 'Wählen Sie, wie Grid aussieht. „System“ folgt der Einstellung Ihres Geräts.',
+    description: 'Wählen Sie, wie Piloti aussieht. „System“ folgt der Einstellung Ihres Geräts.',
     theme: 'Design',
   },
   language: {
     title: 'Sprache',
-    description: 'Die in der Grid-Oberfläche verwendete Sprache.',
+    description: 'Die in der Piloti-Oberfläche verwendete Sprache.',
     label: 'Sprache der Oberfläche',
   },
   security: {

@@ -16,7 +16,7 @@ export const shortcuts = {
   },
   cheatsheet: {
     title: 'Keyboard shortcuts',
-    description: 'Navigate Grid without leaving the keyboard.',
+    description: 'Navigate Piloti without leaving the keyboard.',
     thenSeparator: 'then',
     orSeparator: 'or',
     items: {

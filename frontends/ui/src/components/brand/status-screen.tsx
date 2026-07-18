@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils'
 
 /**
  * Full-page status screen used by not-found / error / permission boundaries.
- * Calm, centered, branded — a real GRID surface instead of an unstyled crash.
+ * Calm, centered, branded — a real Piloti surface instead of an unstyled crash.
  */
 export interface StatusScreenProps {
   code?: string

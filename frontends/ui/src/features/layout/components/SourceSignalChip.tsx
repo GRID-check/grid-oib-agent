@@ -94,6 +94,10 @@ interface SourceSignalChipToggleProps extends ButtonHTMLAttributes<HTMLButtonEle
 export const SourceSignalChipToggle = forwardRef<HTMLButtonElement, SourceSignalChipToggleProps>(
   function SourceSignalChipToggle({ signal, active, className, children, ...props }, ref) {
     const Icon = SIGNAL_ICON[signal]
+    // Both states carry the signal tint + colored icon (dummy shortcut row —
+    // color is always present). Active adds the hairline border + raised
+    // shadow; inactive is borderless and lifts only on hover.
+    const { borderColor, ...tint } = sourceSignalStyle(signal)
     return (
       <button
         ref={ref}
@@ -102,12 +106,10 @@ export const SourceSignalChipToggle = forwardRef<HTMLButtonElement, SourceSignal
         className={cn(
           chipClasses,
           'cursor-pointer',
-          active
-            ? 'shadow-xs'
-            : 'border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground',
+          active ? 'shadow-xs' : 'border-transparent hover:shadow-xs',
           className
         )}
-        style={active ? sourceSignalStyle(signal) : undefined}
+        style={active ? { ...tint, borderColor } : tint}
         {...props}
       >
         <Icon aria-hidden="true" />

@@ -3,13 +3,14 @@
 import { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import type { FileItem } from './project-file-workspace'
-import { AlertCircle, Download, FileQuestion, Maximize2, Plus, RotateCcw, Sparkles, X } from 'lucide-react'
-import { Skeleton } from '@/components/ui/skeleton'
+import { AlertCircle, Download, Maximize2, Plus, RotateCcw, Sparkles, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { DOCUMENT_TYPE_TAGS, DISCIPLINE_TAGS, MAX_TAGS } from '@/lib/documents/tag-vocabulary'
 import { useLocale, useTranslations } from '@/i18n'
 import { formatFileSize } from '@/lib/utils/format-file-size'
 import { formatAbsoluteTime } from '@/lib/format'
+import { cn } from '@/lib/utils'
+import { extChipTint, fileExtensionLabel } from '../document-kind'
 import { PdfViewerDialog } from '@/features/knowledge/components/pdf-viewer-dialog'
 import { DocumentStatusBadge, fileTypeIcon } from './document-status'
 
@@ -135,90 +136,60 @@ export function FilePreviewPane({ file, projectName, canManage = true, onClose, 
     }
   }, [file.id, onReingested, t])
 
+  const ext = fileExtensionLabel(file.filename)
+
   return (
-    <div className="flex h-full flex-col">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-2 border-b px-4 py-3">
-        <div className="flex min-w-0 items-center gap-2">
-          <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+    <div className="@container flex h-full flex-col bg-card">
+      {/* Header — extension tile, name/meta, download, expand, close. */}
+      <div className="flex shrink-0 items-center gap-3 border-b px-4 py-3">
+        <span
+          className="flex size-8 shrink-0 items-center justify-center rounded-md text-[9.5px] font-bold uppercase leading-none"
+          style={extChipTint(ext)}
+          aria-hidden
+        >
+          {ext || <Icon className="size-4" />}
+        </span>
+        <div className="min-w-0 flex-1">
           <h3 className="truncate text-sm font-semibold text-foreground">{file.filename}</h3>
+          <p className="truncate text-[11.5px] text-muted-foreground">
+            {ext || file.contentType || t('preview.unknownType')}
+          </p>
         </div>
-        <div className="flex shrink-0 items-center gap-1">
-          {canExpandPreview && previewUrl && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-7"
-              onClick={() => setIsLargePreviewOpen(true)}
-              aria-label={t('preview.expandPreview')}
-              title={t('preview.expandPreview')}
-            >
-              <Maximize2 className="size-4" />
-            </Button>
-          )}
-          {onClose && (
-            <Button variant="ghost" size="icon" className="size-7" onClick={onClose} aria-label={t('preview.closePreview')}>
-              <X className="size-4" />
-            </Button>
-          )}
-        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-8 shrink-0 gap-1.5"
+          onClick={handleDownload}
+          disabled={isDownloading}
+        >
+          <Download className="size-3.5" aria-hidden />
+          {t('preview.download')}
+        </Button>
+        {canExpandPreview && previewUrl && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7 shrink-0"
+            onClick={() => setIsLargePreviewOpen(true)}
+            aria-label={t('preview.expandPreview')}
+            title={t('preview.expandPreview')}
+          >
+            <Maximize2 className="size-4" />
+          </Button>
+        )}
+        {extraActions}
+        {onClose && (
+          <Button variant="ghost" size="icon" className="size-7 shrink-0" onClick={onClose} aria-label={t('preview.closePreview')}>
+            <X className="size-4" />
+          </Button>
+        )}
       </div>
 
-      {/* "Indexed by GRID" panel (files-metadata-panel flag, FB-8) — the AI
-          summary that grounds the agent's answers, the ingestion-detected
-          key-value props, and the user-correctable tags. Leads the pane, above
-          the raw preview, because it is the document's machine-readable gist. */}
-      {showMetadataPanel && (
-        <section className="space-y-3 border-b bg-muted/40 px-4 py-3" aria-label={t('preview.indexed.title')}>
-          <p className="flex items-center gap-1.5 text-[0.6875rem] font-medium uppercase tracking-wider text-muted-foreground">
-            <Sparkles className="size-3.5 shrink-0" aria-hidden />
-            {t('preview.indexed.title')}
-          </p>
-          {file.summary && <p className="text-sm leading-relaxed text-foreground">{file.summary}</p>}
-          <div className="space-y-2">
-            {detectedType && (
-              <MetaRow label={t('preview.indexed.documentType')}>
-                <span className="text-xs font-medium text-foreground">{detectedType}</span>
-              </MetaRow>
-            )}
-            {projectName && (
-              <MetaRow label={t('preview.indexed.project')}>
-                <span className="truncate text-xs font-medium text-foreground">{projectName}</span>
-              </MetaRow>
-            )}
-            {typeof file.pageCount === 'number' && file.pageCount > 0 && (
-              <MetaRow label={t('preview.pages')}>
-                <span className="text-xs font-medium tabular-nums text-foreground">{file.pageCount}</span>
-              </MetaRow>
-            )}
-            {typeof file.chunkCount === 'number' && file.chunkCount > 0 && (
-              <MetaRow label={t('preview.chunks')}>
-                <span className="text-xs font-medium tabular-nums text-foreground">{file.chunkCount}</span>
-              </MetaRow>
-            )}
-            {/* Content categories, shown only when the document holds more than
-                plain text (text-only documents dominate — no redundant row). */}
-            {hasRichContent && (
-              <MetaRow label={t('preview.contents')}>
-                <span className="text-xs text-foreground">
-                  {file.contentTypes!.map((c) => t(`preview.contentTypeNames.${c}`)).join(', ')}
-                </span>
-              </MetaRow>
-            )}
-            <MetaRow label={t('preview.indexed.updated')}>
-              <span className="text-xs font-medium tabular-nums text-foreground">
-                {formatAbsoluteTime(file.createdAt, locale)}
-              </span>
-            </MetaRow>
-          </div>
-          <DocumentTagsSection
-            fileId={file.id}
-            initialTags={file.tags ?? []}
-            onTagsUpdated={onTagsUpdated}
-            readOnly={!canManage}
-          />
-          <p className="text-xs leading-relaxed text-muted-foreground/80">{t('preview.indexed.caption')}</p>
-        </section>
+      {downloadFailed && (
+        <p role="alert" className="shrink-0 border-b px-4 py-2 text-xs text-destructive">
+          {t('preview.downloadFailed')}
+        </p>
       )}
 
       {canExpandPreview && previewUrl && (
@@ -231,99 +202,150 @@ export function FilePreviewPane({ file, projectName, canManage = true, onClose, 
         />
       )}
 
-      {/* Preview */}
-      <div className="flex-1 overflow-auto bg-muted/30">
-        {canPreview && isLoading && (
-          <div className="space-y-4 p-6">
-            <Skeleton className="h-4 w-1/3" />
-            <Skeleton className="h-48 w-full" />
-            <Skeleton className="h-4 w-2/3" />
-            <Skeleton className="h-4 w-1/2" />
-          </div>
-        )}
-        {canPreview && !isLoading && previewUrl && (
-          file.contentType === 'application/pdf' ? (
-            <iframe src={previewUrl} className="h-full w-full" title={file.filename} />
+      {/* Body split — document preview on the left, indexed metadata on the
+          right. Side-by-side in the wide Dateien modal; stacks in a narrow
+          container (e.g. a docked column) via container queries. */}
+      <div className="flex min-h-0 flex-1 flex-col @2xl:flex-row">
+        {/* Left: live preview, or a decorative page mock while loading / when
+            there is no inline preview. */}
+        <div className="flex min-h-[200px] min-w-0 flex-1 justify-center overflow-y-auto bg-muted/40 p-5">
+          {canPreview && isLoading ? (
+            <PageMock skeleton />
+          ) : canPreview && previewUrl ? (
+            file.contentType === 'application/pdf' ? (
+              <iframe src={previewUrl} className="h-full w-full rounded border bg-background" title={file.filename} />
+            ) : (
+              <img
+                src={previewUrl}
+                alt={file.filename}
+                className="h-fit max-w-full rounded border bg-background object-contain shadow-sm"
+              />
+            )
           ) : (
-            <img src={previewUrl} alt={file.filename} className="w-full object-contain" />
-          )
-        )}
-        {canPreview && !isLoading && previewFailed && (
-          <PreviewMessage
-            message={t('preview.loadFailed')}
-            action={
-              <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={loadPreview}>
-                <RotateCcw className="size-3.5" aria-hidden />
-                {t('preview.tryAgain')}
-              </Button>
-            }
-          />
-        )}
-        {!canPreview && (
-          <PreviewMessage message={t('preview.noInlinePreview')} />
-        )}
-      </div>
-
-      {/* Metadata */}
-      <div className="space-y-2.5 border-t px-4 py-3">
-        <MetaRow label={t('preview.status')}>
-          <DocumentStatusBadge status={file.status} />
-        </MetaRow>
-        <MetaRow label={t('preview.type')}>
-          <span className="font-mono text-xs text-foreground">{file.contentType ?? t('preview.unknownType')}</span>
-        </MetaRow>
-        <MetaRow label={t('preview.size')}>
-          <span className="text-xs font-medium tabular-nums text-foreground">{formatFileSize(file.fileSize, locale)}</span>
-        </MetaRow>
-      </div>
-
-      {/* Failure reason + re-ingestion affordance (re-ingest is a mutation, so
-          the button is hidden for read-only viewers). */}
-      {isFailed && (
-        <div className="space-y-2.5 border-t px-4 py-3">
-          <div className="flex items-start gap-2">
-            <AlertCircle className="mt-0.5 size-4 shrink-0 text-destructive" aria-hidden />
-            <div className="min-w-0 space-y-1">
-              <p className="text-sm font-medium text-destructive">{t('preview.ingestionFailed')}</p>
-              <p className="break-words text-xs text-muted-foreground">
-                {file.errorMessage || t('preview.ingestionFailedGeneric')}
-              </p>
-            </div>
-          </div>
-          {canManage && (
-          <Button
-            type="button"
-            variant="outline"
-            className="w-full gap-2"
-            onClick={handleReingest}
-            disabled={isReingesting}
-          >
-            <RotateCcw className="size-4" aria-hidden />
-            {isReingesting ? t('preview.retryingIngestion') : t('preview.retryIngestion')}
-          </Button>
+            <PageMock
+              caption={previewFailed ? t('preview.loadFailed') : t('preview.noInlinePreview')}
+              action={
+                previewFailed && canPreview ? (
+                  <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={loadPreview}>
+                    <RotateCcw className="size-3.5" aria-hidden />
+                    {t('preview.tryAgain')}
+                  </Button>
+                ) : undefined
+              }
+            />
           )}
         </div>
-      )}
 
-      {/* Actions */}
-      <div className="border-t px-4 py-3">
-        <Button
-          type="button"
-          variant="outline"
-          className="w-full gap-2"
-          onClick={handleDownload}
-          disabled={isDownloading}
-        >
-          <Download className="size-4" aria-hidden />
-          {t('preview.download')}
-        </Button>
-        {downloadFailed && (
-          <p role="alert" className="mt-2 text-xs text-destructive">
-            {t('preview.downloadFailed')}
-          </p>
-        )}
-        {extraActions}
+        {/* Right: 250px indexed-metadata panel (files-metadata-panel flag, FB-8).
+            The AI summary that grounds the agent's answers, the ingestion-detected
+            key-value props, and the user-correctable tags. Status/type/size sit
+            below it and are never gated (they predate the metadata panel). */}
+        <div className="flex w-full shrink-0 flex-col overflow-y-auto border-t bg-muted/30 p-4 @2xl:w-[250px] @2xl:border-l @2xl:border-t-0">
+          {showMetadataPanel && (
+            <section className="space-y-3" aria-label={t('preview.indexed.title')}>
+              <p className="flex items-center gap-1.5 text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
+                <Sparkles className="size-3.5 shrink-0" aria-hidden />
+                {t('preview.indexed.title')}
+              </p>
+              {file.summary && <p className="text-[12.5px] leading-relaxed text-foreground">{file.summary}</p>}
+              <div className="space-y-2">
+                {detectedType && (
+                  <MetaRow label={t('preview.indexed.documentType')}>
+                    <span className="text-xs font-medium text-foreground">{detectedType}</span>
+                  </MetaRow>
+                )}
+                {projectName && (
+                  <MetaRow label={t('preview.indexed.project')}>
+                    <span className="truncate text-xs font-medium text-foreground">{projectName}</span>
+                  </MetaRow>
+                )}
+                {typeof file.pageCount === 'number' && file.pageCount > 0 && (
+                  <MetaRow label={t('preview.pages')}>
+                    <span className="text-xs font-medium tabular-nums text-foreground">{file.pageCount}</span>
+                  </MetaRow>
+                )}
+                {typeof file.chunkCount === 'number' && file.chunkCount > 0 && (
+                  <MetaRow label={t('preview.chunks')}>
+                    <span className="text-xs font-medium tabular-nums text-foreground">{file.chunkCount}</span>
+                  </MetaRow>
+                )}
+                {hasRichContent && (
+                  <MetaRow label={t('preview.contents')}>
+                    <span className="text-xs text-foreground">
+                      {file.contentTypes!.map((c) => t(`preview.contentTypeNames.${c}`)).join(', ')}
+                    </span>
+                  </MetaRow>
+                )}
+                <MetaRow label={t('preview.indexed.updated')}>
+                  <span className="text-xs font-medium tabular-nums text-foreground">
+                    {formatAbsoluteTime(file.createdAt, locale)}
+                  </span>
+                </MetaRow>
+              </div>
+              <DocumentTagsSection
+                fileId={file.id}
+                initialTags={file.tags ?? []}
+                onTagsUpdated={onTagsUpdated}
+                readOnly={!canManage}
+              />
+            </section>
+          )}
+
+          <div className={cn('space-y-2', showMetadataPanel && 'mt-4 border-t pt-4')}>
+            <MetaRow label={t('preview.status')}>
+              <DocumentStatusBadge status={file.status} />
+            </MetaRow>
+            <MetaRow label={t('preview.type')}>
+              <span className="truncate font-mono text-xs text-foreground">{file.contentType ?? t('preview.unknownType')}</span>
+            </MetaRow>
+            <MetaRow label={t('preview.size')}>
+              <span className="text-xs font-medium tabular-nums text-foreground">{formatFileSize(file.fileSize, locale)}</span>
+            </MetaRow>
+          </div>
+
+          {/* Failure reason + re-ingestion affordance (re-ingest is a mutation,
+              so the button is hidden for read-only viewers). */}
+          {isFailed && (
+            <div className="mt-4 space-y-2.5 border-t pt-4">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="mt-0.5 size-4 shrink-0 text-destructive" aria-hidden />
+                <div className="min-w-0 space-y-1">
+                  <p className="text-sm font-medium text-destructive">{t('preview.ingestionFailed')}</p>
+                  <p className="break-words text-xs text-muted-foreground">
+                    {file.errorMessage || t('preview.ingestionFailedGeneric')}
+                  </p>
+                </div>
+              </div>
+              {canManage && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full gap-2"
+                  onClick={handleReingest}
+                  disabled={isReingesting}
+                >
+                  <RotateCcw className="size-4" aria-hidden />
+                  {isReingesting ? t('preview.retryingIngestion') : t('preview.retryIngestion')}
+                </Button>
+              )}
+            </div>
+          )}
+
+          <div className="flex-1" />
+          {showMetadataPanel && (
+            <p className="mt-4 border-t pt-3 text-[11px] leading-relaxed text-muted-foreground/80">
+              {t('preview.indexed.caption')}
+            </p>
+          )}
+        </div>
       </div>
+
+      {/* Footer page indicator — mirrors the click-dummy's "Seite 1 von N". */}
+      {typeof file.pageCount === 'number' && file.pageCount > 0 && (
+        <div className="flex shrink-0 items-center justify-center border-t bg-muted/30 px-4 py-2 text-[11.5px] text-muted-foreground">
+          {t('preview.pageIndicator', { count: file.pageCount })}
+        </div>
+      )}
     </div>
   )
 }
@@ -526,14 +548,34 @@ function MetaRow({ label, children }: { label: string; children: ReactNode }) {
   )
 }
 
-function PreviewMessage({ message, action }: { message: string; action?: ReactNode }) {
+/**
+ * Decorative document-page mock for the preview's left column — a paper sheet
+ * with a header rule and paragraph skeleton bars, matching the click-dummy's
+ * page preview. Purely presentational (no filename/project text, so nothing
+ * duplicates the real metadata); the optional caption states why no live
+ * preview is shown.
+ */
+function PageMock({ caption, action, skeleton }: { caption?: string; action?: ReactNode; skeleton?: boolean }) {
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-3 px-6 py-10 text-center">
-      <div className="flex size-11 items-center justify-center rounded-full bg-muted">
-        <FileQuestion className="size-5 text-muted-foreground" aria-hidden />
+    <div className="h-fit w-full max-w-[520px] rounded border bg-background p-7 shadow-sm">
+      <div className="flex items-baseline justify-between border-b pb-2.5">
+        <div className="space-y-1.5">
+          <div className="h-[9px] w-28 rounded bg-muted" />
+          <div className="h-[6px] w-16 rounded bg-muted/70" />
+        </div>
+        <div className="h-[6px] w-12 rounded bg-muted/70" />
       </div>
-      <p className="max-w-xs text-sm text-muted-foreground text-balance">{message}</p>
-      {action}
+      <div className="mt-3.5 flex h-[260px] flex-col items-center justify-center gap-3 rounded border border-dashed px-6 text-center">
+        {!skeleton && caption && (
+          <p className="max-w-[80%] text-[11.5px] leading-relaxed text-muted-foreground text-balance">{caption}</p>
+        )}
+        {action}
+      </div>
+      <div className="mt-3.5 space-y-1.5">
+        <div className="h-[7px] w-3/5 rounded bg-muted" />
+        <div className="h-[7px] w-1/2 rounded bg-muted" />
+        <div className="h-[7px] w-[55%] rounded bg-muted" />
+      </div>
     </div>
   )
 }

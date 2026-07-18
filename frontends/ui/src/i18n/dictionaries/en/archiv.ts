@@ -16,6 +16,14 @@ export const archiv = {
     noMatchDescription: 'No Archiv document matches your search or the selected category.',
     clearFilters: 'Clear filters',
     provenance: 'From: {source}',
+    kind: {
+      floorplan: 'Floor plan',
+      section: 'Section',
+      siteplan: 'Site plan',
+      notice: 'Notice',
+      photo: 'Photo',
+      document: 'Document',
+    },
   },
   workspace: {
     dropToUpload: 'Drop files to add them to the Archiv',

@@ -12,7 +12,7 @@ type Params = { id: string }
 
 const listMemoryQuerySchema = z.object({
   includeArchived: z.string().optional(),
-  // Optional: scope to a single conversation (the chat "Grid noted N" chip).
+  // Optional: scope to a single conversation (the chat "Piloti noted N" chip).
   conversationId: z.string().optional(),
 })
 

@@ -8,11 +8,11 @@ import { useChatStore } from '../store'
 /**
  * While a deep-research job is actively streaming, reflect its progress in the
  * browser tab so a backgrounded tab stays informative — e.g. "42% · Research —
- * Grid", or "⏳ Research — Grid" when no percentage is derivable yet.
+ * Piloti", or "⏳ Research — Piloti" when no percentage is derivable yet.
  *
  * Progress is derived from the live todo list (completed / total). When the job
  * finishes or clears, the override is dropped and {@link useDocumentTitle}
- * restores the route-metadata title (e.g. "<Project> · Chat — Grid"). Scope
+ * restores the route-metadata title (e.g. "<Project> · Chat — Piloti"). Scope
  * this to the chat page only, so the research override never leaks onto other
  * routes.
  */

@@ -41,7 +41,7 @@ export const files: typeof en.files = {
     suggestionsLabel: 'Schlagwort-Vorschläge',
     noTagMatch: 'Kein passendes Schlagwort – bitte einen der Vorschläge wählen.',
     indexed: {
-      title: 'Von GRID indexiert',
+      title: 'Von Piloti indexiert',
       documentType: 'Dokumenttyp',
       project: 'Projekt',
       updated: 'Aktualisiert',
@@ -67,6 +67,7 @@ export const files: typeof en.files = {
     retryIngestionError:
       'Die Verarbeitung konnte nicht erneut gestartet werden. Bitte versuchen Sie es erneut.',
     dialogLabel: 'Dateivorschau: {name}',
+    pageIndicator: 'Seite 1 von {count}',
   },
   browser: {
     folderEmptyTitle: 'Dieser Ordner ist leer',
@@ -74,7 +75,7 @@ export const files: typeof en.files = {
       'Laden Sie hier Dokumente hoch oder wählen Sie einen anderen Ordner in der Seitenleiste.',
     noDocumentsTitle: 'Noch keine Dokumente',
     noDocumentsDescription:
-      'Fügen Sie die Pläne, Genehmigungen und Berichte Ihres Gebäudes hinzu. Grid liest sie, um jede Antwort in den eigenen Dokumenten Ihres Projekts zu verankern – nicht in allgemeinen Hinweisen.',
+      'Fügen Sie die Pläne, Genehmigungen und Berichte Ihres Gebäudes hinzu. Piloti liest sie, um jede Antwort in den eigenen Dokumenten Ihres Projekts zu verankern – nicht in allgemeinen Hinweisen.',
     searchPlaceholder: 'Dateien durchsuchen …',
     searchLabel: 'Dateien durchsuchen',
     noMatch: 'Keine Dateien entsprechen „{query}“',
@@ -82,6 +83,7 @@ export const files: typeof en.files = {
       'Versuchen Sie einen anderen Namen, ein Schlagwort oder eine Beschreibung – oder löschen Sie die Suche, um alle Dateien zu sehen.',
     clearSearch: 'Suche löschen',
     resetSearch: 'Suche zurücksetzen',
+    recentlyUploaded: 'Zuletzt hochgeladen',
   },
   folders: {
     heading: 'Ordner',
@@ -94,7 +96,7 @@ export const files: typeof en.files = {
     newFolder: 'Neuer Ordner',
   },
   workspace: {
-    corpusSubtitle: 'Projektkorpus – diese Dokumente untermauern Grids Antworten',
+    corpusSubtitle: 'Projektkorpus – diese Dokumente untermauern Pilotis Antworten',
     uploadDocuments: 'Dokumente hochladen',
     uploadProblem: 'Upload-Problem',
     dismissError: 'Fehler ausblenden',
@@ -104,6 +106,11 @@ export const files: typeof en.files = {
     tryAgain: 'Erneut versuchen',
     dropToUpload: 'Dateien hier ablegen, um sie in dieses Projekt hochzuladen',
     dropUnsupported: 'Einige Dateien haben einen nicht unterstützten Typ',
+    view: {
+      label: 'Ansicht',
+      cards: 'Kacheln',
+      tree: 'Ordner',
+    },
   },
   upload: {
     uploading: 'Wird hochgeladen …',

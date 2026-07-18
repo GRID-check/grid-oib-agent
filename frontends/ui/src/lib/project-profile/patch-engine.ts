@@ -137,7 +137,7 @@ export function normalizeProfilePatchOperations(
 
 /**
  * Drop unknowns that have since been answered: once a fact exists under the
- * same key, "Grid still doesn't know X" is stale. Also dedupes the list.
+ * same key, "Piloti still doesn't know X" is stale. Also dedupes the list.
  */
 export function pruneResolvedUnknowns(profile: ProjectProfile): ProjectProfile {
   const unknowns = [...new Set(profile.unknowns)].filter((key) => !(key in profile.facts))

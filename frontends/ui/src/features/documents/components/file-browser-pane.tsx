@@ -179,7 +179,16 @@ export function FileBrowserPane({
           />
         </div>
       ) : (
-        <div className="grid gap-3 p-4 [grid-template-columns:repeat(auto-fill,minmax(236px,1fr))]">
+        <div className="p-4">
+          {/* Section label — "Recently uploaded" at the corpus root, matching the
+              click-dummy. Hidden inside a folder view (the chip already names it)
+              and while searching (the query is the context). */}
+          {search === '' && selectedFolderId === null && (
+            <p className="mb-3 text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
+              {t('browser.recentlyUploaded')}
+            </p>
+          )}
+          <div className="grid gap-3.5 [grid-template-columns:repeat(auto-fill,minmax(236px,1fr))]">
           {filteredFiles.map((file) => (
             <FileCard
               key={file.id}
@@ -190,6 +199,7 @@ export function FileBrowserPane({
             />
           ))}
           {uploadCard}
+          </div>
         </div>
       )}
     </div>
@@ -248,41 +258,44 @@ function FileCard({
         isSelected && 'ring-2 ring-ring'
       )}
     >
-      {/* Thumbnail header — skeleton sketch by inferred kind, hairline divider. */}
-      <div className="relative flex h-[132px] w-full shrink-0 items-center justify-center border-b bg-card">
-        <DocumentKindThumbnail kind={kind} className="h-20 w-auto text-muted-foreground" />
-        <DocumentStatusBadge status={file.status} className="absolute right-2 top-2" />
+      {/* Thumbnail header — full-bleed content-aware sketch, hairline divider.
+          The ingestion-status badge (kept — the dummy lacks it) rides quietly
+          in the top-right corner. */}
+      <div className="relative h-[132px] w-full shrink-0 overflow-hidden border-b bg-card">
+        <DocumentKindThumbnail kind={kind} variant="fill" />
+        <DocumentStatusBadge
+          status={file.status}
+          className="absolute right-2 top-2 border-transparent bg-background/80 px-1.5 py-0 text-[10px] font-medium leading-4 shadow-2xs backdrop-blur-sm"
+        />
       </div>
 
       {/* Body */}
-      <div className="flex w-full flex-1 flex-col gap-1 p-3">
-        <p className="truncate text-sm font-medium text-foreground" title={file.filename}>
+      <div className="flex w-full flex-1 flex-col px-3.5 pb-[13px] pt-3">
+        <p className="truncate text-[12.5px] font-medium text-foreground" title={file.filename}>
           {file.filename}
         </p>
         {isFailed ? (
-          <p className="line-clamp-2 text-xs text-destructive" title={failureReason}>
+          <p className="mt-[3px] line-clamp-2 text-[11.5px] leading-[1.45] text-destructive" title={failureReason}>
             {failureReason}
           </p>
         ) : (
           file.summary && (
-            <p className="line-clamp-1 text-xs leading-relaxed text-muted-foreground" title={file.summary}>
+            <p className="mt-[3px] line-clamp-2 text-[11.5px] leading-[1.45] text-muted-foreground" title={file.summary}>
               {file.summary}
             </p>
           )
         )}
-        <div className="mt-auto flex min-w-0 items-center gap-1.5 pt-1.5 text-xs text-muted-foreground/80">
+        <div className="mt-auto flex min-w-0 items-center gap-[7px] pt-[9px] text-[11px] text-muted-foreground/80">
           {ext !== '' && (
             <span
-              className="inline-flex shrink-0 items-center rounded-md px-1.5 py-0.5 text-[0.6875rem] font-semibold leading-none"
+              className="inline-flex shrink-0 items-center rounded px-1.5 py-[2.5px] text-[9px] font-bold uppercase leading-none tracking-[0.04em]"
               style={extChipTint(ext)}
             >
               {ext}
             </span>
           )}
-          <span className="shrink-0 tabular-nums">{formatFileSize(file.fileSize, locale)}</span>
-          <span aria-hidden>·</span>
-          <span className="truncate" title={formatAbsoluteTime(file.createdAt, locale)}>
-            {formatRelativeTime(file.createdAt, locale)}
+          <span className="min-w-0 truncate tabular-nums" title={formatAbsoluteTime(file.createdAt, locale)}>
+            {formatFileSize(file.fileSize, locale)} · {formatRelativeTime(file.createdAt, locale)}
           </span>
         </div>
       </div>

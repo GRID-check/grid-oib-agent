@@ -19,12 +19,14 @@ export const chat: typeof en.chat = {
     },
   },
   composer: {
+    placeholder:
+      'Beschreiben Sie, woran Sie gerade arbeiten — Piloti zeigt Ihnen Schritt für Schritt, was dafür relevant ist …',
     sources: 'Datengrundlage',
     sourcesAria: 'Datengrundlage – {enabled} von {total} Quellen aktiv. Öffnet die Datenquellen.',
     deepResearch: 'Deep Research',
     deepResearchAria: 'Deep-Research-Präferenz',
     deepResearchHint:
-      'Präferenz vermerkt – Grid eskaliert automatisch zu Deep Research, wenn eine Frage es erfordert.',
+      'Präferenz vermerkt – Piloti eskaliert automatisch zu Deep Research, wenn eine Frage es erfordert.',
     scopeAria: 'Suchbereich: {project}',
     scopeFallback: 'Dieses Projekt',
     scopeCurrent: 'Aktuelles Projekt',
@@ -44,8 +46,16 @@ export const chat: typeof en.chat = {
     morning: 'Guten Morgen',
     afternoon: 'Guten Tag',
     evening: 'Guten Abend',
-    withName: '{greeting}, {name}',
+    withName: '{greeting}, {name}.',
     subtitle: 'Fragen Sie zu Ihrem Projekt – Antworten belegen ihre Quellen.',
+  },
+  // Empty-state lock chip + thread role tabs (click-dummy overhaul, WS-3).
+  workspace: {
+    private: 'Privater Workspace',
+  },
+  roles: {
+    input: 'Eingabe',
+    result: 'Ergebnis',
   },
   answerSources: {
     label: 'Belegt durch',
@@ -59,6 +69,9 @@ export const chat: typeof en.chat = {
   cards: {
     aiGenerated:
       'KI-generierte Zitierung — prüfen Sie den Auszug anhand der Primärquelle (OIB / RIS).',
+    legalBasis: 'Rechtsgrundlage',
+    viewOib: 'OIB-Richtlinie ansehen',
+    verifyRis: 'In RIS prüfen',
   },
   agentPrompt: {
     needsInput: 'Der Agent benötigt Ihre Eingabe',
@@ -251,8 +264,8 @@ export const chat: typeof en.chat = {
       'Keine Datenquellen ausgewählt und keine Dateien verfügbar. Antworten sind eher ungenau oder veraltet, sofern keine externen Datenquellen hinzugefügt werden.',
   },
   memory: {
-    noted: 'Grid hat sich gemerkt',
-    notedAria: 'Grid hat sich {count} Notizen gemerkt',
+    noted: 'Piloti hat sich gemerkt',
+    notedAria: 'Piloti hat sich {count} Notizen gemerkt',
     addedToMemory: 'In das Projektgedächtnis aufgenommen',
     manageHint: 'Diese Einträge können Sie im Projektgedächtnis verwalten und löschen.',
     kinds: {

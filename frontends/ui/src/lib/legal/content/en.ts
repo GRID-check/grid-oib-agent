@@ -13,7 +13,7 @@
 
 import type { LegalContent } from '../types'
 
-const OPERATOR = '[Operator name — e.g. GRID Check GmbH]'
+const OPERATOR = '[Operator name — e.g. Piloti Check GmbH]'
 const ADDRESS = '[Street, number, postal code, city, Austria]'
 const EMAIL = '[contact email address]'
 
@@ -36,7 +36,7 @@ export const en: LegalContent = {
       {
         heading: 'Purpose of the service',
         paragraphs: [
-          'Grid is an AI-assisted research tool that helps building professionals find and verify information from the Austrian OIB-Richtlinien and legal sources published in the Rechtsinformationssystem des Bundes (RIS). Grid does not provide legal advice; see the Terms of Use and the AI Transparency notice.',
+          'Piloti is an AI-assisted research tool that helps building professionals find and verify information from the Austrian OIB-Richtlinien and legal sources published in the Rechtsinformationssystem des Bundes (RIS). Piloti does not provide legal advice; see the Terms of Use and the AI Transparency notice.',
         ],
       },
       {
@@ -58,13 +58,13 @@ export const en: LegalContent = {
     title: 'Privacy Policy',
     updated: '2026-07-10',
     intro:
-      'This policy explains how personal data is processed when you use Grid, pursuant to Regulation (EU) 2016/679 (GDPR / DSGVO).',
+      'This policy explains how personal data is processed when you use Piloti, pursuant to Regulation (EU) 2016/679 (GDPR / DSGVO).',
     sections: [
       {
         heading: '1. Controller',
         paragraphs: [
           `Controller within the meaning of Art. 4(7) GDPR: ${OPERATOR}, ${ADDRESS}, ${EMAIL}.`,
-          'Where Grid is provided to you through your employer or organization, that organization determines the purposes of processing project content within its workspace; in that respect the operator acts as processor on the organization’s behalf and a data processing agreement (Art. 28 GDPR) governs the relationship.',
+          'Where Piloti is provided to you through your employer or organization, that organization determines the purposes of processing project content within its workspace; in that respect the operator acts as processor on the organization’s behalf and a data processing agreement (Art. 28 GDPR) governs the relationship.',
         ],
       },
       {
@@ -110,13 +110,13 @@ export const en: LegalContent = {
       {
         heading: '7. Cookies',
         paragraphs: [
-          'Grid uses only strictly necessary cookies: an encrypted session cookie for sign-in (WorkOS AuthKit) and a cookie storing your language preference. No advertising or cross-site tracking cookies are set. Because only strictly necessary cookies are used, no cookie consent banner is required (§165 TKG 2021).',
+          'Piloti uses only strictly necessary cookies: an encrypted session cookie for sign-in (WorkOS AuthKit) and a cookie storing your language preference. No advertising or cross-site tracking cookies are set. Because only strictly necessary cookies are used, no cookie consent banner is required (§165 TKG 2021).',
         ],
       },
       {
         heading: '8. Your rights',
         paragraphs: [
-          'You have the right to access (Art. 15), rectification (Art. 16), erasure (Art. 17), restriction (Art. 18), data portability (Art. 20) and objection (Art. 21). Where processing is based on consent you may withdraw it at any time. If Grid is provided through your organization, please direct requests to your organization first; we support the organization in fulfilling them.',
+          'You have the right to access (Art. 15), rectification (Art. 16), erasure (Art. 17), restriction (Art. 18), data portability (Art. 20) and objection (Art. 21). Where processing is based on consent you may withdraw it at any time. If Piloti is provided through your organization, please direct requests to your organization first; we support the organization in fulfilling them.',
           `To exercise your rights, contact ${EMAIL}. You also have the right to lodge a complaint with the Austrian Data Protection Authority (Datenschutzbehörde), Barichgasse 40–42, 1030 Vienna, dsb.gv.at, or your local supervisory authority.`,
         ],
       },
@@ -139,18 +139,18 @@ export const en: LegalContent = {
     title: 'Terms of Use',
     updated: '2026-07-10',
     intro:
-      'These terms govern the use of Grid. Template — to be reviewed and completed by counsel before production use.',
+      'These terms govern the use of Piloti. Template — to be reviewed and completed by counsel before production use.',
     sections: [
       {
         heading: '1. Scope of service',
         paragraphs: [
-          'Grid is an AI-assisted research assistant for Austrian building regulations (OIB-Richtlinien and RIS legal sources). It retrieves, summarizes and cites regulatory content and project documents provided by your organization.',
+          'Piloti is an AI-assisted research assistant for Austrian building regulations (OIB-Richtlinien and RIS legal sources). It retrieves, summarizes and cites regulatory content and project documents provided by your organization.',
         ],
       },
       {
         heading: '2. No legal advice',
         paragraphs: [
-          'Grid does not provide legal advice (keine Rechtsberatung) and does not replace the judgement of qualified professionals such as architects, civil engineers or lawyers. Answers are AI-generated, may be incorrect, incomplete or outdated, and must be verified against the cited primary sources before being relied on for planning, permitting or construction decisions. Responsibility for decisions based on Grid output remains with the user and their organization.',
+          'Piloti does not provide legal advice (keine Rechtsberatung) and does not replace the judgement of qualified professionals such as architects, civil engineers or lawyers. Answers are AI-generated, may be incorrect, incomplete or outdated, and must be verified against the cited primary sources before being relied on for planning, permitting or construction decisions. Responsibility for decisions based on Piloti output remains with the user and their organization.',
         ],
       },
       {
@@ -205,30 +205,30 @@ export const en: LegalContent = {
     title: 'AI Transparency Notice',
     updated: '2026-07-10',
     intro:
-      'Information pursuant to Art. 50 of Regulation (EU) 2024/1689 (AI Act) about the AI system you interact with when using Grid.',
+      'Information pursuant to Art. 50 of Regulation (EU) 2024/1689 (AI Act) about the AI system you interact with when using Piloti.',
     sections: [
       {
         heading: 'You are interacting with an AI system',
         paragraphs: [
-          'Grid answers your questions using large language models (LLMs). Chat answers, research reports and legal-basis cards are AI-generated content. Grid marks the sources it cites so every statement can be verified against the OIB-Richtlinie or RIS provision it is based on.',
+          'Piloti answers your questions using large language models (LLMs). Chat answers, research reports and legal-basis cards are AI-generated content. Piloti marks the sources it cites so every statement can be verified against the OIB-Richtlinie or RIS provision it is based on.',
         ],
       },
       {
         heading: 'What the system does',
         paragraphs: [
-          'Grid retrieves passages from the OIB-Richtlinien, Austrian legal sources (RIS) and your project documents, optionally performs web research, and uses AI models to compose an answer with citations. An asynchronous memory function can derive project- and organization-level notes from interactions to improve future answers; organization-wide memory writing by the AI is disabled by default.',
+          'Piloti retrieves passages from the OIB-Richtlinien, Austrian legal sources (RIS) and your project documents, optionally performs web research, and uses AI models to compose an answer with citations. An asynchronous memory function can derive project- and organization-level notes from interactions to improve future answers; organization-wide memory writing by the AI is disabled by default.',
         ],
       },
       {
         heading: 'Limits and human oversight',
         paragraphs: [
-          'AI-generated answers can be wrong, incomplete or outdated even when they sound confident. Grid is a research aid, classified as a limited-risk AI application: it does not make decisions about buildings, permits or persons — professional review of every answer against the cited primary source is a required part of its intended use. Do not use Grid output as the sole basis for safety-relevant planning decisions.',
+          'AI-generated answers can be wrong, incomplete or outdated even when they sound confident. Piloti is a research aid, classified as a limited-risk AI application: it does not make decisions about buildings, permits or persons — professional review of every answer against the cited primary source is a required part of its intended use. Do not use Piloti output as the sole basis for safety-relevant planning decisions.',
         ],
       },
       {
         heading: 'Which AI models are used',
         paragraphs: [
-          'By default, Grid uses models routed through the API gateway OpenRouter (reference model: DeepSeek). Different internal functions (intent detection, clarification, research, deep research, memory reflection) may use different models.',
+          'By default, Piloti uses models routed through the API gateway OpenRouter (reference model: DeepSeek). Different internal functions (intent detection, clarification, research, deep research, memory reflection) may use different models.',
         ],
         notice:
           'Model choice is dynamic: administrators of your organization can re-point each function to a different AI model from the OpenRouter catalog at any time, without a new release of the service. Every change is validated against the catalog, versioned, attributed to the administrator who made it and reversible, and for every single AI request the model that actually produced the answer is recorded in the usage ledger. The gateway (OpenRouter) and its credentials can never be changed by a model selection — only which model behind that gateway serves your organization.',
@@ -236,7 +236,7 @@ export const en: LegalContent = {
       {
         heading: 'Traceability',
         paragraphs: [
-          'For each answer, Grid records which model served the request, the tokens consumed and the cost, attributed to organization, project and user. Administrative changes to the model configuration appear in the organization audit log.',
+          'For each answer, Piloti records which model served the request, the tokens consumed and the cost, attributed to organization, project and user. Administrative changes to the model configuration appear in the organization audit log.',
         ],
       },
       {
@@ -252,7 +252,7 @@ export const en: LegalContent = {
     title: 'External Services & Subprocessors',
     updated: '2026-07-10',
     intro:
-      'All external services that can process data when you use Grid, and the infrastructure the operator runs itself. This page implements the transparency commitment referenced in the Privacy Policy.',
+      'All external services that can process data when you use Piloti, and the infrastructure the operator runs itself. This page implements the transparency commitment referenced in the Privacy Policy.',
     sections: [
       {
         heading: 'External processors',
@@ -361,13 +361,13 @@ export const en: LegalContent = {
       {
         heading: 'Development and build-time services (no user content)',
         paragraphs: [
-          'The following services are used to build and maintain Grid. They process source code and build artifacts, never your prompts, documents, or account data:',
+          'The following services are used to build and maintain Piloti. They process source code and build artifacts, never your prompts, documents, or account data:',
         ],
         list: [
           'GitHub (USA) — source-code hosting, CI pipelines, security scanning.',
           'SonarSource / SonarQube Cloud (EU/CH) — static analysis of source code.',
           'Package registries and base images (PyPI, npm, Docker Hub, NVIDIA NGC, Debian/Node mirrors) — software dependencies fetched at build time.',
-          'Google Fonts — fonts are downloaded once at build time and self-hosted; your browser never contacts Google when using Grid.',
+          'Google Fonts — fonts are downloaded once at build time and self-hosted; your browser never contacts Google when using Piloti.',
         ],
       },
       {

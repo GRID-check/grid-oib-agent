@@ -55,7 +55,7 @@ describe('ProjectFileWorkspace', () => {
   it('renders the file workspace with its project name and corpus context', () => {
     render(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
     expect(screen.getByText('Test')).toBeDefined()
-    expect(screen.getByText(/ground Grid’s answers/i)).toBeDefined()
+    expect(screen.getByText(/ground Piloti’s answers/i)).toBeDefined()
   })
 
   it('shows the drop overlay on dragover of a supported file', () => {

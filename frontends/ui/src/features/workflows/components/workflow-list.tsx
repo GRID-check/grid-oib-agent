@@ -281,42 +281,28 @@ export function WorkflowList({
   }, [])
 
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-8 px-4 py-6 md:px-8 md:py-10">
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div className="space-y-1.5">
-          <h1 className="flex items-center gap-2 text-xl font-semibold text-foreground">
-            <WorkflowIcon className="size-5 text-muted-foreground" aria-hidden />
-            {t('title')}
-          </h1>
-          <p className="max-w-3xl text-sm text-muted-foreground">{t('subtitle')}</p>
-        </div>
-        <Button onClick={onCreate}>
-          <Plus className="size-4" aria-hidden />
-          {t('newWorkflow')}
-        </Button>
+    <div className="mx-auto w-full max-w-[1080px] px-6 pb-10 pt-6 md:px-10 md:pt-[34px]">
+      <header className="mb-7 flex min-h-9 items-center">
+        <h1 className="text-[20px] font-medium tracking-[-0.01em] text-foreground">{t('title')}</h1>
       </header>
 
       {/* Curated template gallery — always visible, cards pre-fill the builder. */}
-      {templates.length > 0 && (
-        <section className="space-y-3" aria-labelledby="workflow-templates-heading">
-          <div className="space-y-1">
-            <h2
-              id="workflow-templates-heading"
-              className="text-sm font-semibold text-foreground"
-            >
-              {t('templates.heading')}
-            </h2>
-            <p className="max-w-3xl text-sm text-muted-foreground">{t('templates.hint')}</p>
-          </div>
-          <TemplateCards onUse={onUseTemplate} />
-        </section>
-      )}
+      {templates.length > 0 && <TemplateCards onUse={onUseTemplate} />}
 
       {/* Configured workflows + their run history. */}
-      <section className="space-y-4" aria-labelledby="configured-workflows-heading">
-        <h2 id="configured-workflows-heading" className="text-sm font-semibold text-foreground">
-          {t('list.heading')}
-        </h2>
+      <section
+        className="mt-10 space-y-4"
+        aria-labelledby="configured-workflows-heading"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 id="configured-workflows-heading" className="text-sm font-semibold text-foreground">
+            {t('list.heading')}
+          </h2>
+          <Button size="sm" onClick={onCreate}>
+            <Plus className="size-4" aria-hidden />
+            {t('newWorkflow')}
+          </Button>
+        </div>
 
         {workflows === null && !error && (
           <div className="space-y-3" data-testid="workflows-loading">

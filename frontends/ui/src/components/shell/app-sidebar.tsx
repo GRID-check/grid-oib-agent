@@ -3,14 +3,14 @@
 /**
  * The GRID application sidebar — the product's primary navigation surface.
  *
- * Project-centric IA (click-dummy overhaul §5, FB-9/FB-10): wordmark →
- * project switcher → Chat / Files / Workflows* / Archiv* / History →
- * (spacer) → Settings → user footer. Overview and Members left the nav —
- * their content lives in the project Settings page; the project root
- * redirects to Chat. Quiet by design: sunken surface, hairline border, one
- * accent color reserved for the active section and the brand mark. The rail
- * collapses to an icon-only strip (persisted per browser) for architects who
- * want more room.
+ * Project-centric IA (click-dummy overhaul §5, FB-9/FB-10): "Piloti" wordmark →
+ * project switcher → Ask Piloti / Workflows* / Files / Archiv* / History →
+ * (spacer) → Settings → user footer. Overview and Members left the nav — their
+ * content lives in the project Settings page; the project root redirects to
+ * Chat. Quiet by design: a warm sunken surface, hairline border, and one
+ * treatment for the active section — a raised white card, matching the click
+ * dummy exactly. The rail collapses to an icon-only strip (persisted per
+ * browser) for architects who want more room.
  *
  * Mobile-first: below `md` the rail disappears entirely and the shell becomes
  * a slim top bar with a hamburger that opens the same navigation as a
@@ -23,23 +23,21 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
   Archive,
-  FolderOpen,
-  History,
+  ChevronsLeft,
+  ChevronsRight,
+  Clock,
+  Compass,
+  Folder,
   Menu,
-  MessageSquare,
-  PanelLeftClose,
-  PanelLeftOpen,
   Settings,
-  Workflow,
   X,
+  Zap,
 } from 'lucide-react'
 
 import { Logo } from '@/components/brand/logo'
-import { AnimatePresence, easeQuiet, motion, springSnappy } from '@/components/motion'
 import { useTranslations } from '@/i18n'
 import { pruneProjectSections, useRecordProjectSection } from '@/hooks/use-last-project-section'
 import { cn } from '@/lib/utils'
-import { ConnectionPresenceIndicator } from './connection-presence-indicator'
 import { ProjectSwitcher, type ProjectSwitcherProject } from './project-switcher'
 import { SidebarUserMenu, type SidebarUser } from './sidebar-user-menu'
 
@@ -53,15 +51,18 @@ interface NavItem {
   icon: React.ComponentType<{ className?: string }>
 }
 
+// Order and icons mirror the click dummy's sidebar exactly:
+// Ask Piloti (compass) · Workflows (bolt) · Files (folder) · Archiv (box) ·
+// History (clock).
 const NAV_ITEMS: NavItem[] = [
-  { key: 'chat', segment: 'chat', icon: MessageSquare },
-  { key: 'files', segment: 'files', icon: FolderOpen },
-  { key: 'workflows', segment: 'workflows', icon: Workflow },
+  { key: 'chat', segment: 'chat', icon: Compass },
+  { key: 'workflows', segment: 'workflows', icon: Zap },
+  { key: 'files', segment: 'files', icon: Folder },
   // The org-wide Archiv (ADR-0024) keeps its org-scoped route; the sidebar
   // entry is a doorway, not a project subpage (spec §5: project-chrome Archiv
   // is a later phase — until then this links to the existing org page).
   { key: 'archiv', segment: null, href: '/app/archiv', icon: Archive },
-  { key: 'history', segment: 'history', icon: History },
+  { key: 'history', segment: 'history', icon: Clock },
 ]
 
 /** Pinned bottom entry, rendered above the user footer (spec §5). */
@@ -169,60 +170,36 @@ export function AppSidebar({
 
   const activeItem = [...navItems, SETTINGS_ITEM].find(isActive)
 
+  // A nav row — shared by the desktop rail, the collapsed rail (icon-only
+  // tiles) and the mobile drawer. Active = raised white card with a hairline
+  // border and soft shadow; inactive = quiet muted ink with a sidebar hover.
   const renderNavLink = (item: NavItem, variant: 'desktop' | 'mobile') => {
     const href = itemHref(item)
     const active = isActive(item)
     const Icon = item.icon
-    const showLabel = variant === 'mobile' || !collapsed
+    const iconOnly = variant === 'desktop' && collapsed
+    const label = t(`sections.${item.key}`)
     return (
       <Link
         key={item.key}
         href={href}
         aria-current={active ? 'page' : undefined}
-        title={!showLabel ? t(`sections.${item.key}`) : undefined}
+        title={iconOnly ? label : undefined}
         className={cn(
-          'relative flex shrink-0 items-center gap-3 rounded-lg text-sm transition-colors duration-200 ease-out',
+          'flex shrink-0 items-center rounded-[10px] transition-colors duration-200 ease-out',
           'focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none',
-          // Roomier touch targets in the drawer; the compact desktop rail keeps h-9.
-          variant === 'mobile' ? 'h-11' : 'h-9',
-          showLabel ? 'px-3' : 'justify-center px-0',
+          iconOnly ? 'h-9 w-10 justify-center' : 'gap-[11px] px-3',
+          variant === 'mobile' ? 'h-11 text-sm' : 'h-9 text-[13px]',
           active
-            ? 'font-medium text-foreground'
-            : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
+            ? 'border border-border bg-card font-medium text-foreground shadow-xs'
+            : 'text-muted-foreground hover:bg-accent',
         )}
       >
-        {active && (
-          <motion.span
-            layoutId={variant === 'mobile' ? 'sidebar-active-mobile' : 'sidebar-active'}
-            className="absolute inset-0 rounded-lg bg-accent"
-            transition={springSnappy}
-            aria-hidden
-          />
-        )}
         <Icon
           aria-hidden
-          className={cn(
-            'relative z-10 size-4 shrink-0',
-            active ? 'text-foreground' : 'text-muted-foreground',
-          )}
+          className={cn('size-4 shrink-0', active ? 'text-foreground' : 'text-muted-foreground')}
         />
-        {variant === 'mobile' ? (
-          <span className="relative z-10 truncate">{t(`sections.${item.key}`)}</span>
-        ) : (
-          <AnimatePresence initial={false}>
-            {!collapsed && (
-              <motion.span
-                className="relative z-10 truncate"
-                initial={{ opacity: 0, x: -4 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -4 }}
-                transition={{ ...easeQuiet, duration: 0.15 }}
-              >
-                {t(`sections.${item.key}`)}
-              </motion.span>
-            )}
-          </AnimatePresence>
-        )}
+        {!iconOnly && <span className="truncate">{label}</span>}
       </Link>
     )
   }
@@ -230,8 +207,9 @@ export function AppSidebar({
   const renderNav = (variant: 'desktop' | 'mobile') => (
     <nav
       className={cn(
-        'flex flex-1 flex-col gap-1 overflow-y-auto pt-2',
-        variant === 'desktop' && collapsed ? 'px-2' : 'px-3',
+        'flex flex-1 flex-col gap-0.5',
+        variant === 'desktop' && collapsed ? 'items-center' : undefined,
+        variant === 'mobile' ? 'overflow-y-auto px-3 pt-2' : 'mt-5',
       )}
       aria-label={t('projectSections')}
     >
@@ -239,14 +217,14 @@ export function AppSidebar({
     </nav>
   )
 
-  // Settings sits pinned at the bottom, visually separated from the section
-  // nav by the flexible spacer above it (spec §5) — same link anatomy, same
-  // active treatment, so it still participates in the shared active pill.
+  // Settings sits pinned at the bottom, separated from the section nav by the
+  // flexible spacer above it (spec §5) — same row anatomy, same active card.
   const renderSettings = (variant: 'desktop' | 'mobile') => (
     <div
       className={cn(
-        'flex flex-col pb-2',
-        variant === 'desktop' && collapsed ? 'px-2' : 'px-3',
+        'flex flex-col',
+        variant === 'desktop' && collapsed ? 'items-center' : undefined,
+        variant === 'mobile' ? 'px-3 pb-2' : 'mb-2.5',
       )}
     >
       {renderNavLink(SETTINGS_ITEM, variant)}
@@ -270,9 +248,9 @@ export function AppSidebar({
           <Link
             href="/app/projects"
             aria-label={t('allProjects')}
-            className="rounded-md focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
+            className="rounded-md text-[19px] font-semibold tracking-[-0.015em] text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
           >
-            <Logo kind="horizontal" size="small" />
+            Piloti
           </Link>
         </div>
         {activeItem && (
@@ -295,9 +273,9 @@ export function AppSidebar({
               <Link
                 href="/app/projects"
                 aria-label={t('allProjects')}
-                className="rounded-md focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
+                className="rounded-md text-[19px] font-semibold tracking-[-0.015em] text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
               >
-                <Logo kind="horizontal" size="small" />
+                Piloti
               </Link>
               <button
                 type="button"
@@ -317,8 +295,7 @@ export function AppSidebar({
 
             {renderSettings('mobile')}
 
-            <div className="flex flex-col gap-2 border-t border-border p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-              <ConnectionPresenceIndicator className="px-1" />
+            <div className="border-t border-border p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
               <SidebarUserMenu
                 user={user}
                 authRequired={authRequired}
@@ -336,70 +313,56 @@ export function AppSidebar({
       {/* ---- Desktop rail (md and up) ---- */}
       <aside
         className={cn(
-          'hidden h-full shrink-0 flex-col border-r border-border bg-surface-sunken transition-[width] duration-200 ease-out md:flex',
-          collapsed ? 'w-14' : 'w-60',
+          'hidden h-full shrink-0 flex-col border-r border-border bg-surface-sunken px-3 pt-[18px] pb-[14px] transition-[width] duration-200 ease-out md:flex',
+          collapsed ? 'w-16 items-center' : 'w-[236px]',
         )}
         aria-label={t('projectNavigation')}
       >
         {/* Wordmark + collapse toggle */}
-        <div
-          className={cn(
-            'flex h-14 items-center',
-            collapsed ? 'justify-center px-0' : 'justify-between px-4',
-          )}
-        >
-          <Link
-            href="/app/projects"
-            aria-label={t('allProjects')}
-            className="rounded-md focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
-          >
-            <Logo kind={collapsed ? 'logo-only' : 'horizontal'} size="small" />
-          </Link>
-          {!collapsed && (
-            <button
-              type="button"
-              onClick={toggleCollapsed}
-              aria-label={t('collapseSidebar')}
-              className="flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors duration-200 ease-out hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
+        {collapsed ? (
+          <>
+            <Link
+              href="/app/projects"
+              aria-label={t('allProjects')}
+              className="flex h-7 items-center justify-center rounded-md focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
             >
-              <motion.span
-                className="flex"
-                initial={{ rotate: 180 }}
-                animate={{ rotate: 0 }}
-                transition={springSnappy}
-                aria-hidden
-              >
-                <PanelLeftClose className="size-4" aria-hidden />
-              </motion.span>
-            </button>
-          )}
-        </div>
-
-        {collapsed && (
-          <div className="flex justify-center pb-2">
+              <Logo kind="logo-only" size="small" />
+            </Link>
             <button
               type="button"
               onClick={toggleCollapsed}
               aria-label={t('expandSidebar')}
-              className="flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors duration-200 ease-out hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
+              className="mt-[18px] flex h-9 w-10 items-center justify-center rounded-lg text-muted-foreground transition-colors duration-200 ease-out hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
             >
-              <motion.span
-                className="flex"
-                initial={{ rotate: -180 }}
-                animate={{ rotate: 0 }}
-                transition={springSnappy}
-                aria-hidden
-              >
-                <PanelLeftOpen className="size-4" aria-hidden />
-              </motion.span>
+              <ChevronsRight className="size-4" aria-hidden />
+            </button>
+          </>
+        ) : (
+          <div className="flex items-center px-1.5">
+            <Link
+              href="/app/projects"
+              aria-label={t('allProjects')}
+              className="rounded-md text-[19px] font-semibold tracking-[-0.015em] text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
+            >
+              Piloti
+            </Link>
+            <button
+              type="button"
+              onClick={toggleCollapsed}
+              aria-label={t('collapseSidebar')}
+              className="ml-auto flex size-7 items-center justify-center rounded-lg text-muted-foreground transition-colors duration-200 ease-out hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
+            >
+              <ChevronsLeft className="size-4" aria-hidden />
             </button>
           </div>
         )}
 
-        {/* Project switcher */}
-        <div className={cn('pb-2', collapsed ? 'px-2' : 'px-3')}>
-          <ProjectSwitcher projects={projects} activeProjectId={projectId} collapsed={collapsed} />
-        </div>
+        {/* Project switcher — hidden on the collapsed rail (matches the dummy). */}
+        {!collapsed && (
+          <div className="mt-[18px]">
+            <ProjectSwitcher projects={projects} activeProjectId={projectId} collapsed={false} />
+          </div>
+        )}
 
         {/* Section nav (flex-1 — doubles as the spacer above Settings) */}
         {renderNav('desktop')}
@@ -407,9 +370,8 @@ export function AppSidebar({
         {/* Pinned Settings entry */}
         {renderSettings('desktop')}
 
-        {/* Footer: connection presence + user */}
-        <div className={cn('flex flex-col gap-2 border-t border-border', collapsed ? 'items-center p-2' : 'p-3')}>
-          <ConnectionPresenceIndicator compact={collapsed} className={collapsed ? undefined : 'px-1'} />
+        {/* Footer: user (avatar + name) with a hairline top border */}
+        <div className={cn('border-t border-border pt-3', collapsed ? 'flex w-full justify-center' : undefined)}>
           <SidebarUserMenu
             user={user}
             authRequired={authRequired}

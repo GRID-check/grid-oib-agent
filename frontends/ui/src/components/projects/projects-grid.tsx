@@ -40,12 +40,9 @@ export function ProjectsGrid({ projects, docCounts, autoOpenCreate = false }: Pr
 
   return (
     <div>
-      <header className="flex flex-col items-start justify-between gap-4 md:flex-row md:items-end">
-        <div className="min-w-0">
-          <h1 className="text-xl font-semibold tracking-tight">{t('list.heading')}</h1>
-          <p className="mt-1 text-sm text-muted-foreground">{t('list.description')}</p>
-        </div>
-        <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center md:w-auto">
+      <header className="flex min-h-9 flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
+        <h1 className="text-xl font-medium tracking-tight">{t('list.heading')}</h1>
+        <div className="flex w-full items-center gap-2.5 sm:w-auto">
           {hasProjects && (
             <div className="relative w-full sm:w-64">
               <Search
@@ -57,7 +54,7 @@ export function ProjectsGrid({ projects, docCounts, autoOpenCreate = false }: Pr
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder={t('list.searchPlaceholder')}
                 aria-label={t('list.searchAria')}
-                className="pl-9"
+                className="h-9 rounded-md pl-9"
               />
             </div>
           )}
@@ -66,7 +63,7 @@ export function ProjectsGrid({ projects, docCounts, autoOpenCreate = false }: Pr
         </div>
       </header>
 
-      <section className="mt-8">
+      <section className="mt-7">
         {!hasProjects ? (
           <EmptyState
             icon={FolderOpen}
@@ -88,7 +85,7 @@ export function ProjectsGrid({ projects, docCounts, autoOpenCreate = false }: Pr
             }
           />
         ) : (
-          <div className="grid grid-cols-1 gap-5 animate-in fade-in-0 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-6 animate-in fade-in-0 sm:grid-cols-2 lg:grid-cols-3">
             {filtered.map((project) => (
               <ProjectCard key={project.id} project={project} docCount={docCounts[project.id] ?? 0} />
             ))}

@@ -156,9 +156,9 @@ paired with icon + label so color is never the only carrier (a11y).
    reopened answered states. Ours is a view over the existing
    conversations + research-runs store (server truth, FB-10) — one model,
    two surfaces (page + panel).
-9. **Wordmark "Piloti".** That is the pilot office's colloquial name (see
-   `feedback_backlog.md`), not a rebrand decision. The wordmark stays
-   **GRID** until an explicit naming decision happens. (Open question §8.)
+9. **Wordmark "Piloti".** Originally the pilot office's colloquial name (see
+   `feedback_backlog.md`). Since decided (2026-07-17, §8 item 1): the
+   user-facing wordmark IS **Piloti**; GRID stays the internal/platform name.
 10. **No mobile, no loading/error/empty states, no a11y semantics.** The
     dummy is a happy-path desktop demo (fixed 720px thread, 3-col grids).
     Our current shell is responsive with drawer nav and skeletons — that
@@ -342,10 +342,43 @@ recorded so the backend contract can serve it:
 
 ## 8. Open questions (need humans)
 
-1. Product name/wordmark: GRID vs "Piloti" (pilot office's pet name). Until
-   decided: GRID.
+1. Product name/wordmark: DECIDED (2026-07-17): user-facing brand is
+   **Piloti**; internal/platform name stays GRID (env vars, headers, CSS
+   variables, storage keys, DB identifiers, repo/product-platform name are
+   untouched). Single source of truth: `frontends/ui/src/lib/brand.ts`.
 2. `sourceColors`: spec says keep (§1) — confirm with design.
 3. Sharing model for chats ("Privater Workspace") — undesigned.
 4. Insights telemetry: which aggregates are acceptable org-policy-wise?
 5. Archiv verification workflow ("Geprüft 2025") — who verifies, how often?
 6. Cross-project scope timeline (vision doc exists, no backend).
+
+## 9. Post-build decisions
+
+Decisions made after the initial build, recorded here so the rationale isn't lost.
+
+### 9.1 Project profile — one surface, one editor (2026-07-18)
+
+**Context.** The fidelity pass had added a dummy-style "Projektparameter" field
+card to the project **Settings** page. But the same profile facts were already
+shown by the **Projekt-Briefing** card, and *both* linked to the **intake
+wizard** to edit — so the profile appeared twice and the wizard read as a
+confusing third way to do the same thing.
+
+**Decision.** The project profile is shown in **one** place and edited in
+**one** place:
+- **Display:** the single profile card on Settings is the `ProjectBrief`
+  (facts, AI summary, focus areas, Piloti's assumptions, and the open gaps).
+  The duplicate `Projektparameter` field card was removed.
+- **Editor:** the guided **intake wizard** is the only editor (Settings links
+  to it once via "Briefing bearbeiten"). Its assumptions/gaps surfacing and
+  end-of-wizard AI consistency check are the reason it exists.
+- **No inline field-editing on Settings.** Project facts are *interdependent*
+  — building class, use, and floor count drive which OIB standards apply — so
+  editing them one field at a time on Settings would bypass the wizard's
+  consistency check and let the profile desync. Right tool for the job: the
+  card is "what Piloti thinks this project is"; the wizard is "change it."
+- `ProjectBrief` gained a `canEdit` gate so viewers get a read-only brief.
+
+Follow-up (optional): the surviving profile card could take the dummy's
+stacked labelled-field look instead of the fact-sheet layout — a pure restyle
+on top of this decision, not a change to the one-surface/one-editor rule.

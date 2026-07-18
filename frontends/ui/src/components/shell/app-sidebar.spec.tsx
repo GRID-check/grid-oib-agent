@@ -35,9 +35,9 @@ const baseProps = {
 }
 
 describe('AppSidebar - click-dummy IA (FB-9/FB-10)', () => {
-  test('renders the core nav set: Chat, Files, History', () => {
+  test('renders the core nav set: Ask Piloti, Files, History', () => {
     render(<AppSidebar {...baseProps} />)
-    expect(screen.getAllByText('Chat').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Ask Piloti').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Files').length).toBeGreaterThan(0)
     expect(screen.getAllByText('History').length).toBeGreaterThan(0)
   })
@@ -78,7 +78,7 @@ describe('AppSidebar - Workflows nav item', () => {
     render(<AppSidebar {...baseProps} />)
     expect(screen.queryByText('Workflows')).not.toBeInTheDocument()
     // Sibling items remain.
-    expect(screen.getAllByText('Chat').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Ask Piloti').length).toBeGreaterThan(0)
     expect(screen.getAllByText('History').length).toBeGreaterThan(0)
   })
 
@@ -107,7 +107,7 @@ describe('AppSidebar - Archiv nav item (ADR-0024)', () => {
 describe('AppSidebar - active state', () => {
   test('marks the Chat item as the current page on the chat route', () => {
     render(<AppSidebar {...baseProps} />)
-    const chatLinks = screen.getAllByText('Chat').map((el) => el.closest('a'))
+    const chatLinks = screen.getAllByText('Ask Piloti').map((el) => el.closest('a'))
     expect(chatLinks.some((link) => link?.getAttribute('aria-current') === 'page')).toBe(true)
     const settingsLinks = screen.getAllByText('Settings').map((el) => el.closest('a'))
     for (const link of settingsLinks) {

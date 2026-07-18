@@ -38,7 +38,7 @@ export const files = {
     suggestionsLabel: 'Tag suggestions',
     noTagMatch: 'No matching tag — pick one of the suggested labels.',
     indexed: {
-      title: 'Indexed by GRID',
+      title: 'Indexed by Piloti',
       documentType: 'Document type',
       project: 'Project',
       updated: 'Updated',
@@ -62,13 +62,14 @@ export const files = {
     retryingIngestion: 'Retrying…',
     retryIngestionError: "Ingestion couldn't be restarted. Please try again.",
     dialogLabel: 'File preview: {name}',
+    pageIndicator: 'Page 1 of {count}',
   },
   browser: {
     folderEmptyTitle: 'This folder is empty',
     folderEmptyDescription: 'Upload documents here, or pick another folder from the sidebar.',
     noDocumentsTitle: 'No documents yet',
     noDocumentsDescription:
-      "Add your building's plans, permits and reports. Grid reads them to ground every answer in your project's own documents — not generic guidance.",
+      "Add your building's plans, permits and reports. Piloti reads them to ground every answer in your project's own documents — not generic guidance.",
     searchPlaceholder: 'Search files...',
     searchLabel: 'Search files',
     noMatch: 'No files match “{query}”',
@@ -76,6 +77,7 @@ export const files = {
       'Try a different name, tag or description, or clear the search to see every file.',
     clearSearch: 'Clear search',
     resetSearch: 'Reset search',
+    recentlyUploaded: 'Recently uploaded',
   },
   folders: {
     heading: 'Folders',
@@ -88,7 +90,7 @@ export const files = {
     newFolder: 'New folder',
   },
   workspace: {
-    corpusSubtitle: 'Project corpus — these documents ground Grid’s answers',
+    corpusSubtitle: 'Project corpus — these documents ground Piloti’s answers',
     uploadDocuments: 'Upload documents',
     uploadProblem: 'Upload problem',
     dismissError: 'Dismiss error',
@@ -98,6 +100,11 @@ export const files = {
     tryAgain: 'Try again',
     dropToUpload: 'Drop files to upload to this project',
     dropUnsupported: 'Some files are not a supported type',
+    view: {
+      label: 'View',
+      cards: 'Cards',
+      tree: 'Folders',
+    },
   },
   upload: {
     uploading: 'Uploading…',

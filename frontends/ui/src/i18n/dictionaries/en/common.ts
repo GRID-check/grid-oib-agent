@@ -1,6 +1,6 @@
 /** Shared strings used across many surfaces. */
 export const common = {
-  appName: 'Grid',
+  appName: 'Piloti',
   tagline: 'AI-powered research assistant',
   actions: {
     save: 'Save',

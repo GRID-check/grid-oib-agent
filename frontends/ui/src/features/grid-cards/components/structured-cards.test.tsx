@@ -32,13 +32,13 @@ describe('RequirementChecklistCard', () => {
     expect(screen.getByText('Anforderungen GK 4 – Brandschutz')).toBeInTheDocument()
     expect(screen.getByText('Tragende Bauteile REI 60')).toBeInTheDocument()
     expect(screen.getByText('Stahlbetondecken erfüllen REI 90.')).toBeInTheDocument()
-    // Item reference differs from the footer reference → inline citation.
+    // Item reference (differs from the footer reference) → inline citation chip.
     expect(screen.getByText('OIB-Richtlinie 2 · Tabelle 1b')).toBeInTheDocument()
-    // Worst item status (fail) drives the card verdict; the fail row and the
-    // pill both read "nicht erfüllt".
-    expect(screen.getAllByText('nicht erfüllt').length).toBeGreaterThanOrEqual(2)
+    // Non-pass rows show their German verdict inline; pass rows convey the
+    // verdict through the check-circle icon's aria-label (colour never alone).
+    expect(screen.getByText('nicht erfüllt')).toBeInTheDocument()
     expect(screen.getByText('Angabe fehlt')).toBeInTheDocument()
-    expect(screen.getByText('erfüllt')).toBeInTheDocument()
+    expect(screen.getByLabelText('erfüllt')).toBeInTheDocument()
   })
 })
 

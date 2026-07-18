@@ -15,7 +15,7 @@ export const projects = {
     empty: {
       title: 'Start your first project',
       description:
-        'Grid is an OIB/RIS building-compliance copilot. Create a project to bring its documents, members, and research into one workspace — then ask Grid questions grounded in Austrian building law.',
+        'Piloti is an OIB/RIS building-compliance copilot. Create a project to bring its documents, members, and research into one workspace — then ask Piloti questions grounded in Austrian building law.',
       action: 'Create your first project',
     },
   },
@@ -24,7 +24,7 @@ export const projects = {
   },
   card: {
     summaryFallback:
-      'OIB/RIS building-compliance workspace. Add documents and a brief to ground Grid.',
+      'OIB/RIS building-compliance workspace. Add documents and a brief to ground Piloti.',
     status: {
       active: 'Active',
     },
@@ -80,12 +80,12 @@ export const projects = {
     source: 'Source',
     sourceAria: 'Open the source for {code}',
     sourceTitle: 'Open the OIB source',
-    askGrid: 'Ask Grid',
-    askGridAria: 'Ask Grid about {code}',
-    askGridTitle: 'Ask Grid about this Richtlinie',
+    askGrid: 'Ask Piloti',
+    askGridAria: 'Ask Piloti about {code}',
+    askGridTitle: 'Ask Piloti about this Richtlinie',
     emptyTitle: 'No applicable standards yet',
     emptyDescription:
-      'Complete the project brief so Grid can work out which OIB-Richtlinien apply to this building.',
+      'Complete the project brief so Piloti can work out which OIB-Richtlinien apply to this building.',
     disclaimer:
       'Orientation only — not legal advice. Confirm applicability against the current Bauordnung and the authority having jurisdiction.',
   },
@@ -132,7 +132,7 @@ export const projects = {
     tryAgain: 'Try again',
     emptyTitle: 'No research runs yet',
     emptyDescription:
-      'Deep research runs appear here once you ask Grid an involved question in Chat — it works the OIB/RIS sources and returns a cited report you can revisit.',
+      'Deep research runs appear here once you ask Piloti an involved question in Chat — it works the OIB/RIS sources and returns a cited report you can revisit.',
     emptyAction: 'Start a run in Chat',
     viewReport: 'View report',
   },
@@ -159,22 +159,22 @@ export const projects = {
     },
     eyebrowEdit: 'Edit project brief',
     eyebrowCreate: 'Project setup',
-    titleFallback: 'Tell Grid about this project',
+    titleFallback: 'Tell Piloti about this project',
     subtitle:
-      'About 2 minutes. Grid uses this brief to ground every answer — and to show which OIB Richtlinien apply to this building.',
+      'About 2 minutes. Piloti uses this brief to ground every answer — and to show which OIB Richtlinien apply to this building.',
     progressAria: 'Progress',
     reviewTitle: 'Review & confirm',
     reviewStep: 'Review',
-    reviewDescription: 'Confirm what Grid understood about this project before saving.',
+    reviewDescription: 'Confirm what Piloti understood about this project before saving.',
     back: 'Back',
     stepCounter: 'Step {current} of {total}',
     saving: 'Saving…',
     saveChanges: 'Save changes',
     saveAndSee: 'Save & see my standards',
     next: 'Next',
-    unknownsTitle: "Grid still won't know",
+    unknownsTitle: "Piloti still won't know",
     unknownsHint:
-      'You can save now and fill these in later — Grid will flag them as open questions.',
+      'You can save now and fill these in later — Piloti will flag them as open questions.',
     edit: 'Edit',
     optional: '(optional)',
     yes: 'Yes',
@@ -228,7 +228,7 @@ export const projects = {
     },
     provenance: {
       user: 'added by you',
-      grid: 'noted by Grid',
+      grid: 'noted by Piloti',
     },
     time: {
       justNow: 'just now',
@@ -245,7 +245,7 @@ export const projects = {
       title: 'Something went wrong with project memory',
     },
     heading: 'Project memory',
-    description: 'What Grid has learned about this project — editable.',
+    description: 'What Piloti has learned about this project — editable.',
     addMemory: 'Add memory',
     kindAria: 'Memory kind',
     scopeAria: 'Memory scope',
@@ -257,7 +257,7 @@ export const projects = {
     tryAgain: 'Try again',
     emptyTitle: 'Nothing recorded yet',
     emptyDescription:
-      "Grid hasn't recorded anything about this project yet. It will as you chat — or add something yourself.",
+      "Piloti hasn't recorded anything about this project yet. It will as you chat — or add something yourself.",
     orgWide: 'org-wide',
     confidence: '{confidence} confidence',
     save: 'Save',
@@ -292,7 +292,7 @@ export const projects = {
     },
     workspaceCreated: 'Project workspace · created {date}',
     workspace: 'Project workspace',
-    askGrid: 'Ask Grid',
+    askGrid: 'Ask Piloti',
     uploadFiles: 'Upload files',
     rename: {
       action: 'Rename project',
@@ -313,7 +313,7 @@ export const projects = {
       summaryGenerate: 'Generate summary',
       summaryRegenerate: 'Regenerate',
       summaryGenerating: 'Generating…',
-      summaryWriting: 'Grid is writing the project summary…',
+      summaryWriting: 'Piloti is writing the project summary…',
       summarySuccess: 'Summary updated.',
       summaryError: 'Could not generate a summary. Please try again.',
       summaryLlmNotConfigured:
@@ -323,9 +323,9 @@ export const projects = {
       focus: 'Focus',
       startedNoDetailsBefore: 'The brief has been started but no details are captured yet. ',
       completeBrief: 'Complete the brief',
-      startedNoDetailsAfter: ' so Grid can ground its answers.',
-      missingHeading: "Grid still doesn't know",
-      assumptionsHeading: 'Suggested by Grid — confirm to make it a project fact',
+      startedNoDetailsAfter: ' so Piloti can ground its answers.',
+      missingHeading: "Piloti still doesn't know",
+      assumptionsHeading: 'Suggested by Piloti — confirm to make it a project fact',
       assumptionConfirm: 'Confirm',
       assumptionDismiss: 'Dismiss',
       assumptionError: 'Could not update the brief. Please try again.',
@@ -336,7 +336,7 @@ export const projects = {
       },
       emptyTitle: 'Set up the project brief',
       emptyDescription:
-        "Tell Grid about this building — use, class, storeys and goals. A complete brief lets Grid ground every answer in your project's real context.",
+        "Tell Piloti about this building — use, class, storeys and goals. A complete brief lets Piloti ground every answer in your project's real context.",
       emptyAction: 'Set up project context',
     },
     stats: {
@@ -349,7 +349,7 @@ export const projects = {
       viewAll: 'View all',
       emptyTitle: 'No files yet',
       emptyDescription:
-        'Upload building documents — plans, reports, the Bauordnung excerpts — so Grid can cite your project when it answers.',
+        'Upload building documents — plans, reports, the Bauordnung excerpts — so Piloti can cite your project when it answers.',
       emptyAction: 'Upload files',
     },
   },

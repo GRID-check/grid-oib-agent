@@ -8,6 +8,7 @@ import { isWorkflowsEnabled } from '@/lib/authz/feature-flags'
 import { getDb } from '@/lib/db'
 import { projects } from '@/lib/db/schema'
 import { AppSidebar } from '@/components/shell'
+import { PRODUCT_NAME } from '@/lib/brand'
 import { RouteFocus } from '@/shared/components/route-focus'
 
 const isAuthRequired = (): boolean => process.env.REQUIRE_AUTH?.toLowerCase() === 'true'
@@ -19,7 +20,7 @@ interface ProjectLayoutProps {
 
 /**
  * Seed the browser-tab title with the project name and a per-section template,
- * so nested pages resolve to "<Project> · <Section> — Grid" (the project root
+ * so nested pages resolve to "<Project> · <Section> — Piloti" (the project root
  * redirects to Chat and never renders a title of its own). The project name is
  * user data and is not translated; sections localize their own `title`. Fails
  * soft: any lookup problem falls back to the root template rather than
@@ -40,8 +41,8 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
 
     return {
       title: {
-        default: `${project.name} — Grid`,
-        template: `${project.name} · %s — Grid`,
+        default: `${project.name} — ${PRODUCT_NAME}`,
+        template: `${project.name} · %s — ${PRODUCT_NAME}`,
       },
     }
   } catch {

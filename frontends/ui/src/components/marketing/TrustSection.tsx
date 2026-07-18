@@ -1,5 +1,5 @@
 /**
- * TrustSection — the precision statement. Grid's authority comes from
+ * TrustSection — the precision statement. Piloti's authority comes from
  * verifiable citations to the OIB-Richtlinien and RIS, not from confident
  * prose. This section makes that promise explicit.
  */

@@ -22,6 +22,8 @@ export const chat = {
   },
   // Composer (InputArea) control row — WS-3 click-dummy overhaul.
   composer: {
+    placeholder:
+      'Describe what you are working on — Piloti shows you, step by step, what is relevant …',
     sources: 'Data basis',
     sourcesAria: 'Data basis — {enabled} of {total} sources enabled. Opens the data sources panel.',
     deepResearch: 'Deep Research',
@@ -29,7 +31,7 @@ export const chat = {
     // Honest intent hint: the agent auto-escalates; the pill records a
     // preference, it does not force a deep-research run.
     deepResearchHint:
-      'Preference noted — Grid escalates to Deep Research automatically when a question calls for it.',
+      'Preference noted — Piloti escalates to Deep Research automatically when a question calls for it.',
     scopeAria: 'Search scope: {project}',
     scopeFallback: 'This project',
     scopeCurrent: 'Current project',
@@ -51,8 +53,16 @@ export const chat = {
     morning: 'Good morning',
     afternoon: 'Good afternoon',
     evening: 'Good evening',
-    withName: '{greeting}, {name}',
+    withName: '{greeting}, {name}.',
     subtitle: 'Ask about your project — answers cite their sources.',
+  },
+  // Empty-state lock chip + thread role tabs (click-dummy overhaul, WS-3).
+  workspace: {
+    private: 'Private workspace',
+  },
+  roles: {
+    input: 'Input',
+    result: 'Result',
   },
   // "Belegt durch" provenance chip row under answers that carry source data.
   answerSources: {
@@ -66,6 +76,9 @@ export const chat = {
     renameInputAria: 'Session title',
   },
   cards: {
+    legalBasis: 'Legal basis',
+    viewOib: 'View OIB Richtlinie',
+    verifyRis: 'Verify in RIS',
     aiGenerated:
       'AI-generated citation — check the excerpt against the primary source (OIB / RIS).',
   },
@@ -264,8 +277,8 @@ export const chat = {
       'No data sources selected and no files are available. Responses are more likely to be inaccurate or outdated unless external data sources are added.',
   },
   memory: {
-    noted: 'Grid noted',
-    notedAria: 'Grid noted {count} items',
+    noted: 'Piloti noted',
+    notedAria: 'Piloti noted {count} items',
     addedToMemory: 'Added to project memory',
     manageHint: 'You can manage and delete these entries in the project memory.',
     kinds: {

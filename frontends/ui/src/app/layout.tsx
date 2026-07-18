@@ -17,6 +17,7 @@ import type { AppConfig } from '@/shared/context'
 import { getFileUploadConfigFromEnv } from '@/shared/config/file-upload'
 import { isVlmConfigured } from '@/lib/documents/vlm-capability'
 import { getGridSession } from '@/lib/auth/session'
+import { PRODUCT_NAME } from '@/lib/brand'
 import { FEATURE_FLAGS, isFeatureEnabled } from '@/lib/authz/feature-flags'
 import { getLocale } from '@/i18n/server'
 import { getDictionary } from '@/i18n'
@@ -51,9 +52,9 @@ export const viewport: Viewport = {
 export const metadata: Metadata = {
   title: {
     // Bare landing/auth routes render this; nested routes (e.g. a project)
-    // override `template` so their titles read "<Section> — Grid".
-    default: 'Grid — OIB Compliance Assistant',
-    template: '%s — Grid',
+    // override `template` so their titles read "<Section> — Piloti".
+    default: `${PRODUCT_NAME} — OIB Compliance Assistant`,
+    template: `%s — ${PRODUCT_NAME}`,
   },
   description:
     'AI compliance assistant for Austrian building regulations (OIB Richtlinien) — searches, interprets, and cites building-code requirements.',

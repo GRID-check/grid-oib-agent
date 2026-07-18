@@ -7,7 +7,7 @@ export const onboarding = {
   steps: {
     createOrg: 'Create your organization',
     makeAdmin: 'Make you the workspace admin',
-    openProject: 'Open Grid and your first project',
+    openProject: 'Open Piloti and your first project',
   },
   inviteOnly: {
     title: 'This platform is invite-only',
@@ -28,7 +28,7 @@ export const onboarding = {
   },
   intro: {
     eyebrow: 'first workspace',
-    title: 'Set your organization before Grid handles project data.',
+    title: 'Set your organization before Piloti handles project data.',
     description:
       'Your organization is the private boundary for your building projects — documents, members, and OIB/RIS research all live inside it. You become its admin.',
     invitedHint:
@@ -50,7 +50,7 @@ export const onboarding = {
     title: 'Name your organization',
     description: 'Use your office, practice, or client organization name.',
     nameLabel: 'Organization name',
-    namePlaceholder: 'Grid Bauphysik Vienna',
+    namePlaceholder: 'Piloti Bauphysik Vienna',
     submit: 'Create organization',
   },
 }

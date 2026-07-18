@@ -161,7 +161,7 @@ describe('checkIntakeConsistency — rule 4: renovation focus on a new build', (
     const findings = check({ focus_areas: ['sanierung'], bestand_neubau: 'neubau' })
     const finding = findings.find((f) => f.messageKey === 'renovationFocusOnNewBuild')!
     expect(finding.severity).toBe('warning')
-    expect(finding.fields).toEqual(['What should Grid help with on this project?', 'Existing or new building'])
+    expect(finding.fields).toEqual(['What should Piloti help with on this project?', 'Existing or new building'])
   })
 
   it('does NOT flag renovation focus on existing fabric or extensions', () => {
@@ -239,7 +239,7 @@ describe('collectFreeTextFields', () => {
       goal_details: 'Confirm the fire-compartment strategy for the submission.',
     }
     expect(collectFreeTextFields(answers, definition)).toEqual([
-      { field: 'Tell Grid more', value: 'Confirm the fire-compartment strategy for the submission.' },
+      { field: 'Tell Piloti more', value: 'Confirm the fire-compartment strategy for the submission.' },
     ])
   })
 
@@ -267,6 +267,6 @@ describe('collectStructuredContextFields', () => {
     const fields = collectStructuredContextFields(answers, definition)
     expect(fields).toContainEqual({ field: 'Main use', value: 'Residential' })
     expect(fields).toContainEqual({ field: 'Building class', value: 'GK4' })
-    expect(fields.some((f) => f.field === 'Tell Grid more')).toBe(false)
+    expect(fields.some((f) => f.field === 'Tell Piloti more')).toBe(false)
   })
 })

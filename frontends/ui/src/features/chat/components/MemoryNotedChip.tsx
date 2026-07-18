@@ -30,7 +30,7 @@ const KIND_META: Record<string, { icon: LucideIcon; labelKey: string }> = {
 }
 
 /**
- * "Grid noted N" — surfaces the memory items recorded during a
+ * "Piloti noted N" — surfaces the memory items recorded during a
  * conversation turn (both the in-turn `remember` tool and the async
  * post-answer reflection stage), which otherwise land silently. Renders nothing
  * until at least one item exists.

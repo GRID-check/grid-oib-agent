@@ -5,7 +5,7 @@ interface ChatLayoutProps {
   children: React.ReactNode
 }
 
-// Server-rendered base title for the chat route ("<Project> · Chat — Grid").
+// Server-rendered base title for the chat route ("<Project> · Chat — Piloti").
 // The chat page is a client component and can't export metadata itself; a live
 // deep-research override (useDeepResearchTitle) layers on top of this at runtime.
 export async function generateMetadata(): Promise<Metadata> {

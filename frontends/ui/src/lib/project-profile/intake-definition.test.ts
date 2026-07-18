@@ -205,7 +205,7 @@ describe('validateProfilePatchVocabulary', () => {
 
   it('rejects a multi-select value outside the options', () => {
     expect(() => validate('add', '/goals/focus_areas', ['einreichung', 'nope'])).toThrow(
-      /Grid help with/,
+      /Piloti help with/,
     )
   })
 })

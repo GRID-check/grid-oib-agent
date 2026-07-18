@@ -8,7 +8,7 @@ export const profile = {
   saveError: 'Could not save your preferences. Please try again.',
   account: {
     title: 'Account',
-    description: 'Your identity within Grid.',
+    description: 'Your identity within Piloti.',
     name: 'Name',
     email: 'Email',
     organization: 'Organization',
@@ -23,12 +23,12 @@ export const profile = {
   },
   appearance: {
     title: 'Appearance',
-    description: 'Choose how Grid looks. System follows your device setting.',
+    description: 'Choose how Piloti looks. System follows your device setting.',
     theme: 'Theme',
   },
   language: {
     title: 'Language',
-    description: 'The language used across the Grid interface.',
+    description: 'The language used across the Piloti interface.',
     label: 'Interface language',
   },
   security: {

@@ -80,6 +80,8 @@ export interface ResolvedTemplate {
   id: string
   name: string
   description: string
+  /** Short uppercase category label shown in the gallery card's pill. */
+  category: string
   provenance: TemplateProvenance
   definition: WorkflowDefinition
   /** Additional data sources (knowledge layer is always included server-side). */
@@ -122,6 +124,7 @@ export function resolveTemplate(t: Translator, id: string): ResolvedTemplate | n
     id: template.id,
     name: t(`${base}.name`),
     description: t(`${base}.description`),
+    category: t(`${base}.category`),
     provenance: template.provenance,
     definition,
     dataSources: [...template.dataSources],
