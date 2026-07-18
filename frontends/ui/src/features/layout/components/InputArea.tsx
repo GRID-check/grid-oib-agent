@@ -545,9 +545,10 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
       <div
         className={cn(
           // Composer card per the click dummy: white card, hairline border,
-          // layered soft shadow; textarea on top, hairline-separated control
-          // row below. Radius 14, pad 14/16.
-          'relative flex flex-col rounded-[14px] border bg-card px-4 py-[14px] shadow-lg transition-[box-shadow,border-color] duration-200 ease-out focus-within:ring-2 focus-within:ring-ring/30',
+          // soft CARD-tier shadow (not the modal shadow-lg, which detached it
+          // as a floating object over the chat plane); textarea on top,
+          // hairline-separated control row below. On-scale radius.
+          'relative flex flex-col rounded-xl border bg-card px-4 py-[14px] shadow-sm transition-[box-shadow,border-color] duration-200 ease-out focus-within:ring-2 focus-within:ring-ring/30',
           isDisabledByAuth && 'opacity-60',
           isDragging && isUnsupportedDrag
             ? 'border-dashed border-error'
@@ -559,7 +560,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
       >
         {/* Drag overlay */}
         {isDragging && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-background/90">
+          <div className="absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-background/90">
             <div className="flex flex-col items-center gap-2">
               {isUnsupportedDrag ? (
                 <XCircle className="h-8 w-8 text-error" aria-hidden="true" />

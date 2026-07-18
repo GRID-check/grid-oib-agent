@@ -74,7 +74,7 @@ export const DataConnectionCard: FC<DataConnectionCardProps> = ({
       onClick={handleCardClick}
       onKeyDown={handleCardKeyDown}
       className={cn(
-        'flex items-center justify-between rounded-lg border p-3 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50',
+        'flex items-center justify-between rounded-2xl bg-card p-3 shadow-xs outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50',
         isDisabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:bg-accent'
       )}
       aria-pressed={isEnabled}

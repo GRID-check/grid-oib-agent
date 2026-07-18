@@ -129,7 +129,7 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
   }, [isAuthenticated, isNewSessionDisabled, onNewSession])
 
   return (
-    <header className="shrink-0 border-b bg-muted/30">
+    <header className="shrink-0 border-b bg-background">
       <div className="flex h-12 items-center justify-between gap-4 px-4">
         <div className="flex min-w-0 flex-1 items-center gap-2">
           {/* Quiet bordered "new session" affordance */}

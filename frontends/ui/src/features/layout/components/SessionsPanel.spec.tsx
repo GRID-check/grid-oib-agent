@@ -180,7 +180,7 @@ describe('SessionsPanel', () => {
     render(<SessionsPanel sessions={mockSessions} selectedSessionId="session-1" />)
 
     const firstSession = screen.getByRole('button', { name: /session: first session/i })
-    expect(firstSession).toHaveClass('border-accent-primary', 'bg-muted')
+    expect(firstSession).toHaveClass('bg-accent')
   })
 
   test('shows edit and delete icons on hover', async () => {

@@ -351,7 +351,7 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder={t('sessionsPanel.searchPlaceholder')}
-          className="h-9 w-full rounded-md border bg-background pl-8 pr-3 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+          className="h-9 w-full rounded-lg border border-input bg-input-background pl-8 pr-3 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
           aria-label={t('sessionsPanel.searchAria')}
         />
       </div>
@@ -360,7 +360,7 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
           by default with a count badge. Includes headless/CLI jobs that have no
           local session. Hidden entirely when there are no runs. */}
       {showDeepResearch && (
-        <div className="mb-4 shrink-0 border-b border-border pb-4">
+        <div className="mb-4 shrink-0 pb-2">
           <button
             type="button"
             onClick={() => setIsDeepResearchOpen((open) => !open)}
@@ -387,7 +387,7 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
                   key={run.job_id}
                   href={runHref(run)}
                   onClick={handleClose}
-                  className="flex items-center gap-2 rounded-md border border-transparent p-2 text-left outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50"
+                  className="flex items-center gap-2 rounded-lg p-2 text-left outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50"
                   aria-label={t('sessionsPanel.deepResearchRunLabel', { label: runLabel(run) })}
                 >
                   <RunStatusIcon status={run.status} />
@@ -604,9 +604,9 @@ const SessionItem: FC<SessionItemProps> = ({
         }
       }}
       className={cn(
-        'group flex h-10 w-full items-center gap-2 rounded-md border p-2 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50',
+        'group flex h-10 w-full items-center gap-2 rounded-lg p-2 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50',
         isBusy ? 'cursor-not-allowed opacity-60' : 'cursor-pointer',
-        isSelected ? 'border-accent-primary bg-muted' : 'bg-transparent hover:bg-accent'
+        isSelected ? 'bg-accent text-foreground' : 'hover:bg-accent/60'
       )}
       aria-label={
         isBusy
@@ -624,7 +624,7 @@ const SessionItem: FC<SessionItemProps> = ({
           onKeyDown={handleKeyDown}
           onBlur={handleInputBlur}
           onClick={(e) => e.stopPropagation()}
-          className="h-8 min-w-0 flex-1 rounded border border-accent-primary bg-background px-2 py-1 text-sm outline-none"
+          className="h-8 min-w-0 flex-1 rounded-md border border-input bg-input-background px-2 py-1 text-sm outline-none"
           aria-label={t('sessionsPanel.editTitle')}
         />
       ) : (
@@ -642,7 +642,7 @@ const SessionItem: FC<SessionItemProps> = ({
               session.hasActiveDeepResearch ||
               session.hasCompletedReport ||
               session.hasExpiredReport) && (
-              <span className="shrink-0 rounded-full border border-border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+              <span className="shrink-0 rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                 {t('sessionsPanel.deepResearchChip')}
               </span>
             )}

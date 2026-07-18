@@ -20,6 +20,11 @@ vi.mock('@/hooks/use-session-url', () => ({
   })),
 }))
 
+// Per-test overrides merged into the chat-store state. Read lazily inside the
+// mock factory (so it is StrictMode-double-render safe — every useChatStore
+// call in every render pass sees the same state), and reset in beforeEach.
+let chatStoreOverrides: Record<string, unknown> = {}
+
 // Mock the chat store
 vi.mock('@/features/chat', () => ({
   useChatStore: vi.fn((selector?: (s: any) => any) => {
@@ -35,6 +40,7 @@ vi.mock('@/features/chat', () => ({
       pendingInteraction: null,
       isDeepResearchStreaming: false,
       deepResearchOwnerConversationId: null,
+      ...chatStoreOverrides,
     }
     return selector ? selector(state) : state
   }),
@@ -113,6 +119,7 @@ import { useLayoutStore } from '../store'
 describe('MainLayout', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    chatStoreOverrides = {}
   })
 
   test('renders authenticated main sections', () => {
@@ -144,22 +151,7 @@ describe('MainLayout', () => {
   })
 
   test('shows no session title when no current conversation', () => {
-    vi.mocked(useChatStore).mockImplementationOnce((selector?: (s: any) => any) => {
-      const state = {
-        currentConversation: null,
-        getUserConversations: vi.fn(() => []),
-        selectConversation: vi.fn(),
-        startNewSessionDraft: vi.fn(),
-        deleteConversation: vi.fn(),
-        deleteAllConversations: vi.fn(),
-        updateConversationTitle: vi.fn(),
-        isStreaming: false,
-        pendingInteraction: null,
-        isDeepResearchStreaming: false,
-        deepResearchOwnerConversationId: null,
-      }
-      return selector ? selector(state) : state
-    })
+    chatStoreOverrides = { currentConversation: null }
 
     render(<MainLayout />)
 

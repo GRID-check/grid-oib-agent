@@ -160,6 +160,25 @@ export const chat = {
       knowledgeBase: 'OIB Knowledge Base',
       ris: 'RIS (Austrian Law)',
     },
+    node: {
+      framingTab: 'Intermediate step',
+      framingTitle: 'Question understood',
+      framingQuestion: 'You asked: “{question}”',
+      contextLabel: 'Context',
+      sourcesTab: 'Sources',
+      sourcesTitle: 'Sources examined',
+      findingsTab: 'Assessment',
+      findingsTitle: 'Backed by',
+      confidenceLabel: 'Confidence',
+      confidence: {
+        high: 'Well supported',
+        medium: 'Partly supported',
+        low: 'Weakly supported',
+      },
+      branchesTab: 'Next steps',
+      branchesTitle: 'How do you want to proceed?',
+      branchesSub: 'Pick one option — the answer is assembled for your choice.',
+    },
   },
   deepResearch: {
     stats: {

@@ -61,12 +61,13 @@ export const SourceCard: FC<SourceCardProps> = ({ source }) => {
       href={source.url}
       target="_blank"
       rel="noopener noreferrer"
-      className="block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+      className="block rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
     >
       <div
         className={cn(
-          'flex flex-col gap-1 rounded-lg border p-3 transition-colors hover:bg-accent',
-          source.isCited && 'border-l-2 border-l-success'
+          'flex flex-col gap-1 rounded-xl border bg-card p-3 shadow-xs transition-colors hover:bg-accent',
+          // Cited: inset provenance rail, matching the chat's reasoning SourceCard.
+          source.isCited && '[box-shadow:inset_3px_0_0_0_var(--source-project)]'
         )}
       >
         {/* Header row */}
