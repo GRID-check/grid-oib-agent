@@ -237,10 +237,19 @@ def _resolve_base_collection(config: KnowledgeRetrievalConfig) -> str:
     Fail-open: any lookup problem keeps the configured ``collection_name``.
     """
     try:
+        from aiq_agent.common.country_profile import DEFAULT_COUNTRY
         from aiq_agent.common.country_profile import get_country_profile
         from aiq_agent.common.norm_registry import resolve_country
         from aiq_agent.project_context import get_profile_context_from_context
 
+        # Precedence: an EXPLICIT non-default config wins (test/bench/dev configs
+        # pointing at e.g. `test_collection` must never be silently re-routed);
+        # the profile only re-routes the default corpus, which is what a real
+        # multi-country deployment runs on.
+        default_profile = get_country_profile(DEFAULT_COUNTRY)
+        default_corpus = default_profile.corpus_collection if default_profile else config.collection_name
+        if config.collection_name != default_corpus:
+            return config.collection_name
         country = resolve_country(get_profile_context_from_context())
         profile = get_country_profile(country)
         if profile is not None and profile.corpus_collection and profile.corpus_collection != config.collection_name:

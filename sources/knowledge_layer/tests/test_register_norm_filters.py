@@ -61,3 +61,12 @@ class TestBaseCollectionProfileRouting:
             include_base_collection=True,
         )
         assert reg._resolve_target_collections(config, None) == ["oib_knowledge"]
+
+
+def test_explicit_non_default_collection_is_never_rerouted():
+    """Test/bench configs pointing at a custom collection keep it verbatim."""
+    from knowledge_layer.register import KnowledgeRetrievalConfig
+    from knowledge_layer.register import _resolve_base_collection
+
+    config = KnowledgeRetrievalConfig(collection_name="test_collection")
+    assert _resolve_base_collection(config) == "test_collection"
