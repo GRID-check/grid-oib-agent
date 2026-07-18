@@ -152,3 +152,45 @@ describe('verifyNormResponseSchema', () => {
     expect(parsed.verified_at).toBe('2026-07-18')
   })
 })
+
+describe('backend null contract (regression: Register konnte nicht geladen werden)', () => {
+  it('parses an entry whose verify seed is null (pydantic VerifySeed | None)', () => {
+    // The backend serializes a seedless entry as `verify: null`; `.optional()`
+    // alone would reject it and fail the whole registry load.
+    const parsed = normEntrySchema.parse({
+      id: 'ma37-merkblaetter',
+      title: 'MA 37 Merkblätter',
+      short: 'MA 37',
+      rank: 'behoerdliche_info',
+      bundesland: 'Wien',
+      source_url: 'https://www.wien.gv.at/x',
+      binding_note: null,
+      review_note: null,
+      verify: null,
+    })
+    expect(parsed.verify).toBeNull()
+    expect(parsed.id).toBe('ma37-merkblaetter')
+  })
+
+  it('parses the full GET envelope shape with a null-verify entry present', () => {
+    const envelope = {
+      version: 1,
+      registry: {
+        version: 1,
+        corpus_collection: 'oib_knowledge',
+        language: '',
+        states: { wien: 'Wien', ausserhalb_oesterreichs: null },
+        corpus_note: '',
+        doctrine: '',
+        parcel_tags: [],
+        entries: [
+          validEntry,
+          { id: 'ma37', title: 'MA 37', short: 'MA 37', rank: 'behoerdliche_info', verify: null },
+        ],
+      },
+    }
+    const parsed = putNormRegistryBodySchema.parse(envelope)
+    expect(parsed.registry.entries).toHaveLength(2)
+    expect(parsed.registry.states.ausserhalb_oesterreichs).toBeNull()
+  })
+})
