@@ -3,21 +3,21 @@
 /**
  * The always-visible GRID template gallery at the top of the Workflows page.
  *
- * Each card: an icon in its provenance tint (spec §4 `--source-*` tokens —
- * law-blue for regulation-flavored briefs, project-green for the
- * documentation-driven check), the template name, an honest one-two-line
- * description, a cadence hint derived from the template's REAL cron, and a
- * "Set up" action that opens the builder PRE-FILLED. Selecting a card never
- * creates or runs a workflow — the user reviews the brief and saves it.
- * A dashed "More coming" placeholder closes the grid.
+ * Card anatomy mirrors the click dummy exactly: an outer subtle-surface shell
+ * (radius 12, 0.5px hairline, soft card shadow) wrapping an inner white block
+ * (bg-card, hairline divider, radius 0 0 10px, pad 16). The inner block holds
+ * an icon tile in the template's provenance tint (spec §4 `--source-*` tokens —
+ * law-blue for the regulation briefs, project-green for the documentation
+ * check), a right-aligned uppercase category pill, the template name and an
+ * honest one-two-line description. A footer strip on the subtle surface carries
+ * the honest, cron-derived cadence hint on the left and the primary action on
+ * the right. Selecting a card never creates or runs a workflow — it opens the
+ * builder PRE-FILLED so the user reviews the brief and saves it. A dashed
+ * "More coming" placeholder closes the grid.
  */
 
-import { Archive, CalendarClock, FileCheck2, Globe, Hand, Plus, Sparkles } from 'lucide-react'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
+import { ArrowRight, Clock, FileCheck2, Plus, ShieldCheck, type LucideIcon } from 'lucide-react'
 import { useTranslations, type Translator } from '@/i18n'
-import { cn } from '@/lib/utils'
 import { presetForCron } from '../lib/schedule'
 import {
   resolveAllTemplates,
@@ -29,21 +29,45 @@ interface TemplateCardsProps {
   onUse: (template: ResolvedTemplate) => void
 }
 
-/** Provenance tint + text classes for the icon tile (tokens only, both modes). */
-const PROVENANCE_TILE: Record<TemplateProvenance, string> = {
-  law: 'bg-source-law-tint text-source-law-text',
-  project: 'bg-source-project-tint text-source-project-text',
-  office: 'bg-source-office-tint text-source-office-text',
-  auto: 'bg-source-auto-tint text-source-auto-text',
+/** The strong hairline (ink-border .16) the dummy uses for card + dashed edges. */
+const HAIRLINE = 'color-mix(in oklch, var(--ink-border) 16%, transparent)'
+
+/** Provenance tint + base + text CSS vars (tokens only, both modes). */
+const PROVENANCE: Record<TemplateProvenance, { tint: string; base: string; text: string }> = {
+  law: {
+    tint: 'var(--source-law-tint)',
+    base: 'var(--source-law)',
+    text: 'var(--source-law-text)',
+  },
+  project: {
+    tint: 'var(--source-project-tint)',
+    base: 'var(--source-project)',
+    text: 'var(--source-project-text)',
+  },
+  office: {
+    tint: 'var(--source-office-tint)',
+    base: 'var(--source-office)',
+    text: 'var(--source-office-text)',
+  },
+  auto: {
+    tint: 'var(--source-auto-tint)',
+    base: 'var(--source-auto)',
+    text: 'var(--source-auto-text)',
+  },
 }
 
-/** The signal icon per provenance — law is the "§" glyph per the design spec. */
-function ProvenanceGlyph({ provenance }: { provenance: TemplateProvenance }): JSX.Element {
-  if (provenance === 'law') {
-    return <span className="text-lg font-semibold leading-none">§</span>
-  }
-  const Icon = provenance === 'project' ? FileCheck2 : provenance === 'office' ? Archive : Globe
-  return <Icon className="size-4" />
+/** The signal icon per template (falls back by provenance). */
+const TILE_ICON: Record<string, LucideIcon> = {
+  'submission-precheck': FileCheck2,
+  'regulatory-watch': Clock,
+  'compliance-gap-check': ShieldCheck,
+}
+
+function tileIcon(template: ResolvedTemplate): LucideIcon {
+  return (
+    TILE_ICON[template.id] ??
+    (template.provenance === 'project' ? ShieldCheck : FileCheck2)
+  )
 }
 
 /**
@@ -63,63 +87,97 @@ export function TemplateCards({ onUse }: TemplateCardsProps): JSX.Element {
   const templates = resolveAllTemplates(t)
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3" data-testid="workflow-templates">
+    <div
+      className="grid gap-[18px] sm:grid-cols-2 lg:grid-cols-3"
+      data-testid="workflow-templates"
+    >
       {templates.map((template) => {
-        const scheduled = Boolean(template.scheduleCron)
+        const prov = PROVENANCE[template.provenance]
+        const Icon = tileIcon(template)
         return (
-          <Card key={template.id} className="flex flex-col">
-            <CardContent className="flex flex-1 flex-col gap-3 p-4 sm:p-5">
-              <div className="flex items-start justify-between gap-2">
+          <div
+            key={template.id}
+            className="flex flex-col overflow-hidden rounded-[12px]"
+            style={{
+              background: 'var(--input-background)',
+              border: `0.5px solid ${HAIRLINE}`,
+              boxShadow: '0 2px 4px -1px color-mix(in oklch, var(--ink-border) 8%, transparent)',
+            }}
+          >
+            {/* Inner white block. */}
+            <div
+              className="flex-1 rounded-b-[10px] bg-card p-4"
+              style={{
+                boxShadow: '0 0.5px 0 color-mix(in oklch, var(--ink-border) 18%, transparent)',
+              }}
+            >
+              <div className="flex items-center gap-2.5">
                 <span
-                  className={cn(
-                    'flex size-9 shrink-0 items-center justify-center rounded-lg',
-                    PROVENANCE_TILE[template.provenance],
-                  )}
+                  className="flex size-9 shrink-0 items-center justify-center rounded-[10px]"
+                  style={{ background: prov.tint, color: prov.base }}
                   aria-hidden
                 >
-                  <ProvenanceGlyph provenance={template.provenance} />
+                  <Icon className="size-[17px]" strokeWidth={1.8} />
                 </span>
-                <Badge variant="info" className="shrink-0">
-                  <Sparkles className="size-3" aria-hidden />
-                  {t('templates.badge')}
-                </Badge>
+                <span
+                  className="ml-auto inline-flex shrink-0 items-center gap-[5px] rounded-[7px] px-[9px] py-1 text-[10.5px] font-semibold uppercase tracking-[0.04em]"
+                  style={{ background: prov.tint, color: prov.text }}
+                >
+                  {template.provenance === 'law' && (
+                    <span className="font-bold leading-none" style={{ color: prov.base }}>
+                      §
+                    </span>
+                  )}
+                  {template.category}
+                </span>
               </div>
-              <h3 className="text-sm font-semibold text-foreground">{template.name}</h3>
-              <p className="flex-1 text-sm text-muted-foreground">{template.description}</p>
-              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                {scheduled ? (
-                  <CalendarClock className="size-3.5" aria-hidden />
-                ) : (
-                  <Hand className="size-3.5" aria-hidden />
-                )}
-                <span>{cadenceLabel(t, template.scheduleCron)}</span>
-              </div>
-              <Button
-                size="sm"
-                className="w-fit"
-                aria-label={t('templates.setUpAria', { name: template.name })}
+              <h3 className="mt-[14px] text-sm font-medium text-foreground">{template.name}</h3>
+              <p className="mt-1 text-[12.5px] leading-[1.55] text-muted-foreground">
+                {template.description}
+              </p>
+            </div>
+
+            {/* Footer strip on the subtle surface. */}
+            <div className="flex items-center gap-2 px-4 pb-[10px] pt-[9px]">
+              <span className="text-xs" style={{ color: 'var(--text-color-placeholder)' }}>
+                {cadenceLabel(t, template.scheduleCron)}
+              </span>
+              <button
+                type="button"
                 onClick={() => onUse(template)}
+                aria-label={t('templates.setUpAria', { name: template.name })}
+                className="ml-auto inline-flex h-[30px] shrink-0 items-center gap-1.5 rounded-[10px] bg-primary px-[13px] text-[12.5px] font-medium text-primary-foreground shadow-xs transition-colors hover:bg-interaction-primary-hover"
               >
                 {t('templates.setUp')}
-              </Button>
-            </CardContent>
-          </Card>
+                <ArrowRight className="size-[13px]" strokeWidth={2.2} aria-hidden />
+              </button>
+            </div>
+          </div>
         )
       })}
 
       {/* "More coming" placeholder — deliberately not interactive. */}
       <div
-        className="flex min-h-44 flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-border p-6 text-center"
+        className="flex min-h-[200px] flex-col items-center justify-center gap-2 rounded-[12px] p-5 text-center"
+        style={{ border: `1.5px dashed ${HAIRLINE}` }}
         data-testid="workflow-templates-placeholder"
       >
         <span
-          className="flex size-9 items-center justify-center rounded-lg bg-muted text-muted-foreground"
+          className="flex size-9 items-center justify-center rounded-[10px]"
+          style={{ border: `1.5px dashed ${HAIRLINE}`, color: 'var(--text-color-placeholder)' }}
           aria-hidden
         >
           <Plus className="size-4" />
         </span>
-        <p className="text-sm font-medium text-foreground">{t('templates.moreComing.title')}</p>
-        <p className="text-xs text-muted-foreground">{t('templates.moreComing.hint')}</p>
+        <p className="text-[13px] font-medium" style={{ color: 'var(--text-color-placeholder)' }}>
+          {t('templates.moreComing.title')}
+        </p>
+        <p
+          className="max-w-[220px] text-xs leading-[1.5]"
+          style={{ color: 'var(--text-color-placeholder)' }}
+        >
+          {t('templates.moreComing.hint')}
+        </p>
       </div>
     </div>
   )

@@ -72,7 +72,6 @@ describe('WorkflowList', () => {
     render(<WorkflowList projectId="p1" onCreate={noop} onUseTemplate={noop} onEdit={noop} openingId={null} />)
 
     expect(await screen.findByText('Weekly OIB scan')).toBeInTheDocument()
-    expect(screen.getByText('Piloti templates')).toBeInTheDocument()
     expect(screen.getByTestId('workflow-templates')).toBeInTheDocument()
     expect(screen.getByTestId('workflow-templates-placeholder')).toBeInTheDocument()
     expect(screen.getByText('Your workflows')).toBeInTheDocument()
@@ -193,7 +192,10 @@ describe('TemplateCards', () => {
     expect(screen.getByText('Submission pre-check')).toBeInTheDocument()
     expect(screen.getByText('Regulatory watch: OIB & Austrian building law')).toBeInTheDocument()
     expect(screen.getByText('OIB compliance gap check')).toBeInTheDocument()
-    expect(screen.getAllByText('By Piloti')).toHaveLength(3)
+    // Each card carries its provenance category pill.
+    expect(screen.getByText('Building law')).toBeInTheDocument()
+    expect(screen.getByText('Guidelines')).toBeInTheDocument()
+    expect(screen.getByText('Compliance')).toBeInTheDocument()
 
     // Honest cadence hints derived from the templates' real crons.
     expect(screen.getByText('Runs weekly')).toBeInTheDocument()
@@ -201,7 +203,7 @@ describe('TemplateCards', () => {
 
     // The dashed "More coming" placeholder closes the grid.
     expect(screen.getByTestId('workflow-templates-placeholder')).toBeInTheDocument()
-    expect(screen.getByText('More coming')).toBeInTheDocument()
+    expect(screen.getByText('More workflows coming')).toBeInTheDocument()
 
     const setUpButtons = screen.getAllByRole('button', { name: /Set up template/ })
     expect(setUpButtons).toHaveLength(3)
