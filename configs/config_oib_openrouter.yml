@@ -152,6 +152,22 @@ llms:
     request_timeout: 60
     reasoning_effort: medium
 
+  # RIS query planner — pure JSON-schema extraction (structured outputs), not a
+  # reasoning task. Dedicated cheap twin of deep_router_llm (same model/base_url)
+  # so we can drop reasoning_effort to none WITHOUT weakening deep_router_llm,
+  # which is also the deep-research source_router_llm where medium still matters.
+  ris_planner_llm:
+    _type: openai
+    model_name: deepseek/deepseek-v4-flash
+    base_url: "https://openrouter.ai/api/v1"
+    api_key: ${OPENROUTER_API_KEY}
+    temperature: 1.0
+    top_p: 0.95
+    max_tokens: 8192
+    max_retries: 2
+    request_timeout: 60
+    reasoning_effort: none
+
   # Card generation — structured rich-UI compliance cards.
   card_llm:
     _type: openai
@@ -248,10 +264,11 @@ functions:
     max_results: 10
     # Query planning via strict structured outputs (response_format:
     # json_schema); falls back to the agent's raw arguments when the planner
-    # is unavailable or fails. Recycles the deep-research source-routing LLM —
-    # same kind of lightweight routing/planning task — so org model overrides
-    # (agent group deep_research_router) and BYOK apply to it consistently.
-    planner_llm: deep_router_llm
+    # is unavailable or fails. Uses ris_planner_llm — a dedicated cheap twin of
+    # deep_router_llm at reasoning_effort: none, because this is pure JSON
+    # extraction, not a reasoning task. Kept separate from deep_router_llm so
+    # lowering effort here does not weaken deep-research source routing.
+    planner_llm: ris_planner_llm
 
   ris_fetch_tool:
     _type: ris_fetch_document

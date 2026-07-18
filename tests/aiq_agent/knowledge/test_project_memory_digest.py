@@ -26,6 +26,7 @@ def _patched_opener(monkeypatch, *, body=None, error=None):
             captured["url"] = request.full_url
             captured["headers"] = request.headers
             captured["method"] = request.get_method()
+            captured["timeout"] = timeout
             if error is not None:
                 raise error
             return _FakeResponse(json.dumps(body).encode("utf-8"))
@@ -72,4 +73,26 @@ def test_transport_error_propagates(monkeypatch):
     monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "t")
     with _patched_opener(monkeypatch, error=OSError("boom")):
         with pytest.raises(OSError):
+            pm.fetch_memory_digest(project_id="p1", organization_id=None)
+
+
+def test_digest_uses_tight_timeout(monkeypatch):
+    """The per-turn digest read must use the tight critical-path timeout, not
+    the longer timeout the write calls allow, so a slow BFF never stalls the
+    turn before intent classification."""
+    monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "t")
+    with _patched_opener(monkeypatch, body={"digest": "d"}) as captured:
+        pm.fetch_memory_digest(project_id="p1", organization_id=None)
+    assert captured["timeout"] == pm._DIGEST_TIMEOUT_SECONDS
+    assert pm._DIGEST_TIMEOUT_SECONDS <= 1.5
+    # And it must be tighter than the timeout the (off-critical-path) writes use.
+    assert pm._DIGEST_TIMEOUT_SECONDS < pm._REQUEST_TIMEOUT_SECONDS
+
+
+def test_timeout_error_propagates_for_failopen(monkeypatch):
+    """On timeout the fetch raises so the caller can fall back to the frozen
+    connection-time digest (fail-open) instead of dropping memory."""
+    monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "t")
+    with _patched_opener(monkeypatch, error=TimeoutError("timed out")):
+        with pytest.raises(TimeoutError):
             pm.fetch_memory_digest(project_id="p1", organization_id=None)
