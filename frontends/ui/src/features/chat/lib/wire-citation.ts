@@ -9,7 +9,7 @@ import { asSourceKind } from './source-kinds'
 const trimmed = (value: unknown): string | undefined =>
   typeof value === 'string' && value.trim() ? value.trim() : undefined
 
-const normalizeOrigin = (value: unknown): CitationSource['origin'] | undefined => {
+export const normalizeOrigin = (value: unknown): CitationSource['origin'] | undefined => {
   if (typeof value !== 'string') return undefined
   const lower = value.trim().toLowerCase().replace(/^\[|\]$/g, '')
   if (lower === 'kb' || lower === 'ris' || lower === 'web') return lower

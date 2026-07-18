@@ -37,6 +37,7 @@ import { useLayoutStore } from '@/features/layout/store'
 import { useTranslations } from '@/i18n'
 import type { ResearchPanelTab } from '@/features/layout/types'
 import { normalizeDeepResearchTodos } from '../lib/deep-research-todos'
+import { normalizeOrigin } from '../lib/wire-citation'
 
 const STREAM_BACKED_RESEARCH_TABS = new Set<ResearchPanelTab>(['tasks', 'thinking'])
 
@@ -465,8 +466,7 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
             collection: c.collection,
             sourceType: c.sourceType,
             tool: c.tool,
-            origin:
-              c.origin === 'kb' || c.origin === 'ris' || c.origin === 'web' ? c.origin : undefined,
+            origin: normalizeOrigin(c.origin),
             fileName: c.fileName,
             page: c.page,
           }))

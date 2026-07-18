@@ -24,6 +24,7 @@ import { useAuth } from '@/adapters/auth'
 import { useLayoutStore } from '@/features/layout/store'
 import { isDeepResearchReplayCompleteMode } from '../lib/transport-auth-signals'
 import { normalizeDeepResearchTodos } from '../lib/deep-research-todos'
+import { normalizeOrigin } from '../lib/wire-citation'
 
 /** Timeout in milliseconds before showing a warning (60 seconds) */
 const TIMEOUT_WARNING_MS = 60000
@@ -259,8 +260,7 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
           collection: c.collection,
           sourceType: c.sourceType,
           tool: c.tool,
-          origin:
-            c.origin === 'kb' || c.origin === 'ris' || c.origin === 'web' ? c.origin : undefined,
+          origin: normalizeOrigin(c.origin),
           fileName: c.fileName,
           page: c.page,
         }))
