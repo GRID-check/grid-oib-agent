@@ -377,7 +377,9 @@ export function NormRegistry(): JSX.Element {
           Normen-Register
         </CardTitle>
         <CardDescription>
-          Kuratierter Katalog österreichischer Bau-Rechtsverweise, die der Agent zitiert.
+          Kuratierter Katalog österreichischer Bau-Rechtsverweise (Zitierstellen), die der Agent
+          zitiert — im Unterschied zum „Basiswissen“ oben, das die eigentlichen Volltext-Dokumente
+          enthält, gegen die geprüft wird.
           {' '}
           {entries.length} {entries.length === 1 ? 'Eintrag' : 'Einträge'}.
         </CardDescription>

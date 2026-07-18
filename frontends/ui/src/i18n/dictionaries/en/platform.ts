@@ -44,6 +44,8 @@ export const platform = {
     title: 'Base knowledge',
     description:
       'The shared OIB corpus every project grounds on. Upload a PDF to ingest it immediately; uploaded documents can be removed again. A sync re-ingests new or changed source files.',
+    explainer:
+      'Base knowledge: the binding OIB directives and further foundations Piloti checks every answer against.',
     upload: 'Upload PDF',
     uploading: 'Uploading & ingesting…',
     uploadSuccess: '{name} ingested into the base corpus',
@@ -66,5 +68,30 @@ export const platform = {
     loadError: 'The knowledge base could not be loaded.',
     retry: 'Try again',
     chunkCount: '{count} chunks',
+    // Drag-and-drop upload zone.
+    dropTitle: 'Drop a PDF or ZIP here',
+    dropHint: 'or click to choose a file — a ZIP may hold many PDFs at once',
+    dropActive: 'Release to upload',
+    // Background-processing banner + ZIP member summary.
+    processing: 'Processing — this can take a minute…',
+    processingHint: 'You can keep working; new documents appear below as they finish. It is safe to wait.',
+    uploadPending: '{name} received — indexing in the background',
+    zipQueued: 'ZIP received: {accepted} PDF(s) queued, {rejected} skipped',
+    zipRejectedTitle: 'Skipped from the ZIP',
+    // Grouped sections.
+    bindingTitle: 'Binding OIB foundations',
+    bindingHint: 'The official OIB directives and related base laws — the authoritative building law Piloti must follow.',
+    otherTitle: 'Further base documents',
+    otherHint: 'Other norms, laws and supporting documents in the base corpus.',
+    // Dokumentart classifier.
+    docClassLabel: 'Document type',
+    docClassFor: 'Document type for {name}',
+    docClassFilterAll: 'All document types',
+    docClassUpdated: 'Document type of {name} set to “{label}”',
+    docClassUpdateFailed: 'Could not change the document type of {name}',
+    // Row actions.
+    viewPdf: 'View PDF',
+    noMatch: 'No documents match your filter.',
+    clearFilters: 'Clear filters',
   },
 }
