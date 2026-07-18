@@ -16,7 +16,7 @@ vi.mock('@/lib/authz/platform', () => ({ getPlatformOrganizationId }))
 import { ConflictError, UpstreamError } from '@/lib/api/errors'
 import type { GridSession } from '@/lib/auth/types'
 import { getNormRegistry, putNormRegistry, verifyNormPointer } from './service'
-import type { NormEntry } from './schemas'
+import type { NormEntry, NormsFile } from './schemas'
 
 const fetchMock = vi.fn()
 
@@ -35,6 +35,17 @@ const entry: NormEntry = {
   full_law_url: 'https://b',
   aliases: [],
   verified_at: '2026-01-01',
+}
+
+const registry: NormsFile = {
+  version: 1,
+  corpus_collection: 'oib_knowledge',
+  language: '',
+  states: {},
+  corpus_note: '',
+  doctrine: '',
+  parcel_tags: [],
+  entries: [entry],
 }
 
 const session: GridSession = {
@@ -67,7 +78,7 @@ describe('norm registry service', () => {
 
   it('getNormRegistry loads and validates the envelope with the admin token', async () => {
     fetchMock.mockResolvedValue(
-      new Response(JSON.stringify({ version: 4, registry: { version: 1, corpus_collection: 'oib_knowledge', entries: [entry] } }), { status: 200 }),
+      new Response(JSON.stringify({ version: 4, registry }), { status: 200 }),
     )
 
     const result = await getNormRegistry()
@@ -92,7 +103,7 @@ describe('norm registry service', () => {
   it('putNormRegistry persists and records a platform-scoped audit event', async () => {
     fetchMock.mockResolvedValue(new Response(JSON.stringify({ version: 5 }), { status: 200 }))
 
-    const result = await putNormRegistry(session, { version: 4, registry: { version: 1, corpus_collection: 'oib_knowledge', entries: [entry] } })
+    const result = await putNormRegistry(session, { version: 4, registry })
 
     expect(result).toEqual({ version: 5 })
     const [url, init] = fetchMock.mock.calls[0]
@@ -108,7 +119,7 @@ describe('norm registry service', () => {
   it('putNormRegistry maps a 409 to ConflictError (no audit)', async () => {
     fetchMock.mockResolvedValue(new Response(JSON.stringify({ detail: 'stale version' }), { status: 409 }))
     await expect(
-      putNormRegistry(session, { version: 1, registry: { version: 1, corpus_collection: 'oib_knowledge', entries: [entry] } }),
+      putNormRegistry(session, { version: 1, registry }),
     ).rejects.toBeInstanceOf(ConflictError)
     expect(recordAuditEvent).not.toHaveBeenCalled()
   })
@@ -118,7 +129,7 @@ describe('norm registry service', () => {
       new Response(JSON.stringify({ detail: 'entry[0].id duplicate' }), { status: 422 }),
     )
     await expect(
-      putNormRegistry(session, { version: 4, registry: { version: 1, corpus_collection: 'oib_knowledge', entries: [entry] } }),
+      putNormRegistry(session, { version: 4, registry }),
     ).rejects.toMatchObject({ status: 422, message: 'entry[0].id duplicate' })
   })
 

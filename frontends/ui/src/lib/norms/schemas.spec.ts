@@ -97,6 +97,36 @@ describe('normsFileSchema', () => {
     expect(normsFileSchema.safeParse({ version: 2, entries: [] }).success).toBe(false)
     expect(normsFileSchema.safeParse({ version: 1, entries: [validEntry] }).success).toBe(true)
   })
+
+  it('defaults the CountryProfile override fields when absent', () => {
+    const parsed = normsFileSchema.parse({ version: 1, entries: [] })
+    expect(parsed.corpus_collection).toBe('oib_knowledge')
+    expect(parsed.language).toBe('')
+    expect(parsed.states).toEqual({})
+    expect(parsed.corpus_note).toBe('')
+    expect(parsed.doctrine).toBe('')
+    expect(parsed.parcel_tags).toEqual([])
+  })
+
+  it('round-trips the CountryProfile override fields verbatim', () => {
+    const input = {
+      version: 1 as const,
+      corpus_collection: 'de_knowledge',
+      language: 'de-DE',
+      states: { bayern: 'Bayern', ausserhalb: null },
+      corpus_note: 'Korpus-Hinweis',
+      doctrine: 'Custom doctrine',
+      parcel_tags: ['Bebauungsplan'],
+      entries: [validEntry],
+    }
+    const parsed = normsFileSchema.parse(input)
+    expect(parsed.corpus_collection).toBe('de_knowledge')
+    expect(parsed.language).toBe('de-DE')
+    expect(parsed.states).toEqual({ bayern: 'Bayern', ausserhalb: null })
+    expect(parsed.corpus_note).toBe('Korpus-Hinweis')
+    expect(parsed.doctrine).toBe('Custom doctrine')
+    expect(parsed.parcel_tags).toEqual(['Bebauungsplan'])
+  })
 })
 
 describe('putNormRegistryBodySchema', () => {

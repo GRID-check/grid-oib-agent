@@ -24,3 +24,40 @@ class TestBaseCollectionFilters:
     def test_none_when_nothing_configured(self):
         config = KnowledgeRetrievalConfig(collection_name="oib_knowledge")
         assert reg._base_collection_filters(config, None) is None
+
+
+class TestBaseCollectionProfileRouting:
+    """Country-profile base-collection routing — behavior-neutral for Austria.
+
+    The AT profile's ``corpus_collection`` IS the configured ``oib_knowledge``,
+    so profile-aware routing returns the same base and leaves the assembled
+    collection set unchanged. This guards that the new seam (for country #2)
+    does not shift Austria's retrieval scope.
+    """
+
+    def test_resolved_base_matches_configured_collection_for_austria(self):
+        config = KnowledgeRetrievalConfig(collection_name="oib_knowledge")
+        assert reg._resolve_base_collection(config) == "oib_knowledge"
+
+    def test_target_collections_unchanged_when_profile_equals_config(self):
+        config = KnowledgeRetrievalConfig(
+            collection_name="oib_knowledge",
+            include_base_collection=True,
+            include_session_collection=True,
+        )
+        base = reg._resolve_base_collection(config)
+        # profile == config → the profile-resolved base yields the same set as
+        # the legacy config-only resolution.
+        assert reg._resolve_target_collections(config, "s_abc", base) == reg._resolve_target_collections(
+            config, "s_abc"
+        )
+        assert reg._resolve_target_collections(config, "s_abc", base) == ["oib_knowledge", "s_abc"]
+
+    def test_target_collections_default_base_is_backward_compatible(self):
+        # The legacy two-arg call (no base_collection) still resolves to the
+        # configured collection_name — existing callers are unaffected.
+        config = KnowledgeRetrievalConfig(
+            collection_name="oib_knowledge",
+            include_base_collection=True,
+        )
+        assert reg._resolve_target_collections(config, None) == ["oib_knowledge"]
