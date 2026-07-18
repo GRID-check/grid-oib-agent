@@ -74,10 +74,15 @@ export const normEntrySchema = z.object({
   full_law_url: z.string().default(''),
   aliases: z.array(z.string()).default([]),
   /** Legal hint shown to the agent as part of the prompt. */
-  binding_note: z.string().optional(),
+  binding_note: z.string().nullish(),
   /** Internal review task — never surfaced in the prompt. */
-  review_note: z.string().optional(),
-  verify: normVerifySeedSchema.optional(),
+  review_note: z.string().nullish(),
+  /**
+   * Verify seed. The backend serializes a seedless entry as `verify: null`
+   * (pydantic `VerifySeed | None`), so this MUST accept null — `.optional()`
+   * alone rejects null and would fail the whole registry parse.
+   */
+  verify: normVerifySeedSchema.nullish(),
   verified_at: z.string().default(''),
 })
 export type NormEntry = z.infer<typeof normEntrySchema>
