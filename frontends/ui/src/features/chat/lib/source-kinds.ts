@@ -34,6 +34,27 @@ export const KIND_TO_SIGNAL: Record<SourceKind, SourceSignal> = {
   web: 'auto',
 }
 
+// Fine lane family → coarse kind (mirror of backend `source_kinds.kind_for_lane`).
+// The Herleitung fan-out and the chips MUST share this so they never disagree
+// (e.g. external norms are `baurecht`, not `web`).
+const LANE_KIND_PREFIXES: ReadonlyArray<readonly [string, SourceKind]> = [
+  ['baurecht', 'baurecht'],
+  ['behoerde', 'baurecht'],
+  ['norm_extern', 'baurecht'],
+  ['buero', 'buero'],
+  ['projekt', 'projekt'],
+  ['web', 'web'],
+]
+
+/** Map a fine lane stratum-key to its coarse SourceKind (fail-open to web). */
+export const kindForLane = (lane: string | null | undefined): SourceKind => {
+  const key = (lane ?? '').trim().toLowerCase()
+  for (const [prefix, kind] of LANE_KIND_PREFIXES) {
+    if (key === prefix || key.startsWith(`${prefix}_`)) return kind
+  }
+  return 'web'
+}
+
 /**
  * Compact authority tag within the Baurecht family, derived from the fine lane
  * (`norm_registry.lane_for_hit`). Returns null when no meaningful tier applies

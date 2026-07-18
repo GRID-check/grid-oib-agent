@@ -15,6 +15,7 @@
 
 import type { SourceSignal } from '@/features/layout/lib/source-presets'
 import type { ThinkingStep } from '../types'
+import { KIND_TO_SIGNAL, authorityTag, kindForLane } from './source-kinds'
 
 /** One document/source hit inside a lane (wire / storage intermediate). */
 export interface TraceSourceHit {
@@ -43,6 +44,8 @@ export interface TraceSourceCard {
   /** Tab strip label (e.g. "OIB-Richtlinie", "Büroarchiv", "Lücke") */
   tabLabel: string
   signal: SourceSignal
+  /** Compact authority badge (OIB / RIS / ÖNORM) — same as the Belegt-durch chips. */
+  authority?: string
   name: string
   detail?: string
   hitCount: number
@@ -94,14 +97,12 @@ const COARSE_TAB: Record<SourceSignal, string> = {
   auto: 'Web',
 }
 
-/** Lane key → provenance signal (spec §4). */
-export const laneKeyToSignal = (key: string): SourceSignal => {
-  if (key === 'buero') return 'office'
-  if (key === 'projekt') return 'project'
-  if (key === 'web' || key === 'norm_extern' || key === 'gap') return 'auto'
-  // baurecht_*, behoerde, …
-  return 'law'
-}
+/**
+ * Lane key → provenance signal. Delegates to the canonical SourceKind mapping
+ * (ADR-0026) so the Herleitung fan-out and the "Belegt durch" chips agree on
+ * every lane — notably external norms (`norm_extern`) are `law`, not `web`.
+ */
+export const laneKeyToSignal = (key: string): SourceSignal => KIND_TO_SIGNAL[kindForLane(key)]
 
 /** Prefer fine backend label; fall back to product stratum. */
 export const tabLabelForLane = (laneKey: string, laneLabel: string): string => {
@@ -323,6 +324,7 @@ export const flattenTraceSourceCards = (lanes: TraceLaneCard[]): TraceSourceCard
   for (const lane of lanes) {
     const tabLabel = tabLabelForLane(lane.key, lane.label)
     const signal = lane.signal
+    const authority = authorityTag(lane.key) ?? undefined
     if (lane.sources.length === 0) {
       // Layer count without names — one synthetic card for the lane.
       if (lane.hitCount <= 0) continue
@@ -332,6 +334,7 @@ export const flattenTraceSourceCards = (lanes: TraceLaneCard[]): TraceSourceCard
         laneKey: lane.key,
         tabLabel,
         signal,
+        authority,
         name: lane.label,
         hitCount: lane.hitCount,
         kind: 'hit',
@@ -358,6 +361,7 @@ export const flattenTraceSourceCards = (lanes: TraceLaneCard[]): TraceSourceCard
           laneKey: lane.key,
           tabLabel,
           signal,
+          authority,
           name: src.name,
           detail: src.detail?.startsWith('http') ? undefined : src.detail,
           hitCount: 1,

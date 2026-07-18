@@ -21,7 +21,7 @@
 
 'use client'
 
-import { useEffect, useState, type CSSProperties, type FC, type ReactNode } from 'react'
+import { useEffect, useState, type CSSProperties, type FC } from 'react'
 import { Archive, ExternalLink, FileSearch, FileText, Globe, Scale } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
@@ -42,6 +42,7 @@ import {
   type CitationTarget,
   type ProjectDocumentRef,
 } from '../lib/answer-sources'
+import { AuthorityTag } from './AuthorityTag'
 
 // ---------------------------------------------------------------------------
 // Lazy resolution index (project documents + base-corpus files)
@@ -152,21 +153,6 @@ const chipButtonClasses =
   '[&>svg]:size-3 [&>svg]:shrink-0 hover:brightness-95 dark:hover:brightness-125 ' +
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ' +
   'disabled:cursor-progress disabled:opacity-70'
-
-/**
- * Compact authority badge (OIB / RIS / ÖNORM) sitting inside a Baurecht chip —
- * the binding-law-vs-guideline distinction an architect needs. Tinted with the
- * chip's own `currentColor` so it reads as part of the chip, never a separate
- * color. `shrink-0` keeps it whole while the label truncates.
- */
-const AuthorityTag: FC<{ children: ReactNode }> = ({ children }) => (
-  <span
-    className="shrink-0 rounded-[3px] px-1 text-[9px] font-bold uppercase leading-[1.5] tracking-wide"
-    style={{ backgroundColor: 'color-mix(in oklch, currentColor 16%, transparent)' }}
-  >
-    {children}
-  </span>
-)
 
 // ---------------------------------------------------------------------------
 // Document preview dialog (reuses the existing PdfViewerDialog machinery)
