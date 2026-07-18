@@ -431,6 +431,9 @@ def _format_results(retrieval_result, query: str) -> str:
         # Header with source info
         lines.append(f"--- Result {i} ---")
         lines.append(f"Source: {chunk.file_name}")
+        collection = (chunk.metadata or {}).get("collection")
+        if collection:
+            lines.append(f"Collection: {collection}")
         if chunk.page_number and chunk.page_number > 0:
             lines.append(f"Page: {chunk.page_number}")
         lines.append(f"Citation: {citation}")
@@ -527,7 +530,12 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             # File exclusions + caller filters apply to the base collection only;
             # session/project collections are user content and are never filtered.
             coll_filters = _base_collection_filters(config, filters) if coll == base_collection else None
-            return await retriever.retrieve(query=query, collection_name=coll, top_k=top_k, filters=coll_filters)
+            result = await retriever.retrieve(query=query, collection_name=coll, top_k=top_k, filters=coll_filters)
+            # Tag each chunk with its collection so the merge does not lose the
+            # per-hit stratum — the trace UI's lane labels and source_lane read it.
+            for chunk in getattr(result, "chunks", []) or []:
+                chunk.metadata.setdefault("collection", coll)
+            return result
 
         try:
             # Fan out across all layers concurrently; tolerate empty/missing layers.

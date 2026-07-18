@@ -49,6 +49,10 @@ class SourceEntry:
     citation_key: str | None = None
     source_type: str = ""
     tool_name: str = ""
+    # Retrieval collection the hit came from (oib_knowledge, s_*, proj_*, archiv_*),
+    # parsed from the knowledge-layer tool output's `Collection:` field. None for
+    # URL/web sources and for output produced before the field was threaded.
+    collection: str | None = None
 
 
 @dataclass
@@ -391,6 +395,7 @@ def _registry_from_cached_entries(entries: Any) -> SourceRegistry:
                             citation_key=item.get("citation_key"),
                             source_type=item.get("source_type", ""),
                             tool_name=item.get("tool_name", ""),
+                            collection=item.get("collection"),
                         )
                     )
                 except Exception:
@@ -703,22 +708,31 @@ def _parse_generic_urls(content: str, tool_name: str) -> list[SourceEntry]:
 # it uses citation keys (e.g., "report.pdf, p.15") instead of URLs.
 _KL_CITATION_RE = re.compile(r"^Citation:\s*(.+)$", re.MULTILINE)
 _KL_SOURCE_RE = re.compile(r"^Source:\s*(.+)$", re.MULTILINE)
+_KL_COLLECTION_RE = re.compile(r"^Collection:\s*(.+)$", re.MULTILINE)
 
 
 def _parse_knowledge_layer(content: str, tool_name: str) -> list[SourceEntry]:
     """Parse knowledge layer retrieval output.
 
-    Extracts citation keys (filename + page) AND any URLs present.
+    Extracts citation keys (filename + page), the retrieval ``Collection:``
+    each hit came from (threaded by the KB tool so ``source_lane`` can place
+    the hit deterministically), AND any URLs present.
     Falls back to generic URL extraction if no Citation: fields found.
     """
     entries: list[SourceEntry] = []
     citations = _KL_CITATION_RE.findall(content)
     sources = _KL_SOURCE_RE.findall(content)
+    collections = _KL_COLLECTION_RE.findall(content)
     for i, citation_key in enumerate(citations):
         title = sources[i].strip() if i < len(sources) else None
+        collection = collections[i].strip() if i < len(collections) else None
         entries.append(
             SourceEntry(
-                citation_key=citation_key.strip(), title=title, source_type="knowledge_layer", tool_name=tool_name
+                citation_key=citation_key.strip(),
+                title=title,
+                source_type="knowledge_layer",
+                tool_name=tool_name,
+                collection=collection or None,
             )
         )
     if not entries:
@@ -839,13 +853,12 @@ def source_lane(entry: SourceEntry) -> tuple[str, str]:
     if entry.citation_key:
         file_name, _ = _parse_citation_key(entry.citation_key)
     registry = load_registry() if (entry.url and "ris.bka.gv.at" in entry.url) else None
-    lane = lane_for_hit(file_name=file_name, source_url=entry.url, registry=registry)
+    lane = lane_for_hit(file_name=file_name, source_url=entry.url, collection=entry.collection, registry=registry)
     if lane == ("web", "Web") and entry.source_type == "knowledge_layer":
-        # A knowledge-base hit that is not an OIB corpus file is project/org
-        # material. The capture path does not carry the collection yet, so the
-        # Büroarchiv/Projektwissen split is not possible here — thread a
-        # `Collection:` field through the KB tool output when the fan-out UI
-        # needs it (integration point for the frontend research-trace branch).
+        # A knowledge-base hit without collection metadata (output produced
+        # before the `Collection:` field was threaded) is project/org
+        # material — the capture path carries the collection now, so this is
+        # only the legacy fallback.
         return ("projekt", "Projektwissen")
     return lane
 
