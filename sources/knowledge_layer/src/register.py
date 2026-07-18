@@ -22,15 +22,6 @@ from nat.data_models.function import FunctionBaseConfig
 
 logger = logging.getLogger(__name__)
 
-try:  # Norm registry (Phase 2): default norm filters for the base corpus
-    from aiq_agent.common.norm_registry import default_norm_filters as _default_norm_filters
-    from aiq_agent.common.norm_registry import load_registry as _load_norm_registry
-    from aiq_agent.common.norm_registry import resolve_bundesland as _resolve_norm_bundesland
-except Exception:  # pragma: no cover - registry is optional
-    _default_norm_filters = None
-    _load_norm_registry = None
-    _resolve_norm_bundesland = None
-
 
 # Type-safe backend selection - Pydantic validates at config load time
 BackendType = Literal["llamaindex", "foundational_rag"]
@@ -75,17 +66,8 @@ class KnowledgeRetrievalConfig(FunctionBaseConfig, name="knowledge_retrieval"):
         description=(
             "File names whose chunks are excluded from results of the base collection "
             "(e.g. OIB Änderungsdokumente and superseded editions). Applied as a "
-            "metadata filter (file_name NOT IN ...). Phase-0 default-exclusion "
-            "mechanism; superseded by role/edition metadata filters once corpus "
-            "chunks are stamped with doc metadata."
-        ),
-    )
-    parent_expansion: bool = Field(
-        default=True,
-        description=(
-            "When a base-corpus hit carries norm metadata (doc_id/edition/punkt), fetch the "
-            "sibling chunks of the same Punkt and present the merged parent text instead of "
-            "the isolated fragment. Base collection only."
+            "metadata filter (file_name NOT IN ...) on the base collection only; "
+            "session and project collections are never filtered."
         ),
     )
     # Summarization options (applies to all backends)
@@ -143,15 +125,6 @@ class KnowledgeRetrievalConfig(FunctionBaseConfig, name="knowledge_retrieval"):
         return self
 
 
-def _default_corpus_resolver():
-    """Norm-registry corpus resolver for the ingestor (fail-open when unavailable)."""
-    try:
-        from aiq_agent.knowledge.corpus import registry_corpus_resolver
-    except Exception:
-        return None
-    return registry_corpus_resolver()
-
-
 def _setup_backend(config: KnowledgeRetrievalConfig, summary_llm_obj=None) -> tuple[str, dict]:
     """
     Import the backend adapter and build its configuration.
@@ -180,7 +153,6 @@ def _setup_backend(config: KnowledgeRetrievalConfig, summary_llm_obj=None) -> tu
         os.environ.setdefault("AIQ_CHROMA_DIR", config.chroma_dir)
         backend_config = {
             "persist_dir": config.chroma_dir,
-            "corpus_resolver": _default_corpus_resolver(),
             **summary_config,
         }
 
@@ -250,14 +222,6 @@ def _normalize_session_collection_name(session_id: str | None) -> str | None:
     return f"{SESSION_COLLECTION_PREFIX}{session_id}"
 
 
-RIS_KNOWLEDGE_COLLECTION = "ris_knowledge"
-
-
-def _is_norm_collection(config: KnowledgeRetrievalConfig, coll: str) -> bool:
-    """Norm-metadata collections: default filters, parent expansion, stratum labels apply."""
-    return coll in (config.collection_name, RIS_KNOWLEDGE_COLLECTION)
-
-
 def _resolve_target_collections(config: KnowledgeRetrievalConfig, session_id: str | None) -> list[str]:
     """
     Build the ordered, de-duplicated set of collections to search.
@@ -286,10 +250,7 @@ def _resolve_target_collections(config: KnowledgeRetrievalConfig, session_id: st
 
         header_scope = get_collection_scope_from_context()
         if header_scope:
-            scope = list(header_scope)
-            if RIS_KNOWLEDGE_COLLECTION not in scope and RIS_KNOWLEDGE_COLLECTION != config.collection_name:
-                scope.append(RIS_KNOWLEDGE_COLLECTION)
-            return scope
+            return header_scope
     except ImportError:
         pass
 
@@ -325,138 +286,28 @@ def _resolve_target_collections(config: KnowledgeRetrievalConfig, session_id: st
     # Empty search set -> fall back to the configured base collection.
     if not ordered:
         return [config.collection_name]
-    # The persistent RIS norm cache rides with the base corpus: appended only when
-    # the base collection is in play (never when the base layer is disabled).
-    if (
-        config.include_base_collection
-        and config.collection_name
-        and RIS_KNOWLEDGE_COLLECTION != config.collection_name
-        and RIS_KNOWLEDGE_COLLECTION not in ordered
-    ):
-        ordered.append(RIS_KNOWLEDGE_COLLECTION)
     return ordered
 
 
-_PARENT_EXPANSION_TOP_K = 50
-_EXPANDED_TRUNCATION = 8000
-_REGULAR_TRUNCATION = 1500
-
-
 def _base_collection_filters(config: KnowledgeRetrievalConfig, caller_filters: dict | None) -> dict | None:
-    """Merge Phase-0 file exclusions with the registry-derived default norm filter.
+    """Base-collection metadata filter: configured file exclusions merged with caller filters.
 
-    Caller-supplied filters override the registry-derived default (spec §5.1);
-    ``exclude_file_names`` is explicit operator config and always applies.
-    Returns None when no clause applies. Never raises (registry load is fail-open).
+    ``exclude_file_names`` becomes a ``file_name NOT IN [...]`` clause; the caller's
+    optional ``filters`` dict is AND-ed with it. Applied to the base collection only
+    (session/project collections are never filtered). Returns None when neither is set.
     """
     excluded = sorted(set(config.exclude_file_names))
     clauses: list[dict] = []
     if excluded:
         clauses.append({"file_name": {"$nin": excluded}})
-
-    effective = caller_filters
-    if effective is None and _default_norm_filters is not None and _load_norm_registry is not None:
-        try:
-            bundesland = _resolve_norm_bundesland("") if _resolve_norm_bundesland else None
-            effective = _default_norm_filters(_load_norm_registry(), bundesland)
-        except Exception:
-            logger.warning("Norm registry default filters unavailable; searching without them", exc_info=True)
-    if effective:
-        clauses.append(effective)
+    if caller_filters:
+        clauses.append(caller_filters)
 
     if not clauses:
         return None
     if len(clauses) == 1:
         return clauses[0]
     return {"$and": clauses}
-
-
-def _norm_anchor_field(metadata: dict | None) -> str | None:
-    """Anchor metadata field of a norm chunk: ``punkt`` (OIB corpus) or ``paragraph`` (RIS)."""
-    if not metadata:
-        return None
-    if metadata.get("punkt"):
-        return "punkt"
-    if metadata.get("paragraph"):
-        return "paragraph"
-    return None
-
-
-def _norm_parent_key(metadata: dict | None) -> tuple[str, str, str] | None:
-    """Return the (doc_id, edition, anchor) parent key for a norm chunk, else None."""
-    if not metadata:
-        return None
-    doc_id = metadata.get("doc_id")
-    edition = metadata.get("edition")
-    field = _norm_anchor_field(metadata)
-    if doc_id and edition and field:
-        return (doc_id, edition, metadata[field])
-    return None
-
-
-def _strip_known_prefix(text: str, metadata: dict) -> tuple[str, str]:
-    """Split a corpus chunk into its deterministic context prefix and body."""
-    field = _norm_anchor_field(metadata)
-    if field == "punkt":
-        anchor = f"Pkt {metadata.get('punkt')}"
-    elif field == "paragraph":
-        anchor = f"§ {metadata.get('paragraph')}"
-    else:
-        return "", text
-    role = metadata.get("role")
-    prefix = (
-        f"{metadata.get('doc_short')} - {metadata.get('doc_title')} "
-        f"({metadata.get('edition_label')}), {anchor}{f', {role}' if role else ''}\n"
-    )
-    if text.startswith(prefix):
-        return prefix, text[len(prefix) :]
-    return "", text
-
-
-def _build_parent_content(siblings: list, max_chars: int = _EXPANDED_TRUNCATION) -> str:
-    """Join sibling chunks of one Punkt in chunk_index order under a single context prefix."""
-    ordered = sorted(siblings, key=lambda c: (getattr(c, "metadata", None) or {}).get("chunk_index", 0))
-    prefix = ""
-    bodies: list[str] = []
-    for chunk in ordered:
-        chunk_prefix, body = _strip_known_prefix(chunk.content or "", getattr(chunk, "metadata", None) or {})
-        if chunk_prefix and not prefix:
-            prefix = chunk_prefix
-        if body:
-            bodies.append(body)
-    joined = prefix + "\n\n".join(bodies)
-    if len(joined) > max_chars:
-        return joined[:max_chars] + "… [truncated]"
-    return joined
-
-
-def _expand_norm_parents(chunks: list, siblings_by_key: dict, max_chars: int = _EXPANDED_TRUNCATION) -> list:
-    """Collapse each norm-parent group to its highest-score member with joined sibling text.
-
-    Chunks without a (doc_id, edition, punkt) key, or whose key has no fetched
-    siblings, pass through untouched. Group representatives are marked with
-    ``metadata['_expanded'] = True``.
-    """
-    groups: dict[tuple[str, str, str], list[int]] = {}
-    for idx, chunk in enumerate(chunks):
-        key = _norm_parent_key(getattr(chunk, "metadata", None))
-        if key is not None and key in siblings_by_key:
-            groups.setdefault(key, []).append(idx)
-    if not groups:
-        return chunks
-
-    reps = {key: max(idxs, key=lambda i: chunks[i].score) for key, idxs in groups.items()}
-    out = []
-    for idx, chunk in enumerate(chunks):
-        key = _norm_parent_key(getattr(chunk, "metadata", None))
-        if key is None or key not in reps:
-            out.append(chunk)
-            continue
-        if idx != reps[key]:
-            continue
-        content = _build_parent_content(siblings_by_key[key], max_chars=max_chars)
-        out.append(chunk.model_copy(update={"content": content, "metadata": {**chunk.metadata, "_expanded": True}}))
-    return out
 
 
 def _merge_results(results, query: str, top_k: int, backend_name: str):

@@ -76,8 +76,6 @@ def _configure_sync(monkeypatch, tmp_path: Path, fake_ingestor: FakeIngestor, *,
     monkeypatch.setattr(oib_sync, "_POLL_INTERVAL_SECONDS", 0.0)
     monkeypatch.setattr(oib_sync, "_POLL_TIMEOUT_SECONDS", 30.0)
     monkeypatch.setattr(oib_sync, "_get_oib_ingestor", lambda: fake_ingestor)
-    # Default: norm registry unavailable → fail-open (no corpus filtering).
-    monkeypatch.setattr(oib_sync, "_referenced_corpus_files", lambda: None)
     monkeypatch.setenv("OIB_SYNC_MAX_WORKERS", max_workers)
     return registry_path
 
@@ -209,91 +207,3 @@ def test_remove_uploaded_document_deletes_disk_registry_and_chunks(monkeypatch, 
     _write_pdf(tmp_path / "oib" / "shipped.pdf", b"y")
     assert oib_sync.remove_uploaded_document("shipped.pdf") is False
     assert oib_sync.remove_uploaded_document("../oib/shipped.pdf") is False
-
-
-class TestReferencedCorpusFiles:
-    def test_collects_only_corpus_source_files(self, monkeypatch):
-        from aiq_agent.common import norm_registry as nr
-
-        registry = nr.NormRegistry(
-            entries=[
-                nr.NormEntry(
-                    id="oib-rl-2",
-                    title="Brandschutz",
-                    short="OIB-RL 2",
-                    rank="oib_richtlinie",
-                    role="normativ",
-                    jurisdiction=nr.Jurisdiction(country="at", state=None),
-                    editions=[
-                        nr.Edition(
-                            id="2023-05",
-                            label="Ausgabe Mai 2023",
-                            status="current",
-                            source=nr.EditionSource(kind="corpus", file="oib-rl_2_ausgabe_mai_2023.pdf"),
-                        )
-                    ],
-                    verified_at="2026-07-17",
-                ),
-                nr.NormEntry(
-                    id="bo-wien",
-                    title="Bauordnung für Wien",
-                    short="BO Wien",
-                    rank="landesgesetz",
-                    role="normativ",
-                    jurisdiction=nr.Jurisdiction(country="at", state="wien"),
-                    editions=[
-                        nr.Edition(
-                            id="konsolidiert",
-                            label="Konsolidierte Fassung",
-                            status="current",
-                            source=nr.EditionSource(
-                                kind="ris", application="LrKons", document_number="LWI40000225"
-                            ),
-                        )
-                    ],
-                    verified_at="2026-07-16",
-                ),
-            ]
-        )
-        monkeypatch.setattr(nr, "load_registry", lambda norms_dir=None: registry)
-
-        assert oib_sync._referenced_corpus_files() == {"oib-rl_2_ausgabe_mai_2023.pdf"}
-
-    def test_none_registry_is_fail_open(self, monkeypatch):
-        from aiq_agent.common import norm_registry as nr
-
-        monkeypatch.setattr(nr, "load_registry", lambda norms_dir=None: None)
-        assert oib_sync._referenced_corpus_files() is None
-
-    def test_registry_error_is_fail_open(self, monkeypatch):
-        from aiq_agent.common import norm_registry as nr
-
-        def _boom(norms_dir=None):
-            raise RuntimeError("broken")
-
-        monkeypatch.setattr(nr, "load_registry", _boom)
-        assert oib_sync._referenced_corpus_files() is None
-
-
-def test_sync_skips_unreferenced_corpus_files_but_keeps_uploads(monkeypatch, tmp_path, caplog):
-    fake_ingestor = FakeIngestor(
-        {
-            "a.pdf": FileStatus.SUCCESS,
-            "c.pdf": FileStatus.SUCCESS,
-        },
-        release_after_uploads=2,
-    )
-    _configure_sync(monkeypatch, tmp_path, fake_ingestor)
-    monkeypatch.setattr(oib_sync, "_referenced_corpus_files", lambda: {"a.pdf"})
-    _write_pdf(tmp_path / "oib" / "a.pdf", b"referenced")
-    _write_pdf(tmp_path / "oib" / "b.pdf", b"unreferenced repo file")
-    _write_pdf(tmp_path / "oib_uploads" / "c.pdf", b"unreferenced upload (user content)")
-
-    with caplog.at_level(logging.WARNING):
-        succeeded, total = oib_sync.sync()
-
-    assert succeeded == 2
-    assert total == 2
-    assert fake_ingestor.uploaded == ["a.pdf", "c.pdf"]
-    assert "b.pdf" in caplog.text
-    assert "norm registry" in caplog.text

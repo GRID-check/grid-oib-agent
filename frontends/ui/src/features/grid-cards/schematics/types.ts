@@ -15,14 +15,6 @@ export interface NormReferenceData {
   section?: string | null
   edition?: string | null
   excerpt?: string | null
-  /** System-stamped registry id (never authored by the LLM), e.g. 'oib-rl-2'. */
-  norm_id?: string | null
-  /** System-stamped registry rank, e.g. 'oib_richtlinie'. */
-  rank?: string | null
-  /** System-stamped binding role: normativ | anwendend | erklaerend. */
-  binding?: 'normativ' | 'anwendend' | 'erklaerend' | null
-  /** System-stamped declaring instrument, e.g. 'WBTV'. */
-  via?: string | null
 }
 
 /** One measured dimension drawn on a schematic and checked against a limit. */

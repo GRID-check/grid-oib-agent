@@ -128,42 +128,6 @@ def _filters_fingerprint(filters: dict[str, Any] | None) -> str:
     return json.dumps(filters, sort_keys=True, default=str)
 
 
-def _read_text_with_fallback(file_path: Path | str) -> str:
-    """Read a text file as UTF-8, falling back to latin-1 with replacement on decode errors."""
-    path = Path(file_path)
-    try:
-        return path.read_text(encoding="utf-8")
-    except UnicodeDecodeError:
-        logger.warning("Non-UTF-8 text file %s; decoding with latin-1 fallback", path.name)
-        return path.read_text(encoding="latin-1", errors="replace")
-
-
-def _corpus_text_documents(resolver, file_name: str, pages: list[dict], file_size: int, document_cls):
-    """Build LlamaIndex Documents from corpus chunks when the resolver knows the file.
-
-    The resolver is the norm-registry corpus adapter hook (ADR-0025 Phase 2): it
-    returns pre-split chunks with doc_id/edition/rank/role/punkt metadata for
-    registry-known corpus files, or None for anything else (caller then falls
-    back to page-based chunking). Never raises.
-    """
-    if resolver is None:
-        return None
-    try:
-        chunks = resolver(file_name, pages)
-    except Exception:
-        logger.warning("Corpus resolver failed for %s; falling back to page chunks", file_name, exc_info=True)
-        return None
-    if not chunks:
-        return None
-    return [
-        document_cls(
-            text=chunk.text,
-            metadata={**chunk.metadata, "file_size": file_size, "content_type": "text"},
-        )
-        for chunk in chunks
-    ]
-
-
 def _field_metadata_filter(field: str, condition: Any):
     """Translate one ``field: condition`` pair into a ``MetadataFilter``."""
     from llama_index.core.vector_stores.types import FilterOperator
@@ -1877,25 +1841,18 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     # SimpleDirectoryReader can fall back to indexing raw PDF bytes
                     # when optional LlamaIndex file readers are missing.
                     if is_pdf:
-                        pages = _extract_text_from_pdf(file_path)
-                        # Norm-registry corpus hook: registry-known corpus PDFs are
-                        # pre-chunked on Punkt boundaries with doc metadata (Phase 2).
-                        text_documents = _corpus_text_documents(
-                            config.get("corpus_resolver"), file_name, pages, file_size, Document
-                        )
-                        if text_documents is None:
-                            text_documents = [
-                                Document(
-                                    text=page["text"],
-                                    metadata={
-                                        "file_name": file_name,
-                                        "file_size": file_size,
-                                        "page_label": str(page["page_number"]),
-                                        "content_type": "text",
-                                    },
-                                )
-                                for page in pages
-                            ]
+                        text_documents = [
+                            Document(
+                                text=page["text"],
+                                metadata={
+                                    "file_name": file_name,
+                                    "file_size": file_size,
+                                    "page_label": str(page["page_number"]),
+                                    "content_type": "text",
+                                },
+                            )
+                            for page in _extract_text_from_pdf(file_path)
+                        ]
                     elif is_image:
                         # Standalone image: caption via the VLM into a single
                         # Document. The VLM is a hard requirement here (there is
@@ -1939,26 +1896,14 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         else:
                             total_images += 1
                     else:
-                        # Norm-registry corpus hook for fetched RIS texts: the
-                        # resolver pre-chunks on § boundaries with doc metadata
-                        # (Phase 3); unknown files keep the reader fallback.
-                        text = _read_text_with_fallback(file_path)
-                        text_documents = _corpus_text_documents(
-                            config.get("corpus_resolver"),
-                            file_name,
-                            [{"text": text, "page_number": ""}],
-                            file_size,
-                            Document,
-                        )
-                        if text_documents is None:
-                            from llama_index.core import SimpleDirectoryReader
+                        from llama_index.core import SimpleDirectoryReader
 
-                            text_documents = SimpleDirectoryReader(input_files=[file_path]).load_data()
+                        text_documents = SimpleDirectoryReader(input_files=[file_path]).load_data()
 
-                            # Override file_name metadata (SimpleDirectoryReader uses temp path)
-                            for doc in text_documents:
-                                doc.metadata["file_name"] = file_name
-                                doc.metadata["file_size"] = file_size
+                        # Override file_name metadata (SimpleDirectoryReader uses temp path)
+                        for doc in text_documents:
+                            doc.metadata["file_name"] = file_name
+                            doc.metadata["file_size"] = file_size
 
                     all_documents.extend(text_documents)
                     logger.info(f"  Text extraction: {len(text_documents)} documents")

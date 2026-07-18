@@ -11,67 +11,9 @@ response — the same ContextVar pattern the citation registry uses
 from __future__ import annotations
 
 import contextvars
-import logging
 import threading
 from collections import OrderedDict
 from typing import Any
-
-logger = logging.getLogger(__name__)
-
-
-def _load_norm_registry_safe():
-    """Load the norm registry, fail-open (stamping is a best-effort enrichment)."""
-    try:
-        from aiq_agent.common.norm_registry import load_registry
-
-        return load_registry()
-    except Exception:  # noqa: BLE001 - stamping must never break card emission
-        logger.warning("norm registry unavailable; skipping NormReference trust-chain stamping")
-        return None
-
-
-def _resolve_bundesland_safe() -> str | None:
-    try:
-        from aiq_agent.common.norm_registry import resolve_bundesland
-
-        return resolve_bundesland("")
-    except Exception:  # noqa: BLE001
-        return None
-
-
-def _stamp_references(node: Any, registry, bundesland: str | None) -> None:
-    """Walk a card dict and stamp trust-chain fields onto every reference dict."""
-    if isinstance(node, dict):
-        reference = node.get("reference")
-        if isinstance(reference, dict) and isinstance(reference.get("document"), str):
-            _stamp_reference(reference, registry, bundesland)
-        for value in node.values():
-            _stamp_references(value, registry, bundesland)
-    elif isinstance(node, list):
-        for item in node:
-            _stamp_references(item, registry, bundesland)
-
-
-def _stamp_reference(reference: dict[str, Any], registry, bundesland: str | None) -> None:
-    from aiq_agent.common.norm_resolution import resolve_norm_reference
-
-    resolved = resolve_norm_reference(reference["document"], reference.get("edition"), registry, bundesland=bundesland)
-    if resolved is None:
-        reference.pop("norm_id", None)
-        reference.pop("rank", None)
-        reference.pop("binding", None)
-        reference.pop("via", None)
-        return
-    reference["norm_id"] = resolved.norm_id
-    reference["rank"] = resolved.rank
-    if resolved.binding is not None:
-        reference["binding"] = resolved.binding
-    else:
-        reference.pop("binding", None)
-    if resolved.via is not None:
-        reference["via"] = resolved.via
-    else:
-        reference.pop("via", None)
 
 
 class CardRegistry:
@@ -81,10 +23,7 @@ class CardRegistry:
         self._cards: list[dict[str, Any]] = []
 
     def add(self, card: dict[str, Any]) -> None:
-        """Append one validated card dict (stamping norm trust-chain fields)."""
-        registry = _load_norm_registry_safe()
-        if registry is not None:
-            _stamp_references(card, registry, _resolve_bundesland_safe())
+        """Append one validated card dict."""
         self._cards.append(card)
 
     def snapshot(self) -> list[dict[str, Any]]:

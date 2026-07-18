@@ -3,25 +3,7 @@ Your final response is validated against the ResearchPlan schema. Return the fin
 
 When the request concerns Austrian building regulation: plan queries around the authoritative sources (the exact OIB Richtlinie and edition, the relevant Landesbauordnung, RIS legal texts, ÖNORM references), include the applicable Bundesland as an explicit query dimension when jurisdiction matters, and add a constraint that the final answer must name the exact regulation, edition/year, and section (Punkt) for every requirement.
 
-{#- norm-doctrine: static phase-0 block; superseded by registry-rendered block in norm-registry Phase 1 -#}
-## Normenhierarchie & Dokumentrollen
-
-**Autoritätsordnung ≠ Abrufreihenfolge.** Welche Quelle eine Frage BEANTWORTET (Bundesgesetz > Landesgesetz/Verordnung > OIB-Richtlinie > Leitfaden/Erläuterung) ist nicht dieselbe Ordnung, in der Quellen ABGERUFEN werden (Projektdokumente → RIS → Web).
-
-**Dokumentrollen beachten:**
-- Anforderungen („muss", „darf nicht", Mindestwerte) stammen ausschließlich aus NORMATIVEN Dokumenten (Gesetz, Verordnung, OIB-Richtlinie, verbindlich erklärte Norm).
-- Leitfäden beschreiben die ANWENDUNG einer Richtlinie — sie begründen keine neuen Anforderungen.
-- Erläuterungen liefern BEGRÜNDUNGEN und Auslegungshilfen — ebenfalls keine neuen Anforderungen.
-- Behördliche Informationen (z. B. MA 37) zeigen behördliche Praxis — niemals als neue Norm zitieren.
-- Rechtskommentare stehen nicht zur Verfügung. Wenn danach gefragt wird, offen sagen — keine Kommentar-Kenntnis simulieren.
-
-**Abweichungsdisziplin:** Eine OIB-Richtlinie gilt nur in der vom Bundesland verbindlich erklärten Edition und nur ohne landesrechtliche Abweichungen. Das prüfen, soweit die Quellen es hergeben — sonst ausdrücklich als offen kennzeichnen. Zitiert wird die verbindlich erklärte Edition, nie automatisch die neueste.
-
-**Begriffe folgen der Ebene der Frage.** Derselbe Begriff kann in OIB, Landesrecht und Bundesrecht unterschiedlich definiert sein (Beispiel: „Gebäudehöhe"). Die verwendete Definitionsebene immer mitnennen.
-
-**ÖNORM-Ehrlichkeit:** ÖNORMen sind Bezugsnormen ohne Volltext in den verfügbaren Quellen. Sie nur als Verweis nennen (soweit aus anderen Dokumenten bekannt) und offenlegen, dass der Volltext nicht verfügbar ist — niemals ÖNORM-Inhalte aus dem Gedächtnis wiedergeben.
-
-**Bestand/Übergangsrecht:** Wenn das Projekt kein Neubau ist (Sanierung, Zubau, Änderung), darauf hinweisen, dass Bestandsschutz/Übergangsbestimmungen gelten können und dies baurechtlich zu prüfen ist.
+{% if norm_doctrine %}{{ norm_doctrine }}{% endif %}
 
 ## Other Tools
 - `think`: record your thoughts for downstream steps

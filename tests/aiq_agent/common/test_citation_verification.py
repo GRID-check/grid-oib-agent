@@ -12,6 +12,7 @@ from aiq_agent.common.citation_verification import _parse_citation_key
 from aiq_agent.common.citation_verification import extract_sources_from_tool_result
 from aiq_agent.common.citation_verification import register_source_parser
 from aiq_agent.common.citation_verification import sanitize_report
+from aiq_agent.common.citation_verification import source_lane
 from aiq_agent.common.citation_verification import source_origin_token
 from aiq_agent.common.citation_verification import verify_citations
 
@@ -1371,145 +1372,6 @@ class TestSourceOriginToken:
 
 
 # ---------------------------------------------------------------------------
-# Norm-registry verification pass (Phase 5)
-# ---------------------------------------------------------------------------
-
-
-def _norm_registry_fixture():
-    from aiq_agent.common.norm_registry import Edition
-    from aiq_agent.common.norm_registry import EditionSource
-    from aiq_agent.common.norm_registry import Jurisdiction
-    from aiq_agent.common.norm_registry import NormEntry
-    from aiq_agent.common.norm_registry import NormRegistry
-
-    def _corpus_edition(edition_id="2023-05", label="Ausgabe Mai 2023", file="oib-rl_2_ausgabe_mai_2023.pdf"):
-        return Edition(
-            id=edition_id,
-            label=label,
-            status="current",
-            source=EditionSource(kind="corpus", file=file),
-        )
-
-    rl2 = NormEntry(
-        id="oib-rl-2",
-        title="OIB-Richtlinie 2 Brandschutz",
-        short="OIB-RL 2",
-        rank="oib_richtlinie",
-        role="normativ",
-        jurisdiction=Jurisdiction(country="at"),
-        editions=[_corpus_edition()],
-    )
-    leitfaden = NormEntry(
-        id="oib-rl-2-leitfaden",
-        title="Leitfaden zur OIB-Richtlinie 2",
-        short="OIB-RL 2 Leitfaden",
-        rank="oib_leitfaden",
-        role="anwendend",
-        jurisdiction=Jurisdiction(country="at"),
-        editions=[_corpus_edition(file="oib-rl_2_leitfaden_ausgabe_mai_2023.pdf")],
-    )
-    return NormRegistry(entries=[rl2, leitfaden])
-
-
-class TestRegistryVerification:
-    """Registry pass: document/edition validity + guidance-as-requirement notes."""
-
-    @pytest.fixture(autouse=True)
-    def _patch_norm_registry(self, monkeypatch):
-        from aiq_agent.common import citation_verification
-
-        self._registry = _norm_registry_fixture()
-        monkeypatch.setattr(citation_verification, "_load_norm_registry_for_verification", lambda: self._registry)
-
-    def _sources_registry(self, *keys):
-        reg = SourceRegistry()
-        for key in keys:
-            reg.add(SourceEntry(citation_key=key, title=key.split(",")[0], source_type="knowledge_layer"))
-        return reg
-
-    def _report(self, body, lines):
-        return body + "\n\n## Sources\n" + "\n".join(lines)
-
-    def test_result_has_notes_field_empty_for_clean_citation(self):
-        sources = self._sources_registry("OIB-RL 2, Pkt 3.1.2, Ausgabe Mai 2023")
-        report = self._report(
-            "Die Wände müssen feuerbeständig sein [1].",
-            ["[1] OIB-RL 2, Pkt 3.1.2, Ausgabe Mai 2023"],
-        )
-        result = verify_citations(report, sources)
-        assert result.notes == []
-
-    def test_unresolved_document_yields_note(self):
-        sources = self._sources_registry("OIB-RL 99, Pkt 1, Ausgabe Mai 2023")
-        report = self._report(
-            "Anforderung [1].",
-            ["[1] OIB-RL 99, Pkt 1, Ausgabe Mai 2023"],
-        )
-        result = verify_citations(report, sources)
-        assert [n["type"] for n in result.notes] == ["document_unresolved"]
-        assert result.notes[0]["number"] == 1
-
-    def test_unresolved_edition_yields_note(self):
-        sources = self._sources_registry("OIB-RL 2, Pkt 3.1.2, Ausgabe Mai 1999")
-        report = self._report(
-            "Anforderung [1].",
-            ["[1] OIB-RL 2, Pkt 3.1.2, Ausgabe Mai 1999"],
-        )
-        result = verify_citations(report, sources)
-        assert [n["type"] for n in result.notes] == ["edition_unresolved"]
-        assert result.notes[0]["norm_id"] == "oib-rl-2"
-
-    def test_guidance_cited_as_requirement_yields_note(self):
-        sources = self._sources_registry("OIB-RL 2 Leitfaden, Pkt 2.1, Ausgabe Mai 2023")
-        report = self._report(
-            "Die Wände müssen feuerbeständig ausgeführt werden [1].",
-            ["[1] OIB-RL 2 Leitfaden, Pkt 2.1, Ausgabe Mai 2023"],
-        )
-        result = verify_citations(report, sources)
-        assert [n["type"] for n in result.notes] == ["guidance_cited_as_requirement"]
-        assert result.notes[0]["norm_id"] == "oib-rl-2-leitfaden"
-
-    def test_guidance_in_non_requirement_sentence_not_flagged(self):
-        sources = self._sources_registry("OIB-RL 2 Leitfaden, Pkt 2.1, Ausgabe Mai 2023")
-        report = self._report(
-            "Zur Anwendung siehe die Ausführungen [1].",
-            ["[1] OIB-RL 2 Leitfaden, Pkt 2.1, Ausgabe Mai 2023"],
-        )
-        result = verify_citations(report, sources)
-        assert result.notes == []
-
-    def test_normative_role_never_flagged_even_with_keywords(self):
-        sources = self._sources_registry("OIB-RL 2, Pkt 3.1.2, Ausgabe Mai 2023")
-        report = self._report(
-            "Die Anforderung muss erfüllt werden [1].",
-            ["[1] OIB-RL 2, Pkt 3.1.2, Ausgabe Mai 2023"],
-        )
-        result = verify_citations(report, sources)
-        assert result.notes == []
-
-    def test_corpus_file_citation_resolves_entry(self):
-        sources = self._sources_registry("oib-rl_2_ausgabe_mai_2023.pdf, p.5")
-        report = self._report(
-            "Die Wände müssen feuerbeständig sein [1].",
-            ["[1] oib-rl_2_ausgabe_mai_2023.pdf, p.5"],
-        )
-        result = verify_citations(report, sources)
-        assert result.notes == []
-
-    def test_registry_unavailable_yields_empty_notes(self, monkeypatch):
-        from aiq_agent.common import citation_verification
-
-        monkeypatch.setattr(citation_verification, "_load_norm_registry_for_verification", lambda: None)
-        sources = self._sources_registry("OIB-RL 99, Pkt 1, Ausgabe Mai 2023")
-        report = self._report(
-            "Anforderung [1].",
-            ["[1] OIB-RL 99, Pkt 1, Ausgabe Mai 2023"],
-        )
-        result = verify_citations(report, sources)
-        assert result.notes == []
-
-
-# ---------------------------------------------------------------------------
 # sanitize_report tests
 # ---------------------------------------------------------------------------
 
@@ -1858,3 +1720,28 @@ class TestSessionRegistry:
         reg2 = get_or_create_session_registry("persist-test")
         assert reg2.has_url("https://example.com/first")
         assert len(reg2.all_sources()) == 1
+
+
+class TestSourceLane:
+    """source_lane maps SourceEntry hits to fan-out UI strata (task: lane labels)."""
+
+    def test_oib_corpus_file_is_oib_lane(self):
+        entry = SourceEntry(citation_key="oib-rl_2_ausgabe_mai_2023.pdf, p.12", source_type="knowledge_layer")
+        assert source_lane(entry) == ("baurecht_oib", "OIB-Richtlinie")
+
+    def test_leitfaden_file_is_leitfaden_lane(self):
+        entry = SourceEntry(citation_key="oib-rl_2_leitfaden_ausgabe_mai_2023.pdf, p.3", source_type="knowledge_layer")
+        assert source_lane(entry) == ("baurecht_oib_leitfaden", "OIB-Leitfaden")
+
+    def test_project_document_is_projektwissen(self):
+        entry = SourceEntry(citation_key="einreichplan_rev04.pdf, p.1", source_type="knowledge_layer")
+        assert source_lane(entry) == ("projekt", "Projektwissen")
+
+    def test_ris_url_without_registry_match_is_ris_lane(self):
+        entry = SourceEntry(url="https://www.ris.bka.gv.at/Dokumente/Bundesnormen/NOR99999999", source_type="generic")
+        key, label = source_lane(entry)
+        assert key.startswith("baurecht")
+
+    def test_web_url_is_web(self):
+        entry = SourceEntry(url="https://example.com/artikel", source_type="generic")
+        assert source_lane(entry) == ("web", "Web")

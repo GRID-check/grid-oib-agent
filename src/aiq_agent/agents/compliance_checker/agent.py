@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from pathlib import Path
 from typing import Any
 
@@ -140,33 +141,38 @@ def _evidence_queries_for_batch(batch: list[RequirementItem]) -> list[str]:
     return [combined, *per_richtlinie]
 
 
-def _narrow_scope_with_applicability(richtlinien: list[int], project_context: str | None) -> list[int]:
-    """Narrow the Richtlinie scope via the norm-registry applicability engine.
+def _richtlinie_number(code: str) -> int | None:
+    """The Richtlinie number an OIB verdict code belongs to ("OIB 2.1" -> 2)."""
+    match = re.match(r"OIB\s+(\d+)", code)
+    return int(match.group(1)) if match else None
 
-    Verdicts `required`/`likely` keep a Richtlinie in scope; `check` and
-    unmatched entries drop it. Fail-open everywhere: unparseable context, no
-    facts, missing registry, or an intersection that would empty the scope all
-    return the original scope unchanged.
+
+def _narrow_scope_with_applicability(richtlinien: list[int], project_context: str | None) -> list[int]:
+    """Narrow the Richtlinie scope to the ones the project's facts flag as relevant.
+
+    A Richtlinie is KEPT when it has a verdict of ``required``, ``likely`` OR
+    ``check`` — ``check`` means "needs verification", so the checker must still
+    look at it (review finding H2). Only Richtlinien the facts clearly rule out
+    (no verdict at all) are dropped. Fail-open everywhere: unparseable context,
+    no facts, or an intersection that would empty the scope all return the
+    original scope unchanged.
     """
     if not project_context:
         return richtlinien
     try:
         from aiq_agent.common.applicability import facts_from_project_context
-        from aiq_agent.common.applicability import resolve_applicability
-        from aiq_agent.common.norm_registry import load_registry
+        from aiq_agent.common.applicability import resolve_oib_applicability
     except Exception:  # pragma: no cover - defensive import guard
         return richtlinien
     facts = facts_from_project_context(project_context)
     if not facts:
         return richtlinien
-    registry = load_registry()
-    if registry is None:
-        return richtlinien
-    verdicts = resolve_applicability(registry, facts)
+    verdicts = resolve_oib_applicability(facts)
     keep = {
-        int(norm_id.removeprefix("oib-rl-"))
-        for norm_id, verdict in verdicts.items()
-        if norm_id.removeprefix("oib-rl-").isdigit() and verdict.verdict in ("required", "likely")
+        number
+        for verdict in verdicts
+        if verdict.verdict in ("required", "likely", "check")
+        and (number := _richtlinie_number(verdict.code)) is not None
     }
     if not keep:
         return richtlinien
@@ -183,53 +189,22 @@ def build_request_from_state(
 
     ``state.richtlinien`` overrides ``default_richtlinien`` (the config
     default) when set; an unset/empty scope on both falls back to all six
-    Richtlinien via ComplianceCheckRequest's own validator. When the project
-    context carries parseable intake facts, the norm-registry applicability
-    engine narrows the scope to Richtlinien with verdict `required`/`likely`
-    (never below the explicit scope it would otherwise empty).
+    Richtlinien via ComplianceCheckRequest's own validator. When the scope is
+    NOT an explicit user-provided list and the project context carries parseable
+    intake facts, applicability narrows it to the Richtlinien the facts flag as
+    relevant (verdict `required`/`likely`/`check`). An explicit user scope is
+    used untouched.
     """
-    richtlinien = state.richtlinien if state.richtlinien else (default_richtlinien or list(ALL_RICHTLINIEN))
-    richtlinien = _narrow_scope_with_applicability(richtlinien, state.project_context)
+    explicit_scope = bool(state.richtlinien)
+    richtlinien = state.richtlinien if explicit_scope else (default_richtlinien or list(ALL_RICHTLINIEN))
+    if not explicit_scope:
+        richtlinien = _narrow_scope_with_applicability(richtlinien, state.project_context)
     return ComplianceCheckRequest(
         richtlinien=richtlinien,
         project_description=state.project_context or "",
         project_descriptors=state.project_descriptors,
         collection_name=state.collection_name,
     )
-
-
-_BINDING_ROLES = frozenset({"normativ", "anwendend", "erklaerend"})
-
-
-def _load_registry_safe():
-    """Load the norm registry fail-open (Phase 5 trust-chain stamping hook)."""
-    try:
-        from aiq_agent.common.norm_registry import load_registry
-
-        return load_registry()
-    except Exception:  # noqa: BLE001
-        logger.warning("Norm registry unavailable; compliance matrix rows carry no trust-chain metadata.")
-        return None
-
-
-def _stamp_matrix_trust_chain(rows: list[ComplianceMatrixRow], registry) -> None:
-    """Stamp rank/binding from the norm registry onto assembled matrix rows.
-
-    Pure metadata inheritance (norm-registry Phase 5, spec §6.5): a row for
-    Richtlinie N resolves the registry entry ``oib-rl-N``; ``binding`` is only
-    set for roles in the requirement vocabulary. Fail-open: ``None`` registry
-    or an unknown Richtlinie leaves the row untouched.
-    """
-    if registry is None:
-        return
-    for row in rows:
-        entry = registry.by_id(f"oib-rl-{row.richtlinie}")
-        if entry is None:
-            continue
-        row.norm_id = entry.id
-        row.rank = entry.rank
-        if entry.role in _BINDING_ROLES:
-            row.binding = entry.role
 
 
 class ComplianceCheckAgent:
@@ -516,8 +491,6 @@ class ComplianceCheckAgent:
 
         rows.sort(key=lambda row: (row.richtlinie, row.punkt))
         gaps.sort(key=lambda gap: gap.risk_score, reverse=True)
-
-        _stamp_matrix_trust_chain(rows, _load_registry_safe())
 
         return ComplianceMatrix(
             findings=rows,

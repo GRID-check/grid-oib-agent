@@ -1,37 +1,35 @@
-"""Verify RIS seeds live against OGD-RIS and merge the pointers into the norm registry.
+"""Verify the norm registry's RIS pointers live against OGD-RIS and merge them back.
 
-Successor of the old flat-catalog builder (which wrote configs/ris_catalog.yml).
-Seeds now live in ``configs/norms/<country>/seeds_ris.yml`` and the verified
-pointers (application, document number, citation URL, entire-consolidated-law
-URL, verified_at) are merged into ``configs/norms/<country>/registry.yml``.
+The registry is a FLAT catalog (``configs/norms/<country>/registry.yml``): one entry
+per legal norm. Entries that carry a ``verify`` seed are re-checked against the live
+OGD-RIS search API; only the machine-derived pointer fields
+(``application``/``document_number``/``citation_url``/``full_law_url``/``verified_at``)
+are written back. Every curated field (title/short/rank/bundesland/topics/relevance/
+aliases/binding_note/review_note/verify) is left untouched. Entries WITHOUT a verify
+seed are skipped with a logged note.
 
-Merge semantics (ADR-0025):
+Merge semantics:
 
-- Only the four RIS pointer fields plus ``verified_at`` are written. Curated
-  registry fields (rank, role, relations, aliases, applicability, access,
-  corpus editions) are NEVER clobbered.
-- A seed whose id is already in the registry updates the matching
-  ``kind: ris`` edition in place (or appends one when none exists).
-- A seed with an unknown id creates a SKELETON entry with an inferred rank
-  (LrKons+state -> landesgesetz, BrKons -> bundesgesetz) and a prominent
-  warning — a human must curate rank/role/relations afterwards.
-- Registry files are loaded and dumped with ruamel round-trip mode so the
-  hand-written comments survive a merge.
+- The file's header comment block is preserved verbatim.
+- Key order within each entry is preserved (``yaml.safe_dump(sort_keys=False)``);
+  the five pointer keys already exist on verified entries, so their positions do
+  not move.
+- ``verify_entry(client, entry)`` verifies exactly ONE entry and returns the merged
+  pointer dict — factored out so a future admin verify API can reuse it.
 
-Fails loudly: any seed without an unambiguous live hit aborts the build with a
-non-zero exit code and the registry files are left untouched. After writing,
-the merged registry is re-loaded in strict mode (OIB id-convention check).
+Fails loudly: any entry whose verify seed has no unambiguous live hit aborts the
+build (non-zero exit) and the registry file is left untouched.
 
 Run (no project env needed):
 
     uv run --no-project --with httpx --with pydantic --with beautifulsoup4 \
-        --with pyyaml --with ruamel.yaml python scripts/build_ris_catalog.py
+        --with pyyaml python scripts/build_ris_catalog.py
 """
 
 from __future__ import annotations
 
+import argparse
 import asyncio
-import re
 import sys
 from datetime import date
 from pathlib import Path
@@ -44,7 +42,6 @@ import importlib.util  # noqa: E402
 
 import yaml  # noqa: E402
 from ris_adapter.client import RisClient  # noqa: E402
-from ruamel.yaml import YAML  # noqa: E402
 
 
 def _standalone_module(module_name: str, module_path: Path):
@@ -58,28 +55,25 @@ def _standalone_module(module_name: str, module_path: Path):
 def _load_norm_registry_module():
     """Import norm_registry.py standalone (the package __init__ pulls langgraph/nat).
 
-    Stubs the aiq_agent package chain and path-loads the country_packs modules
-    norm_registry depends on, in dependency order.
+    The flat module only needs pydantic + yaml at import time (``resolve_bundesland``
+    imports project_context lazily), so stubbing the aiq_agent package chain is enough.
     """
     import types
 
     common_dir = REPO_ROOT / "src" / "aiq_agent" / "common"
-    for package in ("aiq_agent", "aiq_agent.common", "aiq_agent.common.country_packs"):
+    for package in ("aiq_agent", "aiq_agent.common"):
         if package not in sys.modules:
             stub = types.ModuleType(package)
             stub.__path__ = []  # package marker: no real __init__ is executed
             sys.modules[package] = stub
-    packs_dir = common_dir / "country_packs"
-    _standalone_module("aiq_agent.common.country_packs.base", packs_dir / "base.py")
-    _standalone_module("aiq_agent.common.country_packs.at", packs_dir / "at.py")
-    _standalone_module("aiq_agent.common.country_packs", packs_dir / "__init__.py")
     return _standalone_module("aiq_agent.common.norm_registry", common_dir / "norm_registry.py")
 
 
-_norm_registry = _load_norm_registry_module()
+_nr = _load_norm_registry_module()
 
 NORMS_ROOT = REPO_ROOT / "configs" / "norms"
 
+# Canonical Bundesland name -> OGD-RIS Landesrecht search parameter.
 _BUNDESLAND_PARAMS: dict[str, str] = {
     "Wien": "SucheInWien",
     "Niederösterreich": "SucheInNiederoesterreich",
@@ -92,82 +86,63 @@ _BUNDESLAND_PARAMS: dict[str, str] = {
     "Burgenland": "SucheInBurgenland",
 }
 
-_GESETZESNUMMER_RE = re.compile(r"Gesetzesnummer=(\d+)")
 
-# Seeds only verify RIS-sourced norms; everything else is curated by hand.
-_KONSOLIDIERT_LABEL = "Konsolidierte Fassung (laufend)"
+def _pick_hit(entry_id: str, verify, hits):
+    """Select the currently-in-force whole-law anchor (the '§ 0' document).
 
-
-def _load_seeds(norms_root: Path) -> list[dict]:
-    """All per-country seeds, each tagged with its registry file and country."""
-    seeds: list[dict] = []
-    for seeds_path in sorted(norms_root.glob("*/seeds_ris.yml")):
-        data = yaml.safe_load(seeds_path.read_text(encoding="utf-8")) or {}
-        country = data.get("country")
-        if not country:
-            raise SystemExit(f"ERROR: {seeds_path} has no top-level 'country' key")
-        registry_path = seeds_path.parent / "registry.yml"
-        for seed in data.get("seeds") or []:
-            for key in ("id", "short", "application", "title_query", "expect"):
-                if not seed.get(key):
-                    raise SystemExit(f"ERROR: seed in {seeds_path} missing required key '{key}': {seed!r}")
-            seed["_country"] = country
-            seed["_registry_path"] = registry_path
-            seeds.append(seed)
-    if not seeds:
-        raise SystemExit(f"ERROR: no seeds found under {norms_root}/*/seeds_ris.yml")
-    return seeds
-
-
-def _pick_hit(seed: dict, hits) -> object:
-    """Select the currently-in-force whole-law anchor (the '§ 0' document)."""
+    Applies the verify seed's expect/exclude/gesetzesnummer guards and fails loud
+    (SystemExit) when the number of surviving candidates is not exactly one.
+    """
     candidates = []
     for hit in hits:
         kurztitel = hit.metadata.get("Kurztitel") or hit.title or ""
-        if seed["expect"].lower() not in kurztitel.lower():
+        if verify.expect.lower() not in kurztitel.lower():
             continue
-        if any(term.lower() in kurztitel.lower() for term in seed.get("exclude", [])):
+        if any(term.lower() in kurztitel.lower() for term in verify.exclude):
             continue
         if hit.metadata.get("Paragraph/Artikel") != "§ 0":
             continue
         if not hit.full_law_url:
             continue
-        if seed.get("gesetzesnummer") and f"Gesetzesnummer={seed['gesetzesnummer']}" not in hit.full_law_url:
+        if verify.gesetzesnummer and f"Gesetzesnummer={verify.gesetzesnummer}" not in hit.full_law_url:
             continue
         candidates.append(hit)
     in_force = [h for h in candidates if not h.metadata.get("Außer Kraft seit")]
     selected = in_force or candidates
     if len(selected) != 1:
         raise SystemExit(
-            f"ERROR: seed '{seed['id']}' has {len(selected)} candidate hits "
+            f"ERROR: entry '{entry_id}' has {len(selected)} candidate hits "
             f"(expected exactly 1): {[h.document_number for h in selected]}"
         )
     return selected[0]
 
 
-async def _verify_seed(client: RisClient, seed: dict) -> dict:
-    params: dict[str, str] = {"Titel": seed["title_query"]}
-    if seed.get("bundesland"):
-        params[f"Bundesland.{_BUNDESLAND_PARAMS[seed['bundesland']]}"] = "true"
+async def verify_entry(client: RisClient, entry) -> dict:
+    """Live-verify ONE registry entry and return its merged pointer fields.
+
+    ``entry`` is a NormEntry (or any object exposing ``id``/``application``/
+    ``bundesland``/``verify``). Reused by the build loop below and by the future
+    admin verify API. Raises SystemExit on an ambiguous/missing hit.
+    """
+    verify = entry.verify
+    if verify is None:
+        raise ValueError(f"entry '{entry.id}' has no verify seed")
+    params: dict[str, str] = {"Titel": verify.title_query}
+    if entry.bundesland:
+        params[f"Bundesland.{_BUNDESLAND_PARAMS[entry.bundesland]}"] = "true"
     hits = []
     page = 1
     while True:
-        result = await client.search(seed["application"], params=params, page=page, page_size=50)
+        result = await client.search(entry.application, params=params, page=page, page_size=50)
         hits.extend(result.hits)
         if len(hits) >= result.total or not result.hits:
             break
         page += 1
-    hit = _pick_hit(seed, hits)
-    gesetzesnummer = ""
-    match = _GESETZESNUMMER_RE.search(hit.full_law_url)
-    if match:
-        gesetzesnummer = match.group(1)
+    hit = _pick_hit(entry.id, verify, hits)
     kurztitel = hit.metadata.get("Kurztitel") or hit.title
-    print(f"OK  {seed['id']:22s} -> {hit.document_number}  {kurztitel}  (GNr {gesetzesnummer or '?'})")
+    print(f"OK  {entry.id:22s} -> {hit.document_number}  {kurztitel}")
     return {
-        "id": seed["id"],
-        "title": kurztitel,
-        "application": seed["application"],
+        "application": entry.application,
         "document_number": hit.document_number,
         "citation_url": hit.citation_url,
         "full_law_url": hit.full_law_url,
@@ -175,125 +150,83 @@ async def _verify_seed(client: RisClient, seed: dict) -> dict:
     }
 
 
-def _infer_rank(seed: dict) -> str:
-    if seed["application"] == "LrKons":
-        return "landesgesetz"
-    if seed["application"] == "BrKons":
-        return "bundesgesetz"
-    print(
-        f"WARNING: seed '{seed['id']}': application {seed['application']!r} has no rank inference - using 'verordnung'"
-    )
-    return "verordnung"
+def _split_header(text: str) -> tuple[str, str]:
+    """Split the leading comment block from the YAML body (both re-joinable)."""
+    lines = text.splitlines(keepends=True)
+    for idx, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#"):
+            return "".join(lines[:idx]), "".join(lines[idx:])
+    return text, ""
 
 
-def _skeleton_entry(seed: dict, verified: dict) -> dict:
-    state_token = _norm_registry.state_name_to_token(seed.get("bundesland") or None)
-    return {
-        "id": seed["id"],
-        "title": verified["title"],
-        "short": seed["short"],
-        "rank": _infer_rank(seed),
-        "role": "normativ",
-        "jurisdiction": {"country": seed["_country"], "state": state_token},
-        "topics": list(seed.get("topics") or []),
-        "relevance": seed.get("relevance") or "",
-        "editions": [
-            {
-                "id": "konsolidiert",
-                "label": _KONSOLIDIERT_LABEL,
-                "status": "current",
-                "source": {
-                    "kind": "ris",
-                    "application": verified["application"],
-                    "document_number": verified["document_number"],
-                    "citation_url": verified["citation_url"],
-                    "full_law_url": verified["full_law_url"],
-                },
-            }
-        ],
-        "verified_at": verified["verified_at"],
-    }
+async def _process_registry(client: RisClient, registry_path: Path, *, dry_run: bool) -> int:
+    """Verify every seeded entry in one registry file; merge and write unless dry-run.
+
+    Returns the number of entries verified.
+    """
+    text = registry_path.read_text(encoding="utf-8")
+    header, body = _split_header(text)
+    data = yaml.safe_load(body) or {}
+    raw_entries = data.get("entries") or []
+    raw_by_id = {raw.get("id"): raw for raw in raw_entries}
+
+    norms_file = _nr.NormsFile.model_validate(data)
+    verified_count = 0
+    for entry in norms_file.entries:
+        if entry.verify is None:
+            print(f"--  {entry.id:22s} skipped (no verify seed)")
+            continue
+        merged = await verify_entry(client, entry)
+        raw_by_id[entry.id].update(merged)  # existing keys keep their position
+        verified_count += 1
+
+    if dry_run:
+        print(f"(dry-run) {registry_path} — {verified_count} entr(ies) verified, not written")
+        return verified_count
+
+    dumped = yaml.safe_dump(data, sort_keys=False, allow_unicode=True)
+    registry_path.write_text(header + dumped, encoding="utf-8")
+    print(f"Wrote {registry_path} — {verified_count} verified pointer(s) merged")
+    return verified_count
 
 
-def _merge_entry(entry: dict, verified: dict) -> None:
-    """Update the matching kind:ris edition in place; never touch curated fields."""
-    for edition in entry.get("editions") or []:
-        source = edition.get("source") or {}
-        if source.get("kind") == "ris" and source.get("application") == verified["application"]:
-            source["document_number"] = verified["document_number"]
-            source["citation_url"] = verified["citation_url"]
-            source["full_law_url"] = verified["full_law_url"]
-            break
-    else:
-        entry.setdefault("editions", []).append(
-            {
-                "id": "konsolidiert",
-                "label": _KONSOLIDIERT_LABEL,
-                "status": "current",
-                "source": {
-                    "kind": "ris",
-                    "application": verified["application"],
-                    "document_number": verified["document_number"],
-                    "citation_url": verified["citation_url"],
-                    "full_law_url": verified["full_law_url"],
-                },
-            }
-        )
-    entry["verified_at"] = verified["verified_at"]
-
-
-def _merge_into_registry(registry_path: Path, verified_by_id: dict[str, dict], seeds_by_id: dict[str, dict]) -> int:
-    ryaml = YAML()
-    if registry_path.is_file():
-        data = ryaml.load(registry_path.read_text(encoding="utf-8"))
-    else:
-        print(f"WARNING: {registry_path} does not exist — creating it (curate the header comment!)")
-        data = {"version": 1, "country": next(iter(seeds_by_id.values()))["_country"], "entries": []}
-    entries = data.setdefault("entries", [])
-    by_id = {entry.get("id"): entry for entry in entries}
-    skeletons = 0
-    for entry_id, verified in verified_by_id.items():
-        entry = by_id.get(entry_id)
-        if entry is None:
-            seed = seeds_by_id[entry_id]
-            entries.append(_skeleton_entry(seed, verified))
-            skeletons += 1
-            print(
-                f"WARNING: seed '{entry_id}' was not in {registry_path.name} — created a SKELETON entry "
-                "(inferred rank, no relations). Curate rank/role/relations/applicability by hand."
-            )
-        else:
-            _merge_entry(entry, verified)
-    text_path = registry_path
-    with text_path.open("w", encoding="utf-8") as handle:
-        ryaml.dump(data, handle)
-    return skeletons
-
-
-async def _main() -> None:
-    seeds = _load_seeds(NORMS_ROOT)
+async def _main(norms_root: Path, *, dry_run: bool) -> None:
+    registry_files = sorted(norms_root.glob("*/registry.yml"))
+    if not registry_files:
+        raise SystemExit(f"ERROR: no registry files under {norms_root}/*/registry.yml")
     client = RisClient()
     try:
-        verified = [await _verify_seed(client, seed) for seed in seeds]
+        total = 0
+        for registry_path in registry_files:
+            total += await _process_registry(client, registry_path, dry_run=dry_run)
     finally:
         await client.aclose()
-    # Group per registry file (a file only gets rewritten when one of its seeds ran).
-    per_file: dict[Path, dict[str, dict]] = {}
-    seeds_by_file: dict[Path, dict[str, dict]] = {}
-    for seed, ver in zip(seeds, verified, strict=True):
-        path = seed["_registry_path"]
-        per_file.setdefault(path, {})[seed["id"]] = ver
-        seeds_by_file.setdefault(path, {})[seed["id"]] = seed
-    total_skeletons = 0
-    for path, verified_by_id in per_file.items():
-        total_skeletons += _merge_into_registry(path, verified_by_id, seeds_by_file[path])
-    # Strict reload catches id-convention violations and schema drift in the merged files.
-    _norm_registry.load_registry(str(NORMS_ROOT), strict=True)
-    print(
-        f"\nMerged {len(verified)} verified RIS pointer(s) into {len(per_file)} registry file(s)"
-        + (f" — {total_skeletons} SKELETON entr(ies) need curation!" if total_skeletons else "")
+
+    # Sanity reload (fail-open loader): confirms the merged files still parse.
+    if not dry_run:
+        _nr.reset_registry_cache()
+        registry = _nr.load_registry(str(norms_root))
+        loaded = len(registry.entries) if registry else 0
+        print(f"\nVerified {total} pointer(s); reloaded registry has {loaded} entr(ies)")
+
+
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument(
+        "--norms-dir",
+        type=Path,
+        default=NORMS_ROOT,
+        help="Root of the norms directory (default: configs/norms).",
     )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Verify against the live API but do not write the registry files.",
+    )
+    return parser.parse_args(argv)
 
 
 if __name__ == "__main__":
-    asyncio.run(_main())
+    args = _parse_args()
+    asyncio.run(_main(args.norms_dir, dry_run=args.dry_run))

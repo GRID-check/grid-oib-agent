@@ -1,153 +1,128 @@
-# ADR-0025: Norm registry (Normenregister) as the typed legal-document spine
+# ADR-0025: Norm catalog — flat curated pointers + prose legal notes, admin-managed
 
-- **Status:** Proposed
-- **Date:** 2026-07-17
+- **Status:** Accepted (v2 — supersedes the v1 "typed legal-document spine" draft of this ADR, reduced after adversarial review; see Context)
+- **Date:** 2026-07-18
 - **Deciders:** Grid engineering
-- **Related:** ADR-0006 (knowledge collection scoping), `docs/superpowers/specs/2026-07-17-norm-registry-design.md`, `docs/architecture/backend-deep-dive.md` §6b, `configs/norms/`
+- **Related:** ADR-0006 (knowledge collection scoping), ADR-0016 (platform owner tier), ADR-0024 (org Archiv), `docs/superpowers/specs/2026-07-17-norm-registry-design.md` (superseded design, kept for history), `configs/norms/`
 
 ## Context
 
-The Baurecht agent reasons over two untyped knowledge sources:
+The agent needs three kinds of legal knowledge the RAG pipeline cannot supply
+by itself:
 
-1. **The curated RIS catalog** (`configs/ris_catalog.yml`) — 15 flat entries
-   (state building codes, five federal acts) with live-verified RIS pointers
-   (`application`, `document_number`, URLs). It had no notion of legal rank
-   (Bundesgesetz vs. Landesgesetz vs. Verordnung), document role (normative
-   requirements vs. explanatory guidance vs. change sets), editions, or
-   relations between documents (a state building code *implements* EU law; a
-   state law *declares binding* a specific OIB-Richtlinie edition).
-2. **The OIB corpus** (`data/oib/*.pdf` → `oib_knowledge`) — 39 PDFs ingested
-   flat, keyed by filename, with no distinction between the 9 normative
-   Richtlinien, their Leitfäden (application guidance), Erläuterungen
-   (rationale), Begriffsbestimmungen (definitions), the 15 `aenderungen_*`
-   change documents, and de-facto superseded revisions.
+1. **Where each law lives** — verified RIS pointers (application, document
+   number, URLs), so statutes are fetched deterministically instead of via
+   blind full-text search.
+2. **Legal facts that are in no retrievable document's text** — most
+   importantly the binding chain: the Wiener Bautechnikverordnung (WBTV) is
+   what makes the OIB-Richtlinien binding in Vienna, with deviations; the
+   Kleingartengesetz displaces the BauO in Kleingartengebieten (lex specialis).
+3. **Reasoning doctrine** — authority order ≠ retrieval order; requirements
+   only from normative documents; ÖNORM texts are unavailable; parcel
+   questions need the parcel documents; Bestand may enjoy Übergangsrecht.
 
-Consequences we observed: the doctrine "requirements only from normative
-documents; a Leitfaden never creates a new requirement; cite the *declared*
-edition, not the newest" existed only as prose in prompts; change documents
-and superseded revisions competed with current law in retrieval; the
-`ris_catalog_lookup` tool could not tell the LLM that the WBTV declares a
-specific OIB-RL edition binding; and adding a second country (Germany) would
-have meant either a second hardcoded catalog or a forked backend.
+The v1 draft of this ADR answered all three with one typed data model: a
+per-country registry with ranks, roles, nested editions, a typed relation
+graph (`implements`/`declares_binding`/`supersedes`), a data-driven
+applicability DSL with TS codegen + parity fixtures, structure-aware Punkt
+chunking, and a persistent RIS text cache. The implementation (PR #79) was
+adversarially reviewed with these outcomes:
+
+- the typed relation graph **computed nothing that reached the LLM** (its two
+  consumers were dead or wrong in production);
+- the norm resolver stamped **wrong norm ids** on cards ("OIB-Richtlinie 2" →
+  `oib-rl-2.3`);
+- the Punkt chunker **shredded real OIB text** (fire-resistance table rows
+  became headings; citations like "Pkt 90" were fabricated);
+- the applicability codegen **broke the production build** and existed only to
+  keep two rule engines identical;
+- the RIS cache's freshness re-validation was **structurally inert**;
+- the country-pack plugin protocol served exactly one country.
+
+The pattern: the machinery re-modeled knowledge that already lives in the
+corpus text, the filenames, or the prompt — and the bugs lived precisely in
+that redundant machinery. Reviewed against "the best part is no part", most of
+it is deleted rather than fixed.
 
 ## Decision
 
-We will make a **per-country norm registry** the single typed spine for every
-legal document the system knows about, replacing the flat RIS catalog.
+**The registry is a flat curated catalog of pointer entries plus prose legal
+notes, stored behind an admin surface; hierarchy is expressed as data-derived
+labels, not as a typed graph.**
 
-- **Storage.** Hand-curated YAML at `configs/norms/<country>/registry.yml`
-  (ISO 3166-1 alpha-2 folder per country; `at` ships first). Every entry
-  carries `id`, `rank` (bundesgesetz | landesgesetz | verordnung |
-  oib_richtlinie | oib_leitfaden | oib_erklaerung | oib_referenz |
-  behoerdliche_info | norm_extern | plan_parzelle), `role` (normativ |
-  anwendend | erklaerend | definierend | diff), `jurisdiction`,
-  `editions[]` (each with `status: current | superseded` and a `source` of
-  `kind: corpus` (file in `data/oib`) or `kind: ris` (live pointer)),
-  optional `relations[]` (only `implements`, `declares_binding`,
-  `supersedes` — each has a concrete consumer; unverifiable legal facts are
-  recorded as `status: unknown`, never guessed), and optional
-  `applicability[]` rules (pinned DSL: eq/in/defined/undefined/gt/gte/lt/lte
-  over project-profile facts, all/any groups, first-match-wins,
-  `reason_de` + `reason_en` mandatory).
-- **Loading.** `aiq_agent.common.norm_registry` globs
-  `configs/norms/*/registry.yml` (env override `GRID_NORMS_DIR`), merges all
-  countries, validates fail-loud in strict mode (id convention: family ids
-  like `oib-rl-2-leitfaden` require the base entry `oib-rl-2`) and fail-open
-  at runtime (invalid registry ⇒ registry features disabled, live RIS search
-  unaffected). Country is mandatory on every entry; the pipeline itself stays
-  country-agnostic so Germany later means `configs/norms/de/` plus a corpus
-  adapter — zero backend changes.
-- **Country packs.** Per-country variance sits behind one explicit contract:
-  `aiq_agent.common.country_packs` (`CountryPack` protocol + `at.py` +
-  registry). A pack owns the intake state-token vocabulary, jurisdiction
-  resolution (structured envelope fact first), the doctrine header of the
-  lane-rendered prompt block, and country-specific id-convention checks
-  (`validate_ids`); Phase 2 adds the corpus-grammar hook to the same contract.
-  The loader validates every entry against the pack for its
-  `jurisdiction.country`: unknown country or unknown state token drops the
-  entry at runtime and raises in strict mode. Adding a country = implement
-  the pack + add the folder; that contract is what "done" means.
-- **Migration.** `configs/ris_catalog.yml` is retired. Its 15 entries moved
-  into `configs/norms/at/registry.yml` with RIS pointers nested under
-  `editions[].source`. `aiq_agent.common.ris_catalog` remains as a
-  backward-compatible shim (same public API; explicit legacy file paths and
-  `RIS_CATALOG_PATH` still work with a `DeprecationWarning`).
-- **Build script.** `scripts/build_ris_catalog.py` keeps its live OGD-RIS
-  verification semantics (§ 0 anchor, in-force, unambiguous) but reads seeds
-  from `configs/norms/<country>/seeds_ris.yml` and *merges* verified pointers
-  into the registry — it never clobbers curated fields. Unknown seed ids
-  become skeleton entries (rank inferred from the RIS application) with a
-  prominent curation warning.
-- **Consumers.** The researcher prompts receive a lane-rendered block grouped
-  by rank (Bundesrecht → Landesrecht for the project state first →
-  OIB-Richtlinien with role/edition-annotated family members → Referenz →
-  externe Normen). `ris_catalog_lookup` annotates each hit with its registry
-  relations. Phase 0 additionally shipped: metadata filters wired through to
-  the Chroma query (previously accepted but silently ignored), a
-  `file_name $nin` exclusion of the 15 `aenderungen_*` diffs and the
-  superseded pre-rev.1 reference document on the base corpus, and a static
-  doctrine block ("Normenhierarchie & Dokumentrollen") in the researcher,
-  writer, and planner prompts until the registry-rendered block supersedes it.
+1. **Flat catalog** (`src/aiq_agent/common/norm_registry.py`,
+   `configs/norms/at/registry.yml`): one entry per norm — id, title, short,
+   `rank` (bundesgesetz | landesgesetz | verordnung), `bundesland` (canonical
+   name, empty = federal), topics, RIS pointer fields, aliases, and two prose
+   fields: `binding_note` (a curated legal fact rendered into researcher
+   prompts — this is how the WBTV→OIB chain reaches the model) and
+   `review_note` (an open verification TODO surfaced only in the admin UI,
+   never asserted as fact). Each entry may carry a `verify` seed
+   (title query + disambiguation guards) consumed by the live RIS
+   verification (build script and admin verify endpoint) — the former
+   separate seeds file is gone.
+2. **Doctrine as prompt, once** — the Normenhierarchie doctrine is a single
+   constant (`NORM_DOCTRINE`) injected into the shallow researcher, deep
+   researcher, planner, and writer templates as `{{ norm_doctrine }}`.
+3. **OIB corpus stays out of the registry.** The knowledge base is its source
+   of truth; what a corpus document *is* (Richtlinie / Leitfaden / Erläuterung
+   / Begriffsbestimmungen / Zitierte Normen / Änderungsdokument) derives from
+   the stable filename convention (`oib_doc_class`). The 15 `aenderungen_*`
+   diff files and the superseded revision are excluded from retrieval by a
+   filename list on the knowledge tool config (`exclude_file_names`) — no
+   chunk metadata required.
+4. **Hierarchy for display = deterministic tagging** (`lane_for_hit`): a
+   retrieval/citation hit maps to a stratum + lane label (Bundesrecht /
+   Landesrecht / Verordnung via registry rank; OIB-Richtlinie / -Leitfaden /
+   -Erläuterung via filename class; Projektwissen / Büroarchiv / Web via
+   collection origin) for the research fan-out UI. The hierarchy of the
+   Baurecht-Wien model is preserved in data; no parallel ontology.
+5. **Admin-managed storage.** A single-row-per-country JSON store
+   (`norm_store.py`, same engine/URL as the summary store) seeds itself from
+   the YAML on first boot and registers itself as the runtime registry source;
+   the YAML remains the version-controlled seed. Backend CRUD + live-verify
+   endpoints under `/v1/admin/norms` (X-Admin-Token, same guard as the OIB
+   admin routes); platform-owner-gated UI on `/app/platform` (ADR-0016) with
+   lane-grouped listing, entry editor, verify-and-pick against live RIS, and
+   the `review_note` TODO queue. Optimistic versioning; every write audited.
+6. **Applicability = two small hand-written functions** — one Python
+   (compliance scoping + prompt block), one TypeScript (Overview UI chips).
+   No DSL, no codegen, no parity fixtures.
+7. **Kept from PR #79 besides the above:** the `filters` parameter of
+   `knowledge_search` wired to real Chroma `where` clauses; the four boolean
+   intake triggers (Kleingarten, Denkmalschutz, Betriebsanlage, Stellplatz);
+   the expanded catalog coverage (WBTV, KlGG, DMSG, UVP-G, WRG, ForstG,
+   GewO + the previous 15 entries).
 
 ## Consequences
 
-### Positive
+- Adding or amending a norm is an admin-UI operation (edit → verify against
+  RIS → save), not a two-file YAML edit plus scripts. A Novelle shows up as a
+  `review_note` TODO, not silent staleness.
+- Multi-country expansion is data: a new `configs/norms/<cc>/registry.yml`
+  seed (or admin-created entries) — no plugin protocol, no code fork. What
+  remains AT-specific in code is the Bundesland vocabulary and the doctrine
+  text; both move to data when country #2 actually ships.
+- Punkt-precise citations are not structurally guaranteed; the model reads
+  Punkt numbers from chunk text. If evals show a real miss rate, the next
+  step is annotating the nearest heading as chunk *metadata* (fail-soft), not
+  re-chunking (fail-hard).
+- Statute texts are re-fetched per session (no persistent RIS cache) — a cost,
+  accepted until a cache with a real freshness contract is designed.
+- The registry hot path is unchanged for consumers: `load_registry()` returns
+  the same object shape regardless of storage (store-first, YAML fallback,
+  fail-open).
 
-- Rank, role, edition, and relations are **data**, not prompt prose — the
-  applicability engine, citation verification, and compliance checker can
-  consume them deterministically (Phases 2–5 of the spec).
-- Country extension is additive data + adapters, no fork.
-- Retrieval defaults can exclude diffs and superseded editions structurally.
-- The registry is human-auditable YAML with live-verified RIS pointers and
-  explicit `unknown` status for unverifiable legal facts.
+## Alternatives considered
 
-### Negative
-
-- Two YAML artifacts per country (registry + seeds) to keep in sync; the
-  build script's merge mode mitigates drift for RIS pointers only — corpus
-  editions are curated by hand.
-- The `ris_catalog` shim keeps a legacy API alive; full removal is deferred
-  until all consumers migrate.
-
-### Risks
-
-- **Registry rot**: curated fields (relations, editions) can go stale when
-  the OIB or a Land publishes new editions. Mitigation: `verified_at` per
-  entry, build-script re-verification of RIS pointers, `status: unknown`
-  instead of guesses.
-- **Schema drift between loader and YAML**: mitigated by fail-loud strict
-  loading in tests and in the build script (the shipped registry is
-  re-validated on every build run).
-
-## Alternatives Considered
-
-- **Keep the flat catalog, add a parallel OIB map** — rejected: two sources
-  of truth for "which documents exist", no place for cross-document
-  relations, country extension still forks.
-- **Single `configs/norms.yml` instead of folder-per-country** — rejected:
-  a country bundles registry + seeds (+ future corpus adapters); the folder
-  keeps that unit together and keeps per-country files diff-friendly.
-- **Database-backed registry** — rejected for now: the registry is
-  deploy-time configuration curated in code review; YAML + git history gives
-  us auditability and fail-loud validation without a migration path. A DB
-  backend can be added behind the same loader interface if runtime editing
-  ever becomes a requirement.
-
-## Open Questions / Follow-ups
-
-- Phase 1b: coverage seeds (WBTV, Wiener Garagenverordnung,
-  Kleingartengesetz, remaining Verordnungen/Nebengesetze, federal cluster
-  DMSG/UVP-G/WRG/ForstG/GewO §74ff/BauPVO) with live OGD-RIS verification;
-  resolve the `declares_binding` unknowns at least for Wien.
-- Phases 2–5 per the spec: Punkt-aware chunking + contextual chunk prefixes,
-  persistent `ris_knowledge` cache with TTL (`GRID_RIS_CACHE_TTL_DAYS`),
-  the shared applicability engine (registry YAML → TS codegen/parity test),
-  NormReference trust chain + registry-validated citation verification.
-- Remove the `ris_catalog` shim once no consumer imports it.
-
-## References
-
-- `docs/superpowers/specs/2026-07-17-norm-registry-design.md` (full design,
-  phases 0–5)
-- `src/aiq_agent/common/norm_registry.py`, `configs/norms/at/`
-- OGD-RIS API v2.6 (live verification source)
+- **Typed relation graph, normalized editions, country packs (v1)** — built,
+  reviewed, reduced: the graph had no live consumer, and every consumer that
+  was supposed to use it worked on prose/prompt/filename information anyway.
+  Reintroduce a minimal typed `binding_edition` field only when a consumer
+  exists (e.g. machine-checked edition discipline on cards).
+- **BFF-owned registry in Postgres/drizzle** — inverts data ownership: the
+  Python backend is the hot-path consumer; the BFF would either serve reads
+  cross-service or re-export YAML. Rejected.
+- **Writable YAML on a volume** — least code but couples edit durability to
+  volume configuration in ephemeral deploys; the single-row store reuses the
+  already-persistent DB instead.

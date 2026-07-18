@@ -139,16 +139,6 @@ class NormReference(BaseModel):
     section: str | None = Field(default=None, description="Clause/table, e.g. 'Pkt. 5.1.1', 'Tabelle 1b'")
     edition: str | None = Field(default=None, description="Edition/year, e.g. 'Ausgabe Mai 2023'")
     excerpt: str | None = Field(default=None, description="Literal quoted sentence grounding the value (<= ~200 chars)")
-    norm_id: str | None = Field(
-        default=None, description="System-stamped registry id (never authored by the LLM), e.g. 'oib-rl-2'"
-    )
-    rank: str | None = Field(default=None, description="System-stamped registry rank, e.g. 'oib_richtlinie'")
-    binding: str | None = Field(
-        default=None, description="System-stamped binding role: normativ | anwendend | erklaerend"
-    )
-    via: str | None = Field(
-        default=None, description="System-stamped binding source, e.g. 'WBTV 2023' (declares_binding chain)"
-    )
 
 
 class DimensionCheck(BaseModel):

@@ -298,104 +298,23 @@ def test_build_request_from_state_prefers_state_override():
 _CONTEXT_LAGER = "PROJECT_CONTEXT v1\nconfirmed:\n- bundesland=wien\n- hauptnutzung=lager\n- gebaeudeklasse=GK1\n"
 
 
-def test_build_request_from_state_applicability_narrows_scope():
-    """Storage building: RL 6 is verdict `check` (not required/likely) -> dropped."""
+def test_build_request_from_state_applicability_keeps_check_richtlinie():
+    """Storage building: RL 6 is verdict `check` — kept, because `check` means the
+    checker must still verify it (review finding H2). RL 5 (`likely`) is kept too."""
     from aiq_agent.agents.compliance_checker.agent import build_request_from_state
 
     state = ComplianceCheckAgentState(project_context=_CONTEXT_LAGER)
     request = build_request_from_state(state)
 
-    assert 6 not in request.richtlinien
+    assert 6 in request.richtlinien
     assert 5 in request.richtlinien  # likely is kept
 
 
-def test_build_request_from_state_applicability_empty_intersection_keeps_scope():
-    """An explicit scope that the engine would empty out is kept (fail-open)."""
+def test_build_request_from_state_never_narrows_explicit_scope():
+    """An explicit user-provided scope is used untouched (never narrowed)."""
     from aiq_agent.agents.compliance_checker.agent import build_request_from_state
 
     state = ComplianceCheckAgentState(project_context=_CONTEXT_LAGER, richtlinien=[6])
     request = build_request_from_state(state)
 
     assert request.richtlinien == [6]
-
-
-class TestMatrixTrustChain:
-    """Compliance matrix rows inherit rank/binding from the norm registry (Phase 5, spec §6.5)."""
-
-    @staticmethod
-    def _registry():
-        from aiq_agent.common.norm_registry import Edition
-        from aiq_agent.common.norm_registry import EditionSource
-        from aiq_agent.common.norm_registry import Jurisdiction
-        from aiq_agent.common.norm_registry import NormEntry
-        from aiq_agent.common.norm_registry import NormRegistry
-
-        rl2 = NormEntry(
-            id="oib-rl-2",
-            title="Brandschutz",
-            short="OIB-RL 2",
-            rank="oib_richtlinie",
-            role="normativ",
-            jurisdiction=Jurisdiction(country="at", state=None),
-            editions=[
-                Edition(
-                    id="2023-05",
-                    label="Ausgabe Mai 2023",
-                    status="current",
-                    source=EditionSource(kind="corpus", file="rl2.pdf"),
-                )
-            ],
-        )
-        terms = NormEntry(
-            id="oib-rl-begriffsbestimmungen",
-            title="Begriffsbestimmungen",
-            short="OIB-RL Begr.",
-            rank="oib_referenz",
-            role="definierend",
-            jurisdiction=Jurisdiction(country="at", state=None),
-            editions=[],
-        )
-        return NormRegistry(entries=[rl2, terms])
-
-    @staticmethod
-    def _row(richtlinie: int):
-        from aiq_agent.agents.compliance_checker.models.matrix import ComplianceMatrixRow
-
-        return ComplianceMatrixRow(
-            requirement_id=f"R{richtlinie}-1.1",
-            richtlinie=richtlinie,
-            punkt="1.1",
-            requirement="req",
-            status="erfuellt",
-            confidence="hoch",
-        )
-
-    def test_stamps_rank_and_binding_for_known_richtlinie(self):
-        from aiq_agent.agents.compliance_checker.agent import _stamp_matrix_trust_chain
-
-        rows = [self._row(2), self._row(99)]
-        _stamp_matrix_trust_chain(rows, self._registry())
-        assert rows[0].norm_id == "oib-rl-2"
-        assert rows[0].rank == "oib_richtlinie"
-        assert rows[0].binding == "normativ"
-        assert rows[1].norm_id is None
-        assert rows[1].rank is None
-
-    def test_none_registry_is_a_noop(self):
-        from aiq_agent.agents.compliance_checker.agent import _stamp_matrix_trust_chain
-
-        rows = [self._row(2)]
-        _stamp_matrix_trust_chain(rows, None)
-        assert rows[0].norm_id is None
-
-    def test_definierend_role_is_not_a_binding(self):
-        from aiq_agent.agents.compliance_checker.agent import _stamp_matrix_trust_chain
-
-        registry = self._registry()
-        terms = registry.by_id("oib-rl-begriffsbestimmungen")
-        registry.entries.remove(terms)
-        registry.entries.insert(0, terms.model_copy(update={"id": "oib-rl-2"}))
-        rows = [self._row(2)]
-        _stamp_matrix_trust_chain(rows, registry)
-        assert rows[0].rank == "oib_referenz"
-        assert rows[0].binding is None

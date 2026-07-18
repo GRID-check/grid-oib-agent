@@ -1,7 +1,11 @@
 # Norm Registry & Structured RAG — Design
 
 **Date:** 2026-07-17
-**Status:** Amended after review (v2) — approved for implementation
+**Status:** SUPERSEDED (2026-07-18) — the typed-graph design below was implemented in
+PR #79, adversarially reviewed, and reduced to a flat catalog + prose notes + admin
+surface. The authoritative record of the shipped design is **ADR-0025 (v2)**
+(`docs/adr/0025-norm-registry.md`). This document is kept as design history: the
+review findings that motivated the reduction are summarized in the ADR's Context.
 **Scope:** Phases 0–5 of the Normenregister program (parcel layer is a separate spec)
 **ADR:** Will be recorded as **ADR-0025** (0024 is taken by the org Archiv, commit `b29baee`)
 
