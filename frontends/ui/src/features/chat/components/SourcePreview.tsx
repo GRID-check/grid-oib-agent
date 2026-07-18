@@ -21,7 +21,7 @@
 
 'use client'
 
-import { useEffect, useState, type CSSProperties, type FC } from 'react'
+import { useEffect, useState, type CSSProperties, type FC, type ReactNode } from 'react'
 import { Archive, FileSearch, FileText, Globe, Scale } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
@@ -153,6 +153,21 @@ const chipButtonClasses =
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ' +
   'disabled:cursor-progress disabled:opacity-70'
 
+/**
+ * Compact authority badge (OIB / RIS / ÖNORM) sitting inside a Baurecht chip —
+ * the binding-law-vs-guideline distinction an architect needs. Tinted with the
+ * chip's own `currentColor` so it reads as part of the chip, never a separate
+ * color. `shrink-0` keeps it whole while the label truncates.
+ */
+const AuthorityTag: FC<{ children: ReactNode }> = ({ children }) => (
+  <span
+    className="shrink-0 rounded-[3px] px-1 text-[9px] font-bold uppercase leading-[1.5] tracking-wide"
+    style={{ backgroundColor: 'color-mix(in oklch, currentColor 16%, transparent)' }}
+  >
+    {children}
+  </span>
+)
+
 // ---------------------------------------------------------------------------
 // Document preview dialog (reuses the existing PdfViewerDialog machinery)
 // ---------------------------------------------------------------------------
@@ -254,7 +269,8 @@ const DocumentPreviewChip: FC<{
   target: DocumentTarget
   signal: SourceSignal
   label: string
-}> = ({ target, signal, label }) => {
+  authority?: string
+}> = ({ target, signal, label, authority }) => {
   const t = useTranslations('chat')
   const { isResolving, openPreview, dialog } = useDocumentPreview(target)
   const Icon = SIGNAL_ICON[signal]
@@ -272,6 +288,7 @@ const DocumentPreviewChip: FC<{
         title={t('sourcePreview.chipAria', { label })}
       >
         <Icon aria-hidden="true" />
+        {authority && <AuthorityTag>{authority}</AuthorityTag>}
         <span className="truncate">{label}</span>
       </button>
       {dialog}
@@ -289,7 +306,10 @@ const InfoPreviewChip: FC<{
   target: InfoTarget
   signal: SourceSignal
   label: string
-}> = ({ target, signal, label }) => {
+  authority?: string
+  /** Fine authority tier ("OIB-Richtlinie", "Rechtsquelle (RIS)") for the popover. */
+  tier?: string
+}> = ({ target, signal, label, authority, tier }) => {
   const t = useTranslations('chat')
   const Icon = SIGNAL_ICON[signal]
   return (
@@ -303,13 +323,19 @@ const InfoPreviewChip: FC<{
           title={t('sourcePreview.chipAria', { label })}
         >
           <Icon aria-hidden="true" />
+          {authority && <AuthorityTag>{authority}</AuthorityTag>}
           <span className="truncate">{label}</span>
         </button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-80 space-y-2 p-3">
-        <SourceSignalChip signal={signal}>
-          {t(`sourcePreview.origins.${target.origin}`)}
-        </SourceSignalChip>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <SourceSignalChip signal={signal}>
+            {t(`sourcePreview.origins.${target.origin}`)}
+          </SourceSignalChip>
+          {tier && (
+            <span className="text-[11px] font-medium text-muted-foreground">{tier}</span>
+          )}
+        </div>
         <p className="break-words text-sm font-medium text-foreground">{target.title}</p>
         {target.snippet && <CitedPassageBox snippet={target.snippet} signal={signal} />}
       </PopoverContent>
@@ -347,25 +373,43 @@ export const SourcePreviewChip: FC<SourcePreviewChipProps> = ({ source, signal }
   if (target.kind === 'url') {
     return (
       <SourceSignalChipLink signal={signal} href={target.url} className="max-w-56">
+        {source.authority && <AuthorityTag>{source.authority}</AuthorityTag>}
         {source.label}
       </SourceSignalChipLink>
     )
   }
 
   if (target.kind === 'document') {
-    return <DocumentPreviewChip target={target} signal={signal} label={source.label} />
+    return (
+      <DocumentPreviewChip
+        target={target}
+        signal={signal}
+        label={source.label}
+        authority={source.authority}
+      />
+    )
   }
 
-  // Info target: interactive only when the popover adds something beyond the
-  // chip label itself (snippet, or an untruncated title). Gap/unknown sources
-  // with nothing to show stay plain — no fake preview.
-  const hasPopoverContent = !!target.snippet || target.title !== source.label
+  // Info target: interactive when the popover adds something beyond the chip
+  // label (snippet, an untruncated title, or the authority tier). Gap/unknown
+  // sources with nothing to show stay plain — no fake preview.
+  const tier = source.citation?.laneLabel
+  const hasPopoverContent = !!target.snippet || target.title !== source.label || !!tier
   if (hasPopoverContent) {
-    return <InfoPreviewChip target={target} signal={signal} label={source.label} />
+    return (
+      <InfoPreviewChip
+        target={target}
+        signal={signal}
+        label={source.label}
+        authority={source.authority}
+        tier={tier}
+      />
+    )
   }
 
   return (
     <SourceSignalChip signal={signal} className="max-w-56">
+      {source.authority && <AuthorityTag>{source.authority}</AuthorityTag>}
       {source.label}
     </SourceSignalChip>
   )

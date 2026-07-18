@@ -4,6 +4,10 @@
  */
 
 import type { CitationSource, WireCitationSource } from '../types'
+import { asSourceKind } from './source-kinds'
+
+const trimmed = (value: unknown): string | undefined =>
+  typeof value === 'string' && value.trim() ? value.trim() : undefined
 
 const normalizeOrigin = (value: unknown): CitationSource['origin'] | undefined => {
   if (typeof value !== 'string') return undefined
@@ -49,6 +53,9 @@ export const citationFromWire = (
     tool: wire.tool?.trim() || undefined,
     fileName: wire.file_name?.trim() || undefined,
     page: typeof wire.page === 'number' && Number.isFinite(wire.page) ? wire.page : undefined,
+    kind: asSourceKind(wire.kind),
+    lane: trimmed(wire.lane),
+    laneLabel: trimmed(wire.lane_label),
   }
 }
 

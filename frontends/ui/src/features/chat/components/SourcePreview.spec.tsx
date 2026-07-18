@@ -53,6 +53,7 @@ const sourceRef = (overrides: Partial<AnswerSourceRef>): AnswerSourceRef => ({
   key: 'k-1',
   label: 'label',
   kind: 'kb',
+  signal: 'project',
   ...overrides,
 })
 

@@ -5,6 +5,7 @@
  */
 
 import type { GridCard } from '@/shared/cards/schemas'
+import type { SourceKind } from './lib/source-kinds'
 
 /** Message role types */
 export type MessageRole = 'user' | 'assistant' | 'system'
@@ -310,6 +311,16 @@ export interface CitationSource {
   fileName?: string
   /** 1-based page from structured wire. */
   page?: number
+  /**
+   * Coarse source kind (baurecht | buero | projekt | web) — the canonical
+   * taxonomy that drives the chip color family (ADR-0026). Absent on older
+   * persisted messages, which fall back to origin/URL heuristics.
+   */
+  kind?: SourceKind
+  /** Fine lane stratum-key (baurecht_oib, baurecht_ris, …) — drives the authority badge. */
+  lane?: string
+  /** Human lane label ("OIB-Richtlinie", "Rechtsquelle (RIS)") for the popover. */
+  laneLabel?: string
 }
 
 /** Wire shape of a structured source attached to a shallow ChatResponse. */
@@ -324,6 +335,9 @@ export interface WireCitationSource {
   origin?: string | null
   file_name?: string | null
   page?: number | null
+  kind?: string | null
+  lane?: string | null
+  lane_label?: string | null
 }
 
 /** Plan message for chat/HITL display and restore flows */
