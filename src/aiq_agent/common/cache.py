@@ -100,6 +100,16 @@ def _local_set(key: str, value: str, ttl_seconds: float) -> None:
         _local_store[key] = (time.monotonic() + ttl_seconds, value)
 
 
+def reset_local_store() -> None:
+    """Clear the in-process fallback store. Test-support only.
+
+    The fallback (`REDIS_URL` unset) is a module-global map that otherwise leaks
+    cached values across tests. No effect on a real Redis backend.
+    """
+    with _local_lock:
+        _local_store.clear()
+
+
 def get_json(key: str) -> Any | None:
     """Fetch and JSON-decode a value; None on miss or any store error."""
     client = _get_client()

@@ -108,6 +108,37 @@ describe('deriveAnswerSources', () => {
     expect(sources[0].label).toBe('OIB-Richtlinie 2 Pkt. 5.1.1')
   })
 
+  test('colors by the canonical wire kind: OIB corpus and RIS both use the law family', () => {
+    const sources = deriveAnswerSources([
+      citation({ id: 'c-1', url: undefined, content: '[KB] oib-rl_2.pdf, p.5', kind: 'baurecht', lane: 'baurecht_oib' }),
+      citation({ id: 'c-2', url: 'https://www.ris.bka.gv.at/Norm', kind: 'baurecht', lane: 'baurecht_ris' }),
+      citation({ id: 'c-3', url: undefined, content: 'plan.pdf', kind: 'projekt', lane: 'projekt' }),
+    ])
+
+    expect(sources.map((s) => s.signal)).toEqual(['law', 'law', 'project'])
+    expect(sources.map((s) => s.authority)).toEqual(['OIB', 'RIS', undefined])
+  })
+
+  test('falls back to the legacy origin→signal map for pre-kind messages (kb → project)', () => {
+    const [source] = deriveAnswerSources([
+      citation({ url: undefined, content: '[KB] Einreichplan.pdf' }),
+    ])
+
+    expect(source.signal).toBe('project')
+    expect(source.authority).toBeUndefined()
+  })
+
+  test('legal_basis chips render in the law family with an authority tag', () => {
+    const cards = [
+      { type: 'legal_basis', law: 'OIB-Richtlinie 2', section: 'Pkt. 5.1.1', article: null, original_text: null, summary: null },
+    ] as GridCard[]
+
+    const [source] = deriveAnswerSources(undefined, cards)
+
+    expect(source.signal).toBe('law')
+    expect(source.authority).toBe('OIB')
+  })
+
   test('caps the row at 8 chips', () => {
     const many = Array.from({ length: 12 }, (_, i) =>
       citation({ id: `c-${i}`, url: `https://host-${i}.example.com` })

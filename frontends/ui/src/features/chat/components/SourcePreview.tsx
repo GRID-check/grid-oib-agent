@@ -22,7 +22,7 @@
 'use client'
 
 import { useEffect, useState, type CSSProperties, type FC } from 'react'
-import { Archive, FileSearch, FileText, Globe, Scale } from 'lucide-react'
+import { Archive, ExternalLink, FileSearch, FileText, Globe, Scale } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { useTranslations } from '@/i18n'
@@ -42,6 +42,7 @@ import {
   type CitationTarget,
   type ProjectDocumentRef,
 } from '../lib/answer-sources'
+import { AuthorityTag } from './AuthorityTag'
 
 // ---------------------------------------------------------------------------
 // Lazy resolution index (project documents + base-corpus files)
@@ -254,7 +255,8 @@ const DocumentPreviewChip: FC<{
   target: DocumentTarget
   signal: SourceSignal
   label: string
-}> = ({ target, signal, label }) => {
+  authority?: string
+}> = ({ target, signal, label, authority }) => {
   const t = useTranslations('chat')
   const { isResolving, openPreview, dialog } = useDocumentPreview(target)
   const Icon = SIGNAL_ICON[signal]
@@ -272,6 +274,7 @@ const DocumentPreviewChip: FC<{
         title={t('sourcePreview.chipAria', { label })}
       >
         <Icon aria-hidden="true" />
+        {authority && <AuthorityTag>{authority}</AuthorityTag>}
         <span className="truncate">{label}</span>
       </button>
       {dialog}
@@ -289,7 +292,14 @@ const InfoPreviewChip: FC<{
   target: InfoTarget
   signal: SourceSignal
   label: string
-}> = ({ target, signal, label }) => {
+  authority?: string
+  /** Fine authority tier ("OIB-Richtlinie", "Rechtsquelle (RIS)") for the popover. */
+  tier?: string
+  /** Bindingness note ("does this bind me?") from the norm registry. */
+  bindingNote?: string
+  /** Outbound link (RIS sources) shown as an "open" button inside the popover. */
+  url?: string
+}> = ({ target, signal, label, authority, tier, bindingNote, url }) => {
   const t = useTranslations('chat')
   const Icon = SIGNAL_ICON[signal]
   return (
@@ -303,15 +313,50 @@ const InfoPreviewChip: FC<{
           title={t('sourcePreview.chipAria', { label })}
         >
           <Icon aria-hidden="true" />
+          {authority && <AuthorityTag>{authority}</AuthorityTag>}
           <span className="truncate">{label}</span>
         </button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-80 space-y-2 p-3">
-        <SourceSignalChip signal={signal}>
-          {t(`sourcePreview.origins.${target.origin}`)}
-        </SourceSignalChip>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <SourceSignalChip signal={signal}>
+            {t(`sourcePreview.origins.${target.origin}`)}
+          </SourceSignalChip>
+          {tier && (
+            <span className="text-[11px] font-medium text-muted-foreground">{tier}</span>
+          )}
+        </div>
         <p className="break-words text-sm font-medium text-foreground">{target.title}</p>
+        {bindingNote && (
+          <div
+            className="rounded-md border-l-2 py-1.5 pl-2.5 pr-2"
+            style={{
+              borderColor: `color-mix(in oklch, var(--source-${signal}, var(--foreground)) 45%, transparent)`,
+              backgroundColor: `var(--source-${signal}-tint, var(--muted))`,
+            }}
+          >
+            <p
+              className="text-[10px] font-semibold uppercase tracking-[0.05em]"
+              style={{ color: `var(--source-${signal}-text, var(--muted-foreground))` }}
+            >
+              {t('sourcePreview.bindingLabel')}
+            </p>
+            <p className="mt-0.5 text-[12.5px] leading-relaxed text-foreground">{bindingNote}</p>
+          </div>
+        )}
         {target.snippet && <CitedPassageBox snippet={target.snippet} signal={signal} />}
+        {url && (
+          <a
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-[12.5px] font-medium hover:underline"
+            style={{ color: `var(--source-${signal}-text, var(--foreground))` }}
+          >
+            {t('sourcePreview.openExternal')}
+            <ExternalLink aria-hidden="true" className="size-3" />
+          </a>
+        )}
       </PopoverContent>
     </Popover>
   )
@@ -345,27 +390,65 @@ export const SourcePreviewChip: FC<SourcePreviewChipProps> = ({ source, signal }
     : { kind: 'info', origin: source.kind, title: source.label, snippet: source.snippet }
 
   if (target.kind === 'url') {
+    const bindingNote = source.citation?.bindingNote
+    // A RIS source the registry says is binding opens a popover (bindingness +
+    // tier + "open in RIS") instead of just linking out — that "does this bind
+    // me?" answer is the highest-value thing to surface, not a silent jump.
+    if (bindingNote) {
+      return (
+        <InfoPreviewChip
+          target={{ kind: 'info', origin: source.kind, title: source.label }}
+          signal={signal}
+          label={source.label}
+          authority={source.authority}
+          tier={source.citation?.laneLabel}
+          bindingNote={bindingNote}
+          url={target.url}
+        />
+      )
+    }
     return (
       <SourceSignalChipLink signal={signal} href={target.url} className="max-w-56">
+        {source.authority && <AuthorityTag>{source.authority}</AuthorityTag>}
         {source.label}
       </SourceSignalChipLink>
     )
   }
 
   if (target.kind === 'document') {
-    return <DocumentPreviewChip target={target} signal={signal} label={source.label} />
+    return (
+      <DocumentPreviewChip
+        target={target}
+        signal={signal}
+        label={source.label}
+        authority={source.authority}
+      />
+    )
   }
 
-  // Info target: interactive only when the popover adds something beyond the
-  // chip label itself (snippet, or an untruncated title). Gap/unknown sources
-  // with nothing to show stay plain — no fake preview.
-  const hasPopoverContent = !!target.snippet || target.title !== source.label
+  // Info target: interactive when the popover adds something beyond the chip
+  // label (snippet, an untruncated title, or the authority tier). Gap/unknown
+  // sources with nothing to show stay plain — no fake preview.
+  const tier = source.citation?.laneLabel
+  const bindingNote = source.citation?.bindingNote
+  const hasPopoverContent =
+    !!target.snippet || target.title !== source.label || !!tier || !!bindingNote
   if (hasPopoverContent) {
-    return <InfoPreviewChip target={target} signal={signal} label={source.label} />
+    return (
+      <InfoPreviewChip
+        target={target}
+        signal={signal}
+        label={source.label}
+        authority={source.authority}
+        tier={tier}
+        bindingNote={bindingNote}
+      />
+    )
   }
 
   return (
     <SourceSignalChip signal={signal} className="max-w-56">
+      {source.authority && <AuthorityTag>{source.authority}</AuthorityTag>}
       {source.label}
     </SourceSignalChip>
   )

@@ -403,12 +403,67 @@ def _merge_results(results, query: str, top_k: int, backend_name: str):
     return RetrievalResult(success=True, chunks=merged_top_k, query=query, backend=backend)
 
 
-def _trace_lanes_json(chunks) -> str:
+def _resolve_doc_classes(chunks) -> dict[tuple[str, str], str]:
+    """Resolve the authoritative ``doc_class`` for each hit's document.
+
+    The summary store is the source of truth for ``doc_class`` at retrieval time
+    (see the Phase B design decision); chunk metadata is only a fallback for
+    standalone deployments that ship no summary DB. This builds a
+    ``(collection, file_name) -> stored doc_class`` map by looking each distinct
+    document up once via the factory. Fail-open: any store error (or missing
+    store) yields an empty/partial map and callers fall back to chunk metadata.
+    """
+    resolved: dict[tuple[str, str], str] = {}
+    try:
+        from aiq_agent.knowledge.factory import get_document_doc_class
+    except Exception:
+        return resolved
+
+    seen: set[tuple[str, str]] = set()
+    for chunk in chunks:
+        collection = (chunk.metadata or {}).get("collection")
+        file_name = chunk.file_name
+        if not collection or not file_name:
+            continue
+        key = (collection, file_name)
+        if key in seen:
+            continue
+        seen.add(key)
+        try:
+            stored = get_document_doc_class(collection, file_name)
+        except Exception:
+            stored = None
+        if stored:
+            resolved[key] = stored
+    return resolved
+
+
+def _hit_doc_class(chunk, resolved: dict[tuple[str, str], str]) -> str | None:
+    """Authoritative ``doc_class`` for a single hit: stored value wins.
+
+    Prefers the store-resolved value (:func:`_resolve_doc_classes`) over the
+    ``doc_class`` stamped into chunk metadata at ingestion time, falling back to
+    the chunk metadata when the store has no value for the document.
+    """
+    metadata = chunk.metadata or {}
+    collection = metadata.get("collection")
+    if collection and chunk.file_name:
+        stored = resolved.get((collection, chunk.file_name))
+        if stored:
+            return stored
+    return metadata.get("doc_class")
+
+
+def _trace_lanes_json(chunks, resolved: dict[tuple[str, str], str] | None = None) -> str:
     """Machine-readable lane fan-out for the chat Herleitung UI.
 
     One JSON object under a ``## Trace-Lanes`` marker so the frontend can group
     hits by stratum (OIB / Projekt / Büroarchiv / …) without re-deriving
     ``lane_for_hit``. Fail-open: never break tool output for the LLM.
+
+    ``resolved`` is the store-authoritative doc_class map from
+    :func:`_resolve_doc_classes`; when omitted it is computed here so the
+    function stays usable standalone.
     """
     try:
         import json
@@ -416,10 +471,15 @@ def _trace_lanes_json(chunks) -> str:
 
         from aiq_agent.common.norm_registry import lane_for_hit
 
+        if resolved is None:
+            resolved = _resolve_doc_classes(chunks)
+
         lanes: OrderedDict[str, dict] = OrderedDict()
         for chunk in chunks:
-            collection = (chunk.metadata or {}).get("collection")
-            key, label = lane_for_hit(file_name=chunk.file_name, collection=collection)
+            metadata = chunk.metadata or {}
+            collection = metadata.get("collection")
+            doc_class = _hit_doc_class(chunk, resolved)
+            key, label = lane_for_hit(doc_class=doc_class, file_name=chunk.file_name, collection=collection)
             bucket = lanes.get(key)
             if bucket is None:
                 bucket = {"key": key, "label": label, "hitCount": 0, "sources": []}
@@ -459,6 +519,11 @@ def _format_results(retrieval_result, query: str) -> str:
 
     lines = [f"Found {len(retrieval_result.chunks)} relevant document(s):\n"]
 
+    # Resolve the authoritative doc_class per document once (summary store wins
+    # over chunk metadata) and reuse it for both the Dokumentart line and the
+    # Trace-Lanes fan-out so the two never disagree.
+    resolved = _resolve_doc_classes(retrieval_result.chunks)
+
     for i, chunk in enumerate(retrieval_result.chunks, 1):
         # Build citation string: "filename, p.X" or just "filename"
         if chunk.page_number and chunk.page_number > 0:
@@ -472,6 +537,17 @@ def _format_results(retrieval_result, query: str) -> str:
         collection = (chunk.metadata or {}).get("collection")
         if collection:
             lines.append(f"Collection: {collection}")
+        # Explicit per-document classification ("Dokumentart"). Emit the machine
+        # doc_class key first (the citation parser reads it) followed by the
+        # German label so the LLM is told the document's role in the norm
+        # hierarchy. The summary store is authoritative; chunk metadata is only a
+        # fallback (standalone deploys with no summary DB).
+        doc_class = _hit_doc_class(chunk, resolved)
+        if doc_class:
+            from aiq_agent.knowledge.document_classification import DOCUMENT_CLASS_LABELS
+
+            label = DOCUMENT_CLASS_LABELS.get(doc_class, doc_class)
+            lines.append(f"Dokumentart: {doc_class} — {label}")
         if chunk.page_number and chunk.page_number > 0:
             lines.append(f"Page: {chunk.page_number}")
         lines.append(f"Citation: {citation}")
@@ -489,7 +565,7 @@ def _format_results(retrieval_result, query: str) -> str:
     # Fan-out summary for the Herleitung UI (after chunk bodies so the LLM
     # still sees citations first; parsers look for the marker explicitly).
     lines.append("## Trace-Lanes")
-    lines.append(_trace_lanes_json(retrieval_result.chunks))
+    lines.append(_trace_lanes_json(retrieval_result.chunks, resolved))
     lines.append("")
 
     return "\n".join(lines)

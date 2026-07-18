@@ -401,6 +401,60 @@ class TestLaneForHit:
         assert nr.lane_for_hit() == ("web", "Web")
         assert nr.lane_for_hit(file_name="notes.txt") == ("web", "Web")
 
+    def test_explicit_doc_class_overrides_filename_guess(self):
+        # A file whose name gives no OIB hint, but a human set doc_class:
+        # the explicit class wins and lands in the OIB-Richtlinie lane.
+        assert nr.lane_for_hit(file_name="randomname.pdf", doc_class="oib_richtlinie") == (
+            "baurecht_oib",
+            "OIB-Richtlinie",
+        )
+
+    def test_explicit_doc_class_overrides_collection(self):
+        # Even a project-collection hit is re-homed by an explicit doc_class.
+        assert nr.lane_for_hit(collection="proj_123", doc_class="gesetz") == (
+            "baurecht_ris",
+            "Rechtsquelle (RIS)",
+        )
+
+    def test_explicit_doc_class_base_lane(self):
+        assert nr.lane_for_hit(doc_class="sonstiges") == ("baurecht_basis", "Basisdokument")
+
+    def test_explicit_doc_class_norm_extern(self):
+        assert nr.lane_for_hit(doc_class="norm_extern") == ("norm_extern", "Externe Norm")
+
+    def test_invalid_doc_class_falls_through(self):
+        # An unknown doc_class is ignored (fail-open); filename guess applies.
+        assert nr.lane_for_hit(doc_class="bogus", file_name="oib-rl_2_ausgabe_mai_2023.pdf") == (
+            "baurecht_oib",
+            "OIB-Richtlinie",
+        )
+
+
+# ---------------------------------------------------------------------------
+# guess_doc_class (filename pre-fill for the explicit doc_class vocabulary)
+# ---------------------------------------------------------------------------
+
+
+class TestGuessDocClass:
+    @pytest.mark.parametrize(
+        "filename,expected",
+        [
+            ("oib-rl_2_ausgabe_mai_2023.pdf", "oib_richtlinie"),
+            ("oib-rl_2_leitfaden_ausgabe_mai_2023.pdf", "oib_leitfaden"),
+            ("erlaeuterungen_oib-rl_2_ausgabe_mai_2023.pdf", "oib_erlaeuterung"),
+            ("oib-rl_begriffsbestimmungen_ausgabe_mai_2023.pdf", "oib_begriffe"),
+            ("oib-rl_zitierte_normen_und_sonstige_technische_regelwerke_ausgabe_mai_2023.pdf", "oib_referenz"),
+            ("aenderungen_oib-rl_2_ausgabe_mai_2023.pdf", "oib_aenderung"),
+        ],
+    )
+    def test_oib_filenames(self, filename, expected):
+        assert nr.guess_doc_class(filename) == expected
+
+    def test_unknown_filename_defaults_to_sonstiges(self):
+        assert nr.guess_doc_class("bauordnung_wien.pdf") == "sonstiges"
+        assert nr.guess_doc_class("random.txt") == "sonstiges"
+        assert nr.guess_doc_class("") == "sonstiges"
+
 
 # ---------------------------------------------------------------------------
 # Smoke test against the real repository registry file.

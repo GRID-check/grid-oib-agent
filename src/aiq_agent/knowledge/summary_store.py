@@ -165,6 +165,7 @@ class SummaryStore:
                     Column("filename", String(512), nullable=False),
                     Column("summary", Text, nullable=False),
                     Column("tags", Text, nullable=True),
+                    Column("doc_class", Text, nullable=True),
                     Column("created_at", DateTime, server_default=func.now()),
                     PrimaryKeyConstraint("collection", "filename"),
                     Index("idx_summaries_collection", "collection"),
@@ -173,10 +174,10 @@ class SummaryStore:
                 logger.info("Created summaries table in %s", redact_db_url(self.db_url))
                 migrated = True
             else:
-                # Pre-existing table (created before the tags column existed):
-                # add the column explicitly. CREATE TABLE only adds it on fresh
-                # tables, and this store has no migration framework.
-                migrated = self._migrate_add_tags_column_sync()
+                # Pre-existing table (created before the tags/doc_class columns
+                # existed): add the columns explicitly. CREATE TABLE only adds
+                # them on fresh tables, and this store has no migration framework.
+                migrated = self._migrate_add_tags_column_sync() and self._migrate_add_doc_class_column_sync()
 
             # Only mark the store initialized when the schema is actually ready.
             # A failed migration must NOT be cached as initialized, so the next
@@ -212,6 +213,30 @@ class SummaryStore:
             logger.warning("Failed to migrate summaries.tags column: %s", e)
             return False
 
+    def _migrate_add_doc_class_column_sync(self) -> bool:
+        """Backfill the ``doc_class`` column onto a pre-existing summaries table.
+
+        Mirrors :meth:`_migrate_add_tags_column_sync` exactly (Postgres
+        ``ADD COLUMN IF NOT EXISTS``; SQLite guarded by ``PRAGMA table_info``).
+        Returns ``True`` when the column is present afterwards, ``False`` on
+        failure so the caller retries instead of caching a half-initialized store.
+        """
+        from sqlalchemy import text
+
+        try:
+            with self._sync_engine.connect() as conn:
+                if self.db_url.startswith("postgres"):
+                    conn.execute(text("ALTER TABLE summaries ADD COLUMN IF NOT EXISTS doc_class TEXT"))
+                else:
+                    existing = {row[1] for row in conn.execute(text("PRAGMA table_info(summaries)")).fetchall()}
+                    if "doc_class" not in existing:
+                        conn.execute(text("ALTER TABLE summaries ADD COLUMN doc_class TEXT"))
+                conn.commit()
+            return True
+        except Exception as e:
+            logger.warning("Failed to migrate summaries.doc_class column: %s", e)
+            return False
+
     @classmethod
     async def _ensure_table_async(cls, db_url: str):
         """Ensure summaries table exists (async)."""
@@ -238,6 +263,7 @@ class SummaryStore:
             Column("filename", String(512), nullable=False),
             Column("summary", Text, nullable=False),
             Column("tags", Text, nullable=True),
+            Column("doc_class", Text, nullable=True),
             Column("created_at", DateTime, server_default=func.now()),
             PrimaryKeyConstraint("collection", "filename"),
             Index("idx_summaries_collection", "collection"),
@@ -246,8 +272,9 @@ class SummaryStore:
         async with engine.begin() as conn:
             await conn.run_sync(lambda sync_conn: metadata.create_all(sync_conn))
             # create_all() never alters an existing table, so backfill the tags
-            # column onto pre-existing tables (see _migrate_add_tags_column_sync).
+            # and doc_class columns onto pre-existing tables (see the sync helpers).
             migrated = await conn.run_sync(cls._migrate_add_tags_column_conn, db_url)
+            migrated = await conn.run_sync(cls._migrate_add_doc_class_column_conn, db_url) and migrated
 
         # Only cache the store as initialized when the migration actually
         # succeeded; a failed migration must be retried on the next access.
@@ -275,6 +302,27 @@ class SummaryStore:
             return True
         except Exception as e:
             logger.warning("Failed to migrate summaries.tags column (async): %s", e)
+            return False
+
+    @staticmethod
+    def _migrate_add_doc_class_column_conn(sync_conn, db_url: str) -> bool:
+        """Add the ``doc_class`` column onto a pre-existing table, over a sync connection.
+
+        Async twin of :meth:`_migrate_add_doc_class_column_sync`. Returns ``True``
+        when the column is present afterwards, ``False`` on failure.
+        """
+        from sqlalchemy import text
+
+        try:
+            if db_url.startswith("postgres"):
+                sync_conn.execute(text("ALTER TABLE summaries ADD COLUMN IF NOT EXISTS doc_class TEXT"))
+            else:
+                existing = {row[1] for row in sync_conn.execute(text("PRAGMA table_info(summaries)")).fetchall()}
+                if "doc_class" not in existing:
+                    sync_conn.execute(text("ALTER TABLE summaries ADD COLUMN doc_class TEXT"))
+            return True
+        except Exception as e:
+            logger.warning("Failed to migrate summaries.doc_class column (async): %s", e)
             return False
 
     def register(self, collection: str, filename: str, summary: str, tags: list[str] | None = None) -> None:
@@ -349,6 +397,59 @@ class SummaryStore:
             logger.warning("Failed to update tags for %s: %s", filename, e)
             return False
 
+    def set_doc_class(self, collection: str, filename: str, doc_class: str | None) -> bool:
+        """Replace only the ``doc_class`` of an existing summary row (sync).
+
+        The explicit "Dokumentart" seam, distinct from :meth:`register` (which
+        owns the summary) and :meth:`update_tags` (which owns the tags). Follows
+        the same UPDATE-only contract as :meth:`update_tags`: returns ``True``
+        when a row existed and was updated, ``False`` when no summary row exists
+        for ``(collection, filename)`` — so ingestion/edit callers never create a
+        summary-less, NOT NULL-violating row. A ``None`` value clears the column.
+        """
+        from sqlalchemy import text
+
+        try:
+            with self._sync_engine.connect() as conn:
+                result = conn.execute(
+                    text(
+                        "UPDATE summaries SET doc_class = :doc_class "
+                        "WHERE collection = :collection AND filename = :filename"
+                    ),
+                    {"doc_class": doc_class, "collection": collection, "filename": filename},
+                )
+                conn.commit()
+                updated = (result.rowcount or 0) > 0
+                if updated:
+                    logger.debug("Updated doc_class for %s in %s", filename, collection)
+                else:
+                    logger.debug("No summary row to update doc_class for %s in %s", filename, collection)
+                return updated
+        except Exception as e:
+            logger.warning("Failed to update doc_class for %s: %s", filename, e)
+            return False
+
+    def get_doc_class(self, collection: str, filename: str) -> str | None:
+        """Return the stored explicit ``doc_class`` for a document, or ``None`` (sync).
+
+        ``None`` covers both "no summary row" and "row present but doc_class not
+        set" — callers treat both as "no explicit class yet" and fall back to the
+        filename guess.
+        """
+        from sqlalchemy import text
+
+        try:
+            with self._sync_engine.connect() as conn:
+                result = conn.execute(
+                    text("SELECT doc_class FROM summaries WHERE collection = :collection AND filename = :filename"),
+                    {"collection": collection, "filename": filename},
+                )
+                row = result.first()
+                return row[0] if row and row[0] else None
+        except Exception as e:
+            logger.warning("Failed to get doc_class for %s: %s", filename, e)
+            return None
+
     def list_collections(self) -> list[str]:
         """Return every distinct collection present in the summaries table (sync).
 
@@ -391,11 +492,13 @@ class SummaryStore:
         try:
             with self._sync_engine.connect() as conn:
                 result = conn.execute(
-                    text("SELECT filename, summary, tags FROM summaries WHERE collection = :collection"),
+                    text("SELECT filename, summary, tags, doc_class FROM summaries WHERE collection = :collection"),
                     {"collection": collection},
                 )
                 return [
-                    AvailableDocument(file_name=row[0], summary=row[1], tags=self._decode_tags(row[2]))
+                    AvailableDocument(
+                        file_name=row[0], summary=row[1], tags=self._decode_tags(row[2]), doc_class=row[3] or None
+                    )
                     for row in result
                 ]
         except Exception as e:
@@ -413,11 +516,13 @@ class SummaryStore:
             engine = self._get_or_create_async_engine(self.db_url)
             async with engine.connect() as conn:
                 result = await conn.execute(
-                    text("SELECT filename, summary, tags FROM summaries WHERE collection = :collection"),
+                    text("SELECT filename, summary, tags, doc_class FROM summaries WHERE collection = :collection"),
                     {"collection": collection},
                 )
                 return [
-                    AvailableDocument(file_name=row[0], summary=row[1], tags=self._decode_tags(row[2]))
+                    AvailableDocument(
+                        file_name=row[0], summary=row[1], tags=self._decode_tags(row[2]), doc_class=row[3] or None
+                    )
                     for row in result
                 ]
         except Exception as e:

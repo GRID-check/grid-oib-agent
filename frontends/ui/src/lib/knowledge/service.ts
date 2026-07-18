@@ -28,6 +28,7 @@ export interface KnowledgeFile {
   currentSha256: string | null
   ingestedAt: string | null
   summary: string | null
+  docClass: string | null
 }
 
 export interface KnowledgeBaseSummary {
@@ -61,6 +62,7 @@ interface BackendFileEntry {
   current_sha256?: unknown
   ingested_at?: unknown
   summary?: unknown
+  doc_class?: unknown
 }
 
 const FILE_STATES: KnowledgeFileState[] = ['ingested', 'stale', 'pending', 'snapshot', 'removed', 'inconsistent']
@@ -91,6 +93,7 @@ function mapFile(entry: BackendFileEntry): KnowledgeFile {
     currentSha256: asString(entry.current_sha256),
     ingestedAt: asString(entry.ingested_at),
     summary: asString(entry.summary),
+    docClass: asString(entry.doc_class),
   }
 }
 
@@ -156,21 +159,56 @@ function requirePdfBasename(fileName: string): string {
   return name
 }
 
-export interface KnowledgeUploadResult {
-  status: 'success' | 'failed' | 'timeout'
+/** Basename-only, `.pdf`- OR `.zip`-only — the two shapes the upload accepts. */
+function requireUploadBasename(fileName: string): string {
+  const name = fileName.trim()
+  const lower = name.toLowerCase()
+  if (!name || name !== name.replace(/[/\\]/g, '') || !(lower.endsWith('.pdf') || lower.endsWith('.zip'))) {
+    throw new BadRequestError('A .pdf or .zip file name without path segments is required')
+  }
+  return name
+}
+
+/** One PDF queued from a ZIP bulk upload (or rejected during extraction). */
+export interface KnowledgeUploadMember {
   fileName: string
+  status: 'pending' | 'rejected'
+  docClass: string | null
+  reason: string | null
+}
+
+export interface KnowledgeUploadResult {
+  status: 'pending' | 'success' | 'failed' | 'timeout'
+  kind: 'file' | 'zip'
+  fileName: string | null
+  docClass: string | null
   message: string
+  accepted: number | null
+  rejected: number | null
+  members: KnowledgeUploadMember[] | null
+}
+
+/** Upload options: an optional explicit doc_class for a single-PDF upload. */
+export interface KnowledgeUploadOptions {
+  docClass?: string
 }
 
 /**
- * Upload a PDF into the shared base corpus. Blocks until the backend reports
- * a terminal ingest state, so the caller can refresh the corpus list right
- * away. Platform-owner authorization happens in the route.
+ * Upload a PDF — or a ZIP of PDFs — into the shared base corpus. Ingestion runs
+ * in the background on the backend, so this returns promptly with status
+ * `pending`; the caller polls the corpus status for the terminal lifecycle.
+ * Platform-owner authorization happens in the route.
  */
-export async function uploadKnowledgeBaseDocument(file: File): Promise<KnowledgeUploadResult> {
-  const name = requirePdfBasename(file.name)
+export async function uploadKnowledgeBaseDocument(
+  file: File,
+  options: KnowledgeUploadOptions = {},
+): Promise<KnowledgeUploadResult> {
+  const name = requireUploadBasename(file.name)
   const form = new FormData()
   form.append('file', file, name)
+  if (options.docClass) {
+    form.append('doc_class', options.docClass)
+  }
 
   let res: Response
   try {
@@ -178,7 +216,8 @@ export async function uploadKnowledgeBaseDocument(file: File): Promise<Knowledge
       method: 'POST',
       headers: adminHeaders(),
       body: form,
-      // Ingestion is blocking on the backend (polls up to 10 minutes).
+      // The upload is non-blocking (ingestion is backgrounded), but a large ZIP
+      // still travels + extracts; keep a generous ceiling.
       signal: AbortSignal.timeout(660_000),
     })
   } catch (error) {
@@ -189,10 +228,60 @@ export async function uploadKnowledgeBaseDocument(file: File): Promise<Knowledge
     throw new UpstreamError(`Knowledge backend returned ${res.status}`, detail.slice(0, 500))
   }
   const body = await res.json().catch(() => ({}))
-  const status = body?.status === 'success' || body?.status === 'failed' || body?.status === 'timeout'
-    ? body.status
-    : 'failed'
-  return { status, fileName: asString(body?.file_name) ?? name, message: asString(body?.message) ?? '' }
+  const rawStatus = body?.status
+  const status =
+    rawStatus === 'pending' || rawStatus === 'success' || rawStatus === 'failed' || rawStatus === 'timeout'
+      ? rawStatus
+      : 'failed'
+  const members = Array.isArray(body?.members)
+    ? body.members.map(
+        (m: Record<string, unknown>): KnowledgeUploadMember => ({
+          fileName: asString(m?.file_name) ?? 'unknown',
+          status: m?.status === 'pending' ? 'pending' : 'rejected',
+          docClass: asString(m?.doc_class),
+          reason: asString(m?.reason),
+        }),
+      )
+    : null
+  return {
+    status,
+    kind: body?.kind === 'zip' ? 'zip' : 'file',
+    fileName: asString(body?.file_name),
+    docClass: asString(body?.doc_class),
+    message: asString(body?.message) ?? '',
+    accepted: typeof body?.accepted === 'number' ? body.accepted : null,
+    rejected: typeof body?.rejected === 'number' ? body.rejected : null,
+    members,
+  }
+}
+
+/**
+ * Reclassify a base-corpus document's Dokumentart (doc_class). Because retrieval
+ * is store-authoritative, the change reflects immediately with no re-ingest.
+ */
+export async function updateKnowledgeBaseDocClass(fileName: string, docClass: string): Promise<void> {
+  const name = requirePdfBasename(fileName)
+  let res: Response
+  try {
+    res = await fetch(`${getBackendUrl()}/v1/admin/oib/documents/${encodeURIComponent(name)}/doc-class`, {
+      method: 'PATCH',
+      headers: { ...adminHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ doc_class: docClass }),
+      signal: AbortSignal.timeout(KNOWLEDGE_STATUS_TIMEOUT_MS),
+    })
+  } catch (error) {
+    throw new UpstreamError('Knowledge backend unreachable', error instanceof Error ? error.message : undefined)
+  }
+  if (res.status === 400) {
+    const detail = await res.text().catch(() => '')
+    throw new BadRequestError(detail.slice(0, 500) || 'Invalid doc_class')
+  }
+  if (res.status === 404) {
+    throw new NotFoundError('No summary found for that document')
+  }
+  if (!res.ok) {
+    throw new UpstreamError(`Knowledge backend returned ${res.status}`)
+  }
 }
 
 /** Delete an admin-uploaded corpus document (repo-shipped files are immutable). */

@@ -1806,6 +1806,18 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                 try:
                     file_name = original_filenames[i] if i < len(original_filenames) else Path(file_path).name
                     file_size = os.path.getsize(file_path)
+
+                    # Explicit per-document classification ("Dokumentart").
+                    # Prefer a human-set stored class over the filename guess;
+                    # stamped into every chunk's metadata below and persisted to
+                    # the summaries row after ingestion. Only meaningful for
+                    # base-corpus files — a guess of "sonstiges" for project/
+                    # session uploads is harmless.
+                    from aiq_agent.common.norm_registry import guess_doc_class
+                    from aiq_agent.knowledge import get_document_doc_class
+
+                    stored_doc_class = get_document_doc_class(collection_name, file_name)
+                    doc_class = stored_doc_class or guess_doc_class(file_name)
                     is_pdf = (
                         file_name.lower().endswith(".pdf")
                         or Path(file_path).suffix.lower() == ".pdf"
@@ -2049,6 +2061,13 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         continue
                     all_documents = valid_documents
 
+                    # Stamp the explicit doc_class ("Dokumentart") into every
+                    # chunk's metadata (next to file_name) so it survives into
+                    # Chunk.metadata at retrieval and drives the lane/kind
+                    # classifiers ahead of the filename guess.
+                    for doc in all_documents:
+                        doc.metadata["doc_class"] = doc_class
+
                     # Create/update index with all documents
                     if index is None:
                         # First successful file - create new index
@@ -2090,8 +2109,15 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         # Register in centralized summary registry (backend-agnostic).
                         # Tags ride along in the same upsert (may be None).
                         from aiq_agent.knowledge import register_summary
+                        from aiq_agent.knowledge import set_document_doc_class
 
                         register_summary(collection_name, file_name, summary, tags=tags)
+
+                        # Persist the doc_class onto the freshly-created summary
+                        # row, but never overwrite a human-set stored value —
+                        # only stamp the guess when none was stored.
+                        if stored_doc_class is None:
+                            set_document_doc_class(collection_name, file_name, doc_class)
 
                         # Also store in local FileInfo for backwards compatibility
                         file_id = config.get("file_id")

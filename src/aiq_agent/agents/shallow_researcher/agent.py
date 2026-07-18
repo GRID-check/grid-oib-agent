@@ -511,14 +511,21 @@ class ShallowResearcherAgent:
         validated_result["escalation_requested"] = escalation_requested
         validated_result["answer_confidence_marker"] = answer_confidence_marker
         # Wire-ready sources for Belegt-durch chips / PDF open (file/page/collection).
-        try:
-            from aiq_agent.common.citation_verification import source_entry_to_wire
+        # Serialize per-entry so a single malformed source can't zero out the
+        # whole turn's chips — a bad entry is skipped, the rest still render.
+        from aiq_agent.common.citation_verification import source_entry_to_wire
 
-            wire_sources = [source_entry_to_wire(entry) for entry in registry.all_sources()]
-            validated_result["verified_sources"] = wire_sources or None
-        except Exception:
-            logger.warning("Failed to serialize verified_sources for wire", exc_info=True)
-            validated_result["verified_sources"] = None
+        wire_sources: list[dict[str, Any]] = []
+        for entry in registry.all_sources():
+            try:
+                wire_sources.append(source_entry_to_wire(entry))
+            except Exception:
+                logger.warning(
+                    "Skipping source that failed wire serialization: %s",
+                    entry.url or entry.citation_key,
+                    exc_info=True,
+                )
+        validated_result["verified_sources"] = wire_sources or None
 
         return ShallowResearchAgentState.model_validate(validated_result)
 

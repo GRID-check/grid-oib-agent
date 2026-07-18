@@ -29,6 +29,7 @@ from .factory import configure_summary_db
 from .factory import get_active_ingestor
 from .factory import get_available_documents
 from .factory import get_available_documents_async
+from .factory import get_document_doc_class
 from .factory import get_ingestor
 from .factory import get_retriever
 from .factory import list_summary_collections
@@ -36,6 +37,7 @@ from .factory import register_ingestor
 from .factory import register_retriever
 from .factory import register_summary
 from .factory import set_active_ingestor
+from .factory import set_document_doc_class
 from .factory import unregister_summary
 from .factory import update_document_tags
 from .schema import AvailableDocument
@@ -72,6 +74,8 @@ __all__ = [
     "register_summary",
     "unregister_summary",
     "update_document_tags",
+    "set_document_doc_class",
+    "get_document_doc_class",
     "list_summary_collections",
     "get_available_documents",
     "get_available_documents_async",

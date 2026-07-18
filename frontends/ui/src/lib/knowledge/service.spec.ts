@@ -94,6 +94,7 @@ describe('getKnowledgeBaseStatus', () => {
       currentSha256: 'abc',
       ingestedAt: '2026-06-30T12:00:00Z',
       summary: 'Brandschutz.',
+      docClass: null,
     })
     expect(status.files[1].state).toBe('pending')
     expect(status.files[1].sizeBytes).toBe(99)
@@ -171,7 +172,7 @@ describe('knowledge admin operations', () => {
 
     const result = await uploadKnowledgeBaseDocument(new File([new Uint8Array([1])], 'norm.pdf'))
 
-    expect(result).toEqual({ status: 'success', fileName: 'norm.pdf', message: 'ok' })
+    expect(result).toMatchObject({ status: 'success', fileName: 'norm.pdf', message: 'ok' })
     const [url, init] = fetchMock.mock.calls[0]
     expect(String(url)).toContain('/v1/admin/oib/documents')
     expect((init?.headers as Record<string, string>)['X-Admin-Token']).toBe('admin-secret')

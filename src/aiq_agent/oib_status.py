@@ -81,6 +81,9 @@ class OibFileEntry(BaseModel):
     current_sha256: str | None = Field(None, description="Hash of the file currently on disk.")
     ingested_at: datetime | None = Field(None, description="Completion time of the last ingestion, if tracked.")
     summary: str | None = Field(None, description="One-sentence document summary, if one was generated.")
+    doc_class: str | None = Field(
+        None, description="Explicit per-document classification ('Dokumentart'), if one was set/guessed."
+    )
 
 
 class OibStatusSummary(BaseModel):
@@ -127,12 +130,16 @@ def _cached_file_hash(path: Path) -> str:
     return digest
 
 
-def _load_summaries(collection_name: str) -> dict[str, str]:
-    """Best-effort lookup of generated one-sentence document summaries."""
+def _load_summaries(collection_name: str) -> dict[str, tuple[str | None, str | None]]:
+    """Best-effort lookup of per-document (summary, doc_class) from the store.
+
+    The summary store is authoritative for both fields; a store hiccup resolves
+    to an empty map so status never fails on it. Keyed by filename.
+    """
     try:
         from aiq_agent.knowledge.factory import get_available_documents
 
-        return {doc.file_name: doc.summary for doc in get_available_documents(collection_name) if doc.summary}
+        return {doc.file_name: (doc.summary, doc.doc_class) for doc in get_available_documents(collection_name)}
     except Exception as e:
         logger.debug("Document summaries unavailable for %s: %s", collection_name, e)
         return {}
@@ -253,7 +260,9 @@ def get_status(ingestor=None) -> OibKnowledgeStatus:
 
     summaries = _load_summaries(collection_name)
     for entry in entries:
-        entry.summary = summaries.get(entry.file_name)
+        summary, doc_class = summaries.get(entry.file_name, (None, None))
+        entry.summary = summary
+        entry.doc_class = doc_class
 
     counts = OibStatusSummary(
         total_files=len(entries),

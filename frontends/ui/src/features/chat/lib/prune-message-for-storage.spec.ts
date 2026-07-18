@@ -56,7 +56,10 @@ describe('prune-message-for-storage', () => {
 
       // Heavy fields removed
       expect(pruned.reportContent).toBeUndefined()
-      expect(pruned.citations).toBeUndefined()
+      // Citations survive (compact) so the "Belegt durch" chips persist across
+      // reload — a shallow answer's sources cannot be refetched.
+      expect(pruned.citations).toHaveLength(1)
+      expect(pruned.citations![0].id).toBe('c1')
       expect(pruned.deepResearchTodos).toEqual([
         { id: 't1', content: 'Todo item', status: 'pending' },
       ])

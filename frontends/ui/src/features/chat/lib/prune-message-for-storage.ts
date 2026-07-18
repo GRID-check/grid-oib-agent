@@ -76,6 +76,9 @@ export const prunePlanMessages = (
  *
  * KEEPS (Essential for UI):
  * - Core message fields (id, role, content, timestamp, messageType)
+ * - citations (compact source metadata for the "Belegt durch" chips — capped
+ *   content; a shallow answer's sources are NOT refetchable, so dropping them
+ *   made the chips vanish on reload while the Herleitung fan-out survived)
  * - thinkingSteps (stripped: content removed, deep research steps dropped)
  * - planMessages (capped: text 10k, userResponse 2k — cannot be refetched)
  * - enabledDataSources, messageFiles (for "Selected Data Sources")
@@ -85,16 +88,20 @@ export const prunePlanMessages = (
  * - Other message type data (status, file, error, banner data)
  *
  * REMOVES (Can fetch from backend via importStreamOnly):
- * - reportContent, citations, deepResearchLLMSteps, deepResearchAgents,
+ * - reportContent, deepResearchLLMSteps, deepResearchAgents,
  *   deepResearchToolCalls, deepResearchFiles
  * - intermediateSteps (legacy, unused)
  * - thinkingStep content/rawPayload (never displayed in ChatThinking)
  * - Deep research thinking steps (refetched from async API)
  */
+
+/** Max characters of citation `content` kept in storage — chips need the
+ * metadata (kind/lane/locator), not the full captured passage. */
+const MAX_CITATION_CONTENT = 300
+
 export const pruneMessageForStorage = (message: ChatMessage): ChatMessage => {
   const {
     reportContent: _reportContent,
-    citations: _citations,
     deepResearchLLMSteps: _deepResearchLLMSteps,
     deepResearchAgents: _deepResearchAgents,
     deepResearchToolCalls: _deepResearchToolCalls,
@@ -102,6 +109,17 @@ export const pruneMessageForStorage = (message: ChatMessage): ChatMessage => {
     intermediateSteps: _intermediateSteps,
     ...prunedMessage
   } = message
+
+  // Keep the provenance chips across reload: citations are small metadata, but
+  // cap the captured-passage `content` so storage stays bounded. Deep-research
+  // citations are still refetched from the async API and simply overwrite these.
+  if (prunedMessage.citations?.length) {
+    prunedMessage.citations = prunedMessage.citations.map((c) =>
+      c.content.length > MAX_CITATION_CONTENT
+        ? { ...c, content: capString(c.content, MAX_CITATION_CONTENT) }
+        : c
+    )
+  }
 
   if (prunedMessage.thinkingSteps?.length) {
     prunedMessage.thinkingSteps = stripThinkingStepsForStorage(prunedMessage.thinkingSteps)

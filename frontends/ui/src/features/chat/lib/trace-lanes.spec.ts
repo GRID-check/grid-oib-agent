@@ -54,6 +54,13 @@ describe('laneKeyToSignal', () => {
     expect(laneKeyToSignal('buero')).toBe('office')
     expect(laneKeyToSignal('web')).toBe('auto')
   })
+
+  test('agrees with the chips on external norms and authority info (was diverging to web)', () => {
+    // norm_extern / behoerde are Baurecht (law) — the Herleitung previously
+    // rendered them in the web/auto family, disagreeing with the chips (ADR-0026).
+    expect(laneKeyToSignal('norm_extern')).toBe('law')
+    expect(laneKeyToSignal('behoerde')).toBe('law')
+  })
 })
 
 describe('laneForHitClient', () => {
@@ -192,10 +199,26 @@ describe('flattenTraceSourceCards / deriveTraceSourceCards', () => {
     expect(oib2).toMatchObject({
       tabLabel: 'OIB-Richtlinie',
       signal: 'law',
+      authority: 'OIB',
       hitCount: 2,
       kind: 'hit',
     })
     expect(oib2?.detail).toContain('p.1')
+  })
+
+  test('carries the same OIB/RIS authority badge as the Belegt-durch chips', () => {
+    const [oib] = flattenTraceSourceCards([
+      { key: 'baurecht_oib', label: 'OIB-Richtlinie', hitCount: 1, sources: [{ name: 'x.pdf' }], signal: 'law' },
+    ])
+    const [ris] = flattenTraceSourceCards([
+      { key: 'baurecht_ris', label: 'Rechtsquelle (RIS)', hitCount: 1, sources: [{ name: 'BO Wien' }], signal: 'law' },
+    ])
+    const [buero] = flattenTraceSourceCards([
+      { key: 'buero', label: 'Büroarchiv', hitCount: 1, sources: [{ name: 'detail.pdf' }], signal: 'office' },
+    ])
+    expect(oib?.authority).toBe('OIB')
+    expect(ris?.authority).toBe('RIS')
+    expect(buero?.authority).toBeUndefined()
   })
 
   test('deriveTraceSourceCards returns one card per document from live payload', () => {

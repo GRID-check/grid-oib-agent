@@ -53,6 +53,7 @@ const sourceRef = (overrides: Partial<AnswerSourceRef>): AnswerSourceRef => ({
   key: 'k-1',
   label: 'label',
   kind: 'kb',
+  signal: 'project',
   ...overrides,
 })
 
@@ -83,6 +84,39 @@ describe('SourcePreviewChip', () => {
     const link = screen.getByRole('link')
     expect(link).toHaveAttribute('href', 'https://example.com/article')
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  test('a RIS source with a bindingness note opens a popover (note + tier + open-in-RIS) instead of linking out', async () => {
+    const user = userEvent.setup()
+    render(
+      <SourcePreviewChip
+        source={sourceRef({
+          label: 'WBTV',
+          kind: 'ris',
+          authority: 'RIS',
+          url: 'https://www.ris.bka.gv.at/x',
+          citation: citation({
+            url: 'https://www.ris.bka.gv.at/x',
+            laneLabel: 'Landesrecht',
+            bindingNote: 'Macht die OIB-Richtlinien in Wien verbindlich.',
+          }),
+        })}
+        signal="law"
+      />
+    )
+
+    // Not a bare link — it is a popover trigger, so the bindingness is reachable.
+    expect(screen.queryByRole('link')).toBeNull()
+    await user.click(screen.getByRole('button', { name: 'Preview source: WBTV' }))
+
+    expect(await screen.findByText('Binding effect')).toBeInTheDocument()
+    expect(screen.getByText('Macht die OIB-Richtlinien in Wien verbindlich.')).toBeInTheDocument()
+    expect(screen.getByText('Landesrecht')).toBeInTheDocument()
+    // The outbound RIS link lives inside the popover as an explicit action.
+    expect(screen.getByRole('link', { name: /Open in RIS/i })).toHaveAttribute(
+      'href',
+      'https://www.ris.bka.gv.at/x'
+    )
   })
 
   test('a KB citation resolving to a project document opens the document dialog', async () => {

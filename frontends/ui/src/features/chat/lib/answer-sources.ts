@@ -17,18 +17,35 @@
  */
 
 import type { GridCard } from '@/shared/cards/schemas'
+import type { SourceSignal } from '@/features/layout/lib/source-presets'
 import type { CitationSource } from '../types'
+import { KIND_TO_SIGNAL, authorityTag } from './source-kinds'
 
 /** Origin of an answer source — mirrors ReportSourceKind (kb/ris/web). */
 export type AnswerSourceKind = 'kb' | 'ris' | 'web'
+
+/**
+ * Legacy origin → tint family, used only for messages persisted before the
+ * canonical wire `kind` existed. New messages carry `citation.kind` and map via
+ * `KIND_TO_SIGNAL` (which correctly sends the OIB corpus to the law family).
+ */
+const LEGACY_KIND_TO_SIGNAL: Record<AnswerSourceKind, SourceSignal> = {
+  kb: 'project',
+  ris: 'law',
+  web: 'auto',
+}
 
 export interface AnswerSourceRef {
   /** Stable key for rendering */
   key: string
   /** Short human-readable label (hostname, law name, …) */
   label: string
-  /** Parsed origin — drives the provenance tint */
+  /** Parsed origin (kb/ris/web) — drives preview-target resolution. */
   kind: AnswerSourceKind
+  /** The `--source-*` tint family the chip renders in (from the wire `kind`). */
+  signal: SourceSignal
+  /** Compact authority badge (OIB / RIS / ÖNORM) shown on the chip, if any. */
+  authority?: string
   /** Outbound link, only when the citation has a real http(s) URL */
   url?: string
   /**
@@ -127,6 +144,14 @@ export const deriveAnswerSources = (
     const relevant = cited.length > 0 ? cited : citations
     for (const citation of relevant) {
       const kind = classifyCitation(citation)
+      // Color by the canonical wire kind (OIB corpus + RIS → law family);
+      // fall back to the legacy origin mapping only for pre-kind messages.
+      const signal = citation.kind ? KIND_TO_SIGNAL[citation.kind] : LEGACY_KIND_TO_SIGNAL[kind]
+      const authority = citation.lane
+        ? (authorityTag(citation.lane) ?? undefined)
+        : kind === 'ris'
+          ? 'RIS'
+          : undefined
       const dedupe =
         citation.citationKey ||
         citation.fileName ||
@@ -137,6 +162,8 @@ export const deriveAnswerSources = (
           key: `citation-${citation.id || dedupe}`,
           label: citationLabel(citation),
           kind,
+          signal,
+          authority,
           url: isHttpUrl(citation.url) ? citation.url : undefined,
           citation,
         },
@@ -152,7 +179,13 @@ export const deriveAnswerSources = (
         .filter(Boolean)
         .join(' ')
       const snippet = card.original_text ?? card.summary ?? undefined
-      push({ key: `legal-${label}`, label, kind: 'ris', snippet }, `legal-${label}`)
+      // legal_basis cards name the building-law grounding → the Baurecht (law)
+      // family; tag OIB vs. RIS from the cited law's name.
+      const authority = /oib/i.test(label) ? 'OIB' : 'RIS'
+      push(
+        { key: `legal-${label}`, label, kind: 'ris', signal: 'law', authority, snippet },
+        `legal-${label}`
+      )
     }
   }
 

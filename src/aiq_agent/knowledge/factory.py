@@ -325,6 +325,21 @@ def update_document_tags(collection: str, filename: str, tags: list[str] | None)
     return _get_summary_store().update_tags(collection, filename, tags)
 
 
+def set_document_doc_class(collection: str, filename: str, doc_class: str | None) -> bool:
+    """Set the explicit ``doc_class`` ("Dokumentart") on an existing summary row.
+
+    UPDATE-only (never creates a row): returns ``False`` when no summary row
+    exists for ``(collection, filename)``. The single factory seam behind the
+    ingestion pre-fill and any future doc_class-edit endpoint.
+    """
+    return _get_summary_store().set_doc_class(collection, filename, doc_class)
+
+
+def get_document_doc_class(collection: str, filename: str) -> str | None:
+    """Return the stored explicit ``doc_class`` for a document, or ``None``."""
+    return _get_summary_store().get_doc_class(collection, filename)
+
+
 def list_summary_collections() -> list[str]:
     """List every collection that has at least one persisted summary."""
     return _get_summary_store().list_collections()

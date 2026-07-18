@@ -33,6 +33,8 @@ from urllib.parse import unquote
 from urllib.parse import urlparse
 from urllib.parse import urlunparse
 
+from aiq_agent.common.source_kinds import kind_for_lane
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -53,6 +55,11 @@ class SourceEntry:
     # parsed from the knowledge-layer tool output's `Collection:` field. None for
     # URL/web sources and for output produced before the field was threaded.
     collection: str | None = None
+    # Explicit per-document classification ("Dokumentart" / doc_class), parsed
+    # from the knowledge-layer tool output's `Dokumentart:` field. When present
+    # it is the FIRST-priority signal for lane/kind placement, overriding the
+    # filename/collection heuristics. None for sources without an explicit class.
+    doc_class: str | None = None
 
 
 @dataclass
@@ -170,7 +177,11 @@ class SourceRegistry:
         self._urls: dict[str, SourceEntry] = {}
         self._parsed_urls: dict[str, _ParsedURL] = {}
         self._citation_keys: list[SourceEntry] = []
-        self._citation_key_files: set[str] = set()
+        # Dedup key is (filename, page): two chunks from the SAME document at
+        # DIFFERENT pages are distinct evidence and must both become chips.
+        # Keying on filename alone silently dropped every page after the first
+        # (and mismatched the page-aware Trace-Lanes fan-out — see ADR-0026).
+        self._citation_key_files: set[tuple[str, int | None]] = set()
         self._all: list[SourceEntry] = []
 
     def add(self, entry: SourceEntry) -> None:
@@ -199,10 +210,10 @@ class SourceRegistry:
             if raw != normalized:
                 self._urls[raw] = self._urls[normalized]
         if entry.citation_key:
-            filename, _ = _parse_citation_key(entry.citation_key)
-            key_lower = filename.lower()
-            if key_lower not in self._citation_key_files:
-                self._citation_key_files.add(key_lower)
+            filename, page = _parse_citation_key(entry.citation_key)
+            dedup_key = (filename.lower(), page)
+            if dedup_key not in self._citation_key_files:
+                self._citation_key_files.add(dedup_key)
                 self._citation_keys.append(entry)
                 if not added:
                     added = True
@@ -396,6 +407,7 @@ def _registry_from_cached_entries(entries: Any) -> SourceRegistry:
                             source_type=item.get("source_type", ""),
                             tool_name=item.get("tool_name", ""),
                             collection=item.get("collection"),
+                            doc_class=item.get("doc_class"),
                         )
                     )
                 except Exception:
@@ -709,6 +721,10 @@ def _parse_generic_urls(content: str, tool_name: str) -> list[SourceEntry]:
 _KL_CITATION_RE = re.compile(r"^Citation:\s*(.+)$", re.MULTILINE)
 _KL_SOURCE_RE = re.compile(r"^Source:\s*(.+)$", re.MULTILINE)
 _KL_COLLECTION_RE = re.compile(r"^Collection:\s*(.+)$", re.MULTILINE)
+# Machine-readable doc_class field emitted by the knowledge layer's
+# `_format_results` (``Dokumentart: <doc_class_key>``). ``Doc-Class:`` is
+# accepted as an alias for robustness.
+_KL_DOC_CLASS_RE = re.compile(r"^(?:Dokumentart|Doc-Class):\s*(.+)$", re.MULTILINE)
 
 
 def _parse_knowledge_layer(content: str, tool_name: str) -> list[SourceEntry]:
@@ -723,9 +739,14 @@ def _parse_knowledge_layer(content: str, tool_name: str) -> list[SourceEntry]:
     citations = _KL_CITATION_RE.findall(content)
     sources = _KL_SOURCE_RE.findall(content)
     collections = _KL_COLLECTION_RE.findall(content)
+    doc_classes = _KL_DOC_CLASS_RE.findall(content)
     for i, citation_key in enumerate(citations):
         title = sources[i].strip() if i < len(sources) else None
         collection = collections[i].strip() if i < len(collections) else None
+        # The Dokumentart line is emitted as ``<doc_class_key> — <German label>``;
+        # keep only the leading machine key so lane placement gets a valid key.
+        doc_class_raw = doc_classes[i].strip() if i < len(doc_classes) else None
+        doc_class = doc_class_raw.split("—")[0].split(" - ")[0].strip() if doc_class_raw else None
         entries.append(
             SourceEntry(
                 citation_key=citation_key.strip(),
@@ -733,6 +754,7 @@ def _parse_knowledge_layer(content: str, tool_name: str) -> list[SourceEntry]:
                 source_type="knowledge_layer",
                 tool_name=tool_name,
                 collection=collection or None,
+                doc_class=doc_class or None,
             )
         )
     if not entries:
@@ -853,7 +875,13 @@ def source_lane(entry: SourceEntry) -> tuple[str, str]:
     if entry.citation_key:
         file_name, _ = _parse_citation_key(entry.citation_key)
     registry = load_registry() if (entry.url and "ris.bka.gv.at" in entry.url) else None
-    lane = lane_for_hit(file_name=file_name, source_url=entry.url, collection=entry.collection, registry=registry)
+    lane = lane_for_hit(
+        doc_class=entry.doc_class,
+        file_name=file_name,
+        source_url=entry.url,
+        collection=entry.collection,
+        registry=registry,
+    )
     if lane == ("web", "Web") and entry.source_type == "knowledge_layer":
         # A knowledge-base hit without collection metadata (output produced
         # before the `Collection:` field was threaded) is project/org
@@ -861,6 +889,29 @@ def source_lane(entry: SourceEntry) -> tuple[str, str]:
         # only the legacy fallback.
         return ("projekt", "Projektwissen")
     return lane
+
+
+def binding_note_for_entry(entry: SourceEntry) -> str | None:
+    """Prose bindingness note for a source, when the norm registry catalogues one.
+
+    For a RIS source whose URL carries a catalogued ``document_number``, return
+    the matching registry entry's ``binding_note`` (e.g. how the WBTV makes the
+    OIB Richtlinien binding in Wien) — the highest-value "does this actually bind
+    me?" fact for the citation popover. ``None`` when the source is not RIS or
+    the matched entry carries no note. Fail-open: never raises.
+    """
+    if not (entry.url and "ris.bka.gv.at" in entry.url):
+        return None
+    try:
+        from aiq_agent.common.norm_registry import load_registry
+
+        registry = load_registry()
+        for norm in registry.entries:
+            if norm.document_number and norm.document_number in entry.url and norm.binding_note:
+                return norm.binding_note
+    except Exception:  # registry unavailable/invalid — bindingness is best-effort
+        return None
+    return None
 
 
 def source_origin_token(entry: SourceEntry) -> str:
@@ -903,6 +954,13 @@ def source_entry_to_wire(entry: SourceEntry) -> dict[str, Any]:
     label = entry.citation_key or entry.title or entry.url or entry.tool_name or ""
     content = f"{origin_token} {label}".strip() if origin_token else label
 
+    # Canonical source-kind: the coarse taxonomy every surface renders through
+    # (chips, Herleitung fan-out, report). Derived from the rich lane
+    # classification so the OIB corpus and RIS share the same ``baurecht`` kind;
+    # the fine lane travels alongside as a sub-label. See ``source_kinds``.
+    lane_key, lane_label = source_lane(entry)
+    kind = kind_for_lane(lane_key)
+
     payload: dict[str, Any] = {
         "content": content,
         "title": entry.title or file_name,
@@ -912,6 +970,12 @@ def source_entry_to_wire(entry: SourceEntry) -> dict[str, Any]:
         "tool": entry.tool_name or None,
         "url": entry.url,
         "origin": origin,
+        "kind": kind,
+        "lane": lane_key,
+        "lane_label": lane_label,
+        # Bindingness fact for the popover ("does this bind me?") — only present
+        # for RIS sources the norm registry catalogues with a binding_note.
+        "binding_note": binding_note_for_entry(entry),
         "file_name": file_name,
         "page": page,
     }

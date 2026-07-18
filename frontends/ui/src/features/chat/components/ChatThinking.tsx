@@ -19,6 +19,7 @@ import { formatTime } from '@/shared/utils/format-time'
 import { SourceSignalChip } from '@/features/layout/components/SourceSignalChip'
 import type { ThinkingStep } from '../types'
 import { deriveTraceSourceCards, type TraceSourceCard } from '../lib/trace-lanes'
+import { AuthorityTag } from './AuthorityTag'
 
 export interface ChatThinkingProps {
   /** Array of thinking steps to display */
@@ -65,7 +66,10 @@ const SourceCard: FC<{ card: TraceSourceCard; hitLabel: string; gapLabel: string
       }}
     >
       <div className="flex items-start justify-between gap-2">
-        <SourceSignalChip signal={card.signal}>{card.tabLabel}</SourceSignalChip>
+        <SourceSignalChip signal={card.signal}>
+          {card.authority && <AuthorityTag>{card.authority}</AuthorityTag>}
+          {card.tabLabel}
+        </SourceSignalChip>
         <span
           className={
             card.kind === 'gap'

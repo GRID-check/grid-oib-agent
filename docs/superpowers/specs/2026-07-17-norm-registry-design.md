@@ -210,6 +210,14 @@ ingestion time.
 
 ### 4.4 `ris_knowledge` persistent norm cache — with a freshness policy (Phase 3)
 
+> **Correction (2026-07-18):** the persistent on-disk `ris_knowledge` cache with
+> Fassung-date re-validation and `RIS_POINTER_*` documents described below was
+> **never implemented** — the "Phase 3 ✅" marker was inaccurate. RIS caching is
+> now the shared Dragonfly/Redis cache (ADR-0020, `GRID_RIS_CACHE_TTL_DAYS`):
+> fetched documents and searches are cached by URL/args, fail-open, cache-only.
+> `ris_fetch_document` still ingests full text into the per-session collection
+> (and no longer re-ingests the same document every turn). See ADR-0026 Phase 4.
+
 `ris_fetch_document` currently ingests full text into the TTL'd session collection `s_<conv>`
 only. It will additionally write into a **persistent** `ris_knowledge` collection. A persistent
 cache of consolidated statutes (LrKons/BrKons) is a **correctness hazard** — a Novelle changes

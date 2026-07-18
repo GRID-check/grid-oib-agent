@@ -132,12 +132,32 @@ class OibSyncResponse(BaseModel):
     files_total: int
 
 
-class OibDocumentUploadResponse(BaseModel):
-    """Response for a platform-admin upload into the OIB base corpus."""
+class OibUploadedMember(BaseModel):
+    """One PDF queued from a ZIP bulk upload (or rejected during extraction)."""
 
-    status: str = Field(..., description="'success', 'failed', or 'timeout'")
-    file_name: str
+    file_name: str = Field(..., description="Member PDF basename.")
+    status: str = Field(..., description="'pending' (queued for ingestion) or 'rejected'.")
+    doc_class: str | None = Field(None, description="Pre-filled doc_class guess for accepted members.")
+    reason: str | None = Field(None, description="Why the member was rejected (rejected members only).")
+
+
+class OibDocumentUploadResponse(BaseModel):
+    """Response for a platform-admin upload into the OIB base corpus.
+
+    Single-file uploads populate ``file_name``/``doc_class``; ZIP bulk uploads
+    populate ``members``/``accepted``/``rejected``. Ingestion runs in the
+    background, so ``status`` is ``'pending'`` on a successful accept — the
+    caller polls ``/v1/oib/status`` for the terminal lifecycle.
+    """
+
+    status: str = Field(..., description="'pending', 'success', 'failed', or 'timeout'.")
+    file_name: str | None = Field(None, description="Uploaded PDF basename (single-file uploads).")
     message: str
+    doc_class: str | None = Field(None, description="Stored/guessed doc_class (single-file uploads).")
+    kind: str = Field("file", description="'file' for a single PDF, 'zip' for a bulk ZIP upload.")
+    accepted: int | None = Field(None, description="Members queued for ingestion (ZIP uploads).")
+    rejected: int | None = Field(None, description="Members skipped/rejected during extraction (ZIP uploads).")
+    members: list[OibUploadedMember] | None = Field(None, description="Per-member outcome (ZIP uploads).")
 
 
 class OibDocumentDeleteResponse(BaseModel):
