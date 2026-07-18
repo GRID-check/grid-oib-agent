@@ -12,7 +12,6 @@
 
 import { type FC, useState } from 'react'
 import { Scale, ExternalLink, FileText } from 'lucide-react'
-import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { useTranslations } from '@/i18n'
 import { PdfViewerDialog } from '@/features/knowledge/components/pdf-viewer-dialog'
@@ -59,11 +58,11 @@ export const LegalBasisCard: FC<LegalBasisCardData> = ({
   const [viewerOpen, setViewerOpen] = useState(false)
 
   return (
-    <Card className="animate-in fade-in-0 slide-in-from-bottom-1 gap-3 border-l-2 border-l-primary/40 p-5 shadow-xs">
+    <div className="animate-in fade-in-0 slide-in-from-bottom-1 flex flex-col gap-3 border-l-2 border-l-primary/30 pl-4">
       {/* Eyebrow — marks this as a citation, not a message */}
-      <div className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-widest text-muted-foreground">
+      <div className="flex items-center gap-1.5 text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
         <Scale className="size-3.5" aria-hidden="true" />
-        <span>Legal basis</span>
+        <span>{t('cards.legalBasis')}</span>
       </div>
 
       {/* Header: law/Richtlinie + § / article references */}
@@ -111,7 +110,7 @@ export const LegalBasisCard: FC<LegalBasisCardData> = ({
             className="inline-flex w-fit items-center gap-1.5 text-xs font-medium text-primary transition-opacity duration-200 ease-out hover:opacity-80"
           >
             <ExternalLink className="size-3.5" aria-hidden="true" />
-            {/oib|richtlinie/i.test(law) ? 'View OIB Richtlinie' : 'Verify in RIS'}
+            {/oib|richtlinie/i.test(law) ? t('cards.viewOib') : t('cards.verifyRis')}
           </a>
         )}
       </div>
@@ -125,6 +124,6 @@ export const LegalBasisCard: FC<LegalBasisCardData> = ({
       <p className="text-xs leading-relaxed text-muted-foreground">
         {t('cards.aiGenerated')}
       </p>
-    </Card>
+    </div>
   )
 }

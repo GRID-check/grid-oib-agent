@@ -186,7 +186,9 @@ describe('InputArea', () => {
     render(<InputArea isAuthenticated={true} />)
 
     expect(
-      screen.getByPlaceholderText('Check data sources and ask a research question...')
+      screen.getByPlaceholderText(
+        'Describe what you are working on — Piloti shows you, step by step, what is relevant …'
+      )
     ).toBeInTheDocument()
   })
 
@@ -222,18 +224,18 @@ describe('InputArea', () => {
     await user.tab()
     expect(input).toHaveFocus()
 
+    // Order per the click-dummy composer: scope · Datengrundlage · Deep
+    // Research, then attach + send (the files counter appears only once files
+    // are attached, so it is absent here).
     await user.type(input, 'Hello')
-    await user.tab()
-    expect(screen.getByRole('button', { name: /data basis/i })).toHaveFocus()
-
     await user.tab()
     expect(screen.getByRole('button', { name: /search scope/i })).toHaveFocus()
 
     await user.tab()
-    expect(screen.getByRole('button', { name: /deep research preference/i })).toHaveFocus()
+    expect(screen.getByRole('button', { name: /data basis/i })).toHaveFocus()
 
     await user.tab()
-    expect(screen.getByRole('button', { name: /open uploaded files/i })).toHaveFocus()
+    expect(screen.getByRole('button', { name: /deep research preference/i })).toHaveFocus()
 
     await user.tab()
     expect(screen.getByRole('button', { name: /attach files/i })).toHaveFocus()

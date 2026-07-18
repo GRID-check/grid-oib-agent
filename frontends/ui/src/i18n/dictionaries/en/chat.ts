@@ -22,6 +22,8 @@ export const chat = {
   },
   // Composer (InputArea) control row — WS-3 click-dummy overhaul.
   composer: {
+    placeholder:
+      'Describe what you are working on — Piloti shows you, step by step, what is relevant …',
     sources: 'Data basis',
     sourcesAria: 'Data basis — {enabled} of {total} sources enabled. Opens the data sources panel.',
     deepResearch: 'Deep Research',
@@ -51,8 +53,16 @@ export const chat = {
     morning: 'Good morning',
     afternoon: 'Good afternoon',
     evening: 'Good evening',
-    withName: '{greeting}, {name}',
+    withName: '{greeting}, {name}.',
     subtitle: 'Ask about your project — answers cite their sources.',
+  },
+  // Empty-state lock chip + thread role tabs (click-dummy overhaul, WS-3).
+  workspace: {
+    private: 'Private workspace',
+  },
+  roles: {
+    input: 'Input',
+    result: 'Result',
   },
   // "Belegt durch" provenance chip row under answers that carry source data.
   answerSources: {
@@ -66,6 +76,9 @@ export const chat = {
     renameInputAria: 'Session title',
   },
   cards: {
+    legalBasis: 'Legal basis',
+    viewOib: 'View OIB Richtlinie',
+    verifyRis: 'Verify in RIS',
     aiGenerated:
       'AI-generated citation — check the excerpt against the primary source (OIB / RIS).',
   },

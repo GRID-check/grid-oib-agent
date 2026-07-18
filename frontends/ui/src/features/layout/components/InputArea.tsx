@@ -15,15 +15,15 @@
 
 import { type FC, memo, useState, useCallback, useRef, useEffect, type KeyboardEvent } from 'react'
 import {
+  ArrowUp,
   Check,
-  Database,
+  ChevronDown,
   FileText,
-  Lock,
+  Layers,
   Paperclip,
-  SendHorizontal,
-  Sparkles,
   X,
   XCircle,
+  ZoomIn,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -367,7 +367,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     if (isResponseMode) return t('inputArea.typeResponse')
     if (isBusy) return t('inputArea.pleaseWait')
     if (isResearchSessionFailed) return t('inputArea.researchFailedFollowUp')
-    return placeholder ?? t('inputArea.placeholderDefault')
+    return placeholder ?? tChat('composer.placeholder')
   }
 
   const handleSubmit = useCallback(async () => {
@@ -541,13 +541,13 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   const scopeLabel = projectName || tChat('composer.scopeFallback')
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:p-4 sm:pb-4">
+    <div className="mx-auto flex w-full max-w-[720px] flex-col p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:p-4 sm:pb-4">
       <div
         className={cn(
           // Composer card per the click dummy: white card, hairline border,
           // layered soft shadow; textarea on top, hairline-separated control
-          // row below.
-          'relative flex flex-col rounded-2xl border bg-card p-3 shadow-lg transition-[box-shadow,border-color] duration-200 ease-out focus-within:ring-2 focus-within:ring-ring/30 sm:p-4',
+          // row below. Radius 14, pad 14/16.
+          'relative flex flex-col rounded-[14px] border bg-card px-4 py-[14px] shadow-lg transition-[box-shadow,border-color] duration-200 ease-out focus-within:ring-2 focus-within:ring-ring/30',
           isDisabledByAuth && 'opacity-60',
           isDragging && isUnsupportedDrag
             ? 'border-dashed border-error'
@@ -585,7 +585,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
         {/* Text Input */}
         <Textarea
           ref={textareaRef}
-          className="max-h-52 min-h-10 resize-none border-0 bg-transparent shadow-none focus-visible:ring-0"
+          className="max-h-52 min-h-[52px] resize-none border-0 bg-transparent px-1.5 py-1 text-[14.5px] leading-[1.55] shadow-none focus-visible:ring-0"
           value={message}
           onChange={(e) => handleValueChange(e.target.value)}
           onKeyDown={handleKeyDown}
@@ -622,140 +622,147 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           )}
         </AnimatePresence>
 
-        {/* Bottom control row — hairline-separated from the textarea */}
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5 border-t pt-3">
-          {/* Left: Datengrundlage summary chip, scope chip, Deep-Research pill */}
-          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-            {/* Sources summary chip — opens the EXISTING DataSourcesPanel */}
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-7 gap-1.5 rounded-full px-2.5 text-xs font-medium text-muted-foreground"
-              onClick={() => {
-                if (useLayoutStore.getState().rightPanel === 'data-sources') {
-                  closeRightPanel()
-                } else {
-                  setDataSourcesPanelTab('connections')
-                  openRightPanel('data-sources')
-                }
-              }}
-              disabled={isDisabledByAuth}
-              aria-label={tChat('composer.sourcesAria', {
-                enabled: enabledSourcesCount,
-                total: totalSourcesCount,
-              })}
-              title={t('inputArea.selectedConnections')}
-            >
-              <Database className="size-3" aria-hidden="true" />
-              <span>{tChat('composer.sources')}</span>
-              <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-muted px-1 text-[10px] font-semibold tabular-nums text-foreground">
-                {enabledSourcesCount}
-              </span>
-            </Button>
-
-            {/* Active source preset — colored provenance chip (icon+label+color) */}
-            {activeSourcePreset && (
-              <SourceSignalChip
-                signal={activeSourcePreset}
-                className="max-w-40"
-                title={tChat(`shortcuts.presets.${activeSourcePreset}`)}
+        {/* Bottom control row — hairline-separated from the textarea.
+            Order per the click dummy: scope · Datengrundlage · Deep-Research,
+            then attach + send pushed right. */}
+        <div className="mt-[14px] flex flex-wrap items-center gap-1.5 border-t pt-[14px]">
+          {/* Scope chip — current project; cross-project is honestly disabled.
+              Dashed status-active dot + label + chevron (dummy composer). */}
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                disabled={isDisabledByAuth}
+                aria-label={tChat('composer.scopeAria', { project: scopeLabel })}
+                title={tChat('composer.scopeAria', { project: scopeLabel })}
+                className="inline-flex h-8 min-w-0 items-center gap-[7px] rounded-md border bg-card px-[11px] shadow-xs transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {tChat(`shortcuts.presets.${activeSourcePreset}`)}
-              </SourceSignalChip>
-            )}
-
-            {/* Scope chip — current project; cross-project is honestly disabled */}
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-7 max-w-44 gap-1.5 rounded-full px-2.5 text-xs font-medium text-muted-foreground"
-                  disabled={isDisabledByAuth}
-                  aria-label={tChat('composer.scopeAria', { project: scopeLabel })}
-                  title={tChat('composer.scopeAria', { project: scopeLabel })}
-                >
-                  <Lock className="size-3" aria-hidden="true" />
-                  <span className="truncate">{scopeLabel}</span>
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent side="top" align="start" className="w-64 p-1.5">
-                <div
-                  className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm"
-                  aria-current="true"
-                >
-                  <Check className="size-3.5 shrink-0 text-foreground" aria-hidden="true" />
-                  <span className="min-w-0 flex-1 truncate font-medium">{scopeLabel}</span>
-                  <span className="shrink-0 text-xs text-muted-foreground">
-                    {tChat('composer.scopeCurrent')}
+                <span className="flex size-[14px] shrink-0 items-center justify-center rounded-full border border-dashed border-status-active">
+                  <span className="size-[5px] rounded-full bg-status-active" />
+                </span>
+                <span className="max-w-44 truncate text-[12.5px] font-medium text-foreground/85">
+                  {scopeLabel}
+                </span>
+                <ChevronDown className="size-3 shrink-0 text-muted-foreground" aria-hidden="true" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent side="top" align="start" className="w-64 p-1.5">
+              <div
+                className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm"
+                aria-current="true"
+              >
+                <Check className="size-3.5 shrink-0 text-foreground" aria-hidden="true" />
+                <span className="min-w-0 flex-1 truncate font-medium">{scopeLabel}</span>
+                <span className="shrink-0 text-xs text-muted-foreground">
+                  {tChat('composer.scopeCurrent')}
+                </span>
+              </div>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  {/* span wrapper: disabled elements don't emit hover events */}
+                  <span className="block" tabIndex={0}>
+                    <button
+                      type="button"
+                      disabled
+                      aria-disabled="true"
+                      className="flex w-full cursor-not-allowed items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-muted-foreground opacity-60"
+                    >
+                      <span className="size-3.5 shrink-0" aria-hidden="true" />
+                      <span className="truncate">{tChat('composer.scopeAll')}</span>
+                    </button>
                   </span>
-                </div>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    {/* span wrapper: disabled elements don't emit hover events */}
-                    <span className="block" tabIndex={0}>
-                      <button
-                        type="button"
-                        disabled
-                        aria-disabled="true"
-                        className="flex w-full cursor-not-allowed items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-muted-foreground opacity-60"
-                      >
-                        <span className="size-3.5 shrink-0" aria-hidden="true" />
-                        <span className="truncate">{tChat('composer.scopeAll')}</span>
-                      </button>
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent side="top" className="max-w-60">
-                    {tChat('composer.scopeAllSoon')}
-                  </TooltipContent>
-                </Tooltip>
-              </PopoverContent>
-            </Popover>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="max-w-60">
+                  {tChat('composer.scopeAllSoon')}
+                </TooltipContent>
+              </Tooltip>
+            </PopoverContent>
+          </Popover>
 
-            {/* Deep-Research intent pill — preference, NOT a hard trigger:
-                the agent auto-escalates on its own (spec §2.2(6)) */}
-            <button
-              type="button"
-              aria-pressed={deepResearchIntent}
-              aria-label={tChat('composer.deepResearchAria')}
-              title={tChat('composer.deepResearchHint')}
-              disabled={isDisabledByAuth}
-              onClick={() => setDeepResearchIntent(!deepResearchIntent)}
-              className={cn(
-                'inline-flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-[color,background-color,box-shadow] duration-200 ease-out',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50',
-                deepResearchIntent
-                  ? 'border-transparent bg-primary text-primary-foreground shadow-xs'
-                  : 'border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground'
-              )}
-            >
-              <Sparkles className="size-3" aria-hidden="true" />
-              <span>{tChat('composer.deepResearch')}</span>
-            </button>
-          </div>
+          {/* Datengrundlage chip — opens the EXISTING DataSourcesPanel.
+              Layers icon + label + count badge + chevron (dummy composer). */}
+          <button
+            type="button"
+            onClick={() => {
+              if (useLayoutStore.getState().rightPanel === 'data-sources') {
+                closeRightPanel()
+              } else {
+                setDataSourcesPanelTab('connections')
+                openRightPanel('data-sources')
+              }
+            }}
+            disabled={isDisabledByAuth}
+            aria-label={tChat('composer.sourcesAria', {
+              enabled: enabledSourcesCount,
+              total: totalSourcesCount,
+            })}
+            title={t('inputArea.selectedConnections')}
+            className="inline-flex h-8 shrink-0 items-center gap-[7px] rounded-md border bg-card px-[11px] text-[12.5px] text-muted-foreground shadow-xs transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Layers className="size-3.5 shrink-0" aria-hidden="true" />
+            <span>{tChat('composer.sources')}</span>
+            <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-md bg-muted px-1 text-[10.5px] font-semibold tabular-nums text-foreground/80">
+              {enabledSourcesCount}
+            </span>
+            <ChevronDown className="size-3 shrink-0 text-muted-foreground" aria-hidden="true" />
+          </button>
 
-          {/* Right Actions: files counter, attach, submit */}
-          <div className="flex items-center gap-2">
-            {/* Files indicator - clickable to toggle files tab */}
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 rounded-full px-2.5 text-muted-foreground"
-              onClick={() => {
-                if (useLayoutStore.getState().rightPanel === 'data-sources') {
-                  closeRightPanel()
-                } else {
-                  setDataSourcesPanelTab('files')
-                  openRightPanel('data-sources')
-                }
-              }}
-              disabled={isDisabledByAuth || !knowledgeLayerAvailable}
-              aria-label={t('inputArea.openFiles')}
-              title={knowledgeLayerAvailable ? t('inputArea.availableFiles') : t('inputArea.uploadNotAvailable')}
+          {/* Active source preset — colored provenance chip (icon+label+color) */}
+          {activeSourcePreset && (
+            <SourceSignalChip
+              signal={activeSourcePreset}
+              className="max-w-40"
+              title={tChat(`shortcuts.presets.${activeSourcePreset}`)}
             >
-              <FileText className="size-3" aria-hidden="true" />
-              <span className="text-xs font-semibold">{attachedFilesCount}</span>
-            </Button>
+              {tChat(`shortcuts.presets.${activeSourcePreset}`)}
+            </SourceSignalChip>
+          )}
+
+          {/* Deep-Research intent pill — preference, NOT a hard trigger:
+              the agent auto-escalates on its own (spec §2.2(6)) */}
+          <button
+            type="button"
+            aria-pressed={deepResearchIntent}
+            aria-label={tChat('composer.deepResearchAria')}
+            title={tChat('composer.deepResearchHint')}
+            disabled={isDisabledByAuth}
+            onClick={() => setDeepResearchIntent(!deepResearchIntent)}
+            className={cn(
+              'inline-flex h-8 shrink-0 cursor-pointer items-center gap-[7px] rounded-md border px-3 text-[12.5px] font-medium transition-[color,background-color,box-shadow] duration-200 ease-out',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50',
+              deepResearchIntent
+                ? 'border-primary bg-primary text-primary-foreground shadow-xs'
+                : 'border-border bg-card text-muted-foreground shadow-xs hover:bg-accent hover:text-foreground'
+            )}
+          >
+            <ZoomIn className="size-3.5" aria-hidden="true" />
+            <span>{tChat('composer.deepResearch')}</span>
+          </button>
+
+          {/* Right Actions: files counter, attach, submit — pushed right */}
+          <div className="ml-auto flex items-center gap-1">
+            {/* Files indicator - clickable to toggle files tab (only when files exist) */}
+            {attachedFilesCount > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 rounded-lg px-2.5 text-muted-foreground"
+                onClick={() => {
+                  if (useLayoutStore.getState().rightPanel === 'data-sources') {
+                    closeRightPanel()
+                  } else {
+                    setDataSourcesPanelTab('files')
+                    openRightPanel('data-sources')
+                  }
+                }}
+                disabled={isDisabledByAuth || !knowledgeLayerAvailable}
+                aria-label={t('inputArea.openFiles')}
+                title={knowledgeLayerAvailable ? t('inputArea.availableFiles') : t('inputArea.uploadNotAvailable')}
+              >
+                <FileText className="size-3" aria-hidden="true" />
+                <span className="text-xs font-semibold">{attachedFilesCount}</span>
+              </Button>
+            )}
 
             {/* Hidden file input */}
             <input
@@ -772,7 +779,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
             <Button
               variant="ghost"
               size="icon"
-              className="size-8 rounded-full text-muted-foreground"
+              className="size-[34px] rounded-[10px] text-subtle"
               onClick={handleAttachClick}
               disabled={isDisabledByAuth || isUploading || isBusy || !knowledgeLayerAvailable}
               aria-label={t('inputArea.attachFiles')}
@@ -794,11 +801,12 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
               <Popover>
                 <PopoverTrigger asChild>
                   <Button
-                    size="sm"
+                    size="icon"
+                    className="size-9 rounded-full shadow-md"
                     aria-label={t('inputArea.researchCompletedAria')}
                     title={t('inputArea.researchCompleted')}
                   >
-                    <SendHorizontal className="h-4 w-4" aria-hidden="true" />
+                    <ArrowUp className="h-4 w-4" aria-hidden="true" />
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent side="top" align="end" className="w-auto max-w-xs p-3">
@@ -811,11 +819,12 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
               <Popover>
                 <PopoverTrigger asChild>
                   <Button
-                    size="sm"
+                    size="icon"
+                    className="size-9 rounded-full shadow-md"
                     aria-label={t('inputArea.researchInProgressAria')}
                     title={t('inputArea.researchInProgress')}
                   >
-                    <SendHorizontal className="h-4 w-4" aria-hidden="true" />
+                    <ArrowUp className="h-4 w-4" aria-hidden="true" />
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent side="top" align="end" className="w-auto max-w-xs p-3">
@@ -834,7 +843,8 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                 tabIndex={-1}
               >
                 <Button
-                  size="sm"
+                  size="icon"
+                  className="size-9 rounded-full shadow-md"
                   onClick={handleSubmit}
                   disabled={!message.trim() || disabled}
                   aria-label={isResponseMode ? t('inputArea.sendResponse') : t('inputArea.sendMessage')}
@@ -861,7 +871,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                         exit={{ opacity: 0, scale: 0.8 }}
                         transition={springSnappy}
                       >
-                        <SendHorizontal className="h-4 w-4" aria-hidden="true" />
+                        <ArrowUp className="h-4 w-4" aria-hidden="true" />
                       </motion.span>
                     )}
                   </AnimatePresence>
@@ -884,11 +894,11 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           sources in the store — see lib/source-presets.ts. */}
       {isEmptyThread && !isDisabledByAuth && (
         <div
-          className="mt-3 flex flex-wrap items-center justify-center gap-1.5"
+          className="mt-[18px] flex flex-wrap items-center justify-center gap-2"
           role="group"
           aria-label={tChat('shortcuts.label')}
         >
-          <span className="text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
+          <span className="mr-1.5 text-[12.5px] text-muted-foreground">
             {tChat('shortcuts.label')}
           </span>
           {SOURCE_PRESETS.map(({ id, signal }) => (
@@ -897,6 +907,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
               signal={signal}
               active={activeSourcePreset === id}
               onClick={() => handlePresetClick(id)}
+              className="h-8 gap-[7px] rounded-[10px] px-[13px] text-[12.5px]"
               aria-label={tChat('shortcuts.presetAria', {
                 label: tChat(`shortcuts.presets.${id}`),
               })}

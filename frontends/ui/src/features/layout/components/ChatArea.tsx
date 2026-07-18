@@ -442,11 +442,19 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
     : greeting
 
   return (
-    <div className="flex flex-1 items-center justify-center px-4 pb-44 pt-6">
-      <div className="flex w-full max-w-xl flex-col items-center gap-3 text-center">
-        <h1 className="text-2xl font-semibold tracking-display sm:text-3xl">{heading}</h1>
-        <p className="text-sm text-muted-foreground">{tChat('greeting.subtitle')}</p>
+    <div className="flex flex-1 flex-col items-center justify-center px-6 pb-44 pt-6">
+      {/* "Privater Workspace" lock chip — h28, radius8, hairline, raised */}
+      <div className="mb-4 inline-flex h-7 items-center gap-[7px] rounded-md border bg-card px-[11px] shadow-xs">
+        <Lock className="size-3 shrink-0 text-subtle" aria-hidden="true" />
+        <span className="text-[12px] font-medium text-muted-foreground">
+          {tChat('workspace.private')}
+        </span>
       </div>
+
+      {/* Hero greeting — 23px/500 ink, tight tracking */}
+      <h1 className="text-center text-[23px] font-medium tracking-display text-foreground">
+        {heading}
+      </h1>
     </div>
   )
 }

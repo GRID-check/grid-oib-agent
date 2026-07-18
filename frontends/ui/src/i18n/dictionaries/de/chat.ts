@@ -19,6 +19,8 @@ export const chat: typeof en.chat = {
     },
   },
   composer: {
+    placeholder:
+      'Beschreiben Sie, woran Sie gerade arbeiten — Piloti zeigt Ihnen Schritt für Schritt, was dafür relevant ist …',
     sources: 'Datengrundlage',
     sourcesAria: 'Datengrundlage – {enabled} von {total} Quellen aktiv. Öffnet die Datenquellen.',
     deepResearch: 'Deep Research',
@@ -44,8 +46,16 @@ export const chat: typeof en.chat = {
     morning: 'Guten Morgen',
     afternoon: 'Guten Tag',
     evening: 'Guten Abend',
-    withName: '{greeting}, {name}',
+    withName: '{greeting}, {name}.',
     subtitle: 'Fragen Sie zu Ihrem Projekt – Antworten belegen ihre Quellen.',
+  },
+  // Empty-state lock chip + thread role tabs (click-dummy overhaul, WS-3).
+  workspace: {
+    private: 'Privater Workspace',
+  },
+  roles: {
+    input: 'Eingabe',
+    result: 'Ergebnis',
   },
   answerSources: {
     label: 'Belegt durch',
@@ -59,6 +69,9 @@ export const chat: typeof en.chat = {
   cards: {
     aiGenerated:
       'KI-generierte Zitierung — prüfen Sie den Auszug anhand der Primärquelle (OIB / RIS).',
+    legalBasis: 'Rechtsgrundlage',
+    viewOib: 'OIB-Richtlinie ansehen',
+    verifyRis: 'In RIS prüfen',
   },
   agentPrompt: {
     needsInput: 'Der Agent benötigt Ihre Eingabe',

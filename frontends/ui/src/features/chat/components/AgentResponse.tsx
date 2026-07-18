@@ -9,7 +9,7 @@
 'use client'
 
 import { type FC, useCallback } from 'react'
-import { ChevronRight } from 'lucide-react'
+import { Check, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { useShallow } from 'zustand/react/shallow'
@@ -231,18 +231,28 @@ export const AgentResponse: FC<AgentResponseProps> = ({
     )
   }
 
-  // Default variant - with box styling
+  // Default variant — the click-dummy "Ergebnis" card: a role tab over a
+  // tinted shell whose white inner block carries the composed answer, then a
+  // "Belegt durch" provenance row and the feedback row, hairline-separated.
   return (
-    <div className="animate-in fade-in-0 slide-in-from-bottom-1 flex w-full justify-start duration-200">
-      <div className="flex max-w-[85%] flex-col">
-        <div className="flex flex-col gap-2 overflow-hidden break-words rounded-2xl rounded-bl-md bg-card p-4">
+    <div className="animate-in fade-in-0 slide-in-from-bottom-1 mx-auto flex w-[680px] max-w-full flex-col duration-200">
+      {/* "Ergebnis" role tab — near-black action fill, uppercase 10.5/600 */}
+      <div className="ml-[14px] inline-flex w-fit items-center gap-1.5 rounded-t-[7px] bg-primary px-2.5 py-1 text-[10.5px] font-semibold uppercase tracking-[0.05em] text-primary-foreground">
+        <Check className="size-2.5" strokeWidth={2.6} aria-hidden="true" />
+        {t('roles.result')}
+      </div>
+
+      {/* Shell: subtle surface + hairline + soft shadow, corners clipped */}
+      <div className="overflow-hidden rounded-[12px] border border-input bg-input-background shadow-md">
+        {/* White inner block — the answer body sits flat here (dummy anatomy) */}
+        <div className="flex flex-col gap-2 break-words rounded-b-[10px] bg-card px-[22px] pb-[18px] pt-[19px] shadow-sm">
           {/* Optional Grid cards rendered before the markdown body */}
           {hasCards && <GridCards cards={cards} projectId={projectId} />}
 
           {/* Response Content rendered as markdown */}
           <MarkdownRenderer content={content} />
 
-          {/* Optional action button stays inside the bubble */}
+          {/* Optional action button stays inside the block */}
           {shouldShowButton && (
             <div className="mt-1 flex items-center justify-end">
               <Button
@@ -269,29 +279,37 @@ export const AgentResponse: FC<AgentResponseProps> = ({
               </Button>
             </div>
           )}
+        </div>
 
-          {/* "Belegt durch": provenance chips for sources this answer carries */}
+        {/* "Belegt durch": provenance chips for sources this answer carries.
+            Sits on the tinted shell below the white block. */}
+        <div className="px-[22px] pb-3 pt-[11px]">
           <AnswerSourcesRow citations={citations} cards={cards} />
+          {/* Footer chips: self-assessed confidence + what Piloti recorded */}
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            {showConfidenceChip && <ConfidenceChip confidence={answerConfidence} />}
+            <MemoryNotedChip projectId={projectId} conversationId={conversationId} />
+          </div>
         </div>
 
-        {/* Footer chips: self-assessed confidence + what Piloti recorded this turn */}
-        <div className="mt-1.5 flex flex-wrap items-center justify-start gap-2 px-1">
-          {showConfidenceChip && <ConfidenceChip confidence={answerConfidence} />}
-          <MemoryNotedChip projectId={projectId} conversationId={conversationId} />
-        </div>
-
-        {/* Per-answer thumbs feedback (WS-7, `answer-feedback` flag) */}
+        {/* Per-answer thumbs feedback (WS-7) — own row with a divider so it
+            reads as its own thing, not a trailing afterthought */}
         {showAnswerFeedback && messageId && (
-          <AnswerFeedback messageId={messageId} conversationId={conversationId} className="mt-1.5 px-1" />
-        )}
-
-        {/* Timestamp outside bubble, right-aligned */}
-        {timestamp && (
-          <span className="text-subtle mr-3 mt-1 self-end text-xs">
-            {formatTime(timestamp)}
-          </span>
+          <>
+            <div className="mx-[22px] border-t border-border/70" />
+            <AnswerFeedback
+              messageId={messageId}
+              conversationId={conversationId}
+              className="px-[22px] pb-[16px] pt-[14px]"
+            />
+          </>
         )}
       </div>
+
+      {/* Timestamp outside the card, right-aligned */}
+      {timestamp && (
+        <span className="text-subtle mr-3 mt-1 self-end text-xs">{formatTime(timestamp)}</span>
+      )}
     </div>
   )
 }
