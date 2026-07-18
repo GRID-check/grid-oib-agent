@@ -198,6 +198,40 @@ def build_request_from_state(
     )
 
 
+_BINDING_ROLES = frozenset({"normativ", "anwendend", "erklaerend"})
+
+
+def _load_registry_safe():
+    """Load the norm registry fail-open (Phase 5 trust-chain stamping hook)."""
+    try:
+        from aiq_agent.common.norm_registry import load_registry
+
+        return load_registry()
+    except Exception:  # noqa: BLE001
+        logger.warning("Norm registry unavailable; compliance matrix rows carry no trust-chain metadata.")
+        return None
+
+
+def _stamp_matrix_trust_chain(rows: list[ComplianceMatrixRow], registry) -> None:
+    """Stamp rank/binding from the norm registry onto assembled matrix rows.
+
+    Pure metadata inheritance (norm-registry Phase 5, spec §6.5): a row for
+    Richtlinie N resolves the registry entry ``oib-rl-N``; ``binding`` is only
+    set for roles in the requirement vocabulary. Fail-open: ``None`` registry
+    or an unknown Richtlinie leaves the row untouched.
+    """
+    if registry is None:
+        return
+    for row in rows:
+        entry = registry.by_id(f"oib-rl-{row.richtlinie}")
+        if entry is None:
+            continue
+        row.norm_id = entry.id
+        row.rank = entry.rank
+        if entry.role in _BINDING_ROLES:
+            row.binding = entry.role
+
+
 class ComplianceCheckAgent:
     """Staged OIB compliance-check pipeline (v1).
 
@@ -482,6 +516,8 @@ class ComplianceCheckAgent:
 
         rows.sort(key=lambda row: (row.richtlinie, row.punkt))
         gaps.sort(key=lambda gap: gap.risk_score, reverse=True)
+
+        _stamp_matrix_trust_chain(rows, _load_registry_safe())
 
         return ComplianceMatrix(
             findings=rows,

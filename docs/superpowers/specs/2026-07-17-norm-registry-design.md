@@ -409,7 +409,7 @@ backend changes, no second backend, and the pack contract is what "done" means f
 | **2** (~1–2 wk) ✅ implemented 2026-07-17 | `corpus/at.py` Punkt parser, chunk metadata stamping, context prefix, parent expansion, filters wiring (incl. jurisdiction-aware edition selection), full corpus re-ingest | Chunks carry `doc_id/edition/punkt/rank/role`; default filter excludes diff+superseded via metadata; citation format `OIB-RL 2, Pkt 3.1.2, Ausgabe 2023-05` |
 | **3** (~1 wk) ✅ implemented 2026-07-17 | `ris_knowledge` persistent cache **with the §4.4 freshness policy**, `corpus/ris.py` § chunking, stratum labels, scope fan-out | Stale-copy TTL re-validation proven by test (simulated Novelle → re-fetch); results show rank/role labels |
 | **4** (~2 wk) ✅ implemented 2026-07-17 | Applicability rules in registry (per the pinned DSL), Python resolver, TS codegen + parity test, new intake triggers, compliance Stage 1 integration, UI parity | Overview UI and backend prompts produce identical verdicts on fixture profiles |
-| **5** (~1 wk) | NormReference trust-chain fields + resolver, registry-validated citation verification | Cards carry stamped `norm_id/rank/binding`; invalid document/edition citations flagged |
+| **5** (~1 wk) ✅ implemented 2026-07-17 | NormReference trust-chain fields + resolver, registry-validated citation verification | Cards carry stamped `norm_id/rank/binding`; invalid document/edition citations flagged |
 
 Phases are separately mergeable PRs against `develop`, each with its docs updates (see §10).
 

@@ -58,6 +58,7 @@ class CitationVerificationResult:
     verified_report: str
     removed_citations: list[dict] = field(default_factory=list)
     valid_citations: list[dict] = field(default_factory=list)
+    notes: list[dict] = field(default_factory=list)
 
 
 class EmptySourceRegistryError(Exception):
@@ -1000,6 +1001,130 @@ def _renumber_citations(body: str, ref_section: str) -> tuple[str, str, dict[int
     return body, ref_section, renumber_map
 
 
+# ---------------------------------------------------------------------------
+# Norm-registry verification pass (ADR-0025 Phase 5)
+#
+# A second, registry-backed audit on top of identity matching: a citation that
+# survived the registry of captured sources is additionally checked against the
+# norm registry — document must resolve, edition must exist, and guidance
+# (anwendend/erklaerend) must not be cited as a requirement. Notes are advisory
+# and never remove a citation.
+# ---------------------------------------------------------------------------
+
+_NORMISH_DOC_RE = re.compile(r"oib|richtlinie|bauordnung|bauo|gesetz|verordnung|norm|\.pdf", re.IGNORECASE)
+_EDITION_TOKEN_RE = re.compile(r"ausgabe|fassung|konsolidiert|rev\.|\b\d{4}\b", re.IGNORECASE)
+_REQUIREMENT_HINT_RE = re.compile(
+    r"\b(?:muss|müssen|anforderung\w*|erforderlich|vorgeschrieben|mindestens|höchstens|darf\s+nicht)\b",
+    re.IGNORECASE,
+)
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+|\n+")
+
+
+def _load_norm_registry_for_verification():
+    """Fail-open loader hook (tests monkeypatch this)."""
+    try:
+        from aiq_agent.common.norm_registry import load_registry
+    except ImportError:
+        return None
+    return load_registry()
+
+
+def _split_norm_citation_key(citation_key: str) -> tuple[str, str | None]:
+    """Split 'OIB-RL 2, Pkt 3.1.2, Ausgabe Mai 2023' → (document, edition|None)."""
+    parts = [p.strip() for p in citation_key.split(",") if p.strip()]
+    if not parts:
+        return citation_key.strip(), None
+    doc = parts[0]
+    edition = parts[-1] if len(parts) > 1 and _EDITION_TOKEN_RE.search(parts[-1]) else None
+    return doc, edition
+
+
+def _corpus_file_entry(doc: str, registry):
+    """Resolve a corpus file name (or stem) to its registry (entry, edition)."""
+    doc_norm = doc.strip().lower()
+    stem = doc_norm[:-4] if doc_norm.endswith(".pdf") else doc_norm
+    for entry in registry.entries:
+        for edition in entry.editions:
+            source = edition.source
+            if source is None or source.kind != "corpus" or not source.file:
+                continue
+            file_norm = source.file.strip().lower()
+            if doc_norm == file_norm or stem == file_norm[:-4]:
+                return entry, edition
+    return None
+
+
+def _sentences_citing(body: str, number: int) -> list[str]:
+    marker = f"[{number}]"
+    return [s for s in _SENTENCE_SPLIT_RE.split(body) if marker in s]
+
+
+def _registry_verification_notes(valid_citations: list[dict], body: str) -> list[dict]:
+    """Advisory registry audit over validated knowledge-layer citations."""
+    registry = _load_norm_registry_for_verification()
+    if registry is None:
+        return []
+    try:
+        from aiq_agent.common.norm_resolution import resolve_norm_reference
+    except ImportError:
+        return []
+
+    notes: list[dict] = []
+    for citation in sorted(valid_citations, key=lambda c: c["number"]):
+        citation_key = citation.get("citation_key")
+        if not citation_key:
+            continue
+        number = citation["number"]
+        doc, edition_token = _split_norm_citation_key(citation_key)
+
+        resolved = None
+        file_match = _corpus_file_entry(doc, registry)
+        if file_match is not None:
+            entry, _edition = file_match
+            resolved = resolve_norm_reference(entry.short, edition_token, registry)
+        if resolved is None:
+            resolved = resolve_norm_reference(doc, edition_token, registry)
+
+        if resolved is None:
+            doc_only = resolve_norm_reference(doc, None, registry)
+            if doc_only is None:
+                if _NORMISH_DOC_RE.search(doc):
+                    notes.append(
+                        {
+                            "type": "document_unresolved",
+                            "number": number,
+                            "citation_key": citation_key,
+                            "norm_id": None,
+                            "detail": f"Cited document '{doc}' matches no norm-registry entry.",
+                        }
+                    )
+            else:
+                notes.append(
+                    {
+                        "type": "edition_unresolved",
+                        "number": number,
+                        "citation_key": citation_key,
+                        "norm_id": doc_only.norm_id,
+                        "detail": f"Cited edition '{edition_token}' matches no edition of '{doc_only.norm_id}'.",
+                    }
+                )
+            continue
+
+        if resolved.binding in ("anwendend", "erklaerend") and any(
+            _REQUIREMENT_HINT_RE.search(s) for s in _sentences_citing(body, number)
+        ):
+            notes.append(
+                {
+                    "type": "guidance_cited_as_requirement",
+                    "number": number,
+                    "citation_key": citation_key,
+                    "norm_id": resolved.norm_id,
+                    "detail": f"'{resolved.norm_id}' is {resolved.binding} guidance cited in a requirement sentence.",
+                }
+            )
+    return notes
+
+
 def verify_citations(
     report_text: str,
     registry: SourceRegistry,
@@ -1236,6 +1361,8 @@ def verify_citations(
     # this function and handles renumbering in a single pass.
     verified_report = cleaned_body + cleaned_ref_section
 
+    notes = _registry_verification_notes(valid_citations, cleaned_body)
+
     logger.debug(
         "[CitationVerify] Result: kept %d, removed %d",
         len(valid_citations),
@@ -1246,6 +1373,7 @@ def verify_citations(
         verified_report=verified_report,
         removed_citations=removed_citations,
         valid_citations=valid_citations,
+        notes=notes,
     )
 
 

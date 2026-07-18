@@ -1447,6 +1447,19 @@
     "NormReference": {
       "description": "A verifiable pointer into a regulation (the atom of grounding).\n\nEvery required value MUST carry one so the architect can verify it against\nthe source. Never fabricate a reference.",
       "properties": {
+        "binding": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "System-stamped binding role: normativ | anwendend | erklaerend",
+          "title": "Binding"
+        },
         "document": {
           "description": "Regulation name, e.g. 'OIB-Richtlinie 2', '\u00d6NORM B 1600'",
           "minLength": 1,
@@ -1479,6 +1492,32 @@
           "description": "Literal quoted sentence grounding the value (<= ~200 chars)",
           "title": "Excerpt"
         },
+        "norm_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "System-stamped registry id (never authored by the LLM), e.g. 'oib-rl-2'",
+          "title": "Norm Id"
+        },
+        "rank": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "System-stamped registry rank, e.g. 'oib_richtlinie'",
+          "title": "Rank"
+        },
         "section": {
           "anyOf": [
             {
@@ -1491,6 +1530,19 @@
           "default": null,
           "description": "Clause/table, e.g. 'Pkt. 5.1.1', 'Tabelle 1b'",
           "title": "Section"
+        },
+        "via": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "System-stamped binding source, e.g. 'WBTV 2023' (declares_binding chain)",
+          "title": "Via"
         }
       },
       "required": [

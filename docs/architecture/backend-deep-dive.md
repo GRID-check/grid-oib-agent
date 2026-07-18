@@ -544,6 +544,31 @@ Three consumers:
   original scope on unparseable context, missing registry, or an empty
   intersection).
 
+**Phase-5 trust chain** (spec §6.3–§6.5, 2026-07-17):
+
+- `NormReference` gained optional `norm_id`, `rank`, `binding`
+  (`normativ|anwendend|erklaerend`) and `via` fields — **system-stamped, never
+  LLM-authored**: `CardRegistry.add` runs every emitted card through
+  `resolve_norm_reference` (`src/aiq_agent/common/norm_resolution.py`), which
+  matches the free-text `document`/`edition` against registry ids, shorts,
+  titles and aliases (exact beats containment; longer match wins so
+  `OIB-RL 2 Leitfaden` resolves to the Leitfaden entry), picks the current
+  non-diff edition when none is named, and derives `via` from the verified
+  `declares_binding` source for the project's state. Unresolvable references
+  stay free-text (and any LLM-authored trust-chain keys are stripped), so old
+  cards and external documents remain valid.
+- `verify_citations` gained a registry pass producing advisory `notes` on the
+  result (never removes citations): `document_unresolved` for norm-ish
+  document names nothing in the registry matches (typo/hallucination catch),
+  `edition_unresolved` for editions the registry does not know, and
+  `guidance_cited_as_requirement` when a chunk whose registry role is
+  `anwendend`/`erklaerend` is cited inside a requirement sentence
+  (muss/Anforderung/vorgeschrieben/…). `normativ` roles (incl. ÖNORM) are
+  never flagged.
+- Compliance matrix rows inherit `norm_id`/`rank`/`binding` from the registry
+  (`oib-rl-<n>` per row) in `_assemble_matrix`, so the report distinguishes a
+  Norm-Verstoß from a Leitfaden-Abweichung at the data level.
+
 **Jurisdiction is a structured fact, not an inference.** The project-intake
 wizard captures the building's location as a validated `bundesland` fact (nine
 states + `ausserhalb_oesterreichs`, with a free-text `standort_details` for

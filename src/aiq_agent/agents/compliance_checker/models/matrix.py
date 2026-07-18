@@ -27,6 +27,10 @@ class ComplianceMatrixRow(BaseModel):
     evidence_quotes: list[str] = Field(default_factory=list)
     source_files: list[str] = Field(default_factory=list)
     reasoning: str = ""
+    # Trust chain (system-derived from the norm registry, never LLM-authored).
+    norm_id: str | None = None
+    rank: str | None = None
+    binding: str | None = None
 
 
 class GapItem(BaseModel):
