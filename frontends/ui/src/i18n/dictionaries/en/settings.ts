@@ -22,6 +22,19 @@ export const settings = {
     createdOn: 'Created {date}',
     status: {
       active: 'Active',
+      completed: 'Completed',
+    },
+    parameters: {
+      fields: {
+        name: 'Project name',
+        location: 'Location',
+        buildingClass: 'Building class',
+        constructionType: 'Construction type',
+        use: 'Use',
+        status: 'Status',
+      },
+      notProvided: 'Not provided',
+      edit: 'Edit details',
     },
     sections: {
       parameters: 'Project parameters',
