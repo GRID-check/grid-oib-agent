@@ -29,6 +29,7 @@ Chart extraction uses the VLM to:
 
 import asyncio
 import base64
+import json
 import logging
 import os
 import threading
@@ -118,6 +119,87 @@ def bump_collection_version(collection_name: str) -> None:
 def collection_version(collection_name: str) -> int:
     with _collection_versions_lock:
         return _collection_versions.get(collection_name, 0)
+
+
+def _filters_fingerprint(filters: dict[str, Any] | None) -> str:
+    """Stable cache-key fragment for a filter dict (empty string when unfiltered)."""
+    if not filters:
+        return ""
+    return json.dumps(filters, sort_keys=True, default=str)
+
+
+def _field_metadata_filter(field: str, condition: Any):
+    """Translate one ``field: condition`` pair into a ``MetadataFilter``."""
+    from llama_index.core.vector_stores.types import FilterOperator
+    from llama_index.core.vector_stores.types import MetadataFilter
+
+    operators = {
+        "$eq": FilterOperator.EQ,
+        "$ne": FilterOperator.NE,
+        "$in": FilterOperator.IN,
+        "$nin": FilterOperator.NIN,
+    }
+    if isinstance(condition, dict):
+        if len(condition) != 1:
+            raise ValueError(f"Unsupported metadata filter condition for field {field!r}: {condition!r}")
+        op, value = next(iter(condition.items()))
+        if op not in operators:
+            raise ValueError(f"Unsupported metadata filter operator: {op!r}")
+        return MetadataFilter(key=field, operator=operators[op], value=value)
+    return MetadataFilter(key=field, operator=FilterOperator.EQ, value=condition)
+
+
+def _translate_filter_node(node: dict[str, Any]):
+    """Translate one filter node into ``MetadataFilters`` (nested groups supported)."""
+    from llama_index.core.vector_stores.types import FilterCondition
+    from llama_index.core.vector_stores.types import MetadataFilters
+
+    flat: list[Any] = []
+    groups: list[MetadataFilters] = []
+    for key, condition in node.items():
+        if key == "$and":
+            if not isinstance(condition, list) or not condition:
+                raise ValueError(f"Unsupported metadata filter operator: {key!r} (expects a non-empty list)")
+            children = [_translate_filter_node(child) for child in condition]
+            flattened: list[Any] = []
+            for child in children:
+                if child.condition == FilterCondition.AND:
+                    flattened.extend(child.filters)
+                else:
+                    flattened.append(child)
+            groups.append(MetadataFilters(filters=flattened, condition=FilterCondition.AND))
+        elif key == "$or":
+            if not isinstance(condition, list) or not condition:
+                raise ValueError(f"Unsupported metadata filter operator: {key!r} (expects a non-empty list)")
+            children = [_translate_filter_node(child) for child in condition]
+            groups.append(MetadataFilters(filters=children, condition=FilterCondition.OR))
+        elif key.startswith("$"):
+            raise ValueError(f"Unsupported metadata filter operator: {key!r}")
+        else:
+            flat.append(_field_metadata_filter(key, condition))
+    combined: list[Any] = flat + groups
+    if not combined:
+        raise ValueError("Unsupported metadata filter: empty group")
+    return MetadataFilters(filters=combined)
+
+
+def _to_metadata_filters(filters: dict[str, Any] | None):
+    """Translate the backend-neutral filter dict into LlamaIndex ``MetadataFilters``.
+
+    Shape (conditions AND-ed within a node; ``$or``/``$and`` group nested nodes)::
+
+        {"field": value}                              -> equality
+        {"field": {"$eq"|"$ne": v}}                   -> (not) equal
+        {"field": {"$in"|"$nin": [v1, ...]}}          -> (not) in
+        {"$and": [node, ...]}                         -> AND group
+        {"$or": [node, ...]}                          -> OR group
+
+    Returns ``None`` for empty input. Unknown operators raise ``ValueError``
+    (fail loud at the tool boundary rather than silently over-retrieving).
+    """
+    if not filters:
+        return None
+    return _translate_filter_node(filters)
 
 
 # ``read_api_key_env`` (the ${...}-placeholder guard) was promoted to the shared
@@ -2339,7 +2421,7 @@ class LlamaIndexRetriever(BaseRetriever):
                     self._embed_cache.pop(evicted, None)
         return embedding
 
-    def _cached_static_result(self, key: tuple[str, int, str, int]) -> RetrievalResult | None:
+    def _cached_static_result(self, key: tuple[str, int, str, int, str]) -> RetrievalResult | None:
         with self._result_cache_lock:
             entry = self._result_cache.get(key)
             if entry is None:
@@ -2354,7 +2436,7 @@ class LlamaIndexRetriever(BaseRetriever):
             # the cached object.
             return result.model_copy(deep=True)
 
-    def _store_static_result(self, key: tuple[str, int, str, int], result: RetrievalResult) -> None:
+    def _store_static_result(self, key: tuple[str, int, str, int, str], result: RetrievalResult) -> None:
         with self._result_cache_lock:
             self._result_cache[key] = (time.monotonic(), result.model_copy(deep=True))
             if key in self._result_cache_order:
@@ -2376,8 +2458,14 @@ class LlamaIndexRetriever(BaseRetriever):
 
             logger.info(f"LlamaIndexRetriever.retrieve: query='{query[:50]}...', collection={collection_name}")
 
-            cacheable = collection_name in self.STATIC_RESULT_CACHE_COLLECTIONS and not filters
-            cache_key = (collection_name, collection_version(collection_name), query, top_k)
+            cacheable = collection_name in self.STATIC_RESULT_CACHE_COLLECTIONS
+            cache_key = (
+                collection_name,
+                collection_version(collection_name),
+                query,
+                top_k,
+                _filters_fingerprint(filters),
+            )
             if cacheable:
                 cached = self._cached_static_result(cache_key)
                 if cached is not None:
@@ -2398,7 +2486,11 @@ class LlamaIndexRetriever(BaseRetriever):
 
             # Embed once (LRU) and hand the vector to the retriever, so the
             # per-collection fan-out of one query hits the embedding API once.
-            retriever = index.as_retriever(similarity_top_k=top_k)
+            retriever_kwargs: dict[str, Any] = {"similarity_top_k": top_k}
+            metadata_filters = _to_metadata_filters(filters)
+            if metadata_filters is not None:
+                retriever_kwargs["filters"] = metadata_filters
+            retriever = index.as_retriever(**retriever_kwargs)
             query_bundle = QueryBundle(query_str=query, embedding=self._embed_query_cached(query))
             nodes = retriever.retrieve(query_bundle)
 

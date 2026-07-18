@@ -25,7 +25,9 @@ from langgraph.types import Checkpointer
 from aiq_agent.common import LLMProvider
 from aiq_agent.common import LLMRole
 from aiq_agent.common import render_prompt_template
-from aiq_agent.common.ris_catalog import render_block_for_prompt
+from aiq_agent.common.norm_registry import doctrine_for
+from aiq_agent.common.norm_registry import parcel_note
+from aiq_agent.common.norm_registry import render_block_for_prompt
 
 from .custom_middleware import DeferredStructuredOutputMiddleware
 from .custom_middleware import EmptyContentFixMiddleware
@@ -120,7 +122,7 @@ class DeepResearchGraphContext:
 
     @property
     def ris_catalog(self) -> str | None:
-        """Curated RIS index block for prompts; None when the catalog is unavailable."""
+        """Lane-rendered norm registry block for prompts; None when the registry is unavailable."""
         return render_block_for_prompt(self.project_context)
 
     def render_prompt(self, prompt_name: str, **values: Any) -> str:
@@ -131,6 +133,8 @@ class DeepResearchGraphContext:
             available_documents=self.available_documents,
             project_context=self.project_context,
             ris_catalog=self.ris_catalog,
+            norm_doctrine=doctrine_for(self.project_context),
+            parcel_note=parcel_note(self.available_documents),
             **values,
         )
 

@@ -64,7 +64,7 @@ class ProjectProfilePatchOperation(BaseModel):
     value: Any = Field(
         default=None,
         description=(
-            "The PLAIN value only (e.g. \"GK4\", 3, true) — never wrap it in an object; the app adds "
+            'The PLAIN value only (e.g. "GK4", 3, true) — never wrap it in an object; the app adds '
             "provenance metadata when the user accepts."
         ),
     )

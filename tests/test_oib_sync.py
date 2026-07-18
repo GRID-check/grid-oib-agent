@@ -207,3 +207,57 @@ def test_remove_uploaded_document_deletes_disk_registry_and_chunks(monkeypatch, 
     _write_pdf(tmp_path / "oib" / "shipped.pdf", b"y")
     assert oib_sync.remove_uploaded_document("shipped.pdf") is False
     assert oib_sync.remove_uploaded_document("../oib/shipped.pdf") is False
+
+
+class TestChunkFormatVersionGate:
+    """A chunk-format bump forces exactly one automatic full re-ingest."""
+
+    def _setup(self, tmp_path, monkeypatch, registry: dict):
+        import json
+
+        from aiq_agent import oib_sync
+
+        reg_path = tmp_path / "oib_registry.json"
+        reg_path.write_text(json.dumps(registry), encoding="utf-8")
+        monkeypatch.setattr(oib_sync, "REGISTRY_PATH", reg_path)
+        return oib_sync, reg_path
+
+    def test_missing_version_forces_full_reingest(self, tmp_path, monkeypatch):
+        import json
+
+        oib_sync, reg_path = self._setup(tmp_path, monkeypatch, {"/data/oib/a.pdf": "oldhash"})
+        registry = oib_sync._load_registry()
+        assert registry and registry.get(oib_sync._FORMAT_KEY) != oib_sync.CHUNK_FORMAT_VERSION
+        # replicate the sync() gate
+        registry = {} if registry.get(oib_sync._FORMAT_KEY) != oib_sync.CHUNK_FORMAT_VERSION else registry
+        registry.setdefault(oib_sync._FORMAT_KEY, oib_sync.CHUNK_FORMAT_VERSION)
+        oib_sync._save_registry(registry)
+        stored = json.loads(reg_path.read_text())
+        assert stored == {oib_sync._FORMAT_KEY: oib_sync.CHUNK_FORMAT_VERSION}  # hashes dropped -> all files re-ingest
+
+    def test_stamped_registry_is_untouched(self, tmp_path, monkeypatch):
+        from aiq_agent import oib_sync as osync
+
+        registry_content = {"__chunk_format_version__": osync.CHUNK_FORMAT_VERSION, "/data/oib/a.pdf": "hash1"}
+        oib_sync, _ = self._setup(tmp_path, monkeypatch, registry_content)
+        registry = oib_sync._load_registry()
+        assert registry.get(oib_sync._FORMAT_KEY) == oib_sync.CHUNK_FORMAT_VERSION
+        assert registry["/data/oib/a.pdf"] == "hash1"  # hash-gating still skips unchanged files
+
+    def test_status_ignores_reserved_key(self, tmp_path, monkeypatch):
+        from aiq_agent import oib_status
+        from aiq_agent import oib_sync as osync
+
+        oib_sync, _ = self._setup(tmp_path, monkeypatch, {"__chunk_format_version__": osync.CHUNK_FORMAT_VERSION})
+        monkeypatch.setattr(osync, "OIB_DIR", tmp_path / "none")
+        monkeypatch.setattr(osync, "OIB_UPLOADS_DIR", tmp_path / "none2")
+
+        class _NoopIngestor:
+            def get_collection(self, name):
+                return None
+
+            def list_files(self, name):
+                return []
+
+        status = oib_status.get_status(ingestor=_NoopIngestor())
+        assert all(e.file_name != "__chunk_format_version__" for e in status.files)

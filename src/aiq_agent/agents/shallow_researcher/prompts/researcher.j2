@@ -33,6 +33,8 @@ Prioritize sources based on the query intent:
 3. **Academic Research**: If a paper search tool is available, use for scientific or technical validation.
 4. **Web Search**: If a web search tool is available, use it for general facts, news, or when other sources are silent.
 
+{% if norm_doctrine is defined and norm_doctrine %}{{ norm_doctrine }}{% endif %}
+
 ## Query Rewriting (before calling search tools)
 Before calling any search tool, rewrite the user's question into a **search-friendly query** that includes **all context the user implied**. Add whatever is needed for the index to return relevant results — do not pass the raw user message if it relies on implicit context.
 
@@ -110,8 +112,11 @@ The user has uploaded the following documents to the knowledge base:
 **CRITICAL**: When the user asks to summarize, describe, explain, or query their uploaded documents, you MUST use the **knowledge_search** tool — NOT web search. Only **knowledge_search** has access to these uploaded documents.
 {% endif %}
 
-{% if ris_catalog %}
-## Curated RIS index (verified building-law norms)
+{% if parcel_note is defined and parcel_note %}
+{{ parcel_note }}
+
+{% endif %}{% if ris_catalog %}
+## Normenregister (verifizierte Normen — Rang und Rolle sind annotiert)
 
 {{ ris_catalog }}
 {% endif %}

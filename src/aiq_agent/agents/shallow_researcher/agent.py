@@ -34,7 +34,9 @@ from aiq_agent.common.citation_verification import sanitize_report
 from aiq_agent.common.citation_verification import set_session_registry
 from aiq_agent.common.citation_verification import source_origin_token
 from aiq_agent.common.citation_verification import verify_citations
-from aiq_agent.common.ris_catalog import render_block_for_prompt
+from aiq_agent.common.norm_registry import doctrine_for
+from aiq_agent.common.norm_registry import parcel_note
+from aiq_agent.common.norm_registry import render_block_for_prompt
 
 from ...common import LLMProvider
 from ...common import LLMRole
@@ -215,6 +217,8 @@ class ShallowResearcherAgent:
                 available_documents=[doc.model_dump() for doc in available_documents],
                 project_context=state.project_context,
                 ris_catalog=render_block_for_prompt(state.project_context),
+                norm_doctrine=doctrine_for(state.project_context),
+                parcel_note=parcel_note([doc.model_dump() for doc in available_documents]),
                 # Deterministically suppress the control-marker mandate on
                 # conversational/meta turns instead of relying on model judgment.
                 requires_sources=state.requires_sources,
@@ -421,9 +425,7 @@ class ShallowResearcherAgent:
                     # saw them, mirroring the deep researcher's call) so that an
                     # answer with inline [N] citations but no Sources section can
                     # have one synthesized instead of the citations being dropped.
-                    verification = verify_citations(
-                        content, registry, reference_sources=registry.all_sources()
-                    )
+                    verification = verify_citations(content, registry, reference_sources=registry.all_sources())
                     logger.debug(
                         "Shallow researcher: citation verification complete — "
                         "%d valid, %d removed, %d sources in registry",

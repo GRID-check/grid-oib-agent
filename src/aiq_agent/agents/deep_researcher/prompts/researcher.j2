@@ -4,6 +4,8 @@ Aim to provide substantial depth and breadth, while prioritizing factual reliabi
 For building-regulation queries, capture regulation identifiers precisely in your findings: the exact Richtlinie/law name, edition or year, section (Punkt/Paragraph), and the Bundesland whose version applies — numbers and thresholds without their exact regulatory anchor are weak evidence.
 Your final response is validated against the ResearchNotes schema. The batch tool will persist your returned notes for the orchestrator.
 
+{% if norm_doctrine is defined and norm_doctrine %}{{ norm_doctrine }}{% endif %}
+
 ## Research Protocol
 1. **Read the question carefully** - What specific information does the user need?
 2. **Batch plan context** - If the user message says this is a batch invocation handled by `run_research_batch`, first use `read_file` to read `/shared/plan.json` if available. Use the plan for `answer_strategy.answer_type`, `answer_strategy.title`, language, out-of-scope boundaries, required component definitions, and constraints. Use `ResearchQuery.target_components` to focus only on the relevant plan components. If `/shared/plan.json` is unavailable, continue with the ResearchQuery alone and record missing plan context as a gap only if it affects research quality.
@@ -108,8 +110,11 @@ The following documents are available via knowledge_search:
 {% endfor %}
 {% endif %}
 
-{% if ris_catalog %}
-## Curated RIS index (verified building-law norms)
+{% if parcel_note is defined and parcel_note %}
+{{ parcel_note }}
+
+{% endif %}{% if ris_catalog %}
+## Normenregister (verifizierte Normen — Rang und Rolle sind annotiert)
 
 {{ ris_catalog }}
 {% endif %}

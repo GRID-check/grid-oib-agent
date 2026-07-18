@@ -34,6 +34,7 @@ export const AUDIT_ACTIONS = [
   'compliance.hold.created',
   'compliance.hold.released',
   'platform.access.break_glass',
+  'platform.norm_registry.updated',
   'project.created',
   'project.deleted',
   'project.restored',

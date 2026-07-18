@@ -18,8 +18,8 @@ from ris_adapter.register import ris_catalog_lookup
 from ris_adapter.register import ris_fetch_document
 from ris_adapter.register import ris_search
 
-from aiq_agent.common.ris_catalog import CatalogEntry
-from aiq_agent.common.ris_catalog import RisCatalog
+from aiq_agent.common.norm_registry import NormEntry
+from aiq_agent.common.norm_registry import NormRegistry
 from nat.builder.function import LambdaFunction
 from nat.data_models.function import FunctionBaseConfig
 
@@ -168,11 +168,11 @@ def fake_client(monkeypatch):
     _FakeClient.fetch_calls = []
     monkeypatch.setattr("ris_adapter.register.RisClient", _FakeClient)
     # Keep every live-search test on the live path even when a shipped catalog exists.
-    monkeypatch.setattr("ris_adapter.register.load_catalog", lambda path=None: None)
+    monkeypatch.setattr("ris_adapter.register.load_registry", lambda path=None: None)
     return _FakeClient
 
 
-def _catalog_entry(**overrides) -> CatalogEntry:
+def _catalog_entry(**overrides) -> NormEntry:
     data = {
         "id": "bo-wien",
         "title": "Bauordnung für Wien",
@@ -187,13 +187,13 @@ def _catalog_entry(**overrides) -> CatalogEntry:
         "verified_at": "2026-07-16",
     }
     data.update(overrides)
-    return CatalogEntry(**data)
+    return NormEntry(**data)
 
 
 @pytest.fixture
 def fake_catalog(monkeypatch):
-    catalog = RisCatalog(entries=[_catalog_entry()])
-    monkeypatch.setattr("ris_adapter.register.load_catalog", lambda path=None: catalog)
+    catalog = NormRegistry(entries=[_catalog_entry()])
+    monkeypatch.setattr("ris_adapter.register.load_registry", lambda path=None: catalog)
     return catalog
 
 
@@ -584,7 +584,7 @@ class TestRisCatalogLookupTool:
         assert "ris_search" in output
 
     async def test_max_matches_respected(self, monkeypatch):
-        catalog = RisCatalog(
+        catalog = NormRegistry(
             entries=[
                 _catalog_entry(),
                 _catalog_entry(
@@ -592,7 +592,7 @@ class TestRisCatalogLookupTool:
                 ),
             ]
         )
-        monkeypatch.setattr("ris_adapter.register.load_catalog", lambda path=None: catalog)
+        monkeypatch.setattr("ris_adapter.register.load_registry", lambda path=None: catalog)
 
         async with ris_catalog_lookup(RisCatalogLookupToolConfig(max_matches=1), MagicMock()) as info:
             output = await _call(info, topic="bauordnung")
@@ -606,7 +606,7 @@ class TestRisCatalogLookupTool:
         # state-specific lookup must return THAT state (plus federal law) — not
         # the first max_matches entries in catalog order, which would crowd the
         # right state out entirely.
-        catalog = RisCatalog(
+        catalog = NormRegistry(
             entries=[
                 _catalog_entry(),  # Wien, catalog head
                 _catalog_entry(
@@ -625,7 +625,7 @@ class TestRisCatalogLookupTool:
                 ),
             ]
         )
-        monkeypatch.setattr("ris_adapter.register.load_catalog", lambda path=None: catalog)
+        monkeypatch.setattr("ris_adapter.register.load_registry", lambda path=None: catalog)
 
         async with ris_catalog_lookup(RisCatalogLookupToolConfig(max_matches=5), MagicMock()) as info:
             output = await _call(info, topic="Bauordnung Tirol")
@@ -638,7 +638,7 @@ class TestRisCatalogLookupTool:
         assert output.index("NOR00000006") < output.index("NOR00000007")
 
     async def test_catalog_unavailable(self, monkeypatch):
-        monkeypatch.setattr("ris_adapter.register.load_catalog", lambda path=None: None)
+        monkeypatch.setattr("ris_adapter.register.load_registry", lambda path=None: None)
 
         async with ris_catalog_lookup(RisCatalogLookupToolConfig(), MagicMock()) as info:
             output = await _call(info, topic="bauordnung")
@@ -675,13 +675,13 @@ class TestRisSearchCatalogShortcut:
         assert fake_client.search_calls == []
 
     async def test_bundesland_argument_selects_that_states_law(self, fake_client, monkeypatch):
-        catalog = RisCatalog(
+        catalog = NormRegistry(
             entries=[
                 _catalog_entry(),  # Wien
                 _catalog_entry(id="bo-tirol", short="Tiroler BO", bundesland="Tirol", document_number="NOR00000006"),
             ]
         )
-        monkeypatch.setattr("ris_adapter.register.load_catalog", lambda path=None: catalog)
+        monkeypatch.setattr("ris_adapter.register.load_registry", lambda path=None: catalog)
 
         async with ris_search(RisSearchToolConfig(), MagicMock()) as info:
             output = await _call(info, query="bauordnung", bundesland="Tirol")
@@ -692,7 +692,7 @@ class TestRisSearchCatalogShortcut:
         assert "NOR12345678" not in output
 
     async def test_explicit_application_filters_pointers(self, fake_client, monkeypatch):
-        catalog = RisCatalog(
+        catalog = NormRegistry(
             entries=[
                 _catalog_entry(),  # LrKons Wien
                 _catalog_entry(
@@ -700,7 +700,7 @@ class TestRisSearchCatalogShortcut:
                 ),
             ]
         )
-        monkeypatch.setattr("ris_adapter.register.load_catalog", lambda path=None: catalog)
+        monkeypatch.setattr("ris_adapter.register.load_registry", lambda path=None: catalog)
 
         async with ris_search(RisSearchToolConfig(), MagicMock()) as info:
             output = await _call(info, query="bauordnung wien", application="LrKons")
@@ -747,7 +747,7 @@ class TestRisSearchCatalogShortcut:
         assert len(fake_client.search_calls) == 1
 
     async def test_catalog_unavailable_falls_through(self, fake_client, monkeypatch):
-        monkeypatch.setattr("ris_adapter.register.load_catalog", lambda path=None: None)
+        monkeypatch.setattr("ris_adapter.register.load_registry", lambda path=None: None)
 
         async with ris_search(RisSearchToolConfig(), MagicMock()) as info:
             await _call(info, query="bauordnung wien")

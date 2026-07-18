@@ -11,19 +11,24 @@ OGD-RIS is an open-government-data service.
 |------|---------|---------|
 | RIS search | `ris_search` | Search federal law (`BrKons`, `BgblAuth`, …), state law (`LrKons`, …), and case law (`Vfgh`, `Vwgh`, `Justiz`, `Bvwg`, `Lvwg`, …). Returns document references with citation URLs. |
 | RIS document fetch | `ris_fetch_document` | Fetch an **entire document on demand** — a law paragraph, a complete consolidated law (`GesamteRechtsvorschrift`), or a court decision — and return its full text to the agent. |
-| RIS catalog lookup | `ris_catalog_lookup` | Topic search in the **curated RIS index** — verified pointers to the building-relevant norms, no keyword guessing. |
+| RIS catalog lookup | `ris_catalog_lookup` | Topic search in the **norm registry** — verified pointers plus rank/role/relations for the building-relevant norms, no keyword guessing. |
 
-### Curated RIS index (deterministic pointers)
+### Norm registry (deterministic pointers + legal metadata)
 
 Live `ris_search` is keyword-blind: it guesses one of ~40 OGD-RIS application
-silos and fires a full-text query. The curated index removes the guesswork for
-the core building-law corpus: `configs/ris_catalog.yml` (override via the
-`RIS_CATALOG_PATH` env var) maps building-law topics to **verified** RIS
-pointers — application, document number, citation URL, entire-consolidated-law
-URL, Bundesland — covering the nine state building codes (Bauordnungen /
-Baugesetze / Bautechnikgesetze), the Wiener Garagengesetz, and adjacent federal
-acts (ASchG, AStV, BKAG, ZTG, WGG). It is a **pointer index only**: full texts
-are still fetched live with `ris_fetch_document`.
+silos and fires a full-text query. The norm registry (ADR-0025) removes the
+guesswork for the core building-law corpus: `configs/norms/<country>/registry.yml`
+(env override `GRID_NORMS_DIR`; superseded at runtime by the admin-managed
+store, which seeds itself from this YAML) is a **flat catalog** of verified RIS
+pointers — application, document number, citation URL,
+entire-consolidated-law URL — plus curated prose legal notes (`binding_note`,
+e.g. how the WBTV makes the OIB-Richtlinien binding in Vienna). Austria ships
+22 entries: the nine state building codes (Bauordnungen / Baugesetze /
+Bautechnikgesetze), Wiener Garagengesetz, WBTV, Kleingartengesetz, and the
+adjacent federal acts (ASchG, AStV, BKAG, ZTG, WGG, DMSG, UVP-G, WRG, ForstG,
+GewO). It is a **pointer index only**: full texts are still fetched live with
+`ris_fetch_document`. The OIB corpus itself lives in the knowledge base, not
+in the catalog (ADR-0025 v2).
 
 Three consumers, all fail-open (missing/invalid catalog → today's live-search
 behavior with a warning):
@@ -33,9 +38,10 @@ behavior with a warning):
    query has no case-law signal (VwGH, Erkenntnis, …), the tool returns the
    verified pointers directly — no HTTP call, no planner LLM.
 2. **`ris_catalog_lookup`**: explicit topic search in the catalog for the agent.
-3. **Prompt block**: `aiq_agent.common.ris_catalog.render_block_for_prompt`
-   renders the index (federal first, then the project's Bundesland) into the
-   shallow/deep researcher prompts.
+3. **Prompt block**: `aiq_agent.common.norm_registry.render_block_for_prompt`
+   renders the catalog — Bundesrecht lane, the project's own Bundesland lane
+   (other states' law dropped), curated binding notes, and an OIB-corpus
+   citation note — into the shallow/deep researcher prompts.
 
 **Jurisdiction-aware matching.** Building law is state law, and the nine state
 codes all match generic topics like "bauordnung", so both tool consumers
@@ -49,24 +55,39 @@ text. A project explicitly outside Austria (`ausserhalb_oesterreichs`) gets no
 state prioritization. An explicit non-default `application` argument narrows
 the short-circuit's pointers to that application.
 
-The catalog is generated — **do not hand-edit**. Rebuild/re-verify every entry
-against the live API (fails loudly on unverifiable seeds):
+The registry (`configs/norms/<country>/registry.yml`, ADR-0025) is curated by
+hand; the RIS pointers inside it are re-verified against the live API and merged
+back (never clobbering curated fields; fails loudly on unverifiable seeds). New
+seeds go into `configs/norms/<country>/seeds_ris.yml`:
 
 ```bash
 uv run --no-project --with httpx --with pydantic --with beautifulsoup4 \
-    --with pyyaml python scripts/build_ris_catalog.py
+    --with pyyaml --with ruamel.yaml python scripts/build_ris_catalog.py
 ```
 
 ### On-demand documents as knowledge sources
 
-`ris_fetch_document` does two things with a fetched document:
+`ris_fetch_document` does three things with a fetched document:
 
-1. Returns the full text (truncated at `max_chars` for the agent's context) with
+1. Serves it from the **persistent norm cache** when possible (ADR-0025 Phase
+   3, `persistent_cache: true` by default): fetched full texts are kept on disk
+   (`cache_dir`, default `data/ris_cache`) keyed by RIS document number with a
+   content hash and parsed Fassung date. Fresh entries
+   (`GRID_RIS_CACHE_TTL_DAYS`, default 7 days) skip the HTTP call entirely;
+   stale entries are re-validated cheaply (first ~4 KB, `Stand:`/`Fassung vom`
+   date) and only re-fetched when a Novelle actually changed the Fassung —
+   network failure during re-validation serves the stale copy rather than
+   failing the tool. Documents whose number cannot be resolved fall back to the
+   legacy behavior below.
+2. Returns the full text (truncated at `max_chars` for the agent's context) with
    a `Source:` line carrying the canonical `ris.bka.gv.at` URL. The citation
    verification layer picks that URL up automatically, so answers grounded in
    the document are citable.
-2. Ingests the **complete** text into the per-session knowledge collection
-   (best-effort, `ingest_into_knowledge: true` by default). From then on
+3. Ingests the **complete** text into the persistent `ris_knowledge` knowledge
+   collection (best-effort, `ingest_into_knowledge: true` by default), chunked
+   on `§` boundaries with norm-registry metadata. The session collection only
+   receives a small `RIS_POINTER_<docnr>.txt` pointer; without the cache the
+   full text goes to the per-session collection as before. From then on
    `knowledge_search` retrieves and cites specific sections of the document —
    the document has become a regular knowledge-layer source.
 

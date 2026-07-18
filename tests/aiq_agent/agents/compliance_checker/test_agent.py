@@ -293,3 +293,28 @@ def test_build_request_from_state_prefers_state_override():
     request = build_request_from_state(state, default_richtlinien=[1, 2, 3])
 
     assert request.richtlinien == [6]
+
+
+_CONTEXT_LAGER = "PROJECT_CONTEXT v1\nconfirmed:\n- bundesland=wien\n- hauptnutzung=lager\n- gebaeudeklasse=GK1\n"
+
+
+def test_build_request_from_state_applicability_keeps_check_richtlinie():
+    """Storage building: RL 6 is verdict `check` — kept, because `check` means the
+    checker must still verify it (review finding H2). RL 5 (`likely`) is kept too."""
+    from aiq_agent.agents.compliance_checker.agent import build_request_from_state
+
+    state = ComplianceCheckAgentState(project_context=_CONTEXT_LAGER)
+    request = build_request_from_state(state)
+
+    assert 6 in request.richtlinien
+    assert 5 in request.richtlinien  # likely is kept
+
+
+def test_build_request_from_state_never_narrows_explicit_scope():
+    """An explicit user-provided scope is used untouched (never narrowed)."""
+    from aiq_agent.agents.compliance_checker.agent import build_request_from_state
+
+    state = ComplianceCheckAgentState(project_context=_CONTEXT_LAGER, richtlinien=[6])
+    request = build_request_from_state(state)
+
+    assert request.richtlinien == [6]

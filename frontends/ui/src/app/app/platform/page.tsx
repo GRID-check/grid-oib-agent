@@ -16,6 +16,7 @@ import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/ca
 import { getTranslations } from '@/i18n/server'
 import { BaseKnowledge } from './base-knowledge'
 import { PlatformOverview } from './platform-overview'
+import { NormRegistry } from '@/features/platform/components/norm-registry'
 
 const isAuthRequired = (): boolean => process.env.REQUIRE_AUTH?.toLowerCase() === 'true'
 
@@ -77,6 +78,7 @@ export default async function PlatformPage(): Promise<JSX.Element> {
       </header>
       <PlatformOverview />
       <BaseKnowledge />
+      <NormRegistry />
     </div>,
   )
 }

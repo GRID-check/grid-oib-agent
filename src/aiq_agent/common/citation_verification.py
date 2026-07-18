@@ -822,6 +822,34 @@ def _is_ris_source(entry: SourceEntry) -> bool:
     return bool(entry.url and _RIS_URL_HOST_RE.match(entry.url))
 
 
+def source_lane(entry: SourceEntry) -> tuple[str, str]:
+    """(stratum_key, German label) for the research fan-out UI's source grouping.
+
+    Deterministic display tagging on top of ``source_origin_token``'s coarse
+    origin: Baurecht lanes split by registry rank (RIS) or OIB filename class
+    (knowledge base), Projektwissen/Büroarchiv by collection prefix, Web
+    otherwise — see ``norm_registry.lane_for_hit``. The wire tokens
+    (``[KB]``/``[RIS]``/``[Web]``) are unchanged; the fan-out UI reads this
+    richer label from the structured source payloads instead.
+    """
+    from aiq_agent.common.norm_registry import lane_for_hit
+    from aiq_agent.common.norm_registry import load_registry
+
+    file_name = None
+    if entry.citation_key:
+        file_name, _ = _parse_citation_key(entry.citation_key)
+    registry = load_registry() if (entry.url and "ris.bka.gv.at" in entry.url) else None
+    lane = lane_for_hit(file_name=file_name, source_url=entry.url, registry=registry)
+    if lane == ("web", "Web") and entry.source_type == "knowledge_layer":
+        # A knowledge-base hit that is not an OIB corpus file is project/org
+        # material. The capture path does not carry the collection yet, so the
+        # Büroarchiv/Projektwissen split is not possible here — thread a
+        # `Collection:` field through the KB tool output when the fan-out UI
+        # needs it (integration point for the frontend research-trace branch).
+        return ("projekt", "Projektwissen")
+    return lane
+
+
 def source_origin_token(entry: SourceEntry) -> str:
     """Return a stable leading origin token for a source line.
 

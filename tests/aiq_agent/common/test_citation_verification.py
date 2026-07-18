@@ -12,6 +12,7 @@ from aiq_agent.common.citation_verification import _parse_citation_key
 from aiq_agent.common.citation_verification import extract_sources_from_tool_result
 from aiq_agent.common.citation_verification import register_source_parser
 from aiq_agent.common.citation_verification import sanitize_report
+from aiq_agent.common.citation_verification import source_lane
 from aiq_agent.common.citation_verification import source_origin_token
 from aiq_agent.common.citation_verification import verify_citations
 
@@ -1719,3 +1720,28 @@ class TestSessionRegistry:
         reg2 = get_or_create_session_registry("persist-test")
         assert reg2.has_url("https://example.com/first")
         assert len(reg2.all_sources()) == 1
+
+
+class TestSourceLane:
+    """source_lane maps SourceEntry hits to fan-out UI strata (task: lane labels)."""
+
+    def test_oib_corpus_file_is_oib_lane(self):
+        entry = SourceEntry(citation_key="oib-rl_2_ausgabe_mai_2023.pdf, p.12", source_type="knowledge_layer")
+        assert source_lane(entry) == ("baurecht_oib", "OIB-Richtlinie")
+
+    def test_leitfaden_file_is_leitfaden_lane(self):
+        entry = SourceEntry(citation_key="oib-rl_2_leitfaden_ausgabe_mai_2023.pdf, p.3", source_type="knowledge_layer")
+        assert source_lane(entry) == ("baurecht_oib_leitfaden", "OIB-Leitfaden")
+
+    def test_project_document_is_projektwissen(self):
+        entry = SourceEntry(citation_key="einreichplan_rev04.pdf, p.1", source_type="knowledge_layer")
+        assert source_lane(entry) == ("projekt", "Projektwissen")
+
+    def test_ris_url_without_registry_match_is_ris_lane(self):
+        entry = SourceEntry(url="https://www.ris.bka.gv.at/Dokumente/Bundesnormen/NOR99999999", source_type="generic")
+        key, label = source_lane(entry)
+        assert key.startswith("baurecht")
+
+    def test_web_url_is_web(self):
+        entry = SourceEntry(url="https://example.com/artikel", source_type="generic")
+        assert source_lane(entry) == ("web", "Web")

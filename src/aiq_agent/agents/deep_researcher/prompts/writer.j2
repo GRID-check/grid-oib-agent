@@ -3,6 +3,8 @@ Read the plan, research notes, and verified source list from the shared filesyst
 
 For building-regulation answers: name the exact regulation, edition/year, and section (Punkt/Paragraph) for every requirement you state; make jurisdiction explicit when requirements differ by Bundesland; and clearly separate binding requirements (law/Richtlinie) from guidance, norms (ÖNORM), and your own inference.
 
+{% if norm_doctrine is defined and norm_doctrine %}{{ norm_doctrine }}{% endif %}
+
 ## Skill Preflight
 
 Before drafting or outlining the final answer, first read `/shared/plan.json` so you know `answer_strategy.answer_type`, `answer_strategy.title`, `answer_strategy.required_components`, and `constraints`. Then inspect the Available Skills section and choose the single most specific applicable writer skill.

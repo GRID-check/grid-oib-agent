@@ -1,0 +1,460 @@
+# Curated norm catalog — verified RIS pointers to building-relevant Austrian law,
+# plus prose notes for the legal facts the corpus cannot supply (binding_note) and
+# open verification questions (review_note, surfaced in the platform admin UI).
+# REGENERATE pointers via scripts/build_ris_catalog.py (verifies each entry's `verify`
+# seed live against OGD-RIS and merges document_number/URLs/verified_at — curated
+# fields are never clobbered). The OIB corpus itself lives in data/oib/ and is NOT
+# listed here: the knowledge base is its source of truth.
+version: 1
+corpus_collection: oib_knowledge
+entries:
+- id: bo-wien
+  title: Bauordnung für Wien
+  short: BO für Wien
+  rank: landesgesetz
+  bundesland: Wien
+  topics:
+  - bauordnung
+  - bauantrag
+  - baubewilligung
+  - bauklasse
+  - widmung
+  relevance: Viennese building code (Stadtentwicklungs-, Stadtplanungs- und Baugesetzbuch)
+  application: LrKons
+  document_number: LWI40000225
+  citation_url: https://www.ris.bka.gv.at/eli/lgbl/WI/1930/11/P0/LWI40000225
+  full_law_url: https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=LrW&Gesetzesnummer=20000006
+  verify:
+    title_query: Bauordnung für Wien
+    expect: Bauordnung
+  verified_at: '2026-07-17'
+- id: garagengesetz-wien
+  title: Wiener Garagengesetz 2008
+  short: Garagengesetz Wien
+  rank: landesgesetz
+  bundesland: Wien
+  topics:
+  - garagengesetz
+  - garage
+  - stellplatz
+  - stellplatzverpflichtung
+  - kraftfahrzeugabstellplatz
+  relevance: 'Vienna: garage construction and parking-space obligations'
+  application: LrKons
+  document_number: LWI40010002
+  citation_url: https://www.ris.bka.gv.at/eli/lgbl/WI/2009/34/P0/LWI40010002
+  full_law_url: https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=LrW&Gesetzesnummer=20000052
+  verify:
+    title_query: Garagengesetz
+    expect: Garagen
+  verified_at: '2026-07-17'
+- id: bo-noe
+  title: NÖ Bauordnung 2014
+  short: NÖ BO 2014
+  rank: landesgesetz
+  bundesland: Niederösterreich
+  topics:
+  - bauordnung
+  - bauantrag
+  - baubewilligung
+  - bebauungsplan
+  relevance: Lower Austrian building code
+  application: LrKons
+  document_number: LNO40085504
+  citation_url: https://www.ris.bka.gv.at/eli/lgbl/NI/2015/1/P0/LNO40085504
+  full_law_url: https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=LrNO&Gesetzesnummer=20001079
+  verify:
+    title_query: NÖ Bauordnung 2014
+    expect: Bauordnung
+    exclude:
+    - Interpretation
+  verified_at: '2026-07-17'
+- id: bo-ooe
+  title: Oö. Bauordnung 1994
+  short: Oö. BauO 1994
+  rank: landesgesetz
+  bundesland: Oberösterreich
+  topics:
+  - bauordnung
+  - bauantrag
+  - baubewilligung
+  - bautechnik
+  relevance: Upper Austrian building code
+  application: LrKons
+  document_number: LOO11000699
+  citation_url: https://www.ris.bka.gv.at/eli/lgbl/OB/1994/66/P0/LOO11000699
+  full_law_url: https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=LrOO&Gesetzesnummer=10000411
+  verify:
+    title_query: Oö. Bauordnung 1994
+    expect: Bauordnung
+  verified_at: '2026-07-17'
+- id: bo-stmk
+  title: Steiermärkisches Baugesetz
+  short: Stmk. BauG
+  rank: landesgesetz
+  bundesland: Steiermark
+  topics:
+  - baugesetz
+  - bauordnung
+  - bauantrag
+  - baubewilligung
+  relevance: Styrian building act
+  application: LrKons
+  document_number: LST40035828
+  citation_url: https://www.ris.bka.gv.at/eli/lgbl/ST/1995/59/P0/LST40035828
+  full_law_url: https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=LrStmk&Gesetzesnummer=20000070
+  verify:
+    title_query: Baugesetz Steiermark
+    expect: Bau
+  verified_at: '2026-07-17'
+- id: bo-ktn
+  title: Kärntner Bauordnung 1996 - K-BO 1996
+  short: Ktn. BO
+  rank: landesgesetz
+  bundesland: Kärnten
+  topics:
+  - bauordnung
+  - bauantrag
+  - baubewilligung
+  relevance: Carinthian building code
+  application: LrKons
+  document_number: LKT11000201
+  citation_url: https://www.ris.bka.gv.at/eli/lgbl/KA/1996/62/P0/LKT11000201
+  full_law_url: https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=LrK&Gesetzesnummer=10000201
+  verify:
+    title_query: Kärntner Bauordnung
+    expect: Bauordnung
+  verified_at: '2026-07-17'
+- id: bo-sbg
+  title: Salzburger Bautechnikgesetz 2015
+  short: Sbg. BTG
+  rank: landesgesetz
+  bundesland: Salzburg
+  topics:
+  - bautechnikgesetz
+  - bauordnung
+  - bauantrag
+  - baubewilligung
+  relevance: Salzburg building technics act (the Salzburg building code)
+  application: LrKons
+  document_number: LSB40029658
+  citation_url: https://www.ris.bka.gv.at/eli/lgbl/SA/2016/1/P0/LSB40029658
+  full_law_url: https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=LrSbg&Gesetzesnummer=20001000
+  verify:
+    title_query: Bautechnikgesetz
+    expect: Bautechnikgesetz
+  verified_at: '2026-07-17'
+- id: bo-tirol
+  title: Bauordnung 2022, Tiroler
+  short: Tiroler BO
+  rank: landesgesetz
+  bundesland: Tirol
+  topics:
+  - bauordnung
+  - bauantrag
+  - baubewilligung
+  relevance: Tyrolean building code
+  application: LrKons
+  document_number: LTI40047551
+  citation_url: https://www.ris.bka.gv.at/eli/lgbl/TI/2022/44/P0/LTI40047551
+  full_law_url: https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=LrT&Gesetzesnummer=20000911
+  verify:
+    title_query: Tiroler Bauordnung
+    expect: Bauordnung
+  verified_at: '2026-07-17'
+- id: bo-vbg
+  title: Baugesetz
+  short: Vbg. BauG
+  rank: landesgesetz
+  bundesland: Vorarlberg
+  topics:
+  - baugesetz
+  - bauordnung
+  - bauantrag
+  - baubewilligung
+  relevance: Vorarlberg building act
+  application: LrKons
+  document_number: LVB40009302
+  citation_url: https://www.ris.bka.gv.at/eli/lgbl/VO/2001/52/P0/LVB40009302
+  full_law_url: https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=LrVbg&Gesetzesnummer=20000734
+  verify:
+    title_query: Baugesetz
+    expect: Baugesetz
+    gesetzesnummer: '20000734'
+  verified_at: '2026-07-17'
+- id: bo-bgld
+  title: Burgenländisches Baugesetz 1997
+  short: Bgld. BO
+  rank: landesgesetz
+  bundesland: Burgenland
+  topics:
+  - bauordnung
+  - bauantrag
+  - baubewilligung
+  relevance: Burgenland building code
+  application: LrKons
+  document_number: LBG40028940
+  citation_url: https://www.ris.bka.gv.at/eli/lgbl/BU/1998/10/P0/LBG40028940
+  full_law_url: https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=LrBgld&Gesetzesnummer=10000504
+  verify:
+    title_query: Burgenländisches Baugesetz
+    expect: Baugesetz
+  verified_at: '2026-07-17'
+- id: aschg
+  title: ArbeitnehmerInnenschutzgesetz
+  short: ASchG
+  rank: bundesgesetz
+  bundesland: ''
+  topics:
+  - arbeitnehmerinnenschutz
+  - arbeitsstätten
+  - baustelle
+  - arbeitssicherheit
+  relevance: Federal employee-protection act (workplace and construction-site safety)
+  application: BrKons
+  document_number: NOR40262244
+  citation_url: https://www.ris.bka.gv.at/eli/bgbl/1994/450/P0/NOR40262244
+  full_law_url: https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=Bundesnormen&Gesetzesnummer=10008910
+  verify:
+    title_query: ArbeitnehmerInnenschutzgesetz
+    expect: Arbeitnehmer
+  verified_at: '2026-07-17'
+- id: astv
+  title: Arbeitsstättenverordnung
+  short: AStV
+  rank: verordnung
+  bundesland: ''
+  topics:
+  - arbeitsstättenverordnung
+  - arbeitsstätten
+  - fluchtweg
+  - notausgang
+  relevance: Workplace ordinance (dimensions, escape routes, sanitary facilities)
+  application: BrKons
+  document_number: NOR40166316
+  citation_url: https://www.ris.bka.gv.at/eli/bgbl/ii/1998/368/P0/NOR40166316
+  full_law_url: https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=Bundesnormen&Gesetzesnummer=10009098
+  verify:
+    title_query: Arbeitsstättenverordnung
+    expect: Arbeitsstätten
+    gesetzesnummer: '10009098'
+  verified_at: '2026-07-17'
+- id: bkag
+  title: Bauarbeitenkoordinationsgesetz
+  short: BKAG
+  rank: bundesgesetz
+  bundesland: ''
+  topics:
+  - bauarbeitenkoordination
+  - baustellenkoordination
+  - sicherheitskoordinator
+  - sigeko
+  relevance: Construction-site coordination act (SiGeKo duties)
+  application: BrKons
+  document_number: NOR30005856
+  citation_url: https://www.ris.bka.gv.at/eli/bgbl/i/1999/37/P0/NOR30005856
+  full_law_url: https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=Bundesnormen&Gesetzesnummer=10009146
+  verify:
+    title_query: Bauarbeitenkoordinationsgesetz
+    expect: Bauarbeitenkoordination
+  verified_at: '2026-07-17'
+- id: ztg
+  title: Ziviltechnikergesetz 2019
+  short: ZTG 2019
+  rank: bundesgesetz
+  bundesland: ''
+  topics:
+  - ziviltechnikergesetz
+  - ziviltechniker
+  - baumeister
+  - architekt
+  relevance: Civil engineers act (professional duties of Baumeister/architects)
+  application: BrKons
+  document_number: NOR40271449
+  citation_url: https://www.ris.bka.gv.at/eli/bgbl/i/2019/29/P0/NOR40271449
+  full_law_url: https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=Bundesnormen&Gesetzesnummer=20010625
+  verify:
+    title_query: Ziviltechnikergesetz
+    expect: Ziviltechniker
+  verified_at: '2026-07-17'
+- id: wgg
+  title: Wohnungsgemeinnützigkeitsgesetz
+  short: WGG
+  rank: bundesgesetz
+  bundesland: ''
+  topics:
+  - wohnungsgemeinnützigkeit
+  - gemeinnütziger wohnbau
+  - wohnbauförderung
+  relevance: Non-profit housing act (subsidised housing developers)
+  application: BrKons
+  document_number: NOR11011774
+  citation_url: https://www.ris.bka.gv.at/eli/bgbl/1979/139/P0/NOR11011774
+  full_law_url: https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=Bundesnormen&Gesetzesnummer=10011509
+  verify:
+    title_query: Wohnungsgemeinnützigkeitsgesetz
+    expect: Wohnungsgemeinnützigkeits
+  verified_at: '2026-07-17'
+- id: wbtv
+  title: Wiener Bautechnikverordnung 2023
+  short: WBTV
+  rank: verordnung
+  bundesland: Wien
+  topics:
+  - bautechnikverordnung
+  - wbtv
+  - bautechnik
+  - bauvorschriften
+  - oib-richtlinien
+  relevance: Vienna building technics ordinance (declares the OIB-Richtlinien binding for Vienna,
+    with deviation annex)
+  application: LrKons
+  document_number: LWI40016790
+  citation_url: https://www.ris.bka.gv.at/eli/lgbl/WI/2024/14/P0/LWI40016790
+  full_law_url: https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=LrW&Gesetzesnummer=20000702
+  binding_note: 'Macht die OIB-Richtlinien in Wien verbindlich: § 1 erklärt die in den Anlagen enthaltenen
+    OIB-Richtlinien für einzuhalten (Ausnahmen: Anl. 11 Pkt 2.1.5/2.1.6, Anl. 12 Pkt 5); § 2 erlaubt
+    Abweichungen bei gleichwertigem Schutzniveau. Erlassen auf Grund §§ 118 Abs. 5 und 122 BauO Wien.
+    Vor dem Zitieren einer OIB-Anforderung für ein Wiener Projekt: verbindlich erklärte Ausgabe und
+    Anlagen-Abweichungen in der WBTV prüfen.'
+  review_note: 'Offen: welche OIB-Ausgabe (2019 oder 2023) die geltende WBTV-Fassung verbindlich erklärt
+    und die Anlagen-Abweichungsliste — aus dem WBTV-Volltext verifizieren.'
+  verify:
+    title_query: Bautechnikverordnung
+    expect: Bautechnikverordnung
+  verified_at: '2026-07-17'
+- id: klgg-wien
+  title: Wiener Kleingartengesetz 1996
+  short: KlGG Wien
+  rank: landesgesetz
+  bundesland: Wien
+  topics:
+  - kleingartengesetz
+  - kleingarten
+  - schrebergarten
+  - kleingartenanlage
+  relevance: Vienna allotment-gardens act (Kleingartengebiet zoning trigger)
+  application: LrKons
+  document_number: LWI40010079
+  citation_url: https://www.ris.bka.gv.at/eli/lgbl/WI/1996/57/P0/LWI40010079
+  full_law_url: https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=LrW&Gesetzesnummer=20000061
+  binding_note: 'Lex specialis: In Kleingartengebieten ersetzt das Wiener Kleingartengesetz wesentliche
+    Teile der BauO Wien — BauO/OIB-Regeln nicht ungeprüft anwenden.'
+  verify:
+    title_query: Kleingartengesetz
+    expect: Kleingarten
+  verified_at: '2026-07-17'
+- id: dmsg
+  title: Denkmalschutzgesetz
+  short: DMSG
+  rank: bundesgesetz
+  bundesland: ''
+  topics:
+  - denkmalschutz
+  - denkmalschutzgesetz
+  - denkmal
+  - bda
+  - ensembleschutz
+  relevance: Federal monuments-protection act (Denkmalschutz trigger)
+  application: BrKons
+  document_number: NOR40261002
+  citation_url: https://www.ris.bka.gv.at/eli/bgbl/1923/533/P0/NOR40261002
+  full_law_url: https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=Bundesnormen&Gesetzesnummer=10009184
+  verify:
+    title_query: Denkmalschutzgesetz
+    expect: Denkmalschutz
+  verified_at: '2026-07-17'
+- id: uvpg
+  title: Umweltverträglichkeitsprüfungsgesetz 2000
+  short: UVP-G 2000
+  rank: bundesgesetz
+  bundesland: ''
+  topics:
+  - umweltverträglichkeitsprüfung
+  - uvp
+  - umweltverträglichkeit
+  relevance: Federal environmental-impact assessment act
+  application: BrKons
+  document_number: NOR40209738
+  citation_url: https://www.ris.bka.gv.at/eli/bgbl/1993/697/P0/NOR40209738
+  full_law_url: https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=Bundesnormen&Gesetzesnummer=10010767
+  verify:
+    title_query: Umweltverträglichkeitsprüfungsgesetz
+    expect: Umweltverträglichkeitsprüfung
+  verified_at: '2026-07-17'
+- id: wrg
+  title: Wasserrechtsgesetz 1959
+  short: WRG 1959
+  rank: bundesgesetz
+  bundesland: ''
+  topics:
+  - wasserrechtsgesetz
+  - wasserrecht
+  - gewässer
+  - hochwasser
+  relevance: Federal water-rights act
+  application: BrKons
+  document_number: NOR40191806
+  citation_url: https://www.ris.bka.gv.at/eli/bgbl/1959/215/P0/NOR40191806
+  full_law_url: https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=Bundesnormen&Gesetzesnummer=10010290
+  verify:
+    title_query: Wasserrechtsgesetz
+    expect: Wasserrecht
+    gesetzesnummer: '10010290'
+  verified_at: '2026-07-17'
+- id: forstg
+  title: Forstgesetz 1975
+  short: ForstG 1975
+  rank: bundesgesetz
+  bundesland: ''
+  topics:
+  - forstgesetz
+  - wald
+  - abholzung
+  - schutzwald
+  relevance: Federal forestry act (forest clearing / Schutzwald)
+  application: BrKons
+  document_number: NOR40256543
+  citation_url: https://www.ris.bka.gv.at/eli/bgbl/1975/440/P0/NOR40256543
+  full_law_url: https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=Bundesnormen&Gesetzesnummer=10010371
+  verify:
+    title_query: Forstgesetz
+    expect: Forstgesetz
+  verified_at: '2026-07-17'
+- id: gewo
+  title: Gewerbeordnung 1994
+  short: GewO 1994
+  rank: bundesgesetz
+  bundesland: ''
+  topics:
+  - gewerbeordnung
+  - betriebsanlage
+  - betriebsanlagengenehmigung
+  - gewerbeberechtigung
+  relevance: Federal trade code (§ 74 ff Betriebsanlagen — commercial facility permits)
+  application: BrKons
+  document_number: NOR11007641
+  citation_url: https://www.ris.bka.gv.at/eli/bgbl/1994/194/P0/NOR11007641
+  full_law_url: https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=Bundesnormen&Gesetzesnummer=10007517
+  binding_note: 'Betriebsanlagenrecht (§§ 74 ff): eigenes Genehmigungsregime neben der Baubewilligung.'
+  verify:
+    title_query: Gewerbeordnung
+    expect: Gewerbeordnung
+    gesetzesnummer: '10007517'
+  verified_at: '2026-07-17'
+- id: ma37-merkblaetter
+  title: MA 37 (Baupolizei Wien) — Merkblätter, Weisungen und Checklisten
+  short: MA-37-Merkblätter
+  rank: behoerdliche_info
+  bundesland: Wien
+  topics:
+  - merkblatt
+  - weisung
+  - checkliste
+  - baupolizei
+  - einreichung
+  relevance: Vienna building authority practice guidance (submission requirements, interpretations)
+  source_url: https://www.wien.gv.at/wohnen/gebaude-bauten-planung-baupolizei
+  binding_note: Nur Ergänzungen zur BauO Wien und zu den OIB-Richtlinien — begründen keine neuen Gesetze
+    oder Verordnungen. Als behördliche Praxis zitieren, nie als Norm.
+  verified_at: '2026-07-18'

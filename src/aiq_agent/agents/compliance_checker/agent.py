@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from pathlib import Path
 from typing import Any
 
@@ -140,6 +141,45 @@ def _evidence_queries_for_batch(batch: list[RequirementItem]) -> list[str]:
     return [combined, *per_richtlinie]
 
 
+def _richtlinie_number(code: str) -> int | None:
+    """The Richtlinie number an OIB verdict code belongs to ("OIB 2.1" -> 2)."""
+    match = re.match(r"OIB\s+(\d+)", code)
+    return int(match.group(1)) if match else None
+
+
+def _narrow_scope_with_applicability(richtlinien: list[int], project_context: str | None) -> list[int]:
+    """Narrow the Richtlinie scope to the ones the project's facts flag as relevant.
+
+    A Richtlinie is KEPT when it has a verdict of ``required``, ``likely`` OR
+    ``check`` — ``check`` means "needs verification", so the checker must still
+    look at it (review finding H2). Only Richtlinien the facts clearly rule out
+    (no verdict at all) are dropped. Fail-open everywhere: unparseable context,
+    no facts, or an intersection that would empty the scope all return the
+    original scope unchanged.
+    """
+    if not project_context:
+        return richtlinien
+    try:
+        from aiq_agent.common.applicability import facts_from_project_context
+        from aiq_agent.common.applicability import resolve_oib_applicability
+    except Exception:  # pragma: no cover - defensive import guard
+        return richtlinien
+    facts = facts_from_project_context(project_context)
+    if not facts:
+        return richtlinien
+    verdicts = resolve_oib_applicability(facts)
+    keep = {
+        number
+        for verdict in verdicts
+        if verdict.verdict in ("required", "likely", "check")
+        and (number := _richtlinie_number(verdict.code)) is not None
+    }
+    if not keep:
+        return richtlinien
+    narrowed = [rl for rl in richtlinien if rl in keep]
+    return narrowed or richtlinien
+
+
 def build_request_from_state(
     state: ComplianceCheckAgentState,
     *,
@@ -149,9 +189,16 @@ def build_request_from_state(
 
     ``state.richtlinien`` overrides ``default_richtlinien`` (the config
     default) when set; an unset/empty scope on both falls back to all six
-    Richtlinien via ComplianceCheckRequest's own validator.
+    Richtlinien via ComplianceCheckRequest's own validator. When the scope is
+    NOT an explicit user-provided list and the project context carries parseable
+    intake facts, applicability narrows it to the Richtlinien the facts flag as
+    relevant (verdict `required`/`likely`/`check`). An explicit user scope is
+    used untouched.
     """
-    richtlinien = state.richtlinien if state.richtlinien else (default_richtlinien or list(ALL_RICHTLINIEN))
+    explicit_scope = bool(state.richtlinien)
+    richtlinien = state.richtlinien if explicit_scope else (default_richtlinien or list(ALL_RICHTLINIEN))
+    if not explicit_scope:
+        richtlinien = _narrow_scope_with_applicability(richtlinien, state.project_context)
     return ComplianceCheckRequest(
         richtlinien=richtlinien,
         project_description=state.project_context or "",

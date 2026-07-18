@@ -1,4 +1,9 @@
 # Grid OIB workflow config — Kimi LLMs, persistent OIB knowledge base plus web search.
+#
+# NOTE (norm-registry Phase 0 hygiene): this config is NOT Baurecht-grade. It has
+# no RIS tools, no curated norm index, and no compliance pipeline — do not use it
+# for building-law research. The working reference config for Baurecht is
+# configs/config_oib_openrouter.yml.
 
 general:
   use_uvloop: true

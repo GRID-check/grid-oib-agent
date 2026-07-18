@@ -43,18 +43,18 @@ from nat.data_models.component_ref import LLMRef
 from nat.data_models.function import FunctionBaseConfig
 
 try:
-    from aiq_agent.common.ris_catalog import CatalogEntry
-    from aiq_agent.common.ris_catalog import extract_bundesland
-    from aiq_agent.common.ris_catalog import focus_entries
-    from aiq_agent.common.ris_catalog import load_catalog
-    from aiq_agent.common.ris_catalog import match_entries
+    from aiq_agent.common.norm_registry import NormEntry
+    from aiq_agent.common.norm_registry import extract_bundesland
+    from aiq_agent.common.norm_registry import focus_entries
+    from aiq_agent.common.norm_registry import load_registry
+    from aiq_agent.common.norm_registry import match_entries
 
     _CATALOG_AVAILABLE = True
 except ImportError:  # adapter used standalone, without the Grid agent package
-    CatalogEntry = None  # type: ignore[assignment]
+    NormEntry = None  # type: ignore[assignment]
     extract_bundesland = None  # type: ignore[assignment]
     focus_entries = None  # type: ignore[assignment]
-    load_catalog = None  # type: ignore[assignment]
+    load_registry = None  # type: ignore[assignment]
     match_entries = None  # type: ignore[assignment]
     _CATALOG_AVAILABLE = False
 
@@ -340,7 +340,10 @@ class RisSearchToolConfig(FunctionBaseConfig, name="ris_search"):
     )
     catalog_path: str = Field(
         default="",
-        description="Path to the curated catalog YAML. Empty = RIS_CATALOG_PATH env var or configs/ris_catalog.yml.",
+        description=(
+            "DEPRECATED (ADR-0025): path to a legacy flat catalog YAML. Empty = the norm registry "
+            "(configs/norms/*/registry.yml, GRID_NORMS_DIR). Set only for legacy override."
+        ),
     )
 
 
@@ -422,7 +425,7 @@ async def ris_search(tool_config: RisSearchToolConfig, builder: Builder):
             and not date_to
             and not _CASE_LAW_SIGNALS.search(query)
         ):
-            catalog = load_catalog(tool_config.catalog_path or None)
+            catalog = load_registry(tool_config.catalog_path or None)
             if catalog is not None:
                 matches = match_entries(catalog, query)
                 # An explicitly non-default application narrows the pointers to
@@ -538,20 +541,29 @@ async def _plan_with(planner, query, application, title, bundesland, date_from, 
     return await planner(query, application, title, bundesland, date_from, date_to)
 
 
-def _format_catalog_entry(index: int, entry: CatalogEntry) -> str:
+def _format_catalog_entry(index: int, entry: NormEntry) -> str:
     """Format one curated catalog entry as an agent-readable pointer block."""
     lines = [f"--- Catalog match {index} ---"]
     lines.append(f"Title: {entry.title}")
     if entry.bundesland:
         lines.append(f"Bundesland: {entry.bundesland}")
-    lines.append(f"Application: {entry.application}")
-    lines.append(f"Document number: {entry.document_number}")
-    if entry.citation_url:
-        lines.append(f"Source: {entry.citation_url}")
-    if entry.full_law_url:
-        lines.append(f"Entire consolidated law (all paragraphs): {entry.full_law_url}")
+    if entry.is_ris:
+        lines.append(f"Application: {entry.application}")
+        lines.append(f"Document number: {entry.document_number}")
+        if entry.citation_url:
+            lines.append(f"Source: {entry.citation_url}")
+        if entry.full_law_url:
+            lines.append(f"Entire consolidated law (all paragraphs): {entry.full_law_url}")
+    elif entry.source_url:
+        # Non-RIS source (behoerdliche_info etc.): a plain link — NOT fetchable
+        # via ris_fetch_document; the agent reads it with the web tools.
+        lines.append(f"Not in RIS - web source: {entry.source_url}")
+    else:
+        lines.append("Not in RIS - no accessible full text (reference only, say so openly)")
     if entry.relevance:
         lines.append(f"Relevance: {entry.relevance}")
+    if entry.binding_note:
+        lines.append(f"Rechtlicher Hinweis: {entry.binding_note}")
     return "\n".join(lines)
 
 
@@ -560,7 +572,10 @@ class RisCatalogLookupToolConfig(FunctionBaseConfig, name="ris_catalog_lookup"):
 
     catalog_path: str = Field(
         default="",
-        description="Path to the curated catalog YAML. Empty = RIS_CATALOG_PATH env var or configs/ris_catalog.yml.",
+        description=(
+            "DEPRECATED (ADR-0025): path to a legacy flat catalog YAML. Empty = the norm registry "
+            "(configs/norms/*/registry.yml, GRID_NORMS_DIR). Set only for legacy override."
+        ),
     )
     max_matches: int = Field(default=5, ge=1, description="Maximum catalog entries returned per lookup")
 
@@ -596,11 +611,10 @@ async def ris_catalog_lookup(tool_config: RisCatalogLookupToolConfig, builder: B
         """
         if not _CATALOG_AVAILABLE:
             return "Error: RIS catalog lookup unavailable - catalog module not importable. Use ris_search."
-        catalog = load_catalog(catalog_path)
+        catalog = load_registry(catalog_path)
         if catalog is None:
             return (
-                "Error: RIS catalog unavailable (file missing or invalid) - "
-                "use ris_search (live RIS search) instead."
+                "Error: RIS catalog unavailable (file missing or invalid) - use ris_search (live RIS search) instead."
             )
         # Jurisdiction filter BEFORE truncation: for "Bauordnung Tirol" the nine
         # state codes all match the generic "bauordnung" topic, and without the
@@ -615,7 +629,8 @@ async def ris_catalog_lookup(tool_config: RisCatalogLookupToolConfig, builder: B
                 "ris_search (live RIS search) for anything else."
             )
         lines = [f"Curated RIS catalog: {len(matches)} verified match(es) for '{topic}':", ""]
-        lines.extend(_format_catalog_entry(i, entry) + "\n" for i, entry in enumerate(matches, 1))
+        for i, entry in enumerate(matches, 1):
+            lines.append(_format_catalog_entry(i, entry) + "\n")
         lines.append(
             "These are verified pointers - fetch the full text with ris_fetch_document using the "
             "document number or the 'Entire consolidated law' URL. No ris_search needed."
