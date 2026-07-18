@@ -24,8 +24,8 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from datetime import UTC
 from datetime import datetime
-from datetime import timezone
 from typing import Any
 
 from aiq_agent.common import norm_registry
@@ -201,7 +201,7 @@ class NormRegistryStore:
         from sqlalchemy import text
 
         payload = norms_file.model_dump_json()
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         is_postgres = self.db_url.startswith("postgres")
 
         try:

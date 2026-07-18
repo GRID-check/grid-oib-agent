@@ -54,19 +54,23 @@ def _client(app):
     return AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
 
 
-def _valid_registry(entry_id: str = "custom-fed") -> dict:
+def _valid_body(entry_id: str = "custom-fed", version: int = 1) -> dict:
+    """A full PUT envelope: the expected version plus a valid NormsFile registry."""
     return {
-        "version": 1,
-        "entries": [
-            {
-                "id": entry_id,
-                "title": "Custom Federal Law",
-                "short": "CFL",
-                "rank": "bundesgesetz",
-                "application": "BrKons",
-                "document_number": "NOR00000001",
-            }
-        ],
+        "version": version,
+        "registry": {
+            "version": 1,
+            "entries": [
+                {
+                    "id": entry_id,
+                    "title": "Custom Federal Law",
+                    "short": "CFL",
+                    "rank": "bundesgesetz",
+                    "application": "BrKons",
+                    "document_number": "NOR00000001",
+                }
+            ],
+        },
     }
 
 
@@ -135,7 +139,7 @@ async def test_put_pydantic_error_is_422(app, monkeypatch):
 @pytest.mark.asyncio
 async def test_put_unknown_application_is_400(app, monkeypatch):
     monkeypatch.setattr(norms_module, "_ADMIN_TOKEN", None)
-    body = _valid_registry()
+    body = _valid_body()
     body["registry"]["entries"][0]["application"] = "NotAnApp"
     async with _client(app) as client:
         resp = await client.put("/v1/admin/norms", json=body)
@@ -146,8 +150,7 @@ async def test_put_unknown_application_is_400(app, monkeypatch):
 @pytest.mark.asyncio
 async def test_put_version_conflict_is_409(app, monkeypatch):
     monkeypatch.setattr(norms_module, "_ADMIN_TOKEN", None)
-    body = _valid_registry()
-    body["version"] = 0  # stale: seed is already at version 1
+    body = _valid_body(version=0)  # stale: seed is already at version 1
     async with _client(app) as client:
         resp = await client.put("/v1/admin/norms", json=body)
     assert resp.status_code == 409
@@ -159,7 +162,7 @@ async def test_put_success_writes_and_resets_cache(app, configured_store, monkey
     reset = MagicMock(wraps=norm_registry.reset_registry_cache)
     monkeypatch.setattr(norms_module.norm_registry, "reset_registry_cache", reset)
 
-    body = _valid_registry(entry_id="brand-new")
+    body = _valid_body(entry_id="brand-new")
     async with _client(app) as client:
         resp = await client.put("/v1/admin/norms", json=body)
 
