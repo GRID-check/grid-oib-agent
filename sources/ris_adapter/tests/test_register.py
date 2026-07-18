@@ -210,6 +210,18 @@ class TestRisSearchTool:
         assert fake_client.search_calls[0]["application"] == "BrKons"
         assert fake_client.search_calls[0]["params"] == {"Suchworte": "Garage Stellplatz"}
 
+    async def test_repeat_search_is_served_from_cache(self, fake_client):
+        fake_client.search_result = RisSearchResult(hits=[_sample_hit()], total=1, page=1, page_size=20)
+
+        async with ris_search(RisSearchToolConfig(), MagicMock()) as info:
+            first = await _call(info, query="Garage Stellplatz")
+            second = await _call(info, query="Garage Stellplatz")
+
+        assert "Garagengesetz" in first and first == second
+        # The second identical search hit the shared cache — no second API call
+        # (and, when a planner is configured, no second planner-LLM call either).
+        assert len(fake_client.search_calls) == 1
+
     async def test_no_results_message(self, fake_client):
         fake_client.search_result = RisSearchResult(hits=[], total=0)
 
@@ -464,6 +476,18 @@ class TestRisFetchDocumentTool:
         assert fake_client.fetch_calls == [
             "https://www.ris.bka.gv.at/Dokumente/Bundesnormen/NOR40217157/NOR40217157.html"
         ]
+
+    async def test_repeat_fetch_is_served_from_cache(self, fake_client):
+        fake_client.fetch_result = RisDocument(url="https://www.ris.bka.gv.at/d", title="G", text="Volltext")
+
+        config = RisFetchDocumentToolConfig(ingest_into_knowledge=False)
+        async with ris_fetch_document(config, MagicMock()) as info:
+            first = await _call(info, reference="https://www.ris.bka.gv.at/d")
+            second = await _call(info, reference="https://www.ris.bka.gv.at/d")
+
+        assert "Volltext" in first and first == second
+        # The second identical fetch hit the shared cache — only ONE network call.
+        assert fake_client.fetch_calls == ["https://www.ris.bka.gv.at/d"]
 
     async def test_unresolvable_reference_returns_error(self, fake_client):
         config = RisFetchDocumentToolConfig(ingest_into_knowledge=False)

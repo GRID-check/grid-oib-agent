@@ -28,10 +28,17 @@ from langchain_core.exceptions import OutputParserException
 from pydantic import BaseModel
 from pydantic import Field
 from pydantic import ValidationError
+from ris_adapter.cache import cache_get_json
+from ris_adapter.cache import cache_set_json
+from ris_adapter.cache import doc_cache_key
+from ris_adapter.cache import ingested_marker_key
+from ris_adapter.cache import ris_cache_ttl_seconds
+from ris_adapter.cache import search_cache_key
 from ris_adapter.client import CONTROLLER_FOR_APPLICATION
 from ris_adapter.client import DEFAULT_BASE_URL
 from ris_adapter.client import PAGE_SIZES
 from ris_adapter.client import RisClient
+from ris_adapter.client import RisDocument
 from ris_adapter.client import RisError
 from ris_adapter.client import RisHit
 from ris_adapter.client import build_document_url
@@ -453,6 +460,14 @@ async def ris_search(tool_config: RisSearchToolConfig, builder: Builder):
                         "to force a live RIS search."
                     )
                     return "\n".join(lines)
+        # Live-search read-through cache: skips both the planner LLM and the RIS
+        # API for a repeat of the exact same search. The catalog shortcut above
+        # is local and already free, so it is deliberately not cached here.
+        search_key = search_cache_key("|".join([application, query, title, bundesland, date_from, date_to, str(page)]))
+        cached_search = await cache_get_json(search_key)
+        if isinstance(cached_search, str) and cached_search:
+            return cached_search
+
         effective = {
             "application": application,
             "query": query,
@@ -525,7 +540,11 @@ async def ris_search(tool_config: RisSearchToolConfig, builder: Builder):
             "To read a document in full, call ris_fetch_document with its document number or Source URL. "
             "For the complete text of a law (all paragraphs), fetch the 'Entire consolidated law' URL."
         )
-        return "\n".join(lines)
+        output = "\n".join(lines)
+        # Only successful, non-empty results are cached (errors / "no documents
+        # found" returned earlier and are never stored).
+        await cache_set_json(search_key, output, ris_cache_ttl_seconds())
+        return output
 
     try:
         yield FunctionInfo.from_fn(
@@ -762,7 +781,25 @@ async def ris_fetch_document(tool_config: RisFetchDocumentToolConfig, builder: B
                 url = reference
             else:
                 url = build_document_url(reference, application)
-            document = await client.fetch_document_text(url)
+            # Shared-cache read-through: an identical document fetched earlier
+            # (this turn, an earlier turn, another replica, before a restart) is
+            # served without the network download. Fail-open — a cache miss/error
+            # just falls through to the live fetch.
+            cache_key = doc_cache_key(url)
+            cached_doc = await cache_get_json(cache_key)
+            if isinstance(cached_doc, dict) and cached_doc.get("text"):
+                document = RisDocument(
+                    url=cached_doc.get("url", url),
+                    title=cached_doc.get("title", ""),
+                    text=cached_doc["text"],
+                )
+            else:
+                document = await client.fetch_document_text(url)
+                await cache_set_json(
+                    cache_key,
+                    {"url": document.url, "title": document.title, "text": document.text},
+                    ris_cache_ttl_seconds(),
+                )
         except RisError as exc:
             return f"Error: RIS document fetch failed - {exc}"
         except Exception as exc:  # a tool must always hand the agent a string
@@ -772,10 +809,23 @@ async def ris_fetch_document(tool_config: RisFetchDocumentToolConfig, builder: B
         ingested_name: str | None = None
         if tool_config.ingest_into_knowledge:
             file_name = _safe_document_name(reference, document.title)
-            try:
-                ingested_name = await asyncio.to_thread(_ingest_document_sync, document.text, file_name, document.url)
-            except Exception:
-                logger.warning("ris_fetch_document: knowledge ingestion failed (non-fatal)", exc_info=True)
+            # Don't re-ingest (re-patch) the same document into the same session
+            # on every back-and-forth turn — once it's in the collection, just
+            # reference it. The marker is best-effort; without it we ingest.
+            collection = _resolve_session_collection()
+            marker = ingested_marker_key(collection, document.url) if collection else None
+            already_ingested = bool(marker) and bool(await cache_get_json(marker))
+            if already_ingested:
+                ingested_name = file_name
+            else:
+                try:
+                    ingested_name = await asyncio.to_thread(
+                        _ingest_document_sync, document.text, file_name, document.url
+                    )
+                except Exception:
+                    logger.warning("ris_fetch_document: knowledge ingestion failed (non-fatal)", exc_info=True)
+                if ingested_name and marker:
+                    await cache_set_json(marker, True, ris_cache_ttl_seconds())
 
         header = [f"Source: {document.url}"]
         if document.title:

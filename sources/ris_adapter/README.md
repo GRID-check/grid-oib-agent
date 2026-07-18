@@ -69,27 +69,24 @@ uv run --no-project --with httpx --with pydantic --with beautifulsoup4 \
 
 `ris_fetch_document` does three things with a fetched document:
 
-1. Serves it from the **persistent norm cache** when possible (ADR-0025 Phase
-   3, `persistent_cache: true` by default): fetched full texts are kept on disk
-   (`cache_dir`, default `data/ris_cache`) keyed by RIS document number with a
-   content hash and parsed Fassung date. Fresh entries
-   (`GRID_RIS_CACHE_TTL_DAYS`, default 7 days) skip the HTTP call entirely;
-   stale entries are re-validated cheaply (first ~4 KB, `Stand:`/`Fassung vom`
-   date) and only re-fetched when a Novelle actually changed the Fassung —
-   network failure during re-validation serves the stale copy rather than
-   failing the tool. Documents whose number cannot be resolved fall back to the
-   legacy behavior below.
+1. Serves it from the **shared cache** when possible: the fetched full text is
+   stored in the agent's fail-open Dragonfly/Redis cache
+   (`aiq_agent.common.cache`, ADR-0020), keyed by the document URL, for
+   `GRID_RIS_CACHE_TTL_DAYS` (default 7). A repeat of the same fetch — later in
+   the conversation, on another replica, after a restart — is served without the
+   HTTP download. It is cache-only: on a miss, a cache error, or when the agent
+   package is absent (adapter used standalone), the tool simply performs the live
+   fetch. `ris_search` results are cached the same way, so a repeat of an
+   identical search skips both the RIS API and the planner LLM.
 2. Returns the full text (truncated at `max_chars` for the agent's context) with
    a `Source:` line carrying the canonical `ris.bka.gv.at` URL. The citation
    verification layer picks that URL up automatically, so answers grounded in
    the document are citable.
-3. Ingests the **complete** text into the persistent `ris_knowledge` knowledge
-   collection (best-effort, `ingest_into_knowledge: true` by default), chunked
-   on `§` boundaries with norm-registry metadata. The session collection only
-   receives a small `RIS_POINTER_<docnr>.txt` pointer; without the cache the
-   full text goes to the per-session collection as before. From then on
-   `knowledge_search` retrieves and cites specific sections of the document —
-   the document has become a regular knowledge-layer source.
+3. Ingests the **complete** text into the per-session knowledge collection
+   (best-effort, `ingest_into_knowledge: true` by default) so `knowledge_search`
+   can retrieve and cite specific sections afterwards. The same document is not
+   re-ingested on every turn — a per-session marker in the shared cache records
+   that it is already in the collection, so subsequent fetches just reference it.
 
 ### Query planning with structured outputs
 
@@ -154,11 +151,12 @@ functions:
   is shape-tolerant (`OgdSearchResult/OgdDocumentResults/OgdDocumentReference`).
 - API errors (`OgdSearchResult.Error`) are surfaced verbatim to the agent so it
   can correct its query (e.g. wildcard rules, invalid page numbers).
-- Fetched documents are cached in memory (1 h TTL) to avoid refetching within
-  a research run; HTTP requests reuse one connection pool and retry transient
-  failures (5xx/transport) with exponential backoff. Structured OGD-RIS
-  validation errors are never retried — they are surfaced to the agent so it
-  can correct the query.
+- Fetched documents and searches are cached in the shared Dragonfly/Redis cache
+  (`GRID_RIS_CACHE_TTL_DAYS`, default 7 days) to avoid re-fetching across turns,
+  replicas, and restarts, with a small per-process in-memory cache on top; HTTP
+  requests reuse one connection pool and retry transient failures (5xx/transport)
+  with exponential backoff. Structured OGD-RIS validation errors are never
+  retried — they are surfaced to the agent so it can correct the query.
 - Citation hygiene: fetched consolidated texts (BrKons/LrKons) carry an explicit
   konsolidierte-Fassung note (legally non-binding; the authentic text is the
   BGBl/LGBl promulgation) and a retrieval date, so reports can cite precisely.
