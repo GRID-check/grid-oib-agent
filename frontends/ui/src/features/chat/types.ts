@@ -321,6 +321,12 @@ export interface CitationSource {
   lane?: string
   /** Human lane label ("OIB-Richtlinie", "Rechtsquelle (RIS)") for the popover. */
   laneLabel?: string
+  /**
+   * Bindingness note ("Macht die OIB-Richtlinien in Wien verbindlich: …") for a
+   * RIS source the norm registry catalogues — shown in the source popover so an
+   * architect can see whether the source actually binds their project.
+   */
+  bindingNote?: string
 }
 
 /** Wire shape of a structured source attached to a shallow ChatResponse. */
@@ -338,6 +344,7 @@ export interface WireCitationSource {
   kind?: string | null
   lane?: string | null
   lane_label?: string | null
+  binding_note?: string | null
 }
 
 /** Plan message for chat/HITL display and restore flows */

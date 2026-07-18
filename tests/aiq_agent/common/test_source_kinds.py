@@ -92,3 +92,28 @@ class TestWireKind:
     def test_web_url_is_web(self):
         entry = SourceEntry(url="https://example.com/artikel", source_type="generic")
         assert source_entry_to_wire(entry)["kind"] == "web"
+
+
+class TestBindingNote:
+    """RIS sources catalogued in the norm registry carry their bindingness note."""
+
+    def test_ris_source_matching_registry_gets_binding_note(self):
+        # wbtv (document_number LWI40016790) is the entry that makes the OIB
+        # Richtlinien binding in Wien — the canonical bindingness fact.
+        entry = SourceEntry(
+            url="https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=LrW&Gesetzesnummer=LWI40016790",
+            source_type="generic",
+        )
+        wire = source_entry_to_wire(entry)
+        assert wire["kind"] == "baurecht"
+        assert "verbindlich" in wire["binding_note"].lower()
+
+    def test_non_ris_source_has_no_binding_note(self):
+        entry = SourceEntry(citation_key="oib-rl_2.pdf, p.5", source_type="knowledge_layer")
+        assert "binding_note" not in source_entry_to_wire(entry)
+
+    def test_ris_without_registry_match_has_no_binding_note(self):
+        entry = SourceEntry(
+            url="https://www.ris.bka.gv.at/Dokumente/Bundesnormen/NOR99999999", source_type="generic"
+        )
+        assert "binding_note" not in source_entry_to_wire(entry)

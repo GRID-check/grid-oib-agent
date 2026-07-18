@@ -56,6 +56,7 @@ export const citationFromWire = (
     kind: asSourceKind(wire.kind),
     lane: trimmed(wire.lane),
     laneLabel: trimmed(wire.lane_label),
+    bindingNote: trimmed(wire.binding_note),
   }
 }
 

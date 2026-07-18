@@ -865,6 +865,29 @@ def source_lane(entry: SourceEntry) -> tuple[str, str]:
     return lane
 
 
+def binding_note_for_entry(entry: SourceEntry) -> str | None:
+    """Prose bindingness note for a source, when the norm registry catalogues one.
+
+    For a RIS source whose URL carries a catalogued ``document_number``, return
+    the matching registry entry's ``binding_note`` (e.g. how the WBTV makes the
+    OIB Richtlinien binding in Wien) — the highest-value "does this actually bind
+    me?" fact for the citation popover. ``None`` when the source is not RIS or
+    the matched entry carries no note. Fail-open: never raises.
+    """
+    if not (entry.url and "ris.bka.gv.at" in entry.url):
+        return None
+    try:
+        from aiq_agent.common.norm_registry import load_registry
+
+        registry = load_registry()
+        for norm in registry.entries:
+            if norm.document_number and norm.document_number in entry.url and norm.binding_note:
+                return norm.binding_note
+    except Exception:  # registry unavailable/invalid — bindingness is best-effort
+        return None
+    return None
+
+
 def source_origin_token(entry: SourceEntry) -> str:
     """Return a stable leading origin token for a source line.
 
@@ -924,6 +947,9 @@ def source_entry_to_wire(entry: SourceEntry) -> dict[str, Any]:
         "kind": kind,
         "lane": lane_key,
         "lane_label": lane_label,
+        # Bindingness fact for the popover ("does this bind me?") — only present
+        # for RIS sources the norm registry catalogues with a binding_note.
+        "binding_note": binding_note_for_entry(entry),
         "file_name": file_name,
         "page": page,
     }
