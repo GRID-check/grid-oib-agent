@@ -10,7 +10,7 @@ export const research: typeof en.research = {
   runsPage: {
     title: 'Recherchedurchläufe',
     subtitle:
-      'Deep-Research-Berichte, die Grid für dieses Projekt erstellt hat, neueste zuerst.',
+      'Deep-Research-Berichte, die Piloti für dieses Projekt erstellt hat, neueste zuerst.',
   },
 
   // Labels for the per-project research-runs list rows (research-runs-list.tsx).
@@ -26,11 +26,11 @@ export const research: typeof en.research = {
 
   chatArea: {
     ariaMessages: 'Chat-Nachrichten',
-    loggedOutTitle: 'Grid wird verfügbar, sobald Ihre Organisation verifiziert ist.',
+    loggedOutTitle: 'Piloti wird verfügbar, sobald Ihre Organisation verifiziert ist.',
     loggedOutBody:
       'Melden Sie sich an, um projektbezogene OIB-Recherche, Dokumenten-Ingestion und Zugriffskontrollen für Mitglieder freizuschalten.',
     signInSso: 'Mit SSO anmelden',
-    welcomeTitle: 'Wie kann Grid bei Ihrem Projekt helfen?',
+    welcomeTitle: 'Wie kann Piloti bei Ihrem Projekt helfen?',
     usePrompt: 'Vorschlag verwenden: {prompt}',
     prompt1: 'Vergleiche die Brandschutzpflichten nach OIB 2 über die Gebäudeklassen hinweg.',
     prompt2: 'Fasse die Barrierefreiheitsanforderungen für eine öffentliche Sanierung zusammen.',
@@ -196,7 +196,7 @@ export const research: typeof en.research = {
 
   inputArea: {
     aiDisclosure:
-      'Grid ist ein KI-System. Antworten werden von KI erzeugt und können falsch sein — prüfen Sie sie anhand der zitierten Richtlinie, bevor Sie sich darauf stützen.',
+      'Piloti ist ein KI-System. Antworten werden von KI erzeugt und können falsch sein — prüfen Sie sie anhand der zitierten Richtlinie, bevor Sie sich darauf stützen.',
     placeholderDefault: 'Datenquellen prüfen und eine Recherchefrage stellen...',
     signInToStart: 'Melden Sie sich an, um mit der Recherche zu beginnen',
     researchCompletedNewSession:
@@ -293,7 +293,7 @@ export const research: typeof en.research = {
     noMatching: 'Keine passenden Sitzungen',
     noMatchingDescription: 'Keine Sitzungen entsprechen Ihrer Suche. Versuchen Sie einen anderen Begriff.',
     noSessions: 'Noch keine Sitzungen',
-    noSessionsDescription: 'Starten Sie eine neue Sitzung, um mit Grid zu recherchieren.',
+    noSessionsDescription: 'Starten Sie eine neue Sitzung, um mit Piloti zu recherchieren.',
     startNewSessionButton: 'Neue Sitzung starten',
     today: 'Heute',
     yesterday: 'Gestern',

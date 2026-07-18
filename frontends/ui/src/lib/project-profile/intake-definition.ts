@@ -19,7 +19,7 @@ export interface ProjectIntakeQuestion {
   writesTo?: string
   /**
    * Skippable: the wizard lets the user continue without answering. Unanswered
-   * optional questions still land in `profile.unknowns` so Grid can chase them later.
+   * optional questions still land in `profile.unknowns` so Piloti can chase them later.
    */
   optional?: boolean
 }
@@ -43,15 +43,15 @@ export const projectIntakeDefinitionV1: ProjectIntakeDefinition = {
     {
       // Focus comes FIRST: once someone has named what they want out of the project,
       // finishing the brief feels like working toward it (commitment & consistency)
-      // instead of filling in a form. Multi-select on purpose — Grid helps with all
+      // instead of filling in a form. Multi-select on purpose — Piloti helps with all
       // of it, so nobody is forced to rank one goal above the rest.
       id: 'goal',
       title: 'Your focus',
-      description: 'Grid helps across the whole project — this just tells it where to dig in first.',
+      description: 'Piloti helps across the whole project — this just tells it where to dig in first.',
       questions: [
         {
           id: 'focus_areas',
-          label: 'What should Grid help with on this project?',
+          label: 'What should Piloti help with on this project?',
           help: 'Select everything that applies.',
           type: 'multi_select',
           options: [
@@ -66,7 +66,7 @@ export const projectIntakeDefinitionV1: ProjectIntakeDefinition = {
         },
         {
           id: 'goal_details',
-          label: 'Tell Grid more',
+          label: 'Tell Piloti more',
           help: 'One sentence is enough — e.g. "Confirm the fire-compartment strategy for the submission."',
           type: 'text',
           condition: { field: 'focus_areas', equals: 'sonstiges' },
@@ -77,7 +77,7 @@ export const projectIntakeDefinitionV1: ProjectIntakeDefinition = {
     {
       id: 'core',
       title: 'Project core',
-      description: 'The essentials Grid needs to frame the building.',
+      description: 'The essentials Piloti needs to frame the building.',
       questions: [
         {
           // Jurisdiction is a HARD fact: building law is state law (the nine
@@ -105,7 +105,7 @@ export const projectIntakeDefinitionV1: ProjectIntakeDefinition = {
         {
           id: 'standort_details',
           label: 'Project location',
-          help: 'Country and region/city, e.g. "Bayern, Deutschland" — Grid uses this to frame which law applies.',
+          help: 'Country and region/city, e.g. "Bayern, Deutschland" — Piloti uses this to frame which law applies.',
           type: 'text',
           condition: { field: 'bundesland', equals: 'ausserhalb_oesterreichs' },
           writesTo: '/facts/standort_details/value',
@@ -424,7 +424,7 @@ function resolveWriteTarget(writesTo: string | undefined): WriteTarget | null {
  * identical to a profile edited through {@link applyProjectProfilePatch}.
  *
  * Currently-relevant questions that were left unanswered are recorded in
- * `profile.unknowns`, so Overview's "what Grid still doesn't know" is accurate.
+ * `profile.unknowns`, so Overview's "what Piloti still doesn't know" is accurate.
  */
 export function buildIntakeProfile(
   answers: Record<string, ProjectPrimitiveValue>,

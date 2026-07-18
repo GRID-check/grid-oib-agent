@@ -177,7 +177,7 @@ describe('ProjectIntakeWizard — FB-13 conflict check', () => {
     const stub = stubFetch()
     stub.consistencyResponse.json = {
       findings: [
-        { kind: 'ai', fields: ['Tell Grid more'], severity: 'inconsistency', message: 'The note contradicts the plan.' },
+        { kind: 'ai', fields: ['Tell Piloti more'], severity: 'inconsistency', message: 'The note contradicts the plan.' },
       ],
     }
     seedReviewDraft({
@@ -192,7 +192,7 @@ describe('ProjectIntakeWizard — FB-13 conflict check', () => {
     const call = consistencyCalls(stub)[0]
     expect(call).toBeDefined()
     expect(call.body).toMatchObject({
-      freeText: [{ field: 'Tell Grid more', value: 'Confirm the fire-compartment strategy for the submission.' }],
+      freeText: [{ field: 'Tell Piloti more', value: 'Confirm the fire-compartment strategy for the submission.' }],
     })
   })
 

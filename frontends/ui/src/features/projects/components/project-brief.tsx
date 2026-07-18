@@ -27,10 +27,10 @@ interface ProjectBriefProps {
 const PROVENANCE_SOURCES = new Set(['onboarding', 'user_confirmed', 'admin_edit'])
 
 /**
- * Project Brief — the architect-owned context Grid works from. Renders the
+ * Project Brief — the architect-owned context Piloti works from. Renders the
  * intake profile as a grouped, human-readable fact sheet: prose summary, focus
- * areas, facts by intake stage, Grid-suggested assumptions awaiting
- * confirmation, and what Grid still doesn't know.
+ * areas, facts by intake stage, Piloti-suggested assumptions awaiting
+ * confirmation, and what Piloti still doesn't know.
  */
 export function ProjectBrief({ projectId, profile, summary, briefStarted }: ProjectBriefProps) {
   const t = useTranslations('projects')
@@ -97,7 +97,7 @@ export function ProjectBrief({ projectId, profile, summary, briefStarted }: Proj
         </div>
       )}
 
-      {/* Focus areas the architect selected for Grid */}
+      {/* Focus areas the architect selected for Piloti */}
       {brief.focusAreas.length > 0 && (
         <div className="mt-4 flex flex-wrap items-center gap-1.5">
           <span className="mr-1 text-xs text-muted-foreground">{t('overview.brief.focus')}</span>
@@ -148,12 +148,12 @@ export function ProjectBrief({ projectId, profile, summary, briefStarted }: Proj
         </p>
       )}
 
-      {/* Grid-suggested assumptions awaiting the architect's confirmation */}
+      {/* Piloti-suggested assumptions awaiting the architect's confirmation */}
       {brief.assumptions.length > 0 && (
         <AssumptionsBlock projectId={projectId} assumptions={brief.assumptions} />
       )}
 
-      {/* What Grid still doesn't know — each gap links back into the wizard */}
+      {/* What Piloti still doesn't know — each gap links back into the wizard */}
       {brief.missing.length > 0 && (
         <div className="mt-5 border-t pt-4">
           <div className="flex flex-wrap items-center gap-1.5">
@@ -286,7 +286,7 @@ function SummaryControl({
 }
 
 /**
- * Unconfirmed values Grid proposed for this project. Confirming graduates the
+ * Unconfirmed values Piloti proposed for this project. Confirming graduates the
  * assumption into a hard fact (source `user_confirmed`); dismissing removes it.
  * Both go through the same profile-patch endpoint the agent's patch cards use.
  */

@@ -149,12 +149,12 @@ export const workflows = {
     },
   },
 
-  // GRID-authored default templates — the always-visible gallery at the top of
+  // Piloti-authored default templates — the always-visible gallery at the top of
   // the Workflows page. Selecting a card pre-fills the builder; templates never
   // auto-create or run a workflow (the user reviews and saves).
   templates: {
-    badge: 'By GRID',
-    heading: 'GRID templates',
+    badge: 'By Piloti',
+    heading: 'Piloti templates',
     hint: 'Prefilled research briefs — review, adjust and save. Nothing runs until you save the workflow.',
     setUp: 'Set up',
     setUpAria: 'Set up template “{name}”',
@@ -169,7 +169,7 @@ export const workflows = {
     },
     moreComing: {
       title: 'More coming',
-      hint: 'Further GRID templates will appear here.',
+      hint: 'Further Piloti templates will appear here.',
     },
 
     submissionPrecheck: {

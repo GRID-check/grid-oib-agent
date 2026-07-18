@@ -70,7 +70,7 @@ describe('FilePreviewPane', () => {
     expect(screen.queryByRole('button', { name: /open large preview/i })).toBeNull()
   })
 
-  describe('"Indexed by GRID" panel', () => {
+  describe('"Indexed by Piloti" panel', () => {
     it('renders the AI summary, page and chunk counts inside the panel when present', () => {
       render(
         <FilePreviewPane
@@ -83,7 +83,7 @@ describe('FilePreviewPane', () => {
           projectId="proj-1"
         />
       )
-      expect(screen.getByText('Indexed by GRID')).toBeDefined()
+      expect(screen.getByText('Indexed by Piloti')).toBeDefined()
       expect(screen.getByText('A ground-floor plan of the east wing.')).toBeDefined()
       expect(screen.getByText('Pages')).toBeDefined()
       expect(screen.getByText('4')).toBeDefined()
@@ -137,7 +137,7 @@ describe('FilePreviewPane', () => {
         />
       )
       // The flag-gated panel is absent…
-      expect(screen.queryByText('Indexed by GRID')).toBeNull()
+      expect(screen.queryByText('Indexed by Piloti')).toBeNull()
       expect(screen.queryByText('A ground-floor plan of the east wing.')).toBeNull()
       expect(screen.queryByText('Pages')).toBeNull()
       expect(screen.queryByText('Passages')).toBeNull()

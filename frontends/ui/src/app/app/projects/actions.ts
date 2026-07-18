@@ -74,7 +74,7 @@ export async function createProject(_prevState: CreateProjectState, formData: Fo
   }
 
   revalidatePath('/app/projects')
-  // Land new projects directly in intake: the brief is what makes Grid's answers
+  // Land new projects directly in intake: the brief is what makes Piloti's answers
   // (and the applicable-standards panel) useful, so setup flows straight into it.
   redirect(`/app/projects/${projectId}/intake`)
 }

@@ -23,7 +23,7 @@ import { useLocale, useTranslations } from '@/i18n'
 import type { Translator } from '@/i18n'
 
 /**
- * Project Memory panel — "What Grid knows about this project".
+ * Project Memory panel — "What Piloti knows about this project".
  * See docs/architecture/project-memory-design.md §7: capture is silent, this
  * panel is the human backstop (view / add / edit / confirm / pin / dismiss).
  */

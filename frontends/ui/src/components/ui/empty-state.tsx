@@ -11,7 +11,7 @@ import { cn } from '@/lib/utils'
  * <EmptyState
  *   icon={FolderOpen}
  *   title="No files yet"
- *   description="Upload building documents so Grid can ground its answers in your project."
+ *   description="Upload building documents so Piloti can ground its answers in your project."
  *   action={<Button>Upload files</Button>}
  * />
  */

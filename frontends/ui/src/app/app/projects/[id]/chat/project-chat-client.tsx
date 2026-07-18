@@ -55,12 +55,12 @@ const ProjectChatContent = ({
   const loadedJobRef = useRef<string | null>(null)
 
   // While a deep-research job streams, reflect its progress in the tab title.
-  // The base "<Project> · Chat — Grid" title comes from route metadata
+  // The base "<Project> · Chat — Piloti" title comes from route metadata
   // (chat/layout + the project layout template); this override cleanly hands
   // that title back when the job completes or the page unmounts.
   useDeepResearchTitle()
 
-  // Deep link from Overview's "Ask Grid" actions: /projects/:id/chat?ask=<question>.
+  // Deep link from Overview's "Ask Piloti" actions: /projects/:id/chat?ask=<question>.
   // Seed the store-backed composer prefill (consumed once by InputArea) and then
   // strip the param from the URL so a refresh/back-nav doesn't re-inject it. The
   // guard ref keeps this to a single application per distinct question.

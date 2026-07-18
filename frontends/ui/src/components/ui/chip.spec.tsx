@@ -4,8 +4,8 @@ import { Chip, ChipCount } from './chip'
 
 describe('Chip', () => {
   it('renders children and the muted default variant', () => {
-    render(<Chip>Grid noted</Chip>)
-    const chip = screen.getByText('Grid noted')
+    render(<Chip>Piloti noted</Chip>)
+    const chip = screen.getByText('Piloti noted')
     expect(chip).toBeInTheDocument()
     expect(chip).toHaveClass('bg-muted')
   })

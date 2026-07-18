@@ -160,13 +160,13 @@ export const workflows: typeof en.workflows = {
     },
   },
 
-  // Von GRID erstellte Standardvorlagen — die stets sichtbare Galerie oben auf
+  // Von Piloti erstellte Standardvorlagen — die stets sichtbare Galerie oben auf
   // der Workflows-Seite. Eine Karte füllt den Builder vor; Vorlagen erstellen
   // oder starten nie automatisch einen Workflow (die Nutzerin prüft und
   // speichert).
   templates: {
-    badge: 'Von GRID',
-    heading: 'Vorlagen von GRID',
+    badge: 'Von Piloti',
+    heading: 'Vorlagen von Piloti',
     hint: 'Vorausgefüllte Recherche-Briefings — prüfen, anpassen und speichern. Es läuft nichts, bevor Sie den Workflow speichern.',
     setUp: 'Einrichten',
     setUpAria: 'Vorlage „{name}“ einrichten',
@@ -181,7 +181,7 @@ export const workflows: typeof en.workflows = {
     },
     moreComing: {
       title: 'Weitere folgen',
-      hint: 'Hier erscheinen künftig weitere GRID-Vorlagen.',
+      hint: 'Hier erscheinen künftig weitere Piloti-Vorlagen.',
     },
 
     submissionPrecheck: {

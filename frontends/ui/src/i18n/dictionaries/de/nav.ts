@@ -4,13 +4,13 @@ import type { en } from '../en'
 export const nav: typeof en.nav = {
   projectNavigation: 'Projektnavigation',
   projectSections: 'Projektbereiche',
-  allProjects: 'Grid — alle Projekte',
+  allProjects: 'Piloti — alle Projekte',
   collapseSidebar: 'Seitenleiste einklappen',
   expandSidebar: 'Seitenleiste ausklappen',
   openNavigation: 'Navigation öffnen',
   closeNavigation: 'Navigation schließen',
   sections: {
-    chat: 'Chat',
+    chat: 'Frag Piloti',
     files: 'Dateien',
     knowledge: 'Wissen',
     research: 'Recherche',
@@ -21,8 +21,8 @@ export const nav: typeof en.nav = {
   },
   tabTitle: {
     intake: 'Einrichtung',
-    researchProgress: '{percent}% · {label} — Grid',
-    researchActive: '⏳ {label} — Grid',
+    researchProgress: '{percent}% · {label} — Piloti',
+    researchActive: '⏳ {label} — Piloti',
   },
   projectSwitcher: {
     select: 'Projekt auswählen',
@@ -52,7 +52,7 @@ export const nav: typeof en.nav = {
     openConversation: 'Unterhaltung "{title}" im Chat öffnen',
     emptyTitle: 'Noch keine Unterhaltungen',
     emptyDescription:
-      'Stellen Sie Grid im Chat eine Frage — jede Unterhaltung erscheint anschließend hier.',
+      'Stellen Sie Piloti im Chat eine Frage — jede Unterhaltung erscheint anschließend hier.',
     emptyAction: 'Chat öffnen',
     noMatchesTitle: 'Keine passenden Unterhaltungen',
     noMatchesDescription: 'Versuchen Sie einen anderen Suchbegriff.',

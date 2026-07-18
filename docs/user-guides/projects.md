@@ -41,7 +41,7 @@ Source: `frontends/ui/src/components/shell/app-sidebar.tsx`, `frontends/ui/src/a
 
 ## Project-scoped chat
 
-When you start a chat from a project's Chat tab, the conversation is tagged with the project's ID. The `buildCollectionScopeFromRequest()` function includes the project's collection (`proj_{uuid}`) in the `X-Grid-Collection-Scope` header. This limits knowledge retrieval to documents uploaded to that project.
+When you start a chat from a project's "Ask Piloti" (chat) tab, the conversation is tagged with the project's ID. The `buildCollectionScopeFromRequest()` function includes the project's collection (`proj_{uuid}`) in the `X-Grid-Collection-Scope` header. This limits knowledge retrieval to documents uploaded to that project.
 
 Source: `docs/technical-reference/chat-flow.md`, `frontends/ui/src/app/api/chat/route.ts:55`
 
@@ -65,7 +65,7 @@ The **Workflows** tab (`/app/projects/{id}/workflows`) manages saved research br
 
 The page has two parts:
 
-1. **Template gallery** (always at the top): curated GRID templates — currently **Vorprüfung Einreichung** (a manual pre-submission research run: which requirements the permit submission must satisfy under the state building code and the OIB Richtlinien, and which points remain open), **Richtlinien-Monitoring** (a weekly scan of RIS and the web for regulation changes relevant to the project), and an **OIB compliance gap check** (project documentation cross-checked against the applicable OIB Richtlinien). Each card shows a provenance-tinted icon, an honest description of what the research run produces, and a cadence hint derived from the template's real schedule. **Set up** opens the builder pre-filled with the template's brief, sources and schedule — a template never creates or runs anything by itself; you review and save. A dashed "More coming" card marks the end of the gallery.
+1. **Template gallery** (always at the top): curated Piloti templates — currently **Vorprüfung Einreichung** (a manual pre-submission research run: which requirements the permit submission must satisfy under the state building code and the OIB Richtlinien, and which points remain open), **Richtlinien-Monitoring** (a weekly scan of RIS and the web for regulation changes relevant to the project), and an **OIB compliance gap check** (project documentation cross-checked against the applicable OIB Richtlinien). Each card shows a provenance-tinted icon, an honest description of what the research run produces, and a cadence hint derived from the template's real schedule. **Set up** opens the builder pre-filled with the template's brief, sources and schedule — a template never creates or runs anything by itself; you review and save. A dashed "More coming" card marks the end of the gallery.
 2. **Your workflows**: the configured workflows with enable switch, humanized schedule (incl. timezone), next/last run, run-now/edit/delete actions, and an expandable per-workflow run history linking to each run's report.
 
 Schedules are validated server-side: 5-field cron, per-workflow IANA timezone, and a minimum cadence of `GRID_WORKFLOW_MIN_INTERVAL_MINUTES` (default 15 minutes). Every run — scheduled or manual — is subject to the async-job admission caps; rejected occurrences appear as *skipped* runs in the history.

@@ -21,9 +21,9 @@ export const organization: typeof en.organization = {
   },
   settings: {
     title: 'Organisationseinstellungen',
-    description: 'Grid-spezifische Einstellungen für Ihre Organisation.',
+    description: 'Piloti-spezifische Einstellungen für Ihre Organisation.',
     displayName: 'Anzeigename',
-    displayNameHint: 'Wird innerhalb von Grid angezeigt. Leer lassen, um den WorkOS-Organisationsnamen zu verwenden.',
+    displayNameHint: 'Wird innerhalb von Piloti angezeigt. Leer lassen, um den WorkOS-Organisationsnamen zu verwenden.',
     displayNamePlaceholder: 'z. B. Acme Architektur GmbH',
     defaultLocale: 'Standardsprache für neue Mitglieder',
     defaultLocaleHint: 'Neue Mitglieder starten in dieser Sprache, bis sie ihre eigene wählen.',
@@ -95,7 +95,7 @@ export const organization: typeof en.organization = {
       'Bringen Sie Ihren eigenen LLM-Provider-Schlüssel mit: Research-Traffic wird über Ihr Provider-Konto abgerechnet und der Schlüssel pro Organisation verschlüsselt in WorkOS Vault abgelegt. Schlüssel werden vor der Aktivierung live geprüft; Rotation und Widerruf werden auditiert.',
     loading: 'Zugangsdaten werden geladen…',
     loadError: 'Die LLM-Zugangsdaten konnten nicht geladen werden.',
-    noCredential: 'Kein Organisationsschlüssel verbunden — Grid nutzt den Plattformschlüssel.',
+    noCredential: 'Kein Organisationsschlüssel verbunden — Piloti nutzt den Plattformschlüssel.',
     storageVaultNote:
       'Neue Schlüssel werden verschlüsselt in WorkOS Vault unter dem Schlüsselkontext Ihrer Organisation gespeichert.',
     storageLocalNote: 'Neue Schlüssel werden mit dem lokalen Schlüssel dieser Installation verschlüsselt gespeichert.',
@@ -105,9 +105,9 @@ export const organization: typeof en.organization = {
     modeByokHint:
       'Research-Traffic läuft über Ihren Schlüssel und wird über Ihr Provider-Konto abgerechnet. Die Modellauswahl zeigt die Modelle Ihres Providers.',
     modePlatformHint:
-      'Research-Traffic läuft über den Grid-Plattform-Service. Ihr Schlüssel bleibt sicher gespeichert und kann jederzeit wieder aktiviert werden.',
+      'Research-Traffic läuft über den Piloti-Plattform-Service. Ihr Schlüssel bleibt sicher gespeichert und kann jederzeit wieder aktiviert werden.',
     modeByokSet: 'Auf eigenen Schlüssel umgestellt — neue Unterhaltungen nutzen ihn innerhalb einer Minute.',
-    modePlatformSet: 'Auf den Grid-Plattform-Service umgestellt — Ihr Schlüssel bleibt gespeichert, wird aber nicht verwendet.',
+    modePlatformSet: 'Auf den Piloti-Plattform-Service umgestellt — Ihr Schlüssel bleibt gespeichert, wird aber nicht verwendet.',
     modeError: 'Der Provider-Modus konnte nicht geändert werden.',
     keyLabel: 'Schlüssel',
     storageLabel: 'Speicherung',

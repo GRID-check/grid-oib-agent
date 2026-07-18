@@ -70,7 +70,7 @@ describe('KeyboardShortcuts', () => {
 
     expect(await screen.findByText('Current project')).toBeInTheDocument()
     // Click-dummy IA (spec §5): Chat/Files/History/Settings + Setup (intake).
-    for (const section of ['Chat', 'Files', 'History', 'Settings', 'Setup']) {
+    for (const section of ['Ask Piloti', 'Files', 'History', 'Settings', 'Setup']) {
       expect(screen.getByText(section)).toBeInTheDocument()
     }
     // Overview/Members/Research left the IA (FB-9/FB-10).

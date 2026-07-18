@@ -24,7 +24,7 @@ export const chat: typeof en.chat = {
     deepResearch: 'Deep Research',
     deepResearchAria: 'Deep-Research-Präferenz',
     deepResearchHint:
-      'Präferenz vermerkt – Grid eskaliert automatisch zu Deep Research, wenn eine Frage es erfordert.',
+      'Präferenz vermerkt – Piloti eskaliert automatisch zu Deep Research, wenn eine Frage es erfordert.',
     scopeAria: 'Suchbereich: {project}',
     scopeFallback: 'Dieses Projekt',
     scopeCurrent: 'Aktuelles Projekt',
@@ -251,8 +251,8 @@ export const chat: typeof en.chat = {
       'Keine Datenquellen ausgewählt und keine Dateien verfügbar. Antworten sind eher ungenau oder veraltet, sofern keine externen Datenquellen hinzugefügt werden.',
   },
   memory: {
-    noted: 'Grid hat sich gemerkt',
-    notedAria: 'Grid hat sich {count} Notizen gemerkt',
+    noted: 'Piloti hat sich gemerkt',
+    notedAria: 'Piloti hat sich {count} Notizen gemerkt',
     addedToMemory: 'In das Projektgedächtnis aufgenommen',
     manageHint: 'Diese Einträge können Sie im Projektgedächtnis verwalten und löschen.',
     kinds: {

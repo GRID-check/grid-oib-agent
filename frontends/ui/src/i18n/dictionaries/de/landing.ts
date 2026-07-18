@@ -12,7 +12,7 @@ export const landing: typeof en.landing = {
     eyebrow: 'OIB- & RIS-Compliance-Copilot für österreichische Architektinnen und Architekten',
     title: 'Jede Antwort, verankert in der Bauordnung.',
     subtitle:
-      'Grid beantwortet baurechtliche Compliance-Fragen für jedes Ihrer Projekte — verankert in den OIB-Richtlinien und österreichischen Rechtsquellen aus dem RIS. Jede Antwort ist auf das jeweilige Projekt bezogen und auf die genaue Richtlinie und den genauen Paragraphen zitiert, sodass Sie sie anhand der Vorschrift selbst überprüfen können.',
+      'Piloti beantwortet baurechtliche Compliance-Fragen für jedes Ihrer Projekte — verankert in den OIB-Richtlinien und österreichischen Rechtsquellen aus dem RIS. Jede Antwort ist auf das jeweilige Projekt bezogen und auf die genaue Richtlinie und den genauen Paragraphen zitiert, sodass Sie sie anhand der Vorschrift selbst überprüfen können.',
     signIn: 'Anmelden',
     sso: 'Single Sign-on für Ihr Büro',
   },
@@ -22,19 +22,19 @@ export const landing: typeof en.landing = {
     steps: {
       create: {
         title: 'Projekt anlegen',
-        body: 'Richten Sie für jedes Bauwerk einen Arbeitsbereich ein. Grid hält jede Frage, jede Quelle und jede Antwort auf dieses Projekt bezogen.',
+        body: 'Richten Sie für jedes Bauwerk einen Arbeitsbereich ein. Piloti hält jede Frage, jede Quelle und jede Antwort auf dieses Projekt bezogen.',
       },
       documents: {
         title: 'Pläne & Dokumente hinzufügen',
-        body: 'Laden Sie Ihre Pläne, Bescheide und Spezifikationen hoch. Grid liest sie zusammen mit den OIB-Richtlinien und den RIS-Rechtsquellen.',
+        body: 'Laden Sie Ihre Pläne, Bescheide und Spezifikationen hoch. Piloti liest sie zusammen mit den OIB-Richtlinien und den RIS-Rechtsquellen.',
       },
       answers: {
-        title: 'Grid fragen, zitierte Antworten erhalten',
+        title: 'Piloti fragen, zitierte Antworten erhalten',
         body: 'Stellen Sie jede baurechtliche Frage in natürlicher Sprache. Jede Antwort wird auf die genaue Richtlinie und den genauen Paragraphen zitiert, die Sie überprüfen können.',
       },
       research: {
         title: 'Tiefenrecherche durchführen',
-        body: 'Lassen Sie Grid bei komplexen Fragen die Quellen Schritt für Schritt durcharbeiten und einen strukturierten, vollständig belegten Bericht liefern.',
+        body: 'Lassen Sie Piloti bei komplexen Fragen die Quellen Schritt für Schritt durcharbeiten und einen strukturierten, vollständig belegten Bericht liefern.',
       },
     },
   },
@@ -42,7 +42,7 @@ export const landing: typeof en.landing = {
     eyebrow: 'Präzision, die Sie überprüfen können',
     title: 'Gemacht für Arbeit, bei der das Zitat die Antwort ist.',
     intro:
-      'Baurechtliche Compliance lässt keinen Raum für eine selbstbewusste Vermutung. Grid ist so konzipiert, dass jede Aussage anhand ihrer Quelle überprüft werden kann — so wie eine Architektin oder ein Architekt einen Entwurf freigibt.',
+      'Baurechtliche Compliance lässt keinen Raum für eine selbstbewusste Vermutung. Piloti ist so konzipiert, dass jede Aussage anhand ihrer Quelle überprüft werden kann — so wie eine Architektin oder ein Architekt einen Entwurf freigibt.',
     points: {
       grounded: {
         title: 'Verankert in den OIB-Richtlinien',

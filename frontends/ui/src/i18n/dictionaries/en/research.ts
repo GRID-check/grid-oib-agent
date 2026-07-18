@@ -9,7 +9,7 @@ export const research = {
 
   runsPage: {
     title: 'Research runs',
-    subtitle: 'Deep research reports Grid has produced for this project, newest first.',
+    subtitle: 'Deep research reports Piloti has produced for this project, newest first.',
   },
 
   // Labels for the per-project research-runs list rows (research-runs-list.tsx).
@@ -25,11 +25,11 @@ export const research = {
 
   chatArea: {
     ariaMessages: 'Chat messages',
-    loggedOutTitle: 'Grid opens after your organization is verified.',
+    loggedOutTitle: 'Piloti opens after your organization is verified.',
     loggedOutBody:
       'Sign in to unlock project-scoped OIB research, document ingestion, and member access controls.',
     signInSso: 'Sign in with SSO',
-    welcomeTitle: 'How can Grid help with your project?',
+    welcomeTitle: 'How can Piloti help with your project?',
     usePrompt: 'Use suggestion: {prompt}',
     prompt1: 'Compare OIB 2 fire resistance duties across building classes.',
     prompt2: 'Summarize accessibility requirements for a public retrofit.',
@@ -191,7 +191,7 @@ export const research = {
 
   inputArea: {
     aiDisclosure:
-      'Grid is an AI system. Answers are AI-generated and can be wrong — verify them against the cited guideline (Richtlinie) before relying on them.',
+      'Piloti is an AI system. Answers are AI-generated and can be wrong — verify them against the cited guideline (Richtlinie) before relying on them.',
     placeholderDefault: 'Check data sources and ask a research question...',
     signInToStart: 'Sign in to start researching',
     researchCompletedNewSession: 'Research completed. Create a new session for further questions.',
@@ -289,7 +289,7 @@ export const research = {
     noMatching: 'No matching sessions',
     noMatchingDescription: 'No sessions match your search. Try a different term.',
     noSessions: 'No sessions yet',
-    noSessionsDescription: 'Start a new session to begin researching with Grid.',
+    noSessionsDescription: 'Start a new session to begin researching with Piloti.',
     startNewSessionButton: 'Start a new session',
     today: 'Today',
     yesterday: 'Yesterday',

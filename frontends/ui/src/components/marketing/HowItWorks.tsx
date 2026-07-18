@@ -1,7 +1,7 @@
 /**
  * HowItWorks — four borderless steps under hairline rules, each led by a
  * large muted mono numeral: create a project, add the plans and documents,
- * ask Grid for cited answers, and run deep research for involved questions.
+ * ask Piloti for cited answers, and run deep research for involved questions.
  */
 
 'use client'

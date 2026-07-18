@@ -29,7 +29,7 @@ export const chat = {
     // Honest intent hint: the agent auto-escalates; the pill records a
     // preference, it does not force a deep-research run.
     deepResearchHint:
-      'Preference noted — Grid escalates to Deep Research automatically when a question calls for it.',
+      'Preference noted — Piloti escalates to Deep Research automatically when a question calls for it.',
     scopeAria: 'Search scope: {project}',
     scopeFallback: 'This project',
     scopeCurrent: 'Current project',
@@ -264,8 +264,8 @@ export const chat = {
       'No data sources selected and no files are available. Responses are more likely to be inaccurate or outdated unless external data sources are added.',
   },
   memory: {
-    noted: 'Grid noted',
-    notedAria: 'Grid noted {count} items',
+    noted: 'Piloti noted',
+    notedAria: 'Piloti noted {count} items',
     addedToMemory: 'Added to project memory',
     manageHint: 'You can manage and delete these entries in the project memory.',
     kinds: {

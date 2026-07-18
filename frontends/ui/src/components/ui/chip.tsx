@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils'
 
 /**
  * Chip — a small, reusable inline pill for lightweight agent affordances
- * (memory "Grid noted N", source counts, tool tags, filters, …).
+ * (memory "Piloti noted N", source counts, tool tags, filters, …).
  *
  * Composable and design-system-aligned:
  * - `variant` picks a semantic token pair (muted / success / warning / info / …).
@@ -76,7 +76,7 @@ const Chip = React.forwardRef<HTMLSpanElement, ChipProps>(
 )
 Chip.displayName = 'Chip'
 
-/** A count pill for the trailing edge of a Chip (e.g. "Grid noted · 3"). */
+/** A count pill for the trailing edge of a Chip (e.g. "Piloti noted · 3"). */
 const ChipCount = React.forwardRef<HTMLSpanElement, React.HTMLAttributes<HTMLSpanElement>>(
   ({ className, ...props }, ref) => (
     <span

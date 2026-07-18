@@ -9,7 +9,7 @@ export const onboarding: typeof en.onboarding = {
   steps: {
     createOrg: 'Ihre Organisation erstellen',
     makeAdmin: 'Sie zum Administrator des Arbeitsbereichs machen',
-    openProject: 'Grid und Ihr erstes Projekt öffnen',
+    openProject: 'Piloti und Ihr erstes Projekt öffnen',
   },
   inviteOnly: {
     title: 'Diese Plattform ist nur auf Einladung zug\u00e4nglich',
@@ -30,7 +30,7 @@ export const onboarding: typeof en.onboarding = {
   },
   intro: {
     eyebrow: 'erster Arbeitsbereich',
-    title: 'Legen Sie Ihre Organisation fest, bevor Grid Projektdaten verarbeitet.',
+    title: 'Legen Sie Ihre Organisation fest, bevor Piloti Projektdaten verarbeitet.',
     description:
       'Ihre Organisation ist die private Grenze für Ihre Bauprojekte — Dokumente, Mitglieder und OIB/RIS-Recherche liegen alle darin. Sie werden ihr Administrator.',
     invitedHint:
@@ -52,7 +52,7 @@ export const onboarding: typeof en.onboarding = {
     title: 'Benennen Sie Ihre Organisation',
     description: 'Verwenden Sie den Namen Ihres Büros, Ihrer Praxis oder Ihrer Kundenorganisation.',
     nameLabel: 'Organisationsname',
-    namePlaceholder: 'Grid Bauphysik Wien',
+    namePlaceholder: 'Piloti Bauphysik Wien',
     submit: 'Organisation erstellen',
   },
 }

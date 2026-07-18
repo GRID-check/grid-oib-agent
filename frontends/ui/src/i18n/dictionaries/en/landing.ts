@@ -10,7 +10,7 @@ export const landing = {
     eyebrow: 'OIB & RIS compliance copilot for Austrian architects',
     title: 'Every answer, grounded in the building code.',
     subtitle:
-      'Grid answers building-compliance questions for each of your projects — grounded in the OIB-Richtlinien and Austrian legal sources from RIS. Every answer is scoped to the project at hand and cited to the exact Richtlinie and paragraph, so you can verify it against the code itself.',
+      'Piloti answers building-compliance questions for each of your projects — grounded in the OIB-Richtlinien and Austrian legal sources from RIS. Every answer is scoped to the project at hand and cited to the exact Richtlinie and paragraph, so you can verify it against the code itself.',
     signIn: 'Sign in',
     sso: 'Single sign-on for your practice',
   },
@@ -20,19 +20,19 @@ export const landing = {
     steps: {
       create: {
         title: 'Create a project',
-        body: 'Set up a workspace for each building. Grid keeps every question, source, and answer scoped to that project.',
+        body: 'Set up a workspace for each building. Piloti keeps every question, source, and answer scoped to that project.',
       },
       documents: {
         title: 'Add plans & documents',
-        body: 'Upload your plans, permits, and specifications. Grid reads them alongside the OIB-Richtlinien and RIS legal sources.',
+        body: 'Upload your plans, permits, and specifications. Piloti reads them alongside the OIB-Richtlinien and RIS legal sources.',
       },
       answers: {
-        title: 'Ask Grid, get cited answers',
+        title: 'Ask Piloti, get cited answers',
         body: 'Ask any building-code question in plain language. Every answer is cited to the exact Richtlinie and paragraph you can verify.',
       },
       research: {
         title: 'Run deep research',
-        body: 'For involved questions, let Grid work through the sources step by step and return a structured, fully referenced brief.',
+        body: 'For involved questions, let Piloti work through the sources step by step and return a structured, fully referenced brief.',
       },
     },
   },
@@ -40,7 +40,7 @@ export const landing = {
     eyebrow: 'Precision you can verify',
     title: 'Built for work where the citation is the answer.',
     intro:
-      'Building compliance leaves no room for a confident guess. Grid is designed so every claim can be checked against its source — the way an architect signs off on a design.',
+      'Building compliance leaves no room for a confident guess. Piloti is designed so every claim can be checked against its source — the way an architect signs off on a design.',
     points: {
       grounded: {
         title: 'Grounded in the OIB-Richtlinien',

@@ -38,7 +38,7 @@ export const files = {
     suggestionsLabel: 'Tag suggestions',
     noTagMatch: 'No matching tag — pick one of the suggested labels.',
     indexed: {
-      title: 'Indexed by GRID',
+      title: 'Indexed by Piloti',
       documentType: 'Document type',
       project: 'Project',
       updated: 'Updated',
@@ -68,7 +68,7 @@ export const files = {
     folderEmptyDescription: 'Upload documents here, or pick another folder from the sidebar.',
     noDocumentsTitle: 'No documents yet',
     noDocumentsDescription:
-      "Add your building's plans, permits and reports. Grid reads them to ground every answer in your project's own documents — not generic guidance.",
+      "Add your building's plans, permits and reports. Piloti reads them to ground every answer in your project's own documents — not generic guidance.",
     searchPlaceholder: 'Search files...',
     searchLabel: 'Search files',
     noMatch: 'No files match “{query}”',
@@ -88,7 +88,7 @@ export const files = {
     newFolder: 'New folder',
   },
   workspace: {
-    corpusSubtitle: 'Project corpus — these documents ground Grid’s answers',
+    corpusSubtitle: 'Project corpus — these documents ground Piloti’s answers',
     uploadDocuments: 'Upload documents',
     uploadProblem: 'Upload problem',
     dismissError: 'Dismiss error',

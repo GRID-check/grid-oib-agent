@@ -107,10 +107,10 @@ User uploads file
 
 ---
 
-## The "Indexed by GRID" Panel (files-metadata-panel flag)
+## The "Indexed by Piloti" Panel (files-metadata-panel flag)
 
 With the `files-metadata-panel` feature flag on (the default while flag
-enforcement is off), the preview pane leads with an **Indexed by GRID** panel
+enforcement is off), the preview pane leads with an **Indexed by Piloti** panel
 showing what ingestion extracted from the document:
 
 - the one-sentence **AI summary** that grounds the agent's answers

@@ -18,7 +18,7 @@ export const shortcuts: typeof en.shortcuts = {
   },
   cheatsheet: {
     title: 'Tastaturkürzel',
-    description: 'Grid bedienen, ohne die Tastatur zu verlassen.',
+    description: 'Piloti bedienen, ohne die Tastatur zu verlassen.',
     thenSeparator: 'dann',
     orSeparator: 'oder',
     items: {

@@ -49,7 +49,7 @@ export interface AgentResponseProps {
    * the "Belegt durch" chip row — renders nothing when absent (no fake chips).
    */
   citations?: CitationSource[]
-  /** Conversation this response belongs to (for the "Grid noted N" memory chip) */
+  /** Conversation this response belongs to (for the "Piloti noted N" memory chip) */
   conversationId?: string | null
   /** The assistant's guarded self-assessed answer confidence (shallow answers only) */
   answerConfidence?: 'low' | 'medium' | 'high'
@@ -210,7 +210,7 @@ export const AgentResponse: FC<AgentResponseProps> = ({
         {/* "Belegt durch": provenance chips for sources this answer carries */}
         <AnswerSourcesRow citations={citations} cards={cards} />
 
-        {/* Footer chips: self-assessed confidence + what Grid recorded this turn */}
+        {/* Footer chips: self-assessed confidence + what Piloti recorded this turn */}
         <div className="flex flex-wrap items-center gap-2">
           {showConfidenceChip && <ConfidenceChip confidence={answerConfidence} />}
           <MemoryNotedChip projectId={projectId} conversationId={conversationId} />
@@ -274,7 +274,7 @@ export const AgentResponse: FC<AgentResponseProps> = ({
           <AnswerSourcesRow citations={citations} cards={cards} />
         </div>
 
-        {/* Footer chips: self-assessed confidence + what Grid recorded this turn */}
+        {/* Footer chips: self-assessed confidence + what Piloti recorded this turn */}
         <div className="mt-1.5 flex flex-wrap items-center justify-start gap-2 px-1">
           {showConfidenceChip && <ConfidenceChip confidence={answerConfidence} />}
           <MemoryNotedChip projectId={projectId} conversationId={conversationId} />

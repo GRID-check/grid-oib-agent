@@ -156,9 +156,9 @@ paired with icon + label so color is never the only carrier (a11y).
    reopened answered states. Ours is a view over the existing
    conversations + research-runs store (server truth, FB-10) — one model,
    two surfaces (page + panel).
-9. **Wordmark "Piloti".** That is the pilot office's colloquial name (see
-   `feedback_backlog.md`), not a rebrand decision. The wordmark stays
-   **GRID** until an explicit naming decision happens. (Open question §8.)
+9. **Wordmark "Piloti".** Originally the pilot office's colloquial name (see
+   `feedback_backlog.md`). Since decided (2026-07-17, §8 item 1): the
+   user-facing wordmark IS **Piloti**; GRID stays the internal/platform name.
 10. **No mobile, no loading/error/empty states, no a11y semantics.** The
     dummy is a happy-path desktop demo (fixed 720px thread, 3-col grids).
     Our current shell is responsive with drawer nav and skeletons — that
@@ -342,8 +342,10 @@ recorded so the backend contract can serve it:
 
 ## 8. Open questions (need humans)
 
-1. Product name/wordmark: GRID vs "Piloti" (pilot office's pet name). Until
-   decided: GRID.
+1. Product name/wordmark: DECIDED (2026-07-17): user-facing brand is
+   **Piloti**; internal/platform name stays GRID (env vars, headers, CSS
+   variables, storage keys, DB identifiers, repo/product-platform name are
+   untouched). Single source of truth: `frontends/ui/src/lib/brand.ts`.
 2. `sourceColors`: spec says keep (§1) — confirm with design.
 3. Sharing model for chats ("Privater Workspace") — undesigned.
 4. Insights telemetry: which aggregates are acceptable org-policy-wise?

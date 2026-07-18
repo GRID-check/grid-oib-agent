@@ -1,6 +1,6 @@
 /**
  * LandingFooter — a minimal, quiet footer: brand mark, a one-line description,
- * the domain sources Grid is grounded in, and the legal pages every public
+ * the domain sources Piloti is grounded in, and the legal pages every public
  * surface must link to (Impressum, privacy, terms, AI transparency).
  */
 

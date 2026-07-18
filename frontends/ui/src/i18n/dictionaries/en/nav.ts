@@ -2,13 +2,13 @@
 export const nav = {
   projectNavigation: 'Project navigation',
   projectSections: 'Project sections',
-  allProjects: 'Grid — all projects',
+  allProjects: 'Piloti — all projects',
   collapseSidebar: 'Collapse sidebar',
   expandSidebar: 'Expand sidebar',
   openNavigation: 'Open navigation',
   closeNavigation: 'Close navigation',
   sections: {
-    chat: 'Chat',
+    chat: 'Ask Piloti',
     files: 'Files',
     knowledge: 'Knowledge',
     research: 'Research',
@@ -23,8 +23,8 @@ export const nav = {
    */
   tabTitle: {
     intake: 'Setup',
-    researchProgress: '{percent}% · {label} — Grid',
-    researchActive: '⏳ {label} — Grid',
+    researchProgress: '{percent}% · {label} — Piloti',
+    researchActive: '⏳ {label} — Piloti',
   },
   projectSwitcher: {
     select: 'Select project',
@@ -53,7 +53,7 @@ export const nav = {
     untitledConversation: 'Untitled conversation',
     openConversation: 'Open conversation "{title}" in chat',
     emptyTitle: 'No conversations yet',
-    emptyDescription: 'Ask Grid a question in chat — every conversation shows up here.',
+    emptyDescription: 'Ask Piloti a question in chat — every conversation shows up here.',
     emptyAction: 'Open chat',
     noMatchesTitle: 'No matching conversations',
     noMatchesDescription: 'Try a different search term.',
