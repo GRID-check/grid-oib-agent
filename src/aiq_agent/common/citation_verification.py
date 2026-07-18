@@ -33,6 +33,8 @@ from urllib.parse import unquote
 from urllib.parse import urlparse
 from urllib.parse import urlunparse
 
+from aiq_agent.common.source_kinds import kind_for_lane
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -903,6 +905,13 @@ def source_entry_to_wire(entry: SourceEntry) -> dict[str, Any]:
     label = entry.citation_key or entry.title or entry.url or entry.tool_name or ""
     content = f"{origin_token} {label}".strip() if origin_token else label
 
+    # Canonical source-kind: the coarse taxonomy every surface renders through
+    # (chips, Herleitung fan-out, report). Derived from the rich lane
+    # classification so the OIB corpus and RIS share the same ``baurecht`` kind;
+    # the fine lane travels alongside as a sub-label. See ``source_kinds``.
+    lane_key, lane_label = source_lane(entry)
+    kind = kind_for_lane(lane_key)
+
     payload: dict[str, Any] = {
         "content": content,
         "title": entry.title or file_name,
@@ -912,6 +921,9 @@ def source_entry_to_wire(entry: SourceEntry) -> dict[str, Any]:
         "tool": entry.tool_name or None,
         "url": entry.url,
         "origin": origin,
+        "kind": kind,
+        "lane": lane_key,
+        "lane_label": lane_label,
         "file_name": file_name,
         "page": page,
     }
