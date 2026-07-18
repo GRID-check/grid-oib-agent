@@ -61,6 +61,7 @@ import {
   type NormEntry,
   type NormRank,
   type NormRegistryEnvelope,
+  type NormsFile,
   type VerifyCandidate,
   type VerifyNormResponse,
 } from '@/lib/norms/schemas'
@@ -256,6 +257,16 @@ export function NormRegistry(): JSX.Element {
   const [version, setVersion] = useState<number>(0)
   // Preserved verbatim across the PUT round-trip; not editable in the UI.
   const [corpusCollection, setCorpusCollection] = useState('oib_knowledge')
+  // CountryProfile data overrides — no UI surface, but must not be dropped on
+  // PUT (a country-#2 registry carries these; see country_profile.py).
+  type ProfileOverrides = Pick<NormsFile, 'language' | 'states' | 'corpus_note' | 'doctrine' | 'parcel_tags'>
+  const [overrides, setOverrides] = useState<ProfileOverrides>({
+    language: '',
+    states: {},
+    corpus_note: '',
+    doctrine: '',
+    parcel_tags: [],
+  })
   const [isLoading, setIsLoading] = useState(true)
   const [hasError, setHasError] = useState(false)
   const [dirty, setDirty] = useState(false)
@@ -276,6 +287,13 @@ export function NormRegistry(): JSX.Element {
       .then((data) => {
         setEntries(data.registry.entries)
         setCorpusCollection(data.registry.corpus_collection ?? 'oib_knowledge')
+        setOverrides({
+          language: data.registry.language ?? '',
+          states: data.registry.states ?? {},
+          corpus_note: data.registry.corpus_note ?? '',
+          doctrine: data.registry.doctrine ?? '',
+          parcel_tags: data.registry.parcel_tags ?? [],
+        })
         setVersion(data.version)
         setDirty(false)
       })
@@ -322,7 +340,7 @@ export function NormRegistry(): JSX.Element {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         version,
-        registry: { version: 1, corpus_collection: corpusCollection, entries },
+        registry: { version: 1, corpus_collection: corpusCollection, ...overrides, entries },
       }),
     })
       .then(async (r) => {
@@ -343,7 +361,7 @@ export function NormRegistry(): JSX.Element {
       })
       .catch(() => toast.error('Speichern fehlgeschlagen'))
       .finally(() => setIsSaving(false))
-  }, [entries, version, corpusCollection])
+  }, [entries, version, corpusCollection, overrides])
 
   const lanes = useMemo(() => groupIntoLanes(entries), [entries])
   const openReviews = useMemo(

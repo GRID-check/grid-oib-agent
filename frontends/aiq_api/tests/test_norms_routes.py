@@ -157,6 +157,32 @@ async def test_put_version_conflict_is_409(app, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_put_get_roundtrips_profile_overrides(app, monkeypatch):
+    """The optional CountryProfile overrides (doctrine/states/language/parcel_tags)
+    survive a PUT -> GET round-trip through the store (NormsFile carries them)."""
+    monkeypatch.setattr(norms_module, "_ADMIN_TOKEN", None)
+    body = _valid_body(entry_id="fed-overrides")
+    body["registry"]["doctrine"] = "Custom Normenhierarchie doctrine"
+    body["registry"]["states"] = {"wien": "Wien", "ausserhalb_oesterreichs": None}
+    body["registry"]["language"] = "de-AT"
+    body["registry"]["parcel_tags"] = ["Bebauungsplan", "Flächenwidmungsplan"]
+    body["registry"]["corpus_note"] = "Korpus-Hinweis"
+
+    async with _client(app) as client:
+        put = await client.put("/v1/admin/norms", json=body)
+        assert put.status_code == 200
+        get = await client.get("/v1/admin/norms")
+
+    assert get.status_code == 200
+    registry = get.json()["registry"]
+    assert registry["doctrine"] == "Custom Normenhierarchie doctrine"
+    assert registry["states"] == {"wien": "Wien", "ausserhalb_oesterreichs": None}
+    assert registry["language"] == "de-AT"
+    assert registry["parcel_tags"] == ["Bebauungsplan", "Flächenwidmungsplan"]
+    assert registry["corpus_note"] == "Korpus-Hinweis"
+
+
+@pytest.mark.asyncio
 async def test_put_success_writes_and_resets_cache(app, configured_store, monkeypatch):
     monkeypatch.setattr(norms_module, "_ADMIN_TOKEN", None)
     reset = MagicMock(wraps=norm_registry.reset_registry_cache)

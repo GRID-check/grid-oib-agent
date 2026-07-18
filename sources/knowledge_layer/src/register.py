@@ -220,7 +220,45 @@ def _normalize_session_collection_name(session_id: str | None) -> str | None:
     return f"{SESSION_COLLECTION_PREFIX}{session_id}"
 
 
-def _resolve_target_collections(config: KnowledgeRetrievalConfig, session_id: str | None) -> list[str]:
+def _resolve_base_collection(config: KnowledgeRetrievalConfig) -> str:
+    """The base corpus collection for retrieval, country-profile-aware.
+
+    Retrieval scope keys off the project country's ``CountryProfile.corpus_collection``
+    rather than a hardcoded name — the RAG-side seam for country expansion. The
+    country is read from the injected project context (``resolve_country``); an
+    unknown country / missing profile falls back to the configured
+    ``collection_name``.
+
+    Behavior-neutral for Austria: its profile's ``corpus_collection`` IS the
+    configured ``oib_knowledge``, so this returns the same name and never logs.
+    A second country ships its own registry file naming its own corpus, and
+    retrieval follows without a config change.
+
+    Fail-open: any lookup problem keeps the configured ``collection_name``.
+    """
+    try:
+        from aiq_agent.common.country_profile import get_country_profile
+        from aiq_agent.common.norm_registry import resolve_country
+        from aiq_agent.project_context import get_profile_context_from_context
+
+        country = resolve_country(get_profile_context_from_context())
+        profile = get_country_profile(country)
+        if profile is not None and profile.corpus_collection and profile.corpus_collection != config.collection_name:
+            logger.debug(
+                "Retrieval base collection from country profile '%s': %s (config collection_name: %s)",
+                country,
+                profile.corpus_collection,
+                config.collection_name,
+            )
+            return profile.corpus_collection
+    except Exception:  # noqa: BLE001 — profile routing must never break retrieval
+        logger.debug("Country-profile base-collection resolution failed; using configured collection", exc_info=True)
+    return config.collection_name
+
+
+def _resolve_target_collections(
+    config: KnowledgeRetrievalConfig, session_id: str | None, base_collection: str | None = None
+) -> list[str]:
     """
     Build the ordered, de-duplicated set of collections to search.
 
@@ -228,16 +266,18 @@ def _resolve_target_collections(config: KnowledgeRetrievalConfig, session_id: st
 
     - When the ``X-Grid-Collection-Scope`` header is present via NAT context,
       it takes precedence and is returned directly regardless of legacy flags.
-    - Legacy: when ``use_fixed_collection`` is True, only the configured base
-      ``collection_name`` is searched (the session collection is ignored). This
-      preserves backward-compatible pinned behavior.
+    - Legacy: when ``use_fixed_collection`` is True, only the base collection is
+      searched (the session collection is ignored). This preserves
+      backward-compatible pinned behavior.
     - Otherwise the search set is assembled from the enabled layers and
       de-duplicated while preserving order. If nothing is selected, fall back to
-      the base ``collection_name``.
+      the base collection.
 
     Args:
         config: Knowledge retrieval configuration.
         session_id: The resolved per-session collection name (conversation_id) or None.
+        base_collection: The base corpus collection to use (country-profile-resolved
+            by the caller). Defaults to ``config.collection_name`` when omitted.
 
     Returns:
         Ordered, de-duplicated list of collection names (never empty).
@@ -259,15 +299,17 @@ def _resolve_target_collections(config: KnowledgeRetrievalConfig, session_id: st
             "X-Grid-Collection-Scope header not present, falling back to legacy config-based collection resolution"
         )
 
+    base = base_collection if base_collection is not None else config.collection_name
+
     if config.use_fixed_collection:
         # Legacy pinned behavior: base only, never the session collection.
-        return [config.collection_name]
+        return [base]
 
     session_collection = _normalize_session_collection_name(session_id)
 
     targets: list[str] = []
-    if config.include_base_collection and config.collection_name:
-        targets.append(config.collection_name)
+    if config.include_base_collection and base:
+        targets.append(base)
     if config.include_session_collection and session_collection:
         targets.append(session_collection)
     targets.extend(config.project_collections)
@@ -280,9 +322,9 @@ def _resolve_target_collections(config: KnowledgeRetrievalConfig, session_id: st
             seen.add(name)
             ordered.append(name)
 
-    # Empty search set -> fall back to the configured base collection.
+    # Empty search set -> fall back to the base collection.
     if not ordered:
-        return [config.collection_name]
+        return [base]
     return ordered
 
 
@@ -463,15 +505,19 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
         except Exception:
             session_collection = None
 
+        # Country-profile-resolved base corpus collection (behavior-neutral for
+        # Austria; the seam that points retrieval at country #2's corpus).
+        base_collection = _resolve_base_collection(config)
+
         # Build the ordered, de-duplicated layered search set.
-        target_collections = _resolve_target_collections(config, session_collection)
+        target_collections = _resolve_target_collections(config, session_collection, base_collection)
 
         logger.info(f"Knowledge search: query='{query[:100]}...' collections={target_collections}")
 
         async def _retrieve_collection(coll: str):
             # File exclusions + caller filters apply to the base collection only;
             # session/project collections are user content and are never filtered.
-            coll_filters = _base_collection_filters(config, filters) if coll == config.collection_name else None
+            coll_filters = _base_collection_filters(config, filters) if coll == base_collection else None
             return await retriever.retrieve(query=query, collection_name=coll, top_k=top_k, filters=coll_filters)
 
         try:

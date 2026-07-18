@@ -87,6 +87,16 @@ export const normsFileSchema = z.object({
   version: z.literal(1),
   /** RAG base collection this country's catalog belongs to. UI preserves it verbatim. */
   corpus_collection: z.string().default('oib_knowledge'),
+  /**
+   * Optional CountryProfile data overrides (see aiq_agent.common.country_profile).
+   * No UI surface — the admin editor preserves them verbatim across the PUT
+   * round-trip so a registry that carries country-#2 overrides is not flattened.
+   */
+  language: z.string().default(''),
+  states: z.record(z.string(), z.string().nullable()).default({}),
+  corpus_note: z.string().default(''),
+  doctrine: z.string().default(''),
+  parcel_tags: z.array(z.string()).default([]),
   entries: z.array(normEntrySchema),
 })
 export type NormsFile = z.infer<typeof normsFileSchema>
