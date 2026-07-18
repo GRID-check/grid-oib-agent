@@ -33,7 +33,7 @@ Prioritize sources based on the query intent:
 3. **Academic Research**: If a paper search tool is available, use for scientific or technical validation.
 4. **Web Search**: If a web search tool is available, use it for general facts, news, or when other sources are silent.
 
-{% if norm_doctrine %}{{ norm_doctrine }}{% endif %}
+{% if norm_doctrine is defined and norm_doctrine %}{{ norm_doctrine }}{% endif %}
 
 ## Query Rewriting (before calling search tools)
 Before calling any search tool, rewrite the user's question into a **search-friendly query** that includes **all context the user implied**. Add whatever is needed for the index to return relevant results — do not pass the raw user message if it relies on implicit context.

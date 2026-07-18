@@ -20,31 +20,19 @@ _HEADING = "## Normenregister (verifizierte Normen — Rang und Rolle sind annot
 
 _REGISTRY = {
     "version": 1,
-    "country": "at",
     "entries": [
         {
             "id": "bo-wien",
             "title": "Bauordnung für Wien",
             "short": "BO Wien",
             "rank": "landesgesetz",
-            "role": "normativ",
-            "jurisdiction": {"country": "at", "state": "wien"},
+            "bundesland": "Wien",
             "topics": ["bauordnung", "bauantrag"],
             "relevance": "State building code for Vienna",
-            "editions": [
-                {
-                    "id": "konsolidiert",
-                    "label": "Konsolidierte Fassung (laufend)",
-                    "status": "current",
-                    "source": {
-                        "kind": "ris",
-                        "application": "LrKons",
-                        "document_number": "NOR12345678",
-                        "citation_url": "https://www.ris.bka.gv.at/eli/lgbl/WI/1930/11",
-                        "full_law_url": "https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=LrW&Gesetzesnummer=1",
-                    },
-                }
-            ],
+            "application": "LrKons",
+            "document_number": "NOR12345678",
+            "citation_url": "https://www.ris.bka.gv.at/eli/lgbl/WI/1930/11",
+            "full_law_url": "https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=LrW&Gesetzesnummer=1",
             "verified_at": "2026-07-16",
         }
     ],

@@ -3,7 +3,7 @@ Read the plan, research notes, and verified source list from the shared filesyst
 
 For building-regulation answers: name the exact regulation, edition/year, and section (Punkt/Paragraph) for every requirement you state; make jurisdiction explicit when requirements differ by Bundesland; and clearly separate binding requirements (law/Richtlinie) from guidance, norms (ÖNORM), and your own inference.
 
-{% if norm_doctrine %}{{ norm_doctrine }}{% endif %}
+{% if norm_doctrine is defined and norm_doctrine %}{{ norm_doctrine }}{% endif %}
 
 ## Skill Preflight
 

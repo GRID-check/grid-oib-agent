@@ -18,18 +18,17 @@ OGD-RIS is an open-government-data service.
 Live `ris_search` is keyword-blind: it guesses one of ~40 OGD-RIS application
 silos and fires a full-text query. The norm registry (ADR-0025) removes the
 guesswork for the core building-law corpus: `configs/norms/<country>/registry.yml`
-(env override `GRID_NORMS_DIR`) is the typed spine for every known legal
-document — rank, role, editions (corpus file or **verified** RIS pointer:
-application, document number, citation URL, entire-consolidated-law URL),
-relations, applicability rules. Austria ships 38 entries: the nine state
-building codes (Bauordnungen / Baugesetze / Bautechnikgesetze), the Wiener
-Garagengesetz, adjacent federal acts (ASchG, AStV, BKAG, ZTG, WGG) — and the
-full OIB corpus (Richtlinien, Leitfäden, Erläuterungen, Referenzdokumente with
-their editions and roles). It is a **pointer index only** for RIS documents:
-full texts are still fetched live with `ris_fetch_document`. The legacy flat
-`configs/ris_catalog.yml` is retired; the `ris_catalog` module remains as a
-backward-compatible shim (`RIS_CATALOG_PATH` still honored with a deprecation
-warning).
+(env override `GRID_NORMS_DIR`; superseded at runtime by the admin-managed
+store, which seeds itself from this YAML) is a **flat catalog** of verified RIS
+pointers — application, document number, citation URL,
+entire-consolidated-law URL — plus curated prose legal notes (`binding_note`,
+e.g. how the WBTV makes the OIB-Richtlinien binding in Vienna). Austria ships
+22 entries: the nine state building codes (Bauordnungen / Baugesetze /
+Bautechnikgesetze), Wiener Garagengesetz, WBTV, Kleingartengesetz, and the
+adjacent federal acts (ASchG, AStV, BKAG, ZTG, WGG, DMSG, UVP-G, WRG, ForstG,
+GewO). It is a **pointer index only**: full texts are still fetched live with
+`ris_fetch_document`. The OIB corpus itself lives in the knowledge base, not
+in the catalog (ADR-0025 v2).
 
 Three consumers, all fail-open (missing/invalid catalog → today's live-search
 behavior with a warning):
@@ -40,9 +39,9 @@ behavior with a warning):
    verified pointers directly — no HTTP call, no planner LLM.
 2. **`ris_catalog_lookup`**: explicit topic search in the catalog for the agent.
 3. **Prompt block**: `aiq_agent.common.norm_registry.render_block_for_prompt`
-   renders the norm registry — lane-grouped by rank (Bundesrecht → Landesrecht,
-   project state first → OIB-Richtlinien with role/edition annotations →
-   Referenz → externe Normen) — into the shallow/deep researcher prompts.
+   renders the catalog — Bundesrecht lane, the project's own Bundesland lane
+   (other states' law dropped), curated binding notes, and an OIB-corpus
+   citation note — into the shallow/deep researcher prompts.
 
 **Jurisdiction-aware matching.** Building law is state law, and the nine state
 codes all match generic topics like "bauordnung", so both tool consumers

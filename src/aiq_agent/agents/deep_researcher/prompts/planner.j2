@@ -3,7 +3,7 @@ Your final response is validated against the ResearchPlan schema. Return the fin
 
 When the request concerns Austrian building regulation: plan queries around the authoritative sources (the exact OIB Richtlinie and edition, the relevant Landesbauordnung, RIS legal texts, ÖNORM references), include the applicable Bundesland as an explicit query dimension when jurisdiction matters, and add a constraint that the final answer must name the exact regulation, edition/year, and section (Punkt) for every requirement.
 
-{% if norm_doctrine %}{{ norm_doctrine }}{% endif %}
+{% if norm_doctrine is defined and norm_doctrine %}{{ norm_doctrine }}{% endif %}
 
 ## Other Tools
 - `think`: record your thoughts for downstream steps

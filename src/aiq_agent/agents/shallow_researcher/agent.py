@@ -423,9 +423,7 @@ class ShallowResearcherAgent:
                     # saw them, mirroring the deep researcher's call) so that an
                     # answer with inline [N] citations but no Sources section can
                     # have one synthesized instead of the citations being dropped.
-                    verification = verify_citations(
-                        content, registry, reference_sources=registry.all_sources()
-                    )
+                    verification = verify_citations(content, registry, reference_sources=registry.all_sources())
                     logger.debug(
                         "Shallow researcher: citation verification complete — "
                         "%d valid, %d removed, %d sources in registry",

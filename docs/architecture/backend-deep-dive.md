@@ -366,245 +366,76 @@ stores remain architecturally distinct (SQL side-table vs. ChromaDB vector
 index), so this is a structural backstop rather than a merge of the two
 sources — see backlog T3-10 for the closed status and rationale.
 
-## 6b. Norm registry (Normenregister — typed legal-document spine)
+## 6b. Norm catalog (Normenregister — flat curated pointers + prose legal notes)
 
 The live `ris_search` tool is keyword-blind: an LLM planner guesses one of ~40
 OGD-RIS application silos plus German statutory terms, and a wrong guess yields
-"No documents found". The norm registry (ADR-0025) removes the guesswork for the
-core building-law corpus — and, unlike the retired flat RIS catalog, it also
-types every document the system knows about:
+"No documents found". The norm catalog (ADR-0025 v2) removes the guesswork for
+the core building-law corpus. It is deliberately **flat** — the typed-graph
+variant (ranks/roles/editions/relations, Punkt chunking, applicability DSL) was
+built, adversarially reviewed, and reduced; ADR-0025's Context records why.
 
-- `configs/norms/<country>/registry.yml` (env override `GRID_NORMS_DIR`, one
-  folder per ISO country; `at` ships 38 entries) stores per entry: `id`,
-  `rank` (bundesgesetz | landesgesetz | verordnung | oib_richtlinie |
-  oib_leitfaden | oib_erklaerung | oib_referenz | behoerdliche_info |
-  norm_extern | plan_parzelle), `role` (normativ | anwendend | erklaerend |
-  definierend | diff), `jurisdiction`, `editions[]` (`status: current |
-  superseded`, source `kind: corpus` → file in `data/oib`, or `kind: ris` →
-  **verified** pointer: application, document number, citation URL,
-  entire-consolidated-law URL), optional `relations[]` (`implements`,
-  `declares_binding`, `supersedes` — unverifiable facts recorded as
-  `status: unknown`, never guessed), and optional `applicability[]` rules
-  (pinned DSL over project-profile facts). Austria: the nine state building
-  codes, the Wiener Garagengesetz, federal acts (ASchG, AStV, BKAG, ZTG, WGG),
-  plus the full OIB corpus (9 Richtlinien + 3 Leitfäden + 9 Erläuterungen +
-  Begriffsbestimmungen + zitierte Normen, each with its 2023-05 editions and
-  the `aenderungen_*` change sets as `role: diff` editions). Pointer index
-  only for RIS documents: full texts still go through `ris_fetch_document`.
-- Curated by hand; RIS pointers re-verified live:
-  `scripts/build_ris_catalog.py` reads `configs/norms/<country>/seeds_ris.yml`,
-  verifies every seed against the OGD-RIS API (fails loudly on unverifiable
-  entries), and **merges** the verified pointers into the registry — curated
-  fields are never clobbered; unknown seed ids become skeleton entries with a
-  curation warning.
-- `src/aiq_agent/common/norm_registry.py` is the loader/matcher/renderer
-  (globs + merges all countries, lru-cached by path+mtime signature,
-  umlaut-normalized matching, fail-loud id-convention validation in strict
-  mode — family ids like `oib-rl-2-leitfaden` require the base `oib-rl-2`).
-  Per-country variance lives behind the **`CountryPack` contract**
-  (`src/aiq_agent/common/country_packs/`: protocol + `at.py` + registry): a
-  pack owns the intake state-token vocabulary, jurisdiction resolution, the
-  doctrine header of the lane-rendered prompt block, and country-specific
-  `validate_ids` checks; the loader drops entries whose `jurisdiction.country`
-  has no registered pack or whose state token is outside the pack vocabulary
-  (strict mode raises). Adding a country = implement the pack + add
-  `configs/norms/<country>/` — the pack is the definition of done.
-  `src/aiq_agent/common/ris_catalog.py` remains as a backward-compatible shim:
-  same old API, explicit legacy paths/`RIS_CATALOG_PATH` still load a legacy
-  file with a `DeprecationWarning`, and the default catalog view is derived
-  from the registry (only `kind: ris` entries). Everything is fail-open: a
-  missing/invalid registry disables registry features with a warning; live
-  search is unaffected.
-
-Three consumers:
-
-1. `ris_search` short-circuit (`catalog_shortcut`, default on): a catalog match
-   with no title/date args and no case-law signal returns the verified pointers
-   directly — no HTTP call, no planner LLM.
-2. `ris_catalog_lookup` tool: explicit topic search; each hit is annotated with
-   the entry's registry relations (e.g. `declares_binding -> oib-rl-2`).
-3. Prompt block: `norm_registry.render_block_for_prompt` is injected as
-   `ris_catalog` into the shallow and deep researcher prompts, lane-rendered by
-   rank (Bundesrecht → Landesrecht, project state first → OIB-Richtlinien with
-   role/edition-annotated family members → OIB-Referenzdokumente → externe
-   Normen), so the agent fetches known norms directly and cites corpus
-   documents with their registry edition instead of searching.
-
-**Phase-0 retrieval + prompt changes shipped with the registry** (spec §8):
-
-- Metadata `filters` on the knowledge retriever are now actually applied to the
-  Chroma query (previously accepted but silently ignored; `$eq/$ne/$in/$nin`,
-  all AND-ed, unknown operators fail loud). Cached static-collection results
-  are keyed by a filters fingerprint so filtered and unfiltered queries never
-  share cache entries.
-- `knowledge_search` gained `exclude_file_names`: `config_oib_openrouter.yml`
-  excludes the 15 `aenderungen_*` change documents and the superseded
-  pre-rev.1 "zitierte Normen" reference from base-corpus retrieval via a
-  `file_name $nin` filter (reversible; project/session collections are user
-  content and never filtered).
-- A static German doctrine block ("Normenhierarchie & Dokumentrollen" —
-  requirements only from normative documents, Leitfaden/Erläuterung roles,
-  declared-edition discipline, ÖNORM honesty, Bestand/Übergangsrecht) is
-   inlined in the shallow + deep researcher, writer, and planner prompts until
-   the registry-rendered block supersedes it (marked with a
-   `{#- norm-doctrine … -#}` comment).
-
-**Phase-2 structure-aware ingestion + retrieval** (spec §4–5, 2026-07-17):
-
-- `src/aiq_agent/knowledge/corpus/` (`at.py` + dispatcher) parses the OIB
-  `Punkt` grammar per page text and chunks on Punkt boundaries (sub-points stay
-  with their parent unless over the ~3000-char cap, then split at sub-point or
-  paragraph boundaries); every chunk is stamped with registry metadata
-  (`doc_id/doc_short/doc_title`, `edition/edition_label/edition_status`,
-  `rank`, `role` — edition-level override wins, `country`, `punkt`,
-  `punkt_title`, `chunk_index`) and prefixed pre-embedding with a deterministic
-  context line (`OIB-RL 2 - Brandschutz (Ausgabe Mai 2023), Pkt 3.1.2,
-  normativ`). The hook is `corpus_resolver` on the LlamaIndex ingestor config
-  (wired in `oib_sync` and `_setup_backend`); unknown/unparseable files fall
-  back to page chunking with a warning — the pipeline never breaks on a new
-  PDF. `oib_sync` additionally skips corpus files not referenced by any
-  registry `kind: corpus` edition (uploads untouched).
-- `knowledge_search` gained an optional `filters` argument; for the base
-  collection the default is `default_norm_filters(registry, bundesland)` —
-  `role: diff` always excluded, `edition_status: superseded` excluded unless a
-  verified `declares_binding` from any state points at that edition, and when
-  the project's state has a verified binding edition the filter prefers it.
-  Explicit caller filters override the registry default; the Phase-0
-  `exclude_file_names` clause still applies. The translator is recursive
-  (`$and/$or` groups of `$eq/$ne/$in/$nin` field conditions → nested
-  LlamaIndex `MetadataFilters`).
-- Parent expansion (config `parent_expansion`, default on, base collection
-  only): retrieved chunks sharing `(doc_id, edition, punkt)` are expanded to
-  the full Punkt — sibling chunks fetched by metadata filter, bodies re-joined
-  in `chunk_index` order under a single context prefix, ~8000-char cap, max
-  group score kept, `_expanded` marker in metadata.
-- Formatted results carry the stratum: `Stratum: oib_richtlinie · normativ ·
-  Ausgabe Mai 2023` and a citation of the form `OIB-RL 2, Pkt 3.1.2, Ausgabe
-  Mai 2023` for norm chunks (user/project/session content formatting
-  unchanged). Re-ingesting the OIB corpus is required for the metadata to
-  materialize in Chroma; until then the Phase-0 filename exclusion keeps diff
-  chunks out of default retrieval.
-
-**Phase-3 persistent RIS norm cache** (spec §4.4, 2026-07-17):
-
-- `ris_fetch_document` no longer re-downloads consolidated statutes on every
-  call. A JSON-registry + plain-text cache (`src/aiq_agent/knowledge/ris_cache.py`,
-  default dir `data/ris_cache`) keys fetched full texts by RIS
-  `document_number` with a SHA-256 content hash, fetch timestamp, and parsed
-  Fassung date. Fresh records (`GRID_RIS_CACHE_TTL_DAYS`, default 7) are
-  served without any HTTP call; stale records are re-validated cheaply (first
-  ~4 KB of the page, `Stand:`/`Fassung vom` date extraction — network failure
-  means "serve stale", never break the tool) and only re-fetched when the
-  Fassung actually changed (Novelle). Config knobs on the fetch tool:
-  `persistent_cache` (default true) and `cache_dir`; unresolvable document
-  numbers fall back to the legacy per-session behavior.
-- Fetched full texts are ingested into a **persistent `ris_knowledge`
-  collection** instead of the per-session `s_<conversation>` collection
-  (previously every session re-embedded the same statute). The session
-  collection now receives only a small `RIS_POINTER_<docnr>.txt` pointer. The
-  collection joins the retrieval fan-out inside
-  `_resolve_target_collections` — backend-side only, appended to header scopes
-  and to the legacy path whenever the base corpus is in play (never when the
-  base layer is disabled; the empty-set base fallback is unchanged).
-- `src/aiq_agent/knowledge/corpus/ris.py` chunks fetched RIS texts on `§`
-  boundaries with the same registry-metadata stamping as the OIB corpus
-  (registry-known documents get rank/role/edition; "blind" fetches get a
-  `ris:<docnr>` id and no rank/role). Parent expansion anchors on `paragraph`
-  for these chunks; citations render as `BauO Wien, § 5, Konsolidierte Fassung
-  (laufend)`.
-
-**Phase-4 applicability engine** (spec §6.2, 2026-07-17):
-
-- Applicability rules live **only** in the registry (`applicability:` on
-  entries; pinned DSL: `when.all/any` conditions over intake facts with ops
-  `eq/in/defined/undefined/gt/gte/lt/lte`, first-match-wins, verdicts
-  `required|likely|check`, bilingual `reason_de`/`reason_en`). The nine OIB
-  Richtlinien carry rules ported from the old hardcoded TS mapping; four
-  trigger norms (`garagengesetz-wien` — stellplatz_relevant + wien,
-  `klgg-wien` — kleingartengebiet + wien, `dmsg` — denkmalschutz, `gewo` —
-  betriebsanlage) gate on four new boolean intake questions (Regulatory
-  context stage).
-- Backend: `src/aiq_agent/common/applicability.py` evaluates rules against
-  facts parsed from the `PROJECT_CONTEXT` text (`facts_from_project_context`,
-  `confirmed:` section; boolean facts cross the language boundary as
-  `true`/`false` strings and are compared case-insensitively).
-  `render_block_for_prompt` appends a German `### Anwendbare Normen` section
-  (verbindlich / voraussichtlich anwendbar / zu prüfen + reasons) after the
-  lane block when facts are present.
-- Frontend: `scripts/build_applicability_rules.py` generates
-  `lib/oib/applicability-rules.generated.ts` (rules payload) and
-  `applicability-parity.generated.json` (12 fixture profiles with expected
-  verdicts) from the registry (`--check` = drift detection, asserted by a
-  Python test); `lib/oib/applicable-standards.ts` is now a mirror evaluator
-  over the generated payload with a vitest parity suite proving UI and backend
-  produce identical verdicts. The old hardcoded per-Richtlinie mapping is
-  gone; `genericSix` remains the UI-only no-facts fallback.
-- Compliance checker: `build_request_from_state` narrows the Richtlinie scope
-  to verdicts `required`/`likely` when facts are parseable (fail-open to the
-  original scope on unparseable context, missing registry, or an empty
-  intersection).
-
-**Phase-5 trust chain** (spec §6.3–§6.5, 2026-07-17):
-
-- `NormReference` gained optional `norm_id`, `rank`, `binding`
-  (`normativ|anwendend|erklaerend`) and `via` fields — **system-stamped, never
-  LLM-authored**: `CardRegistry.add` runs every emitted card through
-  `resolve_norm_reference` (`src/aiq_agent/common/norm_resolution.py`), which
-  matches the free-text `document`/`edition` against registry ids, shorts,
-  titles and aliases (exact beats containment; longer match wins so
-  `OIB-RL 2 Leitfaden` resolves to the Leitfaden entry), picks the current
-  non-diff edition when none is named, and derives `via` from the verified
-  `declares_binding` source for the project's state. Unresolvable references
-  stay free-text (and any LLM-authored trust-chain keys are stripped), so old
-  cards and external documents remain valid.
-- `verify_citations` gained a registry pass producing advisory `notes` on the
-  result (never removes citations): `document_unresolved` for norm-ish
-  document names nothing in the registry matches (typo/hallucination catch),
-  `edition_unresolved` for editions the registry does not know, and
-  `guidance_cited_as_requirement` when a chunk whose registry role is
-  `anwendend`/`erklaerend` is cited inside a requirement sentence
-  (muss/Anforderung/vorgeschrieben/…). `normativ` roles (incl. ÖNORM) are
-  never flagged.
-- Compliance matrix rows inherit `norm_id`/`rank`/`binding` from the registry
-  (`oib-rl-<n>` per row) in `_assemble_matrix`, so the report distinguishes a
-  Norm-Verstoß from a Leitfaden-Abweichung at the data level.
-
-**Jurisdiction is a structured fact, not an inference.** The project-intake
-wizard captures the building's location as a validated `bundesland` fact (nine
-states + `ausserhalb_oesterreichs`, with a free-text `standort_details` for
-projects outside Austria). Two channels carry it to the backend (backlog T3-9
-follow-up, 2026-07-16, user-mandated):
-
-1. **The structured `X-Grid-Request-Context` envelope's `bundesland` field**
-   (authoritative) — the BFF resolves it straight from the project profile
-   (the same source that renders the prompt-text line below) at each producer
-   (WS upgrade, workflow submit, async-jobs submit) and validates it against
-   the intake vocabulary before sending; the backend
-   (`aiq_agent.project_context.GridRequestContext`) independently re-validates
-   it and treats an unrecognized token as absent.
-2. **The `PROJECT_CONTEXT` prompt view's `bundesland=<token>` text line**
-   (unchanged, still read by the LLM) — fallback #1 when the envelope carries
-   no `bundesland` field (pre-envelope traffic, or an entrypoint — e.g. an
-   async job worker — with no live request context).
-3. Free-text state-name probing — fallback #2, only when neither of the above
-   is present (a mention of "Wiener Neustadt", a Lower Austrian town, must not
-   flip the jurisdiction to Wien; the structured channels exist precisely to
-   make that impossible).
-
-`norm_registry.resolve_bundesland` implements this precedence chain (calling
-`extract_bundesland` for fallbacks #1/#2); `render_block_for_prompt` uses it.
-`ausserhalb_oesterreichs` — from either channel — means "no state's law should
-be prioritized" and that resolves to `None` immediately, without falling
-through to text probing. Both catalog consumers then call `focus_entries`
-BEFORE truncating: other states' law is dropped, the project's own state sorts
-first, federal law always stays — the nine state codes share generic topics
-("bauordnung"), so without this a Tyrolean query would return the
-registry-order head (Wien, NÖ, …) and crowd Tirol out. Projects created before
-the wizard asked for the location are backfilled (drizzle migration 0018) with
-an *unconfirmed* `bundesland=wien` assumption (`onboarding_default`) that the
-Project Brief asks the user to confirm; a confirmed fact under the same key
-retires it automatically (`pruneResolvedAssumptions`, applied in
-`persistProfile`).
+- **Data** — `configs/norms/<country>/registry.yml` (env override
+  `GRID_NORMS_DIR`; `at` ships 22 entries): per entry `id`, `title`, `short`,
+  `rank` (bundesgesetz | landesgesetz | verordnung — the prompt lane),
+  `bundesland` (canonical name, empty = federal), `topics`, `relevance`, the
+  **verified** RIS pointer (application, document number, citation URL,
+  entire-consolidated-law URL), optional `aliases`, `binding_note` (curated
+  prose legal fact rendered into researcher prompts — e.g. how the WBTV makes
+  the OIB-Richtlinien binding in Vienna, the KlGG lex-specialis rule),
+  `review_note` (open verification TODO, surfaced only in the platform admin
+  UI), and a `verify` seed (title query + disambiguation guards) for live
+  re-verification. Austria: the nine state building codes, Wiener
+  Garagengesetz, WBTV, Kleingartengesetz, and the federal acts (ASchG, AStV,
+  BKAG, ZTG, WGG, DMSG, UVP-G, WRG, ForstG, GewO). Pointer index only: full
+  texts still go through `ris_fetch_document`.
+- **The OIB corpus is not in the catalog.** `data/oib/` → `oib_knowledge` is
+  its own source of truth; what a corpus file *is* (Richtlinie / Leitfaden /
+  Erläuterung / Begriffsbestimmungen / Zitierte Normen / Änderungsdokument)
+  derives from the filename (`norm_registry.oib_doc_class`). The 15
+  `aenderungen_*` diff files and the superseded `zitierte_normen` revision are
+  excluded from retrieval via the knowledge tool's `exclude_file_names`
+  config (a `file_name NOT IN [...]` filter on the base collection only —
+  session/project collections are never filtered).
+- **Storage & admin surface** — runtime source precedence: the admin-managed
+  store, then the YAML seed, fail-open. `knowledge/norm_store.py` keeps one
+  JSON row per country (same DB URL as the summary store), seeds itself from
+  the YAML on first boot, and registers itself via
+  `norm_registry.set_db_loader`. Backend API: `GET/PUT /v1/admin/norms`
+  (optimistic versioning; validation errors returned explicitly) and
+  `POST /v1/admin/norms/verify` (live OGD-RIS candidate search), guarded by
+  `X-Admin-Token` like the OIB admin routes. Platform-owner UI on
+  `/app/platform` (lane-grouped list, entry editor, verify-and-pick,
+  `review_note` TODO queue); every write audited
+  (`platform.norm_registry.updated`). `scripts/build_ris_catalog.py` re-verifies
+  the YAML seed's pointers in place (merge-only; curated fields never
+  clobbered).
+- **Prompt rendering** — `render_block_for_prompt(project_context)` renders
+  the doctrine-adjacent catalog block: Bundesrecht lane, the project's own
+  Bundesland lane (other states' law is dropped — `focus_entries` semantics),
+  the curated `binding_note` lines, a static OIB-corpus citation note, and the
+  project applicability section (`applicability.render_project_block`). The
+  Normenhierarchie doctrine itself is one constant (`NORM_DOCTRINE`) injected
+  into the shallow-researcher, deep-researcher, planner, and writer templates
+  as `{{ norm_doctrine }}`.
+- **Jurisdiction** — `resolve_bundesland`: the validated envelope token wins
+  (`ausserhalb_oesterreichs` → None is final), then the structured
+  `bundesland=<token>` prompt fact, then free-text state-name probing.
+  `focus_entries` drops other states' law and sorts the project's state first;
+  the same rule filters `ris_search`'s catalog short-circuit and
+  `ris_catalog_lookup` before truncation.
+- **Applicability** — `common/applicability.py` is a small hand-written module
+  (no DSL): OIB verdicts from project facts (mirrors the UI's
+  `applicable-standards.ts`), German trigger hints for the four boolean intake
+  facts (Kleingarten, Denkmalschutz, Betriebsanlage, Stellplatz), and the
+  prompt section. The compliance checker scopes Stage 1 with it (verdicts
+  `required`/`likely`/`check` all stay in scope; an explicit user scope is
+  never narrowed).
+- **Display tagging** — `lane_for_hit` / `citation_verification.source_lane`
+  map a retrieval or citation hit to a stratum + lane label (Bundesrecht /
+  Landesrecht / Verordnung via catalog rank; OIB lanes via filename class;
+  Projektwissen / Büroarchiv / Web via collection origin) for the research
+  fan-out UI. Deterministic tagging only — no chunk-metadata dependency.
 
 ## 7. Deep research (async jobs)
 

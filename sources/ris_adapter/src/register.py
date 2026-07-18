@@ -560,7 +560,6 @@ def _format_catalog_entry(index: int, entry: NormEntry) -> str:
     return "\n".join(lines)
 
 
-
 class RisCatalogLookupToolConfig(FunctionBaseConfig, name="ris_catalog_lookup"):
     """Look up building-law topics in the curated RIS catalog of verified norms."""
 
@@ -608,8 +607,7 @@ async def ris_catalog_lookup(tool_config: RisCatalogLookupToolConfig, builder: B
         catalog = load_registry(catalog_path)
         if catalog is None:
             return (
-                "Error: RIS catalog unavailable (file missing or invalid) - "
-                "use ris_search (live RIS search) instead."
+                "Error: RIS catalog unavailable (file missing or invalid) - use ris_search (live RIS search) instead."
             )
         # Jurisdiction filter BEFORE truncation: for "Bauordnung Tirol" the nine
         # state codes all match the generic "bauordnung" topic, and without the

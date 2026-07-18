@@ -585,7 +585,7 @@ function NormEditorDialog({
     onSubmit: ({ value }) => {
       const entry = formToEntry(value)
       if (existingIds.has(entry.id)) {
-        toast.error(`ID „${entry.id}" ist bereits vergeben`)
+        toast.error(`ID „${entry.id}“ ist bereits vergeben`)
         return
       }
       onSave(target.originalId, entry)
@@ -657,7 +657,7 @@ function NormEditorDialog({
         <DialogHeader>
           <DialogTitle>{isNew ? 'Neuer Eintrag' : 'Eintrag bearbeiten'}</DialogTitle>
           <DialogDescription>
-            Alle Änderungen werden erst mit „Speichern" im Register übernommen.
+            Alle Änderungen werden erst mit „Speichern“ im Register übernommen.
           </DialogDescription>
         </DialogHeader>
 

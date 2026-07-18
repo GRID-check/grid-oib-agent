@@ -27,9 +27,9 @@ from __future__ import annotations
 import logging
 import os
 import re
+from collections.abc import Callable
 from functools import lru_cache
 from pathlib import Path
-from typing import Callable
 from typing import Literal
 
 import yaml
@@ -108,24 +108,36 @@ _MIN_TOPIC_LENGTH = 4
 # belong in the prompt; data (pointers, notes) belongs in the registry entries.
 NORM_DOCTRINE = """## Normenhierarchie & Dokumentrollen
 
-**Autoritätsordnung ≠ Abrufreihenfolge.** Welche Quelle eine Frage BEANTWORTET (Bundesgesetz > Landesgesetz/Verordnung > OIB-Richtlinie > Leitfaden/Erläuterung) ist nicht dieselbe Ordnung, in der Quellen ABGERUFEN werden (Projektdokumente → RIS → Web).
+**Autoritätsordnung ≠ Abrufreihenfolge.** Welche Quelle eine Frage BEANTWORTET (Bundesgesetz >
+Landesgesetz/Verordnung > OIB-Richtlinie > Leitfaden/Erläuterung) ist nicht dieselbe Ordnung, in der Quellen
+ABGERUFEN werden (Projektdokumente → RIS → Web).
 
 **Dokumentrollen beachten:**
-- Anforderungen („muss", „darf nicht", Mindestwerte) stammen ausschließlich aus NORMATIVEN Dokumenten (Gesetz, Verordnung, OIB-Richtlinie, verbindlich erklärte Norm).
+- Anforderungen („muss", „darf nicht", Mindestwerte) stammen ausschließlich aus NORMATIVEN Dokumenten (Gesetz,
+  Verordnung, OIB-Richtlinie, verbindlich erklärte Norm).
 - Leitfäden beschreiben die ANWENDUNG einer Richtlinie — sie begründen keine neuen Anforderungen.
 - Erläuterungen liefern BEGRÜNDUNGEN und Auslegungshilfen — ebenfalls keine neuen Anforderungen.
 - Behördliche Informationen (z. B. MA 37) zeigen behördliche Praxis — niemals als neue Norm zitieren.
-- Rechtskommentare stehen nicht zur Verfügung. Wenn danach gefragt wird, offen sagen — keine Kommentar-Kenntnis simulieren.
+- Rechtskommentare stehen nicht zur Verfügung. Wenn danach gefragt wird, offen sagen — keine Kommentar-Kenntnis
+  simulieren.
 
-**Abweichungsdisziplin:** Eine OIB-Richtlinie gilt nur in der vom Bundesland verbindlich erklärten Edition und nur ohne landesrechtliche Abweichungen. Das prüfen, soweit die Quellen es hergeben — sonst ausdrücklich als offen kennzeichnen. Zitiert wird die verbindlich erklärte Edition, nie automatisch die neueste.
+**Abweichungsdisziplin:** Eine OIB-Richtlinie gilt nur in der vom Bundesland verbindlich erklärten Edition und nur
+ohne landesrechtliche Abweichungen. Das prüfen, soweit die Quellen es hergeben — sonst ausdrücklich als offen
+kennzeichnen. Zitiert wird die verbindlich erklärte Edition, nie automatisch die neueste.
 
-**Parzellen-Fragen zuerst am Grundstück klären.** Widmung, Bauklasse, Gebäudehöhe, Fluchtlinien u. Ä. beantworten Flächenwidmungs- und Bebauungsplan des Grundstücks — nicht OIB oder Bauordnung allgemein. Liegt der Plan nicht in der Wissensbasis, das offen sagen (wien.gv.at/flaechenwidmung/public) statt generisch zu antworten.
+**Parzellen-Fragen zuerst am Grundstück klären.** Widmung, Bauklasse, Gebäudehöhe, Fluchtlinien u. Ä. beantworten
+Flächenwidmungs- und Bebauungsplan des Grundstücks — nicht OIB oder Bauordnung allgemein. Liegt der Plan nicht in
+der Wissensbasis, das offen sagen (wien.gv.at/flaechenwidmung/public) statt generisch zu antworten.
 
-**Begriffe folgen der Ebene der Frage.** Derselbe Begriff kann in OIB, Landesrecht und Bundesrecht unterschiedlich definiert sein (Beispiel: „Gebäudehöhe"). Die verwendete Definitionsebene immer mitnennen.
+**Begriffe folgen der Ebene der Frage.** Derselbe Begriff kann in OIB, Landesrecht und Bundesrecht unterschiedlich
+definiert sein (Beispiel: „Gebäudehöhe"). Die verwendete Definitionsebene immer mitnennen.
 
-**ÖNORM-Ehrlichkeit:** ÖNORMen sind Bezugsnormen ohne Volltext in den verfügbaren Quellen. Sie nur als Verweis nennen (soweit aus anderen Dokumenten bekannt) und offenlegen, dass der Volltext nicht verfügbar ist — niemals ÖNORM-Inhalte aus dem Gedächtnis wiedergeben.
+**ÖNORM-Ehrlichkeit:** ÖNORMen sind Bezugsnormen ohne Volltext in den verfügbaren Quellen. Sie nur als Verweis
+nennen (soweit aus anderen Dokumenten bekannt) und offenlegen, dass der Volltext nicht verfügbar ist — niemals
+ÖNORM-Inhalte aus dem Gedächtnis wiedergeben.
 
-**Bestand/Übergangsrecht:** Wenn das Projekt kein Neubau ist (Sanierung, Zubau, Änderung), darauf hinweisen, dass Bestandsschutz/Übergangsbestimmungen gelten können und dies baurechtlich zu prüfen ist."""
+**Bestand/Übergangsrecht:** Wenn das Projekt kein Neubau ist (Sanierung, Zubau, Änderung), darauf hinweisen, dass
+Bestandsschutz/Übergangsbestimmungen gelten können und dies baurechtlich zu prüfen ist."""
 
 
 class VerifySeed(BaseModel):

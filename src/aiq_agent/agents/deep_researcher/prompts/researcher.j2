@@ -4,7 +4,7 @@ Aim to provide substantial depth and breadth, while prioritizing factual reliabi
 For building-regulation queries, capture regulation identifiers precisely in your findings: the exact Richtlinie/law name, edition or year, section (Punkt/Paragraph), and the Bundesland whose version applies — numbers and thresholds without their exact regulatory anchor are weak evidence.
 Your final response is validated against the ResearchNotes schema. The batch tool will persist your returned notes for the orchestrator.
 
-{% if norm_doctrine %}{{ norm_doctrine }}{% endif %}
+{% if norm_doctrine is defined and norm_doctrine %}{{ norm_doctrine }}{% endif %}
 
 ## Research Protocol
 1. **Read the question carefully** - What specific information does the user need?

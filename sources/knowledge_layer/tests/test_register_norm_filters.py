@@ -19,9 +19,7 @@ class TestBaseCollectionFilters:
     def test_caller_filters_anded_with_exclusions(self):
         config = KnowledgeRetrievalConfig(collection_name="oib_knowledge", exclude_file_names=["x.pdf"])
         caller = {"content_type": "text"}
-        assert reg._base_collection_filters(config, caller) == {
-            "$and": [{"file_name": {"$nin": ["x.pdf"]}}, caller]
-        }
+        assert reg._base_collection_filters(config, caller) == {"$and": [{"file_name": {"$nin": ["x.pdf"]}}, caller]}
 
     def test_none_when_nothing_configured(self):
         config = KnowledgeRetrievalConfig(collection_name="oib_knowledge")

@@ -42,8 +42,7 @@ class KnowledgeRetrievalConfig(FunctionBaseConfig, name="knowledge_retrieval"):
     include_base_collection: bool = Field(
         default=False,
         description=(
-            "Always include the configured base collection_name in the search set "
-            "(e.g. the fixed OIB corpus)."
+            "Always include the configured base collection_name in the search set (e.g. the fixed OIB corpus)."
         ),
     )
     include_session_collection: bool = Field(
@@ -56,8 +55,7 @@ class KnowledgeRetrievalConfig(FunctionBaseConfig, name="knowledge_retrieval"):
     project_collections: list[str] = Field(
         default_factory=list,
         description=(
-            "Additional named persistent collections (e.g. project-scoped corpora) to always "
-            "include in the search set."
+            "Additional named persistent collections (e.g. project-scoped corpora) to always include in the search set."
         ),
     )
     top_k: int = Field(default=5, description="Number of results to return")
@@ -258,8 +256,7 @@ def _resolve_target_collections(config: KnowledgeRetrievalConfig, session_id: st
     if not _warned_legacy_fallback:
         _warned_legacy_fallback = True
         logger.warning(
-            "X-Grid-Collection-Scope header not present, "
-            "falling back to legacy config-based collection resolution"
+            "X-Grid-Collection-Scope header not present, falling back to legacy config-based collection resolution"
         )
 
     if config.use_fixed_collection:
