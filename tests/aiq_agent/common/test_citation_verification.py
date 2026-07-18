@@ -1753,3 +1753,45 @@ class TestSourceLane:
     def test_web_url_is_web(self):
         entry = SourceEntry(url="https://example.com/artikel", source_type="generic")
         assert source_lane(entry) == ("web", "Web")
+
+    def test_explicit_doc_class_overrides_filename(self):
+        # A project-looking filename, but an explicit doc_class="gesetz":
+        # the explicit class wins and places the hit in the RIS lane.
+        entry = SourceEntry(
+            citation_key="randomname.pdf, p.1",
+            source_type="knowledge_layer",
+            doc_class="gesetz",
+        )
+        assert source_lane(entry) == ("baurecht_ris", "Rechtsquelle (RIS)")
+
+    def test_explicit_doc_class_wire_kind_is_baurecht(self):
+        from aiq_agent.common.citation_verification import source_entry_to_wire
+
+        entry = SourceEntry(
+            citation_key="randomname.pdf, p.1",
+            source_type="knowledge_layer",
+            doc_class="gesetz",
+        )
+        wire = source_entry_to_wire(entry)
+        assert wire["lane"] == "baurecht_ris"
+        assert wire["kind"] == "baurecht"
+
+
+class TestKnowledgeLayerDocClassParsing:
+    """The knowledge-layer parser reads the Dokumentart field into doc_class."""
+
+    def test_parses_doc_class_key_and_label(self):
+        from aiq_agent.common.citation_verification import extract_sources_from_tool_result
+
+        content = (
+            "--- Result 1 ---\n"
+            "Source: randomname.pdf\n"
+            "Collection: oib_knowledge\n"
+            "Dokumentart: gesetz — Gesetz / Bauordnung\n"
+            "Citation: randomname.pdf, p.1\n"
+        )
+        entries = extract_sources_from_tool_result("knowledge_search", content)
+        assert len(entries) == 1
+        assert entries[0].doc_class == "gesetz"
+        # …and it drives the lane ahead of the filename guess.
+        assert source_lane(entries[0]) == ("baurecht_ris", "Rechtsquelle (RIS)")

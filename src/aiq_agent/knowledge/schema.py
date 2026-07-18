@@ -252,8 +252,11 @@ class AvailableDocument(BaseModel):
         summary: Optional one-sentence summary of the document content.
         tags: Optional controlled ingestion-generated tags (document type + OIB
             discipline).
+        doc_class: Optional explicit per-document classification ("Dokumentart"),
+            preferred over the filename guess for lane/kind placement.
     """
 
     file_name: str
     summary: str | None = None
     tags: list[str] | None = None
+    doc_class: str | None = None

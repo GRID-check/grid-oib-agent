@@ -55,6 +55,11 @@ class SourceEntry:
     # parsed from the knowledge-layer tool output's `Collection:` field. None for
     # URL/web sources and for output produced before the field was threaded.
     collection: str | None = None
+    # Explicit per-document classification ("Dokumentart" / doc_class), parsed
+    # from the knowledge-layer tool output's `Dokumentart:` field. When present
+    # it is the FIRST-priority signal for lane/kind placement, overriding the
+    # filename/collection heuristics. None for sources without an explicit class.
+    doc_class: str | None = None
 
 
 @dataclass
@@ -402,6 +407,7 @@ def _registry_from_cached_entries(entries: Any) -> SourceRegistry:
                             source_type=item.get("source_type", ""),
                             tool_name=item.get("tool_name", ""),
                             collection=item.get("collection"),
+                            doc_class=item.get("doc_class"),
                         )
                     )
                 except Exception:
@@ -715,6 +721,10 @@ def _parse_generic_urls(content: str, tool_name: str) -> list[SourceEntry]:
 _KL_CITATION_RE = re.compile(r"^Citation:\s*(.+)$", re.MULTILINE)
 _KL_SOURCE_RE = re.compile(r"^Source:\s*(.+)$", re.MULTILINE)
 _KL_COLLECTION_RE = re.compile(r"^Collection:\s*(.+)$", re.MULTILINE)
+# Machine-readable doc_class field emitted by the knowledge layer's
+# `_format_results` (``Dokumentart: <doc_class_key>``). ``Doc-Class:`` is
+# accepted as an alias for robustness.
+_KL_DOC_CLASS_RE = re.compile(r"^(?:Dokumentart|Doc-Class):\s*(.+)$", re.MULTILINE)
 
 
 def _parse_knowledge_layer(content: str, tool_name: str) -> list[SourceEntry]:
@@ -729,9 +739,14 @@ def _parse_knowledge_layer(content: str, tool_name: str) -> list[SourceEntry]:
     citations = _KL_CITATION_RE.findall(content)
     sources = _KL_SOURCE_RE.findall(content)
     collections = _KL_COLLECTION_RE.findall(content)
+    doc_classes = _KL_DOC_CLASS_RE.findall(content)
     for i, citation_key in enumerate(citations):
         title = sources[i].strip() if i < len(sources) else None
         collection = collections[i].strip() if i < len(collections) else None
+        # The Dokumentart line is emitted as ``<doc_class_key> — <German label>``;
+        # keep only the leading machine key so lane placement gets a valid key.
+        doc_class_raw = doc_classes[i].strip() if i < len(doc_classes) else None
+        doc_class = doc_class_raw.split("—")[0].split(" - ")[0].strip() if doc_class_raw else None
         entries.append(
             SourceEntry(
                 citation_key=citation_key.strip(),
@@ -739,6 +754,7 @@ def _parse_knowledge_layer(content: str, tool_name: str) -> list[SourceEntry]:
                 source_type="knowledge_layer",
                 tool_name=tool_name,
                 collection=collection or None,
+                doc_class=doc_class or None,
             )
         )
     if not entries:
@@ -859,7 +875,13 @@ def source_lane(entry: SourceEntry) -> tuple[str, str]:
     if entry.citation_key:
         file_name, _ = _parse_citation_key(entry.citation_key)
     registry = load_registry() if (entry.url and "ris.bka.gv.at" in entry.url) else None
-    lane = lane_for_hit(file_name=file_name, source_url=entry.url, collection=entry.collection, registry=registry)
+    lane = lane_for_hit(
+        doc_class=entry.doc_class,
+        file_name=file_name,
+        source_url=entry.url,
+        collection=entry.collection,
+        registry=registry,
+    )
     if lane == ("web", "Web") and entry.source_type == "knowledge_layer":
         # A knowledge-base hit without collection metadata (output produced
         # before the `Collection:` field was threaded) is project/org

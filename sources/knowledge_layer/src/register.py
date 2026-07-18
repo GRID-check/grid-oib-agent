@@ -418,8 +418,10 @@ def _trace_lanes_json(chunks) -> str:
 
         lanes: OrderedDict[str, dict] = OrderedDict()
         for chunk in chunks:
-            collection = (chunk.metadata or {}).get("collection")
-            key, label = lane_for_hit(file_name=chunk.file_name, collection=collection)
+            metadata = chunk.metadata or {}
+            collection = metadata.get("collection")
+            doc_class = metadata.get("doc_class")
+            key, label = lane_for_hit(doc_class=doc_class, file_name=chunk.file_name, collection=collection)
             bucket = lanes.get(key)
             if bucket is None:
                 bucket = {"key": key, "label": label, "hitCount": 0, "sources": []}
@@ -472,6 +474,16 @@ def _format_results(retrieval_result, query: str) -> str:
         collection = (chunk.metadata or {}).get("collection")
         if collection:
             lines.append(f"Collection: {collection}")
+        # Explicit per-document classification ("Dokumentart"). Emit the machine
+        # doc_class key first (the citation parser reads it) followed by the
+        # German label so the LLM is told the document's role in the norm
+        # hierarchy. Only present when the chunk metadata carries a doc_class.
+        doc_class = (chunk.metadata or {}).get("doc_class")
+        if doc_class:
+            from aiq_agent.knowledge.document_classification import DOCUMENT_CLASS_LABELS
+
+            label = DOCUMENT_CLASS_LABELS.get(doc_class, doc_class)
+            lines.append(f"Dokumentart: {doc_class} — {label}")
         if chunk.page_number and chunk.page_number > 0:
             lines.append(f"Page: {chunk.page_number}")
         lines.append(f"Citation: {citation}")

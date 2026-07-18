@@ -97,13 +97,13 @@ class TestAvailableDocument:
         """Test model serialization to dict."""
         doc = AvailableDocument(file_name="report.pdf", summary="Financial report.")
         data = doc.model_dump()
-        assert data == {"file_name": "report.pdf", "summary": "Financial report.", "tags": None}
+        assert data == {"file_name": "report.pdf", "summary": "Financial report.", "tags": None, "doc_class": None}
 
     def test_model_dump_without_summary(self):
         """Test model serialization without summary."""
         doc = AvailableDocument(file_name="report.pdf")
         data = doc.model_dump()
-        assert data == {"file_name": "report.pdf", "summary": None, "tags": None}
+        assert data == {"file_name": "report.pdf", "summary": None, "tags": None, "doc_class": None}
 
     def test_model_validate(self):
         """Test model creation from dict."""
@@ -255,6 +255,78 @@ class TestSummaryStore:
             store.register("c", "new.pdf", "New.", tags=["Grundriss"])
             new = {d.file_name: d for d in store.get_all("c")}
             assert new["new.pdf"].tags == ["Grundriss"]
+
+    def test_set_and_get_doc_class_roundtrip(self, store):
+        """set_doc_class updates an existing row; get_doc_class reads it back."""
+        store.register("coll", "doc.pdf", "A summary.")
+        assert store.get_doc_class("coll", "doc.pdf") is None  # default null
+        assert store.set_doc_class("coll", "doc.pdf", "oib_richtlinie") is True
+        assert store.get_doc_class("coll", "doc.pdf") == "oib_richtlinie"
+        # It also surfaces on the AvailableDocument read.
+        docs = store.get_all("coll")
+        assert docs[0].doc_class == "oib_richtlinie"
+
+    def test_set_doc_class_without_row_returns_false(self, store):
+        """set_doc_class never creates a row: no summary → False, still null."""
+        assert store.set_doc_class("coll", "missing.pdf", "gesetz") is False
+        assert store.get_doc_class("coll", "missing.pdf") is None
+
+    def test_set_doc_class_clear(self, store):
+        """A None value clears the stored doc_class back to null."""
+        store.register("coll", "doc.pdf", "A summary.")
+        store.set_doc_class("coll", "doc.pdf", "gesetz")
+        assert store.set_doc_class("coll", "doc.pdf", None) is True
+        assert store.get_doc_class("coll", "doc.pdf") is None
+
+    def test_fresh_table_has_doc_class_column(self, temp_db):
+        """A freshly-created summaries table includes the doc_class column."""
+        from sqlalchemy import create_engine
+        from sqlalchemy import inspect
+
+        SummaryStore(temp_db)  # creates the table
+        engine = create_engine(temp_db)
+        columns = {c["name"] for c in inspect(engine).get_columns("summaries")}
+        assert "doc_class" in columns
+
+    def test_existing_table_without_doc_class_is_migrated(self):
+        """A pre-existing summaries table (no doc_class column) is migrated in place."""
+        from sqlalchemy import create_engine
+        from sqlalchemy import inspect
+        from sqlalchemy import text
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "legacy_dc.db"
+            db_url = f"sqlite:///{db_path}"
+
+            # Legacy DB: table with the tags column but WITHOUT doc_class.
+            engine = create_engine(db_url)
+            with engine.connect() as conn:
+                conn.execute(
+                    text(
+                        "CREATE TABLE summaries ("
+                        "collection VARCHAR(256) NOT NULL, "
+                        "filename VARCHAR(512) NOT NULL, "
+                        "summary TEXT NOT NULL, "
+                        "tags TEXT, "
+                        "created_at DATETIME, "
+                        "PRIMARY KEY (collection, filename))"
+                    )
+                )
+                conn.execute(
+                    text("INSERT INTO summaries (collection, filename, summary) VALUES ('c', 'old.pdf', 'Legacy.')")
+                )
+                conn.commit()
+
+            assert "doc_class" not in {c["name"] for c in inspect(engine).get_columns("summaries")}
+
+            SummaryStore._tables_initialized.discard(db_url)
+            store = SummaryStore(db_url)
+            assert "doc_class" in {c["name"] for c in inspect(engine).get_columns("summaries")}
+
+            # Existing rows survive with a null doc_class; new writes round-trip.
+            assert store.get_doc_class("c", "old.pdf") is None
+            store.set_doc_class("c", "old.pdf", "oib_leitfaden")
+            assert store.get_doc_class("c", "old.pdf") == "oib_leitfaden"
 
     def test_get_all_empty_collection(self, store):
         """Test getting documents from empty collection returns empty list."""

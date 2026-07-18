@@ -674,6 +674,17 @@ _OIB_CLASS_LANES: dict[str, tuple[str, str]] = {
     "aenderungen": ("baurecht_oib_diff", "OIB-Änderungsdokument"),
 }
 
+# Label for a lane key, aggregated from the OIB-class + rank tables plus the
+# lanes only reachable through an explicit doc_class: ``baurecht_ris`` (a
+# generic RIS legal source) and ``baurecht_basis`` (the NEW neutral base lane,
+# coarse kind ``baurecht`` via the prefix in ``source_kinds._LANE_KIND_PREFIXES``).
+_LANE_LABELS: dict[str, str] = {
+    **{key: label for key, label in _OIB_CLASS_LANES.values()},
+    **{key: label for key, label in _RANK_LANES.values()},
+    "baurecht_ris": "Rechtsquelle (RIS)",
+    "baurecht_basis": "Basisdokument",
+}
+
 
 def oib_doc_class(file_name: str) -> str | None:
     """OIB document class derived from the corpus filename convention, or None."""
@@ -688,8 +699,36 @@ def oib_doc_class(file_name: str) -> str | None:
     return "richtlinie"
 
 
+# Maps the coarse ``oib_doc_class`` filename guess to the explicit doc_class
+# vocabulary key (``document_classification.DOCUMENT_CLASSES``).
+_OIB_CLASS_TO_DOC_CLASS: dict[str, str] = {
+    "richtlinie": "oib_richtlinie",
+    "leitfaden": "oib_leitfaden",
+    "erlaeuterungen": "oib_erlaeuterung",
+    "begriffsbestimmungen": "oib_begriffe",
+    "zitierte_normen": "oib_referenz",
+    "aenderungen": "oib_aenderung",
+}
+
+
+def guess_doc_class(file_name: str) -> str:
+    """Pre-fill guess for the explicit doc_class, derived from the filename.
+
+    Wraps :func:`oib_doc_class` and maps its OIB filename class onto the
+    doc_class vocabulary. An unknown filename (no OIB hint) resolves to the
+    neutral :data:`~aiq_agent.knowledge.document_classification.DEFAULT_DOC_CLASS`
+    so ingestion always has a real value to store and stamp. Import is local to
+    avoid an import cycle with the knowledge package.
+    """
+    from aiq_agent.knowledge.document_classification import DEFAULT_DOC_CLASS
+
+    raw = oib_doc_class(Path(file_name).name) if file_name else None
+    return _OIB_CLASS_TO_DOC_CLASS.get(raw, DEFAULT_DOC_CLASS)
+
+
 def lane_for_hit(
     *,
+    doc_class: str | None = None,
     file_name: str | None = None,
     source_url: str | None = None,
     collection: str | None = None,
@@ -700,7 +739,19 @@ def lane_for_hit(
     Strata match the product's data placement: Baurecht (authority: registry law +
     OIB corpus), Projektwissen (project/session collections), Büroarchiv (org
     archiv), Web. Unknown inputs land in ("web", "Web") fail-open.
+
+    An explicit, human-set ``doc_class`` (the "Dokumentart") is FIRST priority:
+    when valid it fully determines the lane, overriding every collection/filename/
+    url heuristic below. This is the authoritative signal the filename guess only
+    approximates.
     """
+    if doc_class:
+        from aiq_agent.knowledge.document_classification import DOCUMENT_CLASS_LANES
+        from aiq_agent.knowledge.document_classification import is_valid_doc_class
+
+        if is_valid_doc_class(doc_class):
+            lane_key = DOCUMENT_CLASS_LANES[doc_class]
+            return (lane_key, _LANE_LABELS.get(lane_key, "Baurecht"))
     if collection:
         if collection.startswith("archiv_"):
             return ("buero", "Büroarchiv")

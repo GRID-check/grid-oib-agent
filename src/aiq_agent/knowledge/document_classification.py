@@ -86,6 +86,61 @@ ALLOWED_TAGS: frozenset[str] = frozenset(DOCUMENT_TYPE_TAGS) | frozenset(DISCIPL
 # Hard cap on the number of tags stored per document.
 MAX_TAGS = 5
 
+# =============================================================================
+# Explicit per-document classification ("Dokumentart" / doc_class)
+# =============================================================================
+# Unlike the free-form ``tags`` above (document type + OIB discipline), the
+# doc_class is a SINGLE, human-settable label describing what role a document
+# plays in the norm hierarchy. It is the authoritative signal preferred over the
+# filename guess (``norm_registry.oib_doc_class``) everywhere: stored on the
+# summaries row, stamped into chunk metadata, shown to the LLM, and used by the
+# lane/SourceKind classifiers. Each doc_class maps to exactly one fine lane key
+# (see ``norm_registry._OIB_CLASS_LANES``/``_RANK_LANES`` and ADR-0026).
+#
+# Ordered + immutable so callers cannot mutate the vocabulary and any future
+# edit endpoint validates against the same closed set. Fail-open: an unknown
+# value validates to False and callers fall back to :data:`DEFAULT_DOC_CLASS`.
+
+# doc_class key -> German label (the "Dokumentart" the user picks / the LLM sees).
+DOCUMENT_CLASS_LABELS: dict[str, str] = {
+    "oib_richtlinie": "OIB-Richtlinie (verbindlich)",
+    "oib_leitfaden": "OIB-Leitfaden",
+    "oib_erlaeuterung": "OIB-Erläuterung",
+    "oib_begriffe": "OIB-Begriffsbestimmungen",
+    "oib_referenz": "OIB-Referenzdokument",
+    "oib_aenderung": "OIB-Änderungsdokument",
+    "norm_extern": "Norm (ÖNORM u.a.)",
+    "gesetz": "Gesetz / Bauordnung",
+    "sonstiges": "Sonstiges Basisdokument",
+}
+
+# doc_class key -> fine lane key (``norm_registry`` stratum). The lane label is
+# looked up from the registry's lane tables so the two never drift.
+DOCUMENT_CLASS_LANES: dict[str, str] = {
+    "oib_richtlinie": "baurecht_oib",
+    "oib_leitfaden": "baurecht_oib_leitfaden",
+    "oib_erlaeuterung": "baurecht_oib_erlaeuterung",
+    "oib_begriffe": "baurecht_oib_begriffe",
+    "oib_referenz": "baurecht_oib_referenz",
+    "oib_aenderung": "baurecht_oib_diff",
+    "norm_extern": "norm_extern",
+    "gesetz": "baurecht_ris",
+    "sonstiges": "baurecht_basis",
+}
+
+# The ordered, immutable vocabulary (keys), the single source of truth.
+DOCUMENT_CLASSES: tuple[str, ...] = tuple(DOCUMENT_CLASS_LABELS.keys())
+
+# Neutral base class assigned when no human class is set and the filename gives
+# no OIB hint — a real value beats a null, and it lands in the neutral base lane.
+DEFAULT_DOC_CLASS = "sonstiges"
+
+
+def is_valid_doc_class(value: str | None) -> bool:
+    """Return whether ``value`` is a member of the closed doc_class vocabulary."""
+    return value in DOCUMENT_CLASS_LABELS
+
+
 # Length cap for the deterministic, LLM-free fallback summary (see
 # ``fallback_summary_from_text``).
 FALLBACK_SUMMARY_MAX_CHARS = 200
