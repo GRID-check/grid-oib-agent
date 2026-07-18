@@ -144,7 +144,13 @@ export const chat = {
     done: 'Done',
     showThinking: 'Show thinking ({count})',
     showThinkingSteps: 'Show thinking steps ({count})',
+    herleitungSummary: 'Trace · {steps} steps · {sources} sources',
     stepsLabel: 'Thinking steps',
+    stepsHeading: 'Intermediate steps',
+    sourcesFanOut: 'Sources',
+    hitCount: '{count} hits',
+    gapHit: 'Not in corpus',
+    moreSources: '+{count} more',
     selectedDataSources: 'Selected Data Sources:',
     dataSource: {
       webSearch: 'Web Search',

@@ -206,6 +206,18 @@ export interface IntermediateStep {
 /** Categories for intermediate step tabs in the thinking panel */
 export type IntermediateStepCategory = 'tasks' | 'agents' | 'tools'
 
+/**
+ * Compact lane hit surviving storage prune (Herleitung fan-out).
+ * Mirrors `TraceLaneCard` in `./lib/trace-lanes` without a circular import.
+ */
+export interface ThinkingTraceLane {
+  key: string
+  label: string
+  hitCount: number
+  sources: Array<{ name: string; detail?: string }>
+  signal: 'law' | 'project' | 'office' | 'auto'
+}
+
 /** Thinking step for the Details Panel Thinking tab */
 export interface ThinkingStep {
   /** Unique identifier for this step */
@@ -230,6 +242,11 @@ export interface ThinkingStep {
   isDeepResearch?: boolean
   /** True when backend name is "Function Start: ..." (top-level workflow step); false for model/tool sub-calls (indented) */
   isTopLevel?: boolean
+  /**
+   * Compact Herleitung lane cards derived from tool output. Survives content
+   * stripping on localStorage prune so the sources fan-out remains after reload.
+   */
+  traceLanes?: ThinkingTraceLane[]
 }
 
 /** Conversation/Session */

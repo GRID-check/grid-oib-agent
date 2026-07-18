@@ -4,7 +4,6 @@ import { vi, describe, test, expect, beforeEach } from 'vitest'
 import { ChatThinking } from './ChatThinking'
 import type { ThinkingStep } from '../types'
 
-// Helper to create a thinking step
 const createStep = (overrides: Partial<ThinkingStep> = {}): ThinkingStep => ({
   id: 'step-1',
   userMessageId: 'msg-1',
@@ -17,6 +16,12 @@ const createStep = (overrides: Partial<ThinkingStep> = {}): ThinkingStep => ({
   ...overrides,
 })
 
+/** Expand outer Herleitung, then technical intermediate-steps section. */
+const expandToSteps = async (user: ReturnType<typeof userEvent.setup>) => {
+  await user.click(screen.getByText(/Trace ·/))
+  await user.click(screen.getByText('Intermediate steps'))
+}
+
 describe('ChatThinking', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -26,10 +31,9 @@ describe('ChatThinking', () => {
     test('renders nothing when no steps provided', () => {
       render(<ChatThinking steps={[]} />)
 
-      // No status text, no toggle - component renders null
       expect(screen.queryByText('Working on a response...')).not.toBeInTheDocument()
       expect(screen.queryByText('Done')).not.toBeInTheDocument()
-      expect(screen.queryByText(/Show thinking/)).not.toBeInTheDocument()
+      expect(screen.queryByText(/Trace ·/)).not.toBeInTheDocument()
     })
   })
 
@@ -67,7 +71,6 @@ describe('ChatThinking', () => {
       render(<ChatThinking steps={steps} isThinking={false} isInterrupted={true} />)
 
       expect(screen.getByText('Interrupted')).toBeInTheDocument()
-      // Should NOT show "Done" or spinner
       expect(screen.queryByText('Done')).not.toBeInTheDocument()
       expect(screen.queryByLabelText('Thinking in progress')).not.toBeInTheDocument()
     })
@@ -75,7 +78,6 @@ describe('ChatThinking', () => {
     test('isThinking takes priority over isInterrupted', () => {
       const steps = [createStep()]
 
-      // When both isThinking and isInterrupted are set, spinner should show (active thinking wins)
       render(<ChatThinking steps={steps} isThinking={true} isInterrupted={true} />)
 
       expect(screen.getByText('Working on a response...')).toBeInTheDocument()
@@ -113,12 +115,12 @@ describe('ChatThinking', () => {
   })
 
   describe('collapse/expand toggle', () => {
-    test('shows step count in trigger', () => {
+    test('shows Herleitung summary with step and source counts', () => {
       const steps = [createStep()]
 
       render(<ChatThinking steps={steps} />)
 
-      expect(screen.getByText('Show thinking (1)')).toBeInTheDocument()
+      expect(screen.getByText('Trace · 1 steps · 0 sources')).toBeInTheDocument()
     })
 
     test('step list is collapsed by default', () => {
@@ -126,20 +128,56 @@ describe('ChatThinking', () => {
 
       render(<ChatThinking steps={steps} />)
 
-      // The content should be in the DOM but hidden by KUI Collapsible
-      expect(screen.getByText('Show thinking (1)')).toBeInTheDocument()
+      expect(screen.getByText('Trace · 1 steps · 0 sources')).toBeInTheDocument()
+      expect(screen.queryByText('Intent Classifier')).not.toBeInTheDocument()
     })
 
-    test('expands step list on trigger click', async () => {
+    test('expands technical steps after second toggle', async () => {
       const user = userEvent.setup()
       const steps = [createStep({ displayName: 'Intent Classifier' })]
 
       render(<ChatThinking steps={steps} />)
 
-      // Click the trigger area to expand
-      await user.click(screen.getByText('Show thinking (1)'))
+      await expandToSteps(user)
 
       expect(screen.getByText('Intent Classifier')).toBeVisible()
+    })
+  })
+
+  describe('source fan-out', () => {
+    test('renders per-document source cards from traceLanes', async () => {
+      const user = userEvent.setup()
+      const steps = [
+        createStep({
+          id: 'kb',
+          category: 'tools',
+          functionName: 'knowledge_retrieval',
+          displayName: 'Knowledge Retrieval',
+          content: '',
+          traceLanes: [
+            {
+              key: 'baurecht_oib',
+              label: 'OIB-Richtlinie',
+              hitCount: 2,
+              sources: [
+                { name: 'OIB-RL_2_Brandschutz.pdf', detail: 'p.12' },
+                { name: 'OIB-RL_2_Brandschutz.pdf', detail: 'p.18' },
+              ],
+              signal: 'law',
+            },
+          ],
+        }),
+      ]
+
+      render(<ChatThinking steps={steps} isThinking={false} />)
+
+      expect(screen.getByText('Trace · 1 steps · 1 sources')).toBeInTheDocument()
+
+      await user.click(screen.getByText(/Trace ·/))
+
+      expect(screen.getByText('OIB-RL_2_Brandschutz.pdf')).toBeVisible()
+      expect(screen.getByText('2 hits')).toBeVisible()
+      expect(screen.getByText('OIB-Richtlinie')).toBeVisible()
     })
   })
 
@@ -155,8 +193,7 @@ describe('ChatThinking', () => {
 
       render(<ChatThinking steps={steps} />)
 
-      // Expand via trigger
-      await user.click(screen.getByText(`Show thinking (${steps.length})`))
+      await expandToSteps(user)
 
       expect(screen.getByText('Intent Classifier')).toBeVisible()
       expect(screen.getByText('Depth Router')).toBeVisible()
@@ -170,9 +207,8 @@ describe('ChatThinking', () => {
 
       render(<ChatThinking steps={steps} />)
 
-      await user.click(screen.getByText(/Show thinking/))
+      await expandToSteps(user)
 
-      // Timestamp should be formatted and visible
       expect(screen.getByText(/\d{1,2}:\d{2}/)).toBeInTheDocument()
     })
 
@@ -186,9 +222,8 @@ describe('ChatThinking', () => {
 
       render(<ChatThinking steps={steps} />)
 
-      await user.click(screen.getByText(/Show thinking/))
+      await expandToSteps(user)
 
-      // All three categories appear in a single flat list
       expect(screen.getByText('Workflow Task')).toBeVisible()
       expect(screen.getByText('Agent Step')).toBeVisible()
       expect(screen.getByText('Tool Step')).toBeVisible()
@@ -200,7 +235,7 @@ describe('ChatThinking', () => {
 
       render(<ChatThinking steps={steps} />)
 
-      await user.click(screen.getByText(/Show thinking/))
+      await expandToSteps(user)
 
       expect(screen.getByRole('list', { name: 'Thinking steps' })).toBeInTheDocument()
     })
@@ -212,8 +247,7 @@ describe('ChatThinking', () => {
 
       render(<ChatThinking steps={steps} />)
 
-      // The trigger lives inside the outer container with the soft rounded surface
-      const triggerText = screen.getByText(/Show thinking/)
+      const triggerText = screen.getByText(/Trace ·/)
       const outerDiv = triggerText.closest('.rounded-2xl.shadow-xs')
       expect(outerDiv).toBeInTheDocument()
     })
@@ -267,8 +301,6 @@ describe('ChatThinking', () => {
 
       render(<ChatThinking steps={steps} enabledDataSources={enabledDataSources} />)
 
-      // The OIB knowledge base is queried on every turn, so it must be visible
-      // (labelled clearly) rather than filtered out — never the raw id.
       expect(screen.getByText('Web Search, OIB Knowledge Base')).toBeVisible()
       expect(screen.queryByText(/knowledge_layer/i)).not.toBeInTheDocument()
     })

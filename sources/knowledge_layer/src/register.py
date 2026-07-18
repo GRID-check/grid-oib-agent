@@ -403,6 +403,44 @@ def _merge_results(results, query: str, top_k: int, backend_name: str):
     return RetrievalResult(success=True, chunks=merged_top_k, query=query, backend=backend)
 
 
+def _trace_lanes_json(chunks) -> str:
+    """Machine-readable lane fan-out for the chat Herleitung UI.
+
+    One JSON object under a ``## Trace-Lanes`` marker so the frontend can group
+    hits by stratum (OIB / Projekt / Büroarchiv / …) without re-deriving
+    ``lane_for_hit``. Fail-open: never break tool output for the LLM.
+    """
+    try:
+        import json
+        from collections import OrderedDict
+
+        from aiq_agent.common.norm_registry import lane_for_hit
+
+        lanes: OrderedDict[str, dict] = OrderedDict()
+        for chunk in chunks:
+            collection = (chunk.metadata or {}).get("collection")
+            key, label = lane_for_hit(file_name=chunk.file_name, collection=collection)
+            bucket = lanes.get(key)
+            if bucket is None:
+                bucket = {"key": key, "label": label, "hitCount": 0, "sources": []}
+                lanes[key] = bucket
+            bucket["hitCount"] += 1
+            name = chunk.file_name or ""
+            detail = f"p.{chunk.page_number}" if chunk.page_number and chunk.page_number > 0 else None
+            # Deduplicate identical name+detail pairs inside a lane.
+            sig = (name, detail or "")
+            existing = {(s.get("name"), s.get("detail") or "") for s in bucket["sources"]}
+            if name and sig not in existing:
+                entry: dict[str, str] = {"name": name}
+                if detail:
+                    entry["detail"] = detail
+                bucket["sources"].append(entry)
+        return json.dumps({"lanes": list(lanes.values())}, ensure_ascii=False)
+    except Exception:
+        logger.exception("Failed to build Trace-Lanes summary; omitting UI block metadata")
+        return '{"lanes":[]}'
+
+
 def _format_results(retrieval_result, query: str) -> str:
     """
     Format retrieval results for LLM consumption.
@@ -447,6 +485,12 @@ def _format_results(retrieval_result, query: str) -> str:
             content = content[:1500] + "... [truncated]"
         lines.append(content)
         lines.append("")
+
+    # Fan-out summary for the Herleitung UI (after chunk bodies so the LLM
+    # still sees citations first; parsers look for the marker explicitly).
+    lines.append("## Trace-Lanes")
+    lines.append(_trace_lanes_json(retrieval_result.chunks))
+    lines.append("")
 
     return "\n".join(lines)
 

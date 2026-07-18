@@ -133,7 +133,13 @@ export const chat: typeof en.chat = {
     done: 'Fertig',
     showThinking: 'Denkschritte anzeigen ({count})',
     showThinkingSteps: 'Denkschritte anzeigen ({count})',
+    herleitungSummary: 'Herleitung · {steps} Zwischenschritte · {sources} Quellen',
     stepsLabel: 'Denkschritte',
+    stepsHeading: 'Zwischenschritte',
+    sourcesFanOut: 'Quellen',
+    hitCount: '{count} Treffer',
+    gapHit: 'Nicht im Bestand',
+    moreSources: '+{count} weitere',
     selectedDataSources: 'Ausgewählte Datenquellen:',
     dataSource: {
       webSearch: 'Websuche',

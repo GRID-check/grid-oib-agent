@@ -162,6 +162,49 @@ describe('prune-message-for-storage', () => {
       expect(pruned.thinkingSteps![0].isTopLevel).toBeUndefined()
     })
 
+    test('derives and keeps traceLanes when stripping tool payload', () => {
+      const message: ChatMessage = {
+        id: 'msg_3b',
+        role: 'user',
+        content: 'Question',
+        timestamp: new Date(),
+        messageType: 'user',
+        thinkingSteps: [
+          {
+            id: 'ts_kb',
+            userMessageId: 'msg_3b',
+            category: 'tools',
+            functionName: 'knowledge_retrieval',
+            displayName: 'Knowledge',
+            content: `Found 1 document(s):
+
+--- Result 1 ---
+Source: OIB-RL_2_Brandschutz.pdf
+Collection: oib_knowledge
+Citation: OIB-RL_2_Brandschutz.pdf, p.12
+
+## Trace-Lanes
+{"lanes":[{"key":"baurecht_oib","label":"OIB-Richtlinie","hitCount":1,"sources":[{"name":"OIB-RL_2_Brandschutz.pdf","detail":"p.12"}]}]}
+`,
+            timestamp: new Date(),
+            isComplete: true,
+          },
+        ],
+      }
+
+      const pruned = pruneMessageForStorage(message)
+      expect(pruned.thinkingSteps![0].content).toBe('')
+      expect(pruned.thinkingSteps![0].traceLanes).toEqual([
+        {
+          key: 'baurecht_oib',
+          label: 'OIB-Richtlinie',
+          hitCount: 1,
+          sources: [{ name: 'OIB-RL_2_Brandschutz.pdf', detail: 'p.12' }],
+          signal: 'law',
+        },
+      ])
+    })
+
     test('caps plan message text during pruning', () => {
       const message: ChatMessage = {
         id: 'msg_4',

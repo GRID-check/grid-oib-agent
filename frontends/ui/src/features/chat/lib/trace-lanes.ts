@@ -1,0 +1,412 @@
+/**
+ * Herleitung source fan-out (click-dummy overhaul spec §7).
+ *
+ * Builds parallel **per-document** source cards from thinking-step payloads:
+ *  1. Prefer the backend `## Trace-Lanes` JSON block (KB tool — authoritative).
+ *  2. Fallback: parse Collection:/Source:/Citation: blocks from KB wording.
+ *  3. Fallback: URL scan for web/RIS tools.
+ *
+ * Lane keys / German labels mirror `norm_registry.lane_for_hit`. Provenance
+ * signals map onto the `--source-*` token family (law / project / office / auto).
+ *
+ * Card shape matches the click-dummy `traceSources[]`:
+ *   tab (label) · name · detail · "N Treffer" | gap
+ */
+
+import type { SourceSignal } from '@/features/layout/lib/source-presets'
+import type { ThinkingStep } from '../types'
+
+/** One document/source hit inside a lane (wire / storage intermediate). */
+export interface TraceSourceHit {
+  name: string
+  detail?: string
+}
+
+/** Lane bucket on the wire (`## Trace-Lanes`) and in storage prune. */
+export interface TraceLaneCard {
+  key: string
+  label: string
+  hitCount: number
+  sources: TraceSourceHit[]
+  /** Provenance signal for --source-* tint */
+  signal: SourceSignal
+}
+
+/**
+ * One parallel card in the Herleitung fan-out (click-dummy `traceSources` item).
+ * Individual document — not a lane aggregate.
+ */
+export interface TraceSourceCard {
+  /** Stable list key */
+  id: string
+  laneKey: string
+  /** Tab strip label (e.g. "OIB-Richtlinie", "Büroarchiv", "Lücke") */
+  tabLabel: string
+  signal: SourceSignal
+  name: string
+  detail?: string
+  hitCount: number
+  kind: 'hit' | 'gap'
+}
+
+/** Backend JSON shape under `## Trace-Lanes`. */
+interface TraceLanesPayload {
+  lanes?: Array<{
+    key?: string
+    label?: string
+    hitCount?: number
+    sources?: Array<{ name?: string; detail?: string }>
+  }>
+}
+
+const TRACE_LANES_RE = /##\s*Trace-Lanes\s*\n\s*(\{[\s\S]*?\})\s*(?:\n|$)/i
+
+const RESULT_BLOCK_RE =
+  /---\s*Result\s+\d+\s*---\s*([\s\S]*?)(?=---\s*Result\s+\d+\s*---|$|##\s*Trace-Lanes)/gi
+
+const SOURCE_RE = /^Source:\s*(.+)$/im
+const COLLECTION_RE = /^Collection:\s*(.+)$/im
+const CITATION_RE = /^Citation:\s*(.+)$/im
+const URL_RE = /https?:\/\/[^\s<>"'`)\]]+/gi
+
+/** Backend OIB class → lane (mirror of `_OIB_CLASS_LANES`). */
+const OIB_CLASS_LANES: Record<string, { key: string; label: string }> = {
+  richtlinie: { key: 'baurecht_oib', label: 'OIB-Richtlinie' },
+  leitfaden: { key: 'baurecht_oib_leitfaden', label: 'OIB-Leitfaden' },
+  erlaeuterungen: { key: 'baurecht_oib_erlaeuterung', label: 'OIB-Erläuterung' },
+  begriffsbestimmungen: { key: 'baurecht_oib_begriffe', label: 'OIB-Begriffsbestimmungen' },
+  zitierte_normen: { key: 'baurecht_oib_referenz', label: 'OIB-Referenzdokument' },
+  aenderungen: { key: 'baurecht_oib_diff', label: 'OIB-Änderungsdokument' },
+}
+
+const OIB_CLASS_PREFIXES: Array<[string, string]> = [
+  ['aenderungen_', 'aenderungen'],
+  ['erlaeuterungen_', 'erlaeuterungen'],
+  ['oib-rl_begriffsbestimmungen', 'begriffsbestimmungen'],
+  ['oib-rl_zitierte', 'zitierte_normen'],
+]
+
+/** Product-stratum tab when the fine lane label is too granular for the chip. */
+const COARSE_TAB: Record<SourceSignal, string> = {
+  law: 'Baurecht',
+  project: 'Projektwissen',
+  office: 'Büroarchiv',
+  auto: 'Web',
+}
+
+/** Lane key → provenance signal (spec §4). */
+export const laneKeyToSignal = (key: string): SourceSignal => {
+  if (key === 'buero') return 'office'
+  if (key === 'projekt') return 'project'
+  if (key === 'web' || key === 'norm_extern' || key === 'gap') return 'auto'
+  // baurecht_*, behoerde, …
+  return 'law'
+}
+
+/** Prefer fine backend label; fall back to product stratum. */
+export const tabLabelForLane = (laneKey: string, laneLabel: string): string => {
+  const trimmed = laneLabel.trim()
+  if (trimmed) return trimmed
+  return COARSE_TAB[laneKeyToSignal(laneKey)]
+}
+
+const oibDocClass = (fileName: string): string | null => {
+  const name = fileName.toLowerCase()
+  if (
+    !name.startsWith('oib-rl_') &&
+    !name.startsWith('aenderungen_') &&
+    !name.startsWith('erlaeuterungen_')
+  ) {
+    return null
+  }
+  for (const [prefix, docClass] of OIB_CLASS_PREFIXES) {
+    if (name.startsWith(prefix)) return docClass
+  }
+  if (name.includes('leitfaden')) return 'leitfaden'
+  return 'richtlinie'
+}
+
+/** Mirror of backend `lane_for_hit` for fallback parsing (no norm registry). */
+export const laneForHitClient = (opts: {
+  fileName?: string | null
+  sourceUrl?: string | null
+  collection?: string | null
+}): { key: string; label: string } => {
+  const collection = opts.collection?.trim() || null
+  if (collection) {
+    if (collection.startsWith('archiv_')) return { key: 'buero', label: 'Büroarchiv' }
+    if (collection.startsWith('proj_') || collection.startsWith('s_')) {
+      return { key: 'projekt', label: 'Projektwissen' }
+    }
+  }
+  const fileName = opts.fileName?.trim() || null
+  if (fileName) {
+    const base = fileName.split(/[/\\]/).pop() || fileName
+    const docClass = oibDocClass(base)
+    if (docClass) return OIB_CLASS_LANES[docClass]
+  }
+  const url = opts.sourceUrl || ''
+  if (url.includes('ris.bka.gv.at')) {
+    return { key: 'baurecht_ris', label: 'Rechtsquelle (RIS)' }
+  }
+  if (collection) {
+    // Named KB collection that is not project/archiv → base corpus
+    return { key: 'baurecht_oib', label: 'OIB-Richtlinie' }
+  }
+  return { key: 'web', label: 'Web' }
+}
+
+const hostnameOf = (url: string): string => {
+  try {
+    return new URL(url).hostname.replace(/^www\./i, '')
+  } catch {
+    return url.length > 48 ? `${url.slice(0, 47)}…` : url
+  }
+}
+
+/** Parse the authoritative `## Trace-Lanes` JSON block if present. */
+export const parseTraceLanesBlock = (payload: string): TraceLaneCard[] | null => {
+  const match = payload.match(TRACE_LANES_RE)
+  if (!match) return null
+  try {
+    const data = JSON.parse(match[1]) as TraceLanesPayload
+    if (!Array.isArray(data.lanes) || data.lanes.length === 0) return null
+    return data.lanes
+      .map((lane): TraceLaneCard | null => {
+        const key = (lane.key || '').trim()
+        const label = (lane.label || '').trim()
+        if (!key || !label) return null
+        const sources = (lane.sources || [])
+          .map((s) => {
+            const name = (s.name || '').trim()
+            if (!name) return null
+            const detail = (s.detail || '').trim() || undefined
+            return { name, detail } satisfies TraceSourceHit
+          })
+          .filter((s): s is TraceSourceHit => s != null)
+        const hitCount =
+          typeof lane.hitCount === 'number' && lane.hitCount > 0
+            ? lane.hitCount
+            : Math.max(sources.length, 1)
+        return { key, label, hitCount, sources, signal: laneKeyToSignal(key) }
+      })
+      .filter((c): c is TraceLaneCard => c != null)
+  } catch {
+    return null
+  }
+}
+
+/** Fallback: walk Result blocks for Collection/Source/Citation lines. */
+export const parseKbResultBlocks = (payload: string): TraceLaneCard[] => {
+  const buckets = new Map<string, TraceLaneCard>()
+  for (const match of payload.matchAll(RESULT_BLOCK_RE)) {
+    const block = match[1] || ''
+    const fileName = SOURCE_RE.exec(block)?.[1]?.trim()
+    const collection = COLLECTION_RE.exec(block)?.[1]?.trim()
+    const citation = CITATION_RE.exec(block)?.[1]?.trim()
+    if (!fileName && !citation) continue
+    const name = fileName || citation!.split(',')[0]!.trim()
+    const detailFromCitation = citation?.includes(',')
+      ? citation.split(',').slice(1).join(',').trim()
+      : undefined
+    const { key, label } = laneForHitClient({ fileName: name, collection })
+    let card = buckets.get(key)
+    if (!card) {
+      card = { key, label, hitCount: 0, sources: [], signal: laneKeyToSignal(key) }
+      buckets.set(key, card)
+    }
+    card.hitCount += 1
+    // One entry per hit (same doc/page may repeat) so flatten can count Treffer.
+    card.sources.push({ name, detail: detailFromCitation })
+  }
+  return Array.from(buckets.values())
+}
+
+/** Fallback: URL scan — RIS vs web. */
+export const parseUrlHits = (payload: string): TraceLaneCard[] => {
+  const urls = payload.match(URL_RE) || []
+  if (urls.length === 0) return []
+  const buckets = new Map<string, TraceLaneCard>()
+  const seen = new Set<string>()
+  for (const raw of urls) {
+    const url = raw.replace(/[.,;:]+$/, '')
+    if (seen.has(url)) continue
+    seen.add(url)
+    const { key, label } = laneForHitClient({ sourceUrl: url })
+    let card = buckets.get(key)
+    if (!card) {
+      card = { key, label, hitCount: 0, sources: [], signal: laneKeyToSignal(key) }
+      buckets.set(key, card)
+    }
+    card.hitCount += 1
+    const name = hostnameOf(url)
+    card.sources.push({ name, detail: url })
+  }
+  return Array.from(buckets.values())
+}
+
+/** Extract lane cards from one tool payload string. */
+export const extractTraceLanesFromPayload = (payload: string): TraceLaneCard[] => {
+  if (!payload?.trim()) return []
+  const fromBlock = parseTraceLanesBlock(payload)
+  if (fromBlock && fromBlock.length > 0) return fromBlock
+  const fromKb = parseKbResultBlocks(payload)
+  if (fromKb.length > 0) return fromKb
+  return parseUrlHits(payload)
+}
+
+const mergeCards = (into: Map<string, TraceLaneCard>, cards: TraceLaneCard[]) => {
+  for (const card of cards) {
+    let existing = into.get(card.key)
+    if (!existing) {
+      existing = {
+        key: card.key,
+        label: card.label,
+        hitCount: 0,
+        sources: [],
+        signal: card.signal,
+      }
+      into.set(card.key, existing)
+    }
+    existing.hitCount += card.hitCount
+    for (const src of card.sources) {
+      existing.sources.push(src)
+    }
+  }
+}
+
+/**
+ * Aggregate lane cards across thinking steps. Prefer compact `traceLanes`
+ * (survives storage prune); else parse content/rawPayload.
+ */
+export const deriveTraceLanes = (
+  steps: Array<
+    Pick<ThinkingStep, 'content' | 'rawPayload' | 'traceLanes' | 'functionName' | 'category'>
+  >
+): TraceLaneCard[] => {
+  const buckets = new Map<string, TraceLaneCard>()
+  for (const step of steps) {
+    if (step.traceLanes && step.traceLanes.length > 0) {
+      mergeCards(buckets, step.traceLanes)
+      continue
+    }
+    const payload = [step.content, step.rawPayload].filter(Boolean).join('\n')
+    if (!payload.trim()) continue
+    // Only tool-ish steps contribute sources; agent LLM chatter is skipped
+    // unless it already has a Trace-Lanes block (re-emitted tooloidal text).
+    const looksLikeTool =
+      step.category === 'tools' ||
+      /tool|search|knowledge|retriev|ris/i.test(step.functionName || '') ||
+      /##\s*Trace-Lanes/i.test(payload) ||
+      /---\s*Result\s+\d+\s*---/i.test(payload)
+    if (!looksLikeTool) continue
+    mergeCards(buckets, extractTraceLanesFromPayload(payload))
+  }
+  // Stable-ish order: law first, then project, office, auto; within signal by label.
+  const signalOrder: Record<SourceSignal, number> = {
+    law: 0,
+    project: 1,
+    office: 2,
+    auto: 3,
+  }
+  return Array.from(buckets.values()).sort((a, b) => {
+    const sig = signalOrder[a.signal] - signalOrder[b.signal]
+    if (sig !== 0) return sig
+    return a.label.localeCompare(b.label, 'de')
+  })
+}
+
+/** Flatten lane buckets into click-dummy per-document source cards. */
+export const flattenTraceSourceCards = (lanes: TraceLaneCard[]): TraceSourceCard[] => {
+  const byDoc = new Map<string, TraceSourceCard>()
+
+  for (const lane of lanes) {
+    const tabLabel = tabLabelForLane(lane.key, lane.label)
+    const signal = lane.signal
+    if (lane.sources.length === 0) {
+      // Layer count without names — one synthetic card for the lane.
+      if (lane.hitCount <= 0) continue
+      const id = `${lane.key}|*`
+      byDoc.set(id, {
+        id,
+        laneKey: lane.key,
+        tabLabel,
+        signal,
+        name: lane.label,
+        hitCount: lane.hitCount,
+        kind: 'hit',
+      })
+      continue
+    }
+
+    for (const src of lane.sources) {
+      const id = `${lane.key}|${src.name}`
+      const existing = byDoc.get(id)
+      if (existing) {
+        existing.hitCount += 1
+        // Keep first non-http detail; append extra page refs if distinct.
+        if (src.detail && !src.detail.startsWith('http')) {
+          if (!existing.detail) {
+            existing.detail = src.detail
+          } else if (!existing.detail.includes(src.detail)) {
+            existing.detail = `${existing.detail}, ${src.detail}`
+          }
+        }
+      } else {
+        byDoc.set(id, {
+          id,
+          laneKey: lane.key,
+          tabLabel,
+          signal,
+          name: src.name,
+          detail: src.detail?.startsWith('http') ? undefined : src.detail,
+          hitCount: 1,
+          kind: 'hit',
+        })
+      }
+    }
+
+    // If backend hitCount > listed unique sources (only name listed once in
+    // Trace-Lanes JSON), boost the first card so Treffer stays honest.
+    const listed = lane.sources.length
+    if (lane.hitCount > listed && listed > 0) {
+      const firstName = lane.sources[0]!.name
+      const first = byDoc.get(`${lane.key}|${firstName}`)
+      if (first && first.hitCount < lane.hitCount && listed === 1) {
+        first.hitCount = lane.hitCount
+      } else if (first && listed > 1) {
+        // distribute remainder onto first
+        first.hitCount += lane.hitCount - listed
+      }
+    }
+  }
+
+  const signalOrder: Record<SourceSignal, number> = {
+    law: 0,
+    project: 1,
+    office: 2,
+    auto: 3,
+  }
+  return Array.from(byDoc.values()).sort((a, b) => {
+    const sig = signalOrder[a.signal] - signalOrder[b.signal]
+    if (sig !== 0) return sig
+    const tab = a.tabLabel.localeCompare(b.tabLabel, 'de')
+    if (tab !== 0) return tab
+    return a.name.localeCompare(b.name, 'de')
+  })
+}
+
+/** Lanes → individual source cards across thinking steps. */
+export const deriveTraceSourceCards = (
+  steps: Array<
+    Pick<ThinkingStep, 'content' | 'rawPayload' | 'traceLanes' | 'functionName' | 'category'>
+  >
+): TraceSourceCard[] => flattenTraceSourceCards(deriveTraceLanes(steps))
+
+/** Total unique source hits across lane cards (bar "m Quellen"). */
+export const totalTraceSourceCount = (lanes: TraceLaneCard[]): number =>
+  lanes.reduce((sum, lane) => sum + lane.hitCount, 0)
+
+/** Total hits across flattened source cards. */
+export const totalSourceCardHits = (cards: TraceSourceCard[]): number =>
+  cards.reduce((sum, c) => sum + (c.kind === 'gap' ? 0 : c.hitCount), 0)

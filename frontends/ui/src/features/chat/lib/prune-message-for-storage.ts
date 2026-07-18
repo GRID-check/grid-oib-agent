@@ -6,6 +6,7 @@
  */
 
 import type { ChatMessage } from '../types'
+import { extractTraceLanesFromPayload } from './trace-lanes'
 
 /**
  * Cap string content to prevent excessively large values.
@@ -15,30 +16,41 @@ export const capString = (value: string, max: number): string => {
 }
 
 /**
- * Strip thinking steps for storage. ChatThinking only renders displayName
- * and timestamp — content/rawPayload/category are never displayed.
+ * Strip thinking steps for storage. ChatThinking renders displayName,
+ * timestamp, and the Herleitung lane fan-out — not full payloads.
  *
  * - Deep research steps (isDeepResearch=true) are removed entirely since
  *   they are refetched from the async backend API.
- * - Shallow steps keep only the fields needed for ChatThinking display.
+ * - Shallow steps keep display fields + compact `traceLanes` (derived from
+ *   content before it is dropped so the sources fan-out survives reload).
  */
 export const stripThinkingStepsForStorage = (
   steps: NonNullable<ChatMessage['thinkingSteps']>
 ): NonNullable<ChatMessage['thinkingSteps']> => {
   return steps
     .filter((step) => !step.isDeepResearch)
-    .map((step) => ({
-      id: step.id,
-      userMessageId: step.userMessageId,
-      functionName: step.functionName,
-      displayName: step.displayName,
-      content: '',
-      timestamp: step.timestamp,
-      isComplete: step.isComplete,
-      isDeepResearch: step.isDeepResearch,
-      isTopLevel: step.isTopLevel,
-      category: step.category,
-    }))
+    .map((step) => {
+      const payload = [step.content, step.rawPayload].filter(Boolean).join('\n')
+      const derived =
+        step.traceLanes && step.traceLanes.length > 0
+          ? step.traceLanes
+          : payload.trim()
+            ? extractTraceLanesFromPayload(payload)
+            : undefined
+      return {
+        id: step.id,
+        userMessageId: step.userMessageId,
+        functionName: step.functionName,
+        displayName: step.displayName,
+        content: '',
+        timestamp: step.timestamp,
+        isComplete: step.isComplete,
+        isDeepResearch: step.isDeepResearch,
+        isTopLevel: step.isTopLevel,
+        category: step.category,
+        ...(derived && derived.length > 0 ? { traceLanes: derived } : {}),
+      }
+    })
 }
 
 /**
