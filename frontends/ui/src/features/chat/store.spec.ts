@@ -1,6 +1,7 @@
 import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest'
 import { useChatStore } from './store'
 import type { Conversation, PendingInteraction, FileCardData } from './types'
+import type { GridCard } from '@/shared/cards/schemas'
 
 const STORAGE_KEY = 'aiq-chat-store'
 const mockLayoutState = vi.hoisted(() => ({
@@ -73,6 +74,7 @@ describe('useChatStore', () => {
       currentUserMessageId: null,
       thinkingSteps: [],
       activeThinkingStepId: null,
+      streamingAssistantMessageId: null,
       reportContent: '',
       currentStatus: null,
       pendingInteraction: null,
@@ -1529,6 +1531,125 @@ describe('useChatStore', () => {
 
       const messages = useChatStore.getState().currentConversation?.messages
       expect(messages?.[0].answerConfidence).toBeUndefined()
+    })
+
+    describe('streamed answer accumulation', () => {
+      // Minimal card stand-in; the store stores the reference verbatim and does
+      // not validate schema, so a cast is sufficient for these tests.
+      const card = (id: string) => ({ card_type: 'kpi', id }) as unknown as GridCard
+
+      test('multiple in_progress deltas accumulate into ONE bubble whose content is the concatenation', () => {
+        setupConversation()
+
+        useChatStore.getState().appendAgentResponseDelta('Hello ')
+        useChatStore.getState().appendAgentResponseDelta('streamed ')
+        useChatStore.getState().appendAgentResponseDelta('world')
+
+        const messages = useChatStore.getState().currentConversation?.messages
+        expect(messages).toHaveLength(1)
+        expect(messages?.[0].messageType).toBe('agent_response')
+        expect(messages?.[0].content).toBe('Hello streamed world')
+        // Still streaming until the terminal frame finalizes it.
+        expect(messages?.[0].isStreaming).toBe(true)
+        expect(useChatStore.getState().streamingAssistantMessageId).toBe(messages?.[0].id)
+      })
+
+      test('complete frame finalizes the bubble, sets full text, and attaches cards + confidence', () => {
+        setupConversation()
+
+        useChatStore.getState().appendAgentResponseDelta('Hel')
+        useChatStore.getState().appendAgentResponseDelta('lo')
+
+        const cards = [card('c1')]
+        // Terminal frame carries the authoritative FULL text + cards/confidence.
+        useChatStore.getState().finalizeAgentResponse('Hello', cards, 'high')
+
+        const messages = useChatStore.getState().currentConversation?.messages
+        expect(messages).toHaveLength(1)
+        expect(messages?.[0].content).toBe('Hello')
+        expect(messages?.[0].cards).toBe(cards)
+        expect(messages?.[0].answerConfidence).toBe('high')
+        expect(messages?.[0].isStreaming).toBe(false)
+        // Tracking id is released so the next turn opens a fresh bubble.
+        expect(useChatStore.getState().streamingAssistantMessageId).toBeNull()
+      })
+
+      test('empty complete frame does NOT wipe the accumulated bubble (just finalizes)', () => {
+        setupConversation()
+
+        useChatStore.getState().appendAgentResponseDelta('Kept ')
+        useChatStore.getState().appendAgentResponseDelta('text')
+
+        // Legacy synthetic complete: empty text, no cards.
+        useChatStore.getState().finalizeAgentResponse('')
+
+        const messages = useChatStore.getState().currentConversation?.messages
+        expect(messages).toHaveLength(1)
+        expect(messages?.[0].content).toBe('Kept text')
+        expect(messages?.[0].isStreaming).toBe(false)
+        expect(useChatStore.getState().streamingAssistantMessageId).toBeNull()
+      })
+
+      test('BACKWARD COMPAT: single in_progress full-text+cards frame then empty complete yields ONE bubble with full text + cards', () => {
+        setupConversation()
+
+        const cards = [card('c1'), card('c2')]
+        // Today's backend: ONE in_progress frame carrying the whole answer +
+        // cards...
+        useChatStore.getState().appendAgentResponseDelta('The full answer', cards, 'medium')
+        // ...followed by the synthetic empty complete frame.
+        useChatStore.getState().finalizeAgentResponse('')
+
+        const messages = useChatStore.getState().currentConversation?.messages
+        expect(messages).toHaveLength(1)
+        expect(messages?.[0].messageType).toBe('agent_response')
+        expect(messages?.[0].content).toBe('The full answer')
+        expect(messages?.[0].cards).toBe(cards)
+        expect(messages?.[0].answerConfidence).toBe('medium')
+        expect(messages?.[0].isStreaming).toBe(false)
+        expect(useChatStore.getState().streamingAssistantMessageId).toBeNull()
+      })
+
+      test('a new user turn resets accumulation so the next answer opens a fresh bubble', () => {
+        setupConversation()
+
+        useChatStore.getState().appendAgentResponseDelta('First answer')
+        useChatStore.getState().finalizeAgentResponse('First answer')
+
+        // New turn.
+        useChatStore.getState().addUserMessage('second question')
+        expect(useChatStore.getState().streamingAssistantMessageId).toBeNull()
+
+        useChatStore.getState().appendAgentResponseDelta('Second ')
+        useChatStore.getState().appendAgentResponseDelta('answer')
+        useChatStore.getState().finalizeAgentResponse('Second answer')
+
+        const messages = useChatStore.getState().currentConversation?.messages
+        const agentResponses = messages?.filter((m) => m.messageType === 'agent_response')
+        expect(agentResponses).toHaveLength(2)
+        expect(agentResponses?.[0].content).toBe('First answer')
+        expect(agentResponses?.[1].content).toBe('Second answer')
+      })
+
+      test('finalize with no prior delta falls back to a one-shot response (complete-only frame)', () => {
+        setupConversation()
+
+        useChatStore.getState().finalizeAgentResponse('Whole answer in one complete frame', [card('c1')])
+
+        const messages = useChatStore.getState().currentConversation?.messages
+        expect(messages).toHaveLength(1)
+        expect(messages?.[0].content).toBe('Whole answer in one complete frame')
+        expect(messages?.[0].messageType).toBe('agent_response')
+        expect(useChatStore.getState().streamingAssistantMessageId).toBeNull()
+      })
+
+      test('empty finalize with no prior delta is a no-op (pure synthetic complete, nothing to show)', () => {
+        setupConversation()
+
+        useChatStore.getState().finalizeAgentResponse('')
+
+        expect(useChatStore.getState().currentConversation?.messages).toHaveLength(0)
+      })
     })
 
     test('setPendingInteraction sets interaction', () => {

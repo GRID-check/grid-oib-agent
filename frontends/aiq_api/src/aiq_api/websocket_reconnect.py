@@ -21,6 +21,7 @@ from aiq_api.auth.middleware import detect_internal_caller
 from aiq_api.auth.middleware import resolve_request_user
 from aiq_api.auth.middleware import user_context
 from aiq_api.auth.request_trace import request_trace_tag_context
+from nat.data_models.api_server import ChatResponseChunk
 from nat.data_models.api_server import Error
 from nat.data_models.api_server import ErrorTypes
 from nat.data_models.api_server import ResponseObservabilityTrace
@@ -203,6 +204,21 @@ _PERSIST_TIMEOUT_SECONDS = 10.0
 def _internal_base_url() -> str | None:
     """Resolve the BFF base URL for internal server-to-server calls."""
     return os.environ.get("FRONTEND_INTERNAL_URL") or os.environ.get("FRONTEND_URL")
+
+
+def _chunk_finish_reason(value: Any) -> str | None:
+    """The finish_reason of a ChatResponseChunk, or None for anything else.
+
+    ``"stop"`` marks the terminal chunk of a streamed answer (and the only chunk
+    when streaming is disabled). Deltas carry ``None``. Any non-chunk value also
+    yields ``None`` so callers treat it as "not a terminal answer frame".
+    """
+    if not isinstance(value, ChatResponseChunk):
+        return None
+    try:
+        return value.choices[0].finish_reason
+    except (AttributeError, IndexError):
+        return None
 
 
 def deterministic_assistant_message_id(conversation_id: str, parent_id: str | None) -> str:
@@ -488,8 +504,16 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
         data_model: BaseModel,
         message_type: str | None = None,
         status: WebSocketMessageStatus = WebSocketMessageStatus.IN_PROGRESS,
+        persist_on_drop: bool = True,
     ) -> None:
-        """Create a websocket message and send via the registry."""
+        """Create a websocket message and send via the registry.
+
+        ``persist_on_drop`` gates the client-gone persistence path. Streamed
+        answer *deltas* pass ``False`` so a mid-stream disconnect never persists
+        a partial answer (persistence keys on a per-turn id with
+        onConflictDoNothing, so the first persisted frame would win and drop the
+        finished answer + cards). Only the terminal frame persists.
+        """
         message: BaseModel | None = None
         try:
             if message_type is None:
@@ -616,12 +640,14 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
                             await self._socket.send_json(message.model_dump())
                         except Exception as exc:  # pragma: no cover - socket may be closed
                             logger.warning("Failed to send websocket message: %s", exc)
-                    else:
+                    elif persist_on_drop:
                         # The client is gone. For a terminal RESPONSE_MESSAGE
                         # carrying the finished answer (text and/or cards),
                         # persist it server-side so it is there when the client
                         # returns; otherwise it would only live in the langgraph
                         # checkpoint and the frontend would show "interrupted".
+                        # Streamed deltas pass persist_on_drop=False and are
+                        # skipped here — only the terminal frame persists.
                         await self._persist_terminal_message_if_client_gone(message, message_type)
                         logger.debug(
                             "Dropping message for disconnected conversation %s",
@@ -718,6 +744,18 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
                     user_input_callback=self.human_interaction_callback,
                     user_authentication_callback=auth_callback,
                 ) as session:
+                    # Streaming answer delivery. The workflow may yield the answer
+                    # as many ChatResponseChunks: incremental deltas
+                    # (finish_reason=None) followed by a terminal chunk
+                    # (finish_reason="stop") carrying the full text + cards/sources.
+                    # We forward deltas as IN_PROGRESS frames the client
+                    # accumulates, and the terminal as the COMPLETE frame that
+                    # finalizes + persists. When the workflow yields only a single
+                    # terminal chunk (streaming disabled), the pre-streaming
+                    # pattern — one IN_PROGRESS content frame + a synthetic empty
+                    # COMPLETE — is preserved exactly.
+                    saw_content_delta = False
+                    saw_terminal = False
                     async for value in generate_streaming_response(
                         payload,
                         session=session,
@@ -729,17 +767,56 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
                         if isinstance(value, ResponseObservabilityTrace):
                             if self._pending_observability_trace is None:
                                 self._pending_observability_trace = value
+                            continue
+
+                        finish_reason = _chunk_finish_reason(value)
+                        if finish_reason == "stop":
+                            saw_terminal = True
+                            if saw_content_delta:
+                                # Streaming mode: the terminal is the finalizing
+                                # frame (full text + cards/sources), sent COMPLETE.
+                                await self.create_websocket_message(
+                                    data_model=value,
+                                    message_type=WebSocketMessageType.RESPONSE_MESSAGE,
+                                    status=WebSocketMessageStatus.COMPLETE,
+                                )
+                            else:
+                                # Single-response mode (streaming disabled):
+                                # reproduce the pre-streaming frame pattern exactly.
+                                await self.create_websocket_message(
+                                    data_model=value,
+                                    status=WebSocketMessageStatus.IN_PROGRESS,
+                                )
+                                await self.create_websocket_message(
+                                    data_model=SystemResponseContent(),
+                                    message_type=WebSocketMessageType.RESPONSE_MESSAGE,
+                                    status=WebSocketMessageStatus.COMPLETE,
+                                )
+                        elif isinstance(value, ChatResponseChunk):
+                            # A streamed answer delta — accumulate on the client,
+                            # never persist a partial on disconnect.
+                            saw_content_delta = True
+                            await self.create_websocket_message(
+                                data_model=value,
+                                status=WebSocketMessageStatus.IN_PROGRESS,
+                                persist_on_drop=False,
+                            )
                         else:
+                            # Non-chunk streamed value — preserve prior behavior.
                             await self.create_websocket_message(
                                 data_model=value,
                                 status=WebSocketMessageStatus.IN_PROGRESS,
                             )
 
-                await self.create_websocket_message(
-                    data_model=SystemResponseContent(),
-                    message_type=WebSocketMessageType.RESPONSE_MESSAGE,
-                    status=WebSocketMessageStatus.COMPLETE,
-                )
+                # If the workflow never produced a terminal chunk (empty stream or
+                # an error surfaced elsewhere), still close the turn with the
+                # synthetic COMPLETE so the client releases the streaming lock.
+                if not saw_terminal:
+                    await self.create_websocket_message(
+                        data_model=SystemResponseContent(),
+                        message_type=WebSocketMessageType.RESPONSE_MESSAGE,
+                        status=WebSocketMessageStatus.COMPLETE,
+                    )
 
                 if self._pending_observability_trace:
                     await self.create_websocket_message(

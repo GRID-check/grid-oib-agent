@@ -8,6 +8,8 @@ import { createNATWebSocketClient } from '@/adapters/api/websocket-client'
 // Mock store actions
 const mockAddUserMessage = vi.fn()
 const mockAddAgentResponse = vi.fn()
+const mockAppendAgentResponseDelta = vi.fn()
+const mockFinalizeAgentResponse = vi.fn()
 const mockAddAgentResponseWithMeta = vi.fn(() => 'msg-1')
 const mockAddThinkingStep = vi.fn(() => 'step-1')
 const mockAppendToThinkingStep = vi.fn()
@@ -76,6 +78,8 @@ const defaultUseChatStoreImpl = (selector?: (s: any) => any) => {
     ...mockStoreState,
     addUserMessage: mockAddUserMessage,
     addAgentResponse: mockAddAgentResponse,
+    appendAgentResponseDelta: mockAppendAgentResponseDelta,
+    finalizeAgentResponse: mockFinalizeAgentResponse,
     addAgentResponseWithMeta: mockAddAgentResponseWithMeta,
     addThinkingStep: mockAddThinkingStep,
     appendToThinkingStep: mockAppendToThinkingStep,
@@ -953,28 +957,31 @@ describe('useWebSocketChat', () => {
 
     // Should complete the pending thinking step
     expect(mockCompleteThinkingStep).toHaveBeenCalledWith('step-1')
-    // Note: reportContent is now only set by deep research SSE events, not by onResponse
-    expect(mockAddAgentResponse).toHaveBeenCalledWith('Response content', false, [], undefined)
+    // Note: reportContent is now only set by deep research SSE events, not by onResponse.
+    // The terminal `complete` frame finalizes the accumulated answer bubble.
+    expect(mockFinalizeAgentResponse).toHaveBeenCalledWith('Response content', [], undefined, undefined)
+    expect(mockAddAgentResponse).not.toHaveBeenCalled()
     expect(mockSetStreaming).toHaveBeenCalledWith(false)
     expect(mockSetCurrentStatus).toHaveBeenCalledWith('complete')
   })
 
-  test('onResponse callback adds streaming content to chat', () => {
+  test('onResponse callback accumulates streaming deltas into the answer bubble', () => {
     renderWebSocketHook()
 
     mockStoreState.isStreaming = true
 
-    // Simulate streaming response (not final)
+    // Simulate streaming response (in_progress delta, not final)
     act(() => {
       capturedCallbacks.onResponse?.('Partial content...', 'in_progress', false)
     })
 
-    // Non-final responses with content are now added to chat as AgentResponse
-    // reportContent is only set by deep research SSE events
-    expect(mockAddAgentResponse).toHaveBeenCalledWith('Partial content...', false, [], undefined)
+    // in_progress content frames accumulate via appendAgentResponseDelta, not
+    // a fresh addAgentResponse bubble per frame.
+    expect(mockAppendAgentResponseDelta).toHaveBeenCalledWith('Partial content...', [], undefined, undefined)
+    expect(mockFinalizeAgentResponse).not.toHaveBeenCalled()
   })
 
-  test('onResponse forwards answer_confidence into addAgentResponse', () => {
+  test('onResponse forwards answer_confidence into the finalized answer', () => {
     renderWebSocketHook()
 
     mockStoreState.isStreaming = true
@@ -983,7 +990,7 @@ describe('useWebSocketChat', () => {
       capturedCallbacks.onResponse?.('Grounded answer', 'complete', true, undefined, undefined, undefined, 'high')
     })
 
-    expect(mockAddAgentResponse).toHaveBeenCalledWith('Grounded answer', false, [], 'high')
+    expect(mockFinalizeAgentResponse).toHaveBeenCalledWith('Grounded answer', [], 'high', undefined)
   })
 
   test('onResponse drops stale content when not streaming', () => {
@@ -1487,6 +1494,8 @@ describe('useWebSocketChat', () => {
         ...mockStoreState,
         addUserMessage: mockAddUserMessage,
         addAgentResponse: mockAddAgentResponse,
+        appendAgentResponseDelta: mockAppendAgentResponseDelta,
+        finalizeAgentResponse: mockFinalizeAgentResponse,
         addAgentResponseWithMeta: localMockAddAgentResponseWithMeta,
         addThinkingStep: mockAddThinkingStep,
         appendToThinkingStep: mockAppendToThinkingStep,

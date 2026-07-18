@@ -2,6 +2,8 @@
 
 import asyncio
 import logging
+from collections.abc import AsyncGenerator
+from typing import Annotated
 from typing import Any
 
 import aiofiles
@@ -32,10 +34,12 @@ from nat.builder.framework_enum import LLMFrameworkEnum
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
 from nat.data_models.api_server import ChatResponse
+from nat.data_models.api_server import ChatResponseChunk
 from nat.data_models.component_ref import FunctionGroupRef
 from nat.data_models.component_ref import FunctionRef
 from nat.data_models.component_ref import LLMRef
 from nat.data_models.function import FunctionBaseConfig
+from nat.data_models.streaming import Streaming
 
 from .models import ChatResearcherState
 from .utils import _extract_query_and_sources
@@ -79,6 +83,167 @@ def _reflection_answer_is_substantive(result: object, answer_text: str) -> bool:
     if intent in {"meta", "error"}:
         return False
     return True
+
+
+async def _aggregate_documents_across_collections(collections, fetch_one):
+    """Concurrently load document summaries for each collection and merge them.
+
+    ``fetch_one`` is an async callable ``fetch_one(collection) -> list`` (its
+    per-collection round-trip). The reads run concurrently instead of one at a
+    time, but the merge is deterministic and identical to the previous
+    sequential loop: collections are merged in input order, documents in each
+    collection keep their order, and files are deduped by ``file_name`` with
+    first-seen winning.
+
+    Fail-open per collection: if ``fetch_one`` raises for a collection, that
+    collection contributes an empty list (matching the old ``continue``) rather
+    than failing the whole aggregation.
+    """
+
+    async def _guarded(coll):
+        try:
+            return await fetch_one(coll)
+        except Exception as e:
+            logger.debug("No document summaries for collection %s: %s", coll, e)
+            return []
+
+    # gather preserves input order, so the merge order below matches the old loop.
+    per_collection_docs = await asyncio.gather(*(_guarded(coll) for coll in collections))
+
+    aggregated = []
+    seen_files: set[str] = set()
+    for docs in per_collection_docs:
+        for doc in docs or []:
+            if doc.file_name in seen_files:
+                continue
+            seen_files.add(doc.file_name)
+            aggregated.append(doc)
+    return aggregated
+
+
+# --- Final-answer streaming ------------------------------------------------
+#
+# The chat turn is generated, citation-verified, and sanitized fully buffered
+# (verify_citations/sanitize_report need the complete answer, and a shallow
+# answer can still escalate to deep research — so raw token streaming would
+# leak unverified citations or superseded text). We therefore stream the
+# ALREADY-FINAL text as deltas: progressive rendering, not a change to the
+# answer. See docs/design/streaming-chat-answer.md.
+
+_STREAM_EXTRA_FIELDS = ("cards", "deep_research_job_id", "answer_confidence", "sources")
+
+
+def _iter_answer_deltas(text: str, *, target_size: int = 24) -> list[str]:
+    """Split ``text`` into streaming deltas whose concatenation is EXACTLY
+    ``text`` (nothing added or lost).
+
+    Splits on whitespace boundaries so words are not torn mid-token, coalescing
+    small tokens up to ``target_size`` chars per delta. ``"".join(result)`` is
+    guaranteed to reproduce ``text`` verbatim.
+    """
+    if not text:
+        return []
+    import re
+
+    # Each piece is a non-space run with its trailing whitespace, or a run of
+    # whitespace — together they tile the string with no gaps or overlaps.
+    pieces = re.findall(r"\S+\s*|\s+", text)
+    deltas: list[str] = []
+    buf = ""
+    for piece in pieces:
+        buf += piece
+        if len(buf) >= target_size:
+            deltas.append(buf)
+            buf = ""
+    if buf:
+        deltas.append(buf)
+    return deltas
+
+
+def _chunk_content(chunk: ChatResponseChunk) -> str | None:
+    """The content delta carried by a chunk, or None."""
+    try:
+        return chunk.choices[0].delta.content
+    except (AttributeError, IndexError):
+        return None
+
+
+def _chunk_finish_reason(chunk: ChatResponseChunk) -> str | None:
+    """The finish_reason carried by a chunk, or None."""
+    try:
+        return chunk.choices[0].finish_reason
+    except (AttributeError, IndexError):
+        return None
+
+
+def _response_to_chunks(response: ChatResponse, *, stream: bool) -> list[ChatResponseChunk]:
+    """Turn a fully-built ChatResponse into the chunk sequence to yield.
+
+    - ``stream=False``: a single terminal chunk (``finish_reason="stop"``) with
+      the full content and the Grid extras — identical delivery to the
+      pre-streaming single-response path.
+    - ``stream=True``: incremental delta chunks (``finish_reason=None``, no
+      extras) whose contents concatenate to exactly the final text, followed by
+      one terminal chunk carrying the FULL content and the extras. The terminal
+      is authoritative for persistence and the single-consumer fold.
+    """
+    try:
+        content = response.choices[0].message.content or ""
+    except (AttributeError, IndexError):
+        content = ""
+    model_name = getattr(response, "model", None)
+    response_id = getattr(response, "id", None)
+    extras = {field: value for field in _STREAM_EXTRA_FIELDS if (value := getattr(response, field, None)) is not None}
+
+    chunks: list[ChatResponseChunk] = []
+    if stream and content:
+        for delta in _iter_answer_deltas(content):
+            chunks.append(
+                ChatResponseChunk.create_streaming_chunk(delta, id_=response_id, model=model_name, finish_reason=None)
+            )
+    terminal = ChatResponseChunk.create_streaming_chunk(
+        content, id_=response_id, model=model_name, finish_reason="stop"
+    )
+    for field, value in extras.items():
+        setattr(terminal, field, value)
+    chunks.append(terminal)
+    return chunks
+
+
+def _fold_chunks_to_response(chunks: list[ChatResponseChunk]) -> ChatResponse:
+    """Collapse a streamed chunk sequence back into a single ChatResponse for
+    non-streaming consumers (the ``--input`` CLI, single-shot HTTP).
+
+    The terminal chunk's (``finish_reason="stop"``) content is authoritative, so
+    deltas are ignored when a terminal is present and the folded content is never
+    doubled. Grid extras are copied from whichever chunk carries them.
+    """
+    delta_parts: list[str] = []
+    final_content: str | None = None
+    extras: dict[str, object] = {}
+    model_name: str | None = None
+    response_id: str | None = None
+    for chunk in chunks:
+        model_name = model_name or getattr(chunk, "model", None)
+        response_id = response_id or getattr(chunk, "id", None)
+        content = _chunk_content(chunk)
+        if _chunk_finish_reason(chunk) == "stop":
+            if content:
+                final_content = content
+        elif content:
+            delta_parts.append(content)
+        model_extra = getattr(chunk, "model_extra", None) or {}
+        for field in _STREAM_EXTRA_FIELDS:
+            value = getattr(chunk, field, None)
+            if value is None:
+                value = model_extra.get(field)
+            if value is not None:
+                extras[field] = value
+    content = final_content if final_content is not None else "".join(delta_parts)
+    response = _create_chat_response(content, response_id=response_id or "research_response", model=model_name)
+    for field, value in extras.items():
+        setattr(response, field, value)
+    return response
 
 
 ########################################################
@@ -358,14 +523,11 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                     # exists (the sync post-answer stage skips deep jobs). Both
                     # values are read here while the request context is live.
                     memory_reflection_enabled=(
-                        config.memory_reflection_llm is not None
-                        and get_memory_reflection_enabled_from_context()
+                        config.memory_reflection_llm is not None and get_memory_reflection_enabled_from_context()
                     ),
                     # Plain str (LLMRef is a str subclass) so it crosses the Dask
                     # pickle boundary without depending on the subclass.
-                    memory_reflection_llm=(
-                        str(config.memory_reflection_llm) if config.memory_reflection_llm else None
-                    ),
+                    memory_reflection_llm=(str(config.memory_reflection_llm) if config.memory_reflection_llm else None),
                 )
 
             deep_research_job_submitter = _submit_deep_job
@@ -400,8 +562,9 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         validate_deep_research_tools_fn=validate_deep_research_tools,
     )
 
-    async def _run(query: object) -> ChatResponse:
-        import os
+    async def _run(
+        query: object,
+    ) -> Annotated[AsyncGenerator[ChatResponseChunk, None], Streaming(convert=_fold_chunks_to_response)]:
         import sys
         import uuid
 
@@ -419,50 +582,70 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         # frozen for the connection's life, so memory written mid-session would
         # not reach the agent until a reconnect. Re-fetch a LIVE digest per turn
         # and fall back to the frozen header value only when the fetch fails.
-        _project_context = None
-        # Values the async memory-reflection stage needs, captured while the
-        # request context is still live (the task runs after this returns).
-        _reflection_project_id = None
-        _reflection_org_id = None
-        _reflection_memory_digest = None
-        _reflection_flag_enabled = False
-        try:
-            from aiq_agent.project_context import compose_project_context
-            from aiq_agent.project_context import get_memory_digest_from_context
-            from aiq_agent.project_context import get_memory_reflection_enabled_from_context
-            from aiq_agent.project_context import get_organization_id_from_context
-            from aiq_agent.project_context import get_profile_context_from_context
-            from aiq_agent.project_context import get_project_id_from_context
+        #
+        # This and the available-documents aggregation below are two independent
+        # blocking I/O paths that used to run strictly one after the other before
+        # intent classification. They are now defined as coroutines and awaited
+        # together via asyncio.gather (see below), so the digest fetch and the
+        # per-collection document reads overlap. Each degrades independently:
+        # a failure in one never affects the other.
+        async def _load_project_context():
+            """Live per-turn project context (profile + memory digest).
 
-            _profile_context = get_profile_context_from_context()
-            _project_id = get_project_id_from_context()
-            _org_id = get_organization_id_from_context()
+            Returns the 5-tuple consumed below. Fail-open: on any error the
+            defaults are returned so the turn proceeds without a live digest.
+            """
+            _project_context = None
+            # Values the async memory-reflection stage needs, captured while the
+            # request context is still live (the task runs after this returns).
+            _reflection_project_id = None
+            _reflection_org_id = None
+            _reflection_memory_digest = None
+            _reflection_flag_enabled = False
+            try:
+                from aiq_agent.project_context import compose_project_context
+                from aiq_agent.project_context import get_memory_digest_from_context
+                from aiq_agent.project_context import get_memory_reflection_enabled_from_context
+                from aiq_agent.project_context import get_organization_id_from_context
+                from aiq_agent.project_context import get_profile_context_from_context
+                from aiq_agent.project_context import get_project_id_from_context
 
-            # Live per-turn digest; fall back to the connection-time header value.
-            _memory_digest = get_memory_digest_from_context()
-            if _project_id or _org_id:
-                try:
-                    from aiq_agent.knowledge.project_memory import fetch_memory_digest
+                _profile_context = get_profile_context_from_context()
+                _project_id = get_project_id_from_context()
+                _org_id = get_organization_id_from_context()
 
-                    _live_digest = await asyncio.to_thread(
-                        fetch_memory_digest, project_id=_project_id, organization_id=_org_id
-                    )
-                    # A successful fetch is authoritative even when empty (memory
-                    # may have been cleared); only a failure keeps the header value.
-                    _memory_digest = _live_digest
-                except Exception:
-                    logger.warning("Live memory digest fetch failed; using connection-time digest", exc_info=True)
+                # Live per-turn digest; fall back to the connection-time header value.
+                _memory_digest = get_memory_digest_from_context()
+                if _project_id or _org_id:
+                    try:
+                        from aiq_agent.knowledge.project_memory import fetch_memory_digest
 
-            _project_context = compose_project_context(_profile_context, _memory_digest)
+                        _live_digest = await asyncio.to_thread(
+                            fetch_memory_digest, project_id=_project_id, organization_id=_org_id
+                        )
+                        # A successful fetch is authoritative even when empty (memory
+                        # may have been cleared); only a failure keeps the header value.
+                        _memory_digest = _live_digest
+                    except Exception:
+                        logger.warning("Live memory digest fetch failed; using connection-time digest", exc_info=True)
 
-            if reflection_llm is not None:
-                _reflection_flag_enabled = get_memory_reflection_enabled_from_context()
-                _reflection_project_id = _project_id
-                _reflection_org_id = _org_id
-                # Reflect against the digest the agent actually saw this turn.
-                _reflection_memory_digest = _memory_digest
-        except ImportError:
-            pass
+                _project_context = compose_project_context(_profile_context, _memory_digest)
+
+                if reflection_llm is not None:
+                    _reflection_flag_enabled = get_memory_reflection_enabled_from_context()
+                    _reflection_project_id = _project_id
+                    _reflection_org_id = _org_id
+                    # Reflect against the digest the agent actually saw this turn.
+                    _reflection_memory_digest = _memory_digest
+            except ImportError:
+                pass
+            return (
+                _project_context,
+                _reflection_project_id,
+                _reflection_org_id,
+                _reflection_memory_digest,
+                _reflection_flag_enabled,
+            )
 
         # Check if API keys are missing and return graceful error response
         if api_key_error_response:
@@ -477,7 +660,11 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
 
                 threading.Thread(target=exit_after_error, daemon=False).start()
 
-            return api_key_error_response
+            # Error responses are short and fully known up front — deliver as a
+            # single terminal chunk regardless of the streaming flag.
+            for _chunk in _response_to_chunks(api_key_error_response, stream=False):
+                yield _chunk
+            return
 
         # For --input mode, use a fresh conversation_id to avoid loading old checkpoint state
         # This ensures each run starts with a clean conversation history
@@ -527,58 +714,74 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         # BOTH the base OIB corpus and the per-session collection
         # (conversation_id) so the agent sees uploads and the persistent corpus.
         # The registry is populated by backends during ingestion (backend-agnostic).
-        available_documents = None
-        try:
-            from aiq_agent.knowledge import get_available_documents_async
-            from aiq_agent.knowledge.scoping import get_collection_scope_from_context
+        async def _load_available_documents():
+            """Aggregate document summaries across the in-scope collections.
 
-            # Header-based collection scope takes precedence.
-            header_scope = get_collection_scope_from_context()
-            if header_scope:
-                collections_to_check = header_scope
-            else:
-                # Session collection (s_<conversation_id>), when present.
-                raw_conversation_id = Context.get().conversation_id if Context.get() else None
-                session_collection = None
-                if raw_conversation_id:
-                    session_collection = (
-                        raw_conversation_id if raw_conversation_id.startswith("s_") else f"s_{raw_conversation_id}"
+            Returns a list of documents (or None when nothing is found).
+            Fail-open: a total failure yields None; a single collection's
+            failure yields empty for that collection, not a total failure.
+            """
+            available_documents = None
+            try:
+                from aiq_agent.knowledge import get_available_documents_async
+                from aiq_agent.knowledge.scoping import get_collection_scope_from_context
+
+                # Header-based collection scope takes precedence.
+                header_scope = get_collection_scope_from_context()
+                if header_scope:
+                    collections_to_check = header_scope
+                else:
+                    # Session collection (s_<conversation_id>), when present.
+                    raw_conversation_id = Context.get().conversation_id if Context.get() else None
+                    session_collection = None
+                    if raw_conversation_id:
+                        session_collection = (
+                            raw_conversation_id if raw_conversation_id.startswith("s_") else f"s_{raw_conversation_id}"
+                        )
+                    # Base OIB corpus name, resolved from env with a sensible default.
+                    base_collection = (
+                        os.environ.get("COLLECTION_NAME") or os.environ.get("OIB_COLLECTION_NAME") or "oib_knowledge"
                     )
-                # Base OIB corpus name, resolved from env with a sensible default.
-                base_collection = (
-                    os.environ.get("COLLECTION_NAME") or os.environ.get("OIB_COLLECTION_NAME") or "oib_knowledge"
-                )
-                # Distinct collections to query, preserving order (base first).
-                collections_to_check: list[str] = []
-                for coll in (base_collection, session_collection):
-                    if coll and coll not in collections_to_check:
-                        collections_to_check.append(coll)
+                    # Distinct collections to query, preserving order (base first).
+                    collections_to_check: list[str] = []
+                    for coll in (base_collection, session_collection):
+                        if coll and coll not in collections_to_check:
+                            collections_to_check.append(coll)
 
-            aggregated = []
-            seen_files: set[str] = set()
-            for coll in collections_to_check:
-                try:
-                    docs = await get_available_documents_async(coll)
-                except Exception as e:
-                    logger.debug("No document summaries for collection %s: %s", coll, e)
-                    continue
-                for doc in docs or []:
-                    if doc.file_name in seen_files:
-                        continue
-                    seen_files.add(doc.file_name)
-                    aggregated.append(doc)
-
-            if aggregated:
-                available_documents = aggregated
-                logger.info(
-                    "Loaded %d document summaries across collections %s",
-                    len(aggregated),
-                    collections_to_check,
+                # Read every collection concurrently (instead of one round-trip
+                # at a time) and merge deterministically; see the helper for the
+                # order/dedup/fail-open contract.
+                aggregated = await _aggregate_documents_across_collections(
+                    collections_to_check, get_available_documents_async
                 )
-            else:
-                logger.info("No document summaries in DB for collections %s", collections_to_check)
-        except Exception as e:
-            logger.warning("Could not fetch available documents: %s", e)
+
+                if aggregated:
+                    available_documents = aggregated
+                    logger.info(
+                        "Loaded %d document summaries across collections %s",
+                        len(aggregated),
+                        collections_to_check,
+                    )
+                else:
+                    logger.info("No document summaries in DB for collections %s", collections_to_check)
+            except Exception as e:
+                logger.warning("Could not fetch available documents: %s", e)
+            return available_documents
+
+        # Run the two independent per-turn I/O paths concurrently: the live
+        # memory-digest fetch and the available-documents aggregation. Neither
+        # depends on the other, and each fails open on its own (see the helpers),
+        # so gather cannot let one failure lose the other's result.
+        (
+            (
+                _project_context,
+                _reflection_project_id,
+                _reflection_org_id,
+                _reflection_memory_digest,
+                _reflection_flag_enabled,
+            ),
+            available_documents,
+        ) = await asyncio.gather(_load_project_context(), _load_available_documents())
         # Set session-scoped source registry for citation verification across turns.
         # When no conversation ID is available, get_or_create_session_registry returns a
         # fresh per-request registry to prevent anonymous sessions from sharing state.
@@ -611,7 +814,12 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                     result = await agent.run(state, thread_id=nat_context_conversation_id)
             except BudgetExceededError as budget_error:
                 logger.warning("Turn stopped by budget enforcement: %s", budget_error)
-                return _create_chat_response(str(budget_error), response_id="budget_exceeded", model=workflow_id)
+                budget_response = _create_chat_response(
+                    str(budget_error), response_id="budget_exceeded", model=workflow_id
+                )
+                for _chunk in _response_to_chunks(budget_response, stream=False):
+                    yield _chunk
+                return
         finally:
             reset_session_registry(token)
             reset_card_registry(card_token)
@@ -705,6 +913,11 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                     memory_digest=_reflection_memory_digest,
                 )
 
-        return response
+        # Deliver the fully verified/sanitized answer as a progressive stream:
+        # the already-final text is emitted as incremental deltas followed by a
+        # terminal chunk carrying cards/sources (single-output consumers fold it
+        # back to one ChatResponse via _fold_chunks_to_response).
+        for _chunk in _response_to_chunks(response, stream=True):
+            yield _chunk
 
     yield FunctionInfo.from_fn(_run, description="Chat deep researcher with intent routing and escalation.")
