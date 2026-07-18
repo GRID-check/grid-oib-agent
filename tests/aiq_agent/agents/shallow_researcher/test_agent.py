@@ -39,6 +39,22 @@ async def _run_with_captured_registry(agent, state):
     return result, registry
 
 
+async def _run_with_bound_registry(agent, state, registry):
+    """Run the agent with a caller-supplied (pre-populated) session registry.
+
+    Lets a test seed the registry with prior-turn sources — mirroring the
+    cumulative per-session registry hydrated from Redis — so the emission path's
+    citation→SourceEntry resolution (entry_for_url / entry_for_citation_key)
+    finds real entries.
+    """
+    token = set_session_registry(registry)
+    try:
+        result = await agent.run(state)
+    finally:
+        reset_session_registry(token)
+    return result
+
+
 @tool
 def web_search_tool(query: str) -> str:
     """Search the web for information."""
@@ -1163,13 +1179,16 @@ class TestShallowResearcherAnswerGrounding:
     async def test_grounded_when_verification_keeps_valid_citation(self, mock_llm_provider, mock_llm):
         mock_llm.ainvoke.return_value = AIMessage(content="OIB-Richtlinie 2 regelt Brandschutz [1].")
         source = SourceEntry(url="https://example.com/a", title="A", tool_name="web_search_tool")
+        # valid_citations must be dict-shaped (matching real verify_citations
+        # output) so the emission path can resolve each cited citation back to
+        # its registry SourceEntry.
         with (
             patch.object(SourceRegistry, "all_sources", return_value=[source]),
             patch("aiq_agent.agents.shallow_researcher.agent.verify_citations") as mock_verify,
         ):
             mock_verify.return_value = MagicMock(
                 verified_report="OIB-Richtlinie 2 regelt Brandschutz [1].",
-                valid_citations=["[1]"],
+                valid_citations=[{"number": 1, "url": "https://example.com/a", "citation_key": None, "line": "[1]"}],
                 removed_citations=[],
             )
             state = ShallowResearchAgentState(messages=[HumanMessage(content="Brandschutz?")])
@@ -1239,9 +1258,122 @@ class TestShallowResearcherAnswerGrounding:
             state = ShallowResearchAgentState(messages=[HumanMessage(content="What is the height limit?")])
             result, _ = await _run_with_captured_registry(self._agent(mock_llm_provider), state)
 
-        answer = next(
-            m for m in reversed(result.messages) if isinstance(m, AIMessage) and not m.tool_calls
-        )
+        answer = next(m for m in reversed(result.messages) if isinstance(m, AIMessage) and not m.tool_calls)
         assert "Sources" in answer.content
         assert "OIB Richtlinie" in answer.content
         assert result.answer_citation_grounded is True
+
+    # --- verified_sources emission: only THIS turn's cited sources become chips ---
+
+    @pytest.mark.asyncio
+    async def test_verified_sources_empty_when_answer_cites_nothing(self, mock_llm_provider, mock_llm):
+        # The reported bug: a per-session registry carries a prior turn's RIS
+        # source, but this turn's answer cites nothing (e.g. a greeting routed
+        # as research). No citation survives verification → NO chips are emitted
+        # (must not re-emit the previous turn's source).
+        mock_llm.ainvoke.return_value = AIMessage(content="Hallo! Wie kann ich helfen?")
+        registry = SourceRegistry()
+        registry.add(
+            SourceEntry(
+                url="https://ris.bka.gv.at/prev",
+                title="Prior RIS source",
+                tool_name="ris_search",
+            )
+        )
+        with patch("aiq_agent.agents.shallow_researcher.agent.verify_citations") as mock_verify:
+            mock_verify.return_value = MagicMock(
+                verified_report="Hallo! Wie kann ich helfen?",
+                valid_citations=[],
+                removed_citations=[],
+            )
+            state = ShallowResearchAgentState(messages=[HumanMessage(content="hallo wie gehts")])
+            # Two registry sources would exist here in the real bug; add a second
+            # so the single-source minimal-citation path does NOT fire.
+            registry.add(
+                SourceEntry(
+                    url="https://ris.bka.gv.at/prev2",
+                    title="Prior RIS source 2",
+                    tool_name="ris_search",
+                )
+            )
+            result = await _run_with_bound_registry(self._agent(mock_llm_provider), state, registry)
+        assert result.verified_sources is None
+
+    @pytest.mark.asyncio
+    async def test_verified_sources_only_the_one_cited_of_many(self, mock_llm_provider, mock_llm):
+        # Registry holds three sources; the answer cites exactly one → chips
+        # contain only that one (the model's own relevance decision).
+        mock_llm.ainvoke.return_value = AIMessage(content="Antwort [1].")
+        registry = SourceRegistry()
+        cited = SourceEntry(url="https://example.com/b", title="B", tool_name="web_search_tool")
+        registry.add(SourceEntry(url="https://example.com/a", title="A", tool_name="web_search_tool"))
+        registry.add(cited)
+        registry.add(SourceEntry(url="https://example.com/c", title="C", tool_name="web_search_tool"))
+        with patch("aiq_agent.agents.shallow_researcher.agent.verify_citations") as mock_verify:
+            mock_verify.return_value = MagicMock(
+                verified_report="Antwort [1].",
+                valid_citations=[{"number": 1, "url": "https://example.com/b", "citation_key": None, "line": "[1]"}],
+                removed_citations=[],
+            )
+            state = ShallowResearchAgentState(messages=[HumanMessage(content="Frage?")])
+            result = await _run_with_bound_registry(self._agent(mock_llm_provider), state, registry)
+        assert result.verified_sources is not None
+        assert [s["url"] for s in result.verified_sources] == ["https://example.com/b"]
+
+    @pytest.mark.asyncio
+    async def test_verified_sources_citation_key_resolves(self, mock_llm_provider, mock_llm):
+        # A knowledge-layer citation (citation_key, no URL) resolves to its entry.
+        mock_llm.ainvoke.return_value = AIMessage(content="Antwort [1].")
+        registry = SourceRegistry()
+        registry.add(SourceEntry(url="https://example.com/a", title="A", tool_name="web_search_tool"))
+        registry.add(SourceEntry(citation_key="oib-richtlinie-2.pdf#p3", title="OIB 2", tool_name="kb_search"))
+        with patch("aiq_agent.agents.shallow_researcher.agent.verify_citations") as mock_verify:
+            mock_verify.return_value = MagicMock(
+                verified_report="Antwort [1].",
+                valid_citations=[
+                    {
+                        "number": 1,
+                        "url": None,
+                        "citation_key": "oib-richtlinie-2.pdf#p3",
+                        "line": "[1]",
+                    }
+                ],
+                removed_citations=[],
+            )
+            state = ShallowResearchAgentState(messages=[HumanMessage(content="Frage?")])
+            result = await _run_with_bound_registry(self._agent(mock_llm_provider), state, registry)
+        assert result.verified_sources is not None
+        assert [s["citation_key"] for s in result.verified_sources] == ["oib-richtlinie-2.pdf#p3"]
+
+    @pytest.mark.asyncio
+    async def test_verified_sources_single_source_minimal_citation_path(self, mock_llm_provider, mock_llm):
+        # Exactly one registry source and no surviving model citation → the
+        # single minimal-citation path fires and that one source IS emitted.
+        mock_llm.ainvoke.return_value = AIMessage(content="Answer without any citation.")
+        registry = SourceRegistry()
+        only = SourceEntry(url="https://example.com/only", title="Only", tool_name="web_search_tool")
+        registry.add(only)
+        with patch("aiq_agent.agents.shallow_researcher.agent.verify_citations") as mock_verify:
+            mock_verify.return_value = MagicMock(
+                verified_report="Answer without any citation.",
+                valid_citations=[],
+                removed_citations=[{"number": 1, "line": "[1]", "reason": "unverifiable"}],
+            )
+            state = ShallowResearchAgentState(messages=[HumanMessage(content="Q?")])
+            result = await _run_with_bound_registry(self._agent(mock_llm_provider), state, registry)
+        assert result.verified_sources is not None
+        assert [s["url"] for s in result.verified_sources] == ["https://example.com/only"]
+
+    @pytest.mark.asyncio
+    async def test_verified_sources_empty_on_meta_turn_with_populated_registry(self, mock_llm_provider, mock_llm):
+        # Meta turn (requires_sources=False): even with a populated registry no
+        # verification runs, so no chips are emitted.
+        mock_llm.ainvoke.return_value = AIMessage(content="Hallo! Wie kann ich helfen?")
+        registry = SourceRegistry()
+        registry.add(SourceEntry(url="https://ris.bka.gv.at/prev", title="Prior RIS", tool_name="ris_search"))
+        state = ShallowResearchAgentState(
+            messages=[HumanMessage(content="Hi")],
+            requires_sources=False,
+        )
+        result = await _run_with_bound_registry(self._agent(mock_llm_provider), state, registry)
+        assert result.verified_sources is None
