@@ -71,6 +71,7 @@ def _configure_sync(monkeypatch, tmp_path: Path, fake_ingestor: FakeIngestor, *,
     monkeypatch.setattr(oib_sync, "OIB_DIR", oib_dir)
     monkeypatch.setattr(oib_sync, "OIB_UPLOADS_DIR", tmp_path / "oib_uploads")
     monkeypatch.setattr(oib_sync, "REGISTRY_PATH", registry_path)
+    monkeypatch.setattr(oib_sync, "EXCLUDED_PATH", tmp_path / "oib_excluded.json")
     monkeypatch.setattr(oib_sync, "COLLECTION_NAME", "test_collection")
     monkeypatch.setattr(oib_sync, "CHROMA_DIR", str(tmp_path / "chroma"))
     monkeypatch.setattr(oib_sync, "_POLL_INTERVAL_SECONDS", 0.0)
@@ -207,6 +208,73 @@ def test_remove_uploaded_document_deletes_disk_registry_and_chunks(monkeypatch, 
     _write_pdf(tmp_path / "oib" / "shipped.pdf", b"y")
     assert oib_sync.remove_uploaded_document("shipped.pdf") is False
     assert oib_sync.remove_uploaded_document("../oib/shipped.pdf") is False
+
+
+def test_exclude_document_skips_file_on_next_discover_and_sync(monkeypatch, tmp_path):
+    fake_ingestor = FakeIngestor({"keep.pdf": FileStatus.SUCCESS})
+    registry_path = _configure_sync(monkeypatch, tmp_path, fake_ingestor, max_workers="1")
+    shipped = tmp_path / "oib" / "shipped.pdf"
+    keep = tmp_path / "oib" / "keep.pdf"
+    _write_pdf(shipped, b"shipped")
+    _write_pdf(keep, b"keep")
+    registry_path.write_text(json.dumps({str(shipped): "hash"}), encoding="utf-8")
+
+    oib_sync.exclude_document("shipped.pdf")
+
+    # Chunks deleted, registry entry dropped, basename recorded as excluded.
+    assert fake_ingestor.deleted == ["shipped.pdf"]
+    assert str(shipped) not in json.loads(registry_path.read_text(encoding="utf-8"))
+    assert oib_sync._load_excluded() == {"shipped.pdf"}
+
+    # Discovery no longer yields the excluded (still-on-disk) file.
+    discovered = {p.name for p in oib_sync.discover_pdfs()}
+    assert discovered == {"keep.pdf"}
+
+    # A sync never re-ingests the excluded file.
+    succeeded, total = oib_sync.sync()
+    assert succeeded == 1
+    assert total == 1
+    assert fake_ingestor.uploaded == ["keep.pdf"]
+
+
+def test_unexclude_document_restores_discovery(monkeypatch, tmp_path):
+    fake_ingestor = FakeIngestor({})
+    _configure_sync(monkeypatch, tmp_path, fake_ingestor)
+    shipped = tmp_path / "oib" / "shipped.pdf"
+    _write_pdf(shipped, b"shipped")
+
+    oib_sync.exclude_document("shipped.pdf")
+    assert "shipped.pdf" not in {p.name for p in oib_sync.discover_pdfs()}
+
+    assert oib_sync.unexclude_document("shipped.pdf") is True
+    assert "shipped.pdf" in {p.name for p in oib_sync.discover_pdfs()}
+    # Second call is a no-op.
+    assert oib_sync.unexclude_document("shipped.pdf") is False
+
+
+def test_remove_document_routes_uploaded_to_delete_and_repo_to_exclude(monkeypatch, tmp_path):
+    fake_ingestor = FakeIngestor({})
+    registry_path = _configure_sync(monkeypatch, tmp_path, fake_ingestor)
+    uploaded = tmp_path / "oib_uploads" / "custom.pdf"
+    shipped = tmp_path / "oib" / "shipped.pdf"
+    _write_pdf(uploaded, b"custom")
+    _write_pdf(shipped, b"shipped")
+    registry_path.write_text(json.dumps({str(uploaded): "h1", str(shipped): "h2"}), encoding="utf-8")
+
+    # Uploaded → physical delete.
+    assert oib_sync.remove_document("custom.pdf") == "deleted"
+    assert not uploaded.exists()
+    assert oib_sync._load_excluded() == set()
+
+    # Repo-shipped → exclusion (file stays on disk but drops out of the corpus).
+    assert oib_sync.remove_document("shipped.pdf") == "excluded"
+    assert shipped.exists()
+    assert oib_sync._load_excluded() == {"shipped.pdf"}
+    assert "shipped.pdf" not in {p.name for p in oib_sync.discover_pdfs()}
+
+    # Unknown name and path traversal → no-op None.
+    assert oib_sync.remove_document("nope.pdf") is None
+    assert oib_sync.remove_document("../oib/shipped.pdf") is None
 
 
 class TestChunkFormatVersionGate:

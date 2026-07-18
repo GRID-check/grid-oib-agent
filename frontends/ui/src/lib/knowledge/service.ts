@@ -284,7 +284,11 @@ export async function updateKnowledgeBaseDocClass(fileName: string, docClass: st
   }
 }
 
-/** Delete an admin-uploaded corpus document (repo-shipped files are immutable). */
+/**
+ * Remove a base-corpus document. An admin upload is deleted outright; a
+ * repo-shipped document is removed from the active corpus (its chunks are
+ * dropped and a persistent exclusion keeps a sync from re-ingesting it).
+ */
 export async function deleteKnowledgeBaseDocument(fileName: string): Promise<void> {
   const name = requirePdfBasename(fileName)
   let res: Response
@@ -298,7 +302,7 @@ export async function deleteKnowledgeBaseDocument(fileName: string): Promise<voi
     throw new UpstreamError('Knowledge backend unreachable', error instanceof Error ? error.message : undefined)
   }
   if (res.status === 404) {
-    throw new NotFoundError('No uploaded document with that name')
+    throw new NotFoundError('No base-corpus document with that name')
   }
   if (!res.ok) {
     throw new UpstreamError(`Knowledge backend returned ${res.status}`)

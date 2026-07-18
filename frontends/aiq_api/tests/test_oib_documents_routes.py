@@ -237,3 +237,72 @@ async def test_patch_missing_row_404(app, uploads_dir):
         )
 
     assert res.status_code == 404
+
+
+class _FakeDeleteIngestor:
+    """Minimal ingestor for the delete/exclude path: records chunk deletions."""
+
+    def __init__(self):
+        self.deleted: list[str] = []
+
+    def delete_file(self, name, _collection):
+        self.deleted.append(name)
+        return True
+
+    def list_files(self, _collection):
+        return []
+
+
+@pytest.fixture
+def delete_dirs(tmp_path, monkeypatch, uploads_dir):
+    """Point the repo corpus + registry/exclusion files at tmp and stub the ingestor."""
+    oib_dir = tmp_path / "oib"
+    oib_dir.mkdir(parents=True, exist_ok=True)
+    ingestor = _FakeDeleteIngestor()
+    monkeypatch.setattr(oib_sync, "OIB_DIR", oib_dir)
+    monkeypatch.setattr(oib_sync, "REGISTRY_PATH", tmp_path / "oib_registry.json")
+    monkeypatch.setattr(oib_sync, "EXCLUDED_PATH", tmp_path / "oib_excluded.json")
+    monkeypatch.setattr(oib_sync, "_get_oib_ingestor", lambda: ingestor)
+    return oib_dir, ingestor
+
+
+@pytest.mark.asyncio
+async def test_delete_uploaded_document_returns_deleted(app, uploads_dir, delete_dirs):
+    _oib_dir, ingestor = delete_dirs
+    (uploads_dir).mkdir(parents=True, exist_ok=True)
+    (uploads_dir / "custom.pdf").write_bytes(_pdf_bytes())
+
+    async with _client(app) as client:
+        res = await client.delete("/v1/admin/oib/documents/custom.pdf")
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body == {"success": True, "file_name": "custom.pdf", "mode": "deleted"}
+    assert not (uploads_dir / "custom.pdf").exists()
+    assert ingestor.deleted == ["custom.pdf"]
+
+
+@pytest.mark.asyncio
+async def test_delete_repo_document_excludes_it(app, uploads_dir, delete_dirs):
+    oib_dir, ingestor = delete_dirs
+    (oib_dir / "shipped.pdf").write_bytes(_pdf_bytes())
+
+    async with _client(app) as client:
+        res = await client.delete("/v1/admin/oib/documents/shipped.pdf")
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body == {"success": True, "file_name": "shipped.pdf", "mode": "excluded"}
+    # Source file stays on disk (it lives in git) but is now excluded from discovery.
+    assert (oib_dir / "shipped.pdf").exists()
+    assert oib_sync._load_excluded() == {"shipped.pdf"}
+    assert "shipped.pdf" not in {p.name for p in oib_sync.discover_pdfs()}
+    assert ingestor.deleted == ["shipped.pdf"]
+
+
+@pytest.mark.asyncio
+async def test_delete_unknown_document_404(app, uploads_dir, delete_dirs):
+    async with _client(app) as client:
+        res = await client.delete("/v1/admin/oib/documents/ghost.pdf")
+
+    assert res.status_code == 404

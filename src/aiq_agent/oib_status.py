@@ -236,9 +236,15 @@ def get_status(ingestor=None) -> OibKnowledgeStatus:
     sourceless_deployment = not disk_pdfs
     disk_names = {pdf.name for pdf in disk_pdfs}
     disk_paths = {str(pdf) for pdf in disk_pdfs}
-    orphan_names = {name for name in collection_files if name not in disk_names}
+    # Basenames removed from the active corpus. discover_pdfs() already skips
+    # them on disk; filter them out of the orphan (index/registry) view too so a
+    # removed repo file disappears from the UI even if some chunk-cleanup lagged.
+    excluded = oib_sync._load_excluded()
+    orphan_names = {name for name in collection_files if name not in disk_names and name not in excluded}
     orphan_names.update(
-        Path(path).name for path in registry if path not in disk_paths and Path(path).name not in disk_names
+        Path(path).name
+        for path in registry
+        if path not in disk_paths and Path(path).name not in disk_names and Path(path).name not in excluded
     )
     for name in sorted(orphan_names):
         info = collection_files.get(name)

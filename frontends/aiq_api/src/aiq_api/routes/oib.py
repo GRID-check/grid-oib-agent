@@ -193,10 +193,10 @@ def _extract_zip_pdfs(content: bytes) -> tuple[list[tuple[str, bytes]], list[tup
     return accepted, rejected
 
 
-def _delete_uploaded_pdf(name: str) -> bool:
+def _remove_document(name: str) -> str | None:
     from aiq_agent import oib_sync
 
-    return oib_sync.remove_uploaded_document(name)
+    return oib_sync.remove_document(name)
 
 
 def _resolve_corpus_pdf(file_name: str) -> Path | None:
@@ -395,27 +395,32 @@ def add_oib_routes(router: APIRouter) -> None:
         "/v1/admin/oib/documents/{file_name}",
         response_model=OibDocumentDeleteResponse,
         tags=["oib"],
-        summary="Remove an uploaded PDF from the OIB base corpus",
+        summary="Remove any document from the OIB base corpus",
     )
     async def delete_oib_document(
         file_name: str,
         _: None = Depends(_require_admin_token),
     ) -> OibDocumentDeleteResponse:
-        """Deletes an admin-uploaded document (source file, registry entry, and
-        indexed chunks). Repo-shipped corpus files cannot be deleted here.
+        """Removes a base-corpus document from what the RAG grounds on.
+
+        - An admin-uploaded document is deleted outright (source file, registry
+          entry and indexed chunks) → ``mode="deleted"``.
+        - A repo-shipped document (which lives in git and cannot be physically
+          deleted) is removed from the active corpus via a persistent exclusion:
+          its chunks are dropped and a sync never re-ingests it → ``mode="excluded"``.
         """
         try:
-            removed = await asyncio.get_event_loop().run_in_executor(executor, _delete_uploaded_pdf, file_name)
+            mode = await asyncio.get_event_loop().run_in_executor(executor, _remove_document, file_name)
         except Exception as e:
             logger.exception("OIB document delete failed")
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)) from e
 
-        if not removed:
+        if mode is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="No uploaded document with that name (repo corpus files cannot be deleted)",
+                detail="No base-corpus document with that name",
             )
-        return OibDocumentDeleteResponse(success=True, file_name=Path(file_name).name)
+        return OibDocumentDeleteResponse(success=True, file_name=Path(file_name).name, mode=mode)
 
     class UpdateDocClassRequest(BaseModel):
         doc_class: str = Field(..., description="Explicit doc_class ('Dokumentart'); must be in the vocabulary.")

@@ -282,11 +282,15 @@ export function BaseKnowledge() {
   const handleDelete = useCallback(() => {
     if (!pendingDelete) return
     const name = pendingDelete.fileName
+    const isUploaded = pendingDelete.origin === 'uploaded'
     setIsDeleting(true)
+    // Optimistic: drop the row immediately; the refetch in finally() reconciles
+    // (and brings it back if the request failed).
+    setStatus((prev) => (prev ? { ...prev, files: prev.files.filter((f) => f.fileName !== name) } : prev))
     fetch(`/api/platform/knowledge/documents/${encodeURIComponent(name)}`, { method: 'DELETE' })
       .then((r) => {
         if (!r.ok) throw new Error(`Delete failed (${r.status})`)
-        toast.success(t('knowledge.deleteSuccess', { name }))
+        toast.success(t(isUploaded ? 'knowledge.deleteSuccess' : 'knowledge.corpusDeleteSuccess', { name }))
       })
       .catch(() => toast.error(t('knowledge.deleteFailed', { name })))
       .finally(() => {
@@ -384,17 +388,15 @@ export function BaseKnowledge() {
               <Eye className="size-4" aria-hidden />
             </Button>
           )}
-          {file.origin === 'uploaded' && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-8"
-              aria-label={`${t('knowledge.delete')}: ${file.fileName}`}
-              onClick={() => setPendingDelete(file)}
-            >
-              <Trash2 className="size-4 text-destructive" aria-hidden />
-            </Button>
-          )}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8"
+            aria-label={`${file.origin === 'uploaded' ? t('knowledge.delete') : t('knowledge.corpusDelete')}: ${file.fileName}`}
+            onClick={() => setPendingDelete(file)}
+          >
+            <Trash2 className="size-4 text-destructive" aria-hidden />
+          </Button>
         </div>
       </div>
     )
@@ -615,8 +617,16 @@ export function BaseKnowledge() {
       <Dialog open={pendingDelete !== null} onOpenChange={(open) => !open && !isDeleting && setPendingDelete(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>{t('knowledge.deleteTitle', { name: pendingDelete?.fileName ?? '' })}</DialogTitle>
-            <DialogDescription>{t('knowledge.deleteDescription')}</DialogDescription>
+            <DialogTitle>
+              {pendingDelete?.origin === 'uploaded'
+                ? t('knowledge.deleteTitle', { name: pendingDelete?.fileName ?? '' })
+                : t('knowledge.corpusDeleteTitle', { name: pendingDelete?.fileName ?? '' })}
+            </DialogTitle>
+            <DialogDescription>
+              {pendingDelete?.origin === 'uploaded'
+                ? t('knowledge.deleteDescription')
+                : t('knowledge.corpusDeleteDescription')}
+            </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setPendingDelete(null)} disabled={isDeleting}>
@@ -624,7 +634,9 @@ export function BaseKnowledge() {
             </Button>
             <Button variant="destructive" onClick={handleDelete} disabled={isDeleting}>
               {isDeleting ? <Spinner className="size-3.5" /> : <Trash2 className="size-3.5" aria-hidden />}
-              {t('knowledge.deleteConfirm')}
+              {pendingDelete?.origin === 'uploaded'
+                ? t('knowledge.deleteConfirm')
+                : t('knowledge.corpusDeleteConfirm')}
             </Button>
           </DialogFooter>
         </DialogContent>

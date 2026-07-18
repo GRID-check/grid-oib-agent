@@ -25,6 +25,11 @@ OIB_DIR = Path(os.environ.get("OIB_DOCUMENTS_DIR", "data/oib"))
 # directory lives on the persistent data volume instead.
 OIB_UPLOADS_DIR = Path(os.environ.get("OIB_UPLOADS_DIR", "data/oib_uploads"))
 REGISTRY_PATH = Path(os.environ.get("OIB_REGISTRY_PATH", "data/oib_registry.json"))
+# Persistent set of corpus basenames removed from the active corpus. Repo-shipped
+# PDFs live in git and cannot be physically deleted, so "delete" for them means
+# excluding them here: their chunks are dropped and discover_pdfs()/sync() skip
+# them forever, so a sync never re-ingests a document an admin removed.
+EXCLUDED_PATH = Path(os.environ.get("OIB_EXCLUDED_PATH", "data/oib_excluded.json"))
 COLLECTION_NAME = os.environ.get("OIB_COLLECTION_NAME") or os.environ.get("COLLECTION_NAME") or "oib_knowledge"
 CHROMA_DIR = os.environ.get("AIQ_CHROMA_DIR", "/tmp/chroma_data")
 
@@ -71,6 +76,24 @@ def _load_registry() -> dict[str, str]:
 def _save_registry(registry: dict[str, str]) -> None:
     REGISTRY_PATH.parent.mkdir(parents=True, exist_ok=True)
     REGISTRY_PATH.write_text(json.dumps(registry, indent=2, sort_keys=True), encoding="utf-8")
+
+
+def _load_excluded() -> set[str]:
+    """Basenames removed from the active corpus (persisted exclusion set)."""
+    if EXCLUDED_PATH.exists():
+        try:
+            data = json.loads(EXCLUDED_PATH.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            logger.warning("Could not read exclusion file %s; treating as empty", EXCLUDED_PATH)
+            return set()
+        if isinstance(data, list):
+            return {str(name) for name in data}
+    return set()
+
+
+def _save_excluded(names: set[str]) -> None:
+    EXCLUDED_PATH.parent.mkdir(parents=True, exist_ok=True)
+    EXCLUDED_PATH.write_text(json.dumps(sorted(names), indent=2), encoding="utf-8")
 
 
 def _ensure_collection(ingestor) -> None:
@@ -134,12 +157,18 @@ def discover_pdfs() -> list[Path]:
     Deduplicated by basename — the collection keys chunks on the filename, so
     two same-named sources would double-index. Uploads win: uploading a file
     with an existing corpus name is how an admin replaces that document.
+
+    Basenames in the persistent exclusion set are skipped entirely, so a
+    repo-shipped file an admin removed from the corpus is never re-ingested.
     """
+    excluded = _load_excluded()
     by_name: dict[str, Path] = {}
     for base in (OIB_DIR, OIB_UPLOADS_DIR):
         if not base.exists():
             continue
         for pdf in sorted(p for p in base.rglob("*.pdf") if p.is_file()):
+            if pdf.name in excluded:
+                continue
             by_name[pdf.name] = pdf
     return sorted(by_name.values(), key=lambda p: p.name)
 
@@ -216,6 +245,98 @@ def remove_uploaded_document(file_name: str) -> bool:
     path.unlink(missing_ok=True)
     logger.info("Removed uploaded OIB document %s", name)
     return True
+
+
+def exclude_document(name: str) -> None:
+    """Remove a repo-shipped corpus file from the ACTIVE corpus.
+
+    Repo PDFs live in git and cannot be physically deleted, so removal means:
+    drop the file's indexed chunks, drop its registry hash entries, drop its
+    summary row, and record its basename in the persistent exclusion set so
+    discover_pdfs()/sync() never re-ingest it. Idempotent.
+    """
+    base = Path(name).name  # forbid path traversal
+
+    ingestor = _get_oib_ingestor()
+    try:
+        ingestor.delete_file(base, COLLECTION_NAME)
+    except Exception as exc:
+        logger.warning("Could not delete chunks for excluded %s: %s", base, exc)
+
+    registry = _load_registry()
+    stale_keys = [key for key in registry if key != _FORMAT_KEY and Path(key).name == base]
+    if stale_keys:
+        for key in stale_keys:
+            registry.pop(key, None)
+        _save_registry(registry)
+
+    try:
+        from aiq_agent.knowledge.factory import unregister_summary
+
+        unregister_summary(COLLECTION_NAME, base)
+    except Exception as exc:
+        logger.debug("Could not unregister summary for %s: %s", base, exc)
+
+    excluded = _load_excluded()
+    if base not in excluded:
+        excluded.add(base)
+        _save_excluded(excluded)
+    logger.info("Excluded OIB corpus document %s from the active corpus", base)
+
+
+def unexclude_document(name: str) -> bool:
+    """Reverse an exclusion so the file is re-discovered (and re-ingested by the
+    next sync). Returns False when the basename was not excluded."""
+    base = Path(name).name
+    excluded = _load_excluded()
+    if base not in excluded:
+        return False
+    excluded.discard(base)
+    _save_excluded(excluded)
+    logger.info("Re-included OIB corpus document %s into the active corpus", base)
+    return True
+
+
+def _is_corpus_document(base: str) -> bool:
+    """True when ``base`` is a known corpus document (repo source on disk, a
+    registry entry, or an indexed file) — i.e. something an admin can remove."""
+    if OIB_DIR.exists():
+        for candidate in OIB_DIR.rglob(base):
+            if candidate.is_file():
+                return True
+    registry = _load_registry()
+    if any(key != _FORMAT_KEY and Path(key).name == base for key in registry):
+        return True
+    try:
+        ingestor = _get_oib_ingestor()
+        return any(info.file_name == base for info in ingestor.list_files(COLLECTION_NAME))
+    except Exception as exc:
+        logger.debug("Could not list collection files while checking %s: %s", base, exc)
+        return False
+
+
+def remove_document(name: str) -> str | None:
+    """Unified corpus removal for the admin UI.
+
+    - An admin-uploaded PDF (under OIB_UPLOADS_DIR) is physically deleted from
+      disk, registry and index → returns ``"deleted"``.
+    - A repo-shipped / index-only corpus document is removed from the active
+      corpus via a persistent exclusion (chunks dropped, never re-ingested) →
+      returns ``"excluded"``.
+    - Returns ``None`` when no such corpus document exists (route → 404).
+    """
+    base = Path(name).name
+    if not base or base != name or not base.lower().endswith(".pdf"):
+        return None
+
+    if (OIB_UPLOADS_DIR / base).is_file():
+        return "deleted" if remove_uploaded_document(base) else None
+
+    if _is_corpus_document(base):
+        exclude_document(base)
+        return "excluded"
+
+    return None
 
 
 def sync() -> tuple[int, int]:

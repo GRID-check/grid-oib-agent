@@ -65,6 +65,13 @@ export const platform = {
     deleteCancel: 'Cancel',
     deleteSuccess: '{name} removed from the base corpus',
     deleteFailed: 'Could not remove {name}',
+    // Removing a repo-shipped base document (excluded from the active corpus).
+    corpusDelete: 'Remove from corpus',
+    corpusDeleteTitle: 'Remove {name} from the corpus?',
+    corpusDeleteDescription:
+      'This removes a shipped base law from the active corpus: its indexed content is deleted and it will not be re-ingested on the next sync. Piloti will no longer check answers against it.',
+    corpusDeleteConfirm: 'Remove from corpus',
+    corpusDeleteSuccess: '{name} removed from the corpus',
     loadError: 'The knowledge base could not be loaded.',
     retry: 'Try again',
     chunkCount: '{count} chunks',
