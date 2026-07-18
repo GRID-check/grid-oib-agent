@@ -21,6 +21,12 @@ interface ProjectBriefProps {
   summary?: string
   /** Whether the brief was ever set up (profile_display exists). */
   briefStarted: boolean
+  /**
+   * Whether the current user may edit the profile (project:manage). Gates the
+   * "edit" link and the empty-state set-up action so viewers get a read-only
+   * brief. Defaults to true to preserve existing call sites.
+   */
+  canEdit?: boolean
 }
 
 /** Fact sources with a localized provenance tooltip (under overview.brief.provenance). */
@@ -32,7 +38,13 @@ const PROVENANCE_SOURCES = new Set(['onboarding', 'user_confirmed', 'admin_edit'
  * areas, facts by intake stage, Piloti-suggested assumptions awaiting
  * confirmation, and what Piloti still doesn't know.
  */
-export function ProjectBrief({ projectId, profile, summary, briefStarted }: ProjectBriefProps) {
+export function ProjectBrief({
+  projectId,
+  profile,
+  summary,
+  briefStarted,
+  canEdit = true,
+}: ProjectBriefProps) {
   const t = useTranslations('projects')
   const intakeHref = `/app/projects/${projectId}/intake`
 
@@ -71,13 +83,15 @@ export function ProjectBrief({ projectId, profile, summary, briefStarted }: Proj
               })}
             </span>
           )}
-          <Link
-            href={intakeHref}
-            className="inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
-          >
-            <PencilLine className="size-3.5" aria-hidden />
-            {t('overview.brief.edit')}
-          </Link>
+          {canEdit && (
+            <Link
+              href={intakeHref}
+              className="inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <PencilLine className="size-3.5" aria-hidden />
+              {t('overview.brief.edit')}
+            </Link>
+          )}
         </div>
       </div>
 

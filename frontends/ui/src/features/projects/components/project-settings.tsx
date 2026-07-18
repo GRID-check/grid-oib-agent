@@ -5,27 +5,29 @@
  * used to be the Overview and Members pages, in the click-dummy's warm two-column
  * language:
  *
- *   a Projektparameter form card + honest Insights card (top grid) →
- *   the detailed brief (edit-into-intake) → applicable standards → members →
- *   memory → danger zone.
+ *   the project profile card (the single "Projektparameter" surface) + honest
+ *   Insights card (top grid) → applicable standards → members → memory →
+ *   danger zone.
  *
- * The Projektparameter card and Insights card are the dummy's chrome; every
- * feature the page consolidated is kept below, unchanged — the sections reuse
- * the existing components so their own permission checks and data flows keep
- * working.
+ * ONE profile surface, ONE editor. The profile is shown once — as the
+ * {@link ProjectBrief} (facts, summary, Piloti's assumptions and the open
+ * gaps) — and edited in one place, the guided intake wizard (its "Briefing
+ * bearbeiten" link). An earlier revision also rendered a separate
+ * "Projektparameter" field card here; it duplicated the same facts and pointed
+ * at the same wizard, so it was removed. The project's *facts* are
+ * interdependent (building class / use / floors drive which OIB standards
+ * apply), which is exactly why editing runs through the wizard's guided,
+ * consistency-checked flow rather than loose inline fields.
+ *
+ * Every feature the page consolidated is kept below, unchanged — the sections
+ * reuse the existing components so their own permission checks and data flows
+ * keep working.
  */
 
 import Link from 'next/link'
 import { BarChart3, BookOpenCheck } from 'lucide-react'
 import { useMemo } from 'react'
 import type { ProjectOverviewData } from '../types'
-import { formatBareValue } from '@/lib/project-profile/brief-view'
-import {
-  flattenIntakeQuestions,
-  formatIntakeAnswer,
-  projectIntakeDefinitionV1,
-} from '@/lib/project-profile/intake-definition'
-import type { ProjectProfile } from '@/lib/project-profile/types'
 import { ApplicableStandards } from './applicable-standards'
 import { ProjectBrief } from './project-brief'
 import { ProjectDangerZone } from './project-danger-zone'
@@ -40,29 +42,13 @@ interface ProjectSettingsProps {
   data: ProjectOverviewData
   /**
    * Whether the current user manages the project (project:manage). Gates the
-   * rename affordance, member management, the danger zone and the "edit
-   * parameters" link — viewers and editors get a dignified read-only page,
-   * never a control the API rejects.
+   * rename affordance, member management, the danger zone and the brief's
+   * "edit" link — viewers and editors get a dignified read-only page, never a
+   * control the API rejects.
    */
   canManageProject?: boolean
   /** Whether the flagged project knowledge page is linked from here (spec §5). */
   showKnowledgeLink?: boolean
-}
-
-/**
- * Resolve a stored fact to its human-readable value using the same intake
- * vocabulary the rest of the app renders in (option labels, not raw enum
- * tokens). Returns null when the fact was never captured, so the field falls
- * back to an honest "not provided" placeholder rather than an empty box.
- */
-function factValue(profile: ProjectProfile | null, key: string): string | null {
-  const fact = profile?.facts?.[key]
-  if (!fact) return null
-  const question = flattenIntakeQuestions(projectIntakeDefinitionV1).find(
-    (q) => q.writesTo === `/facts/${key}/value`,
-  )
-  const value = question ? formatIntakeAnswer(question, fact.value) : formatBareValue(fact.value)
-  return value && value !== '—' ? value : null
 }
 
 export function ProjectSettings({
@@ -84,22 +70,10 @@ export function ProjectSettings({
     createdLabel = ''
   }
 
-  const intakeHref = `/app/projects/${data.id}/intake`
-  const profile = data.profile
-  // Standort prefers the free-text location (used for out-of-Austria projects),
-  // otherwise the Bundesland the building code is derived from.
-  const location = factValue(profile, 'standort_details') ?? factValue(profile, 'bundesland')
-  const buildingClass = factValue(profile, 'gebaeudeklasse')
-  const constructionType = factValue(profile, 'bestand_neubau')
-  const use = factValue(profile, 'hauptnutzung')
-
-  const notProvided = t('project.parameters.notProvided')
-
   return (
     <Stagger className="mx-auto w-full max-w-5xl space-y-8 px-4 py-6 md:space-y-10 md:px-8 md:py-10">
-      {/* Header: eyebrow + name + rename. Status lives in the parameters card,
-          matching the dummy. Soft-deleted projects 404 in the layout, so a
-          project rendered here is by definition active. */}
+      {/* Header: eyebrow + name + rename. Soft-deleted projects 404 in the
+          layout, so a project rendered here is by definition active. */}
       <StaggerItem>
         <header className="flex flex-wrap items-end justify-between gap-4">
           <div className="min-w-0">
@@ -130,78 +104,21 @@ export function ProjectSettings({
         </header>
       </StaggerItem>
 
-      {/* Top grid: Projektparameter form (left) + honest Insights (right) — the
-          dummy's card chrome. The parameters are read-only here; editing runs
-          through the intake wizard (the "edit details" link + the brief below). */}
+      {/* Top grid, the dummy's card chrome: the single project-profile card
+          (left) beside the honest Insights card (right). The profile is the
+          ProjectBrief — facts, summary, Piloti's assumptions and the open gaps,
+          with its one "Briefing bearbeiten" link into the guided wizard. */}
       <StaggerItem>
-        <div className="grid gap-4 md:grid-cols-[1.2fr_1fr] md:items-start md:gap-[18px]">
-          {/* Projektparameter */}
-          <section
-            aria-label={t('project.sections.parameters')}
-            className="rounded-lg border bg-card p-5 shadow-sm"
-          >
-            <h2 className="mb-4 text-sm font-semibold text-foreground">
-              {t('project.sections.parameters')}
-            </h2>
-            <div className="flex flex-col gap-3.5">
-              <ParameterField label={t('project.parameters.fields.name')} value={data.name} />
-              <ParameterField
-                label={t('project.parameters.fields.location')}
-                value={location}
-                placeholder={notProvided}
-              />
-              <div className="flex gap-3">
-                <ParameterField
-                  className="flex-1"
-                  label={t('project.parameters.fields.buildingClass')}
-                  value={buildingClass}
-                  placeholder={notProvided}
-                />
-                <ParameterField
-                  className="flex-1"
-                  label={t('project.parameters.fields.constructionType')}
-                  value={constructionType}
-                  placeholder={notProvided}
-                />
-              </div>
-              <ParameterField
-                label={t('project.parameters.fields.use')}
-                value={use}
-                placeholder={notProvided}
-              />
-              {/* Status: projects here are active (soft-deleted ones 404), so
-                  "Aktiv" is the selected, truthful state. The muted second chip
-                  mirrors the dummy without pretending a lifecycle we don't have. */}
-              <div>
-                <div className="mb-1.5 text-xs text-muted-foreground">
-                  {t('project.parameters.fields.status')}
-                </div>
-                <div className="flex gap-2">
-                  <span className="inline-flex h-7 items-center gap-2 rounded-md border bg-card px-3 text-xs font-medium text-foreground shadow-2xs">
-                    <span className="size-1.5 rounded-full bg-status-active" aria-hidden />
-                    {t('project.status.active')}
-                  </span>
-                  <span
-                    className="inline-flex h-7 items-center rounded-md border px-3 text-xs text-muted-foreground"
-                    aria-disabled
-                  >
-                    {t('project.status.completed')}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {canManageProject && (
-              <div className="mt-5 flex justify-end border-t pt-4">
-                <Link
-                  href={intakeHref}
-                  className="inline-flex items-center rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-xs transition-colors hover:bg-primary/90"
-                >
-                  {t('project.parameters.edit')}
-                </Link>
-              </div>
-            )}
-          </section>
+        <div className="grid gap-4 md:grid-cols-[1.4fr_1fr] md:items-start md:gap-[18px]">
+          {/* The single project-profile card. ProjectBrief renders its own card
+              chrome, so it sits directly in the grid column. */}
+          <ProjectBrief
+            projectId={data.id}
+            profile={data.profile}
+            summary={data.profileDisplay?.summary}
+            briefStarted={data.profileDisplay != null}
+            canEdit={canManageProject}
+          />
 
           {/* Insights — honest empty state only: per-project telemetry
               aggregation does not exist yet (spec §2.3), so this promises
@@ -209,7 +126,7 @@ export function ProjectSettings({
               dummy, ready for the source-mix layout once telemetry exists. */}
           <section
             aria-label={t('project.sections.insights')}
-            className="rounded-lg border bg-card p-5 shadow-sm"
+            className="rounded-2xl border bg-card p-6 shadow-sm"
           >
             <h2 className="text-sm font-semibold text-foreground">
               {t('project.sections.insights')}
@@ -223,17 +140,6 @@ export function ProjectSettings({
             />
           </section>
         </div>
-      </StaggerItem>
-
-      {/* Project brief — the detailed intake context with its edit-into-wizard
-          link, Piloti's assumptions awaiting confirmation and the open gaps. */}
-      <StaggerItem>
-        <ProjectBrief
-          projectId={data.id}
-          profile={data.profile}
-          summary={data.profileDisplay?.summary}
-          briefStarted={data.profileDisplay != null}
-        />
       </StaggerItem>
 
       {/* Standards applicability derived from the brief. */}
@@ -263,7 +169,7 @@ export function ProjectSettings({
         </section>
       </StaggerItem>
 
-      {/* Project memory — what Grid has learned about this project, user-curated. */}
+      {/* Project memory — what Piloti has learned about this project, user-curated. */}
       <StaggerItem>
         <ProjectMemoryPanel projectId={data.id} />
       </StaggerItem>
@@ -276,34 +182,5 @@ export function ProjectSettings({
         </StaggerItem>
       )}
     </Stagger>
-  )
-}
-
-/**
- * A read-only Projektparameter field styled as the dummy's labelled input:
- * a 12px label over a hairline, paper-inset value box. Uncaptured facts show a
- * muted placeholder rather than an empty control.
- */
-function ParameterField({
-  label,
-  value,
-  placeholder,
-  className,
-}: {
-  label: string
-  value: string | null | undefined
-  placeholder?: string
-  className?: string
-}) {
-  const hasValue = value != null && value !== ''
-  return (
-    <div className={className}>
-      <div className="mb-1.5 text-xs text-muted-foreground">{label}</div>
-      <div className="flex h-9 items-center rounded-md border bg-input-background px-3 text-sm shadow-2xs">
-        <span className={hasValue ? 'truncate text-foreground' : 'truncate text-muted-foreground'}>
-          {hasValue ? value : (placeholder ?? '')}
-        </span>
-      </div>
-    </div>
   )
 }

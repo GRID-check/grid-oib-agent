@@ -53,11 +53,10 @@ describe('ProjectSettings', () => {
   test('composes parameters, members, memory and the honest insights empty state', () => {
     render(<ProjectSettings data={data} />)
 
-    // The name shows in the header AND the Projektparameter card.
+    // The name shows in the header.
     expect(screen.getByRole('heading', { level: 1, name: 'Alpine Tower' })).toBeInTheDocument()
-    expect(screen.getAllByText('Alpine Tower').length).toBeGreaterThanOrEqual(2)
-    // Status lives in the parameters card as the selected "Active" chip.
-    expect(screen.getByText('Active')).toBeInTheDocument()
+    // The single project-profile surface is the brief (facts, summary, gaps),
+    // not a duplicate parameters card.
     expect(screen.getByTestId('project-brief')).toBeInTheDocument()
     expect(screen.getByTestId('applicable-standards')).toBeInTheDocument()
     expect(screen.getByTestId('project-members-form')).toBeInTheDocument()
