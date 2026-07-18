@@ -53,6 +53,15 @@ def _file_hash(path: Path) -> str:
     return hasher.hexdigest()
 
 
+# Chunk-format version of the ingestion pipeline. Bump whenever chunking,
+# embedding-relevant preprocessing, or chunk metadata changes shape: the next
+# sync() then discards all stored hashes ONCE and re-ingests the full corpus,
+# so stale-format chunks self-heal automatically instead of persisting until
+# a PDF happens to change. Stored under a reserved key in the sync registry.
+CHUNK_FORMAT_VERSION = 1
+_FORMAT_KEY = "__chunk_format_version__"
+
+
 def _load_registry() -> dict[str, str]:
     if REGISTRY_PATH.exists():
         return json.loads(REGISTRY_PATH.read_text(encoding="utf-8"))
@@ -226,6 +235,15 @@ def sync() -> tuple[int, int]:
         return 0, 0
 
     registry = _load_registry()
+    if registry and registry.get(_FORMAT_KEY) != CHUNK_FORMAT_VERSION:
+        logger.warning(
+            "OIB sync: chunk format version changed (stored=%s, current=%s) — forcing one full re-ingest of the corpus",
+            registry.get(_FORMAT_KEY),
+            CHUNK_FORMAT_VERSION,
+        )
+        registry = {}
+    registry.setdefault(_FORMAT_KEY, CHUNK_FORMAT_VERSION)
+    _save_registry(registry)
     new_or_changed: list[tuple[Path, str]] = []
     max_workers = _get_max_workers()
 

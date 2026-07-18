@@ -210,7 +210,11 @@ def get_status(ingestor=None) -> OibKnowledgeStatus:
     if ingestor is None:
         ingestor = oib_sync._get_oib_ingestor()
 
-    registry = oib_sync._load_registry()
+    registry = {
+        path: digest
+        for path, digest in oib_sync._load_registry().items()
+        if path != oib_sync._FORMAT_KEY  # reserved version stamp, not a file
+    }
     disk_pdfs = oib_sync.discover_pdfs()
 
     collection_info = ingestor.get_collection(collection_name)
