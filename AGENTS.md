@@ -132,6 +132,15 @@ The projects domain (`lib/projects/repository.ts`, `lib/projects/service.ts`,
 
 GRID has two distinct "knowledge" systems: **project knowledge** (the intake-wizard profile plus the agent-curated project/org memory, injected as WS headers `x-grid-project-context` and `x-grid-project-memory`; memory writes go through the token-guarded internal BFF endpoint so `grid_app` stays single-writer) and **RAG document knowledge** (MinIO uploads ingested into scoped collections via `/v1/ingest`). See `docs/architecture/backend-deep-dive.md` and `docs/architecture/project-memory-design.md`.
 
+**Project profile — one surface, one editor.** The project profile (facts like
+building class, use, location) has a single editor: the **intake wizard**. The
+project **Settings** page *displays* it read-only via the `ProjectBrief` card
+(facts, summary, assumptions, open gaps) and links to the wizard to change it —
+do **not** add a second parameters form or inline field-editing on Settings.
+The facts are interdependent (they drive which OIB standards apply), so edits
+must run through the wizard's guided, consistency-checked flow. Rationale:
+`docs/design/click-dummy-overhaul-spec.md` §9.1.
+
 RAG document knowledge has **three tiers**, all sharing one pipeline (MinIO → `/v1/ingest` → per-collection retrieval): the platform-owner **base corpus** (`oib_knowledge`, org-agnostic, always in scope); per-**project** documents (`proj_<uuid>`, in scope for that project only); and the org-wide **Archiv** (ADR-0024, `archiv_<orgId>`, `scope='archiv'` rows in the `documents` table, injected into every project's scope for that org). The Archiv reuses the project document machinery (`lib/documents/*`) wholesale — only the authorization scope differs (org-level `org:archiv:manage` for writes; any member reads). See `lib/archiv/*`, `/api/archiv/*`, and `computeCollectionScope`.
 
 ## Documentation is part of the work (obligation)

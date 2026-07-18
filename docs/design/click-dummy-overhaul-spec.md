@@ -351,3 +351,34 @@ recorded so the backend contract can serve it:
 4. Insights telemetry: which aggregates are acceptable org-policy-wise?
 5. Archiv verification workflow ("Geprüft 2025") — who verifies, how often?
 6. Cross-project scope timeline (vision doc exists, no backend).
+
+## 9. Post-build decisions
+
+Decisions made after the initial build, recorded here so the rationale isn't lost.
+
+### 9.1 Project profile — one surface, one editor (2026-07-18)
+
+**Context.** The fidelity pass had added a dummy-style "Projektparameter" field
+card to the project **Settings** page. But the same profile facts were already
+shown by the **Projekt-Briefing** card, and *both* linked to the **intake
+wizard** to edit — so the profile appeared twice and the wizard read as a
+confusing third way to do the same thing.
+
+**Decision.** The project profile is shown in **one** place and edited in
+**one** place:
+- **Display:** the single profile card on Settings is the `ProjectBrief`
+  (facts, AI summary, focus areas, Piloti's assumptions, and the open gaps).
+  The duplicate `Projektparameter` field card was removed.
+- **Editor:** the guided **intake wizard** is the only editor (Settings links
+  to it once via "Briefing bearbeiten"). Its assumptions/gaps surfacing and
+  end-of-wizard AI consistency check are the reason it exists.
+- **No inline field-editing on Settings.** Project facts are *interdependent*
+  — building class, use, and floor count drive which OIB standards apply — so
+  editing them one field at a time on Settings would bypass the wizard's
+  consistency check and let the profile desync. Right tool for the job: the
+  card is "what Piloti thinks this project is"; the wizard is "change it."
+- `ProjectBrief` gained a `canEdit` gate so viewers get a read-only brief.
+
+Follow-up (optional): the surviving profile card could take the dummy's
+stacked labelled-field look instead of the fact-sheet layout — a pure restyle
+on top of this decision, not a change to the one-surface/one-editor rule.
