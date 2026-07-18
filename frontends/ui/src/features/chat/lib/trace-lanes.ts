@@ -177,11 +177,11 @@ export const parseTraceLanesBlock = (payload: string): TraceLaneCard[] | null =>
         const label = (lane.label || '').trim()
         if (!key || !label) return null
         const sources = (lane.sources || [])
-          .map((s) => {
+          .map((s): TraceSourceHit | null => {
             const name = (s.name || '').trim()
             if (!name) return null
             const detail = (s.detail || '').trim() || undefined
-            return { name, detail } satisfies TraceSourceHit
+            return { name, detail }
           })
           .filter((s): s is TraceSourceHit => s != null)
         const hitCount =
