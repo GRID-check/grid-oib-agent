@@ -60,7 +60,21 @@ export type DeepResearchSlice = {
   setDeepResearchStalled: (stalled: boolean) => void
   setDeepResearchConnectionLost: (lost: boolean) => void
   setReconnectDeepResearchFn: (fn: (() => void) | null) => void
-  addDeepResearchCitation: (url: string, content: string, isCited?: boolean) => void
+  addDeepResearchCitation: (
+    url: string,
+    content: string,
+    isCited?: boolean,
+    extras?: {
+      title?: string
+      citationKey?: string
+      collection?: string
+      sourceType?: string
+      tool?: string
+      origin?: string
+      fileName?: string
+      page?: number
+    }
+  ) => void
   setDeepResearchTodos: (todos: Array<{ content: string; status: string }>) => void
   stopDeepResearchTodos: () => void
   stopAllDeepResearchSpinners: (isSuccessfulCompletion?: boolean) => void
@@ -309,21 +323,66 @@ export const createDeepResearchSlice: StateCreator<ChatStore, [["zustand/devtool
     set({ reconnectDeepResearchFn: fn }, false, 'setReconnectDeepResearchFn')
   },
 
-  addDeepResearchCitation: (url: string, content: string, isCited?: boolean) => {
+  addDeepResearchCitation: (
+    url: string,
+    content: string,
+    isCited?: boolean,
+    extras?: {
+      title?: string
+      citationKey?: string
+      collection?: string
+      sourceType?: string
+      tool?: string
+      origin?: string
+      fileName?: string
+      page?: number
+    }
+  ) => {
     const { deepResearchCitations } = get()
 
-    const existingIndex = deepResearchCitations.findIndex((c) => c.url === url)
+    const identity =
+      extras?.citationKey?.trim().toLowerCase() ||
+      (url && url.trim().toLowerCase()) ||
+      (extras?.fileName
+        ? `file:${extras.fileName.trim().toLowerCase()}:${extras.page ?? ''}`
+        : content.trim().toLowerCase().slice(0, 120))
+
+    const existingIndex = deepResearchCitations.findIndex((c) => {
+      if (extras?.citationKey && c.citationKey) {
+        return c.citationKey.toLowerCase() === extras.citationKey.toLowerCase()
+      }
+      if (url && c.url) return c.url === url
+      if (extras?.fileName && c.fileName) {
+        return (
+          c.fileName.toLowerCase() === extras.fileName.toLowerCase() &&
+          (c.page ?? null) === (extras.page ?? null)
+        )
+      }
+      return c.content === content && !c.url && !url
+    })
+
+    const origin =
+      extras?.origin === 'kb' || extras?.origin === 'ris' || extras?.origin === 'web'
+        ? extras.origin
+        : undefined
 
     if (existingIndex >= 0) {
       const updatedCitations = deepResearchCitations.map((c, i) => {
-        if (i === existingIndex) {
-          return {
-            ...c,
-            content: content || c.content,
-            isCited: isCited || c.isCited,
-          }
+        if (i !== existingIndex) return c
+        return {
+          ...c,
+          content: content || c.content,
+          url: url || c.url,
+          isCited: isCited || c.isCited,
+          title: extras?.title ?? c.title,
+          citationKey: extras?.citationKey ?? c.citationKey,
+          collection: extras?.collection ?? c.collection,
+          sourceType: extras?.sourceType ?? c.sourceType,
+          tool: extras?.tool ?? c.tool,
+          origin: origin ?? c.origin,
+          fileName: extras?.fileName ?? c.fileName,
+          page: extras?.page ?? c.page,
         }
-        return c
       })
 
       set(
@@ -333,11 +392,19 @@ export const createDeepResearchSlice: StateCreator<ChatStore, [["zustand/devtool
       )
     } else {
       const newCitation: CitationSource = {
-        id: uuidv4(),
-        url,
+        id: identity || uuidv4(),
+        url: url || undefined,
         content,
         timestamp: new Date(),
         isCited,
+        title: extras?.title,
+        citationKey: extras?.citationKey,
+        collection: extras?.collection,
+        sourceType: extras?.sourceType,
+        tool: extras?.tool,
+        origin,
+        fileName: extras?.fileName,
+        page: extras?.page,
       }
 
       set(

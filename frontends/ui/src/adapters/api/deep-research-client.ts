@@ -169,6 +169,15 @@ export interface ArtifactUpdateEvent extends DeepResearchSSEEvent {
       url?: string // For citation_source and citation_use types
       output_category?: string // For output type (e.g. "final_report")
       cards?: unknown[] // Grid response cards attached to the final report output
+      // Structured citation fields (SourceEntry wire — KB file/page/collection)
+      title?: string
+      citation_key?: string
+      collection?: string
+      source_type?: string
+      tool?: string
+      origin?: string
+      file_name?: string
+      page?: number
     }
     metadata?: {
       workflow?: string
@@ -217,7 +226,21 @@ export interface DeepResearchCallbacks {
   onToolEnd?: (name: string, output?: string, eventId?: string, agentId?: string) => void
   /** Called on artifact updates */
   onTodoUpdate?: (todos: TodoItem[], workflow?: string) => void
-  onCitationUpdate?: (url: string, content: string, isCited?: boolean) => void
+  onCitationUpdate?: (
+    url: string,
+    content: string,
+    isCited?: boolean,
+    extras?: {
+      title?: string
+      citationKey?: string
+      collection?: string
+      sourceType?: string
+      tool?: string
+      origin?: string
+      fileName?: string
+      page?: number
+    }
+  ) => void
   onFileUpdate?: (filename: string, content: string) => void
   onOutputUpdate?: (
     content: string,
@@ -543,13 +566,27 @@ export const createDeepResearchClient = (options: DeepResearchStreamOptions): De
             callbacks.onTodoUpdate?.(artifactData.content as TodoItem[], artifactWorkflow)
             break
           case 'citation_source':
-            // citation_source = "Referenced" sources (discovered during search)
-            callbacks.onCitationUpdate?.(artifactData.url || '', artifactData.content as string, false)
+          case 'citation_use': {
+            // citation_source = discovered; citation_use = cited in the report.
+            const raw = artifactData as Record<string, unknown>
+            const isCited = artifactData.type === 'citation_use'
+            callbacks.onCitationUpdate?.(
+              (artifactData.url as string) || '',
+              (artifactData.content as string) || '',
+              isCited,
+              {
+                title: typeof raw.title === 'string' ? raw.title : undefined,
+                citationKey: typeof raw.citation_key === 'string' ? raw.citation_key : undefined,
+                collection: typeof raw.collection === 'string' ? raw.collection : undefined,
+                sourceType: typeof raw.source_type === 'string' ? raw.source_type : undefined,
+                tool: typeof raw.tool === 'string' ? raw.tool : undefined,
+                origin: typeof raw.origin === 'string' ? raw.origin : undefined,
+                fileName: typeof raw.file_name === 'string' ? raw.file_name : undefined,
+                page: typeof raw.page === 'number' ? raw.page : undefined,
+              }
+            )
             break
-          case 'citation_use':
-            // citation_use = "Cited" sources (actually used in the report)
-            callbacks.onCitationUpdate?.(artifactData.url || '', artifactData.content as string, true)
-            break
+          }
           case 'file': {
             // file artifacts are written during research — extract filename from path
             const raw = artifactData as Record<string, unknown>

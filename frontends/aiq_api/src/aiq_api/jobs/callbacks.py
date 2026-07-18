@@ -26,7 +26,10 @@ from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
 
+from aiq_agent.common.citation_verification import SourceEntry
+from aiq_agent.common.citation_verification import extract_sources_from_tool_result
 from aiq_agent.common.citation_verification import get_session_registry
+from aiq_agent.common.citation_verification import source_entry_to_wire
 
 if TYPE_CHECKING:
     from .event_store import EventStore
@@ -198,6 +201,7 @@ class AgentEventCallback(BaseCallbackHandler):
     AGENT_EXCLUDE_PATTERNS = {"middleware", "handler", "callback"}
 
     _job_discovered_urls: dict[str, set[str]] = {}
+    _job_discovered_sources: dict[str, set[str]] = {}
     _job_cited_urls: dict[str, set[str]] = {}
     _cache_lock = threading.Lock()
 
@@ -216,6 +220,7 @@ class AgentEventCallback(BaseCallbackHandler):
 
         self._job_id = event_store.job_id if event_store else None
         self._instance_discovered_urls: set[str] = set()
+        self._instance_discovered_sources: set[str] = set()
         self._instance_cited_urls: set[str] = set()
         self._init_job_url_sets()
 
@@ -226,6 +231,8 @@ class AgentEventCallback(BaseCallbackHandler):
         with AgentEventCallback._cache_lock:
             if self._job_id not in AgentEventCallback._job_discovered_urls:
                 AgentEventCallback._job_discovered_urls[self._job_id] = set()
+            if self._job_id not in AgentEventCallback._job_discovered_sources:
+                AgentEventCallback._job_discovered_sources[self._job_id] = set()
             if self._job_id not in AgentEventCallback._job_cited_urls:
                 AgentEventCallback._job_cited_urls[self._job_id] = set()
 
@@ -235,6 +242,13 @@ class AgentEventCallback(BaseCallbackHandler):
         if self._job_id and self._job_id in AgentEventCallback._job_discovered_urls:
             return AgentEventCallback._job_discovered_urls[self._job_id]
         return self._instance_discovered_urls
+
+    @property
+    def _discovered_sources(self) -> set[str]:
+        """Identity keys of structured citation_source artifacts already emitted."""
+        if self._job_id and self._job_id in AgentEventCallback._job_discovered_sources:
+            return AgentEventCallback._job_discovered_sources[self._job_id]
+        return self._instance_discovered_sources
 
     @property
     def _cited_urls(self) -> set[str]:
@@ -248,6 +262,7 @@ class AgentEventCallback(BaseCallbackHandler):
         """Clean up URL caches for a completed job."""
         with cls._cache_lock:
             cls._job_discovered_urls.pop(job_id, None)
+            cls._job_discovered_sources.pop(job_id, None)
             cls._job_cited_urls.pop(job_id, None)
 
     def _is_agent_like(self, name: str) -> bool:
@@ -631,28 +646,88 @@ class AgentEventCallback(BaseCallbackHandler):
             )
         )
 
-        if self._is_search_tool(tool_name) and output:
-            urls = self._extract_urls(str(output))
-            for url in urls:
-                normalized = self._normalize_url(url)
-                # Atomic test-and-set: concurrent researcher workers invoke this
-                # handler on different threads, and an unlocked check-then-act
-                # emits duplicate citation_source artifacts for the same URL.
-                with AgentEventCallback._cache_lock:
-                    if normalized in self._discovered_urls:
-                        continue
-                    self._discovered_urls.add(normalized)
-                self._emit_artifact(
-                    ArtifactType.CITATION_SOURCE,
-                    url,
-                    name=url,
-                    url=url,
-                    tool=tool_name,
-                    agent_id=agent_info[1] if agent_info else None,
-                    workflow=agent_info[0] if agent_info else None,
-                )
+        if output:
+            self._emit_structured_citation_sources(
+                tool_name,
+                str(output),
+                agent_id=agent_info[1] if agent_info else None,
+                workflow=agent_info[0] if agent_info else None,
+            )
 
         self._run_id_to_parent.pop(run_id, None)
+
+    def _source_identity(self, wire: dict[str, Any]) -> str:
+        """Stable dedupe key for a structured citation wire payload."""
+        citation_key = wire.get("citation_key")
+        if isinstance(citation_key, str) and citation_key.strip():
+            return f"key:{citation_key.strip().lower()}"
+        url = wire.get("url")
+        if isinstance(url, str) and url.strip():
+            return f"url:{self._normalize_url(url)}"
+        file_name = wire.get("file_name")
+        if isinstance(file_name, str) and file_name.strip():
+            page = wire.get("page")
+            return f"file:{file_name.strip().lower()}:{page if page is not None else ''}"
+        content = wire.get("content")
+        if isinstance(content, str) and content.strip():
+            return f"content:{content.strip().lower()[:200]}"
+        return f"tool:{wire.get('tool') or 'unknown'}"
+
+    def _emit_structured_citation_sources(
+        self,
+        tool_name: str,
+        output: str,
+        *,
+        agent_id: str | None,
+        workflow: str | None,
+    ) -> None:
+        """Emit ``citation_source`` artifacts from parsed tool output (KB/RIS/web).
+
+        Prefer :func:`extract_sources_from_tool_result` so knowledge-layer hits
+        carry ``file_name`` / ``page`` / ``collection``. Falls back to the legacy
+        URL scrape for search tools when the structured parsers return nothing
+        useful (keeps web discovery working for odd result shapes).
+        """
+        try:
+            entries = extract_sources_from_tool_result(tool_name, output)
+        except Exception:
+            logger.warning("Failed to extract sources from tool %s", tool_name, exc_info=True)
+            entries = []
+
+        # Drop non-URL tool_result placeholders (noise from non-data tools).
+        useful = [
+            entry
+            for entry in entries
+            if entry.url or entry.citation_key or (entry.source_type == "knowledge_layer")
+        ]
+
+        if not useful and self._is_search_tool(tool_name):
+            for url in self._extract_urls(output):
+                useful.append(SourceEntry(url=url, source_type="generic", tool_name=tool_name))
+
+        for entry in useful:
+            wire = source_entry_to_wire(entry)
+            if not wire.get("tool"):
+                wire["tool"] = tool_name
+            identity = self._source_identity(wire)
+
+            with AgentEventCallback._cache_lock:
+                if identity in self._discovered_sources:
+                    continue
+                self._discovered_sources.add(identity)
+                if entry.url:
+                    self._discovered_urls.add(self._normalize_url(entry.url))
+
+            content = str(wire.get("content") or entry.url or entry.citation_key or tool_name)
+            name = str(wire.get("title") or wire.get("citation_key") or entry.url or content)
+            self._emit_artifact(
+                ArtifactType.CITATION_SOURCE,
+                content,
+                name=name,
+                agent_id=agent_id,
+                workflow=workflow,
+                **wire,
+            )
 
     def on_llm_start(self, serialized: dict, prompts: list, **kwargs) -> None:
         model_name = "unknown"

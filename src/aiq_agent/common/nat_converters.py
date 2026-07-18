@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 # Extra attributes we want to carry from a ChatResponse onto the derived
 # ChatResponseChunk so they survive NAT's CHAT_STREAM serialization.
-_PRESERVED_EXTRA_FIELDS = ("cards", "deep_research_job_id", "answer_confidence")
+_PRESERVED_EXTRA_FIELDS = ("cards", "deep_research_job_id", "answer_confidence", "sources")
 
 _registered = False
 

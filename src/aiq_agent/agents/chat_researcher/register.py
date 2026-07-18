@@ -647,6 +647,9 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         answer_confidence = getattr(result, "answer_confidence", None) or (
             result.get("answer_confidence") if isinstance(result, dict) else None
         )
+        verified_sources = getattr(result, "verified_sources", None) or (
+            result.get("verified_sources") if isinstance(result, dict) else None
+        )
 
         # Exit after response when --input is provided
         if "--input" in sys.argv:
@@ -669,6 +672,8 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
             response.deep_research_job_id = deep_research_job_id
         if answer_confidence:
             response.answer_confidence = answer_confidence
+        if verified_sources:
+            response.sources = verified_sources
 
         # Post-processing phase: kick off memory reflection AFTER the answer is
         # ready. Fire-and-forget — it runs on the event loop without delaying the

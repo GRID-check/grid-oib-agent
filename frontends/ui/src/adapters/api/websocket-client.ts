@@ -40,7 +40,8 @@ export interface NATWebSocketClientCallbacks {
     parentId?: string,
     cards?: unknown[],
     deepResearchJobId?: string,
-    answerConfidence?: 'low' | 'medium' | 'high'
+    answerConfidence?: 'low' | 'medium' | 'high',
+    sources?: unknown[]
   ) => void
   /** Called when intermediate steps arrive (thinking, tool calls) */
   onIntermediateStep?: (content: NATIntermediateStepContent | string, status: string, parentId?: string) => void
@@ -453,7 +454,8 @@ export class NATWebSocketClient {
             message.parent_id,
             message.cards,
             message.deep_research_job_id,
-            message.answer_confidence
+            message.answer_confidence,
+            message.sources
           )
           break
         }

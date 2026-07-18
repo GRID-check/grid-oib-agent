@@ -245,6 +245,7 @@ async def persist_assistant_message(
     cards: Any = None,
     deep_research_job_id: Any = None,
     answer_confidence: Any = None,
+    sources: Any = None,
 ) -> bool:
     """Persist a finished assistant turn to the BFF when the client is gone.
 
@@ -278,6 +279,8 @@ async def persist_assistant_message(
         metadata["deep_research_job_id"] = deep_research_job_id
     if answer_confidence:
         metadata["answer_confidence"] = answer_confidence
+    if sources:
+        metadata["sources"] = sources
 
     payload = {
         "id": deterministic_assistant_message_id(conversation_id, parent_id),
@@ -523,6 +526,10 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
             if answer_confidence is None and isinstance(data_model, BaseModel):
                 answer_confidence = data_model.model_extra.get("answer_confidence") if data_model.model_extra else None
 
+            sources = getattr(data_model, "sources", None)
+            if sources is None and isinstance(data_model, BaseModel):
+                sources = data_model.model_extra.get("sources") if data_model.model_extra else None
+
             if issubclass(message_schema, WebSocketSystemResponseTokenMessage):
                 message = await self._message_validator.create_system_response_token_message(
                     message_id=message_id,
@@ -549,6 +556,11 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
                         message.answer_confidence = answer_confidence
                     except Exception:
                         logger.warning("Could not attach answer_confidence to websocket message", exc_info=True)
+                if message_type == WebSocketMessageType.RESPONSE_MESSAGE and sources:
+                    try:
+                        message.sources = sources
+                    except Exception:
+                        logger.warning("Could not attach sources to websocket message", exc_info=True)
 
             elif issubclass(message_schema, WebSocketSystemIntermediateStepMessage):
                 message = await self._message_validator.create_system_intermediate_step_message(
@@ -640,6 +652,7 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
             cards = dump.get("cards")
             deep_research_job_id = dump.get("deep_research_job_id")
             answer_confidence = dump.get("answer_confidence")
+            sources = dump.get("sources")
 
             if not (text and text.strip()) and not cards:
                 return
@@ -652,6 +665,7 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
                 cards=cards,
                 deep_research_job_id=deep_research_job_id,
                 answer_confidence=answer_confidence,
+                sources=sources,
             )
         except Exception:  # noqa: BLE001 — never let persistence crash the handler
             logger.warning("Unexpected error while persisting terminal message", exc_info=True)

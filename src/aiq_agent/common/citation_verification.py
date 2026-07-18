@@ -881,6 +881,43 @@ def source_origin_token(entry: SourceEntry) -> str:
     return ""
 
 
+def source_entry_to_wire(entry: SourceEntry) -> dict[str, Any]:
+    """Serialize a :class:`SourceEntry` for the citation wire (SSE / WS).
+
+    The frontend opens document previews from structured ``file_name`` /
+    ``page`` / ``collection`` fields rather than inventing filenames from free
+    text. ``content`` still carries a human-readable line (optional leading
+    origin token + citation key or title) for legacy parsers and chip labels.
+    """
+    origin_token = source_origin_token(entry)
+    origin = origin_token.strip("[]").lower() if origin_token else None
+
+    file_name: str | None = None
+    page: int | None = None
+    if entry.citation_key:
+        parsed_name, page = _parse_citation_key(entry.citation_key)
+        # Only surface filenames that look like documents (extension present).
+        if parsed_name and "." in parsed_name.rsplit("/", 1)[-1]:
+            file_name = parsed_name
+
+    label = entry.citation_key or entry.title or entry.url or entry.tool_name or ""
+    content = f"{origin_token} {label}".strip() if origin_token else label
+
+    payload: dict[str, Any] = {
+        "content": content,
+        "title": entry.title or file_name,
+        "citation_key": entry.citation_key,
+        "collection": entry.collection,
+        "source_type": entry.source_type or None,
+        "tool": entry.tool_name or None,
+        "url": entry.url,
+        "origin": origin,
+        "file_name": file_name,
+        "page": page,
+    }
+    return {key: value for key, value in payload.items() if value is not None}
+
+
 # A leading origin token on the post-``[N]`` text of a source line, e.g. the
 # ``[KB]`` in ``- [1] [KB] file.pdf, p.3``. Kept in sync with
 # ``source_origin_token`` and the frontend ``SOURCE_KIND_TOKEN_RE`` parser.

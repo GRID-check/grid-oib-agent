@@ -70,3 +70,6 @@ class ChatResearcherState(BaseModel):
     # (marker absent/malformed, or an error/escalation turn) — nothing renders.
     # Distinct from the internal ShallowResult.confidence error-certainty proxy.
     answer_confidence: Literal["low", "medium", "high"] | None = None
+    # Structured sources from the shallow researcher's registry (wire dicts with
+    # file_name/page/collection/origin). Attached to ChatResponse as ``sources``.
+    verified_sources: list[dict[str, Any]] | None = None

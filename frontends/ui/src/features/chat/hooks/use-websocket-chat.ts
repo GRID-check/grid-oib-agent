@@ -38,6 +38,7 @@ import { useLayoutStore } from '@/features/layout/store'
 import { useDocumentsStore } from '@/features/documents/store'
 import { isLikelyAuthRelatedTransportError } from '../lib/transport-auth-signals'
 import { validateGridCards } from '@/shared/cards/schemas'
+import { citationsFromWireList } from '../lib/wire-citation'
 import type { GridCard } from '@/shared/cards/schemas'
 import type {
   ChatMessage,
@@ -708,7 +709,8 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         parentId?: string,
         cards?: unknown[],
         deepResearchJobId?: string,
-        answerConfidence?: 'low' | 'medium' | 'high'
+        answerConfidence?: 'low' | 'medium' | 'high',
+        sources?: unknown[]
       ) => {
         // A response on the wire proves the post-rotation auth is alive --
         // clear the consecutive auth_expired counter so a *future* (and
@@ -851,7 +853,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         if ((content && content.trim()) || validatedCards.length > 0) {
           // Add to chat area as AgentResponse
           // Note: reportContent is only set by deep research SSE events (use-deep-research.ts)
-          addAgentResponse(content, false, validatedCards, answerConfidence)
+          addAgentResponse(content, false, validatedCards, answerConfidence, citationsFromWireList(sources))
         }
 
         // status: "complete" with null text signals task completion

@@ -45,14 +45,15 @@ const getDomain = (url: string): string => {
 export const CitationCard: FC<CitationCardProps> = ({ citation, index }) => {
   const { locale } = useLocale()
   const excerpt = citation.content?.trim()
+  const href = citation.url && /^https?:\/\//i.test(citation.url) ? citation.url : undefined
+  const title =
+    citation.title?.trim() ||
+    citation.fileName?.trim() ||
+    citation.citationKey?.trim() ||
+    (href ? getDomain(href) : excerpt?.split('\n')[0]?.slice(0, 48)) ||
+    'Source'
 
-  return (
-    <a
-      href={citation.url}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="animate-in fade-in-0 block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
-    >
+  const body = (
       <div className="flex gap-3 rounded-lg border bg-card p-3 transition-colors hover:bg-accent">
         {/* Numbered marker */}
         {index != null && (
@@ -86,7 +87,7 @@ export const CitationCard: FC<CitationCardProps> = ({ citation, index }) => {
                 citation.isCited ? 'text-success' : 'text-foreground'
               )}
             >
-              {getDomain(citation.url)}
+              {title}
             </span>
             <span className="shrink-0 text-xs text-muted-foreground">
               {formatTime(citation.timestamp, locale)}
@@ -98,12 +99,30 @@ export const CitationCard: FC<CitationCardProps> = ({ citation, index }) => {
             <p className="line-clamp-3 text-sm leading-relaxed text-muted-foreground">{excerpt}</p>
           )}
 
-          {/* Full URL — traceable source */}
+          {/* Full URL or structured locator — traceable source */}
           <span className="truncate break-all font-mono text-xs text-muted-foreground/80">
-            {citation.url}
+            {href || citation.citationKey || citation.fileName || ''}
           </span>
         </div>
       </div>
-    </a>
+  )
+
+  if (href) {
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="animate-in fade-in-0 block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+      >
+        {body}
+      </a>
+    )
+  }
+
+  return (
+    <div className="animate-in fade-in-0 block rounded-lg">
+      {body}
+    </div>
   )
 }

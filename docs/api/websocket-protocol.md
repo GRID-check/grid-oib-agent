@@ -173,7 +173,23 @@ Delivers final or streaming response text.
             | { output: string, value?: string, intermediate_steps?: [...] | null },
   status: "in_progress" | "complete" | "error",
   timestamp: "<ISO 8601>",
-  cards?: [...]
+  cards?: [...],
+  deep_research_job_id?: string,
+  answer_confidence?: "low" | "medium" | "high",
+  // Structured sources from the research registry (shallow path). Enables
+  // Belegt-durch chips to open OIB/project PDFs via file_name + page.
+  sources?: Array<{
+    content?: string
+    url?: string | null
+    title?: string | null
+    citation_key?: string | null
+    collection?: string | null
+    source_type?: string | null
+    tool?: string | null
+    origin?: "kb" | "ris" | "web" | string | null
+    file_name?: string | null
+    page?: number | null
+  }>
 }
 ```
 
@@ -182,7 +198,7 @@ Delivers final or streaming response text.
 - **SystemResponseContent** (`{ text: string | null }`): Standard assistant response.
 - **GenerateResponse** (`{ output: string }`): Shallow/meta response format.
 
-The client extracts content in priority order: `output` → `text` → raw string. The `isFinal` flag is derived from `status === 'complete'`.
+The client extracts content in priority order: `output` → `text` → raw string. The `isFinal` flag is derived from `status === 'complete'`. Structured extras (`cards`, `deep_research_job_id`, `answer_confidence`, `sources`) are optional and fail-open when absent.
 
 #### system_intermediate_message
 
@@ -286,7 +302,11 @@ interface NATWebSocketClientCallbacks {
     status: string,
     isFinal: boolean,
     parentId?: string,
-    cards?: unknown[]
+    cards?: unknown[],
+    deepResearchJobId?: string,
+    answerConfidence?: 'low' | 'medium' | 'high',
+    /** Structured registry sources (file_name/page/collection/origin/url) for Belegt-durch chips */
+    sources?: unknown[]
   ) => void
   onIntermediateStep?: (
     content: NATIntermediateStepContent | string,

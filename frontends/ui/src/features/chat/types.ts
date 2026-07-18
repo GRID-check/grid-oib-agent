@@ -287,14 +287,43 @@ export interface PendingInteraction {
 /** Deep research job status (from SSE stream) */
 export type DeepResearchJobStatus = 'submitted' | 'running' | 'success' | 'failure' | 'interrupted'
 
-/** Citation source from deep research */
+/** Citation source from research (deep SSE or shallow WS ``sources``). */
 export interface CitationSource {
   id: string
-  url: string
+  /**
+   * Outbound URL when the source is web/RIS. Optional for KB hits that only
+   * have a citation key / file locator (structured wire).
+   */
+  url?: string
   content: string
   timestamp: Date
   /** Whether this source was actually cited in the report (vs just referenced/discovered) */
   isCited?: boolean
+  /** Backend origin token without brackets: kb | ris | web */
+  origin?: 'kb' | 'ris' | 'web'
+  title?: string
+  citationKey?: string
+  collection?: string
+  sourceType?: string
+  tool?: string
+  /** Document filename from structured wire (prefer over parsing content). */
+  fileName?: string
+  /** 1-based page from structured wire. */
+  page?: number
+}
+
+/** Wire shape of a structured source attached to a shallow ChatResponse. */
+export interface WireCitationSource {
+  content?: string
+  url?: string | null
+  title?: string | null
+  citation_key?: string | null
+  collection?: string | null
+  source_type?: string | null
+  tool?: string | null
+  origin?: string | null
+  file_name?: string | null
+  page?: number | null
 }
 
 /** Plan message for chat/HITL display and restore flows */
@@ -594,7 +623,8 @@ export interface ChatActions {
     content: string,
     showViewReport?: boolean,
     cards?: GridCard[],
-    answerConfidence?: 'low' | 'medium' | 'high'
+    answerConfidence?: 'low' | 'medium' | 'high',
+    citations?: CitationSource[]
   ) => void
   /** Add an agent response with additional metadata - returns the created message ID */
   addAgentResponseWithMeta: (
@@ -693,7 +723,21 @@ export interface ChatActions {
    */
   refreshDeepResearchSessionStatuses: () => Promise<void>
   /** Add a citation from deep research (isCited=true for citation_use, false for citation_source) */
-  addDeepResearchCitation: (url: string, content: string, isCited?: boolean) => void
+  addDeepResearchCitation: (
+    url: string,
+    content: string,
+    isCited?: boolean,
+    extras?: {
+      title?: string
+      citationKey?: string
+      collection?: string
+      sourceType?: string
+      tool?: string
+      origin?: string
+      fileName?: string
+      page?: number
+    }
+  ) => void
   /** Set the full todo list from deep research (replaces existing) */
   setDeepResearchTodos: (todos: Array<{ content: string; status: string }>) => void
   /** Mark all in-progress and pending todos as stopped (on error) */

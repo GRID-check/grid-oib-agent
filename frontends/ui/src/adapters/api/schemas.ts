@@ -208,6 +208,27 @@ export const NATSystemResponseMessageSchema = z.object({
   // out-of-enum value degrades to `undefined` (no chip) via `.catch` rather than
   // failing the whole message parse and dropping the response text.
   answer_confidence: z.enum(['low', 'medium', 'high']).optional().catch(undefined),
+  // Structured sources from the source registry (KB file/page/collection, RIS/web URLs).
+  // Fail-open: unknown/malformed shapes drop the array rather than the response text.
+  sources: z
+    .array(
+      z
+        .object({
+          content: z.string().optional(),
+          url: z.string().nullable().optional(),
+          title: z.string().nullable().optional(),
+          citation_key: z.string().nullable().optional(),
+          collection: z.string().nullable().optional(),
+          source_type: z.string().nullable().optional(),
+          tool: z.string().nullable().optional(),
+          origin: z.string().nullable().optional(),
+          file_name: z.string().nullable().optional(),
+          page: z.number().nullable().optional(),
+        })
+        .passthrough()
+    )
+    .optional()
+    .catch(undefined),
 })
 
 /** Intermediate step content */

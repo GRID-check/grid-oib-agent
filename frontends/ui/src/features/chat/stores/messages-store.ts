@@ -11,6 +11,7 @@ import type {
   FileUploadStatusType,
   DeepResearchBannerType,
   Conversation,
+  CitationSource,
 } from '../types'
 import type { GridCard } from '@/shared/cards/schemas'
 import { getErrorMeta } from '../lib/error-registry'
@@ -83,7 +84,8 @@ export type MessagesSlice = {
     content: string,
     showViewReport?: boolean,
     cards?: GridCard[],
-    answerConfidence?: 'low' | 'medium' | 'high'
+    answerConfidence?: 'low' | 'medium' | 'high',
+    citations?: CitationSource[]
   ) => void
   addAgentResponseWithMeta: (
     content: string,
@@ -719,7 +721,8 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
     content: string,
     showViewReport?: boolean,
     cards?: GridCard[],
-    answerConfidence?: 'low' | 'medium' | 'high'
+    answerConfidence?: 'low' | 'medium' | 'high',
+    citations?: CitationSource[]
   ) => {
     const {
       currentConversation,
@@ -748,7 +751,12 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
       cards,
       answerConfidence,
       reportContent: reportContent || undefined,
-      citations: deepResearchCitations.length > 0 ? [...deepResearchCitations] : undefined,
+      citations:
+        citations && citations.length > 0
+          ? citations
+          : deepResearchCitations.length > 0
+            ? [...deepResearchCitations]
+            : undefined,
       planMessages: planMessages.length > 0 ? [...planMessages] : undefined,
       deepResearchTodos: deepResearchTodos.length > 0 ? [...deepResearchTodos] : undefined,
       deepResearchLLMSteps:

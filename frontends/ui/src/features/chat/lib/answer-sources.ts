@@ -55,7 +55,8 @@ const TOKEN_TO_KIND: Record<string, AnswerSourceKind> = {
   ris: 'ris',
 }
 
-const isHttpUrl = (url: string): boolean => /^https?:\/\//i.test(url)
+const isHttpUrl = (url: string | undefined | null): boolean =>
+  !!url && /^https?:\/\//i.test(url)
 
 const hostnameOf = (url: string): string | null => {
   try {
@@ -65,24 +66,38 @@ const hostnameOf = (url: string): string | null => {
   }
 }
 
-/** Classify a single citation into an origin kind (token first, then URL). */
-const classifyCitation = (citation: Pick<CitationSource, 'url' | 'content'>): AnswerSourceKind => {
+/** Classify a single citation into an origin kind (token first, then structured origin, then URL). */
+const classifyCitation = (
+  citation: Pick<CitationSource, 'url' | 'content' | 'origin'>
+): AnswerSourceKind => {
+  if (citation.origin === 'kb' || citation.origin === 'ris' || citation.origin === 'web') {
+    return citation.origin
+  }
   const tokenMatch = citation.content?.match(ORIGIN_TOKEN_RE)
   if (tokenMatch) return TOKEN_TO_KIND[tokenMatch[1].toLowerCase()]
-  if (/ris\.bka\.gv\.at/i.test(citation.url)) return 'ris'
+  if (citation.url && /ris\.bka\.gv\.at/i.test(citation.url)) return 'ris'
   if (isHttpUrl(citation.url)) return 'web'
   return 'kb'
 }
 
-/** Short display label for a citation: hostname for links, else content/url. */
-const citationLabel = (citation: Pick<CitationSource, 'url' | 'content'>): string => {
+/** Short display label for a citation: hostname for links, else title/content/url. */
+const citationLabel = (
+  citation: Pick<CitationSource, 'url' | 'content' | 'title' | 'fileName' | 'citationKey'>
+): string => {
   if (isHttpUrl(citation.url)) {
-    const host = hostnameOf(citation.url)
+    const host = hostnameOf(citation.url!)
     if (host) return host
+  }
+  const structured =
+    citation.title?.trim() ||
+    citation.fileName?.trim() ||
+    citation.citationKey?.replace(ORIGIN_TOKEN_RE, '').trim()
+  if (structured) {
+    return structured.length > 48 ? `${structured.slice(0, 47)}…` : structured
   }
   const text = (citation.content ?? '').replace(ORIGIN_TOKEN_RE, '').trim()
   const firstLine = text.split('\n')[0]?.trim()
-  const base = firstLine || citation.url
+  const base = firstLine || citation.url || ''
   return base.length > 48 ? `${base.slice(0, 47)}…` : base
 }
 
@@ -112,15 +127,20 @@ export const deriveAnswerSources = (
     const relevant = cited.length > 0 ? cited : citations
     for (const citation of relevant) {
       const kind = classifyCitation(citation)
+      const dedupe =
+        citation.citationKey ||
+        citation.fileName ||
+        citation.url ||
+        citationLabel(citation)
       push(
         {
-          key: `citation-${citation.id || citation.url}`,
+          key: `citation-${citation.id || dedupe}`,
           label: citationLabel(citation),
           kind,
           url: isHttpUrl(citation.url) ? citation.url : undefined,
           citation,
         },
-        citation.url || citationLabel(citation)
+        dedupe
       )
     }
   }
@@ -215,10 +235,20 @@ export const parseKbLocator = (text: string): KbCitationLocator | null => {
   return { filename, page }
 }
 
-/** Locator from a citation: content first, then a pseudo-URL basename. */
+/** Locator from a citation: structured fields first, then content / pseudo-URL. */
 const locatorForCitation = (
-  citation: Pick<CitationSource, 'url' | 'content'>
+  citation: Pick<CitationSource, 'url' | 'content' | 'fileName' | 'page' | 'citationKey'>
 ): KbCitationLocator | null => {
+  if (citation.fileName?.trim()) {
+    return {
+      filename: citation.fileName.trim(),
+      page: typeof citation.page === 'number' ? citation.page : undefined,
+    }
+  }
+  if (citation.citationKey?.trim()) {
+    const fromKey = parseKbLocator(citation.citationKey)
+    if (fromKey) return fromKey
+  }
   const fromContent = citation.content ? parseKbLocator(citation.content) : null
   if (fromContent) return fromContent
   if (citation.url && !isHttpUrl(citation.url)) {
@@ -244,7 +274,8 @@ export const citationSnippet = (
   citation: Pick<CitationSource, 'url' | 'content'>
 ): string | undefined => {
   const text = (citation.content ?? '').replace(ORIGIN_TOKEN_RE, '').trim()
-  if (!text || text === citation.url.trim()) return undefined
+  const url = citation.url?.trim() ?? ''
+  if (!text || (url && text === url)) return undefined
   const lines = text.split('\n')
   const firstLine = lines[0]?.trim() ?? ''
   // A leading locator line ("file.pdf, p.3") is a reference, not a passage.
@@ -285,13 +316,13 @@ const isPreviewableContentType = (contentType: string | null | undefined): boole
  * loaded, or the caller cannot fetch), resolution honestly degrades to `info`.
  */
 export const resolveCitationTarget = (
-  citation: Pick<CitationSource, 'url' | 'content'>,
+  citation: Pick<CitationSource, 'url' | 'content' | 'fileName' | 'page' | 'citationKey' | 'origin' | 'title'>,
   projectDocuments?: ProjectDocumentRef[],
   baseCorpusFiles?: string[]
 ): CitationTarget => {
   const origin = classifyCitation(citation)
   if (isHttpUrl(citation.url)) {
-    return { kind: 'url', url: citation.url, origin }
+    return { kind: 'url', url: citation.url!, origin }
   }
 
   const snippet = citationSnippet(citation)
@@ -325,12 +356,22 @@ export const resolveCitationTarget = (
         document: { type: 'base', fileName: baseFile },
       }
     }
+    // Structured fileName present but index miss: still a document-info target
+    // (exact backend locator, not client guessing).
+    if (citation.fileName) {
+      return {
+        kind: 'info',
+        origin,
+        title: citation.fileName,
+        snippet,
+      }
+    }
   }
 
   return {
     kind: 'info',
     origin,
-    title: locator?.filename ?? citationLabel(citation),
+    title: locator?.filename ?? citation.title ?? citationLabel(citation),
     snippet,
   }
 }

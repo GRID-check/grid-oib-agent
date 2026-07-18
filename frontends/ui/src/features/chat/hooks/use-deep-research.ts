@@ -208,7 +208,19 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
         llmSteps: new Map<string, { name: string; workflow?: string; content: string; thinking?: string; usage?: { input_tokens: number; output_tokens: number } }>(),
         toolCalls: new Map<string, { name: string; input?: Record<string, unknown>; output?: string; workflow?: string; agentId?: string }>(),
         todos: null as TodoItem[] | null,
-        citations: [] as Array<{ url: string; content: string; isCited: boolean }>,
+        citations: [] as Array<{
+          url: string
+          content: string
+          isCited: boolean
+          title?: string
+          citationKey?: string
+          collection?: string
+          sourceType?: string
+          tool?: string
+          origin?: string
+          fileName?: string
+          page?: number
+        }>,
         files: new Map<string, string>(),
         reportContent: null as string | null,
         reportCards: null as unknown[] | null,
@@ -236,7 +248,22 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
         const agents = Array.from(buf.agents.entries()).map(([id, a]) => ({ id, name: a.name, input: a.input, output: a.output, status: 'complete' as const, startedAt: now, completedAt: now }))
         const llmSteps = Array.from(buf.llmSteps.entries()).map(([id, s]) => ({ id, name: s.name, workflow: s.workflow, content: s.content, thinking: s.thinking, usage: s.usage, isComplete: true, timestamp: now }))
         const toolCalls = Array.from(buf.toolCalls.entries()).map(([id, t]) => ({ id, name: t.name, input: t.input, output: t.output, workflow: t.workflow, agentId: t.agentId, status: 'complete' as const, timestamp: now }))
-        const citations = buf.citations.map((c, i) => ({ id: `citation-${i}`, url: c.url, content: c.content, isCited: c.isCited, timestamp: now }))
+        const citations = buf.citations.map((c, i) => ({
+          id: `citation-${i}`,
+          url: c.url || undefined,
+          content: c.content,
+          isCited: c.isCited,
+          timestamp: now,
+          title: c.title,
+          citationKey: c.citationKey,
+          collection: c.collection,
+          sourceType: c.sourceType,
+          tool: c.tool,
+          origin:
+            c.origin === 'kb' || c.origin === 'ris' || c.origin === 'web' ? c.origin : undefined,
+          fileName: c.fileName,
+          page: c.page,
+        }))
         const files = Array.from(buf.files.entries()).map(([filename, content], i) => ({ id: `file-${i}`, filename, content, timestamp: now }))
         const todos = buf.todos ? normalizeDeepResearchTodos(buf.todos) : undefined
 
@@ -502,10 +529,25 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
 
           },
 
-          onCitationUpdate: (url, content, isCited) => {
-            if (buf.active) { buf.citations.push({ url, content, isCited: isCited ?? false }); return }
+          onCitationUpdate: (url, content, isCited, extras) => {
+            if (buf.active) {
+              buf.citations.push({
+                url,
+                content,
+                isCited: isCited ?? false,
+                title: extras?.title,
+                citationKey: extras?.citationKey,
+                collection: extras?.collection,
+                sourceType: extras?.sourceType,
+                tool: extras?.tool,
+                origin: extras?.origin,
+                fileName: extras?.fileName,
+                page: extras?.page,
+              })
+              return
+            }
             if (!isActiveJob()) return
-            resetTimeout(); addDeepResearchCitation(url, content, isCited)
+            resetTimeout(); addDeepResearchCitation(url, content, isCited, extras)
           },
 
           onFileUpdate: (filename, content) => {

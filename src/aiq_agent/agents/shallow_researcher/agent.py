@@ -510,6 +510,15 @@ class ShallowResearcherAgent:
         # real answer message and are authoritative (else it re-parses text).
         validated_result["escalation_requested"] = escalation_requested
         validated_result["answer_confidence_marker"] = answer_confidence_marker
+        # Wire-ready sources for Belegt-durch chips / PDF open (file/page/collection).
+        try:
+            from aiq_agent.common.citation_verification import source_entry_to_wire
+
+            wire_sources = [source_entry_to_wire(entry) for entry in registry.all_sources()]
+            validated_result["verified_sources"] = wire_sources or None
+        except Exception:
+            logger.warning("Failed to serialize verified_sources for wire", exc_info=True)
+            validated_result["verified_sources"] = None
 
         return ShallowResearchAgentState.model_validate(validated_result)
 

@@ -74,6 +74,7 @@ def _finalize_shallow_answer(
     *,
     escalation_present: bool | None = None,
     self_reported: ConfidenceLevel | None = None,
+    verified_sources: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Build the node update for a successful/insufficient shallow answer.
 
@@ -124,12 +125,14 @@ def _finalize_shallow_answer(
             ),
             # Escalation supersedes the shallow answer → surface no self-assessment.
             "answer_confidence": None,
+            "verified_sources": verified_sources,
         }
 
     return {
         "messages": [updated_message],
         "shallow_result": None,
         "answer_confidence": surface_answer_confidence(self_reported, citation_grounded),
+        "verified_sources": verified_sources,
     }
 
 
@@ -404,12 +407,17 @@ class ChatResearcherAgent:
                 escalation_present = None
                 self_reported = None
 
+            verified_sources = getattr(result, "verified_sources", None)
+            if not isinstance(verified_sources, list):
+                verified_sources = None
+
             if final_ai_message:
                 return _finalize_shallow_answer(
                     final_ai_message,
                     citation_grounded,
                     escalation_present=escalation_present,
                     self_reported=self_reported,
+                    verified_sources=verified_sources,
                 )
             if new_messages:
                 return _finalize_shallow_answer(
@@ -417,6 +425,7 @@ class ChatResearcherAgent:
                     citation_grounded,
                     escalation_present=escalation_present,
                     self_reported=self_reported,
+                    verified_sources=verified_sources,
                 )
             return {"messages": [], "shallow_result": None}
 
