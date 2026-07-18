@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { toast } from 'sonner'
-import { AlertCircle, RotateCcw, ShieldCheck, Upload, X } from 'lucide-react'
+import { AlertCircle, LayoutGrid, ListTree, RotateCcw, ShieldCheck, Upload, X } from 'lucide-react'
 import { useProjectDocuments } from '../hooks/use-project-documents'
 import { useFileDragDrop } from '../hooks/use-file-drag-drop'
 import { FolderTreePane } from './folder-tree-pane'
@@ -13,7 +13,6 @@ import { ActiveUploads } from './active-uploads'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { useTranslations } from '@/i18n'
-import { useIsMobile } from '@/hooks/use-is-mobile'
 import { cn } from '@/lib/utils'
 
 interface ProjectFileWorkspaceProps {
@@ -57,8 +56,24 @@ export interface FileItem {
   tags: string[] | null
 }
 
+/** Presentation of the file browser: the dummy's card grid, or the folder tree. */
+type FileView = 'cards' | 'tree'
+const VIEW_STORAGE_KEY = 'grid.files.view'
+
 export function ProjectFileWorkspace({ projectId, projectName, collectionName, showMetadataPanel = true }: ProjectFileWorkspaceProps) {
   const t = useTranslations('files')
+  // Default to the card grid (the click-dummy). The folder-tree workspace stays
+  // one click away and the choice persists per browser (sidebar-collapse pattern).
+  const [view, setView] = useState<FileView>('cards')
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const stored = window.localStorage.getItem(VIEW_STORAGE_KEY)
+    if (stored === 'cards' || stored === 'tree') setView(stored)
+  }, [])
+  const selectView = useCallback((next: FileView) => {
+    setView(next)
+    if (typeof window !== 'undefined') window.localStorage.setItem(VIEW_STORAGE_KEY, next)
+  }, [])
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null)
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null)
   const [folders, setFolders] = useState<FolderItem[]>([])
@@ -165,14 +180,13 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
 
   const selectedFile = files.find((f) => f.id === selectedFileId) ?? null
 
-  // On mobile the preview is a full-screen overlay: give it dialog semantics and
-  // Escape-to-close. The desktop (md+) docked panel keeps its plain-column
-  // presentation. useIsMobile tracks Tailwind's `md` breakpoint at runtime.
-  const isMobile = useIsMobile()
-  const showMobilePreviewDialog = isMobile && selectedFile !== null
+  // The preview is a centered modal overlay (matching the click-dummy) on every
+  // breakpoint: dialog semantics, Escape-to-close, backdrop click, and focus
+  // return to the file card that opened it.
+  const previewOpen = selectedFile !== null
   const previousFocusRef = useRef<HTMLElement | null>(null)
   useEffect(() => {
-    if (!showMobilePreviewDialog) return
+    if (!previewOpen) return
     // Remember the file row that opened the overlay so focus can return to it.
     previousFocusRef.current = document.activeElement as HTMLElement | null
     const onKeyDown = (e: KeyboardEvent) => {
@@ -183,7 +197,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
       document.removeEventListener('keydown', onKeyDown)
       previousFocusRef.current?.focus?.()
     }
-  }, [showMobilePreviewDialog])
+  }, [previewOpen])
 
   // After a successful re-ingestion the document is back to 'pending'; reflect
   // that locally so the badge flips to "Processing" and the dead-end failure UI
@@ -287,12 +301,33 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
             {t('workspace.corpusSubtitle')}
           </p>
         </div>
-        <ProjectUppyUpload
-          projectId={projectId}
-          folderId={selectedFolderId}
-          onUpload={(files) => uploadFiles(files)}
-          isUploading={isUploading}
-        />
+        <div className="flex shrink-0 items-center gap-2">
+          {/* Card grid (dummy default) ⟷ folder-tree workspace toggle. */}
+          <div
+            role="group"
+            aria-label={t('workspace.view.label')}
+            className="flex items-center rounded-lg border bg-card p-0.5 shadow-2xs"
+          >
+            <ViewToggleButton
+              active={view === 'cards'}
+              onClick={() => selectView('cards')}
+              label={t('workspace.view.cards')}
+              icon={LayoutGrid}
+            />
+            <ViewToggleButton
+              active={view === 'tree'}
+              onClick={() => selectView('tree')}
+              label={t('workspace.view.tree')}
+              icon={ListTree}
+            />
+          </div>
+          <ProjectUppyUpload
+            projectId={projectId}
+            folderId={selectedFolderId}
+            onUpload={(files) => uploadFiles(files)}
+            isUploading={isUploading}
+          />
+        </div>
       </div>
 
       {/* Error banner */}
@@ -321,20 +356,24 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
       {/* Three-pane layout — stacks on mobile: folders on top, files below,
           preview as a full-screen overlay. */}
       <div className="flex flex-1 flex-col overflow-hidden md:flex-row">
-        {/* Folder tree */}
-        <div className="max-h-48 w-full shrink-0 overflow-y-auto border-b md:max-h-none md:w-60 md:border-b-0 md:border-r">
-          {foldersError ? (
-            <PaneLoadError message={t('workspace.foldersLoadError')} onRetry={loadFolders} />
-          ) : (
-            <FolderTreePane
-              folders={folders}
-              selectedFolderId={selectedFolderId}
-              onSelectFolder={setSelectedFolderId}
-              onCreateFolder={handleCreateFolder}
-              isLoading={isLoadingFolders}
-            />
-          )}
-        </div>
+        {/* Folder tree — only in the tree view; the card view navigates folders
+            through the chip row instead. All tree functionality (expand/collapse,
+            selection, drill-in, create) is preserved. */}
+        {view === 'tree' && (
+          <div className="max-h-48 w-full shrink-0 overflow-y-auto border-b md:max-h-none md:w-60 md:border-b-0 md:border-r">
+            {foldersError ? (
+              <PaneLoadError message={t('workspace.foldersLoadError')} onRetry={loadFolders} />
+            ) : (
+              <FolderTreePane
+                folders={folders}
+                selectedFolderId={selectedFolderId}
+                onSelectFolder={setSelectedFolderId}
+                onCreateFolder={handleCreateFolder}
+                isLoading={isLoadingFolders}
+              />
+            )}
+          </div>
+        )}
 
         {/* File browser */}
         <div className="flex-1 overflow-y-auto">
@@ -347,9 +386,13 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
               onSelectFile={setSelectedFileId}
               isLoading={isLoadingFiles}
               hasFolderSelected={selectedFolderId !== null}
-              folders={folders}
-              selectedFolderId={selectedFolderId}
-              onSelectFolder={setSelectedFolderId}
+              {...(view === 'cards'
+                ? {
+                    folders,
+                    selectedFolderId,
+                    onSelectFolder: setSelectedFolderId,
+                  }
+                : {})}
               uploadControl={
                 <ProjectUppyUpload
                   projectId={projectId}
@@ -374,17 +417,21 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
           )}
         </div>
 
-        {/* Preview pane — full-screen overlay on mobile, docked column on md+ */}
-        {selectedFile && (
+      </div>
+
+      {/* Preview — centered modal overlay (click-dummy), backdrop dims the page
+          and closes on click; the panel maxes at 920px with the split preview. */}
+      {selectedFile && (
+        <div
+          role="dialog"
+          aria-modal
+          aria-label={t('preview.dialogLabel', { name: selectedFile.filename })}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 pt-[max(1rem,env(safe-area-inset-top))] md:p-10"
+          onClick={() => setSelectedFileId(null)}
+        >
           <div
-            className="fixed inset-0 z-50 w-full shrink-0 overflow-y-auto bg-background pt-[env(safe-area-inset-top)] md:static md:z-auto md:w-96 md:border-l md:pt-0"
-            {...(showMobilePreviewDialog
-              ? {
-                  role: 'dialog',
-                  'aria-modal': true,
-                  'aria-label': t('preview.dialogLabel', { name: selectedFile.filename }),
-                }
-              : {})}
+            className="flex max-h-full w-full max-w-[920px] flex-col overflow-hidden rounded-xl border bg-card shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
           >
             <FilePreviewPane
               file={selectedFile}
@@ -396,9 +443,38 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
               showMetadataPanel={showMetadataPanel}
             />
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
+  )
+}
+
+/** One segment of the card/tree view toggle. */
+function ViewToggleButton({
+  active,
+  onClick,
+  label,
+  icon: Icon,
+}: {
+  active: boolean
+  onClick: () => void
+  label: string
+  icon: typeof LayoutGrid
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      aria-label={label}
+      title={label}
+      className={cn(
+        'flex size-7 items-center justify-center rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        active ? 'bg-accent text-foreground shadow-2xs' : 'text-muted-foreground hover:text-foreground'
+      )}
+    >
+      <Icon className="size-4" aria-hidden />
+    </button>
   )
 }
 

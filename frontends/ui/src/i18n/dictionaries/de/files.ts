@@ -67,6 +67,7 @@ export const files: typeof en.files = {
     retryIngestionError:
       'Die Verarbeitung konnte nicht erneut gestartet werden. Bitte versuchen Sie es erneut.',
     dialogLabel: 'Dateivorschau: {name}',
+    pageIndicator: 'Seite 1 von {count}',
   },
   browser: {
     folderEmptyTitle: 'Dieser Ordner ist leer',
@@ -82,6 +83,7 @@ export const files: typeof en.files = {
       'Versuchen Sie einen anderen Namen, ein Schlagwort oder eine Beschreibung – oder löschen Sie die Suche, um alle Dateien zu sehen.',
     clearSearch: 'Suche löschen',
     resetSearch: 'Suche zurücksetzen',
+    recentlyUploaded: 'Zuletzt hochgeladen',
   },
   folders: {
     heading: 'Ordner',
@@ -104,6 +106,11 @@ export const files: typeof en.files = {
     tryAgain: 'Erneut versuchen',
     dropToUpload: 'Dateien hier ablegen, um sie in dieses Projekt hochzuladen',
     dropUnsupported: 'Einige Dateien haben einen nicht unterstützten Typ',
+    view: {
+      label: 'Ansicht',
+      cards: 'Kacheln',
+      tree: 'Ordner',
+    },
   },
   upload: {
     uploading: 'Wird hochgeladen …',

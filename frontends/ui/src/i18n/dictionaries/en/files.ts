@@ -62,6 +62,7 @@ export const files = {
     retryingIngestion: 'Retrying…',
     retryIngestionError: "Ingestion couldn't be restarted. Please try again.",
     dialogLabel: 'File preview: {name}',
+    pageIndicator: 'Page 1 of {count}',
   },
   browser: {
     folderEmptyTitle: 'This folder is empty',
@@ -76,6 +77,7 @@ export const files = {
       'Try a different name, tag or description, or clear the search to see every file.',
     clearSearch: 'Clear search',
     resetSearch: 'Reset search',
+    recentlyUploaded: 'Recently uploaded',
   },
   folders: {
     heading: 'Folders',
@@ -98,6 +100,11 @@ export const files = {
     tryAgain: 'Try again',
     dropToUpload: 'Drop files to upload to this project',
     dropUnsupported: 'Some files are not a supported type',
+    view: {
+      label: 'View',
+      cards: 'Cards',
+      tree: 'Folders',
+    },
   },
   upload: {
     uploading: 'Uploading…',

@@ -5,12 +5,23 @@
  * `currentColor` so the ink follows the surrounding text token; the subtle
  * fills use opacity, never a literal color. Purely decorative (`aria-hidden`):
  * the owning card carries the accessible name (filename).
+ *
+ * Two presentations:
+ *   - `variant="icon"` (default): a compact centred glyph, sized by the caller's
+ *     `className` (used by the Archiv library cards).
+ *   - `variant="fill"`: a full-bleed content-aware sketch that fills the card's
+ *     thumbnail header, mirroring the click-dummy's Dateien cards.
  */
 
-import type { SVGProps } from 'react'
+import type { ReactNode, SVGProps } from 'react'
 import type { DocumentKind } from '../document-kind'
+import { cn } from '@/lib/utils'
 
 type SvgProps = Omit<SVGProps<SVGSVGElement>, 'viewBox' | 'children'>
+
+/* --------------------------------------------------------------------------
+ * Compact icon glyphs (Archiv library cards) — unchanged.
+ * ------------------------------------------------------------------------ */
 
 function Frame({ children, ...props }: SVGProps<SVGSVGElement>) {
   return (
@@ -117,7 +128,181 @@ const SKETCHES: Record<DocumentKind, (props: SvgProps) => JSX.Element> = {
   document: DocumentSketch,
 }
 
-export function DocumentKindThumbnail({ kind, className }: { kind: DocumentKind; className?: string }) {
+/* --------------------------------------------------------------------------
+ * Full-bleed sketches (Dateien cards) — fill the thumbnail header, matching
+ * the click-dummy. Line drawings use a 200×96 viewBox with `currentColor`;
+ * document/notice/photo lean on token-tinted fills (never a literal color).
+ * ------------------------------------------------------------------------ */
+
+/** Shared frame for the stroke-based fill sketches. */
+function FillSvg({ children }: { children: ReactNode }) {
+  return (
+    <svg
+      className="h-full w-full"
+      viewBox="0 0 200 96"
+      preserveAspectRatio="xMidYMid meet"
+      fill="none"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      {children}
+    </svg>
+  )
+}
+
+function FloorPlanFill() {
+  return (
+    <FillSvg>
+      <rect x={2} y={2} width={196} height={92} strokeWidth={1.6} strokeOpacity={0.85} />
+      <path
+        d="M80 2v34M80 56v38M80 56h118M138 2v22M138 40v16M2 74h34M50 74h30"
+        strokeWidth={1.6}
+        strokeOpacity={0.85}
+      />
+      <path
+        d="M80 36a20 20 0 0 1 20 20M138 24a16 16 0 0 1 16 16"
+        strokeWidth={1.3}
+        strokeOpacity={0.4}
+        strokeDasharray="2.5 3"
+      />
+    </FillSvg>
+  )
+}
+
+function SectionFill() {
+  return (
+    <FillSvg>
+      <path d="M4 90h192" strokeWidth={1.6} strokeOpacity={0.85} />
+      <path d="M48 90V44L100 14l52 30v46" strokeWidth={1.6} strokeOpacity={0.85} />
+      <path d="M48 68h104M48 44h104" strokeWidth={1.6} strokeOpacity={0.85} />
+      <path d="M22 44h14M166 44h14" strokeWidth={1.3} strokeOpacity={0.4} strokeDasharray="2.5 3" />
+    </FillSvg>
+  )
+}
+
+function SitePlanFill() {
+  return (
+    <FillSvg>
+      <rect x={4} y={4} width={192} height={88} strokeWidth={1.3} strokeOpacity={0.4} strokeDasharray="5 4" />
+      <rect
+        x={52}
+        y={24}
+        width={66}
+        height={46}
+        fill="currentColor"
+        fillOpacity={0.07}
+        strokeWidth={1.6}
+        strokeOpacity={0.85}
+      />
+      <path d="M156 66V34M151 39l5-5 5 5" strokeWidth={1.5} strokeOpacity={0.4} />
+    </FillSvg>
+  )
+}
+
+/** Generic document: heading line + paragraph skeleton bars. */
+function DocumentFill() {
+  return (
+    <div className="absolute inset-0 flex flex-col gap-[6px] px-[18px] py-[15px]">
+      <div className="h-[6px] w-[52%] rounded-sm bg-current opacity-40" />
+      <div className="mb-[5px] h-[4px] w-[30%] rounded-sm bg-current opacity-20" />
+      {[100, 94, 97, 88, 96, 62].map((w, i) => (
+        <div key={i} className="h-[4px] rounded-sm bg-current opacity-20" style={{ width: `${w}%` }} />
+      ))}
+    </div>
+  )
+}
+
+/** Official notice: letterhead + reference dot, paragraph bars, round stamp. */
+function NoticeFill() {
+  return (
+    <div className="absolute inset-0 flex flex-col gap-[6px] px-[18px] py-[15px]">
+      <div className="mb-[6px] flex items-start justify-between">
+        <div className="flex flex-col gap-[4px]">
+          <div className="h-[5px] w-16 rounded-sm bg-current opacity-40" />
+          <div className="h-[4px] w-10 rounded-sm bg-current opacity-20" />
+        </div>
+        <div className="size-[18px] shrink-0 rounded-full border-[1.5px] border-current opacity-40" />
+      </div>
+      {[100, 92, 96, 70, 88, 54].map((w, i) => (
+        <div key={i} className="h-[4px] rounded-sm bg-current opacity-20" style={{ width: `${w}%` }} />
+      ))}
+      <div className="absolute bottom-3 right-4 flex size-10 -rotate-12 items-center justify-center rounded-full border-[1.5px] border-current opacity-30">
+        <div className="h-[3px] w-5 rounded-sm bg-current" />
+      </div>
+    </div>
+  )
+}
+
+/** Photo: warm tonal wash + camera glyph (no literal color — muted tokens). */
+function PhotoFill() {
+  return (
+    <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-muted via-muted to-muted-foreground/25">
+      <svg
+        width={26}
+        height={26}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.6}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="text-muted-foreground/70"
+      >
+        <rect x={3} y={3} width={18} height={18} rx={2} />
+        <circle cx={9} cy={9} r={2} />
+        <path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21" />
+      </svg>
+    </div>
+  )
+}
+
+const FILLS: Record<DocumentKind, () => JSX.Element> = {
+  floorplan: FloorPlanFill,
+  section: SectionFill,
+  siteplan: SitePlanFill,
+  notice: NoticeFill,
+  photo: PhotoFill,
+  document: DocumentFill,
+}
+
+/** Line sketches sit in a padded box; document/notice/photo fill edge-to-edge. */
+const FILL_PADDED: Record<DocumentKind, boolean> = {
+  floorplan: true,
+  section: true,
+  siteplan: true,
+  notice: false,
+  photo: false,
+  document: false,
+}
+
+export function DocumentKindThumbnail({
+  kind,
+  className,
+  variant = 'icon',
+}: {
+  kind: DocumentKind
+  className?: string
+  variant?: 'icon' | 'fill'
+}) {
+  if (variant === 'fill') {
+    const Fill = FILLS[kind] ?? DocumentFill
+    return (
+      <div
+        aria-hidden
+        data-kind={kind}
+        data-testid="document-kind-thumbnail"
+        className={cn(
+          'absolute inset-0 text-muted-foreground',
+          FILL_PADDED[kind] && 'px-[18px] py-[14px]',
+          className
+        )}
+      >
+        <Fill />
+      </div>
+    )
+  }
+
   const Sketch = SKETCHES[kind] ?? DocumentSketch
   return <Sketch className={className} data-kind={kind} data-testid="document-kind-thumbnail" />
 }
