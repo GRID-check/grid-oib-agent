@@ -50,6 +50,33 @@ describe('normEntrySchema', () => {
     expect(parsed.binding_note).toBeUndefined()
   })
 
+  it('parses a behoerdliche_info entry with only a source_url (no RIS pointer)', () => {
+    const parsed = normEntrySchema.parse({
+      id: 'ma37-merkblatt-stellplatz',
+      title: 'MA 37 — Merkblatt Stellplatzverpflichtung',
+      short: 'MA 37 Stellplatz',
+      rank: 'behoerdliche_info',
+      source_url: 'https://www.wien.gv.at/stadtentwicklung/ma37/merkblatt.pdf',
+    })
+    expect(parsed.rank).toBe('behoerdliche_info')
+    expect(parsed.source_url).toBe('https://www.wien.gv.at/stadtentwicklung/ma37/merkblatt.pdf')
+    expect(parsed.application).toBe('')
+    expect(parsed.document_number).toBe('')
+  })
+
+  it('parses a norm_extern entry with no pointer at all', () => {
+    const parsed = normEntrySchema.parse({
+      id: 'oenorm-b-1300',
+      title: 'ÖNORM B 1300',
+      short: 'ÖNORM B 1300',
+      rank: 'norm_extern',
+    })
+    expect(parsed.rank).toBe('norm_extern')
+    expect(parsed.application).toBe('')
+    expect(parsed.document_number).toBe('')
+    expect(parsed.source_url).toBe('')
+  })
+
   it('rejects an invalid rank', () => {
     const result = normEntrySchema.safeParse({ ...validEntry, rank: 'richtlinie' })
     expect(result.success).toBe(false)

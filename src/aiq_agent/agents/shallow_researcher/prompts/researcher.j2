@@ -112,7 +112,10 @@ The user has uploaded the following documents to the knowledge base:
 **CRITICAL**: When the user asks to summarize, describe, explain, or query their uploaded documents, you MUST use the **knowledge_search** tool — NOT web search. Only **knowledge_search** has access to these uploaded documents.
 {% endif %}
 
-{% if ris_catalog %}
+{% if parcel_note is defined and parcel_note %}
+{{ parcel_note }}
+
+{% endif %}{% if ris_catalog %}
 ## Normenregister (verifizierte Normen — Rang und Rolle sind annotiert)
 
 {{ ris_catalog }}

@@ -85,6 +85,8 @@ export type NormEntry = z.infer<typeof normEntrySchema>
 /** The persisted registry file. `version` is the file-format literal. */
 export const normsFileSchema = z.object({
   version: z.literal(1),
+  /** RAG base collection this country's catalog belongs to. UI preserves it verbatim. */
+  corpus_collection: z.string().default('oib_knowledge'),
   entries: z.array(normEntrySchema),
 })
 export type NormsFile = z.infer<typeof normsFileSchema>

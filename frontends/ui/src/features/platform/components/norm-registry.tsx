@@ -254,6 +254,8 @@ interface EditorTarget {
 export function NormRegistry(): JSX.Element {
   const [entries, setEntries] = useState<NormEntry[]>([])
   const [version, setVersion] = useState<number>(0)
+  // Preserved verbatim across the PUT round-trip; not editable in the UI.
+  const [corpusCollection, setCorpusCollection] = useState('oib_knowledge')
   const [isLoading, setIsLoading] = useState(true)
   const [hasError, setHasError] = useState(false)
   const [dirty, setDirty] = useState(false)
@@ -273,6 +275,7 @@ export function NormRegistry(): JSX.Element {
       })
       .then((data) => {
         setEntries(data.registry.entries)
+        setCorpusCollection(data.registry.corpus_collection ?? 'oib_knowledge')
         setVersion(data.version)
         setDirty(false)
       })
@@ -317,7 +320,10 @@ export function NormRegistry(): JSX.Element {
     fetch('/api/platform/norms', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ version, registry: { version: 1, entries } }),
+      body: JSON.stringify({
+        version,
+        registry: { version: 1, corpus_collection: corpusCollection, entries },
+      }),
     })
       .then(async (r) => {
         const body = await r.json().catch(() => ({}))
@@ -337,7 +343,7 @@ export function NormRegistry(): JSX.Element {
       })
       .catch(() => toast.error('Speichern fehlgeschlagen'))
       .finally(() => setIsSaving(false))
-  }, [entries, version])
+  }, [entries, version, corpusCollection])
 
   const lanes = useMemo(() => groupIntoLanes(entries), [entries])
   const openReviews = useMemo(
@@ -558,7 +564,9 @@ function NormRow({ entry, onOpen }: { entry: NormEntry; onOpen: () => void }): J
             )}
           </p>
           <p className="truncate font-mono text-xs text-muted-foreground">
-            {[entry.application, entry.document_number].filter(Boolean).join(' · ') || '—'}
+            {entry.document_number
+              ? [entry.application, entry.document_number].filter(Boolean).join(' · ')
+              : sourceHost(entry.source_url) || 'kein Volltext'}
           </p>
         </div>
       </div>
@@ -613,6 +621,10 @@ function NormEditorDialog({
       const entry = formToEntry(value)
       if (existingIds.has(entry.id)) {
         toast.error(`ID „${entry.id}“ ist bereits vergeben`)
+        return
+      }
+      if (isLawRank(entry.rank) && (!entry.application || !entry.document_number)) {
+        toast.error('Gesetzes-Rang benötigt RIS-Application und Dokumentnummer')
         return
       }
       onSave(target.originalId, entry)
@@ -776,6 +788,16 @@ function NormEditorDialog({
             {(field) => <field.TextField label="Volltext-URL" placeholder="https://…" />}
           </form.AppField>
 
+          <form.AppField name="source_url">
+            {(field) => (
+              <field.TextField
+                label="Quelle (URL)"
+                description="Web-Link für Nicht-RIS-Quellen (z. B. MA-37 Merkblatt)"
+                placeholder="https://…"
+              />
+            )}
+          </form.AppField>
+
           <form.AppField name="binding_note">
             {(field) => (
               <field.TextAreaField
@@ -796,72 +818,90 @@ function NormEditorDialog({
             )}
           </form.AppField>
 
-          {/* RIS verification */}
-          <div className="flex flex-col gap-3 rounded-xl border bg-muted/30 p-3">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex flex-col gap-2">
-                <span className="text-sm font-medium">Gegen RIS verifizieren</span>
-                <span className="text-xs text-muted-foreground">
-                  Nutzt Titel-Query (oder Titel) + RIS-Application des Eintrags.
-                </span>
-              </div>
-              <Button type="button" variant="outline" size="sm" onClick={handleVerify} disabled={isVerifying}>
-                {isVerifying ? <Spinner className="size-3.5" /> : <Search className="size-3.5" aria-hidden />}
-                Verifizieren
-              </Button>
-            </div>
+          {/* RIS verification — only for RIS-backed law ranks */}
+          <form.Subscribe selector={(state) => state.values.rank}>
+            {(rank) =>
+              isLawRank(rank) ? (
+                <div className="flex flex-col gap-3 rounded-xl border bg-muted/30 p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex flex-col gap-2">
+                      <span className="text-sm font-medium">Gegen RIS verifizieren</span>
+                      <span className="text-xs text-muted-foreground">
+                        Nutzt Titel-Query (oder Titel) + RIS-Application des Eintrags.
+                      </span>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleVerify}
+                      disabled={isVerifying}
+                    >
+                      {isVerifying ? (
+                        <Spinner className="size-3.5" />
+                      ) : (
+                        <Search className="size-3.5" aria-hidden />
+                      )}
+                      Verifizieren
+                    </Button>
+                  </div>
 
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <form.AppField name="verify_title_query">
-                {(field) => <field.TextField label="Titel-Query" placeholder="RIS-Titelsuche" />}
-              </form.AppField>
-              <form.AppField name="verify_gesetzesnummer">
-                {(field) => <field.TextField label="Gesetzesnummer" placeholder="optional" />}
-              </form.AppField>
-              <form.AppField name="verify_expect">
-                {(field) => <field.TextField label="Erwartet (expect)" placeholder="optional" />}
-              </form.AppField>
-              <form.AppField name="verify_exclude">
-                {(field) => (
-                  <field.TextField label="Ausschluss (exclude)" placeholder="kommagetrennt" />
-                )}
-              </form.AppField>
-            </div>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <form.AppField name="verify_title_query">
+                      {(field) => <field.TextField label="Titel-Query" placeholder="RIS-Titelsuche" />}
+                    </form.AppField>
+                    <form.AppField name="verify_gesetzesnummer">
+                      {(field) => <field.TextField label="Gesetzesnummer" placeholder="optional" />}
+                    </form.AppField>
+                    <form.AppField name="verify_expect">
+                      {(field) => <field.TextField label="Erwartet (expect)" placeholder="optional" />}
+                    </form.AppField>
+                    <form.AppField name="verify_exclude">
+                      {(field) => (
+                        <field.TextField label="Ausschluss (exclude)" placeholder="kommagetrennt" />
+                      )}
+                    </form.AppField>
+                  </div>
 
-            {candidates !== null && (
-              <div className="overflow-hidden rounded-lg border bg-popover">
-                <Command shouldFilter={false}>
-                  <CommandList>
-                    <CommandEmpty>Keine Kandidaten</CommandEmpty>
-                    {candidates.map((candidate) => (
-                      <CommandItem
-                        key={`${candidate.document_number}:${candidate.citation_url}`}
-                        value={`${candidate.title} ${candidate.document_number}`}
-                        onSelect={() => applyCandidate(candidate)}
-                        className="flex flex-col items-start gap-0.5"
-                      >
-                        <span className="text-sm">{candidate.title}</span>
-                        <span className="font-mono text-xs text-muted-foreground">
-                          {candidate.document_number}
+                  {candidates !== null && (
+                    <div className="overflow-hidden rounded-lg border bg-popover">
+                      <Command shouldFilter={false}>
+                        <CommandList>
+                          <CommandEmpty>Keine Kandidaten</CommandEmpty>
+                          {candidates.map((candidate) => (
+                            <CommandItem
+                              key={`${candidate.document_number}:${candidate.citation_url}`}
+                              value={`${candidate.title} ${candidate.document_number}`}
+                              onSelect={() => applyCandidate(candidate)}
+                              className="flex flex-col items-start gap-0.5"
+                            >
+                              <span className="text-sm">{candidate.title}</span>
+                              <span className="font-mono text-xs text-muted-foreground">
+                                {candidate.document_number}
+                              </span>
+                            </CommandItem>
+                          ))}
+                        </CommandList>
+                      </Command>
+                    </div>
+                  )}
+
+                  {diff.length > 0 && (
+                    <div className="flex flex-col gap-1 rounded-lg border border-info/40 bg-info-subtle/40 p-2 text-xs">
+                      <span className="font-medium text-info">Übernommen:</span>
+                      {diff.map((d) => (
+                        <span key={d.field} className="font-mono text-muted-foreground">
+                          {d.field}: {d.from || '—'} → {d.to || '—'}
                         </span>
-                      </CommandItem>
-                    ))}
-                  </CommandList>
-                </Command>
-              </div>
-            )}
-
-            {diff.length > 0 && (
-              <div className="flex flex-col gap-1 rounded-lg border border-info/40 bg-info-subtle/40 p-2 text-xs">
-                <span className="font-medium text-info">Übernommen:</span>
-                {diff.map((d) => (
-                  <span key={d.field} className="font-mono text-muted-foreground">
-                    {d.field}: {d.from || '—'} → {d.to || '—'}
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">Nicht im RIS — Quelle als Link pflegen.</p>
+              )
+            }
+          </form.Subscribe>
 
           <div className="flex items-center justify-between gap-2 pt-2">
             {!isNew ? (

@@ -187,9 +187,19 @@ class NormEntry(BaseModel):
 
 
 class NormsFile(BaseModel):
-    """The registry file (configs/norms/<country>/registry.yml) / admin-store payload."""
+    """The registry file (configs/norms/<country>/registry.yml) / admin-store payload.
+
+    ``corpus_collection`` is the RAG-side seam for country expansion: it names the
+    knowledge-base base collection holding this country's norm corpus full texts
+    (AT: ``oib_knowledge``). A second country ships its own registry file + corpus
+    collection; retrieval scope selection then keys off this field instead of a
+    hardcoded collection name. The catalog (pointers/notes) and the corpus (full
+    texts in the RAG, managed via the platform Base-Knowledge surface) are the two
+    halves of the same per-country knowledge plane.
+    """
 
     version: int = 1
+    corpus_collection: str = "oib_knowledge"
     entries: list[NormEntry] = Field(default_factory=list)
 
 
@@ -508,6 +518,50 @@ def render_block_for_prompt(project_context: str | None, norms_dir: str | None =
     if section:
         return block.rstrip() + "\n\n" + section
     return block
+
+
+# ---------------------------------------------------------------------------
+# Parcel plane: Flächenwidmungs-/Bebauungsplan documents live INSIDE the RAG
+# (project collection, tag-classified at ingestion). When present they are the
+# per-parcel source of truth — this note flips the doctrine's "ask for the
+# plan" rule into "the plan is HERE, use it first".
+# ---------------------------------------------------------------------------
+
+_PARCEL_TAGS = ("Bebauungsplan", "Flächenwidmungsplan")
+
+
+def parcel_note(available_documents: list[dict] | None) -> str | None:
+    """Prompt note naming the project's parcel documents as the governing source.
+
+    ``available_documents`` are the per-turn document dicts (file_name/summary/
+    tags). Returns None when the project holds no tagged parcel document — the
+    static doctrine rule (demand the plan / point at the public portal) then
+    applies unchanged.
+    """
+    if not available_documents:
+        return None
+    by_tag: dict[str, list[str]] = {}
+    for doc in available_documents:
+        tags = doc.get("tags") or []
+        name = doc.get("file_name")
+        if not name:
+            continue
+        for tag in _PARCEL_TAGS:
+            if tag in tags:
+                by_tag.setdefault(tag, []).append(name)
+    if not by_tag:
+        return None
+    lines = ["## Parzellen-Quellen dieses Projekts (maßgeblich für Widmung, Bauklasse, Gebäudehöhe, Fluchtlinien)"]
+    for tag in _PARCEL_TAGS:
+        if tag in by_tag:
+            files = ", ".join(sorted(by_tag[tag]))
+            lines.append(f"- {tag}: {files}")
+    lines.append(
+        "Diese Dokumente sind für parzellenbezogene Fragen die maßgebliche Quelle — VOR OIB und Bauordnung "
+        "heranziehen (knowledge_search). Generische Antworten auf Parzellen-Fragen sind unzulässig, solange "
+        "diese Dokumente nicht geprüft wurden."
+    )
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------

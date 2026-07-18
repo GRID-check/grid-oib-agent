@@ -6,6 +6,7 @@
 # fields are never clobbered). The OIB corpus itself lives in data/oib/ and is NOT
 # listed here: the knowledge base is its source of truth.
 version: 1
+corpus_collection: oib_knowledge
 entries:
 - id: bo-wien
   title: Bauordnung für Wien

@@ -467,3 +467,35 @@ class TestNonRisEntries:
         registry = nr.load_registry("configs/norms")
         entry = registry.by_id("ma37-merkblaetter")
         assert entry is not None and entry.rank == "behoerdliche_info" and not entry.is_ris
+
+
+class TestParcelNote:
+    """Parcel documents in the project RAG are surfaced as the governing source."""
+
+    def test_none_without_documents(self):
+        assert nr.parcel_note(None) is None
+        assert nr.parcel_note([]) is None
+        assert nr.parcel_note([{"file_name": "grundriss.pdf", "tags": ["Grundriss"]}]) is None
+
+    def test_tagged_bebauungsplan_is_named_as_governing(self):
+        docs = [
+            {"file_name": "bplan_7602.pdf", "tags": ["Bebauungsplan"], "summary": "x"},
+            {"file_name": "fwp_wien.pdf", "tags": ["Flächenwidmungsplan"]},
+            {"file_name": "gutachten.pdf", "tags": ["Gutachten"]},
+        ]
+        note = nr.parcel_note(docs)
+        assert note is not None
+        assert "Bebauungsplan: bplan_7602.pdf" in note
+        assert "Flächenwidmungsplan: fwp_wien.pdf" in note
+        assert "maßgebliche Quelle" in note
+        assert "gutachten.pdf" not in note
+
+    def test_corpus_collection_field_defaults_and_loads(self, tmp_path):
+        import yaml
+
+        d = tmp_path / "at"
+        d.mkdir(parents=True)
+        (d / "registry.yml").write_text(yaml.safe_dump({"version": 1, "entries": []}), encoding="utf-8")
+        parsed = yaml.safe_load(open("configs/norms/at/registry.yml"))
+        assert nr.NormsFile.model_validate(parsed).corpus_collection == "oib_knowledge"
+        assert nr.NormsFile(version=1, entries=[]).corpus_collection == "oib_knowledge"

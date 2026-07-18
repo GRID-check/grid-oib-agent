@@ -375,6 +375,20 @@ the core building-law corpus. It is deliberately **flat** — the typed-graph
 variant (ranks/roles/editions/relations, Punkt chunking, applicability DSL) was
 built, adversarially reviewed, and reduced; ADR-0025's Context records why.
 
+**The three data planes** (how the Baurecht-Wien source diagram maps onto the
+system — each plane has its own storage, admin surface, and priority):
+
+| Plane | Holds | Lives | Managed via | Priority rule |
+|---|---|---|---|---|
+| **Catalog** | verified RIS pointers, prose legal facts (`binding_note`), open TODOs (`review_note`), non-RIS stubs (MA 37, ÖNORM) | norm store (DB) seeded from `configs/norms/<cc>/registry.yml` | `/app/platform` norms editor + verify-and-pick | tells the agent *where law lives* and *what binds what* |
+| **Corpus** | full norm texts inside the RAG (OIB PDFs today) | per-country base collection — `NormsFile.corpus_collection` (AT: `oib_knowledge`) | `/app/platform` Base-Knowledge upload/sync | requirements are cited from here (normative documents only) |
+| **Project/parcel** | uploads incl. Flächenwidmungs-/Bebauungsplan (tag-classified at ingestion) | project collections in the RAG | project Files UI | **per-parcel source of truth**: `parcel_note` renders tagged plans into the researcher prompt as the governing source for Widmung/Bauklasse/Höhe — above OIB and Bauordnung |
+
+Country expansion touches data, not architecture: a new
+`configs/norms/<cc>/registry.yml` (catalog) + its `corpus_collection` (corpus)
++ a fetch adapter for that country's legal database (the RIS adapter is
+Austria's). The org-Archiv stratum (ADR-0024) sits beside these unchanged.
+
 - **Data** — `configs/norms/<country>/registry.yml` (env override
   `GRID_NORMS_DIR`; `at` ships 23 entries): per entry `id`, `title`, `short`,
   `rank` (bundesgesetz | landesgesetz | verordnung — RIS-backed law lanes —

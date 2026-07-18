@@ -110,7 +110,10 @@ The following documents are available via knowledge_search:
 {% endfor %}
 {% endif %}
 
-{% if ris_catalog %}
+{% if parcel_note is defined and parcel_note %}
+{{ parcel_note }}
+
+{% endif %}{% if ris_catalog %}
 ## Normenregister (verifizierte Normen — Rang und Rolle sind annotiert)
 
 {{ ris_catalog }}
