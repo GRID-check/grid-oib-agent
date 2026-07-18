@@ -48,6 +48,11 @@ export interface SidebarUserMenuProps {
   canManagePlatform?: boolean
   /** Show the org-wide Archiv entry (any org member, when enabled — ADR-0024). */
   canAccessArchiv?: boolean
+  /**
+   * Tailwind size class for the trigger avatar. Defaults to the sidebar
+   * footer's 30px; the org top bar passes a 36px avatar to match the dummy.
+   */
+  avatarSizeClass?: string
 }
 
 const THEME_ICONS: Record<ThemeMode, React.ComponentType<{ className?: string }>> = {
@@ -67,6 +72,7 @@ export function SidebarUserMenu({
   canViewOrganization = false,
   canManagePlatform = false,
   canAccessArchiv = false,
+  avatarSizeClass = 'size-[30px]',
 }: SidebarUserMenuProps) {
   const { signOut } = useAuth()
   const theme = useLayoutStore((s) => s.theme)
@@ -76,7 +82,16 @@ export function SidebarUserMenu({
   const { locale, setLocale, localeNames } = useLocale()
 
   const displayName = user?.name || user?.email || t('userMenu.defaultUser')
-  const initial = String(displayName).charAt(0).toUpperCase()
+  // Two-letter monogram from the first two words (e.g. "Anna Kaufmann" → "AK"),
+  // falling back to a single initial for one-word names / email addresses.
+  const initial =
+    String(displayName)
+      .trim()
+      .split(/\s+/)
+      .slice(0, 2)
+      .map((word) => word.charAt(0))
+      .join('')
+      .toUpperCase() || '?'
 
   return (
     <DropdownMenu>
@@ -85,18 +100,18 @@ export function SidebarUserMenu({
           'flex items-center gap-2.5 text-left text-sm',
           'transition-colors duration-200 ease-out hover:bg-accent',
           'focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none',
-          compact ? 'w-auto rounded-full p-1' : 'h-9 w-full rounded-lg px-2',
+          compact ? 'w-auto rounded-full p-0' : 'w-full rounded-lg py-1 pl-0 pr-2',
         )}
         aria-label={t('userMenu.label', { name: displayName })}
       >
         <motion.span className="flex shrink-0" whileTap={{ scale: 0.95 }} transition={springSnappy}>
-          <Avatar className="size-6">
+          <Avatar className={avatarSizeClass}>
             {user?.image && <AvatarImage src={user.image} alt="" />}
             <AvatarFallback className="text-xs font-medium">{initial}</AvatarFallback>
           </Avatar>
         </motion.span>
         {!compact && (
-          <span className="min-w-0 flex-1 truncate text-muted-foreground">{displayName}</span>
+          <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-muted-foreground">{displayName}</span>
         )}
       </DropdownMenuTrigger>
       <DropdownMenuContent align={menuAlign} side={menuSide} className="w-56">

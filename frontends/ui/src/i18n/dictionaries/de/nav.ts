@@ -27,9 +27,15 @@ export const nav: typeof en.nav = {
   projectSwitcher: {
     select: 'Projekt auswählen',
     switchCurrent: 'Projekt wechseln (aktuell: {name})',
+    switchHeading: 'Projekt wechseln',
+    projectSettings: 'Einstellungen für {name}',
     projects: 'Projekte',
     allProjects: 'Alle Projekte',
+    viewAllProjects: 'Alle Projekte ansehen',
     newProject: 'Neues Projekt',
+  },
+  orgTopbar: {
+    organization: 'Organisation',
   },
   userMenu: {
     label: 'Benutzermenü für {name}',

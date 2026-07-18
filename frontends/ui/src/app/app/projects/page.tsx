@@ -51,25 +51,26 @@ export default async function ProjectsPage({ searchParams }: ProjectsPageProps):
       <OrgTopbar
         user={{ name: session.name, email: session.email }}
         authRequired={isAuthRequired()}
-        heading={t('list.heading')}
         canManageOrganization={navFlags.canManageOrganization}
         canViewOrganization={navFlags.canViewOrganization}
         canManagePlatform={navFlags.canManagePlatform}
         canAccessArchiv={navFlags.canAccessArchiv}
       />
 
-      <main id="main-content" className="mx-auto w-full max-w-5xl flex-1 px-4 py-6 md:px-8 md:py-10">
-        <ProjectsGrid projects={rows} docCounts={docCountByProject} autoOpenCreate={autoOpenCreate} />
+      <main id="main-content" className="flex-1 px-6 pt-[34px] pb-10 md:px-10">
+        <div className="mx-auto w-full max-w-[1080px]">
+          <ProjectsGrid projects={rows} docCounts={docCountByProject} autoOpenCreate={autoOpenCreate} />
 
-        {/* Org-wide Archiv entry — gated server-side on the `organization-archiv`
-            flag, the same check the /app/archiv page enforces (ADR-0024). */}
-        {navFlags.canAccessArchiv && (
-          <section className="mt-8" aria-label={t('archivCard.title')}>
-            <ArchivEntryCard />
-          </section>
-        )}
+          {/* Org-wide Archiv entry — gated server-side on the `organization-archiv`
+              flag, the same check the /app/archiv page enforces (ADR-0024). */}
+          {navFlags.canAccessArchiv && (
+            <section className="mt-6" aria-label={t('archivCard.title')}>
+              <ArchivEntryCard />
+            </section>
+          )}
 
-        <RecentlyDeleted canManageCompliance={canManageCompliance(session)} />
+          <RecentlyDeleted canManageCompliance={canManageCompliance(session)} />
+        </div>
       </main>
     </div>
   )

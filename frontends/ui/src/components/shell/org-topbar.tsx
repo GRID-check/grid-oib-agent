@@ -1,23 +1,26 @@
 /**
  * Org-level top frame for surfaces that live above a project (the projects
- * list, onboarding). Deliberately lightweight: brand mark on the left, the
- * shared user + theme menu on the right. It reuses {@link SidebarUserMenu} so
- * the identity/theme controls are identical to the in-project sidebar — no
- * second, competing shell.
+ * home, onboarding). Mirrors the click dummy's home top bar exactly: the
+ * "Piloti" wordmark on the left, and on the right an "Organisation" button
+ * (raised white card, gear icon) plus the shared identity/theme menu behind a
+ * round avatar. It reuses {@link SidebarUserMenu} so the profile/theme controls
+ * are identical to the in-project sidebar — no second, competing shell.
  */
 
 import Link from 'next/link'
+import { Settings } from 'lucide-react'
 
-import { Logo } from '@/components/brand/logo'
-import { FadeIn } from '@/components/motion'
 import { getTranslations } from '@/i18n/server'
-import { ConnectionPresenceIndicator } from './connection-presence-indicator'
 import { SidebarUserMenu, type SidebarUser } from './sidebar-user-menu'
 
 export interface OrgTopbarProps {
   user?: SidebarUser
   authRequired: boolean
-  /** Optional context label shown next to the wordmark (e.g. "Projects"). */
+  /**
+   * Deprecated. Retained for backward compatibility with callers that still
+   * pass a context label; the click-dummy top bar shows only the wordmark, so
+   * this is no longer rendered.
+   */
   heading?: string
   /** Show the org-management entry in the user menu (org admins only). */
   canManageOrganization?: boolean
@@ -28,44 +31,48 @@ export interface OrgTopbarProps {
   canAccessArchiv?: boolean
 }
 
-export async function OrgTopbar({ user, authRequired, heading, canManageOrganization, canViewOrganization, canManagePlatform, canAccessArchiv }: OrgTopbarProps) {
+export async function OrgTopbar({
+  user,
+  authRequired,
+  canManageOrganization,
+  canViewOrganization,
+  canManagePlatform,
+  canAccessArchiv,
+}: OrgTopbarProps) {
   const t = await getTranslations('nav')
+  const showOrganization = Boolean(canViewOrganization || canManageOrganization)
   return (
-    <header className="sticky top-0 z-40 border-b border-border bg-background/80 backdrop-blur-xl">
-      <FadeIn
-        distance={4}
-        className="mx-auto flex h-14 w-full max-w-5xl items-center justify-between gap-4 px-4 sm:px-6 md:px-8"
+    <header className="flex h-16 shrink-0 items-center border-b border-border bg-background pr-10 pl-[18px]">
+      <Link
+        href="/app/projects"
+        className="rounded-md text-[19px] font-semibold tracking-[-0.015em] text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
+        aria-label={t('allProjects')}
       >
-        <div className="flex items-center gap-3">
+        Piloti
+      </Link>
+      <div className="ml-auto flex items-center gap-2">
+        {showOrganization && (
           <Link
-            href="/app/projects"
-            className="rounded-md focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
-            aria-label={t('allProjects')}
+            href="/app/organization"
+            className="inline-flex h-9 items-center gap-[7px] rounded-[10px] border border-border bg-card px-3.5 text-[13px] text-muted-foreground shadow-xs transition-colors duration-200 ease-out hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
           >
-            <Logo kind="horizontal" size="small" />
+            <Settings className="size-[15px]" aria-hidden />
+            {t('orgTopbar.organization')}
           </Link>
-          {heading && (
-            <>
-              <span className="h-4 w-px bg-border" aria-hidden />
-              <span className="text-sm font-medium text-muted-foreground">{heading}</span>
-            </>
-          )}
-        </div>
-        <div className="flex items-center gap-3">
-          <ConnectionPresenceIndicator className="hidden sm:inline-flex" />
-          <SidebarUserMenu
-            user={user}
-            authRequired={authRequired}
-            menuSide="bottom"
-            menuAlign="end"
-            compact
-            canManageOrganization={canManageOrganization}
-            canViewOrganization={canViewOrganization}
-            canManagePlatform={canManagePlatform}
-            canAccessArchiv={canAccessArchiv}
-          />
-        </div>
-      </FadeIn>
+        )}
+        <SidebarUserMenu
+          user={user}
+          authRequired={authRequired}
+          menuSide="bottom"
+          menuAlign="end"
+          compact
+          avatarSizeClass="size-9"
+          canManageOrganization={canManageOrganization}
+          canViewOrganization={canViewOrganization}
+          canManagePlatform={canManagePlatform}
+          canAccessArchiv={canAccessArchiv}
+        />
+      </div>
     </header>
   )
 }

@@ -29,9 +29,15 @@ export const nav = {
   projectSwitcher: {
     select: 'Select project',
     switchCurrent: 'Switch project (current: {name})',
+    switchHeading: 'Switch project',
+    projectSettings: 'Settings for {name}',
     projects: 'Projects',
     allProjects: 'All projects',
+    viewAllProjects: 'View all projects',
     newProject: 'New project',
+  },
+  orgTopbar: {
+    organization: 'Organization',
   },
   userMenu: {
     label: 'User menu for {name}',
