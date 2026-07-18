@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import {
-  evaluateCondition,
-  getApplicableStandards,
-  resolveApplicability,
-} from './applicable-standards'
-import parityFixtures from './applicability-parity.generated.json'
+import { getApplicableStandards } from './applicable-standards'
 import type { ProjectProfile, ProjectPrimitiveValue } from '@/lib/project-profile/types'
 
 /** Build a minimal, schema-shaped ProjectProfile from a flat map of fact values. */
@@ -57,7 +52,7 @@ describe('getApplicableStandards', () => {
     expect(oib5?.status).toBe('required')
   })
 
-  it('flags OIB 2.3 as required for a high-rise', () => {
+  it('flags OIB 2.3 as required with the Hochhaus reason for a high-rise', () => {
     const result = getApplicableStandards(
       profileWith({ hauptnutzung: 'wohnen', gebaeudeklasse: 'GK5', fluchtniveau: '>22m' })
     )
@@ -65,6 +60,7 @@ describe('getApplicableStandards', () => {
     const oib23 = result.find((s) => s.code === 'OIB 2.3')
     expect(oib23).toBeDefined()
     expect(oib23?.status).toBe('required')
+    expect(oib23?.reason).toContain('Hochhaus')
   })
 
   it('handles a storage building with a basement: 2.1 required, 2.2 check, 6 check', () => {
@@ -77,53 +73,4 @@ describe('getApplicableStandards', () => {
     expect(byCode['OIB 2.2']?.status).toBe('check')
     expect(byCode['OIB 6']?.status).toBe('check')
   })
-})
-
-describe('evaluateCondition', () => {
-  it('compares numbers numerically even when the fact is a string', () => {
-    expect(evaluateCondition({ fact: 'geschosse_unterirdisch', op: 'gte', value: 1 }, { geschosse_unterirdisch: '2' })).toBe(true)
-    expect(evaluateCondition({ fact: 'geschosse_unterirdisch', op: 'gte', value: 3 }, { geschosse_unterirdisch: '2' })).toBe(false)
-  })
-
-  it('treats missing and empty-string facts as absent', () => {
-    expect(evaluateCondition({ fact: 'x', op: 'undefined' }, {})).toBe(true)
-    expect(evaluateCondition({ fact: 'x', op: 'undefined' }, { x: '' })).toBe(true)
-    expect(evaluateCondition({ fact: 'x', op: 'defined' }, { x: '0' })).toBe(true)
-  })
-
-  it('matches in against any option', () => {
-    expect(evaluateCondition({ fact: 'hauptnutzung', op: 'in', value: ['lager', 'produzierend'] }, { hauptnutzung: 'lager' })).toBe(true)
-    expect(evaluateCondition({ fact: 'hauptnutzung', op: 'in', value: ['lager', 'produzierend'] }, { hauptnutzung: 'wohnen' })).toBe(false)
-  })
-
-  it('eq treats booleans and their string renderings as equal', () => {
-    expect(evaluateCondition({ fact: 'kleingartengebiet', op: 'eq', value: true }, { kleingartengebiet: true })).toBe(true)
-    expect(evaluateCondition({ fact: 'kleingartengebiet', op: 'eq', value: true }, { kleingartengebiet: 'true' })).toBe(true)
-    expect(evaluateCondition({ fact: 'kleingartengebiet', op: 'eq', value: true }, { kleingartengebiet: false })).toBe(false)
-    expect(evaluateCondition({ fact: 'kleingartengebiet', op: 'eq', value: true }, {})).toBe(false)
-  })
-})
-
-describe('registry parity (generated fixtures)', () => {
-  // The fixtures are produced by scripts/build_applicability_rules.py from the
-  // norm registry using the Python resolver — this suite is the cross-language
-  // parity proof (spec §8 Phase 4 exit criterion).
-  for (const fixture of parityFixtures) {
-    it(`matches the Python resolver for profile '${fixture.name}'`, () => {
-      const verdicts = resolveApplicability(fixture.facts)
-      const actual = Object.fromEntries(
-        [...verdicts.entries()].map(([normId, verdict]) => [
-          normId,
-          { status: verdict.status, reason: verdict.reason },
-        ])
-      )
-      const expected = Object.fromEntries(
-        Object.entries(fixture.expected).map(([normId, e]) => [
-          normId,
-          { status: e.verdict, reason: e.reasonEn },
-        ])
-      )
-      expect(actual).toEqual(expected)
-    })
-  }
 })

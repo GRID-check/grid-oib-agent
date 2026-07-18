@@ -1,147 +1,101 @@
-"""Tests for the registry applicability engine (norm-registry Phase 4)."""
+"""Tests for the hand-written OIB applicability module."""
 
-from aiq_agent.common.applicability import ApplicabilityVerdict
-from aiq_agent.common.applicability import evaluate_condition
-from aiq_agent.common.applicability import evaluate_when
+from aiq_agent.common.applicability import OibVerdict
 from aiq_agent.common.applicability import facts_from_project_context
-from aiq_agent.common.applicability import resolve_applicability
-from aiq_agent.common.norm_registry import ApplicabilityCondition
-from aiq_agent.common.norm_registry import ApplicabilityRule
-from aiq_agent.common.norm_registry import ApplicabilityWhen
-from aiq_agent.common.norm_registry import Edition
-from aiq_agent.common.norm_registry import EditionSource
-from aiq_agent.common.norm_registry import Jurisdiction
-from aiq_agent.common.norm_registry import NormEntry
-from aiq_agent.common.norm_registry import NormRegistry
+from aiq_agent.common.applicability import render_project_block
+from aiq_agent.common.applicability import resolve_oib_applicability
+from aiq_agent.common.applicability import trigger_hints
 
 
-def _cond(fact, op, value=None):
-    return ApplicabilityCondition(fact=fact, op=op, value=value)
+def _by_code(facts: dict) -> dict[str, OibVerdict]:
+    return {verdict.code: verdict for verdict in resolve_oib_applicability(facts)}
 
 
-class TestEvaluateCondition:
-    def test_eq_string(self):
-        assert evaluate_condition(_cond("hauptnutzung", "eq", "wohnen"), {"hauptnutzung": "wohnen"}) is True
-        assert evaluate_condition(_cond("hauptnutzung", "eq", "wohnen"), {"hauptnutzung": "buero"}) is False
+class TestResolveOibApplicability:
+    def test_empty_facts_return_generic_six_all_required(self):
+        verdicts = resolve_oib_applicability({})
+        assert [v.code for v in verdicts] == ["OIB 1", "OIB 2", "OIB 3", "OIB 4", "OIB 5", "OIB 6"]
+        assert all(v.verdict == "required" for v in verdicts)
 
-    def test_eq_numeric_aware(self):
-        assert evaluate_condition(_cond("gebaeudeklasse", "eq", 5), {"gebaeudeklasse": 5}) is True
-        assert evaluate_condition(_cond("gebaeudeklasse", "eq", 5), {"gebaeudeklasse": "5"}) is True
+    def test_oib_1_2_3_always_required(self):
+        for code in ("OIB 1", "OIB 2", "OIB 3"):
+            assert _by_code({"hauptnutzung": "wohnen"})[code].verdict == "required"
 
-    def test_eq_boolean_cross_representation(self):
-        cond = _cond("kleingartengebiet", "eq", True)
-        assert evaluate_condition(cond, {"kleingartengebiet": True}) is True
-        assert evaluate_condition(cond, {"kleingartengebiet": "true"}) is True
-        assert evaluate_condition(cond, {"kleingartengebiet": False}) is False
-        assert evaluate_condition(cond, {"kleingartengebiet": "false"}) is False
-        assert evaluate_condition(cond, {}) is False
+    def test_gk5_undefined_fluchtniveau_flags_2_3_check(self):
+        verdicts = _by_code({"hauptnutzung": "wohnen", "gebaeudeklasse": "GK5"})
+        assert verdicts["OIB 2.3"].verdict == "check"
+        assert "22 m" in verdicts["OIB 2.3"].reason_de
 
-    def test_in(self):
-        cond = _cond("hauptnutzung", "in", ["produzierend", "lager"])
-        assert evaluate_condition(cond, {"hauptnutzung": "lager"}) is True
-        assert evaluate_condition(cond, {"hauptnutzung": "wohnen"}) is False
-        assert evaluate_condition(cond, {}) is False
+    def test_fluchtniveau_over_22m_makes_2_3_required_hochhaus(self):
+        verdicts = _by_code({"hauptnutzung": "wohnen", "gebaeudeklasse": "GK5", "fluchtniveau": ">22m"})
+        assert verdicts["OIB 2.3"].verdict == "required"
+        assert "Hochhaus" in verdicts["OIB 2.3"].reason_de
 
-    def test_defined_undefined(self):
-        assert evaluate_condition(_cond("x", "defined"), {"x": 0}) is True
-        assert evaluate_condition(_cond("x", "defined"), {"x": ""}) is False
-        assert evaluate_condition(_cond("x", "undefined"), {}) is True
-        assert evaluate_condition(_cond("x", "undefined"), {"x": "y"}) is False
+    def test_low_rise_residential_omits_fire_substandards_and_oib5_required(self):
+        verdicts = _by_code({"hauptnutzung": "wohnen", "gebaeudeklasse": "GK2", "fluchtniveau": "<=7m"})
+        assert "OIB 2.1" not in verdicts
+        assert "OIB 2.2" not in verdicts
+        assert "OIB 2.3" not in verdicts
+        assert verdicts["OIB 5"].verdict == "required"
 
-    def test_numeric_comparisons(self):
-        assert evaluate_condition(_cond("geschosse_unterirdisch", "gte", 1), {"geschosse_unterirdisch": 2}) is True
-        assert evaluate_condition(_cond("geschosse_unterirdisch", "gte", 1), {"geschosse_unterirdisch": 0}) is False
-        assert evaluate_condition(_cond("fluchtniveau", "gt", 22), {"fluchtniveau": 25}) is True
-        assert evaluate_condition(_cond("fluchtniveau", "lt", 5), {"fluchtniveau": 5}) is False
-        assert evaluate_condition(_cond("fluchtniveau", "lte", 5), {"fluchtniveau": 5}) is True
+    def test_lager_makes_2_1_required_and_6_check(self):
+        verdicts = _by_code({"hauptnutzung": "lager", "geschosse_unterirdisch": 2})
+        assert verdicts["OIB 2.1"].verdict == "required"
+        assert verdicts["OIB 2.2"].verdict == "check"  # basement -> garage check
+        assert verdicts["OIB 6"].verdict == "check"
 
-    def test_numeric_comparison_with_non_numeric_fact_is_false(self):
-        assert evaluate_condition(_cond("fluchtniveau", "gt", 22), {"fluchtniveau": "hoch"}) is False
-        assert evaluate_condition(_cond("fluchtniveau", "gt", 22), {}) is False
+    def test_undefined_use_makes_2_1_check(self):
+        verdicts = _by_code({"gebaeudeklasse": "GK3"})
+        assert verdicts["OIB 2.1"].verdict == "check"
 
+    def test_non_betriebsbau_use_omits_2_1(self):
+        verdicts = _by_code({"hauptnutzung": "wohnen"})
+        assert "OIB 2.1" not in verdicts
 
-class TestEvaluateWhen:
-    def test_empty_when_matches(self):
-        assert evaluate_when(ApplicabilityWhen(), {}) is True
-        assert evaluate_when(None, {}) is True
+    def test_public_use_gets_stronger_oib4_reason(self):
+        verdicts = _by_code({"hauptnutzung": "versammlung"})
+        assert verdicts["OIB 4"].verdict == "required"
+        assert "öffentlich" in verdicts["OIB 4"].reason_de
 
-    def test_all_must_pass(self):
-        when = ApplicabilityWhen(all=[_cond("a", "defined"), _cond("b", "eq", 1)])
-        assert evaluate_when(when, {"a": 1, "b": 1}) is True
-        assert evaluate_when(when, {"a": 1}) is False
+    def test_non_noise_sensitive_use_makes_oib5_likely(self):
+        verdicts = _by_code({"hauptnutzung": "produzierend"})
+        assert verdicts["OIB 5"].verdict == "likely"
 
-    def test_any_one_passes(self):
-        when = ApplicabilityWhen(any=[_cond("a", "eq", 1), _cond("b", "eq", 2)])
-        assert evaluate_when(when, {"b": 2}) is True
-        assert evaluate_when(when, {}) is False
-
-    def test_all_and_any_combined(self):
-        when = ApplicabilityWhen(all=[_cond("a", "defined")], any=[_cond("b", "eq", 1), _cond("c", "eq", 2)])
-        assert evaluate_when(when, {"a": 1, "c": 2}) is True
-        assert evaluate_when(when, {"a": 1}) is False
-        assert evaluate_when(when, {"c": 2}) is False
+    def test_verdict_carries_both_languages(self):
+        verdicts = _by_code({"hauptnutzung": "lager"})
+        assert verdicts["OIB 2.1"].reason_en == "Manufacturing/storage use is a Betriebsbau."
 
 
-class TestResolveApplicability:
-    def _registry(self) -> NormRegistry:
-        entry = NormEntry(
-            id="oib-rl-2",
-            title="Brandschutz",
-            short="OIB-RL 2",
-            rank="oib_richtlinie",
-            role="normativ",
-            jurisdiction=Jurisdiction(country="at"),
-            editions=[
-                Edition(id="2023-05", label="Ausgabe Mai 2023", source=EditionSource(kind="corpus", file="f.pdf"))
-            ],
-            applicability=[
-                ApplicabilityRule(
-                    when=ApplicabilityWhen(all=[_cond("hauptnutzung", "in", ["produzierend", "lager"])]),
-                    verdict="required",
-                    reason_de="Pflicht bei dieser Nutzung.",
-                    reason_en="Required for this use.",
-                ),
-                ApplicabilityRule(
-                    when=ApplicabilityWhen(all=[_cond("hauptnutzung", "defined")]),
-                    verdict="check",
-                    reason_de="Prüfen.",
-                    reason_en="Check.",
-                ),
-            ],
-        )
-        no_rules = NormEntry(
-            id="bo-wien",
-            title="Bauordnung für Wien",
-            short="BauO Wien",
-            rank="landesgesetz",
-            role="normativ",
-            jurisdiction=Jurisdiction(country="at", state="wien"),
-            editions=[],
-        )
-        return NormRegistry(entries=[entry, no_rules])
+class TestTriggerHints:
+    def test_no_hints_when_no_triggers(self):
+        assert trigger_hints({"hauptnutzung": "wohnen"}) == []
 
-    def test_first_match_wins(self):
-        verdicts = resolve_applicability(self._registry(), {"hauptnutzung": "lager"})
-        assert verdicts["oib-rl-2"].verdict == "required"
-        assert verdicts["oib-rl-2"].reason_de == "Pflicht bei dieser Nutzung."
+    def test_boolean_true_triggers_hint(self):
+        hints = trigger_hints({"denkmalschutz": True})
+        assert len(hints) == 1
+        assert "DMSG" in hints[0]
 
-    def test_falls_through_to_second_rule(self):
-        verdicts = resolve_applicability(self._registry(), {"hauptnutzung": "wohnen"})
-        assert verdicts["oib-rl-2"].verdict == "check"
+    def test_string_true_triggers_hint(self):
+        assert trigger_hints({"stellplatz_relevant": "true"}) == [
+            "Stellplatzverpflichtung: Wiener Garagengesetz (bzw. Landesrecht) prüfen."
+        ]
 
-    def test_no_match_omits_entry(self):
-        verdicts = resolve_applicability(self._registry(), {})
-        assert "oib-rl-2" not in verdicts
+    def test_false_does_not_trigger(self):
+        assert trigger_hints({"kleingartengebiet": False, "betriebsanlage": "false"}) == []
 
-    def test_entry_without_rules_is_omitted(self):
-        verdicts = resolve_applicability(self._registry(), {"hauptnutzung": "lager"})
-        assert "bo-wien" not in verdicts
-
-    def test_verdict_type(self):
-        verdicts = resolve_applicability(self._registry(), {"hauptnutzung": "lager"})
-        assert isinstance(verdicts["oib-rl-2"], ApplicabilityVerdict)
-        assert verdicts["oib-rl-2"].norm_id == "oib-rl-2"
-        assert verdicts["oib-rl-2"].reason_en == "Required for this use."
+    def test_all_four_triggers_in_definition_order(self):
+        facts = {
+            "stellplatz_relevant": True,
+            "kleingartengebiet": True,
+            "betriebsanlage": True,
+            "denkmalschutz": True,
+        }
+        hints = trigger_hints(facts)
+        assert len(hints) == 4
+        assert hints[0].startswith("Kleingartengebiet")
+        assert hints[1].startswith("Denkmalschutz")
+        assert hints[2].startswith("Betriebsanlage")
+        assert hints[3].startswith("Stellplatzverpflichtung")
 
 
 class TestFactsFromProjectContext:
@@ -160,6 +114,13 @@ class TestFactsFromProjectContext:
         facts = facts_from_project_context(text)
         assert facts == {"bundesland": "wien", "hauptnutzung": "wohnen", "geschosse_unterirdisch": 2}
 
+    def test_coerces_booleans(self):
+        text = "PROJECT_CONTEXT v1\nconfirmed:\n- stellplatz_relevant=true\n- denkmalschutz=false\n"
+        facts = facts_from_project_context(text)
+        assert facts == {"stellplatz_relevant": True, "denkmalschutz": False}
+        assert facts["stellplatz_relevant"] is True
+        assert facts["denkmalschutz"] is False
+
     def test_ignores_non_confirmed_sections(self):
         text = "PROJECT_CONTEXT v1\ngoals:\n- hauptnutzung=wohnen\n"
         assert facts_from_project_context(text) == {}
@@ -172,104 +133,29 @@ class TestFactsFromProjectContext:
         assert facts_from_project_context("") == {}
 
 
-class TestShippedRegistryApplicability:
-    def test_oib_rl_2_always_required(self):
-        from aiq_agent.common.norm_registry import load_registry
-
-        registry = load_registry()
-        assert registry is not None
-        verdicts = resolve_applicability(registry, {"hauptnutzung": "wohnen"})
-        assert verdicts["oib-rl-2"].verdict == "required"
-
-    def test_betriebsbau_scope(self):
-        from aiq_agent.common.norm_registry import load_registry
-
-        registry = load_registry()
-        assert registry is not None
-        verdicts = resolve_applicability(registry, {"hauptnutzung": "produzierend"})
-        assert verdicts["oib-rl-2.1"].verdict == "required"
-
-    def test_trigger_requires_both_facts(self):
-        from aiq_agent.common.norm_registry import load_registry
-
-        registry = load_registry()
-        assert registry is not None
-        assert "garagengesetz-wien" not in resolve_applicability(registry, {"stellplatz_relevant": True})
-        verdicts = resolve_applicability(registry, {"stellplatz_relevant": True, "bundesland": "wien"})
-        assert verdicts["garagengesetz-wien"].verdict == "check"
-        # The prompt-text view renders booleans as strings — both must match.
-        verdicts = resolve_applicability(registry, {"stellplatz_relevant": "true", "bundesland": "wien"})
-        assert verdicts["garagengesetz-wien"].verdict == "check"
-
-
-class TestRenderApplicabilityBlock:
-    def _registry(self) -> NormRegistry:
-        required_entry = NormEntry(
-            id="oib-rl-2",
-            title="Brandschutz",
-            short="OIB-RL 2",
-            rank="oib_richtlinie",
-            role="normativ",
-            jurisdiction=Jurisdiction(country="at"),
-            editions=[],
-            applicability=[
-                ApplicabilityRule(
-                    when=ApplicabilityWhen(),
-                    verdict="required",
-                    reason_de="Gilt für jedes Bauvorhaben.",
-                    reason_en="Applies to every project.",
-                )
-            ],
-        )
-        check_entry = NormEntry(
-            id="garagengesetz-wien",
-            title="Wiener Garagengesetz",
-            short="GarG W",
-            rank="landesgesetz",
-            role="normativ",
-            jurisdiction=Jurisdiction(country="at", state="wien"),
-            editions=[],
-            applicability=[
-                ApplicabilityRule(
-                    when=ApplicabilityWhen(all=[_cond("stellplatz_relevant", "eq", True)]),
-                    verdict="check",
-                    reason_de="Bei Stellplätzen in Wien zu prüfen.",
-                    reason_en="Check for parking in Vienna.",
-                )
-            ],
-        )
-        return NormRegistry(entries=[required_entry, check_entry])
+class TestRenderProjectBlock:
+    def test_none_when_facts_empty(self):
+        assert render_project_block("") is None
+        assert render_project_block("PROJECT_CONTEXT v1\ngoals:\n- x\n") is None
 
     def test_renders_section_with_verdicts_and_reasons(self):
-        from aiq_agent.common.applicability import render_applicability_block
-
-        block = render_applicability_block(self._registry(), {"stellplatz_relevant": True})
+        context = "PROJECT_CONTEXT v1\nconfirmed:\n- hauptnutzung=lager\n"
+        block = render_project_block(context)
         assert block is not None
-        assert "Anwendbare Normen" in block
-        assert "OIB-RL 2" in block and "verbindlich" in block
-        assert "Gilt für jedes Bauvorhaben." in block
-        assert "GarG W" in block and "zu prüfen" in block
-        # required renders before check
-        assert block.index("OIB-RL 2") < block.index("GarG W")
+        assert "### Für dieses Projekt voraussichtlich einschlägig" in block
+        assert "OIB 1 — verbindlich —" in block
+        assert "OIB 2.1 — verbindlich —" in block
+        assert "OIB 6 — zu prüfen —" in block
 
-    def test_none_when_no_verdicts(self):
-        from aiq_agent.common.applicability import render_applicability_block
-
-        check_only = NormRegistry(entries=[e for e in self._registry().entries if e.id == "garagengesetz-wien"])
-        assert render_applicability_block(check_only, {}) is None
-
-    def test_render_block_for_prompt_appends_section(self):
-        from aiq_agent.common.norm_registry import render_block_for_prompt
-
-        context = "PROJECT_CONTEXT v1\nconfirmed:\n- stellplatz_relevant=true\n- bundesland=wien\n"
-        block = render_block_for_prompt(context)
+    def test_appends_trigger_hints(self):
+        context = "PROJECT_CONTEXT v1\nconfirmed:\n- hauptnutzung=wohnen\n- denkmalschutz=true\n"
+        block = render_project_block(context)
         assert block is not None
-        assert "Anwendbare Normen" in block
-        assert "Garagengesetz" in block or "GarG" in block
+        assert "Denkmalschutz:" in block
 
-    def test_render_block_for_prompt_without_facts_has_no_section(self):
-        from aiq_agent.common.norm_registry import render_block_for_prompt
-
-        block = render_block_for_prompt(None)
+    def test_no_trigger_lines_when_no_triggers(self):
+        context = "PROJECT_CONTEXT v1\nconfirmed:\n- hauptnutzung=wohnen\n"
+        block = render_project_block(context)
         assert block is not None
-        assert "Anwendbare Normen" not in block
+        assert "Denkmalschutz" not in block
+        assert "Kleingartengebiet" not in block

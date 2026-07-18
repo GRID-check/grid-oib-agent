@@ -1,28 +1,18 @@
 /**
- * Derive which norms apply to a project from the project's own brief
+ * Derive which OIB-Richtlinien apply to a project from the project's own brief
  * (its {@link ProjectProfile}). Pure and isomorphic — safe to run on the server
  * (Overview query) or the client. No I/O, no side effects.
  *
- * The rules come from the norm registry (`configs/norms/<country>/registry.yml`
- * `applicability:` blocks, ADR-0025 Phase 4) via
- * `./applicability-rules.generated` — the same data the backend's Python
- * resolver consumes, so UI Overview and agent prompts always agree. The
- * evaluator mirrors `aiq_agent.common.applicability` (first-match-wins).
- *
- * The result is orientation, not legal advice.
+ * The result is orientation, not legal advice: it maps a handful of the brief's
+ * facts (main use, building class, escape level, storeys) onto the Richtlinien
+ * and explains, in one line, why each is relevant.
  */
 
-import type { ProjectProfile, ProjectPrimitiveValue } from '@/lib/project-profile/types'
-import {
-  APPLICABILITY_RULES,
-  type ApplicabilityCondition,
-  type ApplicabilityVerdictStatus,
-  type ApplicabilityWhen,
-} from './applicability-rules.generated'
+import type { ProjectProfile } from '@/lib/project-profile/types'
 import { getOibStandard, OIB_STANDARDS } from './standards-catalog'
 
-/** How strongly a norm applies, given what the brief tells us. */
-export type ApplicableStatus = ApplicabilityVerdictStatus
+/** How strongly a Richtlinie applies, given what the brief tells us. */
+export type ApplicableStatus = 'required' | 'likely' | 'check'
 
 /** A catalog entry annotated with a project-specific applicability verdict. */
 export interface ApplicableStandard {
@@ -54,6 +44,20 @@ function annotate(code: string, status: ApplicableStatus, reason: string): Appli
   }
 }
 
+/** Read a fact value as a string, defensively. Returns undefined when absent. */
+function factString(profile: ProjectProfile | null, id: string): string | undefined {
+  const value = profile?.facts?.[id]?.value
+  return typeof value === 'string' ? value : undefined
+}
+
+/** Read a fact value as a number, defensively. Returns undefined when absent/NaN. */
+function factNumber(profile: ProjectProfile | null, id: string): number | undefined {
+  const value = profile?.facts?.[id]?.value
+  if (value === undefined || value === null || value === '') return undefined
+  const n = Number(value)
+  return Number.isFinite(n) ? n : undefined
+}
+
 /** The six Richtlinien that apply to essentially every building, as generic 'required'. */
 function genericSix(): ApplicableStandard[] {
   return [
@@ -70,102 +74,6 @@ function genericSix(): ApplicableStandard[] {
   ]
 }
 
-type FactMap = Record<string, ProjectPrimitiveValue>
-
-/** Numeric coercion shared by eq/in/ordering ops (booleans are never numeric). */
-function asNumber(value: unknown): number | undefined {
-  if (typeof value === 'number' && Number.isFinite(value)) return value
-  if (typeof value === 'string' && value.trim() !== '') {
-    const n = Number(value)
-    return Number.isFinite(n) ? n : undefined
-  }
-  return undefined
-}
-
-/** Numeric-aware equality — falls back to string comparison. */
-function valueEquals(fact: unknown, expected: unknown): boolean {
-  const a = asNumber(fact)
-  const b = asNumber(expected)
-  if (a !== undefined && b !== undefined) return a === b
-  // Booleans cross the language boundary as "true"/"false" strings (profile
-  // JSON keeps real booleans, the PROJECT_CONTEXT text view renders strings):
-  // compare either representation against the other.
-  if (typeof fact === 'boolean' || typeof expected === 'boolean') {
-    return String(fact).toLowerCase() === String(expected).toLowerCase()
-  }
-  return String(fact) === String(expected)
-}
-
-function isAbsent(fact: unknown): boolean {
-  return fact === undefined || fact === null || fact === ''
-}
-
-function compare(fact: unknown, expected: unknown, pred: (a: number, b: number) => boolean): boolean {
-  const a = asNumber(fact)
-  const b = asNumber(expected)
-  return a !== undefined && b !== undefined && pred(a, b)
-}
-
-/** Evaluate one condition against the fact map (mirrors the Python resolver). */
-export function evaluateCondition(cond: ApplicabilityCondition, facts: FactMap): boolean {
-  const fact = facts[cond.fact]
-  switch (cond.op) {
-    case 'defined':
-      return !isAbsent(fact)
-    case 'undefined':
-      return isAbsent(fact)
-    case 'eq':
-      return !isAbsent(fact) && valueEquals(fact, cond.value)
-    case 'in':
-      return Array.isArray(cond.value) && !isAbsent(fact) && cond.value.some((v) => valueEquals(fact, v))
-    case 'gt':
-      return compare(fact, cond.value, (a, b) => a > b)
-    case 'gte':
-      return compare(fact, cond.value, (a, b) => a >= b)
-    case 'lt':
-      return compare(fact, cond.value, (a, b) => a < b)
-    case 'lte':
-      return compare(fact, cond.value, (a, b) => a <= b)
-    default:
-      return false
-  }
-}
-
-/** Evaluate a rule's `when` block: absent block → match; `all` every; `any` some. */
-export function evaluateWhen(when: ApplicabilityWhen | undefined, facts: FactMap): boolean {
-  if (!when) return true
-  if (when.all && !when.all.every((c) => evaluateCondition(c, facts))) return false
-  if (when.any && !when.any.some((c) => evaluateCondition(c, facts))) return false
-  return true
-}
-
-export interface ApplicabilityVerdict {
-  status: ApplicableStatus
-  reason: string
-}
-
-/**
- * Resolve every registry norm's applicability against plain fact values —
- * first matching rule per norm wins; norms without a match are omitted.
- */
-export function resolveApplicability(facts: FactMap): Map<string, ApplicabilityVerdict> {
-  const verdicts = new Map<string, ApplicabilityVerdict>()
-  for (const entry of APPLICABILITY_RULES) {
-    for (const rule of entry.rules) {
-      if (evaluateWhen(rule.when, facts)) {
-        verdicts.set(entry.normId, { status: rule.verdict, reason: rule.reasonEn })
-        break
-      }
-    }
-  }
-  return verdicts
-}
-
-/** Map an OIB catalog code (`OIB 2.1`) to its registry norm id (`oib-rl-2.1`). */
-function normIdForCode(code: string): string {
-  return `oib-rl-${code.slice(4)}`
-}
-
 /**
  * Return only the Richtlinien that are required / likely / worth checking for this
  * project — clearly-inapplicable ones are omitted. When the brief is empty we can
@@ -178,18 +86,114 @@ export function getApplicableStandards(profile: ProjectProfile | null): Applicab
     return genericSix()
   }
 
-  const facts: FactMap = Object.fromEntries(
-    Object.entries(profile?.facts ?? {}).map(([id, fact]) => [id, fact.value])
-  )
-  const verdicts = resolveApplicability(facts)
+  const hauptnutzung = factString(profile, 'hauptnutzung')
+  const gebaeudeklasse = factString(profile, 'gebaeudeklasse')
+  const fluchtniveau = factString(profile, 'fluchtniveau')
+  const geschosseUnterirdisch = factNumber(profile, 'geschosse_unterirdisch')
 
   const standards: ApplicableStandard[] = []
-  for (const entry of OIB_STANDARDS) {
-    const verdict = verdicts.get(normIdForCode(entry.code))
-    if (verdict) {
-      standards.push(annotate(entry.code, verdict.status, verdict.reason))
-    }
+
+  // OIB 1 — always.
+  standards.push(annotate('OIB 1', 'required', 'Structural safety applies to every building.'))
+
+  // OIB 2 — always.
+  standards.push(
+    annotate('OIB 2', 'required', 'General fire-safety requirements apply to every building.')
+  )
+
+  // OIB 2.1 — Betriebsbauten (industrial & commercial).
+  if (hauptnutzung === 'produzierend' || hauptnutzung === 'lager') {
+    standards.push(
+      annotate('OIB 2.1', 'required', 'Manufacturing/storage use is a Betriebsbau.')
+    )
+  } else if (
+    hauptnutzung === 'landwirtschaft' ||
+    hauptnutzung === 'sonstiges' ||
+    hauptnutzung === undefined
+  ) {
+    standards.push(
+      annotate('OIB 2.1', 'check', 'Applies if the building qualifies as a Betriebsbau.')
+    )
   }
+  // else: omit (clearly not a Betriebsbau).
+
+  // OIB 2.2 — garages & covered parking.
+  if (geschosseUnterirdisch !== undefined && geschosseUnterirdisch >= 1) {
+    standards.push(
+      annotate('OIB 2.2', 'check', 'Applies if the project includes a garage or covered parking.')
+    )
+  }
+  // else: omit.
+
+  // OIB 2.3 — high-rise (Hochhaus).
+  if (fluchtniveau === '>22m') {
+    standards.push(
+      annotate('OIB 2.3', 'required', 'Top escape level over 22 m — the building is a Hochhaus.')
+    )
+  } else if (gebaeudeklasse === 'GK5' && fluchtniveau === undefined) {
+    standards.push(
+      annotate(
+        'OIB 2.3',
+        'check',
+        'GK5 building — confirm whether the top escape level exceeds 22 m.'
+      )
+    )
+  }
+  // else: omit.
+
+  // OIB 3 — always.
+  standards.push(
+    annotate(
+      'OIB 3',
+      'required',
+      'Hygiene, daylight, ventilation and environmental requirements apply to every building.'
+    )
+  )
+
+  // OIB 4 — always; stronger for publicly used buildings.
+  const publicUse =
+    hauptnutzung === 'beherbergung' ||
+    hauptnutzung === 'gesundheit' ||
+    hauptnutzung === 'versammlung' ||
+    hauptnutzung === 'buero'
+  standards.push(
+    annotate(
+      'OIB 4',
+      'required',
+      publicUse
+        ? 'Safety in use and barrier-free access — accessibility duties are extensive for publicly used buildings.'
+        : 'Safety in use and barrier-free access apply.'
+    )
+  )
+
+  // OIB 5 — sound protection; required for occupied/noise-sensitive uses.
+  const noiseSensitive =
+    hauptnutzung === 'wohnen' ||
+    hauptnutzung === 'beherbergung' ||
+    hauptnutzung === 'gesundheit' ||
+    hauptnutzung === 'buero' ||
+    hauptnutzung === 'versammlung'
+  standards.push(
+    noiseSensitive
+      ? annotate('OIB 5', 'required', 'Sound protection is required for occupied/noise-sensitive uses.')
+      : annotate('OIB 5', 'likely', 'Sound protection typically applies.')
+  )
+
+  // OIB 6 — energy & thermal performance; storage/agricultural may be partly exempt.
+  if (hauptnutzung === 'lager' || hauptnutzung === 'landwirtschaft') {
+    standards.push(
+      annotate(
+        'OIB 6',
+        'check',
+        'Unconditioned storage/agricultural buildings may be partly exempt from OIB 6.'
+      )
+    )
+  } else {
+    standards.push(
+      annotate('OIB 6', 'required', 'Energy and thermal-performance requirements apply.')
+    )
+  }
+
   return standards
 }
 

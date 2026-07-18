@@ -50,6 +50,7 @@ from .routes.generate_summary import add_generate_summary_routes
 from .routes.ingest import add_ingest_routes
 from .routes.jobs import register_job_routes
 from .routes.maintenance import add_maintenance_routes
+from .routes.norms import add_norm_routes
 from .routes.oib import add_oib_routes
 from .routes.workflows import add_workflow_routes
 from .websocket_reconnect import configure_websocket_auth
@@ -206,6 +207,7 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
         add_consistency_check_routes(knowledge_router)
         add_ingest_routes(knowledge_router)
         add_oib_routes(knowledge_router)
+        add_norm_routes(knowledge_router)
         add_maintenance_routes(knowledge_router)
         # Internal workflows submit route (ADR-0023): same router/middleware
         # treatment as maintenance, so it stays off the external allowlist.

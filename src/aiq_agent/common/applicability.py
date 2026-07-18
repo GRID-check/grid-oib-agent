@@ -101,7 +101,12 @@ def _is_true(value: Any) -> bool:
 def _generic_six() -> list[OibVerdict]:
     """The six near-universal Richtlinien, all ``required`` — used when the brief is empty."""
     return [
-        OibVerdict("OIB 1", "required", "Standsicherheit gilt für jedes Bauwerk.", "Structural safety applies to every building."),
+        OibVerdict(
+            "OIB 1",
+            "required",
+            "Standsicherheit gilt für jedes Bauwerk.",
+            "Structural safety applies to every building.",
+        ),
         OibVerdict(
             "OIB 2",
             "required",
@@ -114,7 +119,12 @@ def _generic_six() -> list[OibVerdict]:
             "Hygiene, Tageslicht, Lüftung und Umweltschutz gelten für jedes Gebäude.",
             "Hygiene, daylight, ventilation and environmental requirements apply to every building.",
         ),
-        OibVerdict("OIB 4", "required", "Nutzungssicherheit und Barrierefreiheit gelten.", "Safety in use and barrier-free access apply."),
+        OibVerdict(
+            "OIB 4",
+            "required",
+            "Nutzungssicherheit und Barrierefreiheit gelten.",
+            "Safety in use and barrier-free access apply.",
+        ),
         OibVerdict(
             "OIB 5",
             "required",
@@ -147,7 +157,14 @@ def resolve_oib_applicability(facts: Facts) -> list[OibVerdict]:
     verdicts: list[OibVerdict] = []
 
     # OIB 1 — always.
-    verdicts.append(OibVerdict("OIB 1", "required", "Standsicherheit gilt für jedes Bauwerk.", "Structural safety applies to every building."))
+    verdicts.append(
+        OibVerdict(
+            "OIB 1",
+            "required",
+            "Standsicherheit gilt für jedes Bauwerk.",
+            "Structural safety applies to every building.",
+        )
+    )
 
     # OIB 2 — always.
     verdicts.append(
@@ -162,7 +179,12 @@ def resolve_oib_applicability(facts: Facts) -> list[OibVerdict]:
     # OIB 2.1 — Betriebsbauten (industrial & commercial).
     if hauptnutzung in _BETRIEBSBAU_USES:
         verdicts.append(
-            OibVerdict("OIB 2.1", "required", "Produktions-/Lagernutzung ist ein Betriebsbau.", "Manufacturing/storage use is a Betriebsbau.")
+            OibVerdict(
+                "OIB 2.1",
+                "required",
+                "Produktions-/Lagernutzung ist ein Betriebsbau.",
+                "Manufacturing/storage use is a Betriebsbau.",
+            )
         )
     elif hauptnutzung in _BETRIEBSBAU_CHECK or hauptnutzung is None:
         verdicts.append(
@@ -224,13 +246,20 @@ def resolve_oib_applicability(facts: Facts) -> list[OibVerdict]:
             OibVerdict(
                 "OIB 4",
                 "required",
-                "Nutzungssicherheit und Barrierefreiheit — Barrierefreiheitspflichten sind bei öffentlich genutzten Gebäuden umfangreich.",
-                "Safety in use and barrier-free access — accessibility duties are extensive for publicly used buildings.",
+                "Nutzungssicherheit und Barrierefreiheit — Barrierefreiheitspflichten sind bei "
+                "öffentlich genutzten Gebäuden umfangreich.",
+                "Safety in use and barrier-free access — accessibility duties are extensive for "
+                "publicly used buildings.",
             )
         )
     else:
         verdicts.append(
-            OibVerdict("OIB 4", "required", "Nutzungssicherheit und Barrierefreiheit gelten.", "Safety in use and barrier-free access apply.")
+            OibVerdict(
+                "OIB 4",
+                "required",
+                "Nutzungssicherheit und Barrierefreiheit gelten.",
+                "Safety in use and barrier-free access apply.",
+            )
         )
 
     # OIB 5 — sound protection; required for occupied/noise-sensitive uses, else likely.
@@ -244,7 +273,9 @@ def resolve_oib_applicability(facts: Facts) -> list[OibVerdict]:
             )
         )
     else:
-        verdicts.append(OibVerdict("OIB 5", "likely", "Schallschutz gilt üblicherweise.", "Sound protection typically applies."))
+        verdicts.append(
+            OibVerdict("OIB 5", "likely", "Schallschutz gilt üblicherweise.", "Sound protection typically applies.")
+        )
 
     # OIB 6 — energy & thermal performance; storage/agricultural may be partly exempt.
     if hauptnutzung in _OIB6_EXEMPT:
