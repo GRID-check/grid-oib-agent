@@ -30,8 +30,6 @@ export default async function ProjectHistoryPage({ params }: ProjectHistoryPageP
 
   await requireProjectAccess(session, id, 'project:view')
 
-  const t = await getTranslations('nav')
-
   // The research-runs list scopes its fetch to this project's Qdrant
   // collection — same lookup the legacy research page performed.
   const db = getDb()
@@ -46,11 +44,7 @@ export default async function ProjectHistoryPage({ params }: ProjectHistoryPageP
   }
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-4 py-6 md:px-8 md:py-10">
-      <header>
-        <h1 className="text-2xl font-semibold tracking-tight">{t('sections.history')}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">{t('history.subtitle')}</p>
-      </header>
+    <div className="mx-auto w-full max-w-[1080px] px-6 pb-10 pt-8 md:px-10 md:pt-[34px]">
       <ProjectHistory projectId={id} projectCollection={project.collectionName} />
     </div>
   )

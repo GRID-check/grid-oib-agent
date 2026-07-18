@@ -113,4 +113,23 @@ describe('ProjectHistory', () => {
       expect.objectContaining({ projectId: 'p1', projectCollection: 'proj_1' }),
     )
   })
+
+  test('type chips scope the page to conversations or research runs (honest item-type signal)', async () => {
+    listConversations.mockResolvedValue([
+      conversation('c1', 'Brandschutz EG', '2026-07-15T10:00:00Z'),
+    ])
+    render(<ProjectHistory projectId="p1" projectCollection="proj_1" />)
+    await screen.findByText('Brandschutz EG')
+
+    // Default "All": both the conversation list and the research section show.
+    expect(screen.getByTestId('research-runs-list')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Deep research' }))
+    expect(screen.queryByText('Brandschutz EG')).not.toBeInTheDocument()
+    expect(screen.getByTestId('research-runs-list')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Conversations' }))
+    expect(await screen.findByText('Brandschutz EG')).toBeInTheDocument()
+    expect(screen.queryByTestId('research-runs-list')).not.toBeInTheDocument()
+  })
 })
