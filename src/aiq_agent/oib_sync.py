@@ -158,16 +158,21 @@ def discover_pdfs() -> list[Path]:
     two same-named sources would double-index. Uploads win: uploading a file
     with an existing corpus name is how an admin replaces that document.
 
-    Basenames in the persistent exclusion set are skipped entirely, so a
-    repo-shipped file an admin removed from the corpus is never re-ingested.
+    Basenames in the persistent exclusion set are skipped for the repo corpus,
+    so a repo-shipped file an admin removed is never re-ingested. A physically
+    present admin UPLOAD, however, always wins: it is an explicit re-add, so it
+    overrides a stale exclusion left over from a prior delete of the same
+    basename. (This also self-heals corpora uploaded before the upload path
+    learned to lift the exclusion itself — the files simply reappear.)
     """
     excluded = _load_excluded()
     by_name: dict[str, Path] = {}
     for base in (OIB_DIR, OIB_UPLOADS_DIR):
         if not base.exists():
             continue
+        is_upload = base == OIB_UPLOADS_DIR
         for pdf in sorted(p for p in base.rglob("*.pdf") if p.is_file()):
-            if pdf.name in excluded:
+            if pdf.name in excluded and not is_upload:
                 continue
             by_name[pdf.name] = pdf
     return sorted(by_name.values(), key=lambda p: p.name)
@@ -284,6 +289,26 @@ def exclude_document(name: str) -> None:
     logger.info("Excluded OIB corpus document %s from the active corpus", base)
 
 
+def _prune_excluded_uploads() -> None:
+    """Drop exclusion entries whose basename now exists as an admin upload.
+
+    A physically present upload overrides its exclusion (see ``discover_pdfs``),
+    so keeping the name in the persisted set is stale bookkeeping. Pruning it
+    keeps the exclusion file honest and self-heals corpora uploaded before the
+    upload path lifted exclusions itself. Idempotent; no-op when nothing changes.
+    """
+    if not OIB_UPLOADS_DIR.exists():
+        return
+    excluded = _load_excluded()
+    if not excluded:
+        return
+    uploaded = {p.name for p in OIB_UPLOADS_DIR.rglob("*.pdf") if p.is_file()}
+    remaining = excluded - uploaded
+    if remaining != excluded:
+        _save_excluded(remaining)
+        logger.info("Pruned %d stale exclusion(s) now present as uploads", len(excluded) - len(remaining))
+
+
 def unexclude_document(name: str) -> bool:
     """Reverse an exclusion so the file is re-discovered (and re-ingested by the
     next sync). Returns False when the basename was not excluded."""
@@ -350,6 +375,9 @@ def sync() -> tuple[int, int]:
     if not OIB_DIR.exists() and not OIB_UPLOADS_DIR.exists():
         raise FileNotFoundError(f"OIB directory not found: {OIB_DIR}")
 
+    # Self-heal any stale exclusions for files that now exist as uploads before
+    # discovering, so the persisted set matches what discover_pdfs() surfaces.
+    _prune_excluded_uploads()
     pdf_paths = discover_pdfs()
     if not pdf_paths:
         logger.warning("No PDF files found in %s", OIB_DIR)

@@ -252,6 +252,49 @@ def test_unexclude_document_restores_discovery(monkeypatch, tmp_path):
     assert oib_sync.unexclude_document("shipped.pdf") is False
 
 
+def test_uploaded_file_overrides_stale_exclusion(monkeypatch, tmp_path):
+    """A physically present upload reappears even if its basename is excluded —
+    the self-heal for corpora uploaded before the upload path lifted exclusions."""
+    fake_ingestor = FakeIngestor({})
+    _configure_sync(monkeypatch, tmp_path, fake_ingestor)
+    # Same basename exists both as a repo-shipped file and as an admin upload,
+    # and is on the exclusion list from a prior delete.
+    _write_pdf(tmp_path / "oib" / "shipped.pdf", b"repo")
+    _write_pdf(tmp_path / "oib_uploads" / "shipped.pdf", b"upload")
+    oib_sync._save_excluded({"shipped.pdf"})
+
+    discovered = oib_sync.discover_pdfs()
+    names = {p.name for p in discovered}
+    # The upload overrides the exclusion → discovery surfaces it again...
+    assert "shipped.pdf" in names
+    # ...resolving to the upload copy, not the still-excluded repo copy.
+    path = next(p for p in discovered if p.name == "shipped.pdf")
+    assert path == tmp_path / "oib_uploads" / "shipped.pdf"
+
+
+def test_excluded_repo_file_without_upload_stays_hidden(monkeypatch, tmp_path):
+    """The override is upload-only: a repo-shipped file with no upload copy stays
+    excluded, preserving delete semantics for the git-tracked corpus."""
+    fake_ingestor = FakeIngestor({})
+    _configure_sync(monkeypatch, tmp_path, fake_ingestor)
+    _write_pdf(tmp_path / "oib" / "shipped.pdf", b"repo")
+    oib_sync._save_excluded({"shipped.pdf"})
+    assert "shipped.pdf" not in {p.name for p in oib_sync.discover_pdfs()}
+
+
+def test_prune_excluded_uploads_drops_only_present_uploads(monkeypatch, tmp_path):
+    fake_ingestor = FakeIngestor({})
+    _configure_sync(monkeypatch, tmp_path, fake_ingestor)
+    _write_pdf(tmp_path / "oib_uploads" / "a.pdf", b"a")
+    # 'a.pdf' now exists as an upload; 'gone.pdf' does not.
+    oib_sync._save_excluded({"a.pdf", "gone.pdf"})
+
+    oib_sync._prune_excluded_uploads()
+
+    # Only the name backed by a real upload is dropped; the other stays excluded.
+    assert oib_sync._load_excluded() == {"gone.pdf"}
+
+
 def test_remove_document_routes_uploaded_to_delete_and_repo_to_exclude(monkeypatch, tmp_path):
     fake_ingestor = FakeIngestor({})
     registry_path = _configure_sync(monkeypatch, tmp_path, fake_ingestor)
