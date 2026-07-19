@@ -201,7 +201,7 @@ export const research = {
 
   inputArea: {
     aiDisclosure:
-      'Piloti is an AI system. Answers are AI-generated and can be wrong — verify them against the cited guideline (Richtlinie) before relying on them.',
+      'Piloti is an AI — answers can be wrong; verify them against the cited Richtlinie.',
     placeholderDefault: 'Check data sources and ask a research question...',
     signInToStart: 'Sign in to start researching',
     researchCompletedNewSession: 'Research completed. Create a new session for further questions.',
