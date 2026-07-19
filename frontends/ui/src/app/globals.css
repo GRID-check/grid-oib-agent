@@ -292,6 +292,55 @@ body {
   transform: scale(0.98);
 }
 
+/* =============================================================================
+   Guided "thinking" affordances
+
+   While the assistant is working, a long wait should read as *active*, not
+   stalled. Two subtle, monochrome (paper-language) motions carry that: a soft
+   shimmer sweeping the live-activity label, and a slim indeterminate bar
+   sweeping under the status header. Both collapse to a static state under the
+   global prefers-reduced-motion rule above.
+   ============================================================================= */
+@keyframes grid-text-shimmer {
+  0% {
+    background-position: 150% 0;
+  }
+  100% {
+    background-position: -150% 0;
+  }
+}
+
+/* Gradient-clipped text: a brighter ink band travels across muted-ink copy. */
+@utility animate-text-shimmer {
+  background-image: linear-gradient(
+    100deg,
+    var(--muted-foreground) 0%,
+    var(--muted-foreground) 38%,
+    var(--foreground) 50%,
+    var(--muted-foreground) 62%,
+    var(--muted-foreground) 100%
+  );
+  background-size: 220% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  animation: grid-text-shimmer 2.6s linear infinite;
+}
+
+@keyframes grid-progress-sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(320%);
+  }
+}
+
+/* A short highlight that repeatedly sweeps left→right inside its track. */
+@utility animate-progress-sweep {
+  animation: grid-progress-sweep 1.5s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+
 @utility min-h-dvh {
   min-height: 100dvh;
 }

@@ -141,10 +141,24 @@ export const chat = {
   },
   thinking: {
     inProgress: 'Thinking in progress',
-    working: 'Working on a response...',
+    working: 'Working on a response …',
     waiting: 'Waiting for response',
     interrupted: 'Interrupted',
     done: 'Done',
+    elapsedAria: 'Elapsed: {seconds} seconds',
+    // Live one-liners describing what the assistant is doing right now, chosen
+    // from the newest streamed step. `runningNamed` is the honest fallback for
+    // a step we can't classify — it shows the step's own name.
+    activity: {
+      understanding: 'Understanding your question …',
+      planning: 'Planning the approach …',
+      searchingWeb: 'Searching the web …',
+      searchingSources: 'Searching your sources …',
+      researching: 'Researching …',
+      reading: 'Reading the results …',
+      composing: 'Composing the answer …',
+      runningNamed: '{name} …',
+    },
     showThinking: 'Show thinking ({count})',
     showThinkingSteps: 'Show thinking steps ({count})',
     herleitungSummary: 'Trace · {steps} steps · {sources} sources',

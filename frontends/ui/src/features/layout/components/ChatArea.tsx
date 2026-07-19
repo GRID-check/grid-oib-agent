@@ -23,6 +23,8 @@ import {
   DeepResearchBanner,
   UserMessage,
   ChatThinking,
+  useElapsedSeconds,
+  formatElapsed,
 } from '@/features/chat'
 import type { ChatMessage, StatusType } from '@/features/chat'
 import { AnimatePresence, motion, fadeRise, springGentle } from '@/components/motion'
@@ -249,7 +251,10 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
         // matter how tall it grows. The 11rem fallback matches the old pb-44.
         <div
           ref={contentRef}
-          className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 pt-4"
+          // pt-16 reserves clearance for the floating toolbar pills that overlay
+          // the top of this scroll plane, so the first message never renders
+          // behind them.
+          className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 pt-16"
           style={{ paddingBottom: 'calc(var(--composer-h, 11rem) + 1.5rem)' }}
         >
           <AnimatePresence initial={false}>
@@ -571,6 +576,9 @@ const TypingIndicator: FC<{ status?: StatusType | null }> = ({ status }) => {
   const t = useTranslations('research')
   const statusKey = status ? TYPING_STATUS_KEYS[status] : undefined
   const label = statusKey ? t(`chatArea.status.${statusKey}`) : t('chatArea.typing')
+  // This bubble is only mounted before the first step arrives, so counting from
+  // mount gives the true "time since send" for the earliest, quietest wait.
+  const elapsed = useElapsedSeconds(true)
   return (
     <div
       className="animate-in fade-in-0 flex w-fit items-center gap-2 rounded-2xl bg-muted/60 px-3.5 py-2.5 duration-200"
@@ -582,7 +590,12 @@ const TypingIndicator: FC<{ status?: StatusType | null }> = ({ status }) => {
         <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground/70 [animation-delay:-0.15s]" />
         <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground/70" />
       </span>
-      {statusKey && <span className="text-xs text-muted-foreground">{label}</span>}
+      {/* Always word the wait (shimmering), and surface elapsed seconds once
+          past a couple of seconds so a slow first token never feels stalled. */}
+      <span className="animate-text-shimmer text-xs font-medium">{label}</span>
+      {elapsed > 2 && (
+        <span className="text-[11px] tabular-nums text-muted-foreground/80">{formatElapsed(elapsed)}</span>
+      )}
     </div>
   )
 }
@@ -596,7 +609,7 @@ const MessageListSkeleton: FC = () => {
   const t = useTranslations('research')
   return (
     <div
-      className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 pt-4"
+      className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 pt-16"
       style={{ paddingBottom: 'calc(var(--composer-h, 11rem) + 1.5rem)' }}
       role="status"
       aria-label={t('chatArea.loading')}

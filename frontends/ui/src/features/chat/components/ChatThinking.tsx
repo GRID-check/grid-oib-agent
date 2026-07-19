@@ -13,11 +13,13 @@
 import { type FC, useMemo } from 'react'
 import { ChevronDown, CheckCircle2, AlertTriangle, Clock } from 'lucide-react'
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible'
-import { motion } from '@/components/motion'
+import { motion, AnimatePresence } from '@/components/motion'
 import { Spinner } from '@/components/ui/spinner'
 import { useTranslations } from '@/i18n'
 import type { ThinkingStep, CitationSource } from '../types'
 import { deriveTraceSourceCards } from '../lib/trace-lanes'
+import { deriveLiveActivity } from '../lib/live-activity'
+import { useElapsedSeconds, formatElapsed } from '../hooks/use-elapsed-seconds'
 import { ReasoningChain, type ChoicePrompt } from './reasoning'
 import { buildContextChips } from './reasoning/context'
 
@@ -72,6 +74,13 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
     [enabledDataSources, messageFiles, t]
   )
 
+  // Live status: what the assistant is doing right now (derived from the newest
+  // streamed step) plus a seconds-elapsed cue, so a slow turn reads as active
+  // work in progress rather than a frozen spinner.
+  const liveActivity = deriveLiveActivity(steps, t)
+  const activityLabel = liveActivity ?? t('thinking.working')
+  const elapsedSeconds = useElapsedSeconds(isThinking)
+
   const hasSignal =
     steps.length > 0 ||
     enabledDataSources.length > 0 ||
@@ -96,20 +105,29 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
         <CollapsibleTrigger asChild>
           <button
             type="button"
-            className="group flex w-full cursor-pointer items-center justify-between rounded-2xl px-4 pb-4 pt-3 text-left outline-none transition-colors duration-200 ease-out focus-visible:ring-2 focus-visible:ring-ring/60"
+            className="group relative flex w-full cursor-pointer items-center justify-between rounded-2xl px-4 pb-4 pt-3 text-left outline-none transition-colors duration-200 ease-out focus-visible:ring-2 focus-visible:ring-ring/60"
             aria-label={summaryLabel}
           >
-            <span className="flex items-center gap-2">
+            <span className="flex min-w-0 items-center gap-2">
               {isThinking ? (
                 <>
                   <Spinner size="sm" label={t('thinking.inProgress')} />
-                  <motion.span
-                    className="text-sm font-semibold text-foreground"
-                    animate={{ opacity: [0.4, 1, 0.4] }}
-                    transition={{ repeat: Infinity, duration: 1.6, ease: 'easeInOut' }}
-                  >
-                    {t('thinking.working')}
-                  </motion.span>
+                  {/* The live activity phrase cross-fades as each new step
+                      arrives, and shimmers while it holds — a quiet cue that
+                      work is actively moving during a long wait. */}
+                  <AnimatePresence mode="wait" initial={false}>
+                    <motion.span
+                      key={activityLabel}
+                      className="animate-text-shimmer truncate text-sm font-semibold"
+                      initial={{ opacity: 0, y: 4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -4 }}
+                      transition={{ duration: 0.2, ease: 'easeOut' }}
+                      aria-live="polite"
+                    >
+                      {activityLabel}
+                    </motion.span>
+                  </AnimatePresence>
                 </>
               ) : isWaiting ? (
                 <>
@@ -141,10 +159,29 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
               )}
             </span>
 
-            <span className="flex items-center gap-1">
+            <span className="flex shrink-0 items-center gap-2">
+              {isThinking && elapsedSeconds > 0 && (
+                <span
+                  className="rounded-full bg-secondary px-2 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground"
+                  aria-label={t('thinking.elapsedAria', { seconds: elapsedSeconds })}
+                >
+                  {formatElapsed(elapsedSeconds)}
+                </span>
+              )}
               <span className="text-xs text-muted-foreground">{summaryLabel}</span>
               <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
             </span>
+
+            {/* Slim indeterminate sweep along the header's lower edge — a
+                progress-like motion that guides the eye while thinking. */}
+            {isThinking && (
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-x-4 bottom-1.5 h-0.5 overflow-hidden rounded-full bg-foreground/5"
+              >
+                <span className="animate-progress-sweep block h-full w-1/3 rounded-full bg-foreground/30" />
+              </span>
+            )}
           </button>
         </CollapsibleTrigger>
 

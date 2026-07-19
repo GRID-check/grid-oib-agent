@@ -131,6 +131,20 @@ export const chat: typeof en.chat = {
     inProgress: 'Denkvorgang läuft',
     working: 'Antwort wird erstellt …',
     waiting: 'Warten auf Antwort',
+    elapsedAria: 'Vergangen: {seconds} Sekunden',
+    // Live-Einzeiler, was der Assistent gerade tut, aus dem neuesten Schritt
+    // abgeleitet. `runningNamed` ist der ehrliche Fallback für einen Schritt,
+    // den wir nicht klassifizieren können.
+    activity: {
+      understanding: 'Frage wird erfasst …',
+      planning: 'Vorgehen wird geplant …',
+      searchingWeb: 'Web wird durchsucht …',
+      searchingSources: 'Quellen werden durchsucht …',
+      researching: 'Recherche läuft …',
+      reading: 'Ergebnisse werden gelesen …',
+      composing: 'Antwort wird formuliert …',
+      runningNamed: '{name} …',
+    },
     interrupted: 'Unterbrochen',
     done: 'Fertig',
     showThinking: 'Denkschritte anzeigen ({count})',
