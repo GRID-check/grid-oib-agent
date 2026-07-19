@@ -27,6 +27,57 @@ function slugify(text: string): string {
 }
 
 /**
+ * Stabilize half-arrived markdown DURING streaming so partial syntax doesn't
+ * flip the layout token-by-token.
+ *
+ * Two failure modes are smoothed:
+ *  1. An odd number of ``` fences — the trailing prose after a just-opened fence
+ *     would otherwise render as a giant code card until its closing fence lands.
+ *     We append a synthetic closing fence so the in-progress block renders as a
+ *     (small) code block instead of swallowing everything below it.
+ *  2. A GFM table whose delimiter row (`|---|`) hasn't streamed in yet — the
+ *     header row alone would be mis-parsed. We hold the trailing header-only
+ *     table lines back until the delimiter row exists, rendering them as plain
+ *     text for the moment (they re-parse as a table once the delimiter arrives).
+ *
+ * This only runs while `isStreaming` is true; finalized content is passed
+ * through untouched so the fully-formed markdown always wins.
+ */
+function stabilizeStreamingMarkdown(raw: string): string {
+  let content = raw
+
+  // 1) Auto-close an odd number of ``` fences.
+  const fenceCount = (content.match(/```/g) ?? []).length
+  if (fenceCount % 2 === 1) {
+    // Ensure the synthetic fence starts on its own line.
+    content += content.endsWith('\n') ? '```' : '\n```'
+  }
+
+  // 2) Defer a header-only GFM table (last block is table rows with no
+  //    delimiter row yet). Only touch the trailing run of pipe lines.
+  const lines = content.split('\n')
+  let end = lines.length
+  // Skip a trailing blank line so we look at the actual last content lines.
+  while (end > 0 && lines[end - 1].trim() === '') end--
+  let start = end
+  while (start > 0 && lines[start - 1].trim().startsWith('|')) start--
+  if (end - start >= 1) {
+    const tableLines = lines.slice(start, end)
+    const hasDelimiterRow = tableLines.some((l) => /^\s*\|?\s*:?-{1,}/.test(l) && l.includes('-'))
+    if (!hasDelimiterRow) {
+      // Escape the leading pipes so react-markdown renders them as text, not a
+      // broken table, until the delimiter row streams in.
+      for (let i = start; i < end; i++) {
+        lines[i] = lines[i].replace(/\|/g, '\\|')
+      }
+      content = lines.join('\n')
+    }
+  }
+
+  return content
+}
+
+/**
  * MarkdownRenderer - Renders markdown content with shadcn-idiomatic styling
  *
  * @param content - Markdown string to render
@@ -35,7 +86,14 @@ function slugify(text: string): string {
  * @param compact - Use smaller text sizes for chat bubbles
  */
 export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
-  ({ content, className = '', compact = false }) => {
+  ({ content, className = '', compact = false, isStreaming = false }) => {
+    // While streaming, run partial content through the stabilizer so half-formed
+    // fences/tables don't thrash the layout token-by-token. Finalized content is
+    // rendered verbatim.
+    const renderedContent = useMemo(
+      () => (isStreaming ? stabilizeStreamingMarkdown(content) : content),
+      [isStreaming, content]
+    )
     // Custom component mappings
     const components: Components = useMemo(
       () => ({
@@ -196,7 +254,7 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
     return (
       <div className={`markdown-content break-words [overflow-wrap:anywhere] [&>*:last-child]:mb-0 ${className}`}>
         <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
-          {content}
+          {renderedContent}
         </ReactMarkdown>
       </div>
     )

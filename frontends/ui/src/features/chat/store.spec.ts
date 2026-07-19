@@ -351,8 +351,7 @@ describe('useChatStore', () => {
           role: 'assistant',
           content: '',
           timestamp: new Date(),
-          messageType: 'file_upload_status',
-          fileUploadStatusData: { type: 'uploaded', fileCount: 2, jobId: 'job-1' },
+          messageType: 'status',
         },
       ],
       createdAt: new Date(),
@@ -634,8 +633,7 @@ describe('useChatStore', () => {
             role: 'assistant',
             content: '',
             timestamp: new Date(),
-            messageType: 'file_upload_status',
-            fileUploadStatusData: { type: 'uploaded', fileCount: 1, jobId: 'job-1' },
+            messageType: 'status',
           },
         ],
         createdAt: new Date(),
@@ -1779,67 +1777,6 @@ describe('useChatStore', () => {
       useChatStore.getState().dismissErrorCard(msgId)
 
       expect(useChatStore.getState().currentConversation?.messages).toHaveLength(0)
-    })
-  })
-
-  describe('file upload status cards', () => {
-    test('addFileUploadStatusCard adds to current conversation', () => {
-      const conv: Conversation = {
-        id: 'conv-1',
-        userId: 'user-1',
-        title: 'Test',
-        messages: [],
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      }
-      useChatStore.setState({
-        currentUserId: 'user-1',
-        currentConversation: conv,
-        conversations: [conv],
-      })
-
-      useChatStore.getState().addFileUploadStatusCard('uploaded', 3, 'job-123')
-
-      const messages = useChatStore.getState().currentConversation?.messages
-      expect(messages).toHaveLength(1)
-      expect(messages?.[0].messageType).toBe('file_upload_status')
-      expect(messages?.[0].fileUploadStatusData?.type).toBe('uploaded')
-      expect(messages?.[0].fileUploadStatusData?.fileCount).toBe(3)
-      expect(messages?.[0].fileUploadStatusData?.jobId).toBe('job-123')
-    })
-
-    test('addFileUploadStatusCard adds to specific session', () => {
-      const conv1: Conversation = {
-        id: 'conv-1',
-        userId: 'user-1',
-        title: 'Current',
-        messages: [],
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      }
-      const conv2: Conversation = {
-        id: 'conv-2',
-        userId: 'user-1',
-        title: 'Target',
-        messages: [],
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      }
-      useChatStore.setState({
-        currentUserId: 'user-1',
-        currentConversation: conv1,
-        conversations: [conv1, conv2],
-      })
-
-      useChatStore.getState().addFileUploadStatusCard('uploaded', 2, 'job-456', 'conv-2')
-
-      // Current conversation should be unchanged
-      expect(useChatStore.getState().currentConversation?.messages).toHaveLength(0)
-
-      // Target conversation should have the message
-      const targetConv = useChatStore.getState().conversations.find((c) => c.id === 'conv-2')
-      expect(targetConv?.messages).toHaveLength(1)
-      expect(targetConv?.messages[0].fileUploadStatusData?.type).toBe('uploaded')
     })
   })
 

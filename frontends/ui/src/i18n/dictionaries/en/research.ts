@@ -25,6 +25,16 @@ export const research = {
 
   chatArea: {
     ariaMessages: 'Chat messages',
+    loading: 'Loading conversation',
+    typing: 'Piloti is responding …',
+    scrollToLatest: 'Scroll to latest',
+    status: {
+      thinking: 'Thinking …',
+      searching: 'Searching …',
+      planning: 'Planning …',
+      researching: 'Researching …',
+      writing: 'Writing …',
+    },
     loggedOutTitle: 'Piloti opens after your organization is verified.',
     loggedOutBody:
       'Sign in to unlock project-scoped OIB research, document ingestion, and member access controls.',
@@ -224,6 +234,16 @@ export const research = {
     sendQuery: 'Send query',
     responseInput: 'Response input',
     chatMessageInput: 'Chat message input',
+    stopStreaming: 'Stop response',
+    sendWhilePending: 'Files are still processing — send anyway?',
+    removeFile: 'Remove file: {name}',
+    retryUpload: 'Retry upload',
+    manageFiles: 'Manage files',
+    manageFilesCount: 'Manage attached files ({count})',
+    fileUploadingStatus: 'Uploading',
+    fileFailedStatus: 'Upload failed',
+    fileReadyStatus: 'Ready',
+    sourcesPopoverAllHint: 'Enabled connections are available to the AI assistant.',
   },
 
   reportCard: {
@@ -294,6 +314,7 @@ export const research = {
     today: 'Today',
     yesterday: 'Yesterday',
     editTitle: 'Edit session title',
+    untitledSession: 'New chat',
     renameDisabled: 'Rename session (disabled)',
     rename: 'Rename session',
     cannotRenameBusy: 'Cannot rename while operations are in progress',

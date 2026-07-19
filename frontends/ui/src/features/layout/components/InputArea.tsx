@@ -13,14 +13,27 @@
 
 'use client'
 
-import { type FC, memo, useState, useCallback, useRef, useEffect, type KeyboardEvent } from 'react'
+import {
+  type FC,
+  memo,
+  useState,
+  useCallback,
+  useRef,
+  useEffect,
+  useMemo,
+  type ClipboardEvent,
+  type KeyboardEvent,
+} from 'react'
 import {
   ArrowUp,
   Check,
   ChevronDown,
   FileText,
   Layers,
+  Loader2,
   Paperclip,
+  RotateCw,
+  Square,
   X,
   XCircle,
   ZoomIn,
@@ -28,19 +41,33 @@ import {
 import { toast } from 'sonner'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Spinner } from '@/components/ui/spinner'
+import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { AnimatePresence, motion, easeQuiet, springSnappy } from '@/components/motion'
+import { useAuth } from '@/adapters/auth'
 import { useWebSocketChat, useChatStore, useIsCurrentSessionBusy } from '@/features/chat'
 import { useLayoutStore } from '../store'
 import { computePresetSourceIds } from '../lib/source-presets'
 import type { SourcePresetId } from '../types'
+import type { DataSource } from '../data-sources'
 import { SourceSignalChip, SourceSignalChipToggle } from './SourceSignalChip'
+import { DataConnectionCard } from './DataConnectionCard'
+import { FileSourcesTab } from './FileSourcesTab'
 import { useAppConfig } from '@/shared/context'
 import { useTranslations } from '@/i18n'
-import { useFileUpload, useFileDragDrop, useFileUploadBanners } from '@/features/documents'
+import { useFileUpload, useFileDragDrop } from '@/features/documents'
+import type { TrackedFile } from '@/features/documents'
 
 /** Preset chip order + their provenance signals (spec §4 --source-* family). */
 const SOURCE_PRESETS: Array<{ id: SourcePresetId; signal: SourcePresetId }> = [
@@ -54,6 +81,232 @@ export type ConnectionMode = 'sse' | 'websocket'
 
 /** Maximum height of the auto-sizing textarea in pixels */
 const TEXTAREA_MAX_HEIGHT_PX = 200
+
+/**
+ * Connection toggle list rendered inside the "Datengrundlage" popover.
+ * Lifted from the old DataSourcesPanel connections tab — same store actions,
+ * same DataConnectionCard, plus a single enable/disable-all control. Kept as a
+ * child so its store subscriptions only mount while the popover is open.
+ */
+const SourcesPopoverContent: FC = () => {
+  const t = useTranslations('research')
+  const tc = useTranslations('common')
+  const { idToken } = useAuth()
+  const hasValidToken = !!idToken
+
+  const enabledDataSourceIds = useLayoutStore((s) => s.enabledDataSourceIds)
+  const availableDataSources = useLayoutStore((s) => s.availableDataSources)
+  const dataSourcesLoading = useLayoutStore((s) => s.dataSourcesLoading)
+  const dataSourcesError = useLayoutStore((s) => s.dataSourcesError)
+  const toggleDataSource = useLayoutStore((s) => s.toggleDataSource)
+  const setEnabledDataSources = useLayoutStore((s) => s.setEnabledDataSources)
+  const fetchDataSources = useLayoutStore((s) => s.fetchDataSources)
+  const saveDataSourcesToConversation = useChatStore((s) => s.saveDataSourcesToConversation)
+  const isBusy = useIsCurrentSessionBusy()
+
+  const enabledSourcesSet = useMemo(() => new Set(enabledDataSourceIds), [enabledDataSourceIds])
+
+  const displaySources: DataSource[] = useMemo(() => {
+    if (!availableDataSources || availableDataSources.length === 0) return []
+    return availableDataSources.map((source) => ({
+      id: source.id,
+      name: source.name,
+      description: source.description ?? '',
+      category: source.category ?? 'enterprise',
+      defaultEnabled: true,
+      requiresAuth: source.requires_auth ?? false,
+    }))
+  }, [availableDataSources])
+
+  const availableSources = useMemo(
+    () => displaySources.filter((source) => !source.requiresAuth || hasValidToken),
+    [displaySources, hasValidToken]
+  )
+
+  const enabledAvailableCount = enabledDataSourceIds.filter((id) =>
+    availableSources.some((s) => s.id === id)
+  ).length
+  const allAvailableEnabled =
+    enabledAvailableCount === availableSources.length && availableSources.length > 0
+
+  const handleToggle = useCallback(
+    (sourceId: string, enabled: boolean) => {
+      const updatedIds = enabled
+        ? [...enabledDataSourceIds, sourceId]
+        : enabledDataSourceIds.filter((id) => id !== sourceId)
+      toggleDataSource(sourceId)
+      saveDataSourcesToConversation?.(updatedIds)
+    },
+    [toggleDataSource, enabledDataSourceIds, saveDataSourcesToConversation]
+  )
+
+  const handleToggleAll = useCallback(() => {
+    const updatedIds = allAvailableEnabled ? [] : availableSources.map((s) => s.id)
+    setEnabledDataSources(updatedIds)
+    saveDataSourcesToConversation?.(updatedIds)
+  }, [allAvailableEnabled, setEnabledDataSources, availableSources, saveDataSourcesToConversation])
+
+  return (
+    <div className="flex max-h-[min(60vh,420px)] flex-col">
+      <div className="mb-2 flex items-center gap-2">
+        <Layers className="text-muted-foreground size-4 shrink-0" aria-hidden="true" />
+        <span className="text-sm font-semibold">{t('dataSourcesPanel.title')}</span>
+      </div>
+
+      {/* Enable/disable all */}
+      <div
+        role="button"
+        tabIndex={isBusy ? -1 : 0}
+        onClick={isBusy ? undefined : handleToggleAll}
+        onKeyDown={(e) => {
+          if (!isBusy && (e.key === 'Enter' || e.key === ' ')) {
+            e.preventDefault()
+            handleToggleAll()
+          }
+        }}
+        className={cn(
+          'bg-card shadow-xs focus-visible:ring-ring/50 mb-2 flex items-center justify-between rounded-xl p-2.5 outline-none transition-colors focus-visible:ring-2',
+          isBusy ? 'cursor-not-allowed opacity-50' : 'hover:bg-accent cursor-pointer'
+        )}
+        aria-pressed={allAvailableEnabled}
+        aria-disabled={isBusy}
+        aria-label={
+          isBusy
+            ? t('dataSourcesPanel.allAvailableDisabledOps')
+            : t('dataSourcesPanel.allAvailableState', {
+                state: allAvailableEnabled
+                  ? t('dataConnectionCard.enabled')
+                  : t('dataConnectionCard.disabled'),
+              })
+        }
+        title={isBusy ? t('dataSources.changesDisabledBusy') : undefined}
+      >
+        <span className="text-sm font-medium">{t('dataSourcesPanel.disableEnableAll')}</span>
+        {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
+        <div onClick={(e) => e.stopPropagation()}>
+          <Switch
+            checked={allAvailableEnabled}
+            onCheckedChange={handleToggleAll}
+            disabled={isBusy}
+            aria-label={
+              isBusy
+                ? t('dataSourcesPanel.toggleAllDisabled')
+                : allAvailableEnabled
+                  ? t('dataSourcesPanel.disableAll')
+                  : t('dataSourcesPanel.enableAll')
+            }
+          />
+        </div>
+      </div>
+
+      {/* Individual connections */}
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {dataSourcesLoading ? (
+          <div className="flex items-center justify-center py-6">
+            <Spinner label={t('dataSources.loading')} />
+          </div>
+        ) : dataSourcesError ? (
+          <div className="flex flex-col items-center py-4">
+            <span className="text-destructive mb-2 text-sm">{t('dataSources.unableToLoad')}</span>
+            <span className="text-muted-foreground mb-3 text-xs">{dataSourcesError}</span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => fetchDataSources()}
+              aria-label={t('dataSources.retryAria')}
+            >
+              {tc('actions.retry')}
+            </Button>
+          </div>
+        ) : displaySources.length === 0 ? (
+          <div className="flex flex-col items-center py-4">
+            <span className="text-muted-foreground text-sm">{t('dataSources.none')}</span>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-1.5">
+            {displaySources.map((source) => {
+              const isSourceAvailable = !source.requiresAuth || hasValidToken
+              return (
+                <DataConnectionCard
+                  key={source.id}
+                  source={source}
+                  isEnabled={enabledSourcesSet.has(source.id)}
+                  isAvailable={isSourceAvailable}
+                  isBusy={isBusy}
+                  unavailableReason={
+                    !isSourceAvailable ? t('dataSourcesPanel.signInRequiredSource') : undefined
+                  }
+                  onToggle={handleToggle}
+                />
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      <p className="text-muted-foreground mt-2 text-xs">{t('inputArea.sourcesPopoverAllHint')}</p>
+    </div>
+  )
+}
+
+/**
+ * Inline removable file chip shown above the composer textarea. Live status:
+ * spinner while uploading/ingesting, green check on success, red on failure
+ * (failed chips also offer a retry). The ✕ deletes the file.
+ */
+const FileChip: FC<{
+  file: TrackedFile
+  onRemove: (id: string) => void
+  onRetry: (id: string) => void
+}> = ({ file, onRemove, onRetry }) => {
+  const t = useTranslations('research')
+  const isPending = file.status === 'uploading' || file.status === 'ingesting'
+  const isFailed = file.status === 'failed'
+  const statusTitle = isPending
+    ? t('inputArea.fileUploadingStatus')
+    : isFailed
+      ? file.errorMessage || t('inputArea.fileFailedStatus')
+      : t('inputArea.fileReadyStatus')
+
+  return (
+    <span
+      className={cn(
+        'bg-card inline-flex h-7 max-w-[200px] items-center gap-1.5 rounded-md border px-2 text-[12px]',
+        isFailed && 'border-error/50'
+      )}
+      title={`${file.fileName} — ${statusTitle}`}
+    >
+      {isPending ? (
+        <Loader2 className="text-muted-foreground size-3 shrink-0 animate-spin" aria-hidden="true" />
+      ) : isFailed ? (
+        <span className="bg-error size-2 shrink-0 rounded-full" aria-hidden="true" />
+      ) : (
+        <Check className="text-status-active size-3 shrink-0" aria-hidden="true" />
+      )}
+      <span className="text-foreground/85 min-w-0 truncate">{file.fileName}</span>
+      {isFailed && (
+        <button
+          type="button"
+          onClick={() => onRetry(file.id)}
+          aria-label={t('inputArea.retryUpload')}
+          title={t('inputArea.retryUpload')}
+          className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 shrink-0 rounded-sm focus-visible:outline-none focus-visible:ring-2"
+        >
+          <RotateCw className="size-3" aria-hidden="true" />
+        </button>
+      )}
+      <button
+        type="button"
+        onClick={() => onRemove(file.id)}
+        aria-label={t('inputArea.removeFile', { name: file.fileName })}
+        title={t('inputArea.removeFile', { name: file.fileName })}
+        className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 shrink-0 rounded-sm focus-visible:outline-none focus-visible:ring-2"
+      >
+        <X className="size-3" aria-hidden="true" />
+      </button>
+    </span>
+  )
+}
 
 interface InputAreaProps {
   /** Placeholder text */
@@ -194,6 +447,8 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   const {
     uploadFiles,
     sessionFiles,
+    deleteFile,
+    retryFile,
     isUploading,
     error: uploadError,
     clearError,
@@ -201,47 +456,11 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     collectionName: currentConversation?.id,
   })
 
-  // File upload banner hook - monitors file status and triggers banner messages in chat
-  useFileUploadBanners()
-
-  // -- Pending files warning state --
-  // Tracks whether we've shown the pending-files warning for the current upload batch.
-  // When true, the next submit will dismiss the warning and send the message.
-  const [pendingFilesWarningActive, setPendingFilesWarningActive] = useState(false)
-
-  // Track the number of uploading/ingesting files so we can detect NEW upload interactions
-  // and reset the acknowledged state.
-  const prevPendingCountRef = useRef(0)
-
-  // Store actions for the warning banner
-  const addFileUploadStatusCard = useChatStore((state) => state.addFileUploadStatusCard)
-  const removeFileUploadWarning = useChatStore((state) => state.removeFileUploadWarning)
-
-  // Compute pending files count for the current session
-  const pendingSessionFiles = sessionFiles.filter(
+  // Count of files still uploading/ingesting for the current session. Drives
+  // the "still processing" hint on the send button (send is never blocked).
+  const pendingCount = sessionFiles.filter(
     (f) => f.status === 'uploading' || f.status === 'ingesting'
-  )
-  const pendingCount = pendingSessionFiles.length
-
-  // Detect NEW file upload interactions: when pendingCount increases from 0 (or from a lower value
-  // after all files finished) to > 0, it means the user started a new upload batch.
-  // Reset the warning state so it can trigger again on the next submit.
-  //
-  // Also: if the warning is currently displayed and all files finish ingesting,
-  // auto-dismiss the warning since the files are now ready.
-  useEffect(() => {
-    const prev = prevPendingCountRef.current
-    // New upload detected: pending count went from 0 → >0
-    if (prev === 0 && pendingCount > 0) {
-      setPendingFilesWarningActive(false)
-    }
-    // Files all finished while warning was active → auto-dismiss the warning
-    if (prev > 0 && pendingCount === 0 && pendingFilesWarningActive) {
-      removeFileUploadWarning()
-      setPendingFilesWarningActive(false)
-    }
-    prevPendingCountRef.current = pendingCount
-  }, [pendingCount, pendingFilesWarningActive, removeFileUploadWarning])
+  ).length
 
   const { sendMessage, isLoading, respondToInteraction, pendingInteraction } = wsChat
 
@@ -256,9 +475,6 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   const enabledDataSourceIds = useLayoutStore((s) => s.enabledDataSourceIds)
   const knowledgeLayerAvailable = useLayoutStore((s) => s.knowledgeLayerAvailable)
   const availableDataSources = useLayoutStore((s) => s.availableDataSources)
-  const openRightPanel = useLayoutStore((s) => s.openRightPanel)
-  const closeRightPanel = useLayoutStore((s) => s.closeRightPanel)
-  const setDataSourcesPanelTab = useLayoutStore((s) => s.setDataSourcesPanelTab)
   const deepResearchIntent = useLayoutStore((s) => s.deepResearchIntent)
   const setDeepResearchIntent = useLayoutStore((s) => s.setDeepResearchIntent)
   const activeSourcePreset = useLayoutStore((s) => s.activeSourcePreset)
@@ -266,6 +482,12 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
 
   // Persist source selection per conversation, exactly like the panel does.
   const saveDataSourcesToConversation = useChatStore((s) => s.saveDataSourcesToConversation)
+
+  // Streaming state + cancel action for the composer stop button (C1).
+  // stopStreaming is added by the STREAMING agent in messages-store; selecting
+  // it defensively means the button no-ops until that half of the contract lands.
+  const isStreaming = useChatStore((s) => s.isStreaming)
+  const stopStreaming = useChatStore((s) => s.stopStreaming)
 
   /**
    * Shortcut preset chips: apply the subset of REAL sources the preset stands
@@ -383,25 +605,9 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
       return
     }
 
-    // --- Pending files warning logic ---
-    // If files are still uploading/ingesting AND we haven't shown the warning yet:
-    // 1. Add a warning banner to the chat feed
-    // 2. Keep the message in the input (don't clear or send)
-    // 3. Mark warning as active so the next submit will proceed
-    if (pendingCount > 0 && !pendingFilesWarningActive) {
-      addFileUploadStatusCard('pending_warning', pendingCount, `pending-warning-${Date.now()}`)
-      setPendingFilesWarningActive(true)
-      return // Don't send — keep message in input
-    }
-
-    // If the warning is currently active (user is re-submitting to acknowledge):
-    // Dismiss the warning banner first, then send the message
-    if (pendingFilesWarningActive) {
-      removeFileUploadWarning()
-      setPendingFilesWarningActive(false)
-    }
-
-    // Proceed with normal send
+    // Files may still be uploading/ingesting — we no longer gate the send behind
+    // a double-submit banner. The send button surfaces a subtle inline hint
+    // (see title below) but the user is always free to send.
     setMessage('')
     try {
       // sendMessage reports immediate failures (dead socket, no conversation)
@@ -427,10 +633,6 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     isResponseMode,
     respondToInteraction,
     sendMessage,
-    pendingCount,
-    pendingFilesWarningActive,
-    addFileUploadStatusCard,
-    removeFileUploadWarning,
     currentConversation,
     clearComposerDraft,
     t,
@@ -487,24 +689,14 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
         return
       }
 
-      // Open the files tab immediately so the user sees instant feedback
-      setDataSourcesPanelTab('files')
-      openRightPanel('data-sources')
-
+      // Attached files now surface as inline chips above the composer, so there
+      // is no panel to auto-open — the chips give instant feedback in place.
       // Pass the (possibly just-created) session explicitly: the hook's
       // memoized collectionName still reflects the previous render, so the
       // first upload in a fresh session would otherwise abort.
       await uploadFiles(files, sessionId)
     },
-    [
-      ensureSession,
-      uploadFiles,
-      openRightPanel,
-      setDataSourcesPanelTab,
-      isDisabledByAuth,
-      isUploading,
-      isBusy,
-    ]
+    [ensureSession, uploadFiles, isDisabledByAuth, isUploading, isBusy]
   )
 
   const { isDragging, isUnsupportedDrag, dragHandlers } = useFileDragDrop({
@@ -518,6 +710,19 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
       await handleFilesSelected(files)
       // Reset input so same file can be selected again
       e.target.value = ''
+    },
+    [handleFilesSelected]
+  )
+
+  // Paste-to-attach: route any files on the clipboard (e.g. a pasted image or
+  // a copied document) through the same upload path. Text pastes are left to
+  // the textarea's native handling — we only intervene when files are present.
+  const handlePaste = useCallback(
+    (e: ClipboardEvent<HTMLTextAreaElement>) => {
+      const files = Array.from(e.clipboardData?.files ?? [])
+      if (files.length === 0) return
+      e.preventDefault()
+      handleFilesSelected(files)
     },
     [handleFilesSelected]
   )
@@ -583,6 +788,21 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
             </div>
           </div>
         )}
+        {/* Inline file chips — one per attached file, above the textarea.
+            Live status dot/spinner, retry on failure, ✕ to remove. */}
+        {sessionFiles.length > 0 && (
+          <div className="mb-2 flex flex-wrap gap-1.5" aria-label={t('inputArea.manageFiles')}>
+            {sessionFiles.map((file) => (
+              <FileChip
+                key={file.id}
+                file={file}
+                onRemove={deleteFile}
+                onRetry={retryFile}
+              />
+            ))}
+          </div>
+        )}
+
         {/* Text Input */}
         <Textarea
           ref={textareaRef}
@@ -592,6 +812,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           value={message}
           onChange={(e) => handleValueChange(e.target.value)}
           onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
           placeholder={getPlaceholder()}
           disabled={disabled}
           rows={1}
@@ -684,33 +905,36 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
             </PopoverContent>
           </Popover>
 
-          {/* Datengrundlage chip — opens the EXISTING DataSourcesPanel.
-              Layers icon + label + count badge + chevron (dummy composer). */}
-          <button
-            type="button"
-            onClick={() => {
-              if (useLayoutStore.getState().rightPanel === 'data-sources') {
-                closeRightPanel()
-              } else {
-                setDataSourcesPanelTab('connections')
-                openRightPanel('data-sources')
-              }
-            }}
-            disabled={isDisabledByAuth}
-            aria-label={tChat('composer.sourcesAria', {
-              enabled: enabledSourcesCount,
-              total: totalSourcesCount,
-            })}
-            title={t('inputArea.selectedConnections')}
-            className="bg-card text-muted-foreground shadow-xs hover:bg-accent focus-visible:ring-ring/50 inline-flex h-8 shrink-0 items-center gap-[7px] rounded-md border px-[11px] text-[12.5px] transition-colors focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <Layers className="size-3.5 shrink-0" aria-hidden="true" />
-            <span>{tChat('composer.sources')}</span>
-            <span className="bg-muted text-foreground/80 inline-flex h-4 min-w-4 items-center justify-center rounded-md px-1 text-[10.5px] font-semibold tabular-nums">
-              {enabledSourcesCount}
-            </span>
-            <ChevronDown className="text-muted-foreground size-3 shrink-0" aria-hidden="true" />
-          </button>
+          {/* Datengrundlage chip — opens a Popover hosting the connection
+              toggle list + enable/disable-all (C3/C4). Enabled-count badge
+              stays live on the trigger. */}
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                disabled={isDisabledByAuth}
+                aria-label={tChat('composer.sourcesAria', {
+                  enabled: enabledSourcesCount,
+                  total: totalSourcesCount,
+                })}
+                title={t('inputArea.selectedConnections')}
+                className="bg-card text-muted-foreground shadow-xs hover:bg-accent focus-visible:ring-ring/50 inline-flex h-8 shrink-0 items-center gap-[7px] rounded-md border px-[11px] text-[12.5px] transition-colors focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Layers className="size-3.5 shrink-0" aria-hidden="true" />
+                <span>{tChat('composer.sources')}</span>
+                <span className="bg-muted text-foreground/80 inline-flex h-4 min-w-4 items-center justify-center rounded-md px-1 text-[10.5px] font-semibold tabular-nums">
+                  {enabledSourcesCount}
+                </span>
+                <ChevronDown
+                  className="text-muted-foreground size-3 shrink-0"
+                  aria-hidden="true"
+                />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent side="top" align="start" className="w-80 p-3">
+              <SourcesPopoverContent />
+            </PopoverContent>
+          </Popover>
 
           {/* Active source preset — colored provenance chip (icon+label+color) */}
           {activeSourcePreset && (
@@ -744,33 +968,39 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
             <span>{tChat('composer.deepResearch')}</span>
           </button>
 
-          {/* Right Actions: files counter, attach, submit — pushed right */}
+          {/* Right Actions: manage-files, attach, submit — pushed right */}
           <div className="ml-auto flex items-center gap-1">
-            {/* Files indicator - clickable to toggle files tab (only when files exist) */}
+            {/* Manage files — opens a Dialog hosting the full FileSourcesTab
+                (browse, upload zone, per-file delete). Replaces the old
+                right-panel toggle. Shown only when files exist. */}
             {attachedFilesCount > 0 && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-muted-foreground h-8 rounded-lg px-2.5"
-                onClick={() => {
-                  if (useLayoutStore.getState().rightPanel === 'data-sources') {
-                    closeRightPanel()
-                  } else {
-                    setDataSourcesPanelTab('files')
-                    openRightPanel('data-sources')
-                  }
-                }}
-                disabled={isDisabledByAuth || !knowledgeLayerAvailable}
-                aria-label={t('inputArea.openFiles')}
-                title={
-                  knowledgeLayerAvailable
-                    ? t('inputArea.availableFiles')
-                    : t('inputArea.uploadNotAvailable')
-                }
-              >
-                <FileText className="size-3" aria-hidden="true" />
-                <span className="text-xs font-semibold">{attachedFilesCount}</span>
-              </Button>
+              <Dialog>
+                <DialogTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-muted-foreground h-8 rounded-lg px-2.5"
+                    disabled={isDisabledByAuth || !knowledgeLayerAvailable}
+                    aria-label={t('inputArea.manageFilesCount', { count: attachedFilesCount })}
+                    title={
+                      knowledgeLayerAvailable
+                        ? t('inputArea.manageFiles')
+                        : t('inputArea.uploadNotAvailable')
+                    }
+                  >
+                    <FileText className="size-3" aria-hidden="true" />
+                    <span className="text-xs font-semibold">{attachedFilesCount}</span>
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="max-w-lg">
+                  <DialogHeader>
+                    <DialogTitle>{t('inputArea.manageFiles')}</DialogTitle>
+                  </DialogHeader>
+                  <div className="flex max-h-[60vh] flex-col overflow-y-auto">
+                    <FileSourcesTab />
+                  </div>
+                </DialogContent>
+              </Dialog>
             )}
 
             {/* Hidden file input */}
@@ -838,6 +1068,26 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                   <p className="text-sm">{t('inputArea.researchInProgressPopover')}</p>
                 </PopoverContent>
               </Popover>
+            ) : isStreaming && !isResponseMode ? (
+              // Stop button (C1): while a shallow-thinking turn streams, replace
+              // the disabled send button with a stop control that cancels the
+              // in-flight turn via the chat store's stopStreaming action.
+              <motion.div
+                className="inline-flex"
+                whileTap={{ scale: 0.94 }}
+                transition={springSnappy}
+                tabIndex={-1}
+              >
+                <Button
+                  size="icon"
+                  className="size-9 rounded-full shadow-md"
+                  onClick={() => stopStreaming?.()}
+                  aria-label={t('inputArea.stopStreaming')}
+                  title={t('inputArea.stopStreaming')}
+                >
+                  <Square className="size-3.5 fill-current" aria-hidden="true" />
+                </Button>
+              </motion.div>
             ) : (
               <motion.div
                 className="inline-flex"
@@ -855,7 +1105,9 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                   aria-label={
                     isResponseMode ? t('inputArea.sendResponse') : t('inputArea.sendMessage')
                   }
-                  title={t('inputArea.sendQuery')}
+                  title={
+                    pendingCount > 0 ? t('inputArea.sendWhilePending') : t('inputArea.sendQuery')
+                  }
                 >
                   <AnimatePresence mode="popLayout" initial={false}>
                     {isLoading ? (

@@ -22,7 +22,6 @@ const MESSAGE_TYPES: ReadonlySet<string> = new Set([
   'prompt',
   'agent_response',
   'file',
-  'file_upload_status',
   'error',
   'deep_research_banner',
 ])

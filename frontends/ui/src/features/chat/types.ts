@@ -18,7 +18,6 @@ export type MessageType =
   | 'prompt'
   | 'agent_response'
   | 'file'
-  | 'file_upload_status'
   | 'error'
   | 'deep_research_banner'
 
@@ -594,6 +593,12 @@ export interface ChatActions {
   setLoading: (loading: boolean) => void
   /** Set streaming state */
   setStreaming: (streaming: boolean) => void
+  /**
+   * User-initiated cancel of the in-flight turn: flush batched deltas, finalize
+   * the current streaming bubble, clear isStreaming/isLoading/currentStatus, and
+   * trigger the websocket teardown. [C1]
+   */
+  stopStreaming: () => void
   /** Delete a conversation */
   deleteConversation: (conversationId: string) => void
   /**
@@ -716,26 +721,6 @@ export interface ChatActions {
   dismissErrorCard: (messageId: string) => void
   /** Dismiss all connection error cards (connection.*) from the current conversation */
   dismissConnectionErrors: () => void
-
-  // Actions for file upload status banners
-
-  /**
-   * Add a file upload status banner to a conversation.
-   * If sessionId is provided, adds to that specific conversation.
-   * Otherwise, adds to the current conversation.
-   */
-  addFileUploadStatusCard: (
-    type: FileUploadStatusType,
-    fileCount: number,
-    jobId: string,
-    sessionId?: string
-  ) => void
-
-  /**
-   * Remove the pending_warning file upload status message from the current conversation.
-   * Used when user acknowledges the warning by re-submitting.
-   */
-  removeFileUploadWarning: () => void
 
   /**
    * Add a deep research banner (starting, success, or failure) to a conversation.

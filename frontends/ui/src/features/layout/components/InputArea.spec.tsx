@@ -18,6 +18,9 @@ let mockComposerPrefill: string | null = null
 // Real-ish per-session draft store, so component tests exercise genuine
 // save/restore/clear behaviour rather than asserting on spy calls alone.
 let mockDrafts: Record<string, string> = {}
+// Shallow-thinking stream state + cancel action for the composer stop button.
+let mockIsStreaming = false
+const mockStopStreaming = vi.fn()
 
 const mockSaveDataSourcesToConversation = vi.fn()
 
@@ -35,6 +38,8 @@ vi.mock('@/features/chat', () => ({
         ? { id: mockCurrentSessionId, messages: mockConversationMessages }
         : null,
       saveDataSourcesToConversation: mockSaveDataSourcesToConversation,
+      isStreaming: mockIsStreaming,
+      stopStreaming: mockStopStreaming,
       ensureSession: vi.fn(() => {
         if (!mockCurrentSessionId) mockCurrentSessionId = 'session-new'
         return mockCurrentSessionId
@@ -82,6 +87,10 @@ let mockAvailableDataSources: Array<{ id: string; name?: string }> = [
   { id: 'source-2' },
 ]
 
+const mockToggleDataSource = vi.fn()
+const mockSetEnabledDataSources = vi.fn()
+const mockFetchDataSources = vi.fn()
+
 const mockLayoutState = () => ({
   openRightPanel: mockOpenRightPanel,
   closeRightPanel: mockCloseRightPanel,
@@ -95,6 +104,12 @@ const mockLayoutState = () => ({
   setDeepResearchIntent: mockSetDeepResearchIntent,
   activeSourcePreset: mockActiveSourcePreset,
   applySourcePreset: mockApplySourcePreset,
+  // Sources popover (C4) — connection toggles lifted from the old panel.
+  toggleDataSource: mockToggleDataSource,
+  setEnabledDataSources: mockSetEnabledDataSources,
+  fetchDataSources: mockFetchDataSources,
+  dataSourcesLoading: false,
+  dataSourcesError: null as string | null,
 })
 
 type MockLayoutState = ReturnType<typeof mockLayoutState>
@@ -107,6 +122,11 @@ vi.mock('../store', () => ({
     }),
     { getState: () => mockLayoutState() }
   ),
+}))
+
+// Mock auth (sources popover reads idToken to gate auth-required sources)
+vi.mock('@/adapters/auth', () => ({
+  useAuth: () => ({ idToken: 'test-token', authRequired: true }),
 }))
 
 // Mock useAppConfig
@@ -127,10 +147,15 @@ vi.mock('@/shared/context', () => ({
 // Mock the file upload hooks
 const mockUploadFiles = vi.fn()
 
+const mockDeleteFile = vi.fn()
+const mockRetryFile = vi.fn()
+
 vi.mock('@/features/documents', () => ({
   useFileUpload: vi.fn(() => ({
     uploadFiles: mockUploadFiles,
     sessionFiles: [],
+    deleteFile: mockDeleteFile,
+    retryFile: mockRetryFile,
     isUploading: false,
     error: null,
     clearError: vi.fn(),
@@ -145,7 +170,12 @@ vi.mock('@/features/documents', () => ({
       onDrop: vi.fn(),
     },
   })),
-  useFileUploadBanners: vi.fn(),
+}))
+
+// FileSourcesTab is imported by InputArea for the "manage files" dialog; it
+// pulls a large dependency graph that is irrelevant to composer unit tests.
+vi.mock('./FileSourcesTab', () => ({
+  FileSourcesTab: () => null,
 }))
 
 import { useWebSocketChat, useIsCurrentSessionBusy } from '@/features/chat'
@@ -163,6 +193,7 @@ describe('InputArea', () => {
     mockDrafts = {}
     mockDeepResearchIntent = false
     mockActiveSourcePreset = null
+    mockIsStreaming = false
     mockAvailableDataSources = [{ id: 'source-1' }, { id: 'source-2' }]
     // Reset mocks to defaults - clearAllMocks doesn't reset mockReturnValue
     vi.mocked(useIsCurrentSessionBusy).mockReturnValue(false)
@@ -402,9 +433,11 @@ describe('InputArea', () => {
     expect(mockSendMessage).not.toHaveBeenCalled()
   })
 
-  test('shows file count badge when files are attached', () => {
+  test('shows file count badge and inline chips when files are attached', () => {
     vi.mocked(useFileUpload).mockReturnValue({
       uploadFiles: mockUploadFiles,
+      deleteFile: mockDeleteFile,
+      retryFile: mockRetryFile,
       sessionFiles: [
         { id: 'file-1', fileName: 'doc.pdf', status: 'success', collectionName: 'session-1' },
         { id: 'file-2', fileName: 'doc2.pdf', status: 'uploading', collectionName: 'session-1' },
@@ -416,7 +449,31 @@ describe('InputArea', () => {
 
     render(<InputArea isAuthenticated={true} />)
 
-    expect(screen.getByRole('button', { name: /open uploaded files/i })).toHaveTextContent('2')
+    // Manage-files dialog trigger carries the count...
+    expect(screen.getByRole('button', { name: /manage attached files/i })).toHaveTextContent('2')
+    // ...and each file also shows as an inline removable chip.
+    expect(screen.getByText('doc.pdf')).toBeInTheDocument()
+    expect(screen.getByText('doc2.pdf')).toBeInTheDocument()
+  })
+
+  test('removing an inline file chip calls deleteFile', async () => {
+    const user = userEvent.setup()
+    vi.mocked(useFileUpload).mockReturnValue({
+      uploadFiles: mockUploadFiles,
+      deleteFile: mockDeleteFile,
+      retryFile: mockRetryFile,
+      sessionFiles: [
+        { id: 'file-1', fileName: 'doc.pdf', status: 'success', collectionName: 'session-1' },
+      ],
+      isUploading: false,
+      error: null,
+      clearError: vi.fn(),
+    } as unknown as ReturnType<typeof useFileUpload>)
+
+    render(<InputArea isAuthenticated={true} />)
+
+    await user.click(screen.getByRole('button', { name: /remove file: doc\.pdf/i }))
+    expect(mockDeleteFile).toHaveBeenCalledWith('file-1')
   })
 
   test('shows upload error when present', () => {
@@ -769,7 +826,7 @@ describe('InputArea', () => {
   })
 
   describe('composer control row (WS-3)', () => {
-    test('sources summary chip shows the enabled count and opens the data sources panel', async () => {
+    test('sources summary chip shows the enabled count and opens the sources popover', async () => {
       const user = userEvent.setup()
       render(<InputArea isAuthenticated={true} connectionMode="sse" />)
 
@@ -778,8 +835,36 @@ describe('InputArea', () => {
 
       await user.click(chip)
 
-      expect(mockSetDataSourcesPanelTab).toHaveBeenCalledWith('connections')
-      expect(mockOpenRightPanel).toHaveBeenCalledWith('data-sources')
+      // The chip now opens an in-composer popover (no right panel) hosting the
+      // connection toggles + an enable/disable-all control.
+      expect(screen.getByText('Disable / Enable All')).toBeInTheDocument()
+      expect(mockOpenRightPanel).not.toHaveBeenCalled()
+    })
+
+    test('the sources popover enable/disable-all toggles every source and persists', async () => {
+      const user = userEvent.setup()
+      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+
+      await user.click(screen.getByRole('button', { name: /data basis/i }))
+      // All sources enabled by default → the control disables all (empty set).
+      await user.click(screen.getByText('Disable / Enable All'))
+
+      expect(mockSetEnabledDataSources).toHaveBeenCalledWith([])
+      expect(mockSaveDataSourcesToConversation).toHaveBeenCalledWith([])
+    })
+
+    test('shows a stop button while streaming and cancels via stopStreaming (C1)', async () => {
+      const user = userEvent.setup()
+      mockIsStreaming = true
+      vi.mocked(useIsCurrentSessionBusy).mockReturnValue(true)
+
+      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+
+      // The normal send button is replaced by a stop control while streaming.
+      expect(screen.queryByRole('button', { name: /send message/i })).not.toBeInTheDocument()
+      const stop = screen.getByRole('button', { name: /stop response/i })
+      await user.click(stop)
+      expect(mockStopStreaming).toHaveBeenCalledTimes(1)
     })
 
     test('deep research pill toggles the stored intent (off → on)', async () => {

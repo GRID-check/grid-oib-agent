@@ -12,7 +12,7 @@
 'use client'
 
 import { type FC, memo, useRef, useEffect, useCallback, useState, useMemo } from 'react'
-import { FileText, Lock } from 'lucide-react'
+import { ArrowDown, FileText, Lock } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { Button } from '@/components/ui/button'
 import {
@@ -20,12 +20,11 @@ import {
   AgentPrompt,
   AgentResponse,
   ErrorBanner,
-  FileUploadBanner,
   DeepResearchBanner,
   UserMessage,
   ChatThinking,
 } from '@/features/chat'
-import type { ChatMessage } from '@/features/chat'
+import type { ChatMessage, StatusType } from '@/features/chat'
 import { AnimatePresence, motion, fadeRise, springGentle } from '@/components/motion'
 import { useAuth } from '@/adapters/auth'
 import { useTranslations } from '@/i18n'
@@ -59,19 +58,31 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   showConfidenceChip = true,
   showAnswerFeedback = true,
 }) {
-  const { currentConversation, isStreaming, currentUserMessageId } = useChatStore(
-    useShallow((s) => ({
-      currentConversation: s.currentConversation,
-      isStreaming: s.isStreaming,
-      currentUserMessageId: s.currentUserMessageId,
-    }))
-  )
+  const { currentConversation, isStreaming, currentUserMessageId, currentStatus, hasHydrated } =
+    useChatStore(
+      useShallow((s) => ({
+        currentConversation: s.currentConversation,
+        isStreaming: s.isStreaming,
+        currentUserMessageId: s.currentUserMessageId,
+        currentStatus: s.currentStatus,
+        hasHydrated: s.hasHydrated,
+      }))
+    )
 
   const respondToPrompt = useChatStore((s) => s.respondToPrompt)
   const getThinkingStepsForMessage = useChatStore((s) => s.getThinkingStepsForMessage)
   const dismissErrorCard = useChatStore((s) => s.dismissErrorCard)
   const t = useTranslations('research')
-  const messagesEndRef = useRef<HTMLDivElement>(null)
+
+  // Stick-to-bottom scroll controller refs/state (replaces the old count-based
+  // scrollIntoView). `scrollContainerRef` is the scroll viewport; `contentRef`
+  // is the growing message list we observe for height changes.
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const contentRef = useRef<HTMLDivElement>(null)
+  // Kept in a ref (not just state) so the ResizeObserver callback reads a fresh
+  // value without being re-created on every scroll.
+  const isAtBottomRef = useRef(true)
+  const [showScrollButton, setShowScrollButton] = useState(false)
 
   const messages = currentConversation?.messages
 
@@ -86,7 +97,6 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
           messageType === 'prompt' ||
           messageType === 'agent_response' ||
           messageType === 'file' ||
-          messageType === 'file_upload_status' ||
           messageType === 'error' ||
           messageType === 'deep_research_banner'
         )
@@ -95,9 +105,6 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   )
 
   const isEmpty = displayableMessages.length === 0
-
-  // Track previous message count for scroll detection
-  const [prevMessageCount, setPrevMessageCount] = useState(displayableMessages.length)
 
   // Entrance-animation bookkeeping: messages already present when a conversation
   // renders (hydration / session switch) must NOT animate in — only messages
@@ -132,14 +139,68 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
     return (message?.thinkingSteps || []).filter((step) => !step.isDeepResearch)
   }
 
-  // Auto-scroll to bottom only when a new message is added (not on re-renders or panel toggles)
+  // ── Stick-to-bottom scroll controller ──────────────────────────────────────
+  // Replaces the old "scroll on message count grew" effect. It keeps the view
+  // pinned to the newest content ONLY when the user is already near the bottom,
+  // so streaming token growth follows smoothly but a user who scrolled up to
+  // read is never yanked back down.
+
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
+    const el = scrollContainerRef.current
+    if (!el) return
+    el.scrollTo({ top: el.scrollHeight, behavior })
+  }, [])
+
+  // Recompute "am I near the bottom?" on every scroll. 80px of slack means a
+  // small manual nudge (or the composer's reserved padding) still counts as
+  // "at bottom" and keeps auto-follow engaged.
+  const handleScroll = useCallback(() => {
+    const el = scrollContainerRef.current
+    if (!el) return
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+    const atBottom = distanceFromBottom <= 80
+    isAtBottomRef.current = atBottom
+    setShowScrollButton((prev) => (prev !== !atBottom ? !atBottom : prev))
+  }, [])
+
+  // Follow height growth (streaming tokens AND newly appended messages) via a
+  // ResizeObserver on the list. rAF + behavior:'auto' means we ride the growth
+  // frame-by-frame instead of firing competing 'smooth' animations. When the
+  // user is scrolled up we don't move them — we just surface the jump button.
   useEffect(() => {
-    const currentCount = displayableMessages.length
-    if (currentCount > prevMessageCount) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    const content = contentRef.current
+    if (!content) return
+    let raf = 0
+    const observer = new ResizeObserver(() => {
+      if (isAtBottomRef.current) {
+        cancelAnimationFrame(raf)
+        raf = requestAnimationFrame(() => scrollToBottom('auto'))
+      } else {
+        setShowScrollButton(true)
+      }
+    })
+    observer.observe(content)
+    return () => {
+      cancelAnimationFrame(raf)
+      observer.disconnect()
     }
-    setPrevMessageCount(currentCount)
-  }, [displayableMessages.length, prevMessageCount])
+    // Re-attach when the list mounts/unmounts (skeleton ↔ list ↔ welcome).
+  }, [scrollToBottom, isEmpty, hasHydrated])
+
+  // On conversation switch, jump straight to the newest message and re-engage
+  // auto-follow (no smooth animation across a full thread swap).
+  useEffect(() => {
+    isAtBottomRef.current = true
+    setShowScrollButton(false)
+    const raf = requestAnimationFrame(() => scrollToBottom('auto'))
+    return () => cancelAnimationFrame(raf)
+  }, [currentConversation?.id, scrollToBottom])
+
+  const handleScrollToLatest = useCallback(() => {
+    isAtBottomRef.current = true
+    setShowScrollButton(false)
+    scrollToBottom('smooth')
+  }, [scrollToBottom])
 
   const handlePromptRespond = useCallback(
     (promptId: string, response: string) => {
@@ -154,9 +215,32 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
     // Will be implemented with file upload feature
   }, [])
 
+  // Latency-gap typing indicator: while streaming, if the newest message is the
+  // just-sent user message with no thinking steps and no answer yet, show a
+  // small typing bubble so the send feels acknowledged before the first token.
+  const showTypingPlaceholder = useMemo(() => {
+    if (!isStreaming || !currentUserMessageId) return false
+    const last = displayableMessages[displayableMessages.length - 1]
+    if (!last || last.id !== currentUserMessageId) return false
+    return getThinkingStepsForMessage(currentUserMessageId).length === 0
+  }, [isStreaming, currentUserMessageId, displayableMessages, getThinkingStepsForMessage])
+
   return (
-    <div className="scrollbar-hide flex flex-1 flex-col overflow-y-auto" aria-label={t('chatArea.ariaMessages')}>
-      {isEmpty ? (
+    // Non-scrolling wrapper: anchors the floating "scroll to latest" button so
+    // it stays pinned to the viewport instead of scrolling away with content.
+    <div className="relative flex min-h-0 flex-1 flex-col">
+    <div
+      ref={scrollContainerRef}
+      onScroll={handleScroll}
+      className="scrollbar-hide flex flex-1 flex-col overflow-y-auto"
+      aria-label={t('chatArea.ariaMessages')}
+    >
+      {!hasHydrated ? (
+        // Hydration skeleton (C5): the persisted thread hasn't rehydrated yet.
+        // Show a lightweight grey-bubble placeholder — never flash WelcomeState
+        // for a returning user whose conversation is about to load in.
+        <MessageListSkeleton />
+      ) : isEmpty ? (
         <WelcomeState isAuthenticated={isAuthenticated} onSignIn={onSignIn} />
       ) : (
         // Bottom padding tracks the floating composer's REAL height (published
@@ -164,6 +248,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
         // so the last message/Herleitung never renders behind the composer no
         // matter how tall it grows. The 11rem fallback matches the old pb-44.
         <div
+          ref={contentRef}
           className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 pt-4"
           style={{ paddingBottom: 'calc(var(--composer-h, 11rem) + 1.5rem)' }}
         >
@@ -271,10 +356,36 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
             })}
           </AnimatePresence>
 
-          {/* Invisible scroll anchor */}
-          <div ref={messagesEndRef} />
+          {/* Latency-gap typing indicator (before the first token arrives) */}
+          {showTypingPlaceholder && <TypingIndicator status={currentStatus} />}
         </div>
       )}
+    </div>
+
+      {/* Floating "scroll to latest" button — appears when the user has scrolled
+          up and newer content is below. Pinned to the wrapper (not the scroll
+          content) so it stays put while the thread scrolls behind it. */}
+      <AnimatePresence>
+        {showScrollButton && (
+          <motion.div
+            className="pointer-events-none absolute inset-x-0 z-10 flex justify-center"
+            style={{ bottom: 'calc(var(--composer-h, 11rem) + 1rem)' }}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 6 }}
+            transition={{ duration: 0.15 }}
+          >
+            <button
+              type="button"
+              onClick={handleScrollToLatest}
+              aria-label={t('chatArea.scrollToLatest')}
+              className="pointer-events-auto flex h-9 w-9 items-center justify-center rounded-full border bg-card text-muted-foreground shadow-md transition hover:text-foreground active:scale-press"
+            >
+              <ArrowDown className="h-4 w-4" aria-hidden="true" />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 })
@@ -297,7 +408,7 @@ interface MessageRendererProps {
   showAnswerFeedback?: boolean
 }
 
-const MessageRenderer: FC<MessageRendererProps> = ({
+const MessageRendererComponent: FC<MessageRendererProps> = ({
   message,
   conversationId,
   onPromptRespond,
@@ -350,6 +461,7 @@ const MessageRenderer: FC<MessageRendererProps> = ({
           showConfidenceChip={showConfidenceChip}
           messageId={message.id}
           showAnswerFeedback={showAnswerFeedback}
+          isStreaming={message.isStreaming}
         />
       )
 
@@ -369,20 +481,6 @@ const MessageRenderer: FC<MessageRendererProps> = ({
             {message.fileData.fileName} ({message.fileData.fileStatus})
           </span>
         </div>
-      )
-
-    case 'file_upload_status':
-      // File upload status banners (uploaded, pending_warning)
-      if (!message.fileUploadStatusData) {
-        return null
-      }
-      return (
-        <FileUploadBanner
-          type={message.fileUploadStatusData.type}
-          fileCount={message.fileUploadStatusData.fileCount}
-          timestamp={message.timestamp}
-          onDismiss={onErrorDismiss ? () => onErrorDismiss(message.id) : undefined}
-        />
       )
 
     case 'error':
@@ -423,6 +521,101 @@ const MessageRenderer: FC<MessageRendererProps> = ({
     default:
       return null
   }
+}
+
+/**
+ * Memoized so a per-token store update (which streams into ONE message) only
+ * re-renders that one bubble, not every message in the thread.
+ *
+ * The messages store rebuilds only the object of the message it mutates and
+ * preserves references for all others (`[...messages.slice(0, -1), updated]`),
+ * so message-object identity is an exact, load-bearing signal that this
+ * message's id/content/isStreaming (and every other field) is unchanged. We
+ * pair it with the small set of scalar/callback props the renderer actually
+ * uses — all of which are stable across renders.
+ */
+const areMessageRendererPropsEqual = (
+  prev: MessageRendererProps,
+  next: MessageRendererProps
+): boolean =>
+  prev.message === next.message &&
+  prev.message.id === next.message.id &&
+  prev.message.content === next.message.content &&
+  prev.message.isStreaming === next.message.isStreaming &&
+  prev.conversationId === next.conversationId &&
+  prev.showConfidenceChip === next.showConfidenceChip &&
+  prev.showAnswerFeedback === next.showAnswerFeedback &&
+  prev.onPromptRespond === next.onPromptRespond &&
+  prev.onErrorDismiss === next.onErrorDismiss &&
+  prev.onFileRetry === next.onFileRetry
+
+const MessageRenderer = memo(MessageRendererComponent, areMessageRendererPropsEqual)
+MessageRenderer.displayName = 'MessageRenderer'
+
+/**
+ * Latency-gap typing indicator (three pulsing dots) shown after the just-sent
+ * user message until the first token / thinking step arrives. Left-aligned to
+ * match assistant bubbles.
+ */
+// Streaming statuses that have a human label; other StatusType values fall back
+// to the generic "typing" copy.
+const TYPING_STATUS_KEYS: Partial<Record<StatusType, string>> = {
+  thinking: 'thinking',
+  searching: 'searching',
+  planning: 'planning',
+  researching: 'researching',
+  writing: 'writing',
+}
+
+const TypingIndicator: FC<{ status?: StatusType | null }> = ({ status }) => {
+  const t = useTranslations('research')
+  const statusKey = status ? TYPING_STATUS_KEYS[status] : undefined
+  const label = statusKey ? t(`chatArea.status.${statusKey}`) : t('chatArea.typing')
+  return (
+    <div
+      className="animate-in fade-in-0 flex w-fit items-center gap-2 rounded-2xl bg-muted/60 px-3.5 py-2.5 duration-200"
+      role="status"
+      aria-label={label}
+    >
+      <span className="flex items-center gap-1" aria-hidden="true">
+        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground/70 [animation-delay:-0.3s]" />
+        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground/70 [animation-delay:-0.15s]" />
+        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground/70" />
+      </span>
+      {statusKey && <span className="text-xs text-muted-foreground">{label}</span>}
+    </div>
+  )
+}
+
+/**
+ * Hydration skeleton (C5): a few grey bubbles sized to the message area, shown
+ * only while the persisted chat store rehydrates so a returning user never sees
+ * a WelcomeState flash before their thread loads in.
+ */
+const MessageListSkeleton: FC = () => {
+  const t = useTranslations('research')
+  return (
+    <div
+      className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 pt-4"
+      style={{ paddingBottom: 'calc(var(--composer-h, 11rem) + 1.5rem)' }}
+      role="status"
+      aria-label={t('chatArea.loading')}
+      aria-busy="true"
+    >
+      {/* user bubble (right) */}
+      <div className="flex justify-end">
+        <div className="h-10 w-1/2 animate-pulse rounded-2xl bg-muted/70" />
+      </div>
+      {/* assistant bubble (left, taller) */}
+      <div className="flex justify-start">
+        <div className="h-24 w-4/5 animate-pulse rounded-2xl bg-muted/50" />
+      </div>
+      {/* user bubble (right) */}
+      <div className="flex justify-end">
+        <div className="h-10 w-1/3 animate-pulse rounded-2xl bg-muted/70" />
+      </div>
+    </div>
+  )
 }
 
 /**

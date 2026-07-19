@@ -8,7 +8,7 @@
 
 'use client'
 
-import { type FC, useCallback } from 'react'
+import { type FC, memo, useCallback } from 'react'
 import { Check, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
@@ -72,12 +72,26 @@ export interface AgentResponseProps {
    * flag props) — the row still requires a `messageId` to appear.
    */
   showAnswerFeedback?: boolean
+  /**
+   * Whether this answer is still streaming (C6). Drives the blinking caret at
+   * the end of the answer body and the partial-markdown stabilizer in the
+   * MarkdownRenderer. Threaded from `message.isStreaming` by ChatArea.
+   */
+  isStreaming?: boolean
 }
+
+/** Blinking caret shown at the tail of a still-streaming answer (C6). */
+const StreamingCaret: FC = () => (
+  <span
+    aria-hidden="true"
+    className="ml-0.5 inline-block h-[1.05em] w-[2px] translate-y-[0.15em] animate-pulse rounded-full bg-foreground/70 align-baseline"
+  />
+)
 
 /**
  * Agent response bubble component for completed responses
  */
-export const AgentResponse: FC<AgentResponseProps> = ({
+const AgentResponseComponent: FC<AgentResponseProps> = ({
   content,
   timestamp,
   showViewReport = false,
@@ -92,6 +106,7 @@ export const AgentResponse: FC<AgentResponseProps> = ({
   showConfidenceChip = true,
   messageId,
   showAnswerFeedback = true,
+  isStreaming = false,
 }) => {
   const t = useTranslations('chat')
   const openRightPanel = useLayoutStore((s) => s.openRightPanel)
@@ -176,8 +191,19 @@ export const AgentResponse: FC<AgentResponseProps> = ({
         {/* Optional Grid cards rendered before the markdown body */}
         {hasCards && <GridCards cards={cards} projectId={projectId} />}
 
-        {/* Response Content rendered as markdown */}
-        <MarkdownRenderer content={content} />
+        {/* Response Content rendered as markdown (with streaming caret). While
+            streaming, the markdown block + its last child are forced inline so
+            the caret trails the final glyph instead of dropping to a new line. */}
+        <div
+          className={
+            isStreaming
+              ? '[&>.markdown-content>*:last-child]:inline [&>.markdown-content]:inline'
+              : undefined
+          }
+        >
+          <MarkdownRenderer content={content} isStreaming={isStreaming} />
+          {isStreaming && <StreamingCaret />}
+        </div>
 
         {/* Optional action button */}
         {shouldShowButton && (
@@ -249,8 +275,17 @@ export const AgentResponse: FC<AgentResponseProps> = ({
           {/* Optional Grid cards rendered before the markdown body */}
           {hasCards && <GridCards cards={cards} projectId={projectId} />}
 
-          {/* Response Content rendered as markdown */}
-          <MarkdownRenderer content={content} />
+          {/* Response Content rendered as markdown (with streaming caret) */}
+          <div
+            className={
+              isStreaming
+                ? '[&>.markdown-content>*:last-child]:inline [&>.markdown-content]:inline'
+                : undefined
+            }
+          >
+            <MarkdownRenderer content={content} isStreaming={isStreaming} />
+            {isStreaming && <StreamingCaret />}
+          </div>
 
           {/* Optional action button stays inside the block */}
           {shouldShowButton && (
@@ -313,3 +348,12 @@ export const AgentResponse: FC<AgentResponseProps> = ({
     </div>
   )
 }
+
+/**
+ * Memoized so only the streaming answer bubble re-renders as tokens arrive
+ * (its `content`/`isStreaming` change); every completed answer above it stays
+ * put. React.memo's default shallow prop compare is sufficient here — the
+ * props are primitives plus stable store-derived arrays/objects.
+ */
+export const AgentResponse = memo(AgentResponseComponent)
+AgentResponse.displayName = 'AgentResponse'

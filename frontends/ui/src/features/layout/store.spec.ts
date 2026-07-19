@@ -15,7 +15,7 @@ describe('useLayoutStore', () => {
     // Reset store to initial state before each test (matches store.ts initialState)
     useLayoutStore.setState({
       isSessionsPanelOpen: false,
-      rightPanel: 'data-sources',
+      rightPanel: null,
       researchPanelTab: 'tasks',
       dataSourcesPanelTab: 'connections',
       enabledDataSourceIds: [],
@@ -34,7 +34,7 @@ describe('useLayoutStore', () => {
       const state = useLayoutStore.getState()
 
       expect(state.isSessionsPanelOpen).toBe(false)
-      expect(state.rightPanel).toBe('data-sources')
+      expect(state.rightPanel).toBeNull()
       expect(state.researchPanelTab).toBe('tasks')
       expect(state.dataSourcesPanelTab).toBe('connections')
     })
@@ -92,24 +92,12 @@ describe('useLayoutStore', () => {
       expect(useLayoutStore.getState().rightPanel).toBe('research')
     })
 
-    test('opens data-sources panel', () => {
-      useLayoutStore.getState().openRightPanel('data-sources')
-
-      expect(useLayoutStore.getState().rightPanel).toBe('data-sources')
-    })
-
-    test('opens settings panel', () => {
-      useLayoutStore.getState().openRightPanel('settings')
-
-      expect(useLayoutStore.getState().rightPanel).toBe('settings')
-    })
-
-    test('replaces existing panel', () => {
+    test('closing clears the panel', () => {
       useLayoutStore.setState({ rightPanel: 'research' })
 
-      useLayoutStore.getState().openRightPanel('settings')
+      useLayoutStore.getState().closeRightPanel()
 
-      expect(useLayoutStore.getState().rightPanel).toBe('settings')
+      expect(useLayoutStore.getState().rightPanel).toBeNull()
     })
   })
 
