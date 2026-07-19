@@ -294,12 +294,10 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
       }
       footer={
         <div className="flex flex-col gap-1">
-          <p className="text-xs text-muted-foreground">
+          <p className="text-muted-foreground text-xs">
             {t('sessionsPanel.storageQuota', { percent: storagePercent })}
           </p>
-          <p className="text-xs text-muted-foreground">
-            {t('sessionsPanel.storageNote')}
-          </p>
+          <p className="text-muted-foreground text-xs">{t('sessionsPanel.storageNote')}</p>
         </div>
       }
     >
@@ -312,11 +310,11 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
             className="text-destructive hover:text-destructive"
             onClick={handleDeleteAllClick}
             disabled={anySessionBusy}
-            aria-label={anySessionBusy ? t('sessionsPanel.deleteAllDisabled') : t('sessionsPanel.deleteAll')}
+            aria-label={
+              anySessionBusy ? t('sessionsPanel.deleteAllDisabled') : t('sessionsPanel.deleteAll')
+            }
             title={
-              anySessionBusy
-                ? t('sessionsPanel.cannotDeleteBusy')
-                : t('sessionsPanel.deleteAll')
+              anySessionBusy ? t('sessionsPanel.cannotDeleteBusy') : t('sessionsPanel.deleteAll')
             }
           >
             <Trash2 className="h-4 w-4" aria-hidden="true" />
@@ -345,13 +343,13 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
       )}
       {/* Search */}
       <div className="relative mb-4">
-        <Search className="pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <Search className="text-muted-foreground pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2" />
         <input
           type="text"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder={t('sessionsPanel.searchPlaceholder')}
-          className="h-9 w-full rounded-lg border border-input bg-input-background pl-8 pr-3 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+          className="border-input bg-input-background placeholder:text-muted-foreground focus-visible:ring-ring/50 h-9 w-full rounded-lg border pl-8 pr-3 text-base outline-none focus-visible:ring-2 md:text-sm"
           aria-label={t('sessionsPanel.searchAria')}
         />
       </div>
@@ -365,7 +363,7 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
             type="button"
             onClick={() => setIsDeepResearchOpen((open) => !open)}
             aria-expanded={isDeepResearchOpen}
-            className="flex w-full items-center gap-2 rounded-md px-1 py-1.5 text-left text-sm font-semibold text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+            className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 flex w-full items-center gap-2 rounded-md px-1 py-1.5 text-left text-sm font-semibold outline-none transition-colors focus-visible:ring-2"
           >
             <ChevronRight
               className={cn(
@@ -387,7 +385,7 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
                   key={run.job_id}
                   href={runHref(run)}
                   onClick={handleClose}
-                  className="flex items-center gap-2 rounded-lg p-2 text-left outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50"
+                  className="hover:bg-accent focus-visible:ring-ring/50 flex items-center gap-2 rounded-lg p-2 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset"
                   aria-label={t('sessionsPanel.deepResearchRunLabel', { label: runLabel(run) })}
                 >
                   <RunStatusIcon status={run.status} />
@@ -395,7 +393,7 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
                     {runLabel(run)}
                   </span>
                   <span
-                    className="shrink-0 text-xs text-muted-foreground"
+                    className="text-muted-foreground shrink-0 text-xs"
                     title={formatAbsoluteTime(run.created_at, locale)}
                   >
                     {formatRelativeTime(run.created_at, locale)}
@@ -417,7 +415,7 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
       >
         {Object.entries(groupedSessions).map(([dateLabel, dateSessions]) => (
           <div key={dateLabel} className="mb-4 flex flex-col gap-2">
-            <span className="text-xs font-semibold uppercase text-muted-foreground">
+            <span className="text-muted-foreground text-xs font-semibold uppercase">
               {dateLabel}
             </span>
             {dateSessions.map((session) => (
@@ -604,7 +602,7 @@ const SessionItem: FC<SessionItemProps> = ({
         }
       }}
       className={cn(
-        'group flex h-10 w-full items-center gap-2 rounded-lg p-2 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50',
+        'focus-visible:ring-ring/50 group flex h-10 w-full items-center gap-2 rounded-lg p-2 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset',
         isBusy ? 'cursor-not-allowed opacity-60' : 'cursor-pointer',
         isSelected ? 'bg-accent text-foreground' : 'hover:bg-accent/60'
       )}
@@ -624,7 +622,7 @@ const SessionItem: FC<SessionItemProps> = ({
           onKeyDown={handleKeyDown}
           onBlur={handleInputBlur}
           onClick={(e) => e.stopPropagation()}
-          className="h-8 min-w-0 flex-1 rounded-md border border-input bg-input-background px-2 py-1 text-sm outline-none"
+          className="border-input bg-input-background h-8 min-w-0 flex-1 rounded-md border px-2 py-1 text-base outline-none md:text-sm"
           aria-label={t('sessionsPanel.editTitle')}
         />
       ) : (
@@ -642,7 +640,7 @@ const SessionItem: FC<SessionItemProps> = ({
               session.hasActiveDeepResearch ||
               session.hasCompletedReport ||
               session.hasExpiredReport) && (
-              <span className="shrink-0 rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+              <span className="bg-secondary text-muted-foreground shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide">
                 {t('sessionsPanel.deepResearchChip')}
               </span>
             )}
@@ -672,7 +670,7 @@ const SessionItem: FC<SessionItemProps> = ({
               <Button
                 variant="ghost"
                 size="icon"
-                className="size-7 text-destructive hover:text-destructive"
+                className="text-destructive hover:text-destructive size-7"
                 onClick={handleDeleteClick}
                 disabled={isBusy || isSessionActive}
                 aria-label={
@@ -704,13 +702,13 @@ const SessionItem: FC<SessionItemProps> = ({
  */
 const RunStatusIcon: FC<{ status: string }> = ({ status }) => {
   if (status === 'completed') {
-    return <FileCheck2 className="h-4 w-4 shrink-0 text-success" aria-hidden="true" />
+    return <FileCheck2 className="text-success h-4 w-4 shrink-0" aria-hidden="true" />
   }
   if (status === 'failed' || status === 'cancelled') {
-    return <AlertCircle className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+    return <AlertCircle className="text-muted-foreground h-4 w-4 shrink-0" aria-hidden="true" />
   }
   return (
-    <Loader2 className="h-4 w-4 shrink-0 animate-spin text-accent-primary" aria-hidden="true" />
+    <Loader2 className="text-accent-primary h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />
   )
 }
 
@@ -726,7 +724,7 @@ const SessionStatusIcon: FC<{ session: Session; isSessionActive: boolean }> = ({
       <Spinner
         size="sm"
         label={t('sessionsPanel.sessionActive')}
-        className="shrink-0 text-accent-primary"
+        className="text-accent-primary shrink-0"
       />
     )
   }
@@ -734,7 +732,7 @@ const SessionStatusIcon: FC<{ session: Session; isSessionActive: boolean }> = ({
   if (session.hasExpiredReport) {
     return (
       <CircleEllipsis
-        className="h-4 w-4 shrink-0 text-muted-foreground"
+        className="text-muted-foreground h-4 w-4 shrink-0"
         aria-label={t('sessionsPanel.reportExpired')}
       />
     )
@@ -743,7 +741,7 @@ const SessionStatusIcon: FC<{ session: Session; isSessionActive: boolean }> = ({
   if (session.hasCompletedReport) {
     return (
       <FileCheck2
-        className="h-4 w-4 shrink-0 text-success"
+        className="text-success h-4 w-4 shrink-0"
         aria-label={t('sessionsPanel.reportCompleted')}
       />
     )
@@ -751,7 +749,7 @@ const SessionStatusIcon: FC<{ session: Session; isSessionActive: boolean }> = ({
 
   return (
     <MessageSquare
-      className="h-4 w-4 shrink-0 text-muted-foreground"
+      className="text-muted-foreground h-4 w-4 shrink-0"
       aria-label={t('sessionsPanel.chatSession')}
     />
   )

@@ -163,8 +163,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
       (m) =>
         m.messageType === 'agent_response' &&
         m.deepResearchJobId &&
-        (m.deepResearchJobStatus === 'failure' ||
-          m.deepResearchJobStatus === 'interrupted')
+        (m.deepResearchJobStatus === 'failure' || m.deepResearchJobStatus === 'interrupted')
     )
   })
 
@@ -174,8 +173,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   // interrupted run produced no report to protect, so the user must be able to
   // retry or follow up in place — do NOT lock those (UX-12).
   const isResearchSessionSuccessful =
-    (!isDeepResearchStreaming && deepResearchStatus === 'success') ||
-    hasSuccessfulDeepResearch
+    (!isDeepResearchStreaming && deepResearchStatus === 'success') || hasSuccessfulDeepResearch
 
   // A terminal failure/interruption that is NOT superseded by a later success.
   // Drives contextual placeholder copy while keeping the composer unlocked.
@@ -548,24 +546,24 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           // soft CARD-tier shadow (not the modal shadow-lg, which detached it
           // as a floating object over the chat plane); textarea on top,
           // hairline-separated control row below. On-scale radius.
-          'relative flex flex-col rounded-xl border bg-card px-4 py-[14px] shadow-sm transition-[box-shadow,border-color] duration-200 ease-out focus-within:ring-2 focus-within:ring-ring/30',
+          'bg-card focus-within:ring-ring/30 relative flex flex-col rounded-xl border px-4 py-[14px] shadow-sm transition-[box-shadow,border-color] duration-200 ease-out focus-within:ring-2',
           isDisabledByAuth && 'opacity-60',
           isDragging && isUnsupportedDrag
-            ? 'border-dashed border-error'
+            ? 'border-error border-dashed'
             : isDragging
-              ? 'border-dashed border-brand'
+              ? 'border-brand border-dashed'
               : ''
         )}
         {...dragHandlers}
       >
         {/* Drag overlay */}
         {isDragging && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-background/90">
+          <div className="bg-background/90 absolute inset-0 z-10 flex items-center justify-center rounded-xl">
             <div className="flex flex-col items-center gap-2">
               {isUnsupportedDrag ? (
-                <XCircle className="h-8 w-8 text-error" aria-hidden="true" />
+                <XCircle className="text-error h-8 w-8" aria-hidden="true" />
               ) : (
-                <Paperclip className="h-8 w-8 text-brand" aria-hidden="true" />
+                <Paperclip className="text-brand h-8 w-8" aria-hidden="true" />
               )}
               <span
                 className={cn(
@@ -573,10 +571,12 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                   isUnsupportedDrag ? 'text-error' : 'text-brand'
                 )}
               >
-                {isUnsupportedDrag ? t('inputArea.unsupportedFileType') : t('inputArea.dropToUpload')}
+                {isUnsupportedDrag
+                  ? t('inputArea.unsupportedFileType')
+                  : t('inputArea.dropToUpload')}
               </span>
               {isUnsupportedDrag && (
-                <span className="text-xs text-muted-foreground">
+                <span className="text-muted-foreground text-xs">
                   {t('inputArea.accepts', { types: fileUploadConfig.acceptedTypes })}
                 </span>
               )}
@@ -586,14 +586,18 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
         {/* Text Input */}
         <Textarea
           ref={textareaRef}
-          className="max-h-52 min-h-[52px] resize-none border-0 bg-transparent px-1.5 py-1 text-[14.5px] leading-[1.55] shadow-none focus-visible:ring-0"
+          // text-base (16px) below md keeps iOS Safari from zooming the page
+          // when the composer gains focus; desktop keeps the tighter 14.5px.
+          className="max-h-52 min-h-[52px] resize-none border-0 bg-transparent px-1.5 py-1 text-base leading-[1.55] shadow-none focus-visible:ring-0 md:text-[14.5px]"
           value={message}
           onChange={(e) => handleValueChange(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder={getPlaceholder()}
           disabled={disabled}
           rows={1}
-          aria-label={isResponseMode ? t('inputArea.responseInput') : t('inputArea.chatMessageInput')}
+          aria-label={
+            isResponseMode ? t('inputArea.responseInput') : t('inputArea.chatMessageInput')
+          }
         />
 
         {/* Upload Error Display */}
@@ -613,7 +617,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                     type="button"
                     onClick={clearError}
                     aria-label={t('dismissError')}
-                    className="shrink-0 rounded-full p-1 opacity-70 transition-opacity duration-200 ease-out hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+                    className="focus-visible:ring-ring/60 shrink-0 rounded-full p-1 opacity-70 transition-opacity duration-200 ease-out hover:opacity-100 focus-visible:outline-none focus-visible:ring-2"
                   >
                     <X className="h-4 w-4" aria-hidden="true" />
                   </button>
@@ -636,15 +640,15 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                 disabled={isDisabledByAuth}
                 aria-label={tChat('composer.scopeAria', { project: scopeLabel })}
                 title={tChat('composer.scopeAria', { project: scopeLabel })}
-                className="inline-flex h-8 min-w-0 items-center gap-[7px] rounded-md border bg-card px-[11px] shadow-xs transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+                className="bg-card shadow-xs hover:bg-accent focus-visible:ring-ring/50 inline-flex h-8 min-w-0 items-center gap-[7px] rounded-md border px-[11px] transition-colors focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                <span className="flex size-[14px] shrink-0 items-center justify-center rounded-full border border-dashed border-status-active">
-                  <span className="size-[5px] rounded-full bg-status-active" />
+                <span className="border-status-active flex size-[14px] shrink-0 items-center justify-center rounded-full border border-dashed">
+                  <span className="bg-status-active size-[5px] rounded-full" />
                 </span>
-                <span className="max-w-44 truncate text-[12.5px] font-medium text-foreground/85">
+                <span className="text-foreground/85 max-w-44 truncate text-[12.5px] font-medium">
                   {scopeLabel}
                 </span>
-                <ChevronDown className="size-3 shrink-0 text-muted-foreground" aria-hidden="true" />
+                <ChevronDown className="text-muted-foreground size-3 shrink-0" aria-hidden="true" />
               </button>
             </PopoverTrigger>
             <PopoverContent side="top" align="start" className="w-64 p-1.5">
@@ -652,9 +656,9 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                 className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm"
                 aria-current="true"
               >
-                <Check className="size-3.5 shrink-0 text-foreground" aria-hidden="true" />
+                <Check className="text-foreground size-3.5 shrink-0" aria-hidden="true" />
                 <span className="min-w-0 flex-1 truncate font-medium">{scopeLabel}</span>
-                <span className="shrink-0 text-xs text-muted-foreground">
+                <span className="text-muted-foreground shrink-0 text-xs">
                   {tChat('composer.scopeCurrent')}
                 </span>
               </div>
@@ -666,7 +670,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                       type="button"
                       disabled
                       aria-disabled="true"
-                      className="flex w-full cursor-not-allowed items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-muted-foreground opacity-60"
+                      className="text-muted-foreground flex w-full cursor-not-allowed items-center gap-2 rounded-lg px-2.5 py-2 text-sm opacity-60"
                     >
                       <span className="size-3.5 shrink-0" aria-hidden="true" />
                       <span className="truncate">{tChat('composer.scopeAll')}</span>
@@ -698,14 +702,14 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
               total: totalSourcesCount,
             })}
             title={t('inputArea.selectedConnections')}
-            className="inline-flex h-8 shrink-0 items-center gap-[7px] rounded-md border bg-card px-[11px] text-[12.5px] text-muted-foreground shadow-xs transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+            className="bg-card text-muted-foreground shadow-xs hover:bg-accent focus-visible:ring-ring/50 inline-flex h-8 shrink-0 items-center gap-[7px] rounded-md border px-[11px] text-[12.5px] transition-colors focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Layers className="size-3.5 shrink-0" aria-hidden="true" />
             <span>{tChat('composer.sources')}</span>
-            <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-md bg-muted px-1 text-[10.5px] font-semibold tabular-nums text-foreground/80">
+            <span className="bg-muted text-foreground/80 inline-flex h-4 min-w-4 items-center justify-center rounded-md px-1 text-[10.5px] font-semibold tabular-nums">
               {enabledSourcesCount}
             </span>
-            <ChevronDown className="size-3 shrink-0 text-muted-foreground" aria-hidden="true" />
+            <ChevronDown className="text-muted-foreground size-3 shrink-0" aria-hidden="true" />
           </button>
 
           {/* Active source preset — colored provenance chip (icon+label+color) */}
@@ -730,7 +734,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
             onClick={() => setDeepResearchIntent(!deepResearchIntent)}
             className={cn(
               'inline-flex h-8 shrink-0 cursor-pointer items-center gap-[7px] rounded-md border px-3 text-[12.5px] font-medium transition-[color,background-color,box-shadow] duration-200 ease-out',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50',
+              'focus-visible:ring-ring/50 focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50',
               deepResearchIntent
                 ? 'border-primary bg-primary text-primary-foreground shadow-xs'
                 : 'border-border bg-card text-muted-foreground shadow-xs hover:bg-accent hover:text-foreground'
@@ -747,7 +751,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-8 rounded-lg px-2.5 text-muted-foreground"
+                className="text-muted-foreground h-8 rounded-lg px-2.5"
                 onClick={() => {
                   if (useLayoutStore.getState().rightPanel === 'data-sources') {
                     closeRightPanel()
@@ -758,7 +762,11 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                 }}
                 disabled={isDisabledByAuth || !knowledgeLayerAvailable}
                 aria-label={t('inputArea.openFiles')}
-                title={knowledgeLayerAvailable ? t('inputArea.availableFiles') : t('inputArea.uploadNotAvailable')}
+                title={
+                  knowledgeLayerAvailable
+                    ? t('inputArea.availableFiles')
+                    : t('inputArea.uploadNotAvailable')
+                }
               >
                 <FileText className="size-3" aria-hidden="true" />
                 <span className="text-xs font-semibold">{attachedFilesCount}</span>
@@ -780,7 +788,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
             <Button
               variant="ghost"
               size="icon"
-              className="size-[34px] rounded-[10px] text-subtle"
+              className="text-subtle size-[34px] rounded-[10px]"
               onClick={handleAttachClick}
               disabled={isDisabledByAuth || isUploading || isBusy || !knowledgeLayerAvailable}
               aria-label={t('inputArea.attachFiles')}
@@ -811,9 +819,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent side="top" align="end" className="w-auto max-w-xs p-3">
-                  <p className="text-sm">
-                    {t('inputArea.researchCompletedPopover')}
-                  </p>
+                  <p className="text-sm">{t('inputArea.researchCompletedPopover')}</p>
                 </PopoverContent>
               </Popover>
             ) : isResearchSessionInProgress && !isResponseMode ? (
@@ -829,9 +835,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent side="top" align="end" className="w-auto max-w-xs p-3">
-                  <p className="text-sm">
-                    {t('inputArea.researchInProgressPopover')}
-                  </p>
+                  <p className="text-sm">{t('inputArea.researchInProgressPopover')}</p>
                 </PopoverContent>
               </Popover>
             ) : (
@@ -848,7 +852,9 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                   className="size-9 rounded-full shadow-md"
                   onClick={handleSubmit}
                   disabled={!message.trim() || disabled}
-                  aria-label={isResponseMode ? t('inputArea.sendResponse') : t('inputArea.sendMessage')}
+                  aria-label={
+                    isResponseMode ? t('inputArea.sendResponse') : t('inputArea.sendMessage')
+                  }
                   title={t('inputArea.sendQuery')}
                 >
                   <AnimatePresence mode="popLayout" initial={false}>
@@ -885,7 +891,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
         {/* Honest Deep-Research hint: the pill records intent; escalation
             stays automatic. Never promises a forced deep-research run. */}
         {deepResearchIntent && (
-          <p className="mt-2 text-xs leading-relaxed text-muted-foreground" role="note">
+          <p className="text-muted-foreground mt-2 text-xs leading-relaxed" role="note">
             {tChat('composer.deepResearchHint')}
           </p>
         )}
@@ -899,7 +905,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           role="group"
           aria-label={tChat('shortcuts.label')}
         >
-          <span className="mr-1.5 text-[12.5px] text-muted-foreground">
+          <span className="text-muted-foreground mr-1.5 text-[12.5px]">
             {tChat('shortcuts.label')}
           </span>
           {SOURCE_PRESETS.map(({ id, signal }) => (
@@ -920,7 +926,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
       )}
       {/* AI-transparency disclosure (EU AI Act Art. 50): users must know they
           interact with an AI system and that answers need verification. */}
-      <p className="mt-2 text-center text-xs leading-relaxed text-muted-foreground">
+      <p className="text-muted-foreground mt-2 text-center text-xs leading-relaxed">
         {t('inputArea.aiDisclosure')}
       </p>
     </div>
