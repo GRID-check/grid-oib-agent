@@ -284,7 +284,7 @@ present:
 ### Environment / config keys
 
 `GRID_INTERNAL_API_TOKEN` (both services), `FRONTEND_INTERNAL_URL`/`FRONTEND_URL`,
-`GRID_ALLOW_AGENT_ORG_MEMORY` (default deny), `MEMORY_REFLECTION_ENABLED`
-(anonymous fallback), `REQUIRE_AUTH`, `APP_ENV`/`NODE_ENV` (dev-token check),
-WorkOS flag `memory-reflection` (+ `WORKOS_API_KEY`), workflow key
+`GRID_ALLOW_AGENT_ORG_MEMORY` (default deny), `REQUIRE_AUTH`,
+`APP_ENV`/`NODE_ENV` (dev-token check), WorkOS flag `memory-reflection`
+(+ `WORKOS_API_KEY`; sole runtime gate, no env-var fallback), workflow key
 `memory_reflection_llm`.

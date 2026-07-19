@@ -71,6 +71,38 @@ class TestSanitizeFindings:
         assert R._sanitize_findings({"findings": []}, has_project=True) == []
 
 
+class TestSanitizeFindingsPii:
+    """Audit finding S4: reflection must not persist PII/secret-shaped content."""
+
+    @pytest.mark.parametrize(
+        "content",
+        [
+            "Contact the client at jane.doe@example.com about the facade.",
+            "Client's phone number is +43 664 1234567.",
+            "Project account IBAN is AT611904300234573201.",
+            "Client SSN on file is 123-45-6789.",
+            "The API key for the shared drive is sk_live_abcdef.",
+            "Vom Kunden genannte Sozialversicherungsnummer: 1234 010180.",
+        ],
+    )
+    def test_drops_pii_shaped_content(self, content):
+        raw = [{"kind": "derived_fact", "content": content}]
+        assert R._sanitize_findings(raw, has_project=True) == []
+
+    def test_keeps_findings_without_pii(self):
+        raw = [{"kind": "constraint", "content": "Facade must use brick cladding per client decision."}]
+        items = R._sanitize_findings(raw, has_project=True)
+        assert len(items) == 1
+
+    def test_mixed_batch_drops_only_pii_entry(self):
+        raw = [
+            {"kind": "constraint", "content": "Budget capped at 2M."},
+            {"kind": "derived_fact", "content": "Reach the owner at owner@example.com for approvals."},
+        ]
+        items = R._sanitize_findings(raw, has_project=True)
+        assert [i["content"] for i in items] == ["Budget capped at 2M."]
+
+
 class TestContentInDigest:
     def test_matches_ignoring_case_and_punctuation(self):
         assert R._content_in_digest("Client chose a flat roof.", '... "client chose a flat roof" ...')

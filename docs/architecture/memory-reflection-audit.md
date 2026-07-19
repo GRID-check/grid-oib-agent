@@ -39,7 +39,7 @@ privacy/GDPR, UX, backend/SRE, adversarial user, end-user architect.
 | GATE | MED | Reflection ran on error/meta/insufficiency answers (only job stubs were skipped). | **Fixed** — `_reflection_answer_is_substantive` skips meta/error intent, canned error/empty answers, and insufficiency ("I don't have enough information …"). |
 | PROV | LOW | Reflection vs in-turn agent writes were indistinguishable in the UI (both `provenanceType:'agent'`). | **Fixed** — reflection writes are tagged `distillation`; the chip labels them "nach der Antwort ergänzt". |
 | S3 | MED (config) | Anonymous mode (`REQUIRE_AUTH=false`) trusts client `projectId` unchecked → cross-tenant project write primitive. | **Open (pre-existing, independent of reflection).** Deploy with auth on. |
-| S4 | MED | Data minimization: answer/query text is sent to `memory_reflection_llm` (egress if external) and any finding is silently persisted (no PII/secret filter). | **Partly reduced** by the INFORM + GATE follow-ups; a PII filter remains open. |
+| S4 | MED | Data minimization: answer/query text is sent to `memory_reflection_llm` (egress if external) and any finding is silently persisted (no PII/secret filter). | **Fixed.** `_sanitize_findings` now drops any finding matching a coarse PII/secret shape (email, phone, IBAN, SSN-shaped digits, password/API-key/government-ID keywords) before it reaches `insert_memory_item`. Denylist, not a privacy guarantee — see follow-ups. |
 | S5 | LOW | No per-turn/-project rate cap → digest flooding; one extra LLM call per substantive turn, no debounce. | **Open (follow-up).** `MAX_NEW_ITEMS=5` caps a single pass only. |
 | S6 | LOW | `tokensMatch` early-returns on length mismatch (leaks token length via timing). Negligible for a static secret. | Open (accepted). |
 
@@ -69,11 +69,17 @@ Round 2 (system-wide):
 
 Round 4:
 9. **Runtime enablement gate.** Beyond the `memory_reflection_llm` capability
-   key, each turn is gated by the `memory-reflection` WorkOS feature flag
-   (per-org, evaluated at the WS upgrade, fail-closed) or the
-   `MEMORY_REFLECTION_ENABLED` env fallback for anonymous mode — so reflection
+   key, each turn is gated solely by the `memory-reflection` WorkOS feature
+   flag (per-org, evaluated at the WS upgrade, fail-closed) — so reflection
    can be rolled out per-organization without a redeploy, and stays off by
-   default.
+   default. The earlier `MEMORY_REFLECTION_ENABLED` anonymous-mode env
+   fallback was removed (Round 5): one gate, not two; anonymous/non-WorkOS
+   deployments can no longer enable reflection.
+
+Round 5:
+10. **PII/secret filter (S4).** `_sanitize_findings` drops any finding
+    matching a coarse PII/secret shape before it is persisted (see the
+    updated S4 row above).
 
 Round 3:
 8. **DB uniqueness backstop (DEDUP).** Migration `0010_project_memory_dedup.sql`
@@ -89,4 +95,7 @@ Round 3:
 - **S1 (remember tool)**: a proper org-admin permission gate (with role
   propagation) so org writes can be *enabled* safely rather than all-or-nothing.
 - **S3**: close the anonymous-mode `projectId` trust gap (or hard-require auth).
-- **S4/S5**: PII/secret filtering before persistence; per-conversation debounce.
+- **S4 hardening**: the current filter is a coarse denylist (pattern shapes),
+  not semantic PII detection — broaden coverage (e.g. names/addresses) if this
+  stage's audience widens beyond project-scoped memory.
+- **S5**: per-conversation debounce/rate cap beyond `MAX_NEW_ITEMS=5` per pass.

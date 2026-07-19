@@ -62,8 +62,8 @@ describe('/api/auth/websocket-scope', () => {
       header: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9',
       // The route echoes the requested projectId so server.js can scope the socket.
       projectId: 'proj-1',
-      // Anonymous mode: no org → the WorkOS flag can't be evaluated and the
-      // MEMORY_REFLECTION_ENABLED env fallback is unset here → false.
+      // Anonymous mode: no org → the WorkOS flag can't be evaluated, so
+      // reflection stays off (no env-var fallback; the flag is the only gate).
       memoryReflectionEnabled: false,
     })
     expect(mockRequireProjectAccess).not.toHaveBeenCalled()

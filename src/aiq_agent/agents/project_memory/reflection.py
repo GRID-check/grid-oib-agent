@@ -31,6 +31,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import weakref
 from typing import Any
 from typing import Literal
@@ -118,8 +119,6 @@ def _build_user_prompt(query: str, answer: str, memory_digest: str | None) -> st
 
 def _normalize(text: str) -> str:
     """Lowercase + collapse whitespace + drop non-alphanumerics, for cheap dedup."""
-    import re
-
     return re.sub(r"[^a-z0-9äöüß]+", " ", text.lower()).strip()
 
 
@@ -139,6 +138,31 @@ def _content_in_digest(content: str, memory_digest: str | None) -> bool:
     return norm_content in _normalize(memory_digest)
 
 
+# Coarse PII/secret guards (audit finding S4). This is a denylist, not a
+# guarantee of privacy — it catches the shapes of data most likely to leak
+# into a "durable finding" (contact details, government IDs, credentials),
+# not every possible personal fact a user might mention. Findings are meant to
+# be project facts ("uses steel frame construction"), never data about a
+# specific person, so a hit here drops the whole finding rather than trying
+# to redact just the matched span.
+_PII_PATTERNS = (
+    re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+"),  # email address
+    re.compile(r"(?<!\d)(?:\+?\d[\d ()/-]{7,}\d)(?!\d)"),  # phone/fax-shaped digit run
+    re.compile(r"\b[A-Z]{2}\d{2}[A-Z0-9]{10,30}\b"),  # IBAN
+    re.compile(r"\b\d{3}-?\d{2}-?\d{4}\b"),  # SSN-shaped
+    re.compile(
+        r"\b(?:password|passwort|api[_ -]?key|secret|token|bearer|"
+        r"sozialversicherungsnummer|steuernummer|personalausweis)\b",
+        re.IGNORECASE,
+    ),
+)
+
+
+def _looks_like_pii(content: str) -> bool:
+    """Whether a finding's text matches a coarse PII/secret shape (audit S4)."""
+    return any(pattern.search(content) for pattern in _PII_PATTERNS)
+
+
 def _sanitize_findings(
     raw: Any,
     *,
@@ -152,7 +176,8 @@ def _sanitize_findings(
     in the tenant and there is no write-time authorization gate or human review,
     so org-wide writes stay a deliberate, human-driven action (audit finding S1).
     Drops anything malformed, out-of-vocabulary, empty, already present in the
-    digest, or when no project is in scope.
+    digest, matching a PII/secret shape (audit finding S4), or when no project
+    is in scope.
     """
     if not isinstance(raw, list) or not has_project:
         return []
@@ -172,6 +197,9 @@ def _sanitize_findings(
             content = content[:_MAX_CONTENT_CHARS]
         # Never re-store something already sitting in the digest we showed the LLM.
         if _content_in_digest(content, memory_digest):
+            continue
+        if _looks_like_pii(content):
+            logger.warning("Memory reflection: dropped a %s finding matching a PII/secret pattern", kind)
             continue
 
         items.append({"kind": kind, "content": content, "confidence": confidence, "scope": "project"})

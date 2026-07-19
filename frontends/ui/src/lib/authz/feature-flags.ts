@@ -97,9 +97,8 @@ export function isFeatureEnabled(
  * Default-OFF gate for the project knowledge page. Unlike isFeatureEnabled
  * (which fails open when enforcement is off, for back-compat), this feature
  * launches dark: without WorkOS flag enforcement it is only available when a
- * deployment explicitly opts in via GRID_PROJECT_KNOWLEDGE_PAGE_ENABLED=true
- * (mirrors the MEMORY_REFLECTION_ENABLED fallback pattern). The platform
- * owner's base-knowledge manager is NOT gated by this.
+ * deployment explicitly opts in via GRID_PROJECT_KNOWLEDGE_PAGE_ENABLED=true.
+ * The platform owner's base-knowledge manager is NOT gated by this.
  */
 export function isProjectKnowledgePageEnabled(session: Pick<GridSession, 'featureFlags'>): boolean {
   if (enforcementOn()) {
