@@ -925,10 +925,16 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
         </div>
       )}
       {/* AI-transparency disclosure (EU AI Act Art. 50): users must know they
-          interact with an AI system and that answers need verification. */}
-      <p className="text-muted-foreground mt-2 text-center text-xs leading-relaxed">
-        {t('inputArea.aiDisclosure')}
-      </p>
+          interact with an AI system and that answers need verification. The
+          composer floats over the scrolling chat, so bare text here reads on
+          top of messages behind it. Give it its own little recessed "cutout"
+          surface — muted fill, hairline border, backdrop blur — mirroring the
+          project-card footer language, so it stays floating yet legible. */}
+      <div className="mt-2 flex justify-center">
+        <p className="text-muted-foreground bg-muted/80 supports-[backdrop-filter]:bg-muted/55 max-w-[calc(100%-1rem)] rounded-xl border px-4 py-1.5 text-center text-xs leading-relaxed shadow-xs backdrop-blur-sm">
+          {t('inputArea.aiDisclosure')}
+        </p>
+      </div>
     </div>
   )
 })
