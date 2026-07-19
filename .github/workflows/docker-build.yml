@@ -31,7 +31,8 @@ jobs:
           push: false
           cache-from: type=gha,scope=backend
           cache-to: type=gha,mode=max,scope=backend
-          # OIB seed is optional at build time; an empty seed still builds.
+          # The OIB knowledge base is volume-based (embedded live on first boot);
+          # nothing knowledge-related is baked at build time.
 
   frontend:
     name: Build frontend image

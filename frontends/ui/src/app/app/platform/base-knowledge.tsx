@@ -48,6 +48,7 @@ import {
 } from '@/components/ui/dialog'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Input } from '@/components/ui/input'
+import { Progress } from '@/components/ui/progress'
 import {
   Select,
   SelectContent,
@@ -110,7 +111,10 @@ export function BaseKnowledge() {
   const [query, setQuery] = useState('')
   const [classFilter, setClassFilter] = useState<DocClass | null>(null)
   const [isUploading, setIsUploading] = useState(false)
-  const [isProcessing, setIsProcessing] = useState(false)
+  // Names of the just-uploaded document(s) we are tracking to terminal state.
+  // Reactive (unlike watchRef) so the progress bar + per-file list re-render as
+  // each one finishes indexing.
+  const [watched, setWatched] = useState<string[]>([])
   const [lastUpload, setLastUpload] = useState<KnowledgeUploadResult | null>(null)
   const [isSyncing, setIsSyncing] = useState(false)
   const [isDragActive, setIsDragActive] = useState(false)
@@ -171,8 +175,8 @@ export function BaseKnowledge() {
     (names: string[]) => {
       if (pollTimerRef.current) clearTimeout(pollTimerRef.current)
       watchRef.current = new Set(names)
+      setWatched(names)
       if (watchRef.current.size === 0) return
-      setIsProcessing(true)
 
       let polls = 0
       const tick = async () => {
@@ -187,7 +191,7 @@ export function BaseKnowledge() {
         if (!isWorking(next, watchRef.current) || polls >= MAX_POLLS) {
           watchRef.current = new Set()
           pollTimerRef.current = null
-          setIsProcessing(false)
+          setWatched([])
           return
         }
         pollTimerRef.current = setTimeout(() => void tick(), POLL_INTERVAL_MS)
@@ -196,6 +200,22 @@ export function BaseKnowledge() {
     },
     [fetchStatus],
   )
+
+  // Live per-file progress for the documents currently being indexed, derived
+  // from the polled status. A watched file counts as done once it appears with
+  // any non-pending state; missing/pending files are still working.
+  const uploadProgress = useMemo(() => {
+    if (watched.length === 0) return null
+    const byName = new Map((status?.files ?? []).map((f) => [f.fileName, f]))
+    let done = 0
+    const items = watched.map((name) => {
+      const file = byName.get(name)
+      const finished = !!file && file.state !== 'pending'
+      if (finished) done += 1
+      return { name, finished }
+    })
+    return { done, total: watched.length, items, pct: Math.round((done / watched.length) * 100) }
+  }, [watched, status])
 
   const handleUpload = useCallback(
     (file: File) => {
@@ -504,13 +524,36 @@ export function BaseKnowledge() {
           />
         </div>
 
-        {/* Background-processing banner — makes waiting obvious and safe. */}
-        {isProcessing && (
-          <Alert>
-            <Loader2 className="size-4 animate-spin" aria-hidden />
-            <AlertTitle>{t('knowledge.processing')}</AlertTitle>
-            <AlertDescription>{t('knowledge.processingHint')}</AlertDescription>
-          </Alert>
+        {/* Live indexing progress — an aggregate 'N of M' bar plus, for a bulk
+            ZIP, a per-file list that flips pending → indexed as each finishes. */}
+        {uploadProgress && (
+          <div className="flex flex-col gap-2.5 rounded-lg border border-border bg-card/50 p-3" data-testid="knowledge-upload-progress">
+            <div className="flex items-center gap-2">
+              <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" aria-hidden />
+              <p className="text-sm font-medium text-foreground">
+                {t('knowledge.indexingProgress', { done: uploadProgress.done, total: uploadProgress.total })}
+              </p>
+            </div>
+            <Progress value={uploadProgress.pct} aria-label={t('knowledge.processing')} />
+            <p className="text-xs text-muted-foreground">{t('knowledge.processingHint')}</p>
+            {uploadProgress.total > 1 && (
+              <ul className="mt-0.5 flex max-h-40 flex-col gap-1 overflow-y-auto pr-1">
+                {uploadProgress.items.map((item) => (
+                  <li key={item.name} className="flex items-center justify-between gap-2 text-xs">
+                    <span className="truncate text-foreground">{item.name}</span>
+                    {item.finished ? (
+                      <Badge variant="success">{t('knowledge.indexingDone')}</Badge>
+                    ) : (
+                      <Badge variant="info" className="gap-1">
+                        <Loader2 className="size-3 animate-spin" aria-hidden />
+                        {t('knowledge.indexingPending')}
+                      </Badge>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         )}
 
         {/* ZIP member summary (accepted / rejected). */}

@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from '@/test-utils'
+import { within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { BaseKnowledge } from './base-knowledge'
@@ -195,5 +196,50 @@ describe('BaseKnowledge', () => {
         ),
       ).toBe(true)
     })
+  })
+
+  test('a ZIP upload shows aggregate + per-file indexing progress', async () => {
+    const zipBody = {
+      status: 'pending',
+      kind: 'zip',
+      fileName: null,
+      docClass: null,
+      message: '',
+      accepted: 2,
+      rejected: 0,
+      members: [
+        { fileName: 'a.pdf', status: 'pending', docClass: 'sonstiges', reason: null },
+        { fileName: 'b.pdf', status: 'pending', docClass: 'sonstiges', reason: null },
+      ],
+    }
+    // Status snapshot where a.pdf has finished indexing but b.pdf hasn't appeared yet.
+    const statusWithA: KnowledgeBaseStatus = {
+      ...STATUS,
+      files: [...STATUS.files, file({ fileName: 'a.pdf', origin: 'uploaded', docClass: 'sonstiges' })],
+    }
+    const fetchSpy = vi.fn((url: string, init?: RequestInit) => {
+      if (typeof url === 'string' && url.includes('/api/platform/knowledge/documents') && init?.method === 'POST') {
+        return Promise.resolve(jsonResponse(zipBody))
+      }
+      return Promise.resolve(jsonResponse(statusWithA))
+    })
+    vi.stubGlobal('fetch', fetchSpy as unknown as typeof fetch)
+    const user = userEvent.setup()
+
+    render(<BaseKnowledge />)
+    await screen.findByText('oib-richtlinie-2.pdf')
+
+    const input = screen.getByTestId('knowledge-upload-input') as HTMLInputElement
+    const zip = new File(['PK'], 'bulk.zip', { type: 'application/zip' })
+    await user.upload(input, zip)
+
+    // Aggregate progress: a.pdf done, b.pdf still working → "1 of 2".
+    const progress = await screen.findByTestId('knowledge-upload-progress')
+    expect(progress).toHaveTextContent('Indexing 1 of 2')
+    // Per-file rows surface inside the progress card, each with its live state.
+    expect(within(progress).getByText('a.pdf')).toBeInTheDocument()
+    expect(within(progress).getByText('b.pdf')).toBeInTheDocument()
+    expect(within(progress).getByText('Indexed')).toBeInTheDocument()
+    expect(within(progress).getByText('Indexing…')).toBeInTheDocument()
   })
 })

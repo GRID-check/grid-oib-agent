@@ -82,6 +82,9 @@ export const platform = {
     // Background-processing banner + ZIP member summary.
     processing: 'Processing — this can take a minute…',
     processingHint: 'You can keep working; new documents appear below as they finish. It is safe to wait.',
+    indexingProgress: 'Indexing {done} of {total} document(s)…',
+    indexingDone: 'Indexed',
+    indexingPending: 'Indexing…',
     uploadPending: '{name} received — indexing in the background',
     zipQueued: 'ZIP received: {accepted} PDF(s) queued, {rejected} skipped',
     zipRejectedTitle: 'Skipped from the ZIP',
