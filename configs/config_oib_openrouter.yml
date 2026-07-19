@@ -425,6 +425,7 @@ workflow:
   card_generator_llm: card_llm
   # Enables the async post-answer memory-reflection stage (reuses the cheap
   # card_llm). This only makes the capability AVAILABLE; whether it runs per
-  # request is gated at runtime by the `memory-reflection` WorkOS feature flag
-  # (or the MEMORY_REFLECTION_ENABLED env fallback in anonymous mode).
+  # request is gated at runtime solely by the `memory-reflection` WorkOS
+  # feature flag (no env-var fallback; anonymous/non-WorkOS deployments
+  # cannot enable it).
   memory_reflection_llm: card_llm

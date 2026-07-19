@@ -154,12 +154,12 @@ Enablement (two gates):
 - **Capability** — the config key `memory_reflection_llm` must point at an LLM,
   or the stage is compiled out entirely (unset by default historically; now set
   to `card_llm` in `config_oib_openrouter.yml`).
-- **Runtime** — each turn is gated by the `memory-reflection` **WorkOS feature
-  flag**, evaluated per-organization by the BFF at the WS upgrade
+- **Runtime** — each turn is gated solely by the `memory-reflection` **WorkOS
+  feature flag**, evaluated per-organization by the BFF at the WS upgrade
   (`isOrgFeatureEnabled`) and forwarded to the backend as the
-  `x-grid-feature-memory-reflection` header. Anonymous/non-WorkOS deployments
-  fall back to the `MEMORY_REFLECTION_ENABLED` env var. Fail-closed: absent
-  header → off.
+  `x-grid-feature-memory-reflection` header. There is no env-var fallback:
+  anonymous/non-WorkOS deployments (no org to evaluate the flag against)
+  cannot enable reflection. Fail-closed: absent header → off.
 
 Safety limits (see [memory-reflection-audit.md](./memory-reflection-audit.md)):
 - **Project scope only** — the autonomous stage never writes `organization`-scoped
@@ -172,6 +172,11 @@ Safety limits (see [memory-reflection-audit.md](./memory-reflection-audit.md)):
   dropped. This is a soft guard, not the §3.2 consolidation gate (still a
   follow-up), so it does not catch semantic paraphrase or items outside the
   bounded digest.
+- **PII/secret filter** (audit finding S4, closed) — a finding whose content
+  matches a coarse PII/secret shape (email, phone, IBAN, SSN-shaped digits,
+  password/API-key/government-ID keywords) is dropped entirely rather than
+  persisted. This is a denylist, not a privacy guarantee — it catches the
+  common shapes, not every possible personal fact.
 
 User-informing: both in-turn and reflection writes surface under each answer as a
 "Grid hat sich N gemerkt" chip (a reusable `Chip` primitive + `MemoryNotedChip`,

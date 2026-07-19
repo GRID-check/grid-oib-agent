@@ -18,13 +18,6 @@ import { getBudgetStatus } from '@/lib/budgets/service'
 import { isAuthzError } from '@/lib/auth-utils'
 import { isAuthRequired } from '@/lib/backend-proxy'
 
-/**
- * Fallback for anonymous / non-WorkOS deployments: when no org is in scope the
- * feature flag can't be evaluated, so honour an env opt-in instead.
- */
-const memoryReflectionEnvDefault = (): boolean =>
-  process.env.MEMORY_REFLECTION_ENABLED?.toLowerCase() === 'true'
-
 export async function GET(req: Request): Promise<Response> {
   try {
     const { searchParams } = new URL(req.url)
@@ -53,13 +46,15 @@ export async function GET(req: Request): Promise<Response> {
       response.accessToken = session.accessToken
     }
 
-    // Gate the async memory-reflection stage on a WorkOS feature flag
-    // ("memory-reflection") evaluated for the caller's org; fall back to the
-    // MEMORY_REFLECTION_ENABLED env opt-in when there is no org (anonymous
-    // mode). Fail-closed. server.js forwards this as x-grid-feature-memory-reflection.
+    // Gate the async memory-reflection stage solely on the WorkOS
+    // "memory-reflection" feature flag, evaluated for the caller's org. No org
+    // in scope (anonymous mode) or any evaluation failure both fail closed to
+    // off — there is no env-var fallback (removed; the feature flag is the
+    // single source of truth). server.js forwards this as
+    // x-grid-feature-memory-reflection.
     response.memoryReflectionEnabled = session?.organizationId
-      ? await isOrgFeatureEnabled(MEMORY_REFLECTION_FLAG, session.organizationId, memoryReflectionEnvDefault())
-      : memoryReflectionEnvDefault()
+      ? await isOrgFeatureEnabled(MEMORY_REFLECTION_FLAG, session.organizationId)
+      : false
 
     if (session?.organizationId) {
       // Org-level web-search setting (ADR-0022): when off, server.js forwards
