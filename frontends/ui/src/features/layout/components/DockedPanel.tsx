@@ -2,17 +2,19 @@
  * DockedPanel Component
  *
  * Plain docked <aside> that replaces the KUI SidePanel for the chat shell
- * panels (Sessions, Settings, Data Sources). Docks under the app header,
- * has no overlay and no click-outside behavior (matching the previous
- * `closeOnClickOutside={false}` usage), and slides in from its side with a
- * translate transition that respects prefers-reduced-motion.
+ * panels (Sessions, Settings, Data Sources). On desktop it docks beside the
+ * still-usable chat plane with no overlay and no click-outside. On mobile it
+ * behaves as a modal drawer: a tap-dismissable scrim dims the page behind it
+ * and background scroll is locked, matching native mobile drawer conventions.
+ * It slides in from its side with a translate transition that respects
+ * prefers-reduced-motion.
  *
  * Layout: heading row + scrollable body + optional footer.
  */
 
 'use client'
 
-import { type FC, type ReactNode, useCallback, useRef } from 'react'
+import { type FC, type ReactNode, useCallback, useEffect, useRef } from 'react'
 import { X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -20,6 +22,33 @@ import { useIsMobile } from '@/hooks/use-is-mobile'
 import { useTranslations } from '@/i18n'
 import { useEscapeKey } from '@/shared/hooks/use-escape-key'
 import { usePanelFocus } from '@/shared/hooks/use-panel-focus'
+
+/**
+ * Reference-counted body scroll lock. Multiple mobile drawers can be open at
+ * once (e.g. Sessions + Data Sources both in state), so a naive per-panel
+ * set/restore would let the first one to close prematurely re-enable page
+ * scroll while another drawer is still up. The counter restores the original
+ * overflow only once the last locker releases.
+ */
+let scrollLockCount = 0
+let savedBodyOverflow = ''
+
+const lockBodyScroll = (): void => {
+  if (typeof document === 'undefined') return
+  if (scrollLockCount === 0) {
+    savedBodyOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+  }
+  scrollLockCount += 1
+}
+
+const releaseBodyScroll = (): void => {
+  if (typeof document === 'undefined') return
+  scrollLockCount = Math.max(0, scrollLockCount - 1)
+  if (scrollLockCount === 0) {
+    document.body.style.overflow = savedBodyOverflow
+  }
+}
 
 interface DockedPanelProps {
   /** Whether the panel is open */
@@ -67,62 +96,86 @@ export const DockedPanel: FC<DockedPanelProps> = ({
   // early return below.
   const { restoreFocus } = usePanelFocus(open, closeButtonRef)
 
-  const handleEscape = useCallback(() => {
+  // Shared dismissal path: return focus to the opener, then close. Used by
+  // both Escape and the mobile scrim tap so they behave identically.
+  const handleDismiss = useCallback(() => {
     restoreFocus()
     onClose()
   }, [restoreFocus, onClose])
 
   // Escape closes the panel; the listener is inert (and unregistered) while
   // the panel is closed.
-  useEscapeKey(open, handleEscape)
+  useEscapeKey(open, handleDismiss)
+
+  // Lock background scroll while the drawer is open on mobile, where it covers
+  // the page modally. Desktop docks beside usable content, so scroll stays free.
+  useEffect(() => {
+    if (!isMobile || !open) return
+    lockBodyScroll()
+    return () => releaseBodyScroll()
+  }, [isMobile, open])
 
   if (!open && !forceMount) return null
 
   return (
-    <aside
-      role="dialog"
-      // Full-screen on mobile, where the panel covers the page and behaves
-      // modally; on desktop it docks beside still-usable content, so it is a
-      // non-modal dialog.
-      aria-modal={isMobile}
-      aria-label={ariaLabel}
-      aria-hidden={!open}
-      data-state={open ? 'open' : 'closed'}
-      className={cn(
-        // Mobile docks under the top bar as a lifted modal; desktop has no
-        // global header — the panel stays FLUSH on the shared chat plane
-        // (bg-background), joined by a single hairline edge, and aligns to the
-        // bottom of the h-12 chat toolbar. No desktop elevation → one surface.
-        'fixed top-[var(--header-height)] z-40 flex h-[calc(100dvh-var(--header-height))] w-full max-w-[400px] flex-col bg-background shadow-lg md:top-12 md:h-[calc(100dvh-3rem)] md:shadow-none',
-        side === 'left' ? 'left-0 border-r' : 'right-0 border-l',
-        // Slide transition; reduced-motion users get an instant swap
-        'transition-transform duration-300 ease-in-out motion-reduce:transition-none',
-        open ? 'translate-x-0' : side === 'left' ? '-translate-x-full' : 'translate-x-full',
-        !open && 'pointer-events-none',
-        className
+    <>
+      {/* Mobile scrim: dims the page behind the drawer and dismisses it on
+          tap. Mobile-only — desktop keeps the docked, non-modal behavior with
+          no overlay. Sits just under the panel (z-30 < z-40). Decorative: the
+          panel itself carries the dialog role and accessible name. */}
+      {isMobile && open && (
+        <div
+          aria-hidden="true"
+          onClick={handleDismiss}
+          data-testid="docked-panel-backdrop"
+          className="bg-overlay animate-in fade-in-0 fixed inset-0 z-30 backdrop-blur-sm duration-300 motion-reduce:animate-none md:hidden"
+        />
       )}
-    >
-      {/* Heading row — 48px to match the chat toolbar so the seams register */}
-      <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-b border-border/60 px-4">
-        <div className="flex min-w-0 items-center gap-2 text-sm font-semibold">{heading}</div>
-        <Button
-          ref={closeButtonRef}
-          variant="ghost"
-          size="icon"
-          className="size-8"
-          onClick={onClose}
-          aria-label={t('dockedPanel.closePanel')}
-          title={t('dockedPanel.closePanel')}
-        >
-          <X className="h-4 w-4" aria-hidden="true" />
-        </Button>
-      </div>
+      <aside
+        role="dialog"
+        // Full-screen on mobile, where the panel covers the page and behaves
+        // modally; on desktop it docks beside still-usable content, so it is a
+        // non-modal dialog.
+        aria-modal={isMobile}
+        aria-label={ariaLabel}
+        aria-hidden={!open}
+        data-state={open ? 'open' : 'closed'}
+        className={cn(
+          // Mobile docks under the top bar as a lifted modal; desktop has no
+          // global header — the panel stays FLUSH on the shared chat plane
+          // (bg-background), joined by a single hairline edge, and aligns to the
+          // bottom of the h-12 chat toolbar. No desktop elevation → one surface.
+          'bg-background fixed top-[var(--header-height)] z-40 flex h-[calc(100dvh-var(--header-height))] w-full max-w-[400px] flex-col shadow-lg md:top-12 md:h-[calc(100dvh-3rem)] md:shadow-none',
+          side === 'left' ? 'left-0 border-r' : 'right-0 border-l',
+          // Slide transition; reduced-motion users get an instant swap
+          'transition-transform duration-300 ease-in-out motion-reduce:transition-none',
+          open ? 'translate-x-0' : side === 'left' ? '-translate-x-full' : 'translate-x-full',
+          !open && 'pointer-events-none',
+          className
+        )}
+      >
+        {/* Heading row — 48px to match the chat toolbar so the seams register */}
+        <div className="border-border/60 flex h-12 shrink-0 items-center justify-between gap-2 border-b px-4">
+          <div className="flex min-w-0 items-center gap-2 text-sm font-semibold">{heading}</div>
+          <Button
+            ref={closeButtonRef}
+            variant="ghost"
+            size="icon"
+            className="size-8"
+            onClick={onClose}
+            aria-label={t('dockedPanel.closePanel')}
+            title={t('dockedPanel.closePanel')}
+          >
+            <X className="h-4 w-4" aria-hidden="true" />
+          </Button>
+        </div>
 
-      {/* Scrollable body */}
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-4">{children}</div>
+        {/* Scrollable body */}
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-4">{children}</div>
 
-      {/* Footer */}
-      {footer && <div className="shrink-0 border-t border-border/60 px-4 py-3">{footer}</div>}
-    </aside>
+        {/* Footer */}
+        {footer && <div className="border-border/60 shrink-0 border-t px-4 py-3">{footer}</div>}
+      </aside>
+    </>
   )
 }
