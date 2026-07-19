@@ -207,16 +207,10 @@ export const MainLayout: FC<MainLayoutProps> = ({
   )
 
   const content = (
-    // h-full pins the chat surface to the viewport: the toolbar stays at the
-    // top, the composer at the bottom, and only the message list scrolls.
+    // h-full pins the chat surface to the viewport: the composer floats at the
+    // bottom and only the message list scrolls. The toolbar is no longer a top
+    // band — it floats over the chat plane (see below).
     <div className="flex h-full min-w-0 flex-col overflow-hidden">
-      <ChatToolbar
-        sessionTitle={currentConversation?.title}
-        projectName={projectName ?? undefined}
-        onNewSession={handleNewSession}
-        isNewSessionDisabled={isNavigationBlocked}
-      />
-
       {/* Main Content Area - using explicit widths instead of flex for smoother animation */}
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
         {/* Center Content: Chat + Input - Responsive to research panel */}
@@ -235,7 +229,18 @@ export const MainLayout: FC<MainLayoutProps> = ({
               : {}),
           }}
         >
-          {/* Chat Area - Scrollable, extends behind the floating composer */}
+          {/* Floating toolbar — overlays the top of the chat plane as pills
+              (no band). Sits inside the center column so it spans only the
+              chat, not the research panel (which has its own header). */}
+          <ChatToolbar
+            sessionTitle={currentConversation?.title}
+            projectName={projectName ?? undefined}
+            onNewSession={handleNewSession}
+            isNewSessionDisabled={isNavigationBlocked}
+          />
+
+          {/* Chat Area - Scrollable, extends behind the floating composer AND
+              the floating toolbar */}
           <ChatArea
             isAuthenticated={isAuthenticated}
             onSignIn={onSignIn}

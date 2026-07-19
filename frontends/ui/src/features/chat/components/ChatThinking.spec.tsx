@@ -38,13 +38,27 @@ describe('ChatThinking', () => {
   })
 
   describe('status header', () => {
-    test('shows spinner and working text when isThinking is true', () => {
+    test('shows spinner and a live activity label when isThinking is true', () => {
       const steps = [createStep()]
 
       render(<ChatThinking steps={steps} isThinking={true} />)
 
       expect(screen.getByLabelText('Thinking in progress')).toBeInTheDocument()
-      expect(screen.getByText('Working on a response...')).toBeInTheDocument()
+      // An unclassified step surfaces its own display name (honest fallback).
+      expect(screen.getByText('Test Function …')).toBeInTheDocument()
+    })
+
+    test('shows a friendly activity phrase derived from the current step', () => {
+      const steps = [
+        createStep({
+          functionName: 'web_search_tool',
+          displayName: 'Web Search Tool',
+        }),
+      ]
+
+      render(<ChatThinking steps={steps} isThinking={true} />)
+
+      expect(screen.getByText('Searching the web …')).toBeInTheDocument()
     })
 
     test('shows check icon and done text when isThinking is false', () => {
@@ -62,7 +76,14 @@ describe('ChatThinking', () => {
       render(<ChatThinking steps={steps} />)
 
       expect(screen.getByLabelText('Thinking in progress')).toBeInTheDocument()
-      expect(screen.getByText('Working on a response...')).toBeInTheDocument()
+      expect(screen.getByText('Test Function …')).toBeInTheDocument()
+    })
+
+    test('falls back to the generic working copy when there is no step yet', () => {
+      // No steps, but data-source signal keeps the panel mounted while thinking.
+      render(<ChatThinking steps={[]} isThinking={true} enabledDataSources={['web_search']} />)
+
+      expect(screen.getByText('Working on a response …')).toBeInTheDocument()
     })
 
     test('shows warning icon and interrupted text when isInterrupted is true', () => {
@@ -80,7 +101,7 @@ describe('ChatThinking', () => {
 
       render(<ChatThinking steps={steps} isThinking={true} isInterrupted={true} />)
 
-      expect(screen.getByText('Working on a response...')).toBeInTheDocument()
+      expect(screen.getByText('Test Function …')).toBeInTheDocument()
       expect(screen.queryByText('Interrupted')).not.toBeInTheDocument()
     })
 
@@ -109,7 +130,7 @@ describe('ChatThinking', () => {
 
       render(<ChatThinking steps={steps} isThinking={true} isWaiting={true} />)
 
-      expect(screen.getByText('Working on a response...')).toBeInTheDocument()
+      expect(screen.getByText('Test Function …')).toBeInTheDocument()
       expect(screen.queryByText('Waiting for response')).not.toBeInTheDocument()
     })
   })
