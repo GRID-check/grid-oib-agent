@@ -10,7 +10,6 @@ export {
   SessionsPanel,
   ChatArea,
   InputArea,
-  SettingsPanel,
 } from './components'
 
 // Research panel and related components
@@ -40,10 +39,8 @@ export type { ThoughtInfo } from './components'
 export type { FileInfo } from './components'
 export type { SourceInfo } from './components'
 
-// Data sources panel and related components
+// Data sources tabs and cards (reused by the composer sources popover)
 export {
-  DataSourcesPanel,
-  DataConnectionsTab,
   DataConnectionCard,
   FileSourcesTab,
   FileSourceCard,

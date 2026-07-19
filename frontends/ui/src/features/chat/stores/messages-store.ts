@@ -8,7 +8,6 @@ import type {
   PromptType,
   FileCardData,
   ErrorCode,
-  FileUploadStatusType,
   DeepResearchBannerType,
   Conversation,
   CitationSource,
@@ -54,6 +53,13 @@ export type MessagesSlice = {
   completeAssistantMessage: () => void
   setLoading: (isLoading: boolean) => void
   setStreaming: (isStreaming: boolean) => void
+  /**
+   * User-initiated cancel of the in-flight turn [C1]: flush any batched delta
+   * text, finalize/close the current streaming bubble (isStreaming -> false),
+   * clear isStreaming/isLoading/currentStatus, and trigger the websocket
+   * teardown registered by use-websocket-chat.
+   */
+  stopStreaming: () => void
   addThinkingStep: (step: Omit<ThinkingStep, 'id' | 'timestamp' | 'userMessageId'>) => string
   getThinkingStepsForMessage: (userMessageId: string) => ThinkingStep[]
   appendToThinkingStep: (stepId: string, content: string) => void
@@ -116,13 +122,6 @@ export type MessagesSlice = {
   addErrorCard: (code: ErrorCode, message?: string, details?: string) => void
   dismissErrorCard: (messageId: string) => void
   dismissConnectionErrors: () => void
-  addFileUploadStatusCard: (
-    type: FileUploadStatusType,
-    fileCount: number,
-    jobId: string,
-    sessionId?: string
-  ) => void
-  removeFileUploadWarning: () => void
   addDeepResearchBanner: (
     bannerType: DeepResearchBannerType,
     jobId: string,
@@ -141,6 +140,20 @@ export type MessagesSlice = {
   getComposerDraft: (conversationId: string) => string
   /** Drop a session's composer draft (on successful send or session removal). */
   clearComposerDraft: (conversationId: string) => void
+}
+
+/**
+ * Transient cancel handler for the in-flight streaming turn. Registered by
+ * `use-websocket-chat` (which owns the socket ref) so the store's
+ * `stopStreaming` action can tear the socket down without importing the hook.
+ * Module-scoped rather than store state so it stays out of persistence and does
+ * not need a `types.ts` declaration.
+ */
+let stopStreamingHandler: (() => void) | null = null
+
+/** Register (or clear, with `null`) the websocket teardown for `stopStreaming`. */
+export const registerStopStreamingHandler = (fn: (() => void) | null): void => {
+  stopStreamingHandler = fn
 }
 
 const generateTitle = (content: string): string => {
@@ -295,7 +308,99 @@ const buildAgentResponseMessage = (
   }
 }
 
-export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", never]], [], MessagesSlice> = (set, get) => ({
+export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", never]], [], MessagesSlice> = (set, get) => {
+  // --- Streamed-delta batching ------------------------------------------------
+  // Rather than rebuilding the whole conversation object on every token (one
+  // set() per delta), subsequent answer deltas accumulate in this buffer and
+  // flush to the store once per animation frame. In the browser this collapses
+  // N per-token writes into ~1 per frame; in non-DOM / test envs we flush
+  // synchronously so `append` then a synchronous read still observes the text.
+  let pendingDeltaText = ''
+  let pendingDeltaMeta: {
+    cards?: GridCard[]
+    answerConfidence?: 'low' | 'medium' | 'high'
+    citations?: CitationSource[]
+  } = {}
+  let deltaRafHandle: number | null = null
+
+  const canBatchDeltas = (): boolean =>
+    typeof window !== 'undefined' &&
+    typeof window.requestAnimationFrame === 'function' &&
+    // Keep tests deterministic: they append then read synchronously, so never
+    // defer under vitest (NODE_ENV is statically 'production'/'development' in
+    // the browser bundle, so this branch tree-shakes out there).
+    process.env.NODE_ENV !== 'test'
+
+  const cancelScheduledFlush = (): void => {
+    if (deltaRafHandle !== null) {
+      window.cancelAnimationFrame(deltaRafHandle)
+      deltaRafHandle = null
+    }
+  }
+
+  const resetDeltaBuffer = (): void => {
+    cancelScheduledFlush()
+    pendingDeltaText = ''
+    pendingDeltaMeta = {}
+  }
+
+  /** Apply any buffered delta text/meta to the open streaming bubble. */
+  const flushDeltaBuffer = (): void => {
+    cancelScheduledFlush()
+
+    const text = pendingDeltaText
+    const meta = pendingDeltaMeta
+    // Clear the buffer up front so stale text can never leak onto a later
+    // (different) bubble if the tracked id has since been released.
+    pendingDeltaText = ''
+    pendingDeltaMeta = {}
+
+    const hasMeta =
+      (meta.cards && meta.cards.length > 0) ||
+      !!meta.answerConfidence ||
+      (meta.citations && meta.citations.length > 0)
+    if (text === '' && !hasMeta) return
+
+    const { currentConversation, conversations, streamingAssistantMessageId } = get()
+    if (!currentConversation || !streamingAssistantMessageId) return
+
+    const updatedMessages = currentConversation.messages.map((msg) =>
+      msg.id === streamingAssistantMessageId
+        ? {
+            ...msg,
+            content: msg.content + text,
+            ...(meta.cards && meta.cards.length > 0 ? { cards: meta.cards } : {}),
+            ...(meta.answerConfidence ? { answerConfidence: meta.answerConfidence } : {}),
+            ...(meta.citations && meta.citations.length > 0 ? { citations: meta.citations } : {}),
+          }
+        : msg
+    )
+
+    const updatedConversation: Conversation = {
+      ...currentConversation,
+      messages: updatedMessages,
+      updatedAt: new Date(),
+    }
+
+    set(
+      {
+        currentConversation: updatedConversation,
+        conversations: updateConversationInList(conversations, updatedConversation),
+      },
+      false,
+      'appendAgentResponseDelta:flush'
+    )
+  }
+
+  const scheduleDeltaFlush = (): void => {
+    if (deltaRafHandle !== null) return
+    deltaRafHandle = window.requestAnimationFrame(() => {
+      deltaRafHandle = null
+      flushDeltaBuffer()
+    })
+  }
+
+  return {
   ...initialMessagesState,
 
   startAssistantMessage: () => {
@@ -417,6 +522,54 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
 
   setStreaming: (isStreaming: boolean) => {
     set({ isStreaming }, false, 'setStreaming')
+  },
+
+  stopStreaming: () => {
+    // Flush any batched delta text first so the finalized bubble keeps
+    // everything received before the cancel.
+    flushDeltaBuffer()
+    resetDeltaBuffer()
+
+    const { currentConversation, conversations, streamingAssistantMessageId } = get()
+
+    // Close the open streaming bubble (mark it non-streaming) so the caret
+    // stops and it reads as a finished — if truncated — answer [C6].
+    if (currentConversation && streamingAssistantMessageId) {
+      const updatedMessages = currentConversation.messages.map((msg) =>
+        msg.id === streamingAssistantMessageId ? { ...msg, isStreaming: false } : msg
+      )
+      const updatedConversation: Conversation = {
+        ...currentConversation,
+        messages: updatedMessages,
+        updatedAt: new Date(),
+      }
+      set(
+        {
+          currentConversation: updatedConversation,
+          conversations: updateConversationInList(conversations, updatedConversation),
+          streamingAssistantMessageId: null,
+          isStreaming: false,
+          isLoading: false,
+          currentStatus: null,
+        },
+        false,
+        'stopStreaming'
+      )
+    } else {
+      set(
+        {
+          streamingAssistantMessageId: null,
+          isStreaming: false,
+          isLoading: false,
+          currentStatus: null,
+        },
+        false,
+        'stopStreaming'
+      )
+    }
+
+    // Tear down the in-flight socket (registered by use-websocket-chat).
+    stopStreamingHandler?.()
   },
 
   addThinkingStep: (step: Omit<ThinkingStep, 'id' | 'timestamp' | 'userMessageId'>) => {
@@ -862,10 +1015,14 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
     const { currentConversation, conversations, streamingAssistantMessageId } = state
     if (!currentConversation) return
 
-    // First delta of the turn: open a single streaming bubble. Any meta present
-    // (the legacy backend attaches cards to its one and only in_progress frame)
-    // is captured here so it survives to the finalize step.
+    // First delta of the turn: open a single streaming bubble synchronously so
+    // the caret appears immediately. Any meta present (the legacy backend
+    // attaches cards to its one and only in_progress frame) is captured here so
+    // it survives to the finalize step. Reset the batch buffer so no stale text
+    // from a prior turn can bleed into this fresh bubble.
     if (!streamingAssistantMessageId) {
+      resetDeltaBuffer()
+
       const id = uuidv4()
       const message = buildAgentResponseMessage(state, id, content, {
         showViewReport: false,
@@ -893,35 +1050,20 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
       return
     }
 
-    // Subsequent delta: append text to the existing bubble. Deltas normally
-    // carry no meta, but merge any that arrives so nothing sent mid-stream is
-    // dropped.
-    const updatedMessages = currentConversation.messages.map((msg) =>
-      msg.id === streamingAssistantMessageId
-        ? {
-            ...msg,
-            content: msg.content + content,
-            ...(cards && cards.length > 0 ? { cards } : {}),
-            ...(answerConfidence ? { answerConfidence } : {}),
-            ...(citations && citations.length > 0 ? { citations } : {}),
-          }
-        : msg
-    )
+    // Subsequent delta: buffer the text (and merge any meta — deltas normally
+    // carry none) and flush to the store once per frame. In non-DOM / test
+    // envs we flush synchronously so a synchronous read after append still
+    // observes the accumulated text.
+    pendingDeltaText += content
+    if (cards && cards.length > 0) pendingDeltaMeta.cards = cards
+    if (answerConfidence) pendingDeltaMeta.answerConfidence = answerConfidence
+    if (citations && citations.length > 0) pendingDeltaMeta.citations = citations
 
-    const updatedConversation: Conversation = {
-      ...currentConversation,
-      messages: updatedMessages,
-      updatedAt: new Date(),
+    if (canBatchDeltas()) {
+      scheduleDeltaFlush()
+    } else {
+      flushDeltaBuffer()
     }
-
-    set(
-      {
-        currentConversation: updatedConversation,
-        conversations: updateConversationInList(conversations, updatedConversation),
-      },
-      false,
-      'appendAgentResponseDelta:append'
-    )
   },
 
   finalizeAgentResponse: (
@@ -930,6 +1072,10 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
     answerConfidence?: 'low' | 'medium' | 'high',
     citations?: CitationSource[]
   ) => {
+    // Flush any batched delta text onto the open bubble first so the terminal
+    // frame finalizes over the complete accumulation, then read fresh state.
+    flushDeltaBuffer()
+
     const { currentConversation, conversations, streamingAssistantMessageId } = get()
     if (!currentConversation) return
 
@@ -1229,88 +1375,6 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
     )
   },
 
-  addFileUploadStatusCard: (
-    type: FileUploadStatusType,
-    fileCount: number,
-    jobId: string,
-    sessionId?: string
-  ) => {
-    const { currentConversation, conversations } = get()
-
-    const targetConversation = sessionId
-      ? conversations.find((c) => c.id === sessionId)
-      : currentConversation
-
-    if (!targetConversation) return
-
-    const statusMessage: ChatMessage = {
-      id: uuidv4(),
-      role: 'assistant',
-      content: '',
-      timestamp: new Date(),
-      messageType: 'file_upload_status',
-      fileUploadStatusData: {
-        type,
-        fileCount,
-        jobId,
-      },
-    }
-
-    const updatedConversation: Conversation = {
-      ...targetConversation,
-      messages: [...targetConversation.messages, statusMessage],
-      updatedAt: new Date(),
-    }
-
-    const updatedConversations = updateConversationInList(conversations, updatedConversation)
-
-    const updatedCurrent =
-      currentConversation?.id === targetConversation.id
-        ? updatedConversation
-        : currentConversation
-
-    set(
-      {
-        currentConversation: updatedCurrent,
-        conversations: updatedConversations,
-      },
-      false,
-      'addFileUploadStatusCard'
-    )
-  },
-
-  removeFileUploadWarning: () => {
-    const { currentConversation, conversations } = get()
-    if (!currentConversation) return
-
-    const updatedMessages = currentConversation.messages.filter(
-      (msg) =>
-        !(
-          msg.messageType === 'file_upload_status' &&
-          msg.fileUploadStatusData?.type === 'pending_warning'
-        )
-    )
-
-    if (updatedMessages.length === currentConversation.messages.length) return
-
-    const updatedConversation: Conversation = {
-      ...currentConversation,
-      messages: updatedMessages,
-      updatedAt: new Date(),
-    }
-
-    const updatedConversations = updateConversationInList(conversations, updatedConversation)
-
-    set(
-      {
-        currentConversation: updatedConversation,
-        conversations: updatedConversations,
-      },
-      false,
-      'removeFileUploadWarning'
-    )
-  },
-
   addDeepResearchBanner: (
     bannerType: DeepResearchBannerType,
     jobId: string,
@@ -1445,4 +1509,5 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
     delete next[conversationId]
     set({ composerDrafts: next }, false, 'clearComposerDraft')
   },
-})
+  }
+}

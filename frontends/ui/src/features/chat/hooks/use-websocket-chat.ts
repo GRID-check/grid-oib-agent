@@ -33,6 +33,7 @@ import {
 } from '@/adapters/api/websocket-client'
 import { checkBackendHealthCached, invalidateHealthCache } from '@/shared/hooks/use-backend-health'
 import { useChatStore } from '../store'
+import { registerStopStreamingHandler } from '../stores/messages-store'
 import { useConnectionRecovery } from './use-connection-recovery'
 import { useLayoutStore } from '@/features/layout/store'
 import { useDocumentsStore } from '@/features/documents/store'
@@ -1669,6 +1670,32 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
     setStreaming(false)
     setLoading(false)
   }, [setStreaming, setLoading])
+
+  /**
+   * Cancel path for the store's `stopStreaming()` action [C1]. The store action
+   * owns the UI-state reset (flush batched deltas, finalize the streaming
+   * bubble, clear isStreaming/isLoading/currentStatus); here we tear down the
+   * socket. `disconnect()` closes it intentionally, so the onConnectionChange
+   * handler returns early (no error card, no auto-replay), and the existing
+   * `activeParentId` stale-guard in createCallbacks drops any frame still in
+   * flight for the cancelled turn. Stand the watchdog down and drop the resend
+   * buffers so a cancelled turn never replays behind the user's back.
+   */
+  const cancelStreaming = useCallback(() => {
+    clearStreamingWatchdog()
+    lastSentOutgoingRef.current = null
+    pendingOutgoingRef.current = null
+    clearUnacknowledgedOutgoing()
+    disconnect()
+  }, [clearStreamingWatchdog, clearUnacknowledgedOutgoing, disconnect])
+
+  // Register the cancel path so useChatStore.getState().stopStreaming() (called
+  // from the composer's stop button) can reach the socket without importing the
+  // hook. Cleared on unmount.
+  useEffect(() => {
+    registerStopStreamingHandler(cancelStreaming)
+    return () => registerStopStreamingHandler(null)
+  }, [cancelStreaming])
 
   /**
    * Create a new conversation

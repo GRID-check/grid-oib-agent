@@ -4,4 +4,3 @@
 
 export { useFileUpload } from './use-file-upload'
 export { useFileDragDrop } from './use-file-drag-drop'
-export { useFileUploadBanners } from './use-file-upload-banners'

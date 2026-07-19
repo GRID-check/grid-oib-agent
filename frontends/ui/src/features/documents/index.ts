@@ -14,7 +14,7 @@ export {
 } from './store'
 
 // Hooks
-export { useFileUpload, useFileDragDrop, useFileUploadBanners } from './hooks'
+export { useFileUpload, useFileDragDrop } from './hooks'
 
 // Persistence (for debugging/testing)
 export {

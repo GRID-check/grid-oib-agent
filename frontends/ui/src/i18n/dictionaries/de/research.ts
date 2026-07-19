@@ -26,6 +26,16 @@ export const research: typeof en.research = {
 
   chatArea: {
     ariaMessages: 'Chat-Nachrichten',
+    loading: 'Unterhaltung wird geladen',
+    typing: 'Piloti antwortet …',
+    scrollToLatest: 'Zum neuesten Beitrag springen',
+    status: {
+      thinking: 'Denkt nach …',
+      searching: 'Sucht …',
+      planning: 'Plant …',
+      researching: 'Recherchiert …',
+      writing: 'Schreibt …',
+    },
     loggedOutTitle: 'Piloti wird verfügbar, sobald Ihre Organisation verifiziert ist.',
     loggedOutBody:
       'Melden Sie sich an, um projektbezogene OIB-Recherche, Dokumenten-Ingestion und Zugriffskontrollen für Mitglieder freizuschalten.',
@@ -232,6 +242,16 @@ export const research: typeof en.research = {
     sendQuery: 'Anfrage senden',
     responseInput: 'Antworteingabe',
     chatMessageInput: 'Chat-Nachrichteneingabe',
+    stopStreaming: 'Antwort stoppen',
+    sendWhilePending: 'Dateien werden noch verarbeitet – trotzdem senden?',
+    removeFile: 'Datei entfernen: {name}',
+    retryUpload: 'Upload erneut versuchen',
+    manageFiles: 'Dateien verwalten',
+    manageFilesCount: 'Angehängte Dateien verwalten ({count})',
+    fileUploadingStatus: 'Wird hochgeladen',
+    fileFailedStatus: 'Upload fehlgeschlagen',
+    fileReadyStatus: 'Bereit',
+    sourcesPopoverAllHint: 'Aktivierte Verbindungen stehen dem KI-Assistenten zur Verfügung.',
   },
 
   reportCard: {
@@ -298,6 +318,7 @@ export const research: typeof en.research = {
     today: 'Heute',
     yesterday: 'Gestern',
     editTitle: 'Sitzungstitel bearbeiten',
+    untitledSession: 'Neuer Chat',
     renameDisabled: 'Sitzung umbenennen (deaktiviert)',
     rename: 'Sitzung umbenennen',
     cannotRenameBusy: 'Umbenennen nicht möglich, während Vorgänge laufen',

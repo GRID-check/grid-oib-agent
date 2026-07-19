@@ -157,6 +157,15 @@ class ShallowResearcherAgent:
         # Build the LangGraph
         self._graph = self._build_graph()
 
+        # Bind tools once at construction rather than per iteration: `self.tools`
+        # and the provider's role map are fixed for the life of this instance
+        # (the per-org override path builds a NEW agent instance in register.py,
+        # so the bound object cannot go stale). bind_tools converts every tool to
+        # its OpenAI JSON schema, so hoisting it out of `agent_node` removes that
+        # pure-CPU conversion from every tool-loop iteration. Request payloads are
+        # byte-identical; only when the conversion happens changes.
+        self._llm_with_tools = self._get_llm().bind_tools(self.tools, parallel_tool_calls=True)
+
     def _load_system_prompt(self) -> str:
         """Load the default system prompt."""
         try:
@@ -204,35 +213,47 @@ class ShallowResearcherAgent:
             else:
                 logger.debug("ShallowResearcher received no available documents")
 
-            # Render system prompt with the current DATE (not time): a
-            # second-precision timestamp made every rendered prompt unique,
-            # defeating provider prompt caching across tool-loop iterations
-            # and turns. Research needs the date, not the wall clock.
-            current_datetime = datetime.now().strftime("%Y-%m-%d")
-            # The source-hierarchy scaffolding (RIS Normenkatalog, norm doctrine,
-            # parcel note) is only consulted on research turns. Meta/conversational
-            # turns (requires_sources=False) never do source lookup, so skip both
-            # the ~1400-token catalog render AND its underlying registry read/
-            # applicability compute. Each block is truthiness-guarded in the
-            # template, so passing None simply omits it. Research turns are
-            # unchanged.
-            _documents_dump = [doc.model_dump() for doc in available_documents]
-            rendered_system_prompt = render_prompt_template(
-                self.system_prompt,
-                tools=tools_info,
-                user_info=user_info,
-                current_datetime=current_datetime,
-                available_documents=_documents_dump,
-                project_context=state.project_context,
-                ris_catalog=render_block_for_prompt(state.project_context) if state.requires_sources else None,
-                norm_doctrine=doctrine_for(state.project_context) if state.requires_sources else None,
-                parcel_note=parcel_note(_documents_dump) if state.requires_sources else None,
-                # Deterministically suppress the control-marker mandate on
-                # conversational/meta turns instead of relying on model judgment.
-                requires_sources=state.requires_sources,
-            )
-            if os.environ.get("DEBUG_PROMPTS"):
-                logger.debug("Rendered system prompt:\n%s", rendered_system_prompt)
+            # Render the system prompt once per run and cache it on the state.
+            # Every input below (system_prompt, tools_info, user_info,
+            # current_datetime at DATE precision, available_documents,
+            # project_context, the three norm blocks, requires_sources) is fixed
+            # for the life of a single run(), so the rendered string is
+            # byte-identical across tool-loop iterations. When the cache is
+            # populated we skip both the Jinja render AND the norm-block
+            # computation (registry reads / applicability compute) entirely. The
+            # inline path below stays as the fallback for the first iteration and
+            # the graph-direct path (where the field is None).
+            rendered_system_prompt = state.cached_system_prompt
+            if rendered_system_prompt is None:
+                # Render system prompt with the current DATE (not time): a
+                # second-precision timestamp made every rendered prompt unique,
+                # defeating provider prompt caching across tool-loop iterations
+                # and turns. Research needs the date, not the wall clock.
+                current_datetime = datetime.now().strftime("%Y-%m-%d")
+                # The source-hierarchy scaffolding (RIS Normenkatalog, norm doctrine,
+                # parcel note) is only consulted on research turns. Meta/conversational
+                # turns (requires_sources=False) never do source lookup, so skip both
+                # the ~1400-token catalog render AND its underlying registry read/
+                # applicability compute. Each block is truthiness-guarded in the
+                # template, so passing None simply omits it. Research turns are
+                # unchanged.
+                _documents_dump = [doc.model_dump() for doc in available_documents]
+                rendered_system_prompt = render_prompt_template(
+                    self.system_prompt,
+                    tools=tools_info,
+                    user_info=user_info,
+                    current_datetime=current_datetime,
+                    available_documents=_documents_dump,
+                    project_context=state.project_context,
+                    ris_catalog=render_block_for_prompt(state.project_context) if state.requires_sources else None,
+                    norm_doctrine=doctrine_for(state.project_context) if state.requires_sources else None,
+                    parcel_note=parcel_note(_documents_dump) if state.requires_sources else None,
+                    # Deterministically suppress the control-marker mandate on
+                    # conversational/meta turns instead of relying on model judgment.
+                    requires_sources=state.requires_sources,
+                )
+                if os.environ.get("DEBUG_PROMPTS"):
+                    logger.debug("Rendered system prompt:\n%s", rendered_system_prompt)
 
             system_message = SystemMessage(content=rendered_system_prompt)
 
@@ -253,9 +274,13 @@ class ShallowResearcherAgent:
 
                     full_messages = [system_message] + processed_history + [synthesis_anchor]
                     response = await self._get_llm().ainvoke(full_messages)
-                    return {"messages": [response], "tool_iterations": iterations}
+                    return {
+                        "messages": [response],
+                        "tool_iterations": iterations,
+                        "cached_system_prompt": rendered_system_prompt,
+                    }
 
-                llm_with_tools = self._get_llm().bind_tools(self.tools, parallel_tool_calls=True)
+                llm_with_tools = self._llm_with_tools
                 full_messages = [system_message] + processed_history
                 response = await llm_with_tools.ainvoke(full_messages)
 
@@ -265,7 +290,11 @@ class ShallowResearcherAgent:
                     new_iterations += added_calls
                     logger.info("Added %d tool calls to budget. Total: %d", added_calls, new_iterations)
 
-                return {"messages": [response], "tool_iterations": new_iterations}
+                return {
+                    "messages": [response],
+                    "tool_iterations": new_iterations,
+                    "cached_system_prompt": rendered_system_prompt,
+                }
 
             except Exception as ex:
                 logger.error("Failed in agent_node: %s", ex)

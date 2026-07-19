@@ -857,10 +857,13 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                 logger.warning("Could not fetch available documents: %s", e)
             return available_documents
 
-        # Run the two independent per-turn I/O paths concurrently: the live
-        # memory-digest fetch and the available-documents aggregation. Neither
-        # depends on the other, and each fails open on its own (see the helpers),
-        # so gather cannot let one failure lose the other's result.
+        # Run the independent per-turn I/O paths concurrently: the live
+        # memory-digest fetch, the available-documents aggregation, and the
+        # session-registry hydration. None depends on the others, and each fails
+        # open on its own (see the helpers), so gather cannot let one failure
+        # lose the others' results. The registry hydration's blocking Dragonfly
+        # GET (cold-cache, ~0.5s socket timeout) is offloaded via asyncio.to_thread
+        # so it overlaps the gather instead of blocking the loop serially after it.
         (
             (
                 _project_context,
@@ -870,11 +873,16 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                 _reflection_flag_enabled,
             ),
             available_documents,
-        ) = await asyncio.gather(_load_project_context(), _load_available_documents())
+            session_registry,
+        ) = await asyncio.gather(
+            _load_project_context(),
+            _load_available_documents(),
+            asyncio.to_thread(get_or_create_session_registry, nat_context_conversation_id),
+        )
         # Set session-scoped source registry for citation verification across turns.
         # When no conversation ID is available, get_or_create_session_registry returns a
         # fresh per-request registry to prevent anonymous sessions from sharing state.
-        session_registry = get_or_create_session_registry(nat_context_conversation_id)
+        # The hydrating read above ran in the gather; the ContextVar set stays inline.
         token = set_session_registry(session_registry)
         # Bind the conversation-scoped card registry so the `emit_card` tool can
         # push cards during the turn. Cleared here (registries are reused across

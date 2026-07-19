@@ -18,7 +18,7 @@ const ACTIVE_JOB_STATUSES: readonly DeepResearchJobStatus[] = ['submitted', 'run
 
 /**
  * True when the user has never sent a typed chat message in this session.
- * Upload banners (`file_upload_status`) and other non-user types do not count.
+ * Non-user message types (status, agent_response, etc.) do not count.
  */
 export const hasNoUserChatMessages = (messages: ChatMessage[]): boolean =>
   !messages.some((message) => message.messageType === 'user')

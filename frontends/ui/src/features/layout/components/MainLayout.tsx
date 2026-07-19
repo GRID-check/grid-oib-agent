@@ -6,7 +6,6 @@
  * - SessionsPanel (left, overlay)
  * - ChatArea + InputArea (center, responsive width)
  * - ResearchPanel (right, pushes content when open)
- * - DataSourcesPanel (right, overlay)
  *
  * Handles auth state to show different UI for logged-in vs logged-out users.
  */
@@ -22,7 +21,6 @@ import { SessionsPanel } from './SessionsPanel'
 import { ChatArea } from './ChatArea'
 import { InputArea } from './InputArea'
 import { ResearchPanel } from './ResearchPanel'
-import { DataSourcesPanel } from './DataSourcesPanel'
 import { useChatStore, useDeepResearch, NoSourcesBanner } from '@/features/chat'
 import {
   hasActiveDeepResearchJob,
@@ -112,7 +110,6 @@ export const MainLayout: FC<MainLayoutProps> = ({
   const updateConversationTitle = useChatStore((s) => s.updateConversationTitle)
 
   const isResearchPanelOpen = useLayoutStore((s) => s.rightPanel === 'research')
-  const openRightPanel = useLayoutStore((s) => s.openRightPanel)
   const prefersReducedMotion = useReducedMotion()
   const isMobile = useIsMobile()
 
@@ -149,14 +146,10 @@ export const MainLayout: FC<MainLayoutProps> = ({
   )
 
   // Start a new unsaved draft session and clear URL until first interaction.
-  // Open Data Sources panel so it stays visible (default panel for new sessions).
   const handleNewSession = useCallback(() => {
     startNewSessionDraft()
     clearSessionUrl()
-    if (isAuthenticated) {
-      openRightPanel('data-sources')
-    }
-  }, [startNewSessionDraft, clearSessionUrl, openRightPanel, isAuthenticated])
+  }, [startNewSessionDraft, clearSessionUrl])
 
   // Wrap deleteConversation to clear URL if deleting current session
   const handleDeleteSession = useCallback(
@@ -186,9 +179,14 @@ export const MainLayout: FC<MainLayoutProps> = ({
   const userConversations = useMemo(
     () =>
       currentUserId
-        ? conversations.filter(
-            (c) => c.userId === currentUserId && conversationMatchesProject(c, projectId)
-          )
+        ? conversations
+            .filter(
+              (c) => c.userId === currentUserId && conversationMatchesProject(c, projectId)
+            )
+            // The store keeps creation order; sort newest-first so date groups
+            // and rows in the sessions panel come out most-recently-updated first.
+            .slice()
+            .sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt))
         : [],
     [conversations, currentUserId, projectId]
   )
@@ -281,9 +279,6 @@ export const MainLayout: FC<MainLayoutProps> = ({
         projectId={projectId ?? undefined}
         projectCollection={projectCollection ?? undefined}
       />
-
-      {/* Data Sources Panel (Right) - Overlay */}
-      {isAuthenticated && <DataSourcesPanel />}
     </div>
   )
 

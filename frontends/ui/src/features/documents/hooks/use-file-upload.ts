@@ -21,7 +21,6 @@ import { validateFileUpload, type ValidationContext } from '../validation'
 import { UploadOrchestrator } from '../orchestrator'
 import type { PendingJob } from '../orchestrator'
 import { markSessionHasCollection } from '../persistence'
-import { useChatStore } from '@/features/chat'
 
 interface UseFileUploadOptions {
   collectionName?: string
@@ -215,15 +214,6 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
         addTrackedFile(trackedFile)
         trackedFileMap.set(file.name, trackedFile)
       }
-
-      // Show informational banner in chat as soon as upload starts
-      const chatStore = useChatStore.getState()
-      chatStore.addFileUploadStatusCard(
-        'uploaded',
-        validFiles.length,
-        `upload-${Date.now()}`,
-        targetCollection
-      )
 
       try {
         await ensureCollectionExists(targetCollection)

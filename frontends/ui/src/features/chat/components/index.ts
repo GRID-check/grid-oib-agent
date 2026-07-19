@@ -18,9 +18,6 @@ export { AnswerFeedback } from './AnswerFeedback'
 export type { AnswerFeedbackProps } from './AnswerFeedback'
 
 // Banner components
-export { FileUploadBanner } from './FileUploadBanner'
-export type { FileUploadBannerProps } from './FileUploadBanner'
-
 export { ErrorBanner } from './ErrorBanner'
 export type { ErrorBannerProps, ErrorCode } from './ErrorBanner'
 

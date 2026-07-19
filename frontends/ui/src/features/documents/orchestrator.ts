@@ -250,11 +250,8 @@ class UploadOrchestratorImpl {
 
     if (!persistedJob) return
 
-    // Open files panel to show progress
-    const layoutStore = useLayoutStore.getState()
-    layoutStore.openRightPanel('data-sources')
-    layoutStore.setDataSourcesPanelTab('files')
-
+    // Progress is surfaced by the composer's inline file chips (and the files
+    // dialog), so resuming a persisted job no longer opens a side panel.
     try {
       const [serverFiles, jobStatus] = await Promise.all([
         client.listFiles(sessionId).catch(() => []),
@@ -399,17 +396,8 @@ class UploadOrchestratorImpl {
         this.stopPolling()
         removePersistedJob(jobId)
 
-        // Open Data Sources panel for any terminal state so the user
-        // can see available files or errors
-        const docStore = useDocumentsStore.getState()
-        const layoutStore = useLayoutStore.getState()
-        const jobBanners = docStore.shownBannersForJobs[jobId]
-        if (!jobBanners?.ingested) {
-          layoutStore.setDataSourcesPanelTab('files')
-          layoutStore.openRightPanel('data-sources')
-          docStore.markBannerShown(jobId, 'ingested')
-        }
-
+        // Terminal state (files available or an error) is reflected on the
+        // composer's inline file chips; no side panel is opened.
         if (status.status === 'completed') {
           this.callbacks.onComplete?.()
         } else if (status.error_message) {

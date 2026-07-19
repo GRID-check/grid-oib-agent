@@ -27,6 +27,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from dataclasses import field
 from html import unescape
+from typing import TYPE_CHECKING
 from typing import Any
 from urllib.parse import parse_qs
 from urllib.parse import unquote
@@ -34,6 +35,9 @@ from urllib.parse import urlparse
 from urllib.parse import urlunparse
 
 from aiq_agent.common.source_kinds import kind_for_lane
+
+if TYPE_CHECKING:
+    from aiq_agent.common.norm_registry import NormRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -663,15 +667,23 @@ _TITLE_NEAR_URL_PATTERNS = [
 ]
 
 
-def _extract_title_for_url(content: str, url: str) -> str | None:
+def _extract_title_for_url(
+    content: str, url: str, blocks: list[str] | None = None
+) -> str | None:
     """Try to extract a title associated with a URL from the surrounding content.
 
     Finds the title pattern **closest to** (and preceding) the URL within its
     text block.  This prevents a single block containing multiple search
     results from assigning the first result's title to every URL.
+
+    ``blocks`` may be supplied pre-split (by the same
+    ``re.split(r"\\n\\n---\\n\\n|\\n\\n\\n", content)``) so a URL-heavy caller
+    splits the content once instead of once per URL; when ``None`` the content
+    is split here, preserving standalone callers' behaviour.
     """
     # Find the block of text containing this URL (split by --- or double newlines)
-    blocks = re.split(r"\n\n---\n\n|\n\n\n", content)
+    if blocks is None:
+        blocks = re.split(r"\n\n---\n\n|\n\n\n", content)
     for block in blocks:
         if url not in block:
             continue
@@ -706,12 +718,16 @@ def _parse_generic_urls(content: str, tool_name: str) -> list[SourceEntry]:
     """
     seen: set[str] = set()
     entries: list[SourceEntry] = []
+    # Split the content into blocks ONCE here (same regex as
+    # ``_extract_title_for_url``) so title extraction is O(content) rather than
+    # O(urls × content) on URL-heavy tool outputs (e.g. large ris_fetch results).
+    blocks = re.split(r"\n\n---\n\n|\n\n\n", content)
     for match in _GENERIC_URL_RE.finditer(content):
         url = unescape(match.group(0)).rstrip(_URL_TRIM_CHARS)
         normalized = _normalize_url(url)
         if normalized not in seen:
             seen.add(normalized)
-            title = _extract_title_for_url(content, url)
+            title = _extract_title_for_url(content, url, blocks)
             entries.append(SourceEntry(url=url, title=title, source_type="generic", tool_name=tool_name))
     return entries
 
@@ -858,7 +874,7 @@ def _is_ris_source(entry: SourceEntry) -> bool:
     return bool(entry.url and _RIS_URL_HOST_RE.match(entry.url))
 
 
-def source_lane(entry: SourceEntry) -> tuple[str, str]:
+def source_lane(entry: SourceEntry, registry: NormRegistry | None = None) -> tuple[str, str]:
     """(stratum_key, German label) for the research fan-out UI's source grouping.
 
     Deterministic display tagging on top of ``source_origin_token``'s coarse
@@ -874,7 +890,11 @@ def source_lane(entry: SourceEntry) -> tuple[str, str]:
     file_name = None
     if entry.citation_key:
         file_name, _ = _parse_citation_key(entry.citation_key)
-    registry = load_registry() if (entry.url and "ris.bka.gv.at" in entry.url) else None
+    # ``registry`` may be supplied by the caller (so a single ``load_registry()``
+    # serves several helpers per entry); when absent, load it exactly as before —
+    # only for RIS URLs, so non-RIS entries still skip the load entirely.
+    if registry is None:
+        registry = load_registry() if (entry.url and "ris.bka.gv.at" in entry.url) else None
     lane = lane_for_hit(
         doc_class=entry.doc_class,
         file_name=file_name,
@@ -891,7 +911,7 @@ def source_lane(entry: SourceEntry) -> tuple[str, str]:
     return lane
 
 
-def binding_note_for_entry(entry: SourceEntry) -> str | None:
+def binding_note_for_entry(entry: SourceEntry, registry: NormRegistry | None = None) -> str | None:
     """Prose bindingness note for a source, when the norm registry catalogues one.
 
     For a RIS source whose URL carries a catalogued ``document_number``, return
@@ -905,7 +925,10 @@ def binding_note_for_entry(entry: SourceEntry) -> str | None:
     try:
         from aiq_agent.common.norm_registry import load_registry
 
-        registry = load_registry()
+        # Reuse a caller-supplied registry when present; otherwise load it as
+        # before. The load stays inside the fail-open guard.
+        if registry is None:
+            registry = load_registry()
         for norm in registry.entries:
             if norm.document_number and norm.document_number in entry.url and norm.binding_note:
                 return norm.binding_note
@@ -958,7 +981,13 @@ def source_entry_to_wire(entry: SourceEntry) -> dict[str, Any]:
     # (chips, Herleitung fan-out, report). Derived from the rich lane
     # classification so the OIB corpus and RIS share the same ``baurecht`` kind;
     # the fine lane travels alongside as a sub-label. See ``source_kinds``.
-    lane_key, lane_label = source_lane(entry)
+    # The norm registry is static within a turn; load it at most once here
+    # (only for RIS entries, mirroring both helpers' guard) and hand the same
+    # instance to source_lane and binding_note_for_entry so neither reloads it.
+    from aiq_agent.common.norm_registry import load_registry
+
+    registry = load_registry() if (entry.url and "ris.bka.gv.at" in entry.url) else None
+    lane_key, lane_label = source_lane(entry, registry)
     kind = kind_for_lane(lane_key)
 
     payload: dict[str, Any] = {
@@ -975,7 +1004,7 @@ def source_entry_to_wire(entry: SourceEntry) -> dict[str, Any]:
         "lane_label": lane_label,
         # Bindingness fact for the popover ("does this bind me?") — only present
         # for RIS sources the norm registry catalogues with a binding_note.
-        "binding_note": binding_note_for_entry(entry),
+        "binding_note": binding_note_for_entry(entry, registry),
         "file_name": file_name,
         "page": page,
     }

@@ -128,31 +128,15 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
     // and reopening the research report.
     <header className="shrink-0">
       <div className="flex h-12 items-center justify-between gap-3 px-3">
-        <div className="flex min-w-0 flex-1 items-center gap-0.5">
-          {/* New chat — icon-forward, borderless */}
-          <Button
-            variant="ghost"
-            size="sm"
-            className="gap-1.5"
-            onClick={handleNewSessionClick}
-            disabled={!isAuthenticated || isNewSessionDisabled}
-            aria-label={t('chatToolbar.createNewSession')}
-            title={
-              !isAuthenticated
-                ? t('chatToolbar.signInToCreate')
-                : isNewSessionDisabled
-                  ? t('chatToolbar.cannotCreateActive')
-                  : t('chatToolbar.createNewSession')
-            }
-          >
-            <SquarePen className="h-4 w-4" aria-hidden="true" />
-            <span className="hidden text-sm font-medium sm:inline">{t('chatToolbar.newChat')}</span>
-          </Button>
-          {/* Sessions — icon-only toggle for the history panel */}
+        {/* LEFT zone: the single history door + the current session title/rename,
+            always visible (mobile included). */}
+        <div className="flex min-w-0 flex-1 items-center gap-1">
+          {/* Sessions / history overlay — the one clear door to past sessions
+              (the rail keeps its routed History; this doesn't duplicate it). */}
           <Button
             variant="ghost"
             size="icon"
-            className="size-8"
+            className="size-8 shrink-0"
             onClick={handleMenuClick}
             disabled={!isAuthenticated}
             aria-label={t('chatToolbar.toggleSessions')}
@@ -161,10 +145,11 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
             <MessageSquareText className="h-4 w-4" aria-hidden="true" />
           </Button>
 
-          {/* Breadcrumb: {project} / {session title (click-to-rename)} */}
+          {/* Breadcrumb: {project} / {session title (click-to-rename)} — always
+              visible so the current thread is identifiable on every viewport. */}
           {(sessionTitle || projectName) && (
             <nav
-              className="hidden min-w-0 items-center gap-1.5 pl-1.5 text-sm md:flex"
+              className="flex min-w-0 items-center gap-1.5 pl-0.5 text-sm"
               aria-label={tChat('breadcrumb.ariaLabel')}
             >
               {projectName ? (
@@ -204,7 +189,29 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
             </nav>
           )}
         </div>
-        <div className="flex shrink-0 items-center">
+        {/* RIGHT zone: primary actions. New chat is the highest-value action and
+            carries a persistent label from >=sm; Research reopens the report. */}
+        <div className="flex shrink-0 items-center gap-1">
+          {/* New chat */}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="gap-1.5"
+            onClick={handleNewSessionClick}
+            disabled={!isAuthenticated || isNewSessionDisabled}
+            aria-label={t('chatToolbar.createNewSession')}
+            title={
+              !isAuthenticated
+                ? t('chatToolbar.signInToCreate')
+                : isNewSessionDisabled
+                  ? t('chatToolbar.cannotCreateActive')
+                  : t('chatToolbar.createNewSession')
+            }
+          >
+            <SquarePen className="h-4 w-4" aria-hidden="true" />
+            <span className="hidden text-sm font-medium sm:inline">{t('chatToolbar.newChat')}</span>
+          </Button>
+
           {/* Research report panel toggle — the one right-side control the
               composer doesn't already cover (its deep-research pill is intent,
               this reopens the finished report). */}

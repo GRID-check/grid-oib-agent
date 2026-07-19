@@ -109,10 +109,6 @@ vi.mock('./ResearchPanel', () => ({
   ResearchPanel: () => <div data-testid="research-panel">Research Panel</div>,
 }))
 
-vi.mock('./DataSourcesPanel', () => ({
-  DataSourcesPanel: () => <div data-testid="data-sources-panel">Data Sources Panel</div>,
-}))
-
 import { useChatStore } from '@/features/chat'
 import { useLayoutStore } from '../store'
 
@@ -130,10 +126,9 @@ describe('MainLayout', () => {
     expect(screen.getByTestId('chat-area')).toBeInTheDocument()
     expect(screen.getByTestId('input-area')).toBeInTheDocument()
     expect(screen.getByTestId('research-panel')).toBeInTheDocument()
-    expect(screen.getByTestId('data-sources-panel')).toBeInTheDocument()
   })
 
-  test('hides the data sources panel when unauthenticated', () => {
+  test('renders core sections when unauthenticated', () => {
     render(<MainLayout />)
 
     expect(screen.getByTestId('app-bar')).toBeInTheDocument()
@@ -141,7 +136,6 @@ describe('MainLayout', () => {
     expect(screen.getByTestId('chat-area')).toBeInTheDocument()
     expect(screen.getByTestId('input-area')).toBeInTheDocument()
     expect(screen.getByTestId('research-panel')).toBeInTheDocument()
-    expect(screen.queryByTestId('data-sources-panel')).not.toBeInTheDocument()
   })
 
   test('passes session title to AppBar', () => {
@@ -176,7 +170,8 @@ describe('MainLayout', () => {
 
     expect(mockStartNewSessionDraft).toHaveBeenCalledOnce()
     expect(mockClearSessionUrl).toHaveBeenCalledOnce()
-    expect(mockOpenRightPanel).toHaveBeenCalledWith('data-sources')
+    // New sessions no longer force-open a right panel (removed default-open).
+    expect(mockOpenRightPanel).not.toHaveBeenCalledWith('data-sources')
   })
 
   test('does not open data sources from new session while unauthenticated', async () => {

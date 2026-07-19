@@ -26,6 +26,7 @@ vi.mock('@/features/chat', () => ({
       currentConversation: { messages: [] },
       isLoading: false,
       isStreaming: false,
+      hasHydrated: true,
       thinkingSteps: [],
       respondToPrompt: mockRespondToPrompt,
       dismissErrorCard: mockDismissErrorCard,
@@ -40,7 +41,6 @@ vi.mock('@/features/chat', () => ({
     <div data-testid="agent-response">{content}</div>
   ),
   ErrorBanner: ({ message }: { message: string }) => <div data-testid="error-card">{message}</div>,
-  FileUploadBanner: ({ type }: { type: string }) => <div data-testid="file-banner">{type}</div>,
   UserMessage: ({ content }: { content: string }) => (
     <div data-testid="user-message">{content}</div>
   ),
@@ -106,6 +106,7 @@ describe('ChatArea', () => {
           messages: [{ id: 'msg-1', role: 'user', content: 'Hello world', messageType: 'user' }],
         },
         isLoading: false,
+        hasHydrated: true,
         isStreaming: false,
         thinkingSteps: [],
         respondToPrompt: mockRespondToPrompt,
@@ -135,6 +136,7 @@ describe('ChatArea', () => {
           ],
         },
         isLoading: false,
+        hasHydrated: true,
         isStreaming: false,
         thinkingSteps: [],
         respondToPrompt: mockRespondToPrompt,
@@ -165,6 +167,7 @@ describe('ChatArea', () => {
           ],
         },
         isLoading: false,
+        hasHydrated: true,
         isStreaming: false,
         respondToPrompt: mockRespondToPrompt,
         dismissErrorCard: mockDismissErrorCard,
@@ -191,6 +194,7 @@ describe('ChatArea', () => {
           ],
         },
         isLoading: false,
+        hasHydrated: true,
         isStreaming: false,
         respondToPrompt: mockRespondToPrompt,
         dismissErrorCard: mockDismissErrorCard,
@@ -222,6 +226,7 @@ describe('ChatArea', () => {
           ],
         },
         isLoading: false,
+        hasHydrated: true,
         isStreaming: false,
         thinkingSteps: [],
         respondToPrompt: mockRespondToPrompt,
@@ -255,6 +260,7 @@ describe('ChatArea', () => {
           ],
         },
         isLoading: false,
+        hasHydrated: true,
         isStreaming: false,
         thinkingSteps: [],
         respondToPrompt: mockRespondToPrompt,
@@ -283,6 +289,7 @@ describe('ChatArea', () => {
           ],
         },
         isLoading: false,
+        hasHydrated: true,
         isStreaming: false,
         respondToPrompt: mockRespondToPrompt,
         dismissErrorCard: mockDismissErrorCard,
@@ -308,6 +315,7 @@ describe('ChatArea', () => {
       const state = {
         currentConversation: null,
         isLoading: false,
+        hasHydrated: true,
         isStreaming: false,
         respondToPrompt: mockRespondToPrompt,
         dismissErrorCard: mockDismissErrorCard,
@@ -321,35 +329,8 @@ describe('ChatArea', () => {
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(GREETING_RE)
   })
 
-  test('renders file upload banners', () => {
-    vi.mocked(useChatStore).mockImplementation((selector?: (s: any) => any) => {
-      const state = {
-        currentConversation: {
-          messages: [
-            {
-              id: 'msg-1',
-              role: 'assistant',
-              content: '',
-              messageType: 'file_upload_status',
-              fileUploadStatusData: {
-                type: 'uploaded',
-                fileCount: 2,
-              },
-            },
-          ],
-        },
-        isLoading: false,
-        isStreaming: false,
-        respondToPrompt: mockRespondToPrompt,
-        dismissErrorCard: mockDismissErrorCard,
-      }
-      return selector ? selector(state) : state
-    })
-
-    render(<ChatArea isAuthenticated={true} />)
-
-    expect(screen.getByTestId('file-banner')).toBeInTheDocument()
-  })
+  // The in-feed file_upload_status banner surface was removed (contract C2), so
+  // there is no longer a render branch to exercise here.
 
   test('keeps earlier interrupted thinking state after a later completed turn', () => {
     mockGetThinkingStepsForMessage.mockImplementation((messageId: string) => {
@@ -368,6 +349,7 @@ describe('ChatArea', () => {
           ],
         },
         isLoading: false,
+        hasHydrated: true,
         isStreaming: false,
         thinkingSteps: [],
         respondToPrompt: mockRespondToPrompt,
@@ -416,6 +398,7 @@ describe('ChatArea', () => {
         },
         isLoading: true,
         isStreaming: true,
+        hasHydrated: true,
         currentUserMessageId: 'user-2',
         thinkingSteps: [],
         respondToPrompt: mockRespondToPrompt,

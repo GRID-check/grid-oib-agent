@@ -225,9 +225,13 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
   )
 
   const filteredSessions = useMemo(() => {
-    if (!searchQuery.trim()) return sessions.filter((s) => s.title.trim() !== '')
+    // Show ALL sessions, including brand-new ones with an empty title — they
+    // render with a "Neuer Chat" placeholder in the row so they stay findable.
+    // Search still filters by the stored title (untitled sessions carry no
+    // searchable text, so a non-empty query naturally excludes them).
+    if (!searchQuery.trim()) return sessions
     const query = searchQuery.toLowerCase()
-    return sessions.filter((s) => s.title.toLowerCase().includes(query) && s.title.trim() !== '')
+    return sessions.filter((s) => s.title.toLowerCase().includes(query))
   }, [sessions, searchQuery])
 
   const groupedSessions = useMemo(
@@ -413,7 +417,7 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
         initial={false}
         animate={isSessionsPanelOpen ? 'visible' : 'hidden'}
       >
-        {Object.entries(groupedSessions).map(([dateLabel, dateSessions]) => (
+        {groupedSessions.map(([dateLabel, dateSessions]) => (
           <div key={dateLabel} className="mb-4 flex flex-col gap-2">
             <span className="text-muted-foreground text-xs font-semibold uppercase">
               {dateLabel}
@@ -472,7 +476,7 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
         open={deleteAllModalOpen}
         onOpenChange={setDeleteAllModalOpen}
         onConfirm={handleConfirmDeleteAll}
-        count={sessions.filter((s) => s.title.trim() !== '').length}
+        count={sessions.length}
       />
     </DockedPanel>
   )
@@ -509,11 +513,28 @@ const SessionItem: FC<SessionItemProps> = ({
   onRename,
 }) => {
   const t = useTranslations('research')
+  const { locale } = useLocale()
   const [isHovered, setIsHovered] = useState(false)
   const [isFocused, setIsFocused] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
   const [editValue, setEditValue] = useState(session.title)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  // Brand-new chats persist with an empty title — show a placeholder so the row
+  // stays legible and the session remains findable in the history.
+  const displayTitle = session.title.trim() || t('sessionsPanel.untitledSession')
+
+  // Persistent relative timestamp from the session's date (reuses the same
+  // formatter the Deep Research runs list uses). Guard against unparseable
+  // dates so a bad value never throws.
+  const sessionDate = session.date instanceof Date ? session.date : new Date(session.date)
+  const sessionIso = Number.isNaN(sessionDate.getTime()) ? '' : sessionDate.toISOString()
+  const showResearchChip =
+    showResearchLabel &&
+    (isSessionActive ||
+      session.hasActiveDeepResearch ||
+      session.hasCompletedReport ||
+      session.hasExpiredReport)
 
   // Focus input when entering edit mode
   useEffect(() => {
@@ -602,14 +623,18 @@ const SessionItem: FC<SessionItemProps> = ({
         }
       }}
       className={cn(
-        'focus-visible:ring-ring/50 group flex h-10 w-full items-center gap-2 rounded-lg p-2 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset',
+        'focus-visible:ring-ring/50 group flex min-h-[3.25rem] w-full items-center gap-2.5 rounded-lg border py-2 pl-2.5 pr-2 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset',
         isBusy ? 'cursor-not-allowed opacity-60' : 'cursor-pointer',
-        isSelected ? 'bg-accent text-foreground' : 'hover:bg-accent/60'
+        // Selected reads as a raised card (border + fill + subtle shadow) rather
+        // than the near-identical bg-accent/60 hover tint used for the rest.
+        isSelected
+          ? 'border-border bg-accent text-foreground shadow-sm'
+          : 'border-transparent hover:bg-accent/60'
       )}
       aria-label={
         isBusy
-          ? t('sessionsPanel.sessionLabelBusy', { title: session.title })
-          : t('sessionsPanel.sessionLabel', { title: session.title })
+          ? t('sessionsPanel.sessionLabelBusy', { title: displayTitle })
+          : t('sessionsPanel.sessionLabel', { title: displayTitle })
       }
       aria-disabled={isBusy}
     >
@@ -629,65 +654,77 @@ const SessionItem: FC<SessionItemProps> = ({
         <>
           <SessionStatusIcon session={session} isSessionActive={isSessionActive} />
 
-          <span className="min-w-0 flex-1 truncate text-sm">{session.title}</span>
+          {/* Two-line content block: title + persistent time on line 1, the
+              calm Deep Research chip on line 2. */}
+          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="min-w-0 flex-1 truncate text-sm">{displayTitle}</span>
+              {sessionIso && (
+                <span
+                  className="text-muted-foreground shrink-0 text-xs"
+                  title={formatAbsoluteTime(sessionIso, locale)}
+                >
+                  {formatRelativeTime(sessionIso, locale)}
+                </span>
+              )}
+            </div>
 
-          {/* FB-10: a calm "Deep Research" chip marks sessions that carry a
-              research run, so they read as research-bearing in the history. */}
-          {showResearchLabel &&
-            !isHovered &&
-            !isFocused &&
-            (isSessionActive ||
-              session.hasActiveDeepResearch ||
-              session.hasCompletedReport ||
-              session.hasExpiredReport) && (
-              <span className="bg-secondary text-muted-foreground shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide">
+            {/* FB-10: a calm "Deep Research" chip marks sessions that carry a
+                research run. It lives on its own line so it never swaps with
+                the trailing actions. */}
+            {showResearchChip && (
+              <span className="bg-secondary text-muted-foreground w-fit rounded-full px-2 py-0.5 text-xs font-medium">
                 {t('sessionsPanel.deepResearchChip')}
               </span>
             )}
+          </div>
 
-          {/* Action icons - shown on hover or while focus is inside the item */}
-          {(isHovered || isFocused) && (
-            <div className="flex shrink-0 items-center gap-1">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-7"
-                onClick={handleEditClick}
-                disabled={isBusy || isSessionActive}
-                aria-label={
-                  isBusy || isSessionActive
-                    ? t('sessionsPanel.renameDisabled')
-                    : t('sessionsPanel.rename')
-                }
-                title={
-                  isBusy || isSessionActive
-                    ? t('sessionsPanel.cannotRenameBusy')
-                    : t('sessionsPanel.rename')
-                }
-              >
-                <Pencil className="h-4 w-4" aria-hidden="true" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="text-destructive hover:text-destructive size-7"
-                onClick={handleDeleteClick}
-                disabled={isBusy || isSessionActive}
-                aria-label={
-                  isBusy || isSessionActive
-                    ? t('sessionsPanel.deleteDisabled')
-                    : t('sessionsPanel.deleteSession')
-                }
-                title={
-                  isBusy || isSessionActive
-                    ? t('sessionsPanel.cannotDeleteBusy')
-                    : t('sessionsPanel.deleteSession')
-                }
-              >
-                <Trash2 className="h-4 w-4" aria-hidden="true" />
-              </Button>
-            </div>
-          )}
+          {/* Fixed-width trailing slot — reserved so revealing the rename/delete
+              actions on hover/focus never reflows the row. */}
+          <div className="flex w-16 shrink-0 items-center justify-end gap-1">
+            {(isHovered || isFocused) && (
+              <>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-7"
+                  onClick={handleEditClick}
+                  disabled={isBusy || isSessionActive}
+                  aria-label={
+                    isBusy || isSessionActive
+                      ? t('sessionsPanel.renameDisabled')
+                      : t('sessionsPanel.rename')
+                  }
+                  title={
+                    isBusy || isSessionActive
+                      ? t('sessionsPanel.cannotRenameBusy')
+                      : t('sessionsPanel.rename')
+                  }
+                >
+                  <Pencil className="h-4 w-4" aria-hidden="true" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="text-destructive hover:text-destructive size-7"
+                  onClick={handleDeleteClick}
+                  disabled={isBusy || isSessionActive}
+                  aria-label={
+                    isBusy || isSessionActive
+                      ? t('sessionsPanel.deleteDisabled')
+                      : t('sessionsPanel.deleteSession')
+                  }
+                  title={
+                    isBusy || isSessionActive
+                      ? t('sessionsPanel.cannotDeleteBusy')
+                      : t('sessionsPanel.deleteSession')
+                  }
+                >
+                  <Trash2 className="h-4 w-4" aria-hidden="true" />
+                </Button>
+              </>
+            )}
+          </div>
         </>
       )}
     </div>
@@ -756,14 +793,18 @@ const SessionStatusIcon: FC<{ session: Session; isSessionActive: boolean }> = ({
 }
 
 /**
- * Groups sessions by relative date labels (Today, Yesterday, or date string)
+ * Groups sessions by relative date labels (Today, Yesterday, or date string).
+ *
+ * Returns an ORDERED list of [label, sessions] tuples sorted newest-first
+ * (Today → Yesterday → older), so the panel always emits date groups
+ * chronologically regardless of the incoming session order.
  */
 const groupSessionsByDate = (
   sessions: Session[],
   labels: { today: string; yesterday: string },
   locale: string
-): Record<string, Session[]> => {
-  const groups: Record<string, Session[]> = {}
+): Array<[string, Session[]]> => {
+  const groups = new Map<string, { sessions: Session[]; sortKey: number }>()
   const today = new Date()
   const yesterday = new Date(today)
   yesterday.setDate(yesterday.getDate() - 1)
@@ -772,7 +813,7 @@ const groupSessionsByDate = (
     const sessionDate = new Date(session.date)
     let label: string
 
-    if (isSameDay(sessionDate, today) && session.title.trim()) {
+    if (isSameDay(sessionDate, today)) {
       label = labels.today
     } else if (isSameDay(sessionDate, yesterday)) {
       label = labels.yesterday
@@ -784,13 +825,19 @@ const groupSessionsByDate = (
       })
     }
 
-    if (!groups[label]) {
-      groups[label] = []
+    const time = sessionDate.getTime()
+    const existing = groups.get(label)
+    if (existing) {
+      existing.sessions.push(session)
+      existing.sortKey = Math.max(existing.sortKey, time)
+    } else {
+      groups.set(label, { sessions: [session], sortKey: time })
     }
-    groups[label].push(session)
   }
 
-  return groups
+  return Array.from(groups.entries())
+    .sort((a, b) => b[1].sortKey - a[1].sortKey)
+    .map(([label, group]) => [label, group.sessions] as [string, Session[]])
 }
 
 const isSameDay = (d1: Date, d2: Date): boolean => {
