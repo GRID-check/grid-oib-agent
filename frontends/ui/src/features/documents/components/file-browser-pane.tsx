@@ -143,7 +143,9 @@ export function FileBrowserPane({
           selection the sidebar tree drives (no separate navigation model). */}
       {onSelectFolder && topLevelFolders.length > 0 && (
         <div
-          className="flex items-center gap-1.5 overflow-x-auto border-b px-4 py-2"
+          // Wrap on mobile so the last folder pill is never clipped at the
+          // right edge; keep a single scrollable row from md up (where it fits).
+          className="flex flex-wrap items-center gap-1.5 border-b px-4 py-2 md:flex-nowrap md:overflow-x-auto"
           role="group"
           aria-label={t('folders.heading')}
         >
