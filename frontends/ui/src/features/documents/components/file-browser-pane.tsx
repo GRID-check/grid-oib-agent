@@ -74,10 +74,10 @@ export function FileBrowserPane({
     return (
       <div className="space-y-3 p-4">
         <Skeleton className="h-9 w-full" />
-        <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(236px,1fr))]">
+        <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(150px,1fr))] md:[grid-template-columns:repeat(auto-fill,minmax(236px,1fr))]">
           {Array.from({ length: 6 }).map((_, i) => (
             <div key={i} className="overflow-hidden rounded-xl border">
-              <Skeleton className="h-[132px] w-full rounded-none" />
+              <Skeleton className="h-24 w-full rounded-none md:h-[132px]" />
               <div className="space-y-2 p-3">
                 <Skeleton className="h-3.5 w-2/3" />
                 <Skeleton className="h-3 w-24" />
@@ -188,7 +188,7 @@ export function FileBrowserPane({
               {t('browser.recentlyUploaded')}
             </p>
           )}
-          <div className="grid gap-3.5 [grid-template-columns:repeat(auto-fill,minmax(236px,1fr))]">
+          <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(150px,1fr))] sm:gap-3.5 md:[grid-template-columns:repeat(auto-fill,minmax(236px,1fr))]">
           {filteredFiles.map((file) => (
             <FileCard
               key={file.id}
@@ -213,7 +213,7 @@ function FolderChip({ label, active, onClick }: { label: string; active: boolean
       onClick={onClick}
       aria-pressed={active}
       className={cn(
-        'shrink-0 whitespace-nowrap rounded-full border px-3 py-1 text-xs font-medium transition-colors duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        'shrink-0 whitespace-nowrap rounded-md border px-3 py-1 text-xs font-medium transition-colors duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
         active
           ? 'border-foreground/20 bg-foreground text-background'
           : 'border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground'
@@ -261,7 +261,7 @@ function FileCard({
       {/* Thumbnail header — full-bleed content-aware sketch, hairline divider.
           The ingestion-status badge (kept — the dummy lacks it) rides quietly
           in the top-right corner. */}
-      <div className="relative h-[132px] w-full shrink-0 overflow-hidden border-b bg-card">
+      <div className="relative h-24 w-full shrink-0 overflow-hidden border-b bg-card md:h-[132px]">
         <DocumentKindThumbnail kind={kind} variant="fill" />
         <DocumentStatusBadge
           status={file.status}
