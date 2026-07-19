@@ -83,6 +83,12 @@ def _persist_upload(name: str, content: bytes) -> Path:
     oib_sync.OIB_UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
     target = oib_sync.OIB_UPLOADS_DIR / name
     target.write_bytes(content)
+    # (Re)uploading a document is an explicit "I want this in the corpus", so lift
+    # any persistent exclusion left behind by a prior delete of the same basename.
+    # Without this, discover_pdfs() and the /v1/oib/status panel keep filtering the
+    # freshly uploaded file out (it stays on the exclusion list), so the upload
+    # succeeds and indexes but never reappears in the UI.
+    oib_sync.unexclude_document(name)
     return target
 
 

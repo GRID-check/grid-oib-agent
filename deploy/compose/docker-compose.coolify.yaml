@@ -43,18 +43,6 @@ services:
       context: .
       dockerfile: deploy/Dockerfile
       target: ${BUILD_TARGET:-release}
-      args:
-        # URL of the pre-generated OIB seed tarball (see docs §7). When set, the
-        # oib-seed Dockerfile stage bakes the knowledge base into the image so
-        # previews skip re-embedding. Leave empty for live ingestion on boot.
-        OIB_SEED_URL: ${OIB_SEED_URL:-}
-        # Credentials for fetching the seed from a PRIVATE S3/MinIO bucket. When
-        # both are set the build signs the download with SigV4 (no public bucket
-        # needed). Set these as Coolify Build Variables (secrets). Leave empty to
-        # fetch an anonymous/presigned URL instead.
-        OIB_SEED_ACCESS_KEY: ${OIB_SEED_ACCESS_KEY:-}
-        OIB_SEED_SECRET_KEY: ${OIB_SEED_SECRET_KEY:-}
-        OIB_SEED_REGION: ${OIB_SEED_REGION:-us-east-1}
     environment:
       - APP_ENV=${APP_ENV:-production}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
@@ -67,9 +55,9 @@ services:
       # LLM key through the shared credential resolver, which INFERS the provider
       # key from the base URL: with a base URL on openrouter.ai it picks up
       # OPENROUTER_API_KEY automatically, so no per-family key wiring is required.
-      # These model/base_url values MUST match whatever generated the OIB seed
-      # (see docs/deployment/coolify.md §6) — a restored snapshot only works if
-      # query embeddings use the same model.
+      # The OIB corpus is embedded on first boot into the persistent Chroma
+      # volume with this model; keep it stable across redeploys so stored vectors
+      # and query embeddings always use the same model.
       - AIQ_EMBED_MODEL=${AIQ_EMBED_MODEL:-openai/text-embedding-3-large}
       - AIQ_EMBED_BASE_URL=${AIQ_EMBED_BASE_URL:-https://openrouter.ai/api/v1}
       # AIQ_EMBED_API_KEY is the embeddings key override (now read by the adapter
@@ -105,12 +93,12 @@ services:
       - DASK_NWORKERS=${DASK_NWORKERS:-1}
       - DASK_NTHREADS=${DASK_NTHREADS:-4}
       # ── Ingestion / document extraction (match deploy/.env) ──
-      # Table + image extraction from PDFs during ingestion. Only exercised when
-      # ingesting live (uploaded docs, or OIB when no seed is baked). VLM-backed.
+      # Table + image extraction from PDFs during ingestion (uploaded docs and
+      # the OIB corpus on first boot into a fresh volume). VLM-backed.
       - AIQ_EXTRACT_TABLES=${AIQ_EXTRACT_TABLES:-true}
       - AIQ_EXTRACT_IMAGES=${AIQ_EXTRACT_IMAGES:-true}
-      # Must stay false with a baked OIB seed — true wipes Chroma + re-embeds all
-      # PDFs on every boot.
+      # Leave false in normal operation — true wipes the persistent Chroma volume
+      # and re-embeds the whole OIB corpus on every boot.
       - OIB_FORCE_REINGEST=${OIB_FORCE_REINGEST:-false}
       # ── Misc runtime tuning (match deploy/.env) ──
       - DASK_DISTRIBUTED__LOGGING__DISTRIBUTED=${DASK_DISTRIBUTED__LOGGING__DISTRIBUTED:-warning}

@@ -306,3 +306,26 @@ async def test_delete_unknown_document_404(app, uploads_dir, delete_dirs):
         res = await client.delete("/v1/admin/oib/documents/ghost.pdf")
 
     assert res.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_upload_clears_prior_exclusion(app, uploads_dir, delete_dirs):
+    """Re-uploading a previously deleted corpus document lifts its exclusion, so
+    discovery (and the status panel) surface it again instead of hiding it."""
+    # Simulate a document that was removed earlier: it is on the exclusion list.
+    oib_sync._save_excluded({"shipped.pdf"})
+    assert "shipped.pdf" in oib_sync._load_excluded()
+
+    async with _client(app) as client:
+        res = await client.post(
+            "/v1/admin/oib/documents",
+            files={"file": ("shipped.pdf", _pdf_bytes(), "application/pdf")},
+        )
+
+    assert res.status_code == 200
+    assert res.json()["status"] == "pending"
+    # The upload persisted the file AND lifted the exclusion...
+    assert (uploads_dir / "shipped.pdf").is_file()
+    assert oib_sync._load_excluded() == set()
+    # ...so discovery now finds it again.
+    assert "shipped.pdf" in {p.name for p in oib_sync.discover_pdfs()}

@@ -52,7 +52,7 @@
 | **OTLP/Phoenix exporter** | configurable | NAT span export incl. LLM I/O; **no shipped config enables it** (console only). Identity enrichment: `AIQ_TRACE_USER_IDENTITY_MODE=full` adds cleartext email/name to spans (default `none`) | If enabled | Optional, off | workflow YAML; `AIQ_TRACE_*` | `aiq_api/auth/middleware.py:59-89` |
 | **Datadog RUM** | — | Frontend shim, no-ops unless deployment injects `DD_RUM` | If enabled | Optional, off | overlay | `shared/utils/rum.ts` |
 | **Google Fonts** | fonts.googleapis.com | **Build-time only** (`next/font` self-hosts at runtime); Next telemetry disabled in image | No | Build only | — | `app/layout.tsx:13`; `deploy/Dockerfile:104,119` |
-| **Build/CI**: PyPI, npm, Debian/nodesource, `nvcr.io`, GitHub Actions, CodeQL, SonarCloud (source code analyzed on SonarSource servers), gitleaks image, optional `OIB_SEED_URL` | — | provisioning/CI | Source code only (CI) | Build/CI | `SONAR_TOKEN`, `OIB_SEED_*` | `.github/workflows/*` |
+| **Build/CI**: PyPI, npm, Debian/nodesource, `nvcr.io`, GitHub Actions, CodeQL, SonarCloud (source code analyzed on SonarSource servers), gitleaks image | — | provisioning/CI | Source code only (CI) | Build/CI | `SONAR_TOKEN` | `.github/workflows/*` |
 
 Backend agents fetch no arbitrary URLs themselves (only internal BFF call in
 `cost_tracking.py:359-371`); web content arrives via search APIs.
