@@ -24,14 +24,14 @@ describe('ProjectCard', () => {
     expect(screen.queryByText('proj_secret')).not.toBeInTheDocument()
   })
 
-  test('links to the project overview', () => {
+  test('links into the project Chat — the project landing surface', () => {
     // The card face mirrors the click-dummy (name · summary · last activity) and
     // deliberately omits the doc count; docCount stays a no-op prop for callers.
     render(<ProjectCard project={createProject({ id: 'proj-abc', name: 'Beta' })} docCount={3} />)
 
     expect(screen.getByRole('link', { name: /open beta/i })).toHaveAttribute(
       'href',
-      '/app/projects/proj-abc',
+      '/app/projects/proj-abc/chat',
     )
   })
 

@@ -21,7 +21,7 @@ import { cn } from '@/lib/utils'
  * Chip is meant to be clicked, counted, and reused across features.
  */
 const chipVariants = cva(
-  'inline-flex items-center gap-1 rounded-full border font-medium w-fit whitespace-nowrap shrink-0 ' +
+  'inline-flex items-center gap-1 rounded-md border font-medium w-fit whitespace-nowrap shrink-0 ' +
     'align-middle transition-[color,background-color,box-shadow] ' +
     '[&>svg]:pointer-events-none [&>svg]:shrink-0 ' +
     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50',

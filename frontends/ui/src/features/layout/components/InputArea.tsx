@@ -33,6 +33,7 @@ import {
   Loader2,
   Paperclip,
   RotateCw,
+  Sparkles,
   Square,
   X,
   XCircle,
@@ -838,7 +839,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                     type="button"
                     onClick={clearError}
                     aria-label={t('dismissError')}
-                    className="focus-visible:ring-ring/60 shrink-0 rounded-full p-1 opacity-70 transition-opacity duration-200 ease-out hover:opacity-100 focus-visible:outline-none focus-visible:ring-2"
+                    className="focus-visible:ring-ring/60 shrink-0 rounded-md p-1 opacity-70 transition-opacity duration-200 ease-out hover:opacity-100 focus-visible:outline-none focus-visible:ring-2"
                   >
                     <X className="h-4 w-4" aria-hidden="true" />
                   </button>
@@ -1041,7 +1042,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                 <PopoverTrigger asChild>
                   <Button
                     size="icon"
-                    className="size-9 rounded-full shadow-md"
+                    className="size-9 rounded-lg shadow-md"
                     aria-label={t('inputArea.researchCompletedAria')}
                     title={t('inputArea.researchCompleted')}
                   >
@@ -1057,7 +1058,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                 <PopoverTrigger asChild>
                   <Button
                     size="icon"
-                    className="size-9 rounded-full shadow-md"
+                    className="size-9 rounded-lg shadow-md"
                     aria-label={t('inputArea.researchInProgressAria')}
                     title={t('inputArea.researchInProgress')}
                   >
@@ -1080,7 +1081,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
               >
                 <Button
                   size="icon"
-                  className="size-9 rounded-full shadow-md"
+                  className="size-9 rounded-lg shadow-md"
                   onClick={() => stopStreaming?.()}
                   aria-label={t('inputArea.stopStreaming')}
                   title={t('inputArea.stopStreaming')}
@@ -1099,7 +1100,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
               >
                 <Button
                   size="icon"
-                  className="size-9 rounded-full shadow-md"
+                  className="size-9 rounded-lg shadow-md"
                   onClick={handleSubmit}
                   disabled={!message.trim() || disabled}
                   aria-label={
@@ -1177,14 +1178,17 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
         </div>
       )}
       {/* AI-transparency disclosure (EU AI Act Art. 50): users must know they
-          interact with an AI system and that answers need verification. The
-          composer floats over the scrolling chat, so bare text here reads on
-          top of messages behind it. Give it its own little recessed "cutout"
-          surface — muted fill, hairline border, backdrop blur — mirroring the
-          project-card footer language, so it stays floating yet legible. */}
-      <div className="mt-2 flex justify-center">
-        <p className="text-muted-foreground bg-muted/80 supports-[backdrop-filter]:bg-muted/55 max-w-[calc(100%-1rem)] rounded-xl border px-4 py-1.5 text-center text-xs leading-relaxed shadow-xs backdrop-blur-sm">
-          {t('inputArea.aiDisclosure')}
+          interact with an AI system and that answers can be wrong. Kept to a
+          single compact line so it costs minimal vertical space on both mobile
+          and desktop, while staying persistently visible, legible, and clearly
+          identifiable as a separate AI notice (leading spark glyph) — not
+          hidden behind a click, per the Art. 50(5) "clear and distinguishable"
+          standard. The composer floats over the scrolling chat, so a light
+          blurred pill keeps it readable over messages behind it. */}
+      <div className="mt-1.5 flex justify-center">
+        <p className="text-muted-foreground bg-muted/70 supports-[backdrop-filter]:bg-muted/45 inline-flex max-w-[calc(100%-1rem)] items-center gap-1.5 rounded-lg px-2.5 py-1 text-center text-[11px] leading-snug backdrop-blur-sm">
+          <Sparkles className="size-3 shrink-0 opacity-70" aria-hidden="true" />
+          <span>{t('inputArea.aiDisclosure')}</span>
         </p>
       </div>
     </div>

@@ -9,7 +9,7 @@ import {
   useRef,
   useState,
 } from 'react'
-import { MessageSquareText, Sparkles, SquarePen } from 'lucide-react'
+import { Menu, MessageSquareText, Sparkles, SquarePen } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { useAuth } from '@/adapters/auth'
@@ -34,7 +34,9 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
   const { isAuthenticated } = useAuth()
   const t = useTranslations('research')
   const tChat = useTranslations('chat')
+  const tNav = useTranslations('nav')
   const toggleSessionsPanel = useLayoutStore((s) => s.toggleSessionsPanel)
+  const openMobileNav = useLayoutStore((s) => s.setMobileNavOpen)
   const isResearchPanelOpen = useLayoutStore((s) => s.rightPanel === 'research')
   const isDeepResearchStreaming = useChatStore((s) => s.isDeepResearchStreaming)
   const deepResearchJobId = useChatStore((s) => s.deepResearchJobId)
@@ -99,6 +101,13 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
     if (isAuthenticated) toggleSessionsPanel()
   }, [toggleSessionsPanel, isAuthenticated])
 
+  // Opens the global navigation drawer (AppSidebar). On mobile the chat route
+  // hides the standalone top bar, so this is the way back out to projects,
+  // files, settings, etc.
+  const handleNavClick = useCallback(() => {
+    openMobileNav(true)
+  }, [openMobileNav])
+
   const handleResearchClick = useCallback(() => {
     if (!isAuthenticated) return
     const { rightPanel, closeRightPanel, openRightPanel, researchPanelTab } =
@@ -126,16 +135,32 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
     // two self-contained pills (left = history + thread identity, right =
     // primary actions). `pointer-events-none` on the frame lets clicks fall
     // through the gaps to the messages; each pill re-enables them.
-    <header className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-3 px-3 py-2.5">
+    <header className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-3 px-3 pb-2.5 pt-[max(0.625rem,env(safe-area-inset-top))]">
       {/* LEFT pill: the single history door + the current session title/rename,
-          always visible (mobile included). */}
-      <div className="pointer-events-auto flex min-w-0 items-center gap-0.5 rounded-full border border-base bg-card/80 p-0.5 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/70">
+          always visible (mobile included). Capped at ~64% of the row on mobile
+          so a long title truncates inside the pill instead of growing under the
+          right-hand actions pill. */}
+      <div className="pointer-events-auto flex min-w-0 max-w-[64%] items-center gap-0.5 rounded-lg border border-base bg-card/80 p-0.5 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/70 sm:max-w-none">
+        {/* Global navigation opener — mobile only. The chat route hides the
+            standalone top bar, so this hamburger is the way back out to
+            projects / files / settings (opens the same AppSidebar drawer). */}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-8 shrink-0 rounded-md md:hidden"
+          onClick={handleNavClick}
+          aria-label={tNav('openNavigation')}
+          title={tNav('openNavigation')}
+        >
+          <Menu className="h-4 w-4" aria-hidden="true" />
+        </Button>
+
         {/* Sessions / history overlay — the one clear door to past sessions
             (the rail keeps its routed History; this doesn't duplicate it). */}
         <Button
           variant="ghost"
           size="icon"
-          className="size-8 shrink-0 rounded-full"
+          className="size-8 shrink-0 rounded-md"
           onClick={handleMenuClick}
           disabled={!isAuthenticated}
           aria-label={t('chatToolbar.toggleSessions')}
@@ -153,9 +178,22 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
           >
               {projectName ? (
                 <>
-                  <span className="max-w-44 truncate text-muted-foreground">{projectName}</span>
+                  {/* On mobile the project name is redundant with the composer
+                      scope chip, so when a session title is present we hide it
+                      to give the title room. With no title yet, it stays so the
+                      pill isn't just a bare icon. */}
+                  <span
+                    className={`max-w-24 truncate text-muted-foreground sm:max-w-44 ${
+                      sessionTitle ? 'hidden sm:inline' : ''
+                    }`}
+                  >
+                    {projectName}
+                  </span>
                   {sessionTitle ? (
-                    <span className="text-muted-foreground/60" aria-hidden="true">
+                    <span
+                      className="hidden text-muted-foreground/60 sm:inline"
+                      aria-hidden="true"
+                    >
                       /
                     </span>
                   ) : null}
@@ -191,12 +229,12 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
 
       {/* RIGHT pill: primary actions. New chat is the highest-value action and
           carries a persistent label from >=sm; Research reopens the report. */}
-      <div className="pointer-events-auto flex shrink-0 items-center gap-0.5 rounded-full border border-base bg-card/80 p-0.5 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/70">
+      <div className="pointer-events-auto flex shrink-0 items-center gap-0.5 rounded-lg border border-base bg-card/80 p-0.5 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/70">
         {/* New chat */}
         <Button
           variant="ghost"
           size="sm"
-          className="gap-1.5 rounded-full"
+          className="gap-1.5 rounded-md"
           onClick={handleNewSessionClick}
           disabled={!isAuthenticated || isNewSessionDisabled}
           aria-label={t('chatToolbar.createNewSession')}
@@ -218,7 +256,7 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
         <Button
           variant={isResearchPanelOpen ? 'secondary' : 'ghost'}
           size="sm"
-          className="gap-1.5 rounded-full"
+          className="gap-1.5 rounded-md"
           onClick={handleResearchClick}
           disabled={!isAuthenticated}
           aria-label={

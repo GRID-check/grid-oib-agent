@@ -37,6 +37,7 @@ import {
 import { Logo } from '@/components/brand/logo'
 import { useTranslations } from '@/i18n'
 import { pruneProjectSections, useRecordProjectSection } from '@/hooks/use-last-project-section'
+import { useLayoutStore } from '@/features/layout/store'
 import { cn } from '@/lib/utils'
 import { ProjectSwitcher, type ProjectSwitcherProject } from './project-switcher'
 import { SidebarUserMenu, type SidebarUser } from './sidebar-user-menu'
@@ -111,7 +112,17 @@ export function AppSidebar({
   const base = `/app/projects/${projectId}`
   const t = useTranslations('nav')
   const [collapsed, setCollapsed] = React.useState(false)
-  const [mobileOpen, setMobileOpen] = React.useState(false)
+
+  // The mobile nav drawer's open state lives in the layout store so the chat's
+  // floating toolbar can open it: on the chat route the standalone mobile top
+  // bar is hidden (to give the chat plane the full height), and its hamburger
+  // moves into the chat toolbar's pill.
+  const mobileOpen = useLayoutStore((s) => s.isMobileNavOpen)
+  const setMobileOpen = useLayoutStore((s) => s.setMobileNavOpen)
+
+  // Chat owns its top chrome (floating pills), so the global mobile top bar is
+  // redundant there — hide it and let the chat toolbar host the nav opener.
+  const isChatRoute = pathname === `${base}/chat` || pathname.startsWith(`${base}/chat/`)
 
   // "Resume where you left off": remember the section the user is currently on
   // for this project so entry points (project card / switcher) can land them
@@ -133,7 +144,7 @@ export function AppSidebar({
   // Close the mobile drawer whenever navigation lands somewhere new.
   React.useEffect(() => {
     setMobileOpen(false)
-  }, [pathname])
+  }, [pathname, setMobileOpen])
 
   // Escape closes the drawer (it behaves like a modal over the page).
   React.useEffect(() => {
@@ -143,7 +154,7 @@ export function AppSidebar({
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [mobileOpen])
+  }, [mobileOpen, setMobileOpen])
 
   const toggleCollapsed = React.useCallback(() => {
     setCollapsed((prev) => {
@@ -233,8 +244,16 @@ export function AppSidebar({
 
   return (
     <>
-      {/* ---- Mobile top bar (below md) ---- */}
-      <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-border bg-surface-sunken px-3 md:hidden">
+      {/* ---- Mobile top bar (below md) ----
+          Hidden on the chat route: chat's own floating toolbar carries the nav
+          opener there, so this bar would just double the top chrome and cramp
+          the conversation. Every other section still gets it. */}
+      <header
+        className={cn(
+          'h-14 shrink-0 items-center justify-between gap-2 border-b border-border bg-surface-sunken px-3 md:hidden',
+          isChatRoute ? 'hidden' : 'flex',
+        )}
+      >
         <div className="flex min-w-0 items-center gap-1">
           <button
             type="button"

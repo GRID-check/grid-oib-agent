@@ -229,6 +229,18 @@ export const MainLayout: FC<MainLayoutProps> = ({
               : {}),
           }}
         >
+          {/* Top fade scrim — a full-width gradient behind the floating pills
+              (below them, above the messages). It dissolves message content as
+              it scrolls up under the pills instead of letting it collide as
+              sharp, readable text — critical on mobile where the message column
+              is full-width and runs right under the pills. Keeps the pills
+              "floating" (no solid band). pointer-events-none so scroll/taps
+              still reach the messages beneath. */}
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-x-0 top-0 z-10 h-24 bg-gradient-to-b from-background from-[3.25rem] to-transparent"
+          />
+
           {/* Floating toolbar — overlays the top of the chat plane as pills
               (no band). Sits inside the center column so it spans only the
               chat, not the research panel (which has its own header). */}

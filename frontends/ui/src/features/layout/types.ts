@@ -30,6 +30,12 @@ export type SourcePresetId = 'law' | 'project' | 'office'
 export interface LayoutState {
   /** Whether the sessions panel is open (left side) */
   isSessionsPanelOpen: boolean
+  /**
+   * Whether the global navigation drawer (AppSidebar's mobile drawer) is open.
+   * Lifted into the store so the chat's floating toolbar can open it on mobile —
+   * where the chat route hides the standalone global top bar to reclaim space.
+   */
+  isMobileNavOpen: boolean
   /** Currently open right panel (null = closed) */
   rightPanel: RightPanelType
   /** Active tab in the research panel */
@@ -83,6 +89,8 @@ export interface LayoutActions {
   toggleSessionsPanel: () => void
   /** Set sessions panel state */
   setSessionsPanelOpen: (open: boolean) => void
+  /** Open/close the global mobile navigation drawer */
+  setMobileNavOpen: (open: boolean) => void
   /** Open a specific right panel (closes any existing) */
   openRightPanel: (panel: RightPanelType) => void
   /** Close the right panel */

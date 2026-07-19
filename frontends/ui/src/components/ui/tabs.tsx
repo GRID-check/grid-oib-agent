@@ -26,7 +26,7 @@ const TabsList = React.forwardRef<
     ref={ref}
     data-slot="tabs-list"
     className={cn(
-      'bg-muted text-muted-foreground inline-flex h-9 w-fit items-center justify-center rounded-full p-1',
+      'bg-muted text-muted-foreground inline-flex h-9 w-fit items-center justify-center rounded-lg p-1',
       className
     )}
     {...props}
@@ -42,7 +42,7 @@ const TabsTrigger = React.forwardRef<
     ref={ref}
     data-slot="tabs-trigger"
     className={cn(
-      "data-[state=active]:bg-card data-[state=active]:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-0 inline-flex h-full flex-1 items-center justify-center gap-1.5 rounded-full px-3.5 py-1 text-sm font-medium whitespace-nowrap transition-[color,box-shadow,background-color] duration-200 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:shadow-xs [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+      "data-[state=active]:bg-card data-[state=active]:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-0 inline-flex h-full flex-1 items-center justify-center gap-1.5 rounded-md px-3.5 py-1 text-sm font-medium whitespace-nowrap transition-[color,box-shadow,background-color] duration-200 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:shadow-xs [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
       className
     )}
     {...props}

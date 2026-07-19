@@ -105,7 +105,7 @@ export const AnswerFeedback: FC<AnswerFeedbackProps> = ({ messageId, conversatio
               key={reason}
               type="button"
               onClick={() => handleReason(reason)}
-              className="rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="rounded-md border border-border px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               {t(`feedback.reasons.${reason}`)}
             </button>
