@@ -104,6 +104,17 @@ describe('AppSidebar - Archiv nav item (ADR-0024)', () => {
   })
 })
 
+describe('AppSidebar - mobile top bar', () => {
+  test('hides the standalone mobile top bar on the chat route (chat owns its chrome)', () => {
+    // The mocked pathname is the chat route, so the banner must carry `hidden`
+    // — the chat's floating toolbar hosts the nav opener there instead.
+    render(<AppSidebar {...baseProps} />)
+    const banner = screen.getByRole('banner')
+    expect(banner.className).toContain('hidden')
+    expect(banner.className).not.toMatch(/(^|\s)flex(\s|$)/)
+  })
+})
+
 describe('AppSidebar - active state', () => {
   test('marks the Chat item as the current page on the chat route', () => {
     render(<AppSidebar {...baseProps} />)

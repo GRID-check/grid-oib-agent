@@ -8,6 +8,7 @@ import { ChatToolbar } from './ChatToolbar'
 const mockToggleSessionsPanel = vi.fn()
 const mockCloseRightPanel = vi.fn()
 const mockOpenRightPanel = vi.fn()
+const mockSetMobileNavOpen = vi.fn()
 let mockRightPanel: string | null = null
 let mockResearchPanelTab = 'tasks'
 
@@ -18,6 +19,7 @@ function getLayoutState() {
     toggleSessionsPanel: mockToggleSessionsPanel,
     closeRightPanel: mockCloseRightPanel,
     openRightPanel: mockOpenRightPanel,
+    setMobileNavOpen: mockSetMobileNavOpen,
   }
 }
 
@@ -194,6 +196,18 @@ describe('ChatToolbar', () => {
       await user.click(screen.getByRole('button', { name: 'Toggle sessions sidebar' }))
 
       expect(mockToggleSessionsPanel).toHaveBeenCalledOnce()
+    })
+  })
+
+  describe('mobile navigation opener', () => {
+    test('opens the global nav drawer (the way back out of chat on mobile)', async () => {
+      const user = userEvent.setup()
+
+      render(<ChatToolbar />)
+
+      await user.click(screen.getByRole('button', { name: 'Open navigation' }))
+
+      expect(mockSetMobileNavOpen).toHaveBeenCalledWith(true)
     })
   })
 

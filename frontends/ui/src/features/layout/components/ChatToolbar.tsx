@@ -9,7 +9,7 @@ import {
   useRef,
   useState,
 } from 'react'
-import { MessageSquareText, Sparkles, SquarePen } from 'lucide-react'
+import { Menu, MessageSquareText, Sparkles, SquarePen } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { useAuth } from '@/adapters/auth'
@@ -34,7 +34,9 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
   const { isAuthenticated } = useAuth()
   const t = useTranslations('research')
   const tChat = useTranslations('chat')
+  const tNav = useTranslations('nav')
   const toggleSessionsPanel = useLayoutStore((s) => s.toggleSessionsPanel)
+  const openMobileNav = useLayoutStore((s) => s.setMobileNavOpen)
   const isResearchPanelOpen = useLayoutStore((s) => s.rightPanel === 'research')
   const isDeepResearchStreaming = useChatStore((s) => s.isDeepResearchStreaming)
   const deepResearchJobId = useChatStore((s) => s.deepResearchJobId)
@@ -99,6 +101,13 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
     if (isAuthenticated) toggleSessionsPanel()
   }, [toggleSessionsPanel, isAuthenticated])
 
+  // Opens the global navigation drawer (AppSidebar). On mobile the chat route
+  // hides the standalone top bar, so this is the way back out to projects,
+  // files, settings, etc.
+  const handleNavClick = useCallback(() => {
+    openMobileNav(true)
+  }, [openMobileNav])
+
   const handleResearchClick = useCallback(() => {
     if (!isAuthenticated) return
     const { rightPanel, closeRightPanel, openRightPanel, researchPanelTab } =
@@ -132,6 +141,20 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
           so a long title truncates inside the pill instead of growing under the
           right-hand actions pill. */}
       <div className="pointer-events-auto flex min-w-0 max-w-[64%] items-center gap-0.5 rounded-full border border-base bg-card/80 p-0.5 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/70 sm:max-w-none">
+        {/* Global navigation opener — mobile only. The chat route hides the
+            standalone top bar, so this hamburger is the way back out to
+            projects / files / settings (opens the same AppSidebar drawer). */}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-8 shrink-0 rounded-full md:hidden"
+          onClick={handleNavClick}
+          aria-label={tNav('openNavigation')}
+          title={tNav('openNavigation')}
+        >
+          <Menu className="h-4 w-4" aria-hidden="true" />
+        </Button>
+
         {/* Sessions / history overlay — the one clear door to past sessions
             (the rail keeps its routed History; this doesn't duplicate it). */}
         <Button
