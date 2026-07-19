@@ -35,13 +35,13 @@ def _base64url_decode(value: str) -> bytes:
     return base64.urlsafe_b64decode(value)
 
 
-def get_collection_scope_from_context() -> list[str] | None:
-    """
-    Read and decode the ``X-Grid-Collection-Scope`` header from NAT context.
+def _raw_collection_scope_from_header() -> list[str] | None:
+    """Decode the UNVERIFIED ``X-Grid-Collection-Scope`` header.
 
-    Returns:
-        Deduplicated list of collection names, or ``None`` when the header
-        is missing, malformed, or not a list of strings.
+    Fallback used only when the signed request-context envelope cannot be parsed
+    (e.g. ``aiq_agent.project_context`` is unavailable to import). Returns the raw
+    list of collection names, or ``None`` when the header is missing or malformed.
+    Not normalized — the public function normalizes its result.
     """
     try:
         ctx = Context.get()
@@ -66,6 +66,47 @@ def get_collection_scope_from_context() -> list[str] | None:
 
     if not isinstance(scope, list) or not all(isinstance(item, str) for item in scope):
         logger.debug("X-Grid-Collection-Scope is not a list of strings: %s", scope)
+        return None
+
+    return scope
+
+
+def get_collection_scope_from_context() -> list[str] | None:
+    """Read the caller's collection scope, preferring the SIGNED envelope.
+
+    The collection scope is an authorization boundary: it selects which document
+    collections a turn may read — the shared corpus, per-project stores, and the
+    per-conversation ``s_<conversation_id>`` upload store. Because collection
+    names are guessable, an attacker who could set a raw ``X-Grid-Collection-Scope``
+    header would read another conversation's or tenant's documents.
+
+    The BFF computes the scope server-side from the authenticated session and
+    signs it into the ``X-Grid-Request-Context`` envelope (HMAC). We therefore
+    consume the envelope's VERIFIED ``collection_scope``; the raw header is
+    honored only when no valid envelope is present (anonymous / internal-service
+    / dev / legacy) — exactly ``GridRequestContext.from_context()``'s
+    envelope-preferring fallback, and the aiq_api enforcement middleware
+    fail-closes authenticated turns that lack a valid envelope, so an
+    authenticated request always resolves against the signed value. In legitimate
+    traffic the BFF dual-writes identical values to both header and envelope, so
+    this is behavior-neutral; it diverges only when a raw header is forged to
+    differ from the signed envelope — the case we must not honor.
+
+    Returns:
+        Deduplicated, normalized list of collection names, or ``None`` when no
+        scope is present.
+    """
+    try:
+        from aiq_agent.project_context import GridRequestContext
+
+        scope: Any = GridRequestContext.from_context().collection_scope
+    except Exception:
+        # project_context unavailable — fall back to the raw header so scoping
+        # still functions (parity with pre-envelope behavior).
+        logger.debug("Verified collection-scope read failed; falling back to raw header", exc_info=True)
+        scope = _raw_collection_scope_from_header()
+
+    if not isinstance(scope, list) or not all(isinstance(item, str) for item in scope):
         return None
 
     return list(dict.fromkeys(_normalize_collection_name(item) for item in scope))

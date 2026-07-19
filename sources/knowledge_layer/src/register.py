@@ -415,10 +415,14 @@ def _resolve_doc_classes(chunks) -> dict[tuple[str, str], str]:
     """
     resolved: dict[tuple[str, str], str] = {}
     try:
-        from aiq_agent.knowledge.factory import get_document_doc_class
+        from aiq_agent.knowledge.factory import get_document_doc_classes
     except Exception:
         return resolved
 
+    # Group the distinct documents by collection so each collection needs a
+    # single batched query (there are only 1-3 in scope: base + session +
+    # project) instead of one round-trip per hit.
+    by_collection: dict[str, list[str]] = {}
     seen: set[tuple[str, str]] = set()
     for chunk in chunks:
         collection = (chunk.metadata or {}).get("collection")
@@ -429,12 +433,18 @@ def _resolve_doc_classes(chunks) -> dict[tuple[str, str], str]:
         if key in seen:
             continue
         seen.add(key)
+        by_collection.setdefault(collection, []).append(file_name)
+
+    for collection, file_names in by_collection.items():
+        # Fail open per collection: one collection's error yields an empty map
+        # for it (callers fall back to chunk metadata), never a total failure.
         try:
-            stored = get_document_doc_class(collection, file_name)
+            stored_map = get_document_doc_classes(collection, file_names)
         except Exception:
-            stored = None
-        if stored:
-            resolved[key] = stored
+            stored_map = {}
+        for file_name, stored in stored_map.items():
+            if stored:
+                resolved[(collection, file_name)] = stored
     return resolved
 
 
@@ -667,8 +677,11 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             # Merge by score (comparable across collections) and truncate to top_k.
             merged = _merge_results(results, query, top_k, retriever.backend_name)
 
-            # Format for LLM
-            formatted = _format_results(merged, query)
+            # Format for LLM. _format_results does the (now batched, 1-3 query)
+            # doc_class resolution plus pure-CPU string building; run it off the
+            # event loop so the synchronous DB round-trips never block the loop
+            # (and stall other concurrent turns).
+            formatted = await asyncio.to_thread(_format_results, merged, query)
             logger.info(f"Knowledge search returned {len(merged.chunks)} chunks")
             # Debug: Log what we're returning to the LLM
             logger.debug(f"Formatted result for LLM:\n{formatted[:500]}...")

@@ -450,6 +450,39 @@ class SummaryStore:
             logger.warning("Failed to get doc_class for %s: %s", filename, e)
             return None
 
+    def get_doc_classes_batch(self, collection: str, filenames: list[str]) -> dict[str, str]:
+        """Return stored explicit ``doc_class`` values for many documents in one query.
+
+        Batched equivalent of :meth:`get_doc_class`: one ``... WHERE collection =
+        :collection AND filename IN (...)`` instead of one round-trip per file.
+        Only documents with a truthy stored ``doc_class`` appear in the result —
+        identical coercion to :meth:`get_doc_class` (a missing row or an
+        unset/empty ``doc_class`` is simply absent), so callers see the same
+        "no explicit class yet" signal. Fail-open: any error yields an empty map.
+        """
+        if not filenames:
+            return {}
+        from sqlalchemy import bindparam
+        from sqlalchemy import text
+
+        result: dict[str, str] = {}
+        try:
+            with self._sync_engine.connect() as conn:
+                rows = conn.execute(
+                    text(
+                        "SELECT filename, doc_class FROM summaries "
+                        "WHERE collection = :collection AND filename IN :filenames"
+                    ).bindparams(bindparam("filenames", expanding=True)),
+                    {"collection": collection, "filenames": list(filenames)},
+                )
+                for row in rows:
+                    if row[1]:
+                        result[row[0]] = row[1]
+        except Exception as e:
+            logger.warning("Failed to batch-get doc_class for %s: %s", collection, e)
+            return {}
+        return result
+
     def list_collections(self) -> list[str]:
         """Return every distinct collection present in the summaries table (sync).
 

@@ -209,16 +209,24 @@ class ShallowResearcherAgent:
             # defeating provider prompt caching across tool-loop iterations
             # and turns. Research needs the date, not the wall clock.
             current_datetime = datetime.now().strftime("%Y-%m-%d")
+            # The source-hierarchy scaffolding (RIS Normenkatalog, norm doctrine,
+            # parcel note) is only consulted on research turns. Meta/conversational
+            # turns (requires_sources=False) never do source lookup, so skip both
+            # the ~1400-token catalog render AND its underlying registry read/
+            # applicability compute. Each block is truthiness-guarded in the
+            # template, so passing None simply omits it. Research turns are
+            # unchanged.
+            _documents_dump = [doc.model_dump() for doc in available_documents]
             rendered_system_prompt = render_prompt_template(
                 self.system_prompt,
                 tools=tools_info,
                 user_info=user_info,
                 current_datetime=current_datetime,
-                available_documents=[doc.model_dump() for doc in available_documents],
+                available_documents=_documents_dump,
                 project_context=state.project_context,
-                ris_catalog=render_block_for_prompt(state.project_context),
-                norm_doctrine=doctrine_for(state.project_context),
-                parcel_note=parcel_note([doc.model_dump() for doc in available_documents]),
+                ris_catalog=render_block_for_prompt(state.project_context) if state.requires_sources else None,
+                norm_doctrine=doctrine_for(state.project_context) if state.requires_sources else None,
+                parcel_note=parcel_note(_documents_dump) if state.requires_sources else None,
                 # Deterministically suppress the control-marker mandate on
                 # conversational/meta turns instead of relying on model judgment.
                 requires_sources=state.requires_sources,

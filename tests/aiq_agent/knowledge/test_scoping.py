@@ -139,6 +139,87 @@ class TestGetCollectionScopeFromContext:
             assert result == ["only_one"]
 
 
+class _HeaderContext:
+    """Context mock backed by a real per-name header map."""
+
+    def __init__(self, headers: dict[str, str]):
+        self.metadata = MagicMock()
+        self.metadata.headers.get.side_effect = lambda name, default=None: headers.get(name, default)
+
+
+class TestSignedEnvelopePrecedence:
+    """Collection scope is an authz boundary: the signed request-context
+    envelope must win over the raw X-Grid-Collection-Scope header, so a forged
+    header cannot widen a turn's collection access (cross-tenant/cross-conv IDOR).
+    """
+
+    @staticmethod
+    def _envelope(scope, secret):
+        import hashlib
+        import hmac
+
+        json_text = json.dumps({"collectionScope": scope})
+        header = base64.urlsafe_b64encode(json_text.encode()).decode()
+        sig = hmac.new(secret.encode(), json_text.encode(), hashlib.sha256).hexdigest()
+        return header, sig
+
+    def test_signed_envelope_scope_wins_over_forged_raw_header(self, monkeypatch):
+        secret = "unit-test-internal-token"
+        monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", secret)
+
+        trusted = ["oib_knowledge", "s_my_conversation"]
+        envelope, sig = self._envelope(trusted, secret)
+
+        forged = ["s_victim_conversation", "another_tenant_corpus"]
+        forged_header = base64.urlsafe_b64encode(json.dumps(forged).encode()).decode()
+
+        ctx = _HeaderContext(
+            {
+                "x-grid-request-context": envelope,
+                "x-grid-request-context-sig": sig,
+                "x-grid-collection-scope": forged_header,
+            }
+        )
+        with patch("aiq_agent.knowledge.scoping.Context.get", return_value=ctx):
+            result = get_collection_scope_from_context()
+
+        assert result == trusted
+        assert "s_victim_conversation" not in result
+        assert "another_tenant_corpus" not in result
+
+    def test_tampered_envelope_signature_is_not_honored(self, monkeypatch):
+        secret = "unit-test-internal-token"
+        monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", secret)
+
+        privileged = ["another_tenant_corpus"]
+        envelope, _good_sig = self._envelope(privileged, secret)
+
+        # Envelope present but signed with the wrong key → treated as ABSENT.
+        # With no raw header either, no scope is honored (safe default).
+        ctx = _HeaderContext(
+            {
+                "x-grid-request-context": envelope,
+                "x-grid-request-context-sig": "deadbeef" * 8,
+            }
+        )
+        with patch("aiq_agent.knowledge.scoping.Context.get", return_value=ctx):
+            result = get_collection_scope_from_context()
+
+        assert result is None
+
+    def test_raw_header_honored_when_no_envelope(self, monkeypatch):
+        # Anonymous / internal-service / legacy path: no envelope present, so the
+        # raw header is still used (parity with pre-envelope behavior).
+        monkeypatch.delenv("GRID_INTERNAL_API_TOKEN", raising=False)
+        scope = ["oib_knowledge", "s_conv"]
+        header = base64.urlsafe_b64encode(json.dumps(scope).encode()).decode()
+        ctx = _HeaderContext({"x-grid-collection-scope": header})
+        with patch("aiq_agent.knowledge.scoping.Context.get", return_value=ctx):
+            result = get_collection_scope_from_context()
+
+        assert result == scope
+
+
 class TestGetCollectionScopeFromContextOr:
     """Tests for get_collection_scope_from_context_or."""
 

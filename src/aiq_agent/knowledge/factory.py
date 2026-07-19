@@ -16,6 +16,7 @@ Configuration:
 
 import logging
 import os
+import threading
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 from typing import Any
@@ -271,6 +272,12 @@ def clear_active_ingestor() -> None:
 # get_available_documents() for prompt context.
 
 _summary_store: "SummaryStore | None" = None
+# Guards lazy init of _summary_store. The default-init path is now reachable
+# from thread-pool workers (knowledge_search formats results via
+# asyncio.to_thread), so double-check under this lock to prevent two concurrent
+# cold-start callers each constructing a store/engine and one clobbering the
+# other. Steady state re-checks without contention.
+_summary_store_lock = threading.Lock()
 
 # Default DB URL (used if configure_summary_db not called)
 _DEFAULT_SUMMARY_DB = "sqlite+aiosqlite:///./summaries.db"
@@ -281,7 +288,8 @@ def configure_summary_db(db_url: str) -> None:
     global _summary_store
     from .summary_store import SummaryStore
 
-    _summary_store = SummaryStore(db_url)
+    with _summary_store_lock:
+        _summary_store = SummaryStore(db_url)
     logger.info("Summary store configured: %s", redact_db_url(db_url))
 
 
@@ -291,8 +299,12 @@ def _get_summary_store() -> "SummaryStore":
     if _summary_store is None:
         from .summary_store import SummaryStore
 
-        _summary_store = SummaryStore(_DEFAULT_SUMMARY_DB)
-        logger.info("Summary store initialized with default: %s", _DEFAULT_SUMMARY_DB)
+        with _summary_store_lock:
+            # Double-checked: another caller may have initialized it while we
+            # waited for the lock.
+            if _summary_store is None:
+                _summary_store = SummaryStore(_DEFAULT_SUMMARY_DB)
+                logger.info("Summary store initialized with default: %s", _DEFAULT_SUMMARY_DB)
     return _summary_store
 
 
@@ -338,6 +350,15 @@ def set_document_doc_class(collection: str, filename: str, doc_class: str | None
 def get_document_doc_class(collection: str, filename: str) -> str | None:
     """Return the stored explicit ``doc_class`` for a document, or ``None``."""
     return _get_summary_store().get_doc_class(collection, filename)
+
+
+def get_document_doc_classes(collection: str, filenames: list[str]) -> dict[str, str]:
+    """Return stored ``doc_class`` values for many documents in one query.
+
+    Batched equivalent of :func:`get_document_doc_class`; only documents with a
+    truthy stored ``doc_class`` appear in the map (same coercion).
+    """
+    return _get_summary_store().get_doc_classes_batch(collection, filenames)
 
 
 def list_summary_collections() -> list[str]:
