@@ -296,7 +296,9 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
       <div className="flex items-center justify-between gap-4 border-b px-4 py-3">
         <div className="min-w-0">
           <h2 className="truncate text-sm font-semibold text-foreground">{projectName}</h2>
-          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          {/* The corpus subtitle is helpful context but costs 2–3 wrapped lines
+              on a phone; hide it below sm to keep the action bar to one row. */}
+          <p className="hidden items-center gap-1.5 text-xs text-muted-foreground sm:flex">
             <ShieldCheck className="size-3.5 shrink-0" aria-hidden />
             {t('workspace.corpusSubtitle')}
           </p>
