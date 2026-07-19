@@ -838,7 +838,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                     type="button"
                     onClick={clearError}
                     aria-label={t('dismissError')}
-                    className="focus-visible:ring-ring/60 shrink-0 rounded-full p-1 opacity-70 transition-opacity duration-200 ease-out hover:opacity-100 focus-visible:outline-none focus-visible:ring-2"
+                    className="focus-visible:ring-ring/60 shrink-0 rounded-md p-1 opacity-70 transition-opacity duration-200 ease-out hover:opacity-100 focus-visible:outline-none focus-visible:ring-2"
                   >
                     <X className="h-4 w-4" aria-hidden="true" />
                   </button>
@@ -1041,7 +1041,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                 <PopoverTrigger asChild>
                   <Button
                     size="icon"
-                    className="size-9 rounded-full shadow-md"
+                    className="size-9 rounded-lg shadow-md"
                     aria-label={t('inputArea.researchCompletedAria')}
                     title={t('inputArea.researchCompleted')}
                   >
@@ -1057,7 +1057,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                 <PopoverTrigger asChild>
                   <Button
                     size="icon"
-                    className="size-9 rounded-full shadow-md"
+                    className="size-9 rounded-lg shadow-md"
                     aria-label={t('inputArea.researchInProgressAria')}
                     title={t('inputArea.researchInProgress')}
                   >
@@ -1080,7 +1080,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
               >
                 <Button
                   size="icon"
-                  className="size-9 rounded-full shadow-md"
+                  className="size-9 rounded-lg shadow-md"
                   onClick={() => stopStreaming?.()}
                   aria-label={t('inputArea.stopStreaming')}
                   title={t('inputArea.stopStreaming')}
@@ -1099,7 +1099,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
               >
                 <Button
                   size="icon"
-                  className="size-9 rounded-full shadow-md"
+                  className="size-9 rounded-lg shadow-md"
                   onClick={handleSubmit}
                   disabled={!message.trim() || disabled}
                   aria-label={

@@ -162,7 +162,7 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
             <span className="flex shrink-0 items-center gap-2">
               {isThinking && elapsedSeconds > 0 && (
                 <span
-                  className="rounded-full bg-secondary px-2 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground"
+                  className="rounded-md bg-secondary px-2 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground"
                   aria-label={t('thinking.elapsedAria', { seconds: elapsedSeconds })}
                 >
                   {formatElapsed(elapsedSeconds)}
@@ -210,7 +210,7 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
             {contextChips.map((chip) => (
               <span
                 key={chip}
-                className="whitespace-nowrap rounded-full bg-secondary px-2.5 py-1 text-[11px] font-medium text-muted-foreground"
+                className="whitespace-nowrap rounded-md bg-secondary px-2.5 py-1 text-[11px] font-medium text-muted-foreground"
               >
                 {chip}
               </span>

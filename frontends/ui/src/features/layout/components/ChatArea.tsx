@@ -385,7 +385,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
               type="button"
               onClick={handleScrollToLatest}
               aria-label={t('chatArea.scrollToLatest')}
-              className="pointer-events-auto flex h-9 w-9 items-center justify-center rounded-full border bg-card text-muted-foreground shadow-md transition hover:text-foreground active:scale-press"
+              className="pointer-events-auto flex h-9 w-9 items-center justify-center rounded-lg border bg-card text-muted-foreground shadow-md transition hover:text-foreground active:scale-press"
             >
               <ArrowDown className="h-4 w-4" aria-hidden="true" />
             </button>
