@@ -140,14 +140,14 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
           always visible (mobile included). Capped at ~64% of the row on mobile
           so a long title truncates inside the pill instead of growing under the
           right-hand actions pill. */}
-      <div className="pointer-events-auto flex min-w-0 max-w-[64%] items-center gap-0.5 rounded-2xl border border-base bg-card/80 p-0.5 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/70 sm:max-w-none">
+      <div className="pointer-events-auto flex min-w-0 max-w-[64%] items-center gap-0.5 rounded-lg border border-base bg-card/80 p-0.5 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/70 sm:max-w-none">
         {/* Global navigation opener — mobile only. The chat route hides the
             standalone top bar, so this hamburger is the way back out to
             projects / files / settings (opens the same AppSidebar drawer). */}
         <Button
           variant="ghost"
           size="icon"
-          className="size-8 shrink-0 rounded-lg md:hidden"
+          className="size-8 shrink-0 rounded-md md:hidden"
           onClick={handleNavClick}
           aria-label={tNav('openNavigation')}
           title={tNav('openNavigation')}
@@ -160,7 +160,7 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
         <Button
           variant="ghost"
           size="icon"
-          className="size-8 shrink-0 rounded-lg"
+          className="size-8 shrink-0 rounded-md"
           onClick={handleMenuClick}
           disabled={!isAuthenticated}
           aria-label={t('chatToolbar.toggleSessions')}
@@ -229,12 +229,12 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
 
       {/* RIGHT pill: primary actions. New chat is the highest-value action and
           carries a persistent label from >=sm; Research reopens the report. */}
-      <div className="pointer-events-auto flex shrink-0 items-center gap-0.5 rounded-2xl border border-base bg-card/80 p-0.5 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/70">
+      <div className="pointer-events-auto flex shrink-0 items-center gap-0.5 rounded-lg border border-base bg-card/80 p-0.5 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/70">
         {/* New chat */}
         <Button
           variant="ghost"
           size="sm"
-          className="gap-1.5 rounded-lg"
+          className="gap-1.5 rounded-md"
           onClick={handleNewSessionClick}
           disabled={!isAuthenticated || isNewSessionDisabled}
           aria-label={t('chatToolbar.createNewSession')}
@@ -256,7 +256,7 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
         <Button
           variant={isResearchPanelOpen ? 'secondary' : 'ghost'}
           size="sm"
-          className="gap-1.5 rounded-lg"
+          className="gap-1.5 rounded-md"
           onClick={handleResearchClick}
           disabled={!isAuthenticated}
           aria-label={
