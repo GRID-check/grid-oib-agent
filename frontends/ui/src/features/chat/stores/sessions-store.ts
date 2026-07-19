@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from 'uuid'
 import { toast } from 'sonner'
-import { getStoreTranslator } from '@/i18n'
+import { getStoreTranslator, getActiveLocale } from '@/i18n'
 import { createJSONStorage, type StorageValue, type PersistStorage } from 'zustand/middleware'
 import type { StateCreator } from 'zustand'
 import type {
@@ -45,6 +45,7 @@ export type SessionsSlice = {
   deleteConversation: (conversationId: string) => void
   deleteAllConversations: () => void
   updateConversationTitle: (conversationId: string, title: string) => void
+  maybeGenerateConversationName: (conversationId: string) => void
   saveDataSourcesToConversation: (ids: string[]) => void
   restoreSessionState: (conversation: Conversation) => void
   _recoverInterruptedAssistantMessage: (
@@ -284,6 +285,14 @@ const ensureServerConversation = (conversation: Conversation, fallbackProjectId:
 const forgetServerConversation = (conversationId: string): void => {
   ensuredServerConversations.delete(conversationId)
 }
+
+// Conversation ids whose ChatGPT-style name+tags have been requested. Naming
+// fires once, after the first answer completes; this guard keeps a re-render
+// or a second completion frame from firing duplicate generation calls.
+const namedConversations = new Set<string>()
+
+/** Extract the plain text of a chat message, ignoring cards/markup. */
+const messagePlainText = (message: ChatMessage): string => (message.content ?? '').trim()
 
 const maybeDiscardAbandonedUploadOnlySession = (
   get: () => ChatStore,
@@ -1003,6 +1012,72 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
         console.warn('[updateConversationTitle] Failed to sync title to server:', err)
       })
     })
+  },
+
+  /**
+   * ChatGPT-style naming: after the first answer completes, ask the backend to
+   * name the conversation and tag it with OIB topics from the opening exchange,
+   * then replace the provisional (first-message) title with the generated one.
+   *
+   * Fires at most once per conversation and only for the FIRST turn (exactly
+   * one user message + at least one answer), so later turns never re-name a
+   * chat the user may have manually renamed. Fully best-effort: a generation
+   * failure (backend down, no LLM key) leaves the provisional title in place.
+   */
+  maybeGenerateConversationName: (conversationId: string) => {
+    if (namedConversations.has(conversationId)) return
+
+    const { conversations } = get()
+    const conversation = conversations.find((c) => c.id === conversationId)
+    if (!conversation) return
+
+    // Deep-research conversations already derive a report title from their
+    // plan (see use-websocket-chat onPlan); don't override it with a chat name.
+    const isDeepResearch = conversation.messages.some(
+      (m) => m.messageType === 'deep_research_banner' || Boolean(m.deepResearchJobId),
+    )
+    if (isDeepResearch) return
+
+    const userMessages = conversation.messages.filter((m) => m.messageType === 'user')
+    // Only name the opening exchange — one user question, now answered.
+    if (userMessages.length !== 1) return
+
+    const firstQuestion = messagePlainText(userMessages[0])
+    if (!firstQuestion) return
+
+    const firstAnswer = conversation.messages.find(
+      (m) => m.messageType === 'agent_response' && messagePlainText(m).length > 0,
+    )
+    if (!firstAnswer) return
+
+    // Claim the slot up front so a duplicate completion frame can't double-fire.
+    namedConversations.add(conversationId)
+
+    const payload = [
+      { role: 'user' as const, content: firstQuestion },
+      { role: 'assistant' as const, content: messagePlainText(firstAnswer) },
+    ]
+
+    getConversationsClient()
+      .then((conversationsClient) =>
+        conversationsClient.generateTitle(conversationId, payload, getActiveLocale()),
+      )
+      .then((result) => {
+        const title = result.title.trim()
+        // Empty means the endpoint failed open — keep the provisional title.
+        // Re-check the store: only overwrite if the user has not since renamed
+        // this conversation to something else themselves.
+        if (!title) {
+          namedConversations.delete(conversationId)
+          return
+        }
+        get().updateConversationTitle(conversationId, title)
+      })
+      .catch((err) => {
+        // Allow a later turn to retry naming after a transient failure.
+        namedConversations.delete(conversationId)
+        console.warn('[maybeGenerateConversationName] Failed to generate name:', err)
+      })
   },
 
   saveDataSourcesToConversation: (ids: string[]) => {

@@ -458,6 +458,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
   const addPlanMessage = useChatStore((s) => s.addPlanMessage)
   const updatePlanMessageResponse = useChatStore((s) => s.updatePlanMessageResponse)
   const updateConversationTitle = useChatStore((s) => s.updateConversationTitle)
+  const maybeGenerateConversationName = useChatStore((s) => s.maybeGenerateConversationName)
 
   // Sync authenticated user ID to store when auth state changes
   useEffect(() => {
@@ -887,6 +888,15 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
 
           // Workflow finished cleanly -- drop the resend buffer.
           lastSentOutgoingRef.current = null
+
+          // ChatGPT-style naming: once the first answer lands, replace the
+          // provisional first-message title with a generated name + OIB tags.
+          // Best-effort and self-gated (fires once, first turn only, skips deep
+          // research); reads the finalized conversation straight from the store.
+          const finishedConversationId = useChatStore.getState().currentConversation?.id
+          if (finishedConversationId) {
+            maybeGenerateConversationName(finishedConversationId)
+          }
         }
       },
 
@@ -1238,6 +1248,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
     addDeepResearchBanner,
     addPlanMessage,
     updateConversationTitle,
+    maybeGenerateConversationName,
     getTransportFailure,
     rotateSocket,
     acknowledgeOutgoingDelivery,

@@ -3,8 +3,22 @@ import type { Conversation, Message } from '@/lib/db/schema'
 export interface ConversationSummary {
   id: string
   title: string | null
+  tags: string[]
   createdAt: string
   updatedAt: string
+}
+
+/** One turn of the opening exchange sent to the naming endpoint. */
+export interface ConversationTitleMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+/** Naming result: a concise title plus 0–3 OIB topic tag keys. */
+export interface ConversationTitleResult {
+  title: string
+  tags: string[]
+  error?: string
 }
 
 export const conversationsClient = {
@@ -43,6 +57,25 @@ export const conversationsClient = {
       body: JSON.stringify({ title }),
     })
     if (!res.ok) throw new Error('Failed to update conversation')
+    return res.json()
+  },
+
+  /**
+   * Ask the backend to name a conversation (ChatGPT-style) and assign OIB topic
+   * tags from its opening exchange; the server persists both on the row. Returns
+   * an empty title/tags on any generation failure (the endpoint fails open).
+   */
+  async generateTitle(
+    id: string,
+    messages: ConversationTitleMessage[],
+    locale?: string,
+  ): Promise<ConversationTitleResult> {
+    const res = await fetch(`/api/conversations/${encodeURIComponent(id)}/generate-title`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages, locale }),
+    })
+    if (!res.ok) throw new Error('Failed to generate conversation title')
     return res.json()
   },
 

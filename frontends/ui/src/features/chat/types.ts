@@ -609,6 +609,13 @@ export interface ChatActions {
   deleteAllConversations: () => void
   /** Update conversation title */
   updateConversationTitle: (conversationId: string, title: string) => void
+  /**
+   * ChatGPT-style naming: after the first answer completes, generate a concise
+   * title + OIB topic tags for the conversation from its opening exchange.
+   * Fires at most once per conversation; best-effort (keeps the provisional
+   * title on failure).
+   */
+  maybeGenerateConversationName: (conversationId: string) => void
   /** Persist enabled data source IDs to the current conversation for per-session storage */
   saveDataSourcesToConversation: (ids: string[]) => void
 

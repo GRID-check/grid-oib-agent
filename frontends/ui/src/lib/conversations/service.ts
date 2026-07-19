@@ -11,9 +11,11 @@
 
 import 'server-only'
 import { requireProjectAccess } from '@/lib/authz/projects'
+import { getBackendUrl } from '@/lib/backend-proxy'
 import { NotFoundError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import type { Conversation, Message } from '@/lib/db/schema'
+import { CONVERSATION_TAG_KEYS, normalizeConversationTags } from './tags'
 import {
   deleteConversationInOrg,
   findConversationInOrg,
@@ -21,8 +23,28 @@ import {
   insertMessages,
   listConversationsInOrg,
   listMessagesForConversation,
+  updateConversationMetaInOrg,
   updateConversationTitleInOrg,
 } from './repository'
+
+/**
+ * Bound the naming call so an unreachable backend rejects promptly instead of
+ * hanging into a Cloudflare 504. MUST stay above the backend's own 30s LLM
+ * timeout so the BFF does not abort a call the backend then completes and
+ * throws away (same reasoning as GENERATE_SUMMARY_TIMEOUT_MS in profile-service).
+ */
+const GENERATE_TITLE_TIMEOUT_MS = 35_000
+
+export interface ConversationTitleMessageInput {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+export interface GenerateConversationTitleResult {
+  title: string
+  tags: string[]
+  error?: string
+}
 
 export interface CreateConversationInput {
   id: string
@@ -107,6 +129,87 @@ export async function updateConversationTitle(
   const conversation = await updateConversationTitleInOrg(conversationId, session.organizationId, title)
   if (!conversation) throw new NotFoundError()
   return conversation
+}
+
+/**
+ * ChatGPT-style conversation naming + OIB topic tagging.
+ *
+ * Calls the Python backend to turn the opening exchange into a concise title
+ * and 0–3 topic tags (from the fixed vocabulary), then persists both on the
+ * conversation row so Historie can name and filter the chat. 404 for a missing
+ * or cross-org conversation.
+ *
+ * Fail-open like every other generation call: a backend outage, a missing LLM
+ * credential, or an empty result degrades to `{ title: '', tags: [] }` with a
+ * diagnosable code — the caller keeps its provisional (first-message) title.
+ * An empty title is NEVER persisted, so a failure can't clobber a good name.
+ */
+export async function generateConversationTitle(
+  session: AuthorizedSession,
+  conversationId: string,
+  input: { messages: ConversationTitleMessageInput[]; locale?: string },
+): Promise<GenerateConversationTitleResult> {
+  const conversation = await findConversationInOrg(conversationId, session.organizationId)
+  if (!conversation) throw new NotFoundError()
+
+  const messages = input.messages
+    .map((m) => ({ role: m.role, content: (m.content ?? '').trim() }))
+    .filter((m) => m.content.length > 0)
+  if (messages.length === 0) {
+    return { title: '', tags: [] }
+  }
+
+  let backendRes: Response
+  try {
+    backendRes = await fetch(`${getBackendUrl()}/v1/generate-conversation-title`, {
+      method: 'POST',
+      // Forward the org id so the backend can resolve this org's BYOK LLM
+      // credential (falls back to the platform env chain when unset).
+      headers: { 'Content-Type': 'application/json', 'x-grid-organization-id': session.organizationId },
+      body: JSON.stringify({
+        messages,
+        allowed_tags: CONVERSATION_TAG_KEYS,
+        locale: input.locale ?? 'de',
+      }),
+      signal: AbortSignal.timeout(GENERATE_TITLE_TIMEOUT_MS),
+    })
+  } catch (e) {
+    console.error('[GenerateConversationTitle] Backend unreachable (non-fatal):', e)
+    return { title: '', tags: [], error: 'backend_unreachable' }
+  }
+
+  if (!backendRes.ok) {
+    const errorText = await backendRes.text().catch(() => '')
+    console.error('[GenerateConversationTitle] Backend error:', backendRes.status, errorText)
+    return { title: '', tags: [], error: 'backend_error' }
+  }
+
+  const { title, tags, error } = (await backendRes.json()) as {
+    title: string
+    tags?: string[]
+    error?: string | null
+  }
+
+  if (error) {
+    console.error('[GenerateConversationTitle] Generation failed:', error)
+    return { title: '', tags: [], error }
+  }
+
+  const cleanTitle = (title ?? '').trim()
+  // Defense-in-depth: never trust the tag list from over the wire — keep only
+  // known keys so the row (and the Historie filter) can't hold an unknown chip.
+  const cleanTags = normalizeConversationTags(tags ?? [])
+
+  // Only persist a real title — an empty result must never clobber the
+  // provisional first-message name the client already set.
+  if (cleanTitle) {
+    await updateConversationMetaInOrg(conversationId, session.organizationId, {
+      title: cleanTitle,
+      tags: cleanTags,
+    })
+  }
+
+  return { title: cleanTitle, tags: cleanTags }
 }
 
 /** Delete a conversation. Idempotent: deleting a missing id is a no-op. */
