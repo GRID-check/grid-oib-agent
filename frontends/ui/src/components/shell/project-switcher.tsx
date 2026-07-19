@@ -14,7 +14,6 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { motion, springSnappy } from '@/components/motion'
 import { useTranslations } from '@/i18n'
-import { buildProjectHref, readLastProjectSection } from '@/hooks/use-last-project-section'
 import { cn } from '@/lib/utils'
 
 export interface ProjectSwitcherProject {
@@ -93,11 +92,9 @@ export function ProjectSwitcher({ projects, activeProjectId, collapsed }: Projec
           return (
             <DropdownMenuItem
               key={project.id}
-              // Resume into the section last used for this project (read from
-              // localStorage at click time), else the project root.
-              onSelect={() =>
-                router.push(buildProjectHref(project.id, readLastProjectSection(project.id)))
-              }
+              // Switching into a project always lands on its Chat — the
+              // project's primary workspace (spec §5).
+              onSelect={() => router.push(`/app/projects/${project.id}/chat`)}
               className="gap-2.5 pr-1.5"
             >
               <StatusDot active={isCurrent} />

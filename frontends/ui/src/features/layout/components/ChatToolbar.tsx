@@ -126,10 +126,12 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
     // two self-contained pills (left = history + thread identity, right =
     // primary actions). `pointer-events-none` on the frame lets clicks fall
     // through the gaps to the messages; each pill re-enables them.
-    <header className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-3 px-3 py-2.5">
+    <header className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-3 px-3 pb-2.5 pt-[max(0.625rem,env(safe-area-inset-top))]">
       {/* LEFT pill: the single history door + the current session title/rename,
-          always visible (mobile included). */}
-      <div className="pointer-events-auto flex min-w-0 items-center gap-0.5 rounded-full border border-base bg-card/80 p-0.5 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/70">
+          always visible (mobile included). Capped at ~64% of the row on mobile
+          so a long title truncates inside the pill instead of growing under the
+          right-hand actions pill. */}
+      <div className="pointer-events-auto flex min-w-0 max-w-[64%] items-center gap-0.5 rounded-full border border-base bg-card/80 p-0.5 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/70 sm:max-w-none">
         {/* Sessions / history overlay — the one clear door to past sessions
             (the rail keeps its routed History; this doesn't duplicate it). */}
         <Button
@@ -153,9 +155,22 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
           >
               {projectName ? (
                 <>
-                  <span className="max-w-44 truncate text-muted-foreground">{projectName}</span>
+                  {/* On mobile the project name is redundant with the composer
+                      scope chip, so when a session title is present we hide it
+                      to give the title room. With no title yet, it stays so the
+                      pill isn't just a bare icon. */}
+                  <span
+                    className={`max-w-24 truncate text-muted-foreground sm:max-w-44 ${
+                      sessionTitle ? 'hidden sm:inline' : ''
+                    }`}
+                  >
+                    {projectName}
+                  </span>
                   {sessionTitle ? (
-                    <span className="text-muted-foreground/60" aria-hidden="true">
+                    <span
+                      className="hidden text-muted-foreground/60 sm:inline"
+                      aria-hidden="true"
+                    >
                       /
                     </span>
                   ) : null}

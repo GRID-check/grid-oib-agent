@@ -19,7 +19,6 @@ import { motion, springSnappy } from '@/components/motion'
 import type { Project } from '@/lib/db/schema'
 import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
 import { useLocale, useTranslations } from '@/i18n'
-import { useResumeProjectHref } from '@/hooks/use-last-project-section'
 import { getProjectStatus, ProjectStatusChip } from './project-status'
 
 interface ProjectCardProps {
@@ -43,11 +42,10 @@ export function ProjectCard({ project, docCount = 0 }: ProjectCardProps): JSX.El
   // click-dummy (name · address · last activity) and does not surface it.
   void docCount
 
-  // Resume into the section last used for this project. SSR-safe: renders the
-  // project root on the server and upgrades to the remembered section after
-  // mount, so there's no hydration mismatch and the anchor still supports
-  // open-in-new-tab. Direct deep links never pass through here.
-  const href = useResumeProjectHref(project.id)
+  // Opening a project always lands on Chat — the project's primary workspace
+  // (click-dummy IA, spec §5). A plain anchor keeps prefetch and
+  // open-in-new-tab working.
+  const href = `/app/projects/${project.id}/chat`
 
   return (
     <motion.div className="h-full" whileHover={{ y: -3 }} whileTap={{ scale: 0.985 }} transition={springSnappy}>

@@ -251,10 +251,11 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
         // matter how tall it grows. The 11rem fallback matches the old pb-44.
         <div
           ref={contentRef}
-          // pt-16 reserves clearance for the floating toolbar pills that overlay
-          // the top of this scroll plane, so the first message never renders
-          // behind them.
-          className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 pt-16"
+          // Top padding reserves clearance for the floating toolbar pills that
+          // overlay the top of this scroll plane, so the first message never
+          // renders behind them — a little extra on mobile where the pills sit
+          // edge-to-edge over the full-width column.
+          className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 pt-20 sm:pt-16"
           style={{ paddingBottom: 'calc(var(--composer-h, 11rem) + 1.5rem)' }}
         >
           <AnimatePresence initial={false}>
