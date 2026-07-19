@@ -84,6 +84,25 @@ async def tavily_web_search(tool_config: TavilyWebSearchToolConfig, builder: Bui
         )
         return
 
+    # Build the Tavily client once per registration rather than per call.
+    # tavily_kwargs depends only on tool_config (constant after registration),
+    # and TavilySearch.ainvoke takes the query per call, so a single reused
+    # client is byte-identical in behavior. Latency: avoids a fresh TCP+TLS
+    # handshake to api.tavily.com on every web search (connection keep-alive).
+    tavily_kwargs = {
+        "max_results": tool_config.max_results,
+        "search_depth": "advanced" if tool_config.advanced_search else "basic",
+        "include_answer": tool_config.include_answer,
+    }
+
+    if tool_config.api_base_url:
+        tavily_kwargs["api_base_url"] = tool_config.api_base_url
+    if tool_config.include_domains:
+        tavily_kwargs["include_domains"] = tool_config.include_domains
+    if tool_config.exclude_domains:
+        tavily_kwargs["exclude_domains"] = tool_config.exclude_domains
+    tavily_search = TavilySearch(**tavily_kwargs)
+
     async def _tavily_web_search(question: str) -> str:
         """Retrieves relevant contexts from web search (using Tavily) for the given question.
 
@@ -96,20 +115,6 @@ async def tavily_web_search(tool_config: TavilyWebSearchToolConfig, builder: Bui
         # Tavily API requires queries under 400 characters
         if len(question) > 400:
             question = question[:397] + "..."
-
-        tavily_kwargs = {
-            "max_results": tool_config.max_results,
-            "search_depth": "advanced" if tool_config.advanced_search else "basic",
-            "include_answer": tool_config.include_answer,
-        }
-
-        if tool_config.api_base_url:
-            tavily_kwargs["api_base_url"] = tool_config.api_base_url
-        if tool_config.include_domains:
-            tavily_kwargs["include_domains"] = tool_config.include_domains
-        if tool_config.exclude_domains:
-            tavily_kwargs["exclude_domains"] = tool_config.exclude_domains
-        tavily_search = TavilySearch(**tavily_kwargs)
 
         def _truncate_content(content: str) -> str:
             """Truncate content if max_content_length is set."""

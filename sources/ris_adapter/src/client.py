@@ -521,7 +521,9 @@ class RisClient:
                 "Use the document's Html content URL from ris_search instead."
             )
 
-        title, text = html_to_text(response.text)
+        # Offload the CPU-bound BeautifulSoup parse to a thread so it doesn't
+        # block the event loop (freezing other in-flight turns) on large docs.
+        title, text = await asyncio.to_thread(html_to_text, response.text)
         if not text:
             raise RisError(f"RIS document at {url} contained no extractable text")
 

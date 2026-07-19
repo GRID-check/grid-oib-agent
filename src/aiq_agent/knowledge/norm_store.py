@@ -39,6 +39,16 @@ ENGINE_CACHE_MAX_SIZE = 10
 
 DEFAULT_COUNTRY = "at"
 
+# The norm catalog is admin-edited, effectively static data that the shallow
+# research answer path reads many times per turn (prompt render ×iterations,
+# knowledge/RIS tools, and RIS wire serialization). Memoize the parsed
+# ``(NormsFile, version)`` in-process for this many seconds so those repeated
+# reads don't each pay a blocking DB SELECT + full JSON re-parse on the event
+# loop. Same-process admin writes invalidate immediately (see ``put``); a
+# cross-replica edit becomes visible within the TTL — indistinguishable from
+# today's DB-propagation delay (there is no push invalidation across replicas).
+NORM_STORE_CACHE_TTL_SECONDS = 30
+
 
 def _normalize_db_url(db_url: str) -> str:
     """Normalize a database URL to a sync driver (mirrors summary_store, sync-only)."""
@@ -68,6 +78,12 @@ class NormRegistryStore:
         self.db_url = db_url
         self._sync_engine = self._get_or_create_sync_engine(db_url)
         self._ensure_table_sync()
+        # Short-TTL memo of parsed ``(NormsFile, version)`` per country. Instance
+        # scoped (the store is a process singleton via ``_norm_store``). Guarded
+        # by its own lock so the loader — called from the event loop and worker
+        # threads — never races the invalidation in ``put``.
+        self._get_cache: dict[str, tuple[tuple[NormsFile | None, int], float]] = {}
+        self._get_cache_lock = threading.Lock()
         logger.info("NormRegistryStore initialized: %s", redact_db_url(db_url))
 
     # -- engine cache --------------------------------------------------------
@@ -182,6 +198,25 @@ class NormRegistryStore:
             return (None, 0)
         return (norms_file, int(version))
 
+    def get_cached(self, country: str = DEFAULT_COUNTRY) -> tuple[NormsFile | None, int]:
+        """Return :meth:`get` memoized with a short TTL (see ``NORM_STORE_CACHE_TTL_SECONDS``).
+
+        Behavior-equivalent to ``get`` for callers that tolerate the same
+        cross-replica propagation delay the YAML seed's mtime cache already
+        imposes. Same-process writes via :meth:`put` refresh this cache
+        immediately, so an admin edit is visible to this process on the very
+        next read.
+        """
+        now = time.monotonic()
+        with self._get_cache_lock:
+            cached = self._get_cache.get(country)
+            if cached is not None and now - cached[1] < NORM_STORE_CACHE_TTL_SECONDS:
+                return cached[0]
+        result = self.get(country)
+        with self._get_cache_lock:
+            self._get_cache[country] = (result, time.monotonic())
+        return result
+
     # -- write ---------------------------------------------------------------
 
     def put(
@@ -248,6 +283,10 @@ class NormRegistryStore:
                         ),
                         params,
                     )
+            # Refresh the read memo in-process so this write is visible to the
+            # next ``get_cached`` immediately (no TTL wait for same-process edits).
+            with self._get_cache_lock:
+                self._get_cache[country] = ((norms_file, new_version), time.monotonic())
             return new_version
         except Exception as e:
             logger.warning("Failed to write norm_registry for %s: %s", country, e)
@@ -289,6 +328,11 @@ class NormRegistryStore:
             return False
         logger.info("Seeded norm_registry for '%s' from %s (version %d)", country, seed_file, new_version)
         return True
+
+    def clear_cache(self) -> None:
+        """Drop the short-TTL read memo (invoked via ``reset_registry_cache`` on admin edits)."""
+        with self._get_cache_lock:
+            self._get_cache.clear()
 
     @classmethod
     def dispose_all_engines(cls):
@@ -334,12 +378,12 @@ def configure_norm_store(db_url: str) -> NormRegistryStore | None:
 
     def _loader() -> NormsFile | None:
         try:
-            return store.get()[0]
+            return store.get_cached()[0]
         except Exception:  # noqa: BLE001 — the registry loader must never raise
             logger.warning("norm store loader failed — falling back to YAML seed", exc_info=True)
             return None
 
-    norm_registry.set_db_loader(_loader)
+    norm_registry.set_db_loader(_loader, cache_reset=store.clear_cache)
     _norm_store = store
     logger.info("Norm store configured: %s", redact_db_url(db_url))
     return store

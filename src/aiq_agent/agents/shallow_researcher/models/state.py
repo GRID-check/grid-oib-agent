@@ -64,3 +64,13 @@ class ShallowResearchAgentState(BaseModel):
     # ``source_entry_to_wire``). Surfaced on the final ChatResponse so the FE
     # can open document previews without inventing filenames.
     verified_sources: list[dict[str, Any]] | None = None
+    # INTERNAL per-run render cache — NOT part of the public state contract.
+    # Every input to the system-prompt render (system_prompt, tools_info,
+    # user_info, current_datetime at DATE precision, available_documents,
+    # project_context, the three norm blocks, requires_sources) is fixed for the
+    # life of a single ``run()``, so the rendered prompt is byte-identical across
+    # tool-loop iterations. ``agent_node`` renders it once, returns it here, and
+    # LangGraph persists it across the loop; state is per-invocation, so
+    # concurrent runs of the shared compiled graph never collide. Defaults to
+    # None (first call / graph-direct path renders inline as before).
+    cached_system_prompt: str | None = None

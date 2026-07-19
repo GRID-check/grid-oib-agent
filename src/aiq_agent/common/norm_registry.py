@@ -233,16 +233,28 @@ def _normalize(text: str) -> str:
 # ---------------------------------------------------------------------------
 
 _db_loader: Callable[[], NormsFile | None] | None = None
+# Optional callback that drops the db loader's own cache. The admin store
+# memoizes its parsed payload with a short TTL for the hot path; registering its
+# invalidator here lets ``reset_registry_cache`` (called after admin edits) flush
+# that cache too, so a fresh registry is observed immediately rather than within
+# the TTL.
+_db_cache_reset: Callable[[], None] | None = None
 
 
-def set_db_loader(loader: Callable[[], NormsFile | None] | None) -> None:
+def set_db_loader(
+    loader: Callable[[], NormsFile | None] | None,
+    cache_reset: Callable[[], None] | None = None,
+) -> None:
     """Register the admin store as the runtime registry source (None to unset).
 
     The loader returns the stored NormsFile, or None to fall back to the YAML
-    seed. Must never raise; the store is expected to fail open itself.
+    seed. Must never raise; the store is expected to fail open itself. The
+    optional ``cache_reset`` drops the loader's own memo and is invoked by
+    :func:`reset_registry_cache` (so admin writes flush it immediately).
     """
-    global _db_loader
+    global _db_loader, _db_cache_reset
     _db_loader = loader
+    _db_cache_reset = cache_reset
     reset_registry_cache()
 
 
@@ -343,6 +355,11 @@ def load_registry(norms_dir: str | None = None) -> NormRegistry | None:
 def reset_registry_cache() -> None:
     """Drop cached registry state (tests, and after writes/regeneration)."""
     _load_yaml_cached.cache_clear()
+    if _db_cache_reset is not None:
+        try:
+            _db_cache_reset()
+        except Exception:  # noqa: BLE001 — cache invalidation must never break callers
+            logger.warning("norm_registry: db loader cache reset failed", exc_info=True)
 
 
 # ---------------------------------------------------------------------------
