@@ -16,8 +16,14 @@ import { getDictionary } from './dictionaries'
 import { createTranslator, type Translator } from './translate'
 import { LOCALE_COOKIE, defaultLocale, resolveLocale, type Locale } from './config'
 
-/** Read the active locale from the mirror cookie (falls back to default). */
-function readActiveLocale(): Locale {
+/**
+ * Read the active locale from the mirror cookie (falls back to default).
+ *
+ * Exported for imperative, non-React callers (e.g. a store action that sends
+ * the UI language to a backend generation endpoint). Not reactive — it reads
+ * the cookie at call time, which is exactly right for fire-and-forget work.
+ */
+export function getActiveLocale(): Locale {
   if (typeof document === 'undefined') return defaultLocale
   const match = document.cookie.match(
     new RegExp(`(?:^|;\\s*)${LOCALE_COOKIE}=([^;]+)`),
@@ -31,5 +37,5 @@ function readActiveLocale(): Locale {
  * reflects the current language.
  */
 export function getStoreTranslator(namespace?: string): Translator {
-  return createTranslator(getDictionary(readActiveLocale()), namespace)
+  return createTranslator(getDictionary(getActiveLocale()), namespace)
 }

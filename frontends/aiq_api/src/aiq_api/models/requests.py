@@ -52,6 +52,53 @@ class GenerateSummaryResponse(BaseModel):
     )
 
 
+class ConversationTitleMessage(BaseModel):
+    """One turn of the opening exchange used to name a conversation."""
+
+    role: str = Field(..., description="'user' or 'assistant'")
+    content: str = Field(..., description="Plain-text message content (no cards/markup)")
+
+
+class GenerateConversationTitleRequest(BaseModel):
+    """Request body for ChatGPT-style conversation naming + topic tagging.
+
+    The UI sends the opening exchange (first user question and, when available,
+    the assistant's answer). The LLM returns a short human title describing what
+    the inquiry was about plus 0–3 OIB topic tags drawn from a fixed vocabulary.
+    """
+
+    messages: list[ConversationTitleMessage] = Field(
+        default_factory=list,
+        description="Opening exchange, oldest first (first user question + optional assistant answer)",
+    )
+    allowed_tags: list[str] = Field(
+        default_factory=list,
+        description="Closed vocabulary of topic tag keys the model may choose from",
+    )
+    locale: str = Field(
+        default="de",
+        description="UI locale ('de' or 'en') — the language the title must be written in",
+    )
+
+
+class GenerateConversationTitleResponse(BaseModel):
+    """Response for conversation naming + tagging."""
+
+    title: str = Field(..., description="Concise conversation title (empty string on failure)")
+    tags: list[str] = Field(
+        default_factory=list,
+        description="Chosen topic tag keys (subset of allowed_tags; empty on failure or when none fit)",
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Failure code when naming could not complete "
+            "(e.g. llm_not_configured, llm_request_failed, llm_response_malformed); "
+            "None on success"
+        ),
+    )
+
+
 class ConsistencyCheckField(BaseModel):
     """A single intake answer passed to the consistency check (label + rendered value)."""
 

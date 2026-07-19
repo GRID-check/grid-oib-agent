@@ -25,6 +25,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { AlertCircle, ChevronRight, MessageSquare, Search } from 'lucide-react'
 import type { Conversation } from '@/lib/db/schema'
+import {
+  CONVERSATION_TAG_KEYS,
+  normalizeConversationTags,
+  type ConversationTagKey,
+} from '@/lib/conversations/tags'
 import { conversationsClient } from '@/adapters/api/conversations-client'
 import { Stagger, StaggerItem } from '@/components/motion'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -46,6 +51,7 @@ interface ProjectHistoryProps {
 interface ConversationRow {
   id: string
   title: string
+  tags: ConversationTagKey[]
   updatedAt: string
 }
 
@@ -57,6 +63,9 @@ const toRows = (conversations: Conversation[]): ConversationRow[] =>
     .map((c) => ({
       id: c.id,
       title: (c.title ?? '').trim(),
+      // Sanitise: only render known topic keys (an unknown key from a legacy or
+      // future row must not produce an unlabelled chip).
+      tags: normalizeConversationTags((c.tags ?? []) as string[]),
       updatedAt: String(c.updatedAt),
     }))
     .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
@@ -68,6 +77,17 @@ export function ProjectHistory({ projectId, projectCollection }: ProjectHistoryP
   const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [filter, setFilter] = useState<HistoryFilter>('all')
+  // Topic tags the user has narrowed to (OR-combined). Empty = no tag filter.
+  const [selectedTags, setSelectedTags] = useState<ConversationTagKey[]>([])
+
+  /** Localised label for a topic tag key. */
+  const tagLabel = useCallback((key: ConversationTagKey): string => t(`history.tags.${key}`), [t])
+
+  const toggleTag = useCallback((key: ConversationTagKey) => {
+    setSelectedTags((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key],
+    )
+  }, [])
 
   // Tracks the in-flight fetch (initial or retry) so a newer load or unmount
   // cancels it — a stale response must never overwrite a newer list.
@@ -105,11 +125,27 @@ export function ProjectHistory({ projectId, projectCollection }: ProjectHistoryP
     }
   }, [load])
 
+  // Topic tags actually present on this project's conversations, in the fixed
+  // vocabulary order — the tag filter only offers chips that match something.
+  const availableTags = useMemo(() => {
+    const present = new Set<ConversationTagKey>()
+    for (const c of conversations ?? []) {
+      for (const tag of c.tags) present.add(tag)
+    }
+    return CONVERSATION_TAG_KEYS.filter((key) => present.has(key))
+  }, [conversations])
+
   const filtered = useMemo(() => {
     const query = searchQuery.trim().toLowerCase()
-    if (!query) return conversations ?? []
-    return (conversations ?? []).filter((c) => c.title.toLowerCase().includes(query))
-  }, [conversations, searchQuery])
+    return (conversations ?? []).filter((c) => {
+      if (query && !c.title.toLowerCase().includes(query)) return false
+      // OR semantics: a conversation matches if it carries ANY selected tag.
+      if (selectedTags.length > 0 && !selectedTags.some((tag) => c.tags.includes(tag))) {
+        return false
+      }
+      return true
+    })
+  }, [conversations, searchQuery, selectedTags])
 
   const chatHref = `/app/projects/${projectId}/chat`
 
@@ -168,6 +204,52 @@ export function ProjectHistory({ projectId, projectCollection }: ProjectHistoryP
         })}
       </div>
 
+      {/* ---- Topic tag filter (only tags that appear on this project's chats) ---- */}
+      {showConversations && availableTags.length > 0 && (
+        <div
+          className="mb-4 flex flex-wrap items-center gap-[7px]"
+          role="group"
+          aria-label={t('history.tagFilterAria')}
+        >
+          <span className="mr-0.5 text-[12px] text-muted-foreground">{t('history.tagFilterLabel')}</span>
+          {availableTags.map((key) => {
+            const active = selectedTags.includes(key)
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => toggleTag(key)}
+                aria-pressed={active}
+                className={cn(
+                  'inline-flex h-7 items-center gap-1.5 rounded-md border-[0.5px] px-2.5 text-[12.5px] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50',
+                  active
+                    ? 'border-border bg-card font-medium text-foreground shadow-xs'
+                    : 'border-transparent text-muted-foreground hover:bg-accent',
+                )}
+              >
+                <span
+                  aria-hidden
+                  className={cn(
+                    'size-[7px] rounded-full',
+                    active ? 'bg-source-auto' : 'bg-muted-foreground/50',
+                  )}
+                />
+                {tagLabel(key)}
+              </button>
+            )
+          })}
+          {selectedTags.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setSelectedTags([])}
+              className="ml-0.5 inline-flex h-7 items-center rounded-md px-2 text-[12px] text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+            >
+              {t('history.tagFilterClear')}
+            </button>
+          )}
+        </div>
+      )}
+
       <div>
         {/* ---- Conversations ---- */}
         {showConversations && (
@@ -200,7 +282,7 @@ export function ProjectHistory({ projectId, projectCollection }: ProjectHistoryP
                 ))}
               </div>
             ) : filtered.length === 0 ? (
-              searchQuery.trim() ? (
+              searchQuery.trim() || selectedTags.length > 0 ? (
                 <EmptyState
                   icon={MessageSquare}
                   title={t('history.noMatchesTitle')}
@@ -240,8 +322,18 @@ export function ProjectHistory({ projectId, projectCollection }: ProjectHistoryP
                             <span className="truncate text-[13px] font-medium text-foreground" title={title}>
                               {title}
                             </span>
-                            <span className="mt-0.5 text-[11.5px] text-muted-foreground">
-                              {t('history.typeConversation')}
+                            <span className="mt-1 flex flex-wrap items-center gap-1.5">
+                              <span className="text-[11.5px] text-muted-foreground">
+                                {t('history.typeConversation')}
+                              </span>
+                              {conversation.tags.map((tag) => (
+                                <span
+                                  key={tag}
+                                  className="inline-flex h-[18px] items-center rounded-full border-[0.5px] border-border bg-accent/40 px-2 text-[10.5px] font-medium text-muted-foreground"
+                                >
+                                  {tagLabel(tag)}
+                                </span>
+                              ))}
                             </span>
                           </span>
                           <span

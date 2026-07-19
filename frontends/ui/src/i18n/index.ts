@@ -26,4 +26,4 @@ export {
 
 export type { Translator, TranslationVars } from './translate'
 export { getDictionary, type Dictionary } from './dictionaries'
-export { getStoreTranslator } from './store-translator'
+export { getStoreTranslator, getActiveLocale } from './store-translator'

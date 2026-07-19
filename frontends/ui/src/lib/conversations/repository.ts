@@ -100,6 +100,25 @@ export async function updateConversationTitleInOrg(
 }
 
 /**
+ * Set a conversation's title AND topic tags in one write (the naming LLM
+ * returns both together), scoped to the organization in SQL. Returns null when
+ * the row does not exist in this org (the caller maps that to a 404).
+ */
+export async function updateConversationMetaInOrg(
+  conversationId: string,
+  organizationId: string,
+  meta: { title: string; tags: string[] },
+): Promise<Conversation | null> {
+  const db = getDb()
+  const [row] = await db
+    .update(conversations)
+    .set({ title: meta.title, tags: meta.tags, updatedAt: new Date() })
+    .where(and(eq(conversations.id, conversationId), eq(conversations.organizationId, organizationId)))
+    .returning()
+  return row ?? null
+}
+
+/**
  * Delete a conversation (messages cascade). Tenant isolation lives in the
  * WHERE clause — deleting by id alone would let any signed-in user delete
  * another org's conversation by guessing ids.

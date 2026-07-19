@@ -36,6 +36,7 @@ const mockAddPlanMessage = vi.fn()
 const mockUpdatePlanMessageResponse = vi.fn()
 const mockAddDeepResearchBanner = vi.fn()
 const mockDismissConnectionErrors = vi.fn()
+const mockMaybeGenerateConversationName = vi.fn()
 
 // Mock store state
 let mockStoreState: {
@@ -106,6 +107,7 @@ const defaultUseChatStoreImpl = (selector?: (s: any) => any) => {
     updatePlanMessageResponse: mockUpdatePlanMessageResponse,
     addDeepResearchBanner: mockAddDeepResearchBanner,
     dismissConnectionErrors: mockDismissConnectionErrors,
+    maybeGenerateConversationName: mockMaybeGenerateConversationName,
   }
   return selector ? selector(state) : state
 }
@@ -1523,6 +1525,7 @@ describe('useWebSocketChat', () => {
         addDeepResearchBanner: mockAddDeepResearchBanner,
         startDeepResearch: mockStartDeepResearch,
         updateConversationTitle: mockUpdateConversationTitle,
+        maybeGenerateConversationName: mockMaybeGenerateConversationName,
       }
       return selector ? selector(state) : state
     })
