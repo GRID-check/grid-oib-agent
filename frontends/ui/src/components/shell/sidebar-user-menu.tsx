@@ -106,7 +106,7 @@ export function SidebarUserMenu({
       >
         <motion.span className="flex shrink-0" whileTap={{ scale: 0.95 }} transition={springSnappy}>
           <Avatar className={avatarSizeClass}>
-            {(authUser?.image ?? user?.image) && <AvatarImage src={authUser?.image ?? user?.image} alt="" />}
+            {(authUser?.image ?? user?.image) && <AvatarImage src={authUser?.image ?? user?.image ?? undefined} alt="" />}
             <AvatarFallback className="text-xs font-medium">{initial}</AvatarFallback>
           </Avatar>
         </motion.span>
