@@ -26,6 +26,9 @@ class IngestRequest(BaseModel):
     file_ref: str = Field(..., description="Presigned URL or file reference to download")
     collection: str = Field(..., description="Target collection name")
     document_id: str | None = Field(None, description="Optional document tracking ID")
+    thumbnail_upload_url: str | None = Field(
+        None, description="Presigned URL for uploading a generated thumbnail"
+    )
 
 
 class GenerateSummaryRequest(BaseModel):

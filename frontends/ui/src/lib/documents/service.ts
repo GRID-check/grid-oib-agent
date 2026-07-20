@@ -50,6 +50,12 @@ const PREVIEW_CONTENT_TYPES = [
 
 const presignTtlSeconds = (): number => Number(process.env.MINIO_PRESIGNED_URL_TTL_SECONDS || 600)
 
+/** Replace the filename segment of a minioKey with `_thumb.jpg`. */
+function buildThumbnailMinioKey(minioKey: string): string {
+  const idx = minioKey.lastIndexOf('/')
+  return idx > 0 ? `${minioKey.slice(0, idx)}/_thumb.jpg` : '_thumb.jpg'
+}
+
 /**
  * Bound every server-side call to the Python backend: an unreachable backend
  * container otherwise hangs the BFF request past Cloudflare's ~100s origin
@@ -146,6 +152,18 @@ export async function dispatchIngest(
     expiresIn: presignTtlSeconds(),
   })
 
+  // Generate presigned upload URL for a 200px JPEG thumbnail
+  const thumbnailUploadKey = buildThumbnailMinioKey(minioKey)
+  const thumbnailUploadUrl = await getSignedUrl(
+    signingS3Client,
+    new PutObjectCommand({
+      Bucket: bucketName,
+      Key: thumbnailUploadKey,
+      ContentType: 'image/jpeg',
+    }),
+    { expiresIn: 3600 },
+  )
+
   let ingestJobId: string | null = null
   let ingestFailed = false
   try {
@@ -156,6 +174,7 @@ export async function dispatchIngest(
         file_ref: presignedUrl,
         collection: collectionName,
         document_id: documentId,
+        thumbnail_upload_url: thumbnailUploadUrl,
       }),
       signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
     })
@@ -461,6 +480,32 @@ export async function getDocumentPreview(
   )
 
   return { url, contentType, filename: doc.filename }
+}
+
+/** Presign a browser-facing thumbnail URL (null when no thumbnail exists). */
+export async function getDocumentThumbnail(
+  session: AuthorizedSession,
+  documentId: string,
+): Promise<{ url: string | null }> {
+  const doc = await getAccessibleDocument(session, documentId)
+  if (!doc.minioKey) return { url: null }
+
+  const thumbnailKey = buildThumbnailMinioKey(doc.minioKey)
+
+  try {
+    const url = await getSignedUrl(
+      signingS3Client,
+      new GetObjectCommand({
+        Bucket: bucketName,
+        Key: thumbnailKey,
+        ResponseContentType: 'image/jpeg',
+      }),
+      { expiresIn: 3600 },
+    )
+    return { url }
+  } catch {
+    return { url: null }
+  }
 }
 
 /** Read one document's status, lazily reconciled with the backend. */

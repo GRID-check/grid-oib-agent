@@ -20,7 +20,7 @@
  * before the WS-1 token retune is applied.
  */
 
-import { useMemo, useState, type CSSProperties, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 import { Archive, Search, X } from 'lucide-react'
 import type { FileItem } from './project-file-workspace'
 import { Button } from '@/components/ui/button'
@@ -252,6 +252,42 @@ function CategoryChip({ label, active, onClick }: { label: string; active: boole
 }
 
 /**
+ * Lazy-load the thumbnail image for an Archiv card, falling back to the
+ * content-aware SVG sketch when no thumbnail exists or on error.
+ */
+function ArchivThumbnailWithFallback({ file }: { file: FileItem }) {
+  const [imgUrl, setImgUrl] = useState<string | null>(null)
+  const [imgError, setImgError] = useState(false)
+  const kind = inferDocumentKind(file)
+  const canHaveThumbnail = file.contentType === 'application/pdf' || (file.contentType ?? '').startsWith('image/')
+
+  useEffect(() => {
+    if (!canHaveThumbnail) return
+    let cancelled = false
+    fetch(`/api/documents/${file.id}/thumbnail`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!cancelled && data?.url) setImgUrl(data.url)
+      })
+      .catch(() => { /* fallback to SVG sketch */ })
+    return () => { cancelled = true }
+  }, [file.id, canHaveThumbnail])
+
+  if (imgUrl && !imgError) {
+    return (
+      <img
+        src={imgUrl}
+        alt=""
+        className="absolute inset-0 h-full w-full object-cover"
+        onError={() => setImgError(true)}
+      />
+    )
+  }
+
+  return <DocumentKindThumbnail kind={kind} className="h-[88px] w-auto text-muted-foreground/70" />
+}
+
+/**
  * One archive-document card (click-dummy detail-card anatomy): an inner white
  * block — h190 skeleton thumbnail by inferred kind + hairline divider, a gold
  * Büroarchiv kind chip (`--source-office`) beside a 30×30 tinted extension tile,
@@ -296,9 +332,9 @@ function ArchivDocumentCard({
       {/* Inner white block: thumbnail + metadata, sitting proud of the subtle
           outer surface so the footer reads as a separate tab (dummy anatomy). */}
       <div className="w-full overflow-hidden rounded-b-[10px] bg-card shadow-xs">
-        {/* Thumbnail — skeleton sketch by inferred kind, hairline divider. */}
-        <div className="relative flex h-[190px] w-full items-center justify-center border-b bg-card">
-          <DocumentKindThumbnail kind={kind} className="h-[88px] w-auto text-muted-foreground/70" />
+        {/* Thumbnail — lazy-loaded real thumbnail or fallback sketch. */}
+        <div className="relative flex h-[190px] w-full items-center justify-center border-b bg-card overflow-hidden">
+          <ArchivThumbnailWithFallback file={file} />
           <DocumentStatusBadge status={file.status} className="absolute right-2.5 top-2.5" />
         </div>
 

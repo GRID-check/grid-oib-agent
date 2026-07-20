@@ -1731,6 +1731,64 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         combined = "\n".join(documents)
         return combined[:max_chars] if combined else None
 
+    @staticmethod
+    def _generate_and_upload_thumbnail(
+        file_path: str,
+        thumbnail_upload_url: str,
+    ) -> None:
+        """Generate a 200px-wide JPEG thumbnail and upload it via the presigned URL."""
+        import io
+
+        import httpx
+        from PIL import Image
+
+        is_pdf = _looks_like_pdf(file_path)
+        image_format = _looks_like_image(file_path)
+        is_image = image_format is not None
+
+        pil_image: Image.Image | None = None
+
+        if is_pdf:
+            try:
+                import pypdfium2 as pdfium
+                pdf = pdfium.PdfDocument(file_path)
+                page = pdf[0]
+                bitmap = page.render(scale=1)
+                pil_image = bitmap.to_pil()
+                pdf.close()
+            except Exception:
+                logger.warning("Failed to render PDF page for thumbnail", exc_info=True)
+                return
+        elif is_image:
+            try:
+                pil_image = Image.open(file_path)
+                pil_image.load()
+                if pil_image.mode != "RGB":
+                    pil_image = pil_image.convert("RGB")
+            except Exception:
+                logger.warning("Failed to open image for thumbnail", exc_info=True)
+                return
+        else:
+            return  # Not a previewable type
+
+        # Resize to max 200px wide, maintaining aspect ratio
+        pil_image.thumbnail((200, 200))
+        buf = io.BytesIO()
+        pil_image.save(buf, format="JPEG", quality=80)
+        thumbnail_bytes = buf.getvalue()
+
+        try:
+            with httpx.Client() as client:
+                resp = client.put(
+                    thumbnail_upload_url,
+                    content=thumbnail_bytes,
+                    headers={"Content-Type": "image/jpeg"},
+                )
+                resp.raise_for_status()
+            logger.info(f"Uploaded thumbnail ({len(thumbnail_bytes)} bytes) to {thumbnail_upload_url[:80]}...")
+        except Exception:
+            logger.warning("Failed to upload thumbnail", exc_info=True)
+
     def _run_ingestion(
         self,
         job_id: str,
@@ -2086,6 +2144,11 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     total_chunks += chunks_created
 
                     self._update_file_status(job, i, FileStatus.SUCCESS, chunks_created=chunks_created)
+
+                    # Generate and upload thumbnail if a presigned upload URL was provided
+                    thumbnail_upload_url = config.get("thumbnail_upload_url")
+                    if thumbnail_upload_url and (is_pdf or is_image):
+                        self._generate_and_upload_thumbnail(file_path, thumbnail_upload_url)
 
                     # Structural "ingested ⇒ visible" backstop: ANY successfully
                     # ingested text document must get a summary row, or it becomes
