@@ -68,13 +68,17 @@ def add_ingest_routes(router: APIRouter):
 
             logger.info(f"Downloaded {len(response.content)} bytes from {file_ref[:80]}...")
 
+            config: dict = {
+                "cleanup_files": True,
+                "original_filenames": [_extract_filename(file_ref)],
+            }
+            if request.thumbnail_upload_url:
+                config["thumbnail_upload_url"] = request.thumbnail_upload_url
+
             job_id = ingestor.submit_job(
                 [temp_path],
                 collection,
-                config={
-                    "cleanup_files": True,
-                    "original_filenames": [_extract_filename(file_ref)],
-                },
+                config=config,
             )
 
             logger.info(f"Submitted ingestion job {job_id} for {_extract_filename(file_ref)}")

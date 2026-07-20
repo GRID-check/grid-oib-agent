@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { FileItem, FolderItem } from './project-file-workspace'
 import { Search, FolderOpen, UploadCloud, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -227,6 +227,42 @@ function FolderChip({ label, active, onClick }: { label: string; active: boolean
 }
 
 /**
+ * Lazy-load the thumbnail image for a file card, falling back to the
+ * content-aware SVG sketch when no thumbnail exists or on error.
+ */
+function ThumbnailWithFallback({ file }: { file: FileItem }) {
+  const [imgUrl, setImgUrl] = useState<string | null>(null)
+  const [imgError, setImgError] = useState(false)
+  const kind = inferDocumentKind(file)
+  const canHaveThumbnail = file.contentType === 'application/pdf' || (file.contentType ?? '').startsWith('image/')
+
+  useEffect(() => {
+    if (!canHaveThumbnail) return
+    let cancelled = false
+    fetch(`/api/documents/${file.id}/thumbnail`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!cancelled && data?.url) setImgUrl(data.url)
+      })
+      .catch(() => { /* fallback to SVG sketch */ })
+    return () => { cancelled = true }
+  }, [file.id, canHaveThumbnail])
+
+  if (imgUrl && !imgError) {
+    return (
+      <img
+        src={imgUrl}
+        alt=""
+        className="absolute inset-0 h-full w-full object-cover"
+        onError={() => setImgError(true)}
+      />
+    )
+  }
+
+  return <DocumentKindThumbnail kind={kind} variant="fill" />
+}
+
+/**
  * One document card: content-aware skeleton thumbnail, name, one-line AI
  * description (only when the backend generated one — nothing fake), tinted
  * extension chip, size + relative time, and the ingestion-status badge (kept —
@@ -260,11 +296,11 @@ function FileCard({
         isSelected && 'ring-2 ring-ring'
       )}
     >
-      {/* Thumbnail header — full-bleed content-aware sketch, hairline divider.
+      {/* Thumbnail header — real thumbnail if available, otherwise SVG sketch.
           The ingestion-status badge (kept — the dummy lacks it) rides quietly
           in the top-right corner. */}
       <div className="relative h-24 w-full shrink-0 overflow-hidden border-b bg-card md:h-[132px]">
-        <DocumentKindThumbnail kind={kind} variant="fill" />
+        <ThumbnailWithFallback file={file} />
         <DocumentStatusBadge
           status={file.status}
           className="absolute right-2 top-2 border-transparent bg-background/80 px-1.5 py-0 text-[10px] font-medium leading-4 shadow-2xs backdrop-blur-sm"

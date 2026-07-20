@@ -366,6 +366,40 @@ stores remain architecturally distinct (SQL side-table vs. ChromaDB vector
 index), so this is a structural backstop rather than a merge of the two
 sources — see backlog T3-10 for the closed status and rationale.
 
+### Document thumbnails
+
+The file-explorer card grid shows a 200px-wide JPEG thumbnail when available,
+falling back to the content-aware SVG sketch (`DocumentKindThumbnail`).
+
+**Generation flow:**
+1. The BFF upload route (`dispatchIngest` in `service.ts`) derives a thumbnail
+   MinIO key from the original file's key (replaces the filename with
+   `_thumb.jpg`) and generates a presigned **PUT** URL for it.
+2. The PUT URL is passed to the backend's `/v1/ingest` as
+   `thumbnail_upload_url`.
+3. During ingestion (`_run_ingestion` in `adapter.py`), after a file is
+   indexed and marked SUCCESS, `_generate_and_upload_thumbnail` renders:
+   - **PDFs**: page 0 via `pypdfium2` → PIL → 200px JPEG quality 80.
+   - **Images**: PIL open → RGB → 200px JPEG quality 80.
+4. The JPEG bytes are PUT to MinIO via the presigned URL.
+
+**Serving:**
+- `GET /api/documents/{id}/thumbnail` → `getDocumentThumbnail()` presigns a
+  browser-facing GET URL for `_thumb.jpg`. Returns `{ url: string | null }`;
+  `null` means no thumbnail exists (non-PDF/image, or generation failed).
+
+**Frontend:**
+- `ThumbnailWithFallback` (file-browser-pane.tsx) and
+  `ArchivThumbnailWithFallback` (archiv-library-pane.tsx) lazily
+  `GET /api/documents/{id}/thumbnail` on mount, render the real image when
+  a URL comes back, and fall back to the SVG sketch on error or missing
+  thumbnail.
+
+Thumbnails are ephemeral: there is no separate DB column — the key is derived
+deterministically from `minioKey`, and a missing/expired MinIO object falls
+back gracefully to the SVG sketch. Re-ingesting a document overwrites the
+thumbnail at the same key.
+
 ## 6b. Norm catalog (Normenregister — flat curated pointers + prose legal notes)
 
 The live `ris_search` tool is keyword-blind: an LLM planner guesses one of ~40
