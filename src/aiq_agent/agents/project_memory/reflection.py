@@ -357,16 +357,23 @@ def schedule_memory_reflection(
             # budget snapshot: a background reflection is never hard-stopped.
             from aiq_agent.common.cost_tracking import BudgetSnapshot
             from aiq_agent.common.cost_tracking import track_llm_costs
+            from aiq_agent.common.profiler import track_agent_profile
 
             async with _loop_semaphore(loop):
-                with track_llm_costs(
-                    identity={
-                        "organization_id": organization_id,
-                        "user_id": None,
-                        "project_id": project_id,
-                        "conversation_id": conversation_id,
-                    },
-                    budget=BudgetSnapshot(),
+                with (
+                    track_agent_profile(
+                        agent_name="project_memory_reflection",
+                        identity={"organization_id": organization_id, "conversation_id": conversation_id},
+                    ),
+                    track_llm_costs(
+                        identity={
+                            "organization_id": organization_id,
+                            "user_id": None,
+                            "project_id": project_id,
+                            "conversation_id": conversation_id,
+                        },
+                        budget=BudgetSnapshot(),
+                    ),
                 ):
                     await run_memory_reflection(
                         llm=llm,

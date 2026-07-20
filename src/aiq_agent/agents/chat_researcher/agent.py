@@ -36,6 +36,7 @@ from aiq_agent.agents.shallow_researcher.models import ShallowResearchAgentState
 from aiq_agent.common import get_latest_user_query
 from aiq_agent.common.citation_verification import EmptySourceRegistryError
 from aiq_agent.common.job_admission import JobAdmissionError
+from aiq_agent.common.profiler import profiled_node
 
 try:
     from aiq_api.auth.errors import AuthError as _AuthError
@@ -547,10 +548,10 @@ class ChatResearcherAgent:
 
         graph = StateGraph(ChatResearcherState)
 
-        graph.add_node("intent_classifier", intent_classifier_node)
-        graph.add_node("shallow_research", shallow_research_node)
-        graph.add_node("clarifier", clarifier_node)
-        graph.add_node("deep_research", deep_research_node)
+        graph.add_node("intent_classifier", profiled_node("intent_classifier", intent_classifier_node))
+        graph.add_node("shallow_research", profiled_node("shallow_research", shallow_research_node))
+        graph.add_node("clarifier", profiled_node("clarifier", clarifier_node))
+        graph.add_node("deep_research", profiled_node("deep_research", deep_research_node))
 
         graph.set_entry_point("intent_classifier")
 

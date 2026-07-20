@@ -155,6 +155,13 @@
       "when": 1783422291817,
       "tag": "0021_conversation_tags",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1783422292817,
+      "tag": "0022_agent_profiler_spans",
+      "breakpoints": true
     }
   ]
 }

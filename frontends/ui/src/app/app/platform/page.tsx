@@ -16,6 +16,7 @@ import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/ca
 import { getTranslations } from '@/i18n/server'
 import { BaseKnowledge } from './base-knowledge'
 import { PlatformOverview } from './platform-overview'
+import { AgentProfiler } from '@/features/platform/components/agent-profiler'
 import { NormRegistry } from '@/features/platform/components/norm-registry'
 
 const isAuthRequired = (): boolean => process.env.REQUIRE_AUTH?.toLowerCase() === 'true'
@@ -77,6 +78,7 @@ export default async function PlatformPage(): Promise<JSX.Element> {
         <p className="mt-1 text-sm text-muted-foreground">{t('subtitle')}</p>
       </header>
       <PlatformOverview />
+      <AgentProfiler />
       <BaseKnowledge />
       <NormRegistry />
     </div>,

@@ -902,12 +902,15 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
             )
             # Unified LLM cost capture + budget enforcement for the whole turn
             # (every agent/LLM call inside inherits the tracker via LangChain's
-            # configure hook — see aiq_agent/common/cost_tracking.py).
+            # configure hook — see aiq_agent/common/cost_tracking.py). The
+            # profiler wraps the same turn, capturing a node/LLM/tool span
+            # timeline for the platform-owner profiler view (common/profiler.py).
             from aiq_agent.common.cost_tracking import BudgetExceededError
             from aiq_agent.common.cost_tracking import track_llm_costs
+            from aiq_agent.common.profiler import track_agent_profile
 
             try:
-                with track_llm_costs():
+                with track_agent_profile(agent_name="chat_researcher"), track_llm_costs():
                     result = await agent.run(state, thread_id=nat_context_conversation_id)
             except BudgetExceededError as budget_error:
                 logger.warning("Turn stopped by budget enforcement: %s", budget_error)
