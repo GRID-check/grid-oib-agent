@@ -36,6 +36,9 @@ export interface GridSession {
    * distinguishable from "no flags enabled" for fail-closed enforcement.
    */
   featureFlags: string[] | null
+
+  /** WorkOS profile picture URL, or null when none is set. */
+  profilePictureUrl: string | null
 }
 
 /**
