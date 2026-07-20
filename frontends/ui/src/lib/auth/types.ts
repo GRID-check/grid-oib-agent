@@ -38,7 +38,7 @@ export interface GridSession {
   featureFlags: string[] | null
 
   /** WorkOS profile picture URL, or null when none is set. */
-  profilePictureUrl: string | null
+  profilePictureUrl?: string | null
 }
 
 /**
