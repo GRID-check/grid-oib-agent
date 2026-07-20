@@ -74,7 +74,7 @@ export function SidebarUserMenu({
   canAccessArchiv = false,
   avatarSizeClass = 'size-[30px]',
 }: SidebarUserMenuProps) {
-  const { signOut } = useAuth()
+  const { user: authUser, signOut } = useAuth()
   const theme = useLayoutStore((s) => s.theme)
   const setTheme = useLayoutStore((s) => s.setTheme)
   const t = useTranslations('nav')
@@ -106,7 +106,7 @@ export function SidebarUserMenu({
       >
         <motion.span className="flex shrink-0" whileTap={{ scale: 0.95 }} transition={springSnappy}>
           <Avatar className={avatarSizeClass}>
-            {user?.image && <AvatarImage src={user.image} alt="" />}
+            {(authUser?.image ?? user?.image) && <AvatarImage src={authUser?.image ?? user?.image} alt="" />}
             <AvatarFallback className="text-xs font-medium">{initial}</AvatarFallback>
           </Avatar>
         </motion.span>

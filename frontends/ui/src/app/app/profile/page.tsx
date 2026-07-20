@@ -13,7 +13,7 @@ import { requireAuthorizedPageSession } from '@/lib/auth/require-auth'
 import { FEATURE_FLAGS, isFeatureEnabled } from '@/lib/authz/feature-flags'
 import { getNavFlags } from '@/lib/authz/nav'
 import { OrgTopbar } from '@/components/shell'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { getTranslations } from '@/i18n/server'
 import type { Translator } from '@/i18n'
@@ -111,6 +111,7 @@ export default async function ProfilePage(): Promise<JSX.Element> {
             <CardContent>
               <div className="flex items-center gap-4">
                 <Avatar className="size-12">
+                  {session.profilePictureUrl && <AvatarImage src={session.profilePictureUrl} alt="" />}
                   <AvatarFallback className="text-base font-medium">{initial}</AvatarFallback>
                 </Avatar>
                 <div className="min-w-0">
