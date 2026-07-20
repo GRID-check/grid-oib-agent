@@ -793,12 +793,20 @@ async def run_agent_job(
                     # headers exist inside a Dask worker).
                     from aiq_agent.common.cost_tracking import BudgetSnapshot
                     from aiq_agent.common.cost_tracking import track_llm_costs
+                    from aiq_agent.common.profiler import track_agent_profile
 
                     _usage = usage_context or {}
-                    with track_llm_costs(
-                        job_id=job_id,
-                        identity=_usage.get("identity") or {},
-                        budget=BudgetSnapshot.from_header(_usage.get("budget_header")) or BudgetSnapshot(),
+                    with (
+                        track_agent_profile(
+                            agent_name="deep_research_job",
+                            job_id=job_id,
+                            identity=_usage.get("identity") or {},
+                        ),
+                        track_llm_costs(
+                            job_id=job_id,
+                            identity=_usage.get("identity") or {},
+                            budget=BudgetSnapshot.from_header(_usage.get("budget_header")) or BudgetSnapshot(),
+                        ),
                     ):
                         result = await _run_agent(
                             agent=agent,
@@ -1231,6 +1239,7 @@ async def _run_deep_research_reflection(
         from aiq_agent.common import sanitize_model_overrides
         from aiq_agent.common.cost_tracking import BudgetSnapshot
         from aiq_agent.common.cost_tracking import track_llm_costs
+        from aiq_agent.common.profiler import track_agent_profile
 
         reflection_llm = await get_langchain_llm(builder, reflection_llm_ref)
         overrides = sanitize_model_overrides(model_overrides) if model_overrides else None
@@ -1239,7 +1248,10 @@ async def _run_deep_research_reflection(
         # so the org key resolved at build time is passed directly.
         reflection_llm = apply_org_credential(reflection_llm, org_credential)
 
-        with track_llm_costs(job_id=job_id, identity=identity, budget=BudgetSnapshot()):
+        with (
+            track_agent_profile(agent_name="project_memory_reflection", job_id=job_id, identity=identity),
+            track_llm_costs(job_id=job_id, identity=identity, budget=BudgetSnapshot()),
+        ):
             await run_memory_reflection(
                 llm=reflection_llm,
                 query=query,
