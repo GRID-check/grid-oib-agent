@@ -218,3 +218,16 @@
 - Committed so far this overnight run (pushed): color-coding, larger preview, archiv nav, role explainers,
   Autodesk watermark fix, quotes_unverified deletion, list-content fix. Skeptic review found + we fixed
   2 real bugs I'd introduced. Heartbeat re-armed (30 min).
+
+## Overnight cycle 3 — 6-lane wave landed (survived a container restart) (2026-07-22)
+All six re-dispatched fixers finished (they stalled without completion pings, but tsc/tests
+confirmed done); a container restart mid-verify preserved the working tree + toolchains.
+Verified (backend 2439 pass; FE tsc 0; 92 lane specs; eslint 0 errors) and committed lane-by-lane:
+- **PB-SYNTH-1** quote-splicing hole → local-window coverage metric.
+- **chat-layout** (PB-UI-3/4/5/6/7): center chat, gate+soften top toolbar, borderless input,
+  Ask-Piloti→new chat, result width. Subjective spacing flagged for the user's eye.
+- **PB-SYNTH-6/10** wizard: stale draft no longer clobbers a newer brief; AI 'Revise' link resolves.
+- **PB-SYNTH-7/9** members: self-lockout guard (threaded currentMembershipId) + no silent downgrade.
+- **PB-SYNTH-8/12** errors: typed error-boundary classification (no more 'access'-substring), brief error detail.
+- **PB-SYNTH-13** forwardRef warning fixed at the tooltip primitive.
+Remaining synthesized: PB-SYNTH-4 (search-route scope hardening), PB-SYNTH-5 (top_k), + UX polish list.
