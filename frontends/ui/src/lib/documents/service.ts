@@ -152,7 +152,7 @@ export async function dispatchIngest(
     expiresIn: presignTtlSeconds(),
   })
 
-  // Generate presigned upload URL for a 200px JPEG thumbnail
+  // Generate presigned upload URL for a 400px JPEG thumbnail
   const thumbnailUploadKey = buildThumbnailMinioKey(minioKey)
   const thumbnailUploadUrl = await getSignedUrl(
     signingS3Client,

@@ -1736,11 +1736,19 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         file_path: str,
         thumbnail_upload_url: str,
     ) -> None:
-        """Generate a 200px-wide JPEG thumbnail and upload it via the presigned URL."""
+        """Generate a 400px-wide JPEG thumbnail and upload it via the presigned URL.
+
+        The file cards render the thumbnail header up to ~236px wide, so a 400px
+        source keeps it crisp on standard displays and stays reasonable on
+        high-DPI (retina) screens where a smaller source would look soft.
+        """
         import io
 
         import httpx
         from PIL import Image
+
+        # Longest-edge cap for the generated thumbnail (px).
+        THUMBNAIL_MAX_DIM = 400
 
         is_pdf = _looks_like_pdf(file_path)
         image_format = _looks_like_image(file_path)
@@ -1753,7 +1761,9 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                 import pypdfium2 as pdfium
                 pdf = pdfium.PdfDocument(file_path)
                 page = pdf[0]
-                bitmap = page.render(scale=1)
+                # Render at 2x (supersample) so the down-scaled thumbnail keeps
+                # crisp, anti-aliased text/lines instead of a soft 72-DPI page.
+                bitmap = page.render(scale=2)
                 pil_image = bitmap.to_pil()
                 pdf.close()
             except Exception:
@@ -1771,8 +1781,8 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         else:
             return  # Not a previewable type
 
-        # Resize to max 200px wide, maintaining aspect ratio
-        pil_image.thumbnail((200, 200))
+        # Resize to max 400px on the longest edge, maintaining aspect ratio.
+        pil_image.thumbnail((THUMBNAIL_MAX_DIM, THUMBNAIL_MAX_DIM))
         buf = io.BytesIO()
         pil_image.save(buf, format="JPEG", quality=80)
         thumbnail_bytes = buf.getvalue()
