@@ -185,3 +185,24 @@
   toggle is a larger feature — flag for product.
 - **Server/UI/product items** from the feedback remain yours by design (connection
   loss, 60–180s latency, headers/logo/colors, wizard question redesign, Workflows).
+
+## Overnight cycle 1 — UI wave + skeptic review (2026-07-21)
+- **PB-UI-1 color-coding** — reused the EXISTING `routingDecision` signal (meta vs
+  shallow/deep); calm "Hinweis"/Note tab vs ink "Ergebnis"/Result. No backend change
+  (best-part-is-no-part). Committed.
+- **PB-UI-8 larger preview** — expand-dialog was already wired; bumped inline pane to
+  responsive min-h-[420px]→@2xl:65vh. Committed.
+- **PB-UI-9 archiv back-to-project + nav order** — resolve active project, "Zurück zum
+  Projekt", move Archiv above Settings. Committed.
+- **PB-UI-10 role explainers** — Viewer/Editor/Admin copy derived from real FGA perms. Committed.
+- **Senior-skeptic review** ran on the session diff and found **2 REAL BUGS I introduced**
+  + 3 simplifications (and confirmed the rest is minimal — left alone):
+  - **BUG (fixing, ae7789):** watermark `WATERMARK_PHRASE_PATTERNS` derived by regex-surgery
+    is end-anchored for the Autodesk pattern → mid-caption Autodesk stamps NOT scrubbed;
+    the PB-16 test only covered Vectorworks. Rewriting patterns directly + Autodesk test.
+  - **BUG/dead code (deleting, a98358):** `quotes_unverified` wire shape mismatch
+    (backend `reasons` vs FE `examples`) → always dropped, and never rendered. Deleting the
+    whole summary-object plumbing; PB-9 is delivered by the working tooltip + inline marker.
+  - Deferred simplifications (#3 merge summarizers — subsumed by the deletion; #4 shared
+    `purgeDocumentArtifacts`; #5 shared `toFileItem`) — low-risk cleanups for a later pass.
+- Still running: app use-case audit + net-new logic-issue synthesis (→ new backlog items).
