@@ -22,8 +22,11 @@ pointer. Copy the objects **before** cutting the app over.
 
 You cannot simply deploy the new compose over the old one — the object copy
 needs **both stores reachable at the same time**, and the final compose has no
-MinIO anymore. `deploy/compose/docker-compose.coolify.transition.yaml` exists
-for exactly one deploy window and automates the copy:
+MinIO anymore. So for one deploy window the transitional stack **occupies the
+active compose path** (`deploy/compose/docker-compose.coolify.yaml`) — the
+normal push-triggered deploy runs the migration, no Coolify settings change
+needed — while the permanent stack is parked at
+`deploy/compose/docker-compose.coolify.final.yaml`. The transitional stack:
 
 - `minio` stays up on its existing volume and existing `SERVICE_PASSWORD_MINIO`
   secret (Coolify secrets are stable per stack, so the old password still fits).
@@ -38,23 +41,27 @@ for exactly one deploy window and automates the copy:
 
 Steps:
 
-1. In Coolify, change the resource's **Docker Compose Location** to
-   `deploy/compose/docker-compose.coolify.transition.yaml` and deploy.
+1. Push — Coolify deploys the transitional stack automatically.
 2. Watch the `storage-migrate` container logs until it prints
    `verification OK` and exits.
-3. **Restart `storage-migrate` once more right before step 4** (one click) — a
-   seconds-fast final sync that picks up anything uploaded while you were
-   watching. Do the flip in a quiet window.
-4. Change the compose location back to
-   `deploy/compose/docker-compose.coolify.yaml` and deploy. MinIO is dropped;
-   the app now talks to SeaweedFS.
-5. In the app, open/preview/download a few pre-existing documents to confirm.
-6. Only then delete the orphaned `minio-data` volume. Until you do, nothing is
-   lost and you can roll back by re-deploying the transitional file.
+3. Flip: restore the final compose to the active path and push:
+   ```bash
+   git mv deploy/compose/docker-compose.coolify.final.yaml \
+          deploy/compose/docker-compose.coolify.yaml
+   git commit -m "Complete MinIO -> SeaweedFS cutover" && git push
+   ```
+   Do this in a quiet window — or restart `storage-migrate` (one click in
+   Coolify) right before pushing, as a seconds-fast final sync. That deploy
+   drops MinIO; the app now talks to SeaweedFS.
+4. In the app, open/preview/download a few pre-existing documents to confirm.
+5. Only then delete the orphaned `minio-data` volume. Until you do, nothing is
+   lost and you can roll back by re-deploying the transitional compose (it is
+   preserved in git history).
 
-Caveat: uploads made between the last `storage-migrate` run and step 4 exist
-only in MinIO (that is what step 3 is for). Documents purged during the window
-after being copied linger as invisible orphan bytes in SeaweedFS — harmless.
+Caveat: uploads made between the last `storage-migrate` run and the flip exist
+only in MinIO (that is what the pre-push restart in step 3 is for). Documents
+purged during the window after being copied linger as invisible orphan bytes in
+SeaweedFS — harmless.
 
 ## Cutover by hand (docker compose / other CD)
 
