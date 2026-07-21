@@ -66,6 +66,10 @@ export const chat = {
   roles: {
     input: 'Input',
     result: 'Result',
+    // Role tab for a conversational / clarifying reply (routing_decision =
+    // 'meta': greetings, capability questions, clarifying Rückfragen) — marks
+    // it visibly apart from a substantive Baurecht 'Result'.
+    note: 'Note',
   },
   // "Belegt durch" provenance chip row under answers that carry source data.
   answerSources: {

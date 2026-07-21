@@ -481,6 +481,7 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
           messageId={message.id}
           showAnswerFeedback={showAnswerFeedback}
           isStreaming={message.isStreaming}
+          routingDecision={message.routingDecision}
         />
       )
 

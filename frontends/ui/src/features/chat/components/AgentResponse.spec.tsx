@@ -290,4 +290,51 @@ describe('AgentResponse', () => {
       ).toBeInTheDocument()
     })
   })
+
+  // The routingDecision-driven visual distinction: a substantive Baurecht
+  // answer (shallow/deep) wears the ink "Result" role tab; a conversational /
+  // clarifying meta reply wears the quiet neutral "Note" tab. Fallback (no
+  // signal) must stay identical to a substantive answer.
+  describe('response-kind distinction (routingDecision)', () => {
+    test('a shallow Baurecht answer wears the "Result" role tab', () => {
+      render(<AgentResponse content="Baurecht answer" routingDecision="shallow" />)
+
+      expect(screen.getByText('Result')).toBeInTheDocument()
+      expect(screen.queryByText('Note')).not.toBeInTheDocument()
+    })
+
+    test('a meta reply wears the distinct "Note" role tab instead of "Result"', () => {
+      render(<AgentResponse content="Hello there" routingDecision="meta" />)
+
+      expect(screen.getByText('Note')).toBeInTheDocument()
+      expect(screen.queryByText('Result')).not.toBeInTheDocument()
+    })
+
+    test('the two kinds render visibly different role tabs for the same content', () => {
+      const { unmount } = render(
+        <AgentResponse content="Same text" routingDecision="deep" />
+      )
+      expect(screen.getByText('Result')).toBeInTheDocument()
+      unmount()
+
+      render(<AgentResponse content="Same text" routingDecision="meta" />)
+      expect(screen.getByText('Note')).toBeInTheDocument()
+      expect(screen.queryByText('Result')).not.toBeInTheDocument()
+    })
+
+    test('fallback: absent routingDecision renders exactly as a substantive answer', () => {
+      render(<AgentResponse content="Legacy answer" />)
+
+      // No discriminator → the "Result" treatment, never the meta "Note" tab.
+      expect(screen.getByText('Result')).toBeInTheDocument()
+      expect(screen.queryByText('Note')).not.toBeInTheDocument()
+    })
+
+    test("fallback: an 'error' routing keeps the default \"Result\" treatment", () => {
+      render(<AgentResponse content="Something went wrong" routingDecision="error" />)
+
+      expect(screen.getByText('Result')).toBeInTheDocument()
+      expect(screen.queryByText('Note')).not.toBeInTheDocument()
+    })
+  })
 })

@@ -9,7 +9,7 @@
 'use client'
 
 import { type FC, memo, useCallback } from 'react'
-import { Check, ChevronRight } from 'lucide-react'
+import { Check, ChevronRight, MessageCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { useShallow } from 'zustand/react/shallow'
@@ -91,6 +91,15 @@ export interface AgentResponseProps {
    * MarkdownRenderer. Threaded from `message.isStreaming` by ChatArea.
    */
   isStreaming?: boolean
+  /**
+   * Which path the turn took after intent classification (WP-A transparency
+   * extra). `'meta'` marks a conversational / clarifying reply (greetings,
+   * capability questions, Rückfragen) — rendered with a quiet neutral "Hinweis"
+   * role tab so it reads clearly apart from a substantive Baurecht answer
+   * (`'shallow'`/`'deep'`, the ink "Ergebnis" tab). Absent/`'error'` fall back
+   * to the "Ergebnis" treatment, so existing callers render exactly as before.
+   */
+  routingDecision?: 'meta' | 'shallow' | 'deep' | 'error'
 }
 
 /** Blinking caret shown at the tail of a still-streaming answer (C6). */
@@ -176,6 +185,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   messageId,
   showAnswerFeedback = true,
   isStreaming = false,
+  routingDecision,
 }) => {
   const t = useTranslations('chat')
   const openRightPanel = useLayoutStore((s) => s.openRightPanel)
@@ -335,16 +345,39 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // Default variant — the click-dummy "Ergebnis" card: a role tab over a
   // tinted shell whose white inner block carries the composed answer, then a
   // "Belegt durch" provenance row and the feedback row, hairline-separated.
+  //
+  // A `meta`-routed turn (conversational reply / clarifying Rückfrage) swaps the
+  // ink "Ergebnis" tab for a quiet neutral "Hinweis" tab so it reads clearly
+  // apart from a substantive Baurecht answer — the only visual change; anatomy,
+  // spacing and provenance rows are identical. Any other routing (shallow/deep/
+  // error) or an absent signal keeps the "Ergebnis" tab (fail-open).
+  const isMeta = routingDecision === 'meta'
   return (
     <div className="animate-in fade-in-0 slide-in-from-bottom-1 mx-auto flex w-[680px] max-w-full flex-col duration-200">
-      {/* "Ergebnis" role tab — near-black action fill, uppercase 10.5/600 */}
-      <div className="ml-[14px] inline-flex w-fit items-center gap-1.5 rounded-t-[7px] bg-primary px-2.5 py-1 text-[10.5px] font-semibold uppercase tracking-[0.05em] text-primary-foreground">
-        <Check className="size-2.5" strokeWidth={2.6} aria-hidden="true" />
-        {t('roles.result')}
-      </div>
+      {/* Role tab — uppercase 10.5/600. Substantive answer: near-black action
+          fill + check. Meta reply: quiet secondary fill + conversation icon. */}
+      {isMeta ? (
+        <div className="ml-[14px] inline-flex w-fit items-center gap-1.5 rounded-t-[7px] bg-secondary px-2.5 py-1 text-[10.5px] font-semibold uppercase tracking-[0.05em] text-secondary-foreground">
+          <MessageCircle className="size-2.5" strokeWidth={2.6} aria-hidden="true" />
+          {t('roles.note')}
+        </div>
+      ) : (
+        <div className="ml-[14px] inline-flex w-fit items-center gap-1.5 rounded-t-[7px] bg-primary px-2.5 py-1 text-[10.5px] font-semibold uppercase tracking-[0.05em] text-primary-foreground">
+          <Check className="size-2.5" strokeWidth={2.6} aria-hidden="true" />
+          {t('roles.result')}
+        </div>
+      )}
 
-      {/* Shell: subtle surface + hairline + soft shadow, corners clipped */}
-      <div className="overflow-hidden rounded-[12px] border border-input bg-input-background shadow-md">
+      {/* Shell: subtle surface + hairline + soft shadow, corners clipped. A meta
+          reply sits on a quieter muted surface with a lighter shadow so the
+          whole card — not just the tab — reads as the calmer, non-result kind. */}
+      <div
+        className={
+          isMeta
+            ? 'overflow-hidden rounded-[12px] border border-input bg-muted/50 shadow-sm'
+            : 'overflow-hidden rounded-[12px] border border-input bg-input-background shadow-md'
+        }
+      >
         {/* White inner block — the answer body sits flat here (dummy anatomy) */}
         <div className="flex flex-col gap-2 break-words rounded-b-[10px] bg-card px-[22px] pb-[18px] pt-[19px] shadow-sm">
           {/* Optional Grid cards rendered before the markdown body */}

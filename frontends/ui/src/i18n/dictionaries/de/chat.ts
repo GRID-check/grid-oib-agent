@@ -58,6 +58,10 @@ export const chat: typeof en.chat = {
   roles: {
     input: 'Eingabe',
     result: 'Ergebnis',
+    // Rollen-Tab für eine konversationelle / klärende Antwort (routing_decision
+    // = 'meta': Begrüßungen, Fähigkeits- und Rückfragen) — deutlich abgesetzt
+    // von einem inhaltlichen Baurecht-'Ergebnis'.
+    note: 'Hinweis',
   },
   answerSources: {
     label: 'Belegt durch',
