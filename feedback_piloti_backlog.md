@@ -53,8 +53,9 @@
 
 - **PB-2 — Sources missing in the output card ("Teilweise fehlen Quellen").**
   Class: LOGIC. Likely same root cause as PB-1 (citation artifacts crash before
-  emit) plus KB/RIS sources not entering the SSE citation pipeline. Status:
-  VERIFY (agents: trust-chain, deep-research).
+  emit). Status: **RESOLVED BY PB-1** — the emit `useful` filter already
+  includes `source_type == "knowledge_layer"`; the TypeError crash was hiding all
+  sources. With the crash fixed, KB/RIS sources flow into the feed again.
 
 - **PB-3 — "Ask Your Data" (Büroarchiv + Projektunterlagen durchsuchen) doesn't
   work.**  Class: **WORKS AS INTENDED — not a code bug.** Verified: retrieval is

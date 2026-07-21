@@ -145,3 +145,43 @@
 - **Deferred + flag for you:** PB-8b "Empfehlung" card reframe (touches card schema +
   ComparisonTableCard UI + i18n) — liability-sensitive wording; held for your review
   rather than changed autonomously.
+
+## Sprint 4/5 — COMPLETE + session wrap-up (2026-07-21)
+
+### Landed & pushed this session (all verified)
+| Item | What shipped | Verify |
+|---|---|---|
+| PB-1 | Deep-research citation-emit crash fixed (`_emit_artifact` content collision) | BE 2021→ green |
+| PB-2 | Resolved by PB-1 — KB/RIS sources are in the emit `useful` filter; the crash was hiding them | code-confirmed |
+| PB-6 | Delete uploaded project documents (mirrors Archiv) | tsc + specs |
+| PB-7 | Deterministic fabricated-quote verification (difflib, fail-open, inline marker) — backend + frontend | BE 2424, FE 69 |
+| PB-8a | Concise answers, stop restating project params (prompts) | 517 prompt tests |
+| PB-9 | Confidence chip now explains WHY it's low (delivered via PB-7 wiring) | FE specs |
+| PB-10 | Ask Rückfragen in normal chat when a hard-required fact is missing (prompt) | 517 prompt tests |
+| PB-12 | Latent `source_url` drop in norm-registry render fixed | 63 tests |
+| PB-14 | Broadened identity → Bürowissen + Baurecht + technische Richtlinien (5 prompts + guardrail + intent) | 517 prompt tests |
+| PB-15 | AI briefing regenerates on UI language switch | tsc + specs |
+| PB-16 | Vision captions no longer leak watermark/licence text as "corrupt" summaries | BE 2393 |
+| PB-18 | Semantic document search in the file browser (backend + transparent UI) | BE 2385, FE 67 |
+| infra | Fixed request-context.spec (was silently not running); persisted "fix errors, don't dismiss" into AGENTS.md; switched FE verification to a native toolchain | — |
+
+### Needs a HUMAN (flagged, not silently dropped)
+- **Live smoke tests** (cannot be unit-tested): deep-research end-to-end now that
+  the citation crash is fixed; the fabricated-quote marker + confidence reason on a
+  real DeepSeek answer; the Rückfragen/brevity/broadened-identity prompt behavior;
+  one real image upload to confirm watermark scrubbing.
+- **PB-7 tuning:** `QUOTE_MATCH_THRESHOLD=0.90` / `MIN_QUOTE_LEN=20` want calibration
+  against real transcripts (validated only on synthetic OIB chunks).
+- **PB-8b "Empfehlung" card reframe** — DEFERRED for your review (liability-sensitive
+  wording; touches the ComparisonTableCard schema + UI). Not changed autonomously.
+- **PB-11 RIS "connection lost"** — mostly upstream/server flakiness; the client
+  already has retries/backoff/timeouts/fail-open cache. Optional hardening: a
+  stale-if-error cache fallback (serve last-known-good during an RIS outage).
+- **PB-12 data task** — someone must add the WBTV Wien Anlagen full text to the OIB
+  corpus (the code path + registry entry now support it; the annex text itself is
+  missing). The render bug that would have dropped an annex link is fixed.
+- **PB-13 finer source selection** (only OIB / a specific Landesbauordnung) — low
+  prio; PB-18 already scopes search to the user's own collections. A per-source
+  toggle is a larger feature — flag for product.
+- **Server/UI/product items** from the feedback remain yours by design (connection
+  loss, 60–180s latency, headers/logo/colors, wizard question redesign, Workflows).
