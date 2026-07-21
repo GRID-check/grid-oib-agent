@@ -187,7 +187,7 @@ services:
     volumes:
       - seaweedfs-data:/data
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:9333/cluster/status"]
+      test: ["CMD", "busybox", "wget", "-q", "-O", "/dev/null", "http://localhost:9333/cluster/status"]
       interval: 5s
       timeout: 5s
       retries: 10
