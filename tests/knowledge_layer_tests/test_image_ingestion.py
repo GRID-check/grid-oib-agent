@@ -380,6 +380,51 @@ class TestRunIngestionImageBranch:
         assert "Grundriss EG" in summary
         assert "Zentrales Atrium" in summary
 
+    def test_autodesk_watermark_mid_caption_scrubbed_before_becoming_fallback_summary(
+        self, tmp_path, monkeypatch, ingestor, summary_db
+    ):
+        """Regression for the Autodesk phrase specifically: WATERMARK_LINE_PATTERNS[2]
+        ("produced by an autodesk (student|educational) (version|product)")
+        ends in ``.*$`` rather than ``\\s*$``. A phrase-pattern list merely
+        derived from that source string by stripping trailing anchors leaves
+        the derived pattern still end-anchored, so it silently fails to match
+        the phrase when it appears mid-caption (only when it happens to sit at
+        the very end of the string). This is exactly the scenario
+        _scrub_watermark_phrases exists to handle, so it must catch this too.
+        """
+        from aiq_agent.knowledge import get_available_documents
+
+        _patch_vlm_credential(monkeypatch, "vlm-key")
+        # Summarisation disabled -> the caption itself is the only summary source.
+        ingestor.generate_summary_enabled = False
+        # The VLM weaves the licence stamp into the caption prose (mid-line,
+        # with real content both before AND after it).
+        monkeypatch.setattr(
+            adapter,
+            "_analyze_image_with_vlm",
+            lambda *a, **k: (
+                "image",
+                "Ein Grundriss EG. Produced by an Autodesk student version. Zentrales Atrium.",
+            ),
+        )
+
+        img = tmp_path / "lageplan.png"
+        img.write_bytes(_png_bytes())
+
+        job_id = ingestor.submit_job([str(img)], "coll_wm_autodesk", config={"original_filenames": ["lageplan.png"]})
+        status = _wait_terminal(ingestor, job_id)
+        assert status.is_success
+
+        docs = get_available_documents("coll_wm_autodesk")
+        assert len(docs) == 1
+        summary = docs[0].summary
+        assert summary is not None
+        # The watermark is gone; the real content on both sides survives.
+        assert "AUTODESK" not in summary.upper()
+        assert "STUDENT VERSION" not in summary.upper()
+        assert "Grundriss EG" in summary
+        assert "Zentrales Atrium" in summary
+
     def test_vlm_unconfigured_fails_with_specific_reason(self, tmp_path, monkeypatch, ingestor, summary_db):
         _patch_vlm_credential(monkeypatch, "")
 

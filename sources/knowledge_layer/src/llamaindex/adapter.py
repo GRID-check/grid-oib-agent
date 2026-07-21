@@ -129,12 +129,25 @@ _PAGEOBJ_IMAGE = 3
 # drawing page that is 100% linework does not read as "has text" and so the
 # summary never describes the watermark instead of the drawing. Matched
 # case-insensitively against whole lines (leading/trailing whitespace ignored).
+#
+# Each entry is (phrase_fragment, line_suffix): the fragment is the bare
+# phrase regex (no anchors) and is the single source of truth for both the
+# whole-line patterns below and the substring patterns further down (used to
+# scrub the phrase out of VLM captions where it can appear mid-sentence). The
+# suffix is what follows the phrase to make a *whole line* match: most
+# watermarks are just the phrase itself (``\s*$``), but the Autodesk stamp is
+# often followed by extra trailing boilerplate on the same line, so it needs
+# ``.*$`` instead.
+_WATERMARK_PHRASES: list[tuple[str, str]] = [
+    (r"vectorworks\s+educational\s+version", r"\s*$"),
+    (r"educational\s+version", r"\s*$"),
+    (r"produced\s+by\s+an\s+autodesk\s+(student|educational)\s+(version|product)", r".*$"),
+    (r"created\s+(in|with)\s+an?\s+.*(trial|evaluation|educational).*version", r"\s*$"),
+    (r"(unregistered|evaluation|trial|demo)\s+version", r"\s*$"),
+]
+
 WATERMARK_LINE_PATTERNS = [
-    re.compile(r"^\s*vectorworks\s+educational\s+version\s*$", re.IGNORECASE),
-    re.compile(r"^\s*educational\s+version\s*$", re.IGNORECASE),
-    re.compile(r"^\s*produced\s+by\s+an\s+autodesk\s+(student|educational)\s+(version|product).*$", re.IGNORECASE),
-    re.compile(r"^\s*created\s+(in|with)\s+an?\s+.*(trial|evaluation|educational).*version\s*$", re.IGNORECASE),
-    re.compile(r"^\s*(unregistered|evaluation|trial|demo)\s+version\s*$", re.IGNORECASE),
+    re.compile(rf"^\s*{fragment}{suffix}", re.IGNORECASE) for fragment, suffix in _WATERMARK_PHRASES
 ]
 
 # @environment_variable AIQ_COLLECTION_TTL_HOURS
@@ -531,16 +544,15 @@ def _strip_watermark_lines(text: str | None) -> str:
     return "\n".join(kept).strip()
 
 
-# Substring counterparts of WATERMARK_LINE_PATTERNS, derived from the very same
-# phrases but with the whole-line anchors (``^\s*`` / ``\s*$``) removed so they
-# can be matched *anywhere inside* a line via ``re.search``. VLM captions weave
-# the licence stamp into prose (e.g. "... a floor plan. VECTORWORKS EDUCATIONAL
-# VERSION overlaid ...") where the line-level filter never fires, so the caption
-# needs a substring scrub before it can become a document summary.
-WATERMARK_PHRASE_PATTERNS = [
-    re.compile(re.sub(r"^\^\\s\*", "", re.sub(r"\\s\*\$$", "", p.pattern)), re.IGNORECASE)
-    for p in WATERMARK_LINE_PATTERNS
-]
+# Substring counterparts of WATERMARK_LINE_PATTERNS, built from the very same
+# `_WATERMARK_PHRASES` fragments (unanchored, no ``^``/``$``/``.*``) so they can
+# be matched *anywhere inside* a line via ``re.search``/``re.sub``. VLM captions
+# weave the licence stamp into prose (e.g. "... a floor plan. VECTORWORKS
+# EDUCATIONAL VERSION overlaid ...") where the line-level filter never fires,
+# so the caption needs a substring scrub before it can become a document
+# summary. Sharing one source of phrases with WATERMARK_LINE_PATTERNS means the
+# two lists can never drift out of sync with each other.
+WATERMARK_PHRASE_PATTERNS = [re.compile(fragment, re.IGNORECASE) for fragment, _suffix in _WATERMARK_PHRASES]
 
 
 def _scrub_watermark_phrases(text: str | None) -> str:
