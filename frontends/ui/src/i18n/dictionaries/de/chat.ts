@@ -155,6 +155,13 @@ export const chat: typeof en.chat = {
     // Robustheit, Punkt 4). Statt nur des stummen „Unterbrochen“-Chips.
     interruptedNotice:
       'Verbindung kurz unterbrochen — Antwort ging verloren. Bitte erneut senden.',
+    // Vorübergehender „Wird geprüft“-Zustand (FIX 3): angezeigt, solange der
+    // Wiederherstellungs-Abruf nach einer Wiederverbindung läuft, damit ein
+    // Zug, der nur unterbrochen AUSSIEHT, nicht sofort den „verloren“-Hinweis
+    // zeigt, bevor bestätigt ist, dass die Antwort wirklich fehlt.
+    recovering: 'Verbindung wird wiederhergestellt',
+    recoveringNotice:
+      'Verbindung wird wiederhergestellt — prüfe auf fertige Antwort …',
     done: 'Fertig',
     showThinking: 'Denkschritte anzeigen ({count})',
     showThinkingSteps: 'Denkschritte anzeigen ({count})',

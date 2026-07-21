@@ -152,6 +152,11 @@ export const chat = {
     // an in-flight answer (protocol-robustness item 4). German copy is the
     // product-facing string; this English fallback is for harnesses/tests.
     interruptedNotice: 'Connection briefly lost — the answer was dropped. Please resend.',
+    // Transient "checking" state (FIX 3): shown while the reconnect recovery
+    // fetch is in flight, so a turn that only LOOKS interrupted does not flash
+    // the "lost" copy before we have confirmed the answer is really gone.
+    recovering: 'Reconnecting',
+    recoveringNotice: 'Reconnecting — checking for a finished answer …',
     done: 'Done',
     elapsedAria: 'Elapsed: {seconds} seconds',
     // Live one-liners describing what the assistant is doing right now, chosen

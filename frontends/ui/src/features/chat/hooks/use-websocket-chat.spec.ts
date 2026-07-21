@@ -500,6 +500,75 @@ describe('useWebSocketChat', () => {
     expect(mockWsClient.sendMessage).not.toHaveBeenCalled()
   })
 
+  describe('reconnect-triggered answer recovery (FIX 2)', () => {
+    test('re-runs interrupted-answer recovery once per reconnect, but not on the initial connect', () => {
+      const mockRecover = vi.fn()
+      Object.assign(mockStoreState, {
+        currentConversation: {
+          id: 'conv-1',
+          userId: 'user-1',
+          messages: [{ id: 'u1', messageType: 'user', content: 'Deep question' }],
+        },
+        _recoverInterruptedAssistantMessage: mockRecover,
+      })
+
+      renderWebSocketHook()
+
+      // Initial connect of a fresh mount must NOT re-fetch — that path is
+      // already covered by restoreSessionState on mount.
+      act(() => {
+        capturedCallbacks.onConnectionChange?.('connected')
+      })
+      expect(mockRecover).not.toHaveBeenCalled()
+
+      // A genuine reconnect (drop then reconnect) re-runs recovery exactly once,
+      // keyed on the conversation + its last user message.
+      act(() => {
+        capturedCallbacks.onConnectionChange?.('disconnected')
+      })
+      act(() => {
+        capturedCallbacks.onConnectionChange?.('connected')
+      })
+      expect(mockRecover).toHaveBeenCalledTimes(1)
+      expect(mockRecover).toHaveBeenCalledWith('conv-1', 'u1')
+
+      // A second reconnect inside the debounce window must not spam recovery.
+      act(() => {
+        capturedCallbacks.onConnectionChange?.('disconnected')
+      })
+      act(() => {
+        capturedCallbacks.onConnectionChange?.('connected')
+      })
+      expect(mockRecover).toHaveBeenCalledTimes(1)
+    })
+
+    test('does not recover on reconnect while a turn is actively streaming', () => {
+      const mockRecover = vi.fn()
+      Object.assign(mockStoreState, {
+        currentConversation: {
+          id: 'conv-1',
+          userId: 'user-1',
+          messages: [{ id: 'u1', messageType: 'user', content: 'Q' }],
+        },
+        _recoverInterruptedAssistantMessage: mockRecover,
+      })
+
+      renderWebSocketHook()
+      act(() => {
+        capturedCallbacks.onConnectionChange?.('connected')
+      })
+      mockStoreState.isStreaming = true
+      act(() => {
+        capturedCallbacks.onConnectionChange?.('disconnected')
+      })
+      act(() => {
+        capturedCallbacks.onConnectionChange?.('connected')
+      })
+
+      expect(mockRecover).not.toHaveBeenCalled()
+    })
+  })
+
   test('does not replay an unacknowledged message more than once', () => {
     mockWsClient.isConnected.mockReturnValue(true)
     mockWsClient.sendMessage

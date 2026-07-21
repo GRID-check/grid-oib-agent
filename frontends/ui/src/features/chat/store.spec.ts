@@ -1866,6 +1866,60 @@ describe('useChatStore', () => {
       expect(messages[1].errorData?.errorCode).toBe('agent.response_interrupted')
     })
 
+    test('sets isRecoveryPending while the recovery fetch is in flight, then clears it (FIX 3)', async () => {
+      // Hold the server refetch open so we can observe the in-flight flag.
+      let resolveList: (value: unknown[]) => void = () => {}
+      mockConversationsClient.listMessages.mockReturnValueOnce(
+        new Promise<unknown[]>((resolve) => {
+          resolveList = resolve
+        }) as never
+      )
+      const conv = createConversation([{ id: 'msg-0', role: 'user', messageType: 'user', content: 'Q' }])
+      useChatStore.setState({ currentConversation: conv, conversations: [conv], isRecoveryPending: false })
+
+      const recovery = useChatStore.getState()._recoverInterruptedAssistantMessage(conv.id, 'msg-0')
+      // The checking state is active for the whole round-trip.
+      expect(useChatStore.getState().isRecoveryPending).toBe(true)
+
+      resolveList([]) // nothing persisted → genuinely lost
+      const recovered = await recovery
+      expect(recovered).toBe(false)
+      // Only after the fetch settles does the flag clear (so the lost UI shows).
+      expect(useChatStore.getState().isRecoveryPending).toBe(false)
+    })
+
+    test('recovers the persisted answer and clears isRecoveryPending (FIX 3)', async () => {
+      mockConversationsClient.listMessages.mockResolvedValueOnce([
+        {
+          id: 'msg-0',
+          conversationId: 'conv-restore',
+          role: 'user',
+          content: 'Q',
+          metadata: {},
+          createdAt: '2026-07-01T10:00:00.000Z',
+        },
+        {
+          id: 'server-assistant-1',
+          conversationId: 'conv-restore',
+          role: 'assistant',
+          content: 'The finished answer.',
+          metadata: { messageType: 'agent_response' },
+          createdAt: '2026-07-01T10:00:05.000Z',
+        },
+      ] as never)
+      const conv = createConversation([{ id: 'msg-0', role: 'user', messageType: 'user', content: 'Q' }])
+      useChatStore.setState({ currentConversation: conv, conversations: [conv], isRecoveryPending: false })
+
+      const recovered = await useChatStore
+        .getState()
+        ._recoverInterruptedAssistantMessage(conv.id, 'msg-0')
+
+      expect(recovered).toBe(true)
+      expect(useChatStore.getState().isRecoveryPending).toBe(false)
+      const messages = useChatStore.getState().currentConversation?.messages ?? []
+      expect(messages.some((m) => m.id === 'server-assistant-1')).toBe(true)
+    })
+
     test('does NOT add error card when last message is an assistant response', () => {
       const conv = createConversation([
         {

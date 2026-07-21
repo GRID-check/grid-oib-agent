@@ -348,7 +348,7 @@ describe('NATWebSocketClient URL construction', () => {
     await client.connect()
     const ws = MockWebSocket.instances[0]
 
-    expect(ws.url).toBe('ws://localhost/websocket?conversationId=conv-1')
+    expect(ws.url).toBe('ws://localhost/websocket?conversationId=conv-1&conversation_id=conv-1')
   })
 
   test('appends both projectId and conversationId query params', async () => {
@@ -362,7 +362,7 @@ describe('NATWebSocketClient URL construction', () => {
     await client.connect()
     const ws = MockWebSocket.instances[0]
 
-    expect(ws.url).toBe('ws://localhost/websocket?projectId=proj-1&conversationId=conv-1')
+    expect(ws.url).toBe('ws://localhost/websocket?projectId=proj-1&conversationId=conv-1&conversation_id=conv-1')
   })
 
   test('preserves existing query params on websocketUrl', async () => {
@@ -376,7 +376,7 @@ describe('NATWebSocketClient URL construction', () => {
     await client.connect()
     const ws = MockWebSocket.instances[0]
 
-    expect(ws.url).toBe('ws://localhost/websocket?existing=yes&projectId=proj-1&conversationId=conv-1')
+    expect(ws.url).toBe('ws://localhost/websocket?existing=yes&projectId=proj-1&conversationId=conv-1&conversation_id=conv-1')
   })
 
   test('uses URL without params when neither projectId nor conversationId is set', async () => {
@@ -400,13 +400,13 @@ describe('NATWebSocketClient URL construction', () => {
     })
 
     await client.connect()
-    expect(MockWebSocket.instances[0].url).toBe('ws://localhost/websocket?conversationId=conv-1')
+    expect(MockWebSocket.instances[0].url).toBe('ws://localhost/websocket?conversationId=conv-1&conversation_id=conv-1')
 
     client.updateConversationId('conv-2')
     await client.rotate()
 
     expect(MockWebSocket.instances).toHaveLength(2)
-    expect(MockWebSocket.instances[1].url).toBe('ws://localhost/websocket?conversationId=conv-2')
+    expect(MockWebSocket.instances[1].url).toBe('ws://localhost/websocket?conversationId=conv-2&conversation_id=conv-2')
   })
 
   test('updateProjectId rotates and reconnects with the new projectId in the handshake', async () => {
@@ -423,14 +423,14 @@ describe('NATWebSocketClient URL construction', () => {
 
     await client.connect()
     expect(MockWebSocket.instances[0].url).toBe(
-      'ws://localhost/websocket?projectId=proj-1&conversationId=conv-1',
+      'ws://localhost/websocket?projectId=proj-1&conversationId=conv-1&conversation_id=conv-1',
     )
 
     client.updateProjectId('proj-2')
     await vi.waitFor(() => expect(MockWebSocket.instances).toHaveLength(2))
 
     expect(MockWebSocket.instances[1].url).toBe(
-      'ws://localhost/websocket?projectId=proj-2&conversationId=conv-1',
+      'ws://localhost/websocket?projectId=proj-2&conversationId=conv-1&conversation_id=conv-1',
     )
   })
 

@@ -150,6 +150,28 @@ async def test_generate_summary_missing_field(app):
 
 
 @pytest.mark.asyncio
+async def test_generate_summary_null_choices_returns_malformed_not_500(app):
+    """An OpenAI-compatible 200 with `choices: null` (an OpenRouter failure mode)
+    must degrade to an llm_response_malformed 200, not raise a 500. Indexing
+    ``None[0]`` raises TypeError, which the handler must also catch."""
+    null_choices = MagicMock(spec=httpx.Response)
+    null_choices.status_code = 200
+    null_choices.raise_for_status = MagicMock()
+    null_choices.json.return_value = {"choices": None}
+    mock_post = AsyncMock(return_value=null_choices)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        with patch("httpx.AsyncClient", _fake_async_client(mock_post)):
+            response = await client.post(
+                "/v1/generate-summary",
+                json={"profile_text": "Project type: office renovation."},
+            )
+
+    assert response.status_code == 200
+    assert response.json() == {"summary": "", "error": "llm_response_malformed"}
+
+
+@pytest.mark.asyncio
 async def test_generate_summary_llm_failure_returns_empty_summary(app):
     """Test that an LLM/network failure is swallowed and returns an empty summary (200)."""
     mock_post = AsyncMock(side_effect=httpx.RequestError("Connection refused"))

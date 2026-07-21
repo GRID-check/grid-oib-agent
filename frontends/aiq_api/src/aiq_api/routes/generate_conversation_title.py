@@ -165,7 +165,7 @@ def add_generate_conversation_title_routes(router: APIRouter) -> None:
 
         try:
             raw = data["choices"][0]["message"]["content"]
-        except (KeyError, IndexError, AttributeError):
+        except (KeyError, IndexError, AttributeError, TypeError):
             logger.warning("Conversation-title LLM response had an unexpected shape")
             return GenerateConversationTitleResponse(title="", tags=[], error="llm_response_malformed")
 

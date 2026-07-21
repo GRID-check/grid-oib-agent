@@ -13,6 +13,7 @@ import httpx
 from fastapi import WebSocket
 from pydantic import BaseModel
 from pydantic import ValidationError
+from starlette.datastructures import QueryParams
 from starlette.websockets import WebSocketDisconnect
 
 from aiq_api.auth.errors import AuthError
@@ -254,23 +255,38 @@ def deterministic_assistant_message_id(conversation_id: str, parent_id: str | No
     return str(uuid.uuid5(uuid.NAMESPACE_URL, f"grid:assistant:{conversation_id}:{parent_id or 'default'}"))
 
 
-def _auth_headers_from_scope(scope: dict[str, Any]) -> dict[str, str]:
-    """Replay the browser session credentials the WS handshake forwarded.
+INTERNAL_TOKEN_HEADER = "X-Grid-Internal-Token"
+_ORG_ID_HEADER = "x-grid-organization-id"
 
-    ``server.js`` forwards the browser ``Cookie`` header (which carries the
-    WorkOS AuthKit session cookie) and an ``Authorization: Bearer`` header on the
-    WebSocket upgrade. The conversations-messages route authenticates the same
-    way the client writer does (``withAuth()`` reads the session cookie), so we
-    replay those headers verbatim to persist as the same user.
+
+def _org_id_from_scope(scope: dict[str, Any]) -> str | None:
+    """Read the conversation's owning org id off the WS upgrade scope.
+
+    ``server.js`` forwards the resolved ``x-grid-organization-id`` header on the
+    WebSocket upgrade. The internal persist route scopes the conversation lookup
+    by this org, so a fail-soft persist for a conversation whose org we cannot
+    determine simply no-ops (returns 404) rather than writing cross-tenant.
     """
-    headers: dict[str, str] = {}
     for raw_name, raw_value in scope.get("headers", []) or []:
         name = raw_name.decode() if isinstance(raw_name, bytes) else str(raw_name)
-        if name.lower() not in ("cookie", "authorization"):
+        if name.lower() != _ORG_ID_HEADER:
             continue
-        value = raw_value.decode() if isinstance(raw_value, bytes) else str(raw_value)
-        headers[name.lower()] = value
-    return headers
+        return raw_value.decode() if isinstance(raw_value, bytes) else str(raw_value)
+    return None
+
+
+def _internal_persist_headers() -> dict[str, str] | None:
+    """Service-token headers for the internal persist POST, or None if unset.
+
+    Mirrors the ``remember`` tool's internal-endpoint pattern
+    (``project_memory.py``): authenticate the backend→BFF call with the shared
+    ``GRID_INTERNAL_API_TOKEN`` rather than replaying the browser's handshake
+    cookie, which expires on long deep-research turns and would silently 401.
+    """
+    token = os.environ.get("GRID_INTERNAL_API_TOKEN")
+    if not token:
+        return None
+    return {"Content-Type": "application/json", INTERNAL_TOKEN_HEADER: token}
 
 
 async def persist_assistant_message(
@@ -278,13 +294,20 @@ async def persist_assistant_message(
     conversation_id: str,
     parent_id: str | None,
     text: str,
-    auth_headers: dict[str, str],
+    organization_id: str | None,
     cards: Any = None,
     deep_research_job_id: Any = None,
     answer_confidence: Any = None,
     sources: Any = None,
 ) -> bool:
     """Persist a finished assistant turn to the BFF when the client is gone.
+
+    Posts to the INTERNAL token-guarded route
+    (``/api/internal/conversations/{id}/messages``) authenticated with
+    ``GRID_INTERNAL_API_TOKEN`` — NOT the browser's handshake cookie. A long
+    deep-research turn can outlive the browser access token that was replayed at
+    handshake time, so the old cookie-replay POST silently 401'd and the answer
+    vanished; the service token does not expire mid-turn.
 
     Fail-soft: never raises and returns ``False`` on any problem. The langgraph
     checkpoint already holds the completed turn, so a failed POST only means the
@@ -296,6 +319,23 @@ async def persist_assistant_message(
     if not base_url:
         logger.warning(
             "Cannot persist assistant message for %s: FRONTEND_INTERNAL_URL/FRONTEND_URL not configured",
+            conversation_id,
+        )
+        return False
+
+    headers = _internal_persist_headers()
+    if headers is None:
+        logger.warning(
+            "Cannot persist assistant message for %s: GRID_INTERNAL_API_TOKEN not configured",
+            conversation_id,
+        )
+        return False
+
+    if not organization_id:
+        # The internal route scopes the conversation lookup by org; without it
+        # the write would 404. Skip rather than issue a doomed POST.
+        logger.warning(
+            "Cannot persist assistant message for %s: organization id unavailable on the handshake scope",
             conversation_id,
         )
         return False
@@ -320,17 +360,18 @@ async def persist_assistant_message(
         metadata["sources"] = sources
 
     payload = {
+        "organizationId": organization_id,
         "id": deterministic_assistant_message_id(conversation_id, parent_id),
         "role": "assistant",
         "content": text,
         "messageType": "agent_response",
         "metadata": metadata,
     }
-    url = f"{base_url.rstrip('/')}/api/conversations/{conversation_id}/messages"
+    url = f"{base_url.rstrip('/')}/api/internal/conversations/{conversation_id}/messages"
 
     try:
         async with httpx.AsyncClient(timeout=_PERSIST_TIMEOUT_SECONDS) as client:
-            response = await client.post(url, json=payload, headers=auth_headers)
+            response = await client.post(url, json=payload, headers=headers)
         if response.status_code not in (200, 201):
             logger.warning(
                 "Server-side persist for conversation %s returned HTTP %s",
@@ -356,6 +397,42 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
         super().__init__(*args, **kwargs)
         self._user_interaction_response: asyncio.Future[TextContent] | None = None
         self._authenticated_user: dict[str, Any] | None = None
+
+    async def _restore_execution_state(self) -> None:
+        """Reattach a reconnected socket to a still-running handler.
+
+        Extends NAT's base restore (``__aenter__`` calls it on every new socket)
+        with two defect fixes:
+
+        * NAT reads ONLY the snake_case ``conversation_id`` query param, but the
+          frontend scopes on camelCase ``conversationId``. If only the camelCase
+          key arrives the base lookup silently no-ops and the live turn never
+          reattaches. Tolerate both keys here.
+        * NAT's base restore swaps the disconnected handler's ``_socket`` attr
+          but never touches Grid's ``WebSocketSessionRegistry``. The socket was
+          cleared from the registry on disconnect, so without re-registering it
+          the ``has_socket`` dual-write guard still reads "client gone" and the
+          running workflow's terminal frame is persisted server-side instead of
+          streamed live down the reconnected socket (and HITL prompts/live
+          sends would not route). Re-register so live delivery, the dual-write
+          guard, and HITL routing all target the new connection.
+        """
+        params = self._socket.query_params
+        conversation_id = params.get("conversation_id") or params.get("conversationId")
+
+        # NAT's base restore reads only `conversation_id`. When the client sent
+        # only the camelCase key, make the resolved id visible to it without
+        # mutating the wire scope (starlette caches parsed params on `_query_params`).
+        if conversation_id and not params.get("conversation_id"):
+            self._socket._query_params = QueryParams({**dict(params), "conversation_id": conversation_id})
+
+        await super()._restore_execution_state()
+
+        # Only when a disconnected handler was actually restored: wire the new
+        # socket into the registry so live send + the dual-write guard + HITL
+        # routing target this reconnected connection.
+        if conversation_id and self._worker.get_conversation_handler(conversation_id):
+            await _registry.set_socket(conversation_id, self._socket)
 
     def _is_handshake_token_expired(self) -> bool:
         """Return True if the JWT used at handshake has since passed its ``exp``.
@@ -735,7 +812,7 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
                 conversation_id=self._conversation_id,
                 parent_id=self._message_parent_id,
                 text=text or "",
-                auth_headers=_auth_headers_from_scope(getattr(self._socket, "scope", {}) or {}),
+                organization_id=_org_id_from_scope(getattr(self._socket, "scope", {}) or {}),
                 cards=cards,
                 deep_research_job_id=deep_research_job_id,
                 answer_confidence=answer_confidence,

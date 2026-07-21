@@ -105,6 +105,49 @@ describe('ChatThinking', () => {
       expect(screen.queryByText('Interrupted')).not.toBeInTheDocument()
     })
 
+    test('shows the calm "checking" copy while recovery is pending, not the lost notice (FIX 3)', () => {
+      const steps = [createStep()]
+
+      render(
+        <ChatThinking
+          steps={steps}
+          isThinking={false}
+          isInterrupted={true}
+          isRecoveryPending={true}
+        />
+      )
+
+      // Header chip + inline notice both show the reconnecting/checking copy …
+      expect(screen.getByText('Reconnecting')).toBeInTheDocument()
+      expect(
+        screen.getByText('Reconnecting — checking for a finished answer …')
+      ).toBeInTheDocument()
+      // … and the "answer lost" copy must NOT appear while we are still checking.
+      expect(screen.queryByText('Interrupted')).not.toBeInTheDocument()
+      expect(
+        screen.queryByText('Connection briefly lost — the answer was dropped. Please resend.')
+      ).not.toBeInTheDocument()
+    })
+
+    test('falls back to the lost/interrupted copy once recovery has settled (not pending)', () => {
+      const steps = [createStep()]
+
+      render(
+        <ChatThinking
+          steps={steps}
+          isThinking={false}
+          isInterrupted={true}
+          isRecoveryPending={false}
+        />
+      )
+
+      expect(screen.getByText('Interrupted')).toBeInTheDocument()
+      expect(
+        screen.getByText('Connection briefly lost — the answer was dropped. Please resend.')
+      ).toBeInTheDocument()
+      expect(screen.queryByText('Reconnecting')).not.toBeInTheDocument()
+    })
+
     test('shows clock icon and waiting text when isWaiting is true', () => {
       const steps = [createStep()]
 

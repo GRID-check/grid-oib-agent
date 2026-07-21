@@ -191,6 +191,14 @@ Rules of thumb: prefer updating an existing doc over adding a new one; delete do
   **availability = flag AND capability**. Example: image upload = the
   `image-upload` flag AND `vlm_available` (derived from the VLM key) — do not
   add a redundant env opt-in for something the dependency already implies.
+- **Raw `sql<T>` results are not runtime-validated — coerce at the repository
+  boundary.** Drizzle only decodes column values for direct column references;
+  a raw `sql<Date>\`max(...)\`` / `sql<number>\`count(...)\`` fragment is a
+  *compile-time assertion only*, so `tsc` and the LSP see no error even when the
+  driver returns a string. Convert on the way out of the repository (e.g.
+  `new Date(row.x)`, `Number(row.x)`) — never trust the annotation downstream.
+  A missing coercion here caused the profiler `toISOString is not a function`
+  crash; the fix and the `totalDurationMsRaw` sibling are the reference pattern.
 - Documentation obligations above apply to every change — treat stale docs as a bug.
 - Git workflow above (feature-branch-per-feature, Conventional Commits, PR to
   `develop`) applies to every change.

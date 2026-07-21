@@ -60,16 +60,23 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   showConfidenceChip = true,
   showAnswerFeedback = true,
 }) {
-  const { currentConversation, isStreaming, currentUserMessageId, currentStatus, hasHydrated } =
-    useChatStore(
-      useShallow((s) => ({
-        currentConversation: s.currentConversation,
-        isStreaming: s.isStreaming,
-        currentUserMessageId: s.currentUserMessageId,
-        currentStatus: s.currentStatus,
-        hasHydrated: s.hasHydrated,
-      }))
-    )
+  const {
+    currentConversation,
+    isStreaming,
+    currentUserMessageId,
+    currentStatus,
+    hasHydrated,
+    isRecoveryPending,
+  } = useChatStore(
+    useShallow((s) => ({
+      currentConversation: s.currentConversation,
+      isStreaming: s.isStreaming,
+      currentUserMessageId: s.currentUserMessageId,
+      currentStatus: s.currentStatus,
+      hasHydrated: s.hasHydrated,
+      isRecoveryPending: s.isRecoveryPending,
+    }))
+  )
 
   const respondToPrompt = useChatStore((s) => s.respondToPrompt)
   const getThinkingStepsForMessage = useChatStore((s) => s.getThinkingStepsForMessage)
@@ -347,6 +354,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                         isThinking={isStreaming && message.id === currentUserMessageId}
                         isWaiting={isWaiting}
                         isInterrupted={isInterrupted}
+                        isRecoveryPending={isRecoveryPending}
                         enabledDataSources={message.enabledDataSources}
                         messageFiles={message.messageFiles}
                         userQuestion={message.content}
