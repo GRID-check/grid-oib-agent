@@ -17,8 +17,10 @@ from langgraph.types import Checkpointer
 from aiq_agent.common import LLMProvider
 from aiq_agent.common import load_prompt
 from aiq_agent.common.citation_verification import EmptySourceRegistryError
+from aiq_agent.common.citation_verification import annotate_unverified_quotes
 from aiq_agent.common.citation_verification import sanitize_report
 from aiq_agent.common.citation_verification import verify_citations
+from aiq_agent.common.citation_verification import verify_quoted_spans
 
 from .custom_middleware import SourceRegistryMiddleware
 from .deepagents_runtime import DeepAgentsRuntime
@@ -63,6 +65,30 @@ def _summarize_removed_citations(removed_citations: list[dict[str, Any]]) -> dic
         if len(reasons) >= 5:
             break
     return {"count": len(removed_citations), "reasons": reasons}
+
+
+def _summarize_unverified_quotes(unverified: list[Any]) -> dict[str, Any] | None:
+    """Summarize unverified quoted spans for the transparency wire.
+
+    Mirrors ``_summarize_removed_citations``: returns ``{"count": int,
+    "reasons": [str, ...]}`` (short quote snippets, deduplicated in first-seen
+    order, max 5) only when ≥1 quoted span could not be verified against a
+    retrieved passage; otherwise ``None`` so the ``quotes_unverified`` field
+    stays absent. Shape matches the chat researcher's
+    ``_normalize_citations_removed`` reader.
+    """
+    if not unverified:
+        return None
+    reasons: list[str] = []
+    for item in unverified:
+        quote = str(getattr(item, "quote", "") or "").strip()
+        snippet = (quote[:57] + "…") if len(quote) > 58 else quote
+        reason = snippet or "quote_unverified"
+        if reason not in reasons:
+            reasons.append(reason)
+        if len(reasons) >= 5:
+            break
+    return {"count": len(unverified), "reasons": reasons}
 
 
 @dataclass(frozen=True)
@@ -425,6 +451,23 @@ class DeepResearcherAgent:
                     if citations_removed_summary is not None:
                         result["citations_removed"] = citations_removed_summary
                 final_message = verification.verified_report
+                # Quote verification: verify_citations only proves each cited
+                # SOURCE is real, not that a QUOTED sentence actually appears in
+                # it. Catch the weak model's "real section, fabricated quote"
+                # pattern by checking each quoted span against the retrieved
+                # passage text. Fail-open: annotate inline, never strip. Surface
+                # the count as a transparency summary.
+                unverified_quotes = verify_quoted_spans(final_message, registry)
+                if unverified_quotes:
+                    final_message = annotate_unverified_quotes(final_message, unverified_quotes)
+                    logger.info(
+                        "Citation verification: %d quoted span(s) not verbatim in any retrieved "
+                        "passage; annotated inline",
+                        len(unverified_quotes),
+                    )
+                    quotes_unverified_summary = _summarize_unverified_quotes(unverified_quotes)
+                    if quotes_unverified_summary is not None:
+                        result["quotes_unverified"] = quotes_unverified_summary
                 if not verification.valid_citations:
                     logger.warning(
                         "Citation verification found no valid citations in writer-agent output; "

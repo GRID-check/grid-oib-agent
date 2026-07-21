@@ -230,6 +230,7 @@ _TRANSPARENCY_EXTRA_FIELDS = (
     "escalation_reason",
     "answer_confidence_capped_reason",
     "citations_removed",
+    "quotes_unverified",
     "job_admission_rejected",
     "retry_after_seconds",
 )

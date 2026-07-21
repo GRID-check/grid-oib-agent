@@ -1795,3 +1795,252 @@ class TestKnowledgeLayerDocClassParsing:
         assert entries[0].doc_class == "gesetz"
         # …and it drives the lane ahead of the filename guess.
         assert source_lane(entries[0]) == ("baurecht_ris", "Rechtsquelle (RIS)")
+
+
+# ---------------------------------------------------------------------------
+# Quote verification tests
+# ---------------------------------------------------------------------------
+
+
+class TestVerifyQuotedSpans:
+    """Deterministic quote verification against retrieved passage text.
+
+    The weak model cites a REAL section but sometimes FABRICATES the quoted
+    sentence. These tests cover the whole-registry fuzzy match, the German/ASCII
+    quote grammar, the skip rules, and the fail-open inline annotation.
+    """
+
+    CHUNK = (
+        "Die lichte Durchgangshoehe von Treppen muss mindestens 2,10 m betragen. "
+        "Handlaeufe sind beidseitig anzubringen."
+    )
+
+    def _registry(self, *chunks: str) -> SourceRegistry:
+        from aiq_agent.common.citation_verification import SourceEntry
+
+        reg = SourceRegistry()
+        for i, chunk in enumerate(chunks, 1):
+            reg.add(
+                SourceEntry(
+                    citation_key=f"doc{i}.pdf, p.{i}",
+                    source_type="knowledge_layer",
+                    tool_name="knowledge_search",
+                    chunk_text=chunk,
+                )
+            )
+        return reg
+
+    def test_verbatim_quote_passes(self):
+        from aiq_agent.common.citation_verification import verify_quoted_spans
+
+        reg = self._registry(self.CHUNK)
+        answer = (
+            'Es gilt: „Die lichte Durchgangshoehe von Treppen muss mindestens 2,10 m betragen" [1].\n\n'
+            "## Sources\n[1] doc1.pdf, p.1"
+        )
+        assert verify_quoted_spans(answer, reg) == []
+
+    def test_fabricated_quote_flagged(self):
+        from aiq_agent.common.citation_verification import verify_quoted_spans
+
+        reg = self._registry(self.CHUNK)
+        answer = (
+            "Die Norm verlangt „Bauwerke muessen mit einer automatischen Loeschanlage "
+            'ausgestattet sein" [1].\n\n## Sources\n[1] doc1.pdf, p.1'
+        )
+        unverified = verify_quoted_spans(answer, reg)
+        assert len(unverified) == 1
+        assert unverified[0].best_coverage < 0.90
+
+    def test_german_and_ascii_quotes_both_scanned(self):
+        from aiq_agent.common.citation_verification import verify_quoted_spans
+
+        reg = self._registry(self.CHUNK)
+        # A curly “…”, a German „…", and an ASCII "…" — all fabricated.
+        answer = (
+            "Erstens “ein voellig erfundener Satz ohne jeden Bezug zur Quelle hier”, "
+            'zweitens „noch ein frei erfundener Satz der nirgends vorkommt", '
+            'drittens "und ein dritter ausgedachter Satz voelliger Fantasie" [1].\n\n'
+            "## Sources\n[1] doc1.pdf, p.1"
+        )
+        unverified = verify_quoted_spans(answer, reg)
+        assert len(unverified) == 3
+
+    def test_short_quote_skipped(self):
+        from aiq_agent.common.citation_verification import verify_quoted_spans
+
+        reg = self._registry(self.CHUNK)
+        # "§ 3 Abs 1" normalizes below MIN_QUOTE_LEN (20) → never scanned.
+        answer = 'Siehe „§ 3 Abs 1" hierzu [1].\n\n## Sources\n[1] doc1.pdf, p.1'
+        assert verify_quoted_spans(answer, reg) == []
+
+    def test_paraphrase_without_quotes_not_flagged(self):
+        from aiq_agent.common.citation_verification import verify_quoted_spans
+
+        reg = self._registry(self.CHUNK)
+        # Paraphrase in prose, NO quote marks → nothing to scan.
+        answer = (
+            "Treppen brauchen laut der Richtlinie eine gewisse Mindesthoehe und "
+            "beidseitige Handlaeufe [1].\n\n## Sources\n[1] doc1.pdf, p.1"
+        )
+        assert verify_quoted_spans(answer, reg) == []
+
+    def test_whole_registry_match_across_multiple_sources(self):
+        from aiq_agent.common.citation_verification import verify_quoted_spans
+
+        # The quote matches source 2's chunk even though source 1 is unrelated.
+        reg = self._registry(
+            "Voellig anderer Text ueber Statik und Fundamente im Hochbau.",
+            "Die Fluchtwegbreite muss mindestens 1,20 Meter im lichten Mass betragen.",
+        )
+        answer = (
+            "Vorgabe: „Die Fluchtwegbreite muss mindestens 1,20 Meter im lichten Mass "
+            'betragen" [2].\n\n## Sources\n[2] doc2.pdf, p.2'
+        )
+        assert verify_quoted_spans(answer, reg) == []
+
+    def test_no_chunk_text_fails_open(self):
+        from aiq_agent.common.citation_verification import SourceEntry
+        from aiq_agent.common.citation_verification import verify_quoted_spans
+
+        # URL-only web sources carry no chunk_text: nothing to verify against, so
+        # even a wild fabricated quote must NOT be flagged (fail-open).
+        reg = SourceRegistry()
+        reg.add(SourceEntry(url="https://example.com/x", source_type="generic", tool_name="web"))
+        answer = 'Die Quelle sagt „ein voellig frei erfundener Satz ohne jeden Beleg" hier.'
+        assert verify_quoted_spans(answer, reg) == []
+
+    def test_quotes_in_sources_section_not_scanned(self):
+        from aiq_agent.common.citation_verification import verify_quoted_spans
+
+        reg = self._registry(self.CHUNK)
+        # The fabricated-looking quote lives in the Sources section → ignored.
+        answer = (
+            "Alles in Ordnung im Fliesstext.\n\n## Sources\n"
+            '[1] „ein erfundener langer Titel der nirgends belegt ist": doc1.pdf, p.1'
+        )
+        assert verify_quoted_spans(answer, reg) == []
+
+    def test_annotation_inserted_after_the_right_span(self):
+        from aiq_agent.common.citation_verification import UNVERIFIED_QUOTE_MARKER
+        from aiq_agent.common.citation_verification import annotate_unverified_quotes
+        from aiq_agent.common.citation_verification import verify_quoted_spans
+
+        reg = self._registry(self.CHUNK)
+        answer = (
+            'Erst „Die lichte Durchgangshoehe von Treppen muss mindestens 2,10 m betragen" '
+            'und dann „ein voellig erfundener Satz ohne jede Deckung in der Quelle" [1].\n\n'
+            "## Sources\n[1] doc1.pdf, p.1"
+        )
+        unverified = verify_quoted_spans(answer, reg)
+        assert len(unverified) == 1
+        annotated = annotate_unverified_quotes(answer, unverified)
+        # Marker sits right after the fabricated span's closing quote…
+        assert 'in der Quelle" ' + UNVERIFIED_QUOTE_MARKER in annotated
+        # …and NOT after the verbatim span.
+        assert "2,10 m betragen" + '" ' + UNVERIFIED_QUOTE_MARKER not in annotated
+        # Fail-open: the original sentences are preserved verbatim.
+        assert "ein voellig erfundener Satz ohne jede Deckung in der Quelle" in annotated
+
+    def test_annotation_idempotent(self):
+        from aiq_agent.common.citation_verification import UNVERIFIED_QUOTE_MARKER
+        from aiq_agent.common.citation_verification import annotate_unverified_quotes
+        from aiq_agent.common.citation_verification import verify_quoted_spans
+
+        reg = self._registry(self.CHUNK)
+        answer = 'Er sagt „ein voellig frei erfundener Satz ohne jeden Beleg hier" [1].'
+        unverified = verify_quoted_spans(answer, reg)
+        once = annotate_unverified_quotes(answer, unverified)
+        twice = annotate_unverified_quotes(once, unverified)
+        assert once.count(UNVERIFIED_QUOTE_MARKER) == 1
+        assert twice.count(UNVERIFIED_QUOTE_MARKER) == 1
+
+    def test_empty_unverified_returns_answer_unchanged(self):
+        from aiq_agent.common.citation_verification import annotate_unverified_quotes
+
+        assert annotate_unverified_quotes("hello world", []) == "hello world"
+
+
+class TestKnowledgeLayerChunkTextCapture:
+    """The KB parser captures the retrieved passage body into chunk_text."""
+
+    def _tool_output(self) -> str:
+        return (
+            "Found 2 relevant document(s):\n\n"
+            "--- Result 1 ---\n"
+            "Source: OIB-330.pdf\n"
+            "Collection: oib_knowledge\n"
+            "Page: 12\n"
+            "Citation: OIB-330.pdf, p.12\n"
+            "Content Type: text\n"
+            "Relevance Score: 0.88\n"
+            "\n"
+            "Die lichte Durchgangshoehe von Treppen muss mindestens 2,10 m betragen.\n"
+            "\n"
+            "--- Result 2 ---\n"
+            "Source: OIB-330.pdf\n"
+            "Collection: oib_knowledge\n"
+            "Page: 13\n"
+            "Citation: OIB-330.pdf, p.13\n"
+            "Content Type: text\n"
+            "Relevance Score: 0.80\n"
+            "\n"
+            "Handlaeufe sind beidseitig anzubringen.\n"
+            "\n"
+            "## Trace-Lanes\n"
+            '{"lanes":[]}\n'
+        )
+
+    def test_chunk_text_captured_per_block(self):
+        from aiq_agent.common.citation_verification import extract_sources_from_tool_result
+
+        entries = extract_sources_from_tool_result("knowledge_search", self._tool_output())
+        assert len(entries) == 2
+        assert "lichte Durchgangshoehe" in entries[0].chunk_text
+        assert "Handlaeufe sind beidseitig" in entries[1].chunk_text
+        # The Trace-Lanes JSON must not bleed into the last block's body.
+        assert "Trace-Lanes" not in entries[1].chunk_text
+        assert "lanes" not in entries[1].chunk_text
+
+    def test_truncated_marker_stripped(self):
+        from aiq_agent.common.citation_verification import extract_sources_from_tool_result
+
+        body = "A" * 1500
+        content = (
+            "--- Result 1 ---\n"
+            "Source: big.pdf\n"
+            "Citation: big.pdf, p.1\n"
+            "Content Type: text\n"
+            "Relevance Score: 0.90\n"
+            "\n"
+            f"{body}... [truncated]\n"
+        )
+        entries = extract_sources_from_tool_result("knowledge_search", content)
+        assert entries[0].chunk_text == body
+        assert "[truncated]" not in entries[0].chunk_text
+
+    def test_dedup_same_page_appends_chunk_text(self):
+        from aiq_agent.common.citation_verification import SourceEntry
+
+        reg = SourceRegistry()
+        reg.add(SourceEntry(citation_key="d.pdf, p.5", source_type="knowledge_layer", chunk_text="first chunk body"))
+        reg.add(SourceEntry(citation_key="d.pdf, p.5", source_type="knowledge_layer", chunk_text="second chunk body"))
+        # One deduped entry, but BOTH chunk bodies retained.
+        kb = [s for s in reg.all_sources() if s.source_type == "knowledge_layer"]
+        assert len(kb) == 1
+        assert "first chunk body" in kb[0].chunk_text
+        assert "second chunk body" in kb[0].chunk_text
+
+    def test_chunk_text_round_trips_through_cache(self):
+        from aiq_agent.common.citation_verification import SourceEntry
+        from aiq_agent.common.citation_verification import _registry_from_cached_entries
+
+        original = SourceEntry(
+            citation_key="d.pdf, p.1",
+            source_type="knowledge_layer",
+            chunk_text="round trip body",
+        )
+        import dataclasses
+
+        hydrated = _registry_from_cached_entries([dataclasses.asdict(original)])
+        assert hydrated.all_sources()[0].chunk_text == "round trip body"

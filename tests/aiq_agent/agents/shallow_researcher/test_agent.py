@@ -1435,3 +1435,106 @@ class TestShallowResearcherAnswerGrounding:
         )
         result, _ = await _run_with_captured_registry(self._agent(mock_llm_provider), state)
         assert result.citations_removed is None
+
+
+@tool
+def knowledge_search(query: str) -> str:
+    """Search the internal knowledge base (returns KB-format results)."""
+    return (
+        "Found 1 relevant document(s):\n\n"
+        "--- Result 1 ---\n"
+        "Source: OIB-330.pdf\n"
+        "Collection: oib_knowledge\n"
+        "Page: 12\n"
+        "Citation: OIB-330.pdf, p.12\n"
+        "Content Type: text\n"
+        "Relevance Score: 0.88\n"
+        "\n"
+        "Die lichte Durchgangshoehe von Treppen muss mindestens 2,10 m betragen.\n"
+        "\n"
+        "## Trace-Lanes\n"
+        '{"lanes":[]}\n'
+    )
+
+
+class TestShallowResearcherQuoteVerification:
+    """The shallow agent annotates fabricated quotes and flips answer_quotes_verified."""
+
+    @pytest.fixture
+    def mock_llm(self):
+        llm = MagicMock()
+        llm.ainvoke = AsyncMock()
+        llm.bind_tools = MagicMock(return_value=llm)
+        return llm
+
+    @pytest.fixture
+    def mock_llm_provider(self, mock_llm):
+        provider = MagicMock(spec=LLMProvider)
+        provider.get = MagicMock(return_value=mock_llm)
+        return provider
+
+    @pytest.fixture(autouse=True)
+    def _register_kb_source(self):
+        reset_registry()
+        populate_from_config(
+            [
+                {
+                    "id": "oib_knowledge",
+                    "name": "OIB Knowledge",
+                    "description": "Search the internal OIB knowledge base.",
+                    "tools": ["knowledge_search"],
+                }
+            ]
+        )
+        yield
+        reset_registry()
+
+    def _tool_call(self):
+        return AIMessage(
+            content="",
+            tool_calls=[{"name": "knowledge_search", "args": {"query": "Treppe"}, "id": "1"}],
+        )
+
+    @pytest.mark.asyncio
+    async def test_fabricated_quote_annotated_and_flagged(self, mock_llm_provider, mock_llm):
+        final = AIMessage(
+            content=(
+                "Die Richtlinie fordert „Treppen muessen mit einer automatischen "
+                'Loeschanlage ausgestattet sein" [1].\n\n'
+                "## Sources\n[1] OIB-330.pdf, p.12"
+            )
+        )
+        mock_llm.ainvoke = AsyncMock(side_effect=[self._tool_call(), final])
+        agent = ShallowResearcherAgent(llm_provider=mock_llm_provider, tools=[knowledge_search])
+        state = ShallowResearchAgentState(messages=[HumanMessage(content="Treppenhoehe?")])
+        result = await _run_with_bound_registry(agent, state, SourceRegistry())
+
+        output = result.messages[-1].content
+        assert "[nicht wörtlich in der Quelle belegt]" in output
+        # Fail-open: the fabricated sentence itself is preserved, never stripped.
+        assert "automatische" in output.lower()
+        assert result.answer_quotes_verified is False
+
+    @pytest.mark.asyncio
+    async def test_verbatim_quote_not_annotated_and_verified(self, mock_llm_provider, mock_llm):
+        final = AIMessage(
+            content=(
+                "Es gilt: „Die lichte Durchgangshoehe von Treppen muss mindestens "
+                '2,10 m betragen" [1].\n\n## Sources\n[1] OIB-330.pdf, p.12'
+            )
+        )
+        mock_llm.ainvoke = AsyncMock(side_effect=[self._tool_call(), final])
+        agent = ShallowResearcherAgent(llm_provider=mock_llm_provider, tools=[knowledge_search])
+        state = ShallowResearchAgentState(messages=[HumanMessage(content="Treppenhoehe?")])
+        result = await _run_with_bound_registry(agent, state, SourceRegistry())
+
+        output = result.messages[-1].content
+        assert "[nicht wörtlich in der Quelle belegt]" not in output
+        # REGRESSION: without quote verification this stays at the default True,
+        # so the assertion below only exercises the new path when a fabricated
+        # quote is present (covered by the sibling test); here it must remain True.
+        assert result.answer_quotes_verified is True
+
+    def test_state_defaults_quotes_verified_true(self):
+        state = ShallowResearchAgentState(messages=[HumanMessage(content="hi")])
+        assert state.answer_quotes_verified is True
