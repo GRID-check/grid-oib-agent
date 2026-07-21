@@ -21,6 +21,18 @@ vi.mock('next/navigation', () => ({
   }),
 }))
 
+// Controllable UI locale: keep the real translator (so on-screen text stays
+// English, as the other tests assert) but drive `useLocale().locale` per test
+// to exercise the stale-language regeneration. Defaults to 'en'.
+const localeRef = vi.hoisted(() => ({ current: 'en' }))
+vi.mock('@/i18n', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/i18n')>()
+  return {
+    ...actual,
+    useLocale: () => ({ locale: localeRef.current, setLocale: vi.fn(), localeNames: {} }),
+  }
+})
+
 const mockFetch = (status: number, body: unknown = {}) =>
   vi.fn().mockResolvedValue({
     ok: status >= 200 && status < 300,
@@ -198,5 +210,107 @@ describe('ProjectBrief manual summary control', () => {
     )
     expect(screen.getByText('Existing prose.')).toBeDefined()
     expect(screen.getByRole('button', { name: /Regenerate/i })).toBeDefined()
+  })
+})
+
+describe('ProjectBrief stale-language summary regeneration (locale switch)', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals()
+    vi.clearAllMocks()
+    // Reset the driven locale between tests (other suites rely on the 'en' default).
+    localeRef.current = 'en'
+  })
+
+  test('regenerates exactly once when the stored summary locale differs from the UI locale', async () => {
+    // Summary was written in English; the UI is now German — the classic bug.
+    localeRef.current = 'de'
+    const fetchSpy = mockFetch(200, { summary: 'Eine deutsche Zusammenfassung.' })
+    vi.stubGlobal('fetch', fetchSpy)
+
+    render(
+      <ProjectBrief
+        projectId="proj-1"
+        profile={profile}
+        summary="An English summary."
+        summaryLocale="en"
+        briefStarted
+      />,
+    )
+
+    await waitFor(() => expect(refresh).toHaveBeenCalled())
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+    const [url, init] = fetchSpy.mock.calls[0]
+    expect(url).toBe('/api/projects/proj-1/generate-summary')
+    // Regenerated in the now-active UI locale, not the stale one.
+    expect(JSON.parse(String(init.body))).toEqual({ locale: 'de' })
+    // Silent repair: the refreshed prose is the feedback, no success toast.
+    expect(toast.success).not.toHaveBeenCalled()
+  })
+
+  test('does NOT regenerate when the stored summary locale matches the UI locale', () => {
+    localeRef.current = 'de'
+    const fetchSpy = mockFetch(200, { summary: '' })
+    vi.stubGlobal('fetch', fetchSpy)
+
+    render(
+      <ProjectBrief
+        projectId="proj-1"
+        profile={profile}
+        summary="Eine deutsche Zusammenfassung."
+        summaryLocale="de"
+        briefStarted
+      />,
+    )
+
+    expect(screen.getByText('Eine deutsche Zusammenfassung.')).toBeDefined()
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  test('does NOT regenerate a legacy summary that has no stored locale (fail open)', () => {
+    // Legacy row written before summaryLocale existed: unknown is treated as a
+    // match, so a locale switch must not trigger a regeneration storm.
+    localeRef.current = 'de'
+    const fetchSpy = mockFetch(200, { summary: '' })
+    vi.stubGlobal('fetch', fetchSpy)
+
+    render(
+      <ProjectBrief projectId="proj-1" profile={profile} summary="A legacy summary." briefStarted />,
+    )
+
+    expect(screen.getByText('A legacy summary.')).toBeDefined()
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  test('regenerates at most once even if the mismatch persists (no loop on failure)', async () => {
+    // Generation fails server-side (empty summary), so the stored locale never
+    // updates; a rerender with the still-mismatched props must not re-fire.
+    localeRef.current = 'de'
+    const fetchSpy = mockFetch(200, { summary: '', error: 'llm_not_configured' })
+    vi.stubGlobal('fetch', fetchSpy)
+
+    const { rerender } = render(
+      <ProjectBrief
+        projectId="proj-1"
+        profile={profile}
+        summary="An English summary."
+        summaryLocale="en"
+        briefStarted
+      />,
+    )
+
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1))
+
+    rerender(
+      <ProjectBrief
+        projectId="proj-1"
+        profile={profile}
+        summary="An English summary."
+        summaryLocale="en"
+        briefStarted
+      />,
+    )
+
+    // Still exactly one — the attempted-ref guard stops the loop.
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1))
   })
 })

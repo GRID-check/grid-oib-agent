@@ -116,6 +116,7 @@ export function ProjectSettings({
             projectId={data.id}
             profile={data.profile}
             summary={data.profileDisplay?.summary}
+            summaryLocale={data.profileDisplay?.summaryLocale}
             briefStarted={data.profileDisplay != null}
             canEdit={canManageProject}
           />
