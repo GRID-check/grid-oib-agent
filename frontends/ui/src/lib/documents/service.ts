@@ -230,6 +230,113 @@ export async function listDocuments(
   return reconciled.map(({ metadata: _metadata, ...row }) => row)
 }
 
+/**
+ * A single hit from the backend's document-centric semantic search
+ * (`POST /v1/collections/{c}/search`). One hit per file, best snippet, sorted
+ * by score descending. Deterministic vector search — no LLM.
+ */
+export interface BackendSearchHit {
+  file_name: string
+  score: number
+  snippet: string
+  page_number: number | null
+  collection: string
+}
+
+/**
+ * A document row joined with its semantic-search match evidence — the existing
+ * list row (name, status, metadata) plus WHY it matched: the best snippet, the
+ * page it came from, and the 0..1 relevance score. Returned reordered by score.
+ */
+export type SearchedDocument<T> = T & {
+  snippet: string
+  page: number | null
+  score: number
+}
+
+/** Bounded, fail-open POST to the backend's document-centric search endpoint.
+ *
+ * Deterministic vector search. Any non-OK response, malformed body, timeout, or
+ * transport failure yields `[]` (never throws) — the caller surfaces this to the
+ * UI as "no semantic results" rather than a crash. The `top_k` passage budget is
+ * fixed at 40; `topKFiles` bounds the one-hit-per-file result set.
+ */
+export async function fetchSemanticHits(
+  collectionName: string,
+  query: string,
+  topKFiles: number,
+): Promise<BackendSearchHit[]> {
+  try {
+    const res = await fetch(`${getBackendUrl()}/v1/collections/${encodeURIComponent(collectionName)}/search`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, top_k: 40, top_k_files: topKFiles }),
+      signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
+    })
+    if (!res.ok) return []
+    const body = await res.json().catch(() => ({}))
+    return Array.isArray(body?.hits) ? (body.hits as BackendSearchHit[]) : []
+  } catch {
+    // Includes a TimeoutError abort — a hung/unreachable backend fails open to
+    // an empty result set, exactly like any other transport failure.
+    return []
+  }
+}
+
+/**
+ * Join backend hits to the existing file rows BY FILENAME (`hit.file_name` ===
+ * `file.filename`), returning the matched rows reordered by score (hit order,
+ * which the backend guarantees is score-descending), each augmented with its
+ * snippet, page, and score. Hits with no matching row are dropped. When a
+ * filename collides across rows the most-recent row (latest `createdAt`) wins,
+ * so a re-uploaded document resolves to its current entry.
+ */
+export function joinHitsToFiles<T extends { filename: string; createdAt: Date | string }>(
+  hits: BackendSearchHit[],
+  files: T[],
+): Array<SearchedDocument<T>> {
+  const byName = new Map<string, T>()
+  for (const file of files) {
+    const existing = byName.get(file.filename)
+    if (!existing || new Date(file.createdAt).getTime() > new Date(existing.createdAt).getTime()) {
+      byName.set(file.filename, file)
+    }
+  }
+
+  const matched: Array<SearchedDocument<T>> = []
+  for (const hit of hits) {
+    const file = byName.get(hit.file_name)
+    if (!file) continue
+    matched.push({ ...file, snippet: hit.snippet, page: hit.page_number ?? null, score: hit.score })
+  }
+  return matched
+}
+
+/**
+ * Document-centric semantic search over a project's corpus. Enforces
+ * `project:view` (via `listDocuments`), resolves the project's RAG collection,
+ * runs the deterministic vector search on the backend, and joins the hits to the
+ * project's own file rows by filename. Fail-open: a backend error/timeout yields
+ * `{ hits: [] }`, never a crash.
+ */
+export async function searchProjectDocuments(
+  session: AuthorizedSession,
+  projectId: string,
+  query: string,
+  topK = 20,
+): Promise<{ hits: Array<SearchedDocument<Awaited<ReturnType<typeof listDocuments>>[number]>> }> {
+  // Authorization (project:view) + the canonical file rows come from the same
+  // path the normal list uses, so a semantic result is always a real, visible
+  // document with its live status/metadata.
+  const files = await listDocuments(session, projectId)
+
+  const project = await findProjectInOrg(projectId, session.organizationId)
+  if (!project) throw new NotFoundError('Project not found')
+
+  const hits = await fetchSemanticHits(project.collectionName, query, topK)
+  return { hits: joinHitsToFiles(hits, files) }
+}
+
 export interface UploadDocumentInput {
   projectId: string
   folderId: string | null

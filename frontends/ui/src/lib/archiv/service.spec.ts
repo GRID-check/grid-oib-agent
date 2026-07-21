@@ -23,6 +23,10 @@ vi.mock('@/lib/audit/service', () => ({
 vi.mock('@/lib/documents/service', () => ({
   assertUploadTypeAllowed: vi.fn().mockResolvedValue(undefined),
   dispatchIngest: vi.fn().mockResolvedValue({ jobId: 'job-1', status: 'pending' }),
+  // The semantic-search join is unit-tested in the documents service; here we
+  // assert the Archiv service wires the collection + hits through it correctly.
+  fetchSemanticHits: vi.fn(),
+  joinHitsToFiles: vi.fn(),
 }))
 
 vi.mock('@/lib/documents/reconcile-status', () => ({
@@ -37,7 +41,7 @@ vi.mock('./repository', () => ({
 }))
 
 import { canManageArchiv } from '@/lib/authz/organizations'
-import { assertUploadTypeAllowed, dispatchIngest } from '@/lib/documents/service'
+import { assertUploadTypeAllowed, dispatchIngest, fetchSemanticHits, joinHitsToFiles } from '@/lib/documents/service'
 import { reconcileDocumentStatuses } from '@/lib/documents/reconcile-status'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
@@ -47,7 +51,7 @@ import {
   insertArchivDocument,
   deleteArchivDocument as deleteArchivDocumentRow,
 } from './repository'
-import { listArchiv, uploadArchivDocument, deleteArchivDocument } from './service'
+import { listArchiv, uploadArchivDocument, deleteArchivDocument, searchArchivDocuments } from './service'
 
 const session = {
   userId: 'user-1',
@@ -102,6 +106,37 @@ describe('listArchiv', () => {
     expect(result.canManage).toBe(false)
     expect(result.documents[0]).not.toHaveProperty('metadata')
     expect(result.documents[0]).toMatchObject({ id: 'd1', summary: 's' })
+  })
+})
+
+describe('searchArchivDocuments', () => {
+  it('resolves the org archiv collection, runs the search, and returns the joined hits', async () => {
+    const docs = [{ id: 'd1', filename: 'plan.pdf', createdAt: new Date('2026-01-01T00:00:00Z') }]
+    vi.mocked(listArchivDocuments).mockResolvedValue([])
+    vi.mocked(reconcileDocumentStatuses).mockResolvedValue(docs.map((d) => ({ ...d, metadata: {} })) as any)
+    vi.mocked(canManageArchiv).mockReturnValue(false)
+    const backendHits = [{ file_name: 'plan.pdf', score: 0.8, snippet: 's', page_number: 1, collection: 'archiv_org-1' }]
+    vi.mocked(fetchSemanticHits).mockResolvedValue(backendHits as any)
+    vi.mocked(joinHitsToFiles).mockReturnValue([{ id: 'd1', snippet: 's', page: 1, score: 0.8 }] as any)
+
+    const { hits } = await searchArchivDocuments(session, 'fire escape', 20)
+
+    expect(fetchSemanticHits).toHaveBeenCalledWith('archiv_org-1', 'fire escape', 20)
+    // Joined against the Archiv's own reconciled rows (not the raw backend hits).
+    expect(joinHitsToFiles).toHaveBeenCalledWith(backendHits, expect.arrayContaining([expect.objectContaining({ id: 'd1' })]))
+    expect(hits).toEqual([{ id: 'd1', snippet: 's', page: 1, score: 0.8 }])
+  })
+
+  it('defaults topK to 20 when omitted', async () => {
+    vi.mocked(listArchivDocuments).mockResolvedValue([])
+    vi.mocked(reconcileDocumentStatuses).mockResolvedValue([])
+    vi.mocked(canManageArchiv).mockReturnValue(false)
+    vi.mocked(fetchSemanticHits).mockResolvedValue([])
+    vi.mocked(joinHitsToFiles).mockReturnValue([])
+
+    await searchArchivDocuments(session, 'q')
+
+    expect(fetchSemanticHits).toHaveBeenCalledWith('archiv_org-1', 'q', 20)
   })
 })
 

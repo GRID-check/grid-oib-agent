@@ -395,6 +395,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
               onSelectFile={setSelectedFileId}
               isLoading={isLoadingFiles}
               hasFolderSelected={selectedFolderId !== null}
+              projectId={projectId}
               {...(view === 'cards'
                 ? {
                     folders,

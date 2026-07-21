@@ -21,7 +21,7 @@
  */
 
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
-import { Archive, Search, X } from 'lucide-react'
+import { Archive, Loader2, Search, Sparkles, X } from 'lucide-react'
 import type { FileItem } from './project-file-workspace'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -32,8 +32,10 @@ import { formatFileSize } from '@/lib/utils/format-file-size'
 import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { extChipTint, fileExtensionLabel, inferDocumentKind } from '../document-kind'
+import { useSemanticSearch } from '../hooks/use-semantic-search'
 import { DocumentKindThumbnail } from './document-kind-thumbnail'
 import { DocumentStatusBadge } from './document-status'
+import { SemanticMatch } from './semantic-match'
 
 /** Büroarchiv signal tint — semantic tokens with pre-retune fallbacks, no hex. */
 const OFFICE_TINT: CSSProperties = {
@@ -61,6 +63,21 @@ export function ArchivLibraryPane({
   const { locale } = useLocale()
   const [search, setSearch] = useState('')
   const [selectedTag, setSelectedTag] = useState<string | null>(null)
+
+  const semantic = useSemanticSearch({ endpoint: '/api/archiv/documents/search' })
+
+  const runSemantic = () => semantic.run(search)
+  // Any edit to the query drops back to the live substring filter so the two
+  // modes never show a stale mix; the reset control does the same explicitly.
+  const handleSearchChange = (value: string) => {
+    setSearch(value)
+    if (semantic.active) semantic.reset()
+  }
+  const clearSearch = () => {
+    setSearch('')
+    setSelectedTag(null)
+    semantic.reset()
+  }
 
   // Category chips = the distinct controlled ingestion tags actually present on
   // the loaded documents, most frequent first (ties: locale alphabetical).
@@ -139,36 +156,94 @@ export function ArchivLibraryPane({
 
   return (
     <div className="flex h-full flex-col">
-      {/* Search bar */}
+      {/* Search bar — instant substring filter as you type; Enter (or the search
+          button) runs the semantic search over the Archiv collection. */}
       <div className="sticky top-0 z-10 border-b bg-background/95 px-4 py-2.5 backdrop-blur">
-        <div className="relative">
-          <Search
-            className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-            aria-hidden
-          />
-          <Input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder={t('library.searchPlaceholder')}
-            aria-label={t('library.searchLabel')}
-            className="pl-8 pr-8"
-          />
-          {search !== '' && (
-            <button
-              type="button"
-              onClick={() => setSearch('')}
-              aria-label={t('library.resetSearch')}
-              className="absolute right-1.5 top-1/2 flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
-            >
-              <X className="size-3.5" aria-hidden />
-            </button>
-          )}
-        </div>
+        <form
+          className="flex items-center gap-2"
+          onSubmit={(e) => {
+            e.preventDefault()
+            runSemantic()
+          }}
+        >
+          <div className="relative flex-1">
+            <Search
+              className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+              aria-hidden
+            />
+            <Input
+              type="text"
+              value={search}
+              onChange={(e) => handleSearchChange(e.target.value)}
+              placeholder={t('library.semantic.searchPlaceholder')}
+              aria-label={t('library.searchLabel')}
+              className="pl-8 pr-8"
+            />
+            {search !== '' && (
+              <button
+                type="button"
+                onClick={clearSearch}
+                aria-label={t('library.resetSearch')}
+                className="absolute right-1.5 top-1/2 flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+              >
+                <X className="size-3.5" aria-hidden />
+              </button>
+            )}
+          </div>
+          <Button
+            type="submit"
+            size="sm"
+            variant="secondary"
+            className="shrink-0 gap-1.5"
+            disabled={search.trim() === '' || semantic.isSearching}
+          >
+            {semantic.isSearching ? (
+              <Loader2 className="size-3.5 animate-spin" aria-hidden />
+            ) : (
+              <Sparkles className="size-3.5" aria-hidden />
+            )}
+            {t('library.semantic.run')}
+          </Button>
+        </form>
       </div>
 
-      {/* Category chips — filter over the tags that really exist. */}
-      {categories.length > 0 && (
+      {/* Semantic-mode banner — transparent about which mode is active, with a
+          clear reset back to the normal list. */}
+      {semantic.active && (
+        <div
+          className="flex items-center gap-2 border-b border-primary/20 bg-primary/5 px-4 py-2 text-xs"
+          role="status"
+          data-testid="archiv-semantic-banner"
+        >
+          {semantic.isSearching ? (
+            <Loader2 className="size-3.5 shrink-0 animate-spin text-primary" aria-hidden />
+          ) : (
+            <Sparkles className="size-3.5 shrink-0 text-primary" aria-hidden />
+          )}
+          <span className="min-w-0 flex-1 truncate text-foreground">
+            {semantic.isSearching
+              ? t('library.semantic.searching', { query: semantic.query ?? '' })
+              : t('library.semantic.banner', {
+                  count: String(semantic.hits.length),
+                  query: semantic.query ?? '',
+                })}
+          </span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 shrink-0 gap-1.5 px-2 text-muted-foreground hover:text-foreground"
+            onClick={clearSearch}
+          >
+            <X className="size-3.5" aria-hidden />
+            {t('library.semantic.reset')}
+          </Button>
+        </div>
+      )}
+
+      {/* Category chips — filter over the tags that really exist. Hidden in
+          semantic mode (the query is the context). */}
+      {!semantic.active && categories.length > 0 && (
         <div
           className="flex flex-wrap items-center gap-1.5 border-b px-4 py-2"
           role="group"
@@ -194,8 +269,54 @@ export function ArchivLibraryPane({
         </div>
       )}
 
-      {/* Card grid */}
-      {filteredFiles.length === 0 ? (
+      {semantic.active ? (
+        // Semantic results — one card per matched file, each showing the match
+        // evidence (snippet + page + relevance). A backend error/timeout fails
+        // open to an empty result set (never a crash).
+        semantic.isSearching ? (
+          <div className="grid grid-cols-1 gap-3.5 p-4 sm:grid-cols-2 lg:grid-cols-3">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="overflow-hidden rounded-xl border bg-secondary shadow-sm">
+                <div className="overflow-hidden rounded-b-[10px] bg-card shadow-xs">
+                  <Skeleton className="h-[190px] w-full rounded-none" />
+                  <div className="space-y-2.5 px-4 pb-[13px] pt-3.5">
+                    <Skeleton className="h-3.5 w-2/3" />
+                    <Skeleton className="h-12 w-full" />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : semantic.hits.length === 0 ? (
+          <div className="p-8">
+            <EmptyState
+              variant="bare"
+              icon={Sparkles}
+              title={t('library.semantic.noResults', { query: semantic.query ?? '' })}
+              description={t('library.semantic.noResultsDescription')}
+              action={
+                <Button variant="outline" size="sm" onClick={clearSearch}>
+                  {t('library.semantic.reset')}
+                </Button>
+              }
+            />
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-3.5 p-4 sm:grid-cols-2 lg:grid-cols-3">
+            {semantic.hits.map((hit) => (
+              <ArchivDocumentCard
+                key={hit.id}
+                file={hit}
+                isSelected={selectedFileId === hit.id}
+                onSelect={() => onSelectFile(selectedFileId === hit.id ? null : hit.id)}
+                locale={locale}
+                match={{ snippet: hit.snippet, page: hit.page, score: hit.score }}
+              />
+            ))}
+          </div>
+        )
+      ) : /* Substring-filtered card grid (instant, as you type). */
+      filteredFiles.length === 0 ? (
         <div className="p-8">
           <EmptyState
             variant="bare"
@@ -203,14 +324,7 @@ export function ArchivLibraryPane({
             title={t('library.noMatchTitle')}
             description={t('library.noMatchDescription')}
             action={
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setSearch('')
-                  setSelectedTag(null)
-                }}
-              >
+              <Button variant="outline" size="sm" onClick={clearSearch}>
                 {t('library.clearFilters')}
               </Button>
             }
@@ -303,11 +417,14 @@ function ArchivDocumentCard({
   isSelected,
   onSelect,
   locale,
+  match,
 }: {
   file: FileItem
   isSelected: boolean
   onSelect: () => void
   locale: string
+  /** Present on a semantic result: the snippet + page + score to show WHY it matched. */
+  match?: { snippet: string; page: number | null; score: number }
 }) {
   const t = useTranslations('archiv')
   const tFiles = useTranslations('files')
@@ -360,7 +477,11 @@ function ArchivDocumentCard({
           <p className="mt-[11px] truncate text-[0.84375rem] font-medium leading-[1.4] text-foreground" title={file.filename}>
             {file.filename}
           </p>
-          {isFailed ? (
+          {match ? (
+            // Semantic result: show WHY it matched (snippet + page + relevance)
+            // rather than the generic one-line summary.
+            <SemanticMatch snippet={match.snippet} page={match.page} score={match.score} />
+          ) : isFailed ? (
             <p className="mt-[3px] line-clamp-2 text-xs text-destructive" title={failureReason}>
               {failureReason}
             </p>

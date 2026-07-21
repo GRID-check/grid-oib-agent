@@ -16,6 +16,16 @@ export const archiv = {
     noMatchDescription: 'No Archiv document matches your search or the selected category.',
     clearFilters: 'Clear filters',
     provenance: 'From: {source}',
+    semantic: {
+      searchPlaceholder: 'Search the Archiv — press Enter for semantic search…',
+      run: 'Search',
+      reset: 'Show all documents',
+      banner: 'Semantic search: {count} results for “{query}”',
+      searching: 'Searching the Archiv for “{query}”…',
+      noResults: 'No semantic matches for “{query}”',
+      noResultsDescription:
+        'Nothing in the Archiv matched the meaning of your query. Try different wording, or clear the search to browse every document.',
+    },
     kind: {
       floorplan: 'Floor plan',
       section: 'Section',

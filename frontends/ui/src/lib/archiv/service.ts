@@ -23,7 +23,7 @@ import { canManageArchiv } from '@/lib/authz/organizations'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { getBackendUrl } from '@/lib/backend-proxy'
 import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
-import { assertUploadTypeAllowed, dispatchIngest } from '@/lib/documents/service'
+import { assertUploadTypeAllowed, dispatchIngest, fetchSemanticHits, joinHitsToFiles, type SearchedDocument } from '@/lib/documents/service'
 import { reconcileDocumentStatuses, type DocumentMetadata } from '@/lib/documents/reconcile-status'
 import type { DocumentListRow } from '@/lib/documents/repository'
 import type { AuthorizedSession } from '@/lib/auth/types'
@@ -59,6 +59,23 @@ export async function listArchiv(session: AuthorizedSession): Promise<ArchivList
     collectionName: archivCollectionName(session.organizationId),
     canManage: canManageArchiv(session),
   }
+}
+
+/**
+ * Document-centric semantic search over the org's shared Archiv. Any org member
+ * may read (via `listArchiv`); resolves the org's `archiv_<orgId>` collection,
+ * runs the deterministic vector search on the backend, and joins the hits to the
+ * Archiv's file rows by filename. Fail-open: a backend error/timeout yields
+ * `{ hits: [] }`, never a crash.
+ */
+export async function searchArchivDocuments(
+  session: AuthorizedSession,
+  query: string,
+  topK = 20,
+): Promise<{ hits: Array<SearchedDocument<ArchivListResult['documents'][number]>> }> {
+  const { documents, collectionName } = await listArchiv(session)
+  const hits = await fetchSemanticHits(collectionName, query, topK)
+  return { hits: joinHitsToFiles(hits, documents) }
 }
 
 export interface UploadArchivDocumentResult {

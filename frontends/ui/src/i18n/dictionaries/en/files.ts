@@ -86,6 +86,18 @@ export const files = {
     clearSearch: 'Clear search',
     resetSearch: 'Reset search',
     recentlyUploaded: 'Recently uploaded',
+    semantic: {
+      searchPlaceholder: 'Search files — press Enter for semantic search…',
+      run: 'Search',
+      reset: 'Show all files',
+      banner: 'Semantic search: {count} results for “{query}”',
+      searching: 'Searching the corpus for “{query}”…',
+      noResults: 'No semantic matches for “{query}”',
+      noResultsDescription:
+        'Nothing in this project matched the meaning of your query. Try different wording, or clear the search to browse every file.',
+      page: 'Page {page}',
+      relevance: '{percent}% relevance',
+    },
   },
   folders: {
     heading: 'Folders',
