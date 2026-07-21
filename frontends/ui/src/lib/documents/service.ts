@@ -145,6 +145,7 @@ export async function dispatchIngest(
   documentId: string,
   collectionName: string,
   storageKey: string,
+  organizationId: string,
 ): Promise<{ jobId: string | null; status: 'pending' | 'uploaded' | 'failed' }> {
   // The backend fetches the file itself, from inside the Docker network —
   // sign with the internal-endpoint client, not the browser-facing one.
@@ -169,7 +170,9 @@ export async function dispatchIngest(
   try {
     const ingestRes = await fetch(`${getBackendUrl()}/v1/ingest`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      // Forward the org id so the backend resolves the org's BYOK vision
+      // credential + runtime model override for VLM captioning during ingestion.
+      headers: { 'Content-Type': 'application/json', 'x-grid-organization-id': organizationId },
       body: JSON.stringify({
         file_ref: presignedUrl,
         collection: collectionName,
@@ -326,7 +329,12 @@ export async function uploadDocument(
     status: 'uploaded',
   })
 
-  const { jobId: ingestJobId, status: ingestStatus } = await dispatchIngest(documentId, collectionName, storageKey)
+  const { jobId: ingestJobId, status: ingestStatus } = await dispatchIngest(
+    documentId,
+    collectionName,
+    storageKey,
+    session.organizationId,
+  )
 
   // Data-provenance event: who brought which file into which project.
   await recordAuditEvent({
@@ -371,7 +379,7 @@ export async function reingestDocument(
   }
   if (!doc.storageKey) throw new NotFoundError('File not available')
 
-  const { jobId, status } = await dispatchIngest(doc.id, doc.collectionName, doc.storageKey)
+  const { jobId, status } = await dispatchIngest(doc.id, doc.collectionName, doc.storageKey, session.organizationId)
   return { id: doc.id, status, jobId }
 }
 
@@ -424,6 +432,53 @@ export async function updateDocumentTags(
 
   const body = await res.json().catch(() => ({}))
   return { id: doc.id, tags: Array.isArray(body.tags) ? body.tags : tags }
+}
+
+export interface DocumentVisualDetail {
+  page: number
+  contentType: string
+  drawingType: string
+  scale: string
+  text: string
+}
+
+/**
+ * Per-page VLM descriptions of a document's visual chunks (drawings / images /
+ * charts) — the "detailed information" the one-line summary is distilled from.
+ * Requires `project:view`. Read-only and fail-soft: any backend hiccup or an
+ * unsupported backend yields an empty list rather than an error, since this is
+ * a secondary, on-demand view.
+ */
+export async function getDocumentVisualDetails(
+  session: AuthorizedSession,
+  documentId: string,
+): Promise<{ id: string; details: DocumentVisualDetail[] }> {
+  const doc = await getAccessibleDocument(session, documentId, 'project:view')
+
+  let res: Response
+  try {
+    res = await fetch(
+      `${getBackendUrl()}/v1/collections/${encodeURIComponent(doc.collectionName)}/documents/${encodeURIComponent(
+        doc.filename,
+      )}/visual-details`,
+      { signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS) },
+    )
+  } catch {
+    return { id: doc.id, details: [] }
+  }
+
+  if (!res.ok) return { id: doc.id, details: [] }
+
+  const body = await res.json().catch(() => ({}))
+  const raw = Array.isArray(body.details) ? body.details : []
+  const details: DocumentVisualDetail[] = raw.map((d: Record<string, unknown>) => ({
+    page: typeof d.page === 'number' ? d.page : 0,
+    contentType: typeof d.content_type === 'string' ? d.content_type : 'drawing',
+    drawingType: typeof d.drawing_type === 'string' ? d.drawing_type : '',
+    scale: typeof d.scale === 'string' ? d.scale : '',
+    text: typeof d.text === 'string' ? d.text : '',
+  }))
+  return { id: doc.id, details }
 }
 
 /** Presign a browser-facing download URL for a document. */

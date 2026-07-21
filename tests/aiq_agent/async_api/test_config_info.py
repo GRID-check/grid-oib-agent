@@ -28,13 +28,28 @@ def test_returns_llm_defaults_without_token_in_dev(client, monkeypatch):
     monkeypatch.delenv("GRID_INTERNAL_API_TOKEN", raising=False)
     response = client.get("/v1/config/llm-defaults")
     assert response.status_code == 200
-    assert response.json() == {
-        "llms": {
-            "intent_llm": "deepseek/deepseek-v4-flash",
-            "card_llm": "deepseek/deepseek-v4-flash",
-            "weird_llm": None,
-        }
-    }
+    llms = response.json()["llms"]
+    assert llms["intent_llm"] == "deepseek/deepseek-v4-flash"
+    assert llms["card_llm"] == "deepseek/deepseek-v4-flash"
+    assert llms["weird_llm"] is None
+    # The env-configured ingestion VLM default is surfaced under a synthetic
+    # `vlm` key so the model-config UI's ingest_vlm group shows a workflow
+    # default (it is not a `llms:` entry).
+    assert isinstance(llms["vlm"], str) and llms["vlm"]
+
+
+def test_vlm_default_reflects_env(monkeypatch):
+    """The synthetic `vlm` default mirrors AIQ_VLM_MODEL (resolved at
+    route-registration time)."""
+    monkeypatch.setenv("AIQ_VLM_MODEL", "vendor/vision-x")
+    monkeypatch.delenv("GRID_INTERNAL_API_TOKEN", raising=False)
+    app = FastAPI()
+    router = APIRouter()
+    add_config_info_routes(router, {})
+    app.include_router(router)
+    client = TestClient(app)
+
+    assert client.get("/v1/config/llm-defaults").json()["llms"]["vlm"] == "vendor/vision-x"
 
 
 def test_requires_matching_token_when_configured(client, monkeypatch):

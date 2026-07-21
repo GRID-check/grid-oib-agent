@@ -30,9 +30,27 @@ capability requirements) mirrored by `AgentGroup` in
 | `deep_research` | `deep_orchestrator_llm`, `deep_planner_llm`, `deep_researcher_llm` (+ writer) | `tools`, ≥128k |
 | `deep_research_router` | `deep_router_llm` | text input, ≥16k |
 | `memory_reflection` | `memory_reflection_llm` (= `card_llm` in the reference config) | text input, ≥32k |
+| `ingest_vlm` | the ingestion VLM (image captioning + rendered-drawing description) | **image input** (`requiresImageInput`) — vision models only |
 
 Requirements are enforced twice: the picker endpoint only lists passing
 models, and the save endpoint re-validates server-side (422 on mismatch).
+
+**`ingest_vlm` specifics.** Unlike the chat groups it re-points a bespoke
+*vision* call site in the ingestion plane (not a NAT chat model), and it is
+resolved by org id inside a detached ingest thread rather than from the request
+header (the org id is captured at `/v1/ingest` — see the "Submission paths"
+section). Two things differ from a chat group:
+
+- **Vision requirement.** `requiresImageInput: true` in `agent-groups.ts` gates
+  the picker and the save-path `validateModelForGroup` to models whose
+  `architecture.input_modalities` includes `image` — a text-only model would
+  produce empty captions. Self-skips on BYOK catalogs with no modality metadata.
+- **Workflow default.** The VLM is env-configured (`AIQ_VLM_MODEL`), not a
+  `llms:` entry, so `/v1/config/llm-defaults` reports its resolved default under
+  a synthetic `vlm` key and the group's `configLlmRefs: ['vlm']` maps to it.
+
+BYOK (org key + base URL) is resolved via `resolve_vlm_credential(org_id)`; the
+selected model rides the standard override header/stored-config path.
 
 ## Data model (grid_app, migration `0012_org_model_config.sql`)
 

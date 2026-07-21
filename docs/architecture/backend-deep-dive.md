@@ -366,6 +366,82 @@ stores remain architecturally distinct (SQL side-table vs. ChromaDB vector
 index), so this is a structural backstop rather than a merge of the two
 sources — see backlog T3-10 for the closed status and rationale.
 
+### Multimodal & visual/vector-drawing ingestion
+
+`_run_ingestion` (`adapter.py`) extracts content from a PDF along four
+independent tracks, then indexes every resulting `Document` chunk and derives
+the document summary:
+
+1. **Text** — `_extract_text_from_pdf` (pdfplumber), per page. Licence/watermark
+   boilerplate lines (e.g. `VECTORWORKS EDUCATIONAL VERSION`) are removed by
+   `_strip_watermark_lines` **before** indexing and before the visual-page
+   heuristic, so a drawing that is pure linework plus a stamped watermark does
+   not read as "has text".
+2. **Tables** — `_extract_tables_from_pdf` (pdfplumber), gated on
+   `extract_tables`.
+3. **Embedded raster images** — `_extract_images_from_pdf` (pypdfium2 image
+   XObjects) → `_analyze_image_with_vlm`, gated on `extract_images`/
+   `extract_charts`. This only sees **raster** images embedded in the page.
+4. **Rendered visual/vector pages** — `_render_visual_pdf_pages`, gated on
+   `AIQ_RENDER_VISUAL_PAGES` (default on) **and** a resolvable VLM key. This is
+   the track that captures **vector CAD/architectural drawings** (plans,
+   sections, elevations, perspectives): they are thousands of vector *path*
+   objects with almost no text and **no embedded raster image**, so tracks 1
+   and 3 both miss them entirely. The whole page is composited into one bitmap
+   (`page.render`, scaled so the long edge ≈ `AIQ_PAGE_RENDER_MAX_DIM` px,
+   default 2048) and sent to `_analyze_drawing_page_with_vlm` with a
+   drawing-aware German prompt that returns a structured description (drawing
+   type, Maßstab/scale, rooms/elements, spatial relationships, and a
+   one-sentence summary), parsed by `_parse_drawing_fields`. A page is routed
+   here only when its watermark-stripped text is below
+   `AIQ_VISUAL_PAGE_MIN_TEXT_CHARS` (200) **or** it has ≥
+   `AIQ_VISUAL_PAGE_MIN_PATHS` (300) vector paths — so ordinary text PDFs (the
+   bulk OIB corpus) skip the VLM at near-zero cost — and at most
+   `AIQ_MAX_RENDERED_PAGES` (20) pages are rendered per document.
+
+The drawing prompt returns a rich structured block — drawing type, Maßstab,
+Nutzung, Räume/Elemente, Materialien/Bauweise, räumliche Beziehungen, and a
+multi-sentence `DETAILBESCHREIBUNG` — stored as the chunk body. Because it is a
+normal chunk it is **embedded and retrievable/citable by `knowledge_search`**,
+so the agent can answer detailed questions about a drawing (materials, storeys,
+circulation) that used to have no indexed content at all. The same descriptions
+are browsable by the user, second to the one-line summary: `get_document_visual_details`
+reads the visual chunks back from Chroma and the file-preview pane's collapsible
+**"Detailed information"** section lazy-loads them (`GET /api/documents/{id}/visual-details`
+→ `GET /v1/collections/{c}/documents/{f}/visual-details`).
+
+**Summary sourcing (why the summary no longer describes the watermark).** The
+document summary + tag LLM calls are started **after** visual extraction. For a
+text-sparse drawing PDF the near-empty page text is replaced by the aggregated
+rendered-page descriptions as the summary/tag input, and if the summary LLM
+fails, `_summary_from_drawing_fields` synthesises a deterministic, watermark-free
+summary from the parsed drawing fields. The result: an image-only architectural
+PDF is summarised as e.g. *"Perspektivischer Schnitt durch einen
+fünfgeschossigen Bildungsbau …"* instead of *"VectorWorks Educational Version is
+a version of VectorWorks software …"*. The shared summary prompt
+(`document_classification.summarize_document_text`) is also domain-aware and
+explicitly instructed to ignore watermark/software boilerplate.
+
+**Org BYOK + runtime model override for the VLM.** The vision model used across
+all four tracks is resolved the SAME way the NAT chat models resolve theirs.
+`/v1/ingest` forwards `x-grid-organization-id` (the BFF's `dispatchIngest` sets
+it) into the job config; because `_run_ingestion` runs in a detached thread pool
+with no request context, the org id must be captured at the request boundary and
+carried in the config. From it the ingestor resolves, per job:
+`resolve_vlm_credential(org_id)` (org BYOK key + base URL, else the deployment
+env chain) and `_resolve_vlm_model_override(org_id)` (the org's `ingest_vlm`
+model override, `AgentGroup.INGEST_VLM`). The resolved `(model, base_url,
+api_key)` is threaded into every VLM call site. Org-agnostic base-corpus sync
+(`oib_sync`) carries no org id and gets the deployment default, unchanged. Org
+admins select the model in the model-config picker (`ingest_vlm` group, gated to
+vision-capable models); see `docs/architecture/org-model-configuration.md`.
+
+> Scope note: this lives in the **LlamaIndex** ingestor. The `foundational_rag`
+> backend shares the summary prompt (`summarize_document_text`) but not yet the
+> page-render track — a known follow-up if that backend is used for drawing PDFs.
+> Embeddings BYOK is likewise still a follow-up (needs an embeddings-capable BYOK
+> endpoint).
+
 ### Document thumbnails
 
 The file-explorer card grid shows a 200px-wide JPEG thumbnail when available,
@@ -611,7 +687,10 @@ full specs in `org-model-configuration.md` (ADR-0014) and
   `get_model_overrides_from_context()` falls back to a just-in-time org-side
   resolution against the BFF's internal `GET /api/internal/model-overrides`
   — see `docs/architecture/org-model-configuration.md`'s submission-paths
-  table.
+  table. The **ingestion VLM** (`ingest_vlm` group) rides the same machinery
+  from a detached thread: `/v1/ingest` captures the org id into the job config
+  and the ingestor resolves the override (and BYOK credential) by org id — see
+  §6 "Multimodal & visual/vector-drawing ingestion".
 - **Cost capture (DRY)**: `src/aiq_agent/common/cost_tracking.py` installs
   `GridCostTracker` through LangChain's `register_configure_hook` ContextVar
   seam — every callback manager configured inside the request picks it up,

@@ -123,7 +123,7 @@ describe('uploadArchivDocument', () => {
     expect(insertArchivDocument).toHaveBeenCalledWith(
       expect.objectContaining({ organizationId: 'org-1', scope: 'archiv', projectId: null, collectionName: 'archiv_org-1' }),
     )
-    expect(dispatchIngest).toHaveBeenCalledWith(expect.any(String), 'archiv_org-1', expect.any(String))
+    expect(dispatchIngest).toHaveBeenCalledWith(expect.any(String), 'archiv_org-1', expect.any(String), 'org-1')
     expect(recordAuditEvent).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'archiv.document.uploaded', organizationId: 'org-1' }),
     )

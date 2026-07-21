@@ -223,6 +223,11 @@ describe('uploadDocument ingest dispatch — backend fetch is time-bounded', () 
     const ingestCall = mockFetch.mock.calls.find(([url]) => String(url).endsWith('/v1/ingest'))
     expect(ingestCall).toBeDefined()
     expect((ingestCall?.[1] as RequestInit).signal).toBeInstanceOf(AbortSignal)
+    // The org id is forwarded so the backend can resolve the org's BYOK vision
+    // credential + runtime model override for VLM captioning during ingestion.
+    expect((ingestCall?.[1] as RequestInit).headers).toMatchObject({
+      'x-grid-organization-id': 'org-1',
+    })
   })
 
   it('a timeout abort fails open exactly like a network error (persists failed, no crash)', async () => {
