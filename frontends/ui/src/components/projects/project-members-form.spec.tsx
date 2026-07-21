@@ -88,6 +88,38 @@ describe('ProjectMembersForm', () => {
     expect(screen.queryByRole('listbox')).toBeNull()
   })
 
+  test('role pickers explain what each role means', async () => {
+    const user = userEvent.setup()
+    render(<ProjectMembersForm projectId="p1" canManage />)
+
+    // Invite form's role select.
+    await user.click(await screen.findByLabelText('Role'))
+    let listbox = await screen.findByRole('listbox')
+    expect(
+      within(listbox).getByText(/Can view project content, files, and conversations/i),
+    ).toBeDefined()
+    expect(
+      within(listbox).getByText(/Can also edit documents, run workflows/i),
+    ).toBeDefined()
+    expect(
+      within(listbox).getByText(/Can also manage project settings, members, and roles/i),
+    ).toBeDefined()
+    await user.keyboard('{Escape}')
+
+    // Roster row's role select (Ada already has a role assigned).
+    await user.click(screen.getByLabelText('Project role for Ada Lovelace'))
+    listbox = await screen.findByRole('listbox')
+    expect(
+      within(listbox).getByText(/Can view project content, files, and conversations/i),
+    ).toBeDefined()
+    expect(
+      within(listbox).getByText(/Can also edit documents, run workflows/i),
+    ).toBeDefined()
+    expect(
+      within(listbox).getByText(/Can also manage project settings, members, and roles/i),
+    ).toBeDefined()
+  })
+
   test('supports keyboard selection with arrow keys and Enter', async () => {
     const user = userEvent.setup()
     render(<ProjectMembersForm projectId="p1" canManage />)

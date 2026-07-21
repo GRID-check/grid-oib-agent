@@ -14,6 +14,11 @@ export const members = {
     'project-editor': 'Editor',
     'project-admin': 'Admin',
   },
+  roleDescriptions: {
+    'project-viewer': 'Can view project content, files, and conversations, but not change anything.',
+    'project-editor': 'Can also edit documents, run workflows, and update the project profile.',
+    'project-admin': 'Can also manage project settings, members, and roles.',
+  },
   validation: {
     emailRequired: 'Email is required',
     emailInvalid: 'Enter a valid email address',

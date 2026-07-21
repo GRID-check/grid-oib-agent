@@ -16,6 +16,13 @@ export const members: typeof en.members = {
     'project-editor': 'Bearbeiter',
     'project-admin': 'Administrator',
   },
+  roleDescriptions: {
+    'project-viewer':
+      'Kann Projektinhalte, Dateien und Unterhaltungen ansehen, aber nichts ändern.',
+    'project-editor':
+      'Kann außerdem Dokumente bearbeiten, Workflows ausführen und das Projektprofil aktualisieren.',
+    'project-admin': 'Kann außerdem Projekteinstellungen, Mitglieder und Rollen verwalten.',
+  },
   validation: {
     emailRequired: 'E-Mail ist erforderlich',
     emailInvalid: 'Geben Sie eine gültige E-Mail-Adresse ein',

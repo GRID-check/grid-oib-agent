@@ -78,6 +78,47 @@ interface MemberSuggestFieldProps {
   containerClassName?: string
 }
 
+interface RoleSelectFieldProps {
+  label: string
+  options: Array<{ value: ProjectRole; label: string; description: string }>
+  containerClassName?: string
+}
+
+/**
+ * Role picker for the invite form. Built directly on the base Select
+ * primitives (rather than the shared `field.SelectField`) so each option can
+ * carry a one-line explainer of what the role actually grants.
+ */
+function RoleSelectField({ label, options, containerClassName }: RoleSelectFieldProps): JSX.Element {
+  const field = useFieldContext<ProjectRole>()
+  const errors = field.state.meta.isTouched
+    ? (field.state.meta.errors as Array<string | { message: string } | undefined>)
+    : []
+  // The closed trigger should show only the role name — SelectValue would
+  // otherwise mirror the full option content, description included.
+  const selectedLabel = options.find((option) => option.value === field.state.value)?.label
+
+  return (
+    <FieldShell label={label} htmlFor={field.name} errors={errors} className={containerClassName}>
+      <Select value={field.state.value} onValueChange={(value) => field.handleChange(value as ProjectRole)}>
+        <SelectTrigger id={field.name} className="w-full" onBlur={field.handleBlur}>
+          <SelectValue>{selectedLabel}</SelectValue>
+        </SelectTrigger>
+        <SelectContent>
+          {options.map((option) => (
+            <SelectItem key={option.value} value={option.value}>
+              <div className="flex flex-col gap-0.5 py-0.5 text-left">
+                <span>{option.label}</span>
+                <span className="text-xs font-normal text-muted-foreground">{option.description}</span>
+              </div>
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </FieldShell>
+  )
+}
+
 /**
  * Combobox over the already-loaded org roster. WorkOS has no member-search
  * API (listUsers only filters by exact email), so suggestions are filtered
@@ -214,7 +255,12 @@ function MemberSuggestField({
 export function ProjectMembersForm({ projectId, canManage }: ProjectMembersFormProps): JSX.Element {
   const t = useTranslations('members')
   const roleLabel = (role: ProjectRole): string => t(`roles.${role}`)
-  const roleOptions = ROLE_VALUES.map((value) => ({ value, label: roleLabel(value) }))
+  const roleDescription = (role: ProjectRole): string => t(`roleDescriptions.${role}`)
+  const roleOptions = ROLE_VALUES.map((value) => ({
+    value,
+    label: roleLabel(value),
+    description: roleDescription(value),
+  }))
 
   const inviteSchema = z.object({
     email: z.string().min(1, t('validation.emailRequired')).email(t('validation.emailInvalid')),
@@ -386,12 +432,11 @@ export function ProjectMembersForm({ projectId, canManage }: ProjectMembersFormP
               )}
             </inviteForm.AppField>
             <inviteForm.AppField name="roleSlug">
-              {(field) => (
-                <field.SelectField
+              {() => (
+                <RoleSelectField
                   label={t('invite.roleLabel')}
                   options={roleOptions}
-                  containerClassName="sm:w-44"
-                  triggerClassName="w-full"
+                  containerClassName="sm:w-56"
                 />
               )}
             </inviteForm.AppField>
@@ -518,13 +563,20 @@ export function ProjectMembersForm({ projectId, canManage }: ProjectMembersFormP
                           className="w-full sm:w-[180px]"
                           aria-label={t('roster.roleForMember', { name: member.name })}
                         >
-                          <SelectValue />
+                          <SelectValue>
+                            {member.role ? roleLabel(member.role) : t('roster.noAccessOption')}
+                          </SelectValue>
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value={NO_ACCESS}>{t('roster.noAccessOption')}</SelectItem>
                           {roleOptions.map((option) => (
                             <SelectItem key={option.value} value={option.value}>
-                              {option.label}
+                              <div className="flex flex-col gap-0.5 py-0.5 text-left">
+                                <span>{option.label}</span>
+                                <span className="text-xs font-normal text-muted-foreground">
+                                  {option.description}
+                                </span>
+                              </div>
                             </SelectItem>
                           ))}
                         </SelectContent>
