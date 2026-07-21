@@ -226,7 +226,7 @@ export async function findProjectWorkosResourceId(
  * Restore a soft-deleted project while its deletion-queue row is still
  * 'pending' AND unclaimed. `markFailed` returns a partially-purged row to
  * 'pending' (with claimed_at set); restoring it would resurrect a project
- * whose Chroma/MinIO data was already destroyed — a hollow, corrupt restore.
+ * whose Chroma/SeaweedFS data was already destroyed — a hollow, corrupt restore.
  * Returns false when there is nothing safe to restore.
  */
 export async function restoreProjectIfPending(projectId: string): Promise<boolean> {

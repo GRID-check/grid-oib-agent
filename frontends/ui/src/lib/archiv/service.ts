@@ -4,7 +4,7 @@
  * The Archiv is a hierarchical add-on on top of the existing documents domain:
  * an Archiv document is a `documents` row with `scope = 'archiv'`, `projectId`
  * NULL, and `collectionName = archiv_<orgId>`. That lets this service REUSE the
- * document pipeline wholesale — the MinIO upload, the `/v1/ingest` dispatch
+ * document pipeline wholesale — the SeaweedFS upload, the `/v1/ingest` dispatch
  * (`dispatchIngest`), the server-side upload allow-list (`assertUploadTypeAllowed`),
  * status reconciliation (`reconcileDocumentStatuses`), and the item routes
  * (download/preview/status/reingest/tags, which are scope-aware in
@@ -18,7 +18,7 @@
 
 import 'server-only'
 import { PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3'
-import { s3Client, bucketName, buildArchivMinioKey } from '@/lib/s3'
+import { s3Client, bucketName, buildArchivStorageKey } from '@/lib/s3'
 import { canManageArchiv } from '@/lib/authz/organizations'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { getBackendUrl } from '@/lib/backend-proxy'
@@ -69,10 +69,10 @@ export interface UploadArchivDocumentResult {
 }
 
 /**
- * Store an uploaded file in MinIO under the org's Archiv prefix, record it as an
+ * Store an uploaded file in SeaweedFS under the org's Archiv prefix, record it as an
  * `archiv`-scoped document, and hand it to the backend for ingestion into the
  * org's shared `archiv_<orgId>` collection. Ingest is best-effort (the file is
- * already durable in MinIO + Postgres); status reads reconcile the outcome.
+ * already durable in SeaweedFS + Postgres); status reads reconcile the outcome.
  * Requires `org:archiv:manage`.
  */
 export async function uploadArchivDocument(
@@ -85,13 +85,13 @@ export async function uploadArchivDocument(
 
   const documentId = crypto.randomUUID()
   const collectionName = archivCollectionName(session.organizationId)
-  const minioKey = buildArchivMinioKey(session.organizationId, documentId, file.name)
+  const storageKey = buildArchivStorageKey(session.organizationId, documentId, file.name)
 
   const bytes = Buffer.from(await file.arrayBuffer())
   await s3Client.send(
     new PutObjectCommand({
       Bucket: bucketName,
-      Key: minioKey,
+      Key: storageKey,
       Body: bytes,
       ContentType: file.type || 'application/octet-stream',
     }),
@@ -105,14 +105,14 @@ export async function uploadArchivDocument(
     folderId: null,
     createdBy: session.userId,
     filename: file.name,
-    minioKey,
+    storageKey,
     collectionName,
     fileSize: file.size,
     contentType: file.type || null,
     status: 'uploaded',
   })
 
-  const { jobId, status } = await dispatchIngest(documentId, collectionName, minioKey)
+  const { jobId, status } = await dispatchIngest(documentId, collectionName, storageKey)
 
   // Data-provenance event: who brought which file into the org Archiv.
   await recordAuditEvent({
@@ -130,7 +130,7 @@ export async function uploadArchivDocument(
 
 /**
  * Delete an Archiv document: purge its RAG chunks (best-effort), remove the
- * MinIO object, delete the row, and audit. Requires `org:archiv:manage`.
+ * SeaweedFS object, delete the row, and audit. Requires `org:archiv:manage`.
  */
 export async function deleteArchivDocument(
   session: AuthorizedSession,
@@ -143,7 +143,7 @@ export async function deleteArchivDocument(
   if (!doc) throw new NotFoundError()
 
   // Best-effort: remove the ingested chunks so a deleted document stops showing
-  // up in retrieval. A backend hiccup must not block the durable MinIO + DB
+  // up in retrieval. A backend hiccup must not block the durable SeaweedFS + DB
   // cleanup below, so failures here are swallowed.
   try {
     await fetch(`${getBackendUrl()}/v1/collections/${encodeURIComponent(doc.collectionName)}/documents`, {
@@ -156,9 +156,9 @@ export async function deleteArchivDocument(
     // ignore — chunks may linger until the next collection reconcile/purge
   }
 
-  if (doc.minioKey) {
+  if (doc.storageKey) {
     try {
-      await s3Client.send(new DeleteObjectCommand({ Bucket: bucketName, Key: doc.minioKey }))
+      await s3Client.send(new DeleteObjectCommand({ Bucket: bucketName, Key: doc.storageKey }))
     } catch {
       // ignore — the object may already be gone; the row delete below is the record of intent
     }

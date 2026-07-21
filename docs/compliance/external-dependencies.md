@@ -62,7 +62,7 @@ Backend agents fetch no arbitrary URLs themselves (only internal BFF call in
 | Component | Image (pinning) | Data held |
 |---|---|---|
 | PostgreSQL | `postgres:16-alpine` (floating minor) | `grid_app` (projects, docs metadata, memory, usage ledger, model config), `aiq_jobs`, `aiq_checkpoints` (**full conversation/agent state**) |
-| MinIO | `minio/minio:RELEASE.2024-06-29…` (pinned, stale) + `minio/mc:latest` (**unpinned**) | Raw uploaded documents (`grid-documents`) |
+| SeaweedFS | `chrislusf/seaweedfs:3.80` | Raw uploaded documents (`grid-documents`) |
 | Chroma | embedded lib, volume `chroma_data` | Embeddings + chunk text (OIB corpus + user docs) |
 | Dragonfly | `dragonflydb/dragonfly:v1.27.1` (pinned) | Transient cache, rate-limit counters (no persistence) |
 | Frontend/purger | from `node:22-slim` (floating) | — |
@@ -91,7 +91,7 @@ Backend agents fetch no arbitrary URLs themselves (only internal BFF call in
 3. PII in WorkOS beyond auth (email, IP, filenames in audit events; fail-silent
    emitter).
 4. Concentration: one OpenRouter key = all inference + embeddings + VLM.
-5. Unpinned/stale images (`minio/mc:latest`, floating bases), mutable CI action refs.
+5. Unpinned/stale images (`chrislusf/seaweedfs:3.80`, floating bases), mutable CI action refs.
 6. Vestigial secret slots (`WANDB_API_KEY`, `JINA_API_KEY`) mislead subprocessor
    lists — remove.
 7. Uploaded document content leaves the deployment **by design** (embeddings/VLM/RAG

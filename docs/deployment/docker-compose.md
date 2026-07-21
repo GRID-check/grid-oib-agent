@@ -66,53 +66,67 @@ The Python backend service running NAT + FastAPI.
 
 **Healthcheck**: `python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"` — interval 15s, timeout 10s, retries 10, start period 30s.
 
-**Depends on**: `minio` (healthy), `postgres` (healthy).
+**Depends on**: `seaweedfs` (healthy), `postgres` (healthy).
 
 **Restart**: `unless-stopped`.
 
-### minio
+### seaweedfs
 
-S3-compatible object storage for documents.
+S3-compatible object storage for documents (single `weed server -s3` process).
 
 | Property | Value |
 |----------|-------|
-| Image | `minio/minio:RELEASE.2024-06-29T01-20-47Z` |
+| Image | `chrislusf/seaweedfs:3.80` |
 | Container name | (auto-generated) |
-| Ports | `9000:9000` (API), `9001:9001` (Console) |
+| Ports | `8333:8333` (S3 API), `8888:8888` (Filer UI), `9333:9333` (Master) |
 | Networks | `aiq-network` |
 
 **Environment**:
 
 | Variable | Value |
 |----------|-------|
-| `MINIO_ROOT_USER` | `minioadmin` |
-| `MINIO_ROOT_PASSWORD` | `minioadmin` |
+| `SEAWEED_ACCESS_KEY` | `seaweedadmin` |
+| `SEAWEED_SECRET_KEY` | `seaweedadmin` |
 
-**Command**: `server /data --console-address ":9001"`
+**Command**: an `sh -c` entrypoint writes an S3 identity config from the
+access/secret keys, then starts the all-in-one server:
+```bash
+mkdir -p /etc/seaweedfs &&
+printf '{"identities":[{"name":"grid","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Admin","Read","Write","List","Tagging"]}]}\n' "$SEAWEED_ACCESS_KEY" "$SEAWEED_SECRET_KEY" > /etc/seaweedfs/s3.json &&
+exec weed server -dir=/data -s3 -s3.config=/etc/seaweedfs/s3.json -s3.port=8333
+```
+Generating the config from env at boot means the same service definition works
+for both dev (hardcoded keys) and Coolify (generated secret) — SeaweedFS has no
+`MINIO_ROOT_*`-style credential env; it reads identities from `-s3.config`.
 
-**Volume**: `minio-data:/data`
+**Volume**: `seaweedfs-data:/data`
 
-**Healthcheck**: `mc ready local` — interval 5s, timeout 5s, retries 5.
+**Healthcheck**: `wget -q -O /dev/null http://localhost:9333/cluster/status` —
+the master status endpoint (auth-free 200) — interval 5s, timeout 5s, retries
+10, start_period 15s. Bucket readiness is gated separately by `seaweedfs-init`.
 
 **Restart**: `unless-stopped`.
 
-### minio-init
+### seaweedfs-init
 
-One-shot container to create the `grid-documents` bucket.
+One-shot container to create the `grid-documents` bucket. SeaweedFS does not
+auto-create buckets (a put to a missing bucket returns `NoSuchBucket`), so the
+app services wait on this via `service_completed_successfully`.
 
 | Property | Value |
 |----------|-------|
-| Image | `minio/mc:latest` |
+| Image | `chrislusf/seaweedfs:3.80` |
 | Entrypoint | `/bin/sh -c` |
 | Networks | `aiq-network` |
 
 **Command**:
 ```bash
-mc alias set local http://minio:9000 minioadmin minioadmin &&
-mc mb local/grid-documents --ignore-existing
+echo 's3.bucket.create -name grid-documents' | weed shell -master=seaweedfs:9333 || true
 ```
+`weed shell` reaches the filer via the master; `|| true` keeps re-runs
+idempotent (bucket-already-exists is a successful no-op).
 
-**Depends on**: `minio` (healthy).
+**Depends on**: `seaweedfs` (healthy).
 
 This container runs, creates the bucket, and exits. It is not restarted.
 
@@ -141,11 +155,11 @@ The Next.js UI application.
 | `WORKOS_REDIRECT_URI` | `${WORKOS_REDIRECT_URI:-http://localhost:3000/api/auth/callback}` |
 | `WORKOS_COOKIE_PASSWORD` | `${WORKOS_COOKIE_PASSWORD}` |
 | `FILE_UPLOAD_ACCEPTED_TYPES` | `${FILE_UPLOAD_ACCEPTED_TYPES:-.pdf,.docx,.txt,.md}` |
-| `MINIO_ENDPOINT` | `http://minio:9000` (hardcoded in compose) |
-| `MINIO_ACCESS_KEY` | `minioadmin` (hardcoded in compose) |
-| `MINIO_SECRET_KEY` | `minioadmin` (hardcoded in compose) |
-| `MINIO_BUCKET` | `grid-documents` (hardcoded in compose) |
-| `MINIO_PRESIGNED_URL_TTL_SECONDS` | `600` (hardcoded in compose) |
+| `SEAWEED_ENDPOINT` | `http://seaweedfs:8333` (hardcoded in compose) |
+| `SEAWEED_ACCESS_KEY` | `seaweedadmin` (hardcoded in compose) |
+| `SEAWEED_SECRET_KEY` | `seaweedadmin` (hardcoded in compose) |
+| `SEAWEED_BUCKET` | `grid-documents` (hardcoded in compose) |
+| `SEAWEED_PRESIGNED_URL_TTL_SECONDS` | `600` (hardcoded in compose) |
 
 **Resource limits**:
 
@@ -156,7 +170,7 @@ The Next.js UI application.
 
 **Healthcheck**: `curl -f http://localhost:3000/` — interval 30s, timeout 10s, start period 30s, retries 3.
 
-**Depends on**: `aiq-agent` (healthy), `minio` (healthy), `postgres` (healthy).
+**Depends on**: `aiq-agent` (healthy), `seaweedfs` (healthy), `postgres` (healthy).
 
 **Restart**: `unless-stopped`.
 
@@ -203,7 +217,7 @@ PostgreSQL 16 database.
 |------|--------|------------|
 | `aiq-data` | local | aiq-agent (`/app/data`) |
 | `chroma_data` | local | aiq-agent (`/app/data/chroma_data`) |
-| `minio-data` | local | minio (`/data`) |
+| `seaweedfs-data` | local | seaweedfs (`/data`) |
 | `postgres-data` | local | postgres (`/var/lib/postgresql/data`) |
 
 ## Networks

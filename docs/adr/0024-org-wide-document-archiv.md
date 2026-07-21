@@ -23,7 +23,7 @@ asked for exactly that — a top-level "Archiv" that lives above projects and is
 shared across the whole org.
 
 The document pipeline this needs already exists and is enterprise-hardened
-(MinIO storage, best-effort `/v1/ingest` dispatch, lazy status reconciliation,
+(SeaweedFS storage, best-effort `/v1/ingest` dispatch, lazy status reconciliation,
 presigned download/preview, controlled tags, audit trail). Rebuilding it for the
 Archiv would be duplication; the only genuinely different concern is
 **authorization scope** — org-level instead of per-project.
@@ -38,7 +38,7 @@ authorization scope.
   table with `project_id = NULL`, a new `scope = 'archiv'` discriminator, and
   `collection_name = archiv_<orgId>`. `project_id` becomes nullable (migration
   `0019_org_archiv`). No parallel table.
-- **Reused machinery.** MinIO upload, `dispatchIngest` → `/v1/ingest`, status
+- **Reused machinery.** SeaweedFS upload, `dispatchIngest` → `/v1/ingest`, status
   reconciliation, and the item routes (`/api/documents/[id]/{download,preview,
   status,reingest,tags}`) are shared unchanged. Those item routes become
   *scope-aware*: for an `archiv` document they authorize at the org level; for a

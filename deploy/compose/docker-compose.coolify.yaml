@@ -11,21 +11,21 @@
 #   1. No `container_name:` — Coolify namespaces containers per deployment.
 #      Fixed names collide across per-PR preview environments.
 #   2. No published host `ports:` — the two host-facing services (frontend,
-#      minio) are exposed through Coolify's Traefik proxy via SERVICE_FQDN_*
+#      seaweedfs) are exposed through Coolify's Traefik proxy via SERVICE_FQDN_*
 #      magic vars instead. Publishing host ports would collide the moment a
 #      second preview tries to bind the same port.
 #   3. Secrets use ${VAR:?} (required — deploy fails if unset) or
 #      ${SERVICE_PASSWORD_*} (Coolify auto-generates, stable per stack).
-#   4. CORS + MINIO_PUBLIC_ENDPOINT + WorkOS redirect derive from the generated
+#   4. CORS + SEAWEED_PUBLIC_ENDPOINT + WorkOS redirect derive from the generated
 #      FQDNs, so each preview is self-configuring.
 #
 # Coolify magic variables used here (generated per deployment, consistent
 # across all services in the stack):
-#   SERVICE_FQDN_FRONTEND_3000  -> exposes frontend:3000 under a generated
-#                                  https domain; readable as ${SERVICE_FQDN_FRONTEND}
-#   SERVICE_FQDN_MINIO_9000     -> exposes minio:9000 (S3 API) under a domain;
-#                                  readable as ${SERVICE_FQDN_MINIO}
-#   SERVICE_PASSWORD_POSTGRES / _MINIO / _INTERNALTOKEN -> generated secrets
+#   SERVICE_FQDN_FRONTEND_3000   -> exposes frontend:3000 under a generated
+#                                   https domain; readable as ${SERVICE_FQDN_FRONTEND}
+#   SERVICE_FQDN_SEAWEEDFS_8333  -> exposes seaweedfs:8333 (S3 API) under a
+#                                   domain; readable as ${SERVICE_FQDN_SEAWEEDFS}
+#   SERVICE_PASSWORD_POSTGRES / _SEAWEEDFS / _INTERNALTOKEN -> generated secrets
 # =============================================================================
 
 services:
@@ -133,7 +133,7 @@ services:
     depends_on:
       aiq-data-permissions:
         condition: service_completed_successfully
-      minio:
+      seaweedfs:
         condition: service_healthy
       postgres:
         condition: service_healthy
@@ -157,34 +157,46 @@ services:
       - chroma_data:/app/data/chroma_data
     restart: "no"
 
-  minio:
-    image: minio/minio:RELEASE.2024-06-29T01-20-47Z
+  seaweedfs:
+    # SeaweedFS S3-compatible object storage (replaces MinIO). One
+    # `weed server -s3` process runs master (9333), volume (8080), filer (8888)
+    # and the S3 gateway (8333). S3 identities are generated at boot from the
+    # access/secret keys into s3.json (SeaweedFS has no MINIO_ROOT_* env).
+    image: chrislusf/seaweedfs:3.80
     environment:
-      # SERVICE_FQDN_MINIO_9000 tells Coolify to expose the S3 API (9000) under
-      # a generated https domain — required so the browser can fetch presigned
-      # PDF URLs (the internal `minio` hostname is not browser-reachable).
-      - SERVICE_FQDN_MINIO_9000
-      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
-      - MINIO_ROOT_PASSWORD=${SERVICE_PASSWORD_MINIO}
-    command: server /data --console-address ":9001"
-    volumes:
-      - minio-data:/data
-    healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-
-  minio-init:
-    image: minio/mc:latest
+      # SERVICE_FQDN_SEAWEEDFS_8333 tells Coolify to expose the S3 API (8333)
+      # under a generated https domain — required so the browser can fetch
+      # presigned PDF URLs (the internal `seaweedfs` hostname is not
+      # browser-reachable).
+      - SERVICE_FQDN_SEAWEEDFS_8333
+      - SEAWEED_ACCESS_KEY=${SEAWEED_ACCESS_KEY:-seaweedadmin}
+      - SEAWEED_SECRET_KEY=${SERVICE_PASSWORD_SEAWEEDFS}
     entrypoint: ["/bin/sh", "-c"]
     command:
       - >
-        mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${SERVICE_PASSWORD_MINIO} &&
-        mc mb local/grid-documents --ignore-existing
+        mkdir -p /etc/seaweedfs &&
+        printf '{"identities":[{"name":"grid","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Admin","Read","Write","List","Tagging"]}]}\n' "$$SEAWEED_ACCESS_KEY" "$$SEAWEED_SECRET_KEY" > /etc/seaweedfs/s3.json &&
+        exec weed server -dir=/data -s3 -s3.config=/etc/seaweedfs/s3.json -s3.port=8333
+    volumes:
+      - seaweedfs-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:9333/cluster/status"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    restart: unless-stopped
+
+  seaweedfs-init:
+    # Pre-create the documents bucket (SeaweedFS does not auto-create buckets).
+    # `|| true` keeps re-runs idempotent.
+    image: chrislusf/seaweedfs:3.80
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >
+        echo 's3.bucket.create -name grid-documents' | weed shell -master=seaweedfs:9333 || true
     depends_on:
-      minio:
+      seaweedfs:
         condition: service_healthy
     restart: "no"
 
@@ -226,12 +238,12 @@ services:
       - FILE_UPLOAD_MAX_FILE_COUNT=${FILE_UPLOAD_MAX_FILE_COUNT:-10}
       - FILE_EXPIRATION_CHECK_INTERVAL_HOURS=${FILE_EXPIRATION_CHECK_INTERVAL_HOURS:-0}
       # Internal (server-side uploads) vs public (browser presigned URLs).
-      - MINIO_ENDPOINT=http://minio:9000
-      - MINIO_PUBLIC_ENDPOINT=https://${SERVICE_FQDN_MINIO}
-      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
-      - MINIO_SECRET_KEY=${SERVICE_PASSWORD_MINIO}
-      - MINIO_BUCKET=grid-documents
-      - MINIO_PRESIGNED_URL_TTL_SECONDS=600
+      - SEAWEED_ENDPOINT=http://seaweedfs:8333
+      - SEAWEED_PUBLIC_ENDPOINT=https://${SERVICE_FQDN_SEAWEEDFS}
+      - SEAWEED_ACCESS_KEY=${SEAWEED_ACCESS_KEY:-seaweedadmin}
+      - SEAWEED_SECRET_KEY=${SERVICE_PASSWORD_SEAWEEDFS}
+      - SEAWEED_BUCKET=grid-documents
+      - SEAWEED_PRESIGNED_URL_TTL_SECONDS=600
       - PROJECT_PURGE_GRACE_DAYS=${PROJECT_PURGE_GRACE_DAYS:-7}
       # OpenRouter model catalog for the org model-config picker/validation.
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:?set OPENROUTER_API_KEY}
@@ -253,8 +265,10 @@ services:
     depends_on:
       aiq-agent:
         condition: service_healthy
-      minio:
+      seaweedfs:
         condition: service_healthy
+      seaweedfs-init:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
     # Liveness for Coolify/Traefik. Hits the dependency-free /api/healthz (not
@@ -278,17 +292,19 @@ services:
       - GRID_APP_DATABASE_URL=postgresql://aiq:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/grid_app
       - BACKEND_URL=http://aiq-agent:8000
       - GRID_INTERNAL_API_TOKEN=${SERVICE_PASSWORD_INTERNALTOKEN}
-      - MINIO_ENDPOINT=http://minio:9000
-      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
-      - MINIO_SECRET_KEY=${SERVICE_PASSWORD_MINIO}
-      - MINIO_BUCKET=grid-documents
+      - SEAWEED_ENDPOINT=http://seaweedfs:8333
+      - SEAWEED_ACCESS_KEY=${SEAWEED_ACCESS_KEY:-seaweedadmin}
+      - SEAWEED_SECRET_KEY=${SERVICE_PASSWORD_SEAWEEDFS}
+      - SEAWEED_BUCKET=grid-documents
       - WORKOS_API_KEY=${WORKOS_API_KEY:-}
       - PURGER_POLL_INTERVAL_MS=${PURGER_POLL_INTERVAL_MS:-60000}
     depends_on:
       postgres:
         condition: service_healthy
-      minio:
+      seaweedfs:
         condition: service_healthy
+      seaweedfs-init:
+        condition: service_completed_successfully
       aiq-agent:
         condition: service_healthy
     restart: unless-stopped
@@ -386,7 +402,7 @@ volumes:
     driver: local
   chroma_data:
     driver: local
-  minio-data:
+  seaweedfs-data:
     driver: local
   postgres-data:
     driver: local
@@ -394,7 +410,7 @@ volumes:
 # NOTE: intentionally NO top-level `networks:` block. Coolify auto-creates one
 # managed bridge network per compose stack (named after the resource UUID) and
 # attaches every service to it, so service-name DNS (aiq-agent, frontend,
-# postgres, minio, dragonfly, …) already works across the stack. Declaring a
+# postgres, seaweedfs, dragonfly, …) already works across the stack. Declaring a
 # custom network here would make each container DUAL-HOMED — attached to BOTH
 # the custom bridge and Coolify's managed network. Coolify's Traefik proxy sits
 # only on the managed network and then non-deterministically picks which of a

@@ -37,7 +37,7 @@ layers, documented in `docs/architecture/bff-service-architecture.md`:
    validation helpers, and uniform error mapping.
 2. **Services** (`lib/<domain>/service.ts`) own business logic and
    fine-grained authorization, throw typed errors from `@/lib/api/errors`,
-   and orchestrate repositories plus external systems (WorkOS, MinIO,
+   and orchestrate repositories plus external systems (WorkOS, SeaweedFS,
    backend, audit trail).
 3. **Repositories** (`lib/<domain>/repository.ts`) are the only modules that
    issue drizzle queries for their domain; tenancy (`organizationId`) is

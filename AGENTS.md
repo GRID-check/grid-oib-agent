@@ -79,8 +79,8 @@ Secrets and deployment knobs live in environment variables only (`deploy/.env`).
 | `GRID_ADMIN_TOKEN` (frontend) | Now also required on the frontend service (must match aiq-agent): authenticates the platform-owner base-knowledge routes (`/api/platform/knowledge/*`) against the backend's `/v1/admin/oib/*` endpoints. |
 | `OIB_UPLOADS_DIR` | Default `data/oib_uploads` (inside the persistent `aiq-data` volume). Writable home for base-corpus PDFs uploaded via the platform admin UI; scanned by OIB sync alongside the read-only repo corpus. aiq-agent service. |
 | `FRONTEND_INTERNAL_URL` | Backend→frontend base URL on the compose network (default `http://frontend:3000`) |
-| `MINIO_ENDPOINT` | Internal MinIO endpoint (backend-consumed presigns/uploads) |
-| `MINIO_PUBLIC_ENDPOINT` | Browser-reachable MinIO endpoint for presigned preview/download URLs (dev default `http://localhost:9000`) |
+| `SEAWEED_ENDPOINT` | Internal SeaweedFS endpoint (backend-consumed presigns/uploads) |
+| `SEAWEED_PUBLIC_ENDPOINT` | Browser-reachable SeaweedFS endpoint for presigned preview/download URLs (dev default `http://localhost:8333`) |
 | `PROJECT_PURGE_GRACE_DAYS` | Grace period before soft-deleted projects are hard-purged |
 | `GRID_BUDGET_EUR_PER_USD` | Default `0.86`. Euros per 1 USD for comparing EUR budget limits against the USD costs OpenRouter reports (ADR-0015). Frontend service. |
 | `GRID_PLATFORM_OWNER_EMAILS` | Break-glass platform-owner bootstrap (comma-separated emails). Empty in steady state; the WorkOS `org-platform-owner` role is the source of truth (ADR-0016). |
@@ -130,7 +130,7 @@ The projects domain (`lib/projects/repository.ts`, `lib/projects/service.ts`,
 
 ## Knowledge systems
 
-GRID has two distinct "knowledge" systems: **project knowledge** (the intake-wizard profile plus the agent-curated project/org memory, injected as WS headers `x-grid-project-context` and `x-grid-project-memory`; memory writes go through the token-guarded internal BFF endpoint so `grid_app` stays single-writer) and **RAG document knowledge** (MinIO uploads ingested into scoped collections via `/v1/ingest`). See `docs/architecture/backend-deep-dive.md` and `docs/architecture/project-memory-design.md`.
+GRID has two distinct "knowledge" systems: **project knowledge** (the intake-wizard profile plus the agent-curated project/org memory, injected as WS headers `x-grid-project-context` and `x-grid-project-memory`; memory writes go through the token-guarded internal BFF endpoint so `grid_app` stays single-writer) and **RAG document knowledge** (SeaweedFS uploads ingested into scoped collections via `/v1/ingest`). See `docs/architecture/backend-deep-dive.md` and `docs/architecture/project-memory-design.md`.
 
 **Project profile — one surface, one editor.** The project profile (facts like
 building class, use, location) has a single editor: the **intake wizard**. The
@@ -141,7 +141,7 @@ The facts are interdependent (they drive which OIB standards apply), so edits
 must run through the wizard's guided, consistency-checked flow. Rationale:
 `docs/design/click-dummy-overhaul-spec.md` §9.1.
 
-RAG document knowledge has **three tiers**, all sharing one pipeline (MinIO → `/v1/ingest` → per-collection retrieval): the platform-owner **base corpus** (`oib_knowledge`, org-agnostic, always in scope); per-**project** documents (`proj_<uuid>`, in scope for that project only); and the org-wide **Archiv** (ADR-0024, `archiv_<orgId>`, `scope='archiv'` rows in the `documents` table, injected into every project's scope for that org). The Archiv reuses the project document machinery (`lib/documents/*`) wholesale — only the authorization scope differs (org-level `org:archiv:manage` for writes; any member reads). See `lib/archiv/*`, `/api/archiv/*`, and `computeCollectionScope`.
+RAG document knowledge has **three tiers**, all sharing one pipeline (SeaweedFS → `/v1/ingest` → per-collection retrieval): the platform-owner **base corpus** (`oib_knowledge`, org-agnostic, always in scope); per-**project** documents (`proj_<uuid>`, in scope for that project only); and the org-wide **Archiv** (ADR-0024, `archiv_<orgId>`, `scope='archiv'` rows in the `documents` table, injected into every project's scope for that org). The Archiv reuses the project document machinery (`lib/documents/*`) wholesale — only the authorization scope differs (org-level `org:archiv:manage` for writes; any member reads). See `lib/archiv/*`, `/api/archiv/*`, and `computeCollectionScope`.
 
 **Source-kind model (obligation).** Every source the agent surfaces — OIB corpus, RIS live law, Büroarchiv, Projektwissen, web — is classified into **one coarse `SourceKind`** (`baurecht | buero | projekt | web`) that drives *all* rendering: the "Belegt durch" chips, the Herleitung fan-out, and the report sources section. The taxonomy is defined once in `src/aiq_agent/common/source_kinds.py` (backend) and mirrored in `frontends/ui/src/features/chat/lib/source-kinds.ts` (frontend); the fine `norm_registry.lane_for_hit` lanes (OIB-Richtlinie, Bundesrecht, …) are the *sub-label within* a kind, not a competing taxonomy. **The OIB corpus and RIS are the same kind (`baurecht`)** — do not add per-surface kind mappings or a second source taxonomy. Rationale and rollout: ADR-0026. This unifies the two knowledge planes at the presentation/doctrine layer while keeping them as separate stores (Chroma corpus for semantic retrieval, the norm registry for authoritative live law — ADR-0025).
 

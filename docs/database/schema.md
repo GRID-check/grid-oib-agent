@@ -127,7 +127,7 @@ export const documents = pgTable('documents', {
     .references(() => projects.id, { onDelete: 'cascade' }),
   createdBy: text('created_by').notNull(),
   filename: text('filename').notNull(),
-  minioKey: text('minio_key').notNull(),
+  storageKey: text('storage_key').notNull(),
   collectionName: text('collection_name').notNull(),
   fileSize: integer('file_size'),
   contentType: text('content_type'),
@@ -151,7 +151,7 @@ export const documents = pgTable('documents', {
 | `scope` | `text` | NOT NULL, DEFAULT `'project'` | ADR-0024 discriminator: `'project'` (hangs off `project_id`) or `'archiv'` (org-wide, `project_id` NULL, `collection_name = archiv_<orgId>`). |
 | `created_by` | `text` | NOT NULL | Uploading user ID |
 | `filename` | `text` | NOT NULL | Original filename |
-| `minio_key` | `text` | NOT NULL | Object storage key |
+| `storage_key` | `text` | NOT NULL | Object storage key |
 | `collection_name` | `text` | NOT NULL | Milvus collection for the vectorized content |
 | `file_size` | `integer` | | Size in bytes |
 | `content_type` | `text` | | MIME type |
@@ -227,7 +227,7 @@ conversations ──1:N──→ messages (CASCADE delete)
 │ updated_at   │       │ id (uuid) PK     │
 └──────────────┘       │ project_id ──FK──│ projects.id CASCADE
                        │ filename         │
-                       │ minio_key        │
+                       │ storage_key      │
                        │ status           │
                        │ ...              │
                        └──────────────────┘

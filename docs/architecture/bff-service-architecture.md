@@ -27,7 +27,7 @@ Routes are **thin transport adapters**. They:
   (both throw a 400 `BadRequestError` with issues).
 - call exactly one service function and return plain data (auto-serialized,
   `options.status` for 201/202) or a `Response` for streams/redirects.
-- contain **no drizzle imports, no `getDb()`, no WorkOS/MinIO/backend calls,
+- contain **no drizzle imports, no `getDb()`, no WorkOS/SeaweedFS/backend calls,
   and no hand-rolled `NextResponse.json({ error })`.**
 
 ### 2. Services (`frontends/ui/src/lib/<domain>/service.ts`)
@@ -38,7 +38,7 @@ Services own the business logic and the **authorization decision**:
 - Take the `AuthorizedSession` (or validated internal-call context) as the
   first argument; enforce tenancy and fine-grained access (e.g.
   `requireProjectAccess`) before touching data.
-- Orchestrate repositories, WorkOS, MinIO, the Python backend, and the audit
+- Orchestrate repositories, WorkOS, SeaweedFS, the Python backend, and the audit
   trail (`recordAuditEvent` for every mutating admin/compliance action).
 - Signal failures by throwing typed errors from `@/lib/api/errors`
   (`BadRequestError`, `ForbiddenError`, `NotFoundError`, `ConflictError`,

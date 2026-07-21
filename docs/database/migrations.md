@@ -174,6 +174,11 @@ CREATE INDEX "documents_status_idx" ON "documents" ("status");
 **Tables:** `documents`
 **Indexes:** `project_idx`, `collection_idx`, `status_idx`
 
+> **Note:** `minio_key` was later renamed to `storage_key` by migration
+> `0023_rename_minio_key_to_storage_key` when object storage moved from MinIO to
+> SeaweedFS (both S3-compatible — a pure `RENAME COLUMN`, values unchanged). The
+> live schema (`docs/database/schema.md`) reflects the post-rename name.
+
 ---
 
 ## Migration Timeline

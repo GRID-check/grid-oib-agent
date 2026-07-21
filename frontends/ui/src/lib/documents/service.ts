@@ -2,7 +2,7 @@
  * Documents service — business logic for the documents domain.
  *
  * Owns authorization (org tenancy in SQL + per-project FGA via
- * `requireProjectAccess`) and orchestration across the repository, MinIO,
+ * `requireProjectAccess`) and orchestration across the repository, SeaweedFS,
  * the Python backend ingest API, status reconciliation, and the audit trail.
  * Route handlers stay thin: they validate input shape and delegate here.
  * Failures are signalled with typed errors from `@/lib/api/errors`.
@@ -11,7 +11,7 @@
 import 'server-only'
 import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
-import { s3Client, signingS3Client, bucketName, buildMinioKey } from '@/lib/s3'
+import { s3Client, signingS3Client, bucketName, buildStorageKey } from '@/lib/s3'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { canManageArchiv } from '@/lib/authz/organizations'
 import { ForbiddenError } from '@/lib/api/errors'
@@ -48,12 +48,12 @@ const PREVIEW_CONTENT_TYPES = [
   'image/tiff',
 ]
 
-const presignTtlSeconds = (): number => Number(process.env.MINIO_PRESIGNED_URL_TTL_SECONDS || 600)
+const presignTtlSeconds = (): number => Number(process.env.SEAWEED_PRESIGNED_URL_TTL_SECONDS || 600)
 
-/** Replace the filename segment of a minioKey with `_thumb.jpg`. */
-function buildThumbnailMinioKey(minioKey: string): string {
-  const idx = minioKey.lastIndexOf('/')
-  return idx > 0 ? `${minioKey.slice(0, idx)}/_thumb.jpg` : '_thumb.jpg'
+/** Replace the filename segment of a storageKey with `_thumb.jpg`. */
+function buildThumbnailStorageKey(storageKey: string): string {
+  const idx = storageKey.lastIndexOf('/')
+  return idx > 0 ? `${storageKey.slice(0, idx)}/_thumb.jpg` : '_thumb.jpg'
 }
 
 /**
@@ -136,7 +136,7 @@ async function getAccessibleDocument(
  * upload and re-ingest paths share this so the success path (status pending +
  * jobId) and the failure path (status failed + errorMessage) stay identical.
  *
- * Best-effort: the file is already durable in MinIO + Postgres. Three outcomes:
+ * Best-effort: the file is already durable in SeaweedFS + Postgres. Three outcomes:
  *   - a job id came back  → status pending  (setDocumentIngestJob)
  *   - dispatch failed     → status failed   (markDocumentIngestFailed)
  *   - ok but no job id    → status left as-is ('uploaded' on first upload)
@@ -144,16 +144,16 @@ async function getAccessibleDocument(
 export async function dispatchIngest(
   documentId: string,
   collectionName: string,
-  minioKey: string,
+  storageKey: string,
 ): Promise<{ jobId: string | null; status: 'pending' | 'uploaded' | 'failed' }> {
   // The backend fetches the file itself, from inside the Docker network —
   // sign with the internal-endpoint client, not the browser-facing one.
-  const presignedUrl = await getSignedUrl(s3Client, new GetObjectCommand({ Bucket: bucketName, Key: minioKey }), {
+  const presignedUrl = await getSignedUrl(s3Client, new GetObjectCommand({ Bucket: bucketName, Key: storageKey }), {
     expiresIn: presignTtlSeconds(),
   })
 
   // Generate presigned upload URL for a 200px JPEG thumbnail
-  const thumbnailUploadKey = buildThumbnailMinioKey(minioKey)
+  const thumbnailUploadKey = buildThumbnailStorageKey(storageKey)
   const thumbnailUploadUrl = await getSignedUrl(
     signingS3Client,
     new PutObjectCommand({
@@ -186,7 +186,7 @@ export async function dispatchIngest(
       ingestFailed = true
     }
   } catch {
-    // Dispatch never reached the backend — the document is in MinIO + DB but
+    // Dispatch never reached the backend — the document is in SeaweedFS + DB but
     // has no ingest job, so it can never be reconciled to a truthful status.
     ingestFailed = true
   }
@@ -275,9 +275,9 @@ export async function assertUploadTypeAllowed(session: AuthorizedSession, filena
 }
 
 /**
- * Store an uploaded file in MinIO, record it, and hand it to the backend for
+ * Store an uploaded file in SeaweedFS, record it, and hand it to the backend for
  * ingestion. The ingest call is best-effort: the document is already durable
- * in MinIO + Postgres, and status reads reconcile the outcome later.
+ * in SeaweedFS + Postgres, and status reads reconcile the outcome later.
  */
 export async function uploadDocument(
   session: AuthorizedSession,
@@ -300,13 +300,13 @@ export async function uploadDocument(
 
   const documentId = crypto.randomUUID()
   const collectionName = project.collectionName
-  const minioKey = buildMinioKey(session.organizationId, projectId, documentId, file.name, folderPath)
+  const storageKey = buildStorageKey(session.organizationId, projectId, documentId, file.name, folderPath)
 
   const bytes = Buffer.from(await file.arrayBuffer())
   await s3Client.send(
     new PutObjectCommand({
       Bucket: bucketName,
-      Key: minioKey,
+      Key: storageKey,
       Body: bytes,
       ContentType: file.type || 'application/octet-stream',
     }),
@@ -319,14 +319,14 @@ export async function uploadDocument(
     folderId: folderId ?? null,
     createdBy: session.userId,
     filename: file.name,
-    minioKey,
+    storageKey,
     collectionName,
     fileSize: file.size,
     contentType: file.type || null,
     status: 'uploaded',
   })
 
-  const { jobId: ingestJobId, status: ingestStatus } = await dispatchIngest(documentId, collectionName, minioKey)
+  const { jobId: ingestJobId, status: ingestStatus } = await dispatchIngest(documentId, collectionName, storageKey)
 
   // Data-provenance event: who brought which file into which project.
   await recordAuditEvent({
@@ -369,9 +369,9 @@ export async function reingestDocument(
   if (doc.status !== 'failed') {
     throw new ConflictError('Only failed documents can be re-ingested', { status: doc.status })
   }
-  if (!doc.minioKey) throw new NotFoundError('File not available')
+  if (!doc.storageKey) throw new NotFoundError('File not available')
 
-  const { jobId, status } = await dispatchIngest(doc.id, doc.collectionName, doc.minioKey)
+  const { jobId, status } = await dispatchIngest(doc.id, doc.collectionName, doc.storageKey)
   return { id: doc.id, status, jobId }
 }
 
@@ -432,13 +432,13 @@ export async function getDocumentDownload(
   documentId: string,
 ): Promise<{ downloadUrl: string; filename: string; contentType: string | null; fileSize: number | null }> {
   const doc = await getAccessibleDocument(session, documentId)
-  if (!doc.minioKey) throw new NotFoundError('File not available')
+  if (!doc.storageKey) throw new NotFoundError('File not available')
 
   const downloadUrl = await getSignedUrl(
     signingS3Client,
     new GetObjectCommand({
       Bucket: bucketName,
-      Key: doc.minioKey,
+      Key: doc.storageKey,
       ResponseContentDisposition: contentDisposition('attachment', doc.filename),
     }),
     { expiresIn: presignTtlSeconds() },
@@ -461,7 +461,7 @@ export async function getDocumentPreview(
   documentId: string,
 ): Promise<{ url: string; contentType: string; filename: string }> {
   const doc = await getAccessibleDocument(session, documentId)
-  if (!doc.minioKey) throw new NotFoundError('File not available')
+  if (!doc.storageKey) throw new NotFoundError('File not available')
 
   const contentType = doc.contentType || 'application/octet-stream'
   if (!PREVIEW_CONTENT_TYPES.includes(contentType)) {
@@ -472,7 +472,7 @@ export async function getDocumentPreview(
     signingS3Client,
     new GetObjectCommand({
       Bucket: bucketName,
-      Key: doc.minioKey,
+      Key: doc.storageKey,
       ResponseContentDisposition: contentDisposition('inline', doc.filename),
       ResponseContentType: contentType,
     }),
@@ -488,9 +488,9 @@ export async function getDocumentThumbnail(
   documentId: string,
 ): Promise<{ url: string | null }> {
   const doc = await getAccessibleDocument(session, documentId)
-  if (!doc.minioKey) return { url: null }
+  if (!doc.storageKey) return { url: null }
 
-  const thumbnailKey = buildThumbnailMinioKey(doc.minioKey)
+  const thumbnailKey = buildThumbnailStorageKey(doc.storageKey)
 
   try {
     const url = await getSignedUrl(

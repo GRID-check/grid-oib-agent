@@ -19,7 +19,7 @@ tier and the agent stays a focused, stateless compute service.
 flowchart LR
   Browser[Browser UI] -->|session cookie| BFF[Next.js BFF\nApplication tier]
   BFF -->|SQL| PG[(Postgres)]
-  BFF -->|S3 API| MinIO[(MinIO)]
+  BFF -->|S3 API| SeaweedFS[(SeaweedFS)]
   BFF -->|HTTP/WS + Bearer JWT + context| PY[Python AI-Q\nstateless inference + embedding]
   PY -->|vectors| Chroma[(ChromaDB)]
 ```
@@ -33,7 +33,7 @@ We will split responsibilities into two tiers with a thin, explicit boundary.
 - The WorkOS session (see [ADR-0002](0002-outsource-identity-to-workos.md)).
 - Organizations/projects CRUD, document upload, conversation persistence.
 - Collection-naming/scoping policy (see [ADR-0006](0006-knowledge-collection-scoping.md)).
-- Direct calls to **Postgres** and **MinIO**.
+- Direct calls to **Postgres** and **SeaweedFS**.
 - Calls to Python over **HTTP/WS** with a **Bearer JWT + explicit context**.
 
 **Python AI-Q = stateless inference + embedding microservice.** Its contract:
@@ -43,8 +43,8 @@ We will split responsibilities into two tiers with a thin, explicit boundary.
   It receives user context for **attribution/personalization** but is **not the
   system of record**.
 - `ingest(file_ref, collection) -> embed into a named Chroma collection`, where
-  `file_ref` is a **presigned MinIO URL**. It writes vectors to **Chroma only**;
-  it **never** writes Postgres/MinIO and **never** decides tenancy.
+  `file_ref` is a **presigned SeaweedFS URL**. It writes vectors to **Chroma only**;
+  it **never** writes Postgres/SeaweedFS and **never** decides tenancy.
 
 We choose **Option A (application logic in Next.js)** over a separate dedicated app
 server, keeping a thin explicit boundary so that extracting a dedicated server

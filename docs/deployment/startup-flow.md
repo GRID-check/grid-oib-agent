@@ -31,16 +31,17 @@ docker compose up -d --build
          │      │   └── All statements use IF NOT EXISTS (idempotent)
          │      • Healthcheck passes (pg_isready on all 3 DBs)
          │
-         ├── 3. minio starts
-         │      • Ports: 9000 (S3 API), 9001 (Console)
-         │      • Healthcheck: mc ready local
+         ├── 3. seaweedfs starts
+         │      • Ports: 8333 (S3 API), 8888 (Filer UI), 9333 (Master)
+         │      • Entrypoint writes s3.json from SEAWEED_ACCESS_KEY/SECRET_KEY,
+         │        then: weed server -dir=/data -s3 -s3.config=... -s3.port=8333
+         │      • Healthcheck: wget http://localhost:9333/cluster/status
          │
-         ├── 4. minio-init runs (depends on minio healthy)
-         │      • mc alias set local http://minio:9000 minioadmin minioadmin
-         │      • mc mb local/grid-documents --ignore-existing
+         ├── 4. seaweedfs-init runs (depends on seaweedfs healthy)
+         │      • echo 's3.bucket.create -name grid-documents' | weed shell -master=seaweedfs:9333
          │      • Container exits (one-shot)
          │
-         ├── 5. aiq-agent starts (depends on postgres + minio healthy)
+         ├── 5. aiq-agent starts (depends on postgres + seaweedfs healthy)
          │      • Container name: aiq-agent
          │      • ENTRYPOINT: python /app/deploy/entrypoint.py
          │      │
@@ -74,7 +75,7 @@ docker compose up -d --build
          │      │   • /api/v1/ingest/* (file ingestion)
          │      └── AIQ API worker starts (async job processing with SSE)
          │
-         └── 6. frontend starts (depends on aiq-agent + postgres + minio healthy)
+         └── 6. frontend starts (depends on aiq-agent + postgres + seaweedfs healthy)
                 • Container name: aiq-blueprint-ui
                 • CMD: node node_modules/drizzle-kit/bin.js migrate && node server.js
                 │
@@ -102,7 +103,7 @@ Docker Compose uses `depends_on: condition: service_healthy` which means each se
 
 ```
 postgres ──► aiq-agent ──► frontend
-minio ─────► minio-init ──► aiq-agent ──► frontend
+seaweedfs ─► seaweedfs-init ──► aiq-agent ──► frontend
                            postgres ─────► frontend
 ```
 
@@ -111,8 +112,8 @@ If a dependency fails its healthcheck within the retry limit, the dependent serv
 ## Retry / Reconnect Behavior
 
 - **PostgreSQL**: PostgreSQL manages its own connections. The Docker healthcheck runs `pg_isready` on all 3 databases every 5 seconds.
-- **MinIO**: Healthcheck runs `mc ready local` every 5 seconds.
-- **aiq-agent**: The Dask scheduler startup has a 30-attempt loop (1s per attempt). After that, the agent relies on Docker's `restart: unless-stopped` for crash recovery. There is no built-in reconnection to PostgreSQL or MinIO if they become unavailable after startup.
+- **SeaweedFS**: Healthcheck runs `wget http://localhost:9333/cluster/status` every 5 seconds.
+- **aiq-agent**: The Dask scheduler startup has a 30-attempt loop (1s per attempt). After that, the agent relies on Docker's `restart: unless-stopped` for crash recovery. There is no built-in reconnection to PostgreSQL or SeaweedFS if they become unavailable after startup.
 - **frontend**: Same `restart: unless-stopped` policy. No built-in reconnection logic beyond Docker restart.
 
 ## Manual Step: OIB Ingestion

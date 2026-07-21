@@ -1,5 +1,5 @@
 /**
- * Archiv document item API — delete an Archiv document (purges MinIO, the RAG
+ * Archiv document item API — delete an Archiv document (purges SeaweedFS, the RAG
  * chunks, and the DB row). Thin handler; authorization (`org:archiv:manage`)
  * lives in `@/lib/archiv/service`. Feature-gated by the dark-launch
  * `organization-archiv` flag (ADR-0024).

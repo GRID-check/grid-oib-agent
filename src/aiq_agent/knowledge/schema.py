@@ -83,7 +83,7 @@ class Chunk(BaseModel):
     # --- 5. Visual Assets (Optional) ---
     image_storage_uri: str | None = Field(
         None,
-        description="Internal S3/MinIO URI for system access.",
+        description="Internal S3/SeaweedFS URI for system access.",
     )
     image_url: str | None = Field(
         None,

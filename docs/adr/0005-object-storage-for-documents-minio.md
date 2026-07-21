@@ -63,3 +63,19 @@ as the **durable store for original document bytes**.
 
 - MinIO: https://min.io/docs/minio/linux/index.html
 - [`../architecture/multitenancy-and-auth-spec.md`](../architecture/multitenancy-and-auth-spec.md)
+
+## Update (2026-07): Migrated to SeaweedFS
+
+The object store described above was migrated from MinIO to **SeaweedFS**, an
+S3-compatible distributed object store (master + volume + filer + S3 gateway,
+run as a single `weed server -s3` process for our single-node deploy). The
+application still uses the AWS S3 SDK against the S3-compatible gateway — only
+the backing service, env var names, and code identifiers changed:
+
+- Environment variables renamed `MINIO_*` → `SEAWEED_*` (e.g. `MINIO_ENDPOINT` →
+  `SEAWEED_ENDPOINT`, `MINIO_ACCESS_KEY` → `SEAWEED_ACCESS_KEY`,
+  `MINIO_SECRET_KEY` → `SEAWEED_SECRET_KEY`, `MINIO_BUCKET` → `SEAWEED_BUCKET`,
+  `MINIO_PRESIGNED_URL_TTL_SECONDS` → `SEAWEED_PRESIGNED_URL_TTL_SECONDS`).
+- The `documents.minio_key` column was renamed to `storage_key`.
+
+The original decision text above is preserved as a historical record.

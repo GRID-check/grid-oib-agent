@@ -337,7 +337,7 @@ export const de: LegalContent = {
           headers: ['Komponente', 'Zweck', 'Gespeicherte Daten'],
           rows: [
             ['PostgreSQL', 'Anwendungsdatenbank', 'Projekte, Konversationen, Memory, Nutzungsledger, Konfiguration'],
-            ['MinIO (S3-kompatibel)', 'Objektspeicher', 'Hochgeladene Dokumente'],
+            ['SeaweedFS (S3-kompatibel)', 'Objektspeicher', 'Hochgeladene Dokumente'],
             ['ChromaDB', 'Vektorindex', 'Embeddings von Dokumenten und Vorschriften'],
             ['Dragonfly (Redis-kompatibel)', 'Cache, Rate-Limiting', 'Kurzlebige Betriebsdaten'],
           ],
