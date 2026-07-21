@@ -19,6 +19,23 @@
 
 ## Ranked backlog (logic-first)
 
+### P0 — Direct semantic search (user's biggest pain point, clarified 2026-07-21)
+
+- **PB-18 — "Ask Your Data" needs a DIRECT semantic-search path (no LLM agent).**
+  Class: LOGIC/FEATURE. **Top priority per user.** Today every data query is forced
+  through the slow (60–180s), hallucination-prone DeepSeek agent loop. But all docs
+  are already embedded in Chroma. Build a fast, deterministic path: embed the query
+  → query Chroma directly across in-scope collections (base + project + archiv) →
+  return ranked passages (snippet + file + page + source-kind + score) sub-second,
+  with NO LLM in the loop. Reuse existing embedder + `knowledge_layer.search()` +
+  collection scoping + citation/source-chip components. Also satisfies the "finer
+  source selection (only OIB / a specific Landesbauordnung / project / archiv)"
+  wish as a scope filter. New: backend `POST /v1/search`, BFF route + service, a
+  light search UI (design-system only). Status: **DESIGN in progress** (explorer
+  mapping reusable primitives + file-level plan). Then Sprint.
+  → Supersedes the "PB-3 is works-as-intended" verdict: retrieval *inside chat*
+    works, but the fast standalone search surface the user wants does not exist.
+
 ### P0 — Trust chain / core "it works" bugs (verify, then fix)
 
 - **PB-1 — Deep research aborts ("DeepResearch bricht ab").**  Class: LOGIC.
