@@ -262,7 +262,9 @@ def ingestor(tmp_path, monkeypatch):
 
     # Deterministic summary + tag LLM: routes by prompt prefix.
     def fake_invoke(prompt):
-        if prompt.startswith("Summarize"):
+        # The tag prompt is the only one containing "klassifizierst"; anything
+        # else is the summary prompt (decoupled from its exact wording).
+        if "klassifizierst" not in prompt:
             return MagicMock(content="An image of a floor plan.")
         return MagicMock(content='["Foto", "Grundriss"]')
 
@@ -342,9 +344,9 @@ class TestRunIngestionImageBranch:
         from aiq_agent.knowledge import get_available_documents
 
         # Summary call fails; tag call returns valid tags. Same LLM, routed by
-        # the prompt prefix ("Summarize ..." vs the German tag prompt).
+        # the prompt content (the tag prompt contains "klassifizierst").
         def summary_fails_tags_ok(prompt):
-            if prompt.startswith("Summarize"):
+            if "klassifizierst" not in prompt:
                 raise RuntimeError("summary model unavailable")
             return MagicMock(content='["Schnitt", "Brandschutz"]')
 

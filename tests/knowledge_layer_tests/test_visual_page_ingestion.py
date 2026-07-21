@@ -1,0 +1,360 @@
+"""Unit tests for visual/vector PDF-page rendering + drawing captioning.
+
+Covers the fix for image-only / vector CAD PDFs (e.g. an architectural
+"Perspektivischer Schnitt") whose pages carry thousands of vector paths but
+almost no extractable text — often only a licence watermark. The text and
+embedded-image extractors both miss such pages, so the document summary used to
+describe the watermark ("VECTORWORKS EDUCATIONAL VERSION ...") instead of the
+drawing.
+
+Covers:
+- ``_strip_watermark_lines`` — licence/watermark boilerplate removal.
+- ``_parse_drawing_fields`` — parsing the structured drawing-VLM response.
+- ``_summary_from_drawing_fields`` — building a watermark-free document summary
+  from rendered-page descriptions.
+- ``_render_visual_pdf_pages`` — the visual-page heuristic (text-sparse OR
+  path-heavy) with pypdfium2 mocked.
+- The ``_run_ingestion`` drawing branch end-to-end (heavy collaborators mocked):
+  a watermark-only PDF is rendered, captioned, and summarised from the drawing
+  — never from the watermark.
+"""
+
+import time
+from unittest.mock import MagicMock
+
+import pytest
+from knowledge_layer.llamaindex import adapter
+from knowledge_layer.llamaindex.adapter import LlamaIndexIngestor
+from knowledge_layer.llamaindex.adapter import _parse_drawing_fields
+from knowledge_layer.llamaindex.adapter import _strip_watermark_lines
+from knowledge_layer.llamaindex.adapter import _summary_from_drawing_fields
+
+# A representative structured response from the drawing-aware VLM prompt.
+_VLM_DRAWING_RESPONSE = (
+    "ZEICHNUNGSTYP: perspektive\n"
+    "MASSSTAB: Maßstabsfiguren vorhanden\n"
+    "TITEL/PROJEKT: Bildungscampus\n"
+    "GESCHOSSE/EBENEN: 5 Obergeschosse und ein Untergeschoss\n"
+    "RÄUME/ELEMENTE: Ateliers, zentrales Atrium, Freitreppe, Terrassen\n"
+    "ABMESSUNGEN/KOTEN: keine sichtbar\n"
+    "RÄUMLICHE BEZIEHUNGEN: Gestapelte Geschosse um ein durchgehendes Atrium, "
+    "erschlossen über eine zentrale Treppe.\n"
+    "WASSERZEICHEN: VECTORWORKS EDUCATIONAL VERSION\n"
+    "ZUSAMMENFASSUNG: Perspektivischer Schnitt durch einen fünfgeschossigen "
+    "Bildungsbau mit zentralem Atrium und Freitreppe."
+)
+
+
+# =============================================================================
+# Watermark stripping
+# =============================================================================
+
+
+class TestStripWatermarkLines:
+    def test_removes_vectorworks_watermark(self):
+        text = "VECTORWORKS EDUCATIONAL VERSION\nGrundriss EG\nVECTORWORKS EDUCATIONAL VERSION"
+        assert _strip_watermark_lines(text) == "Grundriss EG"
+
+    def test_case_insensitive_and_whitespace_tolerant(self):
+        assert _strip_watermark_lines("  vectorworks educational version  ") == ""
+
+    def test_keeps_real_content(self):
+        text = "Brandschutzkonzept\nBauteil F90"
+        assert _strip_watermark_lines(text) == text
+
+    def test_none_and_empty(self):
+        assert _strip_watermark_lines(None) == ""
+        assert _strip_watermark_lines("") == ""
+
+
+# =============================================================================
+# Drawing-field parsing
+# =============================================================================
+
+
+class TestParseDrawingFields:
+    def test_parses_known_fields(self):
+        fields = _parse_drawing_fields(_VLM_DRAWING_RESPONSE)
+        assert fields["drawing_type"] == "perspektive"
+        assert fields["scale"] == "Maßstabsfiguren vorhanden"
+        assert fields["title"] == "Bildungscampus"
+        assert fields["watermark"] == "VECTORWORKS EDUCATIONAL VERSION"
+        assert fields["summary"].startswith("Perspektivischer Schnitt")
+
+    def test_ignores_unknown_lines_and_blanks(self):
+        fields = _parse_drawing_fields("ZEICHNUNGSTYP: schnitt\nrandom noise line\nMASSSTAB: \n")
+        assert fields == {"drawing_type": "schnitt"}
+
+    def test_empty_response(self):
+        assert _parse_drawing_fields("") == {}
+
+
+# =============================================================================
+# Document summary from drawing fields
+# =============================================================================
+
+
+class TestSummaryFromDrawingFields:
+    def test_prefers_zusammenfassung_sentences(self):
+        pages = [{"fields": _parse_drawing_fields(_VLM_DRAWING_RESPONSE)}]
+        summary = _summary_from_drawing_fields(pages)
+        assert summary is not None
+        assert summary.startswith("Perspektivischer Schnitt")
+        # The watermark must never appear in the summary.
+        assert "VECTORWORKS" not in summary.upper()
+
+    def test_synthesises_from_type_and_scale_when_no_sentence(self):
+        pages = [{"fields": {"drawing_type": "grundriss", "scale": "1:100"}}]
+        summary = _summary_from_drawing_fields(pages)
+        assert "grundriss" in summary
+        assert "1:100" in summary
+
+    def test_returns_none_without_usable_fields(self):
+        assert _summary_from_drawing_fields([{"fields": {}}]) is None
+        assert _summary_from_drawing_fields([]) is None
+
+
+# =============================================================================
+# Visual-page render heuristic (pypdfium2 mocked)
+# =============================================================================
+
+
+class _FakeTextPage:
+    def __init__(self, text):
+        self._text = text
+
+    def get_text_range(self):
+        return self._text
+
+    def close(self):
+        pass
+
+
+class _FakeObj:
+    def __init__(self, type_):
+        self.type = type_
+
+
+class _FakeBitmap:
+    def __init__(self, size):
+        from PIL import Image
+
+        self._img = Image.new("RGB", size, "white")
+
+    def to_pil(self):
+        return self._img
+
+
+class _FakePage:
+    def __init__(self, text, n_paths, size=(1729, 1417)):
+        self._text = text
+        self._n_paths = n_paths
+        self._size = size
+
+    def get_textpage(self):
+        return _FakeTextPage(self._text)
+
+    def get_objects(self):
+        return [_FakeObj(adapter._PAGEOBJ_PATH) for _ in range(self._n_paths)]
+
+    def get_size(self):
+        return self._size
+
+    def render(self, scale):
+        w, h = self._size
+        return _FakeBitmap((max(1, int(w * scale)), max(1, int(h * scale))))
+
+    def close(self):
+        pass
+
+
+def _install_fake_pdf(monkeypatch, pages):
+    pdfium = pytest.importorskip("pypdfium2")
+
+    class _FakeDoc:
+        def __init__(self, path):
+            self._pages = pages
+
+        def __len__(self):
+            return len(self._pages)
+
+        def __getitem__(self, idx):
+            return self._pages[idx]
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(pdfium, "PdfDocument", _FakeDoc)
+
+
+class TestRenderVisualPdfPages:
+    def test_watermark_only_vector_page_is_rendered(self, monkeypatch):
+        monkeypatch.setattr(adapter, "_get_vlm_api_key", lambda: "k")
+        monkeypatch.setattr(
+            adapter,
+            "_analyze_drawing_page_with_vlm",
+            lambda *a, **k: (_VLM_DRAWING_RESPONSE, _parse_drawing_fields(_VLM_DRAWING_RESPONSE)),
+        )
+        # Only a watermark as text, tens of thousands of vector paths.
+        _install_fake_pdf(monkeypatch, [_FakePage("VECTORWORKS EDUCATIONAL VERSION", n_paths=5000)])
+
+        out = adapter._render_visual_pdf_pages("ignored.pdf")
+
+        assert len(out) == 1
+        assert out[0]["page_number"] == 1
+        assert out[0]["fields"]["drawing_type"] == "perspektive"
+        # Rendered near the long-edge target (±2px for scale rounding).
+        assert abs(max(out[0]["width"], out[0]["height"]) - adapter.PAGE_RENDER_MAX_DIM) <= 2
+
+    def test_text_page_is_skipped(self, monkeypatch):
+        monkeypatch.setattr(adapter, "_get_vlm_api_key", lambda: "k")
+        vlm = MagicMock()
+        monkeypatch.setattr(adapter, "_analyze_drawing_page_with_vlm", vlm)
+        # Plenty of text, no vector paths → not a visual page.
+        _install_fake_pdf(monkeypatch, [_FakePage("A" * 5000, n_paths=0)])
+
+        out = adapter._render_visual_pdf_pages("ignored.pdf")
+
+        assert out == []
+        vlm.assert_not_called()
+
+    def test_render_cap_is_respected(self, monkeypatch):
+        monkeypatch.setattr(adapter, "_get_vlm_api_key", lambda: "k")
+        monkeypatch.setattr(
+            adapter, "_analyze_drawing_page_with_vlm", lambda *a, **k: ("cap", {"drawing_type": "detail"})
+        )
+        pages = [_FakePage("", n_paths=1000) for _ in range(5)]
+        _install_fake_pdf(monkeypatch, pages)
+
+        out = adapter._render_visual_pdf_pages("ignored.pdf", max_pages=2)
+
+        assert len(out) == 2
+
+
+# =============================================================================
+# _run_ingestion drawing branch (heavy collaborators mocked)
+# =============================================================================
+
+
+@pytest.fixture
+def summary_db(tmp_path):
+    from aiq_agent.knowledge import configure_summary_db
+    from aiq_agent.knowledge import factory
+
+    factory._summary_store = None
+    configure_summary_db(f"sqlite:///{tmp_path / 'summaries.db'}")
+    yield
+    factory._summary_store = None
+
+
+@pytest.fixture
+def ingestor(tmp_path, monkeypatch):
+    """A LlamaIndexIngestor with embeddings + vector index mocked out."""
+
+    def fake_invoke(prompt):
+        # The tag prompt is the only one containing "klassifizierst".
+        if "klassifizierst" not in prompt:
+            # Echo that the summary LLM actually saw the drawing description
+            # (not the watermark) — the drawing text mentions "Atrium".
+            content = "Perspektivischer Schnitt eines Bildungsbaus." if "Atrium" in prompt else "GENERIC"
+            return MagicMock(content=content)
+        return MagicMock(content='["Schnitt", "Perspektive"]')
+
+    llm = MagicMock()
+    llm.invoke.side_effect = fake_invoke
+
+    ing = LlamaIndexIngestor(
+        {
+            "persist_dir": str(tmp_path / "chroma"),
+            "generate_summary": True,
+            "summary_llm": llm,
+        }
+    )
+    ing._embed_model = MagicMock()
+    ing._initialized = True
+    monkeypatch.setattr("llama_index.core.VectorStoreIndex", MagicMock())
+    monkeypatch.setattr("llama_index.core.Settings", MagicMock())
+    return ing
+
+
+def _wait_terminal(ing, job_id, timeout=30):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        status = ing.get_job_status(job_id)
+        if status.is_terminal:
+            return status
+        time.sleep(0.05)
+    raise AssertionError("ingestion job did not terminate in time")
+
+
+class TestRunIngestionDrawingBranch:
+    def test_summary_comes_from_drawing_not_watermark(self, tmp_path, monkeypatch, ingestor, summary_db):
+        """The user-reported bug: a watermark-only vector PDF must be summarised
+        from its rendered-page drawing description, never from the watermark."""
+        from aiq_agent.knowledge import get_available_documents
+
+        monkeypatch.setattr(adapter, "_get_vlm_api_key", lambda: "vlm-key")
+        # The rendered-page VLM returns the architectural drawing description.
+        monkeypatch.setattr(
+            adapter,
+            "_analyze_drawing_page_with_vlm",
+            lambda *a, **k: (_VLM_DRAWING_RESPONSE, _parse_drawing_fields(_VLM_DRAWING_RESPONSE)),
+        )
+        # Force the page-render path without depending on a real vector PDF:
+        # report one visual page for any PDF.
+        monkeypatch.setattr(
+            adapter,
+            "_render_visual_pdf_pages",
+            lambda *a, **k: [
+                {
+                    "caption": _VLM_DRAWING_RESPONSE,
+                    "fields": _parse_drawing_fields(_VLM_DRAWING_RESPONSE),
+                    "page_number": 1,
+                    "width": 2048,
+                    "height": 1678,
+                }
+            ],
+        )
+        # Text extraction yields nothing usable (watermark already stripped).
+        monkeypatch.setattr(adapter, "_extract_text_from_pdf", lambda p: [])
+
+        pdf = tmp_path / "perspektivischer_schnitt.pdf"
+        pdf.write_bytes(b"%PDF-1.4\n% minimal\n")
+
+        job_id = ingestor.submit_job(
+            [str(pdf)], "coll_draw", config={"original_filenames": ["perspektivischer_schnitt.pdf"]}
+        )
+        status = _wait_terminal(ingestor, job_id)
+        assert status.is_success
+
+        docs = get_available_documents("coll_draw")
+        assert len(docs) == 1
+        summary = docs[0].summary
+        assert summary is not None
+        # The summary describes the drawing, never the watermark.
+        assert "VECTORWORKS" not in summary.upper()
+        assert "Schnitt" in summary or "Bildungsbau" in summary
+
+    def test_missing_vlm_key_skips_render_without_failing(self, tmp_path, monkeypatch, ingestor, summary_db):
+        """No VLM key → no page render, but a normal text PDF still ingests."""
+        from aiq_agent.knowledge import get_available_documents
+
+        monkeypatch.setattr(adapter, "_get_vlm_api_key", lambda: "")
+        render = MagicMock()
+        monkeypatch.setattr(adapter, "_render_visual_pdf_pages", render)
+        monkeypatch.setattr(
+            adapter,
+            "_extract_text_from_pdf",
+            lambda p: [{"page_number": 1, "text": "Baubeschreibung: dreigeschossiges Wohngebäude."}],
+        )
+
+        pdf = tmp_path / "baubeschreibung.pdf"
+        pdf.write_bytes(b"%PDF-1.4\n% minimal\n")
+
+        job_id = ingestor.submit_job([str(pdf)], "coll_text", config={"original_filenames": ["baubeschreibung.pdf"]})
+        status = _wait_terminal(ingestor, job_id)
+        assert status.is_success
+
+        render.assert_not_called()
+        docs = get_available_documents("coll_text")
+        assert len(docs) == 1

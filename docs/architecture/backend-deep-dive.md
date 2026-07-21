@@ -366,6 +366,55 @@ stores remain architecturally distinct (SQL side-table vs. ChromaDB vector
 index), so this is a structural backstop rather than a merge of the two
 sources — see backlog T3-10 for the closed status and rationale.
 
+### Multimodal & visual/vector-drawing ingestion
+
+`_run_ingestion` (`adapter.py`) extracts content from a PDF along four
+independent tracks, then indexes every resulting `Document` chunk and derives
+the document summary:
+
+1. **Text** — `_extract_text_from_pdf` (pdfplumber), per page. Licence/watermark
+   boilerplate lines (e.g. `VECTORWORKS EDUCATIONAL VERSION`) are removed by
+   `_strip_watermark_lines` **before** indexing and before the visual-page
+   heuristic, so a drawing that is pure linework plus a stamped watermark does
+   not read as "has text".
+2. **Tables** — `_extract_tables_from_pdf` (pdfplumber), gated on
+   `extract_tables`.
+3. **Embedded raster images** — `_extract_images_from_pdf` (pypdfium2 image
+   XObjects) → `_analyze_image_with_vlm`, gated on `extract_images`/
+   `extract_charts`. This only sees **raster** images embedded in the page.
+4. **Rendered visual/vector pages** — `_render_visual_pdf_pages`, gated on
+   `AIQ_RENDER_VISUAL_PAGES` (default on) **and** a resolvable VLM key. This is
+   the track that captures **vector CAD/architectural drawings** (plans,
+   sections, elevations, perspectives): they are thousands of vector *path*
+   objects with almost no text and **no embedded raster image**, so tracks 1
+   and 3 both miss them entirely. The whole page is composited into one bitmap
+   (`page.render`, scaled so the long edge ≈ `AIQ_PAGE_RENDER_MAX_DIM` px,
+   default 2048) and sent to `_analyze_drawing_page_with_vlm` with a
+   drawing-aware German prompt that returns a structured description (drawing
+   type, Maßstab/scale, rooms/elements, spatial relationships, and a
+   one-sentence summary), parsed by `_parse_drawing_fields`. A page is routed
+   here only when its watermark-stripped text is below
+   `AIQ_VISUAL_PAGE_MIN_TEXT_CHARS` (200) **or** it has ≥
+   `AIQ_VISUAL_PAGE_MIN_PATHS` (300) vector paths — so ordinary text PDFs (the
+   bulk OIB corpus) skip the VLM at near-zero cost — and at most
+   `AIQ_MAX_RENDERED_PAGES` (20) pages are rendered per document.
+
+**Summary sourcing (why the summary no longer describes the watermark).** The
+document summary + tag LLM calls are started **after** visual extraction. For a
+text-sparse drawing PDF the near-empty page text is replaced by the aggregated
+rendered-page descriptions as the summary/tag input, and if the summary LLM
+fails, `_summary_from_drawing_fields` synthesises a deterministic, watermark-free
+summary from the parsed drawing fields. The result: an image-only architectural
+PDF is summarised as e.g. *"Perspektivischer Schnitt durch einen
+fünfgeschossigen Bildungsbau …"* instead of *"VectorWorks Educational Version is
+a version of VectorWorks software …"*. The shared summary prompt
+(`document_classification.summarize_document_text`) is also domain-aware and
+explicitly instructed to ignore watermark/software boilerplate.
+
+> Scope note: this lives in the **LlamaIndex** ingestor. The `foundational_rag`
+> backend shares the summary prompt (`summarize_document_text`) but not yet the
+> page-render track — a known follow-up if that backend is used for drawing PDFs.
+
 ### Document thumbnails
 
 The file-explorer card grid shows a 200px-wide JPEG thumbnail when available,
