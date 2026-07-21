@@ -102,6 +102,15 @@ describe('AppSidebar - Archiv nav item (ADR-0024)', () => {
     render(<AppSidebar {...baseProps} />)
     expect(screen.queryByText('Archiv')).not.toBeInTheDocument()
   })
+
+  test('orders Archiv last in the section nav (after History, above Settings)', () => {
+    const { container } = render(<AppSidebar {...baseProps} showWorkflows canAccessArchiv />)
+    // Scope to the desktop rail's section nav to avoid the mobile drawer copy.
+    const nav = container.querySelector('aside nav')
+    expect(nav).not.toBeNull()
+    const labels = Array.from(nav!.querySelectorAll('a span')).map((el) => el.textContent)
+    expect(labels).toEqual(['Ask Piloti', 'Workflows', 'Files', 'History', 'Archiv'])
+  })
 })
 
 describe('AppSidebar - mobile top bar', () => {

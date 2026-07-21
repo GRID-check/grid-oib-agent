@@ -3,6 +3,7 @@ export const archiv = {
   title: 'Archiv',
   subtitle: 'Shared documents available to every project in your organization',
   backToApp: 'Back to projects',
+  backToProject: 'Back to project',
   library: {
     searchPlaceholder: 'Search the Archiv…',
     searchLabel: 'Search Archiv documents',
