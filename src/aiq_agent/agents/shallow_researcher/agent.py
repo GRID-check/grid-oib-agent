@@ -72,6 +72,27 @@ def _summarize_removed_citations(removed_citations: list[dict[str, Any]]) -> dic
     return {"count": len(removed_citations), "reasons": reasons}
 
 
+def _strip_tool_calls(message: AIMessage) -> AIMessage:
+    """Return a copy of ``message`` with every tool call removed, content kept.
+
+    Belt-and-suspenders guard for the forced-synthesis call: that request already
+    forbids tool calls via ``tool_choice="none"``, but if the model emits them
+    anyway they must not reach ``tools_condition`` — it would route back to the
+    tools node and break the tool-budget guarantee. Stripping the tool calls lets
+    the graph terminate on the synthesized content while preserving message
+    metadata.
+    """
+    additional_kwargs = dict(getattr(message, "additional_kwargs", {}) or {})
+    additional_kwargs.pop("tool_calls", None)
+    return message.model_copy(
+        update={
+            "tool_calls": [],
+            "invalid_tool_calls": [],
+            "additional_kwargs": additional_kwargs,
+        }
+    )
+
+
 def _append_minimal_citation(report_text: str, source: SourceEntry) -> str:
     """Append one verified citation when the model omitted references."""
     citation_target = source.url or source.citation_key
@@ -186,6 +207,19 @@ class ShallowResearcherAgent:
         # byte-identical; only when the conversion happens changes.
         self._llm_with_tools = self._get_llm().bind_tools(self.tools, parallel_tool_calls=True)
 
+        # Second binding for the forced-synthesis (budget-exhausted) call. It
+        # carries the SAME tools array with the SAME parallel_tool_calls flag, so
+        # the serialized `tools` field is byte-identical to the loop iterations
+        # and the provider's cacheable prefix (tools + system + messages) stays
+        # matched — the previous unbound `_get_llm().ainvoke(...)` dropped the
+        # tools array entirely and busted the cache for that terminal call.
+        # `tool_choice="none"` forbids new tool calls while preserving the array
+        # (verified against langchain-openai: "none" passes through unchanged as
+        # the OpenAI tool_choice value, not folded into a tool object).
+        self._llm_with_tools_no_calls = self._get_llm().bind_tools(
+            self.tools, parallel_tool_calls=True, tool_choice="none"
+        )
+
     def _load_system_prompt(self) -> str:
         """Load the default system prompt."""
         try:
@@ -293,7 +327,22 @@ class ShallowResearcherAgent:
                     )
 
                     full_messages = [system_message] + processed_history + [synthesis_anchor]
-                    response = await self._get_llm().ainvoke(full_messages)
+                    # Use the tools-bound-but-forbidden instance so the request's
+                    # serialized `tools` array stays byte-identical to the loop
+                    # iterations (preserving the provider's cacheable prefix)
+                    # while `tool_choice="none"` forbids further tool calls.
+                    response = await self._llm_with_tools_no_calls.ainvoke(full_messages)
+                    # Belt-and-suspenders: if the model emits tool_calls anyway,
+                    # strip them so `tools_condition` routes to __end__ instead of
+                    # back to the tools node — the budget is exhausted and the
+                    # graph must terminate here.
+                    if getattr(response, "tool_calls", None):
+                        logger.warning(
+                            "Forced-synthesis response carried %d tool call(s) despite tool_choice='none'; "
+                            "stripping them to terminate the graph.",
+                            len(response.tool_calls),
+                        )
+                        response = _strip_tool_calls(response)
                     return {
                         "messages": [response],
                         "tool_iterations": iterations,
