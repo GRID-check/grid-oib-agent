@@ -123,3 +123,25 @@
   Verified: BE 2385 pass; FE tsc+eslint clean, 67 affected specs green.
   Fixed a pre-existing unused-var lint error along the way (per the new rule).
 - Still building: PB-7 (quote verification / PB-9) + PB-16 (vision watermark).
+
+## Sprint 3 — PB-7 backend COMPLETE + PB-16 done (2026-07-21)
+- **PB-7 (fabricated quotes) backend landed & pushed** — `feat(trust): deterministic
+  quote-verification for fabricated citations`. difflib coverage (0.90, autojunk off),
+  German+ASCII quotes, NFKC/casefold/hyphen normalization; passage text captured onto
+  `SourceEntry.chunk_text` (was discarded); inline `[nicht wörtlich in der Quelle belegt]`
+  marker, fail-open; confidence capped low with reason `quote_unverified` (**= PB-9**).
+  711 targeted + 2423 full pass, ruff clean. Identity assertions untouched.
+  Added the doc note abda skipped (backend-deep-dive transparency-signals section).
+- **Known gap → FE follow-up in progress:** the FE Zod schema pinned
+  `answer_confidence_capped_reason` to `z.literal('ungrounded')` and lacked
+  `quotes_unverified`, so it dropped the new signals. Agent widening the schema +
+  surfacing the confidence REASON on the chip (PB-9 payoff).
+- **PB-16 done** (vision watermark scrub), see above.
+
+## Sprint 4 — prompt cluster IN PROGRESS (PB-10, PB-8a, PB-14)
+- PB-10 ask Rückfragen in shallow chat (conservative), PB-8a concise / stop restating
+  project params, PB-14 broaden identity (keep "Grid OIB" substring) + widen guardrail +
+  intent bucket. Prompt-only; runs parallel to the PB-7 FE agent (no file overlap).
+- **Deferred + flag for you:** PB-8b "Empfehlung" card reframe (touches card schema +
+  ComparisonTableCard UI + i18n) — liability-sensitive wording; held for your review
+  rather than changed autonomously.
