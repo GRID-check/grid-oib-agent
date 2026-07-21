@@ -449,7 +449,15 @@ the document summary:
    `extract_tables`.
 3. **Embedded raster images** — `_extract_images_from_pdf` (pypdfium2 image
    XObjects) → `_analyze_image_with_vlm`, gated on `extract_images`/
-   `extract_charts`. This only sees **raster** images embedded in the page.
+   `extract_charts`. This only sees **raster** images embedded in the page. The
+   generic caption prompt is content-focused and, like the drawing prompt,
+   instructs the model to **exclude** licence/watermark/tool-stamp text (e.g.
+   `VECTORWORKS EDUCATIONAL VERSION`). As belt-and-braces, the returned caption is
+   also run through `_scrub_watermark_phrases` — a **substring** watermark filter
+   (the `WATERMARK_PHRASE_PATTERNS` counterparts of `_strip_watermark_lines`'
+   whole-line patterns) — before it is stored, so a stamp the VLM wove mid-prose
+   never survives. The identical raster-image caption path is used for
+   **standalone uploaded JPG/PNG plans** (`_build_image_caption_document`).
 4. **Rendered visual/vector pages** — `_render_visual_pdf_pages`, gated on
    `AIQ_RENDER_VISUAL_PAGES` (default on) **and** a resolvable VLM key. This is
    the track that captures **vector CAD/architectural drawings** (plans,
@@ -488,7 +496,12 @@ PDF is summarised as e.g. *"Perspektivischer Schnitt durch einen
 fünfgeschossigen Bildungsbau …"* instead of *"VectorWorks Educational Version is
 a version of VectorWorks software …"*. The shared summary prompt
 (`document_classification.summarize_document_text`) is also domain-aware and
-explicitly instructed to ignore watermark/software boilerplate.
+explicitly instructed to ignore watermark/software boilerplate. For a
+**standalone image** (or any file where LLM summarisation is off/failed) the
+summary falls back to the VLM caption verbatim; that caption is
+watermark-scrubbed via `_scrub_watermark_phrases` first, and if scrubbing empties
+it the summary stays `None` rather than becoming an empty string — so a
+Bebauungsplan JPG is never summarised by its CAD licence stamp.
 
 **Org BYOK + runtime model override for the VLM.** The vision model used across
 all four tracks is resolved the SAME way the NAT chat models resolve theirs.

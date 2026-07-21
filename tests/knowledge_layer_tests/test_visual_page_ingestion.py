@@ -26,6 +26,7 @@ import pytest
 from knowledge_layer.llamaindex import adapter
 from knowledge_layer.llamaindex.adapter import LlamaIndexIngestor
 from knowledge_layer.llamaindex.adapter import _parse_drawing_fields
+from knowledge_layer.llamaindex.adapter import _scrub_watermark_phrases
 from knowledge_layer.llamaindex.adapter import _strip_watermark_lines
 from knowledge_layer.llamaindex.adapter import _summary_from_drawing_fields
 
@@ -80,6 +81,87 @@ class TestStripWatermarkLines:
     def test_none_and_empty(self):
         assert _strip_watermark_lines(None) == ""
         assert _strip_watermark_lines("") == ""
+
+
+# =============================================================================
+# Substring watermark scrubbing for VLM captions
+# =============================================================================
+
+
+class TestScrubWatermarkPhrases:
+    def test_scrubs_watermark_mid_line(self):
+        # The line-level filter never fires here (the stamp is embedded in
+        # prose), so without the substring scrub this leaks into the summary.
+        caption = "Ein Grundriss EG. VECTORWORKS EDUCATIONAL VERSION im Plan. Zentrales Atrium."
+        scrubbed = _scrub_watermark_phrases(caption)
+        assert "VECTORWORKS" not in scrubbed.upper()
+        assert "EDUCATIONAL VERSION" not in scrubbed.upper()
+        assert "Grundriss EG" in scrubbed
+        assert "Zentrales Atrium" in scrubbed
+
+    def test_scrubs_watermark_whole_line(self):
+        caption = "VECTORWORKS EDUCATIONAL VERSION\nGrundriss EG mit zentralem Atrium."
+        scrubbed = _scrub_watermark_phrases(caption)
+        assert "VECTORWORKS" not in scrubbed.upper()
+        assert scrubbed == "Grundriss EG mit zentralem Atrium."
+
+    def test_clean_caption_unchanged(self):
+        caption = "Perspektivischer Schnitt durch einen fünfgeschossigen Bildungsbau."
+        assert _scrub_watermark_phrases(caption) == caption
+
+    def test_collapses_whitespace_left_behind(self):
+        # Removing the stamp must not leave a double space or a dangling blank line.
+        scrubbed = _scrub_watermark_phrases("Grundriss.\nVECTORWORKS EDUCATIONAL VERSION\nSchnitt.")
+        assert scrubbed == "Grundriss.\nSchnitt."
+
+    def test_scrub_to_empty_and_none_are_falsy(self):
+        # A caption that is nothing but a watermark scrubs to "" (falsy) so the
+        # ``caption[:500] or None`` fallback yields None, never an empty summary.
+        assert _scrub_watermark_phrases("VECTORWORKS EDUCATIONAL VERSION") == ""
+        assert _scrub_watermark_phrases("   ") == ""
+        assert _scrub_watermark_phrases(None) == ""
+        assert _scrub_watermark_phrases("") == ""
+
+
+class TestGenericVlmPromptWatermarkExclusion:
+    """The generic image-caption prompt (used for standalone JPG/PNG and
+    PDF-embedded rasters) must instruct the model to exclude watermark/licence
+    text — the drawing path already does, the generic path did not."""
+
+    def _capture_prompt(self, monkeypatch, *, extract_charts):
+        captured = {}
+
+        class _FakeCompletions:
+            def create(self, *a, **k):
+                captured["prompt"] = k["messages"][0]["content"][0]["text"]
+                msg = MagicMock()
+                msg.content = "TYPE: image\nA plan."
+                choice = MagicMock()
+                choice.message = msg
+                resp = MagicMock()
+                resp.choices = [choice]
+                return resp
+
+        class _FakeClient:
+            def __init__(self, *a, **k):
+                self.chat = MagicMock()
+                self.chat.completions = _FakeCompletions()
+
+        import openai
+
+        monkeypatch.setattr(openai, "OpenAI", _FakeClient)
+        monkeypatch.setattr(adapter, "_get_vlm_api_key", lambda: "k")
+        adapter._analyze_image_with_vlm(b"fakeimagebytes", extract_charts=extract_charts)
+        return captured["prompt"]
+
+    @pytest.mark.parametrize("extract_charts", [True, False])
+    def test_prompt_excludes_watermarks(self, monkeypatch, extract_charts):
+        prompt = self._capture_prompt(monkeypatch, extract_charts=extract_charts)
+        assert "VECTORWORKS EDUCATIONAL VERSION" in prompt
+        # Shifts toward content/meaning rather than transcribing all visible text.
+        assert "content" in prompt.lower() or "CONTENT" in prompt
+        # The old "any text visible" transcription instruction is gone.
+        assert "any text visible" not in prompt.lower()
 
 
 # =============================================================================

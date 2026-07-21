@@ -341,6 +341,45 @@ class TestRunIngestionImageBranch:
         assert docs[0].summary == "An image of a floor plan."
         assert docs[0].tags == ["Foto", "Grundriss"]
 
+    def test_watermark_caption_scrubbed_before_becoming_fallback_summary(
+        self, tmp_path, monkeypatch, ingestor, summary_db
+    ):
+        """Regression: with LLM summarisation off, a standalone image's summary
+        falls back to the VLM caption. If the VLM stamped a CAD licence
+        watermark into that caption, it must be scrubbed out before it becomes
+        the document summary — otherwise the summary reads e.g. "... VECTORWORKS
+        EDUCATIONAL VERSION ...". Fails without the _scrub_watermark_phrases fix.
+        """
+        from aiq_agent.knowledge import get_available_documents
+
+        _patch_vlm_credential(monkeypatch, "vlm-key")
+        # Summarisation disabled -> the caption itself is the only summary source.
+        ingestor.generate_summary_enabled = False
+        # The VLM weaves the licence stamp into the caption prose (mid-line: the
+        # whole-line _strip_watermark_lines filter would never catch this).
+        monkeypatch.setattr(
+            adapter,
+            "_analyze_image_with_vlm",
+            lambda *a, **k: ("image", "Ein Grundriss EG. VECTORWORKS EDUCATIONAL VERSION. Zentrales Atrium."),
+        )
+
+        img = tmp_path / "bebauungsplan.png"
+        img.write_bytes(_png_bytes())
+
+        job_id = ingestor.submit_job([str(img)], "coll_wm", config={"original_filenames": ["bebauungsplan.png"]})
+        status = _wait_terminal(ingestor, job_id)
+        assert status.is_success
+
+        docs = get_available_documents("coll_wm")
+        assert len(docs) == 1
+        summary = docs[0].summary
+        assert summary is not None
+        # The watermark is gone; the real content survives.
+        assert "VECTORWORKS" not in summary.upper()
+        assert "EDUCATIONAL VERSION" not in summary.upper()
+        assert "Grundriss EG" in summary
+        assert "Zentrales Atrium" in summary
+
     def test_vlm_unconfigured_fails_with_specific_reason(self, tmp_path, monkeypatch, ingestor, summary_db):
         _patch_vlm_credential(monkeypatch, "")
 
