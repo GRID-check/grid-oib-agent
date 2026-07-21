@@ -46,6 +46,12 @@ export interface ChatThinkingProps {
   choicePrompt?: ChoicePrompt
   /** Respond to the HITL choice prompt. */
   onChoiceRespond?: (promptId: string, choice: string) => void
+  /** Routing path this turn took after intent classification (framing node). */
+  routingDecision?: 'meta' | 'shallow' | 'deep' | 'error'
+  /** Verbatim classifier "why" for the routing decision (framing node). */
+  routingReason?: string
+  /** Set when this turn escalated shallow→deep — framing-node narration. */
+  escalationReason?: string
 }
 
 export const ChatThinking: FC<ChatThinkingProps> = ({
@@ -60,6 +66,9 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
   citations,
   choicePrompt,
   onChoiceRespond,
+  routingDecision,
+  routingReason,
+  escalationReason,
 }) => {
   const t = useTranslations('chat')
 
@@ -88,6 +97,8 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
     Boolean(answerConfidence) ||
     (citations?.length ?? 0) > 0 ||
     Boolean(choicePrompt) ||
+    Boolean(routingDecision && routingReason?.trim()) ||
+    Boolean(escalationReason?.trim()) ||
     userQuestion.trim().length > 0
 
   if (!hasSignal) {
@@ -194,10 +205,26 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
               citations={citations}
               choicePrompt={choicePrompt}
               onChoiceRespond={onChoiceRespond}
+              routingDecision={routingDecision}
+              routingReason={routingReason}
+              escalationReason={escalationReason}
             />
           </div>
         </CollapsibleContent>
       </Collapsible>
+
+      {/* Mid-turn drop notice: a silent reconnect can leave a turn without any
+          response. The collapsed header only shows a muted "Interrupted" chip,
+          which does not tell the user what to do — so surface a compact,
+          always-visible line prompting a resend (protocol-robustness item 4). */}
+      {isInterrupted && (
+        <div className="flex items-start gap-2 border-t border-border/60 px-4 pb-3 pt-2.5">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" aria-hidden="true" />
+          <span className="text-[12px] leading-relaxed text-muted-foreground" role="status">
+            {t('thinking.interruptedNotice')}
+          </span>
+        </div>
+      )}
 
       {/* Basis footer — the data sources + files this query ran against, always
           visible as clean pills (does not require expanding the Herleitung). */}

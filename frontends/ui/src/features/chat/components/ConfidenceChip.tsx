@@ -12,6 +12,13 @@ export type AnswerConfidence = 'low' | 'medium' | 'high'
 interface ConfidenceChipProps {
   /** The model's guarded self-assessment; undefined/null renders nothing. */
   confidence: AnswerConfidence | null | undefined
+  /**
+   * Why the self-assessment was capped (WP-A transparency extra). `'ungrounded'`
+   * means the confidence was downgraded because the answer is not grounded in
+   * verified citations — appends an extra sentence to the tooltip so the cap is
+   * explained rather than silent.
+   */
+  cappedReason?: 'ungrounded'
 }
 
 /**
@@ -22,7 +29,7 @@ interface ConfidenceChipProps {
  * chip. Low uses the warning tone (sparingly) to nudge caution; medium/high stay
  * muted so a confident answer never shouts.
  */
-export const ConfidenceChip: FC<ConfidenceChipProps> = ({ confidence }) => {
+export const ConfidenceChip: FC<ConfidenceChipProps> = ({ confidence, cappedReason }) => {
   const t = useTranslations('chat')
 
   if (confidence !== 'low' && confidence !== 'medium' && confidence !== 'high') {
@@ -32,6 +39,12 @@ export const ConfidenceChip: FC<ConfidenceChipProps> = ({ confidence }) => {
   const levelLabel = t(`confidence.levels.${confidence}`)
   const label = t('confidence.label', { level: levelLabel })
   const variant = confidence === 'low' ? 'warning' : 'muted'
+  // When the confidence was capped for lack of citation grounding, explain the
+  // cap in the tooltip instead of leaving the downgrade silent.
+  const tooltip =
+    cappedReason === 'ungrounded'
+      ? `${t('confidence.tooltip')} ${t('confidence.cappedUngrounded')}`
+      : t('confidence.tooltip')
 
   return (
     <Tooltip>
@@ -49,7 +62,7 @@ export const ConfidenceChip: FC<ConfidenceChipProps> = ({ confidence }) => {
           </button>
         </Chip>
       </TooltipTrigger>
-      <TooltipContent className="max-w-xs">{t('confidence.tooltip')}</TooltipContent>
+      <TooltipContent className="max-w-xs">{tooltip}</TooltipContent>
     </Tooltip>
   )
 }

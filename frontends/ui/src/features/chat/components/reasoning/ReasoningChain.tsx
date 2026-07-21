@@ -37,6 +37,12 @@ export interface ReasoningChainProps {
   /** Live HITL multiple-choice prompt for this turn, if any (Node 4). */
   choicePrompt?: ChoicePrompt
   onChoiceRespond?: (promptId: string, choice: string) => void
+  /** Routing path this turn took after intent classification (framing node). */
+  routingDecision?: 'meta' | 'shallow' | 'deep' | 'error'
+  /** Verbatim classifier "why" for the routing decision (framing node). */
+  routingReason?: string
+  /** Set when this turn escalated shallow→deep — framing-node narration. */
+  escalationReason?: string
 }
 
 /** A visible node plus the connector that leads into it. */
@@ -98,6 +104,9 @@ export const ReasoningChain: FC<ReasoningChainProps> = ({
   citations,
   choicePrompt,
   onChoiceRespond,
+  routingDecision,
+  routingReason,
+  escalationReason,
 }) => {
   const t = useTranslations('chat')
 
@@ -113,7 +122,16 @@ export const ReasoningChain: FC<ReasoningChainProps> = ({
   nodes.push({
     key: 'framing',
     connector: null,
-    render: (order) => <FramingNode t={t} userQuestion={userQuestion} order={order} />,
+    render: (order) => (
+      <FramingNode
+        t={t}
+        userQuestion={userQuestion}
+        order={order}
+        routingDecision={routingDecision}
+        routingReason={routingReason}
+        escalationReason={escalationReason}
+      />
+    ),
   })
 
   // Node 2 — Quellen fan-out.

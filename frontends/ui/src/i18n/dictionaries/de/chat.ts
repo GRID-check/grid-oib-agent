@@ -62,6 +62,10 @@ export const chat: typeof en.chat = {
   answerSources: {
     label: 'Belegt durch',
     ariaLabel: 'Quellen, auf die sich diese Antwort stützt',
+    // Hinweis unter der Quellenzeile, wenn die Zitatprüfung nicht belegbare
+    // Quellenangaben entfernt hat (WP-A `citations_removed`).
+    citationsRemoved: '{count} Quellenangabe(n) entfernt (nicht verifizierbar)',
+    citationsRemovedReasonsLabel: 'Gründe',
   },
   breadcrumb: {
     ariaLabel: 'Navigationspfad',
@@ -146,6 +150,11 @@ export const chat: typeof en.chat = {
       runningNamed: '{name} …',
     },
     interrupted: 'Unterbrochen',
+    // Kompakter Inline-Hinweis auf einer unterbrochenen Antwort: eine stille
+    // Wiederverbindung kann eine laufende Antwort verwerfen (Protokoll-
+    // Robustheit, Punkt 4). Statt nur des stummen „Unterbrochen“-Chips.
+    interruptedNotice:
+      'Verbindung kurz unterbrochen — Antwort ging verloren. Bitte erneut senden.',
     done: 'Fertig',
     showThinking: 'Denkschritte anzeigen ({count})',
     showThinkingSteps: 'Denkschritte anzeigen ({count})',
@@ -157,6 +166,20 @@ export const chat: typeof en.chat = {
     gapHit: 'Nicht im Bestand',
     moreSources: '+{count} weitere',
     selectedDataSources: 'Ausgewählte Datenquellen:',
+    // „Warum dieser Weg?“ — die Routing-Einordnung dieses Turns (WP-A
+    // `routing_decision` + `routing_reason`), im Herleitungs-Rahmenknoten.
+    routing: {
+      whyLabel: 'Warum dieser Weg?',
+      line: 'Einordnung: {decision} — {reason}',
+      decision: {
+        meta: 'Direktantwort',
+        shallow: 'Kurzrecherche',
+        deep: 'Tiefenrecherche',
+        error: 'Fehler',
+      },
+    },
+    // Einzeiler, wenn dieser Turn von der Kurz- zur Tiefenrecherche eskaliert ist.
+    escalationNarration: 'Eskaliert zur Tiefenrecherche: {reason}',
     dataSource: {
       webSearch: 'Websuche',
       knowledgeBase: 'OIB-Wissensdatenbank',
@@ -214,6 +237,9 @@ export const chat: typeof en.chat = {
     viewReport: 'Bericht anzeigen',
     viewThinking: 'Denkschritte anzeigen',
     viewProgress: 'Fortschritt anzeigen',
+    // Einzeiler über dem „Deep Research wird gestartet“-Banner, wenn der Turn
+    // von der Kurz- zur Tiefenrecherche eskaliert ist (WP-A `escalation_reason`).
+    escalationNarration: 'Eskaliert zur Tiefenrecherche: {reason}',
   },
   error: {
     showDetails: 'Details anzeigen',
@@ -266,6 +292,14 @@ export const chat: typeof en.chat = {
     unknown: {
       title: 'Etwas ist schiefgelaufen',
       message: 'Ein unerwarteter Fehler ist aufgetreten. Bitte versuchen Sie es erneut.',
+    },
+    // Deep-Research-Auftrag wurde abgelehnt, weil die Warteschlange voll ist
+    // (WP-A `job_admission_rejected`). Warnung, nicht Fehler: erneut senden hilft.
+    researchQueueFull: {
+      title: 'Recherche ausgelastet',
+      message:
+        'Die Recherche-Warteschlange ist gerade voll. Bitte sende deine Anfrage in einem Moment erneut.',
+      retryHint: 'Bitte in etwa {seconds} Sekunden erneut senden.',
     },
   },
   deepResearchErrors: {
@@ -331,6 +365,10 @@ export const chat: typeof en.chat = {
     ariaLabel: 'Selbsteinschätzung des Assistenten: {level}',
     tooltip:
       'Die eigene Einschätzung des Assistenten, wie gut diese Antwort durch seine Quellen gestützt ist. Sie kann falsch sein.',
+    // Zusatzsatz, wenn die Einschätzung gedeckelt wurde, weil die Antwort nicht
+    // durch geprüfte Quellen belegt ist (WP-A `answer_confidence_capped_reason`).
+    cappedUngrounded:
+      'Die Einschätzung wurde begrenzt, da die Antwort nicht durch geprüfte Quellenangaben belegt ist.',
   },
   // Antwort-Feedback per Daumen (WS-7, Feature-Flag `answer-feedback`).
   feedback: {

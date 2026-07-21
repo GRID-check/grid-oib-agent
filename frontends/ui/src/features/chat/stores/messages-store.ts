@@ -11,6 +11,8 @@ import type {
   DeepResearchBannerType,
   Conversation,
   CitationSource,
+  AnswerTransparency,
+  HumanPromptInputType,
 } from '../types'
 import type { GridCard } from '@/shared/cards/schemas'
 import { getErrorMeta } from '../lib/error-registry'
@@ -77,7 +79,7 @@ export type MessagesSlice = {
     placeholder?: string,
     promptId?: string,
     parentId?: string,
-    inputType?: 'text' | 'multiple_choice' | 'binary_choice' | 'approval' | 'notification'
+    inputType?: HumanPromptInputType
   ) => void
   respondToPrompt: (messageId: string, response: string) => void
   addUserMessage: (
@@ -92,7 +94,8 @@ export type MessagesSlice = {
     showViewReport?: boolean,
     cards?: GridCard[],
     answerConfidence?: 'low' | 'medium' | 'high',
-    citations?: CitationSource[]
+    citations?: CitationSource[],
+    transparency?: AnswerTransparency
   ) => void
   appendAgentResponseDelta: (
     content: string,
@@ -104,8 +107,18 @@ export type MessagesSlice = {
     content: string,
     cards?: GridCard[],
     answerConfidence?: 'low' | 'medium' | 'high',
-    citations?: CitationSource[]
+    citations?: CitationSource[],
+    transparency?: AnswerTransparency
   ) => void
+  /**
+   * Drop the in-progress streaming assistant bubble of the current turn (the
+   * one referenced by `streamingAssistantMessageId`) entirely — message removed,
+   * not merely finalized — and clear `streamingAssistantMessageId`. Used when a
+   * turn resolves in a surface OTHER than an answer bubble (e.g. a job-admission
+   * rejection rendered as a banner), so any orphaned bubble opened by earlier
+   * deltas leaves no lingering caret. No-op when no streaming bubble is open.
+   */
+  discardStreamingAssistantMessage: () => void
   addAgentResponseWithMeta: (
     content: string,
     showViewReport: boolean,
@@ -126,7 +139,8 @@ export type MessagesSlice = {
     bannerType: DeepResearchBannerType,
     jobId: string,
     conversationId?: string,
-    stats?: { totalTokens?: number; toolCallCount?: number }
+    stats?: { totalTokens?: number; toolCallCount?: number },
+    escalationReason?: string
   ) => void
   setProjectId: (projectId: string | null) => void
   /** Queue text for the composer to pick up (does NOT auto-send). */
@@ -184,7 +198,8 @@ const createNewConversation = (userId: string): Conversation => ({
 const createDeepResearchBannerMessage = (
   bannerType: DeepResearchBannerType,
   jobId: string,
-  stats?: { totalTokens?: number; toolCallCount?: number }
+  stats?: { totalTokens?: number; toolCallCount?: number },
+  escalationReason?: string
 ): ChatMessage => ({
   id: uuidv4(),
   role: 'assistant',
@@ -196,6 +211,7 @@ const createDeepResearchBannerMessage = (
     jobId,
     totalTokens: stats?.totalTokens,
     toolCallCount: stats?.toolCallCount,
+    ...(escalationReason ? { escalationReason } : {}),
   },
   ...(bannerType === 'starting' && {
     deepResearchJobId: jobId,
@@ -208,7 +224,8 @@ const withDeepResearchBanner = (
   conversation: Conversation,
   bannerType: DeepResearchBannerType,
   jobId: string,
-  stats?: { totalTokens?: number; toolCallCount?: number }
+  stats?: { totalTokens?: number; toolCallCount?: number },
+  escalationReason?: string
 ): Conversation => {
   const isTerminalBanner = bannerType !== 'starting'
   const filteredMessages = isTerminalBanner
@@ -223,7 +240,10 @@ const withDeepResearchBanner = (
 
   return {
     ...conversation,
-    messages: [...filteredMessages, createDeepResearchBannerMessage(bannerType, jobId, stats)],
+    messages: [
+      ...filteredMessages,
+      createDeepResearchBannerMessage(bannerType, jobId, stats, escalationReason),
+    ],
     updatedAt: new Date(),
   }
 }
@@ -261,6 +281,7 @@ const buildAgentResponseMessage = (
     answerConfidence?: 'low' | 'medium' | 'high'
     citations?: CitationSource[]
     isStreaming?: boolean
+    transparency?: AnswerTransparency
   }
 ): ChatMessage => {
   const {
@@ -305,6 +326,23 @@ const buildAgentResponseMessage = (
     deepResearchLastEventId: deepResearchLastEventId || undefined,
     deepResearchJobStatus: deepResearchStatus || undefined,
     ...(opts.isStreaming ? { isStreaming: true } : {}),
+    // Transparency extras (WP-A). Spread only the fields that are present so a
+    // turn without them stays byte-identical to the pre-transparency message.
+    ...(opts.transparency?.routingDecision
+      ? { routingDecision: opts.transparency.routingDecision }
+      : {}),
+    ...(opts.transparency?.routingReason
+      ? { routingReason: opts.transparency.routingReason }
+      : {}),
+    ...(opts.transparency?.escalationReason
+      ? { escalationReason: opts.transparency.escalationReason }
+      : {}),
+    ...(opts.transparency?.answerConfidenceCappedReason
+      ? { answerConfidenceCappedReason: opts.transparency.answerConfidenceCappedReason }
+      : {}),
+    ...(opts.transparency?.citationsRemoved
+      ? { citationsRemoved: opts.transparency.citationsRemoved }
+      : {}),
   }
 }
 
@@ -808,7 +846,7 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
     placeholder?: string,
     promptId?: string,
     parentId?: string,
-    inputType?: 'text' | 'multiple_choice' | 'binary_choice' | 'approval' | 'notification'
+    inputType?: HumanPromptInputType
   ) => {
     const { currentConversation, conversations, planMessages } = get()
     if (!currentConversation) return
@@ -957,7 +995,8 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
     showViewReport?: boolean,
     cards?: GridCard[],
     answerConfidence?: 'low' | 'medium' | 'high',
-    citations?: CitationSource[]
+    citations?: CitationSource[],
+    transparency?: AnswerTransparency
   ) => {
     const state = get()
     const { currentConversation, conversations } = state
@@ -968,6 +1007,7 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
       cards,
       answerConfidence,
       citations,
+      transparency,
     })
 
     const updatedConversation: Conversation = {
@@ -1070,7 +1110,8 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
     content: string,
     cards?: GridCard[],
     answerConfidence?: 'low' | 'medium' | 'high',
-    citations?: CitationSource[]
+    citations?: CitationSource[],
+    transparency?: AnswerTransparency
   ) => {
     // Flush any batched delta text onto the open bubble first so the terminal
     // frame finalizes over the complete accumulation, then read fresh state.
@@ -1085,7 +1126,7 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
     // synthetic complete when nothing preceded it.
     if (!streamingAssistantMessageId) {
       if ((content && content.trim()) || (cards && cards.length > 0)) {
-        get().addAgentResponse(content, false, cards, answerConfidence, citations)
+        get().addAgentResponse(content, false, cards, answerConfidence, citations, transparency)
       }
       return
     }
@@ -1104,6 +1145,14 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
         ...(cards && cards.length > 0 ? { cards } : {}),
         ...(answerConfidence ? { answerConfidence } : {}),
         ...(citations && citations.length > 0 ? { citations } : {}),
+        // Transparency extras ride the terminal frame; attach only what's present.
+        ...(transparency?.routingDecision ? { routingDecision: transparency.routingDecision } : {}),
+        ...(transparency?.routingReason ? { routingReason: transparency.routingReason } : {}),
+        ...(transparency?.escalationReason ? { escalationReason: transparency.escalationReason } : {}),
+        ...(transparency?.answerConfidenceCappedReason
+          ? { answerConfidenceCappedReason: transparency.answerConfidenceCappedReason }
+          : {}),
+        ...(transparency?.citationsRemoved ? { citationsRemoved: transparency.citationsRemoved } : {}),
         isStreaming: false,
       }
     })
@@ -1144,6 +1193,38 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
     if (finalizedMessage) {
       get()._appendMessage(finalizedMessage)
     }
+  },
+
+  discardStreamingAssistantMessage: () => {
+    // Any batched delta text is destined for the bubble we're about to drop —
+    // discard it so a later flush can't resurrect a stray bubble.
+    resetDeltaBuffer()
+
+    const { currentConversation, conversations, streamingAssistantMessageId } = get()
+    if (!streamingAssistantMessageId) return
+    if (!currentConversation) {
+      set({ streamingAssistantMessageId: null }, false, 'discardStreamingAssistantMessage')
+      return
+    }
+
+    const updatedMessages = currentConversation.messages.filter(
+      (msg) => msg.id !== streamingAssistantMessageId
+    )
+    const updatedConversation: Conversation = {
+      ...currentConversation,
+      messages: updatedMessages,
+      updatedAt: new Date(),
+    }
+
+    set(
+      {
+        currentConversation: updatedConversation,
+        conversations: updateConversationInList(conversations, updatedConversation),
+        streamingAssistantMessageId: null,
+      },
+      false,
+      'discardStreamingAssistantMessage'
+    )
   },
 
   addAgentResponseWithMeta: (
@@ -1379,7 +1460,8 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
     bannerType: DeepResearchBannerType,
     jobId: string,
     conversationId?: string,
-    stats?: { totalTokens?: number; toolCallCount?: number }
+    stats?: { totalTokens?: number; toolCallCount?: number },
+    escalationReason?: string
   ) => {
     const { currentConversation, conversations } = get()
 
@@ -1393,7 +1475,8 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
       targetConversation,
       bannerType,
       jobId,
-      stats
+      stats,
+      escalationReason
     )
 
     const updatedConversations = updateConversationInList(conversations, updatedConversation)

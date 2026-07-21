@@ -57,6 +57,10 @@ export type ErrorCode =
   | 'agent.workflow_error'
   | 'agent.deep_research_failed'
   | 'agent.deep_research_load_failed'
+  // Research errors
+  // Deep-research job could not be admitted (queue full). Warning-styled, and
+  // NON-locking: the composer stays usable so the user can retry.
+  | 'research.queue_full'
   // Budget errors
   | 'budget.exhausted'
   // System errors
@@ -64,6 +68,37 @@ export type ErrorCode =
 
 /** Prompt types for agent prompts requiring user response */
 export type PromptType = 'clarification' | 'approval' | 'choice' | 'text-input' | 'plan_approval'
+
+/**
+ * Human prompt input types, aligned with NAT's real HITL enum plus the legacy
+ * values kept for back-compat. `radio`/`checkbox`/`dropdown` render with the
+ * existing choice UI; see `mapHumanPromptType`.
+ */
+export type HumanPromptInputType =
+  | 'text'
+  | 'notification'
+  | 'binary_choice'
+  | 'radio'
+  | 'checkbox'
+  | 'dropdown'
+  | 'oauth_consent'
+  // Legacy values (older backends / persisted sessions)
+  | 'multiple_choice'
+  | 'approval'
+
+/**
+ * Transparency extras attached to an answer from the terminal system_response
+ * frame (WP-A → WP-B wire contract). All optional; each renders its own bit of
+ * UI (routing narration, capped-confidence note, citations-removed note) only
+ * when present.
+ */
+export interface AnswerTransparency {
+  routingDecision?: 'meta' | 'shallow' | 'deep' | 'error'
+  routingReason?: string
+  escalationReason?: string
+  answerConfidenceCappedReason?: 'ungrounded'
+  citationsRemoved?: { count: number; reasons: string[] }
+}
 
 /** File card data for file messages */
 export interface FileCardData {
@@ -101,6 +136,11 @@ export interface DeepResearchBannerData {
   totalTokens?: number
   /** Number of tool calls (for success banner) */
   toolCallCount?: number
+  /**
+   * Narration shown above a `starting` banner when the turn escalated
+   * shallow→deep — `Eskaliert zur Tiefenrecherche: <reason>` per the contract.
+   */
+  escalationReason?: string
 }
 
 /** Individual chat message */
@@ -124,7 +164,7 @@ export interface ChatMessage {
   /** Parent message ID for HITL response routing */
   promptParentId?: string
   /** Input type for HITL prompts */
-  promptInputType?: 'text' | 'multiple_choice' | 'binary_choice' | 'approval' | 'notification'
+  promptInputType?: HumanPromptInputType
   /** Options for choice prompts */
   promptOptions?: string[]
   /** Placeholder for text input prompts */
@@ -192,6 +232,27 @@ export interface ChatMessage {
    * deep-research, and historical turns — nothing renders when undefined.
    */
   answerConfidence?: 'low' | 'medium' | 'high'
+  /**
+   * Why the self-assessed confidence was capped (WP-A transparency extra).
+   * `'ungrounded'` means the answer was not grounded in verified citations —
+   * surfaced as an extra sentence in the ConfidenceChip tooltip.
+   */
+  answerConfidenceCappedReason?: 'ungrounded'
+  /**
+   * Which path the turn took after intent classification (meta/shallow/deep/
+   * error) — drives the "Warum dieser Weg?" narration in the Herleitung.
+   */
+  routingDecision?: 'meta' | 'shallow' | 'deep' | 'error'
+  /** Human-readable "why" for the routing decision (verbatim from classifier). */
+  routingReason?: string
+  /** Narration shown when the turn escalated shallow→deep this turn. */
+  escalationReason?: string
+  /**
+   * Citation-verification result: how many citations were removed as
+   * unverifiable, with de-duplicated reasons. Renders a muted note under the
+   * sources row when present.
+   */
+  citationsRemoved?: { count: number; reasons: string[] }
 }
 
 /** Intermediate thinking step from agent */
@@ -275,7 +336,7 @@ export interface PendingInteraction {
   /** Parent message ID for response */
   parentId: string
   /** Type of input expected */
-  inputType: 'text' | 'multiple_choice' | 'binary_choice' | 'approval' | 'notification'
+  inputType: HumanPromptInputType
   /** Prompt text */
   text: string
   /** Options for choice prompts */
@@ -352,7 +413,7 @@ export interface PlanMessage {
   /** The text content (clarification question, plan preview, etc.) */
   text: string
   /** Input type expected from user (if any) */
-  inputType?: 'text' | 'multiple_choice' | 'binary_choice' | 'approval' | 'notification'
+  inputType?: HumanPromptInputType
   /** Placeholder for text input */
   placeholder?: string
   /** Whether input is required */
@@ -653,7 +714,7 @@ export interface ChatActions {
     placeholder?: string,
     promptId?: string,
     parentId?: string,
-    inputType?: 'text' | 'multiple_choice' | 'binary_choice' | 'approval' | 'notification'
+    inputType?: HumanPromptInputType
   ) => void
   /** Respond to a prompt */
   respondToPrompt: (messageId: string, response: string) => void
@@ -666,7 +727,8 @@ export interface ChatActions {
     showViewReport?: boolean,
     cards?: GridCard[],
     answerConfidence?: 'low' | 'medium' | 'high',
-    citations?: CitationSource[]
+    citations?: CitationSource[],
+    transparency?: AnswerTransparency
   ) => void
   /**
    * Accumulate a streamed answer delta (`in_progress` content frame) into a
@@ -694,8 +756,18 @@ export interface ChatActions {
     content: string,
     cards?: GridCard[],
     answerConfidence?: 'low' | 'medium' | 'high',
-    citations?: CitationSource[]
+    citations?: CitationSource[],
+    transparency?: AnswerTransparency
   ) => void
+  /**
+   * Drop the in-progress streaming assistant bubble of the current turn
+   * entirely (message removed, not finalized) and clear
+   * `streamingAssistantMessageId`. Used when a turn resolves in a surface other
+   * than an answer bubble — e.g. a job-admission rejection rendered as a banner
+   * — so any orphaned bubble opened by earlier deltas leaves no lingering caret.
+   * No-op when no streaming bubble is open.
+   */
+  discardStreamingAssistantMessage: () => void
   /** Add an agent response with additional metadata - returns the created message ID */
   addAgentResponseWithMeta: (
     content: string,
@@ -739,7 +811,8 @@ export interface ChatActions {
     bannerType: DeepResearchBannerType,
     jobId: string,
     conversationId?: string,
-    stats?: { totalTokens?: number; toolCallCount?: number }
+    stats?: { totalTokens?: number; toolCallCount?: number },
+    escalationReason?: string
   ) => void
 
   // Deep research SSE actions

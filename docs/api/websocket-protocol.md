@@ -189,7 +189,21 @@ Delivers final or streaming response text.
     origin?: "kb" | "ris" | "web" | string | null
     file_name?: string | null
     page?: number | null
-  }>
+  }>,
+
+  // ── Transparency extras (terminal frame only) ────────────────────────────
+  // Lifted onto the terminal system_response content by the gateway, alongside
+  // answer_confidence / sources. All optional and additive — absent means
+  // "unknown / not applicable". Each parses with per-field tolerance on the
+  // client (`.catch(undefined)`), so one malformed extra never drops the
+  // response text.
+  routing_decision?: "meta" | "shallow" | "deep" | "error",
+  routing_reason?: string,
+  escalation_reason?: string,
+  answer_confidence_capped_reason?: "ungrounded",
+  citations_removed?: { count: number, reasons: string[] },
+  job_admission_rejected?: true,
+  retry_after_seconds?: number
 }
 ```
 
@@ -199,6 +213,18 @@ Delivers final or streaming response text.
 - **GenerateResponse** (`{ output: string }`): Shallow/meta response format.
 
 The client extracts content in priority order: `output` → `text` → raw string. The `isFinal` flag is derived from `status === 'complete'`. Structured extras (`cards`, `deep_research_job_id`, `answer_confidence`, `sources`) are optional and fail-open when absent.
+
+**Transparency extras** (terminal frame; all optional, fail-open per-field):
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `routing_decision` | `"meta" \| "shallow" \| "deep" \| "error"` | Which path the turn took after intent classification. Rendered as a "Warum dieser Weg?" line in the expanded Herleitung. |
+| `routing_reason` | `string` | Human-readable "why" for the routing decision, rendered verbatim from the classifier. |
+| `escalation_reason` | `string` | Present only when a shallow→deep escalation happened this turn. Rendered as `Eskaliert zur Tiefenrecherche: <reason>` in the thinking panel and above the deep-research banner. |
+| `answer_confidence_capped_reason` | `"ungrounded"` | Present only when confidence was downgraded for lack of citation grounding. Adds a sentence to the ConfidenceChip tooltip. |
+| `citations_removed` | `{ count: number, reasons: string[] }` | Present only when citation verification removed ≥1 citation. Renders a muted note under the sources row (reasons in a tooltip). |
+| `job_admission_rejected` | `true` | Marks the answer text as a queue-rejection notice (NOT a research answer). The client renders a warning banner (error code `research.queue_full`) and leaves the composer unlocked. |
+| `retry_after_seconds` | `number` | Only alongside `job_admission_rejected` — retry hint (seconds). |
 
 #### system_intermediate_message
 
@@ -217,6 +243,29 @@ Streaming thinking steps, tool calls, and intermediate agent output.
 }
 ```
 
+#### observability_trace_message
+
+Diagnostic / tracing frame emitted by NAT. The frontend does **not** render
+these — the variant exists so the frame is tolerated (parsed and ignored)
+instead of tripping the unknown-type fallback. The payload is treated as opaque.
+
+```typescript
+{
+  type: "observability_trace_message",
+  id?: string,
+  thread_id?: string,
+  parent_id?: string,
+  conversation_id?: "s_<session_id>",
+  content?: unknown,   // opaque; kept passthrough, never rendered
+  status?: string,
+  timestamp?: "<ISO 8601>"
+}
+```
+
+> **Unknown message types:** any `type` value the client does not recognize is
+> logged **once per distinct type** and the frame is dropped — the parse
+> pipeline never throws and subsequent frames keep flowing.
+
 #### system_interaction_message
 
 Human-in-the-loop prompt — the agent is waiting for user input.
@@ -229,8 +278,10 @@ Human-in-the-loop prompt — the agent is waiting for user input.
   parent_id: "<parent_message_id>",
   conversation_id: "s_<session_id>",
   content: {
-    input_type: "text" | "multiple_choice" | "binary_choice"
-               | "approval" | "notification" | "oauth_consent",
+    input_type: "text" | "notification" | "binary_choice" | "radio"
+               | "checkbox" | "dropdown" | "oauth_consent"
+               // Legacy, still accepted for back-compat:
+               | "multiple_choice" | "approval",
     text: "prompt text",
     options?: ["option1", "option2", ...],
     default_value?: "default text"
@@ -240,16 +291,23 @@ Human-in-the-loop prompt — the agent is waiting for user input.
 }
 ```
 
-**Input types:**
+**Input types** (aligned with NAT's real HITL enum):
 
-| Type | Description |
-|------|-------------|
-| `text` | Free-text input |
-| `multiple_choice` | Select from options array |
-| `binary_choice` | Yes/no or two-option choice |
-| `approval` | Action approval (confirm/cancel) |
-| `notification` | Informational, no response needed |
-| `oauth_consent` | OAuth authorization consent |
+| Type | Description | Client rendering |
+|------|-------------|------------------|
+| `text` | Free-text input | text input |
+| `notification` | Informational, no response needed | — |
+| `binary_choice` | Yes/no or two-option choice | approval |
+| `radio` | Single choice from options | choice (OptionsList) |
+| `checkbox` | Multi-select from options | choice (OptionsList) |
+| `dropdown` | Select from options | choice (OptionsList) |
+| `oauth_consent` | OAuth authorization consent | — |
+| `multiple_choice` | **Legacy** alias — select from options | choice (OptionsList) |
+| `approval` | **Legacy** — action approval (confirm/cancel) | approval |
+
+The legacy `multiple_choice` / `approval` values remain accepted for older
+backends and persisted sessions. `radio` / `checkbox` / `dropdown` all map to
+the existing choice rendering (`OptionsList`).
 
 #### error_message
 
@@ -306,7 +364,10 @@ interface NATWebSocketClientCallbacks {
     deepResearchJobId?: string,
     answerConfidence?: 'low' | 'medium' | 'high',
     /** Structured registry sources (file_name/page/collection/origin/url) for Belegt-durch chips */
-    sources?: unknown[]
+    sources?: unknown[],
+    /** Transparency extras lifted onto the terminal frame (routing/escalation/
+     *  capped-confidence/citations-removed/queue-rejection). All optional. */
+    transparency?: NATResponseTransparency
   ) => void
   onIntermediateStep?: (
     content: NATIntermediateStepContent | string,

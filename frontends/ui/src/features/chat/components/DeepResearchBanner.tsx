@@ -33,6 +33,12 @@ export interface DeepResearchBannerProps {
   toolCallCount?: number
   /** Timestamp of the status update (Date or ISO string from persisted state) */
   timestamp?: Date | string
+  /**
+   * When this turn escalated shallow→deep, the classifier's escalation reason.
+   * Rendered as a one-line narration directly ABOVE the banner
+   * (`Eskaliert zur Tiefenrecherche: <reason>`) per the transparency contract.
+   */
+  escalationReason?: string
 }
 
 /** Banner status type */
@@ -132,6 +138,7 @@ export const DeepResearchBanner: FC<DeepResearchBannerProps> = ({
   totalTokens,
   toolCallCount,
   timestamp,
+  escalationReason,
 }) => {
   const t = useTranslations('chat')
   const openRightPanel = useLayoutStore((s) => s.openRightPanel)
@@ -185,6 +192,11 @@ export const DeepResearchBanner: FC<DeepResearchBannerProps> = ({
 
   return (
     <div className="flex w-full flex-col gap-1">
+      {escalationReason?.trim() && (
+        <p className="px-1 text-[12.5px] leading-relaxed text-warning" role="status">
+          {t('deepResearch.escalationNarration', { reason: escalationReason.trim() })}
+        </p>
+      )}
       <Alert variant={variant}>
         <Icon />
         <AlertTitle>{config.heading}</AlertTitle>
