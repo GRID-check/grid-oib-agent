@@ -421,9 +421,9 @@ carried in the config. From it the ingestor resolves, per job:
 env chain) and `_resolve_vlm_model_override(org_id)` (the org's `ingest_vlm`
 model override, `AgentGroup.INGEST_VLM`). The resolved `(model, base_url,
 api_key)` is threaded into every VLM call site. Org-agnostic base-corpus sync
-(`oib_sync`) carries no org id and gets the deployment default, unchanged. See
-`docs/architecture/org-model-configuration.md` for why `ingest_vlm` is
-backend/BYOK-only (not yet in the frontend picker).
+(`oib_sync`) carries no org id and gets the deployment default, unchanged. Org
+admins select the model in the model-config picker (`ingest_vlm` group, gated to
+vision-capable models); see `docs/architecture/org-model-configuration.md`.
 
 > Scope note: this lives in the **LlamaIndex** ingestor. The `foundational_rag`
 > backend shares the summary prompt (`summarize_document_text`) but not yet the

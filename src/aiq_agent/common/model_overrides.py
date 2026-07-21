@@ -67,10 +67,10 @@ class AgentGroup(StrEnum):
     # Ingestion-plane VLM (image captioning + rendered-drawing description).
     # Re-points the vision model used during document ingestion. Unlike the
     # chat groups it is resolved by org id in a detached ingest thread (no
-    # request header) and applies only to a bespoke vision call site, not a NAT
-    # chat model. Selectable models MUST be vision-capable — exposing it in the
-    # org model-config picker needs an image-input-modality requirement in the
-    # frontend registry (agent-groups.ts), so it is backend/BYOK-only for now.
+    # request header) and applies to a bespoke vision call site, not a NAT chat
+    # model. The frontend registry gates it to vision-capable models
+    # (`requiresImageInput` in agent-groups.ts); the picker save path validates
+    # against that same gate.
     INGEST_VLM = "ingest_vlm"
 
 

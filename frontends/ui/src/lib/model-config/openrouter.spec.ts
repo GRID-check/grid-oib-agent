@@ -68,6 +68,21 @@ describe('validateModelForGroup', () => {
   it('small-context model is still fine for low-context groups', () => {
     expect(validateModelForGroup(model({ contextLength: 32768 }), intent).ok).toBe(true)
   })
+
+  it('ingest_vlm accepts a vision model and rejects a text-only one', () => {
+    const ingestVlm = getAgentGroup('ingest_vlm')!
+    // A vision model (input_modalities includes image) passes.
+    expect(validateModelForGroup(model({ inputModalities: ['text', 'image'] }), ingestVlm).ok).toBe(true)
+    // A text-only model is rejected — it could not see the page/drawing.
+    const textOnly = validateModelForGroup(model({ inputModalities: ['text'] }), ingestVlm)
+    expect(textOnly.ok).toBe(false)
+    expect(textOnly.reasons.join(' ')).toContain('image input')
+  })
+
+  it('vision requirement self-skips when the catalog has no modality metadata (BYOK)', () => {
+    const ingestVlm = getAgentGroup('ingest_vlm')!
+    expect(validateModelForGroup(model({ inputModalities: [] }), ingestVlm).ok).toBe(true)
+  })
 })
 
 describe('reasoning-off enforcement (intent group runs reasoning_effort:none)', () => {
