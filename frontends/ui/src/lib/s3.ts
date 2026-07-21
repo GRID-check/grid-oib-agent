@@ -15,6 +15,7 @@ export const s3Client = new S3Client({
   credentials,
   forcePathStyle: true,
   requestChecksumCalculation: "WHEN_REQUIRED",
+  responseChecksumValidation: "WHEN_REQUIRED",
 });
 
 /**
@@ -36,6 +37,7 @@ export const signingS3Client = new S3Client({
   credentials,
   forcePathStyle: true,
   requestChecksumCalculation: "WHEN_REQUIRED",
+  responseChecksumValidation: "WHEN_REQUIRED",
 });
 
 export const bucketName = process.env.SEAWEED_BUCKET || "grid-documents";

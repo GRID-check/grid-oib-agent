@@ -18,6 +18,12 @@ function createS3Client() {
       secretAccessKey: process.env.SEAWEED_SECRET_KEY || '',
     },
     forcePathStyle: true,
+    // SeaweedFS 3.80 rejects the flexible-checksum headers AWS SDK v3.1077+
+    // injects by default (matches lib/s3.ts): request checksums break the
+    // DeleteObjects payload signing, response validation adds
+    // x-amz-checksum-mode to GETs.
+    requestChecksumCalculation: 'WHEN_REQUIRED',
+    responseChecksumValidation: 'WHEN_REQUIRED',
   })
 }
 
