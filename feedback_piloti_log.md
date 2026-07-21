@@ -86,8 +86,29 @@
   *transparent* UX; pure-vector v1, no LLM). Backend impl agent running (retriever
   singleton + `POST /v1/collections/{c}/search` + aggregation + tests + docs).
   BFF+UI to follow.
-- Trust-chain items (PB-7 quote-verification, PB-8 brevity/Empfehlung, PB-10
-  clarifier-in-shallow, PB-14 identity) — discovery agents were lost to earlier
-  interrupts; will re-map + implement next.
+- **PB-18 backend** — DONE & committed (`feat(search): document-centric semantic
+  search endpoint`); 2385 backend tests pass. **PB-18 frontend** — implementing
+  (BFF routes + services + transparent explicit-run search UI, user-signed-off).
+- **PB-7 (fabricated quotes)** — implementing. Deterministic difflib quote-vs-chunk
+  verification (whole-registry, threshold 0.90, fail-open inline annotation
+  `[nicht wörtlich in der Quelle belegt]`, no stripping). Wires through the
+  confidence machinery to cap to "low" with reason `quote_unverified` — **this also
+  delivers PB-9** (confidence needs a visible reason). Backend-only; runs parallel
+  to the frontend agent. Design mapped the exact plumbing gap: chunk text IS in the
+  tool-result string but `_parse_knowledge_layer` discarded it — now captured onto
+  `SourceEntry.chunk_text`.
+
+### Errors-are-not-excused (per new AGENTS.md rule)
+- Fixed `request-context.spec.ts` (was crashing the whole suite at import via
+  `fileURLToPath(new URL(..., import.meta.url))` — non-file scheme under vitest;
+  36 tests silently not running). Now a direct JSON import. `fix(test)` committed.
+- Persisted the rule into AGENTS.md Conventions: fix errors you find (even
+  pre-existing), never dismiss them.
+
+### Prompt cluster (Sprint 4, queued — held to avoid prompt-file conflicts with PB-7)
+- PB-10 clarifier-in-shallow, PB-8a brevity/no-restate, PB-14 identity broadening,
+  PB-8b "Empfehlung"→neutral. Mapped by earlier agent (see above). All touch the
+  researcher `.j2` prompts (+ 1 identity test assertion) — run as ONE agent after
+  PB-7 lands.
 
 <!-- Sprint entries appended below as they complete. -->

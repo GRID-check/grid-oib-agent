@@ -90,7 +90,9 @@
   question. Logic levers: stricter citation-faithfulness verification (verify
   the *quoted text* actually exists in the cited passage, not just that the
   section exists), grounding guard, model routing. Needs WEB RESEARCH on 2026
-  citation-faithfulness patterns for weak models. Status: VERIFY + RESEARCH.
+  citation-faithfulness patterns for weak models. Status: **Sprint 3 — IN
+  PROGRESS** (deterministic difflib quote-vs-chunk verification, whole-registry,
+  fail-open inline annotation, caps confidence w/ reason `quote_unverified`).
 
 - **PB-8 — Result card too long / repeats project parameters / says
   "Empfehlung".**  Class: LOGIC (prompt + post-processing). Baurecht "Empfehlung"
@@ -100,7 +102,9 @@
 - **PB-9 — Confidence score is hard to understand; needs a reason.**  Class:
   LOGIC (+small UI). Surface a short justification for the confidence level.
   The chip exists (FB-6 history); extend the signal to carry a reason. Status:
-  VERIFY.
+  **FOLDED INTO PB-7** — the quote-verification wiring caps confidence to "low"
+  with a machine-readable reason (`ungrounded` | `quote_unverified`), which is the
+  visible justification this item asks for.
 
 - **PB-10 — Clarifying questions ("Rückfragen") not asked before answering.**
   Class: LOGIC/VERIFY. Feedback says Piloti doesn't ask for missing parameters
