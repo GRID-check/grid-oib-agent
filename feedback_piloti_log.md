@@ -231,3 +231,29 @@ Verified (backend 2439 pass; FE tsc 0; 92 lane specs; eslint 0 errors) and commi
 - **PB-SYNTH-8/12** errors: typed error-boundary classification (no more 'access'-substring), brief error detail.
 - **PB-SYNTH-13** forwardRef warning fixed at the tooltip primitive.
 Remaining synthesized: PB-SYNTH-4 (search-route scope hardening), PB-SYNTH-5 (top_k), + UX polish list.
+
+## Overnight cycle 4 — search hardening + all skeptic fixes landed (2026-07-22)
+- **PB-SYNTH-4/5** search route: BFF now forwards the HMAC-signed scope envelope; backend
+  `_authorize_collection()` trusts only the verified signature (out-of-scope→404,
+  no-envelope-under-auth→403, anon no-op); `top_k` derived from topKFiles. +6 scope tests.
+- **PB-SKEP-1 (CRITICAL)** quote-coverage now rejects short-gap adjacent-clause splices
+  (contiguity-penalized longest run, fixed elision budget 6): the 0.978 splice → 0.648;
+  verbatim/OCR-noise stay ~1.0.
+- **PB-SKEP-2** drag-over dashed border restored (border-2). **PB-SKEP-3** deleted the duplicate
+  content flattener. **PB-SKEP-4** wizard defaults to the profile when draft freshness is unprovable
+  (closes the migration-window clobber). **PB-SKEP-5** real server-side last-admin guard (409).
+- Also fixed 2 pre-existing ruff errors in test_trace_lanes (flagged, not dismissed).
+
+### FINAL GATES (tree clean, all pushed)
+- Backend: `pytest tests/ frontends/aiq_api/tests` → **2446 passed / 5 skipped / 0 failed**.
+- Frontend: `tsc` clean; full `vitest` → **2704 passed / 3 skipped / 0 failed files**.
+- Branch `claude/app-feedback-triage-fyvgtn` — everything committed & pushed.
+
+### Remaining (deferred / for the user)
+- PB-8b "Empfehlung" card reframe — liability-sensitive wording, left for the user.
+- PB-SKEP-6 project-brief throw/catch — cosmetic.
+- Minor polish: Insights empty card, members double error, onboarding opaque error, intake
+  draft "saved" flash / non-finite number field, NoSourcesBanner sessionId key (verify),
+  /dev/cards hydration warning, README/deploy redirect-URI var doc (same mismatch as .env.example).
+- Human smoke tests remain (deep research e2e, fabricated-quote marker + confidence reason on a
+  real DeepSeek answer, Rückfragen/brevity/identity prompt behavior, one image upload).
