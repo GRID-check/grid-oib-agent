@@ -181,17 +181,18 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command:
       - >
+        apk add --no-cache curl >/dev/null 2>&1 &&
         mkdir -p /etc/seaweedfs &&
         printf '{"identities":[{"name":"grid","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Admin","Read","Write","List","Tagging"]}]}\n' "$$SEAWEED_ACCESS_KEY" "$$SEAWEED_SECRET_KEY" > /etc/seaweedfs/s3.json &&
         exec weed server -dir=/data -s3 -s3.config=/etc/seaweedfs/s3.json -s3.port=8333
     volumes:
       - seaweedfs-data:/data
     healthcheck:
-      test: ["CMD", "busybox", "wget", "-q", "-O", "/dev/null", "http://localhost:9333/cluster/status"]
+      test: ["CMD", "curl", "-sf", "-o", "/dev/null", "http://localhost:9333/cluster/status"]
       interval: 5s
-      timeout: 5s
+      timeout: 10s
       retries: 10
-      start_period: 15s
+      start_period: 25s
     restart: unless-stopped
 
   seaweedfs-init:
