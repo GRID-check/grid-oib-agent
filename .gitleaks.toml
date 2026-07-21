@@ -1,0 +1,20 @@
+# gitleaks configuration for grid-oib-agent.
+#
+# Extends gitleaks' built-in ruleset and allowlists known false positives so the
+# secret-scan CI job (see .github/workflows/security.yml) stays green.
+#
+# `.secrets.baseline` is the detect-secrets baseline: it records SHA1
+# `hashed_secret` digests of already-reviewed test/doc placeholders, not live
+# credentials. gitleaks' generic high-entropy rules otherwise flag those digests
+# as leaks, so exclude the baseline file from scanning. gitleaks auto-loads this
+# file from the repo root during `detect`.
+title = "grid-oib-agent gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Repo-wide false positives"
+paths = [
+  '''(^|/)\.secrets\.baseline$''',
+]
