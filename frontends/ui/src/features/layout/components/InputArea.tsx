@@ -756,9 +756,9 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           'bg-card focus-within:ring-ring/40 relative flex flex-col rounded-xl px-4 py-[14px] shadow-sm transition-[box-shadow,border-color] duration-200 ease-out focus-within:ring-2',
           isDisabledByAuth && 'opacity-60',
           isDragging && isUnsupportedDrag
-            ? 'border-error border-dashed'
+            ? 'border-2 border-error border-dashed'
             : isDragging
-              ? 'border-brand border-dashed'
+              ? 'border-2 border-brand border-dashed'
               : ''
         )}
         {...dragHandlers}
