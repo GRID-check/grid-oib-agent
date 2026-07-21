@@ -1265,6 +1265,13 @@ QUOTE_MATCH_THRESHOLD = 0.90
 # generic to fuzzy-match reliably and are skipped. TUNABLE — see module note.
 MIN_QUOTE_LEN = 20
 
+# Minimum padding (characters) added around a candidate match window so a genuine
+# verbatim quote whose length drifted under OCR (inserted/removed chars) still
+# fits inside the window. Kept small on purpose: a large pad would re-admit the
+# scattered-splice fragments the locality window is meant to exclude. The window
+# length is ``len(quote) + max(_QUOTE_WINDOW_PAD_MIN, len(quote) // 10)``.
+_QUOTE_WINDOW_PAD_MIN = 4
+
 # Inline marker appended immediately after a quoted span that could not be
 # verified against any retrieved passage. Fail-open: the sentence is NEVER
 # stripped or altered; only this marker is inserted after the closing quote.
@@ -1326,10 +1333,46 @@ def _normalize_for_quote_match(text: str) -> str:
 
 
 def _quote_coverage(norm_quote: str, norm_chunk: str) -> float:
-    """Fraction of ``norm_quote`` found as ordered matching subsequences in chunk."""
-    matcher = difflib.SequenceMatcher(None, norm_quote, norm_chunk, autojunk=False)
-    matched = sum(block.size for block in matcher.get_matching_blocks())
-    return matched / max(len(norm_quote), 1)
+    """Fraction of ``norm_quote`` found within the best-aligned LOCAL window of chunk.
+
+    A whole-chunk subsequence match (sum of every matching block, anywhere in the
+    chunk) is defeatable by phrase-splicing: a fabricated sentence assembled from
+    real phrases that live in DIFFERENT clauses of the chunk scores 1.0 even
+    though it is not a substring. This metric instead credits only matches that
+    fall inside a single window of the chunk roughly the length of the quote:
+
+    - A genuine verbatim quote — or one carrying light OCR/whitespace/hyphenation
+      noise — is contiguous, so it lands inside one window and still scores ~1.0.
+    - A spliced quote's fragments are spread across a chunk span far larger than
+      the quote itself; no single window can hold them all, so it scores low.
+
+    Candidate windows are anchored at the diagonals of the matching blocks
+    (window start = ``block.b - block.a`` — where ``quote[0]`` would align if the
+    quote occurred contiguously at that block), so only a handful are scored per
+    quote×chunk. A small pad tolerates OCR-induced length drift; because the
+    coverage denominator is ``len(quote)`` (not the window length), a slightly
+    generous window can only ever help a real match, never inflate a spliced one.
+
+    Pure stdlib (``difflib``), fail-open, and cheap.
+    """
+    quote_len = len(norm_quote)
+    if quote_len == 0:
+        return 0.0
+    pad = max(_QUOTE_WINDOW_PAD_MIN, quote_len // 10)
+    window_len = quote_len + pad
+    base = difflib.SequenceMatcher(None, norm_quote, norm_chunk, autojunk=False)
+    # Anchor one window per matching-block diagonal; dedup collapses blocks that
+    # share an alignment offset. Empty when nothing matches at all → coverage 0.
+    window_starts = {max(0, block.b - block.a) for block in base.get_matching_blocks() if block.size}
+    if not window_starts:
+        return 0.0
+    best = 0.0
+    for start in window_starts:
+        window = norm_chunk[max(0, start - pad) : start + window_len]
+        matcher = difflib.SequenceMatcher(None, norm_quote, window, autojunk=False)
+        matched = sum(block.size for block in matcher.get_matching_blocks())
+        best = max(best, matched / quote_len)
+    return best
 
 
 def _answer_body_before_sources(answer_text: str) -> str:

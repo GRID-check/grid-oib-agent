@@ -1852,6 +1852,96 @@ class TestVerifyQuotedSpans:
         assert len(unverified) == 1
         assert unverified[0].best_coverage < 0.90
 
+    # The exact PB-7 phrase-splicing adversarial case: the quote is NOT a
+    # substring of the chunk, but every word appears somewhere in it, scattered
+    # across DIFFERENT sentences/clauses. The old whole-chunk subsequence metric
+    # summed those non-contiguous blocks to coverage 1.0 and wrongly "verified"
+    # the fabrication; the local-window metric must now reject it.
+    SPLICE_QUOTE = "Die Feuerwiderstandsdauer der tragenden Bauteile hat mindestens 90 Minuten zu betragen."
+    SPLICE_CHUNK = (
+        "Die Feuerwiderstandsdauer der tragenden Bauteile richtet sich nach der Gebaeudeklasse. "
+        "Fuer oberirdische Geschosse gelten eigene Werte, die im Anhang tabelliert sind. "
+        "In bestimmten Faellen hat der Nachweis zu erfolgen, dass die Konstruktion mindestens "
+        "90 Minuten dem Brand widersteht, bevor ein Versagen zu betragen beginnt."
+    )
+
+    def test_phrase_spliced_quote_is_unverified(self):
+        """PB-7 adversarial: a quote spliced from phrases scattered across the
+        chunk's clauses must FAIL verification (fails on the old summed-block
+        metric, passes with the local-window metric)."""
+        from aiq_agent.common.citation_verification import _normalize_for_quote_match
+        from aiq_agent.common.citation_verification import _quote_coverage
+        from aiq_agent.common.citation_verification import verify_quoted_spans
+
+        reg = self._registry(self.SPLICE_CHUNK)
+        answer = f'Die Norm verlangt „{self.SPLICE_QUOTE}" [1].\n\n## Sources\n[1] doc1.pdf, p.1'
+        unverified = verify_quoted_spans(answer, reg)
+        assert len(unverified) == 1
+        assert unverified[0].best_coverage < 0.90
+        # The quote is genuinely NOT a substring of the chunk (proves this is a
+        # fabrication, not a retrieval miss).
+        assert _normalize_for_quote_match(self.SPLICE_QUOTE) not in _normalize_for_quote_match(self.SPLICE_CHUNK)
+        # Guard against regressing to the summed-block metric, which scored 1.0.
+        assert (
+            _quote_coverage(
+                _normalize_for_quote_match(self.SPLICE_QUOTE),
+                _normalize_for_quote_match(self.SPLICE_CHUNK),
+            )
+            < 0.90
+        )
+
+    def test_verbatim_substring_quote_verified(self):
+        """A quote that IS a verbatim substring of the chunk scores ~1.0."""
+        from aiq_agent.common.citation_verification import _normalize_for_quote_match
+        from aiq_agent.common.citation_verification import _quote_coverage
+        from aiq_agent.common.citation_verification import verify_quoted_spans
+
+        chunk = f"Vorbemerkung. {self.SPLICE_QUOTE} Weitere Hinweise folgen im Anhang."
+        reg = self._registry(chunk)
+        answer = f'Es gilt: „{self.SPLICE_QUOTE}" [1].\n\n## Sources\n[1] doc1.pdf, p.1'
+        assert verify_quoted_spans(answer, reg) == []
+        coverage = _quote_coverage(
+            _normalize_for_quote_match(self.SPLICE_QUOTE),
+            _normalize_for_quote_match(chunk),
+        )
+        assert coverage >= 0.99
+
+    def test_lightly_noisy_verbatim_quote_still_verified(self):
+        """Verbatim with OCR/whitespace/hyphenation/German-mark noise stays verified.
+
+        Proves the local-window tightening did not over-fit into false positives:
+        extra whitespace, a hyphenation line-wrap in the chunk, German „…“ marks,
+        and a single OCR character swap all still land above threshold.
+        """
+        from aiq_agent.common.citation_verification import verify_quoted_spans
+
+        # Chunk carries a hyphenation line-wrap ("Feuerwiderstands-\ndauer") plus a
+        # single OCR char swap ("betragan" for "betragen").
+        chunk = (
+            "Anmerkung. Die Feuerwiderstands-\ndauer der tragenden Bauteile hat "
+            "mindestens 90 Minuten zu betragan. Ende."
+        )
+        reg = self._registry(chunk)
+        # Answer quote has collapsed extra whitespace and German „…“ marks.
+        answer = (
+            "Es gilt „Die Feuerwiderstandsdauer der tragenden Bauteile hat   mindestens "
+            "90 Minuten zu betragen“ [1].\n\n## Sources\n[1] doc1.pdf, p.1"
+        )
+        assert verify_quoted_spans(answer, reg) == []
+
+    def test_wholly_fabricated_quote_unverified(self):
+        """A quote whose words do not appear in the chunk is unverified."""
+        from aiq_agent.common.citation_verification import verify_quoted_spans
+
+        reg = self._registry(self.SPLICE_CHUNK)
+        answer = (
+            "Angeblich gilt „Alle Fenster sind jaehrlich durch einen Sachverstaendigen "
+            'zu pruefen und zu protokollieren" [1].\n\n## Sources\n[1] doc1.pdf, p.1'
+        )
+        unverified = verify_quoted_spans(answer, reg)
+        assert len(unverified) == 1
+        assert unverified[0].best_coverage < 0.90
+
     def test_german_and_ascii_quotes_both_scanned(self):
         from aiq_agent.common.citation_verification import verify_quoted_spans
 
