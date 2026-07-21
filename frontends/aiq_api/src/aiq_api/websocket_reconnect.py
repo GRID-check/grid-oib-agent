@@ -221,6 +221,27 @@ def _chunk_finish_reason(value: Any) -> str | None:
         return None
 
 
+# Transparency extras (WP-A) lifted onto the terminal response the same way as
+# answer_confidence / deep_research_job_id. Each is surfaced only when present.
+_TRANSPARENCY_EXTRA_FIELDS = (
+    "routing_decision",
+    "routing_reason",
+    "escalation_reason",
+    "answer_confidence_capped_reason",
+    "citations_removed",
+    "job_admission_rejected",
+    "retry_after_seconds",
+)
+
+
+def _pull_response_extra(data_model: Any, name: str) -> Any:
+    """Read an extra field off the workflow response (attr or pydantic model_extra)."""
+    value = getattr(data_model, name, None)
+    if value is None and isinstance(data_model, BaseModel):
+        value = data_model.model_extra.get(name) if data_model.model_extra else None
+    return value
+
+
 def deterministic_assistant_message_id(conversation_id: str, parent_id: str | None) -> str:
     """Stable id for a turn's assistant message, keyed on (conversation, turn).
 
@@ -554,6 +575,16 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
             if sources is None and isinstance(data_model, BaseModel):
                 sources = data_model.model_extra.get("sources") if data_model.model_extra else None
 
+            # Pull the transparency extras (WP-A) the same way (attr or pydantic
+            # model_extra). Each rides the terminal-chunk extras lift set by the
+            # chat_researcher register and is surfaced only when present, never
+            # null-spammed. See docs/architecture/backend-deep-dive.md.
+            transparency_extras = {
+                name: value
+                for name in _TRANSPARENCY_EXTRA_FIELDS
+                if (value := _pull_response_extra(data_model, name)) is not None
+            }
+
             if issubclass(message_schema, WebSocketSystemResponseTokenMessage):
                 message = await self._message_validator.create_system_response_token_message(
                     message_id=message_id,
@@ -585,6 +616,14 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
                         message.sources = sources
                     except Exception:
                         logger.warning("Could not attach sources to websocket message", exc_info=True)
+                # Attach the transparency extras (WP-A) to the final message, each
+                # only when applicable — same lift as cards/sources/confidence.
+                if message_type == WebSocketMessageType.RESPONSE_MESSAGE and transparency_extras:
+                    for _name, _value in transparency_extras.items():
+                        try:
+                            setattr(message, _name, _value)
+                        except Exception:
+                            logger.warning("Could not attach %s to websocket message", _name, exc_info=True)
 
             elif issubclass(message_schema, WebSocketSystemIntermediateStepMessage):
                 message = await self._message_validator.create_system_intermediate_step_message(

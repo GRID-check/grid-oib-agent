@@ -73,3 +73,29 @@ class ChatResearcherState(BaseModel):
     # Structured sources from the shallow researcher's registry (wire dicts with
     # file_name/page/collection/origin). Attached to ChatResponse as ``sources``.
     verified_sources: list[dict[str, Any]] | None = None
+    # --- Transparency extras (WP-A) -------------------------------------------
+    # All optional/additive: absent means "unknown/not applicable". Lifted onto
+    # the terminal ChatResponseChunk (register._STREAM_EXTRA_FIELDS) and then onto
+    # the terminal system_response_message (websocket_reconnect), same path as
+    # ``answer_confidence``/``deep_research_job_id``. Never null-spammed.
+    #
+    # Which path the turn took after intent classification (derived from
+    # ``user_intent``/``depth_decision`` — see ``derive_routing_decision``).
+    routing_decision: Literal["meta", "shallow", "deep", "error"] | None = None
+    # Human-readable why, verbatim from the depth classifier's ``raw_reasoning``.
+    routing_reason: str | None = None
+    # Present only when a shallow→deep escalation happened this turn. Set by the
+    # clarifier node from ``ShallowResult.escalation_reason`` or, on the
+    # keyword-fallback path, the fixed German notice.
+    escalation_reason: str | None = None
+    # Present only when the self-reported confidence was downgraded because the
+    # answer lacked citation grounding ("ungrounded").
+    answer_confidence_capped_reason: Literal["ungrounded"] | None = None
+    # Present only when citation verification removed ≥1 citation from the answer:
+    # ``{"count": int, "reasons": [str, ...]}`` (reasons deduplicated, max 5).
+    citations_removed: dict[str, Any] | None = None
+    # Marks the answer text as a queue-rejection notice (deep-research admission
+    # control refused the job), NOT a research answer.
+    job_admission_rejected: bool | None = None
+    # Retry hint in seconds, only alongside ``job_admission_rejected``.
+    retry_after_seconds: int | None = None
