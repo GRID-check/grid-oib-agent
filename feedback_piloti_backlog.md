@@ -175,3 +175,29 @@
 
 ## Sprint log
 See `feedback_piloti_log.md`.
+
+## OVERNIGHT CONTINUOUS MODE (2026-07-21 eve → user returns AM)
+User directive: keep working autonomously; do the UI items too (design-system
+only); SYNTHESIZE new feedback by actually driving the app; loop until morning.
+Heartbeat scheduled (~50 min, re-arming). App-audit + color-coding agents running.
+
+### UI backlog (now in scope — design-system only, no net-new design language)
+- **PB-UI-1 — Color-code off-topic/clarifying question vs Baurecht output.** (feedback:
+  "Farbcodierung des Outputs"). Status: IN PROGRESS.
+- **PB-UI-2 — Unified header (typo/position) across pages**; heading type slightly heavier.
+- **PB-UI-3 — Center the chat window.**
+- **PB-UI-4 — Top buttons (thread/project name, New chat, Research) only after a chat
+  starts, and less dominant.**
+- **PB-UI-5 — Remove the text outline/border in the chat input.**
+- **PB-UI-6 — Clicking "Frag Piloti" returns to the chat start page.**
+- **PB-UI-7 — Result window same width as chat; its bottom edge flush with the input top.**
+- **PB-UI-8 — Larger document preview** (FB-7 history: `PdfViewerDialog` exists; verify wired).
+- **PB-UI-9 — Archiv: add "back to project" (not just "back to projects"); move Archiv
+  nav item below Settings.**
+- **PB-UI-10 — Members: short explainer under each role (Viewer/Editor/Admin).**
+- **PB-UI-11 — Decision chain / Nachvollziehbarkeit more present + animated** (larger; scope carefully).
+- **PB-UI-12 — New logo** — BLOCKED, needs the asset from the user.
+- **PB-SYNTH-* — issues synthesized by the app-audit agent** — triaged as they arrive.
+
+Judgment calls (subjective visual weight / exact alignment) done conservatively and
+flagged for the user's eye; anything needing a product/asset decision is flagged, not guessed.
