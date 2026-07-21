@@ -745,14 +745,15 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   const scopeLabel = projectName || tChat('composer.scopeFallback')
 
   return (
-    <div className="mx-auto flex w-full max-w-[720px] flex-col p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:p-4 sm:pb-4">
+    <div className="mx-auto flex w-full max-w-3xl flex-col p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:p-4 sm:pb-4">
       <div
         className={cn(
-          // Composer card per the click dummy: white card, hairline border,
-          // soft CARD-tier shadow (not the modal shadow-lg, which detached it
-          // as a floating object over the chat plane); textarea on top,
-          // hairline-separated control row below. On-scale radius.
-          'bg-card focus-within:ring-ring/30 relative flex flex-col rounded-xl border px-4 py-[14px] shadow-sm transition-[box-shadow,border-color] duration-200 ease-out focus-within:ring-2',
+          // Composer card: white card grounded by a soft CARD-tier shadow (not
+          // the modal shadow-lg, which detached it as a floating object over the
+          // chat plane). No hard border — the field reads as a calm surface, and
+          // focus is signalled by a subtle focus-within ring instead of an
+          // outline. Textarea on top, hairline-separated control row below.
+          'bg-card focus-within:ring-ring/40 relative flex flex-col rounded-xl px-4 py-[14px] shadow-sm transition-[box-shadow,border-color] duration-200 ease-out focus-within:ring-2',
           isDisabledByAuth && 'opacity-60',
           isDragging && isUnsupportedDrag
             ? 'border-error border-dashed'

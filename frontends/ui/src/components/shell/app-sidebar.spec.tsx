@@ -59,6 +59,20 @@ describe('AppSidebar - click-dummy IA (FB-9/FB-10)', () => {
     }
   })
 
+  test('Ask Piloti links to a FRESH chat (?new=1), not the last thread', () => {
+    render(<AppSidebar {...baseProps} />)
+    // Filter to actual nav links — on the chat route the mobile top bar also
+    // renders "Ask Piloti" as a plain active-section label (not an anchor).
+    const links = screen
+      .getAllByText('Ask Piloti')
+      .map((el) => el.closest('a'))
+      .filter((link): link is HTMLAnchorElement => link !== null)
+    expect(links.length).toBeGreaterThan(0)
+    for (const link of links) {
+      expect(link).toHaveAttribute('href', '/app/projects/p1/chat?new=1')
+    }
+  })
+
   test('History links into the project subtree', () => {
     render(<AppSidebar {...baseProps} />)
     const links = screen.getAllByText('History').map((el) => el.closest('a'))

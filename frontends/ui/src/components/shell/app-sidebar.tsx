@@ -176,6 +176,14 @@ export function AppSidebar({
 
   const isActive = (item: NavItem) => pathname.startsWith(itemHref(item))
 
+  // "Frag Piloti" always opens a FRESH chat (new/empty draft), never the last
+  // thread the user left open. It carries ?new=1, which the chat client consumes
+  // once to reset the store to a new-session draft (reusing startNewSessionDraft)
+  // and then strips from the URL. Active-state detection still keys off the plain
+  // path (itemHref), so the query never breaks the highlight.
+  const navLinkHref = (item: NavItem) =>
+    item.key === 'chat' ? `${itemHref(item)}?new=1` : itemHref(item)
+
   // Workflows is feature-flagged (default off). Archiv shows for any member of
   // an org with the `organization-archiv` flag — the same gate the user menu's
   // Archiv entry uses (the layout passes both from getNavFlags).
@@ -191,7 +199,7 @@ export function AppSidebar({
   // tiles) and the mobile drawer. Active = raised white card with a hairline
   // border and soft shadow; inactive = quiet muted ink with a sidebar hover.
   const renderNavLink = (item: NavItem, variant: 'desktop' | 'mobile') => {
-    const href = itemHref(item)
+    const href = navLinkHref(item)
     const active = isActive(item)
     const Icon = item.icon
     const iconOnly = variant === 'desktop' && collapsed
