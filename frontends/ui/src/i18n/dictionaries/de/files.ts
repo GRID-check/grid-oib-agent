@@ -120,6 +120,15 @@ export const files: typeof en.files = {
       tree: 'Ordner',
     },
   },
+  delete: {
+    action: 'Dokument löschen',
+    confirm: 'Dadurch wird das Dokument aus diesem Projekt entfernt. Dies kann nicht rückgängig gemacht werden.',
+    confirmAction: 'Löschen',
+    cancel: 'Abbrechen',
+    deleting: 'Wird gelöscht…',
+    success: '„{name}“ wurde aus dem Projekt entfernt',
+    error: 'Das Dokument konnte nicht gelöscht werden',
+  },
   upload: {
     uploading: 'Wird hochgeladen …',
     upload: 'Hochladen',

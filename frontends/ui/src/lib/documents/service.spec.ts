@@ -40,6 +40,7 @@ vi.mock('./repository', () => ({
   findFolderPathInProject: vi.fn().mockResolvedValue(null),
   findDocumentInOrg: vi.fn(),
   listProjectDocuments: vi.fn(),
+  deleteProjectDocument: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('./reconcile-status', () => ({
@@ -47,17 +48,20 @@ vi.mock('./reconcile-status', () => ({
 }))
 
 import { findProjectInOrg } from '@/lib/projects/repository'
+import { requireProjectAccess } from '@/lib/authz/projects'
+import { recordAuditEvent } from '@/lib/audit/service'
 import {
   insertDocument,
   setDocumentIngestJob,
   markDocumentIngestFailed,
   findDocumentInOrg,
   listProjectDocuments,
+  deleteProjectDocument,
 } from './repository'
-import { listDocuments, uploadDocument, reingestDocument, INGEST_DISPATCH_FAILED_MESSAGE } from './service'
+import { listDocuments, uploadDocument, reingestDocument, deleteDocument, INGEST_DISPATCH_FAILED_MESSAGE } from './service'
 import { reconcileDocumentStatuses } from './reconcile-status'
 import { isVlmConfigured } from '@/lib/documents/vlm-capability'
-import { BadRequestError, ConflictError } from '@/lib/api/errors'
+import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from '@/lib/api/errors'
 
 const session = {
   userId: 'user-1',
@@ -325,5 +329,73 @@ describe('reingestDocument', () => {
     expect(result.jobId).toBeNull()
     expect(markDocumentIngestFailed).toHaveBeenCalledWith('doc-99', INGEST_DISPATCH_FAILED_MESSAGE)
     expect(setDocumentIngestJob).not.toHaveBeenCalled()
+  })
+})
+
+describe('deleteDocument', () => {
+  const projectDoc = {
+    id: 'doc-1',
+    projectId: 'proj-1',
+    organizationId: 'org-1',
+    scope: 'project',
+    filename: 'plan.pdf',
+    collectionName: 'proj_abc',
+    storageKey: 'org/org-1/project/proj-1/doc/doc-1/plan.pdf',
+  } as any
+
+  it('404s when the document is not in the org', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(null)
+
+    await expect(deleteDocument(session, 'missing', new Request('http://x'))).rejects.toBeInstanceOf(NotFoundError)
+    expect(deleteProjectDocument).not.toHaveBeenCalled()
+  })
+
+  it('404s for an org-wide Archiv document (NULL projectId) — not deletable via the project route', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue({ ...projectDoc, projectId: null, scope: 'archiv' })
+
+    await expect(deleteDocument(session, 'doc-1', new Request('http://x'))).rejects.toBeInstanceOf(NotFoundError)
+    expect(requireProjectAccess).not.toHaveBeenCalled()
+    expect(deleteProjectDocument).not.toHaveBeenCalled()
+  })
+
+  it('rejects callers without project:edit (403) before any side effects', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(projectDoc)
+    vi.mocked(requireProjectAccess).mockRejectedValueOnce(new ForbiddenError())
+
+    await expect(deleteDocument(session, 'doc-1', new Request('http://x'))).rejects.toBeInstanceOf(ForbiddenError)
+    expect(deleteProjectDocument).not.toHaveBeenCalled()
+    expect(recordAuditEvent).not.toHaveBeenCalled()
+  })
+
+  it('purges chunks, deletes the object + row, and audits', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(projectDoc)
+    vi.mocked(requireProjectAccess).mockResolvedValue(undefined as any)
+    mockFetch.mockResolvedValue({ ok: true })
+
+    await deleteDocument(session, 'doc-1', new Request('http://x'))
+
+    expect(requireProjectAccess).toHaveBeenCalledWith(session, 'proj-1', 'project:edit')
+    // Best-effort backend chunk purge, keyed by the document's collection + filename.
+    const purgeCall = mockFetch.mock.calls.find(
+      ([url, init]) => String(url).endsWith('/documents') && (init as RequestInit)?.method === 'DELETE',
+    )
+    expect(purgeCall?.[0]).toBe('http://backend:8000/v1/collections/proj_abc/documents')
+    expect(deleteProjectDocument).toHaveBeenCalledWith('doc-1', 'org-1', 'proj-1')
+    expect(recordAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'document.deleted', organizationId: 'org-1' }),
+    )
+  })
+
+  it('still deletes the row + audits when the best-effort chunk purge fails', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(projectDoc)
+    vi.mocked(requireProjectAccess).mockResolvedValue(undefined as any)
+    mockFetch.mockRejectedValue(new Error('backend down'))
+
+    await deleteDocument(session, 'doc-1', new Request('http://x'))
+
+    expect(deleteProjectDocument).toHaveBeenCalledWith('doc-1', 'org-1', 'proj-1')
+    expect(recordAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'document.deleted' }),
+    )
   })
 })

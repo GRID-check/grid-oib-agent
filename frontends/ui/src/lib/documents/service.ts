@@ -9,7 +9,7 @@
  */
 
 import 'server-only'
-import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3'
+import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { s3Client, signingS3Client, bucketName, buildStorageKey } from '@/lib/s3'
 import { requireProjectAccess } from '@/lib/authz/projects'
@@ -27,6 +27,7 @@ import type { AuthorizedSession } from '@/lib/auth/types'
 import type { Document } from '@/lib/db/schema'
 import { reconcileDocumentStatuses, type DocumentMetadata } from './reconcile-status'
 import {
+  deleteProjectDocument,
   findDocumentInOrg,
   findFolderPathInProject,
   insertDocument,
@@ -432,6 +433,63 @@ export async function updateDocumentTags(
 
   const body = await res.json().catch(() => ({}))
   return { id: doc.id, tags: Array.isArray(body.tags) ? body.tags : tags }
+}
+
+/**
+ * Delete a project document: purge its RAG chunks (best-effort), remove the
+ * SeaweedFS object, delete the row, and audit. Requires `project:edit` on the
+ * owning project — the same permission the upload path checks. Mirrors
+ * {@link import('@/lib/archiv/service').deleteArchivDocument}, differing only in
+ * scope: per-project FGA instead of org-level `org:archiv:manage`.
+ *
+ * Org-wide Archiv documents (NULL `projectId`) are NOT deletable here — they go
+ * through the org-scoped `/api/archiv/documents/[id]` route — so an Archiv id
+ * surfaces as a 404 rather than being force-fit through project FGA.
+ */
+export async function deleteDocument(
+  session: AuthorizedSession,
+  documentId: string,
+  request: Request,
+): Promise<void> {
+  const doc = await findDocumentInOrg(documentId, session.organizationId)
+  if (!doc || doc.projectId === null) throw new NotFoundError()
+
+  await requireProjectAccess(session, doc.projectId, 'project:edit')
+
+  // Best-effort: remove the ingested chunks so a deleted document stops showing
+  // up in retrieval. A backend hiccup must not block the durable SeaweedFS + DB
+  // cleanup below, so failures here are swallowed.
+  try {
+    await fetch(`${getBackendUrl()}/v1/collections/${encodeURIComponent(doc.collectionName)}/documents`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ file_ids: [doc.filename] }),
+      signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
+    })
+  } catch {
+    // ignore — chunks may linger until the next collection reconcile/purge
+  }
+
+  if (doc.storageKey) {
+    try {
+      await s3Client.send(new DeleteObjectCommand({ Bucket: bucketName, Key: doc.storageKey }))
+    } catch {
+      // ignore — the object may already be gone; the row delete below is the record of intent
+    }
+  }
+
+  await deleteProjectDocument(documentId, session.organizationId, doc.projectId)
+
+  // Data-provenance event: who removed which file from which project.
+  await recordAuditEvent({
+    organizationId: session.organizationId,
+    actor: { userId: session.userId, email: session.email },
+    action: 'document.deleted',
+    targetType: 'document',
+    // Filename is user-controlled — cap it before it reaches the trail.
+    metadata: { projectId: doc.projectId, filename: doc.filename.slice(0, 200), collectionName: doc.collectionName },
+    request,
+  })
 }
 
 export interface DocumentVisualDetail {

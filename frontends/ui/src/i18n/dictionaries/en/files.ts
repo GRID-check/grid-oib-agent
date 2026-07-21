@@ -114,6 +114,15 @@ export const files = {
       tree: 'Folders',
     },
   },
+  delete: {
+    action: 'Delete document',
+    confirm: 'This removes the document from this project. This cannot be undone.',
+    confirmAction: 'Delete',
+    cancel: 'Cancel',
+    deleting: 'Deleting…',
+    success: '“{name}” was removed from the project',
+    error: 'The document could not be deleted',
+  },
   upload: {
     uploading: 'Uploading…',
     upload: 'Upload',
