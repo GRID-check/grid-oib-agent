@@ -14,6 +14,7 @@ export const s3Client = new S3Client({
   region: "us-east-1",
   credentials,
   forcePathStyle: true,
+  requestChecksumCalculation: "WHEN_REQUIRED",
 });
 
 /**
@@ -34,6 +35,7 @@ export const signingS3Client = new S3Client({
   region: "us-east-1",
   credentials,
   forcePathStyle: true,
+  requestChecksumCalculation: "WHEN_REQUIRED",
 });
 
 export const bucketName = process.env.SEAWEED_BUCKET || "grid-documents";
