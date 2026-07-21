@@ -112,7 +112,7 @@ export async function uploadArchivDocument(
     status: 'uploaded',
   })
 
-  const { jobId, status } = await dispatchIngest(documentId, collectionName, minioKey, session.organizationId)
+  const { jobId, status } = await dispatchIngest(documentId, collectionName, storageKey, session.organizationId)
 
   // Data-provenance event: who brought which file into the org Archiv.
   await recordAuditEvent({
