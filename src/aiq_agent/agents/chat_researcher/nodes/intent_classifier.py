@@ -13,6 +13,7 @@ from langchain_core.messages import BaseMessage
 from langchain_core.messages import HumanMessage
 from langchain_core.messages import SystemMessage
 
+from aiq_agent.common import content_to_text
 from aiq_agent.common import extract_json
 from aiq_agent.common import load_prompt
 from aiq_agent.common import render_prompt_template
@@ -228,7 +229,7 @@ class IntentClassifier:
                 llm = apply_org_credential(self.llm)
                 response = await self._ainvoke_classifier(llm, messages, config)
 
-            response_text = (response.content or "").strip()
+            response_text = content_to_text(response.content).strip()
             parsed = extract_json(response_text)
 
             if not parsed or not isinstance(parsed, dict):
@@ -241,7 +242,7 @@ class IntentClassifier:
                     HumanMessage(content=_JSON_RETRY_INSTRUCTION),
                 ]
                 response = await self._ainvoke_classifier(llm, retry_messages, config)
-                parsed = extract_json((response.content or "").strip())
+                parsed = extract_json(content_to_text(response.content).strip())
 
             if not parsed or not isinstance(parsed, dict):
                 logger.warning(

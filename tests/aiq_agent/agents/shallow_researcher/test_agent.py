@@ -289,6 +289,35 @@ class TestShallowResearcherAgent:
         assert result.answer_confidence_marker is None
 
     @pytest.mark.asyncio
+    async def test_run_flattens_list_shaped_answer_content(self, mock_llm_provider, mock_llm, real_tool):
+        """Reasoning models can return the answer as a list of content blocks.
+
+        Regression: ``str(answer_msg.content)`` turned that list into a Python
+        repr (``"[{'type': 'text', ...}]"``) as the answer text, which every
+        downstream filter (marker extraction, citation checks) then no-oped on.
+        The answer text must be the flattened block text, not the list repr.
+        """
+        agent_response = AIMessage(
+            content=[
+                {"type": "text", "text": "The flattened answer body [1]."},
+                {"type": "text", "text": "[CONFIDENCE:high]"},
+            ]
+        )
+        mock_llm.ainvoke = AsyncMock(return_value=agent_response)
+        agent = ShallowResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
+
+        result = await agent.run(ShallowResearchAgentState(messages=[HumanMessage(content="Frage?")]))
+
+        final_content = result.messages[-1].content
+        # Flattened prose, not a Python list repr.
+        assert "The flattened answer body" in final_content
+        assert "'type'" not in final_content
+        assert not final_content.startswith("[{")
+        # The marker embedded in a separate block was still detected + stripped.
+        assert "[CONFIDENCE" not in final_content
+        assert result.answer_confidence_marker == "high"
+
+    @pytest.mark.asyncio
     async def test_run_with_user_info(self, mock_llm_provider, mock_llm, real_tool):
         """Test run() with user info in state."""
         agent_response = AIMessage(content="Personalized answer")

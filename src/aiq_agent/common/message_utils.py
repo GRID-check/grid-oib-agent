@@ -10,6 +10,28 @@ from langchain_core.messages import HumanMessage
 logger = logging.getLogger(__name__)
 
 
+def content_to_text(content: object) -> str:
+    """Normalize LLM message content to plain text.
+
+    Chat models may return ``content`` as a string or as a list of content
+    blocks (e.g. ``[{"type": "text", "text": "..."}]``); the parsing helpers
+    below all expect a string.
+    """
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict) and isinstance(block.get("text"), str):
+                parts.append(block["text"])
+            elif isinstance(getattr(block, "text", None), str):
+                parts.append(block.text)
+        return "\n".join(parts)
+    return str(content) if content is not None else ""
+
+
 def _content_as_text(content: object) -> str:
     """Normalize message content (str or list of content blocks) to plain text."""
     if isinstance(content, str):

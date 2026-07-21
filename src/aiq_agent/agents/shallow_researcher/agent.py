@@ -21,6 +21,7 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import ToolNode
 from langgraph.prebuilt import tools_condition
 
+from aiq_agent.common import content_to_text
 from aiq_agent.common import get_source_id_for_tool
 from aiq_agent.common import load_prompt
 from aiq_agent.common import render_prompt_template
@@ -479,7 +480,7 @@ class ShallowResearcherAgent:
         if answer_index is not None:
             answer_msg = messages_list[answer_index]
             if hasattr(answer_msg, "content") and answer_msg.content:
-                content = str(answer_msg.content)
+                content = content_to_text(answer_msg.content)
 
                 # Step 0: extract AND strip both control markers up front, before
                 # citation verification, before emit_final_report, and before the
