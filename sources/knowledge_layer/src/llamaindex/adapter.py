@@ -303,27 +303,24 @@ def _resolve_embed_api_key(base_url: str, model: str) -> str:
     ).api_key
 
 
-def resolve_vlm_api_key() -> str:
-    """Resolve the VLM API key from the deployment's configuration — the single
-    source of truth for "is a vision model reachable?".
+def resolve_vlm_credential(organization_id: str | None = None):
+    """Resolve the full VLM credential (key + base URL + model) — the single
+    source of truth for the vision endpoint ingestion will call.
 
-    Both the ingestion path (image captioning) and the capability endpoint that
-    tells the frontend whether to offer image upload MUST go through this one
-    function, so the advertised capability can never drift from what ingestion
-    will actually attempt.
+    Delegates to the shared resolver (:func:`resolve_llm_credential`) so the VLM
+    inherits the SAME resolution the NAT chat models use, including **BYOK**:
 
-    Delegates to the shared resolver (:func:`resolve_llm_credential`) so every
-    caller inherits the same chain:
-
+      0. **BYOK** — when ``organization_id`` is given and the org has a
+         bring-your-own credential, the org's key + base URL win (never the
+         model — mirrors ADR-0022/0014).
       1. explicit override           — ``AIQ_VLM_API_KEY``
-      2. platform default             — ``NVIDIA_API_KEY``
-      3. deployment provider key      — inferred from ``AIQ_VLM_BASE_URL``: the
-         key for whatever provider the base URL points at (e.g.
+      2. platform default            — ``NVIDIA_API_KEY``
+      3. deployment provider key     — inferred from ``AIQ_VLM_BASE_URL`` (e.g.
          ``OPENROUTER_API_KEY`` when the base URL is openrouter.ai)
 
-    BYOK is not wired here for the same reason as embeddings: ingestion carries
-    no org id today (known follow-up). Returns the resolved key, or ``""`` when
-    none is configured.
+    Passing ``organization_id`` is what makes per-project/Archiv uploads use the
+    tenant's own key + endpoint; the org-agnostic paths (base OIB corpus sync)
+    pass ``None`` and get the deployment default, unchanged.
     """
     from aiq_agent.common.credential_resolution import resolve_llm_credential
 
@@ -334,8 +331,42 @@ def resolve_vlm_api_key() -> str:
         default_model=DEFAULT_VLM_MODEL,
         base_url_env="AIQ_VLM_BASE_URL",
         model_env="AIQ_VLM_MODEL",
-        organization_id=None,
-    ).api_key
+        organization_id=organization_id,
+    )
+
+
+def _resolve_vlm_model_override(organization_id: str | None) -> str | None:
+    """The org's runtime model override for the ingestion VLM, or ``None``.
+
+    Mirrors the NAT chat models' ``x-grid-model-overrides`` behaviour for the
+    ``ingest_vlm`` agent group (ADR-0014), resolved by org id via the BFF's
+    internal endpoint (the ingest thread has no request header). Model selection
+    only — the key + base URL still come from BYOK/env. Fail-open to ``None`` so
+    a BFF hiccup never blocks ingestion.
+    """
+    if not organization_id:
+        return None
+    try:
+        from aiq_agent.common.model_overrides import AgentGroup
+        from aiq_agent.common.model_overrides import resolve_org_model_overrides
+
+        return resolve_org_model_overrides(organization_id).get(AgentGroup.INGEST_VLM.value)
+    except Exception:  # noqa: BLE001 - model selection must never take ingestion down
+        logger.warning("VLM model-override resolution failed for org %s", organization_id, exc_info=True)
+        return None
+
+
+def resolve_vlm_api_key() -> str:
+    """Resolve the (org-agnostic) VLM API key — the single source of truth for
+    "is a vision model reachable?".
+
+    Both the capability endpoint that tells the frontend whether to offer image
+    upload and the org-agnostic ingestion gate consult this. Per-request
+    ingestion resolves the org-aware credential via
+    :func:`resolve_vlm_credential` instead, so a tenant's BYOK key powers its
+    own uploads. Returns the resolved key, or ``""`` when none is configured.
+    """
+    return resolve_vlm_credential(organization_id=None).api_key
 
 
 def vlm_configured() -> bool:
@@ -562,6 +593,7 @@ def _build_image_caption_document(
     vlm_model: str = DEFAULT_VLM_MODEL,
     vlm_base_url: str = DEFAULT_VLM_BASE_URL,
     extract_charts: bool = True,
+    vlm_api_key: str | None = None,
 ):
     """Read a standalone image, validate/normalize via PIL, and VLM-caption it.
 
@@ -599,6 +631,7 @@ def _build_image_caption_document(
         image_bytes,
         vlm_model=vlm_model,
         vlm_base_url=vlm_base_url,
+        vlm_api_key=vlm_api_key,
         extract_charts=extract_charts,
     )
 
@@ -668,6 +701,7 @@ def _analyze_image_with_vlm(
     vlm_model: str = DEFAULT_VLM_MODEL,
     vlm_base_url: str = DEFAULT_VLM_BASE_URL,
     extract_charts: bool = True,
+    vlm_api_key: str | None = None,
 ) -> tuple[str, str]:
     """
     Analyze an image using NVIDIA's VLM API - classify AND caption in ONE call.
@@ -680,6 +714,8 @@ def _analyze_image_with_vlm(
         image_bytes: Raw image bytes.
         vlm_model: NVIDIA VLM model name.
         extract_charts: If True, use chart-aware prompt that extracts data.
+        vlm_api_key: Pre-resolved key (e.g. an org's BYOK key). When ``None`` the
+            org-agnostic deployment key is used.
 
     Returns:
         Tuple of (content_type, caption) where content_type is "chart" or "image".
@@ -690,7 +726,7 @@ def _analyze_image_with_vlm(
         logger.warning("openai package not installed. Install with: pip install openai")
         return ("image", "[Image - captioning unavailable]")
 
-    api_key = _get_vlm_api_key()
+    api_key = vlm_api_key if vlm_api_key is not None else _get_vlm_api_key()
     if not api_key:
         return ("image", "[Image - VLM API key not set]")
 
@@ -864,14 +900,17 @@ def _analyze_drawing_page_with_vlm(
     image_bytes: bytes,
     vlm_model: str = DEFAULT_VLM_MODEL,
     vlm_base_url: str = DEFAULT_VLM_BASE_URL,
+    vlm_api_key: str | None = None,
 ) -> tuple[str, dict[str, str]]:
     """VLM-describe a full rendered PDF page as a technical drawing.
 
     Returns ``(caption, fields)`` where ``caption`` is the raw structured text
     stored in the chunk and ``fields`` is the parsed ``_parse_drawing_fields``
     dict (drawing_type, scale, summary, …) used to build the document summary.
-    Fail-open: on any error returns a placeholder caption and empty fields so
-    the page is still indexed (never crashes the job).
+    ``vlm_api_key`` is a pre-resolved key (e.g. an org's BYOK key); ``None`` uses
+    the org-agnostic deployment key. Fail-open: on any error returns a
+    placeholder caption and empty fields so the page is still indexed (never
+    crashes the job).
     """
     try:
         from openai import OpenAI
@@ -879,7 +918,7 @@ def _analyze_drawing_page_with_vlm(
         logger.warning("openai package not installed. Install with: pip install openai")
         return ("[Drawing - captioning unavailable]", {})
 
-    api_key = _get_vlm_api_key()
+    api_key = vlm_api_key if vlm_api_key is not None else _get_vlm_api_key()
     if not api_key:
         return ("[Drawing - VLM API key not set]", {})
 
@@ -914,6 +953,7 @@ def _render_visual_pdf_pages(
     pdf_path: str,
     vlm_model: str = DEFAULT_VLM_MODEL,
     vlm_base_url: str = DEFAULT_VLM_BASE_URL,
+    vlm_api_key: str | None = None,
     max_dim: int = PAGE_RENDER_MAX_DIM,
     min_text_chars: int = VISUAL_PAGE_MIN_TEXT_CHARS,
     min_paths: int = VISUAL_PAGE_MIN_PATHS,
@@ -988,6 +1028,7 @@ def _render_visual_pdf_pages(
                         buf.getvalue(),
                         vlm_model=vlm_model,
                         vlm_base_url=vlm_base_url,
+                        vlm_api_key=vlm_api_key,
                     )
                     results.append(
                         {
@@ -2142,8 +2183,21 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             extract_tables = config.get("extract_tables", self.extract_tables)
             extract_images = config.get("extract_images", self.extract_images)
             extract_charts = config.get("extract_charts", self.extract_charts)
-            vlm_model = config.get("vlm_model", self.vlm_model)
-            vlm_base_url = config.get("vlm_base_url", self.vlm_base_url)
+
+            # Resolve the VLM the SAME way the NAT chat models resolve theirs —
+            # honouring org BYOK (key + base URL) and the org's runtime model
+            # override — so per-project/Archiv uploads use the tenant's own
+            # vision credential and chosen model. The org id is captured at the
+            # request boundary (/v1/ingest) into the job config, because this
+            # runs in a detached background thread with no request context. The
+            # org-agnostic paths (base OIB corpus sync) carry no org id and get
+            # the deployment default, exactly as before.
+            organization_id = config.get("organization_id")
+            vlm_cred = resolve_vlm_credential(organization_id)
+            vlm_api_key = vlm_cred.api_key
+            vlm_base_url = config.get("vlm_base_url") or vlm_cred.base_url
+            base_vlm_model = config.get("vlm_model", self.vlm_model)
+            vlm_model = _resolve_vlm_model_override(organization_id) or base_vlm_model
 
             # Set up ChromaDB client (use shared client if using default persist_dir)
             persist_dir = config.get("persist_dir", self.persist_dir)
@@ -2246,8 +2300,9 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         # Document. The VLM is a hard requirement here (there is
                         # no text to fall back on), so a missing key fails the
                         # file with a specific, machine-readable reason the
-                        # failed-doc UX can surface for retry.
-                        if not _get_vlm_api_key():
+                        # failed-doc UX can surface for retry. The key is the
+                        # org-aware resolved one (BYOK), not the deployment key.
+                        if not vlm_api_key:
                             self._update_file_status(
                                 job,
                                 i,
@@ -2264,6 +2319,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                             image_format,
                             vlm_model=vlm_model,
                             vlm_base_url=vlm_base_url,
+                            vlm_api_key=vlm_api_key,
                             extract_charts=extract_charts,
                         )
                         if caption_doc is None:
@@ -2338,6 +2394,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                                 img["image_bytes"],
                                 vlm_model=vlm_model,
                                 vlm_base_url=vlm_base_url,
+                                vlm_api_key=vlm_api_key,
                                 extract_charts=extract_charts,
                             )
 
@@ -2381,11 +2438,12 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     # the text and image extractors miss. Gated on a resolvable
                     # VLM key so it silently no-ops in text-only deployments, and
                     # internally only renders pages detected as visual.
-                    if is_pdf and RENDER_VISUAL_PAGES and _get_vlm_api_key():
+                    if is_pdf and RENDER_VISUAL_PAGES and vlm_api_key:
                         drawing_pages = _render_visual_pdf_pages(
                             file_path,
                             vlm_model=vlm_model,
                             vlm_base_url=vlm_base_url,
+                            vlm_api_key=vlm_api_key,
                         )
                         for page in drawing_pages:
                             fields = page.get("fields") or {}

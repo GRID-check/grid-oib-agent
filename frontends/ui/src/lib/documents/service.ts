@@ -145,6 +145,7 @@ export async function dispatchIngest(
   documentId: string,
   collectionName: string,
   minioKey: string,
+  organizationId: string,
 ): Promise<{ jobId: string | null; status: 'pending' | 'uploaded' | 'failed' }> {
   // The backend fetches the file itself, from inside the Docker network —
   // sign with the internal-endpoint client, not the browser-facing one.
@@ -169,7 +170,9 @@ export async function dispatchIngest(
   try {
     const ingestRes = await fetch(`${getBackendUrl()}/v1/ingest`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      // Forward the org id so the backend resolves the org's BYOK vision
+      // credential + runtime model override for VLM captioning during ingestion.
+      headers: { 'Content-Type': 'application/json', 'x-grid-organization-id': organizationId },
       body: JSON.stringify({
         file_ref: presignedUrl,
         collection: collectionName,
@@ -326,7 +329,12 @@ export async function uploadDocument(
     status: 'uploaded',
   })
 
-  const { jobId: ingestJobId, status: ingestStatus } = await dispatchIngest(documentId, collectionName, minioKey)
+  const { jobId: ingestJobId, status: ingestStatus } = await dispatchIngest(
+    documentId,
+    collectionName,
+    minioKey,
+    session.organizationId,
+  )
 
   // Data-provenance event: who brought which file into which project.
   await recordAuditEvent({
@@ -371,7 +379,7 @@ export async function reingestDocument(
   }
   if (!doc.minioKey) throw new NotFoundError('File not available')
 
-  const { jobId, status } = await dispatchIngest(doc.id, doc.collectionName, doc.minioKey)
+  const { jobId, status } = await dispatchIngest(doc.id, doc.collectionName, doc.minioKey, session.organizationId)
   return { id: doc.id, status, jobId }
 }
 

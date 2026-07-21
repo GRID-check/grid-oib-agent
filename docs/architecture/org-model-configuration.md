@@ -30,9 +30,22 @@ capability requirements) mirrored by `AgentGroup` in
 | `deep_research` | `deep_orchestrator_llm`, `deep_planner_llm`, `deep_researcher_llm` (+ writer) | `tools`, ≥128k |
 | `deep_research_router` | `deep_router_llm` | text input, ≥16k |
 | `memory_reflection` | `memory_reflection_llm` (= `card_llm` in the reference config) | text input, ≥32k |
+| `ingest_vlm` | the ingestion VLM (image captioning + rendered-drawing description) | **image input** (vision) — see note below |
 
 Requirements are enforced twice: the picker endpoint only lists passing
 models, and the save endpoint re-validates server-side (422 on mismatch).
+
+**`ingest_vlm` is backend-only for now.** Unlike the chat groups it re-points a
+bespoke *vision* call site in the ingestion plane (not a NAT chat model), and it
+is resolved by org id inside a detached ingest thread rather than from the
+request header (the org id is captured at `/v1/ingest` — see the
+"Submission paths" section). Its BYOK credential path is fully wired
+(`resolve_vlm_credential(org_id)` swaps the org's key + base URL), and the
+backend accepts an `ingest_vlm` override in an org's stored config. It is
+deliberately **omitted from the frontend `agent-groups.ts` picker registry**
+until the requirements shape gains an image-input-modality gate — otherwise the
+picker could offer a non-vision model and break ingestion. Exposing it in the
+picker (with a vision-capability requirement) is the tracked follow-up.
 
 ## Data model (grid_app, migration `0012_org_model_config.sql`)
 

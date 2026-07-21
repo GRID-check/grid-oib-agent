@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 import httpx
 from fastapi import APIRouter
 from fastapi import Depends
+from fastapi import Header
 from fastapi import HTTPException
 
 from aiq_agent.knowledge.base import BaseIngestor
@@ -38,13 +39,18 @@ def add_ingest_routes(router: APIRouter):
     async def ingest_from_url(
         request: IngestRequest,
         ingestor: BaseIngestor = Depends(_require_ingestor),
+        x_grid_organization_id: str | None = Header(default=None),
     ) -> dict:
         """
         Download file from presigned URL and submit for ingestion.
 
         The BFF upload route writes the file to MinIO and calls this endpoint
         with a presigned URL so the Python backend can ingest it into the
-        knowledge index.
+        knowledge index. ``x-grid-organization-id`` (forwarded by the BFF for
+        per-project/Archiv uploads) is threaded into the job so the VLM used
+        during ingestion resolves the org's BYOK credential and runtime model
+        override — the ingest thread is detached from the request, so the org
+        id must be captured here and carried in the job config.
         """
         file_ref = request.file_ref
         collection = request.collection
@@ -74,6 +80,10 @@ def add_ingest_routes(router: APIRouter):
             }
             if request.thumbnail_upload_url:
                 config["thumbnail_upload_url"] = request.thumbnail_upload_url
+            # Carry the org id into the detached ingest thread so the VLM
+            # resolves the tenant's BYOK credential + runtime model override.
+            if x_grid_organization_id:
+                config["organization_id"] = x_grid_organization_id
 
             job_id = ingestor.submit_job(
                 [temp_path],

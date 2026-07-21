@@ -21,6 +21,24 @@ from knowledge_layer.llamaindex.adapter import _build_image_caption_document
 from knowledge_layer.llamaindex.adapter import _looks_like_image
 from PIL import Image
 
+from aiq_agent.common.credential_resolution import ResolvedCredential
+
+
+def _patch_vlm_credential(monkeypatch, api_key: str):
+    """Point the ingestion path's VLM credential resolver at a fixed key.
+
+    Ingestion resolves the VLM credential (BYOK-aware) via
+    ``resolve_vlm_credential``; that is the chokepoint tests must control, not
+    the org-agnostic ``_get_vlm_api_key`` alias.
+    """
+    cred = ResolvedCredential(
+        api_key=api_key,
+        base_url="https://vlm.test/v1",
+        model="test-vlm",
+        source="env" if api_key else "none",
+    )
+    monkeypatch.setattr(adapter, "resolve_vlm_credential", lambda organization_id=None: cred)
+
 
 def _png_bytes(size=(120, 90), color="red") -> bytes:
     buf = io.BytesIO()
@@ -303,7 +321,7 @@ class TestRunIngestionImageBranch:
     def test_happy_path_registers_summary_and_tags(self, tmp_path, monkeypatch, ingestor, summary_db):
         from aiq_agent.knowledge import get_available_documents
 
-        monkeypatch.setattr(adapter, "_get_vlm_api_key", lambda: "vlm-key")
+        _patch_vlm_credential(monkeypatch, "vlm-key")
         monkeypatch.setattr(
             adapter, "_analyze_image_with_vlm", lambda *a, **k: ("image", "A detailed floor plan drawing.")
         )
@@ -324,7 +342,7 @@ class TestRunIngestionImageBranch:
         assert docs[0].tags == ["Foto", "Grundriss"]
 
     def test_vlm_unconfigured_fails_with_specific_reason(self, tmp_path, monkeypatch, ingestor, summary_db):
-        monkeypatch.setattr(adapter, "_get_vlm_api_key", lambda: "")
+        _patch_vlm_credential(monkeypatch, "")
 
         img = tmp_path / "photo.png"
         img.write_bytes(_png_bytes())
@@ -397,7 +415,7 @@ class TestRunIngestionImageBranch:
         assert "Statischer Nachweis" in docs[0].summary
 
     def test_corrupt_image_fails_without_crashing(self, tmp_path, monkeypatch, ingestor, summary_db):
-        monkeypatch.setattr(adapter, "_get_vlm_api_key", lambda: "vlm-key")
+        _patch_vlm_credential(monkeypatch, "vlm-key")
         vlm = MagicMock()
         monkeypatch.setattr(adapter, "_analyze_image_with_vlm", vlm)
 

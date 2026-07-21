@@ -29,6 +29,21 @@ from knowledge_layer.llamaindex.adapter import _parse_drawing_fields
 from knowledge_layer.llamaindex.adapter import _strip_watermark_lines
 from knowledge_layer.llamaindex.adapter import _summary_from_drawing_fields
 
+from aiq_agent.common.credential_resolution import ResolvedCredential
+
+
+def _patch_vlm_credential(monkeypatch, api_key: str):
+    """Point the ingestion path's VLM credential resolver at a fixed key
+    (the BYOK-aware chokepoint ingestion consults, not ``_get_vlm_api_key``)."""
+    cred = ResolvedCredential(
+        api_key=api_key,
+        base_url="https://vlm.test/v1",
+        model="test-vlm",
+        source="env" if api_key else "none",
+    )
+    monkeypatch.setattr(adapter, "resolve_vlm_credential", lambda organization_id=None: cred)
+
+
 # A representative structured response from the drawing-aware VLM prompt.
 _VLM_DRAWING_RESPONSE = (
     "ZEICHNUNGSTYP: perspektive\n"
@@ -112,6 +127,33 @@ class TestSummaryFromDrawingFields:
     def test_returns_none_without_usable_fields(self):
         assert _summary_from_drawing_fields([{"fields": {}}]) is None
         assert _summary_from_drawing_fields([]) is None
+
+
+# =============================================================================
+# VLM runtime model override (org-scoped, ingest_vlm agent group)
+# =============================================================================
+
+
+class TestVlmModelOverride:
+    def test_none_without_org(self):
+        assert adapter._resolve_vlm_model_override(None) is None
+
+    def test_reads_ingest_vlm_group_for_org(self, monkeypatch):
+        from aiq_agent.common import model_overrides
+
+        monkeypatch.setattr(
+            model_overrides, "resolve_org_model_overrides", lambda org: {"ingest_vlm": "tenant/vision-model"}
+        )
+        assert adapter._resolve_vlm_model_override("org-1") == "tenant/vision-model"
+
+    def test_fails_open_to_none_on_error(self, monkeypatch):
+        from aiq_agent.common import model_overrides
+
+        def boom(org):
+            raise RuntimeError("BFF unreachable")
+
+        monkeypatch.setattr(model_overrides, "resolve_org_model_overrides", boom)
+        assert adapter._resolve_vlm_model_override("org-1") is None
 
 
 # =============================================================================
@@ -293,7 +335,7 @@ class TestRunIngestionDrawingBranch:
         from its rendered-page drawing description, never from the watermark."""
         from aiq_agent.knowledge import get_available_documents
 
-        monkeypatch.setattr(adapter, "_get_vlm_api_key", lambda: "vlm-key")
+        _patch_vlm_credential(monkeypatch, "vlm-key")
         # The rendered-page VLM returns the architectural drawing description.
         monkeypatch.setattr(
             adapter,
@@ -339,7 +381,7 @@ class TestRunIngestionDrawingBranch:
         """No VLM key → no page render, but a normal text PDF still ingests."""
         from aiq_agent.knowledge import get_available_documents
 
-        monkeypatch.setattr(adapter, "_get_vlm_api_key", lambda: "")
+        _patch_vlm_credential(monkeypatch, "")
         render = MagicMock()
         monkeypatch.setattr(adapter, "_render_visual_pdf_pages", render)
         monkeypatch.setattr(
@@ -358,3 +400,49 @@ class TestRunIngestionDrawingBranch:
         render.assert_not_called()
         docs = get_available_documents("coll_text")
         assert len(docs) == 1
+
+    def test_org_byok_and_model_override_reach_the_vlm(self, tmp_path, monkeypatch, ingestor, summary_db):
+        """The org id captured at /v1/ingest drives the VLM the same way the
+        chat models resolve theirs: the org's BYOK key + base URL and its
+        runtime model override reach the rendered-page VLM call."""
+        seen_org: dict[str, str | None] = {}
+
+        def fake_cred(organization_id=None):
+            seen_org["cred"] = organization_id
+            return ResolvedCredential(
+                api_key="byok-key", base_url="https://tenant.example/v1", model="test-vlm", source="byok"
+            )
+
+        def fake_override(organization_id=None):
+            seen_org["override"] = organization_id
+            return "tenant/vision-model"
+
+        monkeypatch.setattr(adapter, "resolve_vlm_credential", fake_cred)
+        monkeypatch.setattr(adapter, "_resolve_vlm_model_override", fake_override)
+        monkeypatch.setattr(adapter, "_extract_text_from_pdf", lambda p: [])
+
+        captured: dict[str, object] = {}
+
+        def fake_render(pdf_path, *, vlm_model, vlm_base_url, vlm_api_key, **k):
+            captured.update(model=vlm_model, base_url=vlm_base_url, api_key=vlm_api_key)
+            return []
+
+        monkeypatch.setattr(adapter, "_render_visual_pdf_pages", fake_render)
+
+        pdf = tmp_path / "plan.pdf"
+        pdf.write_bytes(b"%PDF-1.4\n% minimal\n")
+
+        job_id = ingestor.submit_job(
+            [str(pdf)],
+            "coll_byok",
+            config={"original_filenames": ["plan.pdf"], "organization_id": "org-9"},
+        )
+        _wait_terminal(ingestor, job_id)
+
+        assert seen_org == {"cred": "org-9", "override": "org-9"}
+        # BYOK swaps the key + base URL; the runtime override swaps the model.
+        assert captured == {
+            "api_key": "byok-key",
+            "base_url": "https://tenant.example/v1",
+            "model": "tenant/vision-model",
+        }

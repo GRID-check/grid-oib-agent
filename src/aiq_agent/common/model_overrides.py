@@ -64,6 +64,14 @@ class AgentGroup(StrEnum):
     DEEP_RESEARCH = "deep_research"
     DEEP_RESEARCH_ROUTER = "deep_research_router"
     MEMORY_REFLECTION = "memory_reflection"
+    # Ingestion-plane VLM (image captioning + rendered-drawing description).
+    # Re-points the vision model used during document ingestion. Unlike the
+    # chat groups it is resolved by org id in a detached ingest thread (no
+    # request header) and applies only to a bespoke vision call site, not a NAT
+    # chat model. Selectable models MUST be vision-capable — exposing it in the
+    # org model-config picker needs an image-input-modality requirement in the
+    # frontend registry (agent-groups.ts), so it is backend/BYOK-only for now.
+    INGEST_VLM = "ingest_vlm"
 
 
 def parse_model_overrides(raw: str | None) -> dict[str, str]:

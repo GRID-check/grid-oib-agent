@@ -411,9 +411,25 @@ a version of VectorWorks software …"*. The shared summary prompt
 (`document_classification.summarize_document_text`) is also domain-aware and
 explicitly instructed to ignore watermark/software boilerplate.
 
+**Org BYOK + runtime model override for the VLM.** The vision model used across
+all four tracks is resolved the SAME way the NAT chat models resolve theirs.
+`/v1/ingest` forwards `x-grid-organization-id` (the BFF's `dispatchIngest` sets
+it) into the job config; because `_run_ingestion` runs in a detached thread pool
+with no request context, the org id must be captured at the request boundary and
+carried in the config. From it the ingestor resolves, per job:
+`resolve_vlm_credential(org_id)` (org BYOK key + base URL, else the deployment
+env chain) and `_resolve_vlm_model_override(org_id)` (the org's `ingest_vlm`
+model override, `AgentGroup.INGEST_VLM`). The resolved `(model, base_url,
+api_key)` is threaded into every VLM call site. Org-agnostic base-corpus sync
+(`oib_sync`) carries no org id and gets the deployment default, unchanged. See
+`docs/architecture/org-model-configuration.md` for why `ingest_vlm` is
+backend/BYOK-only (not yet in the frontend picker).
+
 > Scope note: this lives in the **LlamaIndex** ingestor. The `foundational_rag`
 > backend shares the summary prompt (`summarize_document_text`) but not yet the
 > page-render track — a known follow-up if that backend is used for drawing PDFs.
+> Embeddings BYOK is likewise still a follow-up (needs an embeddings-capable BYOK
+> endpoint).
 
 ### Document thumbnails
 
@@ -660,7 +676,10 @@ full specs in `org-model-configuration.md` (ADR-0014) and
   `get_model_overrides_from_context()` falls back to a just-in-time org-side
   resolution against the BFF's internal `GET /api/internal/model-overrides`
   — see `docs/architecture/org-model-configuration.md`'s submission-paths
-  table.
+  table. The **ingestion VLM** (`ingest_vlm` group) rides the same machinery
+  from a detached thread: `/v1/ingest` captures the org id into the job config
+  and the ingestor resolves the override (and BYOK credential) by org id — see
+  §6 "Multimodal & visual/vector-drawing ingestion".
 - **Cost capture (DRY)**: `src/aiq_agent/common/cost_tracking.py` installs
   `GridCostTracker` through LangChain's `register_configure_hook` ContextVar
   seam — every callback manager configured inside the request picks it up,
