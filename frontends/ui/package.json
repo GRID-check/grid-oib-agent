@@ -13,6 +13,7 @@
     "format": "prettier --write .",
     "type-check": "tsc --noEmit",
     "db:migrate": "drizzle-kit migrate",
+    "migrate:storage": "node scripts/migrate-storage.mjs",
     "generate:cards": "node scripts/generate-card-schemas.mjs",
     "provision:audit-schemas": "node scripts/provision-workos-audit-schemas.mjs",
     "test": "TZ=UTC vitest --no-watch",
