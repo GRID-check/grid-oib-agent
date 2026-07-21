@@ -47,6 +47,8 @@ export function ProjectDangerZone({ projectId, projectName }: ProjectDangerZoneP
             })
           : t('dangerZone.deleteSuccessNoDate'),
       )
+      setPending(false)
+      setOpen(false)
       router.push('/app/projects')
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t('dangerZone.deleteError'))
