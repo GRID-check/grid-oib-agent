@@ -13,12 +13,13 @@ interface ConfidenceChipProps {
   /** The model's guarded self-assessment; undefined/null renders nothing. */
   confidence: AnswerConfidence | null | undefined
   /**
-   * Why the self-assessment was capped (WP-A transparency extra). `'ungrounded'`
-   * means the confidence was downgraded because the answer is not grounded in
-   * verified citations — appends an extra sentence to the tooltip so the cap is
-   * explained rather than silent.
+   * Why the self-assessment was capped (WP-A transparency extra), appended as an
+   * extra sentence to the tooltip so the cap is explained rather than silent
+   * (PB-9). `'ungrounded'` = the answer is not grounded in verified sources;
+   * `'quote_unverified'` = a quoted span could not be confirmed verbatim in the
+   * source.
    */
-  cappedReason?: 'ungrounded'
+  cappedReason?: 'ungrounded' | 'quote_unverified'
 }
 
 /**
@@ -39,12 +40,18 @@ export const ConfidenceChip: FC<ConfidenceChipProps> = ({ confidence, cappedReas
   const levelLabel = t(`confidence.levels.${confidence}`)
   const label = t('confidence.label', { level: levelLabel })
   const variant = confidence === 'low' ? 'warning' : 'muted'
-  // When the confidence was capped for lack of citation grounding, explain the
-  // cap in the tooltip instead of leaving the downgrade silent.
-  const tooltip =
+  // When the confidence was capped, explain WHY in the tooltip (PB-9) instead of
+  // leaving the downgrade silent. Fail-open: an absent/unknown reason keeps the
+  // generic tooltip.
+  const cappedReasonText =
     cappedReason === 'ungrounded'
-      ? `${t('confidence.tooltip')} ${t('confidence.cappedUngrounded')}`
-      : t('confidence.tooltip')
+      ? t('confidence.cappedReasons.ungrounded')
+      : cappedReason === 'quote_unverified'
+        ? t('confidence.cappedReasons.quoteUnverified')
+        : undefined
+  const tooltip = cappedReasonText
+    ? `${t('confidence.tooltip')} ${cappedReasonText}`
+    : t('confidence.tooltip')
 
   return (
     <Tooltip>

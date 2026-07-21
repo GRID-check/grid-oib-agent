@@ -343,6 +343,9 @@ const buildAgentResponseMessage = (
     ...(opts.transparency?.citationsRemoved
       ? { citationsRemoved: opts.transparency.citationsRemoved }
       : {}),
+    ...(opts.transparency?.quotesUnverified
+      ? { quotesUnverified: opts.transparency.quotesUnverified }
+      : {}),
   }
 }
 

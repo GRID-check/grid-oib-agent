@@ -96,8 +96,9 @@ export interface AnswerTransparency {
   routingDecision?: 'meta' | 'shallow' | 'deep' | 'error'
   routingReason?: string
   escalationReason?: string
-  answerConfidenceCappedReason?: 'ungrounded'
+  answerConfidenceCappedReason?: 'ungrounded' | 'quote_unverified'
   citationsRemoved?: { count: number; reasons: string[] }
+  quotesUnverified?: { count: number; examples: string[] }
 }
 
 /** File card data for file messages */
@@ -234,10 +235,12 @@ export interface ChatMessage {
   answerConfidence?: 'low' | 'medium' | 'high'
   /**
    * Why the self-assessed confidence was capped (WP-A transparency extra).
-   * `'ungrounded'` means the answer was not grounded in verified citations —
-   * surfaced as an extra sentence in the ConfidenceChip tooltip.
+   * `'ungrounded'` means the answer was not grounded in verified citations;
+   * `'quote_unverified'` means a quoted span could not be confirmed verbatim
+   * against its source — surfaced as an extra sentence in the ConfidenceChip
+   * tooltip (PB-9).
    */
-  answerConfidenceCappedReason?: 'ungrounded'
+  answerConfidenceCappedReason?: 'ungrounded' | 'quote_unverified'
   /**
    * Which path the turn took after intent classification (meta/shallow/deep/
    * error) — drives the "Warum dieser Weg?" narration in the Herleitung.
@@ -253,6 +256,12 @@ export interface ChatMessage {
    * sources row when present.
    */
   citationsRemoved?: { count: number; reasons: string[] }
+  /**
+   * Summary of quoted spans flagged as not verbatim in their source: how many
+   * were flagged plus a few example spans. The answer text also carries an
+   * inline `[nicht wörtlich in der Quelle belegt]` marker per quote.
+   */
+  quotesUnverified?: { count: number; examples: string[] }
 }
 
 /** Intermediate thinking step from agent */

@@ -56,9 +56,10 @@ export interface AgentResponseProps {
   answerConfidence?: 'low' | 'medium' | 'high'
   /**
    * Why the self-assessed confidence was capped (WP-A transparency extra) —
-   * `'ungrounded'` adds the cap explanation to the ConfidenceChip tooltip.
+   * `'ungrounded'` or `'quote_unverified'` add the matching cap explanation to
+   * the ConfidenceChip tooltip (PB-9).
    */
-  answerConfidenceCappedReason?: 'ungrounded'
+  answerConfidenceCappedReason?: 'ungrounded' | 'quote_unverified'
   /**
    * Citation-verification result: how many citations were removed as
    * unverifiable, with de-duplicated reasons. Renders a muted note under the

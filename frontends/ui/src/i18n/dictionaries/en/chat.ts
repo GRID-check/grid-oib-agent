@@ -382,10 +382,12 @@ export const chat = {
     ariaLabel: 'Assistant self-assessed confidence: {level}',
     tooltip:
       "The assistant's own assessment of how well this answer is supported by its sources. It can be wrong.",
-    // Extra sentence when the confidence was capped because the answer is not
-    // grounded in verified citations (WP-A `answer_confidence_capped_reason`).
-    cappedUngrounded:
-      'The confidence was capped because the answer is not grounded in verified citations.',
+    // Extra sentence appended to the tooltip explaining WHY the confidence was
+    // capped, keyed by `answer_confidence_capped_reason` (WP-A, PB-9).
+    cappedReasons: {
+      ungrounded: 'Low confidence: answer not backed by sources.',
+      quoteUnverified: 'Low confidence: a quote could not be verified verbatim against the source.',
+    },
   },
   // Per-answer thumbs feedback (WS-7, `answer-feedback` flag).
   feedback: {
