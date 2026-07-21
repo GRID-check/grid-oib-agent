@@ -37,22 +37,33 @@
   VERIFY (agents: trust-chain, deep-research).
 
 - **PB-3 — "Ask Your Data" (Büroarchiv + Projektunterlagen durchsuchen) doesn't
-  work.**  Class: LOGIC/VERIFY. Core beta promise. Check the RAG retrieval path
-  end-to-end for project + Archiv collections; question whether it's a real bug,
-  a scope/permission gap, or config. Status: VERIFY (agent: rag-lifecycle).
+  work.**  Class: **WORKS AS INTENDED — not a code bug.** Verified: retrieval is
+  correctly wired (`collection-scope-request.ts` → signed `x-grid-collection-scope`
+  → `knowledge/scoping.py` → `knowledge_layer/register.py` fans out across
+  project+archiv collections). Empty results were a *downstream symptom* of the
+  PB-4/PB-5 Archiv-ingest crash (empty collection) or no active project / disabled
+  `organization-archiv` flag (config). **Action:** none in code; retest after
+  PB-4/5 fix reaches the deployed build. Question-the-feedback: complaint real to
+  the user, but caused upstream, not in retrieval.
 
-- **PB-4 — Indexing/Tagging of uploaded documents doesn't work.**  Class:
-  LOGIC/VERIFY. Recent SeaweedFS migration + storageKey rename are prime
-  suspects. Check ingest → summary → tags path. Status: VERIFY (agent: rag).
+- **PB-4 — Indexing/Tagging of uploaded documents doesn't work.**  Class: REAL
+  BUG — **ALREADY FIXED at HEAD** (`86b7231`, today). Same root cause as PB-5:
+  a stale `minioKey` binding threw a `ReferenceError` in the Archiv ingest
+  dispatch *after* the object/row committed, so `/v1/ingest` was never reached →
+  no chunk/embed/summary/tags. Fixed. **Action:** none; colleague was on an older
+  build — ask them to retest current build.
 
 - **PB-5 — Archiv upload not possible ("Hochladen … noch nicht möglich").**
-  Class: LOGIC/VERIFY. Recent `fix(archiv): reference renamed storageKey`
-  suggests churn here. Verify the Archiv ingest dispatch end-to-end. Status:
-  VERIFY (agent: rag).
+  Class: REAL BUG — **ALREADY FIXED at HEAD** (`86b7231`). `lib/archiv/service.ts:115`
+  now passes `storageKey` (was undefined `minioKey`). The 500 the user saw fired
+  after storage+row commit, so files were stored but ingest never ran. **Action:**
+  none; retest current build. Downstream ingest pipeline verified well-formed.
 
 - **PB-6 — Uploaded files can't be deleted ("lassen sich … nicht mehr
-  löschen").**  Class: LOGIC/VERIFY. Check the document-delete BFF route +
-  service + storage delete. Status: VERIFY (agent: rag).
+  löschen").**  Class: **REAL BUG — feature never built.** No DELETE route/service/
+  UI for *project* documents; Archiv delete IS fully built and is the mirror
+  template (`deleteArchivDocument` + route + two-step `DeleteDocumentButton`).
+  Status: **SPRINT 1 — in progress** (mirror archiv delete into documents domain).
 
 ### P1 — Output quality logic (not "fix DeepSeek", but real levers)
 

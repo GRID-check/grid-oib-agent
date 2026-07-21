@@ -22,4 +22,28 @@
   mandatory web-research agent (anti-hallucination / latest LangGraph+NAT).
 - Confirmed PB-1 by code reading (see baseline).
 
+### Discovery findings — prompt/i18n/behavior (agent report, verified by reading)
+- **PB-10 clarifier — REAL BUG.** Clarifier is enabled + wired but only reachable
+  from the **deep** path (`chat_researcher/agent.py` `route_after_orchestration`
+  routes to `clarifier` only when `depth==deep`; shallow goes straight to
+  `shallow_research`). Most single Baurecht questions are shallow → never asks
+  Rückfragen. Prior "done" claim is technically true (works for deep) but
+  misleading. Low-risk fix: instruct shallow `researcher.j2` to ask a Rückfrage
+  when a hard-required project fact is `unknown:` (prompt-level, no graph surgery).
+- **PB-15 briefing i18n — PARTIAL.** Generation pipeline is fully locale-aware
+  (`project-brief.tsx`→route→`profile-service.ts`→`generate_summary.py:95` writes
+  "Write the summary in {language}"). Real gap: summary persisted once with no
+  stored locale; auto-generate fires only `if (!hasSummary)`, so a later DE switch
+  never regenerates → stale English persists. Fix: store `summaryLocale`,
+  regenerate/prompt on mismatch.
+- **PB-8 verbosity/Empfehlung — PROMPT + SCHEMA.** (a) `shallow_researcher/.../
+  researcher.j2` has no brevity rule and no "don't restate project params" →
+  verbose + repetitive. (b) "Empfehlung" invited by `cards/models.py:576`
+  `ComparisonTableCard.recommendation` + catalog example `catalog.py:191`; Baurecht
+  liability. Reframe toward neutral "objektive Einschätzung".
+- **PB-14 identity — PROMPT (careful).** 6 sites; broaden 5 non-compliance prompts
+  + widen topic guardrail (`researcher.j2:9`) + intent-classifier research bucket.
+  CAUTION: `tests/.../deep_researcher/test_agent.py:683-710` hard-asserts the
+  `"Grid OIB"` substring — keep it or update tests in lockstep.
+
 <!-- Sprint entries appended below as they complete. -->
