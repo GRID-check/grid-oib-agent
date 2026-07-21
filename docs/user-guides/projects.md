@@ -39,6 +39,16 @@ The former **Overview** and **Members** pages were consolidated into **Settings*
 
 Source: `frontends/ui/src/components/shell/app-sidebar.tsx`, `frontends/ui/src/app/app/projects/[id]/layout.tsx`
 
+## Project brief and intake
+
+The **project brief** is the architect-owned context Piloti works from — building use, class, storeys, location (Bundesland) and goals. You capture it in the **intake wizard** (`/app/projects/{id}/intake`), a short stepped questionnaire that ends on a review step. When you save, the wizard confirms the write with a toast — *"Projektprofil gespeichert — N Angaben erfasst"* — reporting how many facts were captured, then returns you to the project.
+
+On the project overview the brief renders as a grouped fact sheet with an AI-written prose summary. When a save has just reset the prose, the summary regenerates automatically with a visible *"Piloti schreibt die Projekt-Zusammenfassung…"* state. If that automatic generation cannot complete — for example when no language model is configured — the card shows a calm inline notice (*"Zusammenfassung derzeit nicht verfügbar"*, with the hint *"KI-Dienst nicht konfiguriert — bitte Administrator kontaktieren"* in that specific case) alongside a button to retry, rather than leaving the summary silently blank.
+
+Changing the location in the intake wizard takes effect immediately for new chats: the profile save clears both the cached project-context prompt view and the cached Bundesland used for jurisdiction-dependent RIS logic, so a saved location change is never served stale.
+
+Source: `frontends/ui/src/features/projects/components/project-intake-wizard.tsx`, `frontends/ui/src/features/projects/components/project-brief.tsx`, `frontends/ui/src/lib/project-profile/`
+
 ## Project-scoped chat
 
 When you start a chat from a project's "Ask Piloti" (chat) tab, the conversation is tagged with the project's ID. The `buildCollectionScopeFromRequest()` function includes the project's collection (`proj_{uuid}`) in the `X-Grid-Collection-Scope` header. This limits knowledge retrieval to documents uploaded to that project.

@@ -8,9 +8,14 @@
 import { fireEvent, render, screen, waitFor } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { toast } from 'sonner'
 import { ProjectIntakeWizard } from './project-intake-wizard'
 import { projectIntakeDefinitionV1 } from '@/lib/project-profile/intake-definition'
 import type { ProjectPrimitiveValue } from '@/lib/project-profile/types'
+
+vi.mock('sonner', () => ({
+  toast: { success: vi.fn(), error: vi.fn() },
+}))
 
 const pushMock = vi.fn()
 const refreshMock = vi.fn()
@@ -239,6 +244,51 @@ describe('ProjectIntakeWizard — summary generation is fully off the save path'
     // (the summary landed after the Overview rendered) — generation now lives in
     // the Overview's brief panel, where the result is actually displayed.
     expect(stub.calls.some((c) => c.url.endsWith('/generate-summary'))).toBe(false)
+  })
+})
+
+describe('ProjectIntakeWizard — Fix 3 save-success feedback', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals()
+    vi.clearAllMocks()
+    sessionStorage.clear()
+  })
+  afterEach(() => sessionStorage.clear())
+
+  it('toasts a save confirmation with the captured-fact count after a successful save', async () => {
+    const user = userEvent.setup()
+    stubFetch()
+    // Two intake facts (hauptnutzung, anzahl_einheiten) + the seeded project_name
+    // fact = 3 captured "Angaben".
+    seedReviewDraft({ hauptnutzung: 'wohnen', anzahl_einheiten: 3 })
+    renderWizard(false)
+
+    await user.click(await screen.findByRole('button', { name: /save/i }))
+
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith(`/app/projects/${PROJECT_ID}`))
+    expect(toast.success).toHaveBeenCalledWith(expect.stringMatching(/3 details captured/i))
+  })
+
+  it('does NOT toast a success when the save fails', async () => {
+    const user = userEvent.setup()
+    const fetch = vi.fn((url: string, init?: RequestInit) => {
+      if (url.endsWith('/intake-definition')) {
+        return Promise.resolve({ ok: true, status: 200, json: async () => projectIntakeDefinitionV1 })
+      }
+      if (init?.method === 'PUT') {
+        return Promise.resolve({ ok: false, status: 500, json: async () => ({}) })
+      }
+      return Promise.resolve({ ok: true, status: 200, json: async () => ({}) })
+    })
+    vi.stubGlobal('fetch', fetch)
+    seedReviewDraft({ hauptnutzung: 'wohnen', anzahl_einheiten: 3 })
+    renderWizard(false)
+
+    await user.click(await screen.findByRole('button', { name: /save/i }))
+
+    await waitFor(() => expect(screen.getByText(/could not save/i)).toBeInTheDocument())
+    expect(toast.success).not.toHaveBeenCalled()
+    expect(pushMock).not.toHaveBeenCalled()
   })
 })
 

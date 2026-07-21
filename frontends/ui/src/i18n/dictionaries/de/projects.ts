@@ -173,6 +173,7 @@ export const projects: typeof en.projects = {
     back: 'Zurück',
     stepCounter: 'Schritt {current} von {total}',
     saving: 'Wird gespeichert…',
+    saveSuccess: 'Projektprofil gespeichert — {count} Angaben erfasst',
     saveChanges: 'Änderungen speichern',
     saveAndSee: 'Speichern & meine Standards ansehen',
     next: 'Weiter',
@@ -323,6 +324,8 @@ export const projects: typeof en.projects = {
       summaryLlmNotConfigured:
         'Die Erstellung der Zusammenfassung ist nicht verfügbar — es ist kein Sprachmodell konfiguriert. Bitten Sie eine Administratorin, eines einzurichten.',
       summaryForbidden: 'Sie haben keine Berechtigung, die Zusammenfassung zu erstellen.',
+      summaryUnavailable: 'Zusammenfassung derzeit nicht verfügbar.',
+      summaryUnavailableLlm: 'KI-Dienst nicht konfiguriert — bitte Administrator kontaktieren.',
       captured: '{answered} von {total} erfasst',
       focus: 'Fokus',
       startedNoDetailsBefore:

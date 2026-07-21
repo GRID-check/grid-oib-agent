@@ -198,10 +198,14 @@ export function ProjectBrief({
  *
  * With `autoStart`, generation kicks off once on mount (the post-wizard-save
  * case: the brief has facts but its prose was just reset) with a visible
- * "writing the summary…" state. Auto-run failures degrade silently to the
- * manual button — a viewer without edit permission, or an unconfigured LLM,
- * must not greet every visitor with an error toast.
+ * "writing the summary…" state. An auto-run failure must NOT vanish silently:
+ * it settles into a calm inline notice on the card (with a specific hint when
+ * the backend reports `llm_not_configured`) alongside the manual retry button,
+ * so the user is never left staring at a summary that never arrives. Manual
+ * clicks keep surfacing failures as toasts.
  */
+type SummaryFailure = 'llm_not_configured' | 'generic'
+
 function SummaryControl({
   projectId,
   hasSummary,
@@ -215,10 +219,14 @@ function SummaryControl({
   const { locale } = useLocale()
   const router = useRouter()
   const [pending, setPending] = useState(false)
+  /** Set only on the auto-start path, so the failure renders inline (not a toast). */
+  const [autoFailure, setAutoFailure] = useState<SummaryFailure | null>(null)
   const autoAttemptedRef = useRef(false)
 
   const generate = async (silent = false) => {
     setPending(true)
+    // A fresh attempt clears any prior inline failure (also on manual retry).
+    setAutoFailure(null)
     try {
       const res = await fetch(`/api/projects/${projectId}/generate-summary`, {
         method: 'POST',
@@ -226,11 +234,7 @@ function SummaryControl({
         body: JSON.stringify({ locale }),
       })
       if (!res.ok) {
-        throw new Error(
-          res.status === 403
-            ? t('overview.brief.summaryForbidden')
-            : t('overview.brief.summaryError'),
-        )
+        throw { kind: res.status === 403 ? 'forbidden' : 'generic' } as const
       }
       // The route answers 200 even on generation failure, carrying a diagnostic
       // `error` code (e.g. no LLM configured) and an empty summary.
@@ -238,16 +242,27 @@ function SummaryControl({
         | { summary?: string; error?: string | null }
         | null
       if (data?.error === 'llm_not_configured') {
-        throw new Error(t('overview.brief.summaryLlmNotConfigured'))
+        throw { kind: 'llm_not_configured' } as const
       }
       if (data?.error || !data?.summary) {
-        throw new Error(t('overview.brief.summaryError'))
+        throw { kind: 'generic' } as const
       }
       if (!silent) toast.success(t('overview.brief.summarySuccess'))
       router.refresh()
     } catch (error) {
-      if (!silent) {
-        toast.error(error instanceof Error ? error.message : t('overview.brief.summaryError'))
+      // Distinguish the no-LLM case from a generic failure; forbidden is a
+      // manual-only outcome (auto-start already gates on edit permission).
+      const kind = (error as { kind?: string } | null)?.kind ?? 'generic'
+      if (silent) {
+        setAutoFailure(kind === 'llm_not_configured' ? 'llm_not_configured' : 'generic')
+      } else {
+        toast.error(
+          kind === 'forbidden'
+            ? t('overview.brief.summaryForbidden')
+            : kind === 'llm_not_configured'
+              ? t('overview.brief.summaryLlmNotConfigured')
+              : t('overview.brief.summaryError'),
+        )
       }
     } finally {
       setPending(false)
@@ -288,6 +303,25 @@ function SummaryControl({
         <Loader2 className="size-4 animate-spin" aria-hidden />
         {t('overview.brief.summaryWriting')}
       </p>
+    )
+  }
+
+  if (autoFailure) {
+    // The auto-start failed. Instead of vanishing silently, show a calm inline
+    // notice (a specific cause hint for the no-LLM case) plus a manual retry.
+    return (
+      <div className="space-y-2" aria-live="polite">
+        <p className="text-sm text-muted-foreground">
+          {t('overview.brief.summaryUnavailable')}
+          {autoFailure === 'llm_not_configured' && (
+            <span className="mt-0.5 block text-xs">{t('overview.brief.summaryUnavailableLlm')}</span>
+          )}
+        </p>
+        <Button type="button" variant="outline" size="sm" onClick={() => void generate()}>
+          <Sparkles className="size-4" aria-hidden />
+          {t('overview.brief.summaryGenerate')}
+        </Button>
+      </div>
     )
   }
 
