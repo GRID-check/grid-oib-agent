@@ -174,6 +174,29 @@ def add_document_routes(router: APIRouter):
 
         return files
 
+    @router.get(
+        "/v1/collections/{collection_name}/documents/{file_name}/visual-details",
+        tags=["documents"],
+        summary="Per-page VLM descriptions of a document's visual chunks",
+    )
+    async def get_document_visual_details_route(
+        collection_name: str,
+        file_name: str,
+        ingestor: BaseIngestor = Depends(_require_ingestor),
+    ) -> dict:
+        """Return the rendered-drawing / image / chart descriptions ingestion
+        produced for a document (the "detailed information" the summary is
+        distilled from). Fail-open: returns an empty list when the backend does
+        not support it or the document has no visual chunks."""
+        getter = getattr(ingestor, "get_document_visual_details", None)
+        if getter is None:
+            return {"details": []}
+        try:
+            return {"details": getter(collection_name, file_name)}
+        except Exception as e:
+            logger.warning("Failed to fetch visual details for %s/%s: %s", collection_name, file_name, e)
+            return {"details": []}
+
     class UpdateTagsRequest(BaseModel):
         tags: list[str] = Field(
             default_factory=list,

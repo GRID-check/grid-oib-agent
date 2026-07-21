@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import type { FileItem } from './project-file-workspace'
-import { AlertCircle, Download, Maximize2, Plus, RotateCcw, Sparkles, X } from 'lucide-react'
+import { AlertCircle, ChevronDown, Download, Maximize2, Plus, RotateCcw, Sparkles, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { DOCUMENT_TYPE_TAGS, DISCIPLINE_TAGS, MAX_TAGS } from '@/lib/documents/tag-vocabulary'
 import { useLocale, useTranslations } from '@/i18n'
@@ -52,6 +52,17 @@ interface FilePreviewPaneProps {
 
 const PREVIEW_TYPES = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp', 'image/svg+xml']
 
+/** One visual chunk's VLM description (mirrors the BFF visual-details payload). */
+interface VisualDetail {
+  page: number
+  contentType: string
+  drawingType: string
+  scale: string
+  text: string
+}
+
+const VISUAL_CONTENT_TYPES = ['drawing', 'image', 'chart']
+
 export function FilePreviewPane({ file, projectName, canManage = true, onClose, onReingested, onTagsUpdated, showMetadataPanel = true, extraActions }: FilePreviewPaneProps) {
   const t = useTranslations('files')
   const { locale } = useLocale()
@@ -62,6 +73,12 @@ export function FilePreviewPane({ file, projectName, canManage = true, onClose, 
   const [downloadFailed, setDownloadFailed] = useState(false)
   const [isReingesting, setIsReingesting] = useState(false)
   const [isLargePreviewOpen, setIsLargePreviewOpen] = useState(false)
+  // "Detailed information": per-page VLM descriptions of the document's visual
+  // chunks (drawings/images/charts), lazily loaded on first expand. Secondary
+  // to the one-line summary above — collapsed by default.
+  const [detailsOpen, setDetailsOpen] = useState(false)
+  const [details, setDetails] = useState<VisualDetail[] | null>(null)
+  const [detailsLoading, setDetailsLoading] = useState(false)
   const canPreview = PREVIEW_TYPES.includes(file.contentType ?? '')
   const isImage = (file.contentType ?? '').startsWith('image/')
   // The large viewer dialog enlarges PDFs (native iframe viewer) and images
@@ -72,6 +89,9 @@ export function FilePreviewPane({ file, projectName, canManage = true, onClose, 
   // Only surface content categories when there is something beyond plain text;
   // a lone "Text" row is noise for the text-only documents that dominate here.
   const hasRichContent = (file.contentTypes ?? []).some((c) => c !== 'text')
+  // The document has visual chunks (drawings/images/charts) whose per-page VLM
+  // descriptions can be browsed in the "detailed information" section.
+  const hasVisualContent = (file.contentTypes ?? []).some((c) => VISUAL_CONTENT_TYPES.includes(c))
   // The ingestion-detected document type (first document-type tag), shown as
   // the indexed panel's Type row. Only real metadata — nothing is inferred here.
   const detectedType = (file.tags ?? []).find((tag) => (DOCUMENT_TYPE_TAGS as readonly string[]).includes(tag))
@@ -100,6 +120,29 @@ export function FilePreviewPane({ file, projectName, canManage = true, onClose, 
   useEffect(() => {
     loadPreview()
   }, [loadPreview])
+
+  // Reset the detailed-info section when the selected document changes, so it
+  // never shows a previous document's descriptions.
+  useEffect(() => {
+    setDetailsOpen(false)
+    setDetails(null)
+  }, [file.id])
+
+  // Lazy-load the visual descriptions the first time the section is expanded.
+  const toggleDetails = useCallback(() => {
+    setDetailsOpen((open) => {
+      const next = !open
+      if (next && details === null && !detailsLoading) {
+        setDetailsLoading(true)
+        fetch(`/api/documents/${file.id}/visual-details`)
+          .then((r) => (r.ok ? r.json() : null))
+          .then((data) => setDetails(Array.isArray(data?.details) ? data.details : []))
+          .catch(() => setDetails([]))
+          .finally(() => setDetailsLoading(false))
+      }
+      return next
+    })
+  }, [file.id, details, detailsLoading])
 
   // The download route returns JSON ({downloadUrl, ...}), not the file bytes —
   // fetch it, then navigate to the presigned URL. Its Content-Disposition is
@@ -288,6 +331,40 @@ export function FilePreviewPane({ file, projectName, canManage = true, onClose, 
                 onTagsUpdated={onTagsUpdated}
                 readOnly={!canManage}
               />
+              {hasVisualContent && (
+                <div className="border-t pt-3">
+                  <button
+                    type="button"
+                    onClick={toggleDetails}
+                    aria-expanded={detailsOpen}
+                    className="flex w-full items-center justify-between gap-2 text-left text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground transition-colors hover:text-foreground"
+                  >
+                    {t('preview.visualDetails.title')}
+                    <ChevronDown className={cn('size-3.5 shrink-0 transition-transform', detailsOpen && 'rotate-180')} aria-hidden />
+                  </button>
+                  {detailsOpen && (
+                    <div className="mt-2.5 space-y-3">
+                      {detailsLoading && <p className="text-xs text-muted-foreground">{t('preview.visualDetails.loading')}</p>}
+                      {!detailsLoading && details && details.length === 0 && (
+                        <p className="text-xs text-muted-foreground">{t('preview.visualDetails.empty')}</p>
+                      )}
+                      {!detailsLoading &&
+                        details?.map((d, i) => (
+                          <div key={`${d.page}-${d.contentType}-${i}`} className="space-y-1">
+                            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] font-medium text-foreground">
+                              <span>{t('preview.visualDetails.page', { page: d.page })}</span>
+                              {d.drawingType && <span className="text-muted-foreground">· {d.drawingType}</span>}
+                              {d.scale && d.scale.toLowerCase() !== 'unbekannt' && (
+                                <span className="text-muted-foreground">· {t('preview.visualDetails.scale', { scale: d.scale })}</span>
+                              )}
+                            </div>
+                            <p className="whitespace-pre-line text-[12px] leading-relaxed text-muted-foreground">{d.text}</p>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </section>
           )}
 

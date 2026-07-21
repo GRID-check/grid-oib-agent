@@ -91,6 +91,44 @@ describe('FilePreviewPane', () => {
       expect(screen.getByText('12')).toBeDefined()
     })
 
+    it('lazily loads and shows per-page drawing descriptions in "Detailed information"', async () => {
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL) => {
+        const url = String(input)
+        if (url.includes('/visual-details')) {
+          return {
+            ok: true,
+            json: async () => ({
+              details: [
+                { page: 1, contentType: 'drawing', drawingType: 'schnitt', scale: '1:100', text: 'Ein Längsschnitt.' },
+              ],
+            }),
+          } as Response
+        }
+        return { ok: true, json: async () => ({ url: 'https://example.test/plan.pdf' }) } as Response
+      })
+
+      render(
+        <FilePreviewPane file={{ ...mockFile, contentTypes: ['text', 'drawing'] }} projectId="proj-1" />
+      )
+
+      // Collapsed by default: the description is not in the DOM yet.
+      expect(screen.queryByText('Ein Längsschnitt.')).toBeNull()
+
+      const toggle = screen.getByRole('button', { name: /detailed information/i })
+      await userEvent.click(toggle)
+
+      // The description is lazily fetched and rendered on expand.
+      expect(await screen.findByText('Ein Längsschnitt.')).toBeDefined()
+      // Per-page header shows the page number and the drawing type badge.
+      expect(screen.getByText('Page 1')).toBeDefined()
+      expect(screen.getByText(/· schnitt/)).toBeDefined()
+    })
+
+    it('does not show "Detailed information" when the document has no visual chunks', () => {
+      render(<FilePreviewPane file={{ ...mockFile, contentTypes: ['text'] }} projectId="proj-1" />)
+      expect(screen.queryByRole('button', { name: /detailed information/i })).toBeNull()
+    })
+
     it('renders the HITL caption and the Updated row from real metadata', () => {
       render(<FilePreviewPane file={mockFile} projectId="proj-1" />)
       expect(

@@ -434,6 +434,53 @@ export async function updateDocumentTags(
   return { id: doc.id, tags: Array.isArray(body.tags) ? body.tags : tags }
 }
 
+export interface DocumentVisualDetail {
+  page: number
+  contentType: string
+  drawingType: string
+  scale: string
+  text: string
+}
+
+/**
+ * Per-page VLM descriptions of a document's visual chunks (drawings / images /
+ * charts) — the "detailed information" the one-line summary is distilled from.
+ * Requires `project:view`. Read-only and fail-soft: any backend hiccup or an
+ * unsupported backend yields an empty list rather than an error, since this is
+ * a secondary, on-demand view.
+ */
+export async function getDocumentVisualDetails(
+  session: AuthorizedSession,
+  documentId: string,
+): Promise<{ id: string; details: DocumentVisualDetail[] }> {
+  const doc = await getAccessibleDocument(session, documentId, 'project:view')
+
+  let res: Response
+  try {
+    res = await fetch(
+      `${getBackendUrl()}/v1/collections/${encodeURIComponent(doc.collectionName)}/documents/${encodeURIComponent(
+        doc.filename,
+      )}/visual-details`,
+      { signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS) },
+    )
+  } catch {
+    return { id: doc.id, details: [] }
+  }
+
+  if (!res.ok) return { id: doc.id, details: [] }
+
+  const body = await res.json().catch(() => ({}))
+  const raw = Array.isArray(body.details) ? body.details : []
+  const details: DocumentVisualDetail[] = raw.map((d: Record<string, unknown>) => ({
+    page: typeof d.page === 'number' ? d.page : 0,
+    contentType: typeof d.content_type === 'string' ? d.content_type : 'drawing',
+    drawingType: typeof d.drawing_type === 'string' ? d.drawing_type : '',
+    scale: typeof d.scale === 'string' ? d.scale : '',
+    text: typeof d.text === 'string' ? d.text : '',
+  }))
+  return { id: doc.id, details }
+}
+
 /** Presign a browser-facing download URL for a document. */
 export async function getDocumentDownload(
   session: AuthorizedSession,
