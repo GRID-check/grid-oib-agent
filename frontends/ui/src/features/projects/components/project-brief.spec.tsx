@@ -58,6 +58,25 @@ const profile: ProjectProfile = {
 /** A started-but-empty brief — nothing to summarise, so no auto-start. */
 const emptyProfile: ProjectProfile = { facts: {}, goals: {}, unknowns: [], assumptions: {} }
 
+/**
+ * No facts (so summary generation never auto-starts and can't interfere with
+ * the fetch mock below) but one pending assumption to confirm/dismiss.
+ */
+const profileWithAssumption: ProjectProfile = {
+  facts: {},
+  goals: {},
+  unknowns: [],
+  assumptions: {
+    hauptnutzung: {
+      value: 'wohnen',
+      status: 'unconfirmed',
+      reason: 'Inferred from the uploaded plans.',
+      source: 'agent_suggested',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    },
+  },
+}
+
 describe('ProjectBrief summary auto-generation (post-wizard-save)', () => {
   beforeEach(() => {
     vi.unstubAllGlobals()
@@ -312,5 +331,61 @@ describe('ProjectBrief stale-language summary regeneration (locale switch)', () 
 
     // Still exactly one — the attempted-ref guard stops the loop.
     await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1))
+  })
+})
+
+describe('ProjectBrief assumption confirm/dismiss error surfacing', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals()
+    vi.clearAllMocks()
+  })
+
+  test('a 403 shows a distinct forbidden message', async () => {
+    vi.stubGlobal('fetch', mockFetch(403, { error: 'Forbidden', code: 'FORBIDDEN' }))
+    const user = userEvent.setup()
+
+    render(<ProjectBrief projectId="proj-1" profile={profileWithAssumption} summary="" briefStarted />)
+    await user.click(screen.getByRole('button', { name: /confirm/i }))
+
+    expect(await screen.findByText(/don.t have permission to update the brief/i)).toBeDefined()
+    expect(refresh).not.toHaveBeenCalled()
+  })
+
+  test('a 409 shows a distinct conflict message', async () => {
+    vi.stubGlobal('fetch', mockFetch(409, { error: 'Conflict', code: 'CONFLICT' }))
+    const user = userEvent.setup()
+
+    render(<ProjectBrief projectId="proj-1" profile={profileWithAssumption} summary="" briefStarted />)
+    await user.click(screen.getByRole('button', { name: /confirm/i }))
+
+    expect(await screen.findByText(/changed elsewhere/i)).toBeDefined()
+    expect(refresh).not.toHaveBeenCalled()
+  })
+
+  test('the 403 and 409 messages are distinct from each other and from the generic failure', async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false, status: 500, json: async () => ({ error: 'Internal server error' }) })
+    vi.stubGlobal('fetch', fetchSpy)
+    const user = userEvent.setup()
+
+    render(<ProjectBrief projectId="proj-1" profile={profileWithAssumption} summary="" briefStarted />)
+    await user.click(screen.getByRole('button', { name: /dismiss/i }))
+
+    const generic = await screen.findByText(/could not update the brief/i)
+    expect(generic).toBeDefined()
+    expect(screen.queryByText(/don.t have permission/i)).toBeNull()
+    expect(screen.queryByText(/changed elsewhere/i)).toBeNull()
+  })
+
+  test('confirming successfully clears any prior error and refreshes', async () => {
+    vi.stubGlobal('fetch', mockFetch(200, {}))
+    const user = userEvent.setup()
+
+    render(<ProjectBrief projectId="proj-1" profile={profileWithAssumption} summary="" briefStarted />)
+    await user.click(screen.getByRole('button', { name: /confirm/i }))
+
+    await waitFor(() => expect(refresh).toHaveBeenCalled())
+    expect(screen.queryByText(/could not update the brief/i)).toBeNull()
   })
 })

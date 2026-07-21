@@ -387,10 +387,30 @@ function AssumptionsBlock({ projectId, assumptions }: { projectId: string; assum
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ patch }),
       })
-      if (!res.ok) throw new Error()
+      if (!res.ok) {
+        // Read the JSON envelope (`{ error, code }` — see `@/lib/api/errors` /
+        // `apiRoute`'s error mapping) so 403/409 don't collapse into one
+        // generic message; a malformed or empty body still falls through to
+        // the status-code check rather than throwing here.
+        const data = (await res.json().catch(() => null)) as { code?: string } | null
+        const kind =
+          data?.code === 'FORBIDDEN' || res.status === 403
+            ? 'forbidden'
+            : data?.code === 'CONFLICT' || res.status === 409
+              ? 'conflict'
+              : 'generic'
+        throw { kind } as const
+      }
       router.refresh()
-    } catch {
-      setError(t('overview.brief.assumptionError'))
+    } catch (error) {
+      const kind = (error as { kind?: string } | null)?.kind ?? 'generic'
+      setError(
+        kind === 'forbidden'
+          ? t('overview.brief.assumptionForbidden')
+          : kind === 'conflict'
+            ? t('overview.brief.assumptionConflict')
+            : t('overview.brief.assumptionError'),
+      )
     } finally {
       setBusyKey(null)
     }
