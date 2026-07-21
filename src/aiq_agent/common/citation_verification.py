@@ -1272,6 +1272,27 @@ MIN_QUOTE_LEN = 20
 # length is ``len(quote) + max(_QUOTE_WINDOW_PAD_MIN, len(quote) // 10)``.
 _QUOTE_WINDOW_PAD_MIN = 4
 
+# Absolute budget (characters) for the CHUNK text a verified quote may skip over,
+# accumulated across the matched region. This is the non-contiguity penalty that
+# separates a lightly-noisy verbatim quote from a splice of two real clauses:
+#
+# - OCR/whitespace/hyphenation/„…"-mark noise perturbs the alignment by only a
+#   char or two at a time (a substitution advances the quote and the chunk by the
+#   same amount, so its NET elided chunk text is ~0), keeping the cumulative total
+#   well under budget → the quote stays verified.
+# - A splice that merges two adjacent clauses (dropping a connective and the
+#   material between them, e.g. "…Kosten [der Massnahme. Der] Nachbar…") leaves a
+#   run of chunk text with no counterpart in the quote; its NET elided total
+#   (≳10 chars even when coincidental re-matches fragment it into pieces) exceeds
+#   the budget, splitting the matched region so no single contiguous-enough run
+#   reaches the threshold → the quote is flagged.
+#
+# An ABSOLUTE constant (not ``len(quote)//k``) is essential: the defeat in the
+# prior metric was that every tolerance scaled with the quote, so a longer quote
+# bought a proportionally larger elision. 6 is chosen empirically — noisy
+# verbatim fixtures net ≤4 elided chars, clause splices net ≥7. TUNABLE.
+_QUOTE_MAX_ELIDED_GAP = 6
+
 # Inline marker appended immediately after a quoted span that could not be
 # verified against any retrieved passage. Fail-open: the sentence is NEVER
 # stripped or altered; only this marker is inserted after the closing quote.
@@ -1333,27 +1354,39 @@ def _normalize_for_quote_match(text: str) -> str:
 
 
 def _quote_coverage(norm_quote: str, norm_chunk: str) -> float:
-    """Fraction of ``norm_quote`` found within the best-aligned LOCAL window of chunk.
+    """Fraction of ``norm_quote`` covered by a CONTIGUOUS-enough run of the chunk.
 
-    A whole-chunk subsequence match (sum of every matching block, anywhere in the
-    chunk) is defeatable by phrase-splicing: a fabricated sentence assembled from
-    real phrases that live in DIFFERENT clauses of the chunk scores 1.0 even
-    though it is not a substring. This metric instead credits only matches that
-    fall inside a single window of the chunk roughly the length of the quote:
+    Two earlier metrics were both defeatable:
 
-    - A genuine verbatim quote — or one carrying light OCR/whitespace/hyphenation
-      noise — is contiguous, so it lands inside one window and still scores ~1.0.
-    - A spliced quote's fragments are spread across a chunk span far larger than
-      the quote itself; no single window can hold them all, so it scores low.
+    - A whole-chunk subsequence match (sum of every matching block, anywhere in
+      the chunk) scored a phrase-splice — real fragments pulled from DIFFERENT
+      clauses — at 1.0 even though the quote is not a substring.
+    - Restricting the sum to a single window sized to the quote length still let
+      an ADJACENT-clause splice through: when the quote merges two neighbouring
+      sentences (dropping a short connective), the whole spliced span is about as
+      long as the quote, so it fits one window and the summed blocks stay above
+      threshold — even though the quote skipped over real chunk text in between.
 
+    The fix penalizes NON-CONTIGUITY directly. Within each candidate window we
+    walk the matching blocks in order and accumulate the NET chunk text the quote
+    skips between consecutive blocks (``chunk_gap - quote_gap``, floored at 0 so a
+    same-length substitution — the shape of OCR/casing noise — costs ~nothing).
+    Once that cumulative elision exceeds an ABSOLUTE budget
+    (``_QUOTE_MAX_ELIDED_GAP``) the region is cut and a fresh run begins; the
+    score is the longest single run divided by ``len(quote)``.
+
+    - A genuine verbatim quote is one uninterrupted run → ~1.0. Light
+      OCR/whitespace/hyphenation/„…"-mark noise perturbs the alignment by only a
+      char or two at a time and nets far under budget, so it too scores ~1.0.
+    - A splice — adjacent OR scattered, short gap OR long — leaves an elided run
+      of chunk text with no quote counterpart; the budget is exceeded, the region
+      is split, and no surviving run reaches the threshold → low score.
+
+    The budget is a fixed constant rather than a fraction of the quote, so a
+    longer quote can no longer buy a proportionally larger silent elision.
     Candidate windows are anchored at the diagonals of the matching blocks
-    (window start = ``block.b - block.a`` — where ``quote[0]`` would align if the
-    quote occurred contiguously at that block), so only a handful are scored per
-    quote×chunk. A small pad tolerates OCR-induced length drift; because the
-    coverage denominator is ``len(quote)`` (not the window length), a slightly
-    generous window can only ever help a real match, never inflate a spliced one.
-
-    Pure stdlib (``difflib``), fail-open, and cheap.
+    (window start = ``block.b - block.a``), so only a handful are scored per
+    quote×chunk. Pure stdlib (``difflib``), fail-open, and cheap.
     """
     quote_len = len(norm_quote)
     if quote_len == 0:
@@ -1370,8 +1403,30 @@ def _quote_coverage(norm_quote: str, norm_chunk: str) -> float:
     for start in window_starts:
         window = norm_chunk[max(0, start - pad) : start + window_len]
         matcher = difflib.SequenceMatcher(None, norm_quote, window, autojunk=False)
-        matched = sum(block.size for block in matcher.get_matching_blocks())
-        best = max(best, matched / quote_len)
+        # Longest run of matching blocks whose cumulative net elided chunk text
+        # stays within budget. A block gap that skips real chunk text the quote
+        # never covers pushes the running elision up; crossing the budget cuts the
+        # run so a spliced-together quote cannot bank credit across the elision.
+        run = 0
+        best_run = 0
+        elided = 0
+        prev_a_end: int | None = None
+        prev_b_end: int | None = None
+        for block in matcher.get_matching_blocks():
+            if not block.size:
+                continue
+            if prev_b_end is not None:
+                chunk_gap = block.b - prev_b_end
+                quote_gap = block.a - prev_a_end
+                elided += max(0, chunk_gap - quote_gap)
+                if elided > _QUOTE_MAX_ELIDED_GAP:
+                    run = 0
+                    elided = 0
+            run += block.size
+            best_run = max(best_run, run)
+            prev_a_end = block.a + block.size
+            prev_b_end = block.b + block.size
+        best = max(best, best_run / quote_len)
     return best
 
 

@@ -1890,6 +1890,53 @@ class TestVerifyQuotedSpans:
             < 0.90
         )
 
+    # The MORE realistic LLM failure than the scattered PB-7 case: the model
+    # merges two ADJACENT real sentences of the chunk into one quote, dropping the
+    # sentence boundary and stitching them with a short connective ("und"). The
+    # spliced span is only a little longer than the quote, so it fits a single
+    # quote-length window — the local-window metric summed its blocks above
+    # threshold and wrongly verified it. The contiguity penalty must reject it
+    # because the quote skips over real chunk text ("der Massnahme.") in between.
+    ADJACENT_SPLICE_QUOTE = (
+        "Der Bauherr traegt die Kosten und der Nachbar hat den Zutritt zum Grundstueck zu gewaehren."
+    )
+    ADJACENT_SPLICE_CHUNK = (
+        "Der Bauherr traegt die Kosten der Massnahme. Der Nachbar hat den Zutritt zum Grundstueck zu gewaehren."
+    )
+
+    def test_adjacent_clause_splice_is_unverified(self):
+        """Adjacent-clause splice (short omitted connective) must FAIL verification.
+
+        This is the residual defeat of the window-sum metric: the two spliced
+        clauses are neighbours, so the whole spliced span fits one quote-length
+        window and its summed blocks scored ~0.978 (above the 0.90 threshold).
+        The contiguity penalty flags it because a run of real chunk text
+        ("der Massnahme.") is skipped over — the quote is genuinely NOT a
+        substring of the chunk, i.e. a fabrication rather than a retrieval miss.
+        """
+        from aiq_agent.common.citation_verification import _normalize_for_quote_match
+        from aiq_agent.common.citation_verification import _quote_coverage
+        from aiq_agent.common.citation_verification import verify_quoted_spans
+
+        reg = self._registry(self.ADJACENT_SPLICE_CHUNK)
+        answer = f'Die Regel lautet „{self.ADJACENT_SPLICE_QUOTE}" [1].\n\n## Sources\n[1] doc1.pdf, p.1'
+        unverified = verify_quoted_spans(answer, reg)
+        assert len(unverified) == 1
+        assert unverified[0].best_coverage < 0.90
+        # Genuine fabrication: not a substring of the chunk.
+        assert _normalize_for_quote_match(self.ADJACENT_SPLICE_QUOTE) not in _normalize_for_quote_match(
+            self.ADJACENT_SPLICE_CHUNK
+        )
+        # The prior committed window-sum metric scored this ~0.978 and verified
+        # it; the contiguity penalty must now keep it below threshold.
+        assert (
+            _quote_coverage(
+                _normalize_for_quote_match(self.ADJACENT_SPLICE_QUOTE),
+                _normalize_for_quote_match(self.ADJACENT_SPLICE_CHUNK),
+            )
+            < 0.90
+        )
+
     def test_verbatim_substring_quote_verified(self):
         """A quote that IS a verbatim substring of the chunk scores ~1.0."""
         from aiq_agent.common.citation_verification import _normalize_for_quote_match
