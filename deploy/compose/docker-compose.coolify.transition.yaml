@@ -1,0 +1,353 @@
+# =============================================================================
+# Grid OIB Agent — Coolify TRANSITIONAL Compose (MinIO → SeaweedFS cutover)
+# =============================================================================
+#
+# TEMPORARY stack for exactly one migration window. It runs BOTH object stores
+# side by side so existing data can be copied without downtime:
+#
+#   - `minio` keeps its existing volume (minio-data) and existing Coolify
+#     secret (SERVICE_PASSWORD_MINIO — stable per stack, so the old password
+#     still opens the old store). The app CONTINUES to use MinIO during the
+#     transition: the SEAWEED_* env vars below deliberately point at
+#     http://minio:9000, so nothing breaks while the copy runs.
+#   - `seaweedfs` + `seaweedfs-init` come up exactly as in the final compose,
+#     on their own fresh volume.
+#   - `storage-migrate` is a one-shot container (frontend image) that copies
+#     every object MinIO → SeaweedFS via scripts/migrate-storage.mjs and then
+#     verifies source-vs-destination. It is idempotent (skips objects already
+#     present with matching size), so EVERY redeploy of this stack re-syncs.
+#
+# HOW TO USE (see docs/deployment/minio-to-seaweedfs-migration.md):
+#   1. In Coolify, point the resource's compose file at THIS file; deploy.
+#   2. Watch the storage-migrate container logs until it prints
+#      "verification OK" and exits 0.
+#   3. Restart storage-migrate once more right before step 4 (one click in
+#      Coolify) — a seconds-fast final sync that closes the window for uploads
+#      made while you were reading the logs.
+#   4. Point the compose file back at docker-compose.coolify.yaml; deploy.
+#      That final stack drops MinIO and the app talks to SeaweedFS.
+#   5. After verifying preview/download in the app, delete the orphaned
+#      minio-data volume at your leisure. Until then nothing is lost.
+#
+# Known small caveats during the window:
+#   - Uploads made AFTER the last storage-migrate run and BEFORE the flip land
+#     only in MinIO — hence step 3. Do the flip in a quiet window.
+#   - Documents purged from MinIO after they were copied linger as orphan
+#     bytes in SeaweedFS (their DB rows are gone, so they are invisible to the
+#     app; harmless, reclaimed whenever you care to clean them).
+#
+# Everything not commented here is identical to docker-compose.coolify.yaml.
+# =============================================================================
+
+services:
+  aiq-agent:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+      target: ${BUILD_TARGET:-release}
+    environment:
+      - APP_ENV=${APP_ENV:-production}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:?set OPENROUTER_API_KEY}
+      - TAVILY_API_KEY=${TAVILY_API_KEY:?set TAVILY_API_KEY}
+      - AIQ_EMBED_MODEL=${AIQ_EMBED_MODEL:-openai/text-embedding-3-large}
+      - AIQ_EMBED_BASE_URL=${AIQ_EMBED_BASE_URL:-https://openrouter.ai/api/v1}
+      - AIQ_EMBED_API_KEY=${OPENROUTER_API_KEY}
+      - NVIDIA_API_KEY=${NVIDIA_API_KEY:-${OPENROUTER_API_KEY}}
+      - AIQ_VLM_MODEL=${AIQ_VLM_MODEL:-google/gemma-4-31b-it}
+      - AIQ_VLM_BASE_URL=${AIQ_VLM_BASE_URL:-https://openrouter.ai/api/v1}
+      - NAT_JOB_STORE_DB_URL=postgresql+asyncpg://aiq:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/aiq_jobs
+      - AIQ_CHECKPOINT_DB=postgresql://aiq:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/aiq_checkpoints
+      - AIQ_SUMMARY_DB=postgresql+psycopg://aiq:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/aiq_jobs
+      - AIQ_LISTEN_DB_URL=postgresql://aiq:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/aiq_jobs
+      - REDIS_URL=redis://dragonfly:6379/0
+      - FRONTEND_INTERNAL_URL=http://frontend:3000
+      - GRID_INTERNAL_API_TOKEN=${SERVICE_PASSWORD_INTERNALTOKEN}
+      - AIQ_CHROMA_DIR=/app/data/chroma_data
+      - COLLECTION_NAME=${COLLECTION_NAME:-oib_knowledge}
+      - CONFIG_FILE=${BACKEND_CONFIG:-/app/configs/config_oib_openrouter.yml}
+      - CORS_ALLOW_ORIGIN_REGEX=https://${SERVICE_FQDN_FRONTEND}
+      - HOST=0.0.0.0
+      - PORT=8000
+      - DASK_NWORKERS=${DASK_NWORKERS:-1}
+      - DASK_NTHREADS=${DASK_NTHREADS:-4}
+      - AIQ_EXTRACT_TABLES=${AIQ_EXTRACT_TABLES:-true}
+      - AIQ_EXTRACT_IMAGES=${AIQ_EXTRACT_IMAGES:-true}
+      - OIB_FORCE_REINGEST=${OIB_FORCE_REINGEST:-false}
+      - DASK_DISTRIBUTED__LOGGING__DISTRIBUTED=${DASK_DISTRIBUTED__LOGGING__DISTRIBUTED:-warning}
+      - PYTHONWARNINGS=${PYTHONWARNINGS:-ignore}
+      - KIMI_API_KEY=${KIMI_API_KEY:-}
+      - GRID_ADMIN_TOKEN=${GRID_ADMIN_TOKEN:?set GRID_ADMIN_TOKEN}
+      - REQUIRE_AUTH=${REQUIRE_AUTH:-true}
+      - AIQ_EXTERNAL_HOSTNAMES=${SERVICE_FQDN_FRONTEND}
+    expose:
+      - "8000"
+    volumes:
+      - ./data/oib:/app/data/oib:ro
+      - aiq-data:/app/data
+      - chroma_data:/app/data/chroma_data
+    depends_on:
+      aiq-data-permissions:
+        condition: service_completed_successfully
+      minio:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      dragonfly:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
+    restart: unless-stopped
+
+  aiq-data-permissions:
+    image: alpine:3.20
+    command: ["sh", "-c", "chown -R 1000:1000 /app/data"]
+    volumes:
+      - aiq-data:/app/data
+      - chroma_data:/app/data/chroma_data
+    restart: "no"
+
+  # ── OLD store: kept alive (and browser-reachable) for the transition ──────
+  minio:
+    image: minio/minio:RELEASE.2024-06-29T01-20-47Z
+    environment:
+      # Keep the FQDN: presigned URLs handed to browsers during the transition
+      # are still signed against MinIO's public endpoint.
+      - SERVICE_FQDN_MINIO_9000
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${SERVICE_PASSWORD_MINIO}
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ── NEW store: identical to the final compose ─────────────────────────────
+  seaweedfs:
+    image: chrislusf/seaweedfs:3.80
+    environment:
+      - SERVICE_FQDN_SEAWEEDFS_8333
+      - SEAWEED_ACCESS_KEY=${SEAWEED_ACCESS_KEY:-seaweedadmin}
+      - SEAWEED_SECRET_KEY=${SERVICE_PASSWORD_SEAWEEDFS}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >
+        mkdir -p /etc/seaweedfs &&
+        printf '{"identities":[{"name":"grid","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Admin","Read","Write","List","Tagging"]}]}\n' "$$SEAWEED_ACCESS_KEY" "$$SEAWEED_SECRET_KEY" > /etc/seaweedfs/s3.json &&
+        exec weed server -dir=/data -s3 -s3.config=/etc/seaweedfs/s3.json -s3.port=8333
+    volumes:
+      - seaweedfs-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:9333/cluster/status"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    restart: unless-stopped
+
+  seaweedfs-init:
+    image: chrislusf/seaweedfs:3.80
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >
+        echo 's3.bucket.create -name grid-documents' | weed shell -master=seaweedfs:9333 || true
+    depends_on:
+      seaweedfs:
+        condition: service_healthy
+    restart: "no"
+
+  # ── One-shot copy MinIO → SeaweedFS. Idempotent; reruns on every deploy. ──
+  storage-migrate:
+    build:
+      context: ./frontends/ui
+      dockerfile: deploy/Dockerfile
+    command: ["node", "scripts/migrate-storage.mjs"]
+    environment:
+      - SRC_ENDPOINT=http://minio:9000
+      - SRC_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
+      - SRC_SECRET_KEY=${SERVICE_PASSWORD_MINIO}
+      - SRC_BUCKET=grid-documents
+      - DST_ENDPOINT=http://seaweedfs:8333
+      - DST_ACCESS_KEY=${SEAWEED_ACCESS_KEY:-seaweedadmin}
+      - DST_SECRET_KEY=${SERVICE_PASSWORD_SEAWEEDFS}
+      - DST_BUCKET=grid-documents
+      - MIGRATE_CONCURRENCY=${MIGRATE_CONCURRENCY:-8}
+    depends_on:
+      minio:
+        condition: service_healthy
+      seaweedfs-init:
+        condition: service_completed_successfully
+    restart: "no"
+
+  frontend:
+    build:
+      context: ./frontends/ui
+      dockerfile: deploy/Dockerfile
+    environment:
+      - SERVICE_FQDN_FRONTEND_3000
+      - REQUIRE_AUTH=${REQUIRE_AUTH:-true}
+      - APP_ENV=${APP_ENV:-production}
+      - BACKEND_URL=http://aiq-agent:8000
+      - GRID_APP_DATABASE_URL=postgresql://aiq:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/grid_app
+      - GRID_INTERNAL_API_TOKEN=${SERVICE_PASSWORD_INTERNALTOKEN}
+      - GRID_ALLOW_AGENT_ORG_MEMORY=${GRID_ALLOW_AGENT_ORG_MEMORY:-false}
+      - GRID_ADMIN_TOKEN=${GRID_ADMIN_TOKEN:?set GRID_ADMIN_TOKEN}
+      - WORKOS_CLIENT_ID=${WORKOS_CLIENT_ID:-}
+      - WORKOS_API_KEY=${WORKOS_API_KEY:-}
+      - NEXT_PUBLIC_WORKOS_REDIRECT_URI=https://${SERVICE_FQDN_FRONTEND}/api/auth/callback
+      - WORKOS_REDIRECT_URI=https://${SERVICE_FQDN_FRONTEND}/api/auth/callback
+      - WORKOS_COOKIE_PASSWORD=${WORKOS_COOKIE_PASSWORD:-}
+      - GRID_BYOK_SECRET_BACKEND=${GRID_BYOK_SECRET_BACKEND:-}
+      - GRID_BYOK_LOCAL_KEK=${GRID_BYOK_LOCAL_KEK:-}
+      - GRID_BYOK_ALLOW_PRIVATE_BASE_URLS=${GRID_BYOK_ALLOW_PRIVATE_BASE_URLS:-false}
+      - FILE_UPLOAD_ACCEPTED_TYPES=${FILE_UPLOAD_ACCEPTED_TYPES:-.pdf,.docx,.txt,.md}
+      - FILE_UPLOAD_MAX_SIZE_MB=${FILE_UPLOAD_MAX_SIZE_MB:-100}
+      - FILE_UPLOAD_MAX_FILE_COUNT=${FILE_UPLOAD_MAX_FILE_COUNT:-10}
+      - FILE_EXPIRATION_CHECK_INTERVAL_HOURS=${FILE_EXPIRATION_CHECK_INTERVAL_HOURS:-0}
+      # TRANSITION: the app still talks to MinIO. The new code reads SEAWEED_*
+      # names, but a name is not a backend — these values point at the old
+      # store so existing documents stay reachable while the copy runs.
+      - SEAWEED_ENDPOINT=http://minio:9000
+      - SEAWEED_PUBLIC_ENDPOINT=https://${SERVICE_FQDN_MINIO}
+      - SEAWEED_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
+      - SEAWEED_SECRET_KEY=${SERVICE_PASSWORD_MINIO}
+      - SEAWEED_BUCKET=grid-documents
+      - SEAWEED_PRESIGNED_URL_TTL_SECONDS=600
+      - PROJECT_PURGE_GRACE_DAYS=${PROJECT_PURGE_GRACE_DAYS:-7}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:?set OPENROUTER_API_KEY}
+      - GRID_BUDGET_EUR_PER_USD=${GRID_BUDGET_EUR_PER_USD:-0.86}
+      - GRID_PLATFORM_OWNER_EMAILS=${GRID_PLATFORM_OWNER_EMAILS:-}
+      - GRID_PLATFORM_ORG_EXTERNAL_ID=${GRID_PLATFORM_ORG_EXTERNAL_ID:-grid-platform}
+      - GRID_DISABLE_SELF_SERVE_ORGS=${GRID_DISABLE_SELF_SERVE_ORGS:-false}
+      - REDIS_URL=redis://dragonfly:6379/0
+      - GRID_WS_UPGRADE_RATE_LIMIT=${GRID_WS_UPGRADE_RATE_LIMIT:-30}
+      - GRID_WORKFLOWS_ENABLED=${GRID_WORKFLOWS_ENABLED:-false}
+      - GRID_WORKFLOW_MIN_INTERVAL_MINUTES=${GRID_WORKFLOW_MIN_INTERVAL_MINUTES:-15}
+    expose:
+      - "3000"
+    depends_on:
+      aiq-agent:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/healthz"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+
+  purger:
+    build:
+      context: ./frontends/ui
+      dockerfile: deploy/Dockerfile
+    command: ["node", "purger/index.js"]
+    environment:
+      - GRID_APP_DATABASE_URL=postgresql://aiq:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/grid_app
+      - BACKEND_URL=http://aiq-agent:8000
+      - GRID_INTERNAL_API_TOKEN=${SERVICE_PASSWORD_INTERNALTOKEN}
+      # TRANSITION: purger also stays on MinIO (see frontend note above).
+      - SEAWEED_ENDPOINT=http://minio:9000
+      - SEAWEED_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
+      - SEAWEED_SECRET_KEY=${SERVICE_PASSWORD_MINIO}
+      - SEAWEED_BUCKET=grid-documents
+      - WORKOS_API_KEY=${WORKOS_API_KEY:-}
+      - PURGER_POLL_INTERVAL_MS=${PURGER_POLL_INTERVAL_MS:-60000}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      aiq-agent:
+        condition: service_healthy
+    restart: unless-stopped
+
+  workflow-scheduler:
+    build:
+      context: ./frontends/ui
+      dockerfile: deploy/Dockerfile
+    command: ["node", "scheduler/index.js"]
+    environment:
+      - GRID_APP_DATABASE_URL=postgresql://aiq:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/grid_app
+      - FRONTEND_INTERNAL_URL=http://frontend:3000
+      - GRID_INTERNAL_API_TOKEN=${SERVICE_PASSWORD_INTERNALTOKEN}
+      - GRID_WORKFLOWS_ENABLED=${GRID_WORKFLOWS_ENABLED:-false}
+      - GRID_ENFORCE_FEATURE_FLAGS=${GRID_ENFORCE_FEATURE_FLAGS:-false}
+      - GRID_WORKFLOW_SCHEDULER_POLL_MS=${GRID_WORKFLOW_SCHEDULER_POLL_MS:-30000}
+      - GRID_WORKFLOW_SCHEDULER_BATCH=${GRID_WORKFLOW_SCHEDULER_BATCH:-20}
+      - GRID_WORKFLOW_RUNS_RETENTION_DAYS=${GRID_WORKFLOW_RUNS_RETENTION_DAYS:-90}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+    restart: unless-stopped
+
+  dragonfly:
+    image: dragonflydb/dragonfly:v1.27.1
+    command:
+      [
+        "dragonfly",
+        "--logtostderr",
+        "--force_epoll",
+        "--proactor_threads=1",
+        "--maxmemory=256mb",
+        "--cache_mode=true",
+        "--dbfilename=",
+      ]
+    ulimits:
+      memlock: -1
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -p 6379 ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  postgres:
+    build:
+      context: ./deploy/compose
+      dockerfile: postgres.Dockerfile
+    environment:
+      POSTGRES_USER: aiq
+      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}
+      POSTGRES_DB: aiq_jobs
+    expose:
+      - "5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aiq -d aiq_jobs && pg_isready -U aiq -d aiq_checkpoints && pg_isready -U aiq -d grid_app"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 120s
+    restart: unless-stopped
+
+volumes:
+  aiq-data:
+    driver: local
+  chroma_data:
+    driver: local
+  minio-data:
+    driver: local
+  seaweedfs-data:
+    driver: local
+  postgres-data:
+    driver: local
+
+# Same networking note as docker-compose.coolify.yaml: intentionally NO
+# top-level networks block — Coolify's managed network provides service-name
+# DNS, and a custom network would dual-home containers behind Traefik.

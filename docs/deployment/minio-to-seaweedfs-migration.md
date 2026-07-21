@@ -18,7 +18,45 @@ pointer. Copy the objects **before** cutting the app over.
 - It is **idempotent**: objects already present in the destination with a
   matching size are skipped, so you can re-run it (e.g. a final sync at cutover).
 
-## Cutover procedure
+## Cutover on Coolify (recommended): the transitional stack
+
+You cannot simply deploy the new compose over the old one — the object copy
+needs **both stores reachable at the same time**, and the final compose has no
+MinIO anymore. `deploy/compose/docker-compose.coolify.transition.yaml` exists
+for exactly one deploy window and automates the copy:
+
+- `minio` stays up on its existing volume and existing `SERVICE_PASSWORD_MINIO`
+  secret (Coolify secrets are stable per stack, so the old password still fits).
+- The app **keeps using MinIO** during the transition — the `SEAWEED_*` env vars
+  in the transitional file deliberately point at `http://minio:9000`, so nothing
+  breaks while the copy runs. (The DB column rename also applies on this deploy;
+  it is independent of which store the app talks to.)
+- `seaweedfs`/`seaweedfs-init` come up exactly as in the final compose.
+- `storage-migrate` (one-shot, frontend image) runs
+  `node scripts/migrate-storage.mjs` MinIO → SeaweedFS and verifies, on **every
+  deploy/restart** of the stack — idempotent, so re-running is cheap.
+
+Steps:
+
+1. In Coolify, change the resource's **Docker Compose Location** to
+   `deploy/compose/docker-compose.coolify.transition.yaml` and deploy.
+2. Watch the `storage-migrate` container logs until it prints
+   `verification OK` and exits.
+3. **Restart `storage-migrate` once more right before step 4** (one click) — a
+   seconds-fast final sync that picks up anything uploaded while you were
+   watching. Do the flip in a quiet window.
+4. Change the compose location back to
+   `deploy/compose/docker-compose.coolify.yaml` and deploy. MinIO is dropped;
+   the app now talks to SeaweedFS.
+5. In the app, open/preview/download a few pre-existing documents to confirm.
+6. Only then delete the orphaned `minio-data` volume. Until you do, nothing is
+   lost and you can roll back by re-deploying the transitional file.
+
+Caveat: uploads made between the last `storage-migrate` run and step 4 exist
+only in MinIO (that is what step 3 is for). Documents purged during the window
+after being copied linger as invisible orphan bytes in SeaweedFS — harmless.
+
+## Cutover by hand (docker compose / other CD)
 
 Run SeaweedFS **alongside** the still-running MinIO — do not tear MinIO down yet.
 
