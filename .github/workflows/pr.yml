@@ -19,7 +19,7 @@ concurrency:
 jobs:
   title:
     name: Conventional PR title
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       # The repo uses Conventional Commits and squash-merges the PR title, so
       # the title must itself be a valid conventional-commit subject.
@@ -41,7 +41,7 @@ jobs:
 
   label:
     name: Auto-label by path
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     # Never block a PR on labeling (e.g. before the labels-as-code sync has
     # seeded them, or a transient labels API hiccup).
     continue-on-error: true

@@ -25,7 +25,7 @@ concurrency:
 jobs:
   sonar:
     name: Analyze
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     env:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
     steps:
