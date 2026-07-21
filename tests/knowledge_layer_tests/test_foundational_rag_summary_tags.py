@@ -33,8 +33,12 @@ def summary_db(tmp_path):
 
 
 def _summary_fails_tags_ok(prompt):
-    """Same LLM for both calls, routed by prompt: summary raises, tags succeed."""
-    if prompt.startswith("Summarize"):
+    """Same LLM for both calls, routed by prompt: summary raises, tags succeed.
+
+    The tag prompt is the only one containing "klassifizierst"; the summary
+    prompt is anything else (decoupled from the summary prompt's exact wording).
+    """
+    if "klassifizierst" not in prompt:
         raise RuntimeError("summary model unavailable")
     return MagicMock(content='["Schnitt", "Brandschutz"]')
 

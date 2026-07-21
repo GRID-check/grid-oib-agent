@@ -32,6 +32,7 @@ import base64
 import json
 import logging
 import os
+import re
 import threading
 import time
 import uuid
@@ -75,6 +76,66 @@ MIN_IMAGE_HEIGHT_PX = 100
 # bound the VLM payload/token cost; smaller images pass through untouched. The
 # ORIGINAL dimensions are still recorded in the Document metadata.
 VLM_MAX_IMAGE_DIM = 1568
+
+# ---------------------------------------------------------------------------
+# Visual-page rendering (vector/scanned drawing capture).
+#
+# Text extraction (pdfplumber) and embedded-image extraction (pypdfium2 image
+# XObjects) BOTH miss vector-drawn CAD/architectural pages: the drawing is
+# thousands of path objects, not a raster image, and carries almost no
+# extractable text (often just a watermark). Such a page is rasterised in full
+# — every path, fill and label composited into one bitmap — and handed to the
+# VLM so the drawing's content, spatial relationships and scale are captured.
+# Detection + rendering is gated so ordinary text PDFs (the bulk OIB corpus)
+# are untouched and cost nothing extra.
+# ---------------------------------------------------------------------------
+
+# @environment_variable AIQ_RENDER_VISUAL_PAGES
+# @category Knowledge Layer
+# @type bool
+# @default true
+# @required false
+# Render text-sparse / vector-heavy PDF pages to images and VLM-caption them.
+# Effective only when a VLM key resolves; fires only on pages detected as
+# visual (below the text threshold or above the path-count threshold).
+RENDER_VISUAL_PAGES = os.environ.get("AIQ_RENDER_VISUAL_PAGES", "true").lower() == "true"
+
+# Long-edge target (px) for a full-page render before it is sent to the VLM.
+# ~2048px keeps linework, room labels and scale bars legible while staying at
+# or below the vision-encoder caps of current VLMs (above this the provider
+# just downsamples). Scale is computed per page from its point size so an A0
+# sheet and an A4 sheet both land near this target.
+PAGE_RENDER_MAX_DIM = int(os.environ.get("AIQ_PAGE_RENDER_MAX_DIM", "2048"))
+
+# A page is treated as "visual" (→ rendered + VLM-captioned) when its
+# watermark-stripped extractable text is shorter than this many characters...
+VISUAL_PAGE_MIN_TEXT_CHARS = int(os.environ.get("AIQ_VISUAL_PAGE_MIN_TEXT_CHARS", "200"))
+# ...OR it carries at least this many vector path objects (a plan/section/
+# elevation is typically hundreds-to-tens-of-thousands of paths).
+VISUAL_PAGE_MIN_PATHS = int(os.environ.get("AIQ_VISUAL_PAGE_MIN_PATHS", "300"))
+# Hard cap on rendered pages per document, to bound VLM cost/latency on large
+# plan sets. Excess visual pages are skipped (logged), text still indexed.
+MAX_RENDERED_PAGES = int(os.environ.get("AIQ_MAX_RENDERED_PAGES", "20"))
+
+# pypdfium2 page-object type constants (the C API values are not always exposed
+# as Python attributes across versions).
+_PAGEOBJ_TEXT = 1
+_PAGEOBJ_PATH = 2
+_PAGEOBJ_IMAGE = 3
+
+# Boilerplate / licence watermark lines stamped into the rendered output by
+# some CAD tools (Vectorworks/AutoCAD educational licences, "DRAFT", etc.).
+# Stripped before the text-length heuristic and before summarisation so a
+# drawing page that is 100% linework does not read as "has text" and so the
+# summary never describes the watermark instead of the drawing. Matched
+# case-insensitively against whole lines (leading/trailing whitespace ignored).
+WATERMARK_LINE_PATTERNS = [
+    re.compile(r"^\s*vectorworks\s+educational\s+version\s*$", re.IGNORECASE),
+    re.compile(r"^\s*educational\s+version\s*$", re.IGNORECASE),
+    re.compile(r"^\s*produced\s+by\s+an\s+autodesk\s+(student|educational)\s+(version|product).*$", re.IGNORECASE),
+    re.compile(r"^\s*created\s+(in|with)\s+an?\s+.*(trial|evaluation|educational).*version\s*$", re.IGNORECASE),
+    re.compile(r"^\s*(unregistered|evaluation|trial|demo)\s+version\s*$", re.IGNORECASE),
+]
 
 # @environment_variable AIQ_COLLECTION_TTL_HOURS
 # @category Knowledge Layer
@@ -242,27 +303,24 @@ def _resolve_embed_api_key(base_url: str, model: str) -> str:
     ).api_key
 
 
-def resolve_vlm_api_key() -> str:
-    """Resolve the VLM API key from the deployment's configuration — the single
-    source of truth for "is a vision model reachable?".
+def resolve_vlm_credential(organization_id: str | None = None):
+    """Resolve the full VLM credential (key + base URL + model) — the single
+    source of truth for the vision endpoint ingestion will call.
 
-    Both the ingestion path (image captioning) and the capability endpoint that
-    tells the frontend whether to offer image upload MUST go through this one
-    function, so the advertised capability can never drift from what ingestion
-    will actually attempt.
+    Delegates to the shared resolver (:func:`resolve_llm_credential`) so the VLM
+    inherits the SAME resolution the NAT chat models use, including **BYOK**:
 
-    Delegates to the shared resolver (:func:`resolve_llm_credential`) so every
-    caller inherits the same chain:
-
+      0. **BYOK** — when ``organization_id`` is given and the org has a
+         bring-your-own credential, the org's key + base URL win (never the
+         model — mirrors ADR-0022/0014).
       1. explicit override           — ``AIQ_VLM_API_KEY``
-      2. platform default             — ``NVIDIA_API_KEY``
-      3. deployment provider key      — inferred from ``AIQ_VLM_BASE_URL``: the
-         key for whatever provider the base URL points at (e.g.
+      2. platform default            — ``NVIDIA_API_KEY``
+      3. deployment provider key     — inferred from ``AIQ_VLM_BASE_URL`` (e.g.
          ``OPENROUTER_API_KEY`` when the base URL is openrouter.ai)
 
-    BYOK is not wired here for the same reason as embeddings: ingestion carries
-    no org id today (known follow-up). Returns the resolved key, or ``""`` when
-    none is configured.
+    Passing ``organization_id`` is what makes per-project/Archiv uploads use the
+    tenant's own key + endpoint; the org-agnostic paths (base OIB corpus sync)
+    pass ``None`` and get the deployment default, unchanged.
     """
     from aiq_agent.common.credential_resolution import resolve_llm_credential
 
@@ -273,8 +331,42 @@ def resolve_vlm_api_key() -> str:
         default_model=DEFAULT_VLM_MODEL,
         base_url_env="AIQ_VLM_BASE_URL",
         model_env="AIQ_VLM_MODEL",
-        organization_id=None,
-    ).api_key
+        organization_id=organization_id,
+    )
+
+
+def _resolve_vlm_model_override(organization_id: str | None) -> str | None:
+    """The org's runtime model override for the ingestion VLM, or ``None``.
+
+    Mirrors the NAT chat models' ``x-grid-model-overrides`` behaviour for the
+    ``ingest_vlm`` agent group (ADR-0014), resolved by org id via the BFF's
+    internal endpoint (the ingest thread has no request header). Model selection
+    only — the key + base URL still come from BYOK/env. Fail-open to ``None`` so
+    a BFF hiccup never blocks ingestion.
+    """
+    if not organization_id:
+        return None
+    try:
+        from aiq_agent.common.model_overrides import AgentGroup
+        from aiq_agent.common.model_overrides import resolve_org_model_overrides
+
+        return resolve_org_model_overrides(organization_id).get(AgentGroup.INGEST_VLM.value)
+    except Exception:  # noqa: BLE001 - model selection must never take ingestion down
+        logger.warning("VLM model-override resolution failed for org %s", organization_id, exc_info=True)
+        return None
+
+
+def resolve_vlm_api_key() -> str:
+    """Resolve the (org-agnostic) VLM API key — the single source of truth for
+    "is a vision model reachable?".
+
+    Both the capability endpoint that tells the frontend whether to offer image
+    upload and the org-agnostic ingestion gate consult this. Per-request
+    ingestion resolves the org-aware credential via
+    :func:`resolve_vlm_credential` instead, so a tenant's BYOK key powers its
+    own uploads. Returns the resolved key, or ``""`` when none is configured.
+    """
+    return resolve_vlm_credential(organization_id=None).api_key
 
 
 def vlm_configured() -> bool:
@@ -423,6 +515,22 @@ def _extract_tables_from_pdf(pdf_path: str) -> list[dict[str, Any]]:
     return tables
 
 
+def _strip_watermark_lines(text: str | None) -> str:
+    """Drop licence/watermark boilerplate lines (e.g. "VECTORWORKS EDUCATIONAL
+    VERSION") from extracted text.
+
+    Runs before both the visual-page heuristic and summarisation: without it a
+    drawing page that is pure linework plus a stamped watermark reads as "has
+    text" (so it never reaches the VLM) and its watermark becomes the document
+    summary. Only whole lines matching a known pattern are removed; real
+    content is never touched.
+    """
+    if not text:
+        return ""
+    kept = [line for line in text.splitlines() if not any(p.match(line) for p in WATERMARK_LINE_PATTERNS)]
+    return "\n".join(kept).strip()
+
+
 def _extract_text_from_pdf(pdf_path: str) -> list[dict[str, Any]]:
     """Extract per-page text from a PDF without falling back to raw PDF bytes."""
     try:
@@ -435,7 +543,7 @@ def _extract_text_from_pdf(pdf_path: str) -> list[dict[str, Any]]:
     try:
         with pdfplumber.open(pdf_path) as pdf:
             for page_num, page in enumerate(pdf.pages, start=1):
-                text = (page.extract_text() or "").strip()
+                text = _strip_watermark_lines(page.extract_text())
                 if text:
                     pages.append({"page_number": page_num, "text": text})
 
@@ -485,6 +593,7 @@ def _build_image_caption_document(
     vlm_model: str = DEFAULT_VLM_MODEL,
     vlm_base_url: str = DEFAULT_VLM_BASE_URL,
     extract_charts: bool = True,
+    vlm_api_key: str | None = None,
 ):
     """Read a standalone image, validate/normalize via PIL, and VLM-caption it.
 
@@ -522,6 +631,7 @@ def _build_image_caption_document(
         image_bytes,
         vlm_model=vlm_model,
         vlm_base_url=vlm_base_url,
+        vlm_api_key=vlm_api_key,
         extract_charts=extract_charts,
     )
 
@@ -591,6 +701,7 @@ def _analyze_image_with_vlm(
     vlm_model: str = DEFAULT_VLM_MODEL,
     vlm_base_url: str = DEFAULT_VLM_BASE_URL,
     extract_charts: bool = True,
+    vlm_api_key: str | None = None,
 ) -> tuple[str, str]:
     """
     Analyze an image using NVIDIA's VLM API - classify AND caption in ONE call.
@@ -603,6 +714,8 @@ def _analyze_image_with_vlm(
         image_bytes: Raw image bytes.
         vlm_model: NVIDIA VLM model name.
         extract_charts: If True, use chart-aware prompt that extracts data.
+        vlm_api_key: Pre-resolved key (e.g. an org's BYOK key). When ``None`` the
+            org-agnostic deployment key is used.
 
     Returns:
         Tuple of (content_type, caption) where content_type is "chart" or "image".
@@ -613,7 +726,7 @@ def _analyze_image_with_vlm(
         logger.warning("openai package not installed. Install with: pip install openai")
         return ("image", "[Image - captioning unavailable]")
 
-    api_key = _get_vlm_api_key()
+    api_key = vlm_api_key if vlm_api_key is not None else _get_vlm_api_key()
     if not api_key:
         return ("image", "[Image - VLM API key not set]")
 
@@ -718,6 +831,251 @@ def _caption_image_with_vlm(
         extract_charts=is_chart,
     )
     return caption
+
+
+# =============================================================================
+# Visual-page rendering (vector/scanned architectural drawings)
+# =============================================================================
+
+# Drawing-aware VLM prompt (German — the OIB Baurecht corpus is German). Asks
+# for a compact, structured description so the drawing *type* and *scale* are
+# captured explicitly rather than buried in prose, and instructs the model to
+# report but exclude any watermark from the content so it never pollutes the
+# summary. Kept as plain text (not response_format=json_schema) because not
+# every OpenAI-compatible VLM honours structured outputs; the response is
+# parsed leniently.
+_DRAWING_VLM_PROMPT = """Du analysierst das Bild EINER PDF-Seite aus einem \
+österreichischen Bauprojekt (Baurecht, OIB-Richtlinien). Es handelt sich \
+meist um eine technische Zeichnung (Grundriss, Schnitt, Ansicht, Detail, \
+Lageplan oder Perspektive) — häufig als Vektorzeichnung ohne extrahierbaren \
+Text.
+
+Beschreibe, WAS die Zeichnung tatsächlich zeigt. Erhalte dabei visuelle \
+Beziehungen und den Maßstab. Antworte AUSSCHLIESSLICH in diesem Format:
+
+ZEICHNUNGSTYP: <grundriss|schnitt|ansicht|detail|lageplan|perspektive|sonstiges>
+MASSSTAB: <z.B. 1:100, M 1:50, oder "Maßstabsfiguren/-balken vorhanden" oder "unbekannt">
+TITEL/PROJEKT: <Projekt-/Planname aus dem Schriftfeld, sonst "unbekannt">
+GESCHOSSE/EBENEN: <Anzahl und Bezeichnung der dargestellten Geschosse/Ebenen, sonst "-">
+RÄUME/ELEMENTE: <wichtigste beschriftete Räume oder Bauteile, kommagetrennt>
+ABMESSUNGEN/KOTEN: <sichtbare Maße/Kotierungen, sonst "keine sichtbar">
+RÄUMLICHE BEZIEHUNGEN: <ein bis zwei Sätze zu Anordnung, Ebenen, Erschließung, Orientierung>
+WASSERZEICHEN: <erkannter Wasserzeichen-/Lizenztext, z.B. "VECTORWORKS EDUCATIONAL VERSION", sonst "keines">
+ZUSAMMENFASSUNG: <EIN Satz, der den Inhalt der Zeichnung inkl. Maßstab beschreibt — OHNE Wasserzeichen zu erwähnen>
+
+Ignoriere Wasserzeichen-/Lizenztext bei der inhaltlichen Analyse; nenne ihn \
+nur im Feld WASSERZEICHEN."""
+
+
+def _parse_drawing_fields(caption: str) -> dict[str, str]:
+    """Parse the ``KEY: value`` lines of a drawing-VLM response into a dict.
+
+    Lenient: unknown/extra lines are ignored and any field the model omitted is
+    simply absent. Keys are normalised to lowercase ascii slugs.
+    """
+    field_map = {
+        "zeichnungstyp": "drawing_type",
+        "massstab": "scale",
+        "maßstab": "scale",
+        "titel/projekt": "title",
+        "geschosse/ebenen": "levels",
+        "räume/elemente": "elements",
+        "abmessungen/koten": "dimensions",
+        "räumliche beziehungen": "spatial_relations",
+        "wasserzeichen": "watermark",
+        "zusammenfassung": "summary",
+    }
+    out: dict[str, str] = {}
+    for line in (caption or "").splitlines():
+        if ":" not in line:
+            continue
+        key, _, value = line.partition(":")
+        slug = field_map.get(key.strip().lower())
+        if slug and value.strip():
+            out[slug] = value.strip()
+    return out
+
+
+def _analyze_drawing_page_with_vlm(
+    image_bytes: bytes,
+    vlm_model: str = DEFAULT_VLM_MODEL,
+    vlm_base_url: str = DEFAULT_VLM_BASE_URL,
+    vlm_api_key: str | None = None,
+) -> tuple[str, dict[str, str]]:
+    """VLM-describe a full rendered PDF page as a technical drawing.
+
+    Returns ``(caption, fields)`` where ``caption`` is the raw structured text
+    stored in the chunk and ``fields`` is the parsed ``_parse_drawing_fields``
+    dict (drawing_type, scale, summary, …) used to build the document summary.
+    ``vlm_api_key`` is a pre-resolved key (e.g. an org's BYOK key); ``None`` uses
+    the org-agnostic deployment key. Fail-open: on any error returns a
+    placeholder caption and empty fields so the page is still indexed (never
+    crashes the job).
+    """
+    try:
+        from openai import OpenAI
+    except ImportError:
+        logger.warning("openai package not installed. Install with: pip install openai")
+        return ("[Drawing - captioning unavailable]", {})
+
+    api_key = vlm_api_key if vlm_api_key is not None else _get_vlm_api_key()
+    if not api_key:
+        return ("[Drawing - VLM API key not set]", {})
+
+    try:
+        image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+        client = OpenAI(base_url=vlm_base_url, api_key=api_key)
+        response = client.chat.completions.create(
+            model=vlm_model,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": _DRAWING_VLM_PROMPT},
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}},
+                    ],
+                }
+            ],
+            max_tokens=700,
+            temperature=0.2,
+        )
+        caption = (response.choices[0].message.content or "").strip()
+        if not caption:
+            return ("[Drawing - empty VLM response]", {})
+        logger.debug("Drawing VLM analysis: %s...", caption[:100])
+        return (caption, _parse_drawing_fields(caption))
+    except Exception as e:
+        logger.error("Drawing VLM analysis failed: %s", e)
+        return (f"[Drawing - analysis failed: {str(e)[:50]}]", {})
+
+
+def _render_visual_pdf_pages(
+    pdf_path: str,
+    vlm_model: str = DEFAULT_VLM_MODEL,
+    vlm_base_url: str = DEFAULT_VLM_BASE_URL,
+    vlm_api_key: str | None = None,
+    max_dim: int = PAGE_RENDER_MAX_DIM,
+    min_text_chars: int = VISUAL_PAGE_MIN_TEXT_CHARS,
+    min_paths: int = VISUAL_PAGE_MIN_PATHS,
+    max_pages: int = MAX_RENDERED_PAGES,
+) -> list[dict[str, Any]]:
+    """Render text-sparse / vector-heavy PDF pages and VLM-caption them.
+
+    For each page: read its text (watermark-stripped) and count vector path
+    objects. A page is "visual" — and therefore rendered and captioned — when
+    its text is below ``min_text_chars`` OR it has at least ``min_paths`` path
+    objects. This captures vector CAD drawings and scanned pages that the text
+    and embedded-image extractors both miss, while text pages skip the VLM
+    entirely. The whole page is composited into one bitmap (scaled so its long
+    edge ≈ ``max_dim`` px) so visual relationships and scale stay intact.
+
+    Returns a list of dicts:
+      ``{"caption", "fields", "page_number", "width", "height"}``.
+    """
+    try:
+        import io
+
+        import pypdfium2 as pdfium
+    except ImportError:
+        logger.warning("pypdfium2 not installed. Install with: pip install pypdfium2")
+        return []
+
+    results: list[dict[str, Any]] = []
+    rendered = 0
+    try:
+        doc = pdfium.PdfDocument(pdf_path)
+        try:
+            for page_num in range(len(doc)):
+                page = doc[page_num]
+                try:
+                    # Cheap per-page signals: watermark-stripped text length and
+                    # path-object count (a plan/section is hundreds+ of paths).
+                    text_page = page.get_textpage()
+                    try:
+                        raw_text = text_page.get_text_range()
+                    finally:
+                        text_page.close()
+                    text_len = len(_strip_watermark_lines(raw_text))
+
+                    path_count = 0
+                    for obj in page.get_objects():
+                        if obj.type == _PAGEOBJ_PATH:
+                            path_count += 1
+                            if path_count >= min_paths:
+                                break
+
+                    is_visual = text_len < min_text_chars or path_count >= min_paths
+                    if not is_visual:
+                        continue
+
+                    if rendered >= max_pages:
+                        logger.warning(
+                            "Visual-page render cap (%d) reached for %s; skipping remaining pages",
+                            max_pages,
+                            pdf_path,
+                        )
+                        break
+
+                    width_pt, height_pt = page.get_size()
+                    longest_pt = max(width_pt, height_pt) or 1.0
+                    scale = max_dim / longest_pt
+                    bitmap = page.render(scale=scale)
+                    pil_image = bitmap.to_pil().convert("RGB")
+                    buf = io.BytesIO()
+                    pil_image.save(buf, format="JPEG", quality=90)
+
+                    caption, fields = _analyze_drawing_page_with_vlm(
+                        buf.getvalue(),
+                        vlm_model=vlm_model,
+                        vlm_base_url=vlm_base_url,
+                        vlm_api_key=vlm_api_key,
+                    )
+                    results.append(
+                        {
+                            "caption": caption,
+                            "fields": fields,
+                            "page_number": page_num + 1,
+                            "width": pil_image.width,
+                            "height": pil_image.height,
+                        }
+                    )
+                    rendered += 1
+                finally:
+                    page.close()
+        finally:
+            doc.close()
+        logger.info("Rendered + captioned %d visual page(s) from %s", len(results), pdf_path)
+    except Exception as e:
+        logger.error("Error rendering visual PDF pages: %s", e)
+
+    return results
+
+
+def _summary_from_drawing_fields(pages: list[dict[str, Any]]) -> str | None:
+    """Build a document summary from rendered-page drawing descriptions.
+
+    Prefers the per-page ``ZUSAMMENFASSUNG`` sentences; falls back to a
+    ``drawing_type @ scale`` synthesis so a document that is entirely drawings
+    still gets a meaningful, watermark-free summary. Returns ``None`` when no
+    usable fields were extracted (caller then keeps its text-based fallback).
+    """
+    sentences = [p["fields"].get("summary", "").strip() for p in pages if p.get("fields")]
+    sentences = [s for s in sentences if s]
+    if sentences:
+        summary = " ".join(sentences[:3])
+        return summary[:600].rstrip()
+
+    synth: list[str] = []
+    for p in pages:
+        fields = p.get("fields") or {}
+        dtype = fields.get("drawing_type")
+        if not dtype:
+            continue
+        scale = fields.get("scale")
+        synth.append(f"{dtype} (Maßstab {scale})" if scale and scale.lower() != "unbekannt" else dtype)
+    if synth:
+        return ("Technische Zeichnungen: " + "; ".join(synth[:5]))[:600].rstrip()
+    return None
 
 
 # =============================================================================
@@ -1759,6 +2117,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         if is_pdf:
             try:
                 import pypdfium2 as pdfium
+
                 pdf = pdfium.PdfDocument(file_path)
                 page = pdf[0]
                 # Render at 2x (supersample) so the down-scaled thumbnail keeps
@@ -1834,8 +2193,21 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             extract_tables = config.get("extract_tables", self.extract_tables)
             extract_images = config.get("extract_images", self.extract_images)
             extract_charts = config.get("extract_charts", self.extract_charts)
-            vlm_model = config.get("vlm_model", self.vlm_model)
-            vlm_base_url = config.get("vlm_base_url", self.vlm_base_url)
+
+            # Resolve the VLM the SAME way the NAT chat models resolve theirs —
+            # honouring org BYOK (key + base URL) and the org's runtime model
+            # override — so per-project/Archiv uploads use the tenant's own
+            # vision credential and chosen model. The org id is captured at the
+            # request boundary (/v1/ingest) into the job config, because this
+            # runs in a detached background thread with no request context. The
+            # org-agnostic paths (base OIB corpus sync) carry no org id and get
+            # the deployment default, exactly as before.
+            organization_id = config.get("organization_id")
+            vlm_cred = resolve_vlm_credential(organization_id)
+            vlm_api_key = vlm_cred.api_key
+            vlm_base_url = config.get("vlm_base_url") or vlm_cred.base_url
+            base_vlm_model = config.get("vlm_model", self.vlm_model)
+            vlm_model = _resolve_vlm_model_override(organization_id) or base_vlm_model
 
             # Set up ChromaDB client (use shared client if using default persist_dir)
             persist_dir = config.get("persist_dir", self.persist_dir)
@@ -1938,8 +2310,9 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         # Document. The VLM is a hard requirement here (there is
                         # no text to fall back on), so a missing key fails the
                         # file with a specific, machine-readable reason the
-                        # failed-doc UX can surface for retry.
-                        if not _get_vlm_api_key():
+                        # failed-doc UX can surface for retry. The key is the
+                        # org-aware resolved one (BYOK), not the deployment key.
+                        if not vlm_api_key:
                             self._update_file_status(
                                 job,
                                 i,
@@ -1956,6 +2329,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                             image_format,
                             vlm_model=vlm_model,
                             vlm_base_url=vlm_base_url,
+                            vlm_api_key=vlm_api_key,
                             extract_charts=extract_charts,
                         )
                         if caption_doc is None:
@@ -1988,26 +2362,14 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     all_documents.extend(text_documents)
                     logger.info(f"  Text extraction: {len(text_documents)} documents")
 
-                    # Start summary + tag classification in parallel with VLM
-                    # (if enabled). Two separate LLM calls run concurrently on a
-                    # 2-worker pool; both are awaited (with their own timeouts)
-                    # and are fully fail-open below.
+                    # Summary + tag classification are started AFTER visual
+                    # extraction (below) so that for text-sparse drawing PDFs the
+                    # rendered-page descriptions — not a watermark — feed the
+                    # summary. Rendered visual/vector pages accumulate here.
                     summary_future = None
                     tags_future = None
                     executor = None
-                    if self.generate_summary_enabled and text_documents:
-                        from concurrent.futures import ThreadPoolExecutor
-
-                        from aiq_agent.knowledge.document_classification import classify_document_tags
-
-                        first = text_documents[0].get_content()
-                        last = text_documents[-1].get_content() if len(text_documents) > 1 else ""
-                        combined = f"{first}\n...\n{last}" if last else first
-                        executor = ThreadPoolExecutor(max_workers=2)
-                        summary_future = executor.submit(
-                            _generate_document_summary, combined, file_name, self.summary_llm
-                        )
-                        tags_future = executor.submit(classify_document_tags, combined, file_name, self.summary_llm)
+                    drawing_pages: list[dict[str, Any]] = []
 
                     # 2. Extract tables (PDF only)
                     if is_pdf and extract_tables:
@@ -2042,6 +2404,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                                 img["image_bytes"],
                                 vlm_model=vlm_model,
                                 vlm_base_url=vlm_base_url,
+                                vlm_api_key=vlm_api_key,
                                 extract_charts=extract_charts,
                             )
 
@@ -2078,6 +2441,63 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         total_charts += file_charts
                         total_images += file_images
                         logger.info(f"  Visual extraction: {file_charts} charts, {file_images} images")
+
+                    # 4. Render visual/vector pages (PDF only). Captures CAD /
+                    # architectural drawings that carry almost no text and no
+                    # embedded raster image (pure vector paths) — the case both
+                    # the text and image extractors miss. Gated on a resolvable
+                    # VLM key so it silently no-ops in text-only deployments, and
+                    # internally only renders pages detected as visual.
+                    if is_pdf and RENDER_VISUAL_PAGES and vlm_api_key:
+                        drawing_pages = _render_visual_pdf_pages(
+                            file_path,
+                            vlm_model=vlm_model,
+                            vlm_base_url=vlm_base_url,
+                            vlm_api_key=vlm_api_key,
+                        )
+                        for page in drawing_pages:
+                            fields = page.get("fields") or {}
+                            drawing_doc = Document(
+                                text=f"[DRAWING from page {page['page_number']}]\n\n{page['caption']}",
+                                metadata={
+                                    "file_name": file_name,
+                                    "file_size": file_size,
+                                    "page_label": str(page["page_number"]),
+                                    "content_type": "drawing",
+                                    "drawing_type": fields.get("drawing_type", ""),
+                                    "drawing_scale": fields.get("scale", ""),
+                                    "image_width": page["width"],
+                                    "image_height": page["height"],
+                                },
+                            )
+                            all_documents.append(drawing_doc)
+                        total_images += len(drawing_pages)
+                        if drawing_pages:
+                            logger.info(f"  Drawing extraction: {len(drawing_pages)} rendered page(s)")
+
+                    # Start summary + tag classification (if enabled). For a
+                    # text-sparse drawing PDF the rendered-page descriptions are
+                    # the document's real content, so feed those to the LLM
+                    # instead of the near-empty (watermark-stripped) page text —
+                    # otherwise the summary describes nothing or a watermark. Both
+                    # LLM calls run concurrently on a 2-worker pool and are fully
+                    # fail-open below.
+                    if self.generate_summary_enabled and (text_documents or drawing_pages):
+                        from aiq_agent.knowledge.document_classification import classify_document_tags
+
+                        first = text_documents[0].get_content() if text_documents else ""
+                        last = text_documents[-1].get_content() if len(text_documents) > 1 else ""
+                        text_source = f"{first}\n...\n{last}" if last else first
+                        drawing_source = "\n\n".join(p["caption"] for p in drawing_pages)
+                        if drawing_pages and len(text_source.strip()) < VISUAL_PAGE_MIN_TEXT_CHARS:
+                            llm_input = drawing_source or text_source
+                        else:
+                            llm_input = text_source
+                        executor = ThreadPoolExecutor(max_workers=2)
+                        summary_future = executor.submit(
+                            _generate_document_summary, llm_input, file_name, self.summary_llm
+                        )
+                        tags_future = executor.submit(classify_document_tags, llm_input, file_name, self.summary_llm)
 
                     # Wait for summary if started
                     summary = None
@@ -2159,6 +2579,14 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     thumbnail_upload_url = config.get("thumbnail_upload_url")
                     if thumbnail_upload_url and (is_pdf or is_image):
                         self._generate_and_upload_thumbnail(file_path, thumbnail_upload_url)
+
+                    # Drawing PDFs (text-sparse) whose LLM summary failed fall
+                    # back to a deterministic, watermark-free summary synthesised
+                    # from the rendered-page drawing fields — better than the raw
+                    # text backstop below, which would surface a watermark or an
+                    # empty string.
+                    if not summary and drawing_pages:
+                        summary = _summary_from_drawing_fields(drawing_pages)
 
                     # Structural "ingested ⇒ visible" backstop: ANY successfully
                     # ingested text document must get a summary row, or it becomes

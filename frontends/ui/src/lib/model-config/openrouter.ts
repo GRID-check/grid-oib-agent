@@ -224,6 +224,16 @@ export function validateModelForGroup(
   if (model.inputModalities.length > 0 && !model.inputModalities.includes('text')) {
     reasons.push('model does not accept text input')
   }
+  // Vision groups (ingestion VLM) send images; a text-only model cannot see
+  // them. Self-skips when the catalog carries no modality metadata (relaxed
+  // BYOK catalogs), like the text-input check above.
+  if (
+    group.requirements.requiresImageInput &&
+    model.inputModalities.length > 0 &&
+    !model.inputModalities.includes('image')
+  ) {
+    reasons.push('model does not accept image input (a vision model is required)')
+  }
   if (model.contextLength > 0 && model.contextLength < group.requirements.minContextLength) {
     reasons.push(
       `context length ${model.contextLength.toLocaleString()} is below the required ${group.requirements.minContextLength.toLocaleString()}`,

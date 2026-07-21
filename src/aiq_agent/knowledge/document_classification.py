@@ -190,7 +190,16 @@ def summarize_document_text(text_content: str, file_name: str, llm) -> str | Non
         return None
 
     text = text_content[:CLASSIFY_MAX_INPUT_CHARS]
-    prompt = f"Summarize in ONE sentence:\n\n{text}"
+    prompt = (
+        "Fasse den Inhalt dieses Baudokuments in EINEM Satz auf Deutsch zusammen. "
+        "Beschreibe, WAS das Dokument inhaltlich zeigt (z.B. Zeichnungstyp wie "
+        "Grundriss/Schnitt/Ansicht, dargestellte Räume/Bauteile, Maßstab). "
+        "Bei technischen Zeichnungen nenne Zeichnungstyp und Maßstab, falls "
+        "erkennbar. Ignoriere Wasserzeichen sowie Software-/Lizenzhinweise "
+        '(z.B. "VECTORWORKS EDUCATIONAL VERSION") vollständig — sie sind NICHT '
+        "der Inhalt. Antworte nur mit dem Satz, ohne Einleitung.\n\n"
+        f"{text}"
+    )
 
     try:
         response = llm.invoke(prompt)

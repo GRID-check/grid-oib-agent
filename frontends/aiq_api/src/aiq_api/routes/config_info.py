@@ -43,6 +43,19 @@ def add_config_info_routes(router: APIRouter, llm_configs: Mapping[str, Any]) ->
         for name, config in llm_configs.items()
     }
 
+    # The ingestion VLM is env-configured (AIQ_VLM_MODEL), not a `llms:` entry,
+    # so surface its resolved default under a stable synthetic `vlm` key. The
+    # org model-config UI's `ingest_vlm` group maps to this via configLlmRefs so
+    # it too shows a "workflow default" (and what a reset returns to).
+    try:
+        from knowledge_layer.llamaindex.adapter import resolve_vlm_credential
+
+        vlm_model = resolve_vlm_credential().model
+        if vlm_model:
+            defaults.setdefault("vlm", vlm_model)
+    except Exception:  # pragma: no cover - display-only; never block the endpoint
+        logger.warning("Could not resolve VLM default model for llm-defaults", exc_info=True)
+
     @router.get("/v1/config/llm-defaults")
     async def llm_defaults(request: Request) -> dict[str, Any]:
         if not _token_ok(request):

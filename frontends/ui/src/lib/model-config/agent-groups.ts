@@ -26,6 +26,14 @@ export interface AgentGroupRequirements {
    * Enforced via `isReasoningSafeForOff` in openrouter.ts.
    */
   reasoningOff?: boolean
+  /**
+   * True when this group sends IMAGES to the model (a vision task). The model's
+   * `architecture.input_modalities` must include `image`, else it cannot see
+   * the page/drawing and ingestion produces empty captions. Enforced in
+   * `validateModelForGroup`; self-skips when a (BYOK) catalog carries no
+   * modality metadata, matching the text-input check.
+   */
+  requiresImageInput?: boolean
 }
 
 export interface AgentGroupDefinition {
@@ -93,6 +101,21 @@ export const AGENT_GROUPS: AgentGroupDefinition[] = [
       'Post-answer background pass that distills durable project memory from a finished turn. Cost-sensitive; runs after every substantive answer when enabled.',
     configLlmRefs: ['card_llm'],
     requirements: { requiredParameters: [], minContextLength: 32768 },
+  },
+  {
+    id: 'ingest_vlm',
+    label: 'Document vision (ingestion)',
+    description:
+      'Captions images and describes vector/scanned drawings (plans, sections, elevations, perspectives) during document ingestion. Must be a vision model that accepts image input.',
+    // The ingestion VLM is env-configured (AIQ_VLM_MODEL), not a `llms:` entry;
+    // the backend reports its default under the synthetic `vlm` key from
+    // /v1/config/llm-defaults (see config_info.py) so this group still shows a
+    // "workflow default".
+    configLlmRefs: ['vlm'],
+    // Vision is the only hard requirement — a caption call needs no tools and
+    // little context; the image dominates the payload. minContextLength 0
+    // avoids excluding otherwise-valid vision models.
+    requirements: { requiredParameters: [], minContextLength: 0, requiresImageInput: true },
   },
 ]
 
