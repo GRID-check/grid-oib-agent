@@ -42,6 +42,7 @@ export const members = {
     notFound:
       'No organization member uses that email. They need to join the organization before they can be added to this project.',
     success: '{name} now has {role} access to this project.',
+    alreadyHasRole: '{name} already has {role} access to this project — nothing to change.',
   },
   readOnly: {
     title: 'Read-only access',
@@ -57,12 +58,33 @@ export const members = {
     roleForMember: 'Project role for {name}',
     noAccessOption: 'No project access',
     noAccess: 'No access',
+    youBadge: 'You',
     emptyTitle: 'No members yet',
     emptyDescription:
       'Organization members you add will appear here with their project role.',
     noMatchTitle: 'No matching members',
     noMatchDescription: 'No one matches your search. Clear it to see the full roster.',
     clearSearch: 'Clear search',
+  },
+  /**
+   * Confirmation copy for role changes that are easy to click without
+   * meaning to: an admin editing their own row (self-demotion/lockout), or
+   * "Add member" landing on someone who already has a different role
+   * (a silent downgrade dressed up as an add).
+   */
+  confirm: {
+    selfChangeTitle: 'Change your own role?',
+    selfChangeDescription:
+      "You're about to change your own project role to {role}. If the new role can't manage members, you won't be able to undo this yourself — another project admin would have to.",
+    selfChangeConfirm: 'Change my role',
+    selfRemoveTitle: 'Remove your own access?',
+    selfRemoveDescription:
+      "You're about to remove your own access to this project. You'll lose the ability to see or manage it, and will need another project admin to add you back.",
+    selfRemoveConfirm: 'Remove my access',
+    roleChangeTitle: 'Change their role instead?',
+    roleChangeDescription:
+      '{name} already has {from} access to this project. "Add member" would change their role to {to} rather than adding someone new.',
+    roleChangeConfirm: 'Change role to {role}',
   },
   tryAgain: 'Try again',
 }

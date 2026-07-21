@@ -11,6 +11,15 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Input } from '@/components/ui/input'
 import {
@@ -38,6 +47,24 @@ interface ProjectMembersFormProps {
   projectId: string
   /** Whether the current user may change roles / add members. */
   canManage: boolean
+  /**
+   * The signed-in user's own `organizationMembershipId` (same id space as
+   * {@link Member.organizationMembershipId}), so the roster can tell which
+   * row is "you". Used to guard against an admin silently stripping their
+   * own project access. `null`/omitted when unknown — the guard then simply
+   * never matches, i.e. it fails open to the pre-existing (unguarded)
+   * behavior rather than blocking legitimate changes.
+   */
+  currentMembershipId?: string | null
+}
+
+/** A pending, user-confirmed role change — either a self-row edit or an
+ * "Add member" that would actually change an existing member's role. */
+interface PendingRoleConfirm {
+  title: string
+  description: string
+  confirmLabel: string
+  run: () => Promise<void>
 }
 
 const ROLE_VALUES: ProjectRole[] = ['project-viewer', 'project-editor', 'project-admin']
@@ -252,8 +279,13 @@ function MemberSuggestField({
   )
 }
 
-export function ProjectMembersForm({ projectId, canManage }: ProjectMembersFormProps): JSX.Element {
+export function ProjectMembersForm({
+  projectId,
+  canManage,
+  currentMembershipId = null,
+}: ProjectMembersFormProps): JSX.Element {
   const t = useTranslations('members')
+  const tCommon = useTranslations('common')
   const roleLabel = (role: ProjectRole): string => t(`roles.${role}`)
   const roleDescription = (role: ProjectRole): string => t(`roleDescriptions.${role}`)
   const roleOptions = ROLE_VALUES.map((value) => ({
@@ -273,6 +305,11 @@ export function ProjectMembersForm({ projectId, canManage }: ProjectMembersFormP
   const [loadError, setLoadError] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [inviteError, setInviteError] = useState<string | null>(null)
+  // A destructive-ish role change (self-row edit, or an "Add member" that
+  // would actually change an existing member's role) waiting on explicit
+  // confirmation before it is sent to the server.
+  const [pendingConfirm, setPendingConfirm] = useState<PendingRoleConfirm | null>(null)
+  const [isConfirming, setIsConfirming] = useState(false)
 
   // Keep a live reference so the invite form's onSubmit resolves against the
   // current roster rather than a stale closure.
@@ -344,6 +381,41 @@ export function ProjectMembersForm({ projectId, canManage }: ProjectMembersFormP
     [projectId],
   )
 
+  /**
+   * Roster row role change. Guards the current user's own row: an admin
+   * changing their own role/access on this Select otherwise commits
+   * instantly (lockout footgun — see project-members-form ticket), so a
+   * self-edit is routed through an explicit confirmation instead of
+   * `assignRole` directly.
+   */
+  const handleRosterRoleChange = (member: Member, nextRole: ProjectRole | ''): void => {
+    const isSelf = currentMembershipId != null && member.organizationMembershipId === currentMembershipId
+    if (!isSelf) {
+      void assignRole(member.organizationMembershipId, nextRole)
+      return
+    }
+
+    if (nextRole) {
+      setPendingConfirm({
+        title: t('confirm.selfChangeTitle'),
+        description: t('confirm.selfChangeDescription', { role: roleLabel(nextRole) }),
+        confirmLabel: t('confirm.selfChangeConfirm'),
+        run: async () => {
+          await assignRole(member.organizationMembershipId, nextRole)
+        },
+      })
+    } else {
+      setPendingConfirm({
+        title: t('confirm.selfRemoveTitle'),
+        description: t('confirm.selfRemoveDescription'),
+        confirmLabel: t('confirm.selfRemoveConfirm'),
+        run: async () => {
+          await assignRole(member.organizationMembershipId, nextRole)
+        },
+      })
+    }
+  }
+
   const inviteForm = useAppForm({
     defaultValues: { email: '', roleSlug: 'project-viewer' as ProjectRole },
     validators: { onChange: inviteSchema },
@@ -357,13 +429,42 @@ export function ProjectMembersForm({ projectId, canManage }: ProjectMembersFormP
         return
       }
 
-      const ok = await assignRole(match.organizationMembershipId, value.roleSlug)
-      if (ok) {
-        toast.success(
-          t('invite.success', { name: match.name, role: roleLabel(value.roleSlug) }),
-        )
-        formApi.reset()
+      const grantAndAnnounce = async (): Promise<void> => {
+        const ok = await assignRole(match.organizationMembershipId, value.roleSlug)
+        if (ok) {
+          toast.success(
+            t('invite.success', { name: match.name, role: roleLabel(value.roleSlug) }),
+          )
+          formApi.reset()
+        }
       }
+
+      if (!match.role) {
+        // Genuinely new access — no existing role to clobber.
+        await grantAndAnnounce()
+        return
+      }
+
+      if (match.role === value.roleSlug) {
+        // Nothing would actually change; say so instead of a no-op success.
+        setInviteError(t('invite.alreadyHasRole', { name: match.name, role: roleLabel(match.role) }))
+        return
+      }
+
+      // `match` already has a project role — "Add member" here would
+      // silently change it (e.g. an admin picked as a "viewer" invite gets
+      // downgraded). Confirm the change explicitly instead of presenting a
+      // role change as a cheerful "added" toast.
+      setPendingConfirm({
+        title: t('confirm.roleChangeTitle'),
+        description: t('confirm.roleChangeDescription', {
+          name: match.name,
+          from: roleLabel(match.role),
+          to: roleLabel(value.roleSlug),
+        }),
+        confirmLabel: t('confirm.roleChangeConfirm', { role: roleLabel(value.roleSlug) }),
+        run: grantAndAnnounce,
+      })
     },
   })
 
@@ -399,7 +500,8 @@ export function ProjectMembersForm({ projectId, canManage }: ProjectMembersFormP
   }
 
   return (
-    <div className="flex flex-col gap-8">
+    <>
+      <div className="flex flex-col gap-8">
       {canManage ? (
         <form
           onSubmit={(event) => {
@@ -527,6 +629,8 @@ export function ProjectMembersForm({ projectId, canManage }: ProjectMembersFormP
           <div className="divide-y divide-border">
             {filteredMembers.map((member) => {
               const isUpdating = updatingId === member.organizationMembershipId
+              const isSelf =
+                currentMembershipId != null && member.organizationMembershipId === currentMembershipId
               return (
                 <div
                   key={member.organizationMembershipId}
@@ -535,7 +639,14 @@ export function ProjectMembersForm({ projectId, canManage }: ProjectMembersFormP
                   <div className="flex min-w-0 items-center gap-3">
                     <MemberAvatar member={member} className="size-9" />
                     <div className="flex min-w-0 flex-col gap-0.5">
-                      <p className="truncate text-sm font-medium">{member.name}</p>
+                      <p className="flex min-w-0 items-center gap-1.5 truncate text-sm font-medium">
+                        <span className="truncate">{member.name}</span>
+                        {isSelf && (
+                          <Badge variant="outline" className="shrink-0 px-1.5 py-0 text-[10px] font-normal">
+                            {t('roster.youBadge')}
+                          </Badge>
+                        )}
+                      </p>
                       <p className="truncate text-xs text-muted-foreground">
                         {member.email ?? member.userId}
                       </p>
@@ -552,10 +663,7 @@ export function ProjectMembersForm({ projectId, canManage }: ProjectMembersFormP
                       <Select
                         value={member.role || NO_ACCESS}
                         onValueChange={(value) =>
-                          assignRole(
-                            member.organizationMembershipId,
-                            value === NO_ACCESS ? '' : (value as ProjectRole),
-                          )
+                          handleRosterRoleChange(member, value === NO_ACCESS ? '' : (value as ProjectRole))
                         }
                         disabled={isUpdating}
                       >
@@ -595,6 +703,46 @@ export function ProjectMembersForm({ projectId, canManage }: ProjectMembersFormP
           </div>
         )}
       </div>
-    </div>
+      </div>
+
+      <Dialog
+        open={pendingConfirm != null}
+        onOpenChange={(open) => {
+          if (!open && !isConfirming) setPendingConfirm(null)
+        }}
+      >
+        {pendingConfirm && (
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{pendingConfirm.title}</DialogTitle>
+              <DialogDescription>{pendingConfirm.description}</DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <DialogClose asChild>
+                <Button variant="ghost" disabled={isConfirming}>
+                  {tCommon('actions.cancel')}
+                </Button>
+              </DialogClose>
+              <Button
+                variant="destructive"
+                disabled={isConfirming}
+                onClick={() => {
+                  const confirm = pendingConfirm
+                  setIsConfirming(true)
+                  void confirm
+                    .run()
+                    .finally(() => {
+                      setIsConfirming(false)
+                      setPendingConfirm(null)
+                    })
+                }}
+              >
+                {pendingConfirm.confirmLabel}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        )}
+      </Dialog>
+    </>
   )
 }
