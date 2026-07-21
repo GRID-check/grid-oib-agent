@@ -15,6 +15,14 @@ export { applyProjectProfilePatch, emptyProjectProfile } from './patch-engine'
 const PROMPT_VIEW_CACHE_TTL_MS = 5 * 60 * 1000
 
 /**
+ * Cache keys derived from the stored profile (`projects.profile`). BOTH are
+ * served with the same 5-min TTL and MUST be invalidated together on every
+ * profile write — see {@link invalidateProjectProfileCaches}.
+ */
+const promptViewCacheKey = (projectId: string) => `promptview:${projectId}`
+const bundeslandCacheKey = (projectId: string) => `bundesland:${projectId}`
+
+/**
  * Cached read of the project-context prompt view injected into the agent on
  * every WS upgrade. Backed by the shared cache (ADR-0020), so a profile edit
  * on one replica invalidates for all replicas — the per-process Map this
@@ -23,7 +31,7 @@ const PROMPT_VIEW_CACHE_TTL_MS = 5 * 60 * 1000
 export async function loadProjectPromptView(projectId: string | undefined): Promise<string | null> {
   if (!projectId) return null
 
-  return getCached(`promptview:${projectId}`, PROMPT_VIEW_CACHE_TTL_MS, async () => {
+  return getCached(promptViewCacheKey(projectId), PROMPT_VIEW_CACHE_TTL_MS, async () => {
     const db = getDb()
     const [project] = await db
       .select({ profilePromptView: projects.profilePromptView })
@@ -36,7 +44,23 @@ export async function loadProjectPromptView(projectId: string | undefined): Prom
 }
 
 export async function invalidateProjectPromptViewCache(projectId: string): Promise<void> {
-  await invalidateCached(`promptview:${projectId}`)
+  await invalidateCached(promptViewCacheKey(projectId))
+}
+
+/**
+ * Invalidate EVERY per-project cache derived from the stored profile. Both the
+ * prompt-view text (`promptview:`) and the structured `bundesland` fact
+ * (`bundesland:`) are read from `projects.profile` with a 5-min TTL, so a
+ * profile write must drop BOTH keys — otherwise a wizard save that changes the
+ * location leaves the jurisdiction-dependent `bundesland` on the WS handshake
+ * (RIS logic) stale for up to 5 minutes. This is the single invalidation every
+ * profile write path (`saveProjectProfile`, `patchProjectProfile`) must call.
+ */
+export async function invalidateProjectProfileCaches(projectId: string): Promise<void> {
+  await Promise.all([
+    invalidateCached(promptViewCacheKey(projectId)),
+    invalidateCached(bundeslandCacheKey(projectId)),
+  ])
 }
 
 /**
@@ -56,7 +80,7 @@ export async function invalidateProjectPromptViewCache(projectId: string): Promi
 export async function loadProjectBundesland(projectId: string | undefined): Promise<string | null> {
   if (!projectId) return null
 
-  return getCached(`bundesland:${projectId}`, PROMPT_VIEW_CACHE_TTL_MS, async () => {
+  return getCached(bundeslandCacheKey(projectId), PROMPT_VIEW_CACHE_TTL_MS, async () => {
     const db = getDb()
     const [project] = await db
       .select({ profile: projects.profile })

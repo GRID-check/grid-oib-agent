@@ -12,6 +12,7 @@ import logging
 from collections.abc import Awaitable
 from collections.abc import Callable
 from typing import Any
+from typing import Literal
 
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import AIMessage
@@ -69,6 +70,78 @@ def surface_answer_confidence(
     return self_reported
 
 
+# Fixed reason for the keyword-fallback escalation path, where no structured
+# ``ShallowResult.escalation_reason`` exists (the shallow answer read as
+# insufficient by tail-keyword match).
+ESCALATION_KEYWORD_REASON = "Die erste Antwort enthielt einen Hinweis auf unzureichende Informationen."
+
+
+def answer_confidence_capped_reason(
+    self_reported: ConfidenceLevel | None,
+    citation_grounded: bool,
+) -> Literal["ungrounded"] | None:
+    """Why the surfaced confidence was capped, or ``None`` when no cap applied.
+
+    Returns ``"ungrounded"`` only when a real downgrade happened: a self-reported
+    "medium"/"high" on an answer not grounded in a verified citation. A missing
+    self-report, a grounded answer, or an already-"low" self-report is not a
+    downgrade and yields ``None``.
+    """
+    if self_reported is None or citation_grounded:
+        return None
+    if self_reported == "low":
+        return None
+    return "ungrounded"
+
+
+def derive_routing_decision(
+    user_intent: Any,
+    depth_decision: Any,
+) -> Literal["meta", "shallow", "deep", "error"] | None:
+    """Which path the turn took after intent classification.
+
+    Mirrors ``route_after_orchestration``/``should_escalate`` framing: error and
+    meta intents win over depth; a research turn is "deep" only when the depth
+    classifier said so, otherwise "shallow". Returns ``None`` when no
+    classification ran (nothing to surface).
+    """
+    intent = getattr(user_intent, "intent", None)
+    if intent == "error":
+        return "error"
+    if intent == "meta":
+        return "meta"
+    if intent is None:
+        return None
+    if getattr(depth_decision, "decision", None) == "deep":
+        return "deep"
+    return "shallow"
+
+
+def _normalize_citations_removed(value: Any) -> dict[str, Any] | None:
+    """Sanitize a research agent's removed-citation summary to the wire shape.
+
+    Returns ``{"count": int, "reasons": [str, ...]}`` (reasons deduplicated, max
+    5) only when at least one citation was removed; otherwise ``None`` so the
+    field stays absent (never null-spammed).
+    """
+    if not isinstance(value, dict):
+        return None
+    try:
+        count = int(value.get("count", 0))
+    except (TypeError, ValueError):
+        return None
+    if count < 1:
+        return None
+    reasons: list[str] = []
+    for reason in value.get("reasons") or []:
+        text = str(reason)
+        if text and text not in reasons:
+            reasons.append(text)
+        if len(reasons) >= 5:
+            break
+    return {"count": count, "reasons": reasons}
+
+
 def _finalize_shallow_answer(
     message: BaseMessage,
     citation_grounded: bool,
@@ -76,6 +149,7 @@ def _finalize_shallow_answer(
     escalation_present: bool | None = None,
     self_reported: ConfidenceLevel | None = None,
     verified_sources: list[dict[str, Any]] | None = None,
+    citations_removed: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build the node update for a successful/insufficient shallow answer.
 
@@ -133,7 +207,9 @@ def _finalize_shallow_answer(
         "messages": [updated_message],
         "shallow_result": None,
         "answer_confidence": surface_answer_confidence(self_reported, citation_grounded),
+        "answer_confidence_capped_reason": answer_confidence_capped_reason(self_reported, citation_grounded),
         "verified_sources": verified_sources,
+        "citations_removed": citations_removed,
     }
 
 
@@ -224,6 +300,37 @@ class ChatResearcherAgent:
 
         self._graph = self._build_graph()
 
+    def _escalation_reason_for(self, state: ChatResearcherState) -> str | None:
+        """Reason a shallow answer escalated to deep research, or ``None``.
+
+        The clarifier node sits on BOTH the direct-deep route and the
+        shallow→deep escalation route, so it computes this once. A reason is
+        returned only on an escalation entry (a shallow answer preceded this
+        node): the structured ``ShallowResult.escalation_reason`` when present,
+        otherwise the fixed keyword-fallback notice. A direct-deep entry (no
+        shallow answer, escalation disabled, or a meta turn) yields ``None`` so
+        the field stays absent. Mirrors ``should_escalate``'s branches.
+        """
+        if not self.enable_escalation:
+            return None
+        if state.user_intent and state.user_intent.intent == "meta":
+            return None
+        if state.shallow_result is not None:
+            if state.shallow_result.escalate_to_deep:
+                return state.shallow_result.escalation_reason
+            return None
+        last_ai_content = None
+        for m in reversed(state.messages):
+            if isinstance(m, AIMessage):
+                last_ai_content = m.content if hasattr(m, "content") else str(m)
+                break
+        if not last_ai_content:
+            return None
+        last_content = last_ai_content if isinstance(last_ai_content, str) else str(last_ai_content)
+        if matches_escalation_keywords(last_content):
+            return ESCALATION_KEYWORD_REASON
+        return None
+
     def _build_graph(self) -> CompiledStateGraph:
         """Build the LangGraph workflow."""
 
@@ -232,6 +339,9 @@ class ChatResearcherAgent:
 
         async def clarifier_node(state: ChatResearcherState) -> dict[str, Any]:
             original_query = get_latest_user_query(state.messages)
+            # Present only on a shallow→deep escalation entry (absent on direct
+            # deep). Carried to the terminal state so the frontend can narrate why.
+            escalation_reason = self._escalation_reason_for(state)
 
             # Validate deep research tools before proceeding to clarifier
             if self.validate_deep_research_tools_fn:
@@ -288,9 +398,13 @@ class ChatResearcherAgent:
                     update={
                         "clarifier_result": clarifier_result,
                         "original_query": original_query,
+                        "escalation_reason": escalation_reason,
                     },
                 )
-            return Command(goto="deep_research", update={"original_query": original_query})
+            return Command(
+                goto="deep_research",
+                update={"original_query": original_query, "escalation_reason": escalation_reason},
+            )
 
         async def shallow_research_node(state: ChatResearcherState) -> dict[str, Any]:
             trimmed_messages: list[BaseMessage] = trim_message_history(state.messages, self.max_history)
@@ -412,6 +526,8 @@ class ChatResearcherAgent:
             if not isinstance(verified_sources, list):
                 verified_sources = None
 
+            citations_removed = _normalize_citations_removed(getattr(result, "citations_removed", None))
+
             if final_ai_message:
                 return _finalize_shallow_answer(
                     final_ai_message,
@@ -419,6 +535,7 @@ class ChatResearcherAgent:
                     escalation_present=escalation_present,
                     self_reported=self_reported,
                     verified_sources=verified_sources,
+                    citations_removed=citations_removed,
                 )
             if new_messages:
                 return _finalize_shallow_answer(
@@ -427,6 +544,7 @@ class ChatResearcherAgent:
                     escalation_present=escalation_present,
                     self_reported=self_reported,
                     verified_sources=verified_sources,
+                    citations_removed=citations_removed,
                 )
             return {"messages": [], "shallow_result": None}
 
@@ -438,8 +556,14 @@ class ChatResearcherAgent:
                 except JobAdmissionError as exc:
                     # Admission control refused the submission (queue full);
                     # answer with the friendly reason instead of crashing the turn.
+                    # Mark it as a queue-rejection notice (not a research answer)
+                    # and forward the retry hint so the frontend can back off.
                     logger.info("Deep research submission refused by admission control: %s", exc)
-                    return {"messages": [AIMessage(content=str(exc))]}
+                    return {
+                        "messages": [AIMessage(content=str(exc))],
+                        "job_admission_rejected": True,
+                        "retry_after_seconds": exc.retry_after_seconds,
+                    }
                 response = f"Deep research job submitted. Job ID: {job_id}"
                 # Emit the job id as a structured channel value so the frontend
                 # can open the research panel without regex-parsing this prose.
@@ -484,7 +608,11 @@ class ChatResearcherAgent:
                 final_message = AIMessage(content=error_message)
                 return {"messages": [final_message]}
             else:
-                return {"messages": [result.messages[-1]]}
+                citations_removed = _normalize_citations_removed(getattr(result, "citations_removed", None))
+                update: dict[str, Any] = {"messages": [result.messages[-1]]}
+                if citations_removed is not None:
+                    update["citations_removed"] = citations_removed
+                return update
 
         def route_after_orchestration(state: ChatResearcherState) -> str:
             """Route by classification: error -> END (canned message already in
@@ -610,6 +738,16 @@ class ChatResearcherAgent:
                 # Reset likewise: a stale self-assessment from a prior shallow
                 # turn must not leak onto this turn's answer.
                 "answer_confidence": None,
+                # Reset the transparency extras (WP-A) at the turn boundary too,
+                # so a prior turn's routing/escalation/citation signals never leak
+                # onto this turn via the persisted checkpoint.
+                "routing_decision": None,
+                "routing_reason": None,
+                "escalation_reason": None,
+                "answer_confidence_capped_reason": None,
+                "citations_removed": None,
+                "job_admission_rejected": None,
+                "retry_after_seconds": None,
                 # Reset likewise: the clarifier skip path never overwrites this,
                 # so turn 1's clarification log would otherwise steer turn 2's
                 # deep research toward stale constraints.

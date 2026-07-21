@@ -64,6 +64,12 @@ class ShallowResearchAgentState(BaseModel):
     # ``source_entry_to_wire``). Surfaced on the final ChatResponse so the FE
     # can open document previews without inventing filenames.
     verified_sources: list[dict[str, Any]] | None = None
+    # Transparency summary of citations dropped by ``verify_citations`` this turn
+    # (``{"count": int, "reasons": [str, ...]}``). Populated by ``run()`` ONLY
+    # when ≥1 citation was removed; None otherwise. The chat orchestrator lifts
+    # it onto the terminal chunk via ``_normalize_citations_removed`` so the FE
+    # can note "N Quellenangabe(n) entfernt (nicht verifizierbar)".
+    citations_removed: dict[str, Any] | None = None
     # INTERNAL per-run render cache — NOT part of the public state contract.
     # Every input to the system-prompt render (system_prompt, tools_info,
     # user_info, current_datetime at DATE precision, available_documents,

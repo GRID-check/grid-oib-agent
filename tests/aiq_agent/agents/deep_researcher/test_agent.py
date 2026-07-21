@@ -2234,3 +2234,97 @@ class TestDeepResearcherCitationVerification:
         verify.assert_called_once()
         sanitize.assert_called_once_with(verified_answer)
         assert result.messages[-1].content == sanitized_answer
+
+    @pytest.mark.asyncio
+    async def test_removed_citations_populate_citations_removed(self, mock_llm_provider, real_tool):
+        """≥1 removed citation → the result carries a {count, reasons} transparency summary."""
+        from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+
+        report = "CUDA findings [1].\n\n## Sources\n[1] CUDA Docs: https://docs.nvidia.com/cuda/"
+        sanitized_report = f"{report}\n"
+        deep_result = {
+            "messages": [AIMessage(content="done")],
+            "files": output_markdown_file(report),
+        }
+        mock_agent = MagicMock()
+        mock_agent.with_config = MagicMock(return_value=mock_agent)
+        mock_agent.ainvoke = AsyncMock(return_value=deep_result)
+
+        with patch(
+            "aiq_agent.agents.deep_researcher.factory.create_deep_agent",
+            return_value=mock_agent,
+        ):
+            agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
+
+            with (
+                seeded_session_registry(
+                    SourceEntry(url="https://docs.nvidia.com/cuda/", title="CUDA Docs", tool_name="web_search")
+                ),
+                patch(
+                    "aiq_agent.agents.deep_researcher.agent.verify_citations",
+                    return_value=MagicMock(
+                        verified_report=report,
+                        removed_citations=[
+                            {"number": 2, "line": "[2] Bad: https://nope.example.com", "reason": "url_not_in_registry"},
+                            {"number": 3, "line": "[3] Also bad", "reason": "url_not_in_registry"},
+                            {"number": 4, "line": "[4] Mystery", "reason": "unverifiable"},
+                        ],
+                        valid_citations=[MagicMock()],
+                    ),
+                ),
+                patch(
+                    "aiq_agent.agents.deep_researcher.agent.sanitize_report",
+                    return_value=MagicMock(sanitized_report=sanitized_report),
+                ),
+            ):
+                state = DeepResearchAgentState(messages=[HumanMessage(content="What is CUDA?")])
+                result = await agent.run(state)
+
+        # count is the raw removed count; reasons deduplicated in first-seen order.
+        assert result.citations_removed == {
+            "count": 3,
+            "reasons": ["url_not_in_registry", "unverifiable"],
+        }
+
+    @pytest.mark.asyncio
+    async def test_no_removed_citations_leaves_field_none(self, mock_llm_provider, real_tool):
+        """Nothing removed → citations_removed stays absent (None), never null-spammed."""
+        from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+
+        report = "CUDA findings [1].\n\n## Sources\n[1] CUDA Docs: https://docs.nvidia.com/cuda/"
+        sanitized_report = f"{report}\n"
+        deep_result = {
+            "messages": [AIMessage(content="done")],
+            "files": output_markdown_file(report),
+        }
+        mock_agent = MagicMock()
+        mock_agent.with_config = MagicMock(return_value=mock_agent)
+        mock_agent.ainvoke = AsyncMock(return_value=deep_result)
+
+        with patch(
+            "aiq_agent.agents.deep_researcher.factory.create_deep_agent",
+            return_value=mock_agent,
+        ):
+            agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
+
+            with (
+                seeded_session_registry(
+                    SourceEntry(url="https://docs.nvidia.com/cuda/", title="CUDA Docs", tool_name="web_search")
+                ),
+                patch(
+                    "aiq_agent.agents.deep_researcher.agent.verify_citations",
+                    return_value=MagicMock(
+                        verified_report=report,
+                        removed_citations=[],
+                        valid_citations=[MagicMock()],
+                    ),
+                ),
+                patch(
+                    "aiq_agent.agents.deep_researcher.agent.sanitize_report",
+                    return_value=MagicMock(sanitized_report=sanitized_report),
+                ),
+            ):
+                state = DeepResearchAgentState(messages=[HumanMessage(content="What is CUDA?")])
+                result = await agent.run(state)
+
+        assert result.citations_removed is None

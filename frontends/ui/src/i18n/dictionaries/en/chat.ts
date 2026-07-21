@@ -71,6 +71,10 @@ export const chat = {
   answerSources: {
     label: 'Sources',
     ariaLabel: 'Sources this answer is backed by',
+    // Note under the sources row when citation verification dropped one or more
+    // unverifiable citations (WP-A `citations_removed`).
+    citationsRemoved: '{count} citation(s) removed (not verifiable)',
+    citationsRemovedReasonsLabel: 'Reasons',
   },
   // Thread-header breadcrumb (project / session title) with inline rename.
   breadcrumb: {
@@ -144,6 +148,10 @@ export const chat = {
     working: 'Working on a response …',
     waiting: 'Waiting for response',
     interrupted: 'Interrupted',
+    // Compact inline notice on an interrupted turn: a silent reconnect can drop
+    // an in-flight answer (protocol-robustness item 4). German copy is the
+    // product-facing string; this English fallback is for harnesses/tests.
+    interruptedNotice: 'Connection briefly lost — the answer was dropped. Please resend.',
     done: 'Done',
     elapsedAria: 'Elapsed: {seconds} seconds',
     // Live one-liners describing what the assistant is doing right now, chosen
@@ -169,6 +177,20 @@ export const chat = {
     gapHit: 'Not in corpus',
     moreSources: '+{count} more',
     selectedDataSources: 'Selected Data Sources:',
+    // "Why this path?" — the routing classification for this turn (WP-A
+    // `routing_decision` + `routing_reason`), in the trace framing node.
+    routing: {
+      whyLabel: 'Why this path?',
+      line: 'Classification: {decision} — {reason}',
+      decision: {
+        meta: 'Direct answer',
+        shallow: 'Quick research',
+        deep: 'Deep research',
+        error: 'Error',
+      },
+    },
+    // One-liner when this turn escalated from shallow to deep research.
+    escalationNarration: 'Escalated to deep research: {reason}',
     dataSource: {
       webSearch: 'Web Search',
       knowledgeBase: 'OIB Knowledge Base',
@@ -225,6 +247,9 @@ export const chat = {
     viewReport: 'View Report',
     viewThinking: 'View Thinking',
     viewProgress: 'View Progress',
+    // One-liner above the "Starting Deep Research" banner when the turn
+    // escalated from shallow to deep research (WP-A `escalation_reason`).
+    escalationNarration: 'Escalated to deep research: {reason}',
   },
   error: {
     showDetails: 'Show details',
@@ -277,6 +302,13 @@ export const chat = {
     unknown: {
       title: 'Something Went Wrong',
       message: 'An unexpected error occurred. Please try again.',
+    },
+    // Deep-research job rejected because the queue is full (WP-A
+    // `job_admission_rejected`). Warning, not error: resending resolves it.
+    researchQueueFull: {
+      title: 'Research is busy',
+      message: 'The research queue is currently full. Please resend your request in a moment.',
+      retryHint: 'Please try again in about {seconds} seconds.',
     },
   },
   // User-facing deep-research error copy raised from the SSE hook and the
@@ -345,6 +377,10 @@ export const chat = {
     ariaLabel: 'Assistant self-assessed confidence: {level}',
     tooltip:
       "The assistant's own assessment of how well this answer is supported by its sources. It can be wrong.",
+    // Extra sentence when the confidence was capped because the answer is not
+    // grounded in verified citations (WP-A `answer_confidence_capped_reason`).
+    cappedUngrounded:
+      'The confidence was capped because the answer is not grounded in verified citations.',
   },
   // Per-answer thumbs feedback (WS-7, `answer-feedback` flag).
   feedback: {

@@ -187,8 +187,12 @@ class TestReflectionAnswerIsSubstantive:
         assert not _reflection_answer_is_substantive({"user_intent": _Intent("meta")}, "hi there")
 
 
-def _answer_response(text, *, cards=None, sources=None, confidence=None):
-    """A fully-built ChatResponse like the one _run assembles before delivery."""
+def _answer_response(text, *, cards=None, sources=None, confidence=None, **extras):
+    """A fully-built ChatResponse like the one _run assembles before delivery.
+
+    ``extras`` accepts the transparency extras (routing_decision, etc.) set the
+    same way _run attaches them, so tests can assert they ride the terminal chunk.
+    """
     resp = _create_chat_response(text, response_id="research_response", model="m")
     if cards is not None:
         resp.cards = cards
@@ -196,6 +200,8 @@ def _answer_response(text, *, cards=None, sources=None, confidence=None):
         resp.sources = sources
     if confidence is not None:
         resp.answer_confidence = confidence
+    for name, value in extras.items():
+        setattr(resp, name, value)
     return resp
 
 
@@ -268,6 +274,79 @@ class TestResponseToChunks:
         resp = _answer_response(text)
         chunks = _response_to_chunks(resp, stream=True)
         assert _content(chunks[-1]) == text
+
+    def test_transparency_extras_ride_the_terminal_chunk(self):
+        # WP-A extras set on the ChatResponse are lifted onto the terminal chunk
+        # (never onto deltas), just like cards/sources.
+        resp = _answer_response(
+            "some answer text that spans multiple deltas for the stream",
+            routing_decision="deep",
+            routing_reason="The question needs multi-source synthesis.",
+            escalation_reason="Die erste Antwort war unzureichend.",
+            answer_confidence_capped_reason="ungrounded",
+            citations_removed={"count": 2, "reasons": ["broken"]},
+        )
+        chunks = _response_to_chunks(resp, stream=True)
+        terminal = chunks[-1]
+        assert getattr(terminal, "routing_decision", None) == "deep"
+        assert getattr(terminal, "routing_reason", None) == "The question needs multi-source synthesis."
+        assert getattr(terminal, "escalation_reason", None) == "Die erste Antwort war unzureichend."
+        assert getattr(terminal, "answer_confidence_capped_reason", None) == "ungrounded"
+        assert getattr(terminal, "citations_removed", None) == {"count": 2, "reasons": ["broken"]}
+        for delta in chunks[:-1]:
+            assert getattr(delta, "routing_decision", None) is None
+            assert getattr(delta, "citations_removed", None) is None
+
+    def test_absent_transparency_extras_not_set_on_terminal(self):
+        # Absent-when-not-applicable: a plain answer carries none of the extras.
+        resp = _answer_response("a plain answer with no transparency extras at all")
+        terminal = _response_to_chunks(resp, stream=True)[-1]
+        for field in (
+            "routing_decision",
+            "routing_reason",
+            "escalation_reason",
+            "answer_confidence_capped_reason",
+            "citations_removed",
+            "job_admission_rejected",
+            "retry_after_seconds",
+        ):
+            assert getattr(terminal, field, None) is None
+
+    def test_job_admission_rejection_extras_ride_terminal(self):
+        # The queue-rejection notice carries both fields onto the terminal chunk.
+        resp = _answer_response(
+            "The research queue is full. Please retry shortly.",
+            job_admission_rejected=True,
+            retry_after_seconds=30,
+        )
+        terminal = _response_to_chunks(resp, stream=False)[-1]
+        assert getattr(terminal, "job_admission_rejected", None) is True
+        assert getattr(terminal, "retry_after_seconds", None) == 30
+
+    def test_rejection_streams_no_deltas_only_terminal(self):
+        # A queue rejection is surfaced by the frontend banner, NOT an answer
+        # bubble: even with streaming ON it must yield NO delta chunks — only the
+        # single terminal chunk carrying both extras — so no bubble is opened.
+        resp = _answer_response(
+            "The research queue is full. Please retry shortly.",
+            job_admission_rejected=True,
+            retry_after_seconds=30,
+        )
+        chunks = _response_to_chunks(resp, stream=True)
+        assert len(chunks) == 1
+        terminal = chunks[0]
+        assert _finish(terminal) == "stop"
+        assert getattr(terminal, "job_admission_rejected", None) is True
+        assert getattr(terminal, "retry_after_seconds", None) == 30
+
+    def test_normal_answer_still_streams_deltas_when_not_rejected(self):
+        # Guard: the rejection short-circuit must not suppress deltas for a
+        # normal answer of comparable length.
+        text = "A normal answer that is long enough to span several streaming deltas here."
+        resp = _answer_response(text)
+        chunks = _response_to_chunks(resp, stream=True)
+        assert len(chunks) > 1
+        assert "".join(_content(c) for c in chunks[:-1]) == text
 
 
 class TestFoldChunksToResponse:

@@ -24,7 +24,7 @@ import {
   applyProjectProfilePatch,
   buildProjectProfileDisplay,
   buildProjectPromptView,
-  invalidateProjectPromptViewCache,
+  invalidateProjectProfileCaches,
 } from './prompt-view'
 import { buildProjectSummaryText } from './brief-view'
 import { normalizeProfilePatchOperations, pruneResolvedAssumptions, pruneResolvedUnknowns } from './patch-engine'
@@ -156,7 +156,11 @@ async function persistProfile(
   })
   if (!updated) throw new ConflictError('Conflict: profile was modified by another request')
 
-  await invalidateProjectPromptViewCache(projectId)
+  // Drop BOTH profile-derived caches (prompt-view AND bundesland): a location
+  // change must not leave a stale jurisdiction on the WS handshake for up to
+  // the 5-min TTL. This is the single choke point for the wizard save and agent
+  // patches, so both write paths are covered here.
+  await invalidateProjectProfileCaches(projectId)
   return updated
 }
 

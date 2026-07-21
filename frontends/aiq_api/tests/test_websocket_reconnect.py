@@ -17,6 +17,7 @@ satisfied by the test environment.
 from __future__ import annotations
 
 import time
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
 from unittest.mock import patch
@@ -332,3 +333,133 @@ class TestPersistOnDropGating:
                 status=WebSocketMessageStatus.COMPLETE,
             )
         handler._persist_terminal_message_if_client_gone.assert_awaited_once()
+
+
+class TestTransparencyExtrasLift:
+    """WP-A transparency extras are lifted onto the terminal RESPONSE_MESSAGE the
+    same way as cards/sources/answer_confidence — each only when present."""
+
+    def _handler(self, built_message: SimpleNamespace) -> ReconnectableWebSocketMessageHandler:
+        from nat.data_models.api_server import WebSocketSystemResponseTokenMessage
+
+        handler = _make_handler(authenticated_user={"type": "internal"}, socket=MagicMock())
+        handler._conversation_id = "conv-1"
+        handler._message_parent_id = "user-1"
+        validator = handler._message_validator
+        validator.resolve_message_type_by_data = AsyncMock(return_value=WebSocketMessageType.RESPONSE_MESSAGE)
+        validator.get_message_schema_by_type = AsyncMock(return_value=WebSocketSystemResponseTokenMessage)
+        validator.convert_data_to_message_content = AsyncMock(return_value=MagicMock())
+        validator.create_system_response_token_message = AsyncMock(return_value=built_message)
+        return handler
+
+    @pytest.mark.asyncio
+    async def test_present_extras_are_attached(self) -> None:
+        built = SimpleNamespace()
+        handler = self._handler(built)
+        chunk = _chunk("full answer", "stop")
+        chunk.routing_decision = "deep"
+        chunk.routing_reason = "needs multi-source synthesis"
+        chunk.escalation_reason = "Die erste Antwort war unzureichend."
+        chunk.answer_confidence_capped_reason = "ungrounded"
+        chunk.citations_removed = {"count": 1, "reasons": ["dead link"]}
+        with patch("aiq_api.websocket_reconnect._registry") as reg:
+            reg.send = AsyncMock(return_value=True)  # client present, no persist
+            await handler.create_websocket_message(
+                data_model=chunk,
+                message_type=WebSocketMessageType.RESPONSE_MESSAGE,
+                status=WebSocketMessageStatus.COMPLETE,
+            )
+        assert built.routing_decision == "deep"
+        assert built.routing_reason == "needs multi-source synthesis"
+        assert built.escalation_reason == "Die erste Antwort war unzureichend."
+        assert built.answer_confidence_capped_reason == "ungrounded"
+        assert built.citations_removed == {"count": 1, "reasons": ["dead link"]}
+
+    @pytest.mark.asyncio
+    async def test_absent_extras_are_not_attached(self) -> None:
+        built = SimpleNamespace()
+        handler = self._handler(built)
+        chunk = _chunk("full answer", "stop")  # no extras set
+        with patch("aiq_api.websocket_reconnect._registry") as reg:
+            reg.send = AsyncMock(return_value=True)
+            await handler.create_websocket_message(
+                data_model=chunk,
+                message_type=WebSocketMessageType.RESPONSE_MESSAGE,
+                status=WebSocketMessageStatus.COMPLETE,
+            )
+        for field in (
+            "routing_decision",
+            "routing_reason",
+            "escalation_reason",
+            "answer_confidence_capped_reason",
+            "citations_removed",
+            "job_admission_rejected",
+            "retry_after_seconds",
+        ):
+            assert not hasattr(built, field)
+
+    @pytest.mark.asyncio
+    async def test_job_admission_rejection_lifts_both_fields(self) -> None:
+        built = SimpleNamespace()
+        handler = self._handler(built)
+        chunk = _chunk("The research queue is full. Please retry shortly.", "stop")
+        chunk.job_admission_rejected = True
+        chunk.retry_after_seconds = 42
+        with patch("aiq_api.websocket_reconnect._registry") as reg:
+            reg.send = AsyncMock(return_value=True)
+            await handler.create_websocket_message(
+                data_model=chunk,
+                message_type=WebSocketMessageType.RESPONSE_MESSAGE,
+                status=WebSocketMessageStatus.COMPLETE,
+            )
+        assert built.job_admission_rejected is True
+        assert built.retry_after_seconds == 42
+
+
+class TestPersistTerminalMessageIfClientGone:
+    """The client-gone persist path writes a finished answer to the BFF so it
+    survives a reload — but a job-admission rejection is a transient queue notice
+    that must NOT enter history (there is no reader for the marker on rehydrate,
+    and it is stale by reload)."""
+
+    def _handler(self) -> ReconnectableWebSocketMessageHandler:
+        socket = MagicMock()
+        socket.scope = {"headers": []}
+        handler = _make_handler(authenticated_user={"type": "internal"}, socket=socket)
+        handler._conversation_id = "conv-1"
+        handler._message_parent_id = "user-1"
+        return handler
+
+    def _message(self, dump: dict) -> MagicMock:
+        message = MagicMock()
+        message.model_dump.return_value = dump
+        return message
+
+    @pytest.mark.asyncio
+    async def test_rejection_turn_is_not_persisted(self) -> None:
+        handler = self._handler()
+        message = self._message(
+            {
+                "content": {"text": "The research queue is full. Please retry shortly."},
+                "job_admission_rejected": True,
+                "retry_after_seconds": 42,
+            }
+        )
+        with patch("aiq_api.websocket_reconnect.persist_assistant_message") as persist:
+            persist.return_value = True
+            await handler._persist_terminal_message_if_client_gone(
+                message, WebSocketMessageType.RESPONSE_MESSAGE
+            )
+        persist.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_normal_turn_is_persisted(self) -> None:
+        handler = self._handler()
+        message = self._message({"content": {"text": "Here is your answer."}})
+        with patch("aiq_api.websocket_reconnect.persist_assistant_message") as persist:
+            persist.return_value = True
+            await handler._persist_terminal_message_if_client_gone(
+                message, WebSocketMessageType.RESPONSE_MESSAGE
+            )
+        persist.assert_awaited_once()
+        assert persist.await_args.kwargs["text"] == "Here is your answer."

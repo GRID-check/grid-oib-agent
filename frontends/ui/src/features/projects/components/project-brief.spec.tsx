@@ -72,15 +72,54 @@ describe('ProjectBrief summary auto-generation (post-wizard-save)', () => {
     expect(fetchSpy).toHaveBeenCalledTimes(1)
   })
 
-  test('an auto-run failure degrades silently to the manual Generate button', async () => {
+  test('an auto-run failure surfaces a calm inline notice plus the manual retry button (no toast)', async () => {
     vi.stubGlobal('fetch', mockFetch(200, { summary: '', error: 'llm_not_configured' }))
 
     render(<ProjectBrief projectId="proj-1" profile={profile} summary="" briefStarted />)
 
-    expect(await screen.findByRole('button', { name: /Generate summary/i })).toBeDefined()
-    // No error toast for viewers/every visitor — manual retry surfaces details.
+    // The failure is visible on the card, not swallowed — with the retry button.
+    expect(await screen.findByText(/summary is currently unavailable/i)).toBeDefined()
+    expect(screen.getByRole('button', { name: /Generate summary/i })).toBeDefined()
+    // Calm inline state, never an error toast on the auto path.
     expect(toast.error).not.toHaveBeenCalled()
     expect(refresh).not.toHaveBeenCalled()
+  })
+
+  test('an auto-run failure with llm_not_configured shows the specific cause hint', async () => {
+    vi.stubGlobal('fetch', mockFetch(200, { summary: '', error: 'llm_not_configured' }))
+
+    render(<ProjectBrief projectId="proj-1" profile={profile} summary="" briefStarted />)
+
+    expect(await screen.findByText(/no AI service is configured/i)).toBeDefined()
+  })
+
+  test('a generic auto-run failure shows the notice WITHOUT the no-LLM hint', async () => {
+    // Transport failure (non-200) → generic, not the llm_not_configured branch.
+    vi.stubGlobal('fetch', mockFetch(500, {}))
+
+    render(<ProjectBrief projectId="proj-1" profile={profile} summary="" briefStarted />)
+
+    expect(await screen.findByText(/summary is currently unavailable/i)).toBeDefined()
+    expect(screen.queryByText(/no AI service is configured/i)).toBeNull()
+    expect(toast.error).not.toHaveBeenCalled()
+  })
+
+  test('retrying from the inline failure state re-requests generation', async () => {
+    // First (auto) call fails; the manual retry then succeeds and refreshes.
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ summary: '', error: 'llm_not_configured' }) })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ summary: 'A crisp brief.' }) })
+    vi.stubGlobal('fetch', fetchSpy)
+    const user = userEvent.setup()
+
+    render(<ProjectBrief projectId="proj-1" profile={profile} summary="" briefStarted />)
+
+    const retry = await screen.findByRole('button', { name: /Generate summary/i })
+    await user.click(retry)
+
+    await waitFor(() => expect(refresh).toHaveBeenCalled())
+    expect(fetchSpy).toHaveBeenCalledTimes(2)
   })
 
   test('does NOT auto-start when the brief has no facts to summarise', () => {

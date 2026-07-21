@@ -1648,6 +1648,37 @@ describe('useChatStore', () => {
 
         expect(useChatStore.getState().currentConversation?.messages).toHaveLength(0)
       })
+
+      test('discardStreamingAssistantMessage removes the orphaned bubble entirely and clears the tracking id', () => {
+        setupConversation()
+
+        // Deltas of a turn open a streaming bubble...
+        useChatStore.getState().appendAgentResponseDelta('Queue full prose ')
+        useChatStore.getState().appendAgentResponseDelta('streamed here')
+        expect(useChatStore.getState().currentConversation?.messages).toHaveLength(1)
+        expect(useChatStore.getState().streamingAssistantMessageId).not.toBeNull()
+
+        // ...then the turn resolves in a non-bubble surface (banner): drop it.
+        useChatStore.getState().discardStreamingAssistantMessage()
+
+        // Message is REMOVED (not merely finalized) and the id is cleared.
+        expect(useChatStore.getState().currentConversation?.messages).toHaveLength(0)
+        expect(useChatStore.getState().streamingAssistantMessageId).toBeNull()
+      })
+
+      test('discardStreamingAssistantMessage is a no-op when no streaming bubble is open', () => {
+        setupConversation()
+
+        useChatStore.getState().addAgentResponse('A finished answer')
+        const before = useChatStore.getState().currentConversation?.messages
+        expect(before).toHaveLength(1)
+
+        useChatStore.getState().discardStreamingAssistantMessage()
+
+        // The existing finalized answer is untouched.
+        expect(useChatStore.getState().currentConversation?.messages).toHaveLength(1)
+        expect(useChatStore.getState().streamingAssistantMessageId).toBeNull()
+      })
     })
 
     test('setPendingInteraction sets interaction', () => {

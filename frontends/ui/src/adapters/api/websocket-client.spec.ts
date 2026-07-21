@@ -229,6 +229,104 @@ describe('NATWebSocketClient auth observability', () => {
   })
 })
 
+describe('NATWebSocketClient frame tolerance + transparency (WP-B)', () => {
+  beforeEach(() => {
+    MockWebSocket.instances = []
+    vi.stubGlobal('WebSocket', MockWebSocket)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  const openClient = async (callbacks: Record<string, unknown>) => {
+    const client = new NATWebSocketClient({
+      conversationId: 'conv-1',
+      websocketUrl: 'ws://localhost/websocket',
+      callbacks,
+    })
+    await client.connect()
+    const ws = MockWebSocket.instances[0]
+    ws.onopen?.(new Event('open'))
+    return ws
+  }
+
+  test('a terminal system_response carries the transparency bundle to onResponse', async () => {
+    const onResponse = vi.fn()
+    const ws = await openClient({ onResponse })
+
+    ws.onmessage?.(
+      {
+        data: JSON.stringify({
+          type: NATMessageType.SYSTEM_RESPONSE,
+          status: 'complete',
+          content: 'here is your answer',
+          routing_decision: 'deep',
+          routing_reason: 'The question needs a deep dive.',
+          escalation_reason: 'The first answer was insufficient.',
+          answer_confidence_capped_reason: 'ungrounded',
+          citations_removed: { count: 1, reasons: ['not verifiable'] },
+          job_admission_rejected: true,
+          retry_after_seconds: 20,
+        }),
+      } as MessageEvent
+    )
+
+    expect(onResponse).toHaveBeenCalledTimes(1)
+    const transparency = onResponse.mock.calls[0][8]
+    expect(transparency).toEqual({
+      routingDecision: 'deep',
+      routingReason: 'The question needs a deep dive.',
+      escalationReason: 'The first answer was insufficient.',
+      answerConfidenceCappedReason: 'ungrounded',
+      citationsRemoved: { count: 1, reasons: ['not verifiable'] },
+      jobAdmissionRejected: true,
+      retryAfterSeconds: 20,
+    })
+  })
+
+  test('an observability_trace_message is accepted silently (no callback, no warn)', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const onResponse = vi.fn()
+    const onError = vi.fn()
+    const ws = await openClient({ onResponse, onError })
+
+    ws.onmessage?.(
+      {
+        data: JSON.stringify({
+          type: NATMessageType.OBSERVABILITY_TRACE,
+          id: 'trace-1',
+          content: { span: 'orchestration' },
+        }),
+      } as MessageEvent
+    )
+
+    expect(onResponse).not.toHaveBeenCalled()
+    expect(onError).not.toHaveBeenCalled()
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  test('an unknown frame type is logged once per type and ignored (no pipeline throw)', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const onResponse = vi.fn()
+    const ws = await openClient({ onResponse })
+
+    const unknownFrame = {
+      data: JSON.stringify({ type: 'brand_new_frame_type', content: 'whatever' }),
+    } as MessageEvent
+
+    // Two identical unknown frames must not throw and must warn only ONCE.
+    expect(() => {
+      ws.onmessage?.(unknownFrame)
+      ws.onmessage?.(unknownFrame)
+    }).not.toThrow()
+
+    expect(onResponse).not.toHaveBeenCalled()
+    expect(warn).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('NATWebSocketClient URL construction', () => {
   beforeEach(() => {
     MockWebSocket.instances = []

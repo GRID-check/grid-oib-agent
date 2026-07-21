@@ -29,6 +29,7 @@ import {
   type NATHumanPrompt,
   type NATIntermediateStepContent,
   type NATErrorContent,
+  type NATResponseTransparency,
   HumanPromptType,
 } from '@/adapters/api/websocket-client'
 import { checkBackendHealthCached, invalidateHealthCache } from '@/shared/hooks/use-backend-health'
@@ -217,12 +218,20 @@ interface UseWebSocketChatReturn {
 }
 
 /**
- * Map NAT human prompt types to our PromptType
+ * Map NAT human prompt types to our PromptType.
+ *
+ * Exported for direct unit testing of the choice-shaped input mapping
+ * (`radio`/`checkbox`/`dropdown` + legacy `multiple_choice` → `'choice'`).
  */
-const mapHumanPromptType = (natType: string): PromptType => {
+export const mapHumanPromptType = (natType: string): PromptType => {
   switch (natType) {
     case HumanPromptType.TEXT:
       return 'text-input'
+    // NAT's real choice-shaped inputs all render with the existing OptionsList
+    // choice UI. `multiple_choice` is the legacy alias for the same thing.
+    case HumanPromptType.RADIO:
+    case HumanPromptType.CHECKBOX:
+    case HumanPromptType.DROPDOWN:
     case HumanPromptType.MULTIPLE_CHOICE:
       return 'choice'
     case HumanPromptType.BINARY_CHOICE:
@@ -434,6 +443,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
   const addUserMessage = useChatStore((s) => s.addUserMessage)
   const appendAgentResponseDelta = useChatStore((s) => s.appendAgentResponseDelta)
   const finalizeAgentResponse = useChatStore((s) => s.finalizeAgentResponse)
+  const discardStreamingAssistantMessage = useChatStore((s) => s.discardStreamingAssistantMessage)
   const addAgentResponseWithMeta = useChatStore((s) => s.addAgentResponseWithMeta)
   const addThinkingStep = useChatStore((s) => s.addThinkingStep)
   const appendToThinkingStep = useChatStore((s) => s.appendToThinkingStep)
@@ -713,7 +723,8 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         cards?: unknown[],
         deepResearchJobId?: string,
         answerConfidence?: 'low' | 'medium' | 'high',
-        sources?: unknown[]
+        sources?: unknown[],
+        transparency?: NATResponseTransparency
       ) => {
         // A response on the wire proves the post-rotation auth is alive --
         // clear the consecutive auth_expired counter so a *future* (and
@@ -745,6 +756,45 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
 
         // Validate grid cards carried on the response message
         const validatedCards: GridCard[] = validateGridCards(cards)
+
+        // Queue-rejection notice (WP-A `job_admission_rejected`): the terminal
+        // frame's text is NOT a research answer but a "queue full, try later"
+        // message. Render it as a warning-styled banner (research.queue_full)
+        // and, crucially, leave the composer UNLOCKED so the user can retry —
+        // do not open an answer bubble or start a research job.
+        if (transparency?.jobAdmissionRejected) {
+          clearStreamingWatchdog()
+          if (currentThinkingStepIdRef.current) {
+            completeThinkingStep(currentThinkingStepIdRef.current)
+            currentThinkingStepIdRef.current = null
+            currentStatusRef.current = null
+          }
+
+          const retryAfter = transparency.retryAfterSeconds
+          const parts: string[] = []
+          if (content && content.trim() && content !== 'null') parts.push(content.trim())
+          if (typeof retryAfter === 'number' && retryAfter > 0) {
+            parts.push(tChat('errorRegistry.researchQueueFull.retryHint', { seconds: retryAfter }))
+          }
+          addErrorCard('research.queue_full', parts.length > 0 ? parts.join(' ') : undefined)
+
+          // Defensive (old backends still stream the rejection prose as deltas):
+          // earlier deltas of THIS turn may have opened a streaming answer bubble.
+          // The banner is the surface for a rejection, so drop that orphaned
+          // bubble entirely and clear streamingAssistantMessageId — otherwise its
+          // caret blinks forever next to the banner.
+          discardStreamingAssistantMessage()
+
+          setCurrentStatus(null)
+          setStreaming(false)
+          setLoading(false)
+          clearPendingInteraction()
+          // Nothing to replay — the turn resolved (rejected), not interrupted.
+          lastSentOutgoingRef.current = null
+          pendingOutgoingRef.current = null
+          clearUnacknowledgedOutgoing()
+          return
+        }
 
         // Deep research escalation signal. Prefer the STRUCTURED job id sent
         // as a dedicated field; fall back to regex-parsing the response prose
@@ -821,8 +871,10 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
             }
           }
 
-          // Add 'starting' banner as a persistent message
-          addDeepResearchBanner('starting', jobId)
+          // Add 'starting' banner as a persistent message. When this turn
+          // escalated shallow→deep, the escalation reason rides above the
+          // banner (contract: `Eskaliert zur Tiefenrecherche: <reason>`).
+          addDeepResearchBanner('starting', jobId, undefined, undefined, transparency?.escalationReason)
 
           // Empty-content tracking message carries job metadata for session
           // restoration; AgentResponse returns null for empty content so it
@@ -863,7 +915,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         // one bubble — identical to the previous single-shot behaviour.
         const citations = citationsFromWireList(sources)
         if (isFinal) {
-          finalizeAgentResponse(content, validatedCards, answerConfidence, citations)
+          finalizeAgentResponse(content, validatedCards, answerConfidence, citations, transparency)
         } else if ((content && content.trim()) || validatedCards.length > 0) {
           appendAgentResponseDelta(content, validatedCards, answerConfidence, citations)
         }
@@ -1001,7 +1053,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         // restoration).
         addPlanMessage({
           text: prompt.text,
-          inputType: prompt.input_type as 'text' | 'multiple_choice' | 'binary_choice' | 'approval' | 'notification',
+          inputType: prompt.input_type,
         })
 
         // Add as an agent prompt in the chat with HITL routing info for persistence
@@ -1230,6 +1282,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
   }, [
     appendAgentResponseDelta,
     finalizeAgentResponse,
+    discardStreamingAssistantMessage,
     addAgentResponseWithMeta,
     addThinkingStep,
     appendToThinkingStep,
@@ -1257,6 +1310,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
     armStreamingWatchdog,
     clearStreamingWatchdog,
     discoverBudgetFailureMessage,
+    tChat,
   ])
 
   /**

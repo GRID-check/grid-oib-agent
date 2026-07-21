@@ -169,6 +169,7 @@ export const projects = {
     back: 'Back',
     stepCounter: 'Step {current} of {total}',
     saving: 'Saving…',
+    saveSuccess: 'Project profile saved — {count} details captured',
     saveChanges: 'Save changes',
     saveAndSee: 'Save & see my standards',
     next: 'Next',
@@ -319,6 +320,8 @@ export const projects = {
       summaryLlmNotConfigured:
         'Summary generation is unavailable — no language model is configured. Ask an administrator to set one up.',
       summaryForbidden: "You don't have permission to generate the summary.",
+      summaryUnavailable: 'The summary is currently unavailable.',
+      summaryUnavailableLlm: 'No AI service is configured — please contact an administrator.',
       captured: '{answered} of {total} captured',
       focus: 'Focus',
       startedNoDetailsBefore: 'The brief has been started but no details are captured yet. ',

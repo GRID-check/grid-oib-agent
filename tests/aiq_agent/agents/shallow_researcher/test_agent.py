@@ -1377,3 +1377,61 @@ class TestShallowResearcherAnswerGrounding:
         )
         result = await _run_with_bound_registry(self._agent(mock_llm_provider), state, registry)
         assert result.verified_sources is None
+
+    # --- citations_removed: transparency summary of dropped citations ---
+
+    @pytest.mark.asyncio
+    async def test_citations_removed_populated_when_verification_drops_citations(self, mock_llm_provider, mock_llm):
+        # ≥1 citation removed → the result carries a {count, reasons} summary
+        # (reasons deduplicated in first-seen order).
+        mock_llm.ainvoke.return_value = AIMessage(content="Antwort [1].")
+        source = SourceEntry(url="https://example.com/a", title="A", tool_name="web_search_tool")
+        with (
+            patch.object(SourceRegistry, "all_sources", return_value=[source]),
+            patch("aiq_agent.agents.shallow_researcher.agent.verify_citations") as mock_verify,
+        ):
+            mock_verify.return_value = MagicMock(
+                verified_report="Antwort [1].",
+                valid_citations=[{"number": 1, "url": "https://example.com/a", "citation_key": None, "line": "[1]"}],
+                removed_citations=[
+                    {"number": 2, "line": "[2] Bad: https://nope.example.com", "reason": "url_not_in_registry"},
+                    {"number": 3, "line": "[3] Also bad", "reason": "url_not_in_registry"},
+                    {"number": 4, "line": "[4] Mystery", "reason": "unverifiable"},
+                ],
+            )
+            state = ShallowResearchAgentState(messages=[HumanMessage(content="Frage?")])
+            result, _ = await _run_with_captured_registry(self._agent(mock_llm_provider), state)
+        assert result.citations_removed == {
+            "count": 3,
+            "reasons": ["url_not_in_registry", "unverifiable"],
+        }
+
+    @pytest.mark.asyncio
+    async def test_citations_removed_absent_when_nothing_removed(self, mock_llm_provider, mock_llm):
+        # Nothing removed → citations_removed stays None (never null-spammed).
+        mock_llm.ainvoke.return_value = AIMessage(content="Antwort [1].")
+        source = SourceEntry(url="https://example.com/a", title="A", tool_name="web_search_tool")
+        with (
+            patch.object(SourceRegistry, "all_sources", return_value=[source]),
+            patch("aiq_agent.agents.shallow_researcher.agent.verify_citations") as mock_verify,
+        ):
+            mock_verify.return_value = MagicMock(
+                verified_report="Antwort [1].",
+                valid_citations=[{"number": 1, "url": "https://example.com/a", "citation_key": None, "line": "[1]"}],
+                removed_citations=[],
+            )
+            state = ShallowResearchAgentState(messages=[HumanMessage(content="Frage?")])
+            result, _ = await _run_with_captured_registry(self._agent(mock_llm_provider), state)
+        assert result.citations_removed is None
+
+    @pytest.mark.asyncio
+    async def test_citations_removed_absent_on_meta_turn_without_verification(self, mock_llm_provider, mock_llm):
+        # Meta turn (requires_sources=False) with an empty registry: no
+        # verification runs, so citations_removed is never populated.
+        mock_llm.ainvoke.return_value = AIMessage(content="Hallo! Wie kann ich helfen?")
+        state = ShallowResearchAgentState(
+            messages=[HumanMessage(content="Hi")],
+            requires_sources=False,
+        )
+        result, _ = await _run_with_captured_registry(self._agent(mock_llm_provider), state)
+        assert result.citations_removed is None

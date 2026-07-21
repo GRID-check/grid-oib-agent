@@ -45,6 +45,26 @@ DEFAULT_MAX_RUN_SECONDS = 2400
 AGENT_DIR = Path(__file__).parent
 
 
+def _summarize_removed_citations(removed_citations: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Summarize ``verify_citations`` drops for the transparency wire.
+
+    Returns ``{"count": int, "reasons": [str, ...]}`` (reasons deduplicated in
+    first-seen order, max 5) only when ≥1 citation was removed; otherwise
+    ``None`` so the ``citations_removed`` field stays absent. Shape matches the
+    chat researcher's ``_normalize_citations_removed`` reader.
+    """
+    if not removed_citations:
+        return None
+    reasons: list[str] = []
+    for entry in removed_citations:
+        reason = str(entry.get("reason") or "unverifiable") if isinstance(entry, dict) else "unverifiable"
+        if reason and reason not in reasons:
+            reasons.append(reason)
+        if len(reasons) >= 5:
+            break
+    return {"count": len(removed_citations), "reasons": reasons}
+
+
 @dataclass(frozen=True)
 class DeepResearchRunArtifacts:
     """Everything one deep research run needs, built fresh per run (ADR-0018).
@@ -397,6 +417,13 @@ class DeepResearcherAgent:
                         len(verification.removed_citations),
                         "\n  ".join(removed_details),
                     )
+                    # Transparency: surface the removal on the result state so the
+                    # chat orchestrator can lift it onto the terminal chunk. Only
+                    # set when ≥1 citation was actually removed (field stays absent
+                    # otherwise). result is the LangGraph state dict validated below.
+                    citations_removed_summary = _summarize_removed_citations(verification.removed_citations)
+                    if citations_removed_summary is not None:
+                        result["citations_removed"] = citations_removed_summary
                 final_message = verification.verified_report
                 if not verification.valid_citations:
                     logger.warning(

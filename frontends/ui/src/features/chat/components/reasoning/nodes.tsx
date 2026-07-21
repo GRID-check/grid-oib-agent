@@ -31,25 +31,68 @@ export interface FramingNodeProps {
   t: Translator
   userQuestion: string
   order: number
+  /** Which path the turn took after intent classification (WP-A transparency). */
+  routingDecision?: 'meta' | 'shallow' | 'deep' | 'error'
+  /** Verbatim "why" for the routing decision, rendered as-is (classifier text). */
+  routingReason?: string
+  /** Set when this turn escalated shallow→deep — one-line narration. */
+  escalationReason?: string
 }
 
-export const FramingNode: FC<FramingNodeProps> = ({ t, userQuestion, order }) => (
-  <ChainNode
-    tabLabel={t('thinking.node.framingTab')}
-    tabIcon={Sparkles}
-    order={order}
-    maxWidthClassName="max-w-[520px]"
-  >
-    <div className="text-[12.5px] font-semibold text-foreground">
-      {t('thinking.node.framingTitle')}
-    </div>
-    {userQuestion.trim() && (
-      <p className="mt-1 text-[13px] leading-relaxed text-foreground">
-        {t('thinking.node.framingQuestion', { question: userQuestion.trim() })}
-      </p>
-    )}
-  </ChainNode>
-)
+export const FramingNode: FC<FramingNodeProps> = ({
+  t,
+  userQuestion,
+  order,
+  routingDecision,
+  routingReason,
+  escalationReason,
+}) => {
+  // "Warum dieser Weg?" — the routing narration only appears when BOTH the
+  // decision and its human-readable reason are present (contract: framing-node
+  // area, e.g. `Einordnung: Tiefenrecherche — <reason>`).
+  const showRouting = Boolean(routingDecision && routingReason?.trim())
+  const showEscalation = Boolean(escalationReason?.trim())
+
+  return (
+    <ChainNode
+      tabLabel={t('thinking.node.framingTab')}
+      tabIcon={Sparkles}
+      order={order}
+      maxWidthClassName="max-w-[520px]"
+    >
+      <div className="text-[12.5px] font-semibold text-foreground">
+        {t('thinking.node.framingTitle')}
+      </div>
+      {userQuestion.trim() && (
+        <p className="mt-1 text-[13px] leading-relaxed text-foreground">
+          {t('thinking.node.framingQuestion', { question: userQuestion.trim() })}
+        </p>
+      )}
+      {(showRouting || showEscalation) && (
+        <div className="mt-2.5 flex flex-col gap-1 border-t border-base pt-2">
+          {showRouting && routingDecision && (
+            <div>
+              <span className="text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
+                {t('thinking.routing.whyLabel')}
+              </span>
+              <p className="mt-0.5 text-[12.5px] leading-relaxed text-foreground">
+                {t('thinking.routing.line', {
+                  decision: t(`thinking.routing.decision.${routingDecision}`),
+                  reason: routingReason!.trim(),
+                })}
+              </p>
+            </div>
+          )}
+          {showEscalation && (
+            <p className="text-[12.5px] leading-relaxed text-warning">
+              {t('thinking.escalationNarration', { reason: escalationReason!.trim() })}
+            </p>
+          )}
+        </div>
+      )}
+    </ChainNode>
+  )
+}
 
 /* ── Node 2: Quellen fan-out ─────────────────────────────────────────────── */
 

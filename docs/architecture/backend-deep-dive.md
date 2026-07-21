@@ -71,6 +71,29 @@ so the frontend can read them at `message.<field>` (not nested under
 
 - `cards`  → `message.cards`  (rendered as Grid cards)
 - `deep_research_job_id` → `message.deep_research_job_id` (opens the research panel)
+- `answer_confidence` → `message.answer_confidence` (honest self-assessment chip)
+- `sources` → `message.sources` (verified citation sources)
+
+**Transparency extras (WP-A).** The same lift carries a family of optional,
+additive "why did the turn behave this way?" signals. Each rides
+`register._STREAM_EXTRA_FIELDS` onto the terminal `ChatResponseChunk`
+(`_response_to_chunks`), then `websocket_reconnect.py` lifts it onto the terminal
+`system_response` message via `_TRANSPARENCY_EXTRA_FIELDS` / `_pull_response_extra`.
+All are **absent unless applicable** (never null-spammed) and reset at the turn
+boundary in `ChatResearcherAgent.run()`:
+
+- `routing_decision` (`meta`/`shallow`/`deep`/`error`) + `routing_reason`
+  (`depth_decision.raw_reasoning`) — which path the turn took and why.
+- `escalation_reason` — set by the clarifier node only on a shallow→deep
+  escalation (`ShallowResult.escalation_reason`, or a fixed German notice on the
+  keyword-fallback path).
+- `answer_confidence_capped_reason` (`"ungrounded"`) — set only when
+  `surface_answer_confidence` actually downgraded an ungrounded self-report.
+- `citations_removed` (`{count, reasons[]}`, deduped, max 5) — from the research
+  result's `verify_citations` summary when ≥1 citation was removed.
+- `job_admission_rejected` + `retry_after_seconds` — set in the deep-research
+  node's `JobAdmissionError` catch; marks the text as a queue-rejection notice,
+  not a research answer.
 
 If you add another structured signal to the chat response, this is where it must
 be lifted, and the frontend Zod schema (`schemas.ts`) must declare it.

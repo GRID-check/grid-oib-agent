@@ -20,12 +20,18 @@ vi.mock('@/lib/cache', () => ({
 }))
 
 import { requireProjectAccess } from '@/lib/authz/projects'
+import { invalidateCached } from '@/lib/cache'
 import {
   findProjectProfileInOrg,
   setProjectProfileSummaryInOrg,
   updateProjectProfileIfVersion,
 } from '@/lib/projects/repository'
-import { checkProjectConsistency, generateProjectSummary, saveProjectProfile } from './profile-service'
+import {
+  checkProjectConsistency,
+  generateProjectSummary,
+  patchProjectProfile,
+  saveProjectProfile,
+} from './profile-service'
 import type { ProjectProfile } from './types'
 
 const session = { userId: 'user-1', organizationId: 'org-1' } as never
@@ -157,6 +163,37 @@ describe('saveProjectProfile optimistic concurrency (If-Match)', () => {
   it('keeps the legacy in-request check when no version is supplied', async () => {
     await saveProjectProfile(session, 'proj-1', storedProfile)
     expect(updateProjectProfileIfVersion).toHaveBeenCalledTimes(1)
+  })
+})
+
+/**
+ * Fix 1 (WP-C): every profile write path must drop BOTH profile-derived caches,
+ * not just `promptview:` — otherwise the structured `bundesland` served on the
+ * WS handshake stays stale for the 5-min TTL after a location change.
+ *
+ * `@/lib/cache` is mocked here, so `./prompt-view` runs for real and we assert
+ * the EXACT keys handed to `invalidateCached`. (prompt-view.spec.ts additionally
+ * proves the same wiring against a real in-memory cache.)
+ */
+describe('profile writes invalidate both profile-derived cache keys (Fix 1)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(findProjectProfileInOrg).mockResolvedValue(storedState)
+    vi.mocked(updateProjectProfileIfVersion).mockResolvedValue(storedState)
+  })
+
+  it('saveProjectProfile drops promptview: AND bundesland:', async () => {
+    await saveProjectProfile(session, 'proj-1', storedProfile, 5)
+
+    expect(invalidateCached).toHaveBeenCalledWith('promptview:proj-1')
+    expect(invalidateCached).toHaveBeenCalledWith('bundesland:proj-1')
+  })
+
+  it('patchProjectProfile drops promptview: AND bundesland:', async () => {
+    await patchProjectProfile(session, 'proj-1', [])
+
+    expect(invalidateCached).toHaveBeenCalledWith('promptview:proj-1')
+    expect(invalidateCached).toHaveBeenCalledWith('bundesland:proj-1')
   })
 })
 

@@ -10,6 +10,7 @@ const mockAddUserMessage = vi.fn()
 const mockAddAgentResponse = vi.fn()
 const mockAppendAgentResponseDelta = vi.fn()
 const mockFinalizeAgentResponse = vi.fn()
+const mockDiscardStreamingAssistantMessage = vi.fn()
 const mockAddAgentResponseWithMeta = vi.fn(() => 'msg-1')
 const mockAddThinkingStep = vi.fn(() => 'step-1')
 const mockAppendToThinkingStep = vi.fn()
@@ -81,6 +82,7 @@ const defaultUseChatStoreImpl = (selector?: (s: any) => any) => {
     addAgentResponse: mockAddAgentResponse,
     appendAgentResponseDelta: mockAppendAgentResponseDelta,
     finalizeAgentResponse: mockFinalizeAgentResponse,
+    discardStreamingAssistantMessage: mockDiscardStreamingAssistantMessage,
     addAgentResponseWithMeta: mockAddAgentResponseWithMeta,
     addThinkingStep: mockAddThinkingStep,
     appendToThinkingStep: mockAppendToThinkingStep,
@@ -217,7 +219,13 @@ let capturedCallbacks: {
     parentId?: string,
     cards?: unknown[],
     deepResearchJobId?: string,
-    answerConfidence?: 'low' | 'medium' | 'high'
+    answerConfidence?: 'low' | 'medium' | 'high',
+    sources?: unknown[],
+    transparency?: {
+      jobAdmissionRejected?: boolean
+      retryAfterSeconds?: number
+      [k: string]: unknown
+    }
   ) => void
   onIntermediateStep?: (content: unknown, status: string, parentId?: string) => void
   onHumanPrompt?: (promptId: string, parentId: string, prompt: unknown) => void
@@ -961,7 +969,13 @@ describe('useWebSocketChat', () => {
     expect(mockCompleteThinkingStep).toHaveBeenCalledWith('step-1')
     // Note: reportContent is now only set by deep research SSE events, not by onResponse.
     // The terminal `complete` frame finalizes the accumulated answer bubble.
-    expect(mockFinalizeAgentResponse).toHaveBeenCalledWith('Response content', [], undefined, undefined)
+    expect(mockFinalizeAgentResponse).toHaveBeenCalledWith(
+      'Response content',
+      [],
+      undefined,
+      undefined,
+      undefined
+    )
     expect(mockAddAgentResponse).not.toHaveBeenCalled()
     expect(mockSetStreaming).toHaveBeenCalledWith(false)
     expect(mockSetCurrentStatus).toHaveBeenCalledWith('complete')
@@ -992,7 +1006,87 @@ describe('useWebSocketChat', () => {
       capturedCallbacks.onResponse?.('Grounded answer', 'complete', true, undefined, undefined, undefined, 'high')
     })
 
-    expect(mockFinalizeAgentResponse).toHaveBeenCalledWith('Grounded answer', [], 'high', undefined)
+    expect(mockFinalizeAgentResponse).toHaveBeenCalledWith(
+      'Grounded answer',
+      [],
+      'high',
+      undefined,
+      undefined
+    )
+  })
+
+  // --- Queue-rejection (job admission) terminal frame ---
+  // A "queue full" rejection is surfaced as a warning banner, NOT an answer
+  // bubble. On old backends the rejection prose still arrives as in_progress
+  // deltas first, which opens a streaming bubble; the terminal jobAdmissionRejected
+  // frame must then drop that orphaned bubble entirely (so no caret lingers next
+  // to the banner), clear streamingAssistantMessageId, add the research.queue_full
+  // error card, and unlock the composer.
+  test('onResponse rejection after deltas drops the orphaned bubble and shows the banner', () => {
+    renderWebSocketHook()
+    mockStoreState.isStreaming = true
+
+    // Old backend: rejection prose streams as an in_progress delta first (opens
+    // a streaming assistant bubble).
+    act(() => {
+      capturedCallbacks.onResponse?.('The research queue is full.', 'in_progress', false)
+    })
+    expect(mockAppendAgentResponseDelta).toHaveBeenCalledTimes(1)
+
+    // Terminal frame carries the job-admission rejection marker.
+    act(() => {
+      capturedCallbacks.onResponse?.(
+        'The research queue is full.',
+        'complete',
+        true,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { jobAdmissionRejected: true, retryAfterSeconds: 42 }
+      )
+    })
+
+    // Orphaned streaming bubble is removed and streamingAssistantMessageId cleared.
+    expect(mockDiscardStreamingAssistantMessage).toHaveBeenCalledTimes(1)
+    // The rejection is NOT finalized as an answer bubble.
+    expect(mockFinalizeAgentResponse).not.toHaveBeenCalled()
+    // Warning banner is added.
+    expect(mockAddErrorCard).toHaveBeenCalledWith('research.queue_full', expect.stringContaining('queue is full'))
+    // Composer is unlocked.
+    expect(mockSetStreaming).toHaveBeenCalledWith(false)
+    expect(mockSetLoading).toHaveBeenCalledWith(false)
+  })
+
+  test('onResponse rejection with NO preceding deltas (new backend) shows the banner and opens no bubble', () => {
+    renderWebSocketHook()
+    mockStoreState.isStreaming = true
+
+    // New backend: no answer deltas precede the terminal rejection frame.
+    act(() => {
+      capturedCallbacks.onResponse?.(
+        'The research queue is full.',
+        'complete',
+        true,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { jobAdmissionRejected: true, retryAfterSeconds: 42 }
+      )
+    })
+
+    // No answer bubble was ever opened or finalized.
+    expect(mockAppendAgentResponseDelta).not.toHaveBeenCalled()
+    expect(mockFinalizeAgentResponse).not.toHaveBeenCalled()
+    // The defensive discard still runs (harmless no-op when nothing is open).
+    expect(mockDiscardStreamingAssistantMessage).toHaveBeenCalledTimes(1)
+    // Banner added and composer unlocked.
+    expect(mockAddErrorCard).toHaveBeenCalledWith('research.queue_full', expect.stringContaining('queue is full'))
+    expect(mockSetStreaming).toHaveBeenCalledWith(false)
+    expect(mockSetLoading).toHaveBeenCalledWith(false)
   })
 
   test('onResponse drops stale content when not streaming', () => {
@@ -1539,7 +1633,13 @@ describe('useWebSocketChat', () => {
     })
 
     // Should detect deep research and call banner with 'starting' status
-    expect(mockAddDeepResearchBanner).toHaveBeenCalledWith('starting', 'abc123-def456')
+    expect(mockAddDeepResearchBanner).toHaveBeenCalledWith(
+      'starting',
+      'abc123-def456',
+      undefined,
+      undefined,
+      undefined
+    )
     // Should add tracking message with empty content and job metadata
     expect(localMockAddAgentResponseWithMeta).toHaveBeenCalledWith(
       '',

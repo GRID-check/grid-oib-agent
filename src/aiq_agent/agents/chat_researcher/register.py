@@ -130,7 +130,20 @@ async def _aggregate_documents_across_collections(collections, fetch_one):
 # ALREADY-FINAL text as deltas: progressive rendering, not a change to the
 # answer. See docs/design/streaming-chat-answer.md.
 
-_STREAM_EXTRA_FIELDS = ("cards", "deep_research_job_id", "answer_confidence", "sources")
+_STREAM_EXTRA_FIELDS = (
+    "cards",
+    "deep_research_job_id",
+    "answer_confidence",
+    "sources",
+    # Transparency extras (WP-A): each surfaced only when applicable.
+    "routing_decision",
+    "routing_reason",
+    "escalation_reason",
+    "answer_confidence_capped_reason",
+    "citations_removed",
+    "job_admission_rejected",
+    "retry_after_seconds",
+)
 
 
 def _iter_answer_deltas(text: str, *, target_size: int = 24) -> list[str]:
@@ -176,6 +189,14 @@ def _chunk_finish_reason(chunk: ChatResponseChunk) -> str | None:
         return None
 
 
+def _result_field(result: object, name: str) -> Any:
+    """Read a graph-state field from the workflow result (state object or dict)."""
+    value = getattr(result, name, None)
+    if value is None and isinstance(result, dict):
+        value = result.get(name)
+    return value
+
+
 def _response_to_chunks(response: ChatResponse, *, stream: bool) -> list[ChatResponseChunk]:
     """Turn a fully-built ChatResponse into the chunk sequence to yield.
 
@@ -195,8 +216,15 @@ def _response_to_chunks(response: ChatResponse, *, stream: bool) -> list[ChatRes
     response_id = getattr(response, "id", None)
     extras = {field: value for field in _STREAM_EXTRA_FIELDS if (value := getattr(response, field, None)) is not None}
 
+    # A job-admission rejection ("queue full") is NOT a research answer: its
+    # prose is surfaced by the frontend as a warning banner, never an answer
+    # bubble. Emit ONLY the terminal chunk (carrying the extras) — no answer
+    # deltas — so no streaming assistant bubble is ever opened for it. Normal
+    # turns are unaffected and stream as usual.
+    job_admission_rejected = bool(getattr(response, "job_admission_rejected", None))
+
     chunks: list[ChatResponseChunk] = []
-    if stream and content:
+    if stream and content and not job_admission_rejected:
         for delta in _iter_answer_deltas(content):
             chunks.append(
                 ChatResponseChunk.create_streaming_chunk(delta, id_=response_id, model=model_name, finish_reason=None)
@@ -955,6 +983,20 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
             result.get("verified_sources") if isinstance(result, dict) else None
         )
 
+        # Transparency extras (WP-A): each surfaced only when applicable (never
+        # null-spammed), riding the same terminal-chunk extras lift as the fields
+        # above. See docs/architecture/backend-deep-dive.md.
+        from .agent import derive_routing_decision
+
+        depth_decision = _result_field(result, "depth_decision")
+        routing_decision = derive_routing_decision(_result_field(result, "user_intent"), depth_decision)
+        routing_reason = getattr(depth_decision, "raw_reasoning", None)
+        escalation_reason = _result_field(result, "escalation_reason")
+        answer_confidence_capped_reason = _result_field(result, "answer_confidence_capped_reason")
+        citations_removed = _result_field(result, "citations_removed")
+        job_admission_rejected = _result_field(result, "job_admission_rejected")
+        retry_after_seconds = _result_field(result, "retry_after_seconds")
+
         # Exit after response when --input is provided
         if "--input" in sys.argv:
             import threading
@@ -978,6 +1020,20 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
             response.answer_confidence = answer_confidence
         if verified_sources:
             response.sources = verified_sources
+        if routing_decision:
+            response.routing_decision = routing_decision
+        if routing_reason:
+            response.routing_reason = routing_reason
+        if escalation_reason:
+            response.escalation_reason = escalation_reason
+        if answer_confidence_capped_reason:
+            response.answer_confidence_capped_reason = answer_confidence_capped_reason
+        if citations_removed:
+            response.citations_removed = citations_removed
+        if job_admission_rejected:
+            response.job_admission_rejected = True
+            if retry_after_seconds is not None:
+                response.retry_after_seconds = retry_after_seconds
 
         # Post-processing phase: kick off memory reflection AFTER the answer is
         # ready. Fire-and-forget — it runs on the event loop without delaying the

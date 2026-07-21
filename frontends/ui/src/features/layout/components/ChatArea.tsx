@@ -354,6 +354,9 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                         citations={agentMsg?.citations}
                         choicePrompt={choicePrompt}
                         onChoiceRespond={handlePromptRespond}
+                        routingDecision={agentMsg?.routingDecision}
+                        routingReason={agentMsg?.routingReason}
+                        escalationReason={agentMsg?.escalationReason}
                       />
                     </div>
                   )}
@@ -464,6 +467,8 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
           citations={message.citations}
           conversationId={conversationId}
           answerConfidence={message.answerConfidence}
+          answerConfidenceCappedReason={message.answerConfidenceCappedReason}
+          citationsRemoved={message.citationsRemoved}
           showConfidenceChip={showConfidenceChip}
           messageId={message.id}
           showAnswerFeedback={showAnswerFeedback}
@@ -516,6 +521,7 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
           totalTokens={message.deepResearchBannerData.totalTokens}
           toolCallCount={message.deepResearchBannerData.toolCallCount}
           timestamp={message.timestamp}
+          escalationReason={message.deepResearchBannerData.escalationReason}
         />
       )
 

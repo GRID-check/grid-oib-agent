@@ -24,6 +24,29 @@ import {
 
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error'
 
+/**
+ * Transparency extras lifted onto the TERMINAL system_response frame (WP-A →
+ * WP-B wire contract). Every field is optional and additive; absence means
+ * "unknown/not applicable". Bundled into one object so the already-wide
+ * `onResponse` signature does not grow another handful of positional params.
+ */
+export interface ResponseTransparency {
+  /** Which path the turn took after intent classification. */
+  routingDecision?: 'meta' | 'shallow' | 'deep' | 'error'
+  /** Human-readable "why" for the routing decision (verbatim from classifier). */
+  routingReason?: string
+  /** Present only when a shallow→deep escalation happened this turn. */
+  escalationReason?: string
+  /** Present only when confidence was downgraded for lack of citation grounding. */
+  answerConfidenceCappedReason?: 'ungrounded'
+  /** Present only when citation verification removed ≥1 citation. */
+  citationsRemoved?: { count: number; reasons: string[] }
+  /** Marks the answer text as a queue-rejection notice, NOT a research answer. */
+  jobAdmissionRejected?: boolean
+  /** Retry hint (seconds) — only alongside jobAdmissionRejected. */
+  retryAfterSeconds?: number
+}
+
 /** Context passed with connection status changes */
 export interface ConnectionChangeContext {
   /** Whether the disconnect was intentional (e.g. session switch, cleanup) */
@@ -41,7 +64,8 @@ export interface NATWebSocketClientCallbacks {
     cards?: unknown[],
     deepResearchJobId?: string,
     answerConfidence?: 'low' | 'medium' | 'high',
-    sources?: unknown[]
+    sources?: unknown[],
+    transparency?: ResponseTransparency
   ) => void
   /** Called when intermediate steps arrive (thinking, tool calls) */
   onIntermediateStep?: (content: NATIntermediateStepContent | string, status: string, parentId?: string) => void
@@ -92,6 +116,13 @@ export class NATWebSocketClient {
   private isIntentionallyClosed = false
   private errorBeforeClose = false
   private messageIdCounter = 0
+  /**
+   * Message `type` values we've already warned about after a failed parse.
+   * A never-before-seen or malformed frame type is logged ONCE here and then
+   * silently ignored — an unknown/renamed backend frame must not spam the
+   * console on every message or fail the whole parse pipeline.
+   */
+  private warnedUnknownTypes = new Set<string>()
   /**
    * In-flight rotation promise, set for the duration of `rotate()`.
    * Subsequent rotate() calls await the same promise instead of each
@@ -423,7 +454,21 @@ export class NATWebSocketClient {
       const validated = NATIncomingMessageSchema.safeParse(parsed)
 
       if (!validated.success) {
-        console.warn('Invalid NAT WebSocket message:', validated.error, parsed)
+        // Tolerant fallback: an unknown or renamed frame type must not spam the
+        // console on every message. Log ONCE per distinct `type` value (or once
+        // for typeless/garbage payloads) and drop the frame without failing the
+        // rest of the pipeline.
+        const rawType =
+          parsed && typeof parsed === 'object' && typeof (parsed as { type?: unknown }).type === 'string'
+            ? (parsed as { type: string }).type
+            : '<no-type>'
+        if (!this.warnedUnknownTypes.has(rawType)) {
+          this.warnedUnknownTypes.add(rawType)
+          console.warn(
+            `[WS] Ignoring unrecognized NAT message type "${rawType}" (logged once)`,
+            validated.error
+          )
+        }
         return
       }
 
@@ -447,6 +492,17 @@ export class NATWebSocketClient {
           }
 
           const isFinal = message.status === 'complete'
+          // Bundle the transparency extras lifted onto the terminal frame. Each
+          // is optional; the hook renders only those that are present.
+          const transparency: ResponseTransparency = {
+            routingDecision: message.routing_decision,
+            routingReason: message.routing_reason,
+            escalationReason: message.escalation_reason,
+            answerConfidenceCappedReason: message.answer_confidence_capped_reason,
+            citationsRemoved: message.citations_removed,
+            jobAdmissionRejected: message.job_admission_rejected,
+            retryAfterSeconds: message.retry_after_seconds,
+          }
           this.options.callbacks.onResponse?.(
             content,
             message.status,
@@ -455,8 +511,15 @@ export class NATWebSocketClient {
             message.cards,
             message.deep_research_job_id,
             message.answer_confidence,
-            message.sources
+            message.sources,
+            transparency
           )
+          break
+        }
+
+        case NATMessageType.OBSERVABILITY_TRACE: {
+          // Diagnostic/tracing frame. Accepted so it no longer trips the
+          // unknown-type fallback, but the frontend renders nothing from it.
           break
         }
 
@@ -552,3 +615,4 @@ export const createNATWebSocketClient = (
 // Re-export NAT types for convenience
 export { NATMessageType, NATSchemaType, HumanPromptType }
 export type { NATHumanPrompt, NATIntermediateStepContent, NATErrorContent }
+export type { ResponseTransparency as NATResponseTransparency }

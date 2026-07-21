@@ -129,6 +129,25 @@ export const ERROR_REGISTRY: Record<ErrorCode, ErrorMeta> = {
   },
 
   // ============================================================
+  // Research Errors
+  // ============================================================
+  // Deep-research job could not be admitted because the queue is full
+  // (JobAdmissionError). Deliberately WARNING (not error) styled: it is a
+  // transient back-pressure signal, not a failure — the composer stays unlocked
+  // so the user can simply resend after `retry_after_seconds`. The actionable
+  // detail (retry hint) is supplied by the caller, already localized, so there
+  // is no `messageKey` — the localized base message comes via `messageKey` and
+  // the retry hint is appended by the hook.
+  'research.queue_full': {
+    status: 'warning',
+    title: 'Recherche ausgelastet',
+    titleKey: 'errorRegistry.researchQueueFull.title',
+    defaultMessage:
+      'Die Recherche-Warteschlange ist gerade voll. Bitte sende deine Anfrage in einem Moment erneut.',
+    messageKey: 'errorRegistry.researchQueueFull.message',
+  },
+
+  // ============================================================
   // Budget Errors
   // ============================================================
   // Distinct from a network outage: the chat WS upgrade was refused because an

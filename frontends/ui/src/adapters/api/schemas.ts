@@ -66,14 +66,26 @@ export const NATSchemaType = {
   CHAT_STREAM: 'chat_stream',
 } as const
 
-/** Human prompt input types from NAT */
+/**
+ * Human prompt input types from NAT.
+ *
+ * Aligned with NAT's real HITL enum: `text | notification | binary_choice |
+ * radio | checkbox | dropdown | oauth_consent`. The legacy `multiple_choice`
+ * and `approval` values are kept for back-compat with older backends and
+ * persisted sessions. `radio`/`checkbox`/`dropdown` all map to the existing
+ * choice rendering (OptionsList) — see `mapHumanPromptType`.
+ */
 export const HumanPromptType = {
   TEXT: 'text',
-  MULTIPLE_CHOICE: 'multiple_choice',
-  BINARY_CHOICE: 'binary_choice',
-  APPROVAL: 'approval',
   NOTIFICATION: 'notification',
+  BINARY_CHOICE: 'binary_choice',
+  RADIO: 'radio',
+  CHECKBOX: 'checkbox',
+  DROPDOWN: 'dropdown',
   OAUTH_CONSENT: 'oauth_consent',
+  // Legacy values (kept for back-compat, not part of NAT's current enum)
+  MULTIPLE_CHOICE: 'multiple_choice',
+  APPROVAL: 'approval',
 } as const
 
 /** Message status for WebSocket messages */
@@ -139,11 +151,15 @@ export const NATUserInteractionResponseSchema = z.object({
 export const NATHumanPromptSchema = z.object({
   input_type: z.enum([
     HumanPromptType.TEXT,
-    HumanPromptType.MULTIPLE_CHOICE,
-    HumanPromptType.BINARY_CHOICE,
-    HumanPromptType.APPROVAL,
     HumanPromptType.NOTIFICATION,
+    HumanPromptType.BINARY_CHOICE,
+    HumanPromptType.RADIO,
+    HumanPromptType.CHECKBOX,
+    HumanPromptType.DROPDOWN,
     HumanPromptType.OAUTH_CONSENT,
+    // Legacy values still accepted for back-compat.
+    HumanPromptType.MULTIPLE_CHOICE,
+    HumanPromptType.APPROVAL,
   ]),
   text: z.string(),
   /** Options for multiple choice prompts */
@@ -209,7 +225,9 @@ export const NATSystemResponseMessageSchema = z.object({
   // failing the whole message parse and dropping the response text.
   answer_confidence: z.enum(['low', 'medium', 'high']).optional().catch(undefined),
   // Structured sources from the source registry (KB file/page/collection, RIS/web URLs).
-  // Fail-open: unknown/malformed shapes drop the array rather than the response text.
+  // Fail-open: PER-ENTRY tolerance — a single malformed source degrades to
+  // undefined and is dropped, while the remaining (valid) citations survive.
+  // The outer `.catch(undefined)` still guards against a non-array `sources`.
   sources: z
     .array(
       z
@@ -226,9 +244,46 @@ export const NATSystemResponseMessageSchema = z.object({
           page: z.number().nullable().optional(),
         })
         .passthrough()
+        // Per-entry tolerance: `.optional()` makes `undefined` a valid element
+        // output so `.catch(undefined)` can degrade a single malformed source to
+        // a hole (rather than needing a full object fallback), which the
+        // transform below compacts out.
+        .optional()
+        .catch(undefined)
     )
     .optional()
+    .catch(undefined)
+    // Compact out the per-entry `.catch(undefined)` holes so consumers only see
+    // the well-formed citations.
+    .transform((arr) => (arr ? arr.filter((entry) => entry != null) : arr)),
+
+  // ── Transparency extras (WP-A → WP-B wire contract) ──────────────────────
+  // All optional + per-field `.catch(undefined)`: one malformed extra degrades
+  // to "absent" and NEVER kills the whole frame (the response text survives).
+  // These ride the same terminal-chunk "extras lift" as answer_confidence /
+  // sources / deep_research_job_id.
+
+  // Which path the turn took after intent classification.
+  routing_decision: z.enum(['meta', 'shallow', 'deep', 'error']).optional().catch(undefined),
+  // Human-readable "why" for the routing decision (verbatim from the classifier).
+  routing_reason: z.string().optional().catch(undefined),
+  // Present only when a shallow→deep escalation happened this turn.
+  escalation_reason: z.string().optional().catch(undefined),
+  // Present only when the self-reported confidence was downgraded because the
+  // answer lacked citation grounding.
+  answer_confidence_capped_reason: z.literal('ungrounded').optional().catch(undefined),
+  // Present only when citation verification removed ≥1 citation.
+  citations_removed: z
+    .object({
+      count: z.number(),
+      reasons: z.array(z.string()),
+    })
+    .optional()
     .catch(undefined),
+  // Marks the answer text as a queue-rejection notice (NOT a research answer).
+  job_admission_rejected: z.literal(true).optional().catch(undefined),
+  // Retry hint (seconds) — only alongside job_admission_rejected.
+  retry_after_seconds: z.number().optional().catch(undefined),
 })
 
 /** Intermediate step content */
@@ -253,6 +308,27 @@ export const NATSystemIntermediateMessageSchema = z.object({
   timestamp: z.string().optional(),
 })
 
+/**
+ * Observability Trace Message — diagnostic/tracing frame from NAT.
+ *
+ * The frontend does not render these; the variant exists so the frame is
+ * TOLERATED (parsed + ignored) instead of tripping the discriminated-union
+ * fallback and spamming `console.warn`. Payload is kept opaque (`z.unknown`)
+ * and passthrough so a schema drift on the backend never fails the parse.
+ */
+export const NATObservabilityTraceMessageSchema = z
+  .object({
+    type: z.literal(NATMessageType.OBSERVABILITY_TRACE),
+    id: z.string().optional(),
+    thread_id: z.string().optional(),
+    parent_id: z.string().optional(),
+    conversation_id: z.string().optional(),
+    content: z.unknown().optional(),
+    status: z.string().optional(),
+    timestamp: z.string().optional(),
+  })
+  .passthrough()
+
 /** Error content */
 export const NATErrorContentSchema = z.object({
   code: z.string(),
@@ -275,6 +351,7 @@ export const NATIncomingMessageSchema = z.discriminatedUnion('type', [
   NATSystemResponseMessageSchema,
   NATSystemIntermediateMessageSchema,
   NATSystemInteractionMessageSchema,
+  NATObservabilityTraceMessageSchema,
   NATErrorMessageSchema,
 ])
 
@@ -390,6 +467,7 @@ export type NATSystemInteractionMessage = z.infer<typeof NATSystemInteractionMes
 export type NATSystemResponseMessage = z.infer<typeof NATSystemResponseMessageSchema>
 export type NATSystemResponseContent = z.infer<typeof NATSystemResponseContentSchema>
 export type NATSystemIntermediateMessage = z.infer<typeof NATSystemIntermediateMessageSchema>
+export type NATObservabilityTraceMessage = z.infer<typeof NATObservabilityTraceMessageSchema>
 export type NATIntermediateStepContent = z.infer<typeof NATIntermediateStepContentSchema>
 export type NATErrorMessage = z.infer<typeof NATErrorMessageSchema>
 export type NATErrorContent = z.infer<typeof NATErrorContentSchema>

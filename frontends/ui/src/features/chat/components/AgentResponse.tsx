@@ -22,6 +22,7 @@ import type { GridCard } from '@/shared/cards/schemas'
 import type { CitationSource } from '../types'
 import { useChatStore } from '../store'
 import { useLoadJobData } from '../hooks'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { AnswerSourcesRow } from './AnswerSourcesRow'
 import { MemoryNotedChip } from './MemoryNotedChip'
 import { ConfidenceChip } from './ConfidenceChip'
@@ -53,6 +54,17 @@ export interface AgentResponseProps {
   conversationId?: string | null
   /** The assistant's guarded self-assessed answer confidence (shallow answers only) */
   answerConfidence?: 'low' | 'medium' | 'high'
+  /**
+   * Why the self-assessed confidence was capped (WP-A transparency extra) —
+   * `'ungrounded'` adds the cap explanation to the ConfidenceChip tooltip.
+   */
+  answerConfidenceCappedReason?: 'ungrounded'
+  /**
+   * Citation-verification result: how many citations were removed as
+   * unverifiable, with de-duplicated reasons. Renders a muted note under the
+   * "Belegt durch" sources row when present.
+   */
+  citationsRemoved?: { count: number; reasons: string[] }
   /**
    * Whether the self-assessment ConfidenceChip renders (WorkOS
    * `chat-confidence-chip` flag, FB-6). Defaults to true so the feature stays
@@ -89,6 +101,60 @@ const StreamingCaret: FC = () => (
 )
 
 /**
+ * Muted note under the "Belegt durch" row: citation verification removed one or
+ * more citations from this answer as unverifiable (WP-A `citations_removed`).
+ * The de-duplicated reasons hang off a tooltip so the row stays quiet by
+ * default. Renders nothing when nothing was removed.
+ */
+const CitationsRemovedNote: FC<{ citationsRemoved?: { count: number; reasons: string[] } }> = ({
+  citationsRemoved,
+}) => {
+  const t = useTranslations('chat')
+  if (!citationsRemoved || citationsRemoved.count <= 0) return null
+
+  const label = t('answerSources.citationsRemoved', { count: citationsRemoved.count })
+  const reasons = citationsRemoved.reasons?.filter((r) => r.trim().length > 0) ?? []
+
+  const text = (
+    <span className="text-[11px] leading-relaxed text-muted-foreground" role="note">
+      {label}
+    </span>
+  )
+
+  if (reasons.length === 0) {
+    return <div className="mt-1.5">{text}</div>
+  }
+
+  return (
+    <div className="mt-1.5">
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            className="cursor-help rounded-xs text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+            aria-label={label}
+          >
+            <span className="text-[11px] leading-relaxed text-muted-foreground underline decoration-dotted underline-offset-2">
+              {label}
+            </span>
+          </button>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-xs">
+          <span className="mb-1 block text-[10.5px] font-semibold uppercase tracking-[0.05em]">
+            {t('answerSources.citationsRemovedReasonsLabel')}
+          </span>
+          <ul className="list-disc space-y-0.5 pl-4">
+            {reasons.map((reason, i) => (
+              <li key={i}>{reason}</li>
+            ))}
+          </ul>
+        </TooltipContent>
+      </Tooltip>
+    </div>
+  )
+}
+
+/**
  * Agent response bubble component for completed responses
  */
 const AgentResponseComponent: FC<AgentResponseProps> = ({
@@ -103,6 +169,8 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   citations,
   conversationId,
   answerConfidence,
+  answerConfidenceCappedReason,
+  citationsRemoved,
   showConfidenceChip = true,
   messageId,
   showAnswerFeedback = true,
@@ -235,10 +303,16 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
 
         {/* "Belegt durch": provenance chips for sources this answer carries */}
         <AnswerSourcesRow citations={citations} cards={cards} />
+        <CitationsRemovedNote citationsRemoved={citationsRemoved} />
 
         {/* Footer chips: self-assessed confidence + what Piloti recorded this turn */}
         <div className="flex flex-wrap items-center gap-2">
-          {showConfidenceChip && <ConfidenceChip confidence={answerConfidence} />}
+          {showConfidenceChip && (
+            <ConfidenceChip
+              confidence={answerConfidence}
+              cappedReason={answerConfidenceCappedReason}
+            />
+          )}
           <MemoryNotedChip projectId={projectId} conversationId={conversationId} />
         </div>
 
@@ -320,9 +394,15 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             Sits on the tinted shell below the white block. */}
         <div className="px-[22px] pb-3 pt-[11px]">
           <AnswerSourcesRow citations={citations} cards={cards} />
+          <CitationsRemovedNote citationsRemoved={citationsRemoved} />
           {/* Footer chips: self-assessed confidence + what Piloti recorded */}
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            {showConfidenceChip && <ConfidenceChip confidence={answerConfidence} />}
+            {showConfidenceChip && (
+              <ConfidenceChip
+                confidence={answerConfidence}
+                cappedReason={answerConfidenceCappedReason}
+              />
+            )}
             <MemoryNotedChip projectId={projectId} conversationId={conversationId} />
           </div>
         </div>
