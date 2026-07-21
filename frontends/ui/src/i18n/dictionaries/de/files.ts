@@ -58,6 +58,13 @@ export const files: typeof en.files = {
       image: 'Bilder',
       drawing: 'Zeichnungen',
     },
+    visualDetails: {
+      title: 'Detaillierte Informationen',
+      loading: 'Beschreibungen werden geladen …',
+      empty: 'Keine visuellen Beschreibungen verfügbar.',
+      page: 'Seite {page}',
+      scale: 'Maßstab {scale}',
+    },
     unknownType: 'Unbekannt',
     download: 'Herunterladen',
     downloadFailed: 'Der Download konnte nicht gestartet werden. Bitte versuchen Sie es erneut.',

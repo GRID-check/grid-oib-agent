@@ -54,6 +54,13 @@ export const files = {
       image: 'Images',
       drawing: 'Drawings',
     },
+    visualDetails: {
+      title: 'Detailed information',
+      loading: 'Loading descriptions…',
+      empty: 'No visual descriptions available.',
+      page: 'Page {page}',
+      scale: 'Scale {scale}',
+    },
     unknownType: 'Unknown',
     download: 'Download',
     downloadFailed: "The download couldn't be started. Please try again.",

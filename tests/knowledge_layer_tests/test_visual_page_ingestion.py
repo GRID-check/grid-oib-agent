@@ -103,6 +103,18 @@ class TestParseDrawingFields:
     def test_empty_response(self):
         assert _parse_drawing_fields("") == {}
 
+    def test_parses_extended_detail_fields(self):
+        response = (
+            "ZEICHNUNGSTYP: schnitt\n"
+            "NUTZUNG: Schule\n"
+            "MATERIALIEN/BAUWEISE: Stahlbeton, Glasfassade\n"
+            "DETAILBESCHREIBUNG: Ein Längsschnitt durch einen Bildungsbau mit zentralem Atrium und Freitreppe.\n"
+        )
+        fields = _parse_drawing_fields(response)
+        assert fields["use"] == "Schule"
+        assert fields["materials"] == "Stahlbeton, Glasfassade"
+        assert fields["detail"].startswith("Ein Längsschnitt")
+
 
 # =============================================================================
 # Document summary from drawing fields
@@ -400,6 +412,59 @@ class TestRunIngestionDrawingBranch:
         render.assert_not_called()
         docs = get_available_documents("coll_text")
         assert len(docs) == 1
+
+    def test_visual_details_returns_per_page_descriptions(self, monkeypatch, ingestor):
+        """get_document_visual_details returns the drawing/image chunk captions
+        (prefix stripped, sorted by page) for the file-preview detail section."""
+
+        class _FakeCollection:
+            def get(self, where, include):
+                assert where == {"file_name": "plan.pdf"}
+                return {
+                    "documents": [
+                        "[DRAWING from page 2]\n\nZEICHNUNGSTYP: schnitt\nDETAILBESCHREIBUNG: Ausführlich.",
+                        "[DRAWING from page 1]\n\nZEICHNUNGSTYP: grundriss",
+                        "some plain text chunk",  # content_type text → excluded
+                    ],
+                    "metadatas": [
+                        {
+                            "content_type": "drawing",
+                            "page_label": "2",
+                            "drawing_type": "schnitt",
+                            "drawing_scale": "1:100",
+                        },
+                        {
+                            "content_type": "drawing",
+                            "page_label": "1",
+                            "drawing_type": "grundriss",
+                            "drawing_scale": "",
+                        },
+                        {"content_type": "text", "page_label": "1"},
+                    ],
+                }
+
+        class _FakeClient:
+            def get_collection(self, name):
+                return _FakeCollection()
+
+        monkeypatch.setattr(ingestor, "_get_chroma_client", lambda: _FakeClient())
+
+        details = ingestor.get_document_visual_details("coll", "plan.pdf")
+
+        # Text chunk excluded; drawings sorted by page; prefix stripped.
+        assert [d["page"] for d in details] == [1, 2]
+        assert details[0]["drawing_type"] == "grundriss"
+        assert details[1]["drawing_type"] == "schnitt"
+        assert details[1]["scale"] == "1:100"
+        assert details[1]["text"].startswith("ZEICHNUNGSTYP: schnitt")
+        assert "[DRAWING" not in details[1]["text"]
+
+    def test_visual_details_fails_open_to_empty(self, monkeypatch, ingestor):
+        def boom():
+            raise RuntimeError("chroma down")
+
+        monkeypatch.setattr(ingestor, "_get_chroma_client", boom)
+        assert ingestor.get_document_visual_details("coll", "plan.pdf") == []
 
     def test_org_byok_and_model_override_reach_the_vlm(self, tmp_path, monkeypatch, ingestor, summary_db):
         """The org id captured at /v1/ingest drives the VLM the same way the

@@ -399,6 +399,17 @@ the document summary:
    bulk OIB corpus) skip the VLM at near-zero cost — and at most
    `AIQ_MAX_RENDERED_PAGES` (20) pages are rendered per document.
 
+The drawing prompt returns a rich structured block — drawing type, Maßstab,
+Nutzung, Räume/Elemente, Materialien/Bauweise, räumliche Beziehungen, and a
+multi-sentence `DETAILBESCHREIBUNG` — stored as the chunk body. Because it is a
+normal chunk it is **embedded and retrievable/citable by `knowledge_search`**,
+so the agent can answer detailed questions about a drawing (materials, storeys,
+circulation) that used to have no indexed content at all. The same descriptions
+are browsable by the user, second to the one-line summary: `get_document_visual_details`
+reads the visual chunks back from Chroma and the file-preview pane's collapsible
+**"Detailed information"** section lazy-loads them (`GET /api/documents/{id}/visual-details`
+→ `GET /v1/collections/{c}/documents/{f}/visual-details`).
+
 **Summary sourcing (why the summary no longer describes the watermark).** The
 document summary + tag LLM calls are started **after** visual extraction. For a
 text-sparse drawing PDF the near-empty page text is replaced by the aggregated

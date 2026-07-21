@@ -857,9 +857,12 @@ ZEICHNUNGSTYP: <grundriss|schnitt|ansicht|detail|lageplan|perspektive|sonstiges>
 MASSSTAB: <z.B. 1:100, M 1:50, oder "Maßstabsfiguren/-balken vorhanden" oder "unbekannt">
 TITEL/PROJEKT: <Projekt-/Planname aus dem Schriftfeld, sonst "unbekannt">
 GESCHOSSE/EBENEN: <Anzahl und Bezeichnung der dargestellten Geschosse/Ebenen, sonst "-">
+NUTZUNG: <erkennbare Gebäude-/Raumnutzung, z.B. Schule, Wohnbau, Büro, sonst "unbekannt">
 RÄUME/ELEMENTE: <wichtigste beschriftete Räume oder Bauteile, kommagetrennt>
+MATERIALIEN/BAUWEISE: <erkennbare Materialien/Konstruktion, z.B. Stahlbeton, Holzbau, Glas, sonst "-">
 ABMESSUNGEN/KOTEN: <sichtbare Maße/Kotierungen, sonst "keine sichtbar">
 RÄUMLICHE BEZIEHUNGEN: <ein bis zwei Sätze zu Anordnung, Ebenen, Erschließung, Orientierung>
+DETAILBESCHREIBUNG: <3-5 Sätze in EINEM Absatz zu Bauteilen, Konstruktion, Erschließung, Freiräumen und Gesamteindruck>
 WASSERZEICHEN: <erkannter Wasserzeichen-/Lizenztext, z.B. "VECTORWORKS EDUCATIONAL VERSION", sonst "keines">
 ZUSAMMENFASSUNG: <EIN Satz, der den Inhalt der Zeichnung inkl. Maßstab beschreibt — OHNE Wasserzeichen zu erwähnen>
 
@@ -879,9 +882,12 @@ def _parse_drawing_fields(caption: str) -> dict[str, str]:
         "maßstab": "scale",
         "titel/projekt": "title",
         "geschosse/ebenen": "levels",
+        "nutzung": "use",
         "räume/elemente": "elements",
+        "materialien/bauweise": "materials",
         "abmessungen/koten": "dimensions",
         "räumliche beziehungen": "spatial_relations",
+        "detailbeschreibung": "detail",
         "wasserzeichen": "watermark",
         "zusammenfassung": "summary",
     }
@@ -936,7 +942,7 @@ def _analyze_drawing_page_with_vlm(
                     ],
                 }
             ],
-            max_tokens=700,
+            max_tokens=1100,
             temperature=0.2,
         )
         caption = (response.choices[0].message.content or "").strip()
@@ -2088,6 +2094,57 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
 
         combined = "\n".join(documents)
         return combined[:max_chars] if combined else None
+
+    def get_document_visual_details(self, collection_name: str, file_name: str) -> list[dict[str, Any]]:
+        """Per-page VLM descriptions of a document's visual chunks (fail-open).
+
+        Powers the file-preview "detailed information" section: returns the
+        rendered-drawing / image / chart captions ingestion produced, so the
+        rich description (drawing type, scale, materials, spatial relationships,
+        detailed paragraph) the summary is distilled from is browsable — not just
+        reachable via chat retrieval. Duck-typed (not on ``BaseIngestor``) like
+        :meth:`get_document_text_sample`. Returns ``[]`` on any lookup failure or
+        when the document has no visual chunks.
+
+        Each item: ``{page, content_type, drawing_type, scale, text}`` where
+        ``text`` is the caption body (the ``[DRAWING from page N]`` prefix
+        stripped), sorted by page then content type.
+        """
+        try:
+            client = self._get_chroma_client()
+            collection = client.get_collection(name=collection_name)
+            results = collection.get(where={"file_name": file_name}, include=["documents", "metadatas"])
+        except Exception as e:
+            logger.warning("Visual details lookup failed for %s in %s: %s", file_name, collection_name, e)
+            return []
+
+        documents = results.get("documents") or []
+        metadatas = results.get("metadatas") or []
+        items: list[dict[str, Any]] = []
+        for text, meta in zip(documents, metadatas):
+            meta = meta or {}
+            content_type = meta.get("content_type")
+            if content_type not in ("drawing", "image", "chart") or not text:
+                continue
+            # Strip the "[DRAWING from page N]\n\n" / "[IMAGE …]" prefix so the FE
+            # shows the description, not the internal marker.
+            body = text.split("\n\n", 1)[1] if "\n\n" in text else text
+            try:
+                page = int(meta.get("page_label") or 0)
+            except (TypeError, ValueError):
+                page = 0
+            items.append(
+                {
+                    "page": page,
+                    "content_type": content_type,
+                    "drawing_type": meta.get("drawing_type") or "",
+                    "scale": meta.get("drawing_scale") or "",
+                    "text": body.strip(),
+                }
+            )
+
+        items.sort(key=lambda it: (it["page"], it["content_type"]))
+        return items
 
     @staticmethod
     def _generate_and_upload_thumbnail(
