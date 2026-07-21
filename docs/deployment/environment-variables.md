@@ -64,15 +64,15 @@ Variables set in `docker-compose.yaml` under `environment:` take precedence over
 
 ---
 
-## MinIO / Object Storage
+## SeaweedFS / Object Storage
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `MINIO_ENDPOINT` | Yes (Docker) | `http://minio:9000` (compose), `http://localhost:9000` (local) | S3-compatible endpoint URL. In Docker this references the minio service. |
-| `MINIO_ACCESS_KEY` | Yes | `minioadmin` | MinIO root/access key. Change in production. |
-| `MINIO_SECRET_KEY` | Yes | `minioadmin` | MinIO root/secret key. Change in production. |
-| `MINIO_BUCKET` | Yes | `grid-documents` | S3 bucket name for document storage. Created by `minio-init`. |
-| `MINIO_PRESIGNED_URL_TTL_SECONDS` | No | `600` | TTL for presigned download URLs (10 minutes). |
+| `SEAWEED_ENDPOINT` | Yes (Docker) | `http://seaweedfs:8333` (compose), `http://localhost:8333` (local) | S3-compatible endpoint URL. In Docker this references the seaweedfs service. |
+| `SEAWEED_ACCESS_KEY` | Yes | `seaweedadmin` | SeaweedFS access key. Change in production. |
+| `SEAWEED_SECRET_KEY` | Yes | `seaweedadmin` | SeaweedFS secret key. Change in production. |
+| `SEAWEED_BUCKET` | Yes | `grid-documents` | S3 bucket name for document storage. Created by `seaweedfs-init`. |
+| `SEAWEED_PRESIGNED_URL_TTL_SECONDS` | No | `600` | TTL for presigned download URLs (10 minutes). |
 
 ---
 
@@ -231,8 +231,8 @@ The scheduler also reuses `GRID_APP_DATABASE_URL`, `FRONTEND_INTERNAL_URL`, and 
 ## Notes
 
 - **Placeholder values**: The `.env.example` file contains commented-out optional variables. The `.env` file contains actual development keys.
-- **Docker networking**: In Docker Compose, services communicate over the internal `aiq-network` bridge network. Variables like `BACKEND_URL=http://aiq-agent:8000` and `MINIO_ENDPOINT=http://minio:9000` use Docker DNS resolution.
-- **MinIO credentials**: The MinIO credentials are currently hardcoded in `docker-compose.yaml` for all three services that use them. For production, these should be externalized to the `.env` file.
+- **Docker networking**: In Docker Compose, services communicate over the internal `aiq-network` bridge network. Variables like `BACKEND_URL=http://aiq-agent:8000` and `SEAWEED_ENDPOINT=http://seaweedfs:8333` use Docker DNS resolution.
+- **SeaweedFS credentials**: The SeaweedFS credentials are currently hardcoded in `docker-compose.yaml` for all three services that use them. For production, these should be externalized to the `.env` file.
 
 ## Model Configuration & Budgets (frontend)
 

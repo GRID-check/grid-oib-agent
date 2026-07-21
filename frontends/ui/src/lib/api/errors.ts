@@ -78,7 +78,7 @@ export class UnprocessableError extends ApiError {
   }
 }
 
-/** 502 — an upstream dependency (backend, WorkOS, MinIO) failed. */
+/** 502 — an upstream dependency (backend, WorkOS, SeaweedFS) failed. */
 export class UpstreamError extends ApiError {
   constructor(message = 'Upstream service error', details?: unknown) {
     super(502, 'UPSTREAM_ERROR', message, details)

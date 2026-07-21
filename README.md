@@ -12,7 +12,7 @@ Navigate the **OIB Richtlinien** — Austria's building-code framework — with 
 [![Tailwind v4](https://img.shields.io/badge/Tailwind-v4-38BDF8?logo=tailwindcss&logoColor=white)](https://tailwindcss.com)
 [![LangGraph](https://img.shields.io/badge/LangGraph-Multi--Agent-1C3C3C)](https://langchain-ai.github.io/langgraph/)
 [![ChromaDB](https://img.shields.io/badge/ChromaDB-Vector--Store-F5A623)](https://trychroma.com)
-[![MinIO](https://img.shields.io/badge/MinIO-S3--Storage-C72E49)](https://min.io)
+[![SeaweedFS](https://img.shields.io/badge/SeaweedFS-S3--Storage-C72E49)](https://github.com/seaweedfs/seaweedfs)
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](https://docker.com)
 
 ---
@@ -64,7 +64,7 @@ flowchart TB
     end
 
     subgraph Storage["Infrastructure"]
-        MINIO["MinIO — OIB PDFs + project documents"]
+        SEAWEED["SeaweedFS — OIB PDFs + project documents"]
         PURGER["purger — grace-period hard-delete worker"]
         WFS["workflow-scheduler — cron fires for saved research briefs"]
     end
@@ -81,10 +81,10 @@ flowchart TB
     BFF -->|internal write API| BFF
     FAST --> NAT --> LG --> DASK
     LG <--> CHROMA
-    BFF -->|upload| MINIO
+    BFF -->|upload| SEAWEED
     FAST -.->|/v1/ingest| CHROMA
     PURGER --> DB
-    PURGER --> MINIO
+    PURGER --> SEAWEED
     WFS --> DB
     WFS -->|internal fire API| BFF
     NAT -->|LLM| OR
@@ -131,7 +131,7 @@ open http://localhost:3000
 
 > **LLM-agnostic.** Grid runs against **any OpenAI-compatible API** — OpenRouter, a self-hosted vLLM/Ollama server, Azure OpenAI, NVIDIA NIM, etc. The LLM/embedding provider is not baked in: point the `base_url`, `model_name`, and API-key env at your endpoint in the workflow config (`configs/*.yml`) and set `CONFIG_FILE` accordingly. The shipped **reference config** is `configs/config_oib_openrouter.yml` (DeepSeek + embeddings via OpenRouter); the legacy Kimi config (`config_grid_oib.yml`) is not currently maintained.
 
-The stack runs eight Compose services: `postgres`, `minio` (+ `minio-init`), `aiq-agent` (+ a one-shot `aiq-data-permissions`), `frontend`, the `purger` deletion worker, and the `workflow-scheduler` cron worker (ADR-0023; a clean no-op unless workflows are enabled).
+The stack runs eight Compose services: `postgres`, `seaweedfs` (+ `seaweedfs-init`), `aiq-agent` (+ a one-shot `aiq-data-permissions`), `frontend`, the `purger` deletion worker, and the `workflow-scheduler` cron worker (ADR-0023; a clean no-op unless workflows are enabled).
 
 ## Tech Stack
 
@@ -144,7 +144,7 @@ The stack runs eight Compose services: `postgres`, `minio` (+ `minio-init`), `ai
 | **LLM + Embeddings** | **Any OpenAI-compatible endpoint** — reference config: DeepSeek via OpenRouter | Reasoning, classification, cards, embeddings |
 | **Web Search** | Tavily | Context beyond the OIB corpus |
 | **Database** | PostgreSQL, Drizzle ORM | Projects, conversations, documents, memory, deletion queue |
-| **Object Storage** | MinIO (S3-compatible) | OIB PDFs + uploaded documents |
+| **Object Storage** | SeaweedFS (S3-compatible) | OIB PDFs + uploaded documents |
 | **Auth** | WorkOS AuthKit + FGA | Organization-scoped SSO / access control |
 | **Infrastructure** | Docker Compose | Single-command deployment |
 

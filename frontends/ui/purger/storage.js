@@ -1,5 +1,5 @@
 /**
- * Prefix-based MinIO cleanup. Paginated list + batched delete; a prefix with
+ * Prefix-based SeaweedFS cleanup. Paginated list + batched delete; a prefix with
  * no objects is a successful no-op (idempotent re-runs).
  */
 
@@ -11,17 +11,17 @@ const {
 
 function createS3Client() {
   return new S3Client({
-    endpoint: process.env.MINIO_ENDPOINT,
+    endpoint: process.env.SEAWEED_ENDPOINT,
     region: 'us-east-1',
     credentials: {
-      accessKeyId: process.env.MINIO_ACCESS_KEY || '',
-      secretAccessKey: process.env.MINIO_SECRET_KEY || '',
+      accessKeyId: process.env.SEAWEED_ACCESS_KEY || '',
+      secretAccessKey: process.env.SEAWEED_SECRET_KEY || '',
     },
     forcePathStyle: true,
   })
 }
 
-async function deleteMinioPrefix(s3, bucket, prefix) {
+async function deleteStoragePrefix(s3, bucket, prefix) {
   let deleted = 0
   let continuationToken
   do {
@@ -49,7 +49,7 @@ async function deleteMinioPrefix(s3, bucket, prefix) {
           .map((e) => `${e.Key}: ${e.Code}`)
           .join('; ')
         throw new Error(
-          `MinIO delete reported ${res.Errors.length} error(s) for prefix ${prefix}: ${sample}`,
+          `SeaweedFS delete reported ${res.Errors.length} error(s) for prefix ${prefix}: ${sample}`,
         )
       }
       deleted += keys.length
@@ -59,4 +59,4 @@ async function deleteMinioPrefix(s3, bucket, prefix) {
   return deleted
 }
 
-module.exports = { createS3Client, deleteMinioPrefix }
+module.exports = { createS3Client, deleteStoragePrefix }

@@ -49,7 +49,7 @@ Source: `docs/technical-reference/chat-flow.md`, `frontends/ui/src/app/api/chat/
 
 Upload documents via the **Documents** tab. The upload flow:
 
-1. File is uploaded to MinIO (S3-compatible object storage).
+1. File is uploaded to SeaweedFS (S3-compatible object storage).
 2. A `documents` row is created in PostgreSQL with status `uploaded`.
 3. A presigned URL is generated and sent to `POST /v1/ingest` on the Python backend.
 4. The backend downloads the file and submits it to the knowledge ingestor.

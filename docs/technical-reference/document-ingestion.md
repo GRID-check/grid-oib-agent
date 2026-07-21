@@ -7,7 +7,7 @@ End-to-end flow from file upload to vector search.
 ## Overview
 
 ```
-User's Browser                 Next.js BFF                    MinIO              Python Backend          ChromaDB
+User's Browser                 Next.js BFF                    SeaweedFS          Python Backend          ChromaDB
       │                            │                          │                      │                    │
       │   POST /api/documents/      │                          │                      │                    │
       │   upload (multipart)        │                          │                      │                    │
@@ -75,16 +75,16 @@ Body: { projectId: string, file: File }
 
 1. **Auth check** — `requireAuthorizedSession()` + `requireProjectAccess(session, projectId, 'project:edit')`
 2. **Generate documentId** — `uuidv4()`
-3. **Store in MinIO** — `PutObjectCommand` with key `org/{orgId}/project/{projId}/doc/{docId}/{filename}` (built by `buildMinioKey()` in `s3.ts`)
-4. **Insert DB row** — Drizzle `documents` table with `status: 'uploaded'`, storing `documentId`, `organizationId`, `projectId`, `createdBy`, `filename`, `minioKey`, `collectionName`, `fileSize`, `contentType`
-5. **Generate presigned GET URL** — `getSignedUrl(s3Client, GetObjectCommand, { expiresIn: MINIO_PRESIGNED_URL_TTL_SECONDS || 600 })`
+3. **Store in SeaweedFS** — `PutObjectCommand` with key `org/{orgId}/project/{projId}/doc/{docId}/{filename}` (built by `buildStorageKey()` in `s3.ts`)
+4. **Insert DB row** — Drizzle `documents` table with `status: 'uploaded'`, storing `documentId`, `organizationId`, `projectId`, `createdBy`, `filename`, `storageKey`, `collectionName`, `fileSize`, `contentType`
+5. **Generate presigned GET URL** — `getSignedUrl(s3Client, GetObjectCommand, { expiresIn: SEAWEED_PRESIGNED_URL_TTL_SECONDS || 600 })`
 6. **Trigger ingestion** — POST to `{BACKEND_URL}/v1/ingest` with `{ file_ref: presignedUrl, collection: collectionName, document_id: documentId }`
 7. **Record the job** — on success the row is updated to `status: 'pending'` with `metadata: { ingestJobId }` so status reads can later reconcile the row against the backend job (see Step 5)
 8. **Return response** — `{ documentId, jobId, status: 'pending' | 'uploaded' }`
 
-**MinIO config** (`frontends/ui/src/lib/s3.ts`):
-- Endpoint: `process.env.MINIO_ENDPOINT`
-- Bucket: `process.env.MINIO_BUCKET || 'grid-documents'`
+**SeaweedFS config** (`frontends/ui/src/lib/s3.ts`):
+- Endpoint: `process.env.SEAWEED_ENDPOINT`
+- Bucket: `process.env.SEAWEED_BUCKET || 'grid-documents'`
 - Region: `us-east-1`, `forcePathStyle: true`
 
 ---
@@ -260,6 +260,6 @@ cannot show a document that failed to index into ChromaDB.
 
 **File**: `frontends/ui/src/app/api/documents/[id]/download/route.ts`
 - Auth check (`requireAuthorizedSession`)
-- Reads `minioKey` from the `documents` table
+- Reads `storageKey` from the `documents` table
 - Generates a presigned GET URL with `ResponseContentDisposition: attachment`
 - Returns `{ downloadUrl, filename, contentType, fileSize }`

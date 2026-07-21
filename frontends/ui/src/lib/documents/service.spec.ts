@@ -12,11 +12,11 @@ vi.mock('@/lib/s3', () => ({
   s3Client: { send: vi.fn().mockResolvedValue(undefined) },
   signingS3Client: { send: vi.fn().mockResolvedValue(undefined) },
   bucketName: 'test-bucket',
-  buildMinioKey: vi.fn().mockReturnValue('org/proj/doc/file.pdf'),
+  buildStorageKey: vi.fn().mockReturnValue('org/proj/doc/file.pdf'),
 }))
 
 vi.mock('@aws-sdk/s3-request-presigner', () => ({
-  getSignedUrl: vi.fn().mockResolvedValue('https://minio.internal/presigned'),
+  getSignedUrl: vi.fn().mockResolvedValue('https://seaweedfs.internal/presigned'),
 }))
 
 vi.mock('@/lib/backend-proxy', () => ({
@@ -289,7 +289,7 @@ describe('reingestDocument', () => {
     organizationId: 'org-1',
     status: 'failed',
     collectionName: 'proj_abc',
-    minioKey: 'org/proj/doc/file.pdf',
+    storageKey: 'org/proj/doc/file.pdf',
   } as any
 
   it('happy path: failed -> pending with a fresh job id', async () => {

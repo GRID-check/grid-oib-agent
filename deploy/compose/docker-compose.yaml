@@ -85,7 +85,7 @@ services:
     depends_on:
       aiq-data-permissions:
         condition: service_completed_successfully
-      minio:
+      seaweedfs:
         condition: service_healthy
       postgres:
         condition: service_healthy
@@ -109,38 +109,57 @@ services:
       - chroma_data:/app/data/chroma_data
     restart: "no"
 
-  minio:
-    image: minio/minio:RELEASE.2024-06-29T01-20-47Z
+  seaweedfs:
+    # SeaweedFS S3-compatible object storage. One `weed server -s3` process runs
+    # master (9333), volume (8080), filer (8888) and the S3 gateway (8333) — the
+    # single-node topology that replaces MinIO. S3 identities are generated at
+    # boot from SEAWEED_ACCESS_KEY/SEAWEED_SECRET_KEY into an s3.json config
+    # (SeaweedFS has no MINIO_ROOT_* env; it authenticates via access/secret keys).
+    image: chrislusf/seaweedfs:3.80
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "8333:8333" # S3 API
+      - "8888:8888" # Filer (browse/debug)
+      - "9333:9333" # Master (admin/status)
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
-    command: server /data --console-address ":9001"
+      SEAWEED_ACCESS_KEY: seaweedadmin
+      SEAWEED_SECRET_KEY: seaweedadmin
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >
+        mkdir -p /etc/seaweedfs &&
+        printf '{"identities":[{"name":"grid","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Admin","Read","Write","List","Tagging"]}]}\n' "$$SEAWEED_ACCESS_KEY" "$$SEAWEED_SECRET_KEY" > /etc/seaweedfs/s3.json &&
+        exec weed server -dir=/data -s3 -s3.config=/etc/seaweedfs/s3.json -s3.port=8333
     volumes:
-      - minio-data:/data
+      - seaweedfs-data:/data
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      # Master status is a stable, auth-free 200 across versions — proves the
+      # server process is serving HTTP. Bucket readiness is gated separately by
+      # seaweedfs-init (below), which app services wait on.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:9333/cluster/status"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+      start_period: 15s
     networks:
       - aiq-network
     restart: unless-stopped
 
-  minio-init:
-    image: minio/mc:latest
+  seaweedfs-init:
+    # Pre-create the documents bucket. SeaweedFS returns NoSuchBucket for puts to
+    # a missing bucket (it does not auto-create), so the app needs it to exist.
+    # `weed shell` talks to the filer via the master; `|| true` keeps re-runs
+    # idempotent (bucket-already-exists is a successful no-op).
+    image: chrislusf/seaweedfs:3.80
     entrypoint: ["/bin/sh", "-c"]
     command:
       - >
-        mc alias set local http://minio:9000 minioadmin minioadmin &&
-        mc mb local/grid-documents --ignore-existing
+        echo 's3.bucket.create -name grid-documents' | weed shell -master=seaweedfs:9333 || true
     depends_on:
-      minio:
+      seaweedfs:
         condition: service_healthy
     networks:
       - aiq-network
+    restart: "no"
 
   frontend:
     image: ${FRONTEND_IMAGE:-nvcr.io/nvidia/blueprint/aiq-frontend:2.0.0}
@@ -179,16 +198,16 @@ services:
       - FILE_UPLOAD_MAX_SIZE_MB=${FILE_UPLOAD_MAX_SIZE_MB:-}
       - FILE_UPLOAD_MAX_FILE_COUNT=${FILE_UPLOAD_MAX_FILE_COUNT:-}
       - FILE_EXPIRATION_CHECK_INTERVAL_HOURS=${FILE_EXPIRATION_CHECK_INTERVAL_HOURS:-}
-      - MINIO_ENDPOINT=http://minio:9000
+      - SEAWEED_ENDPOINT=http://seaweedfs:8333
       # Browser-reachable endpoint used ONLY to sign presigned URLs handed to the
       # browser (PDF preview/download). Must be a host the browser can resolve --
-      # the internal `minio` hostname above is not. Defaults to the published
-      # localhost port for local dev; set to your public MinIO/S3 URL in prod.
-      - MINIO_PUBLIC_ENDPOINT=${MINIO_PUBLIC_ENDPOINT:-http://localhost:9000}
-      - MINIO_ACCESS_KEY=minioadmin
-      - MINIO_SECRET_KEY=minioadmin
-      - MINIO_BUCKET=grid-documents
-      - MINIO_PRESIGNED_URL_TTL_SECONDS=600
+      # the internal `seaweedfs` hostname above is not. Defaults to the published
+      # localhost port for local dev; set to your public SeaweedFS/S3 URL in prod.
+      - SEAWEED_PUBLIC_ENDPOINT=${SEAWEED_PUBLIC_ENDPOINT:-http://localhost:8333}
+      - SEAWEED_ACCESS_KEY=seaweedadmin
+      - SEAWEED_SECRET_KEY=seaweedadmin
+      - SEAWEED_BUCKET=grid-documents
+      - SEAWEED_PRESIGNED_URL_TTL_SECONDS=600
       - PROJECT_PURGE_GRACE_DAYS=${PROJECT_PURGE_GRACE_DAYS:-7}
       # OpenRouter model catalog for the org model-config picker/validation.
       # The catalog endpoint works unauthenticated; the key (same one the
@@ -217,8 +236,11 @@ services:
     depends_on:
       aiq-agent:
         condition: service_healthy
-      minio:
+      seaweedfs:
         condition: service_healthy
+      # Wait for the bucket to exist before serving uploads.
+      seaweedfs-init:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
     # Liveness for the frontend web server. Hits the dependency-free
@@ -252,10 +274,10 @@ services:
       - GRID_APP_DATABASE_URL=${GRID_APP_DATABASE_URL:-postgresql://aiq:aiq_dev@postgres:5432/grid_app}
       - BACKEND_URL=${BACKEND_URL:-http://aiq-agent:8000}
       - GRID_INTERNAL_API_TOKEN=${GRID_INTERNAL_API_TOKEN:-grid-internal-dev-token}
-      - MINIO_ENDPOINT=http://minio:9000
-      - MINIO_ACCESS_KEY=minioadmin
-      - MINIO_SECRET_KEY=minioadmin
-      - MINIO_BUCKET=grid-documents
+      - SEAWEED_ENDPOINT=http://seaweedfs:8333
+      - SEAWEED_ACCESS_KEY=seaweedadmin
+      - SEAWEED_SECRET_KEY=seaweedadmin
+      - SEAWEED_BUCKET=grid-documents
       - WORKOS_API_KEY=${WORKOS_API_KEY}
       - PURGER_POLL_INTERVAL_MS=${PURGER_POLL_INTERVAL_MS:-60000}
     networks:
@@ -263,8 +285,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      minio:
+      seaweedfs:
         condition: service_healthy
+      seaweedfs-init:
+        condition: service_completed_successfully
       aiq-agent:
         condition: service_healthy
     restart: unless-stopped
@@ -386,7 +410,7 @@ volumes:
     driver: local
   chroma_data:
     driver: local
-  minio-data:
+  seaweedfs-data:
     driver: local
   postgres-data:
     driver: local

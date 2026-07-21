@@ -10,8 +10,8 @@
 Docker Compose (`deploy/compose/docker-compose.yaml`):
 
 - **postgres** — 3 logical DBs: `aiq_jobs`, `aiq_checkpoints`, `grid_app`.
-- **minio** — object storage, bucket `grid-documents`. Published to the host at
-  `localhost:9000`; internal DNS name `minio:9000`.
+- **seaweedfs** — object storage, bucket `grid-documents`. Published to the host at
+  `localhost:8333`; internal DNS name `seaweedfs:8333`.
 - **aiq-agent** — FastAPI + NeMo Agent Toolkit (NAT) + embedded Dask
   scheduler/worker + in-process ChromaDB. Runs the LangGraph workflow and the
   async deep-research jobs.
@@ -255,7 +255,7 @@ fact-sheet renders.
 
 ## 6. Files, documents & RAG
 
-- **Upload**: `POST /api/documents/upload` streams the file to MinIO **server-side**
+- **Upload**: `POST /api/documents/upload` streams the file to SeaweedFS **server-side**
   via `s3Client` (internal endpoint), records a `documents` row, then presigns a
   GET URL and hands it to backend `/v1/ingest` as `file_ref`. Because the backend
   consumes that URL from **inside** the Docker network, it correctly uses the
@@ -265,12 +265,12 @@ fact-sheet renders.
 
 ### The bug that was fixed (PDF preview/download broken)
 
-Preview/download presigned with the internal `MINIO_ENDPOINT=http://minio:9000`,
+Preview/download presigned with the internal `SEAWEED_ENDPOINT=http://seaweedfs:8333`,
 which the browser cannot resolve — so both silently failed. **Fix**:
 `src/lib/s3.ts` now exposes a second `signingS3Client` bound to
-`MINIO_PUBLIC_ENDPOINT` (browser-reachable; defaults to `http://localhost:9000`
+`SEAWEED_PUBLIC_ENDPOINT` (browser-reachable; defaults to `http://localhost:8333`
 in dev), and the preview/download routes sign with it. The upload route keeps the
-internal client (its URL is backend-consumed). Compose sets `MINIO_PUBLIC_ENDPOINT`.
+internal client (its URL is backend-consumed). Compose sets `SEAWEED_PUBLIC_ENDPOINT`.
 
 ### Folders
 
@@ -449,7 +449,7 @@ falling back to the content-aware SVG sketch (`DocumentKindThumbnail`).
 
 **Generation flow:**
 1. The BFF upload route (`dispatchIngest` in `service.ts`) derives a thumbnail
-   MinIO key from the original file's key (replaces the filename with
+   SeaweedFS key from the original file's key (replaces the filename with
    `_thumb.jpg`) and generates a presigned **PUT** URL for it.
 2. The PUT URL is passed to the backend's `/v1/ingest` as
    `thumbnail_upload_url`.
@@ -457,7 +457,7 @@ falling back to the content-aware SVG sketch (`DocumentKindThumbnail`).
    indexed and marked SUCCESS, `_generate_and_upload_thumbnail` renders:
    - **PDFs**: page 0 via `pypdfium2` → PIL → 200px JPEG quality 80.
    - **Images**: PIL open → RGB → 200px JPEG quality 80.
-4. The JPEG bytes are PUT to MinIO via the presigned URL.
+4. The JPEG bytes are PUT to SeaweedFS via the presigned URL.
 
 **Serving:**
 - `GET /api/documents/{id}/thumbnail` → `getDocumentThumbnail()` presigns a
@@ -472,7 +472,7 @@ falling back to the content-aware SVG sketch (`DocumentKindThumbnail`).
   thumbnail.
 
 Thumbnails are ephemeral: there is no separate DB column — the key is derived
-deterministically from `minioKey`, and a missing/expired MinIO object falls
+deterministically from `storageKey`, and a missing/expired SeaweedFS object falls
 back gracefully to the SVG sketch. Re-ingesting a document overwrites the
 thumbnail at the same key.
 

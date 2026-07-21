@@ -28,7 +28,7 @@ These routes manage knowledge collections (logical groupings of documents for re
 |--------|------|-------------|---------|----------|---------|
 | `POST` | `/v1/ingest` | Ingest a file from a presigned URL | `{ file_ref, collection, document_id? }` | `{ job_id, status, document_id }` (202) | `add_ingest_routes` in `aiq_api.routes.ingest` (`frontends/aiq_api/src/aiq_api/routes/ingest.py`) |
 
-Downloads the file from `file_ref` (presigned MinIO URL), saves to a temporary file, infers extension from `Content-Type` or URL path, then submits to the ingestor's `submit_job()`. The BFF upload route (`POST /api/documents/upload`) calls this endpoint after writing to MinIO.
+Downloads the file from `file_ref` (presigned SeaweedFS URL), saves to a temporary file, infers extension from `Content-Type` or URL path, then submits to the ingestor's `submit_job()`. The BFF upload route (`POST /api/documents/upload`) calls this endpoint after writing to SeaweedFS.
 
 **Supported formats**: PDF, TXT, MD, DOCX, PPTX.
 

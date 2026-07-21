@@ -33,7 +33,7 @@ services:
       SONAR_JDBC_USERNAME: sonar
       SONAR_JDBC_PASSWORD: sonar
     ports:
-      - "9001:9000" # 9001 on host to avoid clashing with MinIO's 9000
+      - "9001:9000" # 9001 on host to avoid clashing with other local dev services on 9000
     volumes:
       - sonar-data:/opt/sonarqube/data
       - sonar-extensions:/opt/sonarqube/extensions

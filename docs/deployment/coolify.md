@@ -20,13 +20,13 @@ NVIDIA base-image removal — see §2):
 |---|---|---|
 | `frontend` | Next.js UI + BFF gateway (auth, `grid_app` DB, WS proxy) — port 3000 | **Yes** (your domain) |
 | `aiq-agent` | Python FastAPI backend (LLM orchestration, embedded Chroma) — port 8000 | No (internal) |
-| `minio` | S3-compatible object storage — port 9000 | **Yes** (presigned PDF URLs) |
+| `seaweedfs` | S3-compatible object storage — port 8333 | **Yes** (presigned PDF URLs) |
 | `postgres` | Three logical DBs: `aiq_jobs`, `aiq_checkpoints`, `grid_app` | No (internal) |
 | `purger` | Grace-period hard-delete worker | No |
-| `minio-init` | One-shot: creates the `grid-documents` bucket | No |
+| `seaweedfs-init` | One-shot: creates the `grid-documents` bucket | No |
 | `aiq-data-permissions` | One-shot: chowns the shared data volume | No |
 
-Only **frontend** and **minio** get a public domain. Everything else talks over
+Only **frontend** and **seaweedfs** get a public domain. Everything else talks over
 the internal Coolify network.
 
 > **Host firewall.** Traefik routing is a *software-layer* control only — it
@@ -38,13 +38,13 @@ the internal Coolify network.
 > binds the host port regardless of Traefik, and only the firewall would then
 > stop public access.
 
-> **MinIO S3 API is deliberately public.** The browser fetches uploaded/OIB
+> **SeaweedFS S3 API is deliberately public.** The browser fetches uploaded/OIB
 > PDFs via **presigned** S3 URLs, which must be reachable directly from the
-> user's browser — so `minio:9000` is exposed under its own FQDN. Access is
+> user's browser — so `seaweedfs:8333` is exposed under its own FQDN. Access is
 > still gated: every object URL is a short-TTL signed link (see
-> `MINIO_PRESIGNED_URL_TTL_SECONDS`), and the bucket denies anonymous listing.
+> `SEAWEED_PRESIGNED_URL_TTL_SECONDS`), and the bucket denies anonymous listing.
 > Routing these downloads through the authenticated frontend proxy instead
-> (removing the public MinIO domain entirely) is **future work**.
+> (removing the public SeaweedFS domain entirely) is **future work**.
 
 ---
 
@@ -62,8 +62,8 @@ The following changes were made so the stack builds on a stock Coolify server:
 - **Env-driven CORS.** `configs/config_oib_openrouter.yml` reads
   `CORS_ALLOW_ORIGIN_REGEX` (defaults to localhost), so a deployed instance can
   allow its own domain.
-- **Env-driven MinIO public endpoint.** `MINIO_PUBLIC_ENDPOINT` already drove
-  presigned-URL signing; the Coolify compose wires it to MinIO's generated FQDN.
+- **Env-driven SeaweedFS public endpoint.** `SEAWEED_PUBLIC_ENDPOINT` already drove
+  presigned-URL signing; the Coolify compose wires it to SeaweedFS's generated FQDN.
 
 You still need, at deploy time:
 
@@ -86,9 +86,9 @@ which are generated per deployment and stay consistent across the stack:
 | Variable | Effect |
 |---|---|
 | `SERVICE_FQDN_FRONTEND_3000` | Exposes `frontend:3000` under a generated https domain; readable as `${SERVICE_FQDN_FRONTEND}` |
-| `SERVICE_FQDN_MINIO_9000` | Exposes `minio:9000` (S3 API) under a domain; readable as `${SERVICE_FQDN_MINIO}` |
+| `SERVICE_FQDN_SEAWEEDFS_8333` | Exposes `seaweedfs:8333` (S3 API) under a domain; readable as `${SERVICE_FQDN_SEAWEEDFS}` |
 | `SERVICE_PASSWORD_POSTGRES` | Auto-generated Postgres password (embedded in every DB URL) |
-| `SERVICE_PASSWORD_MINIO` | Auto-generated MinIO root/secret key |
+| `SERVICE_PASSWORD_SEAWEEDFS` | Auto-generated SeaweedFS secret key |
 | `SERVICE_PASSWORD_INTERNALTOKEN` | Auto-generated shared token for the single-writer memory endpoint |
 
 Because these are stable per stack, each preview environment self-configures its
@@ -122,9 +122,9 @@ own domains, DB password, and internal token with no manual input.
    configure for it (§7).
 4. **Domain**: Coolify assigns the frontend a generated domain from
    `SERVICE_FQDN_FRONTEND_3000`. Optionally override it with your own domain in
-   the service's settings. Do the same for MinIO if you want a stable S3 URL.
+   the service's settings. Do the same for SeaweedFS if you want a stable S3 URL.
 5. **Deploy.** On first boot: Postgres runs `init-db.sql` (creates the 3 DBs),
-   the frontend runs Drizzle migrations for `grid_app`, `minio-init` creates the
+   the frontend runs Drizzle migrations for `grid_app`, `seaweedfs-init` creates the
    bucket, and the backend starts + kicks off OIB ingestion in the background.
 
 ### WebSockets
@@ -141,7 +141,7 @@ auto-creates one managed bridge network per compose stack (named after the
 resource UUID) and attaches every service to it, so **service-name DNS already
 works across the whole stack** — `frontend` reaches the backend at
 `http://aiq-agent:8000`, the backend reaches `http://frontend:3000`, and both
-reach `postgres:5432`, `minio:9000`, and `dragonfly:6379` by name. No custom
+reach `postgres:5432`, `seaweedfs:8333`, and `dragonfly:6379` by name. No custom
 network is needed to get this.
 
 > **The dual-homed pitfall (why the custom `aiq-network` was removed).** Coolify
@@ -273,7 +273,7 @@ OpenRouter embedding spend and a few minutes of warm-up, once per new volume
 already-embedded corpus and pays nothing).
 
 For a heavy stack like this, previews are not free (each = backend + Postgres +
-MinIO + Chroma). Consider **limiting previews to labelled PRs** and a single
+SeaweedFS + Chroma). Consider **limiting previews to labelled PRs** and a single
 always-on **staging** environment for day-to-day demos so the corpus is embedded
 once and then reused across redeploys.
 
@@ -339,13 +339,13 @@ redeploys of the same environment; each preview gets its own set.
 | Volume | Mount | Contents | Loss on delete |
 |---|---|---|---|
 | `postgres-data` | `/var/lib/postgresql/data` | All app + job + checkpoint state | **Everything** |
-| `minio-data` | `/data` | Project/Archiv user document uploads (presigned serving) | All files |
+| `seaweedfs-data` | `/data` | Project/Archiv user document uploads (presigned serving) | All files |
 | `chroma_data` | `/app/data/chroma_data` | Vector index (incl. the OIB corpus embeddings) | Re-ingest needed |
 | `aiq-data` | `/app/data` | Backend working data, ingestion registry, and the **OIB corpus source PDFs** (`oib_uploads/`) | Re-ingest needed |
 
-> **The OIB base corpus is not in MinIO.** Its source PDFs live on `aiq-data`
+> **The OIB base corpus is not in SeaweedFS.** Its source PDFs live on `aiq-data`
 > (`data/oib/` shipped in the image, `data/oib_uploads/` for admin uploads) and
-> its embeddings on `chroma_data`. MinIO holds only project/Archiv user uploads.
+> its embeddings on `chroma_data`. SeaweedFS holds only project/Archiv user uploads.
 > Both OIB volumes persist across redeploys of the same environment, so an
 > ingested corpus survives a redeploy — it is lost only if the volumes are
 > deleted (or a brand-new preview environment starts with empty volumes, in
@@ -358,9 +358,9 @@ redeploys of the same environment; each preview gets its own set.
 
 - [ ] Frontend domain loads the UI over https.
 - [ ] Open a chat → WebSocket `/websocket` returns `101` (streaming works).
-- [ ] Upload a PDF → it stores and the preview/download link (presigned MinIO
-      URL) opens in the browser. If the link 403s, check `MINIO_PUBLIC_ENDPOINT`
-      resolves to MinIO's public domain and the signature host matches.
+- [ ] Upload a PDF → it stores and the preview/download link (presigned SeaweedFS
+      URL) opens in the browser. If the link 403s, check `SEAWEED_PUBLIC_ENDPOINT`
+      resolves to SeaweedFS's public domain and the signature host matches.
 - [ ] Ask an OIB question → knowledge results appear (confirms embeddings +
       ingestion). If empty, revisit §6 and §7.
 - [ ] (If a managed/external Postgres is used instead of the bundled one) the
@@ -374,10 +374,10 @@ redeploys of the same environment; each preview gets its own set.
 |---|---|---|
 | Container names | fixed (`aiq-agent`, …) | none (Coolify namespaces) |
 | Docker network | custom `aiq-network` (bridge) | none declared — Coolify's managed per-stack network (avoids dual-homed 504/DNS failures) |
-| Host ports | published (3000, 8000, 5432, 9000/9001) | none — proxy + FQDN vars |
+| Host ports | published (3000, 8000, 5432, 8333/8888) | none — proxy + FQDN vars |
 | Secrets | `deploy/.env` literals | Coolify UI (`${VAR:?}`) + generated passwords; `OPENROUTER_API_KEY`, `TAVILY_API_KEY`, `GRID_ADMIN_TOKEN` all required |
 | Auth (`REQUIRE_AUTH`) | `false` (dev convenience) | **`true`** by default (WorkOS required; opt out per-preview) |
 | External-host classification | unset | `AIQ_EXTERNAL_HOSTNAMES` = frontend FQDN (defense-in-depth) |
-| Frontend/MinIO exposure | `localhost:PORT` | `SERVICE_FQDN_*` https domains |
-| CORS / redirect / MinIO public URL | `localhost` defaults | derived from generated FQDNs |
+| Frontend/SeaweedFS exposure | `localhost:PORT` | `SERVICE_FQDN_*` https domains |
+| CORS / redirect / SeaweedFS public URL | `localhost` defaults | derived from generated FQDNs |
 | `configs/` bind mount | mounted read-only | dropped (baked into the image) |

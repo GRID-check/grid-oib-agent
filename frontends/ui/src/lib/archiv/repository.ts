@@ -3,7 +3,7 @@
  * the org-wide Archiv domain (rows with `scope = 'archiv'`, `project_id` NULL).
  *
  * Repository rules (docs/architecture/bff-service-architecture.md):
- *   - drizzle only; no HTTP, no auth, no MinIO/backend calls.
+ *   - drizzle only; no HTTP, no auth, no SeaweedFS/backend calls.
  *   - Every query is scoped by `organizationId` in the SQL WHERE clause — the
  *     Archiv is a per-tenant store, so tenancy is enforced here, not in JS.
  *   - List queries are always bounded (`limit`).
@@ -63,7 +63,7 @@ export async function insertArchivDocument(values: NewDocument): Promise<void> {
   await db.insert(documents).values({ ...values, scope: 'archiv', projectId: null })
 }
 
-/** Hard-delete an Archiv row (the DB record; MinIO + backend cleanup live in the service). */
+/** Hard-delete an Archiv row (the DB record; SeaweedFS + backend cleanup live in the service). */
 export async function deleteArchivDocument(documentId: string, organizationId: string): Promise<void> {
   const db = getDb()
   await db

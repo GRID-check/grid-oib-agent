@@ -26,7 +26,7 @@ vi.mock('@/lib/s3', () => ({
 }))
 
 vi.mock('@aws-sdk/s3-request-presigner', () => ({
-  getSignedUrl: vi.fn().mockResolvedValue('https://minio.test/preview-url'),
+  getSignedUrl: vi.fn().mockResolvedValue('https://seaweedfs.test/preview-url'),
 }))
 
 import { GET } from './route'
@@ -56,7 +56,7 @@ describe('GET /api/documents/[id]/preview', () => {
       where: vi.fn().mockReturnThis(),
       limit: vi.fn().mockResolvedValue([
         {
-          minioKey: 'org/org-1/project/proj-1/doc/doc-1/plan.pdf',
+          storageKey: 'org/org-1/project/proj-1/doc/doc-1/plan.pdf',
           contentType: 'application/pdf',
           filename: 'plan.pdf',
           organizationId: 'org-1',
@@ -83,7 +83,7 @@ describe('GET /api/documents/[id]/preview', () => {
       where: vi.fn().mockReturnThis(),
       limit: vi.fn().mockResolvedValue([
         {
-          minioKey: 'org/org-1/project/proj-1/doc/doc-1/archive.zip',
+          storageKey: 'org/org-1/project/proj-1/doc/doc-1/archive.zip',
           contentType: 'application/zip',
           filename: 'archive.zip',
           organizationId: 'org-1',

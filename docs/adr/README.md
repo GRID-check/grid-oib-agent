@@ -45,7 +45,7 @@ a new ADR. Small clarifications and typo fixes are fine.
 | [0002](0002-outsource-identity-to-workos.md) | Outsource identity to WorkOS | Accepted |
 | [0003](0003-nextjs-bff-and-stateless-python-agent.md) | Next.js BFF + stateless Python agent | Accepted |
 | [0004](0004-tenancy-ownership-and-access-model.md) | Tenancy, ownership & access model | Accepted |
-| [0005](0005-object-storage-for-documents-minio.md) | Object storage for documents (MinIO) | Accepted |
+| [0005](0005-object-storage-for-documents-minio.md) | Object storage for documents (MinIO) (store later migrated to SeaweedFS; see the ADR's Update section) | Accepted |
 | [0006](0006-knowledge-collection-scoping.md) | Knowledge collection scoping | Accepted |
 | [0007](0007-no-local-identity-sync.md) | No local identity sync | Accepted |
 | [0008](0008-project-and-organization-memory.md) | Project & Organization Memory (single-writer) | Accepted |

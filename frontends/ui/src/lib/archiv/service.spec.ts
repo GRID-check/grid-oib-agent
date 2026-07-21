@@ -7,7 +7,7 @@ vi.mock('@/lib/authz/organizations', () => ({
 vi.mock('@/lib/s3', () => ({
   s3Client: { send: vi.fn().mockResolvedValue(undefined) },
   bucketName: 'test-bucket',
-  buildArchivMinioKey: vi.fn().mockReturnValue('org/org-1/archiv/doc/d1/plan.pdf'),
+  buildArchivStorageKey: vi.fn().mockReturnValue('org/org-1/archiv/doc/d1/plan.pdf'),
 }))
 
 vi.mock('@/lib/backend-proxy', () => ({
@@ -152,7 +152,7 @@ describe('deleteArchivDocument', () => {
       id: 'd1',
       filename: 'plan.pdf',
       collectionName: 'archiv_org-1',
-      minioKey: 'org/org-1/archiv/doc/d1/plan.pdf',
+      storageKey: 'org/org-1/archiv/doc/d1/plan.pdf',
     } as any)
     const fetchSpy = vi.fn().mockResolvedValue({ ok: true })
     vi.stubGlobal('fetch', fetchSpy)

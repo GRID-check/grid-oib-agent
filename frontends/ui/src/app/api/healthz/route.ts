@@ -2,7 +2,7 @@
  * Liveness probe for the frontend web server.
  *
  * Deliberately dependency-free: it does NOT touch the backend, the database,
- * S3/MinIO, or the WorkOS session. It answers one question only — "is this
+ * S3/SeaweedFS, or the WorkOS session. It answers one question only — "is this
  * Next.js server process up and serving HTTP?" — which is exactly what a
  * container / Coolify / Traefik health check needs.
  *

@@ -53,7 +53,7 @@ async def test_ingest_from_url_success(app, mock_ingestor):
             response = await client.post(
                 "/v1/ingest",
                 json={
-                    "file_ref": "http://minio.test/bucket/key?X-Amz-Signature=abc",
+                    "file_ref": "http://seaweedfs.test/bucket/key?X-Amz-Signature=abc",
                     "collection": "proj_test123",
                     "document_id": "doc-550e8400",
                 },
@@ -91,7 +91,7 @@ async def test_ingest_from_url_download_failure(app, mock_ingestor):
             response = await client.post(
                 "/v1/ingest",
                 json={
-                    "file_ref": "http://minio.test/bucket/missing.pdf",
+                    "file_ref": "http://seaweedfs.test/bucket/missing.pdf",
                     "collection": "proj_test123",
                 },
             )
@@ -112,7 +112,7 @@ async def test_ingest_from_url_network_error(app, mock_ingestor):
             response = await client.post(
                 "/v1/ingest",
                 json={
-                    "file_ref": "http://minio.test/bucket/doc.pdf",
+                    "file_ref": "http://seaweedfs.test/bucket/doc.pdf",
                     "collection": "proj_test123",
                 },
             )
@@ -153,7 +153,7 @@ async def test_ingest_no_ingestor(app, mock_ingestor):
             response = await client.post(
                 "/v1/ingest",
                 json={
-                    "file_ref": "http://minio.test/bucket/doc.txt",
+                    "file_ref": "http://seaweedfs.test/bucket/doc.txt",
                     "collection": "proj_test123",
                 },
             )

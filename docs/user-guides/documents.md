@@ -76,7 +76,7 @@ User uploads file
        │
        ▼
    ┌──────────┐
-   │ uploaded  │  File saved to MinIO, DB row inserted
+   │ uploaded  │  File saved to SeaweedFS, DB row inserted
    └─────┬────┘
          │ BFF calls POST /v1/ingest with presigned URL
          ▼
@@ -99,7 +99,7 @@ User uploads file
 ### Step-by-step
 
 1. **Upload** — `FileUploadZone` captures the file, the `useFileUpload` hook validates it against configured limits, then POSTs it as `multipart/form-data` to `/api/documents/upload` with `projectId` and `file`.
-2. **BFF upload route** — The Next.js API route generates a UUID `documentId`, stores the file in MinIO at `org/{orgId}/project/{projId}/doc/{docId}/{filename}`, inserts a `documents` row in Drizzle (status: `uploaded`), generates a presigned GET URL, and calls the Python backend's `POST /v1/ingest` with that URL.
+2. **BFF upload route** — The Next.js API route generates a UUID `documentId`, stores the file in SeaweedFS at `org/{orgId}/project/{projId}/doc/{docId}/{filename}`, inserts a `documents` row in Drizzle (status: `uploaded`), generates a presigned GET URL, and calls the Python backend's `POST /v1/ingest` with that URL.
 3. **Python ingest route** — Downloads the file from the presigned URL via `httpx`, saves it to a tempfile, and submits it to the active ingestor via `submit_job()`.
 4. **Background ingestion** — `LlamaIndex` extracts text via `SimpleDirectoryReader`, optionally extracts tables (`pdfplumber`), images (`pypdfium2`) with VLM captioning, chunks the content, generates embeddings via NVIDIA models, and stores the vectors in ChromaDB.
 5. **Status polling** — The frontend `UploadOrchestrator` polls `/api/documents/{id}/status` which reads the Drizzle `documents.status` column.

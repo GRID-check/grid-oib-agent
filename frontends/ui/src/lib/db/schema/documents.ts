@@ -19,7 +19,7 @@ export const documents = pgTable('documents', {
   scope: text('scope').$type<DocumentScope>().notNull().default('project'),
   createdBy: text('created_by').notNull(),
   filename: text('filename').notNull(),
-  minioKey: text('minio_key').notNull(),
+  storageKey: text('storage_key').notNull(),
   collectionName: text('collection_name').notNull(),
   fileSize: integer('file_size'),
   contentType: text('content_type'),

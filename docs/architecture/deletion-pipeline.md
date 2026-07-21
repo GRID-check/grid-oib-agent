@@ -8,18 +8,18 @@
 
 GRID has no working deletion story. Today:
 
-- `DELETE /api/projects/[id]` exists but no UI calls it, and it leaks: MinIO objects (no S3 delete code exists anywhere in the repo), the project's Chroma collection, `summaries` rows, `aiq_jobs` rows, and LangGraph checkpoints. `conversations.projectId` is `ON DELETE SET NULL`, so chats become permanent orphans and their checkpoints become unreachable.
-- There is no way to delete a single document (no DB delete endpoint, no MinIO delete). The only existing path (`deleteFiles` → `DELETE /v1/collections/{name}/documents`) removes Chroma chunks only.
+- `DELETE /api/projects/[id]` exists but no UI calls it, and it leaks: SeaweedFS objects (no S3 delete code exists anywhere in the repo), the project's Chroma collection, `summaries` rows, `aiq_jobs` rows, and LangGraph checkpoints. `conversations.projectId` is `ON DELETE SET NULL`, so chats become permanent orphans and their checkpoints become unreachable.
+- There is no way to delete a single document (no DB delete endpoint, no SeaweedFS delete). The only existing path (`deleteFiles` → `DELETE /v1/collections/{name}/documents`) removes Chroma chunks only.
 - Session/conversation deletion leaks LangGraph checkpoints.
 - There is no organization offboarding at all.
 
-Enterprise customers (~40 target orgs) require reliable data deletion (GDPR Art. 17 / security questionnaires). Deletion must span five stores that cannot be updated atomically: `grid_app` Postgres, `aiq_jobs` Postgres, `aiq_checkpoints` Postgres, MinIO, Chroma, plus WorkOS (FGA resources / orgs).
+Enterprise customers (~40 target orgs) require reliable data deletion (GDPR Art. 17 / security questionnaires). Deletion must span five stores that cannot be updated atomically: `grid_app` Postgres, `aiq_jobs` Postgres, `aiq_checkpoints` Postgres, SeaweedFS, Chroma, plus WorkOS (FGA resources / orgs).
 
 ## Design principles
 
 1. **Soft delete first, purge asynchronously.** Cross-store deletion cannot be atomic in one HTTP request. A tombstone keeps all pointers alive until every store confirms cleanup.
 2. **The queue is a Postgres table.** No message broker. A row awaiting purge *is* the task; crash-safety comes from the row surviving.
-3. **Idempotent steps, ordered, entity row last.** Every purge step is safe to re-run (deleting absent things is a no-op). Pointers (collection name, MinIO prefix, conversation ids) are gathered before anything is destroyed; the entity's own row is deleted last.
+3. **Idempotent steps, ordered, entity row last.** Every purge step is safe to re-run (deleting absent things is a no-op). Pointers (collection name, SeaweedFS prefix, conversation ids) are gathered before anything is destroyed; the entity's own row is deleted last.
 4. **One reaper, per-entity plug-ins.** A single poll loop dispatches to a step list per entity type. New deletable entities are added by writing a step list, not new infrastructure.
 
 ## Architecture
@@ -42,7 +42,7 @@ New table `deletion_queue` — simultaneously tombstone, work queue, and survivi
 | `status` | text | `'pending' \| 'purging' \| 'purged' \| 'restored' \| 'failed'` |
 | `attempts` | int default 0 | |
 | `last_error` | text nullable | |
-| `payload` | jsonb | pointers snapshot (collection name, MinIO prefix, conversation ids) captured at enqueue time as a fallback |
+| `payload` | jsonb | pointers snapshot (collection name, SeaweedFS prefix, conversation ids) captured at enqueue time as a fallback |
 
 Rationale for a central table (vs per-table columns only): organizations have **no DB row** in grid_app (ADR-0007 — they live in WorkOS), so there is nothing to put a `deleted_at` column on. The queue also gives one audit trail and one poller for all entity types.
 
@@ -76,7 +76,7 @@ Grace periods are config values; the architecture is identical at 0. All grace p
 
 ### Purger service
 
-New docker-compose service `purger`: **same image as the frontend, different command** (`node purger/index.js`). *(Revised from the original `aiq_api`-image idea during implementation planning: `grid_app` Postgres is owned by the frontend — single-writer rule — so the purger is plain-JS in `frontends/ui/purger/`, and the Python backend instead exposes one internal maintenance endpoint for its stores.)* No new codebase, no inbound ports. It holds all credentials (grid_app DB, aiq_jobs DB, aiq_checkpoints DB, MinIO, Chroma dir/API, WorkOS API key) — acceptable as a privileged internal service. "Spawn on demand" was rejected: it requires docker-socket access from an app container (root-equivalent, fails enterprise security review). A sleeping poll loop costs ~zero.
+New docker-compose service `purger`: **same image as the frontend, different command** (`node purger/index.js`). *(Revised from the original `aiq_api`-image idea during implementation planning: `grid_app` Postgres is owned by the frontend — single-writer rule — so the purger is plain-JS in `frontends/ui/purger/`, and the Python backend instead exposes one internal maintenance endpoint for its stores.)* No new codebase, no inbound ports. It holds all credentials (grid_app DB, aiq_jobs DB, aiq_checkpoints DB, SeaweedFS, Chroma dir/API, WorkOS API key) — acceptable as a privileged internal service. "Spawn on demand" was rejected: it requires docker-socket access from an app container (root-equivalent, fails enterprise security review). A sleeping poll loop costs ~zero.
 
 Loop, every 60s:
 
@@ -103,7 +103,7 @@ For each row: set `status='purging'`, run the entity's step list, then set `purg
 ### Purge step lists
 
 **Document** (`documents` row still present; pointers from row):
-1. Delete MinIO object at `minio_key`
+1. Delete SeaweedFS object at `storage_key`
 2. Delete Chroma chunks for that file (existing backend `DELETE /v1/collections/{collection}/documents`)
 3. Delete `summaries` row (`aiq_jobs`) for (collection, filename)
 4. Delete `documents` row
@@ -113,11 +113,11 @@ For each row: set `status='purging'`, run the entity's step list, then set `purg
 2. Delete `conversations` row (`messages` cascade)
 
 **Project**:
-1. Gather pointers: `collectionName`, MinIO prefix `org/{orgId}/project/{projectId}/`, all conversation ids for the project
+1. Gather pointers: `collectionName`, SeaweedFS prefix `org/{orgId}/project/{projectId}/`, all conversation ids for the project
 2. Delete Chroma collection (existing `DELETE /v1/collections/{name}`; also clears its `summaries`)
 3. Delete `aiq_jobs` rows (`job_info`, `job_access`, `job_events`) for jobs referencing that collection
 4. Delete LangGraph checkpoints for all gathered conversation ids
-5. Delete all MinIO objects under the prefix (paginated `ListObjectsV2` + batched `DeleteObjects` — first S3 delete code in the repo)
+5. Delete all SeaweedFS objects under the prefix (paginated `ListObjectsV2` + batched `DeleteObjects` — first S3 delete code in the repo)
 6. Delete WorkOS FGA resource (`deleteResourceByExternalId`, `cascadeDelete: true`)
 7. Delete `conversations` rows explicitly, then the `projects` row (cascades `documents`, `project_folders`, project-scoped `project_memory`; org-scoped memory untouched)
 
@@ -195,7 +195,7 @@ One caution for honest positioning: this makes the *product capable of* GDPR-con
 ## Phasing
 
 1. **Phase 1:** queue + `legal_holds` tables + migrations + reaper skeleton (incl. hold guard) + purger compose service + **project** deletion end-to-end (dialog, endpoints, purge steps, restore, Recently deleted).
-2. **Phase 2:** **documents** (delete endpoint, dialog, purge steps — fixes MinIO/Chroma leak).
+2. **Phase 2:** **documents** (delete endpoint, dialog, purge steps — fixes SeaweedFS/Chroma leak).
 3. **Phase 3:** **conversations** (fixes checkpoint leak in session delete).
 4. **Phase 4:** **organizations** (offboarding; fan-out + WorkOS org delete) + hold APIs.
 5. **Phase 5:** **user erasure** (account delete + anonymization).

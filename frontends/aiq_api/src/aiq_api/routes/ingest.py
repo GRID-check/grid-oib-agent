@@ -1,4 +1,4 @@
-"""URL-based ingestion endpoint for documents stored in MinIO."""
+"""URL-based ingestion endpoint for documents stored in SeaweedFS."""
 
 import logging
 import os
@@ -44,7 +44,7 @@ def add_ingest_routes(router: APIRouter):
         """
         Download file from presigned URL and submit for ingestion.
 
-        The BFF upload route writes the file to MinIO and calls this endpoint
+        The BFF upload route writes the file to SeaweedFS and calls this endpoint
         with a presigned URL so the Python backend can ingest it into the
         knowledge index. ``x-grid-organization-id`` (forwarded by the BFF for
         per-project/Archiv uploads) is threaded into the job so the VLM used
