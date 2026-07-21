@@ -206,3 +206,15 @@
   - Deferred simplifications (#3 merge summarizers — subsumed by the deletion; #4 shared
     `purgeDocumentArtifacts`; #5 shared `toFileItem`) — low-risk cleanups for a later pass.
 - Still running: app use-case audit + net-new logic-issue synthesis (→ new backlog items).
+
+## Overnight cycle 2 — session-limit recovery + synthesized-bug wave (2026-07-21/22)
+- Session limit was hit; 3 agents died mid-work. Recovered: **list-content fix (PB-SYNTH-2/3)**
+  was complete on disk → verified (264 tests) & committed. **quote-coverage (PB-SYNTH-1)** had the
+  fix but partial tests → re-dispatched to finish. **chat-layout** barely started → reverted, re-dispatched fresh.
+- **PB-SYNTH-11 (REQUIRE_AUTH=false) DROPPED** per user — dev-only, prod always authenticates.
+- Dispatched 6 concurrent fixers: quote-coverage completion, chat-layout, wizard (draft-clobber +
+  AI-revise-link), members (self-lockout + add-downgrade), error boundary (misclassify + brief errors),
+  forwardRef primitive. All disjoint files.
+- Committed so far this overnight run (pushed): color-coding, larger preview, archiv nav, role explainers,
+  Autodesk watermark fix, quotes_unverified deletion, list-content fix. Skeptic review found + we fixed
+  2 real bugs I'd introduced. Heartbeat re-armed (30 min).
