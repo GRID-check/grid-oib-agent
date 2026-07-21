@@ -46,4 +46,37 @@
   CAUTION: `tests/.../deep_researcher/test_agent.py:683-710` hard-asserts the
   `"Grid OIB"` substring — keep it or update tests in lockstep.
 
+## Sprint 1 — COMPLETE (2026-07-21). Landed PB-1, PB-6, PB-15.
+- **PB-1** `fix(deep-research): stop citation-source emit crashing on every source`.
+  Root cause: `on_tool_end` passed `content` positionally AND spread `**wire`
+  (which always carries a `content` key) into `_emit_artifact` → `TypeError` on
+  every real source → citation SSE feed crashed (regression from `29ddece`,
+  3 days old, shipped with 2 red tests). Fix: drop `content` from the wire spread;
+  updated the test that had frozen the buggy single-emit. **Backend suite now
+  2021 passed / 0 failed** (baseline was 2 failed). Directly addresses "DeepResearch
+  bricht ab" + "Quellen fehlen in der Output-Card".
+- **PB-6** `feat(documents): allow deleting uploaded project documents`. Mirrored
+  the Archiv delete end-to-end (route→service authz `project:edit`→repo SQL scoped
+  by org+project, storage delete via `storageKey`, best-effort chunk purge, audit)
+  + two-step design-system delete button + i18n + tests + docs. tsc clean, specs green.
+- **PB-15** `fix(projects): regenerate AI briefing when the UI language changes`.
+  Store `profile_display.summaryLocale` (JSON, no migration); regenerate once on
+  locale mismatch; legacy rows fail-open; loop-guarded. tsc clean, specs green.
+
+### Tooling note (executive call, user-authorized "don't fight the tooling")
+- The managed Docker daemon was reclaimed mid-session; a manual `dockerd` restart
+  left a memory-constrained build sandbox where `npm ci` OOMs ("Exit handler never
+  called!"). Switched to a **native host toolchain** (`npm ci` on host, 14 GB free)
+  — `node_modules/.bin/tsc` + `vitest` now run directly, no Docker needed. This is
+  the frontend verification path for the rest of the session.
+
+## Sprint 2 — IN PROGRESS
+- **PB-18 (file-browser semantic search)** — signed off by user (explicit-run +
+  *transparent* UX; pure-vector v1, no LLM). Backend impl agent running (retriever
+  singleton + `POST /v1/collections/{c}/search` + aggregation + tests + docs).
+  BFF+UI to follow.
+- Trust-chain items (PB-7 quote-verification, PB-8 brevity/Empfehlung, PB-10
+  clarifier-in-shallow, PB-14 identity) — discovery agents were lost to earlier
+  interrupts; will re-map + implement next.
+
 <!-- Sprint entries appended below as they complete. -->

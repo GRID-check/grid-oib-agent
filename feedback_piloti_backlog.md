@@ -21,20 +21,20 @@
 
 ### P0 — Direct semantic search (user's biggest pain point, clarified 2026-07-21)
 
-- **PB-18 — "Ask Your Data" needs a DIRECT semantic-search path (no LLM agent).**
-  Class: LOGIC/FEATURE. **Top priority per user.** Today every data query is forced
-  through the slow (60–180s), hallucination-prone DeepSeek agent loop. But all docs
-  are already embedded in Chroma. Build a fast, deterministic path: embed the query
-  → query Chroma directly across in-scope collections (base + project + archiv) →
-  return ranked passages (snippet + file + page + source-kind + score) sub-second,
-  with NO LLM in the loop. Reuse existing embedder + `knowledge_layer.search()` +
-  collection scoping + citation/source-chip components. Also satisfies the "finer
-  source selection (only OIB / a specific Landesbauordnung / project / archiv)"
-  wish as a scope filter. New: backend `POST /v1/search`, BFF route + service, a
-  light search UI (design-system only). Status: **DESIGN in progress** (explorer
-  mapping reusable primitives + file-level plan). Then Sprint.
-  → Supersedes the "PB-3 is works-as-intended" verdict: retrieval *inside chat*
-    works, but the fast standalone search surface the user wants does not exist.
+- **PB-18 — Semantic DOCUMENT SEARCH in the FILE BROWSER (Dateien page).**
+  Class: LOGIC/FEATURE. **Top priority per user.** (Clarified 2026-07-21: this is
+  NOT a chat/agent feature and NOT related to the LLM loop — it lives in the file
+  browser.) The user types a query in the Files page → we embed it and query the
+  vector DB (Chroma) DIRECTLY over their OWN uploaded documents (project
+  `proj_<uuid>` + org Archiv `archiv_<orgId>`) → results are DOCUMENT-centric:
+  the matching files reordered/filtered by semantic relevance, each showing the
+  best-matching snippet + page so the user can jump to the file. Pure vector
+  search — no LLM, no DeepSeek, sub-second. Reuse the existing embedder +
+  `knowledge_layer.search()` + collection scoping + the Files-page components
+  (`project-file-workspace.tsx`, `archiv-workspace.tsx`) + snippet/preview. New:
+  document-centric backend search endpoint, BFF route + service, a search box in
+  the file browser (design-system components only). Status: **DESIGN in progress**
+  (explorer producing a file-level plan against the Files-page code).
 
 ### P0 — Trust chain / core "it works" bugs (verify, then fix)
 
@@ -46,7 +46,8 @@
   site passes `content` positionally **and** `**wire` → guaranteed `TypeError`
   on every real citation source. CONFIRMED code bug. Impact: citation-source
   emission crashes in deep research → sources vanish and/or job errors.
-  Status: **CONFIRMED, ready to fix.**
+  Status: **DONE (Sprint 1)** — `fix(deep-research): stop citation-source emit
+  crashing`. Backend suite 2021 passed / 0 failed (was 2 failed).
 
 - **PB-2 — Sources missing in the output card ("Teilweise fehlen Quellen").**
   Class: LOGIC. Likely same root cause as PB-1 (citation artifacts crash before
@@ -80,7 +81,7 @@
   löschen").**  Class: **REAL BUG — feature never built.** No DELETE route/service/
   UI for *project* documents; Archiv delete IS fully built and is the mirror
   template (`deleteArchivDocument` + route + two-step `DeleteDocumentButton`).
-  Status: **SPRINT 1 — in progress** (mirror archiv delete into documents domain).
+  Status: **DONE (Sprint 1)** — mirrored archiv delete end-to-end; tsc + specs green.
 
 ### P1 — Output quality logic (not "fix DeepSeek", but real levers)
 
