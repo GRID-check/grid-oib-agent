@@ -93,8 +93,13 @@ access/secret keys, then starts the all-in-one server:
 ```bash
 mkdir -p /etc/seaweedfs &&
 printf '{"identities":[{"name":"grid","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Admin","Read","Write","List","Tagging"]}]}\n' "$SEAWEED_ACCESS_KEY" "$SEAWEED_SECRET_KEY" > /etc/seaweedfs/s3.json &&
-exec weed server -dir=/data -s3 -s3.config=/etc/seaweedfs/s3.json -s3.port=8333
+exec weed server -dir=/data -volume.max=0 -s3 -s3.config=/etc/seaweedfs/s3.json -s3.port=8333
 ```
+`-volume.max=0` auto-sizes the volume count from available disk space instead
+of the default cap of 8 volumes — with a fixed max, writes eventually fail with
+"volume grow request failed" once the volume server hits it, even though disk
+space remains.
+
 Generating the config from env at boot means the same service definition works
 for both dev (hardcoded keys) and Coolify (generated secret) — SeaweedFS has no
 `MINIO_ROOT_*`-style credential env; it reads identities from `-s3.config`.
