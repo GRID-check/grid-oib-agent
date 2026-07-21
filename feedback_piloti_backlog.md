@@ -33,8 +33,10 @@
   `knowledge_layer.search()` + collection scoping + the Files-page components
   (`project-file-workspace.tsx`, `archiv-workspace.tsx`) + snippet/preview. New:
   document-centric backend search endpoint, BFF route + service, a search box in
-  the file browser (design-system components only). Status: **DESIGN in progress**
-  (explorer producing a file-level plan against the Files-page code).
+  the file browser (design-system components only). Status: **DONE** — backend
+  (`POST /v1/collections/{c}/search`, aggregation, retriever singleton) + frontend
+  (explicit-run transparent search box, banner/loading/reset, per-hit snippet+page+
+  relevance %, fail-open) landed & pushed. tsc/eslint clean; 67 FE + 2385 BE tests.
 
 ### P0 — Trust chain / core "it works" bugs (verify, then fix)
 

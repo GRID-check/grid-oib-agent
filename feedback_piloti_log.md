@@ -112,3 +112,14 @@
   PB-7 lands.
 
 <!-- Sprint entries appended below as they complete. -->
+
+## Sprint 2 — PB-18 COMPLETE (2026-07-21)
+- **PB-18 backend + frontend landed & pushed.** Semantic document search in the
+  file browser: type a query → vector search over the user's own collections
+  (project + archiv) → files reordered by relevance with snippet+page+% and a
+  transparent banner/reset. Explicit-run (Enter), fail-open, design-system only.
+  Commits `feat(search): document-centric semantic search endpoint` +
+  `feat(search): transparent semantic document search in the file browser`.
+  Verified: BE 2385 pass; FE tsc+eslint clean, 67 affected specs green.
+  Fixed a pre-existing unused-var lint error along the way (per the new rule).
+- Still building: PB-7 (quote verification / PB-9) + PB-16 (vision watermark).
