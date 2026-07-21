@@ -70,6 +70,17 @@
   — `node_modules/.bin/tsc` + `vitest` now run directly, no Docker needed. This is
   the frontend verification path for the rest of the session.
 
+### Sprint 1 verification (native toolchain)
+- Backend `pytest tests/`: **2021 passed / 5 skipped / 0 failed**.
+- Frontend `tsc --noEmit`: clean. Targeted vitest (documents + projects specs):
+  53/53 green. Full vitest: **2605 passed / 3 skipped / 0 test failures**.
+- One failed test *file* (`src/lib/request-context.spec.ts`) throws
+  `TypeError: The URL must be of scheme file` at import — a
+  `fileURLToPath(import.meta.url)` quirk under native vitest (vs the Docker
+  image); it imports nothing this loop touched. Pre-existing env artifact, not a
+  regression. Left as-is.
+- Pushed: `5cbbb27` (PB-1), `bad267c` (PB-6), `1bf3590` (PB-15), docs.
+
 ## Sprint 2 — IN PROGRESS
 - **PB-18 (file-browser semantic search)** — signed off by user (explicit-run +
   *transparent* UX; pure-vector v1, no LLM). Backend impl agent running (retriever
