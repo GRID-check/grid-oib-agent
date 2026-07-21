@@ -156,6 +156,8 @@
   becomes the summary verbatim → CAD licence stamps leak as "corrupt text".
   Fix: watermark-exclusion in the caption prompt + substring scrub before caption
   becomes summary. (Pixel-level plan understanding remains MODEL/PRODUCT.)
+  Status: **DONE** — `fix(ingest): stop watermark/licence text corrupting image
+  captions`; full suite 2393 pass, regression test included.
 
 ### Deferred — UI (user owns) / PRODUCT / SERVER
 - UI: header/typo unification, chat centering, top buttons, border removal, logo,
