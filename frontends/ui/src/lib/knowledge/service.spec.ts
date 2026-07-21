@@ -210,6 +210,20 @@ describe('knowledge admin operations', () => {
     expect(res.headers.get('Content-Disposition')).toContain('inline')
   })
 
+  it('allows same-origin framing so the in-app PDF viewer can display it', async () => {
+    // The global next.config rule stamps X-Frame-Options: DENY on every route,
+    // which would make the browser refuse to render the same-origin preview
+    // iframe. The streamed Response overrides that for this route (defense in
+    // depth alongside the route-scoped next.config override).
+    const pdfBody = new Response(new Blob([new Uint8Array([37, 80, 68, 70])]), { status: 200 })
+    fetchMock.mockResolvedValue(pdfBody)
+
+    const res = await streamKnowledgeBaseDocument('oib-rl_1_ausgabe_mai_2023.pdf')
+
+    expect(res.headers.get('X-Frame-Options')).toBe('SAMEORIGIN')
+    expect(res.headers.get('Content-Security-Policy')).toBe("frame-ancestors 'self'")
+  })
+
   it('maps a missing source PDF to NotFoundError', async () => {
     fetchMock.mockResolvedValue(new Response('nope', { status: 404 }))
 
