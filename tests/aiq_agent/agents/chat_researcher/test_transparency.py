@@ -309,3 +309,72 @@ class TestEscalationReasonEndToEnd:
         result = await agent.run(state, thread_id="t")
 
         assert result["escalation_reason"] == ESCALATION_KEYWORD_REASON
+
+
+class TestCitationsRemovedEndToEnd:
+    """A populated upstream citations_removed reaches the terminal state."""
+
+    @pytest.mark.asyncio
+    async def test_shallow_citations_removed_reaches_state(self):
+        async def shallow_orchestration(state):
+            return {
+                "user_intent": IntentResult(intent="research", raw=None),
+                "depth_decision": DepthDecision(decision="shallow", raw_reasoning="Simple"),
+            }
+
+        async def shallow_with_removed(state):
+            result = MagicMock()
+            # A grounded, non-escalating answer that dropped two unverifiable
+            # citations during verification.
+            result.messages = list(state.messages) + [AIMessage(content="Antwort [1].")]
+            result.escalation_requested = False
+            result.answer_confidence_marker = None
+            result.verified_sources = None
+            result.citations_removed = {"count": 2, "reasons": ["url_not_in_registry", "unverifiable"]}
+            return result
+
+        agent = ChatResearcherAgent(
+            intent_classifier_fn=shallow_orchestration,
+            shallow_research_fn=shallow_with_removed,
+            deep_research_fn=lambda state: None,
+            clarifier_fn=None,
+            enable_escalation=True,
+            enable_clarifier=False,
+        )
+
+        state = ChatResearcherState(messages=[HumanMessage(content="Was gilt?")])
+        result = await agent.run(state, thread_id="t")
+
+        assert result["citations_removed"] == {"count": 2, "reasons": ["url_not_in_registry", "unverifiable"]}
+
+    @pytest.mark.asyncio
+    async def test_absent_citations_removed_stays_none(self):
+        async def shallow_orchestration(state):
+            return {
+                "user_intent": IntentResult(intent="research", raw=None),
+                "depth_decision": DepthDecision(decision="shallow", raw_reasoning="Simple"),
+            }
+
+        async def shallow_clean(state):
+            result = MagicMock()
+            result.messages = list(state.messages) + [AIMessage(content="Antwort [1].")]
+            result.escalation_requested = False
+            result.answer_confidence_marker = None
+            result.verified_sources = None
+            result.citations_removed = None
+            return result
+
+        agent = ChatResearcherAgent(
+            intent_classifier_fn=shallow_orchestration,
+            shallow_research_fn=shallow_clean,
+            deep_research_fn=lambda state: None,
+            clarifier_fn=None,
+            enable_escalation=True,
+            enable_clarifier=False,
+        )
+
+        state = ChatResearcherState(messages=[HumanMessage(content="Was gilt?")])
+        result = await agent.run(state, thread_id="t")
+
+        # Reset at the turn boundary, never set → absent (None).
+        assert result.get("citations_removed") is None

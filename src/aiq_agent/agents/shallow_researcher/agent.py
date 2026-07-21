@@ -52,6 +52,26 @@ logger = logging.getLogger(__name__)
 AGENT_DIR = Path(__file__).parent
 
 
+def _summarize_removed_citations(removed_citations: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Summarize ``verify_citations`` drops for the transparency wire.
+
+    Returns ``{"count": int, "reasons": [str, ...]}`` (reasons deduplicated in
+    first-seen order, max 5) only when ≥1 citation was removed; otherwise
+    ``None`` so the ``citations_removed`` field stays absent. Shape matches the
+    chat researcher's ``_normalize_citations_removed`` reader.
+    """
+    if not removed_citations:
+        return None
+    reasons: list[str] = []
+    for entry in removed_citations:
+        reason = str(entry.get("reason") or "unverifiable") if isinstance(entry, dict) else "unverifiable"
+        if reason and reason not in reasons:
+            reasons.append(reason)
+        if len(reasons) >= 5:
+            break
+    return {"count": len(removed_citations), "reasons": reasons}
+
+
 def _append_minimal_citation(report_text: str, source: SourceEntry) -> str:
     """Append one verified citation when the model omitted references."""
     citation_target = source.url or source.citation_key
@@ -431,6 +451,10 @@ class ShallowResearcherAgent:
         # detection". A bool means extraction ran and the value is authoritative.
         escalation_requested: bool | None = None
         answer_confidence_marker: str | None = None
+        # Transparency summary of any citations dropped by verify_citations this
+        # turn. Populated in the verification block below; stays None when the
+        # registry was empty or nothing was removed, so the field stays absent.
+        citations_removed_summary: dict[str, Any] | None = None
         messages_list = validated_result.get("messages") or []
         # Select the answer message with the SAME selector the chat node uses:
         # the last AIMessage that is not a tool call. Marker extraction, citation
@@ -478,6 +502,7 @@ class ShallowResearcherAgent:
                         len(registry.all_sources()),
                     )
                     content = verification.verified_report
+                    citations_removed_summary = _summarize_removed_citations(verification.removed_citations)
                     sources = registry.all_sources()
                     if verification.valid_citations:
                         # Verification kept at least one grounded citation.
@@ -596,6 +621,9 @@ class ShallowResearcherAgent:
                     exc_info=True,
                 )
         validated_result["verified_sources"] = wire_sources or None
+        # Transparency: only present when ≥1 citation was actually removed.
+        if citations_removed_summary is not None:
+            validated_result["citations_removed"] = citations_removed_summary
 
         return ShallowResearchAgentState.model_validate(validated_result)
 

@@ -53,3 +53,9 @@ class DeepResearchAgentState(BaseModel):
     clarifier_result: str | None = None
     available_documents: list[AvailableDocument] | None = None
     project_context: str | None = None
+    # Transparency summary of citations dropped by ``verify_citations`` during
+    # report post-processing (``{"count": int, "reasons": [str, ...]}``).
+    # Populated by ``run()`` ONLY when ≥1 citation was removed; None otherwise.
+    # The chat orchestrator lifts it onto the terminal chunk via
+    # ``_normalize_citations_removed``.
+    citations_removed: dict[str, Any] | None = None
