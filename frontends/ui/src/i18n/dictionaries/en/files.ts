@@ -52,6 +52,7 @@ export const files = {
       table: 'Tables',
       chart: 'Charts',
       image: 'Images',
+      drawing: 'Drawings',
     },
     unknownType: 'Unknown',
     download: 'Download',

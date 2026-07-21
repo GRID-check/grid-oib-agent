@@ -56,6 +56,7 @@ export const files: typeof en.files = {
       table: 'Tabellen',
       chart: 'Diagramme',
       image: 'Bilder',
+      drawing: 'Zeichnungen',
     },
     unknownType: 'Unbekannt',
     download: 'Herunterladen',
