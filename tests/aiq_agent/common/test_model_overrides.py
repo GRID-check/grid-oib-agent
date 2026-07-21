@@ -158,6 +158,26 @@ class TestMergeZdrExtraBody:
         assert merged["plugins"] == [{"id": "response-healing"}]
         assert merged["provider"] == {"order": ["a"], "zdr": True, "data_collection": "deny"}
 
+    def test_composes_with_build_time_deepseek_pin(self):
+        # Composition: the build-time DeepSeek first-party pin (llm_factory) and
+        # the per-request ZDR merge must coexist — the ZDR merge extracts the
+        # existing provider dict and preserves order/allow_fallbacks while adding
+        # zdr/data_collection.
+        from aiq_agent.common.llm_factory import _with_openrouter_structured_defaults
+        from aiq_agent.common.model_overrides import _merge_zdr_extra_body
+
+        build_time = _with_openrouter_structured_defaults(None, model_name="deepseek/deepseek-v4-flash")
+        assert build_time["provider"] == {"order": ["deepseek"], "allow_fallbacks": True}
+
+        merged = _merge_zdr_extra_body(build_time)
+        assert merged["provider"] == {
+            "order": ["deepseek"],
+            "allow_fallbacks": True,
+            "zdr": True,
+            "data_collection": "deny",
+        }
+        assert merged["plugins"] == [{"id": "response-healing"}]
+
 
 class TestApplyZdrRouting:
     def test_copies_openrouter_model_with_zdr(self):

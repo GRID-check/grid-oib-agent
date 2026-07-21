@@ -8,9 +8,18 @@ automatically:
 - ``plugins: [{"id": "response-healing"}]``: repair malformed / markdown-fenced
   JSON provider-side before it reaches us (activates only on json_schema /
   json_object requests; a no-op on plain calls).
+- ``provider: {"order": ["deepseek"], "allow_fallbacks": True}`` for
+  ``deepseek/*`` models only: pin routing to DeepSeek's first-party endpoint.
+  Live OpenRouter endpoints data shows only the first-party host (provider tag
+  ``"deepseek"``) supports implicit prompt caching — all 18 third-party hosts
+  for ``deepseek/*`` report ``supports_implicit_caching=false`` — so default
+  load-balancing across them destroys the prefix-cache hit rate. ``allow_fallbacks``
+  stays ``True`` so if first-party is down (or ZDR filtering excludes it),
+  OpenRouter still serves from the general pool — availability never hard-fails,
+  it just degrades to today's uncached behavior.
 
-This is an OpenRouter-specific request-body field, so it is applied only to LLMs
-whose ``base_url`` points at OpenRouter — non-OpenRouter deployments (e.g.
+These are OpenRouter-specific request-body fields, so they are applied only to
+LLMs whose ``base_url`` points at OpenRouter — non-OpenRouter deployments (e.g.
 NVIDIA-hosted models) are returned untouched.
 
 We deliberately do NOT force ``provider.require_parameters``: being
@@ -34,6 +43,10 @@ logger = logging.getLogger(__name__)
 
 _OPENROUTER_HOST = "openrouter.ai"
 _RESPONSE_HEALING_PLUGIN = {"id": "response-healing"}
+_DEEPSEEK_MODEL_PREFIX = "deepseek/"
+# Provider slug/tag of DeepSeek's first-party OpenRouter host — the only host
+# that supports implicit prompt caching for deepseek/* models.
+_DEEPSEEK_FIRST_PARTY_PROVIDER = "deepseek"
 
 
 def _llm_base_url(llm: Any) -> str:
@@ -47,11 +60,13 @@ def _llm_base_url(llm: Any) -> str:
     return str(base) if base else ""
 
 
-def _with_openrouter_structured_defaults(extra_body: Any) -> dict[str, Any]:
-    """Merge the response-healing plugin into an existing extra_body.
+def _with_openrouter_structured_defaults(extra_body: Any, model_name: str = "") -> dict[str, Any]:
+    """Merge the fleet-wide OpenRouter defaults into an existing extra_body.
 
     Idempotent and non-destructive: preserves any pre-existing plugins, only
-    ensuring the response-healing plugin is present exactly once.
+    ensuring the response-healing plugin is present exactly once. For
+    ``deepseek/*`` models, also pins provider routing to DeepSeek's first-party
+    endpoint (see below), preserving any pre-existing ``provider`` keys.
 
     NOTE: We deliberately do NOT set ``provider.require_parameters``. It is
     request-scoped — OpenRouter drops every provider that doesn't support ALL
@@ -69,6 +84,22 @@ def _with_openrouter_structured_defaults(extra_body: Any) -> dict[str, Any]:
     if not any(isinstance(p, dict) and p.get("id") == _RESPONSE_HEALING_PLUGIN["id"] for p in plugins):
         plugins.append(dict(_RESPONSE_HEALING_PLUGIN))
     merged["plugins"] = plugins
+
+    # DeepSeek-only: pin routing to the first-party endpoint. Live OpenRouter
+    # endpoints data shows only the first-party host (provider tag "deepseek")
+    # supports implicit prompt caching; all third-party hosts report
+    # supports_implicit_caching=false, so default load-balancing across them
+    # destroys the prefix-cache hit rate. allow_fallbacks stays True on purpose:
+    # WHY — only first-party caches, but keeping fallbacks means that if
+    # first-party is down (or ZDR filtering excludes it) OpenRouter falls back to
+    # the general pool, so availability degrades to today's uncached behavior
+    # instead of a hard failure. Non-destructive: an existing provider.order (or
+    # any other provider key) is preserved and never overwritten.
+    if model_name.startswith(_DEEPSEEK_MODEL_PREFIX):
+        provider = dict(merged["provider"]) if isinstance(merged.get("provider"), dict) else {}
+        provider.setdefault("order", [_DEEPSEEK_FIRST_PARTY_PROVIDER])
+        provider.setdefault("allow_fallbacks", True)
+        merged["provider"] = provider
 
     return merged
 
@@ -95,7 +126,8 @@ def apply_openrouter_structured_defaults(llm: Any) -> Any:
     if not hasattr(llm, "extra_body"):
         return llm
 
-    merged = _with_openrouter_structured_defaults(getattr(llm, "extra_body", None))
+    model_name = str(getattr(llm, "model_name", "") or "")
+    merged = _with_openrouter_structured_defaults(getattr(llm, "extra_body", None), model_name)
     if merged == getattr(llm, "extra_body", None):
         return llm
     try:
