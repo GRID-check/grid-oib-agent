@@ -65,6 +65,7 @@ import {
   deleteDocument,
   searchProjectDocuments,
   joinHitsToFiles,
+  deriveSearchTopK,
   INGEST_DISPATCH_FAILED_MESSAGE,
 } from './service'
 import { reconcileDocumentStatuses } from './reconcile-status'
@@ -335,6 +336,25 @@ describe('joinHitsToFiles', () => {
   })
 })
 
+describe('deriveSearchTopK', () => {
+  it('derives the passage budget from top_k_files and holds top_k >= top_k_files', () => {
+    // 20 files → 60 passages (3×), never the old fixed 40 that capped scale.
+    expect(deriveSearchTopK(20)).toBe(60)
+    expect(deriveSearchTopK(1)).toBe(3)
+    // The invariant that makes the aggregation contract hold across the whole
+    // allowed 1..100 range: the chunk budget can never starve top_k_files.
+    for (const files of [1, 10, 20, 33, 50, 99, 100]) {
+      expect(deriveSearchTopK(files)).toBeGreaterThanOrEqual(files)
+    }
+  })
+
+  it('clamps to the backend top_k ceiling (100)', () => {
+    // 100 files × 3 = 300, clamped to the DocumentSearchRequest le=100 bound.
+    expect(deriveSearchTopK(100)).toBe(100)
+    expect(deriveSearchTopK(40)).toBe(100)
+  })
+})
+
 describe('searchProjectDocuments', () => {
   const fileRows = [
     {
@@ -380,9 +400,18 @@ describe('searchProjectDocuments', () => {
     expect(call?.[0]).toBe('http://backend:8000/v1/collections/proj_abc/search')
     expect(JSON.parse((call?.[1] as RequestInit).body as string)).toEqual({
       query: 'fire escape',
-      top_k: 40,
+      // Derived from top_k_files (20 × 3 = 60), not a fixed 40 that would cap the
+      // achievable file count below top_k_files.
+      top_k: 60,
       top_k_files: 20,
     })
+    // Defense-in-depth: the signed request-context envelope is forwarded, scoped
+    // to exactly the collection being searched (decodes back to ['proj_abc']).
+    const headers = (call?.[1] as RequestInit).headers as Record<string, string>
+    const envelope = headers['X-Grid-Request-Context']
+    expect(envelope).toBeTruthy()
+    const payload = JSON.parse(Buffer.from(envelope, 'base64url').toString('utf8'))
+    expect(payload.collectionScope).toEqual(['proj_abc'])
     // Time-bounded like the other backend calls.
     expect((call?.[1] as RequestInit).signal).toBeInstanceOf(AbortSignal)
     // Reordered by score (permit first), each augmented with match evidence.

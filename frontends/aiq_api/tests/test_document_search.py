@@ -6,6 +6,10 @@ aggregates the per-chunk hits into a document-centric result: one hit per file
 (its max-score chunk), sorted by score descending, capped at ``top_k_files``.
 """
 
+import base64
+import hashlib
+import hmac
+import json
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
 
@@ -72,6 +76,23 @@ def app():
 
 def _client(app):
     return AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
+
+
+def _scope_headers(scope: list[str], secret: str | None = None) -> dict[str, str]:
+    """Build the signed ``X-Grid-Request-Context`` envelope the BFF forwards.
+
+    Mirrors ``buildGridRequestContextWireHeaders({ collectionScope }, secret)`` on
+    the TS side: base64url(JSON) payload + hex HMAC-SHA256 signature over the raw
+    JSON. When ``secret`` is None the sig header is omitted (dev/anonymous).
+    """
+    payload = json.dumps({"collectionScope": scope})
+    header = base64.urlsafe_b64encode(payload.encode()).decode().rstrip("=")
+    headers = {"x-grid-request-context": header}
+    if secret:
+        headers["x-grid-request-context-sig"] = hmac.new(
+            secret.encode(), payload.encode(), hashlib.sha256
+        ).hexdigest()
+    return headers
 
 
 @pytest.mark.asyncio
@@ -204,3 +225,114 @@ async def test_search_503_when_no_ingestor(app):
         res = await client.post("/v1/collections/proj_a/search", json={"query": "q"})
 
     assert res.status_code == 503
+
+
+# --- Collection-scope enforcement (PB-SYNTH-4, defense-in-depth) --------------
+
+
+@pytest.mark.asyncio
+async def test_search_in_scope_collection_allowed(app, monkeypatch):
+    """A signed scope that CONTAINS the target collection is searched normally."""
+    monkeypatch.setenv("REQUIRE_AUTH", "true")
+    monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "s3cr3t")
+    set_active_retriever(_make_retriever([_chunk("plan.pdf", 0.9)]))
+
+    async with _client(app) as client:
+        res = await client.post(
+            "/v1/collections/proj_a/search",
+            json={"query": "q"},
+            headers=_scope_headers(["oib_knowledge", "proj_a"], secret="s3cr3t"),
+        )
+
+    assert res.status_code == 200
+    assert [h["file_name"] for h in res.json()["hits"]] == ["plan.pdf"]
+
+
+@pytest.mark.asyncio
+async def test_search_out_of_scope_collection_rejected_404(app, monkeypatch):
+    """A signed scope that does NOT contain the target collection → 404.
+
+    404 (not 403) so an out-of-scope / other-tenant collection is
+    indistinguishable from a genuinely missing one — no cross-tenant oracle. The
+    existence probe / retriever must never run.
+    """
+    monkeypatch.setenv("REQUIRE_AUTH", "true")
+    monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "s3cr3t")
+    retriever = _make_retriever([_chunk("victim.pdf", 0.9)])
+    set_active_retriever(retriever)
+
+    async with _client(app) as client:
+        res = await client.post(
+            "/v1/collections/proj_victim/search",
+            json={"query": "q"},
+            headers=_scope_headers(["proj_a"], secret="s3cr3t"),
+        )
+
+    assert res.status_code == 404
+    retriever.retrieve.assert_not_awaited()
+    app.state.ingestor.get_collection.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_search_forged_raw_scope_header_not_honored(app, monkeypatch):
+    """An UNSIGNED raw X-Grid-Collection-Scope header cannot widen scope.
+
+    Under REQUIRE_AUTH the raw, forgeable header alone is not a valid signed
+    envelope, so it is ignored and the request is rejected 403.
+    """
+    monkeypatch.setenv("REQUIRE_AUTH", "true")
+    monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "s3cr3t")
+    set_active_retriever(_make_retriever([_chunk("victim.pdf", 0.9)]))
+
+    scope = base64.urlsafe_b64encode(json.dumps(["proj_victim"]).encode()).decode().rstrip("=")
+    async with _client(app) as client:
+        res = await client.post(
+            "/v1/collections/proj_victim/search",
+            json={"query": "q"},
+            headers={"x-grid-collection-scope": scope},
+        )
+
+    assert res.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_search_wrong_signature_rejected(app, monkeypatch):
+    """An envelope signed with the WRONG secret is treated as absent → 403."""
+    monkeypatch.setenv("REQUIRE_AUTH", "true")
+    monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "s3cr3t")
+    set_active_retriever(_make_retriever([_chunk("plan.pdf", 0.9)]))
+
+    async with _client(app) as client:
+        res = await client.post(
+            "/v1/collections/proj_a/search",
+            json={"query": "q"},
+            headers=_scope_headers(["proj_a"], secret="attacker-key"),
+        )
+
+    assert res.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_search_require_auth_without_envelope_rejected_403(app, monkeypatch):
+    """REQUIRE_AUTH=true + no signed scope at all → 403 (BFF always forwards one)."""
+    monkeypatch.setenv("REQUIRE_AUTH", "true")
+    monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "s3cr3t")
+    set_active_retriever(_make_retriever([_chunk("plan.pdf", 0.9)]))
+
+    async with _client(app) as client:
+        res = await client.post("/v1/collections/proj_a/search", json={"query": "q"})
+
+    assert res.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_search_anonymous_mode_no_scope_allowed(app, monkeypatch):
+    """Anonymous mode (REQUIRE_AUTH=false) enforces no tenant boundary."""
+    monkeypatch.setenv("REQUIRE_AUTH", "false")
+    set_active_retriever(_make_retriever([_chunk("plan.pdf", 0.9)]))
+
+    async with _client(app) as client:
+        res = await client.post("/v1/collections/proj_a/search", json={"query": "q"})
+
+    assert res.status_code == 200
+    assert [h["file_name"] for h in res.json()["hits"]] == ["plan.pdf"]

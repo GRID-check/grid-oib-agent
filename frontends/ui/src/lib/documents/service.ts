@@ -17,6 +17,7 @@ import { canManageArchiv } from '@/lib/authz/organizations'
 import { ForbiddenError } from '@/lib/api/errors'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { getBackendUrl } from '@/lib/backend-proxy'
+import { buildGridRequestContextWireHeaders } from '@/lib/request-context'
 import { findProjectInOrg } from '@/lib/projects/repository'
 import { ApiError, BadRequestError, ConflictError, NotFoundError, UpstreamError } from '@/lib/api/errors'
 import { ALLOWED_TAGS } from './tag-vocabulary'
@@ -254,23 +255,56 @@ export type SearchedDocument<T> = T & {
   score: number
 }
 
+/**
+ * Passages retrieved per requested file. `_aggregate_hits` on the backend keeps
+ * one hit per file (its best-scoring chunk), so the chunk budget (`top_k`) must
+ * comfortably exceed `top_k_files` or it silently caps how many distinct files
+ * can surface. A few passages per file absorbs the common case where a file's
+ * best chunk isn't its first-ranked one without over-fetching. The backend
+ * bounds `top_k` at 100 (`DocumentSearchRequest`), so the derived budget is
+ * clamped to that ceiling — the invariant `top_k >= top_k_files` still holds for
+ * every `top_k_files` in the allowed 1..100 range.
+ */
+const SEARCH_PASSAGES_PER_FILE = 3
+const SEARCH_MAX_PASSAGES = 100
+
+/** Derive the passage budget from the requested file count (see the constants above). */
+export function deriveSearchTopK(topKFiles: number): number {
+  return Math.min(SEARCH_MAX_PASSAGES, Math.max(1, topKFiles) * SEARCH_PASSAGES_PER_FILE)
+}
+
 /** Bounded, fail-open POST to the backend's document-centric search endpoint.
  *
  * Deterministic vector search. Any non-OK response, malformed body, timeout, or
  * transport failure yields `[]` (never throws) — the caller surfaces this to the
- * UI as "no semantic results" rather than a crash. The `top_k` passage budget is
- * fixed at 40; `topKFiles` bounds the one-hit-per-file result set.
+ * UI as "no semantic results" rather than a crash.
+ *
+ * The `top_k` passage budget is DERIVED from `topKFiles` (`deriveSearchTopK`) so
+ * a large `top_k_files` is never starved by a fixed chunk cap.
+ *
+ * Forwards the signed `X-Grid-Request-Context` envelope scoped to exactly this
+ * collection (defense-in-depth, PB-SYNTH-4): the callers here have already
+ * authorized the caller to read `collectionName` (project FGA / org membership),
+ * and the backend route rejects any `collection_name` not present in the signed
+ * scope — closing the cross-tenant read hole if the backend is reachable by
+ * anything other than this BFF. Signed with `GRID_INTERNAL_API_TOKEN` via the
+ * shared envelope builder (never hand-rolled), so the raw, forgeable
+ * `X-Grid-Collection-Scope` header alone can't be used to widen scope.
  */
 export async function fetchSemanticHits(
   collectionName: string,
   query: string,
   topKFiles: number,
 ): Promise<BackendSearchHit[]> {
+  const scopeHeaders = buildGridRequestContextWireHeaders(
+    { collectionScope: [collectionName] },
+    process.env.GRID_INTERNAL_API_TOKEN,
+  )
   try {
     const res = await fetch(`${getBackendUrl()}/v1/collections/${encodeURIComponent(collectionName)}/search`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query, top_k: 40, top_k_files: topKFiles }),
+      headers: { 'Content-Type': 'application/json', ...scopeHeaders },
+      body: JSON.stringify({ query, top_k: deriveSearchTopK(topKFiles), top_k_files: topKFiles }),
       signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
     })
     if (!res.ok) return []
