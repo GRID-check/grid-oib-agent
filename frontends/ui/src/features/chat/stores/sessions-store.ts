@@ -33,6 +33,16 @@ export type SessionsSlice = {
   currentUserId: string | null
   currentConversation: Conversation | null
   conversations: Conversation[]
+  /**
+   * True while an interrupted-answer recovery fetch is in flight (FIX 3). A
+   * turn that LOOKS interrupted locally (user message, thinking steps, no
+   * reply) may simply have had its terminal frame persisted server-side during
+   * a drop. While we re-fetch to check, the UI shows a calm "reconnecting —
+   * checking for a finished answer" line instead of racing straight to the
+   * "answer lost" notice; the lost/interrupted UI only appears once this
+   * settles back to false with nothing recovered.
+   */
+  isRecoveryPending: boolean
 
   loadServerConversations: (projectId?: string) => Promise<void>
   hydrateConversationMessages: (conversationId: string) => Promise<void>
@@ -324,6 +334,7 @@ export const initialSessionsState = {
   currentUserId: null as string | null,
   currentConversation: null as Conversation | null,
   conversations: [] as Conversation[],
+  isRecoveryPending: false,
 }
 
 export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", never]], [], SessionsSlice> = (set, get) => ({
@@ -1208,6 +1219,12 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
     conversationId: string,
     afterUserMessageId: string
   ): Promise<boolean> => {
+    // Signal the "checking for a finished answer" UI (FIX 3) for the duration
+    // of the fetch. Both callers (restoreSessionState on mount, and the
+    // reconnect handler in use-websocket-chat) go through here, so the calmer
+    // recovery-pending copy shows on every recovery attempt and the
+    // lost/interrupted UI only appears after this settles to false.
+    set({ isRecoveryPending: true }, false, 'recoveryPending:start')
     try {
       const conversationsClient = await getConversationsClient()
       const serverMessages = await conversationsClient.listMessages(conversationId)
@@ -1247,6 +1264,8 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
     } catch (err) {
       console.warn('[recoverInterruptedAssistantMessage] Failed:', err)
       return false
+    } finally {
+      set({ isRecoveryPending: false }, false, 'recoveryPending:end')
     }
   },
 

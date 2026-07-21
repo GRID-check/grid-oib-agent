@@ -134,6 +134,51 @@ the enforced-path list is an allowlist, not a denylist. Dev fail-open note:
 when `GRID_INTERNAL_API_TOKEN` is unset, signature verification is skipped
 but envelope *presence* is still required for authenticated requests.
 
+### 2c. Reconnect & resume semantics (socket drop mid-turn)
+
+A turn can outlive its socket: the browser tab sleeps, the network blips, or a
+token rotation forces a reconnect while a long deep-research answer is still
+generating. Four cooperating mechanisms make sure the finished answer is never
+lost. All backend pieces live in `websocket_reconnect.py`; the frontend pieces
+in `use-websocket-chat.ts` + the chat store.
+
+- **Live reattach.** NAT's base `WebSocketMessageHandler._restore_execution_state`
+  (vendored, run from `__aenter__` on every new socket) swaps a reconnected
+  socket into the still-running handler for the same conversation. It reads the
+  `conversation_id` query param; the frontend sends both `conversationId` (Grid
+  collection scoping) **and** `conversation_id` (so NAT's lookup matches).
+  `ReconnectableWebSocketMessageHandler._restore_execution_state` overrides the
+  base to (a) tolerate either key and (b) re-register the reconnected socket in
+  the registry (NAT's base only swaps the handler's `_socket` attribute). Without
+  the re-register, the dual-write guard below would still read "client gone".
+- **Registry.** `WebSocketSessionRegistry` (module-global `_registry`) maps
+  `conversation_id → socket` and holds pending HITL futures + the running
+  workflow task. `set_socket` on send/reconnect, `clear_socket` on disconnect.
+  `has_socket` is the **dual-write guard**: it decides whether the client is
+  present (client owns the write) or gone (persist server-side).
+- **Persist-on-drop.** When a terminal `RESPONSE_MESSAGE` cannot be sent (no live
+  socket), `_persist_terminal_message_if_client_gone` → `persist_assistant_message`
+  POSTs the finished answer (text + cards/sources/confidence) to the BFF so it
+  survives a reload. Only the **terminal** frame persists (streamed deltas pass
+  `persist_on_drop=False`); a transient job-admission "queue full" notice is
+  dropped, never persisted. The id is deterministic per turn
+  (`deterministic_assistant_message_id`) so a double-write no-ops on the messages
+  primary key (`onConflictDoNothing`). This POST targets the **internal
+  token-guarded** route `POST /api/internal/conversations/{id}/messages` with
+  `X-Grid-Internal-Token` (org scoped via the `x-grid-organization-id` the WS
+  upgrade forwarded) — not the browser session cookie, which expires on long
+  turns and used to make the fail-soft POST silently 401 and drop the answer.
+- **Rehydrate.** The client re-surfaces a persisted answer two ways: on a fresh
+  mount, `sessions-store.restoreSessionState` refetches server history and, for a
+  turn that looks interrupted, calls `_recoverInterruptedAssistantMessage`; on a
+  same-mount reconnect, `use-websocket-chat.ts` `onConnectionChange('connected')`
+  re-runs the same recovery (skipping the first connect, debounced against
+  rotation storms). While that fetch is in flight the store's `isRecoveryPending`
+  flag renders a calm "reconnecting — checking for a finished answer" line
+  instead of racing straight to the "answer lost" notice; the lost/interrupted UI
+  and the `agent.response_interrupted` card only appear once recovery returns
+  with nothing found.
+
 ## 3. The card pipeline
 
 **Cards are the rich-UI presentation layer**, not a citations feature. The agent

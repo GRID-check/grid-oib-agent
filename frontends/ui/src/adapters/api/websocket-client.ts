@@ -164,7 +164,13 @@ export class NATWebSocketClient {
       params.set('projectId', this.options.projectId)
     }
     if (this.options.conversationId) {
+      // camelCase param the Grid backend scopes the collection on.
       params.set('conversationId', this.options.conversationId)
+      // snake_case duplicate that NAT's `_restore_execution_state` reads
+      // verbatim (it looks up `conversation_id`) to swap a reconnected socket
+      // into a still-running handler. Sending BOTH keeps the live-reattach
+      // path working without depending on the backend camelCase tolerance.
+      params.set('conversation_id', this.options.conversationId)
     }
 
     const queryString = params.toString()

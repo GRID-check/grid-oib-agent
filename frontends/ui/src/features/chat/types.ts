@@ -515,6 +515,13 @@ export interface ChatState {
   currentConversation: Conversation | null
   /** All conversations for the sessions sidebar (includes all users) */
   conversations: Conversation[]
+  /**
+   * True while an interrupted-answer recovery fetch is in flight (FIX 3). Shows
+   * the calm "reconnecting — checking for a finished answer" copy instead of
+   * racing straight to the "answer lost" notice; the lost/interrupted UI only
+   * appears once this settles to false with nothing recovered.
+   */
+  isRecoveryPending: boolean
   /** Whether a message is currently streaming */
   isStreaming: boolean
   /** Whether we're waiting for the first response token */

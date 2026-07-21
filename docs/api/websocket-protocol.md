@@ -9,7 +9,7 @@ The UI communicates with the AI-Q Python backend via the **NAT WebSocket protoco
 ### URL
 
 ```
-ws://<host>/websocket?projectId=<uuid>&conversationId=<session_id>
+ws://<host>/websocket?projectId=<uuid>&conversationId=<session_id>&conversation_id=<session_id>
 ```
 
 - **Client-side (browser):** Connects to the same origin; the UI gateway server proxies to the backend.
@@ -30,7 +30,8 @@ ws://BACKEND_URL/websocket
 | Parameter | Required | Description |
 |-----------|----------|-------------|
 | `projectId` | No | UUID scoping the backend Milvus collection |
-| `conversationId` | No | Session ID for conversation continuity |
+| `conversationId` | No | Session ID for conversation continuity (Grid collection scoping) |
+| `conversation_id` | No | Same session ID, snake_case duplicate of `conversationId`. Read by NAT's base `_restore_execution_state` to swap a reconnected socket into a still-running handler (live reattach). The client sends both keys; the backend override tolerates either. See backend-deep-dive §2c. |
 
 ---
 

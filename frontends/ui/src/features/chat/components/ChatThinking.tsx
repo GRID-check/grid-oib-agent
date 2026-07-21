@@ -11,7 +11,7 @@
 'use client'
 
 import { type FC, useMemo } from 'react'
-import { ChevronDown, CheckCircle2, AlertTriangle, Clock } from 'lucide-react'
+import { ChevronDown, CheckCircle2, AlertTriangle, Clock, Loader2 } from 'lucide-react'
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible'
 import { motion, AnimatePresence } from '@/components/motion'
 import { Spinner } from '@/components/ui/spinner'
@@ -30,6 +30,13 @@ export interface ChatThinkingProps {
   isThinking?: boolean
   /** Whether the response was interrupted (page refresh / browser close mid-stream) */
   isInterrupted?: boolean
+  /**
+   * Whether an interrupted-answer recovery fetch is currently in flight (FIX 3).
+   * When set on an otherwise-interrupted turn, the calmer "reconnecting —
+   * checking for a finished answer" copy is shown instead of the "lost" notice,
+   * so the UI does not race the async recovery to declare the answer gone.
+   */
+  isRecoveryPending?: boolean
   /** Whether waiting for user response (HITL prompt pending) */
   isWaiting?: boolean
   /** Data sources that were enabled for this query */
@@ -58,6 +65,7 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
   steps,
   isThinking = true,
   isInterrupted = false,
+  isRecoveryPending = false,
   isWaiting = false,
   enabledDataSources = [],
   messageFiles = [],
@@ -149,6 +157,15 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
                     {t('thinking.waiting')}
                   </span>
                 </>
+              ) : isInterrupted && isRecoveryPending ? (
+                <>
+                  <span className="text-muted-foreground">
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                  </span>
+                  <span className="text-foreground text-sm font-semibold">
+                    {t('thinking.recovering')}
+                  </span>
+                </>
               ) : isInterrupted ? (
                 <>
                   <span className="text-warning">
@@ -216,15 +233,28 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
       {/* Mid-turn drop notice: a silent reconnect can leave a turn without any
           response. The collapsed header only shows a muted "Interrupted" chip,
           which does not tell the user what to do — so surface a compact,
-          always-visible line prompting a resend (protocol-robustness item 4). */}
-      {isInterrupted && (
+          always-visible line (protocol-robustness item 4). While recovery is
+          still in flight (FIX 3) show a calm "checking for a finished answer"
+          line; only once recovery has settled with nothing found do we prompt
+          a resend. */}
+      {isInterrupted && isRecoveryPending ? (
+        <div className="flex items-start gap-2 border-t border-border/60 px-4 pb-3 pt-2.5">
+          <Loader2
+            className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground"
+            aria-hidden="true"
+          />
+          <span className="text-[12px] leading-relaxed text-muted-foreground" role="status">
+            {t('thinking.recoveringNotice')}
+          </span>
+        </div>
+      ) : isInterrupted ? (
         <div className="flex items-start gap-2 border-t border-border/60 px-4 pb-3 pt-2.5">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" aria-hidden="true" />
           <span className="text-[12px] leading-relaxed text-muted-foreground" role="status">
             {t('thinking.interruptedNotice')}
           </span>
         </div>
-      )}
+      ) : null}
 
       {/* Basis footer — the data sources + files this query ran against, always
           visible as clean pills (does not require expanding the Herleitung). */}
