@@ -414,3 +414,52 @@ class TestTransparencyExtrasLift:
             )
         assert built.job_admission_rejected is True
         assert built.retry_after_seconds == 42
+
+
+class TestPersistTerminalMessageIfClientGone:
+    """The client-gone persist path writes a finished answer to the BFF so it
+    survives a reload — but a job-admission rejection is a transient queue notice
+    that must NOT enter history (there is no reader for the marker on rehydrate,
+    and it is stale by reload)."""
+
+    def _handler(self) -> ReconnectableWebSocketMessageHandler:
+        socket = MagicMock()
+        socket.scope = {"headers": []}
+        handler = _make_handler(authenticated_user={"type": "internal"}, socket=socket)
+        handler._conversation_id = "conv-1"
+        handler._message_parent_id = "user-1"
+        return handler
+
+    def _message(self, dump: dict) -> MagicMock:
+        message = MagicMock()
+        message.model_dump.return_value = dump
+        return message
+
+    @pytest.mark.asyncio
+    async def test_rejection_turn_is_not_persisted(self) -> None:
+        handler = self._handler()
+        message = self._message(
+            {
+                "content": {"text": "The research queue is full. Please retry shortly."},
+                "job_admission_rejected": True,
+                "retry_after_seconds": 42,
+            }
+        )
+        with patch("aiq_api.websocket_reconnect.persist_assistant_message") as persist:
+            persist.return_value = True
+            await handler._persist_terminal_message_if_client_gone(
+                message, WebSocketMessageType.RESPONSE_MESSAGE
+            )
+        persist.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_normal_turn_is_persisted(self) -> None:
+        handler = self._handler()
+        message = self._message({"content": {"text": "Here is your answer."}})
+        with patch("aiq_api.websocket_reconnect.persist_assistant_message") as persist:
+            persist.return_value = True
+            await handler._persist_terminal_message_if_client_gone(
+                message, WebSocketMessageType.RESPONSE_MESSAGE
+            )
+        persist.assert_awaited_once()
+        assert persist.await_args.kwargs["text"] == "Here is your answer."

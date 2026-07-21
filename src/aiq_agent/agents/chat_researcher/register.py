@@ -216,8 +216,15 @@ def _response_to_chunks(response: ChatResponse, *, stream: bool) -> list[ChatRes
     response_id = getattr(response, "id", None)
     extras = {field: value for field in _STREAM_EXTRA_FIELDS if (value := getattr(response, field, None)) is not None}
 
+    # A job-admission rejection ("queue full") is NOT a research answer: its
+    # prose is surfaced by the frontend as a warning banner, never an answer
+    # bubble. Emit ONLY the terminal chunk (carrying the extras) — no answer
+    # deltas — so no streaming assistant bubble is ever opened for it. Normal
+    # turns are unaffected and stream as usual.
+    job_admission_rejected = bool(getattr(response, "job_admission_rejected", None))
+
     chunks: list[ChatResponseChunk] = []
-    if stream and content:
+    if stream and content and not job_admission_rejected:
         for delta in _iter_answer_deltas(content):
             chunks.append(
                 ChatResponseChunk.create_streaming_chunk(delta, id_=response_id, model=model_name, finish_reason=None)

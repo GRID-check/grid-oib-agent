@@ -712,6 +712,15 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
                 return
 
             dump = message.model_dump()
+
+            # A job-admission rejection ("queue full") is a TRANSIENT notice, not
+            # a research answer. It is surfaced live as a warning banner with no
+            # reader for the marker on rehydrate, so persisting it would resurrect
+            # it as a fake answer in history. It is also stale by the time the
+            # client reloads. Never persist it — drop it entirely.
+            if dump.get("job_admission_rejected"):
+                return
+
             content_obj = dump.get("content")
             text = content_obj.get("text") if isinstance(content_obj, dict) else None
             cards = dump.get("cards")

@@ -323,6 +323,31 @@ class TestResponseToChunks:
         assert getattr(terminal, "job_admission_rejected", None) is True
         assert getattr(terminal, "retry_after_seconds", None) == 30
 
+    def test_rejection_streams_no_deltas_only_terminal(self):
+        # A queue rejection is surfaced by the frontend banner, NOT an answer
+        # bubble: even with streaming ON it must yield NO delta chunks — only the
+        # single terminal chunk carrying both extras — so no bubble is opened.
+        resp = _answer_response(
+            "The research queue is full. Please retry shortly.",
+            job_admission_rejected=True,
+            retry_after_seconds=30,
+        )
+        chunks = _response_to_chunks(resp, stream=True)
+        assert len(chunks) == 1
+        terminal = chunks[0]
+        assert _finish(terminal) == "stop"
+        assert getattr(terminal, "job_admission_rejected", None) is True
+        assert getattr(terminal, "retry_after_seconds", None) == 30
+
+    def test_normal_answer_still_streams_deltas_when_not_rejected(self):
+        # Guard: the rejection short-circuit must not suppress deltas for a
+        # normal answer of comparable length.
+        text = "A normal answer that is long enough to span several streaming deltas here."
+        resp = _answer_response(text)
+        chunks = _response_to_chunks(resp, stream=True)
+        assert len(chunks) > 1
+        assert "".join(_content(c) for c in chunks[:-1]) == text
+
 
 class TestFoldChunksToResponse:
     """Single-output consumers (--input CLI, single-shot HTTP) get one response
