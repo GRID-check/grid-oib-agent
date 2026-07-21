@@ -150,6 +150,7 @@ export const projects = {
       saveFailed: 'We could not save the project brief. Please try again.',
     },
     tryAgain: 'Try again',
+    conflictReload: 'Refresh',
     draftSaved: 'Draft saved',
     salvage: {
       partial:
@@ -332,6 +333,8 @@ export const projects = {
       assumptionConfirm: 'Confirm',
       assumptionDismiss: 'Dismiss',
       assumptionError: 'Could not update the brief. Please try again.',
+      assumptionForbidden: "You don't have permission to update the brief.",
+      assumptionConflict: 'This brief was changed elsewhere. Please refresh and try again.',
       provenance: {
         onboarding: 'Captured in the intake wizard',
         user_confirmed: 'Confirmed by you',

@@ -361,6 +361,33 @@ describe('ProjectIntakeWizard — optimistic concurrency (If-Match)', () => {
     expect(await screen.findByText(/changed elsewhere/i)).toBeInTheDocument()
     expect(pushMock).not.toHaveBeenCalled()
   })
+
+  it('Fix 3: the 409 alert offers a Refresh action that re-fetches server data', async () => {
+    const user = userEvent.setup()
+    const fetch = vi.fn((url: string, init?: RequestInit) => {
+      if (url.endsWith('/intake-definition')) {
+        return Promise.resolve({ ok: true, status: 200, json: async () => projectIntakeDefinitionV1 })
+      }
+      if (init?.method === 'PUT') {
+        return Promise.resolve({ ok: false, status: 409, json: async () => ({}) })
+      }
+      return Promise.resolve({ ok: true, status: 200, json: async () => ({}) })
+    })
+    vi.stubGlobal('fetch', fetch)
+    seedReviewDraft({ hauptnutzung: 'wohnen', anzahl_einheiten: 3 })
+    render(
+      <ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" initialProfileVersion={7} />,
+    )
+
+    await user.click(await screen.findByRole('button', { name: /save/i }))
+    await screen.findByText(/changed elsewhere/i)
+
+    const refresh = screen.getByRole('button', { name: /refresh/i })
+    await user.click(refresh)
+    expect(refreshMock).toHaveBeenCalled()
+    // The alert clears once the user acts on it.
+    await waitFor(() => expect(screen.queryByText(/changed elsewhere/i)).not.toBeInTheDocument())
+  })
 })
 
 describe('ProjectIntakeWizard — edit-mode save preserves agent-recorded knowledge', () => {
@@ -505,6 +532,168 @@ describe('ProjectIntakeWizard — Fix 6 stale conditional answers pruned on load
     await waitFor(() => expect(pushMock).toHaveBeenCalledWith(`/app/projects/${PROJECT_ID}`))
     expect(putProfileCalls(stub)).toHaveLength(1)
     expect(screen.queryByText(/no longer applies/i)).not.toBeInTheDocument()
+  })
+})
+
+describe('ProjectIntakeWizard — Fix 1 stale draft does not clobber a newer profile', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals()
+    vi.clearAllMocks()
+    sessionStorage.clear()
+  })
+  afterEach(() => sessionStorage.clear())
+
+  it('discards a draft older than the persisted profile and prefills from the profile', async () => {
+    stubFetch()
+    // A draft autosaved back in January, then abandoned...
+    sessionStorage.setItem(
+      `intake-draft-${PROJECT_ID}`,
+      JSON.stringify({
+        answers: { focus_areas: ['sanierung'] },
+        currentStep: 0,
+        savedAt: Date.parse('2026-01-01T00:00:00.000Z'),
+      }),
+    )
+    // ...while the profile has since moved on (a July fact stamps its freshness) and
+    // now carries a DIFFERENT focus. No profileVersion here, so freshness is decided
+    // by the timestamp fallback: draft.savedAt (Jan) < profile fact updatedAt (Jul).
+    const initialProfile = {
+      facts: {
+        hauptnutzung: {
+          value: 'buero',
+          confidence: 'confirmed' as const,
+          source: 'user_confirmed' as const,
+          updatedAt: '2026-07-01T00:00:00.000Z',
+        },
+      },
+      goals: { focus_areas: ['brandschutz'] },
+      unknowns: [],
+      assumptions: {},
+    }
+    render(
+      <ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" mode="edit" initialProfile={initialProfile} />,
+    )
+
+    // The newer profile wins: its focus is selected, the stale draft's focus is not.
+    expect(await screen.findByRole('checkbox', { name: 'Fire-safety concept' })).toBeChecked()
+    expect(
+      screen.getByRole('checkbox', { name: 'Renovation / existing-building compliance' }),
+    ).not.toBeChecked()
+  })
+
+  it('restores a draft newer than the persisted profile (genuine local edits survive)', async () => {
+    stubFetch()
+    // This draft was saved AFTER the profile's newest fact — real unsaved local work.
+    sessionStorage.setItem(
+      `intake-draft-${PROJECT_ID}`,
+      JSON.stringify({
+        answers: { focus_areas: ['sanierung'] },
+        currentStep: 0,
+        savedAt: Date.parse('2026-07-20T00:00:00.000Z'),
+      }),
+    )
+    const initialProfile = {
+      facts: {
+        hauptnutzung: {
+          value: 'buero',
+          confidence: 'confirmed' as const,
+          source: 'user_confirmed' as const,
+          updatedAt: '2026-07-01T00:00:00.000Z',
+        },
+      },
+      goals: { focus_areas: ['brandschutz'] },
+      unknowns: [],
+      assumptions: {},
+    }
+    render(
+      <ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" mode="edit" initialProfile={initialProfile} />,
+    )
+
+    // The newer draft wins: its focus is selected, the profile's is not.
+    expect(
+      await screen.findByRole('checkbox', { name: 'Renovation / existing-building compliance' }),
+    ).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: 'Fire-safety concept' })).not.toBeChecked()
+  })
+
+  it('discards a draft whose base profileVersion is behind the loaded version', async () => {
+    stubFetch()
+    // Version is the primary, clock-independent signal: the draft was based on v3,
+    // but the wizard loaded v4 → the profile provably moved on → drop the draft.
+    sessionStorage.setItem(
+      `intake-draft-${PROJECT_ID}`,
+      JSON.stringify({
+        answers: { focus_areas: ['sanierung'] },
+        currentStep: 0,
+        savedAt: Date.now(), // recent on the clock, but the version proves staleness
+        baseVersion: 3,
+      }),
+    )
+    const initialProfile = {
+      facts: {},
+      goals: { focus_areas: ['brandschutz'] },
+      unknowns: [],
+      assumptions: {},
+    }
+    render(
+      <ProjectIntakeWizard
+        projectId={PROJECT_ID}
+        projectName="Test"
+        mode="edit"
+        initialProfile={initialProfile}
+        initialProfileVersion={4}
+      />,
+    )
+
+    expect(await screen.findByRole('checkbox', { name: 'Fire-safety concept' })).toBeChecked()
+    expect(
+      screen.getByRole('checkbox', { name: 'Renovation / existing-building compliance' }),
+    ).not.toBeChecked()
+  })
+})
+
+describe('ProjectIntakeWizard — Fix 2 AI-finding revise link resolves a stage', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals()
+    vi.clearAllMocks()
+    sessionStorage.clear()
+  })
+  afterEach(() => sessionStorage.clear())
+
+  it('renders a working Revise link for an AI finding whose labels match no question', async () => {
+    const user = userEvent.setup()
+    const stub = stubFetch()
+    // The LLM returns a finding whose `fields` are free-form prose that matches no
+    // intake question label — the old exact-label match would hide the Revise link.
+    stub.consistencyResponse.json = {
+      findings: [
+        {
+          kind: 'ai',
+          fields: ['the fire-compartment note'],
+          severity: 'inconsistency',
+          message: 'The note contradicts the plan.',
+        },
+      ],
+    }
+    // Substantive free text forces the LLM call; land directly on Review.
+    seedReviewDraft({
+      focus_areas: ['sonstiges'],
+      goal_details: 'Confirm the fire-compartment strategy for the submission.',
+    })
+    renderWizard(true)
+
+    await user.click(await screen.findByRole('button', { name: /save & see/i }))
+    expect(await screen.findByText(/the note contradicts the plan/i)).toBeInTheDocument()
+
+    // The link resolves (falls back to the first free-text stage) and navigates.
+    const revise = screen.getByRole('button', { name: /revise/i })
+    await user.click(revise)
+
+    // "Your focus" (goal_details lives there) is stage 1 of 6; findings clear.
+    expect(await screen.findByText(/step 1 of 6/i)).toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.queryByText(/the note contradicts the plan/i)).not.toBeInTheDocument(),
+    )
   })
 })
 
