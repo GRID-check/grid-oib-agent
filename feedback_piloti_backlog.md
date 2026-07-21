@@ -201,3 +201,44 @@ Heartbeat scheduled (~50 min, re-arming). App-audit + color-coding agents runnin
 
 Judgment calls (subjective visual weight / exact alignment) done conservatively and
 flagged for the user's eye; anything needing a product/asset decision is flagged, not guessed.
+
+## SYNTHESIZED — net-new issues from app/logic audit (2026-07-21 overnight)
+- **PB-SYNTH-1 (CRITICAL) — quote-verification defeated by phrase-splicing.**
+  `citation_verification.py:_quote_coverage` sums NON-contiguous matching blocks →
+  a fabricated sentence assembled from real scattered phrases scores 1.0 and passes,
+  defeating the PB-7 safety mechanism in its target case. Fix: require (near-)contiguous
+  match (longest-block credit / edit-distance vs best-aligned substring). Status: TO FIX.
+- **PB-SYNTH-2/3 (HIGH) — list-shaped `.content` mishandled.** `shallow_researcher/agent.py:482`
+  does `str(answer_msg.content)` (list→Python-repr leaks as the answer + safety filters no-op);
+  `intent_classifier.py:231,244` does `.content.strip()` (list→AttributeError→every turn errors).
+  `clarifier/agent.py` already has `_content_to_text()`. Fix: shared helper used by all three.
+  Status: TO FIX (dispatched).
+- **PB-SYNTH-4 (RISK) — PB-18 search route has no signed-scope check.** `document_search.py`
+  takes `collection_name` verbatim; BFF resolves it safely, but the route lacks the HMAC
+  scope defense-in-depth the chat retrieval path has. Verify network isolation; add the
+  scope check regardless. Status: TO FIX.
+- **PB-SYNTH-5 (NIT) — `top_k` hardcoded 40 caps `top_k_files` (max 100).** Derive passage
+  budget from top_k_files. Status: backlog.
+
+## SYNTHESIZED — app use-case audit (Playwright drive, 2026-07-21 overnight)
+Real LOGIC bugs first (fixing this cycle unless noted):
+- **PB-SYNTH-6 — Wizard stale draft clobbers the saved brief.** `project-intake-wizard.tsx`
+  draft always wins over `initialProfile`; leaving without saving then reopening restores a
+  stale draft and can overwrite a newer persisted brief on save. Data-loss. → wizard bundle.
+- **PB-SYNTH-7 — Members: admin can strip own access (lockout footgun).** roster role Select
+  commits immediately; no self-row guard / last-admin check. → members bundle.
+- **PB-SYNTH-8 — error.tsx misclassifies crashes as "access denied" + dead-end loop.** Regex on
+  "access" substring hides `reset`; session-fail only offers "Back to projects" which re-throws. → error bundle.
+- **PB-SYNTH-9 — Members "Add member" silently downgrades an existing member's role.** match-by-email
+  + unconditional assignRole(default viewer). → members bundle.
+- **PB-SYNTH-10 — Wizard AI-finding "Revise" link vanishes.** label-exact match fails for AI findings
+  (LLM labels) → no jump-to-stage. → wizard bundle.
+- **PB-SYNTH-11 — REQUIRE_AUTH=false dev config is dead end-to-end.** server `getGridSession()` has no
+  no-auth branch (client has a mock), and AuthKit middleware throws without a redirect URI → every route
+  500s/rejects. Documented local-dev/QA is unusable. → auth agent (guardrails: only when REQUIRE_AUTH=false).
+- **PB-SYNTH-12 — project-brief assumption confirm swallows the server failure reason.** 403/409/validation
+  collapse to one generic message. → error bundle.
+- **PB-SYNTH-13 — forwardRef warning on every page** (a design-system primitive's bad signature). → next cycle.
+- Polish (next cycles): comparison-table mobile clip, onboarding opaque error, intake 409 refresh control,
+  draft "saved" false flash, non-finite number field, members double error, Insights empty card, danger-zone
+  dialog reset, `.env.example` redirect-URI doc mismatch, /dev/cards hydration warning, NoSourcesBanner key.
