@@ -205,5 +205,13 @@ Rules of thumb: prefer updating an existing doc over adding a new one; delete do
   one that pre-dates your change — fix it. "It was already broken" is not a
   reason to leave it broken. If a fix is genuinely out of scope, flag it loudly
   and explicitly (in the PR/log), never silently wave it away.
+- **Question necessity, then simplify — "the best part is no part."** START every
+  task by asking why the thing must exist at all and whether existing machinery
+  already covers it — the cheapest code is the code you don't write. FINISH every
+  task with a skeptical review that tries to DELETE: remove parts, collapse
+  layers, reuse instead of add, cut complexity — while keeping the feature set
+  intact (reduce complexity, never features). Reducing complexity is part of
+  "done," not a follow-up. When work is finished, a senior-skeptic review pass
+  (its own sub-agent) that challenges necessity and hunts deletions is expected.
 - Git workflow above (feature-branch-per-feature, Conventional Commits, PR to
   `develop`) applies to every change.
