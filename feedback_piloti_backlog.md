@@ -242,3 +242,23 @@ Real LOGIC bugs first (fixing this cycle unless noted):
 - Polish (next cycles): comparison-table mobile clip, onboarding opaque error, intake 409 refresh control,
   draft "saved" false flash, non-finite number field, members double error, Insights empty card, danger-zone
   dialog reset, `.env.example` redirect-URI doc mismatch, /dev/cards hydration warning, NoSourcesBanner key.
+
+## SYNTHESIZED — skeptic review of the synthesized-bug batch (2026-07-22)
+- **PB-SKEP-1 (CRITICAL) — quote-coverage still defeated by SHORT-GAP splicing.** The
+  local-window metric rejects far-apart splices but a merge of two adjacent clauses
+  (omitted connective ≤~10% of quote) fits one window → coverage 0.978, wrongly
+  "verified". Fix: penalize unmatched gaps between matched blocks / longest-contiguous
+  run / absolute pad cap. → fixing.
+- **PB-SKEP-2 (MED, regression I introduced) — drag-over dashed border gone.** Removing
+  base `border` left `border-error/brand border-dashed` with no border-WIDTH → Tailwind v4
+  preflight renders nothing. Add `border-2` to the drag branches. → fixing.
+- **PB-SKEP-3 (MED, dup) — message_utils has two content flatteners.** `content_to_text`
+  added alongside the pre-existing private `_content_as_text` (used by get_latest_user_query).
+  Delete the private one, point it at the shared. → fixing.
+- **PB-SKEP-4 (MED, migration gap) — wizard draft-freshness reopens the clobber bug.** Old
+  drafts (no baseVersion/savedAt) fall through to draft-wins → clobbers profile. Default to
+  the PROFILE when both signals absent. → fixing.
+- **PB-SKEP-5 (MED) — members self-lockout is only a confirm dialog, no real last-admin guard**
+  (client or server); bypassable, and a second-admin-demotes-only-admin path is unguarded.
+  Add a server-side "retain ≥1 admin" check. → fixing.
+- PB-SKEP-6 (LOW) project-brief throw/catch ceremony — cosmetic, deferred.
