@@ -358,7 +358,14 @@ export function ProjectMembersForm({
 
         if (!response.ok) {
           const data = await response.json().catch(() => ({}))
-          throw new Error(data.error || t('errors.updateFailed'))
+          // The server rejects any change that would leave the project with no
+          // admin; surface that as its own localized message rather than the
+          // generic failure copy.
+          const message =
+            data?.details?.reason === 'last-admin'
+              ? t('errors.lastAdmin')
+              : data.error || t('errors.updateFailed')
+          throw new Error(message)
         }
 
         setMembers((prev) =>

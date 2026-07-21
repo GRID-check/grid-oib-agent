@@ -32,6 +32,8 @@ export const members: typeof en.members = {
     updateFailed: 'Rolle konnte nicht aktualisiert werden',
     loadTitle: 'Mitglieder konnten nicht geladen werden',
     actionTitle: 'Zugriffsaktualisierung fehlgeschlagen',
+    lastAdmin:
+      'Dieses Projekt muss mindestens einen Administrator behalten. Machen Sie jemand anderen zum Administrator, bevor Sie diesen entfernen oder ändern.',
   },
   invite: {
     title: 'Mitglied hinzufügen',

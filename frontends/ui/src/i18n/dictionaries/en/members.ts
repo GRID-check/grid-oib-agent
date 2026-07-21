@@ -28,6 +28,8 @@ export const members = {
     updateFailed: 'Failed to update role',
     loadTitle: "Couldn't load members",
     actionTitle: 'Access update failed',
+    lastAdmin:
+      'This project must keep at least one admin. Make someone else an admin before removing or changing this one.',
   },
   invite: {
     title: 'Add a member',
