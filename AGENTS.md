@@ -200,5 +200,10 @@ Rules of thumb: prefer updating an existing doc over adding a new one; delete do
   A missing coercion here caused the profiler `toISOString is not a function`
   crash; the fix and the `totalDurationMsRaw` sibling are the reference pattern.
 - Documentation obligations above apply to every change — treat stale docs as a bug.
+- **Fix errors you find — never dismiss them as "pre-existing."** If, while
+  working, you identify a bug, a failing/broken test, or wrong behavior — even
+  one that pre-dates your change — fix it. "It was already broken" is not a
+  reason to leave it broken. If a fix is genuinely out of scope, flag it loudly
+  and explicitly (in the PR/log), never silently wave it away.
 - Git workflow above (feature-branch-per-feature, Conventional Commits, PR to
   `develop`) applies to every change.
