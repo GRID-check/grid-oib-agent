@@ -121,7 +121,12 @@
 - **PB-12 — WBTV Wien not retrievable (RIS holds annex texts as titles only, not
   full text).**  Class: DATA/PRODUCT. The full annex text must be deposited in
   the norm registry / base corpus. Flag: needs the source documents. Status:
-  PRODUCT (data acquisition), but check the norm-registry mechanism.
+  PRODUCT (data acquisition) — a person adds the WBTV Anlagen full text to the
+  OIB corpus (existing ingestion path); `wbtv` registry entry already exists
+  (`configs/norms/at/registry.yml:298`). **Plus one latent code bug** (fix per
+  "errors" rule): `norm_registry.py:530` + `ris_adapter/register.py:574` use
+  `elif entry.source_url` so a populated `source_url` is silently dropped when
+  `full_law_url` is set — blocks attaching a direct annex link. 2-line fix.
 
 - **PB-13 — Finer data-source selection (only OIB / only a specific
   Landesbauordnung).**  Class: LOGIC/FEATURE, "keine Prio". Relates to source
@@ -143,7 +148,12 @@
   legend not the graphic.**  Class: MODEL + LOGIC. Partly VLM quality (server/
   model), partly logic (watermark/garbage text leaking into summaries — there is
   an `AIQ_RENDER_VISUAL_PAGES` path). Check the corrupt-text leak specifically;
-  the rest is model/product. Status: VERIFY (corrupt-text leak only) + PRODUCT.
+  the rest is model/product. Status: **Sprint 3 — IN PROGRESS (real bug).**
+  The vector-drawing path already strips watermarks, but the GENERIC image-caption
+  path (`_analyze_image_with_vlm`) has no watermark exclusion and its caption
+  becomes the summary verbatim → CAD licence stamps leak as "corrupt text".
+  Fix: watermark-exclusion in the caption prompt + substring scrub before caption
+  becomes summary. (Pixel-level plan understanding remains MODEL/PRODUCT.)
 
 ### Deferred — UI (user owns) / PRODUCT / SERVER
 - UI: header/typo unification, chat centering, top buttons, border removal, logo,
