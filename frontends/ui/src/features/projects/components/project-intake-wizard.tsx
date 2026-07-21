@@ -106,8 +106,14 @@ function profileUpdatedAtMs(profile: ProjectProfile | null | undefined): number 
  *  - timestamp (fallback): the draft's save time vs. the profile's newest fact /
  *    assumption `updatedAt`, used only when a version isn't available on both sides.
  *
- * If neither signal can decide, keep the draft — we never silently drop local edits
- * merely because freshness can't be proven (this preserves the pre-fix behaviour).
+ * If neither signal can decide, default to the persisted profile, not the draft.
+ * This matters during the migration window after this fix ships: drafts
+ * autosaved by the OLD code carry neither `baseVersion` nor `savedAt` (the old
+ * autosave only wrote `{answers, currentStep}`), so any lingering pre-existing
+ * draft would otherwise be indistinguishable from "can't prove either way" and
+ * silently clobber the current persisted profile on save — the exact data-loss
+ * bug this function exists to prevent. Falling back to the profile is the side
+ * of the ambiguity that can't destroy someone else's more-recent work.
  */
 function draftShouldWinInEditMode(
   draft: IntakeDraft,
@@ -121,7 +127,7 @@ function draftShouldWinInEditMode(
   if (profileAt !== null && typeof draft.savedAt === 'number') {
     return draft.savedAt >= profileAt
   }
-  return true
+  return false
 }
 
 /** Is a single question satisfactorily answered for its type? */

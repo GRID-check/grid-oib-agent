@@ -65,10 +65,18 @@ function stubFetch(): FetchStub {
   return stub
 }
 
-/** Seed a draft so the wizard restores these answers and opens on the Review step. */
-function seedReviewDraft(answers: Record<string, ProjectPrimitiveValue>): void {
+/**
+ * Seed a draft so the wizard restores these answers and opens on the Review step.
+ * `savedAt` lets edit-mode callers prove the draft is newer than a given
+ * `initialProfile` (the freshness signal the wizard requires in edit mode to let
+ * a draft win); omit it for create-mode tests, where it is irrelevant.
+ */
+function seedReviewDraft(answers: Record<string, ProjectPrimitiveValue>, savedAt?: number): void {
   const reviewStep = projectIntakeDefinitionV1.stages.length
-  sessionStorage.setItem(`intake-draft-${PROJECT_ID}`, JSON.stringify({ answers, currentStep: reviewStep }))
+  sessionStorage.setItem(
+    `intake-draft-${PROJECT_ID}`,
+    JSON.stringify({ answers, currentStep: reviewStep, ...(savedAt !== undefined ? { savedAt } : {}) }),
+  )
 }
 
 function renderWizard(conflictCheckEnabled: boolean) {
@@ -401,7 +409,12 @@ describe('ProjectIntakeWizard — edit-mode save preserves agent-recorded knowle
   it('carries novel facts/goals/unknowns through the whole-profile PUT', async () => {
     const user = userEvent.setup()
     const stub = stubFetch()
-    seedReviewDraft({ hauptnutzung: 'wohnen', anzahl_einheiten: 3 })
+    // savedAt proves this draft postdates the profile's newest fact below, so it
+    // wins the edit-mode freshness check and restores straight onto Review.
+    seedReviewDraft(
+      { hauptnutzung: 'wohnen', anzahl_einheiten: 3 },
+      Date.parse('2026-01-02T00:00:00.000Z'),
+    )
     const initialProfile = {
       facts: {
         // Novel key the agent recorded via the patch flow — no intake question owns it.
@@ -479,8 +492,10 @@ describe('ProjectIntakeWizard — assumptions-only edit preserves assumptions', 
     const user = userEvent.setup()
     const stub = stubFetch()
     // Land on Review via a seeded draft; the assumption comes from the loaded
-    // profile (the wizard's questions never round-trip assumptions).
-    seedReviewDraft({ hauptnutzung: 'wohnen' })
+    // profile (the wizard's questions never round-trip assumptions). savedAt
+    // proves this draft postdates the profile's assumption below, so it wins
+    // the edit-mode freshness check and restores straight onto Review.
+    seedReviewDraft({ hauptnutzung: 'wohnen' }, Date.parse('2026-01-02T00:00:00.000Z'))
     const initialProfile = {
       facts: {},
       goals: {},
@@ -645,6 +660,33 @@ describe('ProjectIntakeWizard — Fix 1 stale draft does not clobber a newer pro
       />,
     )
 
+    expect(await screen.findByRole('checkbox', { name: 'Fire-safety concept' })).toBeChecked()
+    expect(
+      screen.getByRole('checkbox', { name: 'Renovation / existing-building compliance' }),
+    ).not.toBeChecked()
+  })
+
+  it('migration window: a legacy draft with neither baseVersion nor savedAt does not win over the profile', async () => {
+    stubFetch()
+    // A draft autosaved by the OLD (pre-PB-SYNTH-6) code, which only ever wrote
+    // {answers, currentStep} — no freshness signal at all. Neither field can be
+    // compared, so this must NOT be treated as "keep the draft"; the persisted
+    // profile must win.
+    sessionStorage.setItem(
+      `intake-draft-${PROJECT_ID}`,
+      JSON.stringify({ answers: { focus_areas: ['sanierung'] }, currentStep: 0 }),
+    )
+    const initialProfile = {
+      facts: {},
+      goals: { focus_areas: ['brandschutz'] },
+      unknowns: [],
+      assumptions: {},
+    }
+    render(
+      <ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" mode="edit" initialProfile={initialProfile} />,
+    )
+
+    // The persisted profile wins: its focus is selected, the legacy draft's is not.
     expect(await screen.findByRole('checkbox', { name: 'Fire-safety concept' })).toBeChecked()
     expect(
       screen.getByRole('checkbox', { name: 'Renovation / existing-building compliance' }),
