@@ -91,16 +91,13 @@ boundary in `ChatResearcherAgent.run()`:
   when `surface_answer_confidence` downgraded the self-report: `"ungrounded"` when
   citation verification left the answer without grounding, `"quote_unverified"`
   when a quoted span failed the deterministic quote-vs-source check
-  (`verify_quoted_spans`, below). Gives the confidence chip a machine-readable
-  reason the UI can explain.
+  (`verify_quoted_spans`, difflib coverage over the registry's captured
+  `chunk_text`, fail-open; the offending span is annotated inline with
+  `[nicht wörtlich in der Quelle belegt]` and the answer is never otherwise
+  altered). Gives the confidence chip a machine-readable reason the UI can
+  explain.
 - `citations_removed` (`{count, reasons[]}`, deduped, max 5) — from the research
   result's `verify_citations` summary when ≥1 citation was removed.
-- `quotes_unverified` (`{count, examples[]}`) — quoted spans the model attributed
-  to a source whose text does not fuzzy-match any retrieved passage
-  (`verify_quoted_spans` in `citation_verification`, difflib coverage over the
-  registry's captured `chunk_text`, fail-open). The offending span is annotated
-  inline (`[nicht wörtlich in der Quelle belegt]`); the answer is never otherwise
-  altered. Catches the "real section, fabricated quote" failure mode of weak LLMs.
 - `job_admission_rejected` + `retry_after_seconds` — set in the deep-research
   node's `JobAdmissionError` catch; marks the text as a queue-rejection notice,
   not a research answer.

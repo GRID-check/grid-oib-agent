@@ -98,7 +98,6 @@ export interface AnswerTransparency {
   escalationReason?: string
   answerConfidenceCappedReason?: 'ungrounded' | 'quote_unverified'
   citationsRemoved?: { count: number; reasons: string[] }
-  quotesUnverified?: { count: number; examples: string[] }
 }
 
 /** File card data for file messages */
@@ -256,12 +255,6 @@ export interface ChatMessage {
    * sources row when present.
    */
   citationsRemoved?: { count: number; reasons: string[] }
-  /**
-   * Summary of quoted spans flagged as not verbatim in their source: how many
-   * were flagged plus a few example spans. The answer text also carries an
-   * inline `[nicht wörtlich in der Quelle belegt]` marker per quote.
-   */
-  quotesUnverified?: { count: number; examples: string[] }
 }
 
 /** Intermediate thinking step from agent */

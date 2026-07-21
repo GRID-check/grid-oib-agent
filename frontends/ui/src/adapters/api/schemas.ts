@@ -284,17 +284,6 @@ export const NATSystemResponseMessageSchema = z.object({
     })
     .optional()
     .catch(undefined),
-  // Present only when ≥1 quoted span could not be verified verbatim against its
-  // source. `count` quotes were flagged (the answer text also carries an inline
-  // `[nicht wörtlich in der Quelle belegt]` marker per quote); `examples` are a
-  // few of the offending spans.
-  quotes_unverified: z
-    .object({
-      count: z.number(),
-      examples: z.array(z.string()),
-    })
-    .optional()
-    .catch(undefined),
   // Marks the answer text as a queue-rejection notice (NOT a research answer).
   job_admission_rejected: z.literal(true).optional().catch(undefined),
   // Retry hint (seconds) — only alongside job_admission_rejected.

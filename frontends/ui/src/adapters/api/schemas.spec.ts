@@ -146,30 +146,6 @@ describe('NATSystemResponseMessageSchema transparency extras (WP-A → WP-B)', (
     expect(parsed.answer_confidence_capped_reason).toBeUndefined()
   })
 
-  test('quotes_unverified parses and preserves its count + examples', () => {
-    const parsed = NATSystemResponseMessageSchema.parse({
-      ...base,
-      quotes_unverified: {
-        count: 2,
-        examples: ['ein erfundenes Zitat', 'noch ein Zitat'],
-      },
-    })
-    expect(parsed.quotes_unverified).toEqual({
-      count: 2,
-      examples: ['ein erfundenes Zitat', 'noch ein Zitat'],
-    })
-  })
-
-  test('a wrong-shaped quotes_unverified degrades to undefined without dropping the frame', () => {
-    const parsed = NATSystemResponseMessageSchema.parse({
-      ...base,
-      quotes_unverified: 'nope', // wrong shape
-      routing_reason: 'still valid',
-    })
-    expect(parsed.content).toBe('an answer')
-    expect(parsed.quotes_unverified).toBeUndefined()
-    expect(parsed.routing_reason).toBe('still valid')
-  })
 })
 
 describe('NATSystemResponseMessageSchema sources per-entry tolerance', () => {

@@ -59,8 +59,3 @@ class DeepResearchAgentState(BaseModel):
     # The chat orchestrator lifts it onto the terminal chunk via
     # ``_normalize_citations_removed``.
     citations_removed: dict[str, Any] | None = None
-    # Transparency summary of QUOTED spans that could not be verified against any
-    # retrieved passage (``{"count": int, "reasons": [str, ...]}``). Populated by
-    # ``run()`` ONLY when ≥1 quoted span was unverified; None otherwise. Same wire
-    # shape and lift path as ``citations_removed``.
-    quotes_unverified: dict[str, Any] | None = None

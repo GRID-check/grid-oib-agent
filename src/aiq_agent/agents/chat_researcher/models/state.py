@@ -95,10 +95,6 @@ class ChatResearcherState(BaseModel):
     # Present only when citation verification removed ≥1 citation from the answer:
     # ``{"count": int, "reasons": [str, ...]}`` (reasons deduplicated, max 5).
     citations_removed: dict[str, Any] | None = None
-    # Present only when quote verification found ≥1 quoted span not verifiable
-    # against a retrieved passage: ``{"count": int, "reasons": [str, ...]}`` (same
-    # wire shape as ``citations_removed``). Surfaced by the deep-research path.
-    quotes_unverified: dict[str, Any] | None = None
     # Marks the answer text as a queue-rejection notice (deep-research admission
     # control refused the job), NOT a research answer.
     job_admission_rejected: bool | None = None

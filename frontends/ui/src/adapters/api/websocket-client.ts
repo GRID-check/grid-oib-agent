@@ -45,11 +45,6 @@ export interface ResponseTransparency {
   answerConfidenceCappedReason?: 'ungrounded' | 'quote_unverified'
   /** Present only when citation verification removed ≥1 citation. */
   citationsRemoved?: { count: number; reasons: string[] }
-  /**
-   * Present only when ≥1 quoted span could not be verified verbatim against its
-   * source: how many were flagged plus a few example spans.
-   */
-  quotesUnverified?: { count: number; examples: string[] }
   /** Marks the answer text as a queue-rejection notice, NOT a research answer. */
   jobAdmissionRejected?: boolean
   /** Retry hint (seconds) — only alongside jobAdmissionRejected. */
@@ -515,7 +510,6 @@ export class NATWebSocketClient {
             escalationReason: message.escalation_reason,
             answerConfidenceCappedReason: message.answer_confidence_capped_reason,
             citationsRemoved: message.citations_removed,
-            quotesUnverified: message.quotes_unverified,
             jobAdmissionRejected: message.job_admission_rejected,
             retryAfterSeconds: message.retry_after_seconds,
           }

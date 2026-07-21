@@ -628,12 +628,9 @@ class ChatResearcherAgent:
                 return {"messages": [final_message]}
             else:
                 citations_removed = _normalize_citations_removed(getattr(result, "citations_removed", None))
-                quotes_unverified = _normalize_citations_removed(getattr(result, "quotes_unverified", None))
                 update: dict[str, Any] = {"messages": [result.messages[-1]]}
                 if citations_removed is not None:
                     update["citations_removed"] = citations_removed
-                if quotes_unverified is not None:
-                    update["quotes_unverified"] = quotes_unverified
                 return update
 
         def route_after_orchestration(state: ChatResearcherState) -> str:
@@ -768,7 +765,6 @@ class ChatResearcherAgent:
                 "escalation_reason": None,
                 "answer_confidence_capped_reason": None,
                 "citations_removed": None,
-                "quotes_unverified": None,
                 "job_admission_rejected": None,
                 "retry_after_seconds": None,
                 # Reset likewise: the clarifier skip path never overwrites this,

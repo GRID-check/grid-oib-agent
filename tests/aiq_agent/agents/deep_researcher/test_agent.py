@@ -2331,7 +2331,7 @@ class TestDeepResearcherCitationVerification:
 
 
 class TestDeepResearcherQuoteVerification:
-    """Deep researcher annotates fabricated quotes and surfaces quotes_unverified."""
+    """Deep researcher annotates fabricated quotes inline."""
 
     @pytest.fixture
     def mock_llm(self):
@@ -2376,7 +2376,7 @@ class TestDeepResearcherQuoteVerification:
                 return await agent.run(state)
 
     @pytest.mark.asyncio
-    async def test_fabricated_quote_annotated_and_summarized(self, mock_llm_provider, real_tool):
+    async def test_fabricated_quote_annotated_inline(self, mock_llm_provider, real_tool):
         markdown = (
             "Laut Norm gilt „Treppen muessen mit einer automatischen Loeschanlage "
             'ausgestattet sein" [1].\n\n## Sources\n[1] OIB-330.pdf, p.12'
@@ -2386,11 +2386,9 @@ class TestDeepResearcherQuoteVerification:
         assert "[nicht wörtlich in der Quelle belegt]" in output
         # Fail-open: the fabricated sentence is preserved verbatim.
         assert "automatischen Loeschanlage" in output
-        assert isinstance(result.quotes_unverified, dict)
-        assert result.quotes_unverified["count"] == 1
 
     @pytest.mark.asyncio
-    async def test_verbatim_quote_leaves_field_none(self, mock_llm_provider, real_tool):
+    async def test_verbatim_quote_not_annotated(self, mock_llm_provider, real_tool):
         markdown = (
             "Es gilt: „Die lichte Durchgangshoehe von Treppen muss mindestens 2,10 m "
             'betragen" [1].\n\n## Sources\n[1] OIB-330.pdf, p.12'
@@ -2398,8 +2396,3 @@ class TestDeepResearcherQuoteVerification:
         result = await self._run(mock_llm_provider, real_tool, markdown)
         output = result.messages[-1].content
         assert "[nicht wörtlich in der Quelle belegt]" not in output
-        assert result.quotes_unverified is None
-
-    def test_state_defaults_quotes_unverified_none(self):
-        state = DeepResearchAgentState(messages=[HumanMessage(content="hi")])
-        assert state.quotes_unverified is None
