@@ -113,6 +113,22 @@ export interface GridConfig {
     hpaCpuTargetPercent: number;
   };
 
+  /**
+   * Research execution backend (ADR-0021). "dask" = per-pod cluster (the agent
+   * is a singleton). "db" = DB-claimed workers: the web tier runs no Dask and
+   * dedicated agent-worker replicas execute jobs, so both tiers scale
+   * horizontally.
+   */
+  jobExecution: "dask" | "db";
+  agentWorker: {
+    resources: ResourceSpec;
+    minReplicas: number;
+    maxReplicas: number;
+    hpaCpuTargetPercent: number;
+    /** Concurrent research jobs per worker process (GRID_RESEARCH_WORKERS). */
+    concurrency: number;
+  };
+
   /** LLM / model-provider settings shared by backend + frontend. */
   llm: {
     openrouterApiKey: pulumi.Output<string>;
@@ -245,6 +261,20 @@ export function loadConfig(): GridConfig {
       minReplicas: num(cfg, "frontendMinReplicas", 2),
       maxReplicas: num(cfg, "frontendMaxReplicas", 6),
       hpaCpuTargetPercent: num(cfg, "frontendHpaCpuTargetPercent", 70),
+    },
+
+    jobExecution: (cfg.get("jobExecution") ?? "dask") === "db" ? "db" : "dask",
+    agentWorker: {
+      resources: {
+        requestsCpu: cfg.get("agentWorkerRequestsCpu") ?? "1",
+        requestsMemory: cfg.get("agentWorkerRequestsMemory") ?? "2Gi",
+        limitsCpu: cfg.get("agentWorkerLimitsCpu") ?? "4",
+        limitsMemory: cfg.get("agentWorkerLimitsMemory") ?? "8Gi",
+      },
+      minReplicas: num(cfg, "agentWorkerMinReplicas", 2),
+      maxReplicas: num(cfg, "agentWorkerMaxReplicas", 8),
+      hpaCpuTargetPercent: num(cfg, "agentWorkerHpaCpuTargetPercent", 70),
+      concurrency: num(cfg, "agentWorkerConcurrency", 1),
     },
 
     llm: {

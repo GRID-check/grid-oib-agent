@@ -345,6 +345,7 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
     from ..jobs.submit import DuplicateJobIdError
     from ..jobs.submit import MissingPrincipalError
     from ..jobs.submit import SchedulerNotConfiguredError
+    from ..jobs.submit import job_execution_mode
     from ..jobs.submit import submit_agent_job as submit_authorized_job
 
     if not get_all_sources():
@@ -407,10 +408,14 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
 
     logger.info("Registered /v1/data_sources and /v1/jobs/async/agents routes")
 
+    db_execution = job_execution_mode() == "db"
     dask_available = getattr(worker, "_dask_available", False)
     job_store = getattr(worker, "_job_store", None)
 
-    if not dask_available or not job_store:
+    # In db-execution mode (ADR-0021) the web tier runs no Dask cluster, so the
+    # routes must still register with a DB-only job store. Otherwise the routes
+    # require Dask + a job store as before.
+    if not db_execution and (not dask_available or not job_store):
         logger.warning(
             "Dask not available - async job submission routes require NAT_DASK_SCHEDULER_ADDRESS"
             " and NAT_JOB_STORE_DB_URL"
@@ -419,6 +424,14 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
 
     scheduler_address = getattr(worker, "_scheduler_address", None) or os.environ.get("NAT_DASK_SCHEDULER_ADDRESS")
     db_url = getattr(worker, "_db_url", None) or os.environ.get("NAT_JOB_STORE_DB_URL", "sqlite:///./data/jobs.db")
+
+    if job_store is None:
+        # DB-only store: JobStore only *stores* the scheduler address (no Dask
+        # client is built at construction), so status/persistence work without a
+        # cluster. Submission enqueues a claimable row; workers execute it.
+        from nat.front_ends.fastapi.async_jobs.job_store import JobStore
+
+        job_store = JobStore(scheduler_address=scheduler_address or "", db_url=db_url)
     # submit_agent_job resolves these from the environment only; publish the
     # worker-provided values so a NAT-config-only deployment (no env vars)
     # doesn't register routes whose every submission then fails.
@@ -660,7 +673,17 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
 
         await asyncio.get_running_loop().run_in_executor(None, _record_cancellation_event)
 
-        task_cancelled = await _cancel_dask_task(scheduler_address, job_id)
+        if job_execution_mode() == "db":
+            # DB-claimed execution (ADR-0021): removing the queue row drops an
+            # unclaimed job so no worker ever runs it; a running worker sees the
+            # INTERRUPTED status via its CancellationMonitor and stops on its own.
+            # No scheduler is involved, so the Dask cancel is skipped.
+            from ..jobs import queue
+
+            await asyncio.get_running_loop().run_in_executor(None, queue.mark_done, db_url, job_id)
+            task_cancelled = False
+        else:
+            task_cancelled = await _cancel_dask_task(scheduler_address, job_id)
 
         logger.info("Cancel requested for job %s: status updated, task_cancelled=%s", job_id, task_cancelled)
 
@@ -1056,28 +1079,33 @@ def _start_periodic_cleanup(
     # Cleanup interval: half the expiry time, clamped to [60s, 3600s]
     cleanup_interval = max(60, min(expiry_seconds // 2, 3600))
 
-    # Submit NAT's periodic_cleanup as a long-running Dask task for job_info table
-    try:
-        from dask.distributed import fire_and_forget
+    # Submit NAT's periodic_cleanup as a long-running Dask task for job_info table.
+    # In db-execution mode (ADR-0021) there is no Dask client; job_info expiry is
+    # instead handled by the shared-Postgres event/expiry paths, so skip cleanly.
+    if getattr(job_store, "dask_client", None) is None:
+        logger.info("No Dask client (db execution) - skipping NAT periodic_cleanup Dask submit")
+    else:
+        try:
+            from dask.distributed import fire_and_forget
 
-        from nat.front_ends.fastapi.async_jobs import periodic_cleanup
+            from nat.front_ends.fastapi.async_jobs import periodic_cleanup
 
-        cleanup_future = job_store.dask_client.submit(
-            periodic_cleanup,
-            scheduler_address=scheduler_address,
-            db_url=db_url,
-            sleep_time_sec=cleanup_interval,
-            configure_logging=not use_threads,
-            log_level=log_level,
-        )
-        fire_and_forget(cleanup_future)
-        logger.info(
-            "Submitted periodic job cleanup task to Dask (interval=%ds, expiry=%ds)",
-            cleanup_interval,
-            expiry_seconds,
-        )
-    except Exception as e:
-        logger.warning("Failed to submit periodic cleanup to Dask: %s", e)
+            cleanup_future = job_store.dask_client.submit(
+                periodic_cleanup,
+                scheduler_address=scheduler_address,
+                db_url=db_url,
+                sleep_time_sec=cleanup_interval,
+                configure_logging=not use_threads,
+                log_level=log_level,
+            )
+            fire_and_forget(cleanup_future)
+            logger.info(
+                "Submitted periodic job cleanup task to Dask (interval=%ds, expiry=%ds)",
+                cleanup_interval,
+                expiry_seconds,
+            )
+        except Exception as e:
+            logger.warning("Failed to submit periodic cleanup to Dask: %s", e)
 
     # Start local asyncio task for job_events table cleanup (NAT doesn't manage this table).
     # Uses pg_try_advisory_xact_lock on PostgreSQL so only one pod runs cleanup per cycle.
@@ -1214,6 +1242,10 @@ async def _cancel_dask_task(scheduler_address: str, job_id: str) -> bool:
     Returns:
         True if a Dask cancellation request was sent, False otherwise.
     """
+    if not scheduler_address:
+        # db-execution mode (ADR-0021): no Dask scheduler. Cancellation is the
+        # job_info status flip the caller already made; nothing to cancel here.
+        return False
     try:
         from distributed import Client
         from distributed import Future

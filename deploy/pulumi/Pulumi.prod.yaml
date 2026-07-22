@@ -62,6 +62,15 @@ config:
   grid-oib:backendIngestMaxWorkers: "2"
   grid-oib:backendDataStorageSize: 20Gi
 
+  # ── Research execution (ADR-0021) ──
+  # "dask" = per-pod cluster (agent is a singleton). "db" = DB-claimed workers:
+  # web tier runs no Dask and dedicated agent-worker replicas execute research
+  # jobs, scaling the token-heavy workload horizontally. Requires chromaEnabled.
+  grid-oib:jobExecution: db
+  grid-oib:agentWorkerMinReplicas: "2"
+  grid-oib:agentWorkerMaxReplicas: "8"
+  grid-oib:agentWorkerConcurrency: "1"
+
   # ── Frontend (horizontal) ──
   grid-oib:frontendMinReplicas: "2"
   grid-oib:frontendMaxReplicas: "6"

@@ -29,6 +29,7 @@ import { runMigrations } from "./src/app/migrations-job";
 import { installBackend } from "./src/app/backend";
 import { installFrontend } from "./src/app/frontend";
 import { installWorkers } from "./src/app/workers";
+import { installAgentWorker } from "./src/app/agent-worker";
 import { installIngress } from "./src/app/ingress";
 
 const cfg = loadConfig();
@@ -76,6 +77,12 @@ const backend = installBackend(wiring, cfg, secret, [
 const frontend = installFrontend(wiring, cfg, secret, [migrations, backend.service]);
 const workers = installWorkers(wiring, cfg, secret, [migrations]);
 
+// Research worker tier — only when execution is DB-claimed (ADR-0021).
+const agentWorker =
+  cfg.jobExecution === "db"
+    ? installAgentWorker(wiring, cfg, secret, [postgres.initJob, ...(chroma ? [chroma.service] : [])])
+    : undefined;
+
 // ── Edge ────────────────────────────────────────────────────────────────────
 const ingress = installIngress(cfg, provider, namespace, certManager.issuerName, [
   ingressNginx,
@@ -94,3 +101,7 @@ export const purgerDeployment = workers.purger.metadata.name;
 export const schedulerDeployment = workers.scheduler.metadata.name;
 export const appIngress = ingress.app.metadata.name;
 export const chromaUrl = chroma ? chroma.url : pulumi.output("embedded");
+export const jobExecution = cfg.jobExecution;
+export const agentWorkerDeployment = agentWorker
+  ? agentWorker.deployment.metadata.name
+  : pulumi.output("(none: dask mode)");
