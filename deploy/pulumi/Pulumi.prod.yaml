@@ -70,6 +70,8 @@ config:
   grid-oib:agentWorkerMinReplicas: "2"
   grid-oib:agentWorkerMaxReplicas: "8"
   grid-oib:agentWorkerConcurrency: "1"
+  # Chat/web replicas (only applied in db mode; forced to 1 in dask mode).
+  grid-oib:backendReplicas: "2"
 
   # ── Frontend (horizontal) ──
   grid-oib:frontendMinReplicas: "2"

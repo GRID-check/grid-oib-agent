@@ -13,14 +13,17 @@ export interface Backend {
  * The agent (aiq-agent): FastAPI web tier + an in-process Dask cluster + an
  * embedded ChromaDB vector store, all on one persistent data volume.
  *
- * WHY A StatefulSet WITH replicas=1: per docs/architecture/scaling-review-2026-07.md
- * this tier is a HARD SINGLETON today — the embedded Chroma store, the private
- * localhost Dask cluster, and in-process job/citation state all pin work to one
- * process. It therefore scales VERTICALLY (more CPU/memory + Dask workers/threads
- * via config, bounded by the admission caps), not by adding replicas. The
- * StatefulSet gives it a stable identity and a stable RWO PVC. Horizontal
- * scaling is a documented follow-up (DB-claimed research workers + externalised
- * vector store); this manifest is already wired for it (Postgres DSNs, Redis).
+ * Replica count depends on the execution mode:
+ *   - "dask" (default): a HARD SINGLETON (replicas=1) — embedded Chroma +
+ *     in-pod Dask + in-process state pin work to one process. Scales VERTICALLY
+ *     (CPU/memory + Dask worker/thread knobs, bounded by admission caps).
+ *   - "db": the chat/retrieval path is replica-safe (shared Chroma, Postgres
+ *     DSNs, shared cache, DB-persisted ingest status, advisory-locked reapers),
+ *     so it runs `backend.replicas` replicas. Research executes on the separate
+ *     agent-worker tier. Caveat: the platform base-corpus upload writes to a
+ *     per-replica uploads PVC — see docs/deployment/kubernetes.md §6.3.
+ *
+ * Kept as a StatefulSet (stable identity + per-replica RWO PVC on Lightbits).
  */
 export function installBackend(
   w: AppWiring,
@@ -36,7 +39,8 @@ export function installBackend(
       metadata: { name: "aiq-agent", namespace: w.namespace, labels },
       spec: {
         serviceName: "aiq-agent",
-        replicas: 1,
+        // Singleton in dask mode; multi-replica chat tier in db mode.
+        replicas: cfg.jobExecution === "db" ? cfg.backend.replicas : 1,
         selector: { matchLabels: labels },
         template: {
           metadata: { labels },

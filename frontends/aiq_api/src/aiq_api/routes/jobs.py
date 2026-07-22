@@ -983,11 +983,23 @@ async def _reap_stale_jobs_once(job_store, db_url: str, scheduler_address: str |
     Returns the list of reaped job IDs. Factored out of _reap_ghost_jobs for
     testability.
     """
+    loop = asyncio.get_running_loop()
+
+    # Only one replica runs the cycle (advisory lock), so N web replicas don't
+    # redundantly re-detect and re-mark the same ghosts.
+    lock = await loop.run_in_executor(None, _acquire_reaper_lock, db_url)
+    if lock is _REAPER_LOCK_SKIP:
+        return []
+    try:
+        return await _do_reap_cycle(job_store, db_url, scheduler_address, loop)
+    finally:
+        await loop.run_in_executor(None, _release_reaper_lock, lock)
+
+
+async def _do_reap_cycle(job_store, db_url: str, scheduler_address: str | None, loop) -> list[str]:
     from nat.front_ends.fastapi.async_jobs.job_store import JobStatus
 
     from ..jobs.event_store import EventStore
-
-    loop = asyncio.get_running_loop()
 
     # SUBMITTED jobs are reaped too: they may have ZERO events (never picked up
     # by a worker) yet still consume admission quota (count_active_jobs counts
@@ -1058,6 +1070,43 @@ _cleanup_task: asyncio.Task | None = None
 # Advisory lock ID for PostgreSQL — ensures only one pod runs cleanup at a time.
 # Arbitrary constant; change if it collides with another lock in your deployment.
 _PG_ADVISORY_LOCK_ID = 0x41495143_4C45414E  # "AIQCLEAN" in hex
+# Distinct lock for the ghost-job reaper so N web replicas don't double-reap.
+_PG_REAPER_LOCK_ID = _PG_ADVISORY_LOCK_ID + 1
+
+# Sentinel: postgres, but another replica holds the reaper lock this cycle.
+_REAPER_LOCK_SKIP = object()
+
+
+def _acquire_reaper_lock(db_url: str):
+    """Session-level advisory lock so only one replica runs a reap cycle.
+
+    Returns None on SQLite (single process — no lock needed), an open connection
+    holding the lock on success, or ``_REAPER_LOCK_SKIP`` when another replica
+    holds it. The lock auto-releases if this connection drops (crash-safe).
+    """
+    if not db_url.startswith("postgres"):
+        return None
+    from sqlalchemy import text
+
+    from ..jobs.event_store import EventStore
+
+    conn = EventStore._get_or_create_sync_engine(db_url).connect()
+    got = conn.execute(text("SELECT pg_try_advisory_lock(:id)"), {"id": _PG_REAPER_LOCK_ID}).scalar()
+    if not got:
+        conn.close()
+        return _REAPER_LOCK_SKIP
+    return conn
+
+
+def _release_reaper_lock(conn) -> None:
+    if conn is None or conn is _REAPER_LOCK_SKIP:
+        return
+    from sqlalchemy import text
+
+    try:
+        conn.execute(text("SELECT pg_advisory_unlock(:id)"), {"id": _PG_REAPER_LOCK_ID})
+    finally:
+        conn.close()
 
 
 def _start_periodic_cleanup(
