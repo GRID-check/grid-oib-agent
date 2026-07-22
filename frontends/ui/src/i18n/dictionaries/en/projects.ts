@@ -199,12 +199,12 @@ export const projects = {
       hint: 'Store the document in the Files tab',
     },
     derived: {
-      badge: 'Derived (phase 2)',
+      badge: 'worked out automatically',
     },
     classification: {
-      title: 'Classification result',
+      title: 'What Piloti works out from this',
       description:
-        'Once the classification engine (phase 2) is connected, the building class, OIB rule matrix (applicable / not applicable / to be checked) and the list of open points appear here before the profile is handed to Piloti.',
+        'Once your entries are complete, Piloti shows the building class here, which OIB directives and other rules apply to your project, and which points are still open — and takes the project profile as its working basis.',
     },
     consistency: {
       checking: 'Checking your answers…',

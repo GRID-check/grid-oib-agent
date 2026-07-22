@@ -203,12 +203,12 @@ export const projects: typeof en.projects = {
       hint: 'Dokument im Dateien-Tab ablegen',
     },
     derived: {
-      badge: 'Ableitung (Phase 2)',
+      badge: 'automatisch ermittelt',
     },
     classification: {
-      title: 'Klassifizierungsergebnis',
+      title: 'Was Piloti daraus ableitet',
       description:
-        'Sobald die Klassifizierungs-Engine (Phase 2) angebunden ist, erscheinen hier die Gebäudeklasse, die Regelwerks-Matrix (anwendbar / nicht anwendbar / zu prüfen) und die Offene-Punkte-Liste, bevor das Profil an Piloti übergeben wird.',
+        'Sobald Ihre Angaben vollständig sind, zeigt Piloti hier die Gebäudeklasse, welche OIB-Richtlinien und weiteren Vorschriften für Ihr Projekt gelten und welche Punkte noch offen sind — und übernimmt das Projektprofil als Arbeitsgrundlage.',
     },
     consistency: {
       checking: 'Angaben werden geprüft…',
