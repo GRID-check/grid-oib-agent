@@ -236,6 +236,42 @@ Below`} />)
     })
   })
 
+  describe('math (KaTeX)', () => {
+    test('renders inline math instead of leaving raw $ delimiters', () => {
+      const { container } = render(
+        <MarkdownRenderer content={'The resistance is $R = \\rho \\frac{L}{A}$ overall.'} />
+      )
+
+      // rehype-katex emits a .katex wrapper for typeset math.
+      expect(container.querySelector('.katex')).toBeInTheDocument()
+      // The raw TeX source with dollar delimiters must not survive as text.
+      expect(container.textContent).not.toContain('$R = \\rho')
+    })
+
+    test('renders fenced display math ($$ on their own lines) as a centered block', () => {
+      const { container } = render(
+        <MarkdownRenderer
+          content={'Result:\n\n$$\nq_{\\mathrm{f}} = \\frac{\\sum M_i H_i}{A}\n$$\n\nDone.'}
+        />
+      )
+
+      expect(container.querySelector('.katex-display')).toBeInTheDocument()
+    })
+
+    test('leaves a lone dollar sign in prose untouched', () => {
+      render(<MarkdownRenderer content="The permit fee was 5 dollars, not $." />)
+
+      expect(screen.getByText(/The permit fee was 5 dollars/)).toBeInTheDocument()
+    })
+
+    test('does not crash on malformed TeX (throwOnError: false)', () => {
+      const { container } = render(<MarkdownRenderer content={'Broken: $\\frac{1}$ here.'} />)
+
+      // Renders something rather than throwing; container is present.
+      expect(container.querySelector('.markdown-content')).toBeInTheDocument()
+    })
+  })
+
   describe('compact mode', () => {
     test('uses default text size when compact is false', () => {
       render(<MarkdownRenderer content="Normal text" compact={false} />)
