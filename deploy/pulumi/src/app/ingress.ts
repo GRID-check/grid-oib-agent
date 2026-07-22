@@ -27,16 +27,13 @@ export function installIngress(
         name: "grid-app",
         namespace,
         labels: commonLabels("frontend"),
-        annotations: {
-          ...tlsAnnotations,
-          // WebSocket chat: long-lived upgrades need generous timeouts.
-          "nginx.ingress.kubernetes.io/proxy-read-timeout": "3600",
-          "nginx.ingress.kubernetes.io/proxy-send-timeout": "3600",
-          "nginx.ingress.kubernetes.io/proxy-body-size": "128m",
-        },
+        // Traefik serves WebSocket upgrades natively (no annotations) and has
+        // no default request-body size limit; the long WS read/idle timeouts
+        // are set on the Traefik websecure entrypoint (see traefik.ts).
+        annotations: { ...tlsAnnotations },
       },
       spec: {
-        ingressClassName: "nginx",
+        ingressClassName: "traefik",
         tls: [{ hosts: [cfg.ingress.appDomain], secretName: "grid-app-tls" }],
         rules: [
           {
@@ -64,14 +61,11 @@ export function installIngress(
         name: "grid-s3",
         namespace,
         labels: commonLabels("seaweedfs"),
-        annotations: {
-          ...tlsAnnotations,
-          // Uploads/downloads stream through here — allow large bodies.
-          "nginx.ingress.kubernetes.io/proxy-body-size": "0",
-        },
+        // Traefik streams large uploads/downloads with no body-size cap.
+        annotations: { ...tlsAnnotations },
       },
       spec: {
-        ingressClassName: "nginx",
+        ingressClassName: "traefik",
         tls: [{ hosts: [cfg.ingress.s3Domain], secretName: "grid-s3-tls" }],
         rules: [
           {

@@ -6,6 +6,15 @@ This project is Docker-first. Run it via Docker Compose on Windows, macOS, or Li
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the branch/commit/PR-title conventions, local validation steps, the CI merge gate, and secret-scanning + doc-link hygiene.
 
+## Working style: prefer visuals
+
+The maintainer values visual explanations. When explaining architecture, data
+flows, deployment topology, sequence/interaction, or any non-trivial design,
+render a diagram with the **Excalidraw** tool (`create_view`) rather than
+describing it in prose alone. Keep diagrams structured: a clear layered/left-to
+-right flow, aligned grid, orthogonal arrows that don't cross boxes, and a short
+legend. Offer a diagram proactively for architecture/design discussions.
+
 ## Repository layout
 
 | Path | Purpose |
