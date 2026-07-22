@@ -38,7 +38,7 @@ jobs:
     container:
       image: semgrep/semgrep
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # semgrep ci diffs PRs against the base branch; full history lets it
           # scope the scan to changed code instead of falling back to a full scan.
@@ -61,7 +61,7 @@ jobs:
     name: Dependency vulns (OSV-Scanner)
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # Reads the lockfiles in the tree (uv.lock, frontends/ui/package-lock.json)
       # and reports known-vulnerable versions against the OSV database.
       # The runnable action lives in a subdirectory (the repo root action.yml is
@@ -81,7 +81,7 @@ jobs:
     name: Dependency audit
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-python-env
       # Informational (does not block merges on transitive advisories); surfaces
       # in the job log and can be promoted to blocking once the baseline is clean.
@@ -107,7 +107,7 @@ jobs:
     name: Secret scan (gitleaks)
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # full history so gitleaks scans all commits
       # Run the OSS gitleaks image directly rather than gitleaks-action, which
