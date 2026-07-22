@@ -62,9 +62,19 @@ export interface ProjectBriefView {
 /** Fact keys that are rendered elsewhere on the page (header), not in the sheet. */
 const HIDDEN_FACT_KEYS = new Set(['project_name'])
 
+/** Structural facts hidden from the sheet (used only to name scope instances). */
+function isHiddenFactKey(key: string): boolean {
+  return HIDDEN_FACT_KEYS.has(key) || key.startsWith('bauwerk_name@')
+}
+
+/** The base (scope-suffix-stripped) form of a storage key: `x@bw1@wohnen` → `x`. */
+function baseKeyOf(key: string): string {
+  return key.split('@')[0]
+}
+
 /** Fallback label for a fact key no intake question covers (e.g. agent-added). */
 function humanizeKey(key: string): string {
-  const label = key.replaceAll('_', ' ')
+  const label = baseKeyOf(key).replaceAll('_', ' ')
   return label.charAt(0).toUpperCase() + label.slice(1)
 }
 
@@ -94,20 +104,35 @@ export function buildProjectBriefView(rawProfile: unknown): ProjectBriefView {
   const other: BriefFactGroup = { id: 'other', title: 'Additional context', facts: [] }
 
   const factKeys = Object.keys(profile.facts)
-  const orderedKeys = [
-    ...flattenIntakeQuestions(projectIntakeDefinitionV1)
-      .map((question) => question.writesTo?.match(/^\/facts\/([^/]+)/)?.[1])
-      .filter((key): key is string => Boolean(key) && factKeys.includes(key!)),
-    ...factKeys.filter((key) => !byKey.has(key)).sort(),
-  ]
+  // Facts are ordered by the intake position of their BASE key (so a scoped
+  // `geschosse_oberirdisch@bw1` sits with module C), scope instances kept
+  // together; keys no question covers are appended, sorted.
+  const orderedBaseKeys = flattenIntakeQuestions(projectIntakeDefinitionV1)
+    .map((question) => question.writesTo?.match(/^\/facts\/([^/]+)/)?.[1])
+    .filter((key): key is string => Boolean(key))
+  const rank = new Map(orderedBaseKeys.map((key, i) => [key, i]))
+  const orderedKeys = [...factKeys].sort((a, b) => {
+    const ra = rank.get(baseKeyOf(a)) ?? Infinity
+    const rb = rank.get(baseKeyOf(b)) ?? Infinity
+    return ra === rb ? a.localeCompare(b) : ra - rb
+  })
+
+  /** " · <building name>" suffix for a scoped key, when it names one. */
+  const scopeSuffix = (key: string): string => {
+    const m = key.match(/@(bw\d+)/)
+    if (!m) return ''
+    const name = profile.facts[`bauwerk_name@${m[1]}`]?.value
+    return typeof name === 'string' && name ? ` · ${name}` : ` · ${m[1].toUpperCase()}`
+  }
 
   for (const key of orderedKeys) {
-    if (HIDDEN_FACT_KEYS.has(key)) continue
+    if (isHiddenFactKey(key)) continue
     const fact = profile.facts[key]
-    const entry = byKey.get(key)
+    const entry = byKey.get(baseKeyOf(key))
+    const suffix = key.includes('@') ? scopeSuffix(key) : ''
     const view: BriefFact = {
       key,
-      label: entry?.question.label ?? humanizeKey(key),
+      label: (entry?.question.label ?? humanizeKey(key)) + suffix,
       value: entry ? formatIntakeAnswer(entry.question, fact.value) : formatBareValue(fact.value),
       source: fact.source,
       updatedAt: fact.updatedAt,
@@ -126,10 +151,10 @@ export function buildProjectBriefView(rawProfile: unknown): ProjectBriefView {
 
   const missing: BriefMissingFact[] = [...new Set(profile.unknowns)]
     .filter((key) => !(key in profile.facts))
-    .map((key) => ({ key, label: byKey.get(key)?.question.label ?? humanizeKey(key) }))
+    .map((key) => ({ key, label: byKey.get(baseKeyOf(key))?.question.label ?? humanizeKey(key) }))
 
   const assumptions: BriefAssumption[] = Object.entries(profile.assumptions).map(([key, assumption]) => {
-    const entry = byKey.get(key)
+    const entry = byKey.get(baseKeyOf(key))
     return {
       key,
       label: entry?.question.label ?? humanizeKey(key),

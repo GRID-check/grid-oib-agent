@@ -59,32 +59,24 @@ describe('project profile prompt view', () => {
   })
 
   it('uses intake question and option labels for known fact keys', () => {
+    const meta = { confidence: 'confirmed' as const, source: 'onboarding' as const, updatedAt: '2026-07-02T00:00:00.000Z' }
     const intakeProfile: ProjectProfile = {
       facts: {
-        gebaeudeklasse: {
-          value: 'GK4',
-          confidence: 'confirmed',
-          source: 'onboarding',
-          updatedAt: '2026-07-02T00:00:00.000Z',
-        },
-        hauptnutzung: {
-          value: 'wohnen',
-          confidence: 'confirmed',
-          source: 'onboarding',
-          updatedAt: '2026-07-02T00:00:00.000Z',
-        },
+        bundesland: { value: 'wien', ...meta },
+        'bauwerk_name@bw1': { value: 'Haupthaus', ...meta },
+        'bauwerkstyp@bw1': { value: 'gebaeude', ...meta },
       },
       goals: {},
-      unknowns: ['fluchtniveau'],
+      unknowns: ['fluchtniveau_m@bw1'],
       assumptions: {},
     }
     const display = buildProjectProfileDisplay(intakeProfile)
-    // Intake (stage) order, not alphabetical: main use before building class.
+    // Intake (stage) order, not alphabetical: module A before module C.
     expect(display.keyFacts).toEqual([
-      { label: 'Main use', value: 'Residential' },
-      { label: 'Building class', value: 'GK4' },
+      { label: 'Bundesland', value: 'Wien' },
+      { label: 'Bauwerkstyp · Haupthaus', value: 'Gebäude' },
     ])
-    expect(display.missingInfo).toEqual(['Escape level'])
+    expect(display.missingInfo).toEqual(['Fluchtniveau'])
   })
 
   it('applies safe add and replace patches only under profile paths', () => {

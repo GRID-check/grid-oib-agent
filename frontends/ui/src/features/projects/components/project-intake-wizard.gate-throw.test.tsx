@@ -62,10 +62,10 @@ describe('ProjectIntakeWizard — Fix 2 pre-save gate fail-open', () => {
   it('saves anyway when the deterministic gate throws (flag ON)', async () => {
     const user = userEvent.setup()
     const { calls } = stubFetch()
-    const reviewStep = projectIntakeDefinitionV1.stages.length
+    const reviewStep = projectIntakeDefinitionV1.stages.length - 1
     sessionStorage.setItem(
       `intake-draft-${PROJECT_ID}`,
-      JSON.stringify({ answers: { hauptnutzung: 'wohnen' }, currentStep: reviewStep }),
+      JSON.stringify({ answers: { A2_land: 'wien' }, currentStep: reviewStep }),
     )
     render(<ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" conflictCheckEnabled />)
 
