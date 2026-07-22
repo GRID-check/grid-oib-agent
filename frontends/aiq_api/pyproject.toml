@@ -36,12 +36,12 @@ dependencies = [
 
 [project.optional-dependencies]
 postgres = [
-    "psycopg[binary]>=3.0.0",
+    "psycopg[binary]>=3.3.4",
 ]
 dev = [
     "pytest>=7.4.0",
     "pytest-asyncio>=0.21.0",
-    "psycopg[binary]>=3.0.0",
+    "psycopg[binary]>=3.3.4",
 ]
 
 [tool.setuptools.packages.find]
