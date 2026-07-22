@@ -1,0 +1,21 @@
+{
+  "name": "grid-oib-pulumi",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Pulumi (TypeScript) program that deploys the Grid OIB stack to Kubernetes.",
+  "main": "index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "preview": "pulumi preview",
+    "up": "pulumi up",
+    "destroy": "pulumi destroy"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0"
+  },
+  "dependencies": {
+    "@pulumi/kubernetes": "^4.19.0",
+    "@pulumi/pulumi": "^3.145.0"
+  }
+}
