@@ -1587,7 +1587,14 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             for jid in stale:
                 del self._jobs[jid]
         if stale:
-            logger.debug("Pruned %d completed job(s) from tracking", len(stale))
+            # Also drop the durable cross-replica status row so the ingest_jobs
+            # table is bounded by the same retention window. Previously this grew
+            # forever: ingest_status_store.delete() existed but had zero callers.
+            # Best-effort (delete() swallows its own errors) and done outside the
+            # lock since it does DB I/O.
+            for jid in stale:
+                ingest_status_store.delete(jid)
+            logger.debug("Pruned %d completed job(s) from tracking (+ status rows)", len(stale))
 
     def get_job_status(self, job_id: str) -> IngestionJobStatus:
         """Get current status of an ingestion job."""
