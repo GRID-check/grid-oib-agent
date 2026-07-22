@@ -11,6 +11,12 @@
 @import '../styles/tokens.css';
 @import 'tw-animate-css';
 
+/* KaTeX math typesetting (rehype-katex output in MarkdownRenderer). Kept
+   UNLAYERED on purpose so its rules win over Tailwind preflight (layer(base)) —
+   preflight's resets would otherwise flatten KaTeX's fraction/superscript
+   layout. Version must track the `katex` dep that `rehype-katex` renders with. */
+@import 'katex/dist/katex.min.css';
+
 /* Bind the `dark:` variant to the theme mechanism: providers.tsx toggles the
    `.dark` class on the root element; light is the default (no class). */
 @custom-variant dark (&:is(.dark *));
