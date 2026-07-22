@@ -64,9 +64,7 @@ def test_insert_returns_item_id(monkeypatch):
 def test_insert_raises_without_token(monkeypatch):
     monkeypatch.delenv("GRID_INTERNAL_API_TOKEN", raising=False)
     with pytest.raises(RuntimeError):
-        pm.insert_memory_item(
-            scope="project", project_id="p1", organization_id=None, kind="derived_fact", content="x"
-        )
+        pm.insert_memory_item(scope="project", project_id="p1", organization_id=None, kind="derived_fact", content="x")
 
 
 def test_org_memory_disabled_raises_typed_error(monkeypatch, caplog):

@@ -28,7 +28,10 @@ repos:
     hooks:
       - id: detect-secrets
         args: [--baseline, .secrets.baseline]
-        exclude: ^skills/[^/]+/skill\.oms\.sig$
+        # skill signatures are binary-ish blobs; pnpm-lock.yaml is a lockfile of
+        # integrity hashes (not covered by detect-secrets' is_lock_file filter) —
+        # neither holds real secrets, so keep them out of the scan.
+        exclude: (^skills/[^/]+/skill\.oms\.sig$|^frontends/ui/pnpm-lock\.yaml$)
 
   - repo: local
     hooks:

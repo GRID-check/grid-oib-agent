@@ -102,18 +102,6 @@ jobs:
           title: Backend coverage (src/aiq_agent)
           unique-id-for-comment: backend-coverage
 
-      - name: Upload coverage (3.13 only, for Sonar)
-        if: matrix.python == '3.13' && always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: backend-coverage
-          path: |
-            coverage.xml
-            coverage-aiqapi.xml
-            report-core.xml
-            report-aiqapi.xml
-          retention-days: 7
-
   frontend:
     name: Frontend (lint, types, test, build)
     needs: changes
@@ -132,8 +120,8 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run type-check
-      # json-summary/json feed the coverage comment; lcov feeds Sonar.
-      - run: npm run test:ci -- --coverage.reporter=json-summary --coverage.reporter=json --coverage.reporter=lcov
+      # json-summary/json feed the coverage comment below.
+      - run: npm run test:ci -- --coverage.reporter=json-summary --coverage.reporter=json
       - run: npm run build
       - name: Coverage comment (frontend)
         if: github.event_name == 'pull_request'
@@ -141,13 +129,6 @@ jobs:
         uses: davelosert/vitest-coverage-report-action@v2
         with:
           working-directory: frontends/ui
-      - name: Upload frontend coverage (for Sonar)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: frontend-coverage
-          path: frontends/ui/coverage/
-          retention-days: 7
 
   ci-ok:
     name: CI OK

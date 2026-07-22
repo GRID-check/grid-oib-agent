@@ -53,7 +53,7 @@ the cards schema mechanics (already implemented; treated here as a foundation).
 
 ---
 
-## 2. Goals & Non‑Goals
+## 2. Goals & Non-Goals
 
 ### Goals
 
@@ -829,7 +829,7 @@ flowchart LR
 | ADR‑0006 | Knowledge collection scoping | [../adr/0006-knowledge-collection-scoping.md](../adr/0006-knowledge-collection-scoping.md) |
 | ADR‑0007 | No local identity sync | [../adr/0007-no-local-identity-sync.md](../adr/0007-no-local-identity-sync.md) |
 
-> Framework decision: [ADR‑0001 — Use Architecture Decision Records](../adr/0001-use-adrs.md).
+> Framework decision: [ADR‑0001 — Use Architecture Decision Records](../adr/0001-use-architecture-decision-records.md).
 
 
 ---

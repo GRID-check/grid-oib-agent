@@ -54,9 +54,7 @@ def _llm_settings(organization_id: str | None = None) -> tuple[str, str, str]:
         organization_id=organization_id,
     )
     if not cred.api_key:
-        logger.warning(
-            "No API key for summary LLM (BYOK / SUMMARY_LLM_API_KEY / LLM_API_KEY / OPENROUTER_API_KEY)"
-        )
+        logger.warning("No API key for summary LLM (BYOK / SUMMARY_LLM_API_KEY / LLM_API_KEY / OPENROUTER_API_KEY)")
     return cred.model, cred.api_key, cred.base_url
 
 

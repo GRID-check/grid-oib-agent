@@ -189,9 +189,7 @@ async def test_consistency_check_no_free_text_short_circuits(app):
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         with patch("httpx.AsyncClient", _fake_async_client(mock_post)):
-            response = await client.post(
-                "/v1/consistency-check", json={"free_text": [], "structured": _STRUCTURED}
-            )
+            response = await client.post("/v1/consistency-check", json={"free_text": [], "structured": _STRUCTURED})
 
     assert response.status_code == 200
     assert response.json() == {"findings": [], "error": None}

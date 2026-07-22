@@ -89,9 +89,7 @@ def _scope_headers(scope: list[str], secret: str | None = None) -> dict[str, str
     header = base64.urlsafe_b64encode(payload.encode()).decode().rstrip("=")
     headers = {"x-grid-request-context": header}
     if secret:
-        headers["x-grid-request-context-sig"] = hmac.new(
-            secret.encode(), payload.encode(), hashlib.sha256
-        ).hexdigest()
+        headers["x-grid-request-context-sig"] = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
     return headers
 
 

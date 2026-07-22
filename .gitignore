@@ -105,3 +105,6 @@ frontends/benchmarks/*/analysis/*.csv
 # Configs created in notebooks
 /config_*.yml
 
+
+# Node dependencies (never commit)
+node_modules/

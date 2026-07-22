@@ -449,9 +449,7 @@ class TestPersistTerminalMessageIfClientGone:
         )
         with patch("aiq_api.websocket_reconnect.persist_assistant_message") as persist:
             persist.return_value = True
-            await handler._persist_terminal_message_if_client_gone(
-                message, WebSocketMessageType.RESPONSE_MESSAGE
-            )
+            await handler._persist_terminal_message_if_client_gone(message, WebSocketMessageType.RESPONSE_MESSAGE)
         persist.assert_not_called()
 
     @pytest.mark.asyncio
@@ -460,9 +458,7 @@ class TestPersistTerminalMessageIfClientGone:
         message = self._message({"content": {"text": "Here is your answer."}})
         with patch("aiq_api.websocket_reconnect.persist_assistant_message") as persist:
             persist.return_value = True
-            await handler._persist_terminal_message_if_client_gone(
-                message, WebSocketMessageType.RESPONSE_MESSAGE
-            )
+            await handler._persist_terminal_message_if_client_gone(message, WebSocketMessageType.RESPONSE_MESSAGE)
         persist.assert_awaited_once()
         assert persist.await_args.kwargs["text"] == "Here is your answer."
 
@@ -597,8 +593,10 @@ class TestPersistAssistantMessageInternalRoute:
         _CapturingClient.captured = {}
         _CapturingClient.status_code = 201
 
-        with patch("aiq_api.websocket_reconnect.httpx.AsyncClient", _CapturingClient), \
-                patch("aiq_api.websocket_reconnect._registry") as reg:
+        with (
+            patch("aiq_api.websocket_reconnect.httpx.AsyncClient", _CapturingClient),
+            patch("aiq_api.websocket_reconnect._registry") as reg,
+        ):
             reg.has_socket = AsyncMock(return_value=False)
             ok = await persist_assistant_message(
                 conversation_id="conv-1",
@@ -622,8 +620,10 @@ class TestPersistAssistantMessageInternalRoute:
         monkeypatch.setenv("FRONTEND_INTERNAL_URL", "http://frontend:3000")
         monkeypatch.delenv("GRID_INTERNAL_API_TOKEN", raising=False)
 
-        with patch("aiq_api.websocket_reconnect.httpx.AsyncClient", _CapturingClient), \
-                patch("aiq_api.websocket_reconnect._registry") as reg:
+        with (
+            patch("aiq_api.websocket_reconnect.httpx.AsyncClient", _CapturingClient),
+            patch("aiq_api.websocket_reconnect._registry") as reg,
+        ):
             reg.has_socket = AsyncMock(return_value=False)
             ok = await persist_assistant_message(
                 conversation_id="conv-1", parent_id="user-1", text="x", organization_id="org-1"
@@ -637,8 +637,10 @@ class TestPersistAssistantMessageInternalRoute:
         monkeypatch.setenv("FRONTEND_INTERNAL_URL", "http://frontend:3000")
         monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "secret-token")
 
-        with patch("aiq_api.websocket_reconnect.httpx.AsyncClient", _CapturingClient), \
-                patch("aiq_api.websocket_reconnect._registry") as reg:
+        with (
+            patch("aiq_api.websocket_reconnect.httpx.AsyncClient", _CapturingClient),
+            patch("aiq_api.websocket_reconnect._registry") as reg,
+        ):
             reg.has_socket = AsyncMock(return_value=False)
             ok = await persist_assistant_message(
                 conversation_id="conv-1", parent_id="user-1", text="x", organization_id=None

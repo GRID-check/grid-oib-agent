@@ -17,8 +17,8 @@ def build_card_generation_prompt() -> str:
         'produce Grid response cards as a JSON object of the form {"cards": [ ...card objects... ]}.\n\n'
         "Only include a card when it adds real value; never fabricate fields or references. "
         "Use an empty array when no card adds value. Fields marked * are required; omit optional "
-        'fields you cannot fill (do NOT pass null for optional objects). If a value is unknown, '
+        "fields you cannot fill (do NOT pass null for optional objects). If a value is unknown, "
         'omit it and set that check\'s status to "needs_input" — never estimate.\n\n'
         + render_card_catalog()
-        + '\n\nRespond ONLY with the JSON object — no prose, no code fences.'
+        + "\n\nRespond ONLY with the JSON object — no prose, no code fences."
     )

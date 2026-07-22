@@ -52,7 +52,7 @@
 | **OTLP/Phoenix exporter** | configurable | NAT span export incl. LLM I/O; **no shipped config enables it** (console only). Identity enrichment: `AIQ_TRACE_USER_IDENTITY_MODE=full` adds cleartext email/name to spans (default `none`) | If enabled | Optional, off | workflow YAML; `AIQ_TRACE_*` | `aiq_api/auth/middleware.py:59-89` |
 | **Datadog RUM** | — | Frontend shim, no-ops unless deployment injects `DD_RUM` | If enabled | Optional, off | overlay | `shared/utils/rum.ts` |
 | **Google Fonts** | fonts.googleapis.com | **Build-time only** (`next/font` self-hosts at runtime); Next telemetry disabled in image | No | Build only | — | `app/layout.tsx:13`; `deploy/Dockerfile:104,119` |
-| **Build/CI**: PyPI, npm, Debian/nodesource, `nvcr.io`, GitHub Actions, CodeQL, SonarCloud (source code analyzed on SonarSource servers), gitleaks image | — | provisioning/CI | Source code only (CI) | Build/CI | `SONAR_TOKEN` | `.github/workflows/*` |
+| **Build/CI**: PyPI, npm, Debian/nodesource, `nvcr.io`, GitHub Actions, Semgrep + gitleaks images (run in-CI, no source upload), OSV-Scanner (queries package names/versions against osv.dev) | — | provisioning/CI | Source code stays in CI; only dependency identifiers leave (OSV) | Build/CI | — | `.github/workflows/*` |
 
 Backend agents fetch no arbitrary URLs themselves (only internal BFF call in
 `cost_tracking.py:359-371`); web content arrives via search APIs.
@@ -77,10 +77,15 @@ Backend agents fetch no arbitrary URLs themselves (only internal BFF call in
 - **Node:** `package-lock.json` + `npm ci`; Next 16, `@workos-inc/*`,
   `@aws-sdk/client-s3`, `http-proxy` (old but latest), drizzle; security `overrides`
   for esbuild/postcss/uuid.
-- **CI controls:** dependency-review blocks new high-sev vulns/licenses; CodeQL
-  (js+py) + weekly; gitleaks full history; detect-secrets baseline; Sonar
-  clean-as-you-code. Gaps: pip-audit/npm-audit non-blocking; actions tag-pinned not
-  SHA-pinned (one `@main`); dev image pipes nodesource script to bash (dev only).
+- **CI controls:** Semgrep SAST (py+ts/js+actions) + weekly; OSV-Scanner lockfile
+  CVEs; pip-audit/npm-audit; gitleaks full history; detect-secrets baseline;
+  Dependabot fix PRs. (GitHub dependency-review dropped: it needs GitHub Advanced
+  Security on this private repo; OSV-Scanner + Dependabot cover new-dependency CVEs
+  instead.) Gaps: Semgrep + OSV-Scanner + pip-audit/npm-audit currently
+  non-blocking (Phase 1); no clean-as-you-code
+  smell gate (CodeQL + Sonar removed — code smells now via ruff/eslint + coverage
+  gate); actions tag-pinned not SHA-pinned (one `@main`); dev image pipes
+  nodesource script to bash (dev only).
 
 ## Risk summary
 

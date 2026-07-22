@@ -46,9 +46,9 @@ SYSTEM_PROMPT = (
     "Respond with ONLY a JSON object of the form "
     '{"findings": [{"fields": ["<exact field label>", ...], '
     '"severity": "warning" | "inconsistency", "explanation": "<one or two sentences>"}]}. '
-    "Each finding's \"fields\" MUST include the free-text field label, plus any "
+    'Each finding\'s "fields" MUST include the free-text field label, plus any '
     "structured field label it contradicts (echoed EXACTLY as given). "
-    "Use \"inconsistency\" for a hard contradiction and \"warning\" for something "
+    'Use "inconsistency" for a hard contradiction and "warning" for something '
     "merely worth double-checking. No prose outside the JSON, no markdown fences."
 )
 
@@ -82,8 +82,7 @@ def _llm_settings(organization_id: str | None = None) -> tuple[str, str, str]:
     )
     if not cred.api_key:
         logger.warning(
-            "No API key for consistency-check LLM (BYOK / CONSISTENCY_LLM_API_KEY / "
-            "LLM_API_KEY / OPENROUTER_API_KEY)"
+            "No API key for consistency-check LLM (BYOK / CONSISTENCY_LLM_API_KEY / LLM_API_KEY / OPENROUTER_API_KEY)"
         )
     return cred.model, cred.api_key, cred.base_url
 
@@ -137,9 +136,7 @@ def _parse_findings(content: str) -> list[ConsistencyFinding] | None:
             severity = "warning"
         raw_fields = entry.get("fields")
         fields = [f for f in raw_fields if isinstance(f, str)] if isinstance(raw_fields, list) else []
-        findings.append(
-            ConsistencyFinding(fields=fields, severity=severity, explanation=explanation.strip())
-        )
+        findings.append(ConsistencyFinding(fields=fields, severity=severity, explanation=explanation.strip()))
     return findings
 
 

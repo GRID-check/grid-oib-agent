@@ -96,10 +96,7 @@ def test_corrupted_json_row_fails_open(store, db_url):
     engine = create_engine(db_url.replace("+aiosqlite", ""))
     with engine.begin() as conn:
         conn.execute(
-            text(
-                "INSERT INTO norm_registry (country, data, version, updated_at) "
-                "VALUES ('at', 'not-json', 5, NULL)"
-            )
+            text("INSERT INTO norm_registry (country, data, version, updated_at) VALUES ('at', 'not-json', 5, NULL)")
         )
     engine.dispose()
     assert store.get() == (None, 0)
