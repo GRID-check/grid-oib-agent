@@ -16,8 +16,8 @@ import type { ProjectProfile, ProjectProfilePatchOperation } from '@/lib/project
 // reflects the real profile and the "After" column reflects the real patch.
 const storedProfile: ProjectProfile = {
   facts: {
-    gebaeudeklasse: {
-      value: 'GK2',
+    waermeversorgung: {
+      value: 'gas',
       confidence: 'confirmed',
       source: 'onboarding',
       updatedAt: '2026-01-01T00:00:00.000Z',
@@ -30,7 +30,7 @@ const storedProfile: ProjectProfile = {
 
 // What the patch will actually write — differs from the stored value.
 const patch: ProjectProfilePatchOperation[] = [
-  { op: 'add', path: '/facts/gebaeudeklasse', value: 'GK5' },
+  { op: 'add', path: '/facts/waermeversorgung', value: 'waermepumpe' },
 ]
 
 interface StubbedFetch {
@@ -71,11 +71,11 @@ describe('ProjectProfilePatchCard', () => {
     )
 
     // The field label and the "after" value come straight from the patch.
-    expect(await screen.findByText('Building class')).toBeInTheDocument()
-    expect(screen.getByText('GK5')).toBeInTheDocument()
+    expect(await screen.findByText('Geplante Wärmeversorgung')).toBeInTheDocument()
+    expect(screen.getByText('Wärmepumpe')).toBeInTheDocument()
 
     // Once the profile loads, the "Before" column shows the REAL stored value.
-    expect(await screen.findByText('GK2')).toBeInTheDocument()
+    expect(await screen.findByText('Gas (nur Bestand)')).toBeInTheDocument()
   })
 
   it('POSTs exactly { patch } on accept and shows the accepted state', async () => {

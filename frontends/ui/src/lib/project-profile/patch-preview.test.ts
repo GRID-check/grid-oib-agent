@@ -12,10 +12,10 @@ function fact(value: ProjectProfile['facts'][string]['value']): ProjectProfile['
 
 const baseProfile: ProjectProfile = ProjectProfileSchema.parse({
   facts: {
-    hauptnutzung: fact('buero'),
-    grundgrenze: fact(false),
+    bauwerkstyp: fact('sonstig'),
+    denkmalschutz: fact(false),
   },
-  goals: { focus_areas: ['einreichung'] },
+  goals: { zieltermin: '2027-03-01' },
 })
 
 function op(
@@ -28,48 +28,46 @@ function op(
 
 describe('buildPatchPreviewRows', () => {
   it('maps a known enum key to its option label, before from the current profile', () => {
-    const rows = buildPatchPreviewRows([op('add', '/facts/hauptnutzung', 'wohnen')], baseProfile)
-    expect(rows).toEqual([{ label: 'Main use', before: 'Office', after: 'Residential' }])
+    const rows = buildPatchPreviewRows([op('add', '/facts/bauwerkstyp', 'gebaeude')], baseProfile)
+    expect(rows).toEqual([{ label: 'Bauwerkstyp', before: 'sonstiges Bauwerk (Flugdach, Stützmauer, Werbeanlage …)', after: 'Gebäude' }])
   })
 
   it('renders an em dash for a before that is not yet set', () => {
-    const rows = buildPatchPreviewRows([op('add', '/facts/gebaeudeklasse', 'GK4')], baseProfile)
-    expect(rows).toEqual([{ label: 'Building class', before: '—', after: 'GK4' }])
+    const rows = buildPatchPreviewRows([op('add', '/facts/waermeversorgung', 'waermepumpe')], baseProfile)
+    expect(rows).toEqual([{ label: 'Geplante Wärmeversorgung', before: '—', after: 'Wärmepumpe' }])
   })
 
   it('renders remove as an em dash after value', () => {
-    const rows = buildPatchPreviewRows([op('remove', '/facts/hauptnutzung')], baseProfile)
-    expect(rows[0]).toMatchObject({ label: 'Main use', before: 'Office', after: '—' })
+    const rows = buildPatchPreviewRows([op('remove', '/facts/bauwerkstyp')], baseProfile)
+    expect(rows[0]).toMatchObject({ label: 'Bauwerkstyp', before: 'sonstiges Bauwerk (Flugdach, Stützmauer, Werbeanlage …)', after: '—' })
   })
 
-  it('formats booleans as Yes/No', () => {
-    const rows = buildPatchPreviewRows([op('add', '/facts/grundgrenze', true)], baseProfile)
-    expect(rows[0]).toMatchObject({ label: 'On a property boundary', before: 'No', after: 'Yes' })
+  it('formats yes_no_open booleans as Ja/Nein', () => {
+    const rows = buildPatchPreviewRows([op('add', '/facts/denkmalschutz', true)], baseProfile)
+    expect(rows[0]).toMatchObject({ label: 'Steht das Objekt unter Denkmalschutz?', before: 'Nein', after: 'Ja' })
   })
 
   it('joins multi-select option labels', () => {
     const rows = buildPatchPreviewRows(
-      [op('add', '/goals/focus_areas', ['einreichung', 'brandschutz'])],
+      [op('add', '/facts/vorhabensart', ['neubau', 'sanierung'])],
       baseProfile,
     )
-    expect(rows[0].after).toBe(
-      'Getting a permit submission (Einreichung) approved, Fire-safety concept',
-    )
+    expect(rows[0].after).toBe('Neubau, Sanierung')
   })
 
   it('accepts the deep /facts/<key>/value path form', () => {
-    const rows = buildPatchPreviewRows([op('add', '/facts/gebaeudeklasse/value', 'GK4')], baseProfile)
-    expect(rows[0]).toMatchObject({ label: 'Building class', after: 'GK4' })
+    const rows = buildPatchPreviewRows([op('add', '/facts/waermeversorgung/value', 'fernwaerme')], baseProfile)
+    expect(rows[0]).toMatchObject({ label: 'Geplante Wärmeversorgung', after: 'Fernwärme' })
   })
 
   it('unwraps a shaped { value } op value', () => {
-    const shaped = { value: 'wohnen', confidence: 'confirmed', source: 'user_confirmed', updatedAt: NOW }
-    const rows = buildPatchPreviewRows([op('add', '/facts/hauptnutzung', shaped)], baseProfile)
-    expect(rows[0].after).toBe('Residential')
+    const shaped = { value: 'gebaeude', confidence: 'confirmed', source: 'user_confirmed', updatedAt: NOW }
+    const rows = buildPatchPreviewRows([op('add', '/facts/bauwerkstyp', shaped)], baseProfile)
+    expect(rows[0].after).toBe('Gebäude')
   })
 
   it('never hides a foreign object value — it JSON-stringifies it', () => {
-    const rows = buildPatchPreviewRows([op('add', '/facts/hauptnutzung', { foo: 'bar' })], baseProfile)
+    const rows = buildPatchPreviewRows([op('add', '/facts/bauwerkstyp', { foo: 'bar' })], baseProfile)
     expect(rows[0].after).toBe('{"foo":"bar"}')
   })
 
@@ -86,7 +84,7 @@ describe('buildPatchPreviewRows', () => {
   })
 
   it('leaves before blank when the profile is not yet loaded', () => {
-    const rows = buildPatchPreviewRows([op('add', '/facts/hauptnutzung', 'wohnen')], null)
-    expect(rows).toEqual([{ label: 'Main use', before: '', after: 'Residential' }])
+    const rows = buildPatchPreviewRows([op('add', '/facts/bauwerkstyp', 'gebaeude')], null)
+    expect(rows).toEqual([{ label: 'Bauwerkstyp', before: '', after: 'Gebäude' }])
   })
 })

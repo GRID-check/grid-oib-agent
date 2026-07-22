@@ -38,8 +38,8 @@ const session = { userId: 'user-1', organizationId: 'org-1' } as never
 
 const storedProfile: ProjectProfile = {
   facts: {
-    hauptnutzung: {
-      value: 'wohnen',
+    bundesland: {
+      value: 'wien',
       confidence: 'confirmed',
       source: 'onboarding',
       updatedAt: '2026-01-01T00:00:00.000Z',
@@ -222,8 +222,8 @@ describe('generateProjectSummary', () => {
     const [url, init] = mockFetch.mock.calls[0]
     expect(url).toBe('http://backend:8000/v1/generate-summary')
     const body = JSON.parse(String((init as RequestInit).body))
-    // Labels, not machine tokens: "hauptnutzung=wohnen" leaked into the prose.
-    expect(body.profile_text).toBe('Main use: Residential')
+    // Labels, not machine tokens: "bundesland=wien" must never leak into the prose.
+    expect(body.profile_text).toBe('Bundesland: Wien')
     expect(body.locale).toBe('de')
     // The locale is persisted alongside the prose so a later UI language switch
     // can trigger exactly one regeneration.

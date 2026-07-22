@@ -185,7 +185,31 @@ export const projects: typeof en.projects = {
     optional: '(optional)',
     yes: 'Ja',
     no: 'Nein',
+    open: 'noch offen',
+    why: 'Warum fragen wir das?',
     selectPlaceholder: 'Auswählen…',
+    mode: {
+      aria: 'Antwortmodus',
+      wert: 'Wert',
+      geschaetzt: 'Schätzung',
+      offen: 'noch offen',
+    },
+    bauwerk: {
+      nameAria: 'Name des Bauwerks',
+      remove: 'entfernen',
+      add: 'Bauwerk hinzufügen',
+    },
+    upload: {
+      hint: 'Dokument im Dateien-Tab ablegen',
+    },
+    derived: {
+      badge: 'Ableitung (Phase 2)',
+    },
+    classification: {
+      title: 'Klassifizierungsergebnis',
+      description:
+        'Sobald die Klassifizierungs-Engine (Phase 2) angebunden ist, erscheinen hier die Gebäudeklasse, die Regelwerks-Matrix (anwendbar / nicht anwendbar / zu prüfen) und die Offene-Punkte-Liste, bevor das Profil an Piloti übergeben wird.',
+    },
     consistency: {
       checking: 'Angaben werden geprüft…',
       title: 'Ein paar Dinge zum Prüfen',
@@ -197,18 +221,8 @@ export const projects: typeof en.projects = {
       revise: 'Überarbeiten',
       proceed: 'Trotzdem speichern',
       rules: {
-        lowClassTooManyFloors:
-          'GK1–GK3-Gebäude haben normalerweise höchstens {threshold} oberirdische Geschoße; angegeben sind {count}.',
-        escapeLevelTooFewFloors:
-          'Ein Fluchtniveau von {escapeLevel} ist mit nur {floors} oberirdischen Geschoß(en) kaum erreichbar.',
-        escapeLevelTooManyFloors:
-          'Bei {floors} oberirdischen Geschoßen kann das höchste Fluchtniveau nicht bei {escapeLevel} liegen.',
-        classEscapeLevelMismatch:
-          '{buildingClass}-Gebäude haben ein Fluchtniveau von höchstens {maxLevel}; angegeben ist {escapeLevel}.',
-        renovationFocusOnNewBuild:
-          'Der Fokus „Sanierung / Bestandskonformität" passt nicht zu einem reinen Neubau — meinten Sie Zu- und Umbau?',
-        orphanedAnswer:
-          '„{field}" gilt aufgrund Ihrer Angabe zu „{dependsOn}" nicht mehr und wird nicht gespeichert.',
+        fossilNeubauConflict:
+          'Eine Gas-Wärmeversorgung für {bauwerk} widerspricht einem Neubau — das Erneuerbare-Wärme-Gesetz verbietet fossile Systeme im Neubau.',
       },
     },
   },
