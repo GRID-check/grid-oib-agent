@@ -23,7 +23,7 @@ jobs:
     steps:
       # The repo uses Conventional Commits and squash-merges the PR title, so
       # the title must itself be a valid conventional-commit subject.
-      - uses: amannn/action-semantic-pull-request@v5
+      - uses: amannn/action-semantic-pull-request@v6
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
