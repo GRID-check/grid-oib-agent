@@ -184,7 +184,12 @@ export function installGatewayResources(
     targetRefs: [
       { group: "gateway.networking.k8s.io", kind: "Gateway", name: GATEWAY_NAME },
     ],
-    timeout: { http: { idleTimeout: "3600s" } },
+    // `streamIdleTimeout` is the knob that actually governs an open-but-idle
+    // WebSocket stream (Envoy's per-stream idle timer, default ~5min) — the one
+    // that would otherwise sever a quiet chat mid-session. `idleTimeout` is the
+    // connection-level timer and never fires while a WS stream is active; keep
+    // it raised too for consistency.
+    timeout: { http: { idleTimeout: "3600s", streamIdleTimeout: "3600s" } },
   };
   new k8s.apiextensions.CustomResource(
     "grid-client-traffic-policy",

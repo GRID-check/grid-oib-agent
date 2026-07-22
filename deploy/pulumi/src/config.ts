@@ -202,6 +202,22 @@ function bool(cfg: pulumi.Config, key: string, fallback: boolean): boolean {
 export function loadConfig(): GridConfig {
   const cfg = new pulumi.Config();
 
+  // Reject the Pulumi.prod.yaml template placeholders up front. `require()`
+  // happily returns "REPLACE_ME"/"app.example.com", so without this the failure
+  // only surfaces ~20 min later as PVCs stuck Pending / TLS never issuing.
+  const rejectPlaceholder = (key: string, markers: string[]) => {
+    const v = cfg.get(key);
+    if (v !== undefined && markers.some((m) => v.includes(m))) {
+      throw new Error(
+        `grid-oib:${key} is still the template placeholder ("${v}"). Set a real value before deploying.`,
+      );
+    }
+  };
+  rejectPlaceholder("storageClass", ["REPLACE_ME"]);
+  rejectPlaceholder("appDomain", ["example.com"]);
+  rejectPlaceholder("s3Domain", ["example.com"]);
+  rejectPlaceholder("workosClientId", ["REPLACE_ME"]);
+
   const jobExecution: "dask" | "db" = (cfg.get("jobExecution") ?? "dask") === "db" ? "db" : "dask";
 
   // Fail closed: db-claimed job payloads carry the user's auth token and persist
@@ -240,7 +256,11 @@ export function loadConfig(): GridConfig {
       appDomain: cfg.require("appDomain"),
       s3Domain: cfg.require("s3Domain"),
       letsEncryptEmail: cfg.require("letsEncryptEmail"),
-      useStagingIssuer: bool(cfg, "useStagingIssuer", false),
+      // Default to the LE STAGING CA: on a first deploy the LoadBalancer IP (and
+    // therefore DNS) doesn't exist yet, so HTTP-01 can't be solved and every
+    // failed prod attempt burns Let's Encrypt rate limits. Flip to false only
+    // after DNS resolves to the gateway and a staging cert has issued.
+    useStagingIssuer: bool(cfg, "useStagingIssuer", true),
       installMetricsServer: bool(cfg, "installMetricsServer", true),
     },
 

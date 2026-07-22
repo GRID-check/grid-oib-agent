@@ -181,10 +181,16 @@ export function installSeaweedFS(
                 image: "chrislusf/seaweedfs:3.80",
                 command: ["/bin/sh", "-c"],
                 args: [
+                  // Wait for the master, create the bucket, then TOLERATE only
+                  // the idempotent "already exists" case — a blanket `|| true`
+                  // would hide a real failure (bad master/auth), report success,
+                  // and let the first upload 404 at runtime instead of failing
+                  // the deploy.
                   "until wget -q -O /dev/null http://seaweedfs:9333/cluster/status; " +
                     "do echo waiting for seaweedfs; sleep 3; done; " +
-                    `echo 's3.bucket.create -name ${cfg.seaweedfs.bucket}' | ` +
-                    "weed shell -master=seaweedfs:9333 || true",
+                    `out=$(echo 's3.bucket.create -name ${cfg.seaweedfs.bucket}' | ` +
+                    "weed shell -master=seaweedfs:9333 2>&1); rc=$?; echo \"$out\"; " +
+                    'if [ $rc -ne 0 ] && ! echo "$out" | grep -qi "already exists"; then exit $rc; fi',
                 ],
               },
             ],

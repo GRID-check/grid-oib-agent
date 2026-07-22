@@ -80,6 +80,44 @@ export function installPostgres(
     { provider, dependsOn: opNs },
   );
 
+  // The CNPG chart ships no `startupapicheck` hook, so a "ready" operator
+  // Deployment can briefly precede its validating/mutating webhook actually
+  // serving TLS on :9443. Applying the Cluster CR into that window fails first
+  // `pulumi up` with `failed calling webhook "vcluster.cnpg.io": ... connection
+  // refused`, and Pulumi does not retry a CustomResource apply. Gate the Cluster
+  // on the webhook endpoint actually accepting connections.
+  const webhookReady = new k8s.batch.v1.Job(
+    "cnpg-webhook-wait",
+    {
+      metadata: { namespace: opNs.metadata.name },
+      spec: {
+        backoffLimit: 30,
+        ttlSecondsAfterFinished: 120,
+        template: {
+          spec: {
+            restartPolicy: "OnFailure",
+            containers: [
+              {
+                name: "wait",
+                image: "curlimages/curl:8.11.1",
+                command: ["/bin/sh", "-c"],
+                args: [
+                  // Any HTTP response (even 404) means the webhook TLS listener
+                  // is up; connection-refused/timeout keeps us waiting.
+                  "echo 'waiting for cnpg webhook…'; " +
+                    "until curl -sk -o /dev/null --max-time 5 " +
+                    "https://cnpg-webhook-service.cnpg-system.svc:443/readyz; do sleep 3; done; " +
+                    "echo 'cnpg webhook is serving'",
+                ],
+              },
+            ],
+          },
+        },
+      },
+    },
+    { provider, dependsOn: operator },
+  );
+
   // 2. App-role credentials as a basic-auth secret the cluster bootstrap uses,
   //    so the password is deterministic and we can build DSNs from it.
   const appSecret = new k8s.core.v1.Secret(
@@ -136,14 +174,22 @@ export function installPostgres(
         },
       },
     },
-    { provider, dependsOn: operator },
+    { provider, dependsOn: [operator, webhookReady] },
   );
 
   const rwHost = `${CLUSTER_NAME}-rw`;
 
+  const user = encodeURIComponent(cfg.postgres.appUser);
   const dsn = (opts: { db: string; driver?: string }): pulumi.Output<string> => {
     const scheme = opts.driver ?? "postgresql";
-    return pulumi.interpolate`${scheme}://${cfg.postgres.appUser}:${cfg.postgres.appPassword}@${rwHost}:5432/${opts.db}`;
+    // Percent-encode the password: `pgAppPassword` is documented as
+    // `openssl rand -base64 24`, which routinely contains `/` or `+` — raw
+    // interpolation there breaks URI parsing (asyncpg/psycopg/node-pg/psql all
+    // misparse the authority), which looks like an auth failure across the whole
+    // stack. Encoding in the DSN keeps the Postgres role password itself intact.
+    return cfg.postgres.appPassword.apply(
+      (pw) => `${scheme}://${user}:${encodeURIComponent(pw)}@${rwHost}:5432/${opts.db}`,
+    );
   };
 
   // 4. Idempotent table bootstrap. Waits for the cluster's -rw service to

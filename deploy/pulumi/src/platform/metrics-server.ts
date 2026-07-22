@@ -17,6 +17,12 @@ export function installMetricsServer(provider: k8s.Provider): k8s.helm.v3.Releas
       namespace: "kube-system",
       repositoryOpts: { repo: "https://kubernetes-sigs.github.io/metrics-server/" },
       values: {
+        // Self-managed / bare-metal kubelets (this cluster's Lightbits profile)
+        // typically present self-signed serving certs, so without this arg
+        // metrics-server can't scrape and both HPAs stall at `<unknown>/70%`.
+        // Managed clusters that ship valid kubelet certs should install their
+        // own metrics-server instead (installMetricsServer=false).
+        args: ["--kubelet-insecure-tls"],
         resources: { requests: { cpu: "50m", memory: "64Mi" } },
       },
     },

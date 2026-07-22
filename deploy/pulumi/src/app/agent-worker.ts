@@ -56,6 +56,19 @@ export function installAgentWorker(
                   periodSeconds: 30,
                   failureThreshold: 3,
                 },
+                // The marker only appears on the FIRST claim-loop tick, which is
+                // gated behind importing the full aiq_api stack + connecting to
+                // Postgres/Chroma. On a cold node that can exceed the liveness
+                // window and crash-loop the pod before it ever works. A startup
+                // probe holds liveness off until first boot completes (up to
+                // 60×10s = 10 min) instead of killing a still-booting worker.
+                startupProbe: {
+                  exec: {
+                    command: ["python", "-c", "import os,sys; sys.exit(0 if os.path.exists('/tmp/research-worker.alive') else 1)"],
+                  },
+                  periodSeconds: 10,
+                  failureThreshold: 60,
+                },
               },
             ],
           },
