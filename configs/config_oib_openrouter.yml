@@ -85,7 +85,13 @@ llms:
     max_tokens: 65536
     max_retries: 2
     request_timeout: 120
-    reasoning_effort: medium
+    # low (not medium): the shallow tier is the quick-answer path; on reasoning
+    # models (e.g. grok-4.5 via org override) medium spent a large hidden-token
+    # "think" budget before emitting the first answer token — the dominant slice
+    # of the synthesis-call latency observed in the profiler (final synth ≈29s on
+    # a simple meta-ish query). Shallow retrieval+synthesis does not need deep
+    # deliberation; deep_* roles keep medium for the genuinely hard reasoning.
+    reasoning_effort: low
 
   # HITL Clarification & Planning — clarify ambiguity, generate the research plan.
   clarifier_llm:
