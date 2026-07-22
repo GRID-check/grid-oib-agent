@@ -66,6 +66,50 @@ export function installGatewayResources(
     { provider, dependsOn },
   );
 
+  // Managed-proxy infrastructure: Envoy Gateway defaults the generated Envoy
+  // fleet to a SINGLE replica with no PDB — the whole cluster's front door
+  // would ride on one pod on one node (a node drain = full outage for both
+  // domains). Pin 2 replicas, a PDB, and spread them across nodes.
+  const envoyProxyConfig = new k8s.apiextensions.CustomResource(
+    "grid-envoy-proxy-config",
+    {
+      apiVersion: "gateway.envoyproxy.io/v1alpha1",
+      kind: "EnvoyProxy",
+      metadata: { name: "grid-envoy-proxy", namespace, labels: commonLabels("gateway") },
+      spec: {
+        provider: {
+          type: "Kubernetes",
+          kubernetes: {
+            envoyDeployment: {
+              replicas: 2,
+              pod: {
+                affinity: {
+                  podAntiAffinity: {
+                    preferredDuringSchedulingIgnoredDuringExecution: [
+                      {
+                        weight: 100,
+                        podAffinityTerm: {
+                          topologyKey: "kubernetes.io/hostname",
+                          labelSelector: {
+                            matchLabels: {
+                              "gateway.envoyproxy.io/owning-gateway-name": GATEWAY_NAME,
+                            },
+                          },
+                        },
+                      },
+                    ],
+                  },
+                },
+              },
+            },
+            envoyPDB: { minAvailable: 1 },
+          },
+        },
+      },
+    },
+    { provider, dependsOn },
+  );
+
   const gateway = new k8s.apiextensions.CustomResource(
     "grid-gateway",
     {
@@ -81,6 +125,14 @@ export function installGatewayResources(
       },
       spec: {
         gatewayClassName: GATEWAY_CLASS,
+        // Attach the HA proxy-infrastructure config above.
+        infrastructure: {
+          parametersRef: {
+            group: "gateway.envoyproxy.io",
+            kind: "EnvoyProxy",
+            name: "grid-envoy-proxy",
+          },
+        },
         listeners: [
           {
             // Open for the ACME HTTP-01 challenge (cert-manager attaches a
@@ -109,7 +161,26 @@ export function installGatewayResources(
         ],
       },
     },
-    { provider, dependsOn: gatewayClass },
+    { provider, dependsOn: [gatewayClass, envoyProxyConfig] },
+  );
+
+  // Long-lived WebSocket chat upgrades: Envoy's default connection idle
+  // timeout would sever hour-long chat streams mid-response. Mirror the 3600s
+  // read/idle budget the compose/Traefik edges give the app.
+  new k8s.apiextensions.CustomResource(
+    "grid-client-traffic-policy",
+    {
+      apiVersion: "gateway.envoyproxy.io/v1alpha1",
+      kind: "ClientTrafficPolicy",
+      metadata: { name: "grid-ws-timeouts", namespace, labels: commonLabels("gateway") },
+      spec: {
+        targetRefs: [
+          { group: "gateway.networking.k8s.io", kind: "Gateway", name: GATEWAY_NAME },
+        ],
+        timeout: { http: { idleTimeout: "3600s" } },
+      },
+    },
+    { provider, dependsOn: gateway },
   );
 
   return { gatewayClass, gateway };

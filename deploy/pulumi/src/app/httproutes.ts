@@ -38,6 +38,25 @@ export function installHttpRoutes(
     { provider, dependsOn },
   );
 
+  // Envoy's default per-request timeout (15s route request timeout upstream)
+  // would cut long streaming chat responses and WS sessions on the app route.
+  // Give upstream requests the same 3600s budget as the client-side policy.
+  new k8s.apiextensions.CustomResource(
+    "grid-app-backend-traffic-policy",
+    {
+      apiVersion: "gateway.envoyproxy.io/v1alpha1",
+      kind: "BackendTrafficPolicy",
+      metadata: { name: "grid-app-timeouts", namespace, labels: commonLabels("frontend") },
+      spec: {
+        targetRefs: [
+          { group: "gateway.networking.k8s.io", kind: "HTTPRoute", name: "grid-app" },
+        ],
+        timeout: { http: { requestTimeout: "3600s" } },
+      },
+    },
+    { provider, dependsOn: app },
+  );
+
   const s3 = new k8s.apiextensions.CustomResource(
     "grid-s3-route",
     {
