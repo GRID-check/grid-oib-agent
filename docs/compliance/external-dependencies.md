@@ -77,10 +77,12 @@ Backend agents fetch no arbitrary URLs themselves (only internal BFF call in
 - **Node:** `package-lock.json` + `npm ci`; Next 16, `@workos-inc/*`,
   `@aws-sdk/client-s3`, `http-proxy` (old but latest), drizzle; security `overrides`
   for esbuild/postcss/uuid.
-- **CI controls:** dependency-review blocks new high-sev vulns/licenses; Semgrep
-  SAST (py+ts/js+actions) + weekly; OSV-Scanner lockfile CVEs; gitleaks full
-  history; detect-secrets baseline; Dependabot fix PRs. Gaps: Semgrep + OSV-Scanner
-  + pip-audit/npm-audit currently non-blocking (Phase 1); no clean-as-you-code
+- **CI controls:** Semgrep SAST (py+ts/js+actions) + weekly; OSV-Scanner lockfile
+  CVEs; pip-audit/npm-audit; gitleaks full history; detect-secrets baseline;
+  Dependabot fix PRs. (GitHub dependency-review dropped: it needs GitHub Advanced
+  Security on this private repo; OSV-Scanner + Dependabot cover new-dependency CVEs
+  instead.) Gaps: Semgrep + OSV-Scanner + pip-audit/npm-audit currently
+  non-blocking (Phase 1); no clean-as-you-code
   smell gate (CodeQL + Sonar removed — code smells now via ruff/eslint + coverage
   gate); actions tag-pinned not SHA-pinned (one `@main`); dev image pipes
   nodesource script to bash (dev only).

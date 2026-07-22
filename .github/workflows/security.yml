@@ -64,7 +64,12 @@ jobs:
       - uses: actions/checkout@v4
       # Reads the lockfiles in the tree (uv.lock, frontends/ui/package-lock.json)
       # and reports known-vulnerable versions against the OSV database.
-      - uses: google/osv-scanner-action@v2
+      # The runnable action lives in a subdirectory (the repo root action.yml is
+      # metadata only), and there is no floating v2 tag, so pin an exact release.
+      # The reusable workflow is intentionally avoided: it uploads SARIF to code
+      # scanning, which needs GitHub Advanced Security (exactly what this stack
+      # is designed not to require).
+      - uses: google/osv-scanner-action/osv-scanner-action@v2.3.8
         with:
           scan-args: |-
             -r

@@ -111,7 +111,7 @@ by pillar:
 - **Incidents:** no monitoring/alerting/status page/incident process; WorkOS audit
   trail + SIEM streaming is strong but fail-silent and third-party-hosted.
 - **Testing:** CI security scanning comprehensive (Semgrep SAST, OSV-Scanner,
-  gitleaks full-history, dependency-review blocking); Semgrep/OSV/pip-audit/npm-audit
+  pip-audit/npm-audit, gitleaks full-history, Dependabot fix PRs); Semgrep/OSV/pip-audit/npm-audit
   non-blocking (Phase 1); no load/chaos tests.
 - **Third-party risk:** no vendor register (see companion register), OpenRouter
   concentration (one key = all LLM+embeddings+VLM; outage kills chat *and* knowledge
