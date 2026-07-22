@@ -1,8 +1,8 @@
 import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
-// CRD-generated compile-time schemas (erased at runtime via `import type`).
-import type { IHTTPRouteSpec } from "@kubernetes-models/gateway-api/gateway.networking.k8s.io/v1/HTTPRouteSpec";
-import type { IBackendTrafficPolicySpec } from "@kubernetes-models/envoy-gateway/gateway.envoyproxy.io/v1alpha1/BackendTrafficPolicySpec";
+// Strongly-typed CRD classes generated from the exact deployed CRDs (see
+// src/platform/gateway.ts).
+import * as crds from "../../crds";
 import { GridConfig } from "../config";
 import { commonLabels } from "../platform/namespaces";
 import { GATEWAY_NAME } from "../platform/gateway";
@@ -21,55 +21,44 @@ export function installHttpRoutes(
   provider: k8s.Provider,
   namespace: pulumi.Input<string>,
   dependsOn: pulumi.Resource[],
-): { app: k8s.apiextensions.CustomResource; s3: k8s.apiextensions.CustomResource } {
-  const appRouteSpec: IHTTPRouteSpec = {
-    parentRefs: [{ name: GATEWAY_NAME, sectionName: "https-app" }],
-    hostnames: [cfg.ingress.appDomain],
-    rules: [{ backendRefs: [{ name: "frontend", port: 3000 }] }],
-  };
-  const app = new k8s.apiextensions.CustomResource(
+): { app: crds.gateway.v1.HTTPRoute; s3: crds.gateway.v1.HTTPRoute } {
+  const app = new crds.gateway.v1.HTTPRoute(
     "grid-app-route",
     {
-      apiVersion: "gateway.networking.k8s.io/v1",
-      kind: "HTTPRoute",
       metadata: { name: "grid-app", namespace, labels: commonLabels("frontend") },
-      spec: appRouteSpec,
+      spec: {
+        parentRefs: [{ name: GATEWAY_NAME, sectionName: "https-app" }],
+        hostnames: [cfg.ingress.appDomain],
+        rules: [{ backendRefs: [{ name: "frontend", port: 3000 }] }],
+      },
     },
     { provider, dependsOn },
   );
 
-  // Envoy's default per-request timeout (15s route request timeout upstream)
-  // would cut long streaming chat responses and WS sessions on the app route.
-  // Give upstream requests the same 3600s budget as the client-side policy.
-  const appTimeoutSpec: IBackendTrafficPolicySpec = {
-    targetRefs: [
-      { group: "gateway.networking.k8s.io", kind: "HTTPRoute", name: "grid-app" },
-    ],
-    timeout: { http: { requestTimeout: "3600s" } },
-  };
-  new k8s.apiextensions.CustomResource(
+  // Envoy's default per-request timeout (15s) would cut long streaming chat
+  // responses and WS sessions on the app route. Give upstream requests the same
+  // 3600s budget as the client-side policy.
+  new crds.gateway.v1alpha1.BackendTrafficPolicy(
     "grid-app-backend-traffic-policy",
     {
-      apiVersion: "gateway.envoyproxy.io/v1alpha1",
-      kind: "BackendTrafficPolicy",
       metadata: { name: "grid-app-timeouts", namespace, labels: commonLabels("frontend") },
-      spec: appTimeoutSpec,
+      spec: {
+        targetRefs: [{ group: "gateway.networking.k8s.io", kind: "HTTPRoute", name: "grid-app" }],
+        timeout: { http: { requestTimeout: "3600s" } },
+      },
     },
     { provider, dependsOn: app },
   );
 
-  const s3RouteSpec: IHTTPRouteSpec = {
-    parentRefs: [{ name: GATEWAY_NAME, sectionName: "https-s3" }],
-    hostnames: [cfg.ingress.s3Domain],
-    rules: [{ backendRefs: [{ name: "seaweedfs", port: 8333 }] }],
-  };
-  const s3 = new k8s.apiextensions.CustomResource(
+  const s3 = new crds.gateway.v1.HTTPRoute(
     "grid-s3-route",
     {
-      apiVersion: "gateway.networking.k8s.io/v1",
-      kind: "HTTPRoute",
       metadata: { name: "grid-s3", namespace, labels: commonLabels("seaweedfs") },
-      spec: s3RouteSpec,
+      spec: {
+        parentRefs: [{ name: GATEWAY_NAME, sectionName: "https-s3" }],
+        hostnames: [cfg.ingress.s3Domain],
+        rules: [{ backendRefs: [{ name: "seaweedfs", port: 8333 }] }],
+      },
     },
     { provider, dependsOn },
   );
