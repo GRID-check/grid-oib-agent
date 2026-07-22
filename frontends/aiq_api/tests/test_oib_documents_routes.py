@@ -30,7 +30,11 @@ _COLLECTION = "oib_knowledge"
 
 @pytest.fixture
 def summary_db():
-    with tempfile.TemporaryDirectory() as tmpdir:
+    # ignore_cleanup_errors: the SQLite engine's connection (and its -wal/-shm
+    # sidecar files) may not be released the instant the fixture tears down, so
+    # rmtree can hit a transient "Directory not empty". Tolerate it rather than
+    # let a teardown race fail an otherwise-passing test (seen flaky on py3.13).
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
         db_url = f"sqlite:///{Path(tmpdir) / 'oib.db'}"
         SummaryStore._tables_initialized.discard(db_url)
         configure_summary_db(db_url)
