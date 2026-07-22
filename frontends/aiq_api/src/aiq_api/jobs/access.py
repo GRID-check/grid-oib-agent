@@ -17,6 +17,12 @@ from aiq_agent.auth import get_current_principal
 _job_access_schema_initialized: set[str] = set()
 
 _JOB_ACCESS_INDEX_SQL = "CREATE INDEX IF NOT EXISTS idx_job_access_owner ON job_access(owner_auth_type, owner_subject)"
+_JOB_ACCESS_ORG_INDEX_SQL = (
+    # The per-org admission count (`count_active_jobs(... organization_id=...)`)
+    # filters `job_access.organization_id` on the submit hot path; without this it
+    # is an unindexed scan against the (never-pruned in db mode) job_info join.
+    "CREATE INDEX IF NOT EXISTS idx_job_access_org ON job_access(organization_id)"
+)
 _JOB_ACCESS_PROJECT_INDEX_SQL = (
     "CREATE INDEX IF NOT EXISTS idx_job_access_owner_project ON job_access(owner_subject, project_collection)"
 )
@@ -251,6 +257,7 @@ def _ensure_job_access_schema(conn: Connection, db_url: str) -> None:
     else:
         _ensure_sqlite_job_access_columns(conn)
     conn.execute(text(_JOB_ACCESS_PROJECT_INDEX_SQL))
+    conn.execute(text(_JOB_ACCESS_ORG_INDEX_SQL))
     _job_access_schema_initialized.add(db_url)
 
 
