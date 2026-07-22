@@ -178,29 +178,42 @@ one user's retrieval stalls every other user's chat stream. Wrapping it in
 between "one slow tenant degrades everyone" and healthy concurrency. This is a
 backend code change, tracked separately from this deployment.
 
-### 6.3 Later: horizontal scaling (the roadmap)
+### 6.3 Horizontal research execution — IMPLEMENTED (`jobExecution: db`)
 
-When a single vertically-scaled agent pod is genuinely the bottleneck, take the
-review's Phase 2 path — each item is a **backend code change**, not a deploy
-change, and this cluster is already prepared for all of them:
+The token-heavy workload (deep research) now scales out. Set
+`grid-oib:jobExecution: db` and:
 
-1. **Retire localhost Dask for DB-claimed research workers** (review §4.3 path A):
-   deep-research runs become rows claimed with `FOR UPDATE SKIP LOCKED` (the
-   purger pattern). Then split the image into two Deployments — `agent-web`
-   (chat/REST, still the citation-sticky tier) and `agent-worker` (N replicas +
-   HPA) — so the heavy token workload scales independently of chat capacity.
-2. **Persist the citation source registry** (§6.5) out of its process-local LRU
-   so a conversation can move between web replicas without degrading citations.
-3. **Externalise the vector store** so web replicas share it: either Chroma in
-   server mode (its own StatefulSet on a Lightbits PVC) or pgvector on the CNPG
-   Postgres. Until then the embedded Chroma pins the web tier to one replica.
-4. **Second frontend replica caveats** are already handled here: the shared
-   Dragonfly cache fixes the per-replica prompt-view invalidation bug the review
-   flags at N>1.
+- **Research runs on DB-claimed workers** (ADR-0021): submission writes a
+  `SUBMITTED` `job_info` row and enqueues a claimable `research_job_queue` row
+  (`frontends/aiq_api/src/aiq_api/jobs/queue.py`); dedicated **`agent-worker`**
+  replicas (same image, `GRID_ROLE=worker`) claim rows with `FOR UPDATE SKIP
+  LOCKED`, run the same `run_agent_job` body, and heartbeat the claim so a crash
+  is reclaimed. An HPA scales them on CPU. The web tier runs **no Dask** in this
+  mode.
+- **Cancellation works from any replica** — the cancel route flips `job_info` to
+  INTERRUPTED and drops the queue row; the runner's 1 s `CancellationMonitor`
+  honors it. No scheduler is involved.
+- **Shared vectors** (Stage A, `chromaEnabled: true`): the shared Chroma server
+  means workers and web replicas read/write one store.
+- **Citation registry** already shares cross-replica via Dragonfly (ADR-0020).
 
-The Pulumi program is structured so introducing an `agent-worker` Deployment is
-an additive module (mirror `src/app/backend.ts`, override the command to the
-worker entrypoint, add an HPA) once the backend code above exists.
+Safe rollout: `jobExecution: dask` (default in code) is byte-for-byte today's
+behaviour; flip to `db` per environment. `agentWorkerMinReplicas` /
+`agentWorkerMaxReplicas` / `agentWorkerConcurrency` size the worker tier.
+
+**Still single-replica: the chat/web tier.** Even in `db` mode the `aiq-agent`
+web StatefulSet stays at 1 replica, because two multi-replica hazards remain
+(the follow-up "Stage C"):
+
+1. Ingestion job status is still in-process (`adapter.py` `_jobs`/`_files`) — a
+   status poll routed to another replica 404s. Fix: a DB-backed `ingest_jobs`
+   table.
+2. The ghost-job reaper and the knowledge TTL-cleanup thread run unlocked and
+   would double-run; wrap them in the `pg_try_advisory_xact_lock` pattern the
+   event-cleanup loop already uses (`routes/jobs.py`).
+
+Once those land, the web tier converts to a Deployment + HPA the same way the
+`agent-worker` tier already is.
 
 ---
 

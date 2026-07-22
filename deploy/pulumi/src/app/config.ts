@@ -77,6 +77,8 @@ export function backendEnv(w: AppWiring): EnvVar[] {
     { name: "PORT", value: "8000" },
     { name: "CONFIG_FILE", value: cfg.backend.configFile },
     { name: "COLLECTION_NAME", value: "oib_knowledge" },
+    // Research execution backend (dask = per-pod; db = DB-claimed workers).
+    { name: "GRID_JOB_EXECUTION", value: cfg.jobExecution },
     // Embedded fallback dir (used only when AIQ_CHROMA_URL is unset).
     { name: "AIQ_CHROMA_DIR", value: cfg.backend.chromaDir },
     { name: "OIB_UPLOADS_DIR", value: "/app/data/oib_uploads" },
@@ -123,6 +125,20 @@ export function backendEnv(w: AppWiring): EnvVar[] {
     env.push({ name: "AIQ_CHROMA_URL", value: w.chromaUrl });
   }
   return env;
+}
+
+/**
+ * Research worker (ADR-0021) environment: the full backend env (DB DSNs, shared
+ * Chroma, LLM keys, object storage — the worker runs the same `run_agent_job`)
+ * plus the worker role + per-process concurrency. `GRID_ROLE=worker` makes the
+ * entrypoint run `python -m aiq_api.jobs.worker` with no web server or Dask.
+ */
+export function workerEnv(w: AppWiring): EnvVar[] {
+  return [
+    ...backendEnv(w),
+    { name: "GRID_ROLE", value: "worker" },
+    { name: "GRID_RESEARCH_WORKERS", value: String(w.cfg.agentWorker.concurrency) },
+  ];
 }
 
 /** Frontend (Next.js + BFF + WS gateway) environment. */

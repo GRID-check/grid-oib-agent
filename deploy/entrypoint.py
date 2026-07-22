@@ -102,12 +102,40 @@ def main() -> int:
     if len(sys.argv) > 1:
         os.execvp(sys.argv[1], sys.argv[1:])
 
+    # Role split for horizontal scaling (ADR-0021). A dedicated worker container
+    # runs the DB-claimed research worker — no web server, no Dask cluster.
+    role = os.getenv("GRID_ROLE", "web").strip().lower()
+    if role == "worker":
+        print("Starting DB-claimed research worker (GRID_ROLE=worker)...", flush=True)
+        os.execvp("python", ["python", "-m", "aiq_api.jobs.worker"])
+
     config_file = os.getenv(
         "CONFIG_FILE",
         "/app/configs/config_web_default_llamaindex.yml",
     )
     host = os.getenv("HOST", "0.0.0.0")
     port = int(os.getenv("PORT", "8000"))
+
+    # In db-execution mode the web tier runs NO in-pod Dask cluster; research
+    # jobs are executed by dedicated worker containers instead. This is what lets
+    # the web/agent tier run as multiple stateless replicas.
+    if os.getenv("GRID_JOB_EXECUTION", "dask").strip().lower() == "db":
+        print("============================================", flush=True)
+        print("Grid agent web tier (db-execution, no Dask)", flush=True)
+        print(f"Config: {config_file}", flush=True)
+        print(f"API:    http://{host}:{port}", flush=True)
+        print("============================================", flush=True)
+        web_proc = subprocess.Popen(["python", "/app/deploy/start_web.py"])
+        threading.Thread(target=_run_oib_sync_background, daemon=True).start()
+
+        def _handle_web_signal(_signum: int, _frame: object) -> None:
+            print("Shutting down...", flush=True)
+            _terminate_process(web_proc)
+            sys.exit(0)
+
+        signal.signal(signal.SIGTERM, _handle_web_signal)
+        signal.signal(signal.SIGINT, _handle_web_signal)
+        return web_proc.wait()
     scheduler_port = int(os.getenv("DASK_SCHEDULER_PORT", "8786"))
     nworkers = os.getenv("DASK_NWORKERS", "1")
     nthreads = os.getenv("DASK_NTHREADS", "4")
