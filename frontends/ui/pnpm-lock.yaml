@@ -66,7 +66,7 @@ importers:
         specifier: ^4.1.18
         version: 4.3.3
       '@tanstack/react-form':
-        specifier: ^1.23.0
+        specifier: ^1.33.2
         version: 1.33.2(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@tanstack/react-query':
         specifier: ^5.101.2
