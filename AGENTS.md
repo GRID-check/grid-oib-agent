@@ -4,6 +4,8 @@ This repo is the Grid-branded AI-Q agent worktree. It contains a Next.js UI, a P
 
 This project is Docker-first. Run it via Docker Compose on Windows, macOS, or Linux; native commands are optional and mainly for local development outside the container stack.
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the branch/commit/PR-title conventions, local validation steps, the CI merge gate, and secret-scanning + doc-link hygiene.
+
 ## Repository layout
 
 | Path | Purpose |

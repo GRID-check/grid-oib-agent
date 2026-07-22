@@ -353,4 +353,4 @@ When the `aiq_debug` package is installed, the plugin registers a debug console 
 
 ## Related Documentation
 
-- [Project ARCHITECTURE](../../docs/source/architecture/overview.md) – Overall system architecture
+- [Project ARCHITECTURE](../../docs/architecture/overview.md) – Overall system architecture

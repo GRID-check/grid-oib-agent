@@ -217,6 +217,6 @@ flowchart TB
   identity, tenancy, storage, data model, contracts.
 - **[Grid Application Database](grid-app-database.md)** — how the BFF connects to `grid_app`,
   manages schemas with Drizzle, and runs migrations.
-- **[AI‑Q subsystem docs](../aiq/)** — how the existing AI‑Q machinery works.
+- **[Backend deep dive](backend-deep-dive.md)** — how the existing AI‑Q machinery works.
 - **[Architecture Decision Records](../README.md#decisions-adrs)** — the *why* behind each
   design choice.

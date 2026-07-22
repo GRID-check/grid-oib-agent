@@ -68,6 +68,13 @@ is not.
 
 - One logical change per Conventional Commit (`type(scope): summary`), on a
   feature branch cut from `develop` (or the session's designated branch).
+- **The PR title must itself be a valid Conventional Commit subject** — the repo
+  squash-merges the PR title, and the `Conventional PR title` check
+  (`.github/workflows/pr.yml`, `amannn/action-semantic-pull-request`) blocks the
+  PR otherwise. Use only the allowed types: `feat`, `fix`, `docs`, `refactor`,
+  `perf`, `test`, `ci`, `build`, `chore`, `revert` (e.g. `ci: …` for a
+  workflow-only change). A PR opened from the UI keeps whatever title it was
+  given — fix the title, not just the commits.
 - No secrets in the diff. No commented-out scaffolding, no narrate-the-change
   comments.
 - Pushed, with the push output shown (retry with backoff on network errors).
