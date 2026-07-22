@@ -26,6 +26,7 @@ jobs:
     outputs:
       backend: ${{ steps.filter.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend }}
+      deploy: ${{ steps.filter.outputs.deploy }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -44,6 +45,9 @@ jobs:
               - '.github/actions/**'
             frontend:
               - 'frontends/ui/**'
+              - '.github/workflows/ci.yml'
+            deploy:
+              - 'deploy/pulumi/**'
               - '.github/workflows/ci.yml'
 
   backend-lint:
@@ -149,10 +153,32 @@ jobs:
           path: frontends/ui/coverage/
           retention-days: 7
 
+  deploy-pulumi:
+    name: Deploy (Pulumi typecheck)
+    needs: changes
+    if: needs.changes.outputs.deploy == 'true'
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    defaults:
+      run:
+        working-directory: deploy/pulumi
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: deploy/pulumi/package-lock.json
+      # `npm ci` restores the CRD-generated type packages
+      # (@kubernetes-models/*). `tsc --noEmit` then validates every Gateway API /
+      # Envoy Gateway / cert-manager CustomResource spec against the real CRD
+      # schemas — a bad field fails here instead of at `pulumi up`.
+      - run: npm ci
+      - run: npm run typecheck
+
   ci-ok:
     name: CI OK
     if: always()
-    needs: [changes, backend-lint, backend-test, frontend]
+    needs: [changes, backend-lint, backend-test, frontend, deploy-pulumi]
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - name: Require needed jobs to have passed (skipped is fine)
