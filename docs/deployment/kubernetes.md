@@ -18,7 +18,7 @@ their own namespaces.
 
 | Workload | k8s object | Replicas | Storage | Scales by |
 |---|---|---|---|---|
-| `aiq-agent` (agent: web + Dask + Chroma) | **StatefulSet** | **1** | RWO PVC `/app/data` | **Vertically** (CPU/mem + Dask knobs). Singleton today. |
+| `aiq-agent` (agent: web + Dask + Chroma) | **StatefulSet** | **1** in `dask`; `backendReplicas` (default 2) in `db` | RWO PVC `/app/data` | **Vertically** (CPU/mem + Dask knobs) in `dask`; also horizontally in `db` (see §6.4) |
 | `frontend` (Next.js + BFF + WS gateway) | Deployment + HPA | 2→6 | — | Horizontally (CPU HPA) |
 | `purger` | Deployment | 1 | — | n/a (SKIP LOCKED-safe) |
 | `workflow-scheduler` | Deployment | 1 | — | n/a (DB-claimed ticks) |
@@ -91,15 +91,18 @@ Then:
 
 1. `kubectl -n envoy-gateway-system get svc` → note the Envoy proxy LoadBalancer external IP.
 2. Point DNS `A`/`AAAA` records for `appDomain` and `s3Domain` at it.
-3. Leave `useStagingIssuer: true` until the ingress is reachable and a staging
+3. Leave `useStagingIssuer: true` until the Gateway is reachable and a staging
    cert issues (avoids Let's Encrypt rate limits); then set it `false` and
    `pulumi up` for a trusted cert.
 4. Verify: `kubectl -n grid get pods,pvc,httproute,gateway,cluster`.
 
-The base OIB corpus is **not** shipped in the image or from git — it is
-volume-based. Load it through the platform-admin upload UI once the stack is up;
-it persists on the agent's `/app/data` PVC and is embedded into Chroma on the
-fly.
+The base OIB corpus PDFs **ship in the image (tracked in git under `data/oib/`)**
+and self-ingest on first start — `deploy/entrypoint.py` runs a background OIB
+sync of the repo corpus, so the knowledge base is not empty on boot. What is
+volume-based is the **Chroma vector index** (rebuilt on the agent's `/app/data`
+PVC), not the source PDFs. The platform-admin upload UI is for **additional**
+base documents (written to `OIB_UPLOADS_DIR`), not for loading the shipped
+corpus.
 
 ---
 
@@ -121,7 +124,7 @@ you want HA object storage): migrate to the upstream **SeaweedFS Helm chart**
 and lets you run N volume servers and move the filer metadata store onto
 Postgres. Because the bucket name (`grid-documents`) and object-key layout are
 unchanged, this is a data-preserving migration (an `rclone sync` or the existing
-`scripts/migrate-storage.mjs` between the old and new S3 endpoints — the same
+`frontends/ui/scripts/migrate-storage.mjs` between the old and new S3 endpoints — the same
 pattern used for the MinIO→SeaweedFS cutover in
 [`minio-to-seaweedfs-migration.md`](./minio-to-seaweedfs-migration.md)).
 

@@ -1,6 +1,6 @@
 # ADR-0021: DB-claimed workers for deep-research execution (retiring per-pod Dask)
 
-- **Status:** Accepted — implemented behind `GRID_JOB_EXECUTION=db|dask` (default `dask`). See `frontends/aiq_api/src/aiq_api/jobs/{queue,worker}.py`, the submit switch in `jobs/submit.py`, and the `agent-worker` tier in `deploy/pulumi`. The chat/web tier remains single-replica pending the ingest-status + reaper-lock follow-up (docs/deployment/kubernetes.md §6.3).
+- **Status:** Accepted — implemented behind `GRID_JOB_EXECUTION=db|dask` (default `dask`). See `frontends/aiq_api/src/aiq_api/jobs/{queue,worker}.py`, the submit switch in `jobs/submit.py`, and the `agent-worker` tier in `deploy/pulumi`. In `db` mode the chat/web tier also runs multiple replicas (`backendReplicas`, default 2); the ingest-status store and the reaper leader-lock this requires are now implemented (docs/deployment/kubernetes.md §6.4).
 - **Date:** 2026-07-09
 - **Deciders:** Platform engineering
 - **Related:** ADR-0018 (per-run state), ADR-0011 (deletion pipeline — the pattern source), ../architecture/scaling-review-2026-07.md

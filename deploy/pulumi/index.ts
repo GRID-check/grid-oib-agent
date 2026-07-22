@@ -2,7 +2,7 @@
  * Grid OIB — Kubernetes deployment (Pulumi / TypeScript).
  *
  * Provisions the whole stack against a provider-supplied kubeconfig:
- *   platform  → cert-manager (+ Let's Encrypt issuer), Traefik, metrics-server
+ *   platform  → cert-manager (+ Let's Encrypt issuer), Envoy Gateway, metrics-server
  *   data      → CloudNativePG Postgres (3 DBs), Dragonfly cache, SeaweedFS (S3)
  *   app       → aiq-agent (StatefulSet, the singleton agent), frontend
  *               (Deployment + HPA), purger, workflow-scheduler, a migration Job

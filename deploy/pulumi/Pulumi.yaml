@@ -7,7 +7,7 @@ description: >-
   Kubernetes deployment for the Grid OIB agent stack (backend agent, Next.js
   frontend/BFF, purger + workflow-scheduler workers, CloudNativePG Postgres,
   Dragonfly cache, SeaweedFS object storage) plus platform add-ons
-  (cert-manager, ingress-nginx). Authored in TypeScript.
+  (cert-manager, Envoy Gateway via the Kubernetes Gateway API). Authored in TypeScript.
 
 # Per-stack configuration lives in Pulumi.<stack>.yaml (e.g. Pulumi.prod.yaml).
 # Secrets there are encrypted by the stack's secrets provider, so the file is

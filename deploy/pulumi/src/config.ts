@@ -109,7 +109,7 @@ export interface GridConfig {
      * Web/chat replica count. Only applied when jobExecution="db" (in "dask"
      * mode the agent is a hard singleton and this is forced to 1). The
      * chat/retrieval path is replica-safe via shared Chroma + Postgres + cache;
-     * see the base-corpus-upload caveat in docs/deployment/kubernetes.md §6.3.
+     * see the base-corpus-upload caveat in docs/deployment/kubernetes.md §6.4.
      */
     replicas: number;
   };
@@ -202,6 +202,24 @@ function bool(cfg: pulumi.Config, key: string, fallback: boolean): boolean {
 export function loadConfig(): GridConfig {
   const cfg = new pulumi.Config();
 
+  const jobExecution: "dask" | "db" = (cfg.get("jobExecution") ?? "dask") === "db" ? "db" : "dask";
+
+  // Fail closed: db-claimed job payloads carry the user's auth token and persist
+  // in Postgres (table + WAL + backups + replicas). Refuse to deploy db mode
+  // without a KEK to encrypt them at rest, unless plaintext is explicitly opted
+  // into for dev. Guards against the silent plaintext-token-at-rest default.
+  const jobPayloadKek = cfg.getSecret("jobPayloadKek");
+  const allowPlaintextJobPayloads = bool(cfg, "allowPlaintextJobPayloads", false);
+  if (jobExecution === "db" && jobPayloadKek === undefined && !allowPlaintextJobPayloads) {
+    throw new Error(
+      "jobExecution=db persists research-job payloads (which carry the user auth token) in Postgres, " +
+        "so they must be encrypted at rest. Set a 32-byte base64 KEK:\n" +
+        "  pulumi config set --secret grid-oib:jobPayloadKek $(openssl rand -base64 32)\n" +
+        "To deliberately run with PLAINTEXT payloads (dev/single-node only), set:\n" +
+        "  pulumi config set grid-oib:allowPlaintextJobPayloads true",
+    );
+  }
+
   return {
     namespace: cfg.get("namespace") ?? "grid",
     kubeconfig: cfg.requireSecret("kubeconfig"),
@@ -280,7 +298,7 @@ export function loadConfig(): GridConfig {
       hpaCpuTargetPercent: num(cfg, "frontendHpaCpuTargetPercent", 70),
     },
 
-    jobExecution: (cfg.get("jobExecution") ?? "dask") === "db" ? "db" : "dask",
+    jobExecution,
     agentWorker: {
       resources: {
         requestsCpu: cfg.get("agentWorkerRequestsCpu") ?? "1",
@@ -321,7 +339,7 @@ export function loadConfig(): GridConfig {
     internal: {
       apiToken: cfg.requireSecret("gridInternalApiToken"),
       adminToken: cfg.requireSecret("gridAdminToken"),
-      jobPayloadKek: cfg.getSecret("jobPayloadKek") ?? pulumi.output(""),
+      jobPayloadKek: jobPayloadKek ?? pulumi.output(""),
     },
 
     workflows: {

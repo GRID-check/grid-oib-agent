@@ -16,7 +16,8 @@
 #   pulumi config set --secret grid-oib:workosApiKey          "sk_live_..."
 #   pulumi config set --secret grid-oib:workosCookiePassword  "$(openssl rand -hex 32)"
 #   # Encrypts DB-claimed job payloads at rest (they carry the user auth token).
-#   # Strongly recommended whenever jobExecution=db:
+#   # REQUIRED whenever jobExecution=db (the deploy fails closed without it; set
+#   # grid-oib:allowPlaintextJobPayloads=true to override for dev/single-node):
 #   pulumi config set --secret grid-oib:jobPayloadKek          "$(openssl rand -base64 32)"
 #   # Optional (only if using the local BYOK backend):
 #   pulumi config set --secret grid-oib:byokLocalKek          "$(openssl rand -base64 32)"
