@@ -22,6 +22,11 @@ runs:
 
     - name: Create venv and sync dev deps
       shell: bash
+      # Pass the input through env rather than interpolating ${{ }} straight into
+      # the run script — avoids the shell-injection pattern Semgrep flags
+      # (run-shell-injection), even though this input is CI-controlled today.
+      env:
+        PYTHON_VERSION: ${{ inputs.python-version }}
       run: |
-        uv venv --python ${{ inputs.python-version }} .venv
+        uv venv --python "$PYTHON_VERSION" .venv
         uv sync --group dev
