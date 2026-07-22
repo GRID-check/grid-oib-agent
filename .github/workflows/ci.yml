@@ -7,9 +7,9 @@ name: CI
 # directly (no copy-pr-bot).
 on:
   push:
-    branches: [develop, "release/**"]
+    branches: [develop, prod, "release/**"]
   pull_request:
-    branches: [develop, "release/**"]
+    branches: [develop, prod, "release/**"]
 
 permissions:
   contents: read
