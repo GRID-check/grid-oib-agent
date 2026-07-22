@@ -4,5 +4,3 @@ bin/
 # Pulumi writes no local secrets, but guard against accidental plaintext dumps.
 Pulumi.*.yaml.bak
 
-# crd2pulumi generated SDK: keep source + built bin, ignore its deps
-crds/node_modules/

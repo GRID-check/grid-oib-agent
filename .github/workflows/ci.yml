@@ -149,11 +149,10 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: deploy/pulumi/package-lock.json
-      # `npm ci` runs the `prepare` hook, which builds the crd2pulumi SDK
-      # (crds/bin) from the committed generated source. `tsc --noEmit` then
-      # validates the whole program — including every Gateway API / Envoy Gateway
-      # / cert-manager CustomResource spec against the real CRD schema — so a bad
-      # field fails here instead of at `pulumi up`.
+      # `tsc --noEmit` validates the whole program, including every Gateway API /
+      # Envoy Gateway / cert-manager CustomResource `spec` against the upstream
+      # CRD schema types (@kubernetes-models, import-type) — so a bad spec field
+      # fails here instead of at `pulumi up`.
       - run: npm ci
       - run: npm run typecheck
 
