@@ -150,17 +150,13 @@ class TestMergeResults:
 
     def test_tolerates_exception_layer(self):
         ok = _result([_chunk(0.6)])
-        merged = _merge_results(
-            [ok, RuntimeError("boom")], query="q", top_k=5, backend_name="llamaindex"
-        )
+        merged = _merge_results([ok, RuntimeError("boom")], query="q", top_k=5, backend_name="llamaindex")
         assert merged.success is True
         assert [c.score for c in merged.chunks] == [0.6]
 
     def test_all_failed_returns_empty_success(self):
         failed = _result([], success=False, error="Collection not found")
-        merged = _merge_results(
-            [failed, RuntimeError("boom")], query="q", top_k=5, backend_name="llamaindex"
-        )
+        merged = _merge_results([failed, RuntimeError("boom")], query="q", top_k=5, backend_name="llamaindex")
         # success=True with empty chunks so _format_results renders "No relevant documents found"
         assert merged.success is True
         assert merged.chunks == []

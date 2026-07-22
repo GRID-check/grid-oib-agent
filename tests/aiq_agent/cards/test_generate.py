@@ -30,7 +30,7 @@ class TestParseCardsText:
         assert _parse_cards_text('{"type": "summary", "title": "T"}') == [{"type": "summary", "title": "T"}]
 
     def test_code_fence_wrapping(self):
-        assert _parse_cards_text('```json\n' + _ONE_CARD_OBJECT + '\n```')[0]["title"] == "Überblick"
+        assert _parse_cards_text("```json\n" + _ONE_CARD_OBJECT + "\n```")[0]["title"] == "Überblick"
 
     def test_leading_and_trailing_prose_is_salvaged(self):
         """The reported failure mode: a whole-string json.loads throws on any

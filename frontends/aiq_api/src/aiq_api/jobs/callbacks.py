@@ -696,9 +696,7 @@ class AgentEventCallback(BaseCallbackHandler):
 
         # Drop non-URL tool_result placeholders (noise from non-data tools).
         useful = [
-            entry
-            for entry in entries
-            if entry.url or entry.citation_key or (entry.source_type == "knowledge_layer")
+            entry for entry in entries if entry.url or entry.citation_key or (entry.source_type == "knowledge_layer")
         ]
 
         if not useful and self._is_search_tool(tool_name):

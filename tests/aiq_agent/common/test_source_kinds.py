@@ -113,7 +113,5 @@ class TestBindingNote:
         assert "binding_note" not in source_entry_to_wire(entry)
 
     def test_ris_without_registry_match_has_no_binding_note(self):
-        entry = SourceEntry(
-            url="https://www.ris.bka.gv.at/Dokumente/Bundesnormen/NOR99999999", source_type="generic"
-        )
+        entry = SourceEntry(url="https://www.ris.bka.gv.at/Dokumente/Bundesnormen/NOR99999999", source_type="generic")
         assert "binding_note" not in source_entry_to_wire(entry)
