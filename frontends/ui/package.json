@@ -61,7 +61,7 @@
     "http-proxy": "^1.18.1",
     "ioredis": "^5.11.1",
     "katex": "^0.16.47",
-    "lucide-react": "^0.545.0",
+    "lucide-react": "^1.24.0",
     "marked": "^18.0.7",
     "motion": "^12.42.2",
     "next": "^16.2.10",
