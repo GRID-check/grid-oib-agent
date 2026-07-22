@@ -1,0 +1,78 @@
+# Scaling review — Phase 2 (agent state & persistence)
+
+Follow-up to `scaling-review-2026-07.md` (which was assessment-only). This round
+was a four-agent investigation of **where the deep-research agent accumulates
+information that does not scale**, across three axes: per-run context/state, the
+knowledge/memory layer, and the async-job/Postgres layer. Each finding is
+corroborated with `file:line` evidence. Items marked **[LANDED]** are fixed in
+this PR; the rest are prioritized for follow-up.
+
+## Verdict
+
+The horizontal *mechanics* are sound (DB-claimed workers, shared Chroma, leader
+locks). The problem is **unbounded accumulation** in three places and several
+**hot-path queries/loops that scale with total history rather than active work**.
+It runs fine at low volume and degrades continuously with usage (one exception —
+the TTL-cleanup lock — is a cliff).
+
+## P0 — unbounded growth / hot-path (fix first)
+
+1. **LangGraph checkpoint tables never cleaned** (`checkpoints`/`checkpoint_blobs`/
+   `checkpoint_writes`). Only whole-project deletion purges them
+   (`routes/maintenance.py:69-80`); per-run byte growth is superlinear (full-state
+   blob per changed channel per step, `agent.py:314-365`). *Fix:* completion-triggered
+   purge keyed `thread_id = job_id` when a run reaches a terminal status (reuse the
+   existing purge SQL).
+2. **`job_info` / `job_access` never expire in `db` mode** — NAT's periodic cleanup
+   Dask task is skipped (`routes/jobs.py:1155`) and nothing replaces it; also slows
+   the admission-count query on every submit. *Fix:* a leader-locked scheduled
+   expiry (mirror the ghost-reaper lock).
+3. **Per-token `job_events` inserts** (`callbacks.py:759-767`) — one row per streamed
+   LLM token. Bounded by the 24h TTL (`event_store.py:649`) but heavy; **[LANDED]**
+   `idx_job_events_created_at` so the TTL delete + ghost-reaper scan aren't full-table.
+4. **Admission count unindexed on `organization_id`** — **[LANDED]** `idx_job_access_org`.
+5. **`ingest_jobs` grew forever** (dead `delete()`) — **[LANDED]** wired into the
+   retention prune.
+
+## P1 — knowledge/memory per-turn & per-run cost
+
+6. **`available_documents` dumps the whole project doc-summary table into every
+   chat-turn prompt** (`chat_researcher/register.py:833`, `summary_store.get_all` with
+   no LIMIT, 5 j2 templates). Per-turn LLM cost grows linearly with document count.
+   *Fix:* cap to top-N (recency/relevance) at the aggregation layer, or a
+   search-first `available_documents` tool.
+7. **No orchestrator-level context compaction** — summarization is wired only into
+   the leaf researcher (`factory.py:363`), not orchestrator/planner/writer; ~80k-token
+   contexts confirmed. The budget guard counts only output tokens and is off by
+   default (`budget_guard.py`). *Fix:* orchestrator-level summarization + prompt-token
+   accounting in the guard.
+8. **`run_research_batch` gathers all workers then `json.dumps` everything** into one
+   ToolMessage (`tools/research.py:192-226,305`); writer keeps a ~1M-char window. *Fix:*
+   stream/paginate note aggregation; writer reads persisted note files incrementally.
+9. **TTL cleanup holds the shared ingest lock across a full store scan**
+   (`base.py:106-153` → `adapter.py:1755` inside `self._lock`) — blocks all
+   uploads/deletes, worsens with corpus size (a cliff). *Fix:* compute the deletion
+   set off-lock; use Chroma `count()` not full metadata walks.
+10. **`proj_*` Chroma collections never TTL'd** (`base.py:116`) — one persistent
+    collection per project forever. *Fix:* archival policy for inactive projects.
+
+## P2 — resource/robustness
+
+11. **Fleet-wide Postgres connections uncapped** (~30/process × replicas + 1 unpooled
+    per SSE viewer). *Fix:* central connection budget + SSE cap.
+12. **`reap_exhausted` runs every worker every tick, un-leader-locked**
+    (`worker.py:161`) — DB load scales with worker count, not job volume. *Fix:*
+    leader-lock or de-cadence.
+13. **`self._files` in-process dict never pruned** + O(n²) `list_files`
+    (`adapter.py:1345,2055`). *Fix:* prune on the `_jobs` cadence.
+14. **Uncapped embedded-image extraction + sequential VLM captioning**
+    (`adapter.py:453,2579`) — one image-heavy PDF can starve the 2-worker ingest pool.
+    *Fix:* cap image count (mirror `MAX_RENDERED_PAGES`), bound VLM concurrency.
+15. **In-process citation registry, no per-run cap + 1000-session LRU, not
+    replica-safe** (`citation_verification.py:180,409`). *Fix:* per-run cap; externalize.
+
+## Landed in this PR
+- `idx_job_access_org`, `idx_job_events_created_at` in the authoritative runtime
+  schema-ensure (access.py / event_store.py) — see ADR-0027 for why they live there
+  and not in the infra bootstraps.
+- `ingest_jobs` retention (dead `delete()` wired).
