@@ -1,0 +1,102 @@
+import * as k8s from "@pulumi/kubernetes";
+import * as pulumi from "@pulumi/pulumi";
+import { GridConfig } from "../config";
+import { commonLabels } from "../platform/namespaces";
+
+export interface Chroma {
+  statefulSet: k8s.apps.v1.StatefulSet;
+  service: k8s.core.v1.Service;
+  /** In-cluster URL every backend replica + worker points AIQ_CHROMA_URL at. */
+  url: pulumi.Output<string>;
+}
+
+/**
+ * Shared ChromaDB server (horizontal scaling — Stage A).
+ *
+ * Replaces the per-pod embedded `PersistentClient` with ONE Chroma server that
+ * every backend replica and research worker talks to over HTTP. The vector
+ * store stops being pinned to a single pod's disk, which is the precondition
+ * for running the agent web tier and workers as multiple replicas.
+ *
+ * Chroma's open-source server is itself single-node (one process on a durable
+ * Lightbits PVC); that is fine — it is the *shared* store, not a per-replica
+ * one. Its own HA is a separate, later concern.
+ */
+export function installChroma(
+  cfg: GridConfig,
+  provider: k8s.Provider,
+  namespace: pulumi.Input<string>,
+): Chroma {
+  const labels = commonLabels("chroma");
+
+  const statefulSet = new k8s.apps.v1.StatefulSet(
+    "chroma",
+    {
+      metadata: { name: "chroma", namespace, labels },
+      spec: {
+        serviceName: "chroma",
+        replicas: 1,
+        selector: { matchLabels: labels },
+        template: {
+          metadata: { labels },
+          spec: {
+            securityContext: { fsGroup: 1000 },
+            containers: [
+              {
+                name: "chroma",
+                image: cfg.chroma.image,
+                ports: [{ containerPort: 8000, name: "http" }],
+                env: [
+                  { name: "IS_PERSISTENT", value: "TRUE" },
+                  { name: "PERSIST_DIRECTORY", value: "/data" },
+                  { name: "ANONYMIZED_TELEMETRY", value: "FALSE" },
+                ],
+                volumeMounts: [{ name: "data", mountPath: "/data" }],
+                readinessProbe: {
+                  httpGet: { path: "/api/v1/heartbeat", port: 8000 },
+                  initialDelaySeconds: 10,
+                  periodSeconds: 10,
+                  failureThreshold: 12,
+                },
+                livenessProbe: {
+                  httpGet: { path: "/api/v1/heartbeat", port: 8000 },
+                  initialDelaySeconds: 30,
+                  periodSeconds: 20,
+                },
+                resources: {
+                  requests: { cpu: "250m", memory: "512Mi" },
+                  limits: { cpu: "2", memory: "4Gi" },
+                },
+              },
+            ],
+          },
+        },
+        volumeClaimTemplates: [
+          {
+            metadata: { name: "data" },
+            spec: {
+              accessModes: ["ReadWriteOnce"],
+              storageClassName: cfg.storage.className,
+              resources: { requests: { storage: cfg.chroma.storageSize } },
+            },
+          },
+        ],
+      },
+    },
+    { provider },
+  );
+
+  const service = new k8s.core.v1.Service(
+    "chroma",
+    {
+      metadata: { name: "chroma", namespace, labels },
+      spec: {
+        selector: labels,
+        ports: [{ port: 8000, targetPort: 8000, name: "http" }],
+      },
+    },
+    { provider, dependsOn: statefulSet },
+  );
+
+  return { statefulSet, service, url: pulumi.output("http://chroma:8000") };
+}

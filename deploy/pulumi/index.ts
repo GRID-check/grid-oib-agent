@@ -23,6 +23,7 @@ import { installIngressNginx } from "./src/platform/ingress-nginx";
 import { installPostgres } from "./src/data/postgres";
 import { installDragonfly } from "./src/data/dragonfly";
 import { installSeaweedFS } from "./src/data/seaweedfs";
+import { installChroma } from "./src/data/chroma";
 import { AppWiring, buildSecrets } from "./src/app/config";
 import { runMigrations } from "./src/app/migrations-job";
 import { installBackend } from "./src/app/backend";
@@ -44,6 +45,7 @@ const ingressNginx = installIngressNginx(provider);
 const postgres = installPostgres(cfg, provider, namespace);
 const dragonfly = installDragonfly(cfg, provider, namespace);
 const seaweed = installSeaweedFS(cfg, provider, namespace);
+const chroma = cfg.chroma.enabled ? installChroma(cfg, provider, namespace) : undefined;
 
 // ── Shared wiring for the app tier ─────────────────────────────────────────
 const wiring: AppWiring = {
@@ -53,6 +55,7 @@ const wiring: AppWiring = {
   redisUrl: dragonfly.url,
   seaweedInternalEndpoint: seaweed.internalEndpoint,
   seaweedPublicEndpoint: seaweed.publicEndpoint,
+  chromaUrl: chroma?.url,
   dsn: postgres.dsn,
 };
 
@@ -67,6 +70,7 @@ const backend = installBackend(wiring, cfg, secret, [
   postgres.initJob,
   seaweed.bucketInitJob,
   dragonfly.service,
+  ...(chroma ? [chroma.service] : []),
 ]);
 
 const frontend = installFrontend(wiring, cfg, secret, [migrations, backend.service]);
@@ -89,3 +93,4 @@ export const frontendService = frontend.service.metadata.name;
 export const purgerDeployment = workers.purger.metadata.name;
 export const schedulerDeployment = workers.scheduler.metadata.name;
 export const appIngress = ingress.app.metadata.name;
+export const chromaUrl = chroma ? chroma.url : pulumi.output("embedded");
