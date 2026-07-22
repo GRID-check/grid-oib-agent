@@ -20,29 +20,53 @@ jobs:
     name: Build backend image
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Setup Blacksmith Builder
         uses: useblacksmith/setup-docker-builder@v1
-      - name: Build (release target, no push)
+      - name: Build (release target, load for scan, no push)
         uses: useblacksmith/build-push-action@v2
         with:
           context: .
           file: deploy/Dockerfile
           target: release
           push: false
+          load: true # load into the local daemon so Trivy can scan it
+          tags: grid-oib-backend:ci
           # The OIB knowledge base is volume-based (embedded live on first boot);
           # nothing knowledge-related is baked at build time.
+      # Scan the built image for OS/base-layer + library CVEs — the layer neither
+      # Dependabot nor OSV-Scanner see (they only read app lockfiles).
+      - name: Trivy image scan (backend)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: grid-oib-backend:ci
+          scan-type: image
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true # only block on CVEs that actually have a fix
+          exit-code: "1"
+          vuln-type: os,library
 
   frontend:
     name: Build frontend image
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Setup Blacksmith Builder
         uses: useblacksmith/setup-docker-builder@v1
-      - name: Build (no push)
+      - name: Build (load for scan, no push)
         uses: useblacksmith/build-push-action@v2
         with:
           context: frontends/ui
           file: frontends/ui/deploy/Dockerfile
           push: false
+          load: true
+          tags: grid-oib-frontend:ci
+      - name: Trivy image scan (frontend)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: grid-oib-frontend:ci
+          scan-type: image
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          vuln-type: os,library
