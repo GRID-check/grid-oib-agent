@@ -64,7 +64,7 @@
     "lucide-react": "^0.545.0",
     "marked": "^16.4.2",
     "motion": "^12.42.2",
-    "next": "^16.2.9",
+    "next": "^16.2.11",
     "postgres": "^3.4.0",
     "react": "^18.2.0",
     "react-complex-tree": "^2.6.2",
