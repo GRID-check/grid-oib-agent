@@ -44,6 +44,12 @@ config:
   grid-oib:seaweedfsBucket: grid-documents
   grid-oib:seaweedfsAccessKey: grid
 
+  # ── Shared Chroma vector store (horizontal scaling) ──
+  # true = one shared Chroma server all agent replicas/workers use (unpins
+  # vectors from a single pod). false = embedded per-pod Chroma (single agent).
+  grid-oib:chromaEnabled: "true"
+  grid-oib:chromaStorageSize: 20Gi
+
   # ── Agent (backend) — vertical scaling levers ──
   grid-oib:backendRequestsCpu: "1"
   grid-oib:backendRequestsMemory: 2Gi

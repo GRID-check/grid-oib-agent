@@ -67,6 +67,46 @@ DEFAULT_VLM_MODEL = os.environ.get("AIQ_VLM_MODEL", "nvidia/nemotron-nano-12b-v2
 DEFAULT_VLM_BASE_URL = os.environ.get("AIQ_VLM_BASE_URL", "https://integrate.api.nvidia.com/v1")
 
 
+# ---------------------------------------------------------------------------
+# ChromaDB client construction (embedded vs shared server).
+#
+# Horizontal scaling: when AIQ_CHROMA_URL (e.g. ``http://chroma:8000``) or
+# AIQ_CHROMA_HOST is set, every backend replica and research worker talks to ONE
+# shared Chroma server over HTTP instead of each opening its own embedded
+# PersistentClient on local disk (which pins the vector store to a single pod).
+# Unset -> today's embedded behaviour, unchanged, so local dev and single-node
+# deployments are untouched. The returned client is API-compatible either way,
+# so every downstream call site (collections, queries, count/peek, heartbeat)
+# is identical.
+# ---------------------------------------------------------------------------
+def _make_chroma_client(persist_dir: str):
+    """Return a ChromaDB client: shared HTTP server when configured, else embedded."""
+    import chromadb
+    from chromadb.config import Settings
+
+    settings = Settings(anonymized_telemetry=False)
+
+    url = os.environ.get("AIQ_CHROMA_URL", "").strip()
+    host = os.environ.get("AIQ_CHROMA_HOST", "").strip()
+    port_env = os.environ.get("AIQ_CHROMA_PORT", "").strip()
+
+    if url:
+        from urllib.parse import urlparse
+
+        parsed = urlparse(url)
+        host = parsed.hostname or host
+        ssl = parsed.scheme == "https"
+        port = parsed.port or (443 if ssl else 8000)
+    elif host:
+        ssl = os.environ.get("AIQ_CHROMA_SSL", "").lower() in ("1", "true", "yes")
+        port = int(port_env) if port_env.isdigit() else (443 if ssl else 8000)
+    else:
+        os.makedirs(persist_dir, exist_ok=True)
+        return chromadb.PersistentClient(path=persist_dir, settings=settings)
+
+    return chromadb.HttpClient(host=host, port=port, ssl=ssl, settings=settings)
+
+
 # Image extraction settings - filters out small icons/logos
 MIN_IMAGE_WIDTH_PX = 100
 MIN_IMAGE_HEIGHT_PX = 100
@@ -1364,15 +1404,8 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         """Get or create the shared ChromaDB client (thread-safe)."""
         with self._lock:
             if self._chroma_client is None:
-                import chromadb
-                from chromadb.config import Settings
-
-                os.makedirs(self.persist_dir, exist_ok=True)
-                # Disable telemetry to reduce file descriptor usage
-                self._chroma_client = chromadb.PersistentClient(
-                    path=self.persist_dir,
-                    settings=Settings(anonymized_telemetry=False),
-                )
+                # Shared server when AIQ_CHROMA_URL/HOST is set, else embedded.
+                self._chroma_client = _make_chroma_client(self.persist_dir)
             return self._chroma_client
 
     def _update_file_status(
@@ -2296,7 +2329,6 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             self._ensure_initialized()
 
             # Import LlamaIndex components
-            import chromadb
             from llama_index.core import Document
             from llama_index.core import Settings
             from llama_index.core import StorageContext
@@ -2328,17 +2360,14 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             base_vlm_model = config.get("vlm_model", self.vlm_model)
             vlm_model = _resolve_vlm_model_override(organization_id) or base_vlm_model
 
-            # Set up ChromaDB client (use shared client if using default persist_dir)
+            # Set up ChromaDB client (use shared client if using default persist_dir).
+            # In shared-server mode _make_chroma_client ignores persist_dir and
+            # returns the one server client regardless of branch.
             persist_dir = config.get("persist_dir", self.persist_dir)
             if persist_dir == self.persist_dir:
                 chroma_client = self._get_chroma_client()
             else:
-                from chromadb.config import Settings as ChromaSettings
-
-                chroma_client = chromadb.PersistentClient(
-                    path=persist_dir,
-                    settings=ChromaSettings(anonymized_telemetry=False),
-                )
+                chroma_client = _make_chroma_client(persist_dir)
 
             # Get or create collection
             chroma_collection = chroma_client.get_or_create_collection(
@@ -2984,8 +3013,6 @@ class LlamaIndexRetriever(BaseRetriever):
 
     def _initialize_components(self):
         try:
-            import chromadb
-            from chromadb.config import Settings as ChromaSettings
             from llama_index.core import Settings
             from llama_index.embeddings.nvidia import NVIDIAEmbedding
 
@@ -3003,11 +3030,8 @@ class LlamaIndexRetriever(BaseRetriever):
             )
             Settings.embed_model = self._embed_model
 
-            # Disable telemetry to reduce file descriptor usage
-            self._chroma_client = chromadb.PersistentClient(
-                path=self.persist_dir,
-                settings=ChromaSettings(anonymized_telemetry=False),
-            )
+            # Shared server when AIQ_CHROMA_URL/HOST is set, else embedded.
+            self._chroma_client = _make_chroma_client(self.persist_dir)
 
             self._initialized = True
             logger.info("LlamaIndex retriever components initialized")
@@ -3277,14 +3301,8 @@ def list_collections(persist_dir: str | None = None) -> list[dict[str, Any]]:
     if persist_dir is None:
         persist_dir = os.environ.get("AIQ_CHROMA_DIR", "/tmp/chroma_data")
     try:
-        import chromadb
-        from chromadb.config import Settings
-
-        # Disable telemetry to reduce file descriptor usage
-        client = chromadb.PersistentClient(
-            path=persist_dir,
-            settings=Settings(anonymized_telemetry=False),
-        )
+        # Shared server when AIQ_CHROMA_URL/HOST is set, else embedded.
+        client = _make_chroma_client(persist_dir)
         collections = client.list_collections()
 
         return [

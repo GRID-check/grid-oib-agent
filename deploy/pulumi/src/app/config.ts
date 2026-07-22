@@ -11,6 +11,8 @@ export interface AppWiring {
   redisUrl: pulumi.Output<string>;
   seaweedInternalEndpoint: pulumi.Output<string>;
   seaweedPublicEndpoint: pulumi.Output<string>;
+  /** Shared Chroma server URL (set when cfg.chroma.enabled). */
+  chromaUrl?: pulumi.Output<string>;
   dsn: (opts: { db: string; driver?: string }) => pulumi.Output<string>;
 }
 
@@ -68,13 +70,14 @@ function srefAs(name: string, key: string): EnvVar {
  */
 export function backendEnv(w: AppWiring): EnvVar[] {
   const { cfg } = w;
-  return [
+  const env: EnvVar[] = [
     { name: "APP_ENV", value: "production" },
     { name: "LOG_LEVEL", value: "INFO" },
     { name: "HOST", value: "0.0.0.0" },
     { name: "PORT", value: "8000" },
     { name: "CONFIG_FILE", value: cfg.backend.configFile },
     { name: "COLLECTION_NAME", value: "oib_knowledge" },
+    // Embedded fallback dir (used only when AIQ_CHROMA_URL is unset).
     { name: "AIQ_CHROMA_DIR", value: cfg.backend.chromaDir },
     { name: "OIB_UPLOADS_DIR", value: "/app/data/oib_uploads" },
     { name: "GRID_NORMS_DIR", value: "configs/norms" },
@@ -114,6 +117,12 @@ export function backendEnv(w: AppWiring): EnvVar[] {
     sref("SEAWEED_SECRET_KEY"),
     { name: "SEAWEED_BUCKET", value: cfg.seaweedfs.bucket },
   ];
+  // Shared Chroma server (horizontal scaling): when set, the adapter uses an
+  // HttpClient instead of the embedded per-pod store.
+  if (w.chromaUrl) {
+    env.push({ name: "AIQ_CHROMA_URL", value: w.chromaUrl });
+  }
+  return env;
 }
 
 /** Frontend (Next.js + BFF + WS gateway) environment. */

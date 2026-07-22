@@ -63,6 +63,16 @@ export interface GridConfig {
     maxmemory: string;
   };
 
+  chroma: {
+    /**
+     * Run a shared Chroma server (horizontal scaling). When true, the backend
+     * points AIQ_CHROMA_URL at it instead of using an embedded per-pod store.
+     */
+    enabled: boolean;
+    image: string;
+    storageSize: string;
+  };
+
   seaweedfs: {
     storageSize: string;
     bucket: string;
@@ -193,6 +203,12 @@ export function loadConfig(): GridConfig {
 
     dragonfly: {
       maxmemory: cfg.get("dragonflyMaxmemory") ?? "512mb",
+    },
+
+    chroma: {
+      enabled: bool(cfg, "chromaEnabled", true),
+      image: cfg.get("chromaImage") ?? "chromadb/chroma:0.5.23",
+      storageSize: cfg.get("chromaStorageSize") ?? "20Gi",
     },
 
     seaweedfs: {
