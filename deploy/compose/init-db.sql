@@ -66,7 +66,6 @@ CREATE TABLE IF NOT EXISTS job_access (
 );
 
 CREATE INDEX IF NOT EXISTS idx_job_access_owner ON job_access(owner_auth_type, owner_subject);
-CREATE INDEX IF NOT EXISTS idx_job_access_org ON job_access(organization_id);
 
 -- Job events table (SSE streaming, event persistence)
 CREATE TABLE IF NOT EXISTS job_events (
@@ -79,7 +78,6 @@ CREATE TABLE IF NOT EXISTS job_events (
 
 CREATE INDEX IF NOT EXISTS idx_job_events_job_id ON job_events(job_id);
 CREATE INDEX IF NOT EXISTS idx_job_events_job_id_id ON job_events(job_id, id);
-CREATE INDEX IF NOT EXISTS idx_job_events_created_at ON job_events(created_at);
 
 -- Document summaries table
 CREATE TABLE IF NOT EXISTS summaries (

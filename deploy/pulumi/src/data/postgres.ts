@@ -35,7 +35,6 @@ CREATE TABLE IF NOT EXISTS job_events (
   event_data TEXT, created_at TIMESTAMPTZ DEFAULT NOW());
 CREATE INDEX IF NOT EXISTS idx_job_events_job_id ON job_events(job_id);
 CREATE INDEX IF NOT EXISTS idx_job_events_job_id_id ON job_events(job_id, id);
-CREATE INDEX IF NOT EXISTS idx_job_events_created_at ON job_events(created_at);
 CREATE TABLE IF NOT EXISTS summaries (
   collection VARCHAR(256) NOT NULL, filename VARCHAR(512) NOT NULL, summary TEXT NOT NULL,
   created_at TIMESTAMPTZ DEFAULT NOW(), PRIMARY KEY (collection, filename));
