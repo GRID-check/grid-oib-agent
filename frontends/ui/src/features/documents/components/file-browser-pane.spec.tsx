@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, within } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { FileBrowserPane } from './file-browser-pane'
@@ -169,6 +169,91 @@ describe('FileBrowserPane — search', () => {
     await user.type(screen.getByRole('textbox', { name: /search files/i }), 'plan')
     await user.click(screen.getByRole('button', { name: /reset search/i }))
     expect(screen.getByRole('textbox', { name: /search files/i })).toHaveValue('')
+    expect(screen.getByText('permit.pdf')).toBeInTheDocument()
+  })
+})
+
+describe('FileBrowserPane — semantic search (explicit run)', () => {
+  const searchHit = {
+    ...files[0],
+    filename: 'site-plan.pdf',
+    snippet: 'The second escape route runs along the north facade.',
+    page: 4,
+    score: 0.87,
+  }
+
+  let fetchMock: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    fetchMock = vi.fn((url: string | URL) => {
+      const href = String(url)
+      if (href.includes('/api/documents/search')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ hits: [searchHit] }) })
+      }
+      // Thumbnail probes and anything else: fall back to the SVG sketch.
+      return Promise.resolve({ ok: false, json: () => Promise.resolve({}) })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.clearAllMocks()
+  })
+
+  it('shows no search button (and no semantic call) without a projectId', () => {
+    renderPane()
+    expect(screen.queryByRole('button', { name: /^search$/i })).not.toBeInTheDocument()
+  })
+
+  it('keeps the instant substring filter working as you type, before any semantic run', async () => {
+    const user = userEvent.setup()
+    renderPane({ projectId: 'proj-1' })
+
+    await user.type(screen.getByRole('textbox', { name: /search files/i }), 'permit')
+    expect(screen.getByText('permit.pdf')).toBeInTheDocument()
+    expect(screen.queryByText('site-plan.pdf')).not.toBeInTheDocument()
+    // Substring filtering never hits the semantic endpoint.
+    expect(fetchMock.mock.calls.some(([u]) => String(u).includes('/api/documents/search'))).toBe(false)
+  })
+
+  it('runs the semantic search on Enter and renders the snippet, page and relevance', async () => {
+    const user = userEvent.setup()
+    renderPane({ projectId: 'proj-1' })
+
+    await user.type(screen.getByRole('textbox', { name: /search files/i }), 'fire escape{Enter}')
+
+    // Transparent banner naming the mode + result count for the query.
+    const banner = await screen.findByTestId('semantic-banner')
+    expect(banner).toHaveTextContent(/semantic search: 1 results for/i)
+    expect(banner).toHaveTextContent(/fire escape/)
+
+    // The match evidence: snippet + page + relevance percent.
+    const match = await screen.findByTestId('semantic-match')
+    expect(within(match).getByText(/second escape route/i)).toBeInTheDocument()
+    expect(within(match).getByTestId('semantic-page')).toHaveTextContent(/page 4/i)
+    expect(within(match).getByText('87%')).toBeInTheDocument()
+
+    // The right endpoint was called with the query.
+    const call = fetchMock.mock.calls.find(([u]) => String(u).includes('/api/documents/search'))
+    expect(JSON.parse((call?.[1] as RequestInit).body as string)).toMatchObject({
+      q: 'fire escape',
+      projectId: 'proj-1',
+    })
+  })
+
+  it('reset returns to the normal list and clears the banner', async () => {
+    const user = userEvent.setup()
+    renderPane({ projectId: 'proj-1' })
+
+    await user.type(screen.getByRole('textbox', { name: /search files/i }), 'fire escape{Enter}')
+    await screen.findByTestId('semantic-banner')
+
+    await user.click(screen.getByRole('button', { name: /show all files/i }))
+
+    expect(screen.queryByTestId('semantic-banner')).not.toBeInTheDocument()
+    // Back to the full list.
+    expect(screen.getByText('site-plan.pdf')).toBeInTheDocument()
     expect(screen.getByText('permit.pdf')).toBeInTheDocument()
   })
 })

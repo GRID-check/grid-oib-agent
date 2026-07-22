@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { FileItem, FolderItem } from './project-file-workspace'
-import { Search, FolderOpen, UploadCloud, X } from 'lucide-react'
+import { Search, FolderOpen, Loader2, Sparkles, UploadCloud, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -12,8 +12,10 @@ import { formatFileSize } from '@/lib/utils/format-file-size'
 import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { extChipTint, fileExtensionLabel, inferDocumentKind } from '../document-kind'
+import { useSemanticSearch } from '../hooks/use-semantic-search'
 import { DocumentKindThumbnail } from './document-kind-thumbnail'
 import { DocumentStatusBadge } from './document-status'
+import { SemanticMatch } from './semantic-match'
 
 interface FileBrowserPaneProps {
   files: FileItem[]
@@ -34,6 +36,14 @@ interface FileBrowserPaneProps {
   folders?: FolderItem[]
   selectedFolderId?: string | null
   onSelectFolder?: (id: string | null) => void
+  /**
+   * Project whose corpus the explicit-run semantic search queries. When
+   * provided, pressing Enter (or the search button) runs a deterministic vector
+   * search via `/api/documents/search`; the instant substring filter over the
+   * current listing keeps working as the user types. Omit to disable semantic
+   * mode (the substring filter still works).
+   */
+  projectId?: string
 }
 
 export function FileBrowserPane({
@@ -47,10 +57,30 @@ export function FileBrowserPane({
   folders,
   selectedFolderId = null,
   onSelectFolder,
+  projectId,
 }: FileBrowserPaneProps) {
   const t = useTranslations('files')
   const { locale } = useLocale()
   const [search, setSearch] = useState('')
+
+  const semanticBody = useMemo(() => ({ projectId }), [projectId])
+  const semantic = useSemanticSearch({ endpoint: '/api/documents/search', extraBody: semanticBody })
+  const canSearch = projectId !== undefined
+
+  // Commit the current query to the semantic search (Enter / search button).
+  const runSemantic = () => {
+    if (canSearch) semantic.run(search)
+  }
+  // Any edit to the query drops back to the live substring filter so the two
+  // modes never show a stale mix; the reset control does the same explicitly.
+  const handleSearchChange = (value: string) => {
+    setSearch(value)
+    if (semantic.active) semantic.reset()
+  }
+  const clearSearch = () => {
+    setSearch('')
+    semantic.reset()
+  }
 
   // Client-side filter over the current listing: name, plus AI tags and
   // summary when the backend generated them.
@@ -114,34 +144,94 @@ export function FileBrowserPane({
 
   return (
     <div className="flex h-full flex-col">
-      {/* Search bar */}
+      {/* Search bar — instant substring filter as you type; Enter (or the search
+          button) runs the semantic search over the project corpus. */}
       <div className="sticky top-0 z-10 border-b bg-background/95 px-4 py-2.5 backdrop-blur">
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
-          <Input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder={t('browser.searchPlaceholder')}
-            aria-label={t('browser.searchLabel')}
-            className="pl-8 pr-8"
-          />
-          {search !== '' && (
-            <button
-              type="button"
-              onClick={() => setSearch('')}
-              aria-label={t('browser.resetSearch')}
-              className="absolute right-1.5 top-1/2 flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        <form
+          className="flex items-center gap-2"
+          onSubmit={(e) => {
+            e.preventDefault()
+            runSemantic()
+          }}
+        >
+          <div className="relative flex-1">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+            <Input
+              type="text"
+              value={search}
+              onChange={(e) => handleSearchChange(e.target.value)}
+              placeholder={canSearch ? t('browser.semantic.searchPlaceholder') : t('browser.searchPlaceholder')}
+              aria-label={t('browser.searchLabel')}
+              className="pl-8 pr-8"
+            />
+            {search !== '' && (
+              <button
+                type="button"
+                onClick={clearSearch}
+                aria-label={t('browser.resetSearch')}
+                className="absolute right-1.5 top-1/2 flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <X className="size-3.5" aria-hidden />
+              </button>
+            )}
+          </div>
+          {canSearch && (
+            <Button
+              type="submit"
+              size="sm"
+              variant="secondary"
+              className="shrink-0 gap-1.5"
+              disabled={search.trim() === '' || semantic.isSearching}
             >
-              <X className="size-3.5" aria-hidden />
-            </button>
+              {semantic.isSearching ? (
+                <Loader2 className="size-3.5 animate-spin" aria-hidden />
+              ) : (
+                <Sparkles className="size-3.5" aria-hidden />
+              )}
+              {t('browser.semantic.run')}
+            </Button>
           )}
-        </div>
+        </form>
       </div>
 
+      {/* Semantic-mode banner — transparent about which mode is active, with a
+          clear reset back to the normal list. */}
+      {semantic.active && (
+        <div
+          className="flex items-center gap-2 border-b border-primary/20 bg-primary/5 px-4 py-2 text-xs"
+          role="status"
+          data-testid="semantic-banner"
+        >
+          {semantic.isSearching ? (
+            <Loader2 className="size-3.5 shrink-0 animate-spin text-primary" aria-hidden />
+          ) : (
+            <Sparkles className="size-3.5 shrink-0 text-primary" aria-hidden />
+          )}
+          <span className="min-w-0 flex-1 truncate text-foreground">
+            {semantic.isSearching
+              ? t('browser.semantic.searching', { query: semantic.query ?? '' })
+              : t('browser.semantic.banner', {
+                  count: String(semantic.hits.length),
+                  query: semantic.query ?? '',
+                })}
+          </span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 shrink-0 gap-1.5 px-2 text-muted-foreground hover:text-foreground"
+            onClick={clearSearch}
+          >
+            <X className="size-3.5" aria-hidden />
+            {t('browser.semantic.reset')}
+          </Button>
+        </div>
+      )}
+
       {/* Top-level folder quick filter — chip presentation of the same folder
-          selection the sidebar tree drives (no separate navigation model). */}
-      {onSelectFolder && topLevelFolders.length > 0 && (
+          selection the sidebar tree drives (no separate navigation model).
+          Hidden in semantic mode (the query is the context). */}
+      {!semantic.active && onSelectFolder && topLevelFolders.length > 0 && (
         <div
           // Wrap on mobile so the last folder pill is never clipped at the
           // right edge; keep a single scrollable row from md up (where it fits).
@@ -165,8 +255,54 @@ export function FileBrowserPane({
         </div>
       )}
 
-      {/* Card grid */}
-      {filteredFiles.length === 0 ? (
+      {semantic.active ? (
+        // Semantic results — one card per matched file, each showing the match
+        // evidence (snippet + page + relevance). A backend error/timeout fails
+        // open to an empty result set (never a crash).
+        semantic.isSearching ? (
+          <div className="grid gap-3 p-4 [grid-template-columns:repeat(auto-fill,minmax(150px,1fr))] sm:gap-3.5 md:[grid-template-columns:repeat(auto-fill,minmax(236px,1fr))]">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="overflow-hidden rounded-xl border">
+                <Skeleton className="h-24 w-full rounded-none md:h-[132px]" />
+                <div className="space-y-2 p-3">
+                  <Skeleton className="h-3.5 w-2/3" />
+                  <Skeleton className="h-12 w-full" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : semantic.hits.length === 0 ? (
+          <div className="p-8">
+            <EmptyState
+              variant="bare"
+              icon={Sparkles}
+              title={t('browser.semantic.noResults', { query: semantic.query ?? '' })}
+              description={t('browser.semantic.noResultsDescription')}
+              action={
+                <Button variant="outline" size="sm" onClick={clearSearch}>
+                  {t('browser.semantic.reset')}
+                </Button>
+              }
+            />
+          </div>
+        ) : (
+          <div className="p-4">
+            <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(150px,1fr))] sm:gap-3.5 md:[grid-template-columns:repeat(auto-fill,minmax(236px,1fr))]">
+              {semantic.hits.map((hit) => (
+                <FileCard
+                  key={hit.id}
+                  file={hit}
+                  isSelected={selectedFileId === hit.id}
+                  onSelect={() => onSelectFile(selectedFileId === hit.id ? null : hit.id)}
+                  locale={locale}
+                  match={{ snippet: hit.snippet, page: hit.page, score: hit.score }}
+                />
+              ))}
+            </div>
+          </div>
+        )
+      ) : /* Substring-filtered card grid (instant, as you type). */
+      filteredFiles.length === 0 ? (
         <div className="p-8">
           <EmptyState
             variant="bare"
@@ -174,7 +310,7 @@ export function FileBrowserPane({
             title={t('browser.noMatch', { query: search })}
             description={t('browser.noMatchDescription')}
             action={
-              <Button variant="outline" size="sm" onClick={() => setSearch('')}>
+              <Button variant="outline" size="sm" onClick={clearSearch}>
                 {t('browser.clearSearch')}
               </Button>
             }
@@ -273,14 +409,16 @@ function FileCard({
   isSelected,
   onSelect,
   locale,
+  match,
 }: {
   file: FileItem
   isSelected: boolean
   onSelect: () => void
   locale: string
+  /** Present on a semantic result: the snippet + page + score to show WHY it matched. */
+  match?: { snippet: string; page: number | null; score: number }
 }) {
   const t = useTranslations('files')
-  const kind = inferDocumentKind(file)
   const ext = fileExtensionLabel(file.filename)
   const isFailed = file.status === 'failed'
   const failureReason = isFailed ? file.errorMessage || t('preview.ingestionFailedGeneric') : undefined
@@ -312,7 +450,11 @@ function FileCard({
         <p className="truncate text-[12.5px] font-medium text-foreground" title={file.filename}>
           {file.filename}
         </p>
-        {isFailed ? (
+        {match ? (
+          // Semantic result: show WHY it matched (snippet + page + relevance)
+          // rather than the generic one-line summary.
+          <SemanticMatch snippet={match.snippet} page={match.page} score={match.score} />
+        ) : isFailed ? (
           <p className="mt-[3px] line-clamp-2 text-[11.5px] leading-[1.45] text-destructive" title={failureReason}>
             {failureReason}
           </p>

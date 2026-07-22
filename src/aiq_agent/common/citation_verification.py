@@ -17,10 +17,12 @@ from __future__ import annotations
 
 import contextvars
 import dataclasses
+import difflib
 import logging
 import os
 import re
 import threading
+import unicodedata
 from collections import OrderedDict
 from collections.abc import Callable
 from collections.abc import Sequence
@@ -64,6 +66,14 @@ class SourceEntry:
     # it is the FIRST-priority signal for lane/kind placement, overriding the
     # filename/collection heuristics. None for sources without an explicit class.
     doc_class: str | None = None
+    # Retrieved passage body for knowledge-layer hits (the chunk content the KB
+    # tool returned, truncated at 1500 chars per chunk). Used by
+    # ``verify_quoted_spans`` to check that a QUOTED sentence in the answer
+    # actually appears (fuzzily) in the evidence, catching the DeepSeek "cites a
+    # real section but fabricates the quote" bug. When several chunks dedup onto
+    # the same (filename, page) key their bodies are joined (see ``add``). None
+    # for URL/web sources and for output produced before this field was threaded.
+    chunk_text: str | None = None
 
 
 @dataclass
@@ -221,6 +231,20 @@ class SourceRegistry:
                 self._citation_keys.append(entry)
                 if not added:
                     added = True
+            elif entry.chunk_text:
+                # A single page may hold >1 retrieved chunk; dedup collapses them
+                # onto one (filename, page) entry, but each chunk's body is
+                # distinct evidence for quote verification. Append the new body to
+                # the surviving entry so the whole-registry fuzzy match sees every
+                # chunk of the page rather than only the first.
+                for existing in self._citation_keys:
+                    existing_file, existing_page = _parse_citation_key(existing.citation_key)
+                    if (existing_file.lower(), existing_page) == dedup_key:
+                        if not existing.chunk_text:
+                            existing.chunk_text = entry.chunk_text
+                        elif entry.chunk_text not in existing.chunk_text:
+                            existing.chunk_text = f"{existing.chunk_text}\n\n{entry.chunk_text}"
+                        break
         if added:
             self._all.append(entry)
 
@@ -412,6 +436,7 @@ def _registry_from_cached_entries(entries: Any) -> SourceRegistry:
                             tool_name=item.get("tool_name", ""),
                             collection=item.get("collection"),
                             doc_class=item.get("doc_class"),
+                            chunk_text=item.get("chunk_text"),
                         )
                     )
                 except Exception:
@@ -667,9 +692,7 @@ _TITLE_NEAR_URL_PATTERNS = [
 ]
 
 
-def _extract_title_for_url(
-    content: str, url: str, blocks: list[str] | None = None
-) -> str | None:
+def _extract_title_for_url(content: str, url: str, blocks: list[str] | None = None) -> str | None:
     """Try to extract a title associated with a URL from the surrounding content.
 
     Finds the title pattern **closest to** (and preceding) the URL within its
@@ -742,6 +765,44 @@ _KL_COLLECTION_RE = re.compile(r"^Collection:\s*(.+)$", re.MULTILINE)
 # accepted as an alias for robustness.
 _KL_DOC_CLASS_RE = re.compile(r"^(?:Dokumentart|Doc-Class):\s*(.+)$", re.MULTILINE)
 
+# Per-hit block/body markers, mirroring register.py:_format_results layout: each
+# hit is a ``--- Result N ---`` block whose passage body follows the
+# ``Relevance Score:`` header line + a blank line, running until the next block
+# / the ``## Trace-Lanes`` fan-out summary / end. A very long body is truncated
+# with a trailing ``... [truncated]`` marker we strip back off.
+_KL_RESULT_BLOCK_RE = re.compile(r"^--- Result \d+ ---[^\S\n]*$", re.MULTILINE)
+_KL_RELEVANCE_LINE_RE = re.compile(r"^Relevance Score:.*$", re.MULTILINE)
+_KL_TRACE_LANES_MARKER = "## Trace-Lanes"
+_KL_TRUNCATED_SUFFIX_RE = re.compile(r"\s*\.\.\.\s*\[truncated\]\s*$")
+
+
+def _extract_kl_chunk_bodies(content: str) -> list[str]:
+    """Extract the retrieved passage body for each ``--- Result N ---`` block.
+
+    Returns one body per block in document order (aligned with the ``Citation:``
+    fields, since ``_format_results`` emits exactly one citation per block). An
+    empty string marks a block whose body could not be located. The trailing
+    ``## Trace-Lanes`` JSON summary and any ``... [truncated]`` marker are
+    stripped so only the real chunk text is returned.
+    """
+    block_matches = list(_KL_RESULT_BLOCK_RE.finditer(content))
+    bodies: list[str] = []
+    for idx, block_match in enumerate(block_matches):
+        block_start = block_match.end()
+        block_end = block_matches[idx + 1].start() if idx + 1 < len(block_matches) else len(content)
+        block = content[block_start:block_end]
+        relevance_match = _KL_RELEVANCE_LINE_RE.search(block)
+        if relevance_match is None:
+            bodies.append("")
+            continue
+        body = block[relevance_match.end() :]
+        trace_lanes_at = body.find(_KL_TRACE_LANES_MARKER)
+        if trace_lanes_at != -1:
+            body = body[:trace_lanes_at]
+        body = _KL_TRUNCATED_SUFFIX_RE.sub("", body.strip()).strip()
+        bodies.append(body)
+    return bodies
+
 
 def _parse_knowledge_layer(content: str, tool_name: str) -> list[SourceEntry]:
     """Parse knowledge layer retrieval output.
@@ -756,6 +817,10 @@ def _parse_knowledge_layer(content: str, tool_name: str) -> list[SourceEntry]:
     sources = _KL_SOURCE_RE.findall(content)
     collections = _KL_COLLECTION_RE.findall(content)
     doc_classes = _KL_DOC_CLASS_RE.findall(content)
+    # Retrieved passage bodies, one per ``--- Result N ---`` block, aligned with
+    # the citation index. Threaded onto each entry so quote verification can
+    # check quoted spans against the actual evidence text.
+    chunk_bodies = _extract_kl_chunk_bodies(content)
     for i, citation_key in enumerate(citations):
         title = sources[i].strip() if i < len(sources) else None
         collection = collections[i].strip() if i < len(collections) else None
@@ -763,6 +828,7 @@ def _parse_knowledge_layer(content: str, tool_name: str) -> list[SourceEntry]:
         # keep only the leading machine key so lane placement gets a valid key.
         doc_class_raw = doc_classes[i].strip() if i < len(doc_classes) else None
         doc_class = doc_class_raw.split("—")[0].split(" - ")[0].strip() if doc_class_raw else None
+        chunk_text = chunk_bodies[i] if i < len(chunk_bodies) else None
         entries.append(
             SourceEntry(
                 citation_key=citation_key.strip(),
@@ -771,6 +837,7 @@ def _parse_knowledge_layer(content: str, tool_name: str) -> list[SourceEntry]:
                 tool_name=tool_name,
                 collection=collection or None,
                 doc_class=doc_class or None,
+                chunk_text=chunk_text or None,
             )
         )
     if not entries:
@@ -1169,6 +1236,279 @@ def _renumber_citations(body: str, ref_section: str) -> tuple[str, str, dict[int
         ref_section = ref_section.replace(placeholder, f"[{new_num}]")
 
     return body, ref_section, renumber_map
+
+
+# ---------------------------------------------------------------------------
+# Quote verification (deterministic, fail-open)
+# ---------------------------------------------------------------------------
+#
+# The weak model (DeepSeek) reliably cites a REAL legal section but sometimes
+# FABRICATES the sentence it puts in quotation marks. Citation verification
+# above only checks the *identity* of a source; it cannot tell whether a quoted
+# span is actually present in the retrieved passage. This layer closes that gap:
+# after the model answers, every QUOTED span is checked (fuzzily) against the
+# chunk text of ANY knowledge-layer source in the registry (whole-registry
+# match, per ADR decision — simpler than per-citation and catches the reported
+# bug). A span that matches nothing is annotated INLINE and never altered
+# (fail-open): the sentence stays, a short marker is appended after it, and the
+# answer's confidence is capped to "low".
+
+# Fuzzy-match threshold: a quoted span counts as "verified" when at least this
+# fraction of it is found (as ordered matching subsequences) in some source's
+# chunk text. 0.90 tolerates minor OCR/whitespace/hyphenation noise while still
+# rejecting a wholesale fabrication. TUNABLE — see module note; wants calibration
+# against real transcripts (cannot be tuned live here).
+QUOTE_MATCH_THRESHOLD = 0.90
+
+# Minimum length (characters, on the normalized quote) a span must reach before
+# it is verified. Short spans ("§ 3", "OIB", a bare term) are too common and too
+# generic to fuzzy-match reliably and are skipped. TUNABLE — see module note.
+MIN_QUOTE_LEN = 20
+
+# Minimum padding (characters) added around a candidate match window so a genuine
+# verbatim quote whose length drifted under OCR (inserted/removed chars) still
+# fits inside the window. Kept small on purpose: a large pad would re-admit the
+# scattered-splice fragments the locality window is meant to exclude. The window
+# length is ``len(quote) + max(_QUOTE_WINDOW_PAD_MIN, len(quote) // 10)``.
+_QUOTE_WINDOW_PAD_MIN = 4
+
+# Absolute budget (characters) for the CHUNK text a verified quote may skip over,
+# accumulated across the matched region. This is the non-contiguity penalty that
+# separates a lightly-noisy verbatim quote from a splice of two real clauses:
+#
+# - OCR/whitespace/hyphenation/„…"-mark noise perturbs the alignment by only a
+#   char or two at a time (a substitution advances the quote and the chunk by the
+#   same amount, so its NET elided chunk text is ~0), keeping the cumulative total
+#   well under budget → the quote stays verified.
+# - A splice that merges two adjacent clauses (dropping a connective and the
+#   material between them, e.g. "…Kosten [der Massnahme. Der] Nachbar…") leaves a
+#   run of chunk text with no counterpart in the quote; its NET elided total
+#   (≳10 chars even when coincidental re-matches fragment it into pieces) exceeds
+#   the budget, splitting the matched region so no single contiguous-enough run
+#   reaches the threshold → the quote is flagged.
+#
+# An ABSOLUTE constant (not ``len(quote)//k``) is essential: the defeat in the
+# prior metric was that every tolerance scaled with the quote, so a longer quote
+# bought a proportionally larger elision. 6 is chosen empirically — noisy
+# verbatim fixtures net ≤4 elided chars, clause splices net ≥7. TUNABLE.
+_QUOTE_MAX_ELIDED_GAP = 6
+
+# Inline marker appended immediately after a quoted span that could not be
+# verified against any retrieved passage. Fail-open: the sentence is NEVER
+# stripped or altered; only this marker is inserted after the closing quote.
+UNVERIFIED_QUOTE_MARKER = "[nicht wörtlich in der Quelle belegt]"
+
+# Quoted-span matcher: German „…“ (also lenient „…”), guillemets »…«, curly
+# “…”, and plain ASCII "…". Each alternative captures the inner text in its own
+# group; the first non-None group of a match is the quote. German „…“ is tried
+# before the curly “…” form so the shared U+201C is read as a German closing
+# mark when it opened with „. Inner text may not contain the relevant quote
+# characters, so quotes do not run across sentence boundaries.
+_QUOTED_SPAN_RE = re.compile(
+    r"„([^„“”\"]+)[“”\"]"  # German low-9 opening; closing „…“/„…”/„…" (models mix them)
+    r"|»([^»«]+)«"  # guillemets
+    r"|“([^“”]+)”"  # curly double
+    r"|\"([^\"]+)\""  # ASCII straight
+)
+
+# Quote marks stripped from the edges of a normalized span before matching.
+_QUOTE_EDGE_CHARS = "„“”»«\"'‚‘’ "
+
+
+@dataclass
+class UnverifiedQuote:
+    """A quoted span in the answer body that no source chunk text supports."""
+
+    # Inner quoted text, exactly as it appeared in the answer (no quote marks).
+    quote: str
+    # The full matched span INCLUDING its quote marks (used for logging/tests).
+    span: str
+    # Character offsets of the span within the scanned answer text, so the
+    # annotation can be inserted immediately after the closing quote mark.
+    start: int
+    end: int
+    # Best coverage achieved against any source chunk text (0.0–1.0). Below
+    # ``QUOTE_MATCH_THRESHOLD`` by construction; retained for diagnostics.
+    best_coverage: float
+
+
+def _normalize_for_quote_match(text: str) -> str:
+    """Normalize a quote or chunk body for fuzzy comparison.
+
+    Applies (in order): Unicode NFKC; join hyphenated line-wraps (``Bau-\\nordnung``
+    → ``Bauordnung``); strip leading blockquote ``> `` markers; collapse all
+    whitespace to single spaces; strip surrounding quote marks; ``casefold()``.
+    Both the quoted span and each source chunk text pass through this so the
+    comparison ignores formatting, OCR line-wrapping and casing differences.
+    """
+    text = unicodedata.normalize("NFKC", text)
+    # Join hyphenated line-wraps before whitespace is collapsed.
+    text = re.sub(r"-\n", "", text)
+    # Strip leading Markdown blockquote markers.
+    text = re.sub(r"(?m)^[ \t]*>[ \t]?", "", text)
+    # Collapse whitespace.
+    text = re.sub(r"\s+", " ", text).strip()
+    # Strip surrounding quote marks.
+    text = text.strip(_QUOTE_EDGE_CHARS)
+    return text.casefold()
+
+
+def _quote_coverage(norm_quote: str, norm_chunk: str) -> float:
+    """Fraction of ``norm_quote`` covered by a CONTIGUOUS-enough run of the chunk.
+
+    Two earlier metrics were both defeatable:
+
+    - A whole-chunk subsequence match (sum of every matching block, anywhere in
+      the chunk) scored a phrase-splice — real fragments pulled from DIFFERENT
+      clauses — at 1.0 even though the quote is not a substring.
+    - Restricting the sum to a single window sized to the quote length still let
+      an ADJACENT-clause splice through: when the quote merges two neighbouring
+      sentences (dropping a short connective), the whole spliced span is about as
+      long as the quote, so it fits one window and the summed blocks stay above
+      threshold — even though the quote skipped over real chunk text in between.
+
+    The fix penalizes NON-CONTIGUITY directly. Within each candidate window we
+    walk the matching blocks in order and accumulate the NET chunk text the quote
+    skips between consecutive blocks (``chunk_gap - quote_gap``, floored at 0 so a
+    same-length substitution — the shape of OCR/casing noise — costs ~nothing).
+    Once that cumulative elision exceeds an ABSOLUTE budget
+    (``_QUOTE_MAX_ELIDED_GAP``) the region is cut and a fresh run begins; the
+    score is the longest single run divided by ``len(quote)``.
+
+    - A genuine verbatim quote is one uninterrupted run → ~1.0. Light
+      OCR/whitespace/hyphenation/„…"-mark noise perturbs the alignment by only a
+      char or two at a time and nets far under budget, so it too scores ~1.0.
+    - A splice — adjacent OR scattered, short gap OR long — leaves an elided run
+      of chunk text with no quote counterpart; the budget is exceeded, the region
+      is split, and no surviving run reaches the threshold → low score.
+
+    The budget is a fixed constant rather than a fraction of the quote, so a
+    longer quote can no longer buy a proportionally larger silent elision.
+    Candidate windows are anchored at the diagonals of the matching blocks
+    (window start = ``block.b - block.a``), so only a handful are scored per
+    quote×chunk. Pure stdlib (``difflib``), fail-open, and cheap.
+    """
+    quote_len = len(norm_quote)
+    if quote_len == 0:
+        return 0.0
+    pad = max(_QUOTE_WINDOW_PAD_MIN, quote_len // 10)
+    window_len = quote_len + pad
+    base = difflib.SequenceMatcher(None, norm_quote, norm_chunk, autojunk=False)
+    # Anchor one window per matching-block diagonal; dedup collapses blocks that
+    # share an alignment offset. Empty when nothing matches at all → coverage 0.
+    window_starts = {max(0, block.b - block.a) for block in base.get_matching_blocks() if block.size}
+    if not window_starts:
+        return 0.0
+    best = 0.0
+    for start in window_starts:
+        window = norm_chunk[max(0, start - pad) : start + window_len]
+        matcher = difflib.SequenceMatcher(None, norm_quote, window, autojunk=False)
+        # Longest run of matching blocks whose cumulative net elided chunk text
+        # stays within budget. A block gap that skips real chunk text the quote
+        # never covers pushes the running elision up; crossing the budget cuts the
+        # run so a spliced-together quote cannot bank credit across the elision.
+        run = 0
+        best_run = 0
+        elided = 0
+        prev_a_end: int | None = None
+        prev_b_end: int | None = None
+        for block in matcher.get_matching_blocks():
+            if not block.size:
+                continue
+            if prev_b_end is not None:
+                chunk_gap = block.b - prev_b_end
+                quote_gap = block.a - prev_a_end
+                elided += max(0, chunk_gap - quote_gap)
+                if elided > _QUOTE_MAX_ELIDED_GAP:
+                    run = 0
+                    elided = 0
+            run += block.size
+            best_run = max(best_run, run)
+            prev_a_end = block.a + block.size
+            prev_b_end = block.b + block.size
+        best = max(best, best_run / quote_len)
+    return best
+
+
+def _answer_body_before_sources(answer_text: str) -> str:
+    """Return the answer prose before the ``## Sources``/references section.
+
+    Quote scanning must not touch the source section (source lines legitimately
+    quote titles/URLs). Falls back to the whole text when no section is present.
+    Positions in the returned prefix are valid offsets into ``answer_text``
+    because it is a leading substring.
+    """
+    ref_match = _REFERENCE_SECTION_RE.search(answer_text)
+    return answer_text[: ref_match.start()] if ref_match else answer_text
+
+
+def verify_quoted_spans(
+    answer_text: str,
+    registry: SourceRegistry,
+    *,
+    threshold: float = QUOTE_MATCH_THRESHOLD,
+    min_quote_len: int = MIN_QUOTE_LEN,
+) -> list[UnverifiedQuote]:
+    """Return the quoted spans in the answer body not supported by any chunk text.
+
+    Whole-registry match: a span is "verified" when its normalized form is
+    fuzzily present (coverage ≥ ``threshold``) in the normalized chunk text of
+    ANY knowledge-layer source in the registry. Spans shorter than
+    ``min_quote_len`` (normalized) are skipped. Only the answer BODY is scanned
+    (never the source section). Fail-open: when no source carries chunk text
+    (e.g. URL-only web sources), there is nothing to verify against and an empty
+    list is returned — nothing is ever flagged on a best-effort miss.
+    """
+    normalized_chunks = [
+        norm
+        for source in registry.all_sources()
+        if source.chunk_text
+        if (norm := _normalize_for_quote_match(source.chunk_text))
+    ]
+    if not normalized_chunks:
+        return []
+
+    body = _answer_body_before_sources(answer_text)
+    unverified: list[UnverifiedQuote] = []
+    for match in _QUOTED_SPAN_RE.finditer(body):
+        inner = next((group for group in match.groups() if group is not None), None)
+        if inner is None:
+            continue
+        norm_quote = _normalize_for_quote_match(inner)
+        if len(norm_quote) < min_quote_len:
+            continue
+        best_coverage = max(_quote_coverage(norm_quote, chunk) for chunk in normalized_chunks)
+        if best_coverage < threshold:
+            unverified.append(
+                UnverifiedQuote(
+                    quote=inner,
+                    span=match.group(0),
+                    start=match.start(),
+                    end=match.end(),
+                    best_coverage=best_coverage,
+                )
+            )
+    return unverified
+
+
+def annotate_unverified_quotes(answer_text: str, unverified: Sequence[UnverifiedQuote]) -> str:
+    """Insert ``UNVERIFIED_QUOTE_MARKER`` immediately after each unverified span.
+
+    Fail-open and non-destructive: the quoted sentence is never stripped or
+    altered — the marker is inserted after the closing quote mark. Offsets come
+    from ``verify_quoted_spans`` on the SAME ``answer_text``; insertions run
+    right-to-left so earlier offsets stay valid. Idempotent: a span already
+    followed by the marker is left untouched.
+    """
+    if not unverified:
+        return answer_text
+    result = answer_text
+    for uq in sorted(unverified, key=lambda item: item.end, reverse=True):
+        insert_at = uq.end
+        if result[insert_at:].lstrip().startswith(UNVERIFIED_QUOTE_MARKER):
+            continue
+        result = f"{result[:insert_at]} {UNVERIFIED_QUOTE_MARKER}{result[insert_at:]}"
+    return result
 
 
 def verify_citations(

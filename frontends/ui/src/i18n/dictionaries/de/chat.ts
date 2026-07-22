@@ -58,6 +58,10 @@ export const chat: typeof en.chat = {
   roles: {
     input: 'Eingabe',
     result: 'Ergebnis',
+    // Rollen-Tab für eine konversationelle / klärende Antwort (routing_decision
+    // = 'meta': Begrüßungen, Fähigkeits- und Rückfragen) — deutlich abgesetzt
+    // von einem inhaltlichen Baurecht-'Ergebnis'.
+    note: 'Hinweis',
   },
   answerSources: {
     label: 'Belegt durch',
@@ -372,10 +376,13 @@ export const chat: typeof en.chat = {
     ariaLabel: 'Selbsteinschätzung des Assistenten: {level}',
     tooltip:
       'Die eigene Einschätzung des Assistenten, wie gut diese Antwort durch seine Quellen gestützt ist. Sie kann falsch sein.',
-    // Zusatzsatz, wenn die Einschätzung gedeckelt wurde, weil die Antwort nicht
-    // durch geprüfte Quellen belegt ist (WP-A `answer_confidence_capped_reason`).
-    cappedUngrounded:
-      'Die Einschätzung wurde begrenzt, da die Antwort nicht durch geprüfte Quellenangaben belegt ist.',
+    // Zusatzsatz, der im Tooltip erklärt, WARUM die Einschätzung gedeckelt
+    // wurde, je nach `answer_confidence_capped_reason` (WP-A, PB-9).
+    cappedReasons: {
+      ungrounded: 'Geringe Sicherheit: Antwort nicht durch Quellen belegt.',
+      quoteUnverified:
+        'Geringe Sicherheit: ein Zitat konnte nicht wörtlich in der Quelle bestätigt werden.',
+    },
   },
   // Antwort-Feedback per Daumen (WS-7, Feature-Flag `answer-feedback`).
   feedback: {

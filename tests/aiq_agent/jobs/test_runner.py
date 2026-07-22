@@ -300,8 +300,12 @@ class TestDeepResearchEventCallback:
 
         callback.on_tool_end("search results", run_id="test-run-id", name="web_search")
 
-        mock_store.store.assert_called_once()
-        call_args = mock_store.store.call_args[0][0]
+        # on_tool_end emits the tool.end event first; a source-bearing output
+        # additionally emits a citation_source artifact (restored by the PB-1
+        # fix — previously this second emit crashed with a TypeError), so there
+        # may be more than one store call. Assert the first is the tool.end event.
+        assert mock_store.store.call_count >= 1
+        call_args = mock_store.store.call_args_list[0][0][0]
         assert call_args["type"] == "tool.end"
         assert call_args["name"] == "web_search"
 

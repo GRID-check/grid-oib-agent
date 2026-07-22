@@ -153,6 +153,7 @@ export const projects: typeof en.projects = {
       saveFailed: 'Wir konnten das Projekt-Briefing nicht speichern. Bitte versuchen Sie es erneut.',
     },
     tryAgain: 'Erneut versuchen',
+    conflictReload: 'Aktualisieren',
     draftSaved: 'Entwurf gespeichert',
     salvage: {
       partial:
@@ -337,6 +338,9 @@ export const projects: typeof en.projects = {
       assumptionConfirm: 'Bestätigen',
       assumptionDismiss: 'Verwerfen',
       assumptionError: 'Das Briefing konnte nicht aktualisiert werden. Bitte erneut versuchen.',
+      assumptionForbidden: 'Sie haben keine Berechtigung, das Briefing zu aktualisieren.',
+      assumptionConflict:
+        'Dieses Briefing wurde an anderer Stelle geändert. Bitte aktualisieren Sie und versuchen Sie es erneut.',
       provenance: {
         onboarding: 'Im Intake-Assistenten erfasst',
         user_confirmed: 'Von Ihnen bestätigt',

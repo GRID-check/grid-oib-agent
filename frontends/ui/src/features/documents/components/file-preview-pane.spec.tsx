@@ -58,6 +58,21 @@ describe('FilePreviewPane', () => {
     expect(await screen.findByRole('button', { name: /open large preview/i })).toBeDefined()
   })
 
+  it('opens the large preview dialog when the expand affordance is clicked', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({ url: 'https://example.test/plan.pdf' }),
+    } as Response)
+
+    render(<FilePreviewPane file={mockFile} projectId="proj-1" />)
+
+    await user.click(await screen.findByRole('button', { name: /open large preview/i }))
+
+    // The PdfViewerDialog exposes an "Open in new tab" link only once open.
+    expect(await screen.findByRole('link', { name: /open in new tab/i })).toBeDefined()
+  })
+
   it('does not offer the expand affordance for a non-previewable file', async () => {
     render(
       <FilePreviewPane

@@ -44,6 +44,10 @@ export default async function ProjectSettingsPage({ params }: ProjectSettingsPag
       // Knowledge left the top-level nav (spec §5) but stays reachable from
       // Settings while its feature flag is on.
       showKnowledgeLink={isProjectKnowledgePageEnabled(session)}
+      // Same id space as the roster's `organizationMembershipId` (see
+      // GridSession/AuthorizedSession) — lets the members form recognize the
+      // signed-in user's own row and guard against self-lockout.
+      currentMembershipId={session.organizationMembershipId}
     />
   )
 }

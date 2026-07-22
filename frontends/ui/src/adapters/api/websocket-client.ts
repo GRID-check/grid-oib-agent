@@ -37,8 +37,12 @@ export interface ResponseTransparency {
   routingReason?: string
   /** Present only when a shallow→deep escalation happened this turn. */
   escalationReason?: string
-  /** Present only when confidence was downgraded for lack of citation grounding. */
-  answerConfidenceCappedReason?: 'ungrounded'
+  /**
+   * Present only when confidence was downgraded. `'ungrounded'` = the answer
+   * lost its citation grounding; `'quote_unverified'` = a quoted span did not
+   * match any source passage.
+   */
+  answerConfidenceCappedReason?: 'ungrounded' | 'quote_unverified'
   /** Present only when citation verification removed ≥1 citation. */
   citationsRemoved?: { count: number; reasons: string[] }
   /** Marks the answer text as a queue-rejection notice, NOT a research answer. */

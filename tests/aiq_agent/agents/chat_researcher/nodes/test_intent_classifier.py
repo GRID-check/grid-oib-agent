@@ -315,6 +315,43 @@ class TestIntentClassifierRobustness:
         assert result["depth_decision"].raw_reasoning == "Parse failed"
 
     @pytest.mark.asyncio
+    async def test_list_content_routes_normally(self, mock_llm):
+        """Reasoning models can return content as a list of blocks; the classifier
+        must flatten it and route, not fall into the blanket-except error path.
+
+        Regression: ``(list or "").strip()`` raised AttributeError on non-empty
+        list content, so the first step of every chat turn returned intent=error.
+        """
+        mock_response = MagicMock()
+        mock_response.content = [
+            {"type": "text", "text": self._META_JSON},
+        ]
+        mock_llm.ainvoke = AsyncMock(return_value=mock_response)
+
+        classifier = IntentClassifier(llm=mock_llm)
+        state = ChatResearcherState(messages=[HumanMessage(content="Hello?")])
+        result = await classifier.run(state)
+
+        assert result["user_intent"].intent == "meta"
+        assert result["user_intent"].intent != "error"
+
+    @pytest.mark.asyncio
+    async def test_list_content_on_retry_path_parsed(self, mock_llm):
+        """List-shaped content on the corrective retry is also flattened and parsed."""
+        prose = MagicMock()
+        prose.content = [{"type": "text", "text": "Just chatting, no JSON."}]
+        json_reply = MagicMock()
+        json_reply.content = [{"type": "text", "text": self._META_JSON}]
+        mock_llm.ainvoke = AsyncMock(side_effect=[prose, json_reply])
+
+        classifier = IntentClassifier(llm=mock_llm)
+        state = ChatResearcherState(messages=[HumanMessage(content="hi")])
+        result = await classifier.run(state)
+
+        assert mock_llm.ainvoke.call_count == 2
+        assert result["user_intent"].intent == "meta"
+
+    @pytest.mark.asyncio
     async def test_chat_model_gets_structured_output_binding(self):
         """Real chat models are bound with an OpenAI-style json_schema
         response_format so the provider enforces the JSON server-side."""

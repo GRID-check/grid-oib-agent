@@ -21,12 +21,14 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import ToolNode
 from langgraph.prebuilt import tools_condition
 
+from aiq_agent.common import content_to_text
 from aiq_agent.common import get_source_id_for_tool
 from aiq_agent.common import load_prompt
 from aiq_agent.common import render_prompt_template
 from aiq_agent.common.citation_verification import EmptySourceRegistryError
 from aiq_agent.common.citation_verification import SourceEntry
 from aiq_agent.common.citation_verification import SourceRegistry
+from aiq_agent.common.citation_verification import annotate_unverified_quotes
 from aiq_agent.common.citation_verification import extract_sources_from_tool_result
 from aiq_agent.common.citation_verification import get_session_registry
 from aiq_agent.common.citation_verification import reset_session_registry
@@ -34,6 +36,7 @@ from aiq_agent.common.citation_verification import sanitize_report
 from aiq_agent.common.citation_verification import set_session_registry
 from aiq_agent.common.citation_verification import source_origin_token
 from aiq_agent.common.citation_verification import verify_citations
+from aiq_agent.common.citation_verification import verify_quoted_spans
 from aiq_agent.common.norm_registry import doctrine_for
 from aiq_agent.common.norm_registry import parcel_note
 from aiq_agent.common.norm_registry import render_block_for_prompt
@@ -436,6 +439,12 @@ class ShallowResearcherAgent:
         # final answer carries at least one verified citation (see the
         # ``answer_citation_grounded`` field docstring). Conservative default.
         citation_grounded = False
+        # Whether every QUOTED span in the final answer was found (fuzzily) in a
+        # retrieved passage. Starts True and flips to False the moment a quote
+        # cannot be verified, so the chat node caps confidence to "low" with the
+        # ``quote_unverified`` reason. Fail-open default: no sources / no quotes
+        # leaves it True.
+        answer_quotes_verified = True
         # Sources the model actually cited in THIS turn's answer (its own
         # relevance decision), resolved from ``verification.valid_citations``.
         # These — NOT the cumulative session registry — become the turn's
@@ -471,7 +480,7 @@ class ShallowResearcherAgent:
         if answer_index is not None:
             answer_msg = messages_list[answer_index]
             if hasattr(answer_msg, "content") and answer_msg.content:
-                content = str(answer_msg.content)
+                content = content_to_text(answer_msg.content)
 
                 # Step 0: extract AND strip both control markers up front, before
                 # citation verification, before emit_final_report, and before the
@@ -503,6 +512,22 @@ class ShallowResearcherAgent:
                     )
                     content = verification.verified_report
                     citations_removed_summary = _summarize_removed_citations(verification.removed_citations)
+                    # Quote verification: verify_citations only proves a cited
+                    # SOURCE is real, not that a QUOTED sentence actually appears
+                    # in it. Catch the weak model's "real section, fabricated
+                    # quote" pattern by checking each quoted span against the
+                    # retrieved passage text. Fail-open: annotate inline, never
+                    # strip; a single unverified quote caps this answer's
+                    # confidence (see answer_quotes_verified).
+                    unverified_quotes = verify_quoted_spans(content, registry)
+                    if unverified_quotes:
+                        content = annotate_unverified_quotes(content, unverified_quotes)
+                        answer_quotes_verified = False
+                        logger.info(
+                            "Shallow researcher: %d quoted span(s) not verbatim in any retrieved "
+                            "passage; annotated inline and capping confidence",
+                            len(unverified_quotes),
+                        )
                     sources = registry.all_sources()
                     if verification.valid_citations:
                         # Verification kept at least one grounded citation.
@@ -596,6 +621,10 @@ class ShallowResearcherAgent:
 
         # Carry the grounding signal to the chat node's overconfidence guard.
         validated_result["answer_citation_grounded"] = citation_grounded
+        # Carry the quote-verification signal too: False iff a quoted span could
+        # not be verified against a retrieved passage this turn. The chat node
+        # composes it with grounding to cap confidence (reason quote_unverified).
+        validated_result["answer_quotes_verified"] = answer_quotes_verified
         # Carry the extracted control-marker signals as structured state. A
         # non-None ``escalation_requested`` tells the chat node these ran on a
         # real answer message and are authoritative (else it re-parses text).

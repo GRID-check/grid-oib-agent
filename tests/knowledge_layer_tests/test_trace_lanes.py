@@ -5,7 +5,8 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
-from sources.knowledge_layer.src.register import _format_results, _trace_lanes_json
+from sources.knowledge_layer.src.register import _format_results
+from sources.knowledge_layer.src.register import _trace_lanes_json
 
 
 def _chunk(*, file_name: str, page: int | None = None, collection: str | None = None):
@@ -28,7 +29,7 @@ def test_trace_lanes_json_groups_by_lane():
     payload = json.loads(_trace_lanes_json(chunks))
     keys = [lane["key"] for lane in payload["lanes"]]
     assert keys == ["baurecht_oib", "projekt", "buero"]
-    oib = next(l for l in payload["lanes"] if l["key"] == "baurecht_oib")
+    oib = next(lane for lane in payload["lanes"] if lane["key"] == "baurecht_oib")
     assert oib["label"] == "OIB-Richtlinie"
     assert oib["hitCount"] == 1
     assert oib["sources"][0] == {"name": "OIB-RL_2_Brandschutz.pdf", "detail": "p.12"}

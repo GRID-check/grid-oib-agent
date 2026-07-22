@@ -18,6 +18,8 @@ export interface ProjectOverviewData {
   profileDisplay: {
     title?: string
     summary?: string
+    /** UI locale the stored `summary` was generated in (drives stale-language regen). */
+    summaryLocale?: string
     keyFacts?: Array<{ label: string; value: string }>
     missingInfo?: string[]
   } | null

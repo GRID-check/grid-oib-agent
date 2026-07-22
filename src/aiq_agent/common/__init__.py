@@ -56,6 +56,7 @@ from .llm_factory import strict_json_response_format
 from .llm_factory import strict_response_format
 from .llm_provider import LLMProvider
 from .llm_provider import LLMRole
+from .message_utils import content_to_text
 from .message_utils import get_latest_user_query
 from .model_overrides import MODEL_OVERRIDES_HEADER
 from .model_overrides import AgentGroup
@@ -97,6 +98,7 @@ __all__ = [
     "SpanClosingProfilerHandler",
     "VerboseTraceCallback",
     "all_mapped_tools_filtered_out",
+    "content_to_text",
     "create_budget_guard_callback",
     "apply_model_override",
     "apply_zdr_routing",

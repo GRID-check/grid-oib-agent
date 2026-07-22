@@ -92,6 +92,18 @@ export const files: typeof en.files = {
     clearSearch: 'Suche löschen',
     resetSearch: 'Suche zurücksetzen',
     recentlyUploaded: 'Zuletzt hochgeladen',
+    semantic: {
+      searchPlaceholder: 'Dateien durchsuchen – Enter für semantische Suche …',
+      run: 'Suchen',
+      reset: 'Alle Dateien anzeigen',
+      banner: 'Semantische Suche: {count} Treffer für „{query}“',
+      searching: 'Korpus wird nach „{query}“ durchsucht …',
+      noResults: 'Keine semantischen Treffer für „{query}“',
+      noResultsDescription:
+        'Nichts in diesem Projekt entsprach dem Sinn Ihrer Anfrage. Versuchen Sie eine andere Formulierung oder löschen Sie die Suche, um alle Dateien zu durchsuchen.',
+      page: 'Seite {page}',
+      relevance: '{percent}% Relevanz',
+    },
   },
   folders: {
     heading: 'Ordner',
@@ -119,6 +131,15 @@ export const files: typeof en.files = {
       cards: 'Kacheln',
       tree: 'Ordner',
     },
+  },
+  delete: {
+    action: 'Dokument löschen',
+    confirm: 'Dadurch wird das Dokument aus diesem Projekt entfernt. Dies kann nicht rückgängig gemacht werden.',
+    confirmAction: 'Löschen',
+    cancel: 'Abbrechen',
+    deleting: 'Wird gelöscht…',
+    success: '„{name}“ wurde aus dem Projekt entfernt',
+    error: 'Das Dokument konnte nicht gelöscht werden',
   },
   upload: {
     uploading: 'Wird hochgeladen …',

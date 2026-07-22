@@ -49,12 +49,19 @@ interface ProjectSettingsProps {
   canManageProject?: boolean
   /** Whether the flagged project knowledge page is linked from here (spec §5). */
   showKnowledgeLink?: boolean
+  /**
+   * The signed-in user's own organization membership id, threaded down to
+   * {@link ProjectMembersForm} so it can recognize "your own row" in the
+   * roster and guard against self-lockout. `null`/omitted when unknown.
+   */
+  currentMembershipId?: string | null
 }
 
 export function ProjectSettings({
   data,
   canManageProject = false,
   showKnowledgeLink = false,
+  currentMembershipId = null,
 }: ProjectSettingsProps) {
   const t = useTranslations('settings')
   const { locale } = useLocale()
@@ -116,6 +123,7 @@ export function ProjectSettings({
             projectId={data.id}
             profile={data.profile}
             summary={data.profileDisplay?.summary}
+            summaryLocale={data.profileDisplay?.summaryLocale}
             briefStarted={data.profileDisplay != null}
             canEdit={canManageProject}
           />
@@ -165,7 +173,11 @@ export function ProjectSettings({
                 : t('project.membersDescriptionReadOnly')}
             </p>
           </div>
-          <ProjectMembersForm projectId={data.id} canManage={canManageProject} />
+          <ProjectMembersForm
+            projectId={data.id}
+            canManage={canManageProject}
+            currentMembershipId={currentMembershipId}
+          />
         </section>
       </StaggerItem>
 

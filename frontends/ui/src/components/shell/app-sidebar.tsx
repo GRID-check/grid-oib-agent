@@ -4,8 +4,11 @@
  * The GRID application sidebar — the product's primary navigation surface.
  *
  * Project-centric IA (click-dummy overhaul §5, FB-9/FB-10): "Piloti" wordmark →
- * project switcher → Ask Piloti / Workflows* / Files / Archiv* / History →
- * (spacer) → Settings → user footer. Overview and Members left the nav — their
+ * project switcher → Ask Piloti / Workflows* / Files / History / Archiv* →
+ * (spacer) → Settings → user footer. Archiv sits at the foot of the section
+ * nav, just above the spacer/Settings (user feedback: the org-wide Archiv is a
+ * cross-project doorway, not a primary project section, so it reads better
+ * pinned low rather than mid-list). Overview and Members left the nav — their
  * content lives in the project Settings page; the project root redirects to
  * Chat. Quiet by design: a warm sunken surface, hairline border, and one
  * treatment for the active section — a raised white card, matching the click
@@ -52,18 +55,21 @@ interface NavItem {
   icon: React.ComponentType<{ className?: string }>
 }
 
-// Order and icons mirror the click dummy's sidebar exactly:
-// Ask Piloti (compass) · Workflows (bolt) · Files (folder) · Archiv (box) ·
-// History (clock).
+// Order and icons follow the click dummy, with one deliberate deviation (user
+// feedback): Ask Piloti (compass) · Workflows (bolt) · Files (folder) ·
+// History (clock) · Archiv (box). Archiv moved to the foot of the list so it
+// sits just above the spacer/Settings — it is an org-wide, cross-project
+// doorway rather than a primary project section, and reads better pinned low.
 const NAV_ITEMS: NavItem[] = [
   { key: 'chat', segment: 'chat', icon: Compass },
   { key: 'workflows', segment: 'workflows', icon: Zap },
   { key: 'files', segment: 'files', icon: Folder },
+  { key: 'history', segment: 'history', icon: Clock },
   // The org-wide Archiv (ADR-0024) keeps its org-scoped route; the sidebar
   // entry is a doorway, not a project subpage (spec §5: project-chrome Archiv
-  // is a later phase — until then this links to the existing org page).
+  // is a later phase — until then this links to the existing org page). Kept
+  // last so it hugs the bottom of the section nav, above Settings.
   { key: 'archiv', segment: null, href: '/app/archiv', icon: Archive },
-  { key: 'history', segment: 'history', icon: Clock },
 ]
 
 /** Pinned bottom entry, rendered above the user footer (spec §5). */
@@ -170,6 +176,14 @@ export function AppSidebar({
 
   const isActive = (item: NavItem) => pathname.startsWith(itemHref(item))
 
+  // "Frag Piloti" always opens a FRESH chat (new/empty draft), never the last
+  // thread the user left open. It carries ?new=1, which the chat client consumes
+  // once to reset the store to a new-session draft (reusing startNewSessionDraft)
+  // and then strips from the URL. Active-state detection still keys off the plain
+  // path (itemHref), so the query never breaks the highlight.
+  const navLinkHref = (item: NavItem) =>
+    item.key === 'chat' ? `${itemHref(item)}?new=1` : itemHref(item)
+
   // Workflows is feature-flagged (default off). Archiv shows for any member of
   // an org with the `organization-archiv` flag — the same gate the user menu's
   // Archiv entry uses (the layout passes both from getNavFlags).
@@ -185,7 +199,7 @@ export function AppSidebar({
   // tiles) and the mobile drawer. Active = raised white card with a hairline
   // border and soft shadow; inactive = quiet muted ink with a sidebar hover.
   const renderNavLink = (item: NavItem, variant: 'desktop' | 'mobile') => {
-    const href = itemHref(item)
+    const href = navLinkHref(item)
     const active = isActive(item)
     const Icon = item.icon
     const iconOnly = variant === 'desktop' && collapsed

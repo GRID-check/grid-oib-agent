@@ -31,6 +31,32 @@ class IngestRequest(BaseModel):
     )
 
 
+class DocumentSearchRequest(BaseModel):
+    """Request body for deterministic semantic document search within a collection."""
+
+    query: str = Field(..., min_length=1, max_length=1000, description="Natural-language search query")
+    top_k: int = Field(40, ge=1, le=100, description="Max chunks to retrieve before document-centric aggregation")
+    top_k_files: int = Field(20, ge=1, le=100, description="Max documents to return after aggregation")
+
+
+class DocumentSearchHit(BaseModel):
+    """One document-centric search hit (a file's best-matching chunk)."""
+
+    file_name: str = Field(..., description="Original filename of the matched document")
+    score: float = Field(..., description="Similarity score (0.0 to 1.0) of the file's best-matching chunk")
+    snippet: str = Field(..., description="Snippet (~300 chars) from the file's best-matching chunk")
+    page_number: int | None = Field(None, description="Page number of the best-matching chunk (None if N/A)")
+    collection: str = Field(..., description="Collection the document belongs to")
+
+
+class DocumentSearchResponse(BaseModel):
+    """Response for semantic document search: document-centric hits, best score first."""
+
+    hits: list[DocumentSearchHit] = Field(
+        default_factory=list, description="Matched documents (one per file), sorted by score descending"
+    )
+
+
 class GenerateSummaryRequest(BaseModel):
     """Request body for AI project summary generation."""
 

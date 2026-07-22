@@ -180,13 +180,17 @@ export async function updateProjectProfileIfVersion(
 }
 
 /**
- * Persist a generated summary onto profile_display.summary. No-op when the
- * project has no display yet — a summary alone cannot create a display.
+ * Persist a generated summary (and the locale it was generated in) onto
+ * profile_display.summary / .summaryLocale. No-op when the project has no
+ * display yet — a summary alone cannot create a display. `summaryLocale` is
+ * stored inside the same jsonb blob (no column/migration) so the Project Brief
+ * can detect and repair a stale-language summary after a UI locale switch.
  */
 export async function setProjectProfileSummaryInOrg(
   projectId: string,
   organizationId: string,
   summary: string,
+  summaryLocale?: string,
 ): Promise<void> {
   const db = getDb()
   const scope = and(
@@ -202,7 +206,7 @@ export async function setProjectProfileSummaryInOrg(
   if (!current?.profileDisplay) return
   await db
     .update(projects)
-    .set({ profileDisplay: { ...current.profileDisplay, summary } })
+    .set({ profileDisplay: { ...current.profileDisplay, summary, summaryLocale } })
     .where(scope)
 }
 

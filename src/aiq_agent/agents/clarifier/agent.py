@@ -44,6 +44,7 @@ from langgraph.prebuilt import ToolNode
 
 from aiq_agent.common import LLMProvider
 from aiq_agent.common import LLMRole
+from aiq_agent.common import content_to_text
 from aiq_agent.common import get_latest_user_query
 from aiq_agent.common import load_prompt
 from aiq_agent.common import render_prompt_template
@@ -53,28 +54,6 @@ from .models import ClarifierAgentState
 from .models import ClarifierResult
 
 logger = logging.getLogger(__name__)
-
-
-def _content_to_text(content: Any) -> str:
-    """Normalize LLM message content to plain text.
-
-    Chat models may return ``content`` as a string or as a list of content
-    blocks (e.g. ``[{"type": "text", "text": "..."}]``); the parsing helpers
-    below all expect a string.
-    """
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        parts = []
-        for block in content:
-            if isinstance(block, str):
-                parts.append(block)
-            elif isinstance(block, dict) and isinstance(block.get("text"), str):
-                parts.append(block["text"])
-            elif isinstance(getattr(block, "text", None), str):
-                parts.append(block.text)
-        return "\n".join(parts)
-    return str(content) if content is not None else ""
 
 
 AGENT_DIR = Path(__file__).parent
@@ -272,7 +251,7 @@ class ClarifierAgent:
         Returns:
             Tuple of (title, sections) or (None, []) if parsing fails.
         """
-        text = _content_to_text(text)
+        text = content_to_text(text)
         if not text:
             return None, []
 
@@ -362,7 +341,7 @@ class ClarifierAgent:
         Returns:
             ClarificationResponse if parsing succeeds, None otherwise.
         """
-        text = _content_to_text(text)
+        text = content_to_text(text)
         if not text:
             return None
 

@@ -19,6 +19,7 @@ export const errors = {
     title: 'You don’t have access to this',
     description:
       'This project may have been moved, or your access was changed. Check with a project admin if you think this is a mistake.',
+    action: 'Go Home',
   },
   auth: {
     title: 'Authentication error',

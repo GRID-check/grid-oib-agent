@@ -501,6 +501,16 @@ class TestNonRisEntries:
         assert "Behördliche Informationen" in block
         assert "Quelle: https://www.wien.gv.at/x" in block
 
+    def test_entry_with_both_urls_renders_both(self, tmp_path):
+        # Regression: an entry carrying a consolidated-law link AND a curated
+        # annex/source link must render BOTH — an `elif` previously dropped
+        # ``source_url`` whenever ``full_law_url`` was also set.
+        entry = self._base(full_law_url="https://www.ris.bka.gv.at/GeltendeFassung/x")
+        registry = nr.load_registry(self._write(tmp_path, [entry]))
+        block = nr.render_prompt_block(registry, bundesland="Wien")
+        assert "Gesamt: https://www.ris.bka.gv.at/GeltendeFassung/x" in block
+        assert "Quelle: https://www.wien.gv.at/x" in block
+
     def test_norm_extern_stub_renders_kein_volltext(self, tmp_path):
         stub = self._base(id="oenorm", rank="norm_extern", bundesland="", source_url="")
         registry = nr.load_registry(self._write(tmp_path, [stub]))

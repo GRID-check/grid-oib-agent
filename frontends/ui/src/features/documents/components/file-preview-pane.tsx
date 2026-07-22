@@ -250,8 +250,13 @@ export function FilePreviewPane({ file, projectName, canManage = true, onClose, 
           container (e.g. a docked column) via container queries. */}
       <div className="flex min-h-0 flex-1 flex-col @2xl:flex-row">
         {/* Left: live preview, or a decorative page mock while loading / when
-            there is no inline preview. */}
-        <div className="flex min-h-[200px] min-w-0 flex-1 justify-center overflow-y-auto bg-muted/40 p-5">
+            there is no inline preview. The column claims a generous minimum
+            height so the document is readable inline — a comfortable fixed
+            floor when the pane is docked/stacked (narrow), scaling to the
+            viewport once the split goes side-by-side in the wide Dateien modal.
+            The Maximize2 affordance in the header still opens the full-screen
+            viewer for PDFs and images. */}
+        <div className="flex min-h-[420px] min-w-0 flex-1 justify-center overflow-y-auto bg-muted/40 p-5 @2xl:min-h-[65vh]">
           {canPreview && isLoading ? (
             <PageMock skeleton />
           ) : canPreview && previewUrl ? (

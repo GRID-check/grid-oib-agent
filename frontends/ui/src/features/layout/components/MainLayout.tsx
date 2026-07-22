@@ -249,6 +249,7 @@ export const MainLayout: FC<MainLayoutProps> = ({
             projectName={projectName ?? undefined}
             onNewSession={handleNewSession}
             isNewSessionDisabled={isNavigationBlocked}
+            isChatStarted={(currentConversation?.messages?.length ?? 0) > 0}
           />
 
           {/* Chat Area - Scrollable, extends behind the floating composer AND

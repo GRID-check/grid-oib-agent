@@ -165,6 +165,45 @@ describe('ChatToolbar', () => {
     })
   })
 
+  describe('chat-started gating', () => {
+    test('hides New chat, Research and the breadcrumb before a chat has started', () => {
+      render(
+        <ChatToolbar
+          sessionTitle="My Session"
+          projectName="Wohnbau Favoriten"
+          isChatStarted={false}
+        />
+      )
+
+      // The quiet navigation affordances stay available on the empty start screen.
+      expect(screen.getByRole('button', { name: 'Toggle sessions sidebar' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Open navigation' })).toBeInTheDocument()
+
+      // The primary actions + thread identity are withheld until a chat starts.
+      expect(screen.queryByTestId('research-panel-toggle')).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: 'Create new session' })
+      ).not.toBeInTheDocument()
+      expect(screen.queryByText('Wohnbau Favoriten')).not.toBeInTheDocument()
+      expect(screen.queryByText('My Session')).not.toBeInTheDocument()
+    })
+
+    test('shows New chat, Research and the breadcrumb once a chat has started', () => {
+      render(
+        <ChatToolbar
+          sessionTitle="My Session"
+          projectName="Wohnbau Favoriten"
+          isChatStarted
+        />
+      )
+
+      expect(screen.getByTestId('research-panel-toggle')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Create new session' })).toBeInTheDocument()
+      expect(screen.getByText('Wohnbau Favoriten')).toBeInTheDocument()
+      expect(screen.getByText('My Session')).toBeInTheDocument()
+    })
+  })
+
   describe('new session button', () => {
     test('invokes onNewSession when enabled', async () => {
       const onNewSession = vi.fn()

@@ -27,6 +27,15 @@ export const ProjectProfileSchema = z.object({
 export const ProjectProfileDisplaySchema = z.object({
   title: z.string(),
   summary: z.string(),
+  /**
+   * The UI locale the stored `summary` prose was generated in (e.g. 'en',
+   * 'de'). Persisted alongside the summary — inside this jsonb blob, so no
+   * column/migration — so the Project Brief can detect a stale-language summary
+   * and regenerate it once when the UI locale has since changed. Optional:
+   * legacy rows written before this field have no value and are treated as
+   * "matches the current locale" (fail-open, never a regeneration storm).
+   */
+  summaryLocale: z.string().optional(),
   keyFacts: z.array(z.object({ label: z.string(), value: z.string() })),
   missingInfo: z.array(z.string()),
 })

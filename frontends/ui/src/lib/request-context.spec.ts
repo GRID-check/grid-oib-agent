@@ -1,5 +1,4 @@
-import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
+import fixtureData from '../../tests/fixtures/grid_request_context.json'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -50,8 +49,10 @@ interface GridRequestContextFixture {
   envelopeCases: GridRequestContextEnvelopeFixtureCase[]
 }
 
-const fixturePath = fileURLToPath(new URL('../../tests/fixtures/grid_request_context.json', import.meta.url))
-const fixture: GridRequestContextFixture = JSON.parse(readFileSync(fixturePath, 'utf8'))
+// Import the fixture directly (vite/resolveJsonModule) rather than reading it
+// via fileURLToPath(import.meta.url) — under vitest that URL is not always a
+// file: scheme, which crashed this whole suite at import time.
+const fixture: GridRequestContextFixture = fixtureData as GridRequestContextFixture
 
 describe('buildGridRequestContextHeaders — cross-language contract fixture', () => {
   it('the fixture actually has cases (guards against a silently-empty/misresolved fixture path)', () => {

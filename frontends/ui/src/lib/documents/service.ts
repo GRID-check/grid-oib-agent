@@ -9,7 +9,7 @@
  */
 
 import 'server-only'
-import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3'
+import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { s3Client, signingS3Client, bucketName, buildStorageKey } from '@/lib/s3'
 import { requireProjectAccess } from '@/lib/authz/projects'
@@ -17,6 +17,7 @@ import { canManageArchiv } from '@/lib/authz/organizations'
 import { ForbiddenError } from '@/lib/api/errors'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { getBackendUrl } from '@/lib/backend-proxy'
+import { buildGridRequestContextWireHeaders } from '@/lib/request-context'
 import { findProjectInOrg } from '@/lib/projects/repository'
 import { ApiError, BadRequestError, ConflictError, NotFoundError, UpstreamError } from '@/lib/api/errors'
 import { ALLOWED_TAGS } from './tag-vocabulary'
@@ -27,6 +28,7 @@ import type { AuthorizedSession } from '@/lib/auth/types'
 import type { Document } from '@/lib/db/schema'
 import { reconcileDocumentStatuses, type DocumentMetadata } from './reconcile-status'
 import {
+  deleteProjectDocument,
   findDocumentInOrg,
   findFolderPathInProject,
   insertDocument,
@@ -227,6 +229,146 @@ export async function listDocuments(
   const reconciled = await reconcileDocumentStatuses(rows)
 
   return reconciled.map(({ metadata: _metadata, ...row }) => row)
+}
+
+/**
+ * A single hit from the backend's document-centric semantic search
+ * (`POST /v1/collections/{c}/search`). One hit per file, best snippet, sorted
+ * by score descending. Deterministic vector search — no LLM.
+ */
+export interface BackendSearchHit {
+  file_name: string
+  score: number
+  snippet: string
+  page_number: number | null
+  collection: string
+}
+
+/**
+ * A document row joined with its semantic-search match evidence — the existing
+ * list row (name, status, metadata) plus WHY it matched: the best snippet, the
+ * page it came from, and the 0..1 relevance score. Returned reordered by score.
+ */
+export type SearchedDocument<T> = T & {
+  snippet: string
+  page: number | null
+  score: number
+}
+
+/**
+ * Passages retrieved per requested file. `_aggregate_hits` on the backend keeps
+ * one hit per file (its best-scoring chunk), so the chunk budget (`top_k`) must
+ * comfortably exceed `top_k_files` or it silently caps how many distinct files
+ * can surface. A few passages per file absorbs the common case where a file's
+ * best chunk isn't its first-ranked one without over-fetching. The backend
+ * bounds `top_k` at 100 (`DocumentSearchRequest`), so the derived budget is
+ * clamped to that ceiling — the invariant `top_k >= top_k_files` still holds for
+ * every `top_k_files` in the allowed 1..100 range.
+ */
+const SEARCH_PASSAGES_PER_FILE = 3
+const SEARCH_MAX_PASSAGES = 100
+
+/** Derive the passage budget from the requested file count (see the constants above). */
+export function deriveSearchTopK(topKFiles: number): number {
+  return Math.min(SEARCH_MAX_PASSAGES, Math.max(1, topKFiles) * SEARCH_PASSAGES_PER_FILE)
+}
+
+/** Bounded, fail-open POST to the backend's document-centric search endpoint.
+ *
+ * Deterministic vector search. Any non-OK response, malformed body, timeout, or
+ * transport failure yields `[]` (never throws) — the caller surfaces this to the
+ * UI as "no semantic results" rather than a crash.
+ *
+ * The `top_k` passage budget is DERIVED from `topKFiles` (`deriveSearchTopK`) so
+ * a large `top_k_files` is never starved by a fixed chunk cap.
+ *
+ * Forwards the signed `X-Grid-Request-Context` envelope scoped to exactly this
+ * collection (defense-in-depth, PB-SYNTH-4): the callers here have already
+ * authorized the caller to read `collectionName` (project FGA / org membership),
+ * and the backend route rejects any `collection_name` not present in the signed
+ * scope — closing the cross-tenant read hole if the backend is reachable by
+ * anything other than this BFF. Signed with `GRID_INTERNAL_API_TOKEN` via the
+ * shared envelope builder (never hand-rolled), so the raw, forgeable
+ * `X-Grid-Collection-Scope` header alone can't be used to widen scope.
+ */
+export async function fetchSemanticHits(
+  collectionName: string,
+  query: string,
+  topKFiles: number,
+): Promise<BackendSearchHit[]> {
+  const scopeHeaders = buildGridRequestContextWireHeaders(
+    { collectionScope: [collectionName] },
+    process.env.GRID_INTERNAL_API_TOKEN,
+  )
+  try {
+    const res = await fetch(`${getBackendUrl()}/v1/collections/${encodeURIComponent(collectionName)}/search`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...scopeHeaders },
+      body: JSON.stringify({ query, top_k: deriveSearchTopK(topKFiles), top_k_files: topKFiles }),
+      signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
+    })
+    if (!res.ok) return []
+    const body = await res.json().catch(() => ({}))
+    return Array.isArray(body?.hits) ? (body.hits as BackendSearchHit[]) : []
+  } catch {
+    // Includes a TimeoutError abort — a hung/unreachable backend fails open to
+    // an empty result set, exactly like any other transport failure.
+    return []
+  }
+}
+
+/**
+ * Join backend hits to the existing file rows BY FILENAME (`hit.file_name` ===
+ * `file.filename`), returning the matched rows reordered by score (hit order,
+ * which the backend guarantees is score-descending), each augmented with its
+ * snippet, page, and score. Hits with no matching row are dropped. When a
+ * filename collides across rows the most-recent row (latest `createdAt`) wins,
+ * so a re-uploaded document resolves to its current entry.
+ */
+export function joinHitsToFiles<T extends { filename: string; createdAt: Date | string }>(
+  hits: BackendSearchHit[],
+  files: T[],
+): Array<SearchedDocument<T>> {
+  const byName = new Map<string, T>()
+  for (const file of files) {
+    const existing = byName.get(file.filename)
+    if (!existing || new Date(file.createdAt).getTime() > new Date(existing.createdAt).getTime()) {
+      byName.set(file.filename, file)
+    }
+  }
+
+  const matched: Array<SearchedDocument<T>> = []
+  for (const hit of hits) {
+    const file = byName.get(hit.file_name)
+    if (!file) continue
+    matched.push({ ...file, snippet: hit.snippet, page: hit.page_number ?? null, score: hit.score })
+  }
+  return matched
+}
+
+/**
+ * Document-centric semantic search over a project's corpus. Enforces
+ * `project:view` (via `listDocuments`), resolves the project's RAG collection,
+ * runs the deterministic vector search on the backend, and joins the hits to the
+ * project's own file rows by filename. Fail-open: a backend error/timeout yields
+ * `{ hits: [] }`, never a crash.
+ */
+export async function searchProjectDocuments(
+  session: AuthorizedSession,
+  projectId: string,
+  query: string,
+  topK = 20,
+): Promise<{ hits: Array<SearchedDocument<Awaited<ReturnType<typeof listDocuments>>[number]>> }> {
+  // Authorization (project:view) + the canonical file rows come from the same
+  // path the normal list uses, so a semantic result is always a real, visible
+  // document with its live status/metadata.
+  const files = await listDocuments(session, projectId)
+
+  const project = await findProjectInOrg(projectId, session.organizationId)
+  if (!project) throw new NotFoundError('Project not found')
+
+  const hits = await fetchSemanticHits(project.collectionName, query, topK)
+  return { hits: joinHitsToFiles(hits, files) }
 }
 
 export interface UploadDocumentInput {
@@ -432,6 +574,63 @@ export async function updateDocumentTags(
 
   const body = await res.json().catch(() => ({}))
   return { id: doc.id, tags: Array.isArray(body.tags) ? body.tags : tags }
+}
+
+/**
+ * Delete a project document: purge its RAG chunks (best-effort), remove the
+ * SeaweedFS object, delete the row, and audit. Requires `project:edit` on the
+ * owning project — the same permission the upload path checks. Mirrors
+ * {@link import('@/lib/archiv/service').deleteArchivDocument}, differing only in
+ * scope: per-project FGA instead of org-level `org:archiv:manage`.
+ *
+ * Org-wide Archiv documents (NULL `projectId`) are NOT deletable here — they go
+ * through the org-scoped `/api/archiv/documents/[id]` route — so an Archiv id
+ * surfaces as a 404 rather than being force-fit through project FGA.
+ */
+export async function deleteDocument(
+  session: AuthorizedSession,
+  documentId: string,
+  request: Request,
+): Promise<void> {
+  const doc = await findDocumentInOrg(documentId, session.organizationId)
+  if (!doc || doc.projectId === null) throw new NotFoundError()
+
+  await requireProjectAccess(session, doc.projectId, 'project:edit')
+
+  // Best-effort: remove the ingested chunks so a deleted document stops showing
+  // up in retrieval. A backend hiccup must not block the durable SeaweedFS + DB
+  // cleanup below, so failures here are swallowed.
+  try {
+    await fetch(`${getBackendUrl()}/v1/collections/${encodeURIComponent(doc.collectionName)}/documents`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ file_ids: [doc.filename] }),
+      signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
+    })
+  } catch {
+    // ignore — chunks may linger until the next collection reconcile/purge
+  }
+
+  if (doc.storageKey) {
+    try {
+      await s3Client.send(new DeleteObjectCommand({ Bucket: bucketName, Key: doc.storageKey }))
+    } catch {
+      // ignore — the object may already be gone; the row delete below is the record of intent
+    }
+  }
+
+  await deleteProjectDocument(documentId, session.organizationId, doc.projectId)
+
+  // Data-provenance event: who removed which file from which project.
+  await recordAuditEvent({
+    organizationId: session.organizationId,
+    actor: { userId: session.userId, email: session.email },
+    action: 'document.deleted',
+    targetType: 'document',
+    // Filename is user-controlled — cap it before it reaches the trail.
+    metadata: { projectId: doc.projectId, filename: doc.filename.slice(0, 200), collectionName: doc.collectionName },
+    request,
+  })
 }
 
 export interface DocumentVisualDetail {

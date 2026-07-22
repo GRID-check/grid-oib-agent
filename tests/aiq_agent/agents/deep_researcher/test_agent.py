@@ -2328,3 +2328,71 @@ class TestDeepResearcherCitationVerification:
                 result = await agent.run(state)
 
         assert result.citations_removed is None
+
+
+class TestDeepResearcherQuoteVerification:
+    """Deep researcher annotates fabricated quotes inline."""
+
+    @pytest.fixture
+    def mock_llm(self):
+        llm = MagicMock()
+        llm.ainvoke = AsyncMock()
+        llm.bind_tools = MagicMock(return_value=llm)
+        return llm
+
+    @pytest.fixture
+    def mock_llm_provider(self, mock_llm):
+        provider = LLMProvider()
+        provider.set_default(mock_llm)
+        provider.configure(LLMRole.ORCHESTRATOR, mock_llm)
+        provider.configure(LLMRole.PLANNER, mock_llm)
+        provider.configure(LLMRole.RESEARCHER, mock_llm)
+        provider.configure(LLMRole.REPORT_WRITER, mock_llm)
+        return provider
+
+    @pytest.fixture
+    def real_tool(self):
+        return web_search_tool
+
+    _KB_ENTRY = SourceEntry(
+        citation_key="OIB-330.pdf, p.12",
+        source_type="knowledge_layer",
+        tool_name="knowledge_search",
+        chunk_text="Die lichte Durchgangshoehe von Treppen muss mindestens 2,10 m betragen.",
+    )
+
+    async def _run(self, mock_llm_provider, real_tool, markdown):
+        from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+
+        mock_agent = MagicMock()
+        mock_agent.with_config = MagicMock(return_value=mock_agent)
+        mock_agent.ainvoke = AsyncMock(
+            return_value={"messages": [AIMessage(content="handoff")], "files": output_markdown_file(markdown)}
+        )
+        with patch("aiq_agent.agents.deep_researcher.factory.create_deep_agent", return_value=mock_agent):
+            agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
+            state = DeepResearchAgentState(messages=[HumanMessage(content="Treppenhoehe?")])
+            with seeded_session_registry(self._KB_ENTRY):
+                return await agent.run(state)
+
+    @pytest.mark.asyncio
+    async def test_fabricated_quote_annotated_inline(self, mock_llm_provider, real_tool):
+        markdown = (
+            "Laut Norm gilt „Treppen muessen mit einer automatischen Loeschanlage "
+            'ausgestattet sein" [1].\n\n## Sources\n[1] OIB-330.pdf, p.12'
+        )
+        result = await self._run(mock_llm_provider, real_tool, markdown)
+        output = result.messages[-1].content
+        assert "[nicht wörtlich in der Quelle belegt]" in output
+        # Fail-open: the fabricated sentence is preserved verbatim.
+        assert "automatischen Loeschanlage" in output
+
+    @pytest.mark.asyncio
+    async def test_verbatim_quote_not_annotated(self, mock_llm_provider, real_tool):
+        markdown = (
+            "Es gilt: „Die lichte Durchgangshoehe von Treppen muss mindestens 2,10 m "
+            'betragen" [1].\n\n## Sources\n[1] OIB-330.pdf, p.12'
+        )
+        result = await self._run(mock_llm_provider, real_tool, markdown)
+        output = result.messages[-1].content
+        assert "[nicht wörtlich in der Quelle belegt]" not in output

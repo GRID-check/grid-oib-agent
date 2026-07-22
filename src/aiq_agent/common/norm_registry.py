@@ -527,11 +527,14 @@ def _render_entry_line(entry: NormEntry) -> str:
         line = f"- {entry.short} — {entry.title}"
     if entry.bundesland:
         line += f" ({entry.bundesland})"
+    # Render BOTH URLs when both are set (e.g. a consolidated law plus a curated
+    # annex link) — an `elif` here silently dropped a populated ``source_url``
+    # whenever ``full_law_url`` was also present.
     if entry.full_law_url:
         line += f" Gesamt: {entry.full_law_url}"
-    elif entry.source_url:
+    if entry.source_url:
         line += f" Quelle: {entry.source_url}"
-    elif not entry.is_ris:
+    if not entry.full_law_url and not entry.source_url and not entry.is_ris:
         line += " (kein Volltext verfügbar — nur referenzieren)"
     return line
 

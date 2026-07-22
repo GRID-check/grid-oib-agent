@@ -86,6 +86,18 @@ export const files = {
     clearSearch: 'Clear search',
     resetSearch: 'Reset search',
     recentlyUploaded: 'Recently uploaded',
+    semantic: {
+      searchPlaceholder: 'Search files — press Enter for semantic search…',
+      run: 'Search',
+      reset: 'Show all files',
+      banner: 'Semantic search: {count} results for “{query}”',
+      searching: 'Searching the corpus for “{query}”…',
+      noResults: 'No semantic matches for “{query}”',
+      noResultsDescription:
+        'Nothing in this project matched the meaning of your query. Try different wording, or clear the search to browse every file.',
+      page: 'Page {page}',
+      relevance: '{percent}% relevance',
+    },
   },
   folders: {
     heading: 'Folders',
@@ -113,6 +125,15 @@ export const files = {
       cards: 'Cards',
       tree: 'Folders',
     },
+  },
+  delete: {
+    action: 'Delete document',
+    confirm: 'This removes the document from this project. This cannot be undone.',
+    confirmAction: 'Delete',
+    cancel: 'Cancel',
+    deleting: 'Deleting…',
+    success: '“{name}” was removed from the project',
+    error: 'The document could not be deleted',
   },
   upload: {
     uploading: 'Uploading…',

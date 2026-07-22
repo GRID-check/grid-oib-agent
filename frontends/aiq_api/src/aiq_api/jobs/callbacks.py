@@ -720,13 +720,17 @@ class AgentEventCallback(BaseCallbackHandler):
 
             content = str(wire.get("content") or entry.url or entry.citation_key or tool_name)
             name = str(wire.get("title") or wire.get("citation_key") or entry.url or content)
+            # ``content`` is passed positionally; drop it from the wire spread so it
+            # is not also bound via **kwargs (would raise TypeError: got multiple
+            # values for argument 'content' and crash every citation-source emit).
+            extra = {key: value for key, value in wire.items() if key != "content"}
             self._emit_artifact(
                 ArtifactType.CITATION_SOURCE,
                 content,
                 name=name,
                 agent_id=agent_id,
                 workflow=workflow,
-                **wire,
+                **extra,
             )
 
     def on_llm_start(self, serialized: dict, prompts: list, **kwargs) -> None:

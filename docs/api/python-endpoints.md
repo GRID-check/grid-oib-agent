@@ -46,6 +46,14 @@ Downloads the file from `file_ref` (presigned SeaweedFS URL), saves to a tempora
 
 Uploads save files to temp locations and submit async ingestion jobs. Temp files are cleaned up by the ingestion job after processing (`cleanup_files: true` config).
 
+## Document Search
+
+| Method | Path | Description | Request | Response | Handler |
+|--------|------|-------------|---------|----------|---------|
+| `POST` | `/v1/collections/{collection_name}/search` | Deterministic semantic vector search over one collection's already-embedded chunks (**no LLM, no agent loop**). Retrieves the top `top_k` chunks via the cached retriever singleton, then aggregates document-centric: one hit per `file_name` (its max-score chunk → `score`, `snippet` ≈300 chars, `page_number`), sorted by score descending, capped at `top_k_files`. **Collection-scope check (defense-in-depth):** the target `collection_name` must be within the caller's HMAC-signed `X-Grid-Request-Context` scope envelope (the BFF `fetchSemanticHits` forwards it scoped to the one collection it authorized) — an out-of-scope collection returns `404` (indistinguishable from a missing one, so cross-tenant existence never leaks); under `REQUIRE_AUTH=true` a request carrying no valid signed scope is rejected `403`; anonymous mode (`REQUIRE_AUTH=false`) enforces nothing. `404` if the collection is missing; `422` on empty query. | `{ query (1–1000), top_k=40 (1–100), top_k_files=20 (1–100) }` | `{ hits: [{ file_name, score, snippet, page_number, collection }] }` | `add_document_search_routes` in `aiq_api.routes.document_search` |
+
+The retriever is a **cached singleton** (`get_active_retriever` in `aiq_agent.knowledge.factory`), lazily built on first use from the **same backend + Chroma persist dir + embedding model as the active ingestor**, so a fresh process serving `/search` initializes the retriever once and reuses it (no per-request embed-client / Chroma re-init). Unlike the agent's `knowledge_retrieval` tool this route returns the structured `RetrievalResult` directly (no LLM formatting, no forced base-corpus inclusion).
+
 **Tag edit errors** (`PATCH …/tags`): tags outside `ALLOWED_TAGS` → `400` with `detail.invalid_tags`; more than `MAX_TAGS` (5) after dedup → `400` with `detail.max_tags` + `detail.tag_count`; no summary row for `(collection, file_name)` → `404` (the summary is the anchor — there is nothing to tag without one). An empty list is accepted and clears the tags. End-user access is enforced at the BFF (`project:edit`); this route only requires the knowledge API to be configured, matching the rest of the documents router.
 
 ## Project Intake

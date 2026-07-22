@@ -9,11 +9,58 @@ import 'server-only'
 import { getWorkOS } from '@/lib/workos/client'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { recordAuditEvent } from '@/lib/audit/service'
-import { NotFoundError } from '@/lib/api/errors'
+import { ConflictError, NotFoundError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { findProjectWorkosResourceId } from './repository'
 
 export type ProjectMemberRole = 'project-viewer' | 'project-editor' | 'project-admin'
+
+const PROJECT_ADMIN_ROLE_SLUG = 'project-admin'
+
+/** Machine-readable marker so the client can localize the last-admin block. */
+const LAST_ADMIN_DETAILS = { reason: 'last-admin' } as const
+
+/**
+ * The distinct organization-membership ids that currently hold `project-admin`
+ * on a resource, derived from the FGA role assignments the caller already
+ * listed. A `Set` because a membership can appear more than once (e.g. direct
+ * plus group-derived) and each counts as a single admin.
+ */
+function adminMembershipIds(
+  assignments: Array<{ organizationMembershipId: string; role: { slug: string } }>,
+): Set<string> {
+  return new Set(
+    assignments
+      .filter((assignment) => assignment.role.slug === PROJECT_ADMIN_ROLE_SLUG)
+      .map((assignment) => assignment.organizationMembershipId),
+  )
+}
+
+/**
+ * Last-admin invariant. A role change or removal that strips `project-admin`
+ * from `targetMembershipId` is rejected when no OTHER membership would still be
+ * an admin — a project must never be left with zero admins and no in-app way to
+ * recover. `willRemainAdmin` is true only when the pending change re-grants
+ * `project-admin` to the same target. Covers both self-demotion and demoting
+ * the only other admin. Cheap: it reuses the assignment list already fetched,
+ * adding no WorkOS round-trip.
+ */
+function assertNotLastAdmin(
+  assignments: Array<{ organizationMembershipId: string; role: { slug: string } }>,
+  targetMembershipId: string,
+  willRemainAdmin: boolean,
+): void {
+  if (willRemainAdmin) return
+  const admins = adminMembershipIds(assignments)
+  if (!admins.has(targetMembershipId)) return
+  const otherAdmins = [...admins].filter((id) => id !== targetMembershipId)
+  if (otherAdmins.length === 0) {
+    throw new ConflictError(
+      'This project must keep at least one admin. Assign another admin before removing this one.',
+      LAST_ADMIN_DETAILS,
+    )
+  }
+}
 
 const PROJECT_ROLE_BY_PERMISSION: Array<{
   permissionSlug: 'project:view' | 'project:edit' | 'project:manage'
@@ -132,6 +179,11 @@ export async function setProjectMemberRole(
     .listRoleAssignmentsForResource({ resourceId: workosResourceId })
     .then((page) => page.autoPagination())
 
+  // Reject any change that would drop the project's admin count to zero
+  // (ADR-0017: the service owns the invariant). Re-granting admin to the same
+  // target keeps them an admin, so it's always allowed.
+  assertNotLastAdmin(assignments, organizationMembershipId, roleSlug === PROJECT_ADMIN_ROLE_SLUG)
+
   await Promise.all(
     assignments
       .filter((assignment) => assignment.organizationMembershipId === organizationMembershipId)
@@ -186,6 +238,9 @@ export async function removeProjectRoleAssignment(
 
   const assignment = assignments.find((a) => a.id === assignmentId)
   if (!assignment) throw new NotFoundError()
+
+  // A bare assignment removal is also a demotion — hold the last-admin line.
+  assertNotLastAdmin(assignments, assignment.organizationMembershipId, false)
 
   await workos.authorization.removeRoleAssignment({
     organizationMembershipId: assignment.organizationMembershipId,

@@ -65,6 +65,71 @@ interface ProjectIntakeWizardProps {
 
 type Answers = Record<string, ProjectPrimitiveValue>
 
+/** Shape of the autosaved intake draft persisted in sessionStorage. */
+interface IntakeDraft {
+  answers?: Answers
+  currentStep?: number
+  /** Client clock (ms) when the draft was last autosaved — the freshness fallback. */
+  savedAt?: number
+  /** The profileVersion this draft was based on, when known — the primary freshness signal. */
+  baseVersion?: number | null
+}
+
+/**
+ * Latest server-side `updatedAt` across a profile's facts + assumptions, in epoch
+ * ms, or null when the profile carries no timestamps. Used as the freshness
+ * fallback when no profileVersion is available on both the draft and the load.
+ */
+function profileUpdatedAtMs(profile: ProjectProfile | null | undefined): number | null {
+  if (!profile) return null
+  let latest: number | null = null
+  const consider = (iso: string | undefined) => {
+    if (!iso) return
+    const ms = Date.parse(iso)
+    if (!Number.isNaN(ms)) latest = latest === null ? ms : Math.max(latest, ms)
+  }
+  for (const fact of Object.values(profile.facts ?? {})) consider(fact.updatedAt)
+  for (const assumption of Object.values(profile.assumptions ?? {})) consider(assumption.updatedAt)
+  return latest
+}
+
+/**
+ * EDIT mode only: may a restored sessionStorage draft win over the persisted
+ * profile? Only when it is *provably* at least as new as that profile — otherwise
+ * a stale draft (autosaved, abandoned, then the profile advanced via e.g. an agent
+ * patch) would hide the newer brief on load and clobber it on save.
+ *
+ * Two independent freshness signals:
+ *  - version (preferred): the profile bumps its version on every write, so a
+ *    current version beyond the draft's recorded base proves the profile moved on.
+ *    Monotonic, clock-independent.
+ *  - timestamp (fallback): the draft's save time vs. the profile's newest fact /
+ *    assumption `updatedAt`, used only when a version isn't available on both sides.
+ *
+ * If neither signal can decide, default to the persisted profile, not the draft.
+ * This matters during the migration window after this fix ships: drafts
+ * autosaved by the OLD code carry neither `baseVersion` nor `savedAt` (the old
+ * autosave only wrote `{answers, currentStep}`), so any lingering pre-existing
+ * draft would otherwise be indistinguishable from "can't prove either way" and
+ * silently clobber the current persisted profile on save — the exact data-loss
+ * bug this function exists to prevent. Falling back to the profile is the side
+ * of the ambiguity that can't destroy someone else's more-recent work.
+ */
+function draftShouldWinInEditMode(
+  draft: IntakeDraft,
+  profile: ProjectProfile | null,
+  profileVersion: number | null,
+): boolean {
+  if (typeof profileVersion === 'number' && typeof draft.baseVersion === 'number') {
+    return profileVersion <= draft.baseVersion
+  }
+  const profileAt = profileUpdatedAtMs(profile)
+  if (profileAt !== null && typeof draft.savedAt === 'number') {
+    return draft.savedAt >= profileAt
+  }
+  return false
+}
+
 /** Is a single question satisfactorily answered for its type? */
 function isQuestionValid(question: ProjectIntakeQuestion, answers: Answers): boolean {
   const answer = answers[question.id]
@@ -125,6 +190,8 @@ export function ProjectIntakeWizard({
   const [touched, setTouched] = useState<Set<string>>(new Set())
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  /** True when the current `error` is a save 409 — gates the refresh action in the alert. */
+  const [conflict, setConflict] = useState(false)
   const [draftSaved, setDraftSaved] = useState(false)
   /** FB-13: findings held for confirm/override (null = none / not yet checked). */
   const [findings, setFindings] = useState<ConsistencyFinding[] | null>(null)
@@ -148,18 +215,38 @@ export function ProjectIntakeWizard({
 
         let restored = false
         try {
-          const draft = sessionStorage.getItem(STORAGE_KEY)
-          if (draft) {
-            const parsed = JSON.parse(draft)
+          const raw = sessionStorage.getItem(STORAGE_KEY)
+          if (raw) {
+            const parsed = JSON.parse(raw) as IntakeDraft
             if (parsed.answers) {
-              // Prune orphaned conditional answers on restore too, so a loaded
-              // draft behaves exactly like interactively-edited state — a stale
-              // conditional answer whose condition no longer holds must not trip
-              // the orphanedAnswer rule on Save.
-              setAnswers(pruneStaleConditionalAnswers(parsed.answers, data))
-              restored = true
+              // A draft ALWAYS winning over the loaded profile is a data-loss bug in
+              // edit mode: a draft autosaved then abandoned would, on the next open,
+              // hide a brief the profile has since gained (e.g. an agent patch) and
+              // clobber it on save. So in edit mode restore the draft only when it is
+              // provably at least as new as the profile; otherwise drop it and prefill
+              // from the profile. Create mode (no initialProfile) always restores.
+              const restoreDraft =
+                !isEdit ||
+                !initialProfile ||
+                draftShouldWinInEditMode(parsed, initialProfile, initialProfileVersion)
+              if (restoreDraft) {
+                // Prune orphaned conditional answers on restore too, so a loaded
+                // draft behaves exactly like interactively-edited state — a stale
+                // conditional answer whose condition no longer holds must not trip
+                // the orphanedAnswer rule on Save.
+                setAnswers(pruneStaleConditionalAnswers(parsed.answers, data))
+                if (typeof parsed.currentStep === 'number') setCurrentStep(parsed.currentStep)
+                restored = true
+              } else {
+                // Stale draft: discard it so it can't silently re-restore over the
+                // newer brief on a later open.
+                try {
+                  sessionStorage.removeItem(STORAGE_KEY)
+                } catch {
+                  /* ignore */
+                }
+              }
             }
-            if (typeof parsed.currentStep === 'number') setCurrentStep(parsed.currentStep)
           }
         } catch {
           /* invalid draft, ignore */
@@ -195,14 +282,24 @@ export function ProjectIntakeWizard({
     if (loading) return
     const timer = setTimeout(() => {
       try {
-        sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ answers, currentStep }))
+        sessionStorage.setItem(
+          STORAGE_KEY,
+          JSON.stringify({
+            answers,
+            currentStep,
+            // Freshness stamps so a later mount can tell a genuinely-newer draft from
+            // a stale one the persisted profile has overtaken (draftShouldWinInEditMode).
+            savedAt: Date.now(),
+            baseVersion: typeof initialProfileVersion === 'number' ? initialProfileVersion : null,
+          } satisfies IntakeDraft),
+        )
         setDraftSaved(true)
       } catch {
         /* quota exceeded, ignore */
       }
     }, 500)
     return () => clearTimeout(timer)
-  }, [answers, currentStep, STORAGE_KEY, loading])
+  }, [answers, currentStep, STORAGE_KEY, loading, initialProfileVersion])
 
   useEffect(() => {
     if (draftSaved) {
@@ -246,6 +343,7 @@ export function ProjectIntakeWizard({
   const goToStep = useCallback(
     (step: number) => {
       setError(null)
+      setConflict(false)
       setFindings(null)
       setCurrentStep((prev) => {
         const next = Math.max(0, Math.min(step, totalSteps - 1))
@@ -277,6 +375,7 @@ export function ProjectIntakeWizard({
     setFindings(null)
     setSaving(true)
     setError(null)
+    setConflict(false)
     try {
       const built = buildIntakeProfile(answers, definition, { projectName })
       // The wizard only owns intake-vocabulary keys. A PUT replaces the whole
@@ -324,14 +423,23 @@ export function ProjectIntakeWizard({
       router.push(`/app/projects/${projectId}`)
       router.refresh()
     } catch (e) {
-      setError(
-        e instanceof Error && e.message === t('intake.errors.saveConflict')
-          ? e.message
-          : t('intake.errors.saveFailed'),
-      )
+      const isConflict = e instanceof Error && e.message === t('intake.errors.saveConflict')
+      setConflict(isConflict)
+      setError(isConflict ? (e as Error).message : t('intake.errors.saveFailed'))
       setSaving(false)
     }
   }, [definition, answers, initialProfile, initialProfileVersion, projectId, projectName, router, STORAGE_KEY, t])
+
+  /**
+   * Fix 3: recover from a save 409. The conflict means the persisted brief moved on
+   * under us, so re-fetch server data (which re-supplies the current profile/version)
+   * rather than leaving the user stuck on a dead-end alert.
+   */
+  const reloadAfterConflict = useCallback(() => {
+    setError(null)
+    setConflict(false)
+    router.refresh()
+  }, [router])
 
   /**
    * FB-13 Save entry point. Flag off → save immediately (unchanged). Flag on →
@@ -629,7 +737,16 @@ export function ProjectIntakeWizard({
 
       {error && definition && (
         <Alert variant="destructive" className="mt-8">
-          <AlertDescription>{error}</AlertDescription>
+          <AlertDescription
+            className={conflict ? 'flex flex-col items-start gap-3' : undefined}
+          >
+            <span>{error}</span>
+            {conflict && (
+              <Button type="button" variant="outline" size="sm" onClick={reloadAfterConflict}>
+                {t('intake.conflictReload')}
+              </Button>
+            )}
+          </AlertDescription>
         </Alert>
       )}
 
@@ -750,6 +867,29 @@ function stageIndexForFieldLabel(definition: ProjectIntakeDefinition, label: str
   return definition.stages.findIndex((stage) => stage.questions.some((q) => q.label === label))
 }
 
+/**
+ * Resolve the stage a finding's "Revise" link should jump to. Deterministic
+ * findings carry real question labels, so an exact label match lands on the right
+ * stage. AI (`kind === 'ai'`) findings carry LLM-produced labels that rarely match
+ * a question label — matching on those alone made the link vanish — so they fall
+ * back to the first stage that has a free-text question (the only answers the AI
+ * check ever scrutinises), and finally to the first stage. The link therefore
+ * always resolves somewhere and never silently disappears.
+ */
+function resolveReviseStage(definition: ProjectIntakeDefinition, finding: ConsistencyFinding): number {
+  for (const label of finding.fields) {
+    const idx = stageIndexForFieldLabel(definition, label)
+    if (idx >= 0) return idx
+  }
+  if (finding.kind === 'ai') {
+    const freeTextStage = definition.stages.findIndex((stage) =>
+      stage.questions.some((q) => q.type === 'text'),
+    )
+    if (freeTextStage >= 0) return freeTextStage
+  }
+  return 0
+}
+
 /** Human text for a finding — deterministic ones resolve their i18n key. */
 function findingMessage(finding: ConsistencyFinding, t: Translator): string {
   if (finding.kind === 'ai') return finding.message
@@ -789,9 +929,7 @@ function ConflictFindings({
       <ul className="mt-4 space-y-3">
         {findings.map((finding, index) => {
           const isHard = finding.severity === 'inconsistency'
-          const targetStage = finding.fields
-            .map((label) => stageIndexForFieldLabel(definition, label))
-            .find((i) => i >= 0)
+          const targetStage = resolveReviseStage(definition, finding)
           return (
             <li
               key={index}
@@ -808,16 +946,14 @@ function ConflictFindings({
                     ? t('intake.consistency.severity.inconsistency')
                     : t('intake.consistency.severity.warning')}
                 </span>
-                {targetStage !== undefined && (
-                  <button
-                    type="button"
-                    onClick={() => onRevise(targetStage)}
-                    className="inline-flex items-center gap-1 text-xs font-medium underline-offset-2 hover:underline"
-                  >
-                    <PencilLine className="size-3" aria-hidden />
-                    {t('intake.consistency.revise')}
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={() => onRevise(targetStage)}
+                  className="inline-flex items-center gap-1 text-xs font-medium underline-offset-2 hover:underline"
+                >
+                  <PencilLine className="size-3" aria-hidden />
+                  {t('intake.consistency.revise')}
+                </button>
               </div>
               <p className="mt-1 text-foreground">{findingMessage(finding, t)}</p>
               {finding.fields.length > 0 && (

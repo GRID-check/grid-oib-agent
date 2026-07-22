@@ -21,6 +21,7 @@ from aiq_agent.agents.chat_researcher.agent import ChatResearcherAgent
 from aiq_agent.agents.chat_researcher.agent import _normalize_citations_removed
 from aiq_agent.agents.chat_researcher.agent import answer_confidence_capped_reason
 from aiq_agent.agents.chat_researcher.agent import derive_routing_decision
+from aiq_agent.agents.chat_researcher.agent import surface_answer_confidence
 from aiq_agent.agents.chat_researcher.models import ChatResearcherState
 from aiq_agent.agents.chat_researcher.models import DepthDecision
 from aiq_agent.agents.chat_researcher.models import IntentResult
@@ -79,6 +80,40 @@ class TestAnswerConfidenceCappedReason:
 
     def test_medium_ungrounded_is_capped(self):
         assert answer_confidence_capped_reason("medium", False) == "ungrounded"
+
+    def test_grounded_but_unverified_quote_is_quote_unverified(self):
+        # Grounded answer, but a quoted span failed verification → quote_unverified.
+        assert answer_confidence_capped_reason("high", True, False) == "quote_unverified"
+
+    def test_grounded_with_verified_quotes_yields_none(self):
+        assert answer_confidence_capped_reason("high", True, True) is None
+
+    def test_ungrounded_wins_over_quote_unverified(self):
+        # Both failures present → the more fundamental "ungrounded" reason wins.
+        assert answer_confidence_capped_reason("high", False, False) == "ungrounded"
+
+    def test_already_low_not_downgraded_even_with_unverified_quote(self):
+        assert answer_confidence_capped_reason("low", True, False) is None
+
+    def test_quotes_verified_defaults_true(self):
+        # Two-arg legacy callers keep the pre-quote-verification behavior.
+        assert answer_confidence_capped_reason("high", True) is None
+
+
+class TestSurfaceAnswerConfidenceQuotes:
+    """The overconfidence guard also caps on an unverified quoted span."""
+
+    def test_unverified_quote_caps_to_low(self):
+        assert surface_answer_confidence("high", True, False) == "low"
+
+    def test_grounded_and_verified_surfaces_verbatim(self):
+        assert surface_answer_confidence("high", True, True) == "high"
+
+    def test_no_self_report_still_none(self):
+        assert surface_answer_confidence(None, True, False) is None
+
+    def test_quotes_verified_defaults_true(self):
+        assert surface_answer_confidence("medium", True) == "medium"
 
 
 class TestNormalizeCitationsRemoved:
