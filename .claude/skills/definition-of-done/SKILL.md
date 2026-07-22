@@ -77,6 +77,14 @@ is not.
   given — fix the title, not just the commits.
 - No secrets in the diff. No commented-out scaffolding, no narrate-the-change
   comments.
+- **Run `pre-commit run --all-files` before pushing** (or keep `pre-commit
+  install` active). CI runs it across the WHOLE repo, not just your diff, so
+  pre-existing drift in files you never touched — trailing whitespace, missing
+  final newlines, a stale `.secrets.baseline`, dead markdown links — will block
+  the PR the moment your change triggers the lint job. Fix it in the same PR;
+  it is cheap and mechanical. Lockfile hashes / generated files that trip
+  detect-secrets belong in the hook's `exclude` (see `.pre-commit-config.yaml`),
+  not stuffed into the baseline. See `CONTRIBUTING.md`.
 - Pushed, with the push output shown (retry with backoff on network errors).
 
 ## 6. The closing checklist

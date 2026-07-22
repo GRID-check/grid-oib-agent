@@ -9,6 +9,25 @@ from one place.
   [definition-of-done skill](.claude/skills/definition-of-done/SKILL.md)
 - System design overview: [docs/architecture/overview.md](docs/architecture/overview.md)
 
+## Setup (run once)
+
+Install the git hooks so every check below runs automatically on each commit —
+this is the single most important step for not re-discovering repo-wide hygiene
+debt in CI:
+
+```bash
+pre-commit install
+```
+
+**Why it matters:** CI runs `pre-commit run --all-files` — it lints **every file
+in the repo**, not just your diff. So pre-existing drift in files you never
+touched (trailing whitespace, missing final newlines, a stale detect-secrets
+baseline, dead markdown links) will block your PR the moment your change triggers
+the lint job. Keeping the hooks installed keeps the tree clean and stops that
+debt from accumulating one untouched file at a time. If the whole-repo run flags
+pre-existing issues, fix them in your PR (they are cheap and mechanical) rather
+than leaving the next person to trip over them.
+
 ## Branching
 
 - Cut feature branches from `develop` (the integration branch). `develop` and
