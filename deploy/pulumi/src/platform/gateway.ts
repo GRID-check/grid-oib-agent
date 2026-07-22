@@ -1,5 +1,13 @@
 import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
+// CRD-generated compile-time schemas (@kubernetes-models/*, generated from the
+// upstream CRDs). `import type` only — erased at runtime, so the deploy-time
+// footprint is unchanged; but every spec below is checked field-by-field
+// against the real Gateway API / Envoy Gateway schemas by `tsc`.
+import type { IGatewaySpec } from "@kubernetes-models/gateway-api/gateway.networking.k8s.io/v1/GatewaySpec";
+import type { IGatewayClassSpec } from "@kubernetes-models/gateway-api/gateway.networking.k8s.io/v1/GatewayClassSpec";
+import type { IEnvoyProxySpec } from "@kubernetes-models/envoy-gateway/gateway.envoyproxy.io/v1alpha1/EnvoyProxySpec";
+import type { IClientTrafficPolicySpec } from "@kubernetes-models/envoy-gateway/gateway.envoyproxy.io/v1alpha1/ClientTrafficPolicySpec";
 import { GridConfig } from "../config";
 import { commonLabels } from "./namespaces";
 
@@ -55,13 +63,16 @@ export function installGatewayResources(
   issuerName: pulumi.Input<string>,
   dependsOn: pulumi.Resource[],
 ): { gatewayClass: k8s.apiextensions.CustomResource; gateway: k8s.apiextensions.CustomResource } {
+  const gatewayClassSpec: IGatewayClassSpec = {
+    controllerName: "gateway.envoyproxy.io/gatewayclass-controller",
+  };
   const gatewayClass = new k8s.apiextensions.CustomResource(
     "grid-gatewayclass",
     {
       apiVersion: "gateway.networking.k8s.io/v1",
       kind: "GatewayClass",
       metadata: { name: GATEWAY_CLASS, labels: commonLabels("gateway") },
-      spec: { controllerName: "gateway.envoyproxy.io/gatewayclass-controller" },
+      spec: gatewayClassSpec,
     },
     { provider, dependsOn },
   );
@@ -70,46 +81,84 @@ export function installGatewayResources(
   // fleet to a SINGLE replica with no PDB — the whole cluster's front door
   // would ride on one pod on one node (a node drain = full outage for both
   // domains). Pin 2 replicas, a PDB, and spread them across nodes.
+  const envoyProxySpec: IEnvoyProxySpec = {
+    provider: {
+      type: "Kubernetes",
+      kubernetes: {
+        envoyDeployment: {
+          replicas: 2,
+          pod: {
+            affinity: {
+              podAntiAffinity: {
+                preferredDuringSchedulingIgnoredDuringExecution: [
+                  {
+                    weight: 100,
+                    podAffinityTerm: {
+                      topologyKey: "kubernetes.io/hostname",
+                      labelSelector: {
+                        matchLabels: {
+                          "gateway.envoyproxy.io/owning-gateway-name": GATEWAY_NAME,
+                        },
+                      },
+                    },
+                  },
+                ],
+              },
+            },
+          },
+        },
+        envoyPDB: { minAvailable: 1 },
+      },
+    },
+  };
   const envoyProxyConfig = new k8s.apiextensions.CustomResource(
     "grid-envoy-proxy-config",
     {
       apiVersion: "gateway.envoyproxy.io/v1alpha1",
       kind: "EnvoyProxy",
       metadata: { name: "grid-envoy-proxy", namespace, labels: commonLabels("gateway") },
-      spec: {
-        provider: {
-          type: "Kubernetes",
-          kubernetes: {
-            envoyDeployment: {
-              replicas: 2,
-              pod: {
-                affinity: {
-                  podAntiAffinity: {
-                    preferredDuringSchedulingIgnoredDuringExecution: [
-                      {
-                        weight: 100,
-                        podAffinityTerm: {
-                          topologyKey: "kubernetes.io/hostname",
-                          labelSelector: {
-                            matchLabels: {
-                              "gateway.envoyproxy.io/owning-gateway-name": GATEWAY_NAME,
-                            },
-                          },
-                        },
-                      },
-                    ],
-                  },
-                },
-              },
-            },
-            envoyPDB: { minAvailable: 1 },
-          },
-        },
-      },
+      spec: envoyProxySpec,
     },
     { provider, dependsOn },
   );
 
+  const gatewaySpec: IGatewaySpec = {
+    gatewayClassName: GATEWAY_CLASS,
+    // Attach the HA proxy-infrastructure config above.
+    infrastructure: {
+      parametersRef: {
+        group: "gateway.envoyproxy.io",
+        kind: "EnvoyProxy",
+        name: "grid-envoy-proxy",
+      },
+    },
+    listeners: [
+      {
+        // Open for the ACME HTTP-01 challenge (cert-manager attaches a
+        // temporary HTTPRoute here).
+        name: "http",
+        port: 80,
+        protocol: "HTTP",
+        allowedRoutes: { namespaces: { from: "Same" } },
+      },
+      {
+        name: "https-app",
+        port: 443,
+        protocol: "HTTPS",
+        hostname: cfg.ingress.appDomain,
+        tls: { mode: "Terminate", certificateRefs: [{ name: "grid-app-tls" }] },
+        allowedRoutes: { namespaces: { from: "Same" } },
+      },
+      {
+        name: "https-s3",
+        port: 443,
+        protocol: "HTTPS",
+        hostname: cfg.ingress.s3Domain,
+        tls: { mode: "Terminate", certificateRefs: [{ name: "grid-s3-tls" }] },
+        allowedRoutes: { namespaces: { from: "Same" } },
+      },
+    ],
+  };
   const gateway = new k8s.apiextensions.CustomResource(
     "grid-gateway",
     {
@@ -123,43 +172,7 @@ export function installGatewayResources(
           [k: string]: pulumi.Input<string>;
         },
       },
-      spec: {
-        gatewayClassName: GATEWAY_CLASS,
-        // Attach the HA proxy-infrastructure config above.
-        infrastructure: {
-          parametersRef: {
-            group: "gateway.envoyproxy.io",
-            kind: "EnvoyProxy",
-            name: "grid-envoy-proxy",
-          },
-        },
-        listeners: [
-          {
-            // Open for the ACME HTTP-01 challenge (cert-manager attaches a
-            // temporary HTTPRoute here).
-            name: "http",
-            port: 80,
-            protocol: "HTTP",
-            allowedRoutes: { namespaces: { from: "Same" } },
-          },
-          {
-            name: "https-app",
-            port: 443,
-            protocol: "HTTPS",
-            hostname: cfg.ingress.appDomain,
-            tls: { mode: "Terminate", certificateRefs: [{ name: "grid-app-tls" }] },
-            allowedRoutes: { namespaces: { from: "Same" } },
-          },
-          {
-            name: "https-s3",
-            port: 443,
-            protocol: "HTTPS",
-            hostname: cfg.ingress.s3Domain,
-            tls: { mode: "Terminate", certificateRefs: [{ name: "grid-s3-tls" }] },
-            allowedRoutes: { namespaces: { from: "Same" } },
-          },
-        ],
-      },
+      spec: gatewaySpec,
     },
     { provider, dependsOn: [gatewayClass, envoyProxyConfig] },
   );
@@ -167,18 +180,19 @@ export function installGatewayResources(
   // Long-lived WebSocket chat upgrades: Envoy's default connection idle
   // timeout would sever hour-long chat streams mid-response. Mirror the 3600s
   // read/idle budget the compose/Traefik edges give the app.
+  const clientTrafficPolicySpec: IClientTrafficPolicySpec = {
+    targetRefs: [
+      { group: "gateway.networking.k8s.io", kind: "Gateway", name: GATEWAY_NAME },
+    ],
+    timeout: { http: { idleTimeout: "3600s" } },
+  };
   new k8s.apiextensions.CustomResource(
     "grid-client-traffic-policy",
     {
       apiVersion: "gateway.envoyproxy.io/v1alpha1",
       kind: "ClientTrafficPolicy",
       metadata: { name: "grid-ws-timeouts", namespace, labels: commonLabels("gateway") },
-      spec: {
-        targetRefs: [
-          { group: "gateway.networking.k8s.io", kind: "Gateway", name: GATEWAY_NAME },
-        ],
-        timeout: { http: { idleTimeout: "3600s" } },
-      },
+      spec: clientTrafficPolicySpec,
     },
     { provider, dependsOn: gateway },
   );
