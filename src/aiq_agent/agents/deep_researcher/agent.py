@@ -17,8 +17,10 @@ from langgraph.types import Checkpointer
 from aiq_agent.common import LLMProvider
 from aiq_agent.common import load_prompt
 from aiq_agent.common.citation_verification import EmptySourceRegistryError
+from aiq_agent.common.citation_verification import annotate_unverified_quotes
 from aiq_agent.common.citation_verification import sanitize_report
 from aiq_agent.common.citation_verification import verify_citations
+from aiq_agent.common.citation_verification import verify_quoted_spans
 
 from .custom_middleware import SourceRegistryMiddleware
 from .deepagents_runtime import DeepAgentsRuntime
@@ -425,6 +427,19 @@ class DeepResearcherAgent:
                     if citations_removed_summary is not None:
                         result["citations_removed"] = citations_removed_summary
                 final_message = verification.verified_report
+                # Quote verification: verify_citations only proves each cited
+                # SOURCE is real, not that a QUOTED sentence actually appears in
+                # it. Catch the weak model's "real section, fabricated quote"
+                # pattern by checking each quoted span against the retrieved
+                # passage text. Fail-open: annotate inline, never strip.
+                unverified_quotes = verify_quoted_spans(final_message, registry)
+                if unverified_quotes:
+                    final_message = annotate_unverified_quotes(final_message, unverified_quotes)
+                    logger.info(
+                        "Citation verification: %d quoted span(s) not verbatim in any retrieved "
+                        "passage; annotated inline",
+                        len(unverified_quotes),
+                    )
                 if not verification.valid_citations:
                     logger.warning(
                         "Citation verification found no valid citations in writer-agent output; "

@@ -75,6 +75,13 @@ _INGESTOR_INSTANCES: dict[str, BaseIngestor] = {}
 # Active ingestor for the Knowledge API (set by knowledge_retrieval function)
 _ACTIVE_INGESTOR: BaseIngestor | None = None
 
+# Active retriever for the Knowledge API (lazily built from the active ingestor's
+# backend/config on first use — see get_active_retriever). Cached so a fresh
+# process serving /v1/collections/{c}/search initializes the retriever once and
+# reuses it (no per-request embed-client / Chroma re-init).
+_ACTIVE_RETRIEVER: BaseRetriever | None = None
+_active_retriever_lock = threading.Lock()
+
 
 def register_retriever(name: str) -> Callable[[type[BaseRetriever]], type[BaseRetriever]]:
     """
@@ -262,6 +269,94 @@ def clear_active_ingestor() -> None:
     """Clear the active ingestor (for testing)."""
     global _ACTIVE_INGESTOR
     _ACTIVE_INGESTOR = None
+
+
+def _retriever_config_from_ingestor(ingestor: BaseIngestor) -> dict[str, Any]:
+    """Mirror the active ingestor's store + embedding config for the retriever.
+
+    The retriever and ingestor MUST read the same Chroma persist directory and
+    embed the same model, or search would query a different (empty) store than
+    was ingested into. The ingestor exposes its resolved settings as attributes
+    (``persist_dir``/``embed_base_url``/``embed_model_name``); we copy the ones
+    that resolve into the retriever's config-key names. Read defensively via
+    ``getattr`` so a backend that does not expose an attribute simply falls back
+    to the retriever adapter's own default for that key.
+    """
+    attr_to_key = {
+        "persist_dir": "persist_dir",
+        "embed_base_url": "embed_base_url",
+        "embed_model_name": "embed_model",
+    }
+    config: dict[str, Any] = {}
+    for attr, key in attr_to_key.items():
+        value = getattr(ingestor, attr, None)
+        if value is not None:
+            config[key] = value
+    return config
+
+
+def set_active_retriever(retriever: BaseRetriever) -> None:
+    """
+    Set the active retriever for the Knowledge API.
+
+    Mirrors :func:`set_active_ingestor`. Optional wiring hook: callers that want
+    to inject a pre-built retriever (e.g. tests, or explicit startup) can do so;
+    otherwise :func:`get_active_retriever` builds one lazily from the active
+    ingestor's config.
+
+    Args:
+        retriever: The retriever instance to activate.
+    """
+    global _ACTIVE_RETRIEVER
+    _ACTIVE_RETRIEVER = retriever
+    logger.info("Set active retriever: %s", retriever.backend_name)
+
+
+def get_active_retriever() -> BaseRetriever:
+    """
+    Get (or lazily build) the cached retriever singleton for the Knowledge API.
+
+    Mirrors the active-ingestor singleton. The first caller in a fresh process
+    builds ONE retriever from the same backend + store/embedding config the
+    active ingestor was created with (see :func:`_retriever_config_from_ingestor`),
+    so both share the same Chroma persist directory and embedding model. The
+    instance is cached and reused for every subsequent request — no per-request
+    embed-client / Chroma re-init. (The adapter itself still lazy-initializes its
+    heavy components on the first ``retrieve`` call.)
+
+    If no active ingestor is set, falls back to the factory default backend/config
+    (env-driven) so the retriever is still usable.
+
+    Returns:
+        The cached BaseRetriever instance.
+    """
+    global _ACTIVE_RETRIEVER
+    if _ACTIVE_RETRIEVER is not None:
+        return _ACTIVE_RETRIEVER
+
+    with _active_retriever_lock:
+        # Double-checked: another caller may have built it while we waited.
+        if _ACTIVE_RETRIEVER is not None:
+            return _ACTIVE_RETRIEVER
+
+        ingestor = _ACTIVE_INGESTOR
+        if ingestor is not None:
+            backend: str | None = ingestor.backend_name
+            config: dict[str, Any] | None = _retriever_config_from_ingestor(ingestor)
+        else:
+            # No configured ingestor — fall back to env-driven factory defaults.
+            backend = None
+            config = None
+
+        _ACTIVE_RETRIEVER = get_retriever(backend, config)
+        logger.info("Built active retriever: %s", _ACTIVE_RETRIEVER.backend_name)
+        return _ACTIVE_RETRIEVER
+
+
+def clear_active_retriever() -> None:
+    """Clear the cached active retriever (for testing)."""
+    global _ACTIVE_RETRIEVER
+    _ACTIVE_RETRIEVER = None
 
 
 # =============================================================================

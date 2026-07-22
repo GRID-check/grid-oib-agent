@@ -227,6 +227,26 @@ export async function listConversationMessages(
   return listMessagesForConversation(conversationId)
 }
 
+/**
+ * Map validated message inputs to insertable rows. `messageType` lives in
+ * metadata (no dedicated column) so the client can route rehydrated history to
+ * the right renderer. Shared by the session-authenticated and internal
+ * (token-guarded) persist paths so both write identical rows.
+ */
+function buildMessageRows(conversationId: string, inputs: CreateMessageInput[]) {
+  return inputs.map((input) => ({
+    id: input.id,
+    conversationId,
+    role: input.role,
+    content: input.content,
+    metadata: {
+      ...(input.metadata ?? {}),
+      ...(input.messageType ? { messageType: input.messageType } : {}),
+    },
+    createdAt: input.createdAt ? new Date(input.createdAt) : new Date(),
+  }))
+}
+
 /** Append one or more messages to a conversation (404 for cross-org/missing). */
 export async function createConversationMessages(
   session: AuthorizedSession,
@@ -236,19 +256,29 @@ export async function createConversationMessages(
   const conversation = await findConversationInOrg(conversationId, session.organizationId)
   if (!conversation) throw new NotFoundError()
 
-  return insertMessages(
-    inputs.map((input) => ({
-      id: input.id,
-      conversationId,
-      role: input.role,
-      content: input.content,
-      // messageType lives in metadata (no dedicated column) so the client
-      // can route rehydrated history to the right renderer.
-      metadata: {
-        ...(input.metadata ?? {}),
-        ...(input.messageType ? { messageType: input.messageType } : {}),
-      },
-      createdAt: input.createdAt ? new Date(input.createdAt) : new Date(),
-    })),
-  )
+  return insertMessages(buildMessageRows(conversationId, inputs))
+}
+
+/**
+ * Append messages via the INTERNAL (service-token) path — used by the backend
+ * to persist a finished assistant turn when the client dropped mid-turn (a
+ * long deep-research answer can outlive the browser's access token, so the old
+ * cookie-replay POST silently 401'd and the answer vanished). There is no user
+ * session here, so tenancy is enforced by resolving the conversation against
+ * the caller-supplied `organizationId` (the backend forwards it on the WS
+ * upgrade as `x-grid-organization-id`): a mismatched/unknown org surfaces as a
+ * 404, exactly like the session path, so the token grants no cross-org bypass.
+ *
+ * Idempotent: `insertMessages` uses `onConflictDoNothing` on `messages.id`, and
+ * the backend derives a deterministic per-turn id, so a double-write no-ops.
+ */
+export async function persistInternalConversationMessages(
+  organizationId: string,
+  conversationId: string,
+  inputs: CreateMessageInput[],
+): Promise<Message[]> {
+  const conversation = await findConversationInOrg(conversationId, organizationId)
+  if (!conversation) throw new NotFoundError()
+
+  return insertMessages(buildMessageRows(conversationId, inputs))
 }

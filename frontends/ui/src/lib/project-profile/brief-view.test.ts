@@ -14,17 +14,19 @@ describe('buildProjectBriefView', () => {
   const profile: ProjectProfile = {
     facts: {
       project_name: fact('Wohnhaus Lerchenfelder'),
-      hauptnutzung: fact('wohnen'),
-      gebaeudeklasse: fact('GK4'),
-      geschosse_oberirdisch: fact(5),
-      grundgrenze: fact(true),
+      bundesland: fact('wien'),
+      vorhabensart: fact(['neubau']),
+      // Scoped bauwerk facts + the structural building-name fact used to label them.
+      'bauwerk_name@bw1': fact('Haupthaus'),
+      'bauwerkstyp@bw1': fact('gebaeude'),
+      'geschosse_oberirdisch@bw1': fact(5),
       custom_agent_fact: fact('brandschutzkonzept liegt vor'),
     },
-    goals: { focus_areas: ['einreichung', 'brandschutz'], goal_details: null },
-    unknowns: ['fluchtniveau', 'fluchtniveau', 'gebaeudeklasse'],
+    goals: {},
+    unknowns: ['fluchtniveau_m@bw1', 'fluchtniveau_m@bw1', 'bundesland'],
     assumptions: {
-      widmung: {
-        value: 'bauland',
+      flaechenwidmung: {
+        value: 'wohngebiet',
         status: 'unconfirmed',
         reason: 'Typical for the district per the uploaded plan.',
         source: 'agent_suggested',
@@ -35,48 +37,49 @@ describe('buildProjectBriefView', () => {
 
   it('groups facts by intake stage with question/option labels, in intake order', () => {
     const view = buildProjectBriefView(profile)
-    expect(view.groups.map((g) => g.id)).toEqual(['core', 'classification', 'building', 'regulatory', 'other'])
-    const core = view.groups.find((g) => g.id === 'core')!
-    expect(core.facts).toEqual([
-      expect.objectContaining({ key: 'hauptnutzung', label: 'Main use', value: 'Residential' }),
+    expect(view.groups.map((g) => g.id)).toEqual(['A', 'C', 'other'])
+    const a = view.groups.find((g) => g.id === 'A')!
+    expect(a.facts).toEqual([
+      expect.objectContaining({ key: 'bundesland', label: 'Bundesland', value: 'Wien' }),
+      expect.objectContaining({ key: 'vorhabensart', label: 'Art des Vorhabens', value: 'Neubau' }),
     ])
-    const regulatory = view.groups.find((g) => g.id === 'regulatory')!
-    expect(regulatory.facts).toEqual([
-      expect.objectContaining({ key: 'grundgrenze', label: 'On a property boundary', value: 'Yes' }),
+    const c = view.groups.find((g) => g.id === 'C')!
+    // Scoped keys resolve to their base question label, suffixed with the building name.
+    expect(c.facts).toEqual([
+      expect.objectContaining({ key: 'bauwerkstyp@bw1', label: 'Bauwerkstyp · Haupthaus' }),
+      expect.objectContaining({
+        key: 'geschosse_oberirdisch@bw1',
+        label: 'Anzahl oberirdischer Geschoße · Haupthaus',
+        value: '5',
+      }),
     ])
   })
 
-  it('hides project_name (already in the page header) and humanizes unknown keys', () => {
+  it('hides project_name and bauwerk_name structural keys, humanizes unknown keys', () => {
     const view = buildProjectBriefView(profile)
     const allKeys = view.groups.flatMap((g) => g.facts.map((f) => f.key))
     expect(allKeys).not.toContain('project_name')
+    expect(allKeys).not.toContain('bauwerk_name@bw1')
     const other = view.groups.find((g) => g.id === 'other')!
     expect(other.facts).toEqual([
       expect.objectContaining({ label: 'Custom agent fact', value: 'brandschutzkonzept liegt vor' }),
     ])
   })
 
-  it('maps focus areas to their option labels', () => {
+  it('dedupes unknowns, drops answered ones, resolves scoped labels', () => {
     const view = buildProjectBriefView(profile)
-    expect(view.focusAreas).toEqual([
-      'Getting a permit submission (Einreichung) approved',
-      'Fire-safety concept',
-    ])
-  })
-
-  it('dedupes unknowns and drops ones already answered by a fact', () => {
-    const view = buildProjectBriefView(profile)
-    expect(view.missing).toEqual([{ key: 'fluchtniveau', label: 'Escape level' }])
+    // `bundesland` is answered by a fact → dropped; the scoped escape-level unknown remains.
+    expect(view.missing).toEqual([{ key: 'fluchtniveau_m@bw1', label: 'Fluchtniveau' }])
   })
 
   it('exposes assumptions with display and raw values', () => {
     const view = buildProjectBriefView(profile)
     expect(view.assumptions).toEqual([
       expect.objectContaining({
-        key: 'widmung',
-        label: 'Zoning',
-        value: 'Building land (Bauland)',
-        rawValue: 'bauland',
+        key: 'flaechenwidmung',
+        label: 'Flächenwidmung',
+        value: 'Wohngebiet',
+        rawValue: 'wohngebiet',
         reason: 'Typical for the district per the uploaded plan.',
       }),
     ])
@@ -84,8 +87,9 @@ describe('buildProjectBriefView', () => {
 
   it('counts completeness as answered vs answered+missing', () => {
     const view = buildProjectBriefView(profile)
-    expect(view.answeredCount).toBe(5) // project_name hidden
-    expect(view.totalCount).toBe(6) // + fluchtniveau
+    // project_name + bauwerk_name@bw1 hidden → 5 visible facts.
+    expect(view.answeredCount).toBe(5)
+    expect(view.totalCount).toBe(6) // + the one remaining scoped unknown
   })
 
   it('tolerates malformed input by falling back to an empty profile', () => {

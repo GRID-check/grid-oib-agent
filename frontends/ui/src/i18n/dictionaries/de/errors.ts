@@ -22,6 +22,7 @@ export const errors: typeof en.errors = {
     title: 'Sie haben keinen Zugriff darauf',
     description:
       'Dieses Projekt wurde möglicherweise verschoben, oder Ihr Zugriff wurde geändert. Wenden Sie sich an einen Projekt-Administrator, wenn Sie glauben, dass dies ein Fehler ist.',
+    action: 'Zur Startseite',
   },
   auth: {
     title: 'Authentifizierungsfehler',

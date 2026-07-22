@@ -42,6 +42,7 @@ export const AUDIT_ACTIONS = [
   'project.role.assigned',
   'project.role.removed',
   'document.uploaded',
+  'document.deleted',
   'archiv.document.uploaded',
   'archiv.document.deleted',
 ] as const

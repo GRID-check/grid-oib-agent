@@ -122,6 +122,30 @@ describe('NATSystemResponseMessageSchema transparency extras (WP-A → WP-B)', (
     expect(parsed.citations_removed).toBeUndefined()
     expect(parsed.routing_reason).toBe('still valid')
   })
+
+  test('answer_confidence_capped_reason parses both grounding and quote causes', () => {
+    const ungrounded = NATSystemResponseMessageSchema.parse({
+      ...base,
+      answer_confidence_capped_reason: 'ungrounded',
+    })
+    expect(ungrounded.answer_confidence_capped_reason).toBe('ungrounded')
+
+    const quoteUnverified = NATSystemResponseMessageSchema.parse({
+      ...base,
+      answer_confidence_capped_reason: 'quote_unverified',
+    })
+    expect(quoteUnverified.answer_confidence_capped_reason).toBe('quote_unverified')
+  })
+
+  test('an unknown answer_confidence_capped_reason degrades to undefined (catch)', () => {
+    const parsed = NATSystemResponseMessageSchema.parse({
+      ...base,
+      answer_confidence_capped_reason: 'made_up_reason', // out of enum
+    })
+    expect(parsed.content).toBe('an answer')
+    expect(parsed.answer_confidence_capped_reason).toBeUndefined()
+  })
+
 })
 
 describe('NATSystemResponseMessageSchema sources per-entry tolerance', () => {

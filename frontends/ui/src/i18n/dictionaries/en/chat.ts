@@ -66,6 +66,10 @@ export const chat = {
   roles: {
     input: 'Input',
     result: 'Result',
+    // Role tab for a conversational / clarifying reply (routing_decision =
+    // 'meta': greetings, capability questions, clarifying Rückfragen) — marks
+    // it visibly apart from a substantive Baurecht 'Result'.
+    note: 'Note',
   },
   // "Belegt durch" provenance chip row under answers that carry source data.
   answerSources: {
@@ -152,6 +156,11 @@ export const chat = {
     // an in-flight answer (protocol-robustness item 4). German copy is the
     // product-facing string; this English fallback is for harnesses/tests.
     interruptedNotice: 'Connection briefly lost — the answer was dropped. Please resend.',
+    // Transient "checking" state (FIX 3): shown while the reconnect recovery
+    // fetch is in flight, so a turn that only LOOKS interrupted does not flash
+    // the "lost" copy before we have confirmed the answer is really gone.
+    recovering: 'Reconnecting',
+    recoveringNotice: 'Reconnecting — checking for a finished answer …',
     done: 'Done',
     elapsedAria: 'Elapsed: {seconds} seconds',
     // Live one-liners describing what the assistant is doing right now, chosen
@@ -377,10 +386,12 @@ export const chat = {
     ariaLabel: 'Assistant self-assessed confidence: {level}',
     tooltip:
       "The assistant's own assessment of how well this answer is supported by its sources. It can be wrong.",
-    // Extra sentence when the confidence was capped because the answer is not
-    // grounded in verified citations (WP-A `answer_confidence_capped_reason`).
-    cappedUngrounded:
-      'The confidence was capped because the answer is not grounded in verified citations.',
+    // Extra sentence appended to the tooltip explaining WHY the confidence was
+    // capped, keyed by `answer_confidence_capped_reason` (WP-A, PB-9).
+    cappedReasons: {
+      ungrounded: 'Low confidence: answer not backed by sources.',
+      quoteUnverified: 'Low confidence: a quote could not be verified verbatim against the source.',
+    },
   },
   // Per-answer thumbs feedback (WS-7, `answer-feedback` flag).
   feedback: {

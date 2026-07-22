@@ -1,9 +1,9 @@
 /**
- * FB-13 end-of-wizard conflict check. These specs land the wizard directly on
- * the Review step (via a seeded sessionStorage draft) and exercise the Save
- * path: flag off is unchanged, deterministic findings appear instantly, the
- * LLM call is skipped when there is no free text, override saves, revise
- * navigates, and a check failure still saves.
+ * Wizard behaviour specs, updated for the modules-A–H intake. These land the
+ * wizard on a specific module (via a seeded sessionStorage draft) and exercise
+ * the Save path, the FB-13 conflict check, optimistic concurrency, draft
+ * freshness, and numeric validation. The deterministic rule under test is the
+ * fossil-fuel-on-a-new-build conflict (E1=gas + A5 includes Neubau).
  */
 import { fireEvent, render, screen, waitFor } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
@@ -24,6 +24,8 @@ vi.mock('next/navigation', () => ({
 }))
 
 const PROJECT_ID = 'p1'
+const REVIEW_STEP = projectIntakeDefinitionV1.stages.length - 1 // module H
+const TOTAL = projectIntakeDefinitionV1.stages.length // 8
 
 interface Recorded {
   url: string
@@ -37,7 +39,6 @@ interface FetchStub {
   consistencyResponse: { status: number; json: unknown }
 }
 
-/** Route fetch by URL + method; record every call for assertions. */
 function stubFetch(): FetchStub {
   const calls: Recorded[] = []
   const state: FetchStub['consistencyResponse'] = { status: 200, json: { findings: [] } }
@@ -57,18 +58,18 @@ function stubFetch(): FetchStub {
         text: async () => '',
       })
     }
-    // /profile (PUT) and /generate-summary (POST)
     return Promise.resolve({ ok: true, status: 200, json: async () => ({}) })
   })
   vi.stubGlobal('fetch', fetch)
-  const stub: FetchStub = { fetch, calls, consistencyResponse: state }
-  return stub
+  return { fetch, calls, consistencyResponse: state }
 }
 
-/** Seed a draft so the wizard restores these answers and opens on the Review step. */
-function seedReviewDraft(answers: Record<string, ProjectPrimitiveValue>): void {
-  const reviewStep = projectIntakeDefinitionV1.stages.length
-  sessionStorage.setItem(`intake-draft-${PROJECT_ID}`, JSON.stringify({ answers, currentStep: reviewStep }))
+/** Seed a draft so the wizard restores these answers and opens on the Review step (module H). */
+function seedReviewDraft(answers: Record<string, ProjectPrimitiveValue>, savedAt?: number): void {
+  sessionStorage.setItem(
+    `intake-draft-${PROJECT_ID}`,
+    JSON.stringify({ answers, currentStep: REVIEW_STEP, ...(savedAt !== undefined ? { savedAt } : {}) }),
+  )
 }
 
 function renderWizard(conflictCheckEnabled: boolean) {
@@ -81,25 +82,24 @@ const consistencyCalls = (stub: FetchStub) => stub.calls.filter((c) => c.url.end
 const putProfileCalls = (stub: FetchStub) =>
   stub.calls.filter((c) => c.url.endsWith(`/projects/${PROJECT_ID}/profile`) && c.method === 'PUT')
 
+// Answers that trigger the fossil-fuel-on-a-new-build conflict.
+const FOSSIL_CONFLICT: Record<string, ProjectPrimitiveValue> = { A5: ['neubau'], 'E1@bw1': 'gas' }
+
 describe('ProjectIntakeWizard — FB-13 conflict check', () => {
   beforeEach(() => {
     vi.unstubAllGlobals()
     vi.clearAllMocks()
     sessionStorage.clear()
   })
-  afterEach(() => {
-    sessionStorage.clear()
-  })
+  afterEach(() => sessionStorage.clear())
 
   it('flag OFF: Save persists immediately with no consistency check', async () => {
     const user = userEvent.setup()
     const stub = stubFetch()
-    // Answers that WOULD be flagged if the check were on.
-    seedReviewDraft({ gebaeudeklasse: 'GK1', geschosse_oberirdisch: 8 })
+    seedReviewDraft(FOSSIL_CONFLICT)
     renderWizard(false)
 
-    const saveButton = await screen.findByRole('button', { name: /save/i })
-    await user.click(saveButton)
+    await user.click(await screen.findByRole('button', { name: /save/i }))
 
     await waitFor(() => expect(pushMock).toHaveBeenCalledWith(`/app/projects/${PROJECT_ID}`))
     expect(consistencyCalls(stub)).toHaveLength(0)
@@ -109,29 +109,26 @@ describe('ProjectIntakeWizard — FB-13 conflict check', () => {
   it('flag ON: a deterministic conflict appears instantly and holds the save', async () => {
     const user = userEvent.setup()
     const stub = stubFetch()
-    seedReviewDraft({ gebaeudeklasse: 'GK1', geschosse_oberirdisch: 8 })
+    seedReviewDraft(FOSSIL_CONFLICT)
     renderWizard(true)
 
-    const saveButton = await screen.findByRole('button', { name: /save & see/i })
-    await user.click(saveButton)
+    await user.click(await screen.findByRole('button', { name: /save & see/i }))
 
-    // The deterministic finding renders...
-    expect(await screen.findByText(/no more than 4 above-ground storeys/i)).toBeInTheDocument()
-    // ...the save is held (no PUT)...
+    expect(await screen.findByText(/Erneuerbare-Wärme-Gesetz/i)).toBeInTheDocument()
     expect(putProfileCalls(stub)).toHaveLength(0)
     expect(pushMock).not.toHaveBeenCalled()
-    // ...and with no free text present, the LLM was never called.
+    // No free text present → the LLM was never called.
     expect(consistencyCalls(stub)).toHaveLength(0)
   })
 
   it('flag ON: "Save anyway" overrides the findings and persists', async () => {
     const user = userEvent.setup()
     const stub = stubFetch()
-    seedReviewDraft({ gebaeudeklasse: 'GK1', geschosse_oberirdisch: 8 })
+    seedReviewDraft(FOSSIL_CONFLICT)
     renderWizard(true)
 
     await user.click(await screen.findByRole('button', { name: /save & see/i }))
-    await screen.findByText(/no more than 4 above-ground storeys/i)
+    await screen.findByText(/Erneuerbare-Wärme-Gesetz/i)
 
     await user.click(screen.getByRole('button', { name: /save anyway/i }))
 
@@ -142,32 +139,24 @@ describe('ProjectIntakeWizard — FB-13 conflict check', () => {
   it('flag ON: "Revise" navigates to the offending stage and clears findings', async () => {
     const user = userEvent.setup()
     stubFetch()
-    seedReviewDraft({ gebaeudeklasse: 'GK1', geschosse_oberirdisch: 8 })
+    seedReviewDraft(FOSSIL_CONFLICT)
     renderWizard(true)
 
     await user.click(await screen.findByRole('button', { name: /save & see/i }))
-    await screen.findByText(/no more than 4 above-ground storeys/i)
+    await screen.findByText(/Erneuerbare-Wärme-Gesetz/i)
 
     await user.click(screen.getByRole('button', { name: /revise/i }))
 
-    // Building class lives in the Classification stage (step 3 of 6). The findings
-    // clear once the review step finishes animating out.
-    expect(await screen.findByText(/step 3 of 6/i)).toBeInTheDocument()
-    await waitFor(() =>
-      expect(screen.queryByText(/no more than 4 above-ground storeys/i)).not.toBeInTheDocument(),
-    )
+    // "Art des Vorhabens" (A5) lives in module A → step 1 of 8. Findings clear.
+    expect(await screen.findByText(new RegExp(`step 1 of ${TOTAL}`, 'i'))).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByText(/Erneuerbare-Wärme-Gesetz/i)).not.toBeInTheDocument())
   })
 
   it('flag ON: no substantive free text → the LLM is never called', async () => {
     const user = userEvent.setup()
     const stub = stubFetch()
-    // Consistent structured answers, and a too-short "other" note (< 10 chars).
-    seedReviewDraft({
-      hauptnutzung: 'wohnen',
-      anzahl_einheiten: 10,
-      focus_areas: ['sonstiges'],
-      goal_details: 'ok',
-    })
+    // Consistent structured answers, and a too-short context note (< 10 chars).
+    seedReviewDraft({ A2_land: 'wien', A5: ['umbau'], G1: 'ok' })
     renderWizard(true)
 
     await user.click(await screen.findByRole('button', { name: /save & see/i }))
@@ -182,13 +171,10 @@ describe('ProjectIntakeWizard — FB-13 conflict check', () => {
     const stub = stubFetch()
     stub.consistencyResponse.json = {
       findings: [
-        { kind: 'ai', fields: ['Tell Piloti more'], severity: 'inconsistency', message: 'The note contradicts the plan.' },
+        { kind: 'ai', fields: ['Projektbeschreibung & Entwurfsidee'], severity: 'inconsistency', message: 'The note contradicts the plan.' },
       ],
     }
-    seedReviewDraft({
-      focus_areas: ['sonstiges'],
-      goal_details: 'Confirm the fire-compartment strategy for the submission.',
-    })
+    seedReviewDraft({ G1: 'Ein ausführlicher Freitext über das Brandschutzkonzept.' })
     renderWizard(true)
 
     await user.click(await screen.findByRole('button', { name: /save & see/i }))
@@ -197,7 +183,7 @@ describe('ProjectIntakeWizard — FB-13 conflict check', () => {
     const call = consistencyCalls(stub)[0]
     expect(call).toBeDefined()
     expect(call.body).toMatchObject({
-      freeText: [{ field: 'Tell Piloti more', value: 'Confirm the fire-compartment strategy for the submission.' }],
+      freeText: [{ field: 'Projektbeschreibung & Entwurfsidee', value: 'Ein ausführlicher Freitext über das Brandschutzkonzept.' }],
     })
   })
 
@@ -206,10 +192,7 @@ describe('ProjectIntakeWizard — FB-13 conflict check', () => {
     const stub = stubFetch()
     stub.consistencyResponse.status = 500
     stub.consistencyResponse.json = {}
-    seedReviewDraft({
-      focus_areas: ['sonstiges'],
-      goal_details: 'A substantive free-text note to force the network call.',
-    })
+    seedReviewDraft({ G1: 'Ein ausführlicher Freitext, der den Netzwerkaufruf erzwingt.' })
     renderWizard(true)
 
     await user.click(await screen.findByRole('button', { name: /save & see/i }))
@@ -232,7 +215,7 @@ describe('ProjectIntakeWizard — summary generation is fully off the save path'
     const user = userEvent.setup()
     const stub = stubFetch()
 
-    seedReviewDraft({ gebaeudeklasse: 'GK1', geschosse_oberirdisch: 8 })
+    seedReviewDraft({ A2_land: 'wien', A5: ['neubau'] })
     renderWizard(false)
 
     await user.click(await screen.findByRole('button', { name: /save/i }))
@@ -240,9 +223,6 @@ describe('ProjectIntakeWizard — summary generation is fully off the save path'
     await waitFor(() => expect(pushMock).toHaveBeenCalledWith(`/app/projects/${PROJECT_ID}`))
     expect(refreshMock).toHaveBeenCalled()
     expect(putProfileCalls(stub)).toHaveLength(1)
-    // The wizard's old fire-and-forget always lost the race against the redirect
-    // (the summary landed after the Overview rendered) — generation now lives in
-    // the Overview's brief panel, where the result is actually displayed.
     expect(stub.calls.some((c) => c.url.endsWith('/generate-summary'))).toBe(false)
   })
 })
@@ -258,9 +238,8 @@ describe('ProjectIntakeWizard — Fix 3 save-success feedback', () => {
   it('toasts a save confirmation with the captured-fact count after a successful save', async () => {
     const user = userEvent.setup()
     stubFetch()
-    // Two intake facts (hauptnutzung, anzahl_einheiten) + the seeded project_name
-    // fact = 3 captured "Angaben".
-    seedReviewDraft({ hauptnutzung: 'wohnen', anzahl_einheiten: 3 })
+    // bundesland + vorhabensart + the seeded project_name fact = 3 captured facts.
+    seedReviewDraft({ A2_land: 'wien', A5: ['neubau'] })
     renderWizard(false)
 
     await user.click(await screen.findByRole('button', { name: /save/i }))
@@ -281,7 +260,7 @@ describe('ProjectIntakeWizard — Fix 3 save-success feedback', () => {
       return Promise.resolve({ ok: true, status: 200, json: async () => ({}) })
     })
     vi.stubGlobal('fetch', fetch)
-    seedReviewDraft({ hauptnutzung: 'wohnen', anzahl_einheiten: 3 })
+    seedReviewDraft({ A2_land: 'wien', A5: ['neubau'] })
     renderWizard(false)
 
     await user.click(await screen.findByRole('button', { name: /save/i }))
@@ -316,10 +295,8 @@ describe('ProjectIntakeWizard — optimistic concurrency (If-Match)', () => {
   it('sends the loaded profileVersion as If-Match so concurrent edits 409', async () => {
     const user = userEvent.setup()
     const headers = recordHeaders()
-    seedReviewDraft({ hauptnutzung: 'wohnen', anzahl_einheiten: 3 })
-    render(
-      <ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" initialProfileVersion={7} />,
-    )
+    seedReviewDraft({ A2_land: 'wien' })
+    render(<ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" initialProfileVersion={7} />)
 
     await user.click(await screen.findByRole('button', { name: /save/i }))
 
@@ -330,7 +307,7 @@ describe('ProjectIntakeWizard — optimistic concurrency (If-Match)', () => {
   it('omits If-Match when no version was provided (legacy behavior)', async () => {
     const user = userEvent.setup()
     const headers = recordHeaders()
-    seedReviewDraft({ hauptnutzung: 'wohnen', anzahl_einheiten: 3 })
+    seedReviewDraft({ A2_land: 'wien' })
     renderWizard(false)
 
     await user.click(await screen.findByRole('button', { name: /save/i }))
@@ -351,15 +328,36 @@ describe('ProjectIntakeWizard — optimistic concurrency (If-Match)', () => {
       return Promise.resolve({ ok: true, status: 200, json: async () => ({}) })
     })
     vi.stubGlobal('fetch', fetch)
-    seedReviewDraft({ hauptnutzung: 'wohnen', anzahl_einheiten: 3 })
-    render(
-      <ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" initialProfileVersion={7} />,
-    )
+    seedReviewDraft({ A2_land: 'wien' })
+    render(<ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" initialProfileVersion={7} />)
 
     await user.click(await screen.findByRole('button', { name: /save/i }))
 
     expect(await screen.findByText(/changed elsewhere/i)).toBeInTheDocument()
     expect(pushMock).not.toHaveBeenCalled()
+  })
+
+  it('Fix 3: the 409 alert offers a Refresh action that re-fetches server data', async () => {
+    const user = userEvent.setup()
+    const fetch = vi.fn((url: string, init?: RequestInit) => {
+      if (url.endsWith('/intake-definition')) {
+        return Promise.resolve({ ok: true, status: 200, json: async () => projectIntakeDefinitionV1 })
+      }
+      if (init?.method === 'PUT') {
+        return Promise.resolve({ ok: false, status: 409, json: async () => ({}) })
+      }
+      return Promise.resolve({ ok: true, status: 200, json: async () => ({}) })
+    })
+    vi.stubGlobal('fetch', fetch)
+    seedReviewDraft({ A2_land: 'wien' })
+    render(<ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" initialProfileVersion={7} />)
+
+    await user.click(await screen.findByRole('button', { name: /save/i }))
+    await screen.findByText(/changed elsewhere/i)
+
+    await user.click(screen.getByRole('button', { name: /refresh/i }))
+    expect(refreshMock).toHaveBeenCalled()
+    await waitFor(() => expect(screen.queryByText(/changed elsewhere/i)).not.toBeInTheDocument())
   })
 })
 
@@ -374,10 +372,9 @@ describe('ProjectIntakeWizard — edit-mode save preserves agent-recorded knowle
   it('carries novel facts/goals/unknowns through the whole-profile PUT', async () => {
     const user = userEvent.setup()
     const stub = stubFetch()
-    seedReviewDraft({ hauptnutzung: 'wohnen', anzahl_einheiten: 3 })
+    seedReviewDraft({ A2_land: 'wien' }, Date.parse('2026-01-02T00:00:00.000Z'))
     const initialProfile = {
       facts: {
-        // Novel key the agent recorded via the patch flow — no intake question owns it.
         brandabschnitt_flaeche: {
           value: 1200,
           confidence: 'confirmed' as const,
@@ -389,9 +386,7 @@ describe('ProjectIntakeWizard — edit-mode save preserves agent-recorded knowle
       unknowns: ['statik_gutachten'],
       assumptions: {},
     }
-    render(
-      <ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" mode="edit" initialProfile={initialProfile} />,
-    )
+    render(<ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" mode="edit" initialProfile={initialProfile} />)
 
     await user.click(await screen.findByRole('button', { name: /save changes/i }))
 
@@ -404,8 +399,8 @@ describe('ProjectIntakeWizard — edit-mode save preserves agent-recorded knowle
     expect(body.facts.brandabschnitt_flaeche?.value).toBe(1200)
     expect(body.goals.zieltermin).toBe('2027-03-01')
     expect(body.unknowns).toContain('statik_gutachten')
-    // The wizard's own answers still land as usual.
-    expect(body.facts.hauptnutzung?.value).toBe('wohnen')
+    // The wizard's own answer still lands as usual.
+    expect(body.facts.bundesland?.value).toBe('wien')
   })
 })
 
@@ -434,8 +429,7 @@ describe('ProjectIntakeWizard — Fix 1 salvage banner', () => {
   it('shows no banner when the stored brief loaded cleanly', async () => {
     stubFetch()
     render(<ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" />)
-    // Wait for the definition to load (step counter appears), then assert no banner.
-    await screen.findByText(/step 1 of 6/i)
+    await screen.findByText(new RegExp(`step 1 of ${TOTAL}`, 'i'))
     expect(screen.queryByText(/could not be loaded/i)).not.toBeInTheDocument()
   })
 })
@@ -451,9 +445,7 @@ describe('ProjectIntakeWizard — assumptions-only edit preserves assumptions', 
   it('carries loaded assumptions into the PUT payload on an edit-mode save', async () => {
     const user = userEvent.setup()
     const stub = stubFetch()
-    // Land on Review via a seeded draft; the assumption comes from the loaded
-    // profile (the wizard's questions never round-trip assumptions).
-    seedReviewDraft({ hauptnutzung: 'wohnen' })
+    seedReviewDraft({ A2_land: 'wien' }, Date.parse('2026-01-02T00:00:00.000Z'))
     const initialProfile = {
       facts: {},
       goals: {},
@@ -468,21 +460,17 @@ describe('ProjectIntakeWizard — assumptions-only edit preserves assumptions', 
         },
       },
     }
-    render(
-      <ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" mode="edit" initialProfile={initialProfile} />,
-    )
+    render(<ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" mode="edit" initialProfile={initialProfile} />)
 
     await user.click(await screen.findByRole('button', { name: /save changes/i }))
 
     await waitFor(() => expect(pushMock).toHaveBeenCalledWith(`/app/projects/${PROJECT_ID}`))
-    const put = putProfileCalls(stub)[0]
-    expect(put).toBeDefined()
-    const body = put.body as { assumptions?: Record<string, { value?: unknown }> }
+    const body = putProfileCalls(stub)[0].body as { assumptions?: Record<string, { value?: unknown }> }
     expect(body.assumptions?.widmung?.value).toBe('wohnen')
   })
 })
 
-describe('ProjectIntakeWizard — Fix 6 stale conditional answers pruned on load', () => {
+describe('ProjectIntakeWizard — stale conditional answers pruned on load', () => {
   beforeEach(() => {
     vi.unstubAllGlobals()
     vi.clearAllMocks()
@@ -490,21 +478,146 @@ describe('ProjectIntakeWizard — Fix 6 stale conditional answers pruned on load
   })
   afterEach(() => sessionStorage.clear())
 
-  it('prunes an orphaned conditional answer from a restored draft so save is clean', async () => {
+  it('prunes an orphaned conditional answer from a restored draft before saving', async () => {
     const user = userEvent.setup()
     const stub = stubFetch()
-    // Bed count is only valid when the use is Hospitality. A restored draft with
-    // Office + a stale bed count would trip the orphanedAnswer rule and HOLD the
-    // save — unless the load path prunes it like an interactive edit would.
-    seedReviewDraft({ hauptnutzung: 'buero', anzahl_betten: 40 })
-    render(<ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" conflictCheckEnabled />)
+    // A6 (Baujahr) only applies to existing-building work. A restored draft with
+    // pure Neubau + a stale Baujahr must be pruned on load like an interactive edit.
+    seedReviewDraft({ A5: ['neubau'], A6: 1990, 'A6__mode': 'wert' })
+    renderWizard(false)
+
+    await user.click(await screen.findByRole('button', { name: /save/i }))
+
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith(`/app/projects/${PROJECT_ID}`))
+    const body = putProfileCalls(stub)[0].body as { facts: Record<string, unknown> }
+    // The pruned Baujahr never reaches the persisted profile.
+    expect(body.facts.baujahr_bestand).toBeUndefined()
+  })
+})
+
+describe('ProjectIntakeWizard — Fix 1 stale draft does not clobber a newer profile', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals()
+    vi.clearAllMocks()
+    sessionStorage.clear()
+  })
+  afterEach(() => sessionStorage.clear())
+
+  const vorhabenFact = (value: string[], updatedAt: string) => ({
+    value,
+    confidence: 'confirmed' as const,
+    source: 'user_confirmed' as const,
+    updatedAt,
+  })
+  const chip = (name: string) => screen.getByRole('button', { name })
+
+  it('discards a draft older than the persisted profile and prefills from the profile', async () => {
+    stubFetch()
+    sessionStorage.setItem(
+      `intake-draft-${PROJECT_ID}`,
+      JSON.stringify({ answers: { A5: ['sanierung'] }, currentStep: 0, savedAt: Date.parse('2026-01-01T00:00:00.000Z') }),
+    )
+    const initialProfile = {
+      facts: { vorhabensart: vorhabenFact(['neubau'], '2026-07-01T00:00:00.000Z') },
+      goals: {},
+      unknowns: [],
+      assumptions: {},
+    }
+    render(<ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" mode="edit" initialProfile={initialProfile} />)
+
+    await waitFor(() => expect(chip('Neubau')).toHaveAttribute('aria-pressed', 'true'))
+    expect(chip('Sanierung')).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('restores a draft newer than the persisted profile (genuine local edits survive)', async () => {
+    stubFetch()
+    sessionStorage.setItem(
+      `intake-draft-${PROJECT_ID}`,
+      JSON.stringify({ answers: { A5: ['sanierung'] }, currentStep: 0, savedAt: Date.parse('2026-07-20T00:00:00.000Z') }),
+    )
+    const initialProfile = {
+      facts: { vorhabensart: vorhabenFact(['neubau'], '2026-07-01T00:00:00.000Z') },
+      goals: {},
+      unknowns: [],
+      assumptions: {},
+    }
+    render(<ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" mode="edit" initialProfile={initialProfile} />)
+
+    await waitFor(() => expect(chip('Sanierung')).toHaveAttribute('aria-pressed', 'true'))
+    expect(chip('Neubau')).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('discards a draft whose base profileVersion is behind the loaded version', async () => {
+    stubFetch()
+    sessionStorage.setItem(
+      `intake-draft-${PROJECT_ID}`,
+      JSON.stringify({ answers: { A5: ['sanierung'] }, currentStep: 0, savedAt: Date.now(), baseVersion: 3 }),
+    )
+    const initialProfile = {
+      facts: { vorhabensart: vorhabenFact(['neubau'], '2026-07-01T00:00:00.000Z') },
+      goals: {},
+      unknowns: [],
+      assumptions: {},
+    }
+    render(
+      <ProjectIntakeWizard
+        projectId={PROJECT_ID}
+        projectName="Test"
+        mode="edit"
+        initialProfile={initialProfile}
+        initialProfileVersion={4}
+      />,
+    )
+
+    await waitFor(() => expect(chip('Neubau')).toHaveAttribute('aria-pressed', 'true'))
+    expect(chip('Sanierung')).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('migration window: a legacy draft with neither baseVersion nor savedAt does not win over the profile', async () => {
+    stubFetch()
+    sessionStorage.setItem(
+      `intake-draft-${PROJECT_ID}`,
+      JSON.stringify({ answers: { A5: ['sanierung'] }, currentStep: 0 }),
+    )
+    const initialProfile = {
+      facts: { vorhabensart: vorhabenFact(['neubau'], '2026-07-01T00:00:00.000Z') },
+      goals: {},
+      unknowns: [],
+      assumptions: {},
+    }
+    render(<ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" mode="edit" initialProfile={initialProfile} />)
+
+    await waitFor(() => expect(chip('Neubau')).toHaveAttribute('aria-pressed', 'true'))
+    expect(chip('Sanierung')).toHaveAttribute('aria-pressed', 'false')
+  })
+})
+
+describe('ProjectIntakeWizard — Fix 2 AI-finding revise link resolves a stage', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals()
+    vi.clearAllMocks()
+    sessionStorage.clear()
+  })
+  afterEach(() => sessionStorage.clear())
+
+  it('renders a working Revise link for an AI finding whose labels match no question', async () => {
+    const user = userEvent.setup()
+    const stub = stubFetch()
+    stub.consistencyResponse.json = {
+      findings: [
+        { kind: 'ai', fields: ['the fire-compartment note'], severity: 'inconsistency', message: 'The note contradicts the plan.' },
+      ],
+    }
+    seedReviewDraft({ G1: 'Bestätige die Brandabschnittsstrategie für die Einreichung.' })
+    renderWizard(true)
 
     await user.click(await screen.findByRole('button', { name: /save & see/i }))
+    expect(await screen.findByText(/the note contradicts the plan/i)).toBeInTheDocument()
 
-    // Pruned on load → no orphan finding → the save proceeds straight through.
-    await waitFor(() => expect(pushMock).toHaveBeenCalledWith(`/app/projects/${PROJECT_ID}`))
-    expect(putProfileCalls(stub)).toHaveLength(1)
-    expect(screen.queryByText(/no longer applies/i)).not.toBeInTheDocument()
+    // The link falls back to the first free-text stage (module A, A1 is text) → step 1.
+    await user.click(screen.getByRole('button', { name: /revise/i }))
+    expect(await screen.findByText(new RegExp(`step 1 of ${TOTAL}`, 'i'))).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByText(/the note contradicts the plan/i)).not.toBeInTheDocument())
   })
 })
 
@@ -519,24 +632,20 @@ describe('ProjectIntakeWizard — Fix 5 non-finite number rejected', () => {
   it('rejects "1e999" (Infinity) with a validation error and neither advances nor saves', async () => {
     const user = userEvent.setup()
     const stub = stubFetch()
-    // Land on the Building details stage (index 3) with the other two fields valid.
-    const buildingStep = 3
+    // Land on module C (index 2) with the building set to a Gebäude so C2 shows.
     sessionStorage.setItem(
       `intake-draft-${PROJECT_ID}`,
-      JSON.stringify({ answers: { geschosse_unterirdisch: 1, fluchtniveau: '<=7m' }, currentStep: buildingStep }),
+      JSON.stringify({ answers: { 'C1@bw1': 'gebaeude' }, currentStep: 2 }),
     )
     render(<ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" />)
 
-    const floors = await screen.findByLabelText('Above-ground floors')
-    // "1e999" is a valid numeric literal but Number("1e999") === Infinity.
+    const floors = await screen.findByLabelText('Anzahl oberirdischer Geschoße')
     fireEvent.change(floors, { target: { value: '1e999' } })
 
     await user.click(screen.getByRole('button', { name: /next/i }))
 
-    // The field shows the normal invalid-input state and the step does not advance.
     expect(await screen.findByText(/enter a number/i)).toBeInTheDocument()
-    expect(screen.getByText(/step 4 of 6/i)).toBeInTheDocument()
-    // Nothing was persisted.
+    expect(screen.getByText(new RegExp(`step 3 of ${TOTAL}`, 'i'))).toBeInTheDocument()
     expect(putProfileCalls(stub)).toHaveLength(0)
     expect(pushMock).not.toHaveBeenCalled()
   })

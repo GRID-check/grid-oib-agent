@@ -37,8 +37,12 @@ export interface ResponseTransparency {
   routingReason?: string
   /** Present only when a shallow→deep escalation happened this turn. */
   escalationReason?: string
-  /** Present only when confidence was downgraded for lack of citation grounding. */
-  answerConfidenceCappedReason?: 'ungrounded'
+  /**
+   * Present only when confidence was downgraded. `'ungrounded'` = the answer
+   * lost its citation grounding; `'quote_unverified'` = a quoted span did not
+   * match any source passage.
+   */
+  answerConfidenceCappedReason?: 'ungrounded' | 'quote_unverified'
   /** Present only when citation verification removed ≥1 citation. */
   citationsRemoved?: { count: number; reasons: string[] }
   /** Marks the answer text as a queue-rejection notice, NOT a research answer. */
@@ -164,7 +168,13 @@ export class NATWebSocketClient {
       params.set('projectId', this.options.projectId)
     }
     if (this.options.conversationId) {
+      // camelCase param the Grid backend scopes the collection on.
       params.set('conversationId', this.options.conversationId)
+      // snake_case duplicate that NAT's `_restore_execution_state` reads
+      // verbatim (it looks up `conversation_id`) to swap a reconnected socket
+      // into a still-running handler. Sending BOTH keeps the live-reattach
+      // path working without depending on the backend camelCase tolerance.
+      params.set('conversation_id', this.options.conversationId)
     }
 
     const queryString = params.toString()

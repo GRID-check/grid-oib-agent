@@ -153,6 +153,14 @@ const UNACKNOWLEDGED_OUTGOING_ACK_TIMEOUT_MS = 7_000
 const STREAMING_INACTIVITY_TIMEOUT_MS = 180_000
 
 /**
+ * Debounce window for reconnect-triggered answer recovery (FIX 2). A burst of
+ * rotation reconnects (token refresh, flaky network) can emit several
+ * `connected` events in quick succession; recovery is a server round-trip, so
+ * we run it at most once per window rather than per event.
+ */
+const RECONNECT_RECOVERY_DEBOUNCE_MS = 3_000
+
+/**
  * Map NAT/backend error codes to frontend ErrorCode for consistent UI display.
  * This provides a generic mapping for any backend error.
  */
@@ -331,6 +339,19 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
    * re-firing CONNECTION_FAILED.
    */
   const budgetDiagnosticsCheckedRef = useRef(false)
+
+  /**
+   * Reconnect-rehydrate guards (protocol-robustness FIX 2). A silent socket
+   * drop mid-turn (deep-research, rotation) is caught server-side and the
+   * finished answer persisted; on the SAME mount there is no remount to trigger
+   * `restoreSessionState`, so the persisted answer never appears. On every
+   * reconnect we re-run the interrupted-answer recovery for the current
+   * conversation. `hasConnectedOnceRef` skips the very first connect of a fresh
+   * mount (that path already hydrated), and `lastReconnectRecoveryAtRef`
+   * debounces so rapid rotation reconnects fire recovery at most once per window.
+   */
+  const hasConnectedOnceRef = useRef(false)
+  const lastReconnectRecoveryAtRef = useRef(0)
 
   /**
    * Single rotation primitive. Delegates to `client.rotate()` -- an atomic
@@ -1229,6 +1250,32 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
             } else {
               pendingOutgoingRef.current = pending
             }
+          }
+
+          // FIX 2: on a RECONNECT (not the first connect of a fresh mount),
+          // re-run the interrupted-answer recovery for the current conversation.
+          // A mid-turn drop is persisted server-side; without a remount nothing
+          // else re-fetches it, so the finished answer would stay invisible.
+          // `_recoverInterruptedAssistantMessage` is idempotent (it only appends
+          // a persisted assistant message that is missing locally and no-ops
+          // otherwise) and sets the store's recovery-pending flag while it runs.
+          if (hasConnectedOnceRef.current) {
+            const now = Date.now()
+            if (now - lastReconnectRecoveryAtRef.current >= RECONNECT_RECOVERY_DEBOUNCE_MS) {
+              lastReconnectRecoveryAtRef.current = now
+              const state = useChatStore.getState()
+              const conversation = state.currentConversation
+              if (conversation && !state.isStreaming) {
+                const lastUserMessage = [...conversation.messages]
+                  .reverse()
+                  .find((m) => m.messageType === 'user')
+                if (lastUserMessage) {
+                  void state._recoverInterruptedAssistantMessage(conversation.id, lastUserMessage.id)
+                }
+              }
+            }
+          } else {
+            hasConnectedOnceRef.current = true
           }
           return
         }

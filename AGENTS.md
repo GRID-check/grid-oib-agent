@@ -191,6 +191,27 @@ Rules of thumb: prefer updating an existing doc over adding a new one; delete do
   **availability = flag AND capability**. Example: image upload = the
   `image-upload` flag AND `vlm_available` (derived from the VLM key) — do not
   add a redundant env opt-in for something the dependency already implies.
+- **Raw `sql<T>` results are not runtime-validated — coerce at the repository
+  boundary.** Drizzle only decodes column values for direct column references;
+  a raw `sql<Date>\`max(...)\`` / `sql<number>\`count(...)\`` fragment is a
+  *compile-time assertion only*, so `tsc` and the LSP see no error even when the
+  driver returns a string. Convert on the way out of the repository (e.g.
+  `new Date(row.x)`, `Number(row.x)`) — never trust the annotation downstream.
+  A missing coercion here caused the profiler `toISOString is not a function`
+  crash; the fix and the `totalDurationMsRaw` sibling are the reference pattern.
 - Documentation obligations above apply to every change — treat stale docs as a bug.
+- **Fix errors you find — never dismiss them as "pre-existing."** If, while
+  working, you identify a bug, a failing/broken test, or wrong behavior — even
+  one that pre-dates your change — fix it. "It was already broken" is not a
+  reason to leave it broken. If a fix is genuinely out of scope, flag it loudly
+  and explicitly (in the PR/log), never silently wave it away.
+- **Question necessity, then simplify — "the best part is no part."** START every
+  task by asking why the thing must exist at all and whether existing machinery
+  already covers it — the cheapest code is the code you don't write. FINISH every
+  task with a skeptical review that tries to DELETE: remove parts, collapse
+  layers, reuse instead of add, cut complexity — while keeping the feature set
+  intact (reduce complexity, never features). Reducing complexity is part of
+  "done," not a follow-up. When work is finished, a senior-skeptic review pass
+  (its own sub-agent) that challenges necessity and hunts deletions is expected.
 - Git workflow above (feature-branch-per-feature, Conventional Commits, PR to
   `develop`) applies to every change.

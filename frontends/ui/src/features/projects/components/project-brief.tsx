@@ -19,6 +19,13 @@ interface ProjectBriefProps {
   profile: ProjectProfile | null
   /** AI-generated prose from profile_display (generated separately, async). */
   summary?: string
+  /**
+   * The UI locale the stored `summary` was generated in. Drives the
+   * stale-language repair: when a summary exists but was written in a different
+   * locale than the one now active, the brief regenerates it once. Absent on
+   * legacy rows — treated as "matches" (no forced regeneration).
+   */
+  summaryLocale?: string
   /** Whether the brief was ever set up (profile_display exists). */
   briefStarted: boolean
   /**
@@ -42,6 +49,7 @@ export function ProjectBrief({
   projectId,
   profile,
   summary,
+  summaryLocale,
   briefStarted,
   canEdit = true,
 }: ProjectBriefProps) {
@@ -103,7 +111,7 @@ export function ProjectBrief({
       {prose ? (
         <div className="mt-3">
           <p className="text-sm leading-relaxed text-muted-foreground">{prose}</p>
-          <SummaryControl projectId={projectId} hasSummary />
+          <SummaryControl projectId={projectId} hasSummary summaryLocale={summaryLocale} />
         </div>
       ) : (
         <div className="mt-3">
@@ -209,10 +217,13 @@ type SummaryFailure = 'llm_not_configured' | 'generic'
 function SummaryControl({
   projectId,
   hasSummary,
+  summaryLocale,
   autoStart = false,
 }: {
   projectId: string
   hasSummary: boolean
+  /** Locale the existing summary was generated in (only meaningful with hasSummary). */
+  summaryLocale?: string
   autoStart?: boolean
 }) {
   const t = useTranslations('projects')
@@ -269,12 +280,27 @@ function SummaryControl({
     }
   }
 
+  // A summary that exists BUT was generated in a different UI locale than the
+  // one now active is stale-language: the user switched the UI after it was
+  // written, so the prose is stuck in the old language. Legacy rows carry no
+  // `summaryLocale` — treated as a match (fail open: never a regeneration
+  // storm over rows that predate this field).
+  const localeMismatch = hasSummary && summaryLocale != null && summaryLocale !== locale
+
   useEffect(() => {
-    if (!autoStart || hasSummary || autoAttemptedRef.current) return
+    // One attempt per mount, guarded by the ref: whether it succeeds (the
+    // refreshed server data then reports the new locale, clearing the
+    // mismatch) or fails (the ref alone stops the loop), it never re-fires.
+    if (autoAttemptedRef.current) return
+    // Two triggers share the single silent-generate path:
+    //   - post-wizard-save: facts exist but no prose yet (autoStart, !hasSummary)
+    //   - stale-language repair: prose exists in the wrong locale (localeMismatch)
+    const shouldAutoStart = autoStart && !hasSummary
+    if (!shouldAutoStart && !localeMismatch) return
     autoAttemptedRef.current = true
     void generate(true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoStart, hasSummary])
+  }, [autoStart, hasSummary, localeMismatch])
 
   if (hasSummary) {
     return (
@@ -361,10 +387,30 @@ function AssumptionsBlock({ projectId, assumptions }: { projectId: string; assum
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ patch }),
       })
-      if (!res.ok) throw new Error()
+      if (!res.ok) {
+        // Read the JSON envelope (`{ error, code }` — see `@/lib/api/errors` /
+        // `apiRoute`'s error mapping) so 403/409 don't collapse into one
+        // generic message; a malformed or empty body still falls through to
+        // the status-code check rather than throwing here.
+        const data = (await res.json().catch(() => null)) as { code?: string } | null
+        const kind =
+          data?.code === 'FORBIDDEN' || res.status === 403
+            ? 'forbidden'
+            : data?.code === 'CONFLICT' || res.status === 409
+              ? 'conflict'
+              : 'generic'
+        throw { kind } as const
+      }
       router.refresh()
-    } catch {
-      setError(t('overview.brief.assumptionError'))
+    } catch (error) {
+      const kind = (error as { kind?: string } | null)?.kind ?? 'generic'
+      setError(
+        kind === 'forbidden'
+          ? t('overview.brief.assumptionForbidden')
+          : kind === 'conflict'
+            ? t('overview.brief.assumptionConflict')
+            : t('overview.brief.assumptionError'),
+      )
     } finally {
       setBusyKey(null)
     }

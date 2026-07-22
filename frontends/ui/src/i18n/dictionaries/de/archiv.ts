@@ -3,6 +3,7 @@ export const archiv = {
   title: 'Archiv',
   subtitle: 'Gemeinsame Dokumente, die jedem Projekt Ihrer Organisation zur Verfügung stehen',
   backToApp: 'Zurück zu den Projekten',
+  backToProject: 'Zurück zum Projekt',
   library: {
     searchPlaceholder: 'Archiv durchsuchen…',
     searchLabel: 'Archivdokumente durchsuchen',
@@ -16,6 +17,16 @@ export const archiv = {
     noMatchDescription: 'Kein Archivdokument entspricht Ihrer Suche oder der gewählten Kategorie.',
     clearFilters: 'Filter zurücksetzen',
     provenance: 'Aus „{source}“',
+    semantic: {
+      searchPlaceholder: 'Archiv durchsuchen – Enter für semantische Suche …',
+      run: 'Suchen',
+      reset: 'Alle Dokumente anzeigen',
+      banner: 'Semantische Suche: {count} Treffer für „{query}“',
+      searching: 'Archiv wird nach „{query}“ durchsucht …',
+      noResults: 'Keine semantischen Treffer für „{query}“',
+      noResultsDescription:
+        'Nichts im Archiv entsprach dem Sinn Ihrer Anfrage. Versuchen Sie eine andere Formulierung oder löschen Sie die Suche, um alle Dokumente zu durchsuchen.',
+    },
     kind: {
       floorplan: 'Grundriss',
       section: 'Schnitt',

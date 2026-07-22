@@ -88,6 +88,38 @@ describe('ProjectMembersForm', () => {
     expect(screen.queryByRole('listbox')).toBeNull()
   })
 
+  test('role pickers explain what each role means', async () => {
+    const user = userEvent.setup()
+    render(<ProjectMembersForm projectId="p1" canManage />)
+
+    // Invite form's role select.
+    await user.click(await screen.findByLabelText('Role'))
+    let listbox = await screen.findByRole('listbox')
+    expect(
+      within(listbox).getByText(/Can view project content, files, and conversations/i),
+    ).toBeDefined()
+    expect(
+      within(listbox).getByText(/Can also edit documents, run workflows/i),
+    ).toBeDefined()
+    expect(
+      within(listbox).getByText(/Can also manage project settings, members, and roles/i),
+    ).toBeDefined()
+    await user.keyboard('{Escape}')
+
+    // Roster row's role select (Ada already has a role assigned).
+    await user.click(screen.getByLabelText('Project role for Ada Lovelace'))
+    listbox = await screen.findByRole('listbox')
+    expect(
+      within(listbox).getByText(/Can view project content, files, and conversations/i),
+    ).toBeDefined()
+    expect(
+      within(listbox).getByText(/Can also edit documents, run workflows/i),
+    ).toBeDefined()
+    expect(
+      within(listbox).getByText(/Can also manage project settings, members, and roles/i),
+    ).toBeDefined()
+  })
+
   test('supports keyboard selection with arrow keys and Enter', async () => {
     const user = userEvent.setup()
     render(<ProjectMembersForm projectId="p1" canManage />)
@@ -106,5 +138,89 @@ describe('ProjectMembersForm', () => {
 
     expect(await screen.findByText(/Couldn't load members/i)).toBeDefined()
     await waitFor(() => expect(screen.getByRole('button', { name: /Try again/i })).toBeDefined())
+  })
+
+  test('changing your own row requires explicit confirmation, and is not applied until confirmed', async () => {
+    const user = userEvent.setup()
+    const fetchMock = mockFetch(true, { members })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<ProjectMembersForm projectId="p1" canManage currentMembershipId="om_1" />)
+
+    await screen.findByText('Ada Lovelace')
+    // "You" badge marks the self row.
+    expect(screen.getByText('You')).toBeDefined()
+
+    await user.click(screen.getByLabelText('Project role for Ada Lovelace'))
+    await user.click(await screen.findByRole('option', { name: /No project access/i }))
+
+    // The change must not be sent to the server yet — a confirm dialog gates it.
+    const postCallsBeforeConfirm = fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')
+    expect(postCallsBeforeConfirm.length).toBe(0)
+    expect(await screen.findByText(/^Remove your own access\?$/)).toBeDefined()
+    expect(screen.getByText(/You'll lose the ability to see or manage it/i)).toBeDefined()
+
+    // Cancelling leaves the role untouched.
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByText(/^Remove your own access\?$/)).toBeNull()
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST').length).toBe(0)
+
+    // Re-open and confirm — only now is the request sent.
+    await user.click(screen.getByLabelText('Project role for Ada Lovelace'))
+    await user.click(await screen.findByRole('option', { name: /No project access/i }))
+    await user.click(await screen.findByRole('button', { name: /Remove my access/i }))
+
+    await waitFor(() => {
+      const postCalls = fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')
+      expect(postCalls.length).toBe(1)
+    })
+  })
+
+  test("changing another member's row is unaffected by the self-row guard (no confirm dialog)", async () => {
+    const user = userEvent.setup()
+    const fetchMock = mockFetch(true, { members })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<ProjectMembersForm projectId="p1" canManage currentMembershipId="om_1" />)
+
+    await screen.findByText('Grace Hopper')
+    await user.click(screen.getByLabelText('Project role for Grace Hopper'))
+    await user.click(await screen.findByRole('option', { name: /Viewer/i }))
+
+    await waitFor(() => {
+      const postCalls = fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')
+      expect(postCalls.length).toBe(1)
+    })
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  test('"Add member" on someone who already has a different role confirms the role change instead of silently downgrading', async () => {
+    const user = userEvent.setup()
+    const fetchMock = mockFetch(true, { members })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<ProjectMembersForm projectId="p1" canManage />)
+
+    const input = await screen.findByLabelText('Member')
+    await user.type(input, 'ada@studio.at')
+
+    // Leave the role select at its default ("Viewer") — Ada is currently Admin.
+    await user.click(screen.getByRole('button', { name: 'Add member' }))
+
+    // No request yet — the downgrade must be confirmed first.
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST').length).toBe(0)
+    expect(await screen.findByText(/Change their role instead/i)).toBeDefined()
+    expect(screen.getByText(/already has Admin access/i)).toBeDefined()
+
+    await user.click(screen.getByRole('button', { name: /Change role to Viewer/i }))
+
+    await waitFor(() => {
+      const postCalls = fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')
+      expect(postCalls.length).toBe(1)
+      expect(JSON.parse(postCalls[0][1]?.body as string)).toEqual({
+        organizationMembershipId: 'om_1',
+        roleSlug: 'project-viewer',
+      })
+    })
   })
 })

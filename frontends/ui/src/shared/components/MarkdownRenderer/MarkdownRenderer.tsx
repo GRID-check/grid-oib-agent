@@ -2,7 +2,9 @@
 
 import { type FC, type ReactNode, memo, useMemo } from 'react'
 import ReactMarkdown, { type Components, type ExtraProps } from 'react-markdown'
+import rehypeKatex from 'rehype-katex'
 import remarkGfm from 'remark-gfm'
+import remarkMath from 'remark-math'
 import { CodeBlock } from '@/shared/components/CodeBlock'
 import type { MarkdownRendererProps } from './types'
 import { getLanguageFromClassName } from './utils'
@@ -253,7 +255,11 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
 
     return (
       <div className={`markdown-content break-words [overflow-wrap:anywhere] [&>*:last-child]:mb-0 ${className}`}>
-        <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm, remarkMath]}
+          rehypePlugins={[[rehypeKatex, { throwOnError: false }]]}
+          components={components}
+        >
           {renderedContent}
         </ReactMarkdown>
       </div>

@@ -49,6 +49,14 @@ class ShallowResearchAgentState(BaseModel):
     project_context: str | None = None
     requires_sources: bool = True
     answer_citation_grounded: bool = False
+    # Whether every QUOTED span in the final answer was found (fuzzily) in a
+    # retrieved passage. Set by ``run()``: True by default (and when there is
+    # nothing to check — no sources or no quotes), False when a quoted sentence
+    # could not be verified against any source's chunk text (the weak model's
+    # "real section, fabricated quote" pattern). The chat node composes it with
+    # ``answer_citation_grounded`` to cap confidence to "low" with the
+    # ``quote_unverified`` reason. Fail-open default True.
+    answer_quotes_verified: bool = True
     # Structured control-marker signals extracted (and stripped from the answer
     # text) inside ShallowResearcherAgent.run(). The chat orchestrator reads these
     # instead of re-parsing the answer string. ``escalation_requested`` doubles as

@@ -39,6 +39,7 @@ const ProjectChatContent = ({
   const setProjectId = useChatStore((s) => s.setProjectId)
   const loadServerConversations = useChatStore((s) => s.loadServerConversations)
   const setComposerPrefill = useChatStore((s) => s.setComposerPrefill)
+  const startNewSessionDraft = useChatStore((s) => s.startNewSessionDraft)
 
   // Deep link from the project Research page: /projects/:id/chat?job=<jobId>
   // loads that job's report into the research panel. An optional &tab= selects
@@ -66,6 +67,27 @@ const ProjectChatContent = ({
   // guard ref keeps this to a single application per distinct question.
   const askPrefill = searchParams?.get('ask') ?? null
   const consumedAskRef = useRef<string | null>(null)
+
+  // Sidebar "Frag Piloti" entry point: /projects/:id/chat?new=1 always lands on
+  // a fresh, empty chat rather than the last thread. Consume the flag once —
+  // reset the store to a new-session draft via the SAME mechanism the toolbar's
+  // "New chat" uses (startNewSessionDraft) — then strip ?new so a refresh or
+  // back-nav doesn't re-trigger it. The guard ref keeps it to a single run.
+  const newParam = searchParams?.get('new') ?? null
+  const consumedNewRef = useRef(false)
+
+  useEffect(() => {
+    if (!newParam || !isAuthenticated || consumedNewRef.current) return
+    consumedNewRef.current = true
+    startNewSessionDraft()
+
+    if (pathname) {
+      const params = new URLSearchParams(searchParams?.toString() ?? '')
+      params.delete('new')
+      const query = params.toString()
+      router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false })
+    }
+  }, [newParam, isAuthenticated, searchParams, pathname, router, startNewSessionDraft])
 
   useEffect(() => {
     setProjectId(projectId)

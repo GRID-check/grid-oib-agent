@@ -54,18 +54,22 @@ logger = logging.getLogger(__name__)
 def surface_answer_confidence(
     self_reported: ConfidenceLevel | None,
     citation_grounded: bool,
+    quotes_verified: bool = True,
 ) -> ConfidenceLevel | None:
     """Apply the deterministic overconfidence guard to a self-reported level.
 
     Returns ``None`` when there is no self-assessment to surface. Otherwise caps
     the surfaced value at "low" whenever the answer is not grounded in a verified
-    citation (empty registry or verification removed every citation): a
-    self-reported "high"/"medium" on an ungrounded answer is untrustworthy and
-    becomes "low". A grounded answer surfaces the model's own level verbatim.
+    citation (empty registry or verification removed every citation) OR carries a
+    quoted span that could not be verified against a retrieved passage
+    (``quotes_verified`` is False — the weak model's "real section, fabricated
+    quote" pattern). A self-reported "high"/"medium" in either case is
+    untrustworthy and becomes "low"; a fully grounded answer with all quotes
+    verified surfaces the model's own level verbatim.
     """
     if self_reported is None:
         return None
-    if not citation_grounded:
+    if not citation_grounded or not quotes_verified:
         return "low"
     return self_reported
 
@@ -79,19 +83,25 @@ ESCALATION_KEYWORD_REASON = "Die erste Antwort enthielt einen Hinweis auf unzure
 def answer_confidence_capped_reason(
     self_reported: ConfidenceLevel | None,
     citation_grounded: bool,
-) -> Literal["ungrounded"] | None:
+    quotes_verified: bool = True,
+) -> Literal["ungrounded", "quote_unverified"] | None:
     """Why the surfaced confidence was capped, or ``None`` when no cap applied.
 
-    Returns ``"ungrounded"`` only when a real downgrade happened: a self-reported
-    "medium"/"high" on an answer not grounded in a verified citation. A missing
-    self-report, a grounded answer, or an already-"low" self-report is not a
-    downgrade and yields ``None``.
+    Returns a reason only when a real downgrade happened: a self-reported
+    "medium"/"high" that got capped to "low". ``"ungrounded"`` when the answer is
+    not grounded in a verified citation (the more fundamental failure, so it wins
+    when both apply); ``"quote_unverified"`` when the answer is grounded but
+    carries a quoted span not verifiable against a retrieved passage. A missing
+    self-report, an already-"low" self-report, or a fully-verified grounded
+    answer is not a downgrade and yields ``None``.
     """
-    if self_reported is None or citation_grounded:
+    if self_reported is None or self_reported == "low":
         return None
-    if self_reported == "low":
-        return None
-    return "ungrounded"
+    if not citation_grounded:
+        return "ungrounded"
+    if not quotes_verified:
+        return "quote_unverified"
+    return None
 
 
 def derive_routing_decision(
@@ -146,6 +156,7 @@ def _finalize_shallow_answer(
     message: BaseMessage,
     citation_grounded: bool,
     *,
+    quotes_verified: bool = True,
     escalation_present: bool | None = None,
     self_reported: ConfidenceLevel | None = None,
     verified_sources: list[dict[str, Any]] | None = None,
@@ -206,8 +217,10 @@ def _finalize_shallow_answer(
     return {
         "messages": [updated_message],
         "shallow_result": None,
-        "answer_confidence": surface_answer_confidence(self_reported, citation_grounded),
-        "answer_confidence_capped_reason": answer_confidence_capped_reason(self_reported, citation_grounded),
+        "answer_confidence": surface_answer_confidence(self_reported, citation_grounded, quotes_verified),
+        "answer_confidence_capped_reason": answer_confidence_capped_reason(
+            self_reported, citation_grounded, quotes_verified
+        ),
         "verified_sources": verified_sources,
         "citations_removed": citations_removed,
     }
@@ -507,6 +520,10 @@ class ChatResearcherAgent:
             # (drives the overconfidence guard below). Absent field → conservative
             # False, so an ungrounded self-report is capped to "low".
             citation_grounded = bool(getattr(result, "answer_citation_grounded", False))
+            # Whether every quoted span in the shallow answer was verified against
+            # a retrieved passage (drives the same overconfidence guard). Absent
+            # field → fail-open True, so an older caller never spuriously caps.
+            quotes_verified = bool(getattr(result, "answer_quotes_verified", True))
 
             # Prefer the structured control-marker signals the shallow agent
             # extracted in its run(); fall back to string-detection inside
@@ -532,6 +549,7 @@ class ChatResearcherAgent:
                 return _finalize_shallow_answer(
                     final_ai_message,
                     citation_grounded,
+                    quotes_verified=quotes_verified,
                     escalation_present=escalation_present,
                     self_reported=self_reported,
                     verified_sources=verified_sources,
@@ -541,6 +559,7 @@ class ChatResearcherAgent:
                 return _finalize_shallow_answer(
                     new_messages[-1],
                     citation_grounded,
+                    quotes_verified=quotes_verified,
                     escalation_present=escalation_present,
                     self_reported=self_reported,
                     verified_sources=verified_sources,

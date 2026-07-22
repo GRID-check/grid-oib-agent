@@ -87,8 +87,15 @@ boundary in `ChatResearcherAgent.run()`:
 - `escalation_reason` — set by the clarifier node only on a shallow→deep
   escalation (`ShallowResult.escalation_reason`, or a fixed German notice on the
   keyword-fallback path).
-- `answer_confidence_capped_reason` (`"ungrounded"`) — set only when
-  `surface_answer_confidence` actually downgraded an ungrounded self-report.
+- `answer_confidence_capped_reason` (`"ungrounded" | "quote_unverified"`) — set
+  when `surface_answer_confidence` downgraded the self-report: `"ungrounded"` when
+  citation verification left the answer without grounding, `"quote_unverified"`
+  when a quoted span failed the deterministic quote-vs-source check
+  (`verify_quoted_spans`, difflib coverage over the registry's captured
+  `chunk_text`, fail-open; the offending span is annotated inline with
+  `[nicht wörtlich in der Quelle belegt]` and the answer is never otherwise
+  altered). Gives the confidence chip a machine-readable reason the UI can
+  explain.
 - `citations_removed` (`{count, reasons[]}`, deduped, max 5) — from the research
   result's `verify_citations` summary when ≥1 citation was removed.
 - `job_admission_rejected` + `retry_after_seconds` — set in the deep-research
@@ -133,6 +140,51 @@ internal-token-authenticated service calls, and every non-enumerated path —
 the enforced-path list is an allowlist, not a denylist. Dev fail-open note:
 when `GRID_INTERNAL_API_TOKEN` is unset, signature verification is skipped
 but envelope *presence* is still required for authenticated requests.
+
+### 2c. Reconnect & resume semantics (socket drop mid-turn)
+
+A turn can outlive its socket: the browser tab sleeps, the network blips, or a
+token rotation forces a reconnect while a long deep-research answer is still
+generating. Four cooperating mechanisms make sure the finished answer is never
+lost. All backend pieces live in `websocket_reconnect.py`; the frontend pieces
+in `use-websocket-chat.ts` + the chat store.
+
+- **Live reattach.** NAT's base `WebSocketMessageHandler._restore_execution_state`
+  (vendored, run from `__aenter__` on every new socket) swaps a reconnected
+  socket into the still-running handler for the same conversation. It reads the
+  `conversation_id` query param; the frontend sends both `conversationId` (Grid
+  collection scoping) **and** `conversation_id` (so NAT's lookup matches).
+  `ReconnectableWebSocketMessageHandler._restore_execution_state` overrides the
+  base to (a) tolerate either key and (b) re-register the reconnected socket in
+  the registry (NAT's base only swaps the handler's `_socket` attribute). Without
+  the re-register, the dual-write guard below would still read "client gone".
+- **Registry.** `WebSocketSessionRegistry` (module-global `_registry`) maps
+  `conversation_id → socket` and holds pending HITL futures + the running
+  workflow task. `set_socket` on send/reconnect, `clear_socket` on disconnect.
+  `has_socket` is the **dual-write guard**: it decides whether the client is
+  present (client owns the write) or gone (persist server-side).
+- **Persist-on-drop.** When a terminal `RESPONSE_MESSAGE` cannot be sent (no live
+  socket), `_persist_terminal_message_if_client_gone` → `persist_assistant_message`
+  POSTs the finished answer (text + cards/sources/confidence) to the BFF so it
+  survives a reload. Only the **terminal** frame persists (streamed deltas pass
+  `persist_on_drop=False`); a transient job-admission "queue full" notice is
+  dropped, never persisted. The id is deterministic per turn
+  (`deterministic_assistant_message_id`) so a double-write no-ops on the messages
+  primary key (`onConflictDoNothing`). This POST targets the **internal
+  token-guarded** route `POST /api/internal/conversations/{id}/messages` with
+  `X-Grid-Internal-Token` (org scoped via the `x-grid-organization-id` the WS
+  upgrade forwarded) — not the browser session cookie, which expires on long
+  turns and used to make the fail-soft POST silently 401 and drop the answer.
+- **Rehydrate.** The client re-surfaces a persisted answer two ways: on a fresh
+  mount, `sessions-store.restoreSessionState` refetches server history and, for a
+  turn that looks interrupted, calls `_recoverInterruptedAssistantMessage`; on a
+  same-mount reconnect, `use-websocket-chat.ts` `onConnectionChange('connected')`
+  re-runs the same recovery (skipping the first connect, debounced against
+  rotation storms). While that fetch is in flight the store's `isRecoveryPending`
+  flag renders a calm "reconnecting — checking for a finished answer" line
+  instead of racing straight to the "answer lost" notice; the lost/interrupted UI
+  and the `agent.response_interrupted` card only appear once recovery returns
+  with nothing found.
 
 ## 3. The card pipeline
 
@@ -404,7 +456,15 @@ the document summary:
    `extract_tables`.
 3. **Embedded raster images** — `_extract_images_from_pdf` (pypdfium2 image
    XObjects) → `_analyze_image_with_vlm`, gated on `extract_images`/
-   `extract_charts`. This only sees **raster** images embedded in the page.
+   `extract_charts`. This only sees **raster** images embedded in the page. The
+   generic caption prompt is content-focused and, like the drawing prompt,
+   instructs the model to **exclude** licence/watermark/tool-stamp text (e.g.
+   `VECTORWORKS EDUCATIONAL VERSION`). As belt-and-braces, the returned caption is
+   also run through `_scrub_watermark_phrases` — a **substring** watermark filter
+   (the `WATERMARK_PHRASE_PATTERNS` counterparts of `_strip_watermark_lines`'
+   whole-line patterns) — before it is stored, so a stamp the VLM wove mid-prose
+   never survives. The identical raster-image caption path is used for
+   **standalone uploaded JPG/PNG plans** (`_build_image_caption_document`).
 4. **Rendered visual/vector pages** — `_render_visual_pdf_pages`, gated on
    `AIQ_RENDER_VISUAL_PAGES` (default on) **and** a resolvable VLM key. This is
    the track that captures **vector CAD/architectural drawings** (plans,
@@ -443,7 +503,12 @@ PDF is summarised as e.g. *"Perspektivischer Schnitt durch einen
 fünfgeschossigen Bildungsbau …"* instead of *"VectorWorks Educational Version is
 a version of VectorWorks software …"*. The shared summary prompt
 (`document_classification.summarize_document_text`) is also domain-aware and
-explicitly instructed to ignore watermark/software boilerplate.
+explicitly instructed to ignore watermark/software boilerplate. For a
+**standalone image** (or any file where LLM summarisation is off/failed) the
+summary falls back to the VLM caption verbatim; that caption is
+watermark-scrubbed via `_scrub_watermark_phrases` first, and if scrubbing empties
+it the summary stays `None` rather than becoming an empty string — so a
+Bebauungsplan JPG is never summarised by its CAD licence stamp.
 
 **Org BYOK + runtime model override for the VLM.** The vision model used across
 all four tracks is resolved the SAME way the NAT chat models resolve theirs.

@@ -55,12 +55,12 @@ describe('POST /api/projects/[id]/profile/patches', () => {
     vi.mocked(findProjectProfileInOrg).mockResolvedValue(currentState)
 
     const response = await POST(
-      ...postRequest({ patch: [{ op: 'add', path: '/facts/gebaeudeklasse', value: 'GK9' }] }),
+      ...postRequest({ patch: [{ op: 'add', path: '/facts/bauwerkstyp', value: 'nope' }] }),
     )
 
     expect(response.status).toBe(400)
     const body = await response.json()
-    expect(body.error).toMatch(/Building class/)
+    expect(body.error).toMatch(/Bauwerkstyp/)
     // The bad patch never reached the persistence layer.
     expect(updateProjectProfileIfVersion).not.toHaveBeenCalled()
   })

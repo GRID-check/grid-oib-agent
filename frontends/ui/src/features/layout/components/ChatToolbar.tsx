@@ -23,6 +23,14 @@ interface ChatToolbarProps {
   projectName?: string
   onNewSession?: () => void
   isNewSessionDisabled?: boolean
+  /**
+   * Whether a chat has actually started (messages present / an active thread).
+   * The thread/project breadcrumb, New chat and Research controls only appear
+   * once this is true — a fresh, empty chat keeps only the quiet navigation
+   * affordances (history door + mobile nav opener). Defaults to true so callers
+   * that don't yet pass it (and existing specs) keep the full toolbar.
+   */
+  isChatStarted?: boolean
 }
 
 export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
@@ -30,6 +38,7 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
   projectName,
   onNewSession,
   isNewSessionDisabled = false,
+  isChatStarted = true,
 }) {
   const { isAuthenticated } = useAuth()
   const t = useTranslations('research')
@@ -135,12 +144,16 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
     // two self-contained pills (left = history + thread identity, right =
     // primary actions). `pointer-events-none` on the frame lets clicks fall
     // through the gaps to the messages; each pill re-enables them.
-    <header className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-3 px-3 pb-2.5 pt-[max(0.625rem,env(safe-area-inset-top))]">
+    <header className="pointer-events-none absolute inset-x-0 top-0 z-20 px-3 pb-2.5 pt-[max(0.625rem,env(safe-area-inset-top))]">
+      {/* Center the floating controls on the SAME comfortable column as the
+          message list and composer (max-w-3xl, mx-auto), so the pills align to
+          the chat window instead of hugging the screen edges on wide viewports. */}
+      <div className="mx-auto flex w-full max-w-3xl items-start justify-between gap-3">
       {/* LEFT pill: the single history door + the current session title/rename,
           always visible (mobile included). Capped at ~64% of the row on mobile
           so a long title truncates inside the pill instead of growing under the
           right-hand actions pill. */}
-      <div className="pointer-events-auto flex min-w-0 max-w-[64%] items-center gap-0.5 rounded-lg border border-base bg-card/80 p-0.5 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/70 sm:max-w-none">
+      <div className="pointer-events-auto flex min-w-0 max-w-[64%] items-center gap-0.5 rounded-lg border border-base bg-card/70 p-0.5 shadow-xs backdrop-blur supports-[backdrop-filter]:bg-card/60 sm:max-w-none">
         {/* Global navigation opener — mobile only. The chat route hides the
             standalone top bar, so this hamburger is the way back out to
             projects / files / settings (opens the same AppSidebar drawer). */}
@@ -169,9 +182,11 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
           <MessageSquareText className="h-4 w-4" aria-hidden="true" />
         </Button>
 
-        {/* Breadcrumb: {project} / {session title (click-to-rename)} — always
-            visible so the current thread is identifiable on every viewport. */}
-        {(sessionTitle || projectName) && (
+        {/* Breadcrumb: {project} / {session title (click-to-rename)} — shown
+            once a chat has started so the current thread is identifiable. On a
+            fresh, empty chat there is no thread to name yet, so it stays hidden
+            to keep the start screen calm. */}
+        {isChatStarted && (sessionTitle || projectName) && (
           <nav
             className="flex min-w-0 items-center gap-1.5 pl-1 pr-1.5 text-sm"
             aria-label={tChat('breadcrumb.ariaLabel')}
@@ -228,8 +243,11 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
       </div>
 
       {/* RIGHT pill: primary actions. New chat is the highest-value action and
-          carries a persistent label from >=sm; Research reopens the report. */}
-      <div className="pointer-events-auto flex shrink-0 items-center gap-0.5 rounded-lg border border-base bg-card/80 p-0.5 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/70">
+          carries a persistent label from >=sm; Research reopens the report.
+          Hidden until a chat has started — on the empty start screen New chat is
+          redundant and there is no research report to reopen yet. */}
+      {isChatStarted && (
+      <div className="pointer-events-auto flex shrink-0 items-center gap-0.5 rounded-lg border border-base bg-card/70 p-0.5 shadow-xs backdrop-blur supports-[backdrop-filter]:bg-card/60">
         {/* New chat */}
         <Button
           variant="ghost"
@@ -279,6 +297,8 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
           )}
           <span className="hidden text-sm sm:inline">{t('chatToolbar.research')}</span>
         </Button>
+      </div>
+      )}
       </div>
     </header>
   )

@@ -76,6 +76,29 @@ export async function insertDocument(values: NewDocument): Promise<void> {
 }
 
 /**
+ * Hard-delete a project document row (the DB record; SeaweedFS + backend
+ * cleanup live in the service). Scoped by `organizationId` AND `projectId` so a
+ * document id from another tenant or project can never be deleted through this
+ * path — tenancy and project ownership are both enforced in SQL.
+ */
+export async function deleteProjectDocument(
+  documentId: string,
+  organizationId: string,
+  projectId: string,
+): Promise<void> {
+  const db = getDb()
+  await db
+    .delete(documents)
+    .where(
+      and(
+        eq(documents.id, documentId),
+        eq(documents.organizationId, organizationId),
+        eq(documents.projectId, projectId),
+      ),
+    )
+}
+
+/**
  * Persist the backend ingest job id so status reads can reconcile the row
  * with the backend's ingestion state (see lib/documents/reconcile-status.ts).
  */

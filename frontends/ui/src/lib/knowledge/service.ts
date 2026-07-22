@@ -369,6 +369,14 @@ export async function streamKnowledgeBaseDocument(fileName: string): Promise<Res
       'Content-Type': 'application/pdf',
       'Content-Disposition': `inline; filename="${asciiName}"`,
       'Cache-Control': 'private, max-age=300',
+      // The in-app viewer renders this stream in a same-origin iframe. The
+      // global next.config rule sets X-Frame-Options: DENY on every route;
+      // override it here (with a matching CSP frame-ancestors directive for
+      // modern browsers) so the preview is allowed to frame. next.config also
+      // carries a route-scoped override for this path — these headers keep the
+      // guarantee on the Response itself.
+      'X-Frame-Options': 'SAMEORIGIN',
+      'Content-Security-Policy': "frame-ancestors 'self'",
     },
   })
 }

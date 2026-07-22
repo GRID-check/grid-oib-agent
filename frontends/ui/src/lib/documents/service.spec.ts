@@ -40,6 +40,7 @@ vi.mock('./repository', () => ({
   findFolderPathInProject: vi.fn().mockResolvedValue(null),
   findDocumentInOrg: vi.fn(),
   listProjectDocuments: vi.fn(),
+  deleteProjectDocument: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('./reconcile-status', () => ({
@@ -47,17 +48,29 @@ vi.mock('./reconcile-status', () => ({
 }))
 
 import { findProjectInOrg } from '@/lib/projects/repository'
+import { requireProjectAccess } from '@/lib/authz/projects'
+import { recordAuditEvent } from '@/lib/audit/service'
 import {
   insertDocument,
   setDocumentIngestJob,
   markDocumentIngestFailed,
   findDocumentInOrg,
   listProjectDocuments,
+  deleteProjectDocument,
 } from './repository'
-import { listDocuments, uploadDocument, reingestDocument, INGEST_DISPATCH_FAILED_MESSAGE } from './service'
+import {
+  listDocuments,
+  uploadDocument,
+  reingestDocument,
+  deleteDocument,
+  searchProjectDocuments,
+  joinHitsToFiles,
+  deriveSearchTopK,
+  INGEST_DISPATCH_FAILED_MESSAGE,
+} from './service'
 import { reconcileDocumentStatuses } from './reconcile-status'
 import { isVlmConfigured } from '@/lib/documents/vlm-capability'
-import { BadRequestError, ConflictError } from '@/lib/api/errors'
+import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from '@/lib/api/errors'
 
 const session = {
   userId: 'user-1',
@@ -282,6 +295,149 @@ describe('listDocuments', () => {
   })
 })
 
+describe('joinHitsToFiles', () => {
+  const older = { filename: 'plan.pdf', createdAt: new Date('2026-01-01T00:00:00Z'), id: 'old' }
+  const newer = { filename: 'plan.pdf', createdAt: new Date('2026-02-01T00:00:00Z'), id: 'new' }
+  const other = { filename: 'permit.pdf', createdAt: new Date('2026-01-05T00:00:00Z'), id: 'permit' }
+
+  it('joins by filename and augments each row with snippet/page/score', () => {
+    const hits = [
+      { file_name: 'permit.pdf', score: 0.42, snippet: 'permit text', page_number: 3, collection: 'c' },
+    ]
+    const [row] = joinHitsToFiles(hits, [older, other])
+    expect(row).toMatchObject({ id: 'permit', snippet: 'permit text', page: 3, score: 0.42 })
+  })
+
+  it('preserves hit order (backend guarantees score-descending)', () => {
+    const hits = [
+      { file_name: 'permit.pdf', score: 0.9, snippet: 'b', page_number: null, collection: 'c' },
+      { file_name: 'plan.pdf', score: 0.5, snippet: 'a', page_number: 1, collection: 'c' },
+    ]
+    const result = joinHitsToFiles(hits, [older, other])
+    expect(result.map((r) => r.id)).toEqual(['permit', 'old'])
+  })
+
+  it('drops hits whose filename is not among the file rows', () => {
+    const hits = [{ file_name: 'ghost.pdf', score: 0.8, snippet: 'x', page_number: null, collection: 'c' }]
+    expect(joinHitsToFiles(hits, [older, other])).toEqual([])
+  })
+
+  it('resolves a filename collision to the most-recent row', () => {
+    const hits = [{ file_name: 'plan.pdf', score: 0.7, snippet: 'x', page_number: null, collection: 'c' }]
+    // Feed the older row first so first-seen would pick it; recency must win.
+    const [row] = joinHitsToFiles(hits, [older, newer])
+    expect(row.id).toBe('new')
+  })
+
+  it('coerces a missing page_number to null', () => {
+    const hits = [{ file_name: 'plan.pdf', score: 0.3, snippet: 'x', page_number: null, collection: 'c' }]
+    const [row] = joinHitsToFiles(hits, [older])
+    expect(row.page).toBeNull()
+  })
+})
+
+describe('deriveSearchTopK', () => {
+  it('derives the passage budget from top_k_files and holds top_k >= top_k_files', () => {
+    // 20 files → 60 passages (3×), never the old fixed 40 that capped scale.
+    expect(deriveSearchTopK(20)).toBe(60)
+    expect(deriveSearchTopK(1)).toBe(3)
+    // The invariant that makes the aggregation contract hold across the whole
+    // allowed 1..100 range: the chunk budget can never starve top_k_files.
+    for (const files of [1, 10, 20, 33, 50, 99, 100]) {
+      expect(deriveSearchTopK(files)).toBeGreaterThanOrEqual(files)
+    }
+  })
+
+  it('clamps to the backend top_k ceiling (100)', () => {
+    // 100 files × 3 = 300, clamped to the DocumentSearchRequest le=100 bound.
+    expect(deriveSearchTopK(100)).toBe(100)
+    expect(deriveSearchTopK(40)).toBe(100)
+  })
+})
+
+describe('searchProjectDocuments', () => {
+  const fileRows = [
+    {
+      id: 'doc-a',
+      filename: 'plan.pdf',
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+      status: 'completed',
+    },
+    {
+      id: 'doc-b',
+      filename: 'permit.pdf',
+      createdAt: new Date('2026-01-02T00:00:00Z'),
+      status: 'completed',
+    },
+  ]
+
+  beforeEach(() => {
+    vi.mocked(requireProjectAccess).mockResolvedValue(undefined as any)
+    vi.mocked(listProjectDocuments).mockResolvedValue([] as any)
+    vi.mocked(reconcileDocumentStatuses).mockResolvedValue(
+      fileRows.map((r) => ({ ...r, metadata: { ingestJobId: 'j' } })) as any,
+    )
+    vi.mocked(findProjectInOrg).mockResolvedValue({ collectionName: 'proj_abc' } as any)
+  })
+
+  it('enforces project:view, POSTs to the collection search, and joins hits reordered by score', async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          hits: [
+            { file_name: 'permit.pdf', score: 0.91, snippet: 'permit snippet', page_number: 2, collection: 'proj_abc' },
+            { file_name: 'plan.pdf', score: 0.44, snippet: 'plan snippet', page_number: null, collection: 'proj_abc' },
+          ],
+        }),
+    })
+
+    const { hits } = await searchProjectDocuments(session, 'proj-1', 'fire escape', 20)
+
+    expect(requireProjectAccess).toHaveBeenCalledWith(session, 'proj-1', 'project:view')
+    const call = mockFetch.mock.calls.find(([url]) => String(url).endsWith('/search'))
+    expect(call?.[0]).toBe('http://backend:8000/v1/collections/proj_abc/search')
+    expect(JSON.parse((call?.[1] as RequestInit).body as string)).toEqual({
+      query: 'fire escape',
+      // Derived from top_k_files (20 × 3 = 60), not a fixed 40 that would cap the
+      // achievable file count below top_k_files.
+      top_k: 60,
+      top_k_files: 20,
+    })
+    // Defense-in-depth: the signed request-context envelope is forwarded, scoped
+    // to exactly the collection being searched (decodes back to ['proj_abc']).
+    const headers = (call?.[1] as RequestInit).headers as Record<string, string>
+    const envelope = headers['X-Grid-Request-Context']
+    expect(envelope).toBeTruthy()
+    const payload = JSON.parse(Buffer.from(envelope, 'base64url').toString('utf8'))
+    expect(payload.collectionScope).toEqual(['proj_abc'])
+    // Time-bounded like the other backend calls.
+    expect((call?.[1] as RequestInit).signal).toBeInstanceOf(AbortSignal)
+    // Reordered by score (permit first), each augmented with match evidence.
+    expect(hits.map((h) => h.id)).toEqual(['doc-b', 'doc-a'])
+    expect(hits[0]).toMatchObject({ snippet: 'permit snippet', page: 2, score: 0.91 })
+  })
+
+  it('fails open to no hits when the backend errors (non-OK)', async () => {
+    mockFetch.mockResolvedValue({ ok: false, status: 503, json: () => Promise.resolve({}) })
+    const { hits } = await searchProjectDocuments(session, 'proj-1', 'q')
+    expect(hits).toEqual([])
+  })
+
+  it('fails open to no hits when the backend times out / throws', async () => {
+    mockFetch.mockRejectedValue(new DOMException('The operation timed out.', 'TimeoutError'))
+    const { hits } = await searchProjectDocuments(session, 'proj-1', 'q')
+    expect(hits).toEqual([])
+  })
+
+  it('404s when the project is not in the org (no backend call)', async () => {
+    vi.mocked(findProjectInOrg).mockResolvedValue(null as any)
+    await expect(searchProjectDocuments(session, 'proj-1', 'q')).rejects.toBeInstanceOf(NotFoundError)
+    expect(mockFetch).not.toHaveBeenCalled()
+  })
+})
+
 describe('reingestDocument', () => {
   const failedDoc = {
     id: 'doc-99',
@@ -325,5 +481,73 @@ describe('reingestDocument', () => {
     expect(result.jobId).toBeNull()
     expect(markDocumentIngestFailed).toHaveBeenCalledWith('doc-99', INGEST_DISPATCH_FAILED_MESSAGE)
     expect(setDocumentIngestJob).not.toHaveBeenCalled()
+  })
+})
+
+describe('deleteDocument', () => {
+  const projectDoc = {
+    id: 'doc-1',
+    projectId: 'proj-1',
+    organizationId: 'org-1',
+    scope: 'project',
+    filename: 'plan.pdf',
+    collectionName: 'proj_abc',
+    storageKey: 'org/org-1/project/proj-1/doc/doc-1/plan.pdf',
+  } as any
+
+  it('404s when the document is not in the org', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(null)
+
+    await expect(deleteDocument(session, 'missing', new Request('http://x'))).rejects.toBeInstanceOf(NotFoundError)
+    expect(deleteProjectDocument).not.toHaveBeenCalled()
+  })
+
+  it('404s for an org-wide Archiv document (NULL projectId) — not deletable via the project route', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue({ ...projectDoc, projectId: null, scope: 'archiv' })
+
+    await expect(deleteDocument(session, 'doc-1', new Request('http://x'))).rejects.toBeInstanceOf(NotFoundError)
+    expect(requireProjectAccess).not.toHaveBeenCalled()
+    expect(deleteProjectDocument).not.toHaveBeenCalled()
+  })
+
+  it('rejects callers without project:edit (403) before any side effects', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(projectDoc)
+    vi.mocked(requireProjectAccess).mockRejectedValueOnce(new ForbiddenError())
+
+    await expect(deleteDocument(session, 'doc-1', new Request('http://x'))).rejects.toBeInstanceOf(ForbiddenError)
+    expect(deleteProjectDocument).not.toHaveBeenCalled()
+    expect(recordAuditEvent).not.toHaveBeenCalled()
+  })
+
+  it('purges chunks, deletes the object + row, and audits', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(projectDoc)
+    vi.mocked(requireProjectAccess).mockResolvedValue(undefined as any)
+    mockFetch.mockResolvedValue({ ok: true })
+
+    await deleteDocument(session, 'doc-1', new Request('http://x'))
+
+    expect(requireProjectAccess).toHaveBeenCalledWith(session, 'proj-1', 'project:edit')
+    // Best-effort backend chunk purge, keyed by the document's collection + filename.
+    const purgeCall = mockFetch.mock.calls.find(
+      ([url, init]) => String(url).endsWith('/documents') && (init as RequestInit)?.method === 'DELETE',
+    )
+    expect(purgeCall?.[0]).toBe('http://backend:8000/v1/collections/proj_abc/documents')
+    expect(deleteProjectDocument).toHaveBeenCalledWith('doc-1', 'org-1', 'proj-1')
+    expect(recordAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'document.deleted', organizationId: 'org-1' }),
+    )
+  })
+
+  it('still deletes the row + audits when the best-effort chunk purge fails', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(projectDoc)
+    vi.mocked(requireProjectAccess).mockResolvedValue(undefined as any)
+    mockFetch.mockRejectedValue(new Error('backend down'))
+
+    await deleteDocument(session, 'doc-1', new Request('http://x'))
+
+    expect(deleteProjectDocument).toHaveBeenCalledWith('doc-1', 'org-1', 'proj-1')
+    expect(recordAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'document.deleted' }),
+    )
   })
 })

@@ -21,6 +21,18 @@ vi.mock('next/navigation', () => ({
   }),
 }))
 
+// Controllable UI locale: keep the real translator (so on-screen text stays
+// English, as the other tests assert) but drive `useLocale().locale` per test
+// to exercise the stale-language regeneration. Defaults to 'en'.
+const localeRef = vi.hoisted(() => ({ current: 'en' }))
+vi.mock('@/i18n', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/i18n')>()
+  return {
+    ...actual,
+    useLocale: () => ({ locale: localeRef.current, setLocale: vi.fn(), localeNames: {} }),
+  }
+})
+
 const mockFetch = (status: number, body: unknown = {}) =>
   vi.fn().mockResolvedValue({
     ok: status >= 200 && status < 300,
@@ -45,6 +57,25 @@ const profile: ProjectProfile = {
 
 /** A started-but-empty brief — nothing to summarise, so no auto-start. */
 const emptyProfile: ProjectProfile = { facts: {}, goals: {}, unknowns: [], assumptions: {} }
+
+/**
+ * No facts (so summary generation never auto-starts and can't interfere with
+ * the fetch mock below) but one pending assumption to confirm/dismiss.
+ */
+const profileWithAssumption: ProjectProfile = {
+  facts: {},
+  goals: {},
+  unknowns: [],
+  assumptions: {
+    hauptnutzung: {
+      value: 'wohnen',
+      status: 'unconfirmed',
+      reason: 'Inferred from the uploaded plans.',
+      source: 'agent_suggested',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    },
+  },
+}
 
 describe('ProjectBrief summary auto-generation (post-wizard-save)', () => {
   beforeEach(() => {
@@ -198,5 +229,163 @@ describe('ProjectBrief manual summary control', () => {
     )
     expect(screen.getByText('Existing prose.')).toBeDefined()
     expect(screen.getByRole('button', { name: /Regenerate/i })).toBeDefined()
+  })
+})
+
+describe('ProjectBrief stale-language summary regeneration (locale switch)', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals()
+    vi.clearAllMocks()
+    // Reset the driven locale between tests (other suites rely on the 'en' default).
+    localeRef.current = 'en'
+  })
+
+  test('regenerates exactly once when the stored summary locale differs from the UI locale', async () => {
+    // Summary was written in English; the UI is now German — the classic bug.
+    localeRef.current = 'de'
+    const fetchSpy = mockFetch(200, { summary: 'Eine deutsche Zusammenfassung.' })
+    vi.stubGlobal('fetch', fetchSpy)
+
+    render(
+      <ProjectBrief
+        projectId="proj-1"
+        profile={profile}
+        summary="An English summary."
+        summaryLocale="en"
+        briefStarted
+      />,
+    )
+
+    await waitFor(() => expect(refresh).toHaveBeenCalled())
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+    const [url, init] = fetchSpy.mock.calls[0]
+    expect(url).toBe('/api/projects/proj-1/generate-summary')
+    // Regenerated in the now-active UI locale, not the stale one.
+    expect(JSON.parse(String(init.body))).toEqual({ locale: 'de' })
+    // Silent repair: the refreshed prose is the feedback, no success toast.
+    expect(toast.success).not.toHaveBeenCalled()
+  })
+
+  test('does NOT regenerate when the stored summary locale matches the UI locale', () => {
+    localeRef.current = 'de'
+    const fetchSpy = mockFetch(200, { summary: '' })
+    vi.stubGlobal('fetch', fetchSpy)
+
+    render(
+      <ProjectBrief
+        projectId="proj-1"
+        profile={profile}
+        summary="Eine deutsche Zusammenfassung."
+        summaryLocale="de"
+        briefStarted
+      />,
+    )
+
+    expect(screen.getByText('Eine deutsche Zusammenfassung.')).toBeDefined()
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  test('does NOT regenerate a legacy summary that has no stored locale (fail open)', () => {
+    // Legacy row written before summaryLocale existed: unknown is treated as a
+    // match, so a locale switch must not trigger a regeneration storm.
+    localeRef.current = 'de'
+    const fetchSpy = mockFetch(200, { summary: '' })
+    vi.stubGlobal('fetch', fetchSpy)
+
+    render(
+      <ProjectBrief projectId="proj-1" profile={profile} summary="A legacy summary." briefStarted />,
+    )
+
+    expect(screen.getByText('A legacy summary.')).toBeDefined()
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  test('regenerates at most once even if the mismatch persists (no loop on failure)', async () => {
+    // Generation fails server-side (empty summary), so the stored locale never
+    // updates; a rerender with the still-mismatched props must not re-fire.
+    localeRef.current = 'de'
+    const fetchSpy = mockFetch(200, { summary: '', error: 'llm_not_configured' })
+    vi.stubGlobal('fetch', fetchSpy)
+
+    const { rerender } = render(
+      <ProjectBrief
+        projectId="proj-1"
+        profile={profile}
+        summary="An English summary."
+        summaryLocale="en"
+        briefStarted
+      />,
+    )
+
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1))
+
+    rerender(
+      <ProjectBrief
+        projectId="proj-1"
+        profile={profile}
+        summary="An English summary."
+        summaryLocale="en"
+        briefStarted
+      />,
+    )
+
+    // Still exactly one — the attempted-ref guard stops the loop.
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1))
+  })
+})
+
+describe('ProjectBrief assumption confirm/dismiss error surfacing', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals()
+    vi.clearAllMocks()
+  })
+
+  test('a 403 shows a distinct forbidden message', async () => {
+    vi.stubGlobal('fetch', mockFetch(403, { error: 'Forbidden', code: 'FORBIDDEN' }))
+    const user = userEvent.setup()
+
+    render(<ProjectBrief projectId="proj-1" profile={profileWithAssumption} summary="" briefStarted />)
+    await user.click(screen.getByRole('button', { name: /confirm/i }))
+
+    expect(await screen.findByText(/don.t have permission to update the brief/i)).toBeDefined()
+    expect(refresh).not.toHaveBeenCalled()
+  })
+
+  test('a 409 shows a distinct conflict message', async () => {
+    vi.stubGlobal('fetch', mockFetch(409, { error: 'Conflict', code: 'CONFLICT' }))
+    const user = userEvent.setup()
+
+    render(<ProjectBrief projectId="proj-1" profile={profileWithAssumption} summary="" briefStarted />)
+    await user.click(screen.getByRole('button', { name: /confirm/i }))
+
+    expect(await screen.findByText(/changed elsewhere/i)).toBeDefined()
+    expect(refresh).not.toHaveBeenCalled()
+  })
+
+  test('the 403 and 409 messages are distinct from each other and from the generic failure', async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false, status: 500, json: async () => ({ error: 'Internal server error' }) })
+    vi.stubGlobal('fetch', fetchSpy)
+    const user = userEvent.setup()
+
+    render(<ProjectBrief projectId="proj-1" profile={profileWithAssumption} summary="" briefStarted />)
+    await user.click(screen.getByRole('button', { name: /dismiss/i }))
+
+    const generic = await screen.findByText(/could not update the brief/i)
+    expect(generic).toBeDefined()
+    expect(screen.queryByText(/don.t have permission/i)).toBeNull()
+    expect(screen.queryByText(/changed elsewhere/i)).toBeNull()
+  })
+
+  test('confirming successfully clears any prior error and refreshes', async () => {
+    vi.stubGlobal('fetch', mockFetch(200, {}))
+    const user = userEvent.setup()
+
+    render(<ProjectBrief projectId="proj-1" profile={profileWithAssumption} summary="" briefStarted />)
+    await user.click(screen.getByRole('button', { name: /confirm/i }))
+
+    await waitFor(() => expect(refresh).toHaveBeenCalled())
+    expect(screen.queryByText(/could not update the brief/i)).toBeNull()
   })
 })

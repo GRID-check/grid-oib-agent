@@ -718,9 +718,12 @@ async def test_create_websocket_message_persists_terminal_response_when_client_g
     monkeypatch.setattr(websocket_reconnect, "_registry", registry)
     monkeypatch.setattr(websocket_reconnect.httpx, "AsyncClient", _FakeAsyncClient)
     monkeypatch.setenv("FRONTEND_INTERNAL_URL", "http://frontend:3000")
+    monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "secret-token")
 
     handler = ReconnectableWebSocketMessageHandler(
-        socket=DummySocket(headers=[(b"cookie", b"nat-session=abc")]),
+        # server.js forwards the conversation's owning org on the WS upgrade; the
+        # internal persist route scopes the conversation lookup by it.
+        socket=DummySocket(headers=[(b"x-grid-organization-id", b"org-1")]),
         session_manager=DummySessionManager(),
         step_adaptor=DummyStepAdaptor(),
         worker=DummyWorker(),
@@ -749,10 +752,15 @@ async def test_create_websocket_message_persists_terminal_response_when_client_g
     )
 
     assert len(_FakeAsyncClient.calls) == 1
-    body = _FakeAsyncClient.calls[0]["json"]
+    call = _FakeAsyncClient.calls[0]
+    assert call["url"] == "http://frontend:3000/api/internal/conversations/conv-1/messages"
+    body = call["json"]
     assert body["content"] == "Final answer [1]."
+    assert body["organizationId"] == "org-1"
     assert body["metadata"]["cards"] == [{"type": "summary", "title": "T"}]
-    assert _FakeAsyncClient.calls[0]["headers"] == {"cookie": "nat-session=abc"}
+    # Internal service token, not replayed browser cookies.
+    assert call["headers"]["X-Grid-Internal-Token"] == "secret-token"
+    assert "cookie" not in {k.lower() for k in call["headers"]}
 
 
 def test_deterministic_assistant_message_id_is_stable_and_turn_scoped() -> None:
@@ -770,12 +778,13 @@ async def test_persist_assistant_message_posts_expected_payload(monkeypatch) -> 
     monkeypatch.setattr(websocket_reconnect, "_registry", WebSocketSessionRegistry())
     monkeypatch.setattr(websocket_reconnect.httpx, "AsyncClient", _FakeAsyncClient)
     monkeypatch.setenv("FRONTEND_INTERNAL_URL", "http://frontend:3000")
+    monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "secret-token")
 
     ok = await websocket_reconnect.persist_assistant_message(
         conversation_id="conv-1",
         parent_id="user-msg-1",
         text="The finished answer [1].",
-        auth_headers={"cookie": "nat-session=abc", "authorization": "Bearer tkn"},
+        organization_id="org-1",
         cards=[{"type": "summary", "title": "T"}],
         deep_research_job_id="job-9",
         answer_confidence="high",
@@ -784,9 +793,12 @@ async def test_persist_assistant_message_posts_expected_payload(monkeypatch) -> 
     assert ok is True
     assert len(_FakeAsyncClient.calls) == 1
     call = _FakeAsyncClient.calls[0]
-    assert call["url"] == "http://frontend:3000/api/conversations/conv-1/messages"
-    assert call["headers"] == {"cookie": "nat-session=abc", "authorization": "Bearer tkn"}
+    # Targets the INTERNAL token-guarded route (not the session-cookie route).
+    assert call["url"] == "http://frontend:3000/api/internal/conversations/conv-1/messages"
+    assert call["headers"]["X-Grid-Internal-Token"] == "secret-token"
+    assert call["headers"]["Content-Type"] == "application/json"
     body = call["json"]
+    assert body["organizationId"] == "org-1"
     assert body["role"] == "assistant"
     assert body["content"] == "The finished answer [1]."
     assert body["messageType"] == "agent_response"
@@ -803,12 +815,13 @@ async def test_persist_assistant_message_skips_when_live_socket(monkeypatch) -> 
     monkeypatch.setattr(websocket_reconnect, "_registry", registry)
     monkeypatch.setattr(websocket_reconnect.httpx, "AsyncClient", _FakeAsyncClient)
     monkeypatch.setenv("FRONTEND_INTERNAL_URL", "http://frontend:3000")
+    monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "secret-token")
 
     ok = await websocket_reconnect.persist_assistant_message(
         conversation_id="conv-1",
         parent_id="user-msg-1",
         text="answer",
-        auth_headers={},
+        organization_id="org-1",
     )
     assert ok is False
     assert _FakeAsyncClient.calls == []  # dual-write guard: client owns the write
@@ -820,13 +833,14 @@ async def test_persist_assistant_message_warns_only_on_post_failure(monkeypatch)
     _FakeAsyncClient.raise_on_post = True
     monkeypatch.setattr(websocket_reconnect.httpx, "AsyncClient", _FakeAsyncClient)
     monkeypatch.setenv("FRONTEND_INTERNAL_URL", "http://frontend:3000")
+    monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "secret-token")
 
     # Must not raise — the checkpoint still holds the turn.
     ok = await websocket_reconnect.persist_assistant_message(
         conversation_id="conv-1",
         parent_id="user-msg-1",
         text="answer",
-        auth_headers={},
+        organization_id="org-1",
     )
     assert ok is False
 
@@ -837,12 +851,13 @@ async def test_persist_assistant_message_non_2xx_returns_false(monkeypatch) -> N
     _FakeAsyncClient.status_code = 403
     monkeypatch.setattr(websocket_reconnect.httpx, "AsyncClient", _FakeAsyncClient)
     monkeypatch.setenv("FRONTEND_INTERNAL_URL", "http://frontend:3000")
+    monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "secret-token")
 
     ok = await websocket_reconnect.persist_assistant_message(
         conversation_id="conv-1",
         parent_id="user-msg-1",
         text="answer",
-        auth_headers={},
+        organization_id="org-1",
     )
     assert ok is False
 
@@ -858,26 +873,31 @@ async def test_persist_assistant_message_skips_without_base_url(monkeypatch) -> 
         conversation_id="conv-1",
         parent_id="user-msg-1",
         text="answer",
-        auth_headers={},
+        organization_id="org-1",
     )
     assert ok is False
     assert _FakeAsyncClient.calls == []
 
 
-def _auth_headers_scope(cookie: str, auth: str) -> dict:
-    return {
+def test_org_id_from_scope_reads_forwarded_org_header() -> None:
+    scope = {
         "headers": [
-            (b"cookie", cookie.encode()),
-            (b"authorization", auth.encode()),
+            (b"cookie", b"nat-session=abc"),
+            (b"x-grid-organization-id", b"org-1"),
             (b"x-other", b"ignored"),
         ]
     }
+    assert websocket_reconnect._org_id_from_scope(scope) == "org-1"
 
 
-def test_auth_headers_from_scope_replays_only_credentials() -> None:
-    scope = _auth_headers_scope("nat-session=abc", "Bearer tkn")
-    headers = websocket_reconnect._auth_headers_from_scope(scope)
-    assert headers == {"cookie": "nat-session=abc", "authorization": "Bearer tkn"}
+def test_org_id_from_scope_returns_none_when_absent() -> None:
+    scope = {"headers": [(b"cookie", b"nat-session=abc")]}
+    assert websocket_reconnect._org_id_from_scope(scope) is None
+
+
+def test_internal_persist_headers_none_when_token_unset(monkeypatch) -> None:
+    monkeypatch.delenv("GRID_INTERNAL_API_TOKEN", raising=False)
+    assert websocket_reconnect._internal_persist_headers() is None
 
 
 def test_install_reconnectable_handler(monkeypatch) -> None:

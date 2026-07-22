@@ -150,6 +150,7 @@ export const projects = {
       saveFailed: 'We could not save the project brief. Please try again.',
     },
     tryAgain: 'Try again',
+    conflictReload: 'Refresh',
     draftSaved: 'Draft saved',
     salvage: {
       partial:
@@ -180,7 +181,31 @@ export const projects = {
     optional: '(optional)',
     yes: 'Yes',
     no: 'No',
+    open: 'still open',
+    why: 'Why do we ask?',
     selectPlaceholder: 'Select…',
+    mode: {
+      aria: 'Answer mode',
+      wert: 'Value',
+      geschaetzt: 'Estimate',
+      offen: 'still open',
+    },
+    bauwerk: {
+      nameAria: 'Name of the building',
+      remove: 'remove',
+      add: 'Add building',
+    },
+    upload: {
+      hint: 'Store the document in the Files tab',
+    },
+    derived: {
+      badge: 'worked out automatically',
+    },
+    classification: {
+      title: 'What Piloti works out from this',
+      description:
+        'Once your entries are complete, Piloti shows the building class here, which OIB directives and other rules apply to your project, and which points are still open — and takes the project profile as its working basis.',
+    },
     consistency: {
       checking: 'Checking your answers…',
       title: 'A couple of things to check',
@@ -192,18 +217,8 @@ export const projects = {
       revise: 'Revise',
       proceed: 'Save anyway',
       rules: {
-        lowClassTooManyFloors:
-          'GK1–GK3 buildings normally have no more than {threshold} above-ground storeys; you entered {count}.',
-        escapeLevelTooFewFloors:
-          'An escape level of {escapeLevel} is hard to reach with only {floors} above-ground floor(s).',
-        escapeLevelTooManyFloors:
-          'With {floors} above-ground storeys the highest escape level cannot stay at {escapeLevel}.',
-        classEscapeLevelMismatch:
-          '{buildingClass} buildings have an escape level of at most {maxLevel}; you entered {escapeLevel}.',
-        renovationFocusOnNewBuild:
-          'The focus "Renovation / existing-building compliance" doesn\'t match a pure new build — did you mean Extension / conversion?',
-        orphanedAnswer:
-          '"{field}" no longer applies given your answer for "{dependsOn}" and won\'t be saved.',
+        fossilNeubauConflict:
+          'A gas heat supply for {bauwerk} conflicts with a new build — the Erneuerbare-Wärme-Gesetz prohibits fossil systems in new buildings.',
       },
     },
   },
@@ -332,6 +347,8 @@ export const projects = {
       assumptionConfirm: 'Confirm',
       assumptionDismiss: 'Dismiss',
       assumptionError: 'Could not update the brief. Please try again.',
+      assumptionForbidden: "You don't have permission to update the brief.",
+      assumptionConflict: 'This brief was changed elsewhere. Please refresh and try again.',
       provenance: {
         onboarding: 'Captured in the intake wizard',
         user_confirmed: 'Confirmed by you',

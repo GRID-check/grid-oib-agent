@@ -74,7 +74,11 @@ export async function listProfiledConversations(query?: string): Promise<{
       title: row.title,
       turnCount: row.turnCount,
       totalDurationMs: Number(row.totalDurationMsRaw),
-      lastActiveAt: row.lastActiveAt,
+      // `max(started_at)` is annotated `sql<Date>` but the pg driver hands back
+      // a timestamp string at runtime; coerce at the boundary (same defensive
+      // conversion as `Number(row.totalDurationMsRaw)` above) so downstream
+      // `.toISOString()` in the service does not crash on a string.
+      lastActiveAt: new Date(row.lastActiveAt),
     })),
   }
 }

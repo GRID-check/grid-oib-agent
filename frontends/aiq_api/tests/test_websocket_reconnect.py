@@ -23,8 +23,10 @@ from unittest.mock import MagicMock
 from unittest.mock import patch
 
 import pytest
+from starlette.datastructures import QueryParams
 
 from aiq_api.websocket_reconnect import ReconnectableWebSocketMessageHandler
+from aiq_api.websocket_reconnect import persist_assistant_message
 from nat.data_models.api_server import ChatResponseChunk
 from nat.data_models.api_server import SystemResponseContent
 from nat.data_models.api_server import WebSocketMessageStatus
@@ -463,3 +465,183 @@ class TestPersistTerminalMessageIfClientGone:
             )
         persist.assert_awaited_once()
         assert persist.await_args.kwargs["text"] == "Here is your answer."
+
+
+class _FakeRestoreSocket:
+    """Minimal socket mirroring starlette's `query_params` caching so the
+    override's snake_case injection (`self._socket._query_params = ...`) is
+    honored on subsequent reads, exactly as on a real WebSocket."""
+
+    def __init__(self, query_string: str) -> None:
+        self.scope: dict = {"headers": []}
+        self._qs = query_string
+
+    @property
+    def query_params(self) -> QueryParams:
+        if not hasattr(self, "_query_params"):
+            self._query_params = QueryParams(self._qs)
+        return self._query_params
+
+
+class TestRestoreExecutionStateReattach:
+    """FIX 1 — the override must reattach a live turn to a reconnected socket
+    even when the client sent only the camelCase `conversationId`, AND wire the
+    reconnected socket into Grid's registry (NAT's base restore only swaps the
+    disconnected handler's `_socket` attribute)."""
+
+    def _handler(self, query_string: str) -> ReconnectableWebSocketMessageHandler:
+        handler = _make_handler(
+            authenticated_user={"type": "internal"},
+            socket=_FakeRestoreSocket(query_string),
+        )
+        return handler
+
+    def _disconnected_handler(self) -> MagicMock:
+        disconnected = MagicMock()
+        disconnected._conversation_id = "conv-1"
+        disconnected._user_interaction = None  # no pending HITL prompt to re-send
+        disconnected._message_parent_id = "user-1"
+        disconnected._workflow_schema_type = "chat_stream"
+        disconnected._running_workflow_task = MagicMock()
+        return disconnected
+
+    @pytest.mark.asyncio
+    async def test_camelcase_only_param_reattaches_and_registers(self) -> None:
+        handler = self._handler("conversationId=conv-1")
+        disconnected = self._disconnected_handler()
+        handler._worker = MagicMock()
+        handler._worker.get_conversation_handler = MagicMock(return_value=disconnected)
+
+        with patch("aiq_api.websocket_reconnect._registry") as reg:
+            reg.set_socket = AsyncMock()
+            await handler._restore_execution_state()
+
+        # NAT's base restore ran: it swapped the disconnected handler's socket
+        # to the reconnected one and copied its conversation id across.
+        assert disconnected._socket is handler._socket
+        assert handler._conversation_id == "conv-1"
+        # And the override wired the reconnected socket into Grid's registry so
+        # the dual-write guard / live send / HITL routing target it.
+        reg.set_socket.assert_awaited_once_with("conv-1", handler._socket)
+
+    @pytest.mark.asyncio
+    async def test_snake_case_param_reattaches_and_registers(self) -> None:
+        handler = self._handler("conversation_id=conv-1")
+        disconnected = self._disconnected_handler()
+        handler._worker = MagicMock()
+        handler._worker.get_conversation_handler = MagicMock(return_value=disconnected)
+
+        with patch("aiq_api.websocket_reconnect._registry") as reg:
+            reg.set_socket = AsyncMock()
+            await handler._restore_execution_state()
+
+        assert disconnected._socket is handler._socket
+        reg.set_socket.assert_awaited_once_with("conv-1", handler._socket)
+
+    @pytest.mark.asyncio
+    async def test_no_running_handler_does_not_register(self) -> None:
+        # A plain reconnect with no in-flight turn must NOT register a socket
+        # (there is nothing to reattach; the next user_message registers it).
+        handler = self._handler("conversationId=conv-1")
+        handler._worker = MagicMock()
+        handler._worker.get_conversation_handler = MagicMock(return_value=None)
+
+        with patch("aiq_api.websocket_reconnect._registry") as reg:
+            reg.set_socket = AsyncMock()
+            await handler._restore_execution_state()
+
+        reg.set_socket.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_missing_conversation_id_is_a_noop(self) -> None:
+        handler = self._handler("")
+        handler._worker = MagicMock()
+        handler._worker.get_conversation_handler = MagicMock(return_value=None)
+
+        with patch("aiq_api.websocket_reconnect._registry") as reg:
+            reg.set_socket = AsyncMock()
+            await handler._restore_execution_state()
+
+        handler._worker.get_conversation_handler.assert_not_called()
+        reg.set_socket.assert_not_awaited()
+
+
+class _CapturingClient:
+    """Async-context httpx.AsyncClient stand-in capturing the POST it receives."""
+
+    captured: dict = {}
+    status_code = 201
+
+    def __init__(self, *args, **kwargs) -> None:
+        pass
+
+    async def __aenter__(self) -> _CapturingClient:
+        return self
+
+    async def __aexit__(self, *args) -> bool:
+        return False
+
+    async def post(self, url, json, headers):  # noqa: A002 - httpx kw name
+        _CapturingClient.captured = {"url": url, "json": json, "headers": headers}
+        return SimpleNamespace(status_code=type(self).status_code)
+
+
+class TestPersistAssistantMessageInternalRoute:
+    """FIX 4 — persistence targets the INTERNAL token-guarded route with the
+    service-token header (not replayed handshake cookies, which expire)."""
+
+    @pytest.mark.asyncio
+    async def test_posts_to_internal_route_with_service_token(self, monkeypatch) -> None:
+        monkeypatch.setenv("FRONTEND_INTERNAL_URL", "http://frontend:3000")
+        monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "secret-token")
+        _CapturingClient.captured = {}
+        _CapturingClient.status_code = 201
+
+        with patch("aiq_api.websocket_reconnect.httpx.AsyncClient", _CapturingClient), \
+                patch("aiq_api.websocket_reconnect._registry") as reg:
+            reg.has_socket = AsyncMock(return_value=False)
+            ok = await persist_assistant_message(
+                conversation_id="conv-1",
+                parent_id="user-1",
+                text="Here is your answer.",
+                organization_id="org-1",
+            )
+
+        assert ok is True
+        captured = _CapturingClient.captured
+        assert captured["url"] == "http://frontend:3000/api/internal/conversations/conv-1/messages"
+        assert captured["headers"]["X-Grid-Internal-Token"] == "secret-token"
+        # Org scoping + assistant role travel in the body; NO cookie/authorization.
+        assert captured["json"]["organizationId"] == "org-1"
+        assert captured["json"]["role"] == "assistant"
+        assert captured["json"]["content"] == "Here is your answer."
+        assert "cookie" not in {k.lower() for k in captured["headers"]}
+
+    @pytest.mark.asyncio
+    async def test_skips_when_service_token_unconfigured(self, monkeypatch) -> None:
+        monkeypatch.setenv("FRONTEND_INTERNAL_URL", "http://frontend:3000")
+        monkeypatch.delenv("GRID_INTERNAL_API_TOKEN", raising=False)
+
+        with patch("aiq_api.websocket_reconnect.httpx.AsyncClient", _CapturingClient), \
+                patch("aiq_api.websocket_reconnect._registry") as reg:
+            reg.has_socket = AsyncMock(return_value=False)
+            ok = await persist_assistant_message(
+                conversation_id="conv-1", parent_id="user-1", text="x", organization_id="org-1"
+            )
+
+        assert ok is False
+
+    @pytest.mark.asyncio
+    async def test_skips_when_org_id_unavailable(self, monkeypatch) -> None:
+        # Without the org id the internal route would 404; skip the doomed POST.
+        monkeypatch.setenv("FRONTEND_INTERNAL_URL", "http://frontend:3000")
+        monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "secret-token")
+
+        with patch("aiq_api.websocket_reconnect.httpx.AsyncClient", _CapturingClient), \
+                patch("aiq_api.websocket_reconnect._registry") as reg:
+            reg.has_socket = AsyncMock(return_value=False)
+            ok = await persist_assistant_message(
+                conversation_id="conv-1", parent_id="user-1", text="x", organization_id=None
+            )
+
+        assert ok is False

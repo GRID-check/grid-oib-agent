@@ -23,10 +23,12 @@ Usage:
 from .base import BaseIngestor
 from .base import BaseRetriever
 from .factory import clear_active_ingestor
+from .factory import clear_active_retriever
 from .factory import clear_all_summaries
 from .factory import clear_collection_summaries
 from .factory import configure_summary_db
 from .factory import get_active_ingestor
+from .factory import get_active_retriever
 from .factory import get_available_documents
 from .factory import get_available_documents_async
 from .factory import get_document_doc_class
@@ -37,6 +39,7 @@ from .factory import register_ingestor
 from .factory import register_retriever
 from .factory import register_summary
 from .factory import set_active_ingestor
+from .factory import set_active_retriever
 from .factory import set_document_doc_class
 from .factory import unregister_summary
 from .factory import update_document_tags
@@ -69,6 +72,10 @@ __all__ = [
     "get_active_ingestor",
     "set_active_ingestor",
     "clear_active_ingestor",
+    # Active retriever (for Knowledge API — document search)
+    "get_active_retriever",
+    "set_active_retriever",
+    "clear_active_retriever",
     # Summary Registry (SQLAlchemy-backed, backend-agnostic)
     "configure_summary_db",
     "register_summary",

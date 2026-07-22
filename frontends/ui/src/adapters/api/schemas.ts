@@ -269,9 +269,13 @@ export const NATSystemResponseMessageSchema = z.object({
   routing_reason: z.string().optional().catch(undefined),
   // Present only when a shallow→deep escalation happened this turn.
   escalation_reason: z.string().optional().catch(undefined),
-  // Present only when the self-reported confidence was downgraded because the
-  // answer lacked citation grounding.
-  answer_confidence_capped_reason: z.literal('ungrounded').optional().catch(undefined),
+  // Present only when the self-reported confidence was downgraded. Two causes:
+  //   'ungrounded'       — the answer lost its citation grounding.
+  //   'quote_unverified' — a quoted span did not match any source passage.
+  answer_confidence_capped_reason: z
+    .enum(['ungrounded', 'quote_unverified'])
+    .optional()
+    .catch(undefined),
   // Present only when citation verification removed ≥1 citation.
   citations_removed: z
     .object({

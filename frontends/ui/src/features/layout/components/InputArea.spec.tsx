@@ -502,9 +502,14 @@ describe('InputArea', () => {
       },
     })
 
-    render(<InputArea isAuthenticated={true} />)
+    const { container } = render(<InputArea isAuthenticated={true} />)
 
     expect(screen.getByText('Drop files to upload')).toBeInTheDocument()
+    // Tailwind v4 preflight resets border-width to 0, so the dashed
+    // drop-target ring needs an explicit border-width class alongside
+    // border-color/border-style to render at all (regression coverage).
+    const composer = container.querySelector('.border-brand.border-dashed')
+    expect(composer).toHaveClass('border-2')
   })
 
   test('shows error drag overlay for unsupported files', () => {
@@ -519,9 +524,11 @@ describe('InputArea', () => {
       },
     })
 
-    render(<InputArea isAuthenticated={true} />)
+    const { container } = render(<InputArea isAuthenticated={true} />)
 
     expect(screen.getByText('Unsupported file type')).toBeInTheDocument()
+    const composer = container.querySelector('.border-error.border-dashed')
+    expect(composer).toHaveClass('border-2')
   })
 
   test('disables input when isBusy is true (session has active operations)', () => {

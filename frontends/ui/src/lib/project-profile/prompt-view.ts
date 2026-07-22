@@ -136,6 +136,10 @@ export function buildProjectProfileDisplay(
   // it -- otherwise any chat-driven profile edit permanently blanks the Project
   // Brief prose until the next full intake save.
   previousSummary = '',
+  // The locale that `previousSummary` was generated in, carried over 1:1 with
+  // the summary so a preserved prose keeps its language provenance (and a reset
+  // summary drops it — callers pass undefined). See ProjectProfileDisplaySchema.
+  previousSummaryLocale?: string,
 ): ProjectProfileDisplay {
   const normalized = ProjectProfileSchema.parse(profile)
   const brief = buildProjectBriefView(normalized)
@@ -143,6 +147,7 @@ export function buildProjectProfileDisplay(
   return {
     title: 'Project profile',
     summary: previousSummary,
+    summaryLocale: previousSummaryLocale,
     // Human-readable, intake-ordered: question labels ("Building class") and
     // option labels ("Residential") instead of raw keys/enum values.
     keyFacts: brief.groups.flatMap((group) =>

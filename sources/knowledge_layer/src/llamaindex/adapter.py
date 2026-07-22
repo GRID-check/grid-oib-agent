@@ -129,12 +129,25 @@ _PAGEOBJ_IMAGE = 3
 # drawing page that is 100% linework does not read as "has text" and so the
 # summary never describes the watermark instead of the drawing. Matched
 # case-insensitively against whole lines (leading/trailing whitespace ignored).
+#
+# Each entry is (phrase_fragment, line_suffix): the fragment is the bare
+# phrase regex (no anchors) and is the single source of truth for both the
+# whole-line patterns below and the substring patterns further down (used to
+# scrub the phrase out of VLM captions where it can appear mid-sentence). The
+# suffix is what follows the phrase to make a *whole line* match: most
+# watermarks are just the phrase itself (``\s*$``), but the Autodesk stamp is
+# often followed by extra trailing boilerplate on the same line, so it needs
+# ``.*$`` instead.
+_WATERMARK_PHRASES: list[tuple[str, str]] = [
+    (r"vectorworks\s+educational\s+version", r"\s*$"),
+    (r"educational\s+version", r"\s*$"),
+    (r"produced\s+by\s+an\s+autodesk\s+(student|educational)\s+(version|product)", r".*$"),
+    (r"created\s+(in|with)\s+an?\s+.*(trial|evaluation|educational).*version", r"\s*$"),
+    (r"(unregistered|evaluation|trial|demo)\s+version", r"\s*$"),
+]
+
 WATERMARK_LINE_PATTERNS = [
-    re.compile(r"^\s*vectorworks\s+educational\s+version\s*$", re.IGNORECASE),
-    re.compile(r"^\s*educational\s+version\s*$", re.IGNORECASE),
-    re.compile(r"^\s*produced\s+by\s+an\s+autodesk\s+(student|educational)\s+(version|product).*$", re.IGNORECASE),
-    re.compile(r"^\s*created\s+(in|with)\s+an?\s+.*(trial|evaluation|educational).*version\s*$", re.IGNORECASE),
-    re.compile(r"^\s*(unregistered|evaluation|trial|demo)\s+version\s*$", re.IGNORECASE),
+    re.compile(rf"^\s*{fragment}{suffix}", re.IGNORECASE) for fragment, suffix in _WATERMARK_PHRASES
 ]
 
 # @environment_variable AIQ_COLLECTION_TTL_HOURS
@@ -531,6 +544,45 @@ def _strip_watermark_lines(text: str | None) -> str:
     return "\n".join(kept).strip()
 
 
+# Substring counterparts of WATERMARK_LINE_PATTERNS, built from the very same
+# `_WATERMARK_PHRASES` fragments (unanchored, no ``^``/``$``/``.*``) so they can
+# be matched *anywhere inside* a line via ``re.search``/``re.sub``. VLM captions
+# weave the licence stamp into prose (e.g. "... a floor plan. VECTORWORKS
+# EDUCATIONAL VERSION overlaid ...") where the line-level filter never fires,
+# so the caption needs a substring scrub before it can become a document
+# summary. Sharing one source of phrases with WATERMARK_LINE_PATTERNS means the
+# two lists can never drift out of sync with each other.
+WATERMARK_PHRASE_PATTERNS = [re.compile(fragment, re.IGNORECASE) for fragment, _suffix in _WATERMARK_PHRASES]
+
+
+def _scrub_watermark_phrases(text: str | None) -> str:
+    """Scrub CAD licence/watermark phrases from a VLM caption wherever they
+    appear (not only on their own line) so they can never leak into a document
+    summary.
+
+    The line-level ``_strip_watermark_lines`` only drops whole watermark lines;
+    a caption that mentions "VECTORWORKS EDUCATIONAL VERSION" mid-sentence slips
+    straight through it and, when LLM summarisation is off/failed, becomes the
+    summary verbatim. This runs on the caption before that can happen. Fail-open:
+    returns ``""`` for falsy input and never raises; on any error it returns the
+    stripped original rather than losing the caption entirely.
+    """
+    if not text:
+        return ""
+    try:
+        scrubbed = text
+        for pattern in WATERMARK_PHRASE_PATTERNS:
+            scrubbed = pattern.sub(" ", scrubbed)
+        # Collapse whitespace left behind by the removals while preserving
+        # paragraph breaks: squeeze intra-line runs, trim each line, drop the
+        # blank lines a removed stamp leaves behind.
+        scrubbed = re.sub(r"[^\S\n]+", " ", scrubbed)
+        lines = [line.strip() for line in scrubbed.splitlines()]
+        return "\n".join(line for line in lines if line).strip()
+    except Exception:  # pragma: no cover - defensive, never break ingestion
+        return text.strip()
+
+
 def _extract_text_from_pdf(pdf_path: str) -> list[dict[str, Any]]:
     """Extract per-page text from a PDF without falling back to raw PDF bytes."""
     try:
@@ -742,14 +794,24 @@ If this is a chart or graph, extract:
 - Key data points and values
 - Main trends or insights
 
-If this is a regular image, describe:
-- Main subject and scene
-- Key visual elements
-- Any text visible
+If this is a regular image (e.g. a plan, map or architectural drawing), describe its CONTENT and meaning:
+- Main subject and what the image actually depicts
+- Key elements and their spatial / architectural relationships
+- Only textual labels that belong to the content (e.g. titles, room names, dimensions)
+
+Do NOT include any licence, watermark or tool-stamp text (e.g. "VECTORWORKS EDUCATIONAL VERSION",
+"AutoCAD", "DRAFT") in your description; ignore such overlays entirely and describe only the actual
+content and its meaning, not merely what is visible.
 
 Provide a detailed, structured response."""
     else:
-        prompt = "Describe this image in detail, focusing on the main subject, visual elements, and any text visible."
+        prompt = (
+            "Describe this image in detail, focusing on the CONTENT and meaning of what is depicted "
+            "(the main subject, its elements, and any spatial or architectural information) rather than "
+            "merely listing what is visible. Do NOT include any licence, watermark or tool-stamp text "
+            '(e.g. "VECTORWORKS EDUCATIONAL VERSION", "AutoCAD", "DRAFT") in your description; ignore '
+            "such overlays entirely."
+        )
 
     try:
         # Encode image to base64
@@ -2465,6 +2527,12 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                                 extract_charts=extract_charts,
                             )
 
+                            # Scrub licence/watermark stamps the VLM may have
+                            # woven into the caption before it is stored (and can
+                            # become a summary). Fail-open: keep a short
+                            # placeholder rather than an empty caption.
+                            caption = _scrub_watermark_phrases(caption) or "[Image - no describable content]"
+
                             is_chart = content_type == "chart"
 
                             # Skip based on extraction preferences
@@ -2587,7 +2655,10 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     # disabled or failed, fall back to the VLM caption itself so
                     # the image is never silently invisible.
                     if is_image and not summary and text_documents:
-                        caption_text = text_documents[0].get_content().strip()
+                        # Scrub any licence/watermark stamp out of the caption
+                        # before it becomes the summary; if scrubbing empties it,
+                        # leave summary as None rather than emit an empty summary.
+                        caption_text = _scrub_watermark_phrases(text_documents[0].get_content())
                         summary = caption_text[:500] or None
 
                     valid_documents = [

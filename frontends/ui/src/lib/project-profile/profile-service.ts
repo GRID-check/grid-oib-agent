@@ -151,6 +151,10 @@ async function persistProfile(
     profileDisplay: buildProjectProfileDisplay(
       profile,
       options?.resetSummary ? '' : current.profileDisplay?.summary ?? '',
+      // The locale travels with the summary: a wizard full-replace resets both
+      // (the new prose will record its own locale when regenerated); a patch
+      // preserves both so a chat edit never drops the language provenance.
+      options?.resetSummary ? undefined : current.profileDisplay?.summaryLocale,
     ),
     profileUpdatedAt: new Date(),
   })
@@ -279,6 +283,11 @@ export async function generateProjectSummary(
     return { summary: '' }
   }
 
+  // The locale the backend actually writes the prose in (mirrors its own
+  // default). Persisted with the summary so the brief can later detect a
+  // stale-language summary after a UI locale switch.
+  const locale = options?.locale ?? 'de'
+
   let backendRes: Response
   try {
     backendRes = await fetch(`${getBackendUrl()}/v1/generate-summary`, {
@@ -286,7 +295,7 @@ export async function generateProjectSummary(
       // Forward the org id so the backend can resolve this org's BYOK LLM
       // credential (falls back to the platform env chain when unset).
       headers: { 'Content-Type': 'application/json', 'x-grid-organization-id': session.organizationId },
-      body: JSON.stringify({ profile_text: profileText, locale: options?.locale ?? 'de' }),
+      body: JSON.stringify({ profile_text: profileText, locale }),
       // Bound the call so an unreachable backend rejects promptly (as a
       // TimeoutError) instead of hanging into a Cloudflare 504.
       signal: AbortSignal.timeout(GENERATE_SUMMARY_TIMEOUT_MS),
@@ -312,9 +321,10 @@ export async function generateProjectSummary(
   }
 
   // Only persist a real summary — never let an empty result clobber an
-  // existing good one.
+  // existing good one. Record the locale it was generated in so a later UI
+  // language switch can trigger exactly one regeneration.
   if (summary) {
-    await setProjectProfileSummaryInOrg(projectId, session.organizationId, summary)
+    await setProjectProfileSummaryInOrg(projectId, session.organizationId, summary, locale)
   }
 
   return { summary }

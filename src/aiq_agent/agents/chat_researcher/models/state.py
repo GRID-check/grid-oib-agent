@@ -88,9 +88,10 @@ class ChatResearcherState(BaseModel):
     # clarifier node from ``ShallowResult.escalation_reason`` or, on the
     # keyword-fallback path, the fixed German notice.
     escalation_reason: str | None = None
-    # Present only when the self-reported confidence was downgraded because the
-    # answer lacked citation grounding ("ungrounded").
-    answer_confidence_capped_reason: Literal["ungrounded"] | None = None
+    # Present only when the self-reported confidence was downgraded: "ungrounded"
+    # (answer lacked citation grounding) or "quote_unverified" (a quoted span was
+    # not verifiable against a retrieved passage).
+    answer_confidence_capped_reason: Literal["ungrounded", "quote_unverified"] | None = None
     # Present only when citation verification removed ≥1 citation from the answer:
     # ``{"count": int, "reasons": [str, ...]}`` (reasons deduplicated, max 5).
     citations_removed: dict[str, Any] | None = None
