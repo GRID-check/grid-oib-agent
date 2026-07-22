@@ -34,34 +34,46 @@ def leader_lock(lock_id: int):
         yield True
         return
 
+    # Acquire in its own try (fail-open on any acquisition error) so the `yield`
+    # is NEVER inside a try that also yields — a @contextmanager must yield
+    # exactly once, and yielding inside `try/except Exception` would double-yield
+    # if the guarded body raised (RuntimeError, and the lock would leak).
     conn = None
+    acquired = False
     try:
         from sqlalchemy import text
 
         from .summary_store import SummaryStore
 
         conn = SummaryStore._get_or_create_sync_engine(url).connect()
-        got = conn.execute(text("SELECT pg_try_advisory_lock(:id)"), {"id": lock_id}).scalar()
-        if not got:
-            conn.close()
-            conn = None
-            yield False
-            return
-        yield True
+        acquired = bool(conn.execute(text("SELECT pg_try_advisory_lock(:id)"), {"id": lock_id}).scalar())
     except Exception:
-        logger.warning("leader_lock(%s) failed; running unguarded", lock_id, exc_info=True)
+        logger.warning("leader_lock(%s) acquisition failed; running unguarded", lock_id, exc_info=True)
         if conn is not None:
             with contextlib.suppress(Exception):
                 conn.close()
             conn = None
+        yield True  # fail-open: guarded work is idempotent
+        return
+
+    if not acquired:
+        with contextlib.suppress(Exception):
+            conn.close()
+        yield False
+        return
+
+    try:
         yield True
     finally:
-        if conn is not None:
-            try:
-                from sqlalchemy import text
+        from sqlalchemy import text
 
-                conn.execute(text("SELECT pg_advisory_unlock(:id)"), {"id": lock_id})
-            except Exception:
-                logger.warning("leader_lock(%s) unlock failed", lock_id, exc_info=True)
-            finally:
-                conn.close()
+        try:
+            conn.execute(text("SELECT pg_advisory_unlock(:id)"), {"id": lock_id})
+            conn.close()
+        except Exception:
+            # Unlock failed → session still holds the lock; a pooled close() would
+            # keep it held. invalidate() drops the DBAPI connection so Postgres
+            # ends the session and releases the lock.
+            logger.warning("leader_lock(%s) unlock failed; invalidating connection", lock_id, exc_info=True)
+            with contextlib.suppress(Exception):
+                conn.invalidate()

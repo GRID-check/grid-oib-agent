@@ -47,6 +47,8 @@ export interface GridConfig {
     letsEncryptEmail: string;
     /** Use the LE staging CA (avoids rate limits while wiring DNS/TLS). */
     useStagingIssuer: boolean;
+    /** Install metrics-server (needed by the HPAs). Disable if the cluster ships one. */
+    installMetricsServer: boolean;
   };
 
   postgres: {
@@ -166,6 +168,12 @@ export interface GridConfig {
   internal: {
     apiToken: pulumi.Output<string>;
     adminToken: pulumi.Output<string>;
+    /**
+     * 32-byte base64 KEK encrypting DB-claimed job payloads at rest (they carry
+     * the user auth token). Empty = plaintext (dev only). Strongly recommended
+     * whenever jobExecution="db". Generate: `openssl rand -base64 32`.
+     */
+    jobPayloadKek: pulumi.Output<string>;
   };
 
   workflows: {
@@ -215,6 +223,7 @@ export function loadConfig(): GridConfig {
       s3Domain: cfg.require("s3Domain"),
       letsEncryptEmail: cfg.require("letsEncryptEmail"),
       useStagingIssuer: bool(cfg, "useStagingIssuer", false),
+      installMetricsServer: bool(cfg, "installMetricsServer", true),
     },
 
     postgres: {
@@ -312,6 +321,7 @@ export function loadConfig(): GridConfig {
     internal: {
       apiToken: cfg.requireSecret("gridInternalApiToken"),
       adminToken: cfg.requireSecret("gridAdminToken"),
+      jobPayloadKek: cfg.getSecret("jobPayloadKek") ?? pulumi.output(""),
     },
 
     workflows: {

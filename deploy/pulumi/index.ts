@@ -20,6 +20,7 @@ import { makeProvider } from "./src/platform/providers";
 import { makeAppNamespace } from "./src/platform/namespaces";
 import { installCertManager } from "./src/platform/cert-manager";
 import { installIngressNginx } from "./src/platform/ingress-nginx";
+import { installMetricsServer } from "./src/platform/metrics-server";
 import { installPostgres } from "./src/data/postgres";
 import { installDragonfly } from "./src/data/dragonfly";
 import { installSeaweedFS } from "./src/data/seaweedfs";
@@ -41,6 +42,9 @@ const namespace = ns.metadata.name;
 
 const certManager = installCertManager(cfg, provider);
 const ingressNginx = installIngressNginx(provider);
+if (cfg.ingress.installMetricsServer) {
+  installMetricsServer(provider);
+}
 
 // ── Data tier ─────────────────────────────────────────────────────────────
 const postgres = installPostgres(cfg, provider, namespace);
@@ -80,7 +84,12 @@ const workers = installWorkers(wiring, cfg, secret, [migrations]);
 // Research worker tier — only when execution is DB-claimed (ADR-0021).
 const agentWorker =
   cfg.jobExecution === "db"
-    ? installAgentWorker(wiring, cfg, secret, [postgres.initJob, ...(chroma ? [chroma.service] : [])])
+    ? installAgentWorker(wiring, cfg, secret, [
+        postgres.initJob,
+        dragonfly.service,
+        seaweed.bucketInitJob,
+        ...(chroma ? [chroma.service] : []),
+      ])
     : undefined;
 
 // ── Edge ────────────────────────────────────────────────────────────────────

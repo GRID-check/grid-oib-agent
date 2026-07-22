@@ -39,12 +39,22 @@ export function installAgentWorker(
                 imagePullPolicy: cfg.images.pullPolicy,
                 env: workerEnv(w),
                 resources: toResourceRequirements(cfg.agentWorker.resources),
-                // Liveness: the process is healthy as long as it's running its
-                // claim loop; a simple exec check that the python worker is up.
+                // Liveness: the worker touches /tmp/research-worker.alive every
+                // claim-loop tick. Probe with python (present in the image; the
+                // debian-slim backend image has NO pgrep/procps) and fail if the
+                // marker is stale (loop hung) or missing.
                 livenessProbe: {
-                  exec: { command: ["pgrep", "-f", "aiq_api.jobs.worker"] },
-                  initialDelaySeconds: 20,
+                  exec: {
+                    command: [
+                      "python",
+                      "-c",
+                      "import os,sys,time; f='/tmp/research-worker.alive'; " +
+                        "sys.exit(0 if os.path.exists(f) and time.time()-os.path.getmtime(f) < 180 else 1)",
+                    ],
+                  },
+                  initialDelaySeconds: 30,
                   periodSeconds: 30,
+                  failureThreshold: 3,
                 },
               },
             ],
