@@ -383,7 +383,7 @@ class TestShallowResearcherAgent:
             tools=[real_tool],
         )
 
-        assert "If you use a tool result to answer" in agent.system_prompt
+        assert "When you used a tool result to answer" in agent.system_prompt
         assert "exact tool name" in agent.system_prompt
         assert "- [1] mcp_time__get_current_time" in agent.system_prompt
 
@@ -394,7 +394,7 @@ class TestShallowResearcherAgent:
             tools=[real_tool],
         )
 
-        assert "Match the language of the user request" in agent.system_prompt
+        assert "Answer in the language of the user's request" in agent.system_prompt
         # German questions should get German answers.
         assert "German" in agent.system_prompt
 
@@ -426,22 +426,22 @@ class TestShallowResearcherAgent:
         )
 
     def test_meta_turn_prompt_suppresses_marker_mandate(self, mock_llm_provider, real_tool):
-        """requires_sources=False renders a deterministic suppression line and no marker mandate."""
+        """requires_sources=False renders a deterministic suppression note and no marker mandate."""
         rendered = self._render_default_prompt(mock_llm_provider, real_tool, requires_sources=False)
 
-        assert "do NOT emit the confidence or escalation markers" in rendered
-        # The marker-mandate sections are omitted on meta turns.
-        assert "## Insufficient-Answer Marker" not in rendered
-        assert "## Confidence Marker" not in rendered
+        assert "classified as conversational / meta" in rendered
+        # The marker-mandate blocks are omitted on meta turns.
+        assert "<insufficient_answer_marker>" not in rendered
+        assert "<confidence_marker>" not in rendered
 
     def test_research_turn_prompt_keeps_marker_mandate(self, mock_llm_provider, real_tool):
-        """requires_sources=True keeps the marker mandate and omits the suppression line."""
+        """requires_sources=True keeps the marker mandate and omits the suppression note."""
         rendered = self._render_default_prompt(mock_llm_provider, real_tool, requires_sources=True)
 
-        assert "## Insufficient-Answer Marker" in rendered
-        assert "## Confidence Marker" in rendered
-        assert "For every research answer, end your reply with exactly ONE confidence marker" in rendered
-        assert "do NOT emit the confidence or escalation markers" not in rendered
+        assert "<insufficient_answer_marker>" in rendered
+        assert "<confidence_marker>" in rendered
+        assert "End every research answer with exactly ONE confidence marker" in rendered
+        assert "classified as conversational / meta" not in rendered
 
     @pytest.mark.asyncio
     async def test_tool_iterations_incremented_on_tool_calls(self, mock_llm_provider, mock_llm, real_tool):
