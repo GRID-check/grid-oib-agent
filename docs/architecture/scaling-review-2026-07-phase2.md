@@ -76,3 +76,46 @@ the TTL-cleanup lock — is a cliff).
   schema-ensure (access.py / event_store.py) — see ADR-0027 for why they live there
   and not in the infra bootstraps.
 - `ingest_jobs` retention (dead `delete()` wired).
+
+## Shallow / chat path (the interactive, higher-frequency path)
+
+Investigated separately — it runs synchronously per chat turn over WebSocket on
+the `aiq-agent` web tier (scales to `backendReplicas`). It is the volume driver.
+
+### P0 (chat-specific)
+- **CHAT TIER IS NOT REPLICA-SAFE** (`websocket_reconnect.py:90-435`). The WS
+  session registry, HITL/clarifier futures, and the running LangGraph task are
+  in-process with no cross-replica fallback (unlike the citation registry). A
+  reconnect / HITL turn landing on a different replica silently fails to reattach;
+  there is no `sessionAffinity` in the deploy. So `backendReplicas > 1` + the
+  `kubernetes.md §6.4` "multi-replica chat tier" claim are **incorrect** for
+  reconnect/HITL. *Fix:* either default `backendReplicas: 1` until solved, or add
+  conversation-affinity (frontend→backend pin by conversation_id) / externalize
+  the WS+HITL state (a Dragonfly/Postgres "which replica owns this conversation"
+  pointer with redirect).
+- **No provider prompt caching + non-invariant static prefix** (`researcher.j2:36,64,84`;
+  no `cache_control` anywhere) — the ~2-3k-token system prompt re-billed ~every
+  turn; the meta/research branch and the per-turn live memory-digest sit above the
+  KV-cache boundary. *Fix:* make the pre-boundary prefix byte-invariant; send
+  `cache_control` breakpoints (content-block split) for providers that support it.
+- **`available_documents` full-table dump every turn** (see P1 #6 above) is worst
+  here — paid on every interactive turn including chit-chat.
+
+### P1 (chat-specific)
+- **Checkpoint pool `max_size=3`, shared chat+deep on one DSN** (`common/__init__.py:237`)
+  — per-replica throughput ceiling. *Fix:* raise/tune; separate chat vs deep pools.
+- **`trim_message_history` trims by message COUNT, not tokens** — `trim_messages(
+  token_counter=len)` (`chat_researcher/utils.py:10`) makes `max_history=20` a
+  message count; large messages defeat the budget. *Fix:* real token counter +
+  summarize trimmed turns.
+- **Per-turn citation verification cost grows with conversation length** — the
+  session `SourceRegistry` only appends, and `verify_citations` runs against all
+  cumulative sources every turn (`shallow_researcher/agent.py:500`).
+- **Memory digest uncapped** on the per-turn `project_context` fetch + reflection
+  prompt (`reflection.py:108`, `project_memory.py:94`).
+
+### Well-designed (verified, no action)
+- Memory reflection is fire-and-forget, semaphore-bounded, off the TTFT path
+  (`reflection.py:311-395`) — good.
+- Citation/card registries are session-scoped, LRU(1000)-bounded, Dragonfly-backed
+  for cross-replica recovery (ADR-0020) — good.
