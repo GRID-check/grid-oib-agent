@@ -307,7 +307,13 @@ export function loadConfig(): GridConfig {
       configFile: cfg.get("backendConfigFile") ?? "/app/configs/config_oib_openrouter.yml",
       chromaDir: cfg.get("backendChromaDir") ?? "/app/data/chroma_data",
       dataStorageSize: cfg.get("backendDataStorageSize") ?? "20Gi",
-      replicas: num(cfg, "backendReplicas", 2),
+      // Default 1: the chat/web tier is NOT replica-safe for WebSocket reconnect
+      // + human-in-the-loop today — the WS session registry, HITL futures, and
+      // the running LangGraph task are in-process with no cross-replica fallback
+      // (docs/architecture/scaling-review-2026-07-phase2.md, chat P0). Raising
+      // this above 1 requires conversation-affinity (frontend→backend pin) or
+      // externalizing that state. The horizontally-scaling tier is agent-worker.
+      replicas: num(cfg, "backendReplicas", 1),
     },
 
     frontend: {
