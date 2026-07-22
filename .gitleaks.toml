@@ -1,0 +1,25 @@
+# gitleaks configuration
+#
+# The Security workflow (.github/workflows/security.yml) runs
+# `gitleaks detect --source /repo` over the full git history. gitleaks
+# auto-discovers this file at the scan root and uses it instead of the
+# embedded default config.
+#
+# We keep the full default ruleset and add a single allowlist: the
+# detect-secrets baseline (.secrets.baseline, maintained by the
+# Yelp/detect-secrets pre-commit hook) stores SHA hashes of already-reviewed
+# candidate strings, never live credentials. gitleaks' generic-api-key /
+# high-entropy rules otherwise flag those 40-char hex hashes as leaks — the
+# source of all findings this scan reports. Allowlisting the baseline path
+# removes the false positives without weakening detection anywhere else.
+
+title = "grid-oib-agent gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "detect-secrets baseline holds hashed (already-reviewed) candidates, not real secrets"
+paths = [
+  '''(^|/)\.secrets\.baseline$''',
+]
