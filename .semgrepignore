@@ -1,0 +1,41 @@
+# Paths Semgrep should not scan. Gitignore-style syntax; this is in addition to
+# .gitignore, which Semgrep already respects. Mirrors the exclusions the old
+# Sonar config carried. Tune here as false positives show up during Phase 1.
+
+# Dependencies / virtualenvs
+node_modules/
+.venv/
+venv/
+__pycache__/
+
+# Build output / caches
+.next/
+dist/
+build/
+*.min.js
+*.min.css
+
+# Generated / vendored code
+**/generated.ts
+**/*.generated.*
+**/drizzle/**
+**/migrations/**
+**/__mocks__/**
+**/mocks/**
+shared/cards/schemas.json
+# crd2pulumi-generated Kubernetes CRD SDK + its build output (vendored, not authored)
+deploy/pulumi/crds/
+deploy/pulumi/**/bin/
+
+# Non-source assets and data
+data/
+*.j2
+docs/
+
+# Tests and stories: keep SAST focused on shipped code. Remove a line here if you
+# want Semgrep to also flag issues in test/fixture code.
+**/*.stories.tsx
+**/*.spec.ts
+**/*.spec.tsx
+**/test_*.py
+**/conftest.py

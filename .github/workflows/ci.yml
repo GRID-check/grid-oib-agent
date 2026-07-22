@@ -28,7 +28,7 @@ jobs:
       frontend: ${{ steps.filter.outputs.frontend }}
       deploy: ${{ steps.filter.outputs.deploy }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dorny/paths-filter@v3
         id: filter
         with:
@@ -56,7 +56,7 @@ jobs:
     if: needs.changes.outputs.backend == 'true'
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-python-env
       - name: Ruff
         run: |
@@ -78,7 +78,7 @@ jobs:
       matrix:
         python: ["3.12", "3.13"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-python-env
         with:
           python-version: ${{ matrix.python }}
@@ -106,18 +106,6 @@ jobs:
           title: Backend coverage (src/aiq_agent)
           unique-id-for-comment: backend-coverage
 
-      - name: Upload coverage (3.13 only, for Sonar)
-        if: matrix.python == '3.13' && always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: backend-coverage
-          path: |
-            coverage.xml
-            coverage-aiqapi.xml
-            report-core.xml
-            report-aiqapi.xml
-          retention-days: 7
-
   frontend:
     name: Frontend (lint, types, test, build)
     needs: changes
@@ -127,7 +115,7 @@ jobs:
       run:
         working-directory: frontends/ui
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -136,8 +124,8 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run type-check
-      # json-summary/json feed the coverage comment; lcov feeds Sonar.
-      - run: npm run test:ci -- --coverage.reporter=json-summary --coverage.reporter=json --coverage.reporter=lcov
+      # json-summary/json feed the coverage comment below.
+      - run: npm run test:ci -- --coverage.reporter=json-summary --coverage.reporter=json
       - run: npm run build
       - name: Coverage comment (frontend)
         if: github.event_name == 'pull_request'
@@ -145,13 +133,6 @@ jobs:
         uses: davelosert/vitest-coverage-report-action@v2
         with:
           working-directory: frontends/ui
-      - name: Upload frontend coverage (for Sonar)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: frontend-coverage
-          path: frontends/ui/coverage/
-          retention-days: 7
 
   deploy-pulumi:
     name: Deploy (Pulumi typecheck)
@@ -162,16 +143,17 @@ jobs:
       run:
         working-directory: deploy/pulumi
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: npm
           cache-dependency-path: deploy/pulumi/package-lock.json
-      # `npm ci` restores the CRD-generated type packages
-      # (@kubernetes-models/*). `tsc --noEmit` then validates every Gateway API /
-      # Envoy Gateway / cert-manager CustomResource spec against the real CRD
-      # schemas — a bad field fails here instead of at `pulumi up`.
+      # `npm ci` runs the `prepare` hook, which builds the crd2pulumi SDK
+      # (crds/bin) from the committed generated source. `tsc --noEmit` then
+      # validates the whole program — including every Gateway API / Envoy Gateway
+      # / cert-manager CustomResource spec against the real CRD schema — so a bad
+      # field fails here instead of at `pulumi up`.
       - run: npm ci
       - run: npm run typecheck
 
