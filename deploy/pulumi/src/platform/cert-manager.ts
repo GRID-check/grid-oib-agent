@@ -1,21 +1,29 @@
 import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
 import { GridConfig } from "../config";
+import { GATEWAY_NAME } from "./gateway";
 
 export interface CertManager {
   release: k8s.helm.v3.Release;
-  /** Name of the ClusterIssuer the Ingresses should reference. */
+  /** Name of the ClusterIssuer the Gateway references for TLS. */
   issuerName: pulumi.Output<string>;
 }
 
 /**
- * Install cert-manager (Helm) and a Let's Encrypt ClusterIssuer (HTTP-01 via
- * the Traefik ingress class). Ingress resources annotate
- * `cert-manager.io/cluster-issuer: <issuerName>` to get auto-provisioned TLS.
+ * cert-manager (Helm) with **Gateway API integration enabled**, plus a Let's
+ * Encrypt ClusterIssuer whose ACME HTTP-01 challenge is solved via the Gateway
+ * API (`gatewayHTTPRoute`) rather than an Ingress. The Gateway is annotated
+ * with this issuer so cert-manager provisions a Certificate per HTTPS listener.
+ *
+ * Ordering: this depends on the Gateway API CRDs already existing (installed by
+ * the Envoy Gateway controller), because cert-manager reads them at startup to
+ * enable the integration — pass the controller release in `dependsOn`.
  */
 export function installCertManager(
   cfg: GridConfig,
   provider: k8s.Provider,
+  gatewayNamespace: pulumi.Input<string>,
+  dependsOn: pulumi.Resource[],
 ): CertManager {
   const ns = new k8s.core.v1.Namespace(
     "cert-manager-ns",
@@ -27,31 +35,29 @@ export function installCertManager(
     "cert-manager",
     {
       chart: "cert-manager",
-      version: "v1.16.2",
+      version: "v1.17.2",
       namespace: ns.metadata.name,
       repositoryOpts: { repo: "https://charts.jetstack.io" },
       values: {
-        // Install the CRDs with the chart so ClusterIssuer/Certificate exist.
         crds: { enabled: true },
-        // Small footprint; bump if issuance volume grows.
-        resources: {
-          requests: { cpu: "10m", memory: "64Mi" },
+        // Enable the Gateway API integration (HTTP-01 gatewayHTTPRoute solver +
+        // the Gateway certificate shim). Requires the Gateway API CRDs to exist.
+        config: {
+          apiVersion: "controller.config.cert-manager.io/v1alpha1",
+          kind: "ControllerConfiguration",
+          enableGatewayAPI: true,
         },
+        resources: { requests: { cpu: "10m", memory: "64Mi" } },
       },
     },
-    { provider },
+    { provider, dependsOn: [ns, ...dependsOn] },
   );
 
-  const issuerName = cfg.ingress.useStagingIssuer
-    ? "letsencrypt-staging"
-    : "letsencrypt-prod";
-
+  const issuerName = cfg.ingress.useStagingIssuer ? "letsencrypt-staging" : "letsencrypt-prod";
   const acmeServer = cfg.ingress.useStagingIssuer
     ? "https://acme-staging-v02.api.letsencrypt.org/directory"
     : "https://acme-v02.api.letsencrypt.org/directory";
 
-  // ClusterIssuer is a cert-manager CRD; create it after the chart (which
-  // installs the CRD) is ready.
   new k8s.apiextensions.CustomResource(
     "letsencrypt-issuer",
     {
@@ -64,7 +70,20 @@ export function installCertManager(
           email: cfg.ingress.letsEncryptEmail,
           privateKeySecretRef: { name: `${issuerName}-account-key` },
           solvers: [
-            { http01: { ingress: { ingressClassName: "traefik" } } },
+            {
+              http01: {
+                gatewayHTTPRoute: {
+                  parentRefs: [
+                    {
+                      name: GATEWAY_NAME,
+                      namespace: gatewayNamespace,
+                      kind: "Gateway",
+                      group: "gateway.networking.k8s.io",
+                    },
+                  ],
+                },
+              },
+            },
           ],
         },
       },

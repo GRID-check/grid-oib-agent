@@ -3,7 +3,7 @@
 TypeScript Pulumi program that deploys the entire Grid OIB stack to a Kubernetes
 cluster: the `aiq-agent` backend, the Next.js frontend/BFF, the purger and
 workflow-scheduler workers, plus CloudNativePG Postgres, a Dragonfly cache, and
-SeaweedFS object storage — behind Traefik with automatic Let's Encrypt TLS.
+SeaweedFS object storage — behind Envoy Gateway (Gateway API) with automatic Let's Encrypt TLS.
 
 > Operator walkthrough (prereqs, DNS, day-2, scaling roadmap):
 > [`docs/deployment/kubernetes.md`](../../docs/deployment/kubernetes.md).
@@ -12,10 +12,10 @@ SeaweedFS object storage — behind Traefik with automatic Let's Encrypt TLS.
 
 | Layer | Resources |
 |-------|-----------|
-| Platform | namespace `grid`, cert-manager + Let's Encrypt `ClusterIssuer`, Traefik, metrics-server |
+| Platform | namespace `grid`, cert-manager (Gateway-API) + Let's Encrypt `ClusterIssuer`, Envoy Gateway, metrics-server |
 | Data | CloudNativePG operator + `Cluster` (`aiq_jobs`, `aiq_checkpoints`, `grid_app`), Dragonfly, SeaweedFS StatefulSet + bucket-init Job |
 | App | `aiq-agent` StatefulSet (+ PVC), `frontend` Deployment + HPA, `purger`, `workflow-scheduler`, a one-shot `drizzle-kit migrate` Job |
-| Edge | TLS Ingress for the app (`appDomain`) and the public S3 endpoint (`s3Domain`) |
+| Edge | Gateway API (Envoy Gateway) + HTTPRoutes with cert-manager TLS for `appDomain` and `s3Domain` |
 
 ## Prerequisites
 
@@ -51,8 +51,8 @@ pulumi preview
 pulumi up
 ```
 
-Then point DNS for `appDomain` and `s3Domain` at the Traefik external IP
-(`kubectl -n traefik get svc`), and once TLS issues, flip
+Then point DNS for `appDomain` and `s3Domain` at the Envoy Gateway external IP
+(`kubectl -n envoy-gateway-system get svc`), and once TLS issues, flip
 `useStagingIssuer` to `false` and `pulumi up` again.
 
 ## Configuration
@@ -69,10 +69,10 @@ primary way to give the agent more capacity today.
 ```
 index.ts                 wiring + stack outputs
 src/config.ts            typed config (every knob + secret)
-src/platform/            provider, namespace, cert-manager, traefik, metrics-server
+src/platform/            provider, namespace, cert-manager, gateway (Envoy), metrics-server
 src/data/                postgres (CNPG), dragonfly, seaweedfs
 src/app/                 config (Secret + env), migrations Job, backend,
-                         frontend (+HPA), workers, ingress
+                         frontend (+HPA), workers, httproutes
 ```
 
 ## Notes

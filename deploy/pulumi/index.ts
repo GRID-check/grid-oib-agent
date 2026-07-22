@@ -6,7 +6,8 @@
  *   data      → CloudNativePG Postgres (3 DBs), Dragonfly cache, SeaweedFS (S3)
  *   app       → aiq-agent (StatefulSet, the singleton agent), frontend
  *               (Deployment + HPA), purger, workflow-scheduler, a migration Job
- *   edge      → TLS ingress for the app and the public S3 endpoint
+ *   edge      → Gateway API (Envoy Gateway) + HTTPRoutes with cert-manager TLS,
+ *               for the app and the public S3 endpoint
  *
  * The agent tier scales VERTICALLY here (resources + Dask knobs + admission
  * caps); every precondition for later HORIZONTAL scaling is already wired
@@ -19,7 +20,7 @@ import { loadConfig } from "./src/config";
 import { makeProvider } from "./src/platform/providers";
 import { makeAppNamespace } from "./src/platform/namespaces";
 import { installCertManager } from "./src/platform/cert-manager";
-import { installTraefik } from "./src/platform/traefik";
+import { installGatewayController, installGatewayResources } from "./src/platform/gateway";
 import { installMetricsServer } from "./src/platform/metrics-server";
 import { installPostgres } from "./src/data/postgres";
 import { installDragonfly } from "./src/data/dragonfly";
@@ -31,7 +32,7 @@ import { installBackend } from "./src/app/backend";
 import { installFrontend } from "./src/app/frontend";
 import { installWorkers } from "./src/app/workers";
 import { installAgentWorker } from "./src/app/agent-worker";
-import { installIngress } from "./src/app/ingress";
+import { installHttpRoutes } from "./src/app/httproutes";
 
 const cfg = loadConfig();
 const provider = makeProvider(cfg);
@@ -40,8 +41,10 @@ const provider = makeProvider(cfg);
 const ns = makeAppNamespace(cfg, provider);
 const namespace = ns.metadata.name;
 
-const certManager = installCertManager(cfg, provider);
-const traefik = installTraefik(provider);
+// Gateway API edge: install the Envoy Gateway controller (+ Gateway API CRDs)
+// FIRST so cert-manager can enable its Gateway integration at startup.
+const gatewayController = installGatewayController(provider);
+const certManager = installCertManager(cfg, provider, namespace, [gatewayController]);
 if (cfg.ingress.installMetricsServer) {
   installMetricsServer(provider);
 }
@@ -92,9 +95,13 @@ const agentWorker =
       ])
     : undefined;
 
-// ── Edge ────────────────────────────────────────────────────────────────────
-const ingress = installIngress(cfg, provider, namespace, certManager.issuerName, [
-  traefik,
+// ── Edge (Gateway API) ───────────────────────────────────────────────────────
+const gatewayResources = installGatewayResources(cfg, provider, namespace, certManager.issuerName, [
+  gatewayController,
+  certManager.release,
+]);
+const routes = installHttpRoutes(cfg, provider, namespace, [
+  gatewayResources.gateway,
   frontend.service,
   seaweed.service,
 ]);
@@ -108,7 +115,8 @@ export const backendService = backend.service.metadata.name;
 export const frontendService = frontend.service.metadata.name;
 export const purgerDeployment = workers.purger.metadata.name;
 export const schedulerDeployment = workers.scheduler.metadata.name;
-export const appIngress = ingress.app.metadata.name;
+export const appRoute = routes.app.metadata.name;
+export const gatewayName = gatewayResources.gateway.metadata.name;
 export const chromaUrl = chroma ? chroma.url : pulumi.output("embedded");
 export const jobExecution = cfg.jobExecution;
 export const agentWorkerDeployment = agentWorker
