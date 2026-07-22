@@ -64,7 +64,7 @@ Host `npm install` is unreliable on this project — run frontend checks in Dock
 
 Note: the UI tsconfig includes test files, so spec type errors block the production `next build`.
 
-**Static analysis (SonarQube Cloud).** `sonar-project.properties` + `.github/workflows/sonar.yml` run Sonar on push/PR. It uses the **clean-as-you-code** gate: smells the repo already carries (notably the `PLR09xx` refactor rules ruff ignores — too-many-arguments/branches/statements) are reported on **new/changed** code only, so we pay the debt down incrementally rather than in a big-bang cleanup. The job is gated on a `SONAR_TOKEN` secret and is a no-op until an owner completes the one-time setup documented in `sonar-project.properties`.
+**Security & static analysis (free, runs entirely in CI).** `.github/workflows/security.yml` runs on push/PR + weekly: **Semgrep** (SAST for Python/TS/JS/Actions — replaces CodeQL and Sonar's security rules), **OSV-Scanner** (dependency CVEs from lockfiles — replaces Sonar SCA), **pip-audit + npm audit**, and **gitleaks** (secret scan, full history). No GitHub Advanced Security licence or SonarQube Cloud subscription needed. Semgrep and OSV-Scanner are currently non-blocking (Phase 1: findings in the job log while noise is tuned via `.semgrepignore` / `.gitleaks.toml`); drop their `continue-on-error` to make them required checks. **Dependabot** (`.github/dependabot.yml`) opens the dependency fix PRs. Code smells / maintainability are covered by the native linters and the coverage gate in `ci.yml` (ruff, eslint, `--cov-fail-under`); note this drops Sonar's **clean-as-you-code** gate, so the `PLR09xx` refactor rules ruff ignores (too-many-arguments/branches/statements) are no longer reported on new code.
 
 ## Environment variables
 
