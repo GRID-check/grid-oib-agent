@@ -27,12 +27,20 @@ their own namespaces.
 | `seaweedfs` (S3) | StatefulSet | 1 | RWO PVC `/data` | See §4 |
 
 Platform add-ons installed by Pulumi: **cert-manager** (+ Let's Encrypt issuer),
-**ingress-nginx**, the **CloudNativePG operator**.
+**Traefik** (ingress controller), the **CloudNativePG operator**, and
+**metrics-server** (for the HPAs).
+
+> Ingress controller note: we use **Traefik**, not ingress-nginx — the
+> Kubernetes ingress-nginx controller is retired (maintenance ended
+> 2026-03-31; no further releases or security patches). Traefik keeps the
+> standard Ingress API (so cert-manager HTTP-01 is unchanged) and serves
+> WebSocket upgrades + large uploads natively. Gateway API (e.g. Envoy Gateway)
+> is the longer-term direction.
 
 Traffic:
 
 ```
-Internet ──▶ ingress-nginx ──┬─▶ app.<domain>  ──▶ frontend:3000 ──▶ aiq-agent:8000 (WS/REST)
+Internet ──▶ Traefik ──┬─▶ app.<domain>  ──▶ frontend:3000 ──▶ aiq-agent:8000 (WS/REST)
                              └─▶ s3.<domain>   ──▶ seaweedfs:8333 (presigned browser URLs)
 ```
 
@@ -78,7 +86,7 @@ pulumi up
 
 Then:
 
-1. `kubectl -n ingress-nginx get svc` → note the LoadBalancer external IP.
+1. `kubectl -n traefik get svc` → note the LoadBalancer external IP.
 2. Point DNS `A`/`AAAA` records for `appDomain` and `s3Domain` at it.
 3. Leave `useStagingIssuer: true` until the ingress is reachable and a staging
    cert issues (avoids Let's Encrypt rate limits); then set it `false` and
@@ -237,5 +245,5 @@ follow-up); high-traffic chat/retrieval does not need it.
 - SeaweedFS modular HA cluster (§4).
 - The backend refactors that unlock horizontal agent scaling (§6.3).
 - GitOps (Argo/Flux) and an observability stack (Prometheus/Grafana/Loki).
-  ingress-nginx, cert-manager, CNPG, and SeaweedFS all expose Prometheus
+  Traefik, cert-manager, CNPG, and SeaweedFS all expose Prometheus
   metrics, so this is a natural next layer.

@@ -10,7 +10,7 @@ export interface CertManager {
 
 /**
  * Install cert-manager (Helm) and a Let's Encrypt ClusterIssuer (HTTP-01 via
- * the ingress-nginx class). Ingress resources annotate
+ * the Traefik ingress class). Ingress resources annotate
  * `cert-manager.io/cluster-issuer: <issuerName>` to get auto-provisioned TLS.
  */
 export function installCertManager(
@@ -64,7 +64,7 @@ export function installCertManager(
           email: cfg.ingress.letsEncryptEmail,
           privateKeySecretRef: { name: `${issuerName}-account-key` },
           solvers: [
-            { http01: { ingress: { ingressClassName: "nginx" } } },
+            { http01: { ingress: { ingressClassName: "traefik" } } },
           ],
         },
       },

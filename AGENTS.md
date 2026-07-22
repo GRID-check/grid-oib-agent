@@ -4,6 +4,15 @@ This repo is the Grid-branded AI-Q agent worktree. It contains a Next.js UI, a P
 
 This project is Docker-first. Run it via Docker Compose on Windows, macOS, or Linux; native commands are optional and mainly for local development outside the container stack.
 
+## Working style: prefer visuals
+
+The maintainer values visual explanations. When explaining architecture, data
+flows, deployment topology, sequence/interaction, or any non-trivial design,
+render a diagram with the **Excalidraw** tool (`create_view`) rather than
+describing it in prose alone. Keep diagrams structured: a clear layered/left-to
+-right flow, aligned grid, orthogonal arrows that don't cross boxes, and a short
+legend. Offer a diagram proactively for architecture/design discussions.
+
 ## Repository layout
 
 | Path | Purpose |

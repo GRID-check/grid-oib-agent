@@ -2,7 +2,7 @@
  * Grid OIB — Kubernetes deployment (Pulumi / TypeScript).
  *
  * Provisions the whole stack against a provider-supplied kubeconfig:
- *   platform  → cert-manager (+ Let's Encrypt issuer), ingress-nginx
+ *   platform  → cert-manager (+ Let's Encrypt issuer), Traefik, metrics-server
  *   data      → CloudNativePG Postgres (3 DBs), Dragonfly cache, SeaweedFS (S3)
  *   app       → aiq-agent (StatefulSet, the singleton agent), frontend
  *               (Deployment + HPA), purger, workflow-scheduler, a migration Job
@@ -19,7 +19,7 @@ import { loadConfig } from "./src/config";
 import { makeProvider } from "./src/platform/providers";
 import { makeAppNamespace } from "./src/platform/namespaces";
 import { installCertManager } from "./src/platform/cert-manager";
-import { installIngressNginx } from "./src/platform/ingress-nginx";
+import { installTraefik } from "./src/platform/traefik";
 import { installMetricsServer } from "./src/platform/metrics-server";
 import { installPostgres } from "./src/data/postgres";
 import { installDragonfly } from "./src/data/dragonfly";
@@ -41,7 +41,7 @@ const ns = makeAppNamespace(cfg, provider);
 const namespace = ns.metadata.name;
 
 const certManager = installCertManager(cfg, provider);
-const ingressNginx = installIngressNginx(provider);
+const traefik = installTraefik(provider);
 if (cfg.ingress.installMetricsServer) {
   installMetricsServer(provider);
 }
@@ -94,7 +94,7 @@ const agentWorker =
 
 // ── Edge ────────────────────────────────────────────────────────────────────
 const ingress = installIngress(cfg, provider, namespace, certManager.issuerName, [
-  ingressNginx,
+  traefik,
   frontend.service,
   seaweed.service,
 ]);
