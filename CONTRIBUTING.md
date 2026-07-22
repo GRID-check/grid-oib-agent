@@ -97,8 +97,8 @@ CI by `markdown-link-check`, so:
 - Heading anchors must match GitHub's generated slug (lowercase, spaces →
   hyphens, punctuation dropped). Do **not** use non-breaking hyphens (U+2011) in
   headings — they silently break `#anchor` links written with a normal hyphen.
-- External links are checked too, and the checker follows redirects poorly.
-  Point at the **canonical, direct-200 URL** (not one that 301/308-redirects to a
-  different path), or the link reports a flaky `Status: 0`. Domains that block
-  automated checkers belong in `ci/markdown-link-check-config.json` →
-  `ignorePatterns`.
+- **Internal** links and anchors are enforced in CI. **External** (`http(s)://`)
+  links are intentionally *not* validated — `ci/markdown-link-check-config.json`
+  ignores them, because third-party sites move, rate-limit, and block link
+  checkers, which used to break CI on unrelated PRs. Keep external links correct
+  anyway, but a stale external link will not fail the build.
