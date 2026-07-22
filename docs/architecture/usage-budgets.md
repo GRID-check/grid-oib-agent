@@ -9,8 +9,8 @@
 ## The OpenRouter cost contract (verified against official docs)
 
 Source of truth: OpenRouter **usage accounting**
-(https://openrouter.ai/docs/guides/guides/usage-accounting) and the API
-reference (https://openrouter.ai/docs/api/reference/overview):
+(https://openrouter.ai/docs/cookbook/administration/usage-accounting) and the API
+reference (https://openrouter.ai/docs/api_reference/overview):
 
 - Every chat-completion response carries a `usage` object — full usage
   details are **always included** (the old `usage: {include: true}` opt-in is

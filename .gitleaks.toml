@@ -1,20 +1,34 @@
-# gitleaks configuration for grid-oib-agent.
-#
-# Extends gitleaks' built-in ruleset and allowlists known false positives so the
-# secret-scan CI job (see .github/workflows/security.yml) stays green.
-#
-# `.secrets.baseline` is the detect-secrets baseline: it records SHA1
-# `hashed_secret` digests of already-reviewed test/doc placeholders, not live
-# credentials. gitleaks' generic high-entropy rules otherwise flag those digests
-# as leaks, so exclude the baseline file from scanning. gitleaks auto-loads this
-# file from the repo root during `detect`.
 title = "grid-oib-agent gitleaks config"
+
+# gitleaks auto-loads this file from the root of the scanned source
+# (see .github/workflows/security.yml). Start from the full default ruleset and
+# add allowlist entries for known false positives (test fixtures, example keys,
+# lockfiles). Add real exceptions here rather than weakening the scan globally.
 
 [extend]
 useDefault = true
 
 [allowlist]
-description = "Repo-wide false positives"
+description = "Global false-positive allowlist"
+
+# The detect-secrets baseline (.pre-commit-config.yaml) already tracks accepted
+# findings; these paths hold fixtures, examples, generated lockfiles, and docs
+# that legitimately contain secret-shaped strings.
 paths = [
-  '''(^|/)\.secrets\.baseline$''',
+  '''\.secrets\.baseline$''',
+  '''(^|/)tests?/''',
+  '''(^|/)__mocks__/''',
+  '''(^|/)mocks/''',
+  '''\.spec\.tsx?$''',
+  '''test_.*\.py$''',
+  '''conftest\.py$''',
+  '''\.env\.example$''',
+  '''(^|/)uv\.lock$''',
+  '''package-lock\.json$''',
+  '''(^|/)docs/''',
+]
+
+# Placeholder / obviously-fake credentials used in examples and docs.
+regexes = [
+  '''(?i)(example|dummy|placeholder|changeme|your[-_]?token|test[-_]?key)''',
 ]

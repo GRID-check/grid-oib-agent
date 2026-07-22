@@ -60,8 +60,7 @@ async def test_success_returns_title_and_filtered_tags(app):
     """A clean JSON reply yields the title and only allowed tags (deduped, capped)."""
     mock_post = AsyncMock(
         return_value=_title_response(
-            '{"title": "Brandschutz bei Stiegenhäusern", '
-            '"tags": ["brandschutz", "brandschutz", "unknown-tag"]}'
+            '{"title": "Brandschutz bei Stiegenhäusern", "tags": ["brandschutz", "brandschutz", "unknown-tag"]}'
         )
     )
 

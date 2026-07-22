@@ -75,9 +75,7 @@ def test_prefers_chunk_text_over_summary():
         seen["called"] = (collection, file_name)
         return "Full indexed chunk text about a floor plan."
 
-    outcome = backfill.process_row(
-        "c", doc, llm=llm, update_fn=store.update_tags, text_fetcher=fetcher
-    )
+    outcome = backfill.process_row("c", doc, llm=llm, update_fn=store.update_tags, text_fetcher=fetcher)
 
     assert outcome == backfill.TAGGED
     assert seen["called"] == ("c", "doc.pdf")
@@ -91,9 +89,7 @@ def test_falls_back_to_summary_when_fetcher_returns_none():
     doc = AvailableDocument(file_name="doc.pdf", summary="A summary source.", tags=None)
     llm = _llm_returning(["Grundriss"])
 
-    outcome = backfill.process_row(
-        "c", doc, llm=llm, update_fn=store.update_tags, text_fetcher=lambda c, f: None
-    )
+    outcome = backfill.process_row("c", doc, llm=llm, update_fn=store.update_tags, text_fetcher=lambda c, f: None)
 
     assert outcome == backfill.TAGGED
     assert "A summary source." in llm.invoke.call_args[0][0]

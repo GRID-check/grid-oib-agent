@@ -73,6 +73,7 @@ class ReflectionOutput(BaseModel):
 
     findings: list[_ReflectionFinding] = Field(description="Durable project findings; empty list if none.")
 
+
 # A reflection turn records a small, curated set — it is a safety net for what
 # the in-turn `remember` tool missed, not a bulk extractor.
 MAX_NEW_ITEMS = 5

@@ -110,8 +110,9 @@ by pillar:
   checks everywhere, admission control, WS rate limiting, budget enforcement.
 - **Incidents:** no monitoring/alerting/status page/incident process; WorkOS audit
   trail + SIEM streaming is strong but fail-silent and third-party-hosted.
-- **Testing:** CI security scanning comprehensive (CodeQL, gitleaks full-history,
-  dependency-review blocking); pip-audit/npm-audit non-blocking; no load/chaos tests.
+- **Testing:** CI security scanning comprehensive (Semgrep SAST, OSV-Scanner,
+  pip-audit/npm-audit, gitleaks full-history, Dependabot fix PRs); Semgrep/OSV/pip-audit/npm-audit
+  non-blocking (Phase 1); no load/chaos tests.
 - **Third-party risk:** no vendor register (see companion register), OpenRouter
   concentration (one key = all LLM+embeddings+VLM; outage kills chat *and* knowledge
   search; retries-only, no circuit breaker), dynamic subcontractor chain via model

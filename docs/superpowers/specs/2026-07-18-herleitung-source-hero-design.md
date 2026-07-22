@@ -1,8 +1,8 @@
 # Herleitung Source-Hero Panel (Chat Thinking)
 
-**Date:** 2026-07-18  
-**Status:** Design approved (UX direction locked); ready for implementation plan  
-**Branch:** `feature/research-trace-lanes`  
+**Date:** 2026-07-18
+**Status:** Design approved (UX direction locked); ready for implementation plan
+**Branch:** `feature/research-trace-lanes`
 **Related:** `docs/design/click-dummy-overhaul-spec.md` §7 · dummy `Ask Piloti v6 (standalone)` · ADR-0025 lane keys · `fix/oib-source-lane`
 
 ## Problem
@@ -55,12 +55,12 @@ Always visible under the user turn (existing placement in `ChatArea`):
 
 ### Expanded body (top → bottom)
 
-1. **Optional light spine** (compact, non-blocking)  
-   Product stages as subtle chips or a one-line progress:  
-   `Verstehen → Recherchieren → Quellen → Antwort`  
+1. **Optional light spine** (compact, non-blocking)
+   Product stages as subtle chips or a one-line progress:
+   `Verstehen → Recherchieren → Quellen → Antwort`
    Driven only from signals we already have (classifier/router complete, tool activity, final response). No fake timers. May ship as a thin second slice if spine mapping is ambiguous.
 
-2. **Source fan-out (required)**  
+2. **Source fan-out (required)**
    Responsive grid/list of **source cards**:
 
    | Field | Source | Example |
@@ -74,10 +74,10 @@ Always visible under the user turn (existing placement in `ChatArea`):
 
    Card chrome: left inset or chip tint via existing `--source-law|project|office|auto` tokens + `SourceSignalChip`. Motion: light enter only (`nodeIn`-class restraint via existing motion primitives); no auto-collapse.
 
-3. **Technical steps (secondary)**  
+3. **Technical steps (secondary)**
    Existing chronological NAT steps stay, **collapsed by default** or under “Technische Schritte”, so power users and support still see Function Start/Complete without dominating the product surface.
 
-4. **Enabled sources footer**  
+4. **Enabled sources footer**
    Keep “Ausgewählte Datenquellen” as context (toggles + files), clearly secondary to **actual hits**.
 
 ### Multi-turn
@@ -189,24 +189,24 @@ No new BFF routes. No new WS message types in v1.
 
 ## Rollout
 
-1. Backend Trace-Lanes emit (KB) + tests.  
-2. FE derive + ChatThinking source-hero + i18n.  
-3. Prune/persistence.  
-4. Docs: short note in `docs/design/click-dummy-overhaul-spec.md` (live mapping) and architecture if wire is mentioned.  
+1. Backend Trace-Lanes emit (KB) + tests.
+2. FE derive + ChatThinking source-hero + i18n.
+3. Prune/persistence.
+4. Docs: short note in `docs/design/click-dummy-overhaul-spec.md` (live mapping) and architecture if wire is mentioned.
 5. Deep-research / React Flow: separate ADR later if needed.
 
 ## Success criteria
 
-- Collapsed bar reads as **Herleitung · n Schritte · m Quellen** (localized).  
-- Expanded view gives an architect a 2-second answer to “which documents/lanes did we actually hit?”  
-- OIB base-corpus hits surface as Baurecht/OIB, not conflated with project/web.  
-- No graph canvas in chat; multi-turn step attachment unchanged.  
+- Collapsed bar reads as **Herleitung · n Schritte · m Quellen** (localized).
+- Expanded view gives an architect a 2-second answer to “which documents/lanes did we actually hit?”
+- OIB base-corpus hits surface as Baurecht/OIB, not conflated with project/web.
+- No graph canvas in chat; multi-turn step attachment unchanged.
 - Reloaded conversations still show source cards after prune.
 
 ## Open follow-ups (explicitly deferred)
 
-- Backend gap emission (catalog misses → true Lücke cards like dummy TRVB F 134).  
-- Structured “understood / findings” nodes.  
-- HITL option cards styled as Folgeweg.  
-- Deep-research DAG with React Flow.  
+- Backend gap emission (catalog misses → true Lücke cards like dummy TRVB F 134).
+- Structured “understood / findings” nodes.
+- HITL option cards styled as Folgeweg.
+- Deep-research DAG with React Flow.
 - Dedicated intermediate event type if parse-from-payload proves fragile.

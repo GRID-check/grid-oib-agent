@@ -106,9 +106,7 @@ def filter_tools_by_sources(
         return tools
 
     selected = (
-        None
-        if data_sources is None
-        else {source_id.strip().lower() for source_id in data_sources if source_id.strip()}
+        None if data_sources is None else {source_id.strip().lower() for source_id in data_sources if source_id.strip()}
     )
     filtered = []
     for tool in tools:

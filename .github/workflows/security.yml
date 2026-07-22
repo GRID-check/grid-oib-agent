@@ -1,9 +1,21 @@
 name: Security
 
-# Always-on security analysis: CodeQL (Python + TS/JS), dependency audits, and
-# secret scanning. Runs on every PR and push to the integration branches, plus
-# a weekly scheduled full scan to catch newly-disclosed advisories in code that
-# has not changed.
+# Always-on security analysis, running fully in CI (no GitHub Advanced Security
+# licence required on this private repo):
+#   - Semgrep     -> SAST for Python + TS/JS + GitHub Actions (replaces CodeQL
+#                    and Sonar's security rules)
+#   - OSV-Scanner -> dependency vulnerabilities from lockfiles (replaces Sonar SCA;
+#                    Dependabot opens the fix PRs, see .github/dependabot.yml)
+#   - dependency-audit -> pip-audit + npm audit, complementary advisory sources
+#   - gitleaks    -> secret scanning across full history
+#
+# Runs on every PR and push to the integration branches, plus a weekly scheduled
+# full scan to catch newly-disclosed advisories in code that has not changed.
+#
+# Phase 1 (current): Semgrep and OSV-Scanner are non-blocking (continue-on-error)
+# so findings surface in the job log without blocking merges while we tune noise
+# (see .semgrepignore / .gitleaks.toml). Once trusted, drop continue-on-error to
+# make them required checks.
 on:
   push:
     branches: [develop, "release/**"]
@@ -20,30 +32,50 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  codeql:
-    name: CodeQL (${{ matrix.language }})
+  semgrep:
+    name: SAST (Semgrep)
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    permissions:
-      contents: read
-      security-events: write
-      actions: read
-    strategy:
-      fail-fast: false
-      matrix:
-        language: [python, javascript-typescript]
+    container:
+      image: semgrep/semgrep
     steps:
       - uses: actions/checkout@v4
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
         with:
-          language: ${{ matrix.language }}
-          queries: security-and-quality
-      # Python and JS/TS are interpreted — CodeQL analyzes source directly, no
-      # build step needed.
-      - name: Analyze
-        uses: github/codeql-action/analyze@v3
+          # semgrep ci diffs PRs against the base branch; full history lets it
+          # scope the scan to changed code instead of falling back to a full scan.
+          fetch-depth: 0
+      # `semgrep ci` auto-detects PR vs push: it scans the diff on PRs and the
+      # full tree on develop/release. Rule packs run in no-account mode, so no
+      # SEMGREP_APP_TOKEN is needed — findings appear in this job log.
+      - run: semgrep ci
+        env:
+          SEMGREP_RULES: >-
+            p/default
+            p/javascript
+            p/typescript
+            p/python
+            p/secrets
+            p/github-actions
+        continue-on-error: true # Phase 1 only — remove to make blocking.
+
+  deps-osv:
+    name: Dependency vulns (OSV-Scanner)
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      - uses: actions/checkout@v4
+      # Reads the lockfiles in the tree (uv.lock, frontends/ui/package-lock.json)
+      # and reports known-vulnerable versions against the OSV database.
+      # The runnable action lives in a subdirectory (the repo root action.yml is
+      # metadata only), and there is no floating v2 tag, so pin an exact release.
+      # The reusable workflow is intentionally avoided: it uploads SARIF to code
+      # scanning, which needs GitHub Advanced Security (exactly what this stack
+      # is designed not to require).
+      - uses: google/osv-scanner-action/osv-scanner-action@v2.3.8
         with:
-          category: /language:${{ matrix.language }}
+          scan-args: |-
+            -r
+            --skip-git
+            ./
+        continue-on-error: true # Phase 1 only — remove to make blocking.
 
   dependency-audit:
     name: Dependency audit
@@ -78,6 +110,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # full history so gitleaks scans all commits
+      # Run the OSS gitleaks image directly rather than gitleaks-action, which
+      # requires a paid GITLEAKS_LICENSE for organisation-owned repos. Config and
+      # false-positive allowlist live in .gitleaks.toml.
       - name: gitleaks
         run: |
           docker run --rm -v "${{ github.workspace }}:/repo" \

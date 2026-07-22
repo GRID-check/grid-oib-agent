@@ -14,9 +14,7 @@ from aiq_agent.cards.register import _CARD_EXAMPLES
 from aiq_agent.cards.register import _build_tool_description
 from aiq_agent.cards.register import _shape_hint_for
 
-_CARD_TYPES = [
-    getattr(c.model_fields["type"].annotation, "__args__", ("?",))[0] for c in GridCard.__args__
-]
+_CARD_TYPES = [getattr(c.model_fields["type"].annotation, "__args__", ("?",))[0] for c in GridCard.__args__]
 
 
 # Card types deliberately shipped WITHOUT a worked example — flat/simple shapes
