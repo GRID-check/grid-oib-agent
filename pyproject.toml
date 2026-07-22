@@ -24,7 +24,7 @@ dependencies = [
     "langgraph-checkpoint-postgres>=3.0.0",
     "langgraph-checkpoint-sqlite>=2.0.0",
     "langchain-modal==0.0.5",
-    "psycopg[binary]>=3.0.0",
+    "psycopg[binary]>=3.3.4",
     "asyncpg>=0.29.0",
     "redis>=5.0.0,<7",
     "aiosqlite>=0.19.0",
