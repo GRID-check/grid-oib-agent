@@ -461,4 +461,3 @@ function AssumptionsBlock({ projectId, assumptions }: { projectId: string; assum
     </div>
   )
 }
-

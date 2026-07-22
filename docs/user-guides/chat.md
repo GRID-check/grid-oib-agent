@@ -67,7 +67,7 @@ The WebSocket supports auto-reconnection with exponential backoff (3 attempts, 1
 
 ## Deep research vs simple chat
 
-Simple chat sends a single message through the SSE or WebSocket path and streams the assistant response back.  
+Simple chat sends a single message through the SSE or WebSocket path and streams the assistant response back.
 
 Deep research submits a job to the backend and receives progress via SSE events through the `/generate/stream` endpoint. The `DeepResearchBanner` component shows submission, success, failure, cancellation, and expiry states. Users can navigate away and reconnect to an active job on return. The Research Panel displays:
 

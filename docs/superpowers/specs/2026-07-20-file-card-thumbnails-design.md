@@ -80,5 +80,3 @@ The route uses the existing `apiRoute` factory, `signingS3Client`, and `bucketNa
 - **Missing thumbnail at read time**: File has `thumbnail_path` but MinIO object was deleted → presign fails → `getDocumentThumbnail` returns `{ url: null }` → frontend falls back to SVG sketch
 - **Large PDFs (1000+ pages)**: Rendering page 0 is cheap (~50ms) — no risk
 - **Thumbnail upload failure**: Non-fatal — log warning, skip, cards show SVG sketch
-
-
