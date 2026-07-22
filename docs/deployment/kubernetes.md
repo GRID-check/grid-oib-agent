@@ -26,22 +26,25 @@ their own namespaces.
 | `dragonfly` (Redis-proto cache) | Deployment | 1 | — (cache) | — |
 | `seaweedfs` (S3) | StatefulSet | 1 | RWO PVC `/data` | See §4 |
 
-Platform add-ons installed by Pulumi: **cert-manager** (+ Let's Encrypt issuer),
-**Traefik** (ingress controller), the **CloudNativePG operator**, and
-**metrics-server** (for the HPAs).
+Platform add-ons installed by Pulumi: **cert-manager** (+ Let's Encrypt issuer,
+Gateway-API-enabled), **Envoy Gateway** (Gateway API controller), the
+**CloudNativePG operator**, and **metrics-server** (for the HPAs).
 
-> Ingress controller note: we use **Traefik**, not ingress-nginx — the
-> Kubernetes ingress-nginx controller is retired (maintenance ended
-> 2026-03-31; no further releases or security patches). Traefik keeps the
-> standard Ingress API (so cert-manager HTTP-01 is unchanged) and serves
-> WebSocket upgrades + large uploads natively. Gateway API (e.g. Envoy Gateway)
-> is the longer-term direction.
+> Edge = **Gateway API**, not Ingress. The Kubernetes ingress-nginx controller
+> is retired (maintenance ended 2026-03-31; no further releases or security
+> patches), and the Gateway API is the project's modern successor to Ingress.
+> We run **Envoy Gateway** (CNCF, Gateway-API native) with a `GatewayClass`,
+> a `Gateway` (HTTP :80 for the ACME challenge + per-host HTTPS :443), and
+> `HTTPRoute`s (`src/platform/gateway.ts`, `src/app/httproutes.ts`). TLS is
+> issued by cert-manager's Gateway integration (`enableGatewayAPI`,
+> `gatewayHTTPRoute` HTTP-01 solver). WebSocket upgrades + large uploads pass
+> through natively.
 
 Traffic:
 
 ```
-Internet ──▶ Traefik ──┬─▶ app.<domain>  ──▶ frontend:3000 ──▶ aiq-agent:8000 (WS/REST)
-                             └─▶ s3.<domain>   ──▶ seaweedfs:8333 (presigned browser URLs)
+Internet ──▶ Envoy Gateway ──┬─▶ app.<domain> (HTTPRoute) ──▶ frontend:3000 ──▶ aiq-agent:8000 (WS/REST)
+                             └─▶ s3.<domain>  (HTTPRoute) ──▶ seaweedfs:8333 (presigned browser URLs)
 ```
 
 ---
@@ -86,12 +89,12 @@ pulumi up
 
 Then:
 
-1. `kubectl -n traefik get svc` → note the LoadBalancer external IP.
+1. `kubectl -n envoy-gateway-system get svc` → note the Envoy proxy LoadBalancer external IP.
 2. Point DNS `A`/`AAAA` records for `appDomain` and `s3Domain` at it.
 3. Leave `useStagingIssuer: true` until the ingress is reachable and a staging
    cert issues (avoids Let's Encrypt rate limits); then set it `false` and
    `pulumi up` for a trusted cert.
-4. Verify: `kubectl -n grid get pods,pvc,ingress,cluster`.
+4. Verify: `kubectl -n grid get pods,pvc,httproute,gateway,cluster`.
 
 The base OIB corpus is **not** shipped in the image or from git — it is
 volume-based. Load it through the platform-admin upload UI once the stack is up;
@@ -245,5 +248,5 @@ follow-up); high-traffic chat/retrieval does not need it.
 - SeaweedFS modular HA cluster (§4).
 - The backend refactors that unlock horizontal agent scaling (§6.3).
 - GitOps (Argo/Flux) and an observability stack (Prometheus/Grafana/Loki).
-  Traefik, cert-manager, CNPG, and SeaweedFS all expose Prometheus
+  Envoy Gateway, cert-manager, CNPG, and SeaweedFS all expose Prometheus
   metrics, so this is a natural next layer.
