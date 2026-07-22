@@ -99,6 +99,9 @@ const agentWorker =
 const gatewayResources = installGatewayResources(cfg, provider, namespace, certManager.issuerName, [
   gatewayController,
   certManager.release,
+  // Gate the annotated Gateway on the ClusterIssuer so the cert-manager shim
+  // never creates a Certificate referencing a not-yet-existent issuer.
+  certManager.issuer,
 ]);
 const routes = installHttpRoutes(cfg, provider, namespace, [
   gatewayResources.gateway,

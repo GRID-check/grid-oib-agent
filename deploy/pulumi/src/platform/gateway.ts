@@ -30,7 +30,11 @@ export function installGatewayController(provider: k8s.Provider): k8s.helm.v3.Re
       chart: "oci://docker.io/envoyproxy/gateway-helm",
       version: "v1.2.4",
       namespace: ns.metadata.name,
-      // The chart installs the Gateway API standard-channel CRDs + controller.
+      // The chart installs the Gateway API standard-channel CRDs + controller
+      // by default (crds.gatewayAPI.enabled=true). DO NOT override `values.crds`
+      // or set `skipAwait`: cert-manager (installed next with enableGatewayAPI)
+      // hard-fails at startup if the Gateway API CRDs aren't Established first,
+      // and the default release-await is what guarantees that ordering.
       values: {},
     },
     { provider, dependsOn: ns },
@@ -71,7 +75,9 @@ export function installGatewayResources(
         name: GATEWAY_NAME,
         namespace,
         labels: commonLabels("gateway"),
-        annotations: { "cert-manager.io/cluster-issuer": issuerName as string },
+        annotations: { "cert-manager.io/cluster-issuer": issuerName } as {
+          [k: string]: pulumi.Input<string>;
+        },
       },
       spec: {
         gatewayClassName: GATEWAY_CLASS,
