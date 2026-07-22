@@ -93,7 +93,7 @@ export function installSeaweedFS(
             containers: [
               {
                 name: "seaweedfs",
-                image: "chrislusf/seaweedfs:3.80",
+                image: "chrislusf/seaweedfs:latest",
                 command: ["/bin/sh", "-c"],
                 args: [
                   "exec weed server -dir=/data -volume.max=0 -s3 " +
@@ -178,7 +178,7 @@ export function installSeaweedFS(
             containers: [
               {
                 name: "bucket-init",
-                image: "chrislusf/seaweedfs:3.80",
+                image: "chrislusf/seaweedfs:latest",
                 command: ["/bin/sh", "-c"],
                 args: [
                   // Wait for the master, create the bucket, then TOLERATE only

@@ -13,7 +13,7 @@ export function installMetricsServer(provider: k8s.Provider): k8s.helm.v3.Releas
     "metrics-server",
     {
       chart: "metrics-server",
-      version: "3.12.2",
+      // Unpinned: track the latest chart.
       namespace: "kube-system",
       repositoryOpts: { repo: "https://kubernetes-sigs.github.io/metrics-server/" },
       values: {

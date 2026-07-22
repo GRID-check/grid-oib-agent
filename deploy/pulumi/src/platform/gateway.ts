@@ -18,16 +18,16 @@ export const GATEWAY_CLASS = "eg";
  * Edge on the **Gateway API** (not the legacy Ingress API, and not the retired
  * ingress-nginx). Implementation: **Envoy Gateway** (CNCF, Gateway-API native).
  *
- * Pinned to a supported release (v1.2.x/v1.6.x are EOL). The `gateway-helm`
- * chart still installs both the Gateway API standard-channel CRDs and the Envoy
- * Gateway CRDs by default (`crds.enabled=true`).
+ * Chart unpinned: tracks the latest `gateway-helm`, which installs both the
+ * Gateway API standard-channel CRDs and the Envoy Gateway CRDs by default
+ * (`crds.enabled=true`). The typed SDK under ./crds is generated from a recent
+ * CRD snapshot (Gateway API v1.5.1 / Envoy Gateway v1.8.0) — re-run
+ * `npm run gen:crds` if a chart bump changes a spec you use.
  *
  * Ordering: the controller ships the CRDs, which cert-manager must see at
  * startup to enable its Gateway integration — so install the controller FIRST,
  * then cert-manager, then the Gateway/GatewayClass resources.
  */
-const ENVOY_GATEWAY_VERSION = "v1.8.0";
-
 export function installGatewayController(provider: k8s.Provider): k8s.helm.v3.Release {
   const ns = new k8s.core.v1.Namespace(
     "envoy-gateway-ns",
@@ -39,7 +39,7 @@ export function installGatewayController(provider: k8s.Provider): k8s.helm.v3.Re
     "envoy-gateway",
     {
       chart: "oci://docker.io/envoyproxy/gateway-helm",
-      version: ENVOY_GATEWAY_VERSION,
+      // Unpinned: track the latest Envoy Gateway release.
       namespace: ns.metadata.name,
       // Install CRDs + controller with the chart's defaults. DO NOT override
       // `values.crds` or set `skipAwait`: cert-manager (installed next with

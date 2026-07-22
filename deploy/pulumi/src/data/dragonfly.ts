@@ -40,7 +40,8 @@ export function installDragonfly(
             containers: [
               {
                 name: "dragonfly",
-                image: "docker.dragonflydb.io/dragonflydb/dragonfly:v1.27.1",
+                // Cache only (state is regenerable) — safe to track latest.
+                image: "docker.dragonflydb.io/dragonflydb/dragonfly:latest",
                 args: [
                   "--logtostderr",
                   // io_uring is denied under many managed-node seccomp profiles

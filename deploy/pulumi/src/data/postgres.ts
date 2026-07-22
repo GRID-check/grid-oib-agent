@@ -73,7 +73,7 @@ export function installPostgres(
     "cloudnative-pg",
     {
       chart: "cloudnative-pg",
-      version: "0.23.0",
+      // Unpinned: track the latest CloudNativePG operator chart.
       namespace: opNs.metadata.name,
       repositoryOpts: { repo: "https://cloudnative-pg.github.io/charts" },
     },
@@ -99,7 +99,7 @@ export function installPostgres(
             containers: [
               {
                 name: "wait",
-                image: "curlimages/curl:8.11.1",
+                image: "curlimages/curl:latest",
                 command: ["/bin/sh", "-c"],
                 args: [
                   // Any HTTP response (even 404) means the webhook TLS listener
@@ -144,7 +144,11 @@ export function installPostgres(
       metadata: { name: CLUSTER_NAME, namespace, labels: commonLabels("postgres") },
       spec: {
         instances: cfg.postgres.instances,
-        imageName: "ghcr.io/cloudnative-pg/postgresql:16.4",
+        // Major-pinned, patch-floating: gets every 17.x minor/security patch
+        // automatically (safe in-place for Postgres), but never auto-crosses a
+        // major — CloudNativePG treats a major bump as a declarative migration,
+        // and a floating `latest` could refuse to start on the old data dir.
+        imageName: "ghcr.io/cloudnative-pg/postgresql:17",
         storage: {
           size: cfg.postgres.storageSize,
           storageClass: cfg.storage.className,
@@ -221,7 +225,7 @@ export function installPostgres(
             containers: [
               {
                 name: "psql",
-                image: "postgres:16-alpine",
+                image: "postgres:17-alpine",
                 env: [
                   { name: "JOBS_DSN", value: jobsPlain },
                   { name: "CHECKPOINTS_DSN", value: checkpointsPlain },
