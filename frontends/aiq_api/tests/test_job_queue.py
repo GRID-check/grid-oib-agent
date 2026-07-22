@@ -78,17 +78,39 @@ def test_retries_exhaust_then_reaped(db_url):
     assert reaped == ["job-1"]
 
 
-def test_cancel_requested_is_skipped(db_url):
-    queue.enqueue(db_url, "job-1", {"input_text": "x"})
-    queue.request_cancel(db_url, "job-1")
-    assert queue.is_cancel_requested(db_url, "job-1") is True
-    assert queue.claim_next(db_url, "worker-A", 30, 3) is None  # never handed out
-
-
 def test_mark_done_removes_row(db_url):
     queue.enqueue(db_url, "job-1", {"input_text": "x"})
     queue.claim_next(db_url, "worker-A", 30, 3)
-    queue.mark_done(db_url, "job-1")
+    queue.mark_done(db_url, "job-1")  # cancel-route path: unconditional
     with queue._connection(db_url) as conn:
         remaining = conn.execute(text("SELECT count(*) FROM research_job_queue")).scalar()
     assert remaining == 0
+
+
+def test_mark_done_ownership_guard(db_url):
+    # A stalled worker that lost its claim must NOT delete the new owner's row.
+    queue.enqueue(db_url, "job-1", {"input_text": "x"})
+    queue.claim_next(db_url, "worker-A", 30, 3)
+    _age_heartbeat(db_url, "job-1", 120)
+    queue.claim_next(db_url, "worker-B", 30, 3)  # B now owns it
+
+    queue.mark_done(db_url, "job-1", worker_id="worker-A")  # stale A returns
+    with queue._connection(db_url) as conn:
+        remaining = conn.execute(text("SELECT count(*) FROM research_job_queue")).scalar()
+    assert remaining == 1  # B's live row preserved
+
+    queue.mark_done(db_url, "job-1", worker_id="worker-B")  # real owner finishes
+    with queue._connection(db_url) as conn:
+        remaining = conn.execute(text("SELECT count(*) FROM research_job_queue")).scalar()
+    assert remaining == 0
+
+
+def test_reap_exhausted_deletes_rows(db_url):
+    queue.enqueue(db_url, "job-1", {"input_text": "x"})
+    for _ in range(3):
+        queue.claim_next(db_url, "w", 30, 3)
+        _age_heartbeat(db_url, "job-1", 120)
+    assert queue.reap_exhausted(db_url, 30, 3) == ["job-1"]
+    with queue._connection(db_url) as conn:
+        remaining = conn.execute(text("SELECT count(*) FROM research_job_queue")).scalar()
+    assert remaining == 0  # exhausted rows are removed, not left as 'failed'

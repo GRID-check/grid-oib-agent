@@ -534,7 +534,6 @@ async def submit_agent_job(
                 job_id=resolved_job_id,
                 expiry_seconds=expiry_seconds,
             )
-            await loop.run_in_executor(None, queue.enqueue, db_url, resolved_job_id, payload)
         else:
             await job_store.submit_job(
                 job_id=resolved_job_id,
@@ -574,7 +573,20 @@ async def submit_agent_job(
             project_collection,
             organization_id,
         )
+        if db_execution:
+            # Enqueue the claimable row LAST — only once job_info AND job_access
+            # are fully persisted — so a worker can never claim and run a job
+            # whose ownership/rollback state is still incomplete.
+            await loop.run_in_executor(None, queue.enqueue, db_url, resolved_job_id, payload)
     except Exception:
+        if db_execution:
+            # Drop any partial queue row so a half-submitted job is never run.
+            try:
+                from . import queue as _queue
+
+                await loop.run_in_executor(None, _queue.mark_done, db_url, resolved_job_id, None)
+            except Exception:
+                logger.warning("Failed to clean up queue row for %s during rollback", resolved_job_id, exc_info=True)
         if not preexistence_verified:
             # rollback_job_submission deletes job_access, job_events AND
             # job_info. Without positive proof the job ID did not exist before

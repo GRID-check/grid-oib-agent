@@ -510,7 +510,14 @@ async def run_agent_job(
 
     try:
         job_store = JobStore(scheduler_address=scheduler_address, db_url=db_url)
-        await job_store.update_status(job_id, JobStatus.RUNNING)
+        # Guard the RUNNING write: a cancel (INTERRUPTED) or the ghost reaper
+        # (FAILURE) may have already finalized this job in the race window
+        # between claim and here. An unconditional write would resurrect a
+        # reaped job or silently lose a cancel (esp. in db-execution mode, where
+        # cancel deletes the queue row and this status flip is the only signal).
+        if not await _update_status_if_not_terminal(job_store, job_id, JobStatus.RUNNING):
+            logger.info("Job %s already terminal before start; aborting run", job_id)
+            return
 
         cancellation_monitor = CancellationMonitor(
             scheduler_address=scheduler_address,

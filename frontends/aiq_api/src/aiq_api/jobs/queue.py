@@ -11,11 +11,14 @@ This table carries only *dispatch* metadata + the serialized ``run_agent_job``
 payload. User-facing status stays in NAT's ``job_info`` (written by the runner)
 and events stay in ``job_events`` — SSE streaming and admission counting are
 unchanged.
+
+Cancellation is handled entirely through ``job_info`` (the cancel route flips it
+to INTERRUPTED, which the runner's ``CancellationMonitor`` honors) plus deleting
+the queue row, so there is deliberately no ``cancel_requested`` column here.
 """
 
 from __future__ import annotations
 
-import json
 from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
@@ -24,13 +27,13 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
+from . import payload_crypto
+
 _queue_schema_initialized: set[str] = set()
 
 # Claim states.
 QUEUED = "queued"
 CLAIMED = "claimed"
-DONE = "done"
-FAILED = "failed"
 
 
 def _is_postgres(db_url: str) -> bool:
@@ -47,11 +50,9 @@ def _table_sql(db_url: str) -> str:
     if _is_postgres(db_url):
         ts = "TIMESTAMP WITH TIME ZONE"
         default_now = "DEFAULT NOW()"
-        boolean = "BOOLEAN NOT NULL DEFAULT FALSE"
     else:
         ts = "DATETIME"
         default_now = "DEFAULT CURRENT_TIMESTAMP"
-        boolean = "BOOLEAN NOT NULL DEFAULT 0"
     return (
         "CREATE TABLE IF NOT EXISTS research_job_queue ("
         "  job_id VARCHAR PRIMARY KEY,"
@@ -61,7 +62,6 @@ def _table_sql(db_url: str) -> str:
         f"  claimed_at {ts},"
         f"  heartbeat_at {ts},"
         "  attempts INTEGER NOT NULL DEFAULT 0,"
-        f"  cancel_requested {boolean},"
         f"  created_at {ts} {default_now}"
         ")"
     )
@@ -93,7 +93,7 @@ def enqueue(db_url: str, job_id: str, payload: dict[str, Any]) -> None:
                 "INSERT INTO research_job_queue (job_id, payload, status, attempts) "
                 f"VALUES (:job_id, :payload, '{QUEUED}', 0)"
             ),
-            {"job_id": job_id, "payload": json.dumps(payload)},
+            {"job_id": job_id, "payload": payload_crypto.serialize(payload)},
         )
         conn.commit()
 
@@ -103,8 +103,9 @@ def claim_next(db_url: str, worker_id: str, stale_seconds: int, max_attempts: in
 
     Returns ``{"job_id", "payload", "attempts"}`` or None when nothing is
     runnable. On Postgres this is a single ``FOR UPDATE SKIP LOCKED`` CTE so N
-    workers never double-claim; on SQLite (dev) writes are serialized so a
-    SELECT-then-UPDATE in one transaction is equivalent.
+    workers never double-claim. On SQLite (single-worker dev/test only) it is a
+    SELECT-then-UPDATE; SQLite serializes writes but the read+write is not one
+    atomic step, so it must not be relied on for real concurrency.
     """
     with _connection(db_url) as conn:
         _ensure_schema(conn, db_url)
@@ -114,11 +115,9 @@ def claim_next(db_url: str, worker_id: str, stale_seconds: int, max_attempts: in
                     text(
                         "WITH claimable AS ("
                         "  SELECT job_id FROM research_job_queue"
-                        "  WHERE cancel_requested = FALSE AND ("
-                        f"    status = '{QUEUED}'"
+                        f"  WHERE status = '{QUEUED}'"
                         f"    OR (status = '{CLAIMED}' AND attempts < :max_attempts"
                         "        AND heartbeat_at < NOW() - make_interval(secs => :stale))"
-                        "  )"
                         "  ORDER BY created_at"
                         "  FOR UPDATE SKIP LOCKED LIMIT 1"
                         ")"
@@ -140,10 +139,9 @@ def claim_next(db_url: str, worker_id: str, stale_seconds: int, max_attempts: in
                 conn.execute(
                     text(
                         "SELECT job_id, payload, attempts FROM research_job_queue "
-                        "WHERE cancel_requested = 0 AND ("
-                        f"  status = '{QUEUED}'"
+                        f"WHERE status = '{QUEUED}'"
                         f"  OR (status = '{CLAIMED}' AND attempts < :max_attempts AND heartbeat_at < :threshold)"
-                        ") ORDER BY created_at LIMIT 1"
+                        " ORDER BY created_at LIMIT 1"
                     ),
                     {"threshold": threshold, "max_attempts": max_attempts},
                 )
@@ -164,12 +162,17 @@ def claim_next(db_url: str, worker_id: str, stale_seconds: int, max_attempts: in
             row = {"job_id": found["job_id"], "payload": found["payload"], "attempts": found["attempts"] + 1}
         if row is None:
             return None
-        return {"job_id": row["job_id"], "payload": json.loads(row["payload"]), "attempts": row["attempts"]}
+        return {
+            "job_id": row["job_id"],
+            "payload": payload_crypto.deserialize(row["payload"]),
+            "attempts": row["attempts"],
+        }
 
 
 def heartbeat(db_url: str, job_id: str, worker_id: str) -> bool:
     """Refresh the claim's heartbeat. Returns False if we no longer own it
-    (reclaimed by a reaper / cancelled) so the worker can abort promptly."""
+    (reclaimed by another worker / row deleted by cancel) so the worker can
+    abort its run promptly and avoid duplicate execution."""
     now = "NOW()" if _is_postgres(db_url) else "CURRENT_TIMESTAMP"
     with _connection(db_url) as conn:
         _ensure_schema(conn, db_url)
@@ -184,43 +187,34 @@ def heartbeat(db_url: str, job_id: str, worker_id: str) -> bool:
         return (result.rowcount or 0) > 0
 
 
-def is_cancel_requested(db_url: str, job_id: str) -> bool:
+def mark_done(db_url: str, job_id: str, worker_id: str | None = None) -> None:
+    """Remove a finished job's queue row (terminal status lives in job_info).
+
+    When ``worker_id`` is given the delete is guarded by ownership, so a stalled
+    worker that lost its claim (and whose job another worker now owns) cannot
+    delete the new owner's live row. The cancel route passes no worker_id — it
+    intends to drop the row unconditionally.
+    """
+    sql = "DELETE FROM research_job_queue WHERE job_id = :job_id"
+    params: dict[str, Any] = {"job_id": job_id}
+    if worker_id is not None:
+        sql += " AND claimed_by = :worker"
+        params["worker"] = worker_id
     with _connection(db_url) as conn:
         _ensure_schema(conn, db_url)
-        val = conn.execute(
-            text("SELECT cancel_requested FROM research_job_queue WHERE job_id = :job_id"),
-            {"job_id": job_id},
-        ).scalar()
-        return bool(val)
-
-
-def request_cancel(db_url: str, job_id: str) -> None:
-    """Mark a job cancelled. A running worker sees this via its heartbeat/poll;
-    an unclaimed queued row is skipped by ``claim_next`` and reaped as done."""
-    true_val = "TRUE" if _is_postgres(db_url) else "1"
-    with _connection(db_url) as conn:
-        _ensure_schema(conn, db_url)
-        conn.execute(
-            text(f"UPDATE research_job_queue SET cancel_requested = {true_val} WHERE job_id = :job_id"),
-            {"job_id": job_id},
-        )
-        conn.commit()
-
-
-def mark_done(db_url: str, job_id: str) -> None:
-    """Remove a finished job's queue row (terminal status lives in job_info)."""
-    with _connection(db_url) as conn:
-        _ensure_schema(conn, db_url)
-        conn.execute(text("DELETE FROM research_job_queue WHERE job_id = :job_id"), {"job_id": job_id})
+        conn.execute(text(sql), params)
         conn.commit()
 
 
 def reap_exhausted(db_url: str, stale_seconds: int, max_attempts: int) -> list[str]:
-    """Return job_ids of claims that crashed and exhausted their retries, and
-    finalize their queue rows. Callers flip these to FAILURE in job_info."""
+    """Delete claims that crashed and exhausted their retries; return their ids.
+
+    Callers flip these to FAILURE in job_info (the durable record); the queue
+    row is removed here so the table never accumulates dead rows.
+    """
     if _is_postgres(db_url):
         stale_clause = "heartbeat_at < NOW() - make_interval(secs => :stale)"
-        params = {"stale": stale_seconds, "max_attempts": max_attempts}
+        params: dict[str, Any] = {"stale": stale_seconds, "max_attempts": max_attempts}
     else:
         threshold = (datetime.now(UTC) - timedelta(seconds=stale_seconds)).strftime("%Y-%m-%d %H:%M:%S")
         stale_clause = "heartbeat_at < :threshold"
@@ -239,10 +233,7 @@ def reap_exhausted(db_url: str, stale_seconds: int, max_attempts: int) -> list[s
             .all()
         )
         for job_id in rows:
-            conn.execute(
-                text(f"UPDATE research_job_queue SET status = '{FAILED}' WHERE job_id = :job_id"),
-                {"job_id": job_id},
-            )
+            conn.execute(text("DELETE FROM research_job_queue WHERE job_id = :job_id"), {"job_id": job_id})
         if rows:
             conn.commit()
         return list(rows)

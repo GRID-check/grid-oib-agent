@@ -48,36 +48,78 @@ class ResearchWorker:
         self.stale_seconds = _int_env("GRID_RESEARCH_WORKER_STALE_SECONDS", 90)
         self.max_attempts = _int_env("GRID_RESEARCH_WORKER_MAX_ATTEMPTS", 3)
         self.heartbeat_seconds = _int_env("GRID_RESEARCH_WORKER_HEARTBEAT_SECONDS", 30)
+        # Liveness marker file the k8s probe checks (the backend image has no
+        # pgrep/procps). Touched every loop tick; a stale mtime => the loop hung.
+        self.liveness_file = os.environ.get("GRID_WORKER_LIVENESS_FILE", "/tmp/research-worker.alive")
         self._stop = asyncio.Event()
         self._running: set[asyncio.Task] = set()
+
+    def _touch_liveness(self) -> None:
+        try:
+            with open(self.liveness_file, "w") as fh:
+                fh.write("ok")
+        except OSError:
+            logger.warning("Could not write liveness file %s", self.liveness_file, exc_info=True)
 
     def request_stop(self) -> None:
         self._stop.set()
 
-    async def _heartbeat_loop(self, job_id: str) -> None:
-        """Keep the claim fresh while the job runs; stop on loss of ownership."""
+    async def _heartbeat_loop(self, job_id: str, run_task: asyncio.Task) -> None:
+        """Keep the claim fresh while the job runs, and ABORT our own run if we
+        lose ownership — otherwise a worker that stalled past the stale window
+        (and was reclaimed by another worker) would keep running the same job,
+        doubling LLM spend and duplicating memory writes.
+
+        Transient DB errors are tolerated: we only give up after being unable to
+        heartbeat for roughly the stale window (i.e. once another worker could
+        legitimately reclaim), then cancel our run to stay single-execution.
+        """
+        max_consecutive = max(1, self.stale_seconds // max(1, self.heartbeat_seconds))
+        consecutive_failures = 0
         while True:
             await asyncio.sleep(self.heartbeat_seconds)
-            alive = await asyncio.to_thread(queue.heartbeat, self.db_url, job_id, self.worker_id)
+            try:
+                alive = await asyncio.to_thread(queue.heartbeat, self.db_url, job_id, self.worker_id)
+                consecutive_failures = 0
+            except Exception:
+                consecutive_failures += 1
+                logger.warning(
+                    "Heartbeat DB error for job %s (%d/%d consecutive)",
+                    job_id,
+                    consecutive_failures,
+                    max_consecutive,
+                    exc_info=True,
+                )
+                if consecutive_failures >= max_consecutive:
+                    logger.error("Cannot confirm ownership of job %s; aborting run to avoid duplicate", job_id)
+                    run_task.cancel()
+                    return
+                continue
             if not alive:
-                # Reclaimed or cancelled elsewhere. run_agent_job's own monitor
-                # handles a cancel; nothing more to do here.
-                logger.warning("Lost claim on job %s (reclaimed/cancelled)", job_id)
+                logger.warning("Lost claim on job %s (reclaimed/cancelled); aborting run", job_id)
+                run_task.cancel()
                 return
 
     async def _run_claimed(self, claim: dict) -> None:
         job_id = claim["job_id"]
         payload = claim["payload"]
         logger.info("Worker %s running job %s (attempt %s)", self.worker_id, job_id, claim["attempts"])
-        heartbeat = asyncio.create_task(self._heartbeat_loop(job_id))
+        # run_agent_job owns its own job_info status transitions + telemetry.
+        run_task = asyncio.create_task(run_agent_job(**payload))
+        heartbeat = asyncio.create_task(self._heartbeat_loop(job_id, run_task))
         try:
-            # run_agent_job owns its own job_info status transitions + telemetry.
-            await run_agent_job(**payload)
+            await run_task
+        except asyncio.CancelledError:
+            # Heartbeat cancelled us because we lost the claim — another worker
+            # owns the job now; yield quietly.
+            logger.warning("Run for job %s aborted after claim loss", job_id)
         except Exception:
             logger.exception("Job %s failed in worker %s", job_id, self.worker_id)
         finally:
             heartbeat.cancel()
-            await asyncio.to_thread(queue.mark_done, self.db_url, job_id)
+            # Ownership-guarded: if we lost the claim, this deletes nothing and
+            # leaves the new owner's row intact.
+            await asyncio.to_thread(queue.mark_done, self.db_url, job_id, self.worker_id)
 
     async def _fail_exhausted(self) -> None:
         """Flip crashed-and-exhausted claims to FAILURE in job_info."""
@@ -103,7 +145,9 @@ class ResearchWorker:
             self.poll_seconds,
             self.db_url.split("@")[-1],
         )
+        self._touch_liveness()
         while not self._stop.is_set():
+            self._touch_liveness()
             self._running = {t for t in self._running if not t.done()}
             claimed_any = False
             while len(self._running) < self.concurrency:

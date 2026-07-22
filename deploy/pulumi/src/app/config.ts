@@ -35,6 +35,7 @@ export function buildSecrets(w: AppWiring): k8s.core.v1.Secret {
         TAVILY_API_KEY: cfg.llm.tavilyApiKey,
         GRID_INTERNAL_API_TOKEN: cfg.internal.apiToken,
         GRID_ADMIN_TOKEN: cfg.internal.adminToken,
+        GRID_JOB_PAYLOAD_KEK: cfg.internal.jobPayloadKek,
         WORKOS_API_KEY: cfg.auth.workosApiKey,
         WORKOS_COOKIE_PASSWORD: cfg.auth.workosCookiePassword,
         GRID_BYOK_LOCAL_KEK: cfg.auth.byokLocalKek,
@@ -79,6 +80,8 @@ export function backendEnv(w: AppWiring): EnvVar[] {
     { name: "COLLECTION_NAME", value: "oib_knowledge" },
     // Research execution backend (dask = per-pod; db = DB-claimed workers).
     { name: "GRID_JOB_EXECUTION", value: cfg.jobExecution },
+    // Encrypts DB-claimed job payloads at rest (empty = plaintext, dev only).
+    sref("GRID_JOB_PAYLOAD_KEK"),
     // Embedded fallback dir (used only when AIQ_CHROMA_URL is unset).
     { name: "AIQ_CHROMA_DIR", value: cfg.backend.chromaDir },
     { name: "OIB_UPLOADS_DIR", value: "/app/data/oib_uploads" },

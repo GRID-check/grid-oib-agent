@@ -94,10 +94,16 @@ def _make_chroma_client(persist_dir: str):
     if url:
         from urllib.parse import urlparse
 
-        parsed = urlparse(url)
-        host = parsed.hostname or host
+        # A scheme-less value like "chroma:8000" parses with scheme="chroma" and
+        # hostname=None, which would silently connect to an empty host. Prepend a
+        # scheme so host:port is parsed as authority.
+        parsed = urlparse(url if "://" in url else f"http://{url}")
         ssl = parsed.scheme == "https"
-        port = parsed.port or (443 if ssl else 8000)
+        host = parsed.hostname or host
+        if not host:
+            raise ValueError(f"AIQ_CHROMA_URL has no host: {url!r}")
+        # URL port wins; else AIQ_CHROMA_PORT; else scheme default.
+        port = parsed.port or (int(port_env) if port_env.isdigit() else (443 if ssl else 8000))
     elif host:
         ssl = os.environ.get("AIQ_CHROMA_SSL", "").lower() in ("1", "true", "yes")
         port = int(port_env) if port_env.isdigit() else (443 if ssl else 8000)
@@ -2136,9 +2142,17 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                                 file_info.error_message = file_detail.error_message
                             else:
                                 file_info.status = FileStatus.SUCCESS
-                            # completed_at is now an ISO string, parse it back to datetime
+                            # completed_at is an ISO string on the local path but
+                            # Pydantic coerces it back to a datetime when the
+                            # status is rehydrated from the shared store (a
+                            # cross-replica read), so normalize both forms.
                             if file_info.status == FileStatus.SUCCESS and job_status.completed_at:
-                                file_info.ingested_at = datetime.fromisoformat(job_status.completed_at)
+                                _completed = job_status.completed_at
+                                file_info.ingested_at = (
+                                    _completed
+                                    if isinstance(_completed, datetime)
+                                    else datetime.fromisoformat(_completed)
+                                )
                         elif job_status.status == JobState.FAILED:
                             file_detail = next(
                                 (

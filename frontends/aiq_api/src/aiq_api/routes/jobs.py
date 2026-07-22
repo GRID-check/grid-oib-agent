@@ -1000,11 +1000,20 @@ async def _do_reap_cycle(job_store, db_url: str, scheduler_address: str | None, 
     from nat.front_ends.fastapi.async_jobs.job_store import JobStatus
 
     from ..jobs.event_store import EventStore
+    from ..jobs.submit import job_execution_mode
 
-    # SUBMITTED jobs are reaped too: they may have ZERO events (never picked up
-    # by a worker) yet still consume admission quota (count_active_jobs counts
-    # all non-terminal jobs).
-    stale_statuses = (JobStatus.RUNNING.value, JobStatus.SUBMITTED.value)
+    if job_execution_mode() == "db":
+        # In db-execution mode a SUBMITTED job is a HEALTHY queued row waiting
+        # for a free worker (it legitimately has zero events until claimed), so
+        # it must NOT be reaped — the whole point of the queue is to absorb
+        # bursts. Crashed CLAIMED jobs are recovered by the queue's own
+        # heartbeat reclaim / reap_exhausted, not here. Only genuinely abandoned
+        # RUNNING jobs (no events for the ghost window) are reaped.
+        stale_statuses = (JobStatus.RUNNING.value,)
+    else:
+        # Dask mode: SUBMITTED jobs are reaped too — they may have ZERO events
+        # (never picked up by a worker) yet still consume admission quota.
+        stale_statuses = (JobStatus.RUNNING.value, JobStatus.SUBMITTED.value)
     stale_job_ids = await loop.run_in_executor(None, _find_stale_jobs, db_url, stale_statuses)
 
     for stale_job_id in stale_job_ids:
@@ -1091,7 +1100,12 @@ def _acquire_reaper_lock(db_url: str):
     from ..jobs.event_store import EventStore
 
     conn = EventStore._get_or_create_sync_engine(db_url).connect()
-    got = conn.execute(text("SELECT pg_try_advisory_lock(:id)"), {"id": _PG_REAPER_LOCK_ID}).scalar()
+    try:
+        got = conn.execute(text("SELECT pg_try_advisory_lock(:id)"), {"id": _PG_REAPER_LOCK_ID}).scalar()
+    except Exception:
+        # Don't leak the connection if the lock query itself failed.
+        conn.close()
+        raise
     if not got:
         conn.close()
         return _REAPER_LOCK_SKIP
@@ -1105,8 +1119,15 @@ def _release_reaper_lock(conn) -> None:
 
     try:
         conn.execute(text("SELECT pg_advisory_unlock(:id)"), {"id": _PG_REAPER_LOCK_ID})
-    finally:
         conn.close()
+    except Exception:
+        # If unlock failed, the SESSION-level advisory lock is still held. A
+        # plain close() returns the connection to the pool WITH the lock held,
+        # which would wedge the reaper cluster-wide. invalidate() drops the
+        # underlying DBAPI connection so Postgres ends the session and releases
+        # the lock.
+        logger.warning("Reaper advisory unlock failed; invalidating connection to release the lock", exc_info=True)
+        conn.invalidate()
 
 
 def _start_periodic_cleanup(
