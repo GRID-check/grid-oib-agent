@@ -49,8 +49,15 @@ jobs:
       # push/schedule runs stay advisory (continue-on-error below). Rule packs run
       # in no-account mode — no SEMGREP_APP_TOKEN needed. Findings are written to
       # SARIF + JSON, surfaced in the run's job summary, and kept as an artifact.
+      # Two rules are tuned out of the ruleset as policy/noise (documented in the
+      # PR that added this): github-actions-mutable-action-tag — the repo uses
+      # major-version tags and lets Dependabot keep them current rather than
+      # SHA-pinning; and unsafe-formatstring — INFO-level template noise.
       - name: Semgrep scan
-        run: semgrep ci --sarif-output=semgrep.sarif --json-output=semgrep.json
+        run: >-
+          semgrep ci --sarif-output=semgrep.sarif --json-output=semgrep.json
+          --exclude-rule yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+          --exclude-rule javascript.lang.security.audit.unsafe-formatstring.unsafe-formatstring
         env:
           SEMGREP_RULES: >-
             p/default
