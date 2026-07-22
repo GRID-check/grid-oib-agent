@@ -5,6 +5,9 @@ import { GATEWAY_NAME } from "./gateway";
 
 export interface CertManager {
   release: k8s.helm.v3.Release;
+  /** The ClusterIssuer resource — Gateway resources should `dependsOn` this so
+   *  the cert-manager Gateway shim never references a not-yet-created issuer. */
+  issuer: k8s.apiextensions.CustomResource;
   /** Name of the ClusterIssuer the Gateway references for TLS. */
   issuerName: pulumi.Output<string>;
 }
@@ -58,7 +61,7 @@ export function installCertManager(
     ? "https://acme-staging-v02.api.letsencrypt.org/directory"
     : "https://acme-v02.api.letsencrypt.org/directory";
 
-  new k8s.apiextensions.CustomResource(
+  const issuer = new k8s.apiextensions.CustomResource(
     "letsencrypt-issuer",
     {
       apiVersion: "cert-manager.io/v1",
@@ -91,5 +94,5 @@ export function installCertManager(
     { provider, dependsOn: release },
   );
 
-  return { release, issuerName: pulumi.output(issuerName) };
+  return { release, issuer, issuerName: pulumi.output(issuerName) };
 }
