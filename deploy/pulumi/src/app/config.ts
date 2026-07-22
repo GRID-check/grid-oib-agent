@@ -16,7 +16,7 @@ export interface AppWiring {
   dsn: (opts: { db: string; driver?: string }) => pulumi.Output<string>;
 }
 
-const SECRET_NAME = "grid-secrets";
+const SECRET_NAME = "grid-secrets"; // pragma: allowlist secret (Kubernetes Secret resource name, not a credential)
 
 /**
  * One Kubernetes Secret holding every sensitive value (API keys, tokens, the
