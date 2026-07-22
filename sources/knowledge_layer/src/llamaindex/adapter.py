@@ -43,6 +43,7 @@ from pathlib import Path
 from typing import Any
 
 from aiq_agent.common.credential_resolution import read_api_key_env
+from aiq_agent.knowledge import ingest_status_store
 from aiq_agent.knowledge.base import BaseIngestor
 from aiq_agent.knowledge.base import BaseRetriever
 from aiq_agent.knowledge.base import TTLCleanupMixin
@@ -1440,6 +1441,9 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
 
             job.processed_files = file_index + 1
 
+        # Persist outside the lock (DB I/O) so any replica can serve this status.
+        ingest_status_store.put(job)
+
     def submit_job(
         self,
         file_paths: list[str],
@@ -1490,6 +1494,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             )
             with self._lock:
                 self._jobs[job_id] = job
+            ingest_status_store.put(job)
             return job_id
 
         # Create pending job with file details
@@ -1545,6 +1550,10 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         with self._lock:
             self._jobs[job_id] = job
 
+        # Persist the initial PENDING status so a poll to any replica resolves it
+        # immediately, even before this replica's pool starts processing.
+        ingest_status_store.put(job)
+
         # Run ingestion on the bounded pool; the job stays PENDING while queued.
         self._ingest_pool.submit(self._run_ingestion, job_id, validated_paths, collection_name, job_config)
 
@@ -1578,19 +1587,25 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         """Get current status of an ingestion job."""
         self._prune_completed_jobs()
         with self._lock:
-            if job_id not in self._jobs:
-                return IngestionJobStatus(
-                    job_id=job_id,
-                    status=JobState.FAILED,
-                    submitted_at=datetime.utcnow(),
-                    total_files=0,
-                    processed_files=0,
-                    collection_name="unknown",
-                    backend=self.backend_name,
-                    error_message="Job ID not found",
-                    completed_at=datetime.utcnow().isoformat(),
-                )
-            return self._jobs[job_id].model_copy()
+            local = self._jobs.get(job_id)
+        if local is not None:
+            return local.model_copy()
+        # Not on this replica: the job may have been accepted by another replica.
+        # Fall back to the shared store so status polls resolve from anywhere.
+        shared = ingest_status_store.get(job_id)
+        if shared is not None:
+            return shared
+        return IngestionJobStatus(
+            job_id=job_id,
+            status=JobState.FAILED,
+            submitted_at=datetime.utcnow(),
+            total_files=0,
+            processed_files=0,
+            collection_name="unknown",
+            backend=self.backend_name,
+            error_message="Job ID not found",
+            completed_at=datetime.utcnow().isoformat(),
+        )
 
     # =========================================================================
     # Collection Management Implementation
@@ -2324,6 +2339,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                 job = self._jobs[job_id]
                 job.status = JobState.PROCESSING
                 job.started_at = datetime.utcnow()
+            ingest_status_store.put(job)
 
             # Initialize components
             self._ensure_initialized()
@@ -2841,6 +2857,9 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     "extraction_mode": extraction_mode,
                 }
 
+            # Persist the terminal status so any replica serves the final result.
+            ingest_status_store.put(job)
+
             # Update collection's updated_at timestamp
             self._update_collection_timestamp(collection_name)
             # Invalidate any cached retrieval results for this collection.
@@ -2873,6 +2892,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                 job.status = JobState.FAILED
                 job.completed_at = datetime.utcnow().isoformat()
                 job.error_message = str(e)
+            ingest_status_store.put(job)
 
         finally:
             # Clean up temp files if requested

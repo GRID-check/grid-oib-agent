@@ -103,6 +103,13 @@ export interface GridConfig {
     chromaDir: string;
     /** Persistent /app/data volume size (Chroma vectors + uploaded corpus). */
     dataStorageSize: string;
+    /**
+     * Web/chat replica count. Only applied when jobExecution="db" (in "dask"
+     * mode the agent is a hard singleton and this is forced to 1). The
+     * chat/retrieval path is replica-safe via shared Chroma + Postgres + cache;
+     * see the base-corpus-upload caveat in docs/deployment/kubernetes.md §6.3.
+     */
+    replicas: number;
   };
 
   frontend: {
@@ -249,6 +256,7 @@ export function loadConfig(): GridConfig {
       configFile: cfg.get("backendConfigFile") ?? "/app/configs/config_oib_openrouter.yml",
       chromaDir: cfg.get("backendChromaDir") ?? "/app/data/chroma_data",
       dataStorageSize: cfg.get("backendDataStorageSize") ?? "20Gi",
+      replicas: num(cfg, "backendReplicas", 2),
     },
 
     frontend: {

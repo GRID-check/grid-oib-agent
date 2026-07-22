@@ -201,19 +201,33 @@ Safe rollout: `jobExecution: dask` (default in code) is byte-for-byte today's
 behaviour; flip to `db` per environment. `agentWorkerMinReplicas` /
 `agentWorkerMaxReplicas` / `agentWorkerConcurrency` size the worker tier.
 
-**Still single-replica: the chat/web tier.** Even in `db` mode the `aiq-agent`
-web StatefulSet stays at 1 replica, because two multi-replica hazards remain
-(the follow-up "Stage C"):
+### 6.4 Multi-replica chat/web tier — IMPLEMENTED (`jobExecution: db`)
 
-1. Ingestion job status is still in-process (`adapter.py` `_jobs`/`_files`) — a
-   status poll routed to another replica 404s. Fix: a DB-backed `ingest_jobs`
-   table.
-2. The ghost-job reaper and the knowledge TTL-cleanup thread run unlocked and
-   would double-run; wrap them in the `pg_try_advisory_xact_lock` pattern the
-   event-cleanup loop already uses (`routes/jobs.py`).
+In `db` mode the `aiq-agent` web tier now runs `backendReplicas` replicas
+(default 2). The chat/retrieval path is replica-safe:
 
-Once those land, the web tier converts to a Deployment + HPA the same way the
-`agent-worker` tier already is.
+- **Vectors** are shared (Chroma server, §6.3); **job/checkpoint state** is in
+  Postgres; **caches + citation registry** are in Dragonfly.
+- **Ingestion status is persisted** to a shared `ingest_jobs` table
+  (`src/aiq_agent/knowledge/ingest_status_store.py`), so a
+  `GET /v1/documents/{job_id}/status` poll resolves from any replica instead of
+  404-ing on the replica that didn't accept the upload.
+- **The two unlocked background loops are now single-runner**: the ghost-job
+  reaper (`routes/jobs.py`) and the knowledge TTL-cleanup thread
+  (`knowledge/base.py` via `knowledge/leader_lock.py`) elect one runner per
+  cycle with a Postgres advisory lock, so N replicas don't double-reap or race
+  `delete_collection` against the shared store.
+
+It stays a StatefulSet (stable identity + a per-replica RWO PVC on Lightbits).
+
+**One documented caveat — base-corpus admin upload.** The platform-owner
+base-corpus upload writes PDFs to a per-replica `OIB_UPLOADS_DIR`; the uploaded
+file (and a later re-sync of *that file*) lives only on the replica that
+received it. The vectors it produces are ingested into shared Chroma and are
+searchable from every replica, so **chat is unaffected** — only re-ingesting or
+removing that specific source PDF is replica-local. Route `OIB_UPLOADS_DIR`
+through SeaweedFS to make that admin flow fully replica-agnostic (scoped
+follow-up); high-traffic chat/retrieval does not need it.
 
 ---
 
