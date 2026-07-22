@@ -128,11 +128,7 @@ def add_generate_conversation_title_routes(router: APIRouter) -> None:
         headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
 
         allowed_line = ", ".join(allowed) if allowed else "(none — return an empty tags list)"
-        user_content = (
-            f"Write the title in {language}.\n"
-            f"Allowed tags: {allowed_line}\n\n"
-            f"Conversation:\n{transcript}"
-        )
+        user_content = f"Write the title in {language}.\nAllowed tags: {allowed_line}\n\nConversation:\n{transcript}"
 
         payload = {
             "model": model,
