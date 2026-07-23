@@ -32,6 +32,7 @@ BASE_URL=http://localhost:3000 npm run screenshots   # reuse a running server
    - If the component fetches data, install a **fetch shim** (see gotchas) so it renders fully resolved without a backend.
    - The card gallery `src/app/dev/cards/page.tsx` is the reference for a pure (fetch-free) preview; `src/app/dev/document-grid/page.tsx` is the reference for a preview that shims fetch.
 2. **Add the target** to `frontends/ui/visual/registry.mjs` with an `id`, `path`, `description`, and a `waitFor` selector that only appears once the surface has rendered (e.g. a `data-testid`).
+   - **Capturing a `:focus-visible` state?** Add `tabStops: <n>` — the harness presses Tab that many times before the shot so keyboard focus (and only keyboard focus) engages `:focus-visible`. The `focus-ring` target uses this to guard the rounded focus outline (Tab 1 is the layout's "Skip to content" link, Tab 2 the first control). Programmatic `.focus()` is deliberately not used because it doesn't reliably trigger `:focus-visible`.
 3. **Run** `npm run screenshots -- <id>` and commit the resulting PNGs alongside the change.
 
 ## Gotchas learned the hard way (keep these here, not in your head)
@@ -71,3 +72,11 @@ BASE_URL=http://localhost:3000 npm run screenshots   # reuse a running server
   wait for the target selector too, then a short settle delay for fonts.
 - **`deviceScaleFactor: 2`** gives retina-quality PNGs; drop it if diffs get
   noisy.
+- **Never put `border-radius: inherit` in the global `:focus-visible` rule.** A
+  CSS `outline` already follows the focused element's *own* `border-radius` in
+  every browser we target, so it needs no help. `border-radius: inherit`
+  actively breaks it: it overrides the control's radius with its **parent's**
+  (usually `0`), so a `rounded-xl` input/select **squares off the moment it's
+  focused**. The `focus-ring` screenshot target exists to catch exactly this
+  regression — keep `src/app/globals.css` `:focus-visible` to `outline` +
+  `outline-offset` only.

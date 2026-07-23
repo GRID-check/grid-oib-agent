@@ -42,4 +42,14 @@ export const SCREENSHOT_TARGETS = [
     description: 'Full Grid card gallery — every card type with fixture data.',
     waitFor: 'main',
   },
+  {
+    id: 'focus-ring',
+    path: '/dev/focus-ring',
+    description:
+      'Global :focus-visible outline on rounded controls — Tab-focused so the ring follows the control radius (guards against the border-radius:inherit square-corner regression).',
+    waitFor: '[data-testid="focus-ring-preview"]',
+    // Tab 1 lands on the layout's "Skip to content" link; Tab 2 focuses the
+    // first form control (the text input) — the rounded shape that regressed.
+    tabStops: 2,
+  },
 ]

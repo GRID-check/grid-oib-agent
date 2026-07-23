@@ -142,6 +142,11 @@ async function main() {
         if (target.waitFor) {
           await page.waitForSelector(target.waitFor, { timeout: 30_000 }).catch(() => {})
         }
+        // Optional keyboard focus: press Tab N times so `:focus-visible` engages
+        // (it only fires for keyboard nav), capturing a real focus-ring state.
+        if (target.tabStops) {
+          for (let i = 0; i < target.tabStops; i++) await page.keyboard.press('Tab')
+        }
         await page.waitForTimeout(400) // let fonts/animations settle
         const file = join(OUT_DIR, `${target.id}.${theme}.png`)
         await page.screenshot({ path: file, fullPage: true })
