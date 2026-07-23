@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { Archive, Building2, Check, Globe, LayoutDashboard, LogOut, Monitor, Moon, Sun, UserRound } from 'lucide-react'
+import { Archive, Building2, Check, Globe, LayoutDashboard, ListTree, LogOut, Monitor, Moon, Sun, UserRound } from 'lucide-react'
 
 import { useAuth } from '@/adapters/auth/use-auth'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -77,6 +77,8 @@ export function SidebarUserMenu({
   const { user: authUser, signOut } = useAuth()
   const theme = useLayoutStore((s) => s.theme)
   const setTheme = useLayoutStore((s) => s.setTheme)
+  const showTechnicalReasoning = useLayoutStore((s) => s.showTechnicalReasoning)
+  const setShowTechnicalReasoning = useLayoutStore((s) => s.setShowTechnicalReasoning)
   const t = useTranslations('nav')
   const tc = useTranslations('common')
   const { locale, setLocale, localeNames } = useLocale()
@@ -178,6 +180,19 @@ export function SidebarUserMenu({
             {locale === code && <Check className="size-4" aria-hidden />}
           </DropdownMenuItem>
         ))}
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">{tc('preferences.label')}</DropdownMenuLabel>
+        <DropdownMenuItem
+          onSelect={(e) => {
+            e.preventDefault()
+            setShowTechnicalReasoning(!showTechnicalReasoning)
+          }}
+          className="gap-2"
+        >
+          <ListTree className="size-4 text-muted-foreground" aria-hidden />
+          <span className="flex-1">{tc('preferences.technicalReasoning')}</span>
+          {showTechnicalReasoning && <Check className="size-4" aria-hidden />}
+        </DropdownMenuItem>
         {authRequired && (
           <>
             <DropdownMenuSeparator />

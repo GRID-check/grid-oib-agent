@@ -40,4 +40,8 @@ export const common: typeof en.common = {
     english: 'English',
     german: 'Deutsch',
   },
+  preferences: {
+    label: 'Einstellungen',
+    technicalReasoning: 'Technische Herleitung anzeigen',
+  },
 }

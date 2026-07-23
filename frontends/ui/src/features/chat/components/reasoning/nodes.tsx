@@ -10,7 +10,7 @@
  */
 
 import type { FC } from 'react'
-import { Sparkles, ClipboardCheck, GitBranch, Check } from 'lucide-react'
+import { Sparkles, ClipboardCheck, GitBranch } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { Translator } from '@/i18n'
 import { sourceSignalStyle } from '@/features/layout/components/SourceSignalChip'
@@ -19,6 +19,7 @@ import { KIND_TO_SIGNAL, kindForLane, authorityTag, asSourceKind } from '../../l
 import type { CitationSource } from '../../types'
 import type { TraceSourceCard } from '../../lib/trace-lanes'
 import { ChainNode } from './ChainNode'
+import { BranchOptions } from './BranchOptions'
 import { SourceCard } from './SourceCard'
 import { AuthorityTag } from '../AuthorityTag'
 
@@ -264,47 +265,11 @@ export const BranchesNode: FC<BranchesNodeProps> = ({ t, prompt, onRespond, orde
         {t('thinking.node.branchesSub')}
       </div>
     </div>
-    <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-      {prompt.options.map((option, i) => {
-        const isSelected = prompt.selected === option
-        const dimmed = prompt.isResponded && !isSelected
-        return (
-          <button
-            key={option}
-            type="button"
-            onClick={() => !prompt.isResponded && onRespond(prompt.promptId, option)}
-            disabled={prompt.isResponded}
-            aria-pressed={isSelected}
-            className={cn(
-              'flex items-start gap-2.5 rounded-lg border px-3.5 py-3 text-left transition-[border-color,box-shadow,opacity]',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
-              isSelected ? 'border-primary shadow-sm' : 'shadow-xs',
-              prompt.isResponded ? 'cursor-default' : 'cursor-pointer hover:border-input hover:shadow-sm',
-              dimmed && 'opacity-60'
-            )}
-          >
-            <span
-              className={cn(
-                'mt-0.5 inline-flex size-[18px] shrink-0 items-center justify-center rounded-full',
-                isSelected
-                  ? 'bg-primary text-primary-foreground'
-                  : 'border-[1.5px] border-input bg-card text-[10px] font-semibold text-muted-foreground'
-              )}
-              aria-hidden="true"
-            >
-              {isSelected ? <Check className="size-2.5" /> : String.fromCharCode(65 + i)}
-            </span>
-            <span
-              className={cn(
-                'text-[13.5px] leading-snug text-foreground',
-                isSelected ? 'font-semibold' : 'font-medium'
-              )}
-            >
-              {option}
-            </span>
-          </button>
-        )
-      })}
-    </div>
+    <BranchOptions
+      options={prompt.options}
+      selected={prompt.selected}
+      isResponded={prompt.isResponded}
+      onSelect={(option) => onRespond(prompt.promptId, option)}
+    />
   </ChainNode>
 )

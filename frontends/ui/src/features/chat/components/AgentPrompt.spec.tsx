@@ -68,7 +68,7 @@ describe('AgentPrompt', () => {
     expect(screen.getByText('Option C')).toBeInTheDocument()
   })
 
-  test('hides options when responded', () => {
+  test('keeps the chosen option selected (locked) when responded', () => {
     const options = ['Option A', 'Option B']
 
     render(
@@ -82,8 +82,11 @@ describe('AgentPrompt', () => {
       />
     )
 
-    // Options list should be hidden when responded
-    expect(screen.queryByText('1.')).not.toBeInTheDocument()
+    // Branch cards stay visible after answering — the chosen one remains and
+    // every card is locked (disabled), so the picker doubles as the response.
+    expect(screen.getByText('Option A')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /option a/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /option b/i })).toBeDisabled()
   })
 
   test('displays user response when responded', () => {
@@ -124,7 +127,7 @@ describe('AgentPrompt', () => {
       />
     )
 
-    await user.click(screen.getByRole('button', { name: /select option: option b/i }))
+    await user.click(screen.getByRole('button', { name: /option b/i }))
     expect(respond).toHaveBeenCalledTimes(1)
     expect(respond).toHaveBeenCalledWith('Option B')
   })
@@ -139,7 +142,7 @@ describe('AgentPrompt', () => {
     )
 
     await user.tab()
-    expect(screen.getByRole('button', { name: /select option: option a/i })).toHaveFocus()
+    expect(screen.getByRole('button', { name: /option a/i })).toHaveFocus()
     await user.keyboard('{Enter}')
     expect(respond).toHaveBeenCalledWith('Option A')
   })
@@ -212,11 +215,12 @@ describe('AgentPrompt', () => {
     expect(screen.getByText('Option A')).toBeInTheDocument()
   })
 
-  test('options render read-only when no response callback is registered', () => {
+  test('options render read-only (disabled) when no response callback is registered', () => {
     render(<AgentPrompt id="prompt-1" type="choice" content="Choose one:" options={['Option A']} />)
 
-    expect(screen.queryByRole('button', { name: /select option/i })).not.toBeInTheDocument()
+    // Branch cards still render, but locked (disabled) with no responder.
     expect(screen.getByText('Option A')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /option a/i })).toBeDisabled()
   })
 
   test('replaces the English approval envelope with localized copy', () => {

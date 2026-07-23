@@ -69,6 +69,13 @@ export interface LayoutState {
    */
   deepResearchIntent: boolean
   /**
+   * Show the raw technical reasoning steps (which agent/tool ran) inside the
+   * Herleitung. OFF by default — the default trace is the user-friendly node
+   * chain; power users opt in via the settings toggle. Persisted like a profile
+   * preference.
+   */
+  showTechnicalReasoning: boolean
+  /**
    * Active composer source preset (shortcut chips), or null when the user
    * manually manages sources. Cleared by any manual source toggle.
    */
@@ -107,6 +114,8 @@ export interface LayoutActions {
   setTheme: (theme: ThemeMode) => void
   /** Record the user's Deep-Research preference (intent hint, not a guarantee) */
   setDeepResearchIntent: (on: boolean) => void
+  /** Toggle the raw technical reasoning steps in the Herleitung (default off) */
+  setShowTechnicalReasoning: (on: boolean) => void
   /**
    * Apply a composer source preset: sets the preset AND its computed enabled
    * source ids in one action (so the manual-toggle preset-clearing in

@@ -33,7 +33,7 @@ export const SourceCard: FC<{ card: TraceSourceCard; hitLabel: string; gapLabel:
   const tint = sourceSignalStyle(card.signal)
 
   return (
-    <div role="listitem" className="flex min-w-0 flex-col">
+    <div role="listitem" data-source-card className="flex min-w-0 flex-col">
       {/* Folder tab — tinted, uppercase, seated on the card's top-left. */}
       <span
         className="ml-2.5 inline-flex max-w-[calc(100%-0.625rem)] items-center gap-1 self-start rounded-t-[7px] px-2 py-1 text-[10.5px] font-semibold uppercase tracking-[0.05em]"
