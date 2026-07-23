@@ -11,15 +11,16 @@
 
 'use client'
 
-import { type FC, Fragment, useMemo } from 'react'
+import { type FC, useMemo, useRef } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible'
 import { useTranslations } from '@/i18n'
 import type { Translator } from '@/i18n'
+import { useLayoutStore } from '@/features/layout/store'
 import { formatTime } from '@/shared/utils/format-time'
 import type { ThinkingStep, CitationSource } from '../../types'
 import { deriveTraceSourceCards } from '../../lib/trace-lanes'
-import { ConnectorSvg, type ConnectorVariant } from './ConnectorSvg'
+import { ChainConnectors, type ChainConnector } from './ChainConnectors'
 import {
   FramingNode,
   SourceFanOutNode,
@@ -48,7 +49,7 @@ export interface ReasoningChainProps {
 /** A visible node plus the connector that leads into it. */
 interface RenderedNode {
   key: string
-  connector: ConnectorVariant | null
+  connector: ChainConnector | null
   columns?: number
   render: (order: number) => React.ReactNode
 }
@@ -109,6 +110,10 @@ export const ReasoningChain: FC<ReasoningChainProps> = ({
   escalationReason,
 }) => {
   const t = useTranslations('chat')
+  // Raw NAT step list is a power-user opt-in (profile setting). The default
+  // trace is the user-friendly node chain — never "which agent is running".
+  const showTechnicalReasoning = useLayoutStore((s) => s.showTechnicalReasoning)
+  const containerRef = useRef<HTMLDivElement>(null)
 
   const sourceCards = useMemo(() => deriveTraceSourceCards(steps), [steps])
 
@@ -177,19 +182,28 @@ export const ReasoningChain: FC<ReasoningChainProps> = ({
     })
   }
 
+  // Remeasure connectors whenever the visible node set (or source count) changes.
+  const signature = `${nodes.map((n) => n.key).join('|')}:${sourceCards.length}`
+
   return (
-    <div className="flex w-full flex-col">
+    <div ref={containerRef} className="relative flex w-full flex-col gap-8">
+      {/* Dynamic connectors are drawn BEHIND the nodes from their real measured
+          positions (see ChainConnectors); the gap-8 spine gives them room. */}
+      <ChainConnectors containerRef={containerRef} signature={signature} />
+
       {nodes.map((node, i) => (
-        <Fragment key={node.key}>
-          {node.connector && (
-            <ConnectorSvg variant={node.connector} columns={node.columns} />
-          )}
+        <div
+          key={node.key}
+          data-chain-node
+          data-chain-connector={node.connector ?? ''}
+          className="relative z-10"
+        >
           {node.render(i)}
-        </Fragment>
+        </div>
       ))}
 
-      {steps.length > 0 && (
-        <div className="mt-4 border-t border-base pt-3">
+      {showTechnicalReasoning && steps.length > 0 && (
+        <div className="relative z-10 border-t border-base pt-1">
           <TechnicalSteps steps={steps} t={t} />
         </div>
       )}

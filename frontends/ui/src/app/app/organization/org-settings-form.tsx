@@ -40,6 +40,19 @@ export const OrgSettingsForm: FC<OrgSettingsFormProps> = ({
   const [defaultLocaleValue, setDefaultLocaleValue] = useState<Locale>(initialDefaultLocale)
   const [webSearchEnabled, setWebSearchEnabled] = useState(initialWebSearchEnabled)
   const [saving, setSaving] = useState(false)
+  // The saved baseline — Save stays disabled until a field actually differs, and
+  // resets here after a successful save so the button re-disables (no needless
+  // PUT + false "saved" toast when nothing changed).
+  const [baseline, setBaseline] = useState({
+    displayName: (initialDisplayName ?? '').trim(),
+    defaultLocale: initialDefaultLocale,
+    webSearchEnabled: initialWebSearchEnabled,
+  })
+
+  const isDirty =
+    displayName.trim() !== baseline.displayName ||
+    defaultLocaleValue !== baseline.defaultLocale ||
+    webSearchEnabled !== baseline.webSearchEnabled
 
   const handleSave = useCallback(async () => {
     setSaving(true)
@@ -54,6 +67,7 @@ export const OrgSettingsForm: FC<OrgSettingsFormProps> = ({
         }),
       })
       if (!res.ok) throw new Error(`Save failed (${res.status})`)
+      setBaseline({ displayName: displayName.trim(), defaultLocale: defaultLocaleValue, webSearchEnabled })
       toast.success(t('settings.saved'))
     } catch {
       toast.error(t('settings.saveError'))
@@ -107,7 +121,7 @@ export const OrgSettingsForm: FC<OrgSettingsFormProps> = ({
       </div>
 
       <div>
-        <Button onClick={handleSave} disabled={saving}>
+        <Button onClick={handleSave} disabled={saving || !isDirty}>
           {saving ? t('settings.saving') : t('settings.save')}
         </Button>
       </div>

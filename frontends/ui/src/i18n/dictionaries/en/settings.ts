@@ -1,6 +1,7 @@
 /** The right-side settings panel + the project Settings page. */
 export const settings = {
   title: 'Settings',
+  loading: 'Loading settings …',
   ariaLabel: 'Settings',
   savedAutomatically: 'Settings are saved automatically.',
   appearance: {

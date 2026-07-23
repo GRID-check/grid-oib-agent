@@ -32,7 +32,6 @@ export const chat: typeof en.chat = {
     },
     unavailable: 'Nicht mehr verfügbar',
     openAria: 'Dokument öffnen: {label}',
-    loadFailed: 'Das Dokument konnte nicht geöffnet werden. Bitte versuchen Sie es erneut.',
   },
   composer: {
     placeholder:

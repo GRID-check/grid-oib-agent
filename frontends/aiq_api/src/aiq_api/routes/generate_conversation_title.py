@@ -55,13 +55,15 @@ def _build_transcript(messages: list, locale_name: str) -> str:
     return "\n\n".join(lines)
 
 
-def _parse_llm_json(raw: str) -> tuple[str, list[str]]:
+def _parse_llm_json(raw: str | None) -> tuple[str, list[str]]:
     """Extract (title, tags) from the model's reply, tolerating code fences.
 
     Raises ValueError when no usable object can be recovered so the caller can
-    return a diagnosable ``llm_response_malformed`` code.
+    return a diagnosable ``llm_response_malformed`` code. ``raw`` may be ``None``
+    when the model returns a null ``content`` (e.g. a reasoning-only reply) —
+    that is treated as "no usable object", not an AttributeError crash.
     """
-    text = raw.strip()
+    text = (raw or "").strip()
     # Strip a ```json … ``` (or bare ```) fence if the model added one.
     if text.startswith("```"):
         text = text.split("\n", 1)[-1] if "\n" in text else text

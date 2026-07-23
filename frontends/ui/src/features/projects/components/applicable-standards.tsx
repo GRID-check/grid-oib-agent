@@ -52,7 +52,7 @@ export function ApplicableStandards({ projectId, standards, briefComplete }: App
   return (
     <section className="space-y-4">
       <div>
-        <h2 className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+        <h2 className="text-sm font-semibold text-foreground">
           {t('applicableStandards.heading')}
         </h2>
         <p className="mt-1 text-sm text-muted-foreground">

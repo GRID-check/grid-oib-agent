@@ -33,6 +33,21 @@ def _redis_replicas() -> tuple[ConversationBus, ConversationBus]:
     return ConversationBus(owner, "R1"), ConversationBus(relay, "R2")
 
 
+def test_url_transport_uses_separate_subscribe_client_without_read_timeout():
+    """Pub/sub reads BLOCK waiting for the next message, so the subscribe client
+    must NOT carry the command client's 1s socket_timeout — that raised
+    'Timeout reading from <host>' every second and tore down the relay loop.
+    Regression for the Dragonfly relay-loop timeout. Redis.from_url is lazy, so
+    this constructs the clients without needing a server."""
+    t = RedisTransport(url="redis://localhost:6379/0")
+    assert t._redis is not t._sub_redis
+    cmd_kwargs = t._redis.connection_pool.connection_kwargs
+    sub_kwargs = t._sub_redis.connection_pool.connection_kwargs
+    # Commands fail fast; the subscribe read has no timeout (blocks for messages).
+    assert cmd_kwargs.get("socket_timeout") == 1.0
+    assert sub_kwargs.get("socket_timeout") is None
+
+
 @pytest.mark.asyncio
 async def test_frames_fan_out_over_real_pubsub():
     owner, relay = _redis_replicas()

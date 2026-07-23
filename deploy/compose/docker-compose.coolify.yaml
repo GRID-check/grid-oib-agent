@@ -204,7 +204,16 @@ services:
     expose:
       - "8000"
     volumes:
-      - chroma-server-data:/data
+      # ADOPT the existing embedded store instead of starting from an empty
+      # volume. The pre-server deploy embedded the whole corpus (oib_knowledge +
+      # project/archiv uploads) into this volume via the chromadb 1.5.9
+      # PersistentClient. The 1.5.9 server uses the SAME on-disk persist format,
+      # so pointing its persist dir (/data) at that volume brings every existing
+      # collection back with ZERO re-embedding — no migration script needed.
+      # (aiq-agent also mounts this volume at /app/data/chroma_data, but in db
+      # mode it talks to the server over HTTP and never opens the dir, so the
+      # server is the only writer.)
+      - chroma_data:/data
     healthcheck:
       # The 1.x image is near-distroless (no python/curl), but ships bash — so
       # probe /api/v2/heartbeat (v1 was removed in 1.0) over bash's /dev/tcp.
@@ -510,12 +519,11 @@ services:
 volumes:
   aiq-data:
     driver: local
-  # Embedded per-container Chroma dir — now only the dask-mode fallback store.
+  # The vector store. Written originally by the embedded chromadb 1.5.9
+  # PersistentClient (aiq-agent, /app/data/chroma_data) and now ALSO served by
+  # the `chroma` 1.5.9 server (mounted at /data) — same version, same on-disk
+  # format, so the existing corpus is reused with no re-embedding.
   chroma_data:
-    driver: local
-  # Durable disk for the shared Chroma server (db mode). Separate volume so the
-  # server's corpus is never entangled with the legacy embedded store.
-  chroma-server-data:
     driver: local
   seaweedfs-data:
     driver: local

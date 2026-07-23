@@ -98,7 +98,7 @@ export function TemplateCards({ onUse }: TemplateCardsProps): JSX.Element {
         return (
           <div
             key={template.id}
-            className="flex flex-col overflow-hidden rounded-[12px]"
+            className="flex flex-col overflow-hidden rounded-xl"
             style={{
               background: 'var(--input-background)',
               border: `0.5px solid ${HAIRLINE}`,
@@ -159,7 +159,7 @@ export function TemplateCards({ onUse }: TemplateCardsProps): JSX.Element {
 
       {/* "More coming" placeholder — deliberately not interactive. */}
       <div
-        className="flex min-h-[200px] flex-col items-center justify-center gap-2 rounded-[12px] p-5 text-center"
+        className="flex min-h-[200px] flex-col items-center justify-center gap-2 rounded-xl p-5 text-center"
         style={{ border: `1.5px dashed ${HAIRLINE}` }}
         data-testid="workflow-templates-placeholder"
       >

@@ -2,6 +2,7 @@ import { render, screen } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
 import { ChatThinking } from './ChatThinking'
+import { useLayoutStore } from '@/features/layout/store'
 import type { ThinkingStep } from '../types'
 
 const createStep = (overrides: Partial<ThinkingStep> = {}): ThinkingStep => ({
@@ -16,15 +17,37 @@ const createStep = (overrides: Partial<ThinkingStep> = {}): ThinkingStep => ({
   ...overrides,
 })
 
-/** Expand outer Herleitung, then technical intermediate-steps section. */
+/** Expand outer Herleitung, then technical intermediate-steps section. The raw
+ *  technical steps are now a profile opt-in (default off), so enable the
+ *  preference before drilling into them. */
 const expandToSteps = async (user: ReturnType<typeof userEvent.setup>) => {
+  useLayoutStore.setState({ showTechnicalReasoning: true })
   await user.click(screen.getByText(/Trace ·/))
-  await user.click(screen.getByText('Intermediate steps'))
+  await user.click(await screen.findByText('Intermediate steps'))
 }
 
 describe('ChatThinking', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    // Default experience: technical steps hidden unless the profile opts in.
+    useLayoutStore.setState({ showTechnicalReasoning: false })
+  })
+
+  describe('technical reasoning preference', () => {
+    test('hides the technical steps section by default', async () => {
+      const user = userEvent.setup()
+      render(<ChatThinking steps={[createStep()]} />)
+      await user.click(screen.getByText(/Trace ·/))
+      expect(screen.queryByText('Intermediate steps')).not.toBeInTheDocument()
+    })
+
+    test('shows the technical steps section when the preference is on', async () => {
+      const user = userEvent.setup()
+      useLayoutStore.setState({ showTechnicalReasoning: true })
+      render(<ChatThinking steps={[createStep()]} />)
+      await user.click(screen.getByText(/Trace ·/))
+      expect(await screen.findByText('Intermediate steps')).toBeInTheDocument()
+    })
   })
 
   describe('empty state', () => {

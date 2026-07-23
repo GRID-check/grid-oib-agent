@@ -398,8 +398,18 @@ def _get_summary_store() -> "SummaryStore":
             # Double-checked: another caller may have initialized it while we
             # waited for the lock.
             if _summary_store is None:
-                _summary_store = SummaryStore(_DEFAULT_SUMMARY_DB)
-                logger.info("Summary store initialized with default: %s", _DEFAULT_SUMMARY_DB)
+                # configure_summary_db() may not have run in this process (e.g. an
+                # ingestion thread/worker that never executed the NAT registration
+                # in sources/knowledge_layer/src/register.py). Resolve the DB from
+                # the environment the same way ingest_status_store/leader_lock do,
+                # instead of silently falling back to a local SQLite file that in a
+                # container often isn't writable ("unable to open database file")
+                # and, worse, would split summaries away from the real Postgres.
+                db_url = (
+                    os.environ.get("AIQ_SUMMARY_DB") or os.environ.get("NAT_JOB_STORE_DB_URL") or _DEFAULT_SUMMARY_DB
+                )
+                _summary_store = SummaryStore(db_url)
+                logger.info("Summary store initialized (lazy env fallback): %s", redact_db_url(db_url))
     return _summary_store
 
 
