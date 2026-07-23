@@ -34,7 +34,11 @@ class _Doc:
 
 
 def _sequential_reference(collections, per_collection):
-    """The old sequential loop, kept as an oracle for the concurrent version."""
+    """The old sequential loop, kept as an oracle for the concurrent version.
+
+    Dedup (first-seen wins) matches the helper; the final result is sorted by
+    file_name to match the helper's stable-across-turns cap ordering.
+    """
     aggregated = []
     seen = set()
     for coll in collections:
@@ -46,13 +50,14 @@ def _sequential_reference(collections, per_collection):
                 continue
             seen.add(doc.file_name)
             aggregated.append(doc)
+    aggregated.sort(key=lambda d: d.file_name)
     return aggregated
 
 
 class TestAggregateDocumentsAcrossCollections:
-    """The concurrent per-collection loader must return the SAME merged data as
-    the old sequential loop: same order, same dedup, same per-collection
-    fail-open behavior — only the round-trips now overlap."""
+    """The concurrent per-collection loader must return the same merged/deduped
+    data as the old sequential loop, plus a stable file_name sort and a top-N
+    cap for prompt-cost control — with the same per-collection fail-open."""
 
     def _run(self, collections, per_collection):
         """Drive the concurrent helper against a mock async fetch_one."""
@@ -89,7 +94,8 @@ class TestAggregateDocumentsAcrossCollections:
         }
         result, _ = self._run(collections, per_collection)
         assert result == _sequential_reference(collections, per_collection)
-        assert [d.file_name for d in result] == ["dup.pdf", "a.pdf", "b.pdf"]
+        # dup.pdf appears once (first-seen dedup); final order is file_name-sorted.
+        assert [d.file_name for d in result] == ["a.pdf", "b.pdf", "dup.pdf"]
 
     def test_dedup_within_a_single_collection(self):
         collections = ["base"]
@@ -145,6 +151,30 @@ class TestAggregateDocumentsAcrossCollections:
 
         result = asyncio.run(_aggregate_documents_across_collections(["base", "session"], fetch_one))
         assert [d.file_name for d in result] == ["base.pdf", "session.pdf"]
+
+    def test_result_is_sorted_by_file_name(self):
+        # DB rows have no ordering column; the helper sorts so the capped slice
+        # (and prompt prefix) is stable across turns.
+        async def fetch_one(coll):
+            return [_Doc("m.pdf"), _Doc("a.pdf"), _Doc("z.pdf")]
+
+        result = asyncio.run(_aggregate_documents_across_collections(["base"], fetch_one))
+        assert [d.file_name for d in result] == ["a.pdf", "m.pdf", "z.pdf"]
+
+    def test_caps_to_max_documents_keeping_lowest_sorted(self):
+        async def fetch_one(coll):
+            return [_Doc(f"{c}.pdf") for c in "edcba"]
+
+        result = asyncio.run(_aggregate_documents_across_collections(["base"], fetch_one, max_documents=2))
+        # Sorted then capped -> the two lowest file_names.
+        assert [d.file_name for d in result] == ["a.pdf", "b.pdf"]
+
+    def test_cap_of_zero_disables_truncation(self):
+        async def fetch_one(coll):
+            return [_Doc(f"{i}.pdf") for i in range(5)]
+
+        result = asyncio.run(_aggregate_documents_across_collections(["base"], fetch_one, max_documents=0))
+        assert len(result) == 5
 
 
 class _Intent:
