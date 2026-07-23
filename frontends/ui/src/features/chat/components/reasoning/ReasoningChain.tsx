@@ -11,7 +11,7 @@
 
 'use client'
 
-import { type FC, useMemo, useRef } from 'react'
+import { type FC, useMemo } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible'
 import { useTranslations } from '@/i18n'
@@ -20,7 +20,6 @@ import { useLayoutStore } from '@/features/layout/store'
 import { formatTime } from '@/shared/utils/format-time'
 import type { ThinkingStep, CitationSource } from '../../types'
 import { deriveTraceSourceCards } from '../../lib/trace-lanes'
-import { ChainConnectors, type ChainConnector } from './ChainConnectors'
 import {
   FramingNode,
   SourceFanOutNode,
@@ -46,11 +45,9 @@ export interface ReasoningChainProps {
   escalationReason?: string
 }
 
-/** A visible node plus the connector that leads into it. */
+/** A visible node in the reasoning timeline. */
 interface RenderedNode {
   key: string
-  connector: ChainConnector | null
-  columns?: number
   render: (order: number) => React.ReactNode
 }
 
@@ -113,7 +110,6 @@ export const ReasoningChain: FC<ReasoningChainProps> = ({
   // Raw NAT step list is a power-user opt-in (profile setting). The default
   // trace is the user-friendly node chain — never "which agent is running".
   const showTechnicalReasoning = useLayoutStore((s) => s.showTechnicalReasoning)
-  const containerRef = useRef<HTMLDivElement>(null)
 
   const sourceCards = useMemo(() => deriveTraceSourceCards(steps), [steps])
 
@@ -123,10 +119,9 @@ export const ReasoningChain: FC<ReasoningChainProps> = ({
 
   const nodes: RenderedNode[] = []
 
-  // Node 1 — Framing (always leads the chain; no connector above it).
+  // Node 1 — Framing (always leads the chain).
   nodes.push({
     key: 'framing',
-    connector: null,
     render: (order) => (
       <FramingNode
         t={t}
@@ -139,22 +134,18 @@ export const ReasoningChain: FC<ReasoningChainProps> = ({
     ),
   })
 
-  // Node 2 — Quellen fan-out.
+  // Node 2 — Quellen fan-out (parallelism reads as the grid within this step).
   if (hasSources) {
     nodes.push({
       key: 'sources',
-      connector: 'fan-out',
-      columns: sourceCards.length,
       render: (order) => <SourceFanOutNode t={t} cards={sourceCards} order={order} />,
     })
   }
 
-  // Node 3 — Assessment. Fan-in when it converges out of the sources grid.
+  // Node 3 — Assessment (confidence + citations).
   if (hasFindings) {
     nodes.push({
       key: 'findings',
-      connector: hasSources ? 'fan-in' : 'line',
-      columns: sourceCards.length,
       render: (order) => (
         <FindingsNode
           t={t}
@@ -170,7 +161,6 @@ export const ReasoningChain: FC<ReasoningChainProps> = ({
   if (hasBranches && choicePrompt) {
     nodes.push({
       key: 'branches',
-      connector: 'line',
       render: (order) => (
         <BranchesNode
           t={t}
@@ -182,28 +172,35 @@ export const ReasoningChain: FC<ReasoningChainProps> = ({
     })
   }
 
-  // Remeasure connectors whenever the visible node set (or source count) changes.
-  const signature = `${nodes.map((n) => n.key).join('|')}:${sourceCards.length}`
-
   return (
-    <div ref={containerRef} className="relative flex w-full flex-col gap-8">
-      {/* Dynamic connectors are drawn BEHIND the nodes from their real measured
-          positions (see ChainConnectors); the gap-8 spine gives them room. */}
-      <ChainConnectors containerRef={containerRef} signature={signature} />
+    // Calm vertical timeline: ONE continuous rail with a marker per step, left
+    // gutter = pl-6. This replaces the old measured-SVG fan-out/fan-in overlay,
+    // which re-threaded on every reflow/text-wrap/stream tick and visibly fought
+    // the layout at narrow widths. Reads as a competent analyst's steps; the
+    // parallel Quellen fan-out now reads as the grid WITHIN its own step.
+    <div className="relative flex w-full flex-col gap-6 pl-6">
+      {/* The rail — a single hairline behind the markers, inset from top/bottom
+          so it starts and ends at the first/last marker rather than floating. */}
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute bottom-3 left-[9px] top-2 w-px bg-border"
+      />
 
       {nodes.map((node, i) => (
-        <div
-          key={node.key}
-          data-chain-node
-          data-chain-connector={node.connector ?? ''}
-          className="relative z-10"
-        >
+        <div key={node.key} className="relative">
+          {/* Marker dot seated on the rail, aligned with the node's tab strip. */}
+          <span
+            aria-hidden="true"
+            className="absolute -left-[21px] top-1 flex size-3.5 items-center justify-center rounded-full border border-border bg-card shadow-2xs"
+          >
+            <span className="size-1.5 rounded-full bg-muted-foreground/70" />
+          </span>
           {node.render(i)}
         </div>
       ))}
 
       {showTechnicalReasoning && steps.length > 0 && (
-        <div className="relative z-10 border-t border-base pt-1">
+        <div className="border-t border-base pt-2">
           <TechnicalSteps steps={steps} t={t} />
         </div>
       )}

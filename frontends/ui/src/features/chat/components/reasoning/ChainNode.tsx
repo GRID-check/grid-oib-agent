@@ -47,7 +47,10 @@ export const ChainNode: FC<ChainNodeProps> = ({
   return (
     <div
       className={cn(
-        'mx-auto flex w-full flex-col',
+        // Left-aligned (never mx-auto): every node shares one clean left edge on
+        // the timeline rail instead of centering at its own max-width, which used
+        // to make the stack zig-zag. The max-width still caps the reading measure.
+        'flex w-full flex-col',
         'animate-in fade-in-0 slide-in-from-bottom-1 duration-300 ease-out motion-reduce:animate-none',
         maxWidthClassName,
         className

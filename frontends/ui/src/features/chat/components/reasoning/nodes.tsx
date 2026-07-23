@@ -111,7 +111,10 @@ export const SourceFanOutNode: FC<SourceFanOutNodeProps> = ({ t, cards, order })
   >
     <div
       className="grid gap-2.5"
-      style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))' }}
+      // Roomier now that the Herleitung spans the full column: auto-fit lets the
+      // parallel source cards breathe into more columns on wide screens and
+      // gracefully fall to one on a phone.
+      style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))' }}
       role="list"
       aria-label={t('thinking.node.sourcesTitle')}
     >

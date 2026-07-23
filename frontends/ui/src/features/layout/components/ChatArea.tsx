@@ -317,7 +317,6 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                     selected: choicePromptMsg.promptResponse,
                   }
                 : undefined
-              const isLastMessage = index === displayableMessages.length - 1
 
               return (
                 <motion.div
@@ -341,14 +340,12 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                     showAnswerFeedback={showAnswerFeedback}
                   />
 
-                  {/* Render thinking steps after user messages. The negative
-                      margin only lets a FOLLOWING message overlap — on the last
-                      message it would pull the panel behind the composer, so
-                      it's dropped there. */}
+                  {/* The Herleitung gets the FULL message column — it is the
+                      product's proof-of-work (which sources were checked, what
+                      was found, how confident), so it must not be starved into a
+                      narrow, cramped strip. */}
                   {isUserMessage && hasThinkingSteps && (
-                    <div
-                      className={`flex w-[85%] justify-start ${isLastMessage ? '' : '-mb-8'}`}
-                    >
+                    <div className="flex w-full justify-start">
                       <ChatThinking
                         steps={messageSteps}
                         isThinking={isStreaming && message.id === currentUserMessageId}
