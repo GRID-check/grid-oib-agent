@@ -17,6 +17,7 @@ import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -139,6 +140,7 @@ const ModelPicker: FC<{
 
 export const ModelConfigCard: FC = () => {
   const t = useTranslations('organization')
+  const tc = useTranslations('common')
   const { locale } = useLocale()
   const [groups, setGroups] = useState<AgentGroupDto[]>([])
   const [defaults, setDefaults] = useState<Record<string, string | null>>({})
@@ -154,6 +156,11 @@ export const ModelConfigCard: FC = () => {
   const [catalogSource, setCatalogSource] = useState<{ source: string; provider: string | null } | null>(null)
   const [zdrOnly, setZdrOnly] = useState(false)
   const [zdrSaving, setZdrSaving] = useState(false)
+  // Gate for turning ZDR *off* — the compliance-critical direction.
+  const [zdrDisableOpen, setZdrDisableOpen] = useState(false)
+  // Pending whole-org production swap awaiting confirmation: a specific version,
+  // or 'none' (reset to the workflow defaults).
+  const [pendingActivate, setPendingActivate] = useState<VersionDto | 'none' | null>(null)
   // Bumped whenever the catalog-shaping ZDR policy changes, so an open picker
   // re-runs its search against the newly filtered catalog.
   const [catalogEpoch, setCatalogEpoch] = useState(0)
@@ -247,7 +254,7 @@ export const ModelConfigCard: FC = () => {
     [t, load, loadVersions],
   )
 
-  const handleZdrToggle = useCallback(
+  const applyZdr = useCallback(
     async (enabled: boolean) => {
       setZdrSaving(true)
       // Optimistic — the picker's next fetch reflects the new filter.
@@ -274,6 +281,19 @@ export const ModelConfigCard: FC = () => {
     [t],
   )
 
+  const handleZdrToggle = useCallback(
+    (enabled: boolean) => {
+      // Enabling ZDR is strictly safer — stay frictionless. Turning it OFF is the
+      // compliance-critical direction, so gate it behind an explicit confirm.
+      if (enabled) {
+        void applyZdr(true)
+      } else {
+        setZdrDisableOpen(true)
+      }
+    },
+    [applyZdr],
+  )
+
   if (loading) {
     return (
       <div className="flex flex-col gap-3">
@@ -290,8 +310,42 @@ export const ModelConfigCard: FC = () => {
     )
   }
 
+  const activateTargetLabel =
+    pendingActivate === 'none'
+      ? t('models.defaultsTarget')
+      : pendingActivate
+        ? `${t('models.version')} ${pendingActivate.version}`
+        : ''
+
   return (
     <div className="flex flex-col gap-4">
+      {/* Turning ZDR off can send requests to non-ZDR endpoints — gate it. */}
+      <ConfirmDialog
+        open={zdrDisableOpen}
+        onOpenChange={setZdrDisableOpen}
+        title={t('models.zdrDisableTitle')}
+        description={t('models.zdrDisableDescription')}
+        confirmLabel={t('models.zdrDisableConfirm')}
+        cancelLabel={tc('actions.cancel')}
+        tone="warning"
+        onConfirm={() => applyZdr(false)}
+      />
+      {/* Activating a version / resetting to defaults swaps the production model
+          for the whole org immediately — name the target and confirm. */}
+      <ConfirmDialog
+        open={pendingActivate !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingActivate(null)
+        }}
+        title={t('models.activateTitle')}
+        description={t('models.activateDescription', { target: activateTargetLabel })}
+        confirmLabel={t('models.activateConfirm')}
+        cancelLabel={tc('actions.cancel')}
+        tone="warning"
+        onConfirm={() =>
+          handleActivate(pendingActivate === 'none' ? 'none' : (pendingActivate?.id ?? 'none'))
+        }
+      />
       {/* Zero-Data-Retention policy — filters the picker to ZDR models and
           makes the backend pin every request to ZDR endpoints. */}
       <div className="flex items-start justify-between gap-4 rounded-lg border p-4">
@@ -434,7 +488,7 @@ export const ModelConfigCard: FC = () => {
               <p className="text-sm text-muted-foreground">{t('models.historyEmpty')}</p>
             )}
             {versions !== null && versions.length > 0 && activeVersionId !== null && (
-              <Button variant="outline" size="sm" className="self-start" onClick={() => handleActivate('none')}>
+              <Button variant="outline" size="sm" className="self-start" onClick={() => setPendingActivate('none')}>
                 <RotateCcw className="mr-1.5 size-3.5" aria-hidden />
                 {t('models.useDefaults')}
               </Button>
@@ -461,7 +515,7 @@ export const ModelConfigCard: FC = () => {
                   ))}
                 </ul>
                 {version.id !== activeVersionId && (
-                  <Button variant="outline" size="sm" className="mt-2" onClick={() => handleActivate(version.id)}>
+                  <Button variant="outline" size="sm" className="mt-2" onClick={() => setPendingActivate(version)}>
                     {t('models.activate')}
                   </Button>
                 )}

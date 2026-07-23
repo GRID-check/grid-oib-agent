@@ -85,6 +85,10 @@ export const platform = {
     indexingProgress: 'Indexing {done} of {total} document(s)…',
     indexingDone: 'Indexed',
     indexingPending: 'Indexing…',
+    pollTimeoutTitle: 'Processing is taking longer than expected',
+    pollTimeoutDescription:
+      'The upload is still being indexed in the background. Refresh to check its current status.',
+    pollTimeoutRefresh: 'Refresh',
     uploadPending: '{name} received — indexing in the background',
     zipQueued: 'ZIP received: {accepted} PDF(s) queued, {rejected} skipped',
     zipRejectedTitle: 'Skipped from the ZIP',
