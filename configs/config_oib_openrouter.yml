@@ -61,8 +61,11 @@ llms:
     model_name: deepseek/deepseek-v4-flash
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
-    temperature: 1.0
-    top_p: 0.95
+    # Pure router: classification must be repeatable for the same query.
+    # temperature 1.0 made shallow-vs-deep depth noisy across runs; greedy
+    # decoding pins the decision so identical queries route identically.
+    temperature: 0
+    top_p: 1.0
     max_tokens: 4096
     max_retries: 2
     request_timeout: 60
