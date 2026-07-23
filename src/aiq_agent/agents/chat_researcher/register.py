@@ -85,15 +85,35 @@ def _reflection_answer_is_substantive(result: object, answer_text: str) -> bool:
     return True
 
 
-async def _aggregate_documents_across_collections(collections, fetch_one):
+def _available_documents_limit() -> int:
+    """Top-N cap for the per-turn ``available_documents`` prompt block.
+
+    ``get_all_async`` does an unbounded ``SELECT`` of the project's document
+    summaries, and every chat turn injects the full list into ~5 prompt
+    templates (shallow/clarifier live, deep on escalation) — so per-turn LLM
+    cost grew linearly with the corpus, paid even on chit-chat. Cap it.
+    ``GRID_AVAILABLE_DOCUMENTS_MAX`` (default 50) tunes it; 0/negative disables.
+    """
+    import os
+
+    try:
+        return int(os.environ.get("GRID_AVAILABLE_DOCUMENTS_MAX", "50"))
+    except (TypeError, ValueError):
+        return 50
+
+
+async def _aggregate_documents_across_collections(collections, fetch_one, max_documents=None):
     """Concurrently load document summaries for each collection and merge them.
 
     ``fetch_one`` is an async callable ``fetch_one(collection) -> list`` (its
     per-collection round-trip). The reads run concurrently instead of one at a
-    time, but the merge is deterministic and identical to the previous
-    sequential loop: collections are merged in input order, documents in each
-    collection keep their order, and files are deduped by ``file_name`` with
-    first-seen winning.
+    time. Collections are merged in input order and files deduped by
+    ``file_name`` (first-seen winning), then the deduped set is sorted by
+    ``file_name`` and capped to ``max_documents`` (``None`` → the
+    ``GRID_AVAILABLE_DOCUMENTS_MAX`` env default). The sort makes the capped set
+    **stable across turns** — the DB rows have no ordering column, so without it
+    the truncated slice (and the resulting prompt prefix) could differ turn to
+    turn, defeating provider prompt caching.
 
     Fail-open per collection: if ``fetch_one`` raises for a collection, that
     collection contributes an empty list (matching the old ``continue``) rather
@@ -118,6 +138,16 @@ async def _aggregate_documents_across_collections(collections, fetch_one):
                 continue
             seen_files.add(doc.file_name)
             aggregated.append(doc)
+
+    aggregated.sort(key=lambda d: d.file_name)
+    limit = _available_documents_limit() if max_documents is None else max_documents
+    if limit and limit > 0 and len(aggregated) > limit:
+        logger.info(
+            "Capping available_documents from %d to %d (GRID_AVAILABLE_DOCUMENTS_MAX)",
+            len(aggregated),
+            limit,
+        )
+        aggregated = aggregated[:limit]
     return aggregated
 
 
