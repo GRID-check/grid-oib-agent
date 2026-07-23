@@ -20,9 +20,9 @@ jobs:
     name: Build backend image
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Setup Blacksmith Builder
-        uses: useblacksmith/setup-docker-builder@v1
+        uses: useblacksmith/setup-docker-builder@v1.10.0
       - name: Build (release target, no push)
         uses: useblacksmith/build-push-action@v2
         with:
@@ -37,9 +37,9 @@ jobs:
     name: Build frontend image
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Setup Blacksmith Builder
-        uses: useblacksmith/setup-docker-builder@v1
+        uses: useblacksmith/setup-docker-builder@v1.10.0
       - name: Build (no push)
         uses: useblacksmith/build-push-action@v2
         with:

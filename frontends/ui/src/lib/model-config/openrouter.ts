@@ -169,40 +169,50 @@ export function filterCatalogToZdr(catalog: OpenRouterModel[], zdrModelIds: Set<
 }
 
 /**
- * Allowlist of reasoning-capable model families that are known to ACCEPT
- * reasoning-off (`reasoning_effort: none` / `reasoning: {enabled:false}`) —
- * i.e. hybrid "reasoning is optional" models. Exported so ops can extend
- * both lists without a code review of the rule itself.
+ * Denylist of reasoning-MANDATORY model families — models that ALWAYS reason
+ * and reject reasoning-off (`reasoning_effort: none` / `reasoning:{enabled:false}`)
+ * with OpenRouter HTTP 400 "Reasoning is mandatory for this endpoint and cannot
+ * be disabled". Exported so ops can extend both lists without a code review of
+ * the rule itself.
  *
- * `REASONING_OPTIONAL_PREFIXES` is matched with `startsWith` (a whole family);
- * `REASONING_OPTIONAL_IDS` is matched by exact id.
+ * `REASONING_MANDATORY_PREFIXES` is matched with `startsWith` (a whole family);
+ * `REASONING_MANDATORY_IDS` is matched by exact id.
+ *
+ * Known reasoning-only families: OpenAI's o-series (`openai/o1`, `o3`, `o4`),
+ * xAI's Grok 4 line (the `intent -> x-ai/grok-4.5` incident that motivated this
+ * filter), and DeepSeek R1. Everything else is assumed hybrid — see below.
  */
-export const REASONING_OPTIONAL_PREFIXES: string[] = ['deepseek/']
-export const REASONING_OPTIONAL_IDS: string[] = []
+export const REASONING_MANDATORY_PREFIXES: string[] = [
+  'openai/o1',
+  'openai/o3',
+  'openai/o4',
+  'x-ai/grok-4',
+  'deepseek/deepseek-r1',
+]
+export const REASONING_MANDATORY_IDS: string[] = []
 
 /**
  * Whether a model is safe to select for a group that runs with reasoning
  * DISABLED (`reasoning_effort: none`).
  *
- * Rationale (verbatim — do not "optimize" this asymmetry away):
- *   - Models that do NOT list 'reasoning' (or 'include_reasoning') in
- *     supportedParameters never reason → always safe.
- *   - Models that DO list reasoning are UNSAFE by default, because
- *     OpenRouter's catalog cannot distinguish "supports optional reasoning"
- *     from "reasoning is mandatory". The costs are asymmetric: a
- *     false-exclusion merely loses one picker option, while a false-inclusion
- *     breaks EVERY turn of that group (OpenRouter 400 "Reasoning is mandatory
- *     for this endpoint and cannot be disabled"). We therefore fail closed.
- *   - EXCEPT ids on the allowlist (REASONING_OPTIONAL_PREFIXES via startsWith,
- *     REASONING_OPTIONAL_IDS via exact match): known hybrid families that
- *     accept reasoning-off, which ops can extend.
+ * Rationale — we fail OPEN, the inverse of the original allowlist:
+ *   - OpenRouter's catalog cannot distinguish "supports optional reasoning"
+ *     from "reasoning is mandatory" — both merely list `reasoning` in
+ *     supported_parameters. Failing CLOSED on that signal excluded nearly the
+ *     entire modern catalog: almost every current frontier model advertises
+ *     reasoning yet accepts reasoning-off (the hybrid "reasoning is optional"
+ *     design). The old rule left only legacy non-reasoning models plus a
+ *     one-family allowlist.
+ *   - So a model is assumed SAFE for reasoning-off unless it is a known
+ *     reasoning-mandatory family/id (REASONING_MANDATORY_PREFIXES via
+ *     startsWith, REASONING_MANDATORY_IDS via exact match), which ops can
+ *     extend. A false-inclusion (a mandatory model not yet on the denylist)
+ *     breaks that group with an OpenRouter 400 until the id is added; that is
+ *     the accepted cost of not hiding the whole catalog.
  */
 export function isReasoningSafeForOff(model: OpenRouterModel): boolean {
-  const declaresReasoning =
-    model.supportedParameters.includes('reasoning') || model.supportedParameters.includes('include_reasoning')
-  if (!declaresReasoning) return true
-  if (REASONING_OPTIONAL_IDS.includes(model.id)) return true
-  return REASONING_OPTIONAL_PREFIXES.some((prefix) => model.id.startsWith(prefix))
+  if (REASONING_MANDATORY_IDS.includes(model.id)) return false
+  return !REASONING_MANDATORY_PREFIXES.some((prefix) => model.id.startsWith(prefix))
 }
 
 /**

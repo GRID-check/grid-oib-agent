@@ -22,6 +22,8 @@ from aiq_api.auth.middleware import detect_internal_caller
 from aiq_api.auth.middleware import resolve_request_user
 from aiq_api.auth.middleware import user_context
 from aiq_api.auth.request_trace import request_trace_tag_context
+from aiq_api.conversation_bus import get_bus
+from aiq_api.conversation_bus import is_multi_replica_bus
 from nat.data_models.api_server import ChatResponseChunk
 from nat.data_models.api_server import Error
 from nat.data_models.api_server import ErrorTypes
@@ -95,6 +97,11 @@ class WebSocketSessionRegistry:
         self._pending_interactions: dict[str, asyncio.Future[TextContent]] = {}
         self._workflow_tasks: dict[str, asyncio.Task] = {}
         self._lock = asyncio.Lock()
+        # Multi-replica bus (ADR-0028): background subscribers that relay bus
+        # frames onto a locally-held socket, and that resolve a locally-held HITL
+        # future from a bus answer. Empty / unused unless is_multi_replica_bus().
+        self._relay_tasks: dict[str, asyncio.Task] = {}
+        self._input_tasks: dict[str, asyncio.Task] = {}
 
     async def set_socket(self, conversation_id: str | None, socket: WebSocket) -> None:
         """Register the latest socket for a conversation."""
@@ -102,6 +109,11 @@ class WebSocketSessionRegistry:
             return
         async with self._lock:
             self._sockets[conversation_id] = socket
+        # In multi-replica mode this socket may be served by a replica that is
+        # NOT running the turn; subscribe to the conversation's event channel and
+        # relay published frames onto it. No-op single-replica.
+        if is_multi_replica_bus():
+            await self._start_relay(conversation_id, socket)
 
     async def clear_socket(self, conversation_id: str | None, socket: WebSocket) -> None:
         """Clear the socket only if it matches the current one."""
@@ -111,6 +123,32 @@ class WebSocketSessionRegistry:
             current = self._sockets.get(conversation_id)
             if current is socket:
                 self._sockets.pop(conversation_id, None)
+                self._cancel_task(self._relay_tasks, conversation_id)
+
+    @staticmethod
+    def _cancel_task(registry: dict[str, asyncio.Task], conversation_id: str) -> None:
+        task = registry.pop(conversation_id, None)
+        if task is not None and not task.done():
+            task.cancel()
+
+    async def _start_relay(self, conversation_id: str, socket: WebSocket) -> None:
+        """Relay bus frames for this conversation onto the locally-held socket."""
+        self._cancel_task(self._relay_tasks, conversation_id)
+
+        async def _loop() -> None:
+            try:
+                async for env in get_bus().subscribe_frames(conversation_id):
+                    try:
+                        await socket.send_json(env.payload)
+                    except Exception:
+                        logger.debug("Relay socket write failed for %s; stopping relay", conversation_id)
+                        return
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.warning("Relay loop error for conversation %s", conversation_id, exc_info=True)
+
+        self._relay_tasks[conversation_id] = asyncio.create_task(_loop())
 
     async def has_socket(self, conversation_id: str | None) -> bool:
         """Return True if a live socket is currently registered for a conversation.
@@ -125,9 +163,21 @@ class WebSocketSessionRegistry:
             return self._sockets.get(conversation_id) is not None
 
     async def send(self, conversation_id: str | None, message: BaseModel) -> bool:
-        """Send a message to the current socket for a conversation."""
+        """Send a message to the current socket for a conversation.
+
+        In multi-replica mode the frame is ALSO published to the conversation's
+        bus channel so a relay on another replica can display it (the owner
+        running the turn may not hold the socket). The local write remains as the
+        co-located fast path; the relay subscriber filters frames it published
+        itself, so a co-located owner==relay never double-writes.
+        """
         if not conversation_id:
             return False
+        if is_multi_replica_bus():
+            try:
+                await get_bus().publish_frame(conversation_id, message.model_dump())
+            except Exception:
+                logger.warning("Bus publish failed for conversation %s", conversation_id, exc_info=True)
         async with self._lock:
             socket = self._sockets.get(conversation_id)
         if not socket:
@@ -139,6 +189,25 @@ class WebSocketSessionRegistry:
             logger.warning("Failed to send websocket message after reconnect: %s", exc)
             return False
 
+    async def submit_hitl_answer(self, conversation_id: str | None, user_content: TextContent) -> bool:
+        """Deliver a HITL answer to the awaiting turn.
+
+        Resolves a locally-held future first (co-located owner==relay). If none is
+        local and the bus spans replicas, publish the answer so the owning replica
+        (subscribed via ``_start_owner_input``) resolves its future.
+        """
+        if not conversation_id:
+            return False
+        if await self.resolve_pending_interaction(conversation_id, user_content):
+            return True
+        if is_multi_replica_bus():
+            try:
+                await get_bus().publish_answer(conversation_id, user_content.model_dump())
+                return True
+            except Exception:
+                logger.warning("Bus answer publish failed for %s", conversation_id, exc_info=True)
+        return False
+
     async def register_pending_interaction(
         self,
         conversation_id: str | None,
@@ -149,6 +218,34 @@ class WebSocketSessionRegistry:
             return
         async with self._lock:
             self._pending_interactions[conversation_id] = future
+        # Owner side: while awaiting the answer, subscribe to the input channel so
+        # an answer published by a relay on another replica resolves this future.
+        if is_multi_replica_bus():
+            self._start_owner_input(conversation_id)
+
+    def _start_owner_input(self, conversation_id: str) -> None:
+        self._cancel_task(self._input_tasks, conversation_id)
+
+        async def _loop() -> None:
+            from aiq_api.conversation_bus import HITL_ANSWER
+
+            try:
+                async for env in get_bus().subscribe_input(conversation_id):
+                    if env.type != HITL_ANSWER:
+                        continue
+                    try:
+                        content = TextContent.model_validate(env.payload)
+                    except Exception:
+                        logger.warning("Malformed bus HITL answer for %s", conversation_id, exc_info=True)
+                        continue
+                    if await self.resolve_pending_interaction(conversation_id, content):
+                        return  # answer delivered; stop listening
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.warning("Owner input loop error for %s", conversation_id, exc_info=True)
+
+        self._input_tasks[conversation_id] = asyncio.create_task(_loop())
 
     async def resolve_pending_interaction(
         self,
@@ -164,6 +261,7 @@ class WebSocketSessionRegistry:
                 return False
             future.set_result(user_content)
             self._pending_interactions.pop(conversation_id, None)
+            self._cancel_task(self._input_tasks, conversation_id)
             return True
 
     async def clear_pending_interaction(self, conversation_id: str | None) -> None:
@@ -172,6 +270,7 @@ class WebSocketSessionRegistry:
             return
         async with self._lock:
             self._pending_interactions.pop(conversation_id, None)
+            self._cancel_task(self._input_tasks, conversation_id)
 
     async def set_workflow_task(self, conversation_id: str | None, task: asyncio.Task) -> None:
         """Register the running workflow task, cancelling any stale one first."""
@@ -546,9 +645,10 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
                                 validated_message.conversation_id,
                             )
                     else:
-                        resolved = await _registry.resolve_pending_interaction(
-                            validated_message.conversation_id, user_content
-                        )
+                        # No local future on THIS handler. Resolve a locally-held
+                        # registry future, or (multi-replica) publish the answer so
+                        # the owning replica resolves it over the bus.
+                        resolved = await _registry.submit_hitl_answer(validated_message.conversation_id, user_content)
                         if not resolved:
                             logger.warning(
                                 "No pending HITL interaction to resume for conversation %s",

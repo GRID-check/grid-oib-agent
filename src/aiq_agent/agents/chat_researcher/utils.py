@@ -1,4 +1,6 @@
 import json
+from collections.abc import Callable
+from functools import lru_cache
 from typing import Any
 
 from langchain_core.messages import BaseMessage
@@ -7,13 +9,69 @@ from langchain_core.messages import trim_messages
 from aiq_agent.common import parse_data_sources
 
 
-def trim_message_history(messages: list[BaseMessage], max_tokens: int) -> list[BaseMessage]:
-    """Trim messages to a maximum number of tokens."""
+@lru_cache(maxsize=1)
+def _get_token_encoder():
+    """Cache a tiktoken encoder, or ``None`` if tiktoken is unavailable."""
+    try:
+        import tiktoken
+
+        return tiktoken.get_encoding("cl100k_base")
+    except Exception:
+        return None
+
+
+def _encoded_len(text: str) -> int:
+    encoder = _get_token_encoder()
+    if encoder is not None:
+        try:
+            return len(encoder.encode(text))
+        except Exception:
+            pass
+    # Fallback heuristic when tiktoken is unavailable: ~4 chars per token.
+    return max(1, len(text) // 4)
+
+
+def _count_message_tokens(messages) -> int:
+    """Total approximate tokens across messages, for history-trim budgeting.
+
+    Replaces the old ``token_counter=len`` (which counted *messages*, so a few
+    large turns blew the real context budget). ``trim_messages`` invokes this on
+    the list it holds — BaseMessage objects or dict dumps — so content is pulled
+    from either form; non-string content is JSON-flattened before counting. Each
+    message adds a small fixed overhead for role/format framing.
+    """
+    total = 0
+    for message in messages:
+        content = getattr(message, "content", None)
+        if content is None and isinstance(message, dict):
+            content = message.get("content")
+        if isinstance(content, str):
+            text = content
+        elif content is None:
+            text = ""
+        else:
+            text = json.dumps(content, default=str)
+        total += _encoded_len(text) + 4
+    return total
+
+
+def trim_message_history(
+    messages: list[BaseMessage],
+    max_tokens: int,
+    token_counter: Callable[..., int] | None = None,
+) -> list[BaseMessage]:
+    """Trim conversation history to a real token budget (not a message count).
+
+    ``max_tokens`` is a token budget; ``token_counter`` defaults to a
+    tiktoken-based counter (``_count_message_tokens``) and is injectable for
+    tests. Keeps the most recent turns (``strategy="last"``), always retains
+    system messages, and starts the retained window on a human turn.
+    """
     return trim_messages(
         messages=[m.model_dump() for m in messages],
         max_tokens=max_tokens,
         strategy="last",
-        token_counter=len,
+        token_counter=token_counter or _count_message_tokens,
         start_on="human",
         include_system=True,
     )

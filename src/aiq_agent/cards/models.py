@@ -595,6 +595,42 @@ class ComparisonTableCard(BaseModel):
         return self
 
 
+# ── Document-surfacing card (system-emitted) ─────────────────────────────────
+# Surfaced by the `surface_documents` tool from a REAL vector search over the
+# project + Büroarchiv corpus — never fabricated by the model (it is a system
+# card, so `emit_card` refuses it). Each entry names a real indexed file so the
+# frontend can resolve it to the live document row (id, thumbnail, preview) and
+# render the same rich file-explorer card the Files page uses.
+
+
+class SurfacedDocument(BaseModel):
+    """One real document surfaced by a corpus search, with its match evidence."""
+
+    file_name: str = Field(min_length=1, description="Exact indexed file name (resolves to the live document row)")
+    summary: str | None = Field(default=None, description="One-line description of what the document is")
+    snippet: str | None = Field(default=None, description="Best-matching passage — WHY this file surfaced")
+    page: int | None = Field(default=None, description="1-based page the snippet came from, if known")
+    score: float | None = Field(default=None, description="0..1 relevance score of the best chunk")
+    source: Literal["projekt", "buero"] | None = Field(
+        default=None, description="Which corpus it came from: 'projekt' (project) or 'buero' (Büroarchiv)"
+    )
+
+
+class DocumentGridCard(BaseModel):
+    """A grid of REAL project/Büroarchiv documents surfaced for the user.
+
+    System-emitted by the ``surface_documents`` tool after a deterministic vector
+    search — the model asks for a search, the tool returns real files. Renders as
+    clickable file-explorer preview cards (thumbnail, name, match snippet) that
+    open the document.
+    """
+
+    type: Literal["document_grid"] = "document_grid"
+    title: str = Field(min_length=1, description="Short heading, e.g. 'Relevante Dokumente – Fluchtwege'")
+    query: str | None = Field(default=None, description="The search phrase these documents matched")
+    documents: list[SurfacedDocument] = Field(min_length=1, description="The surfaced files, best match first")
+
+
 GridCard = (
     SummaryCard
     | LegalBasisCard
@@ -617,6 +653,7 @@ GridCard = (
     | ElevatorRequirementCard
     | ParkingRequirementCard
     | MemoryProposalCard
+    | DocumentGridCard
 )
 
 # Discriminated-union adapter — the canonical validator for a raw card dict.
@@ -626,9 +663,11 @@ __all__ = [
     "ChecklistItem",
     "ComparisonRow",
     "ComparisonTableCard",
+    "DocumentGridCard",
     "GridCard",
     "LegalBasisCard",
     "MemoryProposalCard",
+    "SurfacedDocument",
     "ProjectProfilePatchCard",
     "ProjectProfilePatchOperation",
     "ProjectProfilePatchPreviewItem",
@@ -640,17 +679,30 @@ __all__ = [
 
 
 def validate_cards(raw: list[dict]) -> list[dict]:
-    """Validate a list of raw card dicts and return the validated dicts.
+    """Validate a list of model-produced card dicts and return the validated dicts.
 
     Per-card: one malformed card is logged and skipped instead of discarding
     the whole batch (LLM output regularly contains one bad item among good
     ones, and cards are a progressive enhancement — never fail the answer).
+
+    System cards (``SYSTEM_CARD_TYPES``) are dropped here too: this is the
+    post-hoc / batch generation path fed by *model* output, and a system card
+    must only ever come from its owning tool on a sanctioned path (e.g.
+    ``document_grid`` from ``surface_documents``, ``memory_proposal`` from
+    ``remember``). The model is never told these types exist, so any occurrence
+    here is a fabrication — enforce the same invariant ``emit_card`` and the
+    DSML salvage already enforce, closing the last emission path.
     """
     import logging
+
+    from aiq_agent.cards.catalog import SYSTEM_CARD_TYPES
 
     logger = logging.getLogger(__name__)
     validated: list[dict] = []
     for item in raw:
+        if isinstance(item, dict) and item.get("type") in SYSTEM_CARD_TYPES:
+            logger.warning("Dropping model-fabricated system card (type=%s)", item.get("type"))
+            continue
         try:
             validated.append(grid_card_adapter.validate_python(item).model_dump(exclude_none=True))
         except Exception as exc:

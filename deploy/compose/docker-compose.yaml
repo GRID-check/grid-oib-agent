@@ -50,6 +50,9 @@ services:
       # Shared cache (Dragonfly, ADR-0020): citation-registry snapshots and
       # cross-replica caches. Unset = per-process in-memory fallback.
       - REDIS_URL=${REDIS_URL:-redis://dragonfly:6379/0}
+      # Stateless chat tier via the Dragonfly pub/sub conversation bus (ADR-0028).
+      # On by default; fails open to local delivery. Set to 0 to opt out.
+      - GRID_CONVERSATION_BUS=${GRID_CONVERSATION_BUS:-1}
       # Project Memory: the `remember` tool writes via the frontend's internal
       # API (single-writer separation — the backend never touches grid_app).
       - FRONTEND_INTERNAL_URL=${FRONTEND_INTERNAL_URL:-http://frontend:3000}

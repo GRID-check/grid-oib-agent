@@ -39,7 +39,7 @@ baseline failure caused by a genuine product bug should be reported, not ignored
 | Frontend (`frontends/ui/`) | targeted `npx vitest run <specs>`, then the full suite; `npm run type-check` (no new errors vs. baseline) |
 | WS/SSE protocol or any message schema | both sides: backend emitter tests AND frontend Zod/parser tests for the same field names |
 | LLM behavior (prompts, models, structured output) | a live smoke call against the configured provider (OpenRouter key in env) proving the contract parses — or an explicit note that live validation was not possible and why |
-| User-visible UI | a screenshot (Playwright/Chromium is available) or, if truly infeasible, the rendered component's test output — plus the exact user-visible copy quoted in the summary |
+| User-visible UI | a screenshot from the screenshot harness (`cd frontends/ui && npm run screenshots [-- <id>]`, output in `frontends/ui/visual/screenshots/`) — add a `/dev/*` preview route + a `visual/registry.mjs` target for the new surface; see `docs/ux/visual-screenshots.md`. Quote the exact user-visible copy in the summary too. |
 | Anything long-running / a service | the actual logs showing the behavior, not an inference from code reading |
 
 New behavior needs a test that fails without the change. A bug fix needs a
@@ -103,6 +103,34 @@ explicit "not verified because …":
 - Independent verification: <who/what re-checked which claims>
 - Committed & pushed: <commit hashes, branch>
 ```
+
+## 7. Gotchas — don't re-learn these the hard way
+
+Environment quirks that repeatedly cost time. Each points to the doc that owns
+the detail — read the doc, don't guess.
+
+- **Frontend checks need `node_modules`.** Host `npm install` is flaky but works
+  here; if `type-check` / `vitest` / generators fail with `ERR_MODULE_NOT_FOUND`,
+  run `cd frontends/ui && npm install` first. The card generators also need it
+  (`npm run generate:cards`).
+- **Screenshots + dark mode + dev previews.** The full playbook — dark mode is a
+  `.dark` class on `<html>` (not `data-theme`; `src/app/providers.tsx` +
+  `globals.css`), dev preview routes 404 outside development, fetch shims must be
+  installed at module scope (not a `useEffect`) or they lose the child-effect
+  race, thumbnails 404 to a deterministic SVG sketch, and Chromium is
+  pre-installed at `PLAYWRIGHT_BROWSERS_PATH` (never download it) — lives in
+  **`docs/ux/visual-screenshots.md`**. Read it before capturing UI evidence.
+- **Grid cards are generated backend→frontend.** Editing `src/aiq_agent/cards/models.py`
+  is not enough: run `uv run python scripts/generate_card_schema.py` then
+  `cd frontends/ui && npm run generate:cards`, and add the renderer branch in
+  `features/grid-cards/components/GridCards.tsx`. Full recipe:
+  **`docs/architecture/cards.md`**.
+- **Raw `sql<T>` results aren't runtime-validated** — coerce at the repository
+  boundary (`new Date(...)`, `Number(...)`). See the AGENTS.md Conventions note.
+
+When you hit a fresh environment quirk worth remembering, add it here (one line
++ a pointer) and put the detail in the relevant doc — future runs should find
+it, not rediscover it.
 
 An honest "not done — X remains unverified" is compliant with this skill.
 Claiming done without the evidence is the only failure mode.

@@ -13,18 +13,32 @@ model. **Use it, not `docker-compose.yaml`, on Coolify.**
 
 ## 1. What the stack looks like
 
-Seven services build from this repo (no external image pulls required after the
-NVIDIA base-image removal — see §2):
+Services build from this repo (no external image pulls required after the
+NVIDIA base-image removal — see §2, apart from the stock `chromadb/chroma` and
+`dragonflydb/dragonfly` images):
 
 | Service | Role | Exposed publicly? |
 |---|---|---|
 | `frontend` | Next.js UI + BFF gateway (auth, `grid_app` DB, WS proxy) — port 3000 | **Yes** (your domain) |
-| `aiq-agent` | Python FastAPI backend (LLM orchestration, embedded Chroma) — port 8000 | No (internal) |
+| `aiq-agent` | Python FastAPI backend (LLM orchestration) — port 8000 | No (internal) |
+| `agent-worker` | Deep-research worker (`GRID_ROLE=worker`): claims jobs from Postgres and runs them off the web tier. Mirrors the K8s worker Deployment | No (internal) |
+| `chroma` | Shared ChromaDB vector server — port 8000. One store every `aiq-agent` and `agent-worker` queries over HTTP. Mirrors the K8s Chroma StatefulSet | No (internal) |
 | `seaweedfs` | S3-compatible object storage — port 8333 | **Yes** (presigned PDF URLs) |
 | `postgres` | Three logical DBs: `aiq_jobs`, `aiq_checkpoints`, `grid_app` | No (internal) |
+| `dragonfly` | Redis-protocol shared cache + conversation bus (ADR-0020/0028) | No (internal) |
 | `purger` | Grace-period hard-delete worker | No |
+| `workflow-scheduler` | Workflows cron scheduler (ADR-0023) | No |
 | `seaweedfs-init` | One-shot: creates the `grid-documents` bucket | No |
 | `aiq-data-permissions` | One-shot: chowns the shared data volume | No |
+
+> **Deep-research runs on its own worker (`GRID_JOB_EXECUTION=db`, the default).**
+> This compose mirrors the Kubernetes topology: `aiq-agent` enqueues research
+> jobs to Postgres and the `agent-worker` service claims and executes them
+> (`FOR UPDATE SKIP LOCKED`), so token-heavy runs scale and crash independently
+> of the chat/web tier, and both tiers read/write the shared `chroma` server. Set
+> `GRID_JOB_EXECUTION=dask` to fall back to the legacy in-process executor (no
+> worker needed) — kept only as a dev escape hatch. See §7 for the one-time
+> re-ingestion this implies on an existing embedded-Chroma deployment.
 
 Only **frontend** and **seaweedfs** get a public domain. Everything else talks over
 the internal Coolify network.
@@ -307,9 +321,21 @@ So chat, web search, **and** the knowledge base all work with just
 The OIB knowledge base lives entirely on two persistent volumes and is **not**
 baked into the image:
 
-- **Embeddings** — a Chroma directory (`chroma.sqlite3` + per-collection HNSW
-  index files) under `AIQ_CHROMA_DIR` (`/app/data/chroma_data`, volume
-  `chroma_data`).
+- **Embeddings** — held by the shared `chroma` server on its own persistent
+  volume (`chroma-server-data`, mounted at `/data`, `IS_PERSISTENT=TRUE`). Every
+  `aiq-agent` and `agent-worker` reaches it at `AIQ_CHROMA_URL`
+  (`http://chroma:8000`). The legacy embedded directory `AIQ_CHROMA_DIR`
+  (`/app/data/chroma_data`, volume `chroma_data`) is used only as the fallback
+  when `AIQ_CHROMA_URL` is unset (i.e. `GRID_JOB_EXECUTION=dask`).
+
+> **Migration from an earlier embedded-Chroma deployment.** Older stacks stored
+> the corpus in the per-container `chroma_data` volume. Switching to the shared
+> server (the default now) starts from an **empty** `chroma-server-data` volume,
+> so the OIB corpus is re-embedded into the server on first boot — a one-time
+> ingestion cost (§5), no data loss (the source PDFs on `aiq-data` are the source
+> of truth). Nothing to migrate by hand; just expect the first boot after the
+> switch to ingest. Set `OIB_FORCE_REINGEST=true` once only if you want to force
+> a rebuild.
 - **Source PDFs + registry** — `data/oib/*.pdf` (committed to the repo as normal
   git blobs, ~71 MB, so they ship in every image), admin uploads under
   `data/oib_uploads/`, and `data/oib_registry.json` (a `pdf-path → sha256` map),
@@ -340,12 +366,14 @@ redeploys of the same environment; each preview gets its own set.
 |---|---|---|---|
 | `postgres-data` | `/var/lib/postgresql/data` | All app + job + checkpoint state | **Everything** |
 | `seaweedfs-data` | `/data` | Project/Archiv user document uploads (presigned serving) | All files |
-| `chroma_data` | `/app/data/chroma_data` | Vector index (incl. the OIB corpus embeddings) | Re-ingest needed |
+| `chroma-server-data` | `/data` (in `chroma`) | Shared Chroma server vector index (incl. the OIB corpus embeddings) — the store in db mode | Re-ingest needed |
+| `chroma_data` | `/app/data/chroma_data` | Legacy embedded Chroma index — only the `GRID_JOB_EXECUTION=dask` fallback store | Re-ingest needed |
 | `aiq-data` | `/app/data` | Backend working data, ingestion registry, and the **OIB corpus source PDFs** (`oib_uploads/`) | Re-ingest needed |
 
 > **The OIB base corpus is not in SeaweedFS.** Its source PDFs live on `aiq-data`
 > (`data/oib/` shipped in the image, `data/oib_uploads/` for admin uploads) and
-> its embeddings on `chroma_data`. SeaweedFS holds only project/Archiv user uploads.
+> its embeddings on the shared server's `chroma-server-data` volume (db mode) —
+> or `chroma_data` in the dask fallback. SeaweedFS holds only project/Archiv user uploads.
 > Both OIB volumes persist across redeploys of the same environment, so an
 > ingested corpus survives a redeploy — it is lost only if the volumes are
 > deleted (or a brand-new preview environment starts with empty volumes, in
@@ -373,6 +401,7 @@ redeploys of the same environment; each preview gets its own set.
 | Concern | Dev compose | Coolify compose |
 |---|---|---|
 | Container names | fixed (`aiq-agent`, …) | none (Coolify namespaces) |
+| Deep-research execution | in-process (`dask`), embedded Chroma | `db` mode: dedicated `agent-worker` + shared `chroma` server (mirrors K8s) |
 | Docker network | custom `aiq-network` (bridge) | none declared — Coolify's managed per-stack network (avoids dual-homed 504/DNS failures) |
 | Host ports | published (3000, 8000, 5432, 8333/8888) | none — proxy + FQDN vars |
 | Secrets | `deploy/.env` literals | Coolify UI (`${VAR:?}`) + generated passwords; `OPENROUTER_API_KEY`, `TAVILY_API_KEY`, `GRID_ADMIN_TOKEN` all required |

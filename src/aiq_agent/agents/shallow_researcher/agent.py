@@ -55,6 +55,43 @@ logger = logging.getLogger(__name__)
 AGENT_DIR = Path(__file__).parent
 
 
+# Interaction tools the model still needs on conversational/meta turns —
+# `remember` (durable memory) and `emit_card` (UI cards). Matched on the tool's
+# base name so an MCP/group-qualified variant (e.g. ``mcp__remember``) is still
+# recognized. These are ALWAYS kept on meta turns, even if their qualified name
+# happens to prefix-match a declared data-source group, so a "remember this"
+# turn — which the orchestrator routes to this agent precisely for `remember` —
+# never loses the tool it was routed here to use.
+_INTERACTION_TOOL_BASENAMES = frozenset({"remember", "emit_card"})
+
+# Function-group separators used by NAT-qualified tool names, mirroring
+# ``data_source_registry._GROUP_SEPARATORS``.
+_TOOL_NAME_SEPARATORS = ("__", ".")
+
+
+def _tool_basename(tool_name: str) -> str:
+    """Return the final segment of a (possibly group-qualified) tool name."""
+    base = tool_name
+    for sep in _TOOL_NAME_SEPARATORS:
+        if sep in base:
+            base = base.rsplit(sep, 1)[-1]
+    return base
+
+
+def _is_search_tool(tool_name: str) -> bool:
+    """True if a tool is a data-source/search tool (dropped on meta turns).
+
+    A tool counts as a search tool iff it resolves to a configured data source
+    via :func:`get_source_id_for_tool` AND is not one of the known interaction
+    tools. The interaction allowlist wins, so a `remember`/`emit_card` tool
+    whose qualified name prefix-matches a data-source group ref is never
+    mistakenly treated as search and dropped from a conversational turn.
+    """
+    if _tool_basename(tool_name) in _INTERACTION_TOOL_BASENAMES:
+        return False
+    return get_source_id_for_tool(tool_name) is not None
+
+
 def _summarize_removed_citations(removed_citations: list[dict[str, Any]]) -> dict[str, Any] | None:
     """Summarize ``verify_citations`` drops for the transparency wire.
 
@@ -223,6 +260,19 @@ class ShallowResearcherAgent:
             self.tools, parallel_tool_calls=True, tool_choice="none"
         )
 
+        # Conversational/meta turns use a NARROWER tool set: only interaction
+        # tools (`remember`, `emit_card`), never the data-source search tools.
+        # A greeting or a memory request must not be able to fire a web or
+        # knowledge-base search — so on meta turns the model is neither OFFERED
+        # the search tools (narrowed binding) nor able to EXECUTE one it
+        # hallucinated (narrowed ToolNode returns an invalid-tool error instead
+        # of running it). Computed lazily on the first meta turn (see
+        # ``_ensure_meta_partition``) because the data-source registry that
+        # classifies tools is not reliably populated at construction time.
+        self._llm_with_meta_tools: Any = None
+        self._meta_tool_names: set[str] | None = None
+        self._meta_tool_node: ToolNode | None = None
+
     def _load_system_prompt(self) -> str:
         """Load the default system prompt."""
         try:
@@ -249,6 +299,53 @@ class ShallowResearcherAgent:
         """Get the LLM for shallow research."""
         return self.llm_provider.get(LLMRole.RESEARCHER)
 
+    def _ensure_meta_partition(self) -> None:
+        """Lazily compute the meta-turn tool partition (binding, names, ToolNode).
+
+        Meta/conversational turns keep only interaction tools (``remember``,
+        ``emit_card``); the data-source search tools are dropped so a greeting,
+        small talk, or a ``remember`` request cannot trigger a web or
+        knowledge-base search. ``_is_search_tool`` classifies each tool.
+
+        Computed lazily and cached: the data-source registry that classifies
+        tools is reliably populated by the time a turn runs (unlike at
+        ``__init__``), and both the tool set and the registry mapping are fixed
+        for the life of this instance (the per-org override path builds a new
+        agent, so the cache cannot go stale). Guarded on ``_meta_tool_names``
+        (not the bound LLM) so an empty interaction set still caches.
+
+        Two artifacts back the two defenses:
+        - ``_llm_with_meta_tools`` — the LLM bound to interaction tools only
+          (bare LLM when there are none), so search is never OFFERED.
+        - ``_meta_tool_node`` — a ToolNode over interaction tools only, so a
+          hallucinated search call cannot EXECUTE (it returns an invalid-tool
+          error). ``None`` when there are no interaction tools: then the meta
+          binding offers no tools at all, the tools node is unreachable, and no
+          ToolNode is needed (``ToolNode([])`` is not constructible anyway).
+        """
+        if self._meta_tool_names is not None:
+            return
+        meta_tools = [t for t in self.tools if not _is_search_tool(t.name)]
+        self._meta_tool_names = {t.name for t in meta_tools}
+        self._llm_with_meta_tools = (
+            self._get_llm().bind_tools(meta_tools, parallel_tool_calls=True) if meta_tools else self._get_llm()
+        )
+        self._meta_tool_node = ToolNode(meta_tools) if meta_tools else None
+
+    def _meta_tool_binding(self, tools_info: list[dict[str, str]]) -> tuple[Any, list[dict[str, str]]]:
+        """LLM bound to interaction-only tools + the matching tool list, for meta turns.
+
+        The deterministic complement to the prompt's meta output contract
+        ("no tool calls"): the search tools are simply not offered, so a weak
+        model cannot fire one against the instruction. The prompt's tool list
+        is narrowed to match, so the model is not told it has search it cannot
+        use.
+        """
+        self._ensure_meta_partition()
+        meta_names = self._meta_tool_names or set()
+        narrowed = [ti for ti in tools_info if ti.get("name") in meta_names]
+        return self._llm_with_meta_tools, narrowed
+
     def _build_graph(self) -> CompiledStateGraph:
         """Build the LangGraph StateGraph."""
 
@@ -259,6 +356,16 @@ class ShallowResearcherAgent:
             iterations = state.tool_iterations
 
             tools_info = state.tools_info if state.tools_info else self.tools_info
+
+            # On conversational/meta turns (requires_sources=False) offer ONLY
+            # interaction tools (remember, emit_card) and drop the data-source
+            # search tools, so a greeting or memory request cannot fire a web or
+            # knowledge-base search. This also narrows the prompt's tool list
+            # below so the model is not told it has search it must not use.
+            if state.requires_sources:
+                active_llm_with_tools: Any = self._llm_with_tools
+            else:
+                active_llm_with_tools, tools_info = self._meta_tool_binding(tools_info)
 
             # Get available documents (user-uploaded files with summaries)
             available_documents = state.available_documents or []
@@ -352,9 +459,8 @@ class ShallowResearcherAgent:
                         "cached_system_prompt": rendered_system_prompt,
                     }
 
-                llm_with_tools = self._llm_with_tools
                 full_messages = [system_message] + processed_history
-                response = await llm_with_tools.ainvoke(full_messages)
+                response = await active_llm_with_tools.ainvoke(full_messages)
 
                 new_iterations = iterations
                 if hasattr(response, "tool_calls") and response.tool_calls:
@@ -406,8 +512,21 @@ class ShallowResearcherAgent:
             their confirmations would otherwise register as tool-name
             citation keys via the non-URL fallback and could surface as bogus
             references on turns where no real research tool succeeded.
+
+            On conversational/meta turns the search tools are not offered to
+            the model, but a weak model can still hallucinate a call to one.
+            Executing via the meta-scoped ToolNode (interaction tools only)
+            makes that impossible: an unheld search call returns an
+            invalid-tool error instead of running. Falls back to the full
+            ToolNode on research turns (and when no interaction tool exists,
+            where the meta path binds no tools and this node is unreachable).
             """
-            result = await tool_node.ainvoke(state)
+            active_tool_node = tool_node
+            if not state.requires_sources:
+                self._ensure_meta_partition()
+                if self._meta_tool_node is not None:
+                    active_tool_node = self._meta_tool_node
+            result = await active_tool_node.ainvoke(state)
             # Resolve registry at call time (not build time) so each request
             # writes to its own session-scoped registry when available.
             active_registry = get_session_registry() or self.source_registry

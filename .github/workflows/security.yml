@@ -38,15 +38,26 @@ jobs:
     container:
       image: semgrep/semgrep
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # semgrep ci diffs PRs against the base branch; full history lets it
           # scope the scan to changed code instead of falling back to a full scan.
           fetch-depth: 0
-      # `semgrep ci` auto-detects PR vs push: it scans the diff on PRs and the
-      # full tree on develop/release. Rule packs run in no-account mode, so no
-      # SEMGREP_APP_TOKEN is needed — findings appear in this job log.
-      - run: semgrep ci
+      # `semgrep ci` is diff-aware on PRs (reports only findings NEW vs the base
+      # branch) and full-tree on push/schedule. So it BLOCKS a PR that introduces
+      # a new finding (clean-as-you-code) without failing on the existing backlog;
+      # push/schedule runs stay advisory (continue-on-error below). Rule packs run
+      # in no-account mode — no SEMGREP_APP_TOKEN needed. Findings are written to
+      # SARIF + JSON, surfaced in the run's job summary, and kept as an artifact.
+      # Two rules are tuned out of the ruleset as policy/noise (documented in the
+      # PR that added this): github-actions-mutable-action-tag — the repo uses
+      # major-version tags and lets Dependabot keep them current rather than
+      # SHA-pinning; and unsafe-formatstring — INFO-level template noise.
+      - name: Semgrep scan
+        run: >-
+          semgrep ci --sarif-output=semgrep.sarif --json-output=semgrep.json
+          --exclude-rule yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+          --exclude-rule javascript.lang.security.audit.unsafe-formatstring.unsafe-formatstring
         env:
           SEMGREP_RULES: >-
             p/default
@@ -55,13 +66,49 @@ jobs:
             p/python
             p/secrets
             p/github-actions
-        continue-on-error: true # Phase 1 only — remove to make blocking.
+        # Block on PRs (diff-aware → only new findings); advisory on push/schedule.
+        continue-on-error: ${{ github.event_name != 'pull_request' }}
+      - name: Findings summary
+        if: always()
+        continue-on-error: true # a summary hiccup must never affect the gate
+        run: |
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json, collections, pathlib
+          p = pathlib.Path("semgrep.json")
+          if not p.exists():
+              print("## Semgrep SAST\n\nNo JSON output produced."); raise SystemExit
+          res = json.loads(p.read_text()).get("results", [])
+          print("## Semgrep SAST\n")
+          print(f"**{len(res)} finding(s)** "
+                "(diff-aware on PRs: new vs base branch; full tree on push/schedule)\n")
+          sev = collections.Counter(r.get("extra", {}).get("severity", "INFO") for r in res)
+          if res:
+              print("| Severity | Count |\n|---|---|")
+              for s in ("ERROR", "WARNING", "INFO"):
+                  if sev.get(s):
+                      print(f"| {s} | {sev[s]} |")
+              print("\n| Rule | File | Line |\n|---|---|---|")
+              for r in res[:50]:
+                  rule = r.get("check_id", "").split(".")[-1]
+                  print(f"| `{rule}` | {r.get('path','')} | {r.get('start',{}).get('line','')} |")
+              if len(res) > 50:
+                  print(f"\n…and {len(res) - 50} more — see the `semgrep-findings` artifact.")
+          PY
+      - name: Upload Semgrep report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: semgrep-findings
+          path: |
+            semgrep.sarif
+            semgrep.json
+          retention-days: 14
 
   deps-osv:
     name: Dependency vulns (OSV-Scanner)
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # Reads the lockfiles in the tree (uv.lock, frontends/ui/package-lock.json)
       # and reports known-vulnerable versions against the OSV database.
       # The runnable action lives in a subdirectory (the repo root action.yml is
@@ -69,19 +116,22 @@ jobs:
       # The reusable workflow is intentionally avoided: it uploads SARIF to code
       # scanning, which needs GitHub Advanced Security (exactly what this stack
       # is designed not to require).
+      # NOTE: `--skip-git` was REMOVED in osv-scanner v2 (git roots are skipped by
+      # default now); passing it makes the CLI exit 127 and scan nothing. Just
+      # scan the tree recursively.
       - uses: google/osv-scanner-action/osv-scanner-action@v2.3.8
         with:
           scan-args: |-
             -r
-            --skip-git
             ./
-        continue-on-error: true # Phase 1 only — remove to make blocking.
+        # Advisory until the reported lockfile CVEs are triaged; then remove to block.
+        continue-on-error: true
 
   dependency-audit:
     name: Dependency audit
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-python-env
       # Informational (does not block merges on transitive advisories); surfaces
       # in the job log and can be promoted to blocking once the baseline is clean.
@@ -91,7 +141,7 @@ jobs:
           . .venv/bin/activate
           uv pip install pip-audit
           pip-audit --strict || true
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
@@ -107,7 +157,7 @@ jobs:
     name: Secret scan (gitleaks)
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # full history so gitleaks scans all commits
       # Run the OSS gitleaks image directly rather than gitleaks-action, which

@@ -83,10 +83,31 @@ services:
       - AIQ_LISTEN_DB_URL=postgresql://aiq:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/aiq_jobs
       # ── Shared cache (Dragonfly, ADR-0020) ──
       - REDIS_URL=redis://dragonfly:6379/0
+      # Stateless chat tier via the Dragonfly pub/sub conversation bus (ADR-0028).
+      # On by default; fails open to local delivery. Set to 0 to opt out.
+      - GRID_CONVERSATION_BUS=${GRID_CONVERSATION_BUS:-1}
+      # ── Deep-research execution (ADR-0021), mirroring the Kubernetes topology ──
+      # db = DB-claimed jobs run by the dedicated `agent-worker` service below
+      # (FOR UPDATE SKIP LOCKED), so the token-heavy research workload scales and
+      # crashes independently of the chat/web tier. Set to `dask` to fall back to
+      # the legacy in-process executor (no worker/chroma server needed) — kept as a
+      # dev escape hatch; on this stack it is redundant now that a worker exists.
+      - GRID_JOB_EXECUTION=${GRID_JOB_EXECUTION:-db}
+      # Encrypts DB-claimed job payloads at rest (AES-256-GCM). Empty = plaintext
+      # (a one-time warning is logged); acceptable on a single trusted node. Set a
+      # base64 32-byte key to encrypt: `openssl rand -base64 32`.
+      - GRID_JOB_PAYLOAD_KEK=${GRID_JOB_PAYLOAD_KEK:-}
       # ── Single-writer memory bridge to the frontend BFF ──
       - FRONTEND_INTERNAL_URL=http://frontend:3000
       - GRID_INTERNAL_API_TOKEN=${SERVICE_PASSWORD_INTERNALTOKEN}
-      # ── Knowledge base (embedded Chroma, persisted to a volume) ──
+      # ── Knowledge base (shared Chroma server, ADR-0021) ──
+      # Every replica and the agent-worker talk to ONE Chroma server over HTTP
+      # (the `chroma` service below), so the vector store is no longer pinned to a
+      # single container's disk — the precondition for db-mode workers. AIQ_CHROMA_DIR
+      # remains the embedded fallback, used only if AIQ_CHROMA_URL is unset (e.g.
+      # GRID_JOB_EXECUTION=dask). The OIB corpus is (re-)embedded into the server on
+      # first boot; keep AIQ_EMBED_MODEL stable so stored + query vectors match.
+      - AIQ_CHROMA_URL=${AIQ_CHROMA_URL:-http://chroma:8000}
       - AIQ_CHROMA_DIR=/app/data/chroma_data
       - COLLECTION_NAME=${COLLECTION_NAME:-oib_knowledge}
       - CONFIG_FILE=${BACKEND_CONFIG:-/app/configs/config_oib_openrouter.yml}
@@ -141,6 +162,11 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
+      # Shared vector store must be up before the agent boots (it embeds the OIB
+      # corpus into it on first start). Only gates when db mode uses AIQ_CHROMA_URL;
+      # in dask mode chroma still runs but the embedded dir is used instead.
+      chroma:
+        condition: service_healthy
       # service_started, NOT service_healthy: the cache is optional by design
       # (fail-open in both tiers) and must never block the stack.
       dragonfly:
@@ -160,6 +186,81 @@ services:
       - aiq-data:/app/data
       - chroma_data:/app/data/chroma_data
     restart: "no"
+
+  # ── Shared ChromaDB server (ADR-0021), the docker-compose mirror of the
+  #    Kubernetes StatefulSet in deploy/pulumi/src/data/chroma.ts ──
+  # ONE Chroma process that every aiq-agent replica and the agent-worker query
+  # over HTTP, so the vector store stops being pinned to a single container's
+  # disk. Chroma's OSS server is itself single-node (one process on a durable
+  # volume) — that is fine here: it is the *shared* store, not a per-replica one.
+  chroma:
+    image: ${CHROMA_IMAGE:-chromadb/chroma:0.5.23}
+    environment:
+      - IS_PERSISTENT=TRUE
+      - PERSIST_DIRECTORY=/data
+      - ANONYMIZED_TELEMETRY=FALSE
+    expose:
+      - "8000"
+    volumes:
+      - chroma-server-data:/data
+    healthcheck:
+      # /api/v1/heartbeat is the same probe the K8s readiness/liveness uses.
+      test:
+        - "CMD"
+        - "python"
+        - "-c"
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/heartbeat')"
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+
+  # ── Deep-research worker tier (ADR-0021), the docker-compose mirror of the
+  #    Kubernetes Deployment in deploy/pulumi/src/app/agent-worker.ts ──
+  # Same backend image and env as aiq-agent (via `extends`, so the two can never
+  # drift — critically, they share AIQ_EMBED_MODEL, so ingest- and query-side
+  # vectors always match), but launched with GRID_ROLE=worker: the entrypoint
+  # then execs `python -m aiq_api.jobs.worker` instead of the web server. Workers
+  # claim jobs from Postgres (FOR UPDATE SKIP LOCKED) and read/write the shared
+  # Chroma server — no web port, no Dask. Only meaningful when
+  # GRID_JOB_EXECUTION=db (the default); harmless idle in dask mode.
+  agent-worker:
+    extends:
+      service: aiq-agent
+    environment:
+      # GRID_ROLE flips entrypoint.py to the worker module (no uvicorn, no Dask).
+      - GRID_ROLE=worker
+      # Concurrent research jobs claimed per worker process (K8s: agentWorker.concurrency).
+      - GRID_RESEARCH_WORKERS=${GRID_RESEARCH_WORKERS:-1}
+    # extends does NOT carry depends_on — declare the worker's own start ordering.
+    depends_on:
+      aiq-data-permissions:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      chroma:
+        condition: service_healthy
+      seaweedfs:
+        condition: service_healthy
+      dragonfly:
+        condition: service_started
+    # The web healthcheck inherited from aiq-agent would never pass (no HTTP
+    # server here). Mirror the K8s liveness marker instead: worker.py touches
+    # /tmp/research-worker.alive each claim-loop tick; fail if it is missing or
+    # stale (loop hung). The long start_period covers the cold import + DB/Chroma
+    # connect before the first tick (K8s uses a 10-min startupProbe for this).
+    healthcheck:
+      test:
+        - "CMD"
+        - "python"
+        - "-c"
+        - "import os,sys,time; f='/tmp/research-worker.alive'; sys.exit(0 if os.path.exists(f) and time.time()-os.path.getmtime(f) < 180 else 1)"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 300s
+    restart: unless-stopped
 
   seaweedfs:
     # SeaweedFS S3-compatible object storage (replaces MinIO). One
@@ -405,7 +506,12 @@ services:
 volumes:
   aiq-data:
     driver: local
+  # Embedded per-container Chroma dir — now only the dask-mode fallback store.
   chroma_data:
+    driver: local
+  # Durable disk for the shared Chroma server (db mode). Separate volume so the
+  # server's corpus is never entangled with the legacy embedded store.
+  chroma-server-data:
     driver: local
   seaweedfs-data:
     driver: local

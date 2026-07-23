@@ -661,6 +661,22 @@ def empty_web_search_tool(query: str) -> str:
     return ""
 
 
+@tool
+def remember_tool(fact: str) -> str:
+    """Durably save a user preference, decision, or project fact."""
+    return f"Saved: {fact}"
+
+
+_SPY_SEARCH_EXECUTIONS: list[str] = []
+
+
+@tool
+def spy_search_tool(query: str) -> str:
+    """Search the web (spy: records every actual execution)."""
+    _SPY_SEARCH_EXECUTIONS.append(query)
+    return f"Results for: {query}"
+
+
 class TestShallowResearcherSourceRegistryGating:
     """Tests that shallow source capture is gated by data_source_registry."""
 
@@ -737,6 +753,216 @@ class TestShallowResearcherSourceRegistryGating:
 
         assert agent.source_registry.all_sources() == []
         assert "test 1" in result.messages[-1].content
+
+    @pytest.mark.asyncio
+    async def test_meta_turn_binds_only_interaction_tools(self, mock_llm_provider, mock_llm):
+        """A conversational/meta turn must not OFFER the data-source search tools.
+
+        Regression for the "wie läufts so" → web-search incident: a greeting
+        routed through the shallow agent still fired a web search because the
+        search tool stayed bound to the LLM regardless of turn type. On
+        requires_sources=False the agent now binds ONLY interaction tools
+        (`remember_tool` here); the data-source search tool
+        (`empty_web_search_tool`) is dropped so it cannot be called at all.
+        """
+        populate_from_config(
+            [
+                {
+                    "id": "web_search",
+                    "name": "Web Search",
+                    "description": "Search the web.",
+                    "tools": ["empty_web_search_tool"],
+                }
+            ],
+        )
+        final_response = AIMessage(content="Hallo! Bei mir läuft alles super.")
+        mock_llm.ainvoke = AsyncMock(side_effect=[final_response])
+
+        agent = ShallowResearcherAgent(
+            llm_provider=mock_llm_provider,
+            tools=[empty_web_search_tool, remember_tool],
+        )
+        # Ignore the construction-time full binding; observe only the meta path.
+        mock_llm.bind_tools.reset_mock()
+
+        state = ShallowResearchAgentState(
+            messages=[HumanMessage(content="wie läufts so")],
+            requires_sources=False,
+        )
+        result = await agent.run(state)
+
+        # The meta binding kept the interaction tool and dropped the search tool.
+        assert mock_llm.bind_tools.call_count == 1
+        bound_names = {getattr(t, "name", t) for t in mock_llm.bind_tools.call_args.args[0]}
+        assert bound_names == {"remember_tool"}
+        assert "empty_web_search_tool" not in bound_names
+        assert "läuft alles super" in result.messages[-1].content
+
+    @pytest.mark.asyncio
+    async def test_meta_turn_hallucinated_search_call_does_not_execute(self, mock_llm_provider, mock_llm):
+        """Defense in depth: even if a weak model hallucinates a search tool call
+        on a meta turn (a tool it was never offered), the search must NOT run.
+
+        The meta-scoped ToolNode holds only interaction tools, so a call to the
+        data-source search tool returns an invalid-tool error instead of
+        executing it — the greeting never triggers a real web search.
+        """
+        _SPY_SEARCH_EXECUTIONS.clear()
+        populate_from_config(
+            [
+                {
+                    "id": "web_search",
+                    "name": "Web Search",
+                    "description": "Search the web.",
+                    "tools": ["spy_search_tool"],
+                }
+            ],
+        )
+        # The model hallucinates a search call first, then answers conversationally.
+        hallucinated_call = AIMessage(
+            content="",
+            tool_calls=[{"name": "spy_search_tool", "args": {"query": "wie läufts so"}, "id": "1"}],
+        )
+        final_response = AIMessage(content="Hallo! Bei mir läuft alles super.")
+        mock_llm.ainvoke = AsyncMock(side_effect=[hallucinated_call, final_response])
+
+        agent = ShallowResearcherAgent(
+            llm_provider=mock_llm_provider,
+            tools=[spy_search_tool, remember_tool],
+        )
+
+        state = ShallowResearchAgentState(
+            messages=[HumanMessage(content="wie läufts so")],
+            requires_sources=False,
+        )
+        result = await agent.run(state)
+
+        # The search tool was never actually executed.
+        assert _SPY_SEARCH_EXECUTIONS == []
+        assert "läuft alles super" in result.messages[-1].content
+
+    @pytest.mark.asyncio
+    async def test_research_turn_hallucinated_search_call_executes(self, mock_llm_provider, mock_llm):
+        """Contrast: on a research turn the search tool is fully available and a
+        tool call executes normally (the meta scoping does not apply)."""
+        _SPY_SEARCH_EXECUTIONS.clear()
+        populate_from_config(
+            [
+                {
+                    "id": "web_search",
+                    "name": "Web Search",
+                    "description": "Search the web.",
+                    "tools": ["spy_search_tool"],
+                }
+            ],
+        )
+        search_call = AIMessage(
+            content="",
+            tool_calls=[{"name": "spy_search_tool", "args": {"query": "OIB 2.2"}, "id": "1"}],
+        )
+        final_response = AIMessage(content="Answer [1].\n\n**References:**\n- [1] Results for: OIB 2.2")
+        mock_llm.ainvoke = AsyncMock(side_effect=[search_call, final_response])
+
+        agent = ShallowResearcherAgent(
+            llm_provider=mock_llm_provider,
+            tools=[spy_search_tool, remember_tool],
+        )
+
+        state = ShallowResearchAgentState(
+            messages=[HumanMessage(content="Which OIB Richtlinie applies?")],
+            requires_sources=True,
+        )
+        await _run_with_captured_registry(agent, state)
+
+        # On a research turn the search tool really runs.
+        assert _SPY_SEARCH_EXECUTIONS == ["OIB 2.2"]
+
+    def test_is_search_tool_keeps_interaction_tools_matching_a_group_ref(self):
+        """A `remember`/`emit_card` tool whose qualified name prefix-matches a
+        declared data-source group must NOT be classified as a search tool —
+        else a meta turn would lose the very tool it was routed here to use."""
+        from aiq_agent.agents.shallow_researcher.agent import _is_search_tool
+
+        reset_registry()
+        try:
+            populate_from_config(
+                [{"id": "mcp", "name": "MCP", "description": "MCP tools.", "tools": ["mcp"]}],
+                group_names={"mcp"},
+            )
+            # Interaction tool under the group prefix → kept (not search).
+            assert _is_search_tool("mcp__remember") is False
+            assert _is_search_tool("mcp__emit_card") is False
+            # A genuine evidence tool under the same group → search.
+            assert _is_search_tool("mcp__web_fetch") is True
+        finally:
+            reset_registry()
+
+    @pytest.mark.asyncio
+    async def test_meta_turn_with_only_search_tools_binds_no_tools(self, mock_llm_provider, mock_llm):
+        """When every shallow tool is a data-source tool (the OIB config), a meta
+        turn binds NO tools — the greeting is answered directly with no search."""
+        populate_from_config(
+            [
+                {
+                    "id": "web_search",
+                    "name": "Web Search",
+                    "description": "Search the web.",
+                    "tools": ["empty_web_search_tool"],
+                }
+            ],
+        )
+        final_response = AIMessage(content="Hallo! Wie kann ich helfen?")
+        mock_llm.ainvoke = AsyncMock(side_effect=[final_response])
+
+        agent = ShallowResearcherAgent(
+            llm_provider=mock_llm_provider,
+            tools=[empty_web_search_tool],
+        )
+        mock_llm.bind_tools.reset_mock()
+
+        state = ShallowResearchAgentState(
+            messages=[HumanMessage(content="wie läufts so")],
+            requires_sources=False,
+        )
+        result = await agent.run(state)
+
+        # No interaction tools exist → the meta path binds the bare LLM (no
+        # bind_tools call) and no search tool is ever offered.
+        assert mock_llm.bind_tools.call_count == 0
+        assert "Hallo" in result.messages[-1].content
+
+    @pytest.mark.asyncio
+    async def test_research_turn_keeps_search_tools_bound(self, mock_llm_provider, mock_llm):
+        """Contrast: a research turn (requires_sources=True) still uses the full
+        construction-time binding, so the search tool remains available."""
+        populate_from_config(
+            [
+                {
+                    "id": "web_search",
+                    "name": "Web Search",
+                    "description": "Search the web.",
+                    "tools": ["empty_web_search_tool"],
+                }
+            ],
+        )
+        final_response = AIMessage(content="Answer from context.")
+        mock_llm.ainvoke = AsyncMock(side_effect=[final_response])
+
+        agent = ShallowResearcherAgent(
+            llm_provider=mock_llm_provider,
+            tools=[empty_web_search_tool, remember_tool],
+        )
+        mock_llm.bind_tools.reset_mock()
+
+        state = ShallowResearchAgentState(
+            messages=[HumanMessage(content="Which OIB Richtlinie applies to high-rise buildings?")],
+            requires_sources=True,
+        )
+        await agent.run(state)
+
+        # Research turns reuse the full binding made at construction; no
+        # additional (narrowed) binding is created.
+        assert mock_llm.bind_tools.call_count == 0
 
     @pytest.mark.asyncio
     async def test_research_turn_with_failed_source_lookup_still_raises(self, mock_llm_provider, mock_llm):

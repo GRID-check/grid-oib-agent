@@ -29,6 +29,29 @@ class _FakeLLM:
         return _FakeResponse(self._content)
 
 
+class TestBuildUserPrompt:
+    """The reflection prompt must cap the (growing) memory digest, like it already
+    caps the query and answer, so the background LLM call's token cost stays
+    bounded as project memory accumulates."""
+
+    def test_large_digest_is_truncated(self):
+        # Filler digit absent from the prompt template, so counting it isolates
+        # exactly the digest's contribution.
+        digest = "9" * (R._MAX_DIGEST_CHARS + 5000)
+        prompt = R._build_user_prompt("q", "a", digest)
+        assert "… (project memory truncated)" in prompt
+        assert prompt.count("9") == R._MAX_DIGEST_CHARS
+
+    def test_small_digest_passes_through_untruncated(self):
+        prompt = R._build_user_prompt("q", "a", "short memory")
+        assert "short memory" in prompt
+        assert "truncated" not in prompt
+
+    def test_no_digest_uses_placeholder(self):
+        prompt = R._build_user_prompt("q", "a", None)
+        assert "(no project memory recorded yet)" in prompt
+
+
 class TestSanitizeFindings:
     def test_drops_invalid_kind_and_empty_content(self):
         raw = [

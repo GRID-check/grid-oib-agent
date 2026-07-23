@@ -24,7 +24,7 @@ dependencies = [
     "langgraph-checkpoint-postgres>=3.0.0",
     "langgraph-checkpoint-sqlite>=2.0.0",
     "langchain-modal==0.0.5",
-    "psycopg[binary]>=3.0.0",
+    "psycopg[binary]>=3.3.4",
     "asyncpg>=0.29.0",
     "redis>=5.0.0,<7",
     "aiosqlite>=0.19.0",
@@ -47,6 +47,7 @@ dev = [
     "ruff~=0.15.1",
     "yapf>=0.40.0",
     "mypy>=1.5.0",
+    "fakeredis>=2.20.0",
 ]
 docs = [
     "sphinx>=7.0",
@@ -57,10 +58,10 @@ docs = [
     "sphinx-autobuild>=2025.8.25",
     "nvidia-sphinx-theme>=0.0.9.post1",
     "sphinx-design>=0.7.0",
-    "sphinxcontrib-mermaid>=2.0.1",
+    "sphinxcontrib-mermaid>=2.0.3",
 ]
 viz = [
-    "pygraphviz>=1.11",
+    "pygraphviz>=2.0",
 ]
 
 # -----------------------------------------------------------------------------
@@ -177,6 +178,7 @@ dev = [
     "ruff~=0.15.1",
     "yapf>=0.40.0",
     "mypy>=1.5.0",
+    "fakeredis>=2.20.0",
     "dask[distributed]>=2024.1.0",
     # Workspace packages for testing
     "google-scholar-paper-search",

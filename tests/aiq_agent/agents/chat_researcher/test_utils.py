@@ -6,6 +6,7 @@ from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
 from langchain_core.messages import SystemMessage
 
+from aiq_agent.agents.chat_researcher.utils import _count_message_tokens
 from aiq_agent.agents.chat_researcher.utils import _extract_query_and_sources
 from aiq_agent.agents.chat_researcher.utils import _extract_query_from_text
 from aiq_agent.agents.chat_researcher.utils import _extract_text_from_message
@@ -81,6 +82,34 @@ class TestTrimMessageHistory:
 
         # Strategy 'last' should prioritize recent messages
         assert isinstance(result, list)
+
+    def test_counts_tokens_not_message_count(self):
+        """The budget is tokens: one huge message can exceed a budget that many
+        tiny messages fit under — the old token_counter=len could not tell them
+        apart."""
+        tiny = [HumanMessage(content="hi"), AIMessage(content="ok"), HumanMessage(content="yo")]
+        huge = [HumanMessage(content="word " * 500)]
+        assert _count_message_tokens(huge) > _count_message_tokens(tiny)
+
+    def test_token_budget_drops_oversized_history(self):
+        """With a real token counter, an oversized older turn is trimmed while a
+        small recent turn within budget is kept."""
+        messages = [
+            HumanMessage(content="word " * 2000),  # very large, older
+            AIMessage(content="big answer " * 2000),
+            HumanMessage(content="short recent question"),
+        ]
+        result = trim_message_history(messages, max_tokens=200)
+        # Budget is real tokens now, so the giant early turns cannot all survive.
+        assert len(result) < len(messages)
+
+    def test_injected_counter_is_used(self):
+        """token_counter is injectable; passing len reproduces message-count
+        semantics (used to prove the default differs from len)."""
+        messages = [HumanMessage(content="a" * 10_000), AIMessage(content="b" * 10_000)]
+        # Under len-counting, both messages count as 2 tokens total -> both kept.
+        result = trim_message_history(messages, max_tokens=2, token_counter=len)
+        assert len(result) == 2
 
 
 class TestExtractTextFromMessage:
