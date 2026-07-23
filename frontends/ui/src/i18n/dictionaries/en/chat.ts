@@ -38,7 +38,6 @@ export const chat = {
     // A surfaced file that no longer resolves to a readable document row.
     unavailable: 'No longer available',
     openAria: 'Open document: {label}',
-    loadFailed: 'The document could not be opened. Please try again.',
   },
   // Composer (InputArea) control row — WS-3 click-dummy overhaul.
   composer: {

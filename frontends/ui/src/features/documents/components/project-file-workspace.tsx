@@ -7,7 +7,7 @@ import { useProjectDocuments } from '../hooks/use-project-documents'
 import { useFileDragDrop } from '../hooks/use-file-drag-drop'
 import { FolderTreePane } from './folder-tree-pane'
 import { FileBrowserPane } from './file-browser-pane'
-import { FilePreviewPane } from './file-preview-pane'
+import { FilePreviewDialog } from './file-preview-dialog'
 import { ProjectUppyUpload } from './project-uppy-upload'
 import { ActiveUploads } from './active-uploads'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -429,39 +429,25 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
 
       </div>
 
-      {/* Preview — centered modal overlay (click-dummy), backdrop dims the page
-          and closes on click; the panel maxes at 920px with the split preview. */}
-      {selectedFile && (
-        <div
-          role="dialog"
-          aria-modal
-          aria-label={t('preview.dialogLabel', { name: selectedFile.filename })}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 pt-[max(1rem,env(safe-area-inset-top))] md:p-10"
-          onClick={() => setSelectedFileId(null)}
-        >
-          <div
-            className="flex max-h-full w-full max-w-[920px] flex-col overflow-hidden rounded-xl border bg-card shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <FilePreviewPane
-              file={selectedFile}
-              projectId={projectId}
-              projectName={projectName}
-              onClose={() => setSelectedFileId(null)}
-              onReingested={handleReingested}
-              onTagsUpdated={handleTagsUpdated}
-              showMetadataPanel={showMetadataPanel}
-              extraActions={
-                <DeleteDocumentButton
-                  fileId={selectedFile.id}
-                  filename={selectedFile.filename}
-                  onDeleted={handleDeleted}
-                />
-              }
+      {/* Preview — the shared centered-modal dialog (identical in Files + Archiv). */}
+      <FilePreviewDialog
+        file={selectedFile}
+        projectId={projectId}
+        projectName={projectName}
+        onClose={() => setSelectedFileId(null)}
+        onReingested={handleReingested}
+        onTagsUpdated={handleTagsUpdated}
+        showMetadataPanel={showMetadataPanel}
+        extraActions={
+          selectedFile && (
+            <DeleteDocumentButton
+              fileId={selectedFile.id}
+              filename={selectedFile.filename}
+              onDeleted={handleDeleted}
             />
-          </div>
-        </div>
-      )}
+          )
+        }
+      />
     </div>
   )
 }

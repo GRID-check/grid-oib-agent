@@ -7,13 +7,12 @@ import type { FileItem } from './project-file-workspace'
 import { useArchivDocuments } from '../hooks/use-archiv-documents'
 import { useFileDragDrop } from '../hooks/use-file-drag-drop'
 import { ArchivLibraryPane } from './archiv-library-pane'
-import { FilePreviewPane } from './file-preview-pane'
+import { FilePreviewDialog } from './file-preview-dialog'
 import { ProjectUppyUpload } from './project-uppy-upload'
 import { ActiveUploads } from './active-uploads'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { useTranslations } from '@/i18n'
-import { useIsMobile } from '@/hooks/use-is-mobile'
 import { cn } from '@/lib/utils'
 
 interface ArchivWorkspaceProps {
@@ -163,9 +162,6 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
     }
   }, [])
 
-  const isMobile = useIsMobile()
-  const showMobilePreviewDialog = isMobile && selectedFile !== null
-
   const uploadButton = canManage ? (
     <ProjectUppyUpload onUpload={(f) => uploadFiles(f)} isUploading={isUploading} />
   ) : undefined
@@ -228,7 +224,7 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
       {/* Live upload progress */}
       <ActiveUploads files={activeUploads} onRetry={retryFile} />
 
-      {/* Two-pane layout (no folders): library grid + preview overlay/column. */}
+      {/* Library grid; the preview opens in the shared centered-modal dialog. */}
       <div className="flex flex-1 flex-col overflow-hidden md:flex-row">
         <div className="flex-1 overflow-y-auto">
           {loadError ? (
@@ -251,28 +247,23 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
           )}
         </div>
 
-        {selectedFile && (
-          <div
-            className="fixed inset-0 z-50 w-full shrink-0 overflow-y-auto bg-background pt-[env(safe-area-inset-top)] md:static md:z-auto md:w-96 md:border-l md:pt-0"
-            {...(showMobilePreviewDialog
-              ? { role: 'dialog', 'aria-modal': true, 'aria-label': selectedFile.filename }
-              : {})}
-          >
-            <FilePreviewPane
-              file={selectedFile}
-              canManage={canManage}
-              onClose={() => setSelectedFileId(null)}
-              onReingested={handleReingested}
-              onTagsUpdated={handleTagsUpdated}
-              showMetadataPanel={showMetadataPanel}
-              extraActions={
-                canManage ? (
-                  <DeleteDocumentButton fileId={selectedFile.id} filename={selectedFile.filename} onDeleted={handleDeleted} />
-                ) : undefined
-              }
-            />
-          </div>
-        )}
+        <FilePreviewDialog
+          file={selectedFile}
+          canManage={canManage}
+          onClose={() => setSelectedFileId(null)}
+          onReingested={handleReingested}
+          onTagsUpdated={handleTagsUpdated}
+          showMetadataPanel={showMetadataPanel}
+          extraActions={
+            canManage && selectedFile ? (
+              <DeleteDocumentButton
+                fileId={selectedFile.id}
+                filename={selectedFile.filename}
+                onDeleted={handleDeleted}
+              />
+            ) : undefined
+          }
+        />
       </div>
     </div>
   )

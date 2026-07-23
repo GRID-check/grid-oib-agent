@@ -8,9 +8,10 @@ import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState } from '@/components/ui/empty-state'
 import { useLocale, useTranslations } from '@/i18n'
-import { cn } from '@/lib/utils'
 import { useSemanticSearch } from '../hooks/use-semantic-search'
 import { FileCard } from './file-card'
+import { FileGrid, FileCardSkeleton } from './file-grid'
+import { FilterChip } from './filter-chip'
 
 interface FileBrowserPaneProps {
   files: FileItem[]
@@ -99,17 +100,11 @@ export function FileBrowserPane({
     return (
       <div className="space-y-3 p-4">
         <Skeleton className="h-9 w-full" />
-        <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(150px,1fr))] md:[grid-template-columns:repeat(auto-fill,minmax(236px,1fr))]">
+        <FileGrid>
           {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="overflow-hidden rounded-xl border">
-              <Skeleton className="h-24 w-full rounded-none md:h-[132px]" />
-              <div className="space-y-2 p-3">
-                <Skeleton className="h-3.5 w-2/3" />
-                <Skeleton className="h-3 w-24" />
-              </div>
-            </div>
+            <FileCardSkeleton key={i} />
           ))}
-        </div>
+        </FileGrid>
       </div>
     )
   }
@@ -234,13 +229,13 @@ export function FileBrowserPane({
           role="group"
           aria-label={t('folders.heading')}
         >
-          <FolderChip
+          <FilterChip
             label={t('folders.allFiles')}
             active={selectedFolderId === null}
             onClick={() => onSelectFolder(null)}
           />
           {topLevelFolders.map((folder) => (
-            <FolderChip
+            <FilterChip
               key={folder.id}
               label={folder.name}
               active={selectedFolderId === folder.id}
@@ -255,16 +250,12 @@ export function FileBrowserPane({
         // evidence (snippet + page + relevance). A backend error/timeout fails
         // open to an empty result set (never a crash).
         semantic.isSearching ? (
-          <div className="grid gap-3 p-4 [grid-template-columns:repeat(auto-fill,minmax(150px,1fr))] sm:gap-3.5 md:[grid-template-columns:repeat(auto-fill,minmax(236px,1fr))]">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <div key={i} className="overflow-hidden rounded-xl border">
-                <Skeleton className="h-24 w-full rounded-none md:h-[132px]" />
-                <div className="space-y-2 p-3">
-                  <Skeleton className="h-3.5 w-2/3" />
-                  <Skeleton className="h-12 w-full" />
-                </div>
-              </div>
-            ))}
+          <div className="p-4">
+            <FileGrid>
+              {Array.from({ length: 6 }).map((_, i) => (
+                <FileCardSkeleton key={i} />
+              ))}
+            </FileGrid>
           </div>
         ) : semantic.hits.length === 0 ? (
           <div className="p-8">
@@ -282,7 +273,7 @@ export function FileBrowserPane({
           </div>
         ) : (
           <div className="p-4">
-            <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(150px,1fr))] sm:gap-3.5 md:[grid-template-columns:repeat(auto-fill,minmax(236px,1fr))]">
+            <FileGrid>
               {semantic.hits.map((hit) => (
                 <FileCard
                   key={hit.id}
@@ -293,7 +284,7 @@ export function FileBrowserPane({
                   match={{ snippet: hit.snippet, page: hit.page, score: hit.score }}
                 />
               ))}
-            </div>
+            </FileGrid>
           </div>
         )
       ) : /* Substring-filtered card grid (instant, as you type). */
@@ -321,38 +312,20 @@ export function FileBrowserPane({
               {t('browser.recentlyUploaded')}
             </p>
           )}
-          <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(150px,1fr))] sm:gap-3.5 md:[grid-template-columns:repeat(auto-fill,minmax(236px,1fr))]">
-          {filteredFiles.map((file) => (
-            <FileCard
-              key={file.id}
-              file={file}
-              isSelected={selectedFileId === file.id}
-              onSelect={() => onSelectFile(selectedFileId === file.id ? null : file.id)}
-              locale={locale}
-            />
-          ))}
-          {uploadCard}
-          </div>
+          <FileGrid>
+            {filteredFiles.map((file) => (
+              <FileCard
+                key={file.id}
+                file={file}
+                isSelected={selectedFileId === file.id}
+                onSelect={() => onSelectFile(selectedFileId === file.id ? null : file.id)}
+                locale={locale}
+              />
+            ))}
+            {uploadCard}
+          </FileGrid>
         </div>
       )}
     </div>
-  )
-}
-
-function FolderChip({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={cn(
-        'shrink-0 whitespace-nowrap rounded-md border px-3 py-1 text-xs font-medium transition-colors duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-        active
-          ? 'border-foreground/20 bg-foreground text-background'
-          : 'border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground'
-      )}
-    >
-      {label}
-    </button>
   )
 }

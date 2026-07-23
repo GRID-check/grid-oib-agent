@@ -25,6 +25,12 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="file-card"]',
   },
   {
+    id: 'archiv-library',
+    path: '/dev/archiv-library',
+    description: 'Archiv library grid — compared against the Files browser for unification.',
+    waitFor: '[data-testid="archiv-document-card"]',
+  },
+  {
     id: 'cards-gallery',
     path: '/dev/cards',
     description: 'Full Grid card gallery — every card type with fixture data.',
