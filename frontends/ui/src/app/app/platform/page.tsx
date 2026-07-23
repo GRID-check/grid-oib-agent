@@ -13,6 +13,7 @@ import { getGridSession } from '@/lib/auth/session'
 import { getNavFlags } from '@/lib/authz/nav'
 import { OrgTopbar } from '@/components/shell'
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { PageHeader } from '@/components/ui/page-header'
 import { getTranslations } from '@/i18n/server'
 import { BaseKnowledge } from './base-knowledge'
 import { PlatformOverview } from './platform-overview'
@@ -74,10 +75,7 @@ export default async function PlatformPage(): Promise<JSX.Element> {
 
   return shell(
     <div className="flex flex-col gap-6">
-      <header>
-        <h1 className="text-2xl font-semibold tracking-tight">{t('title')}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">{t('subtitle')}</p>
-      </header>
+      <PageHeader title={t('title')} subtitle={t('subtitle')} />
       <PlatformOverview />
       <AgentProfiler />
       <BaseKnowledge />

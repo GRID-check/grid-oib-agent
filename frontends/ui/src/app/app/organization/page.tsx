@@ -16,6 +16,7 @@ import { getNavFlags } from '@/lib/authz/nav'
 import { getOrganizationOverview, getOrgSettings, type OrganizationOverview } from '@/lib/organizations/service'
 import { OrgTopbar } from '@/components/shell'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
+import { PageHeader } from '@/components/ui/page-header'
 import { getTranslations, getLocale } from '@/i18n/server'
 import { OrgSettingsForm } from './org-settings-form'
 import { OrgWidgets } from './org-widgets'
@@ -75,10 +76,7 @@ export default async function OrganizationPage(): Promise<JSX.Element> {
   if (!admin && !models && !byok && !budgets && !audit) {
     return shell(
       <div className="flex flex-col gap-6">
-        <header>
-          <h1 className="text-2xl font-semibold tracking-tight">{t('title')}</h1>
-          <p className="mt-1 text-sm text-muted-foreground">{t('memberSubtitle')}</p>
-        </header>
+        <PageHeader title={t('title')} subtitle={t('memberSubtitle')} />
 
         {/* Member self-view of usage (ADR-0015). isAdmin=false hides the
             admin-only limit editors and member/project tables; the card shows
@@ -143,10 +141,7 @@ export default async function OrganizationPage(): Promise<JSX.Element> {
 
   return shell(
     <div className="flex flex-col gap-6">
-      <header>
-        <h1 className="text-2xl font-semibold tracking-tight">{t('title')}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">{t('subtitle')}</p>
-      </header>
+      <PageHeader title={t('title')} subtitle={t('subtitle')} />
 
       {/* Overview (admins only) */}
       {admin && (

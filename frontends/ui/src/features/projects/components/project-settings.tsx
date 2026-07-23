@@ -36,6 +36,7 @@ import { ProjectRenameButton } from './project-rename-button'
 import { ProjectMembersForm } from '@/components/projects/project-members-form'
 import { Stagger, StaggerItem } from '@/components/motion'
 import { EmptyState } from '@/components/ui/empty-state'
+import { SectionLabel } from '@/components/ui/section-label'
 import { useLocale, useTranslations } from '@/i18n'
 
 interface ProjectSettingsProps {
@@ -84,11 +85,9 @@ export function ProjectSettings({
       <StaggerItem>
         <header className="flex flex-wrap items-end justify-between gap-4">
           <div className="min-w-0">
-            <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-              {t('project.eyebrow')}
-            </span>
+            <SectionLabel>{t('project.eyebrow')}</SectionLabel>
             <div className="mt-1 flex min-w-0 items-center gap-2">
-              <h1 className="min-w-0 truncate text-2xl font-semibold tracking-tight">{data.name}</h1>
+              <h1 className="min-w-0 truncate text-xl font-semibold tracking-tight">{data.name}</h1>
               {canManageProject && (
                 <ProjectRenameButton projectId={data.id} projectName={data.name} />
               )}

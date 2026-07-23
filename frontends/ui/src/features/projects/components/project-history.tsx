@@ -35,6 +35,7 @@ import { Stagger, StaggerItem } from '@/components/motion'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
+import { PageHeader } from '@/components/ui/page-header'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
@@ -161,25 +162,26 @@ export function ProjectHistory({ projectId, projectCollection }: ProjectHistoryP
   return (
     <div>
       {/* ---- Title + search pill (dummy: one row, justify-between) ---- */}
-      <div className="mb-7 flex min-h-9 flex-wrap items-center justify-between gap-4">
-        <h1 className="text-xl font-medium tracking-tight text-foreground">
-          {t('sections.history')}
-        </h1>
-        <div className="relative w-full sm:w-64">
-          <Search
-            className="pointer-events-none absolute left-3 top-1/2 size-[15px] -translate-y-1/2 text-muted-foreground"
-            aria-hidden
-          />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder={t('history.searchPlaceholder')}
-            aria-label={t('history.searchAria')}
-            className="h-9 w-full rounded-md border-[0.5px] border-border bg-card pl-9 pr-3 text-[13px] shadow-xs outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
-          />
-        </div>
-      </div>
+      <PageHeader
+        className="mb-7 min-h-9 flex-wrap items-center"
+        title={t('sections.history')}
+        action={
+          <div className="relative w-full sm:w-64">
+            <Search
+              className="pointer-events-none absolute left-3 top-1/2 size-[15px] -translate-y-1/2 text-muted-foreground"
+              aria-hidden
+            />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder={t('history.searchPlaceholder')}
+              aria-label={t('history.searchAria')}
+              className="h-9 w-full rounded-md border-[0.5px] border-border bg-card pl-9 pr-3 text-[13px] shadow-xs outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+            />
+          </div>
+        }
+      />
 
       {/* ---- Filter chips (dummy shape; real item-type signal, no faked source dots) ---- */}
       <div className="mb-4 flex flex-wrap gap-[7px]" role="group" aria-label={t('history.filterAria')}>
