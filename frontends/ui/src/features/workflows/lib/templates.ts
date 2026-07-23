@@ -17,6 +17,10 @@
 
 import type { Translator } from '@/i18n'
 import type { WorkflowDefinition } from '@/adapters/api/workflows-client'
+import type {
+  GalleryTemplate,
+  TemplateLocale,
+} from '@/adapters/api/platform-workflow-templates-client'
 
 /**
  * Provenance signal the gallery uses for a template's icon tile (spec §4:
@@ -138,4 +142,36 @@ export function resolveAllTemplates(t: Translator): ResolvedTemplate[] {
   return WORKFLOW_TEMPLATES.map((template) => resolveTemplate(t, template.id)).filter(
     (resolved): resolved is ResolvedTemplate => resolved !== null,
   )
+}
+
+/**
+ * Prefix distinguishing a platform-published template's synthetic gallery id
+ * from a built-in template id. Purely a UI key — nothing keys behavior off it.
+ */
+export const PLATFORM_TEMPLATE_ID_PREFIX = 'platform:'
+
+/**
+ * Resolve a platform-published template (ADR-0027) for the viewer's locale into
+ * the same `ResolvedTemplate` shape the built-ins produce, so a platform
+ * template pre-fills the builder identically. Content is author-written in both
+ * de+en; the requested locale is used, falling back to the other if missing.
+ *
+ * `dataSources: null` (author meant "all sources") maps to `[]`, matching how
+ * the built-in templates and the builder treat an empty additional-sources
+ * selection (see workflow-builder save logic).
+ */
+export function resolveGalleryTemplate(template: GalleryTemplate, locale: string): ResolvedTemplate {
+  const loc: TemplateLocale = locale === 'de' ? 'de' : 'en'
+  const content = template.content[loc] ?? template.content.en ?? template.content.de
+  return {
+    id: `${PLATFORM_TEMPLATE_ID_PREFIX}${template.id}`,
+    name: content.name,
+    description: content.description,
+    category: content.category,
+    provenance: template.provenance,
+    definition: content.definition,
+    dataSources: [...(template.dataSources ?? [])],
+    scheduleCron: template.scheduleCron ?? undefined,
+    scheduleTimezone: template.scheduleTimezone,
+  }
 }

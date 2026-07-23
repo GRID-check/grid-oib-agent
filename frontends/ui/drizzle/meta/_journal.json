@@ -169,6 +169,13 @@
       "when": 1783422293817,
       "tag": "0023_rename_minio_key_to_storage_key",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1783422294817,
+      "tag": "0024_platform_workflow_templates",
+      "breakpoints": true
     }
   ]
 }

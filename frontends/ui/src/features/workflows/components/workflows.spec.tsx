@@ -16,6 +16,12 @@ vi.mock('@/adapters/api/workflows-client', async (importActual) => {
   }
 })
 
+// The template gallery fetches published platform templates on mount; keep it
+// empty so tests exercise only the built-in templates (ADR-0027).
+vi.mock('@/adapters/api/platform-workflow-templates-client', () => ({
+  listGalleryTemplates: vi.fn().mockResolvedValue([]),
+}))
+
 // Data-sources client is called on builder mount.
 vi.mock('@/adapters/api/data-sources-client', () => ({
   createDataSourcesClient: () => ({
