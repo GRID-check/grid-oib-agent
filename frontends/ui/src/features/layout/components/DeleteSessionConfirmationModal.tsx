@@ -1,23 +1,14 @@
 /**
  * DeleteSessionConfirmationModal Component
  *
- * Confirmation dialog displayed before deleting a session.
- * Shows a warning message and requires explicit confirmation.
+ * Confirmation dialog displayed before deleting a session. A thin wrapper over
+ * the shared ConfirmDialog primitive — the confirm anatomy lives in one place.
  */
 
 'use client'
 
 import { type FC } from 'react'
-import { AlertTriangle } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { useTranslations } from '@/i18n'
 
 export interface DeleteSessionConfirmationModalProps {
@@ -44,41 +35,29 @@ export const DeleteSessionConfirmationModal: FC<DeleteSessionConfirmationModalPr
   const t = useTranslations('research')
   const tc = useTranslations('common')
   const trimmedTitle = sessionTitle?.trim()
-  const handleConfirm = () => {
-    onConfirm()
-    onOpenChange(false)
-  }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <AlertTriangle className="h-5 w-5 text-warning" aria-hidden="true" />
-            <span>{t('deleteModals.session.title')}</span>
-          </DialogTitle>
-        </DialogHeader>
-        <div className="flex flex-col gap-3">
-          <p className="text-sm">
-            {t('deleteModals.aboutToDelete')}{' '}
-            {trimmedTitle ? (
-              <span className="font-semibold">&ldquo;{trimmedTitle}&rdquo;</span>
-            ) : (
-              t('deleteModals.session.thisSession')
-            )}
-            {t('deleteModals.lossSuffix')}
-          </p>
-          <p className="text-sm">{t('deleteModals.cannotReverse')}</p>
-        </div>
-        <DialogFooter>
-          <DialogClose asChild>
-            <Button variant="ghost">{tc('actions.cancel')}</Button>
-          </DialogClose>
-          <Button variant="destructive" onClick={handleConfirm}>
-            {t('deleteModals.session.confirm')}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <ConfirmDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      tone="warning"
+      title={t('deleteModals.session.title')}
+      description={
+        <>
+          {t('deleteModals.aboutToDelete')}{' '}
+          {trimmedTitle ? (
+            <span className="font-semibold text-foreground">&ldquo;{trimmedTitle}&rdquo;</span>
+          ) : (
+            t('deleteModals.session.thisSession')
+          )}
+          {t('deleteModals.lossSuffix')}
+        </>
+      }
+      confirmLabel={t('deleteModals.session.confirm')}
+      cancelLabel={tc('actions.cancel')}
+      onConfirm={onConfirm}
+    >
+      <p className="text-sm">{t('deleteModals.cannotReverse')}</p>
+    </ConfirmDialog>
   )
 }
