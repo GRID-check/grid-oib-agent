@@ -30,6 +30,7 @@ import { Logo } from '@/components/brand/logo'
 import { useTranslations } from '@/i18n'
 import { pruneProjectSections, useRecordProjectSection } from '@/hooks/use-last-project-section'
 import { useLayoutStore } from '@/features/layout/store'
+import { useBodyScrollLock } from '@/shared/hooks/use-body-scroll-lock'
 import { cn } from '@/lib/utils'
 import { ProjectSwitcher, type ProjectSwitcherProject } from './project-switcher'
 import { SidebarUserMenu, type SidebarUser } from './sidebar-user-menu'
@@ -123,6 +124,10 @@ export function AppSidebar({
   React.useEffect(() => {
     setMobileOpen(false)
   }, [pathname, setMobileOpen])
+
+  // Lock background scroll while the drawer is open (it covers the page modally
+  // below md), so the page behind it does not scroll on touch.
+  useBodyScrollLock(mobileOpen)
 
   // Escape closes the drawer (it behaves like a modal over the page).
   React.useEffect(() => {
@@ -256,7 +261,7 @@ export function AppSidebar({
       className={cn(
         'flex flex-1 flex-col gap-0.5',
         variant === 'desktop' && collapsed ? 'items-center' : undefined,
-        variant === 'mobile' ? 'overflow-y-auto px-3 pt-2' : 'mt-5',
+        variant === 'mobile' ? 'overflow-y-auto overscroll-contain px-3 pt-2' : 'mt-5',
       )}
       aria-label={t('projectSections')}
     >
