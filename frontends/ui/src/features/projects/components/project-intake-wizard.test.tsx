@@ -1,6 +1,6 @@
 /**
  * Wizard behaviour specs, updated for the modules-A–H intake. These land the
- * wizard on a specific module (via a seeded sessionStorage draft) and exercise
+ * wizard on a specific module (via a seeded localStorage draft) and exercise
  * the Save path, the FB-13 conflict check, optimistic concurrency, draft
  * freshness, and numeric validation. The deterministic rule under test is the
  * fossil-fuel-on-a-new-build conflict (E1=gas + A5 includes Neubau).
@@ -66,7 +66,7 @@ function stubFetch(): FetchStub {
 
 /** Seed a draft so the wizard restores these answers and opens on the Review step (module H). */
 function seedReviewDraft(answers: Record<string, ProjectPrimitiveValue>, savedAt?: number): void {
-  sessionStorage.setItem(
+  localStorage.setItem(
     `intake-draft-${PROJECT_ID}`,
     JSON.stringify({ answers, currentStep: REVIEW_STEP, ...(savedAt !== undefined ? { savedAt } : {}) }),
   )
@@ -89,9 +89,9 @@ describe('ProjectIntakeWizard — FB-13 conflict check', () => {
   beforeEach(() => {
     vi.unstubAllGlobals()
     vi.clearAllMocks()
-    sessionStorage.clear()
+    localStorage.clear()
   })
-  afterEach(() => sessionStorage.clear())
+  afterEach(() => localStorage.clear())
 
   it('flag OFF: Save persists immediately with no consistency check', async () => {
     const user = userEvent.setup()
@@ -207,9 +207,9 @@ describe('ProjectIntakeWizard — summary generation is fully off the save path'
   beforeEach(() => {
     vi.unstubAllGlobals()
     vi.clearAllMocks()
-    sessionStorage.clear()
+    localStorage.clear()
   })
-  afterEach(() => sessionStorage.clear())
+  afterEach(() => localStorage.clear())
 
   it('saves and navigates without ever calling generate-summary (the Overview brief owns it)', async () => {
     const user = userEvent.setup()
@@ -231,9 +231,9 @@ describe('ProjectIntakeWizard — Fix 3 save-success feedback', () => {
   beforeEach(() => {
     vi.unstubAllGlobals()
     vi.clearAllMocks()
-    sessionStorage.clear()
+    localStorage.clear()
   })
-  afterEach(() => sessionStorage.clear())
+  afterEach(() => localStorage.clear())
 
   it('toasts a save confirmation with the captured-fact count after a successful save', async () => {
     const user = userEvent.setup()
@@ -275,9 +275,9 @@ describe('ProjectIntakeWizard — optimistic concurrency (If-Match)', () => {
   beforeEach(() => {
     vi.unstubAllGlobals()
     vi.clearAllMocks()
-    sessionStorage.clear()
+    localStorage.clear()
   })
-  afterEach(() => sessionStorage.clear())
+  afterEach(() => localStorage.clear())
 
   const recordHeaders = () => {
     const headers: Array<Record<string, string> | undefined> = []
@@ -365,9 +365,9 @@ describe('ProjectIntakeWizard — edit-mode save preserves agent-recorded knowle
   beforeEach(() => {
     vi.unstubAllGlobals()
     vi.clearAllMocks()
-    sessionStorage.clear()
+    localStorage.clear()
   })
-  afterEach(() => sessionStorage.clear())
+  afterEach(() => localStorage.clear())
 
   it('carries novel facts/goals/unknowns through the whole-profile PUT', async () => {
     const user = userEvent.setup()
@@ -408,9 +408,9 @@ describe('ProjectIntakeWizard — Fix 1 salvage banner', () => {
   beforeEach(() => {
     vi.unstubAllGlobals()
     vi.clearAllMocks()
-    sessionStorage.clear()
+    localStorage.clear()
   })
-  afterEach(() => sessionStorage.clear())
+  afterEach(() => localStorage.clear())
 
   it('shows the partial-replacement banner when some parts were dropped', async () => {
     stubFetch()
@@ -438,9 +438,9 @@ describe('ProjectIntakeWizard — assumptions-only edit preserves assumptions', 
   beforeEach(() => {
     vi.unstubAllGlobals()
     vi.clearAllMocks()
-    sessionStorage.clear()
+    localStorage.clear()
   })
-  afterEach(() => sessionStorage.clear())
+  afterEach(() => localStorage.clear())
 
   it('carries loaded assumptions into the PUT payload on an edit-mode save', async () => {
     const user = userEvent.setup()
@@ -474,9 +474,9 @@ describe('ProjectIntakeWizard — stale conditional answers pruned on load', () 
   beforeEach(() => {
     vi.unstubAllGlobals()
     vi.clearAllMocks()
-    sessionStorage.clear()
+    localStorage.clear()
   })
-  afterEach(() => sessionStorage.clear())
+  afterEach(() => localStorage.clear())
 
   it('prunes an orphaned conditional answer from a restored draft before saving', async () => {
     const user = userEvent.setup()
@@ -499,9 +499,9 @@ describe('ProjectIntakeWizard — Fix 1 stale draft does not clobber a newer pro
   beforeEach(() => {
     vi.unstubAllGlobals()
     vi.clearAllMocks()
-    sessionStorage.clear()
+    localStorage.clear()
   })
-  afterEach(() => sessionStorage.clear())
+  afterEach(() => localStorage.clear())
 
   const vorhabenFact = (value: string[], updatedAt: string) => ({
     value,
@@ -513,7 +513,7 @@ describe('ProjectIntakeWizard — Fix 1 stale draft does not clobber a newer pro
 
   it('discards a draft older than the persisted profile and prefills from the profile', async () => {
     stubFetch()
-    sessionStorage.setItem(
+    localStorage.setItem(
       `intake-draft-${PROJECT_ID}`,
       JSON.stringify({ answers: { A5: ['sanierung'] }, currentStep: 0, savedAt: Date.parse('2026-01-01T00:00:00.000Z') }),
     )
@@ -531,7 +531,7 @@ describe('ProjectIntakeWizard — Fix 1 stale draft does not clobber a newer pro
 
   it('restores a draft newer than the persisted profile (genuine local edits survive)', async () => {
     stubFetch()
-    sessionStorage.setItem(
+    localStorage.setItem(
       `intake-draft-${PROJECT_ID}`,
       JSON.stringify({ answers: { A5: ['sanierung'] }, currentStep: 0, savedAt: Date.parse('2026-07-20T00:00:00.000Z') }),
     )
@@ -549,7 +549,7 @@ describe('ProjectIntakeWizard — Fix 1 stale draft does not clobber a newer pro
 
   it('discards a draft whose base profileVersion is behind the loaded version', async () => {
     stubFetch()
-    sessionStorage.setItem(
+    localStorage.setItem(
       `intake-draft-${PROJECT_ID}`,
       JSON.stringify({ answers: { A5: ['sanierung'] }, currentStep: 0, savedAt: Date.now(), baseVersion: 3 }),
     )
@@ -575,7 +575,7 @@ describe('ProjectIntakeWizard — Fix 1 stale draft does not clobber a newer pro
 
   it('migration window: a legacy draft with neither baseVersion nor savedAt does not win over the profile', async () => {
     stubFetch()
-    sessionStorage.setItem(
+    localStorage.setItem(
       `intake-draft-${PROJECT_ID}`,
       JSON.stringify({ answers: { A5: ['sanierung'] }, currentStep: 0 }),
     )
@@ -596,9 +596,9 @@ describe('ProjectIntakeWizard — Fix 2 AI-finding revise link resolves a stage'
   beforeEach(() => {
     vi.unstubAllGlobals()
     vi.clearAllMocks()
-    sessionStorage.clear()
+    localStorage.clear()
   })
-  afterEach(() => sessionStorage.clear())
+  afterEach(() => localStorage.clear())
 
   it('renders a working Revise link for an AI finding whose labels match no question', async () => {
     const user = userEvent.setup()
@@ -625,15 +625,15 @@ describe('ProjectIntakeWizard — Fix 5 non-finite number rejected', () => {
   beforeEach(() => {
     vi.unstubAllGlobals()
     vi.clearAllMocks()
-    sessionStorage.clear()
+    localStorage.clear()
   })
-  afterEach(() => sessionStorage.clear())
+  afterEach(() => localStorage.clear())
 
   it('rejects "1e999" (Infinity) with a validation error and neither advances nor saves', async () => {
     const user = userEvent.setup()
     const stub = stubFetch()
     // Land on module C (index 2) with the building set to a Gebäude so C2 shows.
-    sessionStorage.setItem(
+    localStorage.setItem(
       `intake-draft-${PROJECT_ID}`,
       JSON.stringify({ answers: { 'C1@bw1': 'gebaeude' }, currentStep: 2 }),
     )
