@@ -33,6 +33,12 @@ export const profile: typeof en.profile = {
     description: 'Die in der Piloti-Oberfläche verwendete Sprache.',
     label: 'Sprache der Oberfläche',
   },
+  reasoning: {
+    title: 'Herleitung',
+    description: 'Wie viel von Pilotis Denkweg in der Antwort gezeigt wird.',
+    label: 'Technische Herleitung anzeigen',
+    hint: 'Zeigt die einzelnen technischen Schritte (welcher Agent bzw. welches Werkzeug lief). Standardmäßig aus — normal siehst du die verständliche Herleitung.',
+  },
   security: {
     title: 'Sicherheit & Sitzungen',
     description: 'Wo Sie angemeldet sind und wie Ihr Konto geschützt ist.',

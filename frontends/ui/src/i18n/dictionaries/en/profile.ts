@@ -31,6 +31,12 @@ export const profile = {
     description: 'The language used across the Piloti interface.',
     label: 'Interface language',
   },
+  reasoning: {
+    title: 'Reasoning trace',
+    description: "How much of Piloti's reasoning is shown with an answer.",
+    label: 'Show technical reasoning',
+    hint: 'Reveals the individual technical steps (which agent or tool ran). Off by default — you normally see the plain-language trace.',
+  },
   security: {
     title: 'Security & sessions',
     description: 'Where you are signed in and how your account is protected.',

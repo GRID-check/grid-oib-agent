@@ -38,8 +38,4 @@ export const common = {
     english: 'English',
     german: 'Deutsch',
   },
-  preferences: {
-    label: 'Preferences',
-    technicalReasoning: 'Show technical reasoning',
-  },
 }
