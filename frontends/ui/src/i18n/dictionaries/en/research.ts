@@ -176,6 +176,7 @@ export const research = {
     waitUpload: 'Wait for upload to complete',
     cannotDeleteBusy: 'Cannot delete files during active operations',
     deleteFile: 'Delete file',
+    open: 'Open preview: {title}',
   },
 
   fileSourcesTab: {
@@ -240,6 +241,8 @@ export const research = {
     retryUpload: 'Retry upload',
     manageFiles: 'Manage files',
     manageFilesCount: 'Manage attached files ({count})',
+    manageFilesMobile: 'Manage {count} files',
+    openFile: 'Open file: {name}',
     fileUploadingStatus: 'Uploading',
     fileFailedStatus: 'Upload failed',
     fileReadyStatus: 'Ready',

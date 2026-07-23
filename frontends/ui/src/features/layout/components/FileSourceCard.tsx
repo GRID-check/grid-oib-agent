@@ -10,6 +10,7 @@
 import { type FC, useState, useEffect } from 'react'
 import { Check, FileText, Trash2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/utils'
 import { motion, springGentle } from '@/components/motion'
@@ -39,6 +40,13 @@ export interface FileSourceCardProps {
   expirationIntervalHours?: number
   /** Callback when delete is clicked */
   onDelete: (id: string) => void
+  /**
+   * Opens a read-only preview of the file. When provided AND the file is
+   * `available`, the icon+content become a button so tapping the row previews it
+   * (matching the "tap a file → preview" model). Omitted or non-available files
+   * stay inert — there is nothing to preview yet.
+   */
+  onOpen?: (id: string) => void
 }
 
 /** Status configuration for styling */
@@ -161,6 +169,7 @@ export const FileSourceCard: FC<FileSourceCardProps> = ({
   errorMessage,
   expirationIntervalHours = 0,
   onDelete,
+  onOpen,
 }) => {
   const t = useTranslations('research')
   const { locale } = useLocale()
@@ -176,6 +185,81 @@ export const FileSourceCard: FC<FileSourceCardProps> = ({
   const isProcessing = status === 'uploading' || status === 'ingesting'
   const isDeleting = status === 'deleting'
   const deleteDisabled = isBusy || isProcessing || isDeleting
+  // Only an available file has something to preview; before that there is no
+  // persisted document behind the row.
+  const canOpen = !!onOpen && status === 'available'
+
+  // Icon + textual content, shared by the openable-button and inert-div layouts.
+  const rowBody = (
+    <>
+      {/* File Icon or Spinner */}
+      {config.showSpinner ? (
+        <Spinner size="sm" label={label} />
+      ) : (
+        <FileText
+          className={cn('h-8 w-8', status === 'error' ? 'text-error' : 'text-muted-foreground')}
+          aria-hidden="true"
+        />
+      )}
+
+      {/* Content */}
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
+        {/* Title, file size, and timestamp */}
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="truncate text-sm font-semibold">{title}</span>
+          {fileSize != null && fileSize > 0 && (
+            <span className="shrink-0 text-xs text-muted-foreground">
+              {formatFileSize(fileSize, locale)}
+            </span>
+          )}
+          {uploadedAt && (
+            <>
+              <span className="shrink-0 text-muted-foreground">•</span>
+              <span className="shrink-0 text-xs text-muted-foreground">
+                {formatDateTime(uploadedAt, locale)}
+              </span>
+            </>
+          )}
+        </div>
+
+        {/* Description (if provided) */}
+        {description && (
+          <span className="line-clamp-2 text-xs text-muted-foreground">{description}</span>
+        )}
+
+        {/* Status and expiration row */}
+        <div className="mt-1 flex items-center gap-2">
+          {/* Status indicator */}
+          <span className="flex items-center gap-1">
+            {status === 'available' && (
+              <Check className="h-3 w-3 text-success" aria-hidden="true" />
+            )}
+            {status === 'error' && <X className="h-3 w-3 text-error" aria-hidden="true" />}
+            <span className={cn(config.showSpinner ? 'text-sm' : 'text-xs', config.textClass)}>
+              {label}
+            </span>
+          </span>
+
+          {/* Expiration countdown */}
+          {expiryInfo && (
+            <>
+              <span className="text-muted-foreground">•</span>
+              <span className={cn('text-xs', expiryInfo.expired ? 'text-error' : 'text-warning')}>
+                {expiryInfo.expired
+                  ? t('fileSourceCard.expiryPending')
+                  : t('fileSourceCard.expiresIn', { minutes: expiryInfo.minutes })}
+              </span>
+            </>
+          )}
+        </div>
+
+        {/* Error message */}
+        {status === 'error' && errorMessage && (
+          <span className="mt-1 text-xs text-error">{errorMessage}</span>
+        )}
+      </div>
+    </>
+  )
 
   return (
     <motion.div
@@ -190,74 +274,18 @@ export const FileSourceCard: FC<FileSourceCardProps> = ({
       transition={springGentle}
     >
       <div className="flex min-w-0 flex-1 items-center gap-3">
-        {/* File Icon or Spinner */}
-        {config.showSpinner ? (
-          <Spinner size="sm" label={label} />
+        {canOpen ? (
+          <button
+            type="button"
+            onClick={() => onOpen?.(id)}
+            aria-label={t('fileSourceCard.open', { title })}
+            className="focus-visible:ring-ring/50 -m-1 flex min-w-0 flex-1 items-center gap-3 rounded-xl p-1 text-left focus-visible:outline-none focus-visible:ring-2"
+          >
+            {rowBody}
+          </button>
         ) : (
-          <FileText
-            className={cn('h-8 w-8', status === 'error' ? 'text-error' : 'text-muted-foreground')}
-            aria-hidden="true"
-          />
+          <div className="flex min-w-0 flex-1 items-center gap-3">{rowBody}</div>
         )}
-
-        {/* Content */}
-        <div className="flex min-w-0 flex-1 flex-col gap-1">
-          {/* Title, file size, and timestamp */}
-          <div className="flex min-w-0 items-center gap-2">
-            <span className="truncate text-sm font-semibold">{title}</span>
-            {fileSize != null && fileSize > 0 && (
-              <span className="shrink-0 text-xs text-muted-foreground">
-                {formatFileSize(fileSize, locale)}
-              </span>
-            )}
-            {uploadedAt && (
-              <>
-                <span className="shrink-0 text-muted-foreground">•</span>
-                <span className="shrink-0 text-xs text-muted-foreground">
-                  {formatDateTime(uploadedAt, locale)}
-                </span>
-              </>
-            )}
-          </div>
-
-          {/* Description (if provided) */}
-          {description && (
-            <span className="line-clamp-2 text-xs text-muted-foreground">{description}</span>
-          )}
-
-          {/* Status and expiration row */}
-          <div className="mt-1 flex items-center gap-2">
-            {/* Status indicator */}
-            <span className="flex items-center gap-1">
-              {status === 'available' && (
-                <Check className="h-3 w-3 text-success" aria-hidden="true" />
-              )}
-              {status === 'error' && <X className="h-3 w-3 text-error" aria-hidden="true" />}
-              <span className={cn(config.showSpinner ? 'text-sm' : 'text-xs', config.textClass)}>
-                {label}
-              </span>
-            </span>
-
-            {/* Expiration countdown */}
-            {expiryInfo && (
-              <>
-                <span className="text-muted-foreground">•</span>
-                <span
-                  className={cn('text-xs', expiryInfo.expired ? 'text-error' : 'text-warning')}
-                >
-                  {expiryInfo.expired
-                    ? t('fileSourceCard.expiryPending')
-                    : t('fileSourceCard.expiresIn', { minutes: expiryInfo.minutes })}
-                </span>
-              </>
-            )}
-          </div>
-
-          {/* Error message */}
-          {status === 'error' && errorMessage && (
-            <span className="mt-1 text-xs text-error">{errorMessage}</span>
-          )}
-        </div>
 
         {/* Delete button */}
         <Button
@@ -285,3 +313,19 @@ export const FileSourceCard: FC<FileSourceCardProps> = ({
     </motion.div>
   )
 }
+
+/**
+ * Loading placeholder that mirrors a real {@link FileSourceCard}'s shape — an
+ * icon block plus two text lines inside the same rounded card — so the file list
+ * loads with the skeleton vocabulary used by the grid file surfaces, instead of
+ * a lone centered spinner.
+ */
+export const FileSourceCardSkeleton: FC = () => (
+  <div className="flex items-center gap-3 rounded-2xl bg-card p-3 shadow-xs">
+    <Skeleton className="size-8 shrink-0 rounded-lg" />
+    <div className="flex min-w-0 flex-1 flex-col gap-2">
+      <Skeleton className="h-3.5 w-1/2" />
+      <Skeleton className="h-3 w-1/4" />
+    </div>
+  </div>
+)

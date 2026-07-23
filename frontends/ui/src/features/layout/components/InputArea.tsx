@@ -47,7 +47,6 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from '@/components/ui/dialog'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Spinner } from '@/components/ui/spinner'
@@ -69,6 +68,8 @@ import { useAppConfig } from '@/shared/context'
 import { useTranslations } from '@/i18n'
 import { useFileUpload, useFileDragDrop } from '@/features/documents'
 import type { TrackedFile } from '@/features/documents'
+import { trackedFileToFileItem } from '@/features/documents/types'
+import { FilePreviewDialog } from '@/features/documents/components/file-preview-dialog'
 
 /** Preset chip order + their provenance signals (spec §4 --source-* family). */
 const SOURCE_PRESETS: Array<{ id: SourcePresetId; signal: SourcePresetId }> = [
@@ -254,20 +255,36 @@ const SourcesPopoverContent: FC = () => {
  * Inline removable file chip shown above the composer textarea. Live status:
  * spinner while uploading/ingesting, green check on success, red on failure
  * (failed chips also offer a retry). The ✕ deletes the file.
+ *
+ * A successful chip's icon+name form a button that opens the shared read-only
+ * FilePreviewDialog — the primary way back to an attached file, and on mobile
+ * (where the manage-files button is hidden) the main file-access path. Chips
+ * that are still uploading/ingesting or have failed are not openable (there is
+ * nothing to preview yet); their body stays inert and only retry/remove act.
  */
 const FileChip: FC<{
   file: TrackedFile
+  onOpen: (file: TrackedFile) => void
   onRemove: (id: string) => void
   onRetry: (id: string) => void
-}> = ({ file, onRemove, onRetry }) => {
+}> = ({ file, onOpen, onRemove, onRetry }) => {
   const t = useTranslations('research')
   const isPending = file.status === 'uploading' || file.status === 'ingesting'
   const isFailed = file.status === 'failed'
+  const isSuccess = file.status === 'success'
   const statusTitle = isPending
     ? t('inputArea.fileUploadingStatus')
     : isFailed
       ? file.errorMessage || t('inputArea.fileFailedStatus')
       : t('inputArea.fileReadyStatus')
+
+  const statusIcon = isPending ? (
+    <Loader2 className="text-muted-foreground size-3 shrink-0 animate-spin" aria-hidden="true" />
+  ) : isFailed ? (
+    <span className="bg-danger size-2 shrink-0 rounded-full" aria-hidden="true" />
+  ) : (
+    <Check className="text-status-active size-3 shrink-0" aria-hidden="true" />
+  )
 
   return (
     <span
@@ -277,14 +294,22 @@ const FileChip: FC<{
       )}
       title={`${file.fileName} — ${statusTitle}`}
     >
-      {isPending ? (
-        <Loader2 className="text-muted-foreground size-3 shrink-0 animate-spin" aria-hidden="true" />
-      ) : isFailed ? (
-        <span className="bg-danger size-2 shrink-0 rounded-full" aria-hidden="true" />
+      {isSuccess ? (
+        <button
+          type="button"
+          onClick={() => onOpen(file)}
+          aria-label={t('inputArea.openFile', { name: file.fileName })}
+          className="text-foreground/85 focus-visible:ring-ring/50 flex min-w-0 flex-1 items-center gap-1.5 rounded-sm focus-visible:outline-none focus-visible:ring-2"
+        >
+          {statusIcon}
+          <span className="min-w-0 truncate">{file.fileName}</span>
+        </button>
       ) : (
-        <Check className="text-status-active size-3 shrink-0" aria-hidden="true" />
+        <span className="flex min-w-0 flex-1 items-center gap-1.5">
+          {statusIcon}
+          <span className="text-foreground/85 min-w-0 truncate">{file.fileName}</span>
+        </span>
       )}
-      <span className="text-foreground/85 min-w-0 truncate">{file.fileName}</span>
       {isFailed && (
         <button
           type="button"
@@ -341,6 +366,14 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   const t = useTranslations('research')
   const tChat = useTranslations('chat')
   const [message, setMessage] = useState('')
+
+  // Attached-file preview (read-only): a successful chip opens the shared
+  // FilePreviewDialog for its file. Also the primary file-access path on mobile.
+  const [previewFile, setPreviewFile] = useState<TrackedFile | null>(null)
+  // Manage-files dialog/sheet open state — driven by BOTH the desktop button and
+  // the mobile "N Dateien verwalten" text entry, so it is controlled (not
+  // trigger-bound) and one dialog instance serves both breakpoints.
+  const [manageFilesOpen, setManageFilesOpen] = useState(false)
 
   // File input ref for attachment button
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -814,11 +847,27 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
               <FileChip
                 key={file.id}
                 file={file}
+                onOpen={setPreviewFile}
                 onRemove={deleteFile}
                 onRetry={retryFile}
               />
             ))}
           </div>
+        )}
+
+        {/* Mobile-only entry to the full manage-files sheet. The desktop
+            manage-files button is hidden on phones (the action row stays one
+            line), so this compact text link — under the chip strip, only when
+            files exist — is the phone user's way to the browse/upload/delete
+            list. Not another chip in the action row (keeps it un-bulked). */}
+        {attachedFilesCount > 0 && (
+          <button
+            type="button"
+            onClick={() => setManageFilesOpen(true)}
+            className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 mb-2 self-start rounded-sm text-[12px] font-medium underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 sm:hidden"
+          >
+            {t('inputArea.manageFilesMobile', { count: attachedFilesCount })}
+          </button>
         )}
 
         {/* Text Input */}
@@ -992,37 +1041,28 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                 (browse, upload zone, per-file delete). Replaces the old
                 right-panel toggle. Shown only when files exist. */}
             {attachedFilesCount > 0 && (
-              <Dialog>
-                <DialogTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    // Redundant with the inline file chips (status + retry + remove)
-                    // on a narrow composer — hidden on mobile so the action row
-                    // stays one clean line; the FileSourcesTab dialog it opens
-                    // (browse + upload zone) remains available on wider viewports.
-                    className="text-muted-foreground hidden h-8 rounded-lg px-2.5 sm:inline-flex"
-                    disabled={isDisabledByAuth || !knowledgeLayerAvailable}
-                    aria-label={t('inputArea.manageFilesCount', { count: attachedFilesCount })}
-                    title={
-                      knowledgeLayerAvailable
-                        ? t('inputArea.manageFiles')
-                        : t('inputArea.uploadNotAvailable')
-                    }
-                  >
-                    <FileText className="size-3" aria-hidden="true" />
-                    <span className="text-xs font-semibold">{attachedFilesCount}</span>
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="max-w-lg">
-                  <DialogHeader>
-                    <DialogTitle>{t('inputArea.manageFiles')}</DialogTitle>
-                  </DialogHeader>
-                  <div className="flex max-h-[60vh] flex-col overflow-y-auto">
-                    <FileSourcesTab />
-                  </div>
-                </DialogContent>
-              </Dialog>
+              <Button
+                variant="ghost"
+                size="sm"
+                // Redundant with the inline file chips (status + retry + remove)
+                // on a narrow composer — hidden on mobile so the action row
+                // stays one clean line; the FileSourcesTab dialog it opens
+                // (browse + upload zone) remains available on wider viewports.
+                // Mobile reaches the same dialog via the "manage" text entry
+                // under the chip strip.
+                className="text-muted-foreground hidden h-8 rounded-lg px-2.5 sm:inline-flex"
+                disabled={isDisabledByAuth || !knowledgeLayerAvailable}
+                onClick={() => setManageFilesOpen(true)}
+                aria-label={t('inputArea.manageFilesCount', { count: attachedFilesCount })}
+                title={
+                  knowledgeLayerAvailable
+                    ? t('inputArea.manageFiles')
+                    : t('inputArea.uploadNotAvailable')
+                }
+              >
+                <FileText className="size-3" aria-hidden="true" />
+                <span className="text-xs font-semibold">{attachedFilesCount}</span>
+              </Button>
             )}
 
             {/* Hidden file input */}
@@ -1214,6 +1254,38 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           <span>{t('inputArea.aiDisclosure')}</span>
         </p>
       </div>
+
+      {/* Manage-files dialog — one controlled instance shared by the desktop
+          button and the mobile text entry. Mobile: a bottom sheet that slides up
+          (85dvh, rounded top, safe-area padding). Desktop (sm+): the standard
+          centered dialog. The FileSourcesTab inside is the full browse / upload /
+          per-file open+delete surface. */}
+      <Dialog open={manageFilesOpen} onOpenChange={setManageFilesOpen}>
+        <DialogContent
+          className={cn(
+            'flex max-w-full flex-col gap-0 rounded-b-none rounded-t-2xl p-0',
+            'bottom-0 left-0 top-auto translate-x-0 translate-y-0',
+            'h-[85dvh] max-h-[85dvh]',
+            'sm:bottom-auto sm:left-[50%] sm:top-[50%] sm:h-auto sm:max-h-[calc(100dvh-2rem)] sm:max-w-lg sm:translate-x-[-50%] sm:translate-y-[-50%] sm:rounded-3xl sm:p-6'
+          )}
+        >
+          <DialogHeader className="border-b px-4 py-3 text-left sm:border-0 sm:p-0">
+            <DialogTitle>{t('inputArea.manageFiles')}</DialogTitle>
+          </DialogHeader>
+          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-2 sm:px-0 sm:pb-0 sm:pt-2">
+            <FileSourcesTab />
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Read-only preview of an attached file, opened from a successful chip.
+          Read-only (canManage=false): the composer is not a management surface —
+          that is what the manage-files dialog above is for. */}
+      <FilePreviewDialog
+        file={previewFile ? trackedFileToFileItem(previewFile) : null}
+        canManage={false}
+        onClose={() => setPreviewFile(null)}
+      />
     </div>
   )
 })

@@ -181,6 +181,7 @@ export const research: typeof en.research = {
     waitUpload: 'Warten Sie, bis der Upload abgeschlossen ist',
     cannotDeleteBusy: 'Dateien können während aktiver Vorgänge nicht gelöscht werden',
     deleteFile: 'Datei löschen',
+    open: 'Vorschau öffnen: {title}',
   },
 
   fileSourcesTab: {
@@ -248,6 +249,8 @@ export const research: typeof en.research = {
     retryUpload: 'Upload erneut versuchen',
     manageFiles: 'Dateien verwalten',
     manageFilesCount: 'Angehängte Dateien verwalten ({count})',
+    manageFilesMobile: '{count} Dateien verwalten',
+    openFile: 'Datei öffnen: {name}',
     fileUploadingStatus: 'Wird hochgeladen',
     fileFailedStatus: 'Upload fehlgeschlagen',
     fileReadyStatus: 'Bereit',
