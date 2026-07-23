@@ -46,10 +46,12 @@ the TTL-cleanup lock — is a cliff).
 ## P1 — knowledge/memory per-turn & per-run cost
 
 6. **`available_documents` dumps the whole project doc-summary table into every
-   chat-turn prompt** (`chat_researcher/register.py:833`, `summary_store.get_all` with
-   no LIMIT, 5 j2 templates). Per-turn LLM cost grows linearly with document count.
-   *Fix:* cap to top-N (recency/relevance) at the aggregation layer, or a
-   search-first `available_documents` tool.
+   chat-turn prompt** (`chat_researcher/register.py`, `summary_store.get_all` with
+   no LIMIT, 5 j2 templates). Per-turn LLM cost grew linearly with document count.
+   **[LANDED]** capped at the aggregation choke point to `GRID_AVAILABLE_DOCUMENTS_MAX`
+   (default 50), sorted by filename first so the capped slice is stable across turns
+   (also helps prompt caching). A search-first `available_documents` tool (recency/
+   relevance ranking) remains the richer follow-up.
 7. **No orchestrator-level context compaction** — summarization is wired only into
    the leaf researcher (`factory.py:363`), not orchestrator/planner/writer; ~80k-token
    contexts confirmed. The budget guard counts only output tokens and is off by
@@ -90,6 +92,8 @@ the TTL-cleanup lock — is a cliff).
   hourly, drops idle threads past the retention window.
 - db-mode `job_info`/`job_access` expiry (`access.expire_terminal_jobs`) folded
   into the leader-locked event-cleanup cycle: mark-past-expiry + hard-delete-past-grace.
+- P1 chat-path per-turn cost: `available_documents` top-N cap (P1 #6), real
+  token-based history trim (was message-count), tunable checkpoint pool size.
 
 ## Shallow / chat path (the interactive, higher-frequency path)
 
@@ -114,12 +118,17 @@ the `aiq-agent` web tier (scales to `backendReplicas`). It is the volume driver.
   here — paid on every interactive turn including chit-chat.
 
 ### P1 (chat-specific)
-- **Checkpoint pool `max_size=3`, shared chat+deep on one DSN** (`common/__init__.py:237`)
-  — per-replica throughput ceiling. *Fix:* raise/tune; separate chat vs deep pools.
-- **`trim_message_history` trims by message COUNT, not tokens** — `trim_messages(
-  token_counter=len)` (`chat_researcher/utils.py:10`) makes `max_history=20` a
-  message count; large messages defeat the budget. *Fix:* real token counter +
-  summarize trimmed turns.
+- **Checkpoint pool `max_size=3`** (`common/__init__.py`) — per-replica throughput
+  ceiling. **[LANDED]** now tunable via `GRID_CHECKPOINT_POOL_MIN_SIZE` /
+  `GRID_CHECKPOINT_POOL_MAX_SIZE` (defaults 1 / 10). Pools are keyed by DSN, so chat
+  and deep share one only if both env vars point at the same Postgres DSN; a separate
+  per-tier pool split remains a follow-up if that config is ever used.
+- **`trim_message_history` trims by message COUNT, not tokens** —
+  `trim_messages(token_counter=len)` (`chat_researcher/utils.py`) made `max_history`
+  a message count; large messages defeated the budget. **[LANDED]** real
+  tiktoken-based token counter (char/4 fallback), knob renamed
+  `max_history` → `max_history_tokens` (default 8000). Summarizing trimmed turns
+  (vs. dropping) remains the richer follow-up.
 - **Per-turn citation verification cost grows with conversation length** — the
   session `SourceRegistry` only appends, and `verify_citations` runs against all
   cumulative sources every turn (`shallow_researcher/agent.py:500`).
