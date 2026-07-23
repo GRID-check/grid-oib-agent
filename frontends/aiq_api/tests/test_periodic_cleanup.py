@@ -428,6 +428,41 @@ class TestStartPeriodicCleanup:
 
         mock_create_task.assert_called_once()
 
+    def test_db_mode_never_touches_dask_client(self, monkeypatch):
+        """In db-execution mode the store carries an EMPTY scheduler address, so
+        its lazily-built ``dask_client`` property raises ``ValueError`` on access
+        (getattr does NOT suppress that). Startup must detect db mode via
+        ``job_execution_mode()`` and never probe the property — else the whole
+        app crashes on boot. Regression for the Coolify db-mode deploy failure.
+        """
+        from aiq_api.routes.jobs import _start_periodic_cleanup
+
+        monkeypatch.setenv("GRID_JOB_EXECUTION", "db")
+
+        class _RaisingDaskStore:
+            """Mirrors JobStore(scheduler_address="") — touching dask_client raises."""
+
+            @property
+            def dask_client(self):  # noqa: D401 - test double
+                raise ValueError("missing port number in address ''")
+
+        store = _RaisingDaskStore()
+
+        # Must not raise, and must NOT submit anything to Dask.
+        with patch("aiq_api.routes.jobs.asyncio.create_task") as mock_create_task:
+            with patch("dask.distributed.fire_and_forget") as mock_faf:
+                _start_periodic_cleanup(
+                    job_store=store,
+                    scheduler_address="",  # db mode: no scheduler
+                    db_url="sqlite:///test.db",
+                    expiry_seconds=3600,
+                    log_level=20,
+                    use_threads=False,
+                )
+
+        mock_faf.assert_not_called()  # no Dask submit in db mode
+        mock_create_task.assert_called_once()  # event/expiry loop still starts
+
 
 # =========================================================================
 # stop_periodic_cleanup (graceful shutdown)
