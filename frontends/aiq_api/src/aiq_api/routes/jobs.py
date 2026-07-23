@@ -801,6 +801,11 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
     # We also run a local asyncio task for job_events cleanup since NAT doesn't manage that table.
     _start_periodic_cleanup(job_store, scheduler_address, db_url, default_expiry_seconds, log_level, use_threads)
 
+    # Age-based retention for the interactive chat checkpoint store. Chat threads
+    # have no terminal event, so they accumulate forever without this (P0 #1,
+    # chat side — see checkpoint_retention.py). Runs regardless of execution mode.
+    _start_checkpoint_reaper()
+
 
 GHOST_JOB_TIMEOUT_SECONDS = 300  # 5 minutes without events = ghost job
 GHOST_REAPER_INTERVAL_SECONDS = 60  # check every 60 seconds
@@ -1073,8 +1078,22 @@ async def _reap_ghost_jobs(job_store, db_url: str, scheduler_address: str | None
             logger.warning("Ghost job reaper error: %s", e)
 
 
+def _int_env(name: str, default: int) -> int:
+    """Positive-int env override, falling back to ``default`` on unset/invalid/≤0."""
+    import os
+
+    try:
+        val = int(os.environ.get(name, ""))
+        return val if val > 0 else default
+    except (TypeError, ValueError):
+        return default
+
+
 _cleanup_task: asyncio.Task | None = None
 """Module-level reference for graceful shutdown cancellation."""
+
+_checkpoint_reaper_task: asyncio.Task | None = None
+"""Module-level reference for the chat checkpoint reaper (shutdown cancellation)."""
 
 # Advisory lock ID for PostgreSQL — ensures only one pod runs cleanup at a time.
 # Arbitrary constant; change if it collides with another lock in your deployment.
@@ -1179,46 +1198,122 @@ def _start_periodic_cleanup(
 
     # Start local asyncio task for job_events table cleanup (NAT doesn't manage this table).
     # Uses pg_try_advisory_xact_lock on PostgreSQL so only one pod runs cleanup per cycle.
+    # In db-execution mode (no Dask client) NAT's job_info expiry never runs, so this loop
+    # also ages out job_info/job_access under the same lock (ADR-0021; expire_terminal_jobs).
     # Cancel any previously-started task before overwriting the reference.
+    expire_job_info = getattr(job_store, "dask_client", None) is None
+    delete_grace_seconds = _int_env("GRID_JOB_INFO_DELETE_GRACE_SECONDS", 604800)  # 7d
     if _cleanup_task and not _cleanup_task.done():
         _cleanup_task.cancel()
-    _cleanup_task = asyncio.create_task(_cleanup_old_events_loop(db_url, expiry_seconds, cleanup_interval))
+    _cleanup_task = asyncio.create_task(
+        _cleanup_old_events_loop(db_url, expiry_seconds, cleanup_interval, expire_job_info, delete_grace_seconds)
+    )
+
+
+async def _cancel_task(task: asyncio.Task | None, label: str) -> None:
+    if task and not task.done():
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        logger.info("%s cancelled", label)
 
 
 async def stop_periodic_cleanup() -> None:
-    """Cancel the event cleanup background task. Call from shutdown handler."""
-    global _cleanup_task
-    if _cleanup_task and not _cleanup_task.done():
-        _cleanup_task.cancel()
+    """Cancel the cleanup + checkpoint-reaper background tasks. Call from shutdown."""
+    global _cleanup_task, _checkpoint_reaper_task
+    await _cancel_task(_cleanup_task, "Event cleanup task")
+    await _cancel_task(_checkpoint_reaper_task, "Chat checkpoint reaper")
+    _cleanup_task = None
+    _checkpoint_reaper_task = None
+
+
+# Chat checkpoint reaper cadence. Idle threads accumulate slowly (one thread per
+# conversation), so an hourly sweep is ample.
+CHECKPOINT_REAPER_INTERVAL_SECONDS = 3600
+
+
+def _start_checkpoint_reaper() -> None:
+    """Start the chat checkpoint age reaper if a checkpoint DSN is configured."""
+    import os
+
+    global _checkpoint_reaper_task
+    dsn = os.environ.get("AIQ_CHECKPOINT_DB")
+    retention_seconds = _int_env("GRID_CHAT_CHECKPOINT_RETENTION_SECONDS", 1209600)  # 14d
+    if not dsn:
+        logger.info("No AIQ_CHECKPOINT_DB configured - chat checkpoint reaper not started")
+        return
+    if _checkpoint_reaper_task and not _checkpoint_reaper_task.done():
+        _checkpoint_reaper_task.cancel()
+    _checkpoint_reaper_task = asyncio.create_task(
+        _reap_idle_checkpoints_loop(dsn, retention_seconds, CHECKPOINT_REAPER_INTERVAL_SECONDS)
+    )
+
+
+async def _reap_idle_checkpoints_loop(dsn: str, retention_seconds: int, interval_seconds: int) -> None:
+    """Periodically drop chat checkpoint threads idle beyond the retention window.
+
+    One replica does the work per cycle (Postgres advisory lock inside
+    ``reap_idle_threads``); the rest no-op. Best-effort — a failed sweep is logged
+    and retried next cycle, never propagated.
+    """
+    from ..jobs.checkpoint_retention import reap_idle_threads
+
+    logger.info(
+        "Chat checkpoint reaper started (retention=%ds, interval=%ds)",
+        retention_seconds,
+        interval_seconds,
+    )
+    loop = asyncio.get_running_loop()
+    # Immediate sweep on startup catches threads that aged out during downtime.
+    try:
+        await loop.run_in_executor(None, reap_idle_threads, dsn, retention_seconds)
+    except Exception as e:
+        logger.warning("Chat checkpoint reaper startup run failed: %s", e)
+    while True:
         try:
-            await _cleanup_task
+            await asyncio.sleep(interval_seconds)
+            await loop.run_in_executor(None, reap_idle_threads, dsn, retention_seconds)
         except asyncio.CancelledError:
-            pass
-        _cleanup_task = None
-        logger.info("Event cleanup task cancelled")
+            logger.info("Chat checkpoint reaper stopped")
+            break
+        except Exception as e:
+            logger.warning("Chat checkpoint reaper error: %s", e)
 
 
-async def _cleanup_old_events_loop(db_url: str, retention_seconds: int, interval_seconds: int) -> None:
+async def _cleanup_old_events_loop(
+    db_url: str,
+    retention_seconds: int,
+    interval_seconds: int,
+    expire_job_info: bool = False,
+    delete_grace_seconds: int = 604800,
+) -> None:
     """
     Background task that periodically deletes old events from the job_events table
     and removes events for jobs already marked as expired in job_info.
 
     On PostgreSQL, uses pg_try_advisory_xact_lock so only one pod runs cleanup per cycle
     when multiple pods share the same database.
+
+    When ``expire_job_info`` is set (db-execution mode, where NAT's Dask expiry never
+    runs) each cycle also ages out terminal ``job_info``/``job_access`` rows under the
+    same lock (ADR-0021).
     """
 
     is_postgres = db_url.startswith("postgres")
 
     logger.info(
-        "Event cleanup task started (retention=%ds, interval=%ds, advisory_lock=%s)",
+        "Event cleanup task started (retention=%ds, interval=%ds, advisory_lock=%s, expire_job_info=%s)",
         retention_seconds,
         interval_seconds,
         is_postgres,
+        expire_job_info,
     )
 
     # Run once immediately on startup to catch anything that aged out during downtime.
     try:
-        await _run_event_cleanup(db_url, retention_seconds, is_postgres)
+        await _run_event_cleanup(db_url, retention_seconds, is_postgres, expire_job_info, delete_grace_seconds)
     except asyncio.CancelledError:
         raise
     except Exception as e:
@@ -1227,7 +1322,7 @@ async def _cleanup_old_events_loop(db_url: str, retention_seconds: int, interval
     while True:
         try:
             await asyncio.sleep(interval_seconds)
-            await _run_event_cleanup(db_url, retention_seconds, is_postgres)
+            await _run_event_cleanup(db_url, retention_seconds, is_postgres, expire_job_info, delete_grace_seconds)
         except asyncio.CancelledError:
             logger.info("Event cleanup task stopped")
             break
@@ -1235,7 +1330,13 @@ async def _cleanup_old_events_loop(db_url: str, retention_seconds: int, interval
             logger.warning("Event cleanup error: %s", e)
 
 
-async def _run_event_cleanup(db_url: str, retention_seconds: int, is_postgres: bool) -> None:
+async def _run_event_cleanup(
+    db_url: str,
+    retention_seconds: int,
+    is_postgres: bool,
+    expire_job_info: bool = False,
+    delete_grace_seconds: int = 604800,
+) -> None:
     """
     Execute one cleanup cycle: time-based event pruning + removal of events for expired jobs.
 
@@ -1244,11 +1345,12 @@ async def _run_event_cleanup(db_url: str, retention_seconds: int, is_postgres: b
     automatically released on commit/rollback, avoiding leak risks.
     """
     from ..jobs.access import cleanup_job_access
+    from ..jobs.access import expire_terminal_jobs
     from ..jobs.event_store import EventStore
 
     loop = asyncio.get_running_loop()
 
-    def _do_cleanup() -> tuple[int, int, int]:
+    def _do_cleanup() -> tuple[int, int, int, int, int]:
         from sqlalchemy import text
 
         engine = EventStore._get_or_create_sync_engine(db_url)
@@ -1263,7 +1365,14 @@ async def _run_event_cleanup(db_url: str, retention_seconds: int, is_postgres: b
                     {"lock_id": _PG_ADVISORY_LOCK_ID},
                 ).scalar()
                 if not locked:
-                    return (0, 0, 0)
+                    return (0, 0, 0, 0, 0)
+
+            # 0. db-execution mode only: mark terminal job_info rows expired (past
+            # their per-row expiry) and hard-delete rows past the delete grace. Runs
+            # FIRST so the newly-marked rows are reclaimed by steps 2/3 this cycle.
+            job_marked, job_deleted = (
+                expire_terminal_jobs(db_url, delete_grace_seconds, conn=conn) if expire_job_info else (0, 0)
+            )
 
             # 1. Time-based: delete events older than retention period
             if is_postgres:
@@ -1288,16 +1397,21 @@ async def _run_event_cleanup(db_url: str, retention_seconds: int, is_postgres: b
             access_deleted = cleanup_job_access(db_url, conn=conn)
 
             conn.commit()
-            return (time_deleted, expired_deleted, access_deleted)
+            return (time_deleted, expired_deleted, access_deleted, job_marked, job_deleted)
 
-    time_deleted, expired_deleted, access_deleted = await loop.run_in_executor(None, _do_cleanup)
+    time_deleted, expired_deleted, access_deleted, job_marked, job_deleted = await loop.run_in_executor(
+        None, _do_cleanup
+    )
 
-    if time_deleted > 0 or expired_deleted > 0 or access_deleted > 0:
+    if time_deleted > 0 or expired_deleted > 0 or access_deleted > 0 or job_marked > 0 or job_deleted > 0:
         logger.info(
-            "Event cleanup: %d old events removed, %d events for expired jobs removed, %d access rows removed",
+            "Event cleanup: %d old events removed, %d events for expired jobs removed, %d access rows removed, "
+            "%d job_info marked expired, %d job_info rows deleted",
             time_deleted,
             expired_deleted,
             access_deleted,
+            job_marked,
+            job_deleted,
         )
 
 
