@@ -40,8 +40,24 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/composer-files',
     description:
-      'The chat composer with files attached (ready / ingesting / failed) — inline FileChips, manage-files button, per-file retry/remove — desktop + mobile.',
+      'The chat composer with files attached (ready / ingesting / failed) — clickable inline FileChips, manage-files button, mobile "manage" text entry, per-file retry/remove — desktop + mobile.',
     waitFor: '[data-testid="composer-files-preview"]',
+  },
+  {
+    id: 'composer-files-preview',
+    mobile: true,
+    path: '/dev/composer-files?state=preview',
+    description:
+      'The shared read-only FilePreviewDialog opened from a successful composer file chip (canManage=false) — desktop split vs. mobile full-screen sheet.',
+    waitFor: '[role="dialog"]',
+  },
+  {
+    id: 'composer-files-sheet',
+    mobile: true,
+    path: '/dev/composer-files?state=sheet',
+    description:
+      'The mobile FileSourcesTab bottom-sheet (manage attached files) — slide-up sheet with per-file open + delete rows.',
+    waitFor: '[role="dialog"]',
   },
   {
     id: 'confirm-dialog',
