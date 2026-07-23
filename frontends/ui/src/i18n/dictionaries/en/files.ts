@@ -13,7 +13,10 @@ export const files = {
     uploadFailed: 'Upload failed',
   },
   status: {
-    ready: 'Ready',
+    // "Citable" (not a bare "Ready") answers the one question that matters to a
+    // compliance user: the document is now in Piloti's knowledge and can be
+    // cited in an answer.
+    ready: 'Citable',
     processing: 'Processing',
     uploading: 'Uploading',
     failed: 'Failed',

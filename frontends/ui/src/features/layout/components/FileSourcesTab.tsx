@@ -9,9 +9,10 @@
 'use client'
 
 import { type FC, useCallback, useEffect, useRef, useState } from 'react'
-import { X } from 'lucide-react'
+import { UploadCloud, X } from 'lucide-react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import { EmptyState } from '@/components/ui/empty-state'
 import { Spinner } from '@/components/ui/spinner'
 import { AnimatePresence } from '@/components/motion'
 import { FileSourceCard } from './FileSourceCard'
@@ -282,16 +283,16 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
           </Alert>
         )}
 
-        {/* Show empty state message when file upload is available */}
+        {/* Crafted empty state when upload is available — the chat file surface
+            is often the first place a user attaches a document, so it deserves
+            the same designed empty state as the rest of the app, not bare text. */}
         {knowledgeLayerAvailable && (
-          <div className="flex flex-col gap-1">
-            <span className="text-xs font-semibold uppercase text-muted-foreground">
-              {t('fileSourcesTab.noAttachedFiles')}
-            </span>
-            <span className="text-sm text-muted-foreground">
-              {t('fileSourcesTab.filesGoTo', { target: uploadTargetLabelLower })}
-            </span>
-          </div>
+          <EmptyState
+            variant="bare"
+            icon={UploadCloud}
+            title={t('fileSourcesTab.noAttachedFiles')}
+            description={t('fileSourcesTab.filesGoTo', { target: uploadTargetLabelLower })}
+          />
         )}
 
         {/* Upload Error Display */}

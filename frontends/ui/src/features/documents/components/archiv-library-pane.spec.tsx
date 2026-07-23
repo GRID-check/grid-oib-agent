@@ -56,7 +56,7 @@ describe('ArchivLibraryPane — card grid', () => {
     const card = screen.getAllByTestId('archiv-document-card')[0]
     expect(within(card).getByText('PDF')).toBeInTheDocument()
     expect(within(card).getByText(/1\.0 KB/)).toBeInTheDocument()
-    expect(within(card).getByText('Ready')).toBeInTheDocument()
+    expect(within(card).getByText('Citable')).toBeInTheDocument()
   })
 
   it('shows the one-line AI summary only when the backend generated one', () => {
