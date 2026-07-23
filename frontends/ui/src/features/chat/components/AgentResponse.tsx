@@ -313,7 +313,12 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
         )}
 
         {/* "Belegt durch": provenance chips for sources this answer carries */}
-        <AnswerSourcesRow citations={citations} cards={cards} />
+        <AnswerSourcesRow
+          citations={citations}
+          cards={cards}
+          routingDecision={routingDecision}
+          isStreaming={isStreaming}
+        />
         <CitationsRemovedNote citationsRemoved={citationsRemoved} />
 
         {/* Footer chips: self-assessed confidence + what Piloti recorded this turn */}
@@ -427,7 +432,12 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
         {/* "Belegt durch": provenance chips for sources this answer carries.
             Sits on the tinted shell below the white block. */}
         <div className="px-[22px] pb-3 pt-[11px]">
-          <AnswerSourcesRow citations={citations} cards={cards} />
+          <AnswerSourcesRow
+            citations={citations}
+            cards={cards}
+            routingDecision={routingDecision}
+            isStreaming={isStreaming}
+          />
           <CitationsRemovedNote citationsRemoved={citationsRemoved} />
           {/* Footer chips: self-assessed confidence + what Piloti recorded */}
           <div className="mt-2 flex flex-wrap items-center gap-2">

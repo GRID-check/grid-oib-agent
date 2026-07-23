@@ -16,6 +16,7 @@
 'use client'
 
 import { type FC } from 'react'
+import { Globe } from 'lucide-react'
 import { useTranslations } from '@/i18n'
 import type { GridCard } from '@/shared/cards/schemas'
 import { deriveAnswerSources } from '../lib/answer-sources'
@@ -25,13 +26,46 @@ import { SourcePreviewChip } from './SourcePreview'
 interface AnswerSourcesRowProps {
   citations?: CitationSource[]
   cards?: GridCard[]
+  /**
+   * The turn's routing (WP-A). A substantive `shallow`/`deep` (or absent/legacy)
+   * answer with zero sources gets the honest "Lücke" gap row; a `meta`/`error`
+   * turn (conversational reply, error) does not — it makes no source claim.
+   */
+  routingDecision?: 'meta' | 'shallow' | 'deep' | 'error'
+  /** While the answer is still streaming, sources arrive late — suppress the gap row. */
+  isStreaming?: boolean
 }
 
-export const AnswerSourcesRow: FC<AnswerSourcesRowProps> = ({ citations, cards }) => {
+export const AnswerSourcesRow: FC<AnswerSourcesRowProps> = ({
+  citations,
+  cards,
+  routingDecision,
+  isStreaming = false,
+}) => {
   const t = useTranslations('chat')
   const sources = deriveAnswerSources(citations, cards)
 
-  if (sources.length === 0) return null
+  if (sources.length === 0) {
+    // Honest "Lücke" treatment (design language §Domain-specific): a substantive
+    // answer that cites nothing must say so in the neutral `--source-auto` gray
+    // family (globe/gap icon + label), never hide its lack of grounding. Skipped
+    // for meta/error turns (no source claim) and while still streaming.
+    const isSubstantive = routingDecision !== 'meta' && routingDecision !== 'error'
+    if (!isSubstantive || isStreaming) return null
+
+    return (
+      <div
+        className="flex flex-wrap items-center gap-1.5 border-t pt-2"
+        role="note"
+        aria-label={t('answerSources.gapAria')}
+      >
+        <span className="inline-flex items-center gap-1.5 rounded-md border border-source-auto/40 bg-source-auto-tint px-2 py-0.5 text-[11px] font-medium text-source-auto-text">
+          <Globe className="size-3 shrink-0" aria-hidden="true" />
+          {t('answerSources.gapLabel')}
+        </span>
+      </div>
+    )
+  }
 
   return (
     <div

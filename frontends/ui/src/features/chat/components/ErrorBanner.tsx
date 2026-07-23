@@ -8,8 +8,9 @@
 'use client'
 
 import { type FC, useState } from 'react'
-import { ChevronDown, ChevronUp, AlertTriangle, XCircle, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, AlertTriangle, XCircle, X, RotateCw } from 'lucide-react'
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
 import { useTranslations } from '@/i18n'
 import { formatTime } from '@/shared/utils/format-time'
 import type { ErrorCode } from '../types'
@@ -28,6 +29,12 @@ export interface ErrorBannerProps {
   timestamp?: Date | string
   /** Optional callback when banner is dismissed */
   onDismiss?: () => void
+  /**
+   * Optional retry action. When provided, the banner renders a "Erneut
+   * versuchen" button (the design language mandates "helpful message + retry").
+   * Left optional so callers/specs that don't wire a retry are unaffected.
+   */
+  onRetry?: () => void
 }
 
 /**
@@ -39,6 +46,7 @@ export const ErrorBanner: FC<ErrorBannerProps> = ({
   details,
   timestamp,
   onDismiss,
+  onRetry,
 }) => {
   const t = useTranslations('chat')
   const tc = useTranslations('common')
@@ -92,6 +100,19 @@ export const ErrorBanner: FC<ErrorBannerProps> = ({
             >
               {details}
             </pre>
+          )}
+          {onRetry && (
+            <div className="mt-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onRetry}
+                aria-label={t('error.retry')}
+              >
+                <RotateCw className="h-3.5 w-3.5" aria-hidden="true" />
+                {t('error.retry')}
+              </Button>
+            </div>
           )}
         </AlertDescription>
         {onDismiss && (

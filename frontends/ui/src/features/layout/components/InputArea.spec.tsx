@@ -45,6 +45,7 @@ vi.mock('@/features/chat', () => ({
         return mockCurrentSessionId
       }),
       setRespondToInteractionFn: vi.fn(),
+      setChatSendFn: vi.fn(),
       deepResearchStatus: mockDeepResearchStatus,
       isDeepResearchStreaming: mockIsDeepResearchStreaming,
       deepResearchOwnerConversationId: mockDeepResearchOwnerConversationId,

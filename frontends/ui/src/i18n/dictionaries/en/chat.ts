@@ -75,6 +75,16 @@ export const chat = {
     withName: '{greeting}, {name}.',
     subtitle: 'Ask about your project — answers cite their sources.',
   },
+  // Example Austrian Baurecht questions on the empty chat state — clicking one
+  // prefills the composer (does not auto-send) to break blank-page paralysis.
+  examples: {
+    label: 'Try asking',
+    questions: {
+      fluchtweg: 'Escape route length per OIB-2?',
+      barrierefreiheit: 'Accessibility in Vienna residential construction?',
+      brandabschnitte: 'Fire compartments for building class 4?',
+    },
+  },
   // Empty-state lock chip + thread role tabs (click-dummy overhaul, WS-3).
   workspace: {
     private: 'Private workspace',
@@ -91,6 +101,11 @@ export const chat = {
   answerSources: {
     label: 'Sources',
     ariaLabel: 'Sources this answer is backed by',
+    // Honest "Lücke" gap row: a substantive answer that cites nothing renders
+    // this in the neutral --source-auto family instead of hiding its lack of
+    // grounding (design language — first-class knowledge-gap treatment).
+    gapLabel: 'Without source citation',
+    gapAria: 'This answer cites no sources',
     // Note under the sources row when citation verification dropped one or more
     // unverifiable citations (WP-A `citations_removed`).
     citationsRemoved: '{count} citation(s) removed (not verifiable)',
@@ -273,6 +288,8 @@ export const chat = {
   error: {
     showDetails: 'Show details',
     hideDetails: 'Hide details',
+    // Retry action on an errored answer (design language: "helpful message + retry").
+    retry: 'Try again',
   },
   // Localized titles + default messages for the chat error registry
   // (features/chat/lib/error-registry.ts). Keyed by error code.

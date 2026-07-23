@@ -472,6 +472,15 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     return () => setRespondToInteractionFn(null)
   }, [respondToInteraction, setRespondToInteractionFn])
 
+  // Register the live send path so components that do not own the socket (e.g.
+  // the "Erneut versuchen" retry on an errored answer in ChatArea) can resend
+  // the last user message. Mirrors the respondToInteractionFn registration.
+  const setChatSendFn = useChatStore((state) => state.setChatSendFn)
+  useEffect(() => {
+    setChatSendFn(sendMessage)
+    return () => setChatSendFn(null)
+  }, [sendMessage, setChatSendFn])
+
   // Layout store — individual selectors for minimal re-render surface
   const enabledDataSourceIds = useLayoutStore((s) => s.enabledDataSourceIds)
   const knowledgeLayerAvailable = useLayoutStore((s) => s.knowledgeLayerAvailable)

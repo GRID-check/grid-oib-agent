@@ -81,6 +81,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   const respondToPrompt = useChatStore((s) => s.respondToPrompt)
   const getThinkingStepsForMessage = useChatStore((s) => s.getThinkingStepsForMessage)
   const dismissErrorCard = useChatStore((s) => s.dismissErrorCard)
+  const retryLastUserMessage = useChatStore((s) => s.retryLastUserMessage)
   const t = useTranslations('research')
 
   // Stick-to-bottom scroll controller refs/state (replaces the old count-based
@@ -218,6 +219,17 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
     [respondToPrompt]
   )
 
+  // Retry an errored answer: resend the last user message through the live send
+  // path (or prefill the composer as a fallback), then clear the stale error
+  // card so the turn reads as freshly retried rather than doubled up.
+  const handleErrorRetry = useCallback(
+    (messageId: string) => {
+      retryLastUserMessage()
+      dismissErrorCard(messageId)
+    },
+    [retryLastUserMessage, dismissErrorCard]
+  )
+
   // TODO: Implement file retry/cancel/delete handlers when file upload is added
   // For now, these are placeholders
   const handleFileRetry = useCallback((_messageId: string) => {
@@ -336,6 +348,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                     onPromptRespond={handlePromptRespond}
                     onFileRetry={handleFileRetry}
                     onErrorDismiss={dismissErrorCard}
+                    onErrorRetry={handleErrorRetry}
                     showConfidenceChip={showConfidenceChip}
                     showAnswerFeedback={showAnswerFeedback}
                   />
@@ -416,6 +429,8 @@ interface MessageRendererProps {
   onFileCancel?: (messageId: string) => void
   onFileDelete?: (messageId: string) => void
   onErrorDismiss?: (messageId: string) => void
+  /** Resend the last user message + dismiss this error card (retry affordance). */
+  onErrorRetry?: (messageId: string) => void
   /** Whether the AgentResponse confidence chip renders (feature-flagged). */
   showConfidenceChip?: boolean
   /** Whether the AgentResponse thumbs feedback row renders (feature-flagged). */
@@ -430,6 +445,7 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
   onFileCancel: _onFileCancel,
   onFileDelete: _onFileDelete,
   onErrorDismiss,
+  onErrorRetry,
   showConfidenceChip = true,
   showAnswerFeedback = true,
 }) => {
@@ -512,6 +528,7 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
           details={message.errorData.errorDetails}
           timestamp={message.timestamp}
           onDismiss={onErrorDismiss ? () => onErrorDismiss(message.id) : undefined}
+          onRetry={onErrorRetry ? () => onErrorRetry(message.id) : undefined}
         />
       )
 
@@ -565,6 +582,7 @@ const areMessageRendererPropsEqual = (
   prev.showAnswerFeedback === next.showAnswerFeedback &&
   prev.onPromptRespond === next.onPromptRespond &&
   prev.onErrorDismiss === next.onErrorDismiss &&
+  prev.onErrorRetry === next.onErrorRetry &&
   prev.onFileRetry === next.onFileRetry
 
 const MessageRenderer = memo(MessageRendererComponent, areMessageRendererPropsEqual)
@@ -665,10 +683,19 @@ const greetingKeyForHour = (hour: number): 'morning' | 'afternoon' | 'evening' =
   return 'evening'
 }
 
+/**
+ * Example Austrian Baurecht questions offered on the empty chat state. Clicking
+ * one PREFILLS the composer (never auto-sends) via the store's composer-prefill
+ * path — the same one used by `?ask=` deep links — so a blank canvas offers an
+ * obvious first move instead of paralysis.
+ */
+const EXAMPLE_QUESTION_KEYS = ['fluchtweg', 'barrierefreiheit', 'brandabschnitte'] as const
+
 const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn }) => {
   const t = useTranslations('research')
   const tChat = useTranslations('chat')
   const { user } = useAuth()
+  const setComposerPrefill = useChatStore((s) => s.setComposerPrefill)
 
   if (!isAuthenticated) {
     return (
@@ -719,6 +746,28 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
       <h1 className="text-center text-[23px] font-medium tracking-display text-foreground">
         {heading}
       </h1>
+
+      {/* Example question chips — quiet bg-card hairline chips that prefill the
+          composer (do not auto-send), so the empty canvas offers a first move. */}
+      <div
+        className="mt-6 flex max-w-xl flex-wrap items-center justify-center gap-2"
+        role="group"
+        aria-label={tChat('examples.label')}
+      >
+        {EXAMPLE_QUESTION_KEYS.map((key) => {
+          const question = tChat(`examples.questions.${key}`)
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setComposerPrefill(question)}
+              className="bg-card text-foreground/85 shadow-xs hover:bg-accent hover:text-foreground focus-visible:ring-ring/50 inline-flex h-8 items-center rounded-md border px-[13px] text-[12.5px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2"
+            >
+              {question}
+            </button>
+          )
+        })}
+      </div>
     </div>
   )
 }
