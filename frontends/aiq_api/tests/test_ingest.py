@@ -75,6 +75,36 @@ async def test_ingest_from_url_success(app, mock_ingestor):
 
 
 @pytest.mark.asyncio
+async def test_ingest_from_url_decodes_percent_encoded_filename(app, mock_ingestor):
+    """The S3 presigner percent-encodes the storage key into the URL path, so a
+    filename with a space or umlaut arrives encoded. The persisted chunk
+    ``file_name`` metadata must be the DECODED name — deletion later matches
+    chunks against the raw DB filename, and an encoded metadata name would
+    orphan the vectors forever."""
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        with patch("httpx.AsyncClient.get") as mock_get:
+            mock_response = MagicMock(spec=httpx.Response)
+            mock_response.status_code = 200
+            mock_response.content = b"pdf bytes"
+            mock_response.headers = {"content-type": "application/pdf"}
+            mock_response.raise_for_status = MagicMock()
+            mock_get.return_value = mock_response
+
+            response = await client.post(
+                "/v1/ingest",
+                json={
+                    # storage key ".../doc/{id}/Zürich Plan.pdf" presigned
+                    "file_ref": "http://seaweedfs.test/bucket/doc/abc/Z%C3%BCrich%20Plan.pdf?X-Amz-Signature=abc",
+                    "collection": "proj_test123",
+                },
+            )
+
+    assert response.status_code == 202
+    call_args = mock_ingestor.submit_job.call_args
+    assert call_args[1]["config"]["original_filenames"] == ["Zürich Plan.pdf"]
+
+
+@pytest.mark.asyncio
 async def test_ingest_from_url_download_failure(app, mock_ingestor):
     """Test ingest when the presigned URL download fails."""
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
