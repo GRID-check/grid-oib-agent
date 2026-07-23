@@ -330,7 +330,7 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
   }
 
   return (
-    <div className="flex flex-1 flex-col gap-2 overflow-y-auto">
+    <div className="flex min-w-0 flex-1 flex-col gap-2 overflow-x-hidden overflow-y-auto">
       {/* Hidden file input */}
       <input
         ref={fileInputRef}
