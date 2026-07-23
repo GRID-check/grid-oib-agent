@@ -119,9 +119,16 @@ services:
       - DASK_NTHREADS=${DASK_NTHREADS:-4}
       # ── Ingestion / document extraction (match deploy/.env) ──
       # Table + image extraction from PDFs during ingestion (uploaded docs and
-      # the OIB corpus on first boot into a fresh volume). VLM-backed.
+      # the OIB corpus on first boot into a fresh volume).
+      # Tables: cheap and high-value for OIB, kept on.
+      # Images: VLM-captioned, ONE model call per image — the OIB corpus has
+      # hundreds of images (18-25 per PDF x ~39 PDFs), so leaving this on makes
+      # first-boot ingestion take many minutes and hundreds of OpenRouter calls,
+      # during which knowledge_search returns nothing. Default OFF so the text
+      # corpus (the normative content) is searchable in ~1-2 min; set
+      # AIQ_EXTRACT_IMAGES=true to also caption diagrams (slower, costlier).
       - AIQ_EXTRACT_TABLES=${AIQ_EXTRACT_TABLES:-true}
-      - AIQ_EXTRACT_IMAGES=${AIQ_EXTRACT_IMAGES:-true}
+      - AIQ_EXTRACT_IMAGES=${AIQ_EXTRACT_IMAGES:-false}
       # Leave false in normal operation — true wipes the persistent Chroma volume
       # and re-embeds the whole OIB corpus on every boot.
       - OIB_FORCE_REINGEST=${OIB_FORCE_REINGEST:-false}
