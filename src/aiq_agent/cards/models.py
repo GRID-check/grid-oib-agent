@@ -679,17 +679,30 @@ __all__ = [
 
 
 def validate_cards(raw: list[dict]) -> list[dict]:
-    """Validate a list of raw card dicts and return the validated dicts.
+    """Validate a list of model-produced card dicts and return the validated dicts.
 
     Per-card: one malformed card is logged and skipped instead of discarding
     the whole batch (LLM output regularly contains one bad item among good
     ones, and cards are a progressive enhancement — never fail the answer).
+
+    System cards (``SYSTEM_CARD_TYPES``) are dropped here too: this is the
+    post-hoc / batch generation path fed by *model* output, and a system card
+    must only ever come from its owning tool on a sanctioned path (e.g.
+    ``document_grid`` from ``surface_documents``, ``memory_proposal`` from
+    ``remember``). The model is never told these types exist, so any occurrence
+    here is a fabrication — enforce the same invariant ``emit_card`` and the
+    DSML salvage already enforce, closing the last emission path.
     """
     import logging
+
+    from aiq_agent.cards.catalog import SYSTEM_CARD_TYPES
 
     logger = logging.getLogger(__name__)
     validated: list[dict] = []
     for item in raw:
+        if isinstance(item, dict) and item.get("type") in SYSTEM_CARD_TYPES:
+            logger.warning("Dropping model-fabricated system card (type=%s)", item.get("type"))
+            continue
         try:
             validated.append(grid_card_adapter.validate_python(item).model_dump(exclude_none=True))
         except Exception as exc:

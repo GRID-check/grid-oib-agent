@@ -21,11 +21,19 @@ interface DocumentGridCardProps {
   projectId?: string | null
 }
 
+/** PDF + images open in the inline viewer; every other type is a download. */
+function isPreviewable(contentType: string | null | undefined): boolean {
+  const ct = (contentType ?? '').toLowerCase()
+  return ct === 'application/pdf' || ct.startsWith('image/')
+}
+
 /**
- * Presigned-preview controller for a surfaced document. Project uploads and
- * Büroarchiv files both resolve through the scope-aware `/api/documents/{id}`
- * routes, so one path opens either in the shared PdfViewerDialog. A failed
- * presign surfaces as a toast, never a broken viewer.
+ * Open controller for a surfaced document. Project uploads and Büroarchiv files
+ * both resolve through the scope-aware `/api/documents/{id}` routes. Previewable
+ * types (PDF, images) open inline in the shared PdfViewerDialog; everything else
+ * — the .docx/.xlsx/.dwg the user "worked on" — downloads via a presigned URL
+ * instead of dead-ending on a toast. A failed presign surfaces as a toast, never
+ * a broken viewer.
  */
 function useSurfacedPreview() {
   const t = useTranslations('chat')
@@ -37,14 +45,26 @@ function useSurfacedPreview() {
   const openPreview = async (file: FileItem): Promise<void> => {
     setResolvingId(file.id)
     try {
-      const res = await fetch(`/api/documents/${file.id}/preview`)
-      const data = res.ok ? await res.json() : null
-      if (data?.url) {
-        setSrc(data.url)
-        setActive(file)
-        setOpen(true)
+      if (isPreviewable(file.contentType)) {
+        const res = await fetch(`/api/documents/${file.id}/preview`)
+        const data = res.ok ? await res.json() : null
+        if (data?.url) {
+          setSrc(data.url)
+          setActive(file)
+          setOpen(true)
+        } else {
+          toast.error(t('documentGrid.loadFailed'))
+        }
       } else {
-        toast.error(t('documentGrid.loadFailed'))
+        // Non-previewable (docx/xlsx/dwg/…): open the presigned download so the
+        // click still does something useful rather than failing.
+        const res = await fetch(`/api/documents/${file.id}/download`)
+        const data = res.ok ? await res.json() : null
+        if (data?.downloadUrl) {
+          window.open(data.downloadUrl, '_blank', 'noopener,noreferrer')
+        } else {
+          toast.error(t('documentGrid.loadFailed'))
+        }
       }
     } catch {
       toast.error(t('documentGrid.loadFailed'))

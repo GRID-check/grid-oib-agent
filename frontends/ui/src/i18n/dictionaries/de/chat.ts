@@ -23,7 +23,6 @@ export const chat: typeof en.chat = {
   // Dokumentraster: echte Projekt-/Büroarchiv-Dateien, die der Assistent als
   // anklickbare Vorschaukarten anzeigt (`document_grid`-Karte / `surface_documents`).
   documentGrid: {
-    heading: 'Dokumente',
     countOne: '1 Dokument',
     countOther: '{count} Dokumente',
     forQuery: '„{query}“',

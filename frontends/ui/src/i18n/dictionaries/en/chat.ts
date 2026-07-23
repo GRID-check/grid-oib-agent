@@ -26,7 +26,6 @@ export const chat = {
   // Document grid: real project/Büroarchiv files the assistant surfaced as
   // clickable preview cards (the `document_grid` card / `surface_documents` tool).
   documentGrid: {
-    heading: 'Documents',
     // Count pill — singular/plural chosen in the component (no ICU in this i18n).
     countOne: '1 document',
     countOther: '{count} documents',

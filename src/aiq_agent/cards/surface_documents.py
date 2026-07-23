@@ -220,6 +220,10 @@ async def _fetch_document_metadata(collections: list[str]) -> dict[str, dict]:
     Reads the per-document summary/tag store the ingest pipeline populates — never
     the full document text. Fail-open: any lookup error yields no metadata for that
     collection, so the grid still surfaces (just without the enriched briefing).
+
+    Note (scale): this loads each collection's full summary list to enrich ≤8
+    files. Fine at current corpus sizes; if collections grow large, add a
+    by-filename lookup to the summary store and use it here.
     """
     from aiq_agent.knowledge.factory import get_available_documents_async
 

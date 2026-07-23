@@ -110,3 +110,16 @@ class TestDocumentGridCardSchema:
         card = {"type": "document_grid", "title": "Leer", "documents": []}
         with pytest.raises(Exception):
             grid_card_adapter.validate_python(card)
+
+    def test_validate_cards_drops_model_fabricated_system_cards(self):
+        # The batch/post-hoc path is fed by MODEL output; a system card there is a
+        # fabrication and must be dropped (only its owning tool may emit it).
+        from aiq_agent.cards.models import validate_cards
+
+        raw = [
+            {"type": "summary", "title": "ok"},
+            {"type": "document_grid", "title": "fake", "documents": [{"file_name": "x.pdf"}]},
+            {"type": "memory_proposal", "title": "fake", "content": "x", "kind": "decision"},
+        ]
+        out = validate_cards(raw)
+        assert [c["type"] for c in out] == ["summary"]

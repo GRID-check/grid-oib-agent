@@ -30,7 +30,11 @@ class TestMemoryProposalCard:
         assert validated.kind == "preference"
         assert validated.confidence == "high"
 
-    def test_validate_cards_accepts_it(self):
+    def test_validate_cards_drops_it_as_a_model_fabrication(self):
+        # `validate_cards` is the post-hoc/batch path fed by MODEL output. A
+        # system card there is a fabrication (the model is never told the type
+        # exists), so it is dropped — only the `remember` tool may emit a real
+        # memory_proposal, straight into the registry via the adapter.
         raw = [
             {
                 "type": "memory_proposal",
@@ -39,8 +43,9 @@ class TestMemoryProposalCard:
                 "kind": "derived_fact",
             }
         ]
-        # The default confidence is filled in on validation.
-        assert validate_cards(raw) == [{**raw[0], "confidence": "medium"}]
+        assert validate_cards(raw) == []
+        # The adapter itself (the sanctioned tool path) still accepts it.
+        assert grid_card_adapter.validate_python(raw[0]).confidence == "medium"
 
 
 class TestValidateCards:

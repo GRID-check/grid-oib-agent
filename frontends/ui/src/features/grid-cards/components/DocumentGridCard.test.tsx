@@ -6,8 +6,9 @@
  * "not available" card instead of vanishing or crashing.
  */
 
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor } from '@/test-utils'
+import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { server } from '@/mocks/server'
 import { DocumentGridCard } from './DocumentGridCard'
@@ -89,5 +90,56 @@ describe('DocumentGridCard', () => {
   it('renders nothing when there are no documents', () => {
     const { container } = render(<DocumentGridCard title="Leer" documents={[]} projectId="proj-1" />)
     expect(container).toBeEmptyDOMElement()
+  })
+
+  it('downloads a non-previewable file (e.g. .dwg) instead of dead-ending on the viewer', async () => {
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
+    server.use(
+      http.get('/api/documents', () =>
+        HttpResponse.json({ documents: [row('p1', 'Plan.dwg', { contentType: 'application/acad' })] })
+      ),
+      http.get('/api/archiv/documents', () => HttpResponse.json({}, { status: 403 })),
+      http.get('/api/documents/:id/thumbnail', () => HttpResponse.json({}, { status: 404 })),
+      http.get('/api/documents/:id/download', () =>
+        HttpResponse.json({ downloadUrl: 'https://seaweed.test/presigned/plan.dwg' })
+      )
+    )
+
+    render(
+      <DocumentGridCard
+        title="CAD"
+        documents={[{ file_name: 'Plan.dwg', source: 'projekt' }]}
+        projectId="proj-1"
+      />
+    )
+
+    await waitFor(() => expect(screen.getByText('Plan.dwg')).toBeInTheDocument())
+    await userEvent.click(screen.getByText('Plan.dwg'))
+    await waitFor(() =>
+      expect(openSpy).toHaveBeenCalledWith('https://seaweed.test/presigned/plan.dwg', '_blank', 'noopener,noreferrer')
+    )
+    openSpy.mockRestore()
+  })
+
+  it('does NOT cross corpora when the backend tagged a source (avoids opening a same-named file)', async () => {
+    // Same filename in BOTH corpora; the surfaced hit is tagged 'buero' but the
+    // Archiv list is empty — it must resolve to nothing, never the project file.
+    server.use(
+      http.get('/api/documents', () => HttpResponse.json({ documents: [row('p1', 'Bericht.pdf')] })),
+      http.get('/api/archiv/documents', () => HttpResponse.json({ documents: [] }))
+    )
+
+    render(
+      <DocumentGridCard
+        title="Test"
+        documents={[{ file_name: 'Bericht.pdf', source: 'buero' }]}
+        projectId="proj-1"
+      />
+    )
+
+    await waitFor(() => expect(screen.getByText('Bericht.pdf')).toBeInTheDocument())
+    // Resolved to nothing → "No longer available", not the project file's card.
+    expect(screen.getByText('No longer available')).toBeInTheDocument()
+    expect(screen.queryByText('Project')).not.toBeInTheDocument()
   })
 })
