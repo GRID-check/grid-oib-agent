@@ -803,7 +803,11 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
             Live status dot/spinner, retry on failure, ✕ to remove. */}
         {sessionFiles.length > 0 && (
           <div
-            className="mb-2 flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            // Horizontal scroll strip with a soft right-edge fade so an
+            // overflowing chip dissolves instead of hard-clipping — and the fade
+            // quietly signals there is more to scroll. The mask self-hides when
+            // the chips don't reach the edge (nothing there to fade).
+            className="mb-2 flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [mask-image:linear-gradient(to_right,black_calc(100%_-_24px),transparent)] [scrollbar-width:none] [-webkit-mask-image:linear-gradient(to_right,black_calc(100%_-_24px),transparent)] [&::-webkit-scrollbar]:hidden"
             aria-label={t('inputArea.manageFiles')}
           >
             {sessionFiles.map((file) => (
