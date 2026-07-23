@@ -3,12 +3,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { sourceTint } from '@/lib/ui/source-tint'
-import { AlertCircle, Archive, RotateCcw, Trash2, Upload, X } from 'lucide-react'
+import { AlertCircle, Archive, RotateCcw, Upload, X } from 'lucide-react'
 import type { FileItem } from './project-file-workspace'
 import { useArchivDocuments } from '../hooks/use-archiv-documents'
 import { useFileDragDrop } from '../hooks/use-file-drag-drop'
 import { ArchivLibraryPane } from './archiv-library-pane'
 import { FilePreviewDialog } from './file-preview-dialog'
+import { DeleteDocumentButton } from './delete-document-button'
 import { ProjectUppyUpload } from './project-uppy-upload'
 import { ActiveUploads } from './active-uploads'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -257,71 +258,12 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
                 fileId={selectedFile.id}
                 filename={selectedFile.filename}
                 onDeleted={handleDeleted}
+                deleteUrl={`/api/archiv/documents/${selectedFile.id}`}
+                namespace="archiv"
               />
             ) : undefined
           }
         />
-      </div>
-    </div>
-  )
-}
-
-/**
- * Two-step Delete affordance for an Archiv document: the first click reveals an
- * inline Confirm/Cancel row so a stray tap can't purge a shared document.
- */
-function DeleteDocumentButton({
-  fileId,
-  filename,
-  onDeleted,
-}: {
-  fileId: string
-  filename: string
-  onDeleted: (fileId: string) => void
-}) {
-  const t = useTranslations('archiv')
-  const [confirming, setConfirming] = useState(false)
-  const [isDeleting, setIsDeleting] = useState(false)
-
-  const handleDelete = useCallback(async () => {
-    setIsDeleting(true)
-    try {
-      const res = await fetch(`/api/archiv/documents/${fileId}`, { method: 'DELETE' })
-      if (!res.ok && res.status !== 204) throw new Error(`Delete failed (${res.status})`)
-      toast.success(t('delete.success', { name: filename }))
-      onDeleted(fileId)
-    } catch {
-      toast.error(t('delete.error'))
-      setIsDeleting(false)
-      setConfirming(false)
-    }
-  }, [fileId, filename, onDeleted, t])
-
-  if (!confirming) {
-    return (
-      <Button
-        type="button"
-        variant="ghost"
-        className="mt-2 w-full gap-2 text-destructive hover:bg-destructive/10 hover:text-destructive"
-        onClick={() => setConfirming(true)}
-      >
-        <Trash2 className="size-4" aria-hidden />
-        {t('delete.action')}
-      </Button>
-    )
-  }
-
-  return (
-    <div className="mt-2 space-y-2 rounded-md border border-destructive/40 bg-destructive/5 p-3">
-      <p className="text-xs text-muted-foreground">{t('delete.confirm')}</p>
-      <div className="flex gap-2">
-        <Button type="button" variant="destructive" size="sm" className="flex-1 gap-1.5" onClick={handleDelete} disabled={isDeleting}>
-          <Trash2 className="size-3.5" aria-hidden />
-          {isDeleting ? t('delete.deleting') : t('delete.confirmAction')}
-        </Button>
-        <Button type="button" variant="outline" size="sm" onClick={() => setConfirming(false)} disabled={isDeleting}>
-          {t('delete.cancel')}
-        </Button>
       </div>
     </div>
   )
