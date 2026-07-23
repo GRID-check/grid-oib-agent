@@ -140,7 +140,12 @@ the `aiq-agent` web tier (scales to `backendReplicas`). It is the volume driver.
   session `SourceRegistry` only appends, and `verify_citations` runs against all
   cumulative sources every turn (`shallow_researcher/agent.py:500`).
 - **Memory digest uncapped** on the per-turn `project_context` fetch + reflection
-  prompt (`reflection.py:108`, `project_memory.py:94`).
+  prompt (`reflection.py:108`, `project_memory.py:94`). **[LANDED — reflection side]**
+  `_build_user_prompt` now head-slices the existing digest to `_MAX_DIGEST_CHARS`
+  (6000), matching the query/answer caps, so the background reflection LLM call's
+  token cost stops growing with memory size. **Deferred (needs review):** the
+  *answer-path* cap (`compose_project_context`) — truncating the live-answer digest
+  could drop a relevant item, so it wants human/live validation, not an autonomous cap.
 
 ### Well-designed (verified, no action)
 - Memory reflection is fire-and-forget, semaphore-bounded, off the TTFT path
