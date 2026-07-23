@@ -10,8 +10,10 @@ import type { BriefAssumption } from '@/lib/project-profile/brief-view'
 import type { ProjectProfile } from '@/lib/project-profile/types'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { CountPill } from '@/components/ui/count-pill'
 import { EmptyState } from '@/components/ui/empty-state'
 import { useLocale, useTranslations } from '@/i18n'
+import { sourceTint } from '@/lib/ui/source-tint'
 
 interface ProjectBriefProps {
   projectId: string
@@ -77,30 +79,35 @@ export function ProjectBrief({
 
   return (
     <section className="rounded-2xl border bg-card p-6 shadow-sm">
-      {/* Header: eyebrow + completeness + edit */}
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-        <h2 className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-          {t('overview.brief.heading')}
-        </h2>
-        <div className="flex items-center gap-4">
+      {/* Header: icon tile + title + completeness + edit */}
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <div className="flex items-center gap-2.5">
+          <span
+            className="flex size-8 shrink-0 items-center justify-center rounded-lg"
+            style={sourceTint('project')}
+            aria-hidden
+          >
+            <ClipboardList className="size-[17px]" />
+          </span>
+          <h2 className="text-sm font-semibold text-foreground">{t('overview.brief.heading')}</h2>
           {brief.totalCount > 0 && (
-            <span className="text-xs tabular-nums text-muted-foreground">
+            <CountPill>
               {t('overview.brief.captured', {
                 answered: String(brief.answeredCount),
                 total: String(brief.totalCount),
               })}
-            </span>
-          )}
-          {canEdit && (
-            <Link
-              href={intakeHref}
-              className="inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
-            >
-              <PencilLine className="size-3.5" aria-hidden />
-              {t('overview.brief.edit')}
-            </Link>
+            </CountPill>
           )}
         </div>
+        {canEdit && (
+          <Link
+            href={intakeHref}
+            className="inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <PencilLine className="size-3.5" aria-hidden />
+            {t('overview.brief.edit')}
+          </Link>
+        )}
       </div>
 
       {/* AI summary prose. When the brief has facts but no prose yet (a wizard

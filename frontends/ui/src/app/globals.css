@@ -86,11 +86,13 @@ body {
 }
 
 /* Focus visible styles for accessibility — always a visible 2px ring,
-   offset so it never blends into the control's own edge */
+   offset so it never blends into the control's own edge. The outline follows
+   the element's own border-radius automatically; do NOT force
+   `border-radius: inherit` here — that overrides a control's own rounding with
+   its parent's (usually 0), squaring off rounded inputs/selects on focus. */
 :focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
-  border-radius: inherit;
 }
 
 /* Hide scrollbar utility */

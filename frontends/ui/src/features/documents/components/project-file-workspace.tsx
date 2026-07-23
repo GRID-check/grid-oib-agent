@@ -2,12 +2,14 @@
 
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { toast } from 'sonner'
-import { AlertCircle, LayoutGrid, ListTree, RotateCcw, ShieldCheck, Trash2, Upload, X } from 'lucide-react'
+import { AlertCircle, LayoutGrid, ListTree, RotateCcw, ShieldCheck, X } from 'lucide-react'
 import { useProjectDocuments } from '../hooks/use-project-documents'
 import { useFileDragDrop } from '../hooks/use-file-drag-drop'
 import { FolderTreePane } from './folder-tree-pane'
 import { FileBrowserPane } from './file-browser-pane'
-import { FilePreviewPane } from './file-preview-pane'
+import { FilePreviewDialog } from './file-preview-dialog'
+import { DeleteDocumentButton } from './delete-document-button'
+import { FileDropOverlay, useWindowDragGuard } from './file-drop-overlay'
 import { ProjectUppyUpload } from './project-uppy-upload'
 import { ActiveUploads } from './active-uploads'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -246,17 +248,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
   // Guard against the browser navigating away when a file is dropped outside the
   // drop zone (e.g. onto a gap in the layout). Prevent the default open-file
   // behaviour at the window level while this workspace is mounted.
-  useEffect(() => {
-    const prevent = (e: DragEvent) => {
-      e.preventDefault()
-    }
-    window.addEventListener('dragover', prevent)
-    window.addEventListener('drop', prevent)
-    return () => {
-      window.removeEventListener('dragover', prevent)
-      window.removeEventListener('drop', prevent)
-    }
-  }, [])
+  useWindowDragGuard()
 
   const handleCreateFolder = useCallback(
     async (name: string, parentId?: string) => {
@@ -280,23 +272,12 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
     <div className="relative flex h-full flex-col" {...dragHandlers} data-testid="workspace-dropzone">
       {/* Drag-and-drop overlay — mirrors the chat FileUploadZone affordance. */}
       {isDragging && (
-        <div
-          className={cn(
-            'pointer-events-none absolute inset-2 z-50 flex flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed text-center',
-            isUnsupportedDrag
-              ? 'border-destructive bg-destructive/5'
-              : 'border-ring bg-primary/5 backdrop-blur-sm'
-          )}
-          data-testid="workspace-drop-overlay"
-        >
-          <Upload
-            className={cn('size-6', isUnsupportedDrag ? 'text-destructive' : 'text-primary')}
-            aria-hidden
-          />
-          <p className={cn('text-sm font-medium', isUnsupportedDrag ? 'text-destructive' : 'text-primary')}>
-            {isUnsupportedDrag ? t('workspace.dropUnsupported') : t('workspace.dropToUpload')}
-          </p>
-        </div>
+        <FileDropOverlay
+          isUnsupported={isUnsupportedDrag}
+          uploadLabel={t('workspace.dropToUpload')}
+          unsupportedLabel={t('workspace.dropUnsupported')}
+          testId="workspace-drop-overlay"
+        />
       )}
 
       {/* Top action bar */}
@@ -429,109 +410,27 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
 
       </div>
 
-      {/* Preview — centered modal overlay (click-dummy), backdrop dims the page
-          and closes on click; the panel maxes at 920px with the split preview. */}
-      {selectedFile && (
-        <div
-          role="dialog"
-          aria-modal
-          aria-label={t('preview.dialogLabel', { name: selectedFile.filename })}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 pt-[max(1rem,env(safe-area-inset-top))] md:p-10"
-          onClick={() => setSelectedFileId(null)}
-        >
-          <div
-            className="flex max-h-full w-full max-w-[920px] flex-col overflow-hidden rounded-xl border bg-card shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <FilePreviewPane
-              file={selectedFile}
-              projectId={projectId}
-              projectName={projectName}
-              onClose={() => setSelectedFileId(null)}
-              onReingested={handleReingested}
-              onTagsUpdated={handleTagsUpdated}
-              showMetadataPanel={showMetadataPanel}
-              extraActions={
-                <DeleteDocumentButton
-                  fileId={selectedFile.id}
-                  filename={selectedFile.filename}
-                  onDeleted={handleDeleted}
-                />
-              }
+      {/* Preview — the shared centered-modal dialog (identical in Files + Archiv). */}
+      <FilePreviewDialog
+        file={selectedFile}
+        projectId={projectId}
+        projectName={projectName}
+        onClose={() => setSelectedFileId(null)}
+        onReingested={handleReingested}
+        onTagsUpdated={handleTagsUpdated}
+        showMetadataPanel={showMetadataPanel}
+        extraActions={
+          selectedFile && (
+            <DeleteDocumentButton
+              fileId={selectedFile.id}
+              filename={selectedFile.filename}
+              onDeleted={handleDeleted}
+              deleteUrl={`/api/documents/${selectedFile.id}`}
+              namespace="files"
             />
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-/**
- * Two-step Delete affordance for a project document: the first click reveals an
- * inline Confirm/Cancel row so a stray tap can't purge a document. Mirrors the
- * Archiv workspace's DeleteDocumentButton; deletion goes through the project
- * document route (`DELETE /api/documents/{id}`), which enforces `project:edit`.
- */
-function DeleteDocumentButton({
-  fileId,
-  filename,
-  onDeleted,
-}: {
-  fileId: string
-  filename: string
-  onDeleted: (fileId: string) => void
-}) {
-  const t = useTranslations('files')
-  const [confirming, setConfirming] = useState(false)
-  const [isDeleting, setIsDeleting] = useState(false)
-
-  const handleDelete = useCallback(async () => {
-    setIsDeleting(true)
-    try {
-      const res = await fetch(`/api/documents/${fileId}`, { method: 'DELETE' })
-      if (!res.ok && res.status !== 204) throw new Error(`Delete failed (${res.status})`)
-      toast.success(t('delete.success', { name: filename }))
-      onDeleted(fileId)
-    } catch {
-      toast.error(t('delete.error'))
-      setIsDeleting(false)
-      setConfirming(false)
-    }
-  }, [fileId, filename, onDeleted, t])
-
-  if (!confirming) {
-    return (
-      <Button
-        type="button"
-        variant="ghost"
-        className="mt-2 w-full gap-2 text-destructive hover:bg-destructive/10 hover:text-destructive"
-        onClick={() => setConfirming(true)}
-      >
-        <Trash2 className="size-4" aria-hidden />
-        {t('delete.action')}
-      </Button>
-    )
-  }
-
-  return (
-    <div className="mt-2 space-y-2 rounded-md border border-destructive/40 bg-destructive/5 p-3">
-      <p className="text-xs text-muted-foreground">{t('delete.confirm')}</p>
-      <div className="flex gap-2">
-        <Button
-          type="button"
-          variant="destructive"
-          size="sm"
-          className="flex-1 gap-1.5"
-          onClick={handleDelete}
-          disabled={isDeleting}
-        >
-          <Trash2 className="size-3.5" aria-hidden />
-          {isDeleting ? t('delete.deleting') : t('delete.confirmAction')}
-        </Button>
-        <Button type="button" variant="outline" size="sm" onClick={() => setConfirming(false)} disabled={isDeleting}>
-          {t('delete.cancel')}
-        </Button>
-      </div>
+          )
+        }
+      />
     </div>
   )
 }

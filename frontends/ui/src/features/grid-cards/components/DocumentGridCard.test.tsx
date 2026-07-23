@@ -6,7 +6,7 @@
  * "not available" card instead of vanishing or crashing.
  */
 
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { render, screen, waitFor } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
@@ -92,33 +92,26 @@ describe('DocumentGridCard', () => {
     expect(container).toBeEmptyDOMElement()
   })
 
-  it('downloads a non-previewable file (e.g. .dwg) instead of dead-ending on the viewer', async () => {
-    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
+  it('opens the same shared preview dialog on click (identical to Files/Archiv)', async () => {
     server.use(
       http.get('/api/documents', () =>
         HttpResponse.json({ documents: [row('p1', 'Plan.dwg', { contentType: 'application/acad' })] })
       ),
       http.get('/api/archiv/documents', () => HttpResponse.json({}, { status: 403 })),
       http.get('/api/documents/:id/thumbnail', () => HttpResponse.json({}, { status: 404 })),
-      http.get('/api/documents/:id/download', () =>
-        HttpResponse.json({ downloadUrl: 'https://seaweed.test/presigned/plan.dwg' })
-      )
+      // FilePreviewPane loads these when the dialog opens.
+      http.get('/api/documents/:id/preview', () => HttpResponse.json({ url: null })),
+      http.get('/api/documents/:id/visual-details', () => HttpResponse.json({ details: [] }))
     )
 
     render(
-      <DocumentGridCard
-        title="CAD"
-        documents={[{ file_name: 'Plan.dwg', source: 'projekt' }]}
-        projectId="proj-1"
-      />
+      <DocumentGridCard title="CAD" documents={[{ file_name: 'Plan.dwg', source: 'projekt' }]} projectId="proj-1" />
     )
 
     await waitFor(() => expect(screen.getByText('Plan.dwg')).toBeInTheDocument())
     await userEvent.click(screen.getByText('Plan.dwg'))
-    await waitFor(() =>
-      expect(openSpy).toHaveBeenCalledWith('https://seaweed.test/presigned/plan.dwg', '_blank', 'noopener,noreferrer')
-    )
-    openSpy.mockRestore()
+    // The shared FilePreviewDialog opens — same modal the workspaces use.
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
   })
 
   it('does NOT cross corpora when the backend tagged a source (avoids opening a same-named file)', async () => {

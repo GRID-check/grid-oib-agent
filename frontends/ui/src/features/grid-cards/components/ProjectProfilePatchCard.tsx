@@ -1,10 +1,9 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { motion, springGentle } from '@/components/motion'
 import { useTranslations } from '@/i18n'
+import { ProposalShell } from './ProposalShell'
 import { buildPatchPreviewRows } from '@/lib/project-profile/patch-preview'
 import type { ProjectProfile, ProjectProfilePatchOperation } from '@/lib/project-profile/types'
 
@@ -86,26 +85,22 @@ export function ProjectProfilePatchCard({
 
   if (status === 'accepted') {
     return (
-      <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} transition={springGentle}>
-        <Card className="gap-2 border-l-2 border-l-success p-5 shadow-xs">
-          <p className="text-sm text-foreground">{t('profilePatchCard.accepted')}</p>
-        </Card>
-      </motion.div>
+      <ProposalShell tone="accepted">
+        <p className="text-sm text-foreground">{t('profilePatchCard.accepted')}</p>
+      </ProposalShell>
     )
   }
 
   if (status === 'rejected') {
     return (
-      <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} transition={springGentle}>
-        <Card className="gap-2 border-l-2 border-l-subtle p-5 shadow-xs">
-          <p className="text-sm text-muted-foreground">{t('profilePatchCard.rejected')}</p>
-        </Card>
-      </motion.div>
+      <ProposalShell tone="dismissed">
+        <p className="text-sm text-muted-foreground">{t('profilePatchCard.rejected')}</p>
+      </ProposalShell>
     )
   }
 
   return (
-    <Card className="gap-3 border-l-2 border-l-warning p-5 shadow-xs">
+    <ProposalShell tone="pending">
       <p className="text-sm font-semibold text-foreground">{title}</p>
       <p className="text-sm leading-relaxed text-muted-foreground">{rationale}</p>
 
@@ -150,6 +145,6 @@ export function ProjectProfilePatchCard({
           {t('profilePatchCard.reject')}
         </Button>
       </div>
-    </Card>
+    </ProposalShell>
   )
 }

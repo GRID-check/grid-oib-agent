@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { toast } from 'sonner'
 import { AlertCircle, Brain, Check, Pencil, Pin, PinOff, Plus, Trash2, X } from 'lucide-react'
 import {
   PROJECT_MEMORY_KINDS,
@@ -189,6 +190,7 @@ export function ProjectMemoryPanel({ projectId }: ProjectMemoryPanelProps): JSX.
     try {
       await requestJson<undefined>(itemUrl(target), { method: 'DELETE' }, t)
       setItems((prev) => (prev ? prev.filter((it) => it.id !== target.id) : prev))
+      toast.success(t('memory.deleted'))
     } catch (err) {
       setError(err instanceof Error ? err.message : t('memory.errors.deleteFailed'))
     } finally {
@@ -213,6 +215,7 @@ export function ProjectMemoryPanel({ projectId }: ProjectMemoryPanelProps): JSX.
       setItems((prev) => (prev ? [item, ...prev] : [item]))
       setAddContent('')
       setAdding(false)
+      toast.success(t('memory.added'))
     } catch (err) {
       setError(err instanceof Error ? err.message : t('memory.errors.addFailed'))
     } finally {
@@ -231,6 +234,7 @@ export function ProjectMemoryPanel({ projectId }: ProjectMemoryPanelProps): JSX.
     if (!content) return
     await patchItem(target, { content })
     setEditingId(null)
+    toast.success(t('memory.updated'))
   }
 
   const visible = items?.filter((it) => it.status !== 'superseded' && it.status !== 'dismissed') ?? []
@@ -243,7 +247,7 @@ export function ProjectMemoryPanel({ projectId }: ProjectMemoryPanelProps): JSX.
     <section className="space-y-4">
       <div className="flex items-end justify-between gap-4">
         <div>
-          <h2 className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+          <h2 className="text-sm font-semibold text-foreground">
             {t('memory.heading')}
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">{t('memory.description')}</p>

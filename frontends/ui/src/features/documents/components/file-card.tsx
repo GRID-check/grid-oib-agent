@@ -7,6 +7,7 @@ import { formatFileSize } from '@/lib/utils/format-file-size'
 import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { useTranslations } from '@/i18n'
+import { sourceTint } from '@/lib/ui/source-tint'
 import { extChipTint, fileExtensionLabel, inferDocumentKind } from '../document-kind'
 import { DocumentKindThumbnail } from './document-kind-thumbnail'
 import { DocumentStatusBadge } from './document-status'
@@ -14,14 +15,8 @@ import { SemanticMatch } from './semantic-match'
 
 /** Provenance tint per corpus, from the shared `--source-*` token family. */
 const SOURCE_TINT: Record<'projekt' | 'buero', CSSProperties> = {
-  projekt: {
-    backgroundColor: 'var(--source-project-tint, var(--muted))',
-    color: 'var(--source-project-text, var(--muted-foreground))',
-  },
-  buero: {
-    backgroundColor: 'var(--source-office-tint, var(--muted))',
-    color: 'var(--source-office-text, var(--muted-foreground))',
-  },
+  projekt: sourceTint('project'),
+  buero: sourceTint('office'),
 }
 
 /**

@@ -2,11 +2,11 @@
 
 import { useState, type FC } from 'react'
 import { FileWarning, FolderSearch } from 'lucide-react'
-import { toast } from 'sonner'
 import { useLocale, useTranslations } from '@/i18n'
-import { Skeleton } from '@/components/ui/skeleton'
-import { PdfViewerDialog } from '@/features/knowledge/components/pdf-viewer-dialog'
 import { FileCard } from '@/features/documents/components/file-card'
+import { FileGrid, FileCardSkeleton } from '@/features/documents/components/file-grid'
+import { FilePreviewDialog } from '@/features/documents/components/file-preview-dialog'
+import { CountPill } from '@/components/ui/count-pill'
 import type { FileItem } from '@/features/documents/components/project-file-workspace'
 import {
   useSurfacedDocuments,
@@ -19,76 +19,6 @@ interface DocumentGridCardProps {
   query?: string | null
   documents: SurfacedDocument[]
   projectId?: string | null
-}
-
-/** PDF + images open in the inline viewer; every other type is a download. */
-function isPreviewable(contentType: string | null | undefined): boolean {
-  const ct = (contentType ?? '').toLowerCase()
-  return ct === 'application/pdf' || ct.startsWith('image/')
-}
-
-/**
- * Open controller for a surfaced document. Project uploads and Büroarchiv files
- * both resolve through the scope-aware `/api/documents/{id}` routes. Previewable
- * types (PDF, images) open inline in the shared PdfViewerDialog; everything else
- * — the .docx/.xlsx/.dwg the user "worked on" — downloads via a presigned URL
- * instead of dead-ending on a toast. A failed presign surfaces as a toast, never
- * a broken viewer.
- */
-function useSurfacedPreview() {
-  const t = useTranslations('chat')
-  const [open, setOpen] = useState(false)
-  const [src, setSrc] = useState<string | null>(null)
-  const [active, setActive] = useState<FileItem | null>(null)
-  const [resolvingId, setResolvingId] = useState<string | null>(null)
-
-  const openPreview = async (file: FileItem): Promise<void> => {
-    setResolvingId(file.id)
-    try {
-      if (isPreviewable(file.contentType)) {
-        const res = await fetch(`/api/documents/${file.id}/preview`)
-        const data = res.ok ? await res.json() : null
-        if (data?.url) {
-          setSrc(data.url)
-          setActive(file)
-          setOpen(true)
-        } else {
-          toast.error(t('documentGrid.loadFailed'))
-        }
-      } else {
-        // Non-previewable (docx/xlsx/dwg/…): open the presigned download so the
-        // click still does something useful rather than failing.
-        const res = await fetch(`/api/documents/${file.id}/download`)
-        const data = res.ok ? await res.json() : null
-        if (data?.downloadUrl) {
-          window.open(data.downloadUrl, '_blank', 'noopener,noreferrer')
-        } else {
-          toast.error(t('documentGrid.loadFailed'))
-        }
-      }
-    } catch {
-      toast.error(t('documentGrid.loadFailed'))
-    } finally {
-      setResolvingId(null)
-    }
-  }
-
-  const isImage = (active?.contentType ?? '').toLowerCase().startsWith('image/')
-  const dialog = active ? (
-    <PdfViewerDialog
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next)
-        if (!next) setSrc(null)
-      }}
-      fileName={active.filename}
-      title={active.filename}
-      src={src ?? undefined}
-      isImage={isImage}
-    />
-  ) : null
-
-  return { openPreview, resolvingId, dialog }
 }
 
 /** A surfaced file whose row no longer resolves — a lean, honest, non-clickable card. */
@@ -125,7 +55,10 @@ export const DocumentGridCard: FC<DocumentGridCardProps> = ({ title, query, docu
   const t = useTranslations('chat')
   const { locale } = useLocale()
   const { resolved, isLoading } = useSurfacedDocuments(documents, projectId ?? null)
-  const { openPreview, resolvingId, dialog } = useSurfacedPreview()
+  // Clicking a surfaced document opens the SAME preview dialog the Files and
+  // Archiv workspaces use — read-only here (no delete / re-ingest), and the
+  // pane handles preview vs download for every file type itself.
+  const [openFile, setOpenFile] = useState<{ file: FileItem; source: 'projekt' | 'buero' | null } | null>(null)
 
   if (documents.length === 0) return null
 
@@ -152,28 +85,14 @@ export const DocumentGridCard: FC<DocumentGridCardProps> = ({ title, query, docu
             </p>
           )}
         </div>
-        <span className="shrink-0 rounded-full bg-muted px-2.5 py-1 text-[11px] font-medium tabular-nums text-muted-foreground">
-          {countLabel}
-        </span>
+        <CountPill>{countLabel}</CountPill>
       </header>
 
       {/* Grid — raised document cards; min-w-0 cells so long names truncate cleanly. */}
-      <div className="grid gap-3 p-4 [grid-template-columns:repeat(auto-fill,minmax(150px,1fr))] sm:gap-3.5 md:[grid-template-columns:repeat(auto-fill,minmax(178px,1fr))]">
+      <div className="p-4">
+        <FileGrid>
         {isLoading
-          ? Array.from({ length: Math.min(documents.length, 4) }).map((_, i) => (
-              <div key={i} className="min-w-0 overflow-hidden rounded-xl border bg-muted/50">
-                <div className="overflow-hidden rounded-b-[10px] bg-card shadow-2xs">
-                  <Skeleton className="h-[124px] w-full rounded-none" />
-                  <div className="space-y-2 p-3.5">
-                    <Skeleton className="h-3.5 w-2/3" />
-                    <Skeleton className="h-3 w-full" />
-                  </div>
-                </div>
-                <div className="p-3">
-                  <Skeleton className="ml-auto h-3 w-20" />
-                </div>
-              </div>
-            ))
+          ? Array.from({ length: Math.min(documents.length, 4) }).map((_, i) => <FileCardSkeleton key={i} />)
           : resolved.map((entry) =>
               entry.file ? (
                 <FileCard
@@ -186,19 +105,26 @@ export const DocumentGridCard: FC<DocumentGridCardProps> = ({ title, query, docu
                   }}
                   isSelected={false}
                   locale={locale}
-                  onSelect={() => void openPreview(entry.file as FileItem)}
+                  onSelect={() => setOpenFile({ file: entry.file as FileItem, source: entry.docSource })}
                   source={entry.docSource}
                   sourceLabel={entry.docSource ? t(`documentGrid.source.${entry.docSource}`) : undefined}
                   hideStatusWhenReady
                   ariaLabel={t('documentGrid.openAria', { label: entry.file.filename })}
-                  isBusy={resolvingId === entry.file.id}
                 />
               ) : (
                 <UnresolvedCard key={entry.key} entry={entry} />
               )
             )}
+        </FileGrid>
       </div>
-      {dialog}
+      <FilePreviewDialog
+        file={openFile?.file ?? null}
+        // Only a project-sourced file gets the project context row; an Archiv
+        // file is org-scoped, so leave projectId unset.
+        projectId={openFile?.source === 'projekt' ? (projectId ?? undefined) : undefined}
+        canManage={false}
+        onClose={() => setOpenFile(null)}
+      />
     </section>
   )
 }

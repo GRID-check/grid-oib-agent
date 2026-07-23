@@ -13,15 +13,12 @@
  * semantic vars only, no hex, theme-aware either way.
  */
 
-import type { CSSProperties } from 'react'
 import Link from 'next/link'
 import { Archive, ChevronRight } from 'lucide-react'
 import { useTranslations } from '@/i18n'
+import { sourceTint } from '@/lib/ui/source-tint'
 
-const OFFICE_TINT: CSSProperties = {
-  backgroundColor: 'var(--source-office-tint, var(--background-color-feedback-warning-subtle))',
-  color: 'var(--source-office-text, var(--source-office, var(--text-color-feedback-warning)))',
-}
+const OFFICE_TINT = sourceTint('office')
 
 export function ArchivEntryCard(): JSX.Element {
   const t = useTranslations('projects')
