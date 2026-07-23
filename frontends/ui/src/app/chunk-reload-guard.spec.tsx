@@ -57,13 +57,13 @@ describe('isChunkLoadError', () => {
 })
 
 describe('ChunkReloadGuard', () => {
-  let reload: ReturnType<typeof vi.fn>
+  let reloadCount = 0
 
   beforeEach(() => {
     window.sessionStorage.clear()
-    reload = vi.fn()
+    reloadCount = 0
     vi.spyOn(window.location, 'reload').mockImplementation(() => {
-      reload()
+      reloadCount += 1
     })
   })
 
@@ -76,7 +76,7 @@ describe('ChunkReloadGuard', () => {
 
     dispatchError(CHUNK_ERROR)
 
-    expect(reload).toHaveBeenCalledTimes(1)
+    expect(reloadCount).toBe(1)
     expect(window.sessionStorage.getItem(RELOAD_TS_KEY)).not.toBeNull()
   })
 
@@ -85,7 +85,7 @@ describe('ChunkReloadGuard', () => {
 
     dispatchRejection({ message: 'Failed to fetch dynamically imported module: /_next/x.js' })
 
-    expect(reload).toHaveBeenCalledTimes(1)
+    expect(reloadCount).toBe(1)
   })
 
   it('ignores unrelated errors', () => {
@@ -94,7 +94,7 @@ describe('ChunkReloadGuard', () => {
     dispatchError(new Error('Network request failed'))
     dispatchRejection(new Error('Something else'))
 
-    expect(reload).not.toHaveBeenCalled()
+    expect(reloadCount).toBe(0)
   })
 
   it('is loop-safe: a second chunk error within the min gap does not reload again', () => {
@@ -103,7 +103,7 @@ describe('ChunkReloadGuard', () => {
     dispatchError(CHUNK_ERROR)
     dispatchError(CHUNK_ERROR)
 
-    expect(reload).toHaveBeenCalledTimes(1)
+    expect(reloadCount).toBe(1)
   })
 
   it('reloads again once the min gap has elapsed', () => {
@@ -112,7 +112,7 @@ describe('ChunkReloadGuard', () => {
 
     dispatchError(CHUNK_ERROR)
 
-    expect(reload).toHaveBeenCalledTimes(1)
+    expect(reloadCount).toBe(1)
   })
 
   it('skips the reload when sessionStorage is unavailable (private mode etc.)', () => {
@@ -123,7 +123,7 @@ describe('ChunkReloadGuard', () => {
 
     dispatchError(CHUNK_ERROR)
 
-    expect(reload).not.toHaveBeenCalled()
+    expect(reloadCount).toBe(0)
   })
 
   it('removes its listeners on unmount', () => {
@@ -132,6 +132,6 @@ describe('ChunkReloadGuard', () => {
 
     dispatchError(CHUNK_ERROR)
 
-    expect(reload).not.toHaveBeenCalled()
+    expect(reloadCount).toBe(0)
   })
 })
