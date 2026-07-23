@@ -43,6 +43,8 @@ def _ensure_table(url: str) -> None:
     ts = "TIMESTAMP WITH TIME ZONE DEFAULT NOW()" if _is_postgres(url) else "DATETIME DEFAULT CURRENT_TIMESTAMP"
     with engine.connect() as conn:
         conn.execute(
+            # ts is a dialect-chosen column-type literal; no user input.
+            # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
             text(
                 "CREATE TABLE IF NOT EXISTS ingest_jobs ("
                 "  job_id VARCHAR PRIMARY KEY,"
@@ -66,6 +68,8 @@ def put(status: IngestionJobStatus) -> None:
         now = "NOW()" if _is_postgres(url) else "CURRENT_TIMESTAMP"
         with engine.connect() as conn:
             conn.execute(
+                # now is a dialect-chosen literal; job_id/status_json are bound.
+                # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
                 text(
                     "INSERT INTO ingest_jobs (job_id, status_json, updated_at) "
                     f"VALUES (:job_id, :status_json, {now}) "

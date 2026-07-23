@@ -106,7 +106,9 @@ const NEXT_INTERNAL_URL = process.env.NEXT_INTERNAL_URL || 'http://localhost:300
 // no conversationId — so single-replica behavior is unchanged.
 const BACKEND_REPLICAS = Math.max(1, parseInt(process.env.BACKEND_REPLICAS || '1', 10) || 1)
 // Per-pod WS DNS template with a literal `{i}`, e.g.
-// "ws://aiq-agent-{i}.aiq-agent-headless:8000".
+// an in-cluster headless-service pod address like
+// aiq-agent-{i}.aiq-agent-headless:8000 (ws, in-cluster only) supplied via env.
+// nosemgrep: javascript.lang.security.detect-insecure-websocket.detect-insecure-websocket
 const BACKEND_POD_WS_TEMPLATE = process.env.BACKEND_POD_WS_TEMPLATE || ''
 
 // FNV-1a: stable, dependency-free, well-distributed for short ids.

@@ -96,6 +96,8 @@ def enqueue(db_url: str, job_id: str, payload: dict[str, Any]) -> None:
     with _connection(db_url) as conn:
         _ensure_schema(conn, db_url)
         conn.execute(
+            # Only the QUEUED status constant is interpolated; job_id/payload are bound.
+            # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
             text(
                 "INSERT INTO research_job_queue (job_id, payload, status, attempts) "
                 f"VALUES (:job_id, :payload, '{QUEUED}', 0)"
@@ -119,6 +121,8 @@ def claim_next(db_url: str, worker_id: str, stale_seconds: int, max_attempts: in
         if _is_postgres(db_url):
             row = (
                 conn.execute(
+                    # Only the QUEUED/CLAIMED status constants are interpolated; worker/stale/max_attempts are bound.
+                    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
                     text(
                         "WITH claimable AS ("
                         "  SELECT job_id FROM research_job_queue"
@@ -144,6 +148,8 @@ def claim_next(db_url: str, worker_id: str, stale_seconds: int, max_attempts: in
             threshold = (datetime.now(UTC) - timedelta(seconds=stale_seconds)).strftime("%Y-%m-%d %H:%M:%S")
             found = (
                 conn.execute(
+                    # Only the QUEUED/CLAIMED status constants are interpolated; threshold/max_attempts are bound.
+                    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
                     text(
                         "SELECT job_id, payload, attempts FROM research_job_queue "
                         f"WHERE status = '{QUEUED}'"
@@ -158,6 +164,8 @@ def claim_next(db_url: str, worker_id: str, stale_seconds: int, max_attempts: in
             if found is None:
                 return None
             conn.execute(
+                # Only the CLAIMED status constant is interpolated; worker/job_id are bound.
+                # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
                 text(
                     f"UPDATE research_job_queue SET status = '{CLAIMED}', claimed_by = :worker, "
                     "claimed_at = CURRENT_TIMESTAMP, heartbeat_at = CURRENT_TIMESTAMP, attempts = attempts + 1 "
@@ -184,6 +192,8 @@ def heartbeat(db_url: str, job_id: str, worker_id: str) -> bool:
     with _connection(db_url) as conn:
         _ensure_schema(conn, db_url)
         result = conn.execute(
+            # now/CLAIMED are dialect literal + status constant; job_id/worker are bound.
+            # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
             text(
                 f"UPDATE research_job_queue SET heartbeat_at = {now} "
                 f"WHERE job_id = :job_id AND claimed_by = :worker AND status = '{CLAIMED}'"
@@ -239,6 +249,8 @@ def reap_exhausted(db_url: str, stale_seconds: int, max_attempts: int) -> list[s
                 return []
         rows = (
             conn.execute(
+                # CLAIMED constant + dialect-chosen stale_clause literal; max_attempts/threshold are bound.
+                # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
                 text(
                     "SELECT job_id FROM research_job_queue "
                     f"WHERE status = '{CLAIMED}' AND attempts >= :max_attempts AND {stale_clause}"

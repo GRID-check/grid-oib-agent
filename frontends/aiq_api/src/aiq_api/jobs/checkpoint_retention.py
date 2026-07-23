@@ -80,6 +80,8 @@ def reap_idle_threads(dsn: str | None, retention_seconds: int, now: datetime | N
                     return 0
             stale_ids = list(
                 conn.execute(
+                    # ts_expr is a dialect-chosen literal; the cutoff is bound.
+                    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
                     text(
                         f"SELECT thread_id FROM checkpoints GROUP BY thread_id HAVING MAX({ts_expr}) < :cutoff"
                     ),
@@ -91,6 +93,7 @@ def reap_idle_threads(dsn: str | None, retention_seconds: int, now: datetime | N
             for table in _CHECKPOINT_TABLES:
                 # Fixed table names (LangGraph schema); thread ids are bound.
                 conn.execute(
+                    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
                     text(f"DELETE FROM {table} WHERE thread_id IN :ids").bindparams(  # noqa: S608
                         bindparam("ids", expanding=True)
                     ),

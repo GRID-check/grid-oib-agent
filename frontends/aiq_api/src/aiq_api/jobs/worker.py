@@ -53,6 +53,7 @@ def _purge_deep_checkpoint(job_id: str) -> None:
         with engine.connect() as conn:
             for table in ("checkpoint_writes", "checkpoint_blobs", "checkpoints"):
                 # Fixed table names (LangGraph schema); job_id is bound.
+                # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
                 conn.execute(text(f"DELETE FROM {table} WHERE thread_id = :tid"), {"tid": job_id})  # noqa: S608
             conn.commit()
     except Exception:

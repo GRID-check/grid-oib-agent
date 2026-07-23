@@ -159,6 +159,9 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
     // its in-process WS/HITL/task state is always on the same replica. With 1
     // replica the proxy falls back to the load-balanced BACKEND_URL.
     { name: "BACKEND_REPLICAS", value: String(cfg.jobExecution === "db" ? cfg.backend.replicas : 1) },
+    // In-cluster headless-service pod address; traffic never leaves the pod
+    // network, so the non-TLS ws scheme below is intentional.
+    // nosemgrep: javascript.lang.security.detect-insecure-websocket.detect-insecure-websocket
     { name: "BACKEND_POD_WS_TEMPLATE", value: "ws://aiq-agent-{i}.aiq-agent-headless:8000" },
     sref("GRID_APP_DATABASE_URL"),
     sref("GRID_INTERNAL_API_TOKEN"),

@@ -213,6 +213,9 @@ def _expire_terminal_jobs(conn: Connection, db_url: str, delete_grace_seconds: i
 
     marked = (
         conn.execute(
+            # Interpolated fragments are trusted dialect literals + generated ":sN"
+            # placeholders; status values are bound, so this is not injectable.
+            # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
             text(
                 f"UPDATE job_info SET {set_expired} "
                 f"WHERE {not_expired} AND status IN ({placeholders}) AND {past_expiry} AND {keep_newest}"
@@ -224,6 +227,9 @@ def _expire_terminal_jobs(conn: Connection, db_url: str, delete_grace_seconds: i
 
     stale_ids = list(
         conn.execute(
+            # Interpolated fragments are trusted dialect literals + generated ":sN"
+            # placeholders; grace/status values are bound.
+            # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
             text(f"SELECT job_id FROM job_info WHERE status IN ({placeholders}) AND {past_grace} AND {keep_newest}"),
             {**status_params, "grace": delete_grace_seconds},
         ).scalars()
@@ -233,6 +239,8 @@ def _expire_terminal_jobs(conn: Connection, db_url: str, delete_grace_seconds: i
 
     for table in ("job_events", "job_access", "job_info"):
         conn.execute(
+            # Fixed table names from the literal tuple above; job ids are bound.
+            # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
             text(f"DELETE FROM {table} WHERE job_id IN :ids").bindparams(bindparam("ids", expanding=True)),
             {"ids": stale_ids},
         )
