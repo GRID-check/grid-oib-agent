@@ -111,6 +111,12 @@ const BACKEND_REPLICAS = Math.max(1, parseInt(process.env.BACKEND_REPLICAS || '1
 // nosemgrep: javascript.lang.security.detect-insecure-websocket.detect-insecure-websocket
 const BACKEND_POD_WS_TEMPLATE = process.env.BACKEND_POD_WS_TEMPLATE || ''
 
+// How many frontend replicas this deployment runs (Pulumi passes the min count).
+// Used only to loudly flag a multi-replica deploy that is missing the shared
+// cache (REDIS_URL) — where the read-through caches and the WS rate limiter
+// would silently diverge per pod. Defaults to 1 (single-node / dev).
+const FRONTEND_REPLICAS = Math.max(1, parseInt(process.env.FRONTEND_REPLICAS || '1', 10) || 1)
+
 // FNV-1a: stable, dependency-free, well-distributed for short ids.
 function hashToIndex(str, mod) {
   let h = 0x811c9dc5
@@ -551,6 +557,19 @@ const startServer = async () => {
   server.keepAliveTimeout = 0
   server.headersTimeout = 65000
   server.requestTimeout = 0
+
+  // Multi-replica without a shared cache is a misconfiguration: the read-through
+  // caches (ADR-0019) and the WS-upgrade rate limiter fall back to per-process
+  // state, so they diverge across pods (e.g. the rate limit becomes N×). Fail
+  // open (don't crash — matches the cache/limiter philosophy) but warn loudly so
+  // it's caught. Single replica / dev with no REDIS_URL is fine and stays quiet.
+  if (FRONTEND_REPLICAS > 1 && !process.env.REDIS_URL) {
+    console.error(
+      `[Gateway] WARNING: FRONTEND_REPLICAS=${FRONTEND_REPLICAS} but REDIS_URL is unset — ` +
+        'the shared cache and WS rate limiter will run per-process and diverge across replicas. ' +
+        'Set REDIS_URL (Dragonfly) for correct multi-replica behavior.',
+    )
+  }
 
   server.listen(port, hostname, () => {
     console.log(`

@@ -12,6 +12,7 @@ import { type ReactNode } from 'react'
 import { type Metadata, type Viewport } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
 import { connection } from 'next/server'
+import { ChunkReloadGuard } from './chunk-reload-guard'
 import { Providers } from './providers'
 import type { AppConfig } from '@/shared/context'
 import { getFileUploadConfigFromEnv } from '@/shared/config/file-upload'
@@ -111,6 +112,7 @@ const RootLayout = async ({ children }: RootLayoutProps): Promise<ReactNode> => 
       suppressHydrationWarning
     >
       <body className="bg-surface-base font-sans antialiased">
+        <ChunkReloadGuard />
         <a
           href="#main-content"
           className="sr-only focus-visible:not-sr-only focus-visible:fixed focus-visible:top-3 focus-visible:left-3 focus-visible:z-skip-link focus-visible:rounded-full focus-visible:bg-primary focus-visible:px-4 focus-visible:py-2 focus-visible:text-sm focus-visible:font-medium focus-visible:text-primary-foreground focus-visible:shadow-md"

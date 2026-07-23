@@ -164,6 +164,9 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
     // network, so the non-TLS ws scheme below is intentional.
     // nosemgrep: javascript.lang.security.detect-insecure-websocket.detect-insecure-websocket
     { name: "BACKEND_POD_WS_TEMPLATE", value: "ws://aiq-agent-{i}.aiq-agent-headless:8000" },
+    // Frontend replica baseline — lets server.js warn if a multi-replica deploy
+    // is missing REDIS_URL (shared cache + WS rate limiter would diverge per pod).
+    { name: "FRONTEND_REPLICAS", value: String(cfg.frontend.minReplicas) },
     sref("GRID_APP_DATABASE_URL"),
     sref("GRID_INTERNAL_API_TOKEN"),
     sref("GRID_ADMIN_TOKEN"),
