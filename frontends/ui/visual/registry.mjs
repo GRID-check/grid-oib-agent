@@ -20,6 +20,14 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '.react-flow__node',
   },
   {
+    id: 'herleitung-branches',
+    mobile: true,
+    path: '/dev/herleitung?variant=branches',
+    description:
+      'Herleitung with a live choice prompt and NO findings — the parallel sources fan IN to the branches node directly (per-source handles); long question + four options exercise the measured, content-driven layout.',
+    waitFor: '.react-flow__node',
+  },
+  {
     id: 'chat-turn',
     mobile: true,
     path: '/dev/chat-turn',

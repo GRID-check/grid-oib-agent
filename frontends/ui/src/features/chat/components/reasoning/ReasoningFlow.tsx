@@ -3,29 +3,39 @@
  *
  * Framing → the parallel Quellen fan-out → assessment → (live HITL) branches,
  * derived from the SAME streamed props the old ReasoningChain used, so the graph
- * grows as a turn streams in. Each branch gets its own handle on the framing/
- * assessment banners, so the connectors run parallel and never pile onto one
- * shared point. The canvas is non-interactive (no pan/zoom/drag) and auto-sizes
- * its height to the measured node bounds, so it sits inline in the chat like any
- * other block.
+ * grows as a turn streams in. Each source gets its own handle on the framing/
+ * assessment banners, aligned to the card centres, so the connectors run
+ * straight and never pile onto one shared point. The canvas is non-interactive
+ * (no pan/zoom/drag) and renders at 1:1 — its height comes from the MEASURED
+ * node bounds and its nodes are placed from MEASURED heights (no fitView, no
+ * hardcoded height guesses), so it sits inline in the chat like any other block.
  *
- * Responsive: a wide container gets the horizontal fan-out; a narrow one (phone)
- * re-lays-out as a single vertical column so the graph never shrinks to
- * unreadable — same nodes, same data, orientation only.
+ * Responsive: a wide-enough container gets the horizontal fan-out; a narrow one
+ * (phone) re-lays-out as a single vertical column — SAME nodes, SAME parallel
+ * wiring (framing → all sources → converge, never a chain), orientation only.
  */
 
 'use client'
 
-import { type FC, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import {
+  type FC,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import {
   ReactFlow,
   ReactFlowProvider,
   Handle,
   Position,
+  applyNodeChanges,
   useNodesInitialized,
   useReactFlow,
-  getNodesBounds,
   type Node,
+  type NodeChange,
   type Edge,
   type NodeProps,
 } from '@xyflow/react'
@@ -43,28 +53,43 @@ import { SourceCard } from './SourceCard'
 import { BranchOptions } from './BranchOptions'
 import { ConfidenceChip } from '../ConfidenceChip'
 import { AuthorityTag } from '../AuthorityTag'
-import { citationChips } from './nodes'
-import type { ChoicePrompt } from './nodes'
+import { citationChips } from './citations'
+import type { ChoicePrompt } from './citations'
 
 /** Hidden connection handle (edges anchor to it; the dot itself is invisible). */
 const H = { opacity: 0, width: 1, height: 1, minWidth: 0, minHeight: 0, border: 'none', background: 'transparent' } as const
-const handleLeft = (i: number, n: number) => `${((i + 0.5) / n) * 100}%`
+/** Spread `n` handles evenly across the banner width (vertical fan-in). */
+const spread = (i: number, n: number) => `${((i + 0.5) / n) * 100}%`
 const EDGE_STROKE = 'color-mix(in oklch, var(--foreground) 18%, transparent)'
+
+/** One anchor point on a banner edge: a handle id + its x offset within the node. */
+type HandleSpec = { id: string; left: string }
 
 const Eyebrow: FC<{ children: React.ReactNode }> = ({ children }) => (
   <div className="text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">{children}</div>
 )
 
 // ── node payloads ───────────────────────────────────────────────────────────
-type FramingData = { label: string; question: string; routingLabel?: string; routing?: string; escalation?: string; sourceIds: string[] }
+type FramingData = {
+  label: string
+  question: string
+  routingLabel?: string
+  routing?: string
+  escalation?: string
+  /** Bottom (source) handles — one per fanned source, or a single centre. */
+  sources: HandleSpec[]
+}
 type SourceData = { card: TraceSourceCard; hitLabel: string; gapLabel: string }
 type FindingsData = {
   confidence?: 'low' | 'medium' | 'high'
   chips: ReturnType<typeof citationChips>
-  sourceIds: string[]
   label: string
+  /** Top (target) handles — one per incoming source, or a single centre. */
+  targets: HandleSpec[]
+  /** Bottom (source) handle — present only when a branches node follows. */
+  source?: HandleSpec
 }
-type BranchesData = { prompt: ChoicePrompt; onRespond: (id: string, choice: string) => void; sub: string }
+type BranchesData = { prompt: ChoicePrompt; onRespond: (id: string, choice: string) => void; sub: string; targets: HandleSpec[] }
 
 // ── node components ───────────────────────────────────────────────────────────
 const FramingFlowNode: FC<NodeProps<Node<FramingData>>> = ({ data }) => (
@@ -82,11 +107,9 @@ const FramingFlowNode: FC<NodeProps<Node<FramingData>>> = ({ data }) => (
       </div>
     )}
     {data.escalation && <p className="mt-1.5 text-[12px] leading-relaxed text-warning">{data.escalation}</p>}
-    {/* per-branch fan handles (horizontal) + a shared center handle (vertical) */}
-    {data.sourceIds.map((id, i) => (
-      <Handle key={id} id={`to-${id}`} type="source" position={Position.Bottom} style={{ ...H, left: handleLeft(i, data.sourceIds.length) }} />
+    {data.sources.map((h) => (
+      <Handle key={h.id} id={h.id} type="source" position={Position.Bottom} style={{ ...H, left: h.left }} />
     ))}
-    <Handle id="c-bottom" type="source" position={Position.Bottom} style={{ ...H, left: '50%' }} />
   </div>
 )
 
@@ -100,10 +123,9 @@ const SourceFlowNode: FC<NodeProps<Node<SourceData>>> = ({ data }) => (
 
 const FindingsFlowNode: FC<NodeProps<Node<FindingsData>>> = ({ data }) => (
   <div className="w-[var(--banner-w)] max-w-full rounded-xl border bg-card px-4 py-3 text-left shadow-xs">
-    {data.sourceIds.map((id, i) => (
-      <Handle key={id} id={`from-${id}`} type="target" position={Position.Top} style={{ ...H, left: handleLeft(i, data.sourceIds.length) }} />
+    {data.targets.map((h) => (
+      <Handle key={h.id} id={h.id} type="target" position={Position.Top} style={{ ...H, left: h.left }} />
     ))}
-    <Handle id="c-top" type="target" position={Position.Top} style={{ ...H, left: '50%' }} />
     <Eyebrow>{data.label}</Eyebrow>
     <div className="mt-2 flex flex-col gap-2">
       {data.confidence && <ConfidenceChip confidence={data.confidence} />}
@@ -122,13 +144,15 @@ const FindingsFlowNode: FC<NodeProps<Node<FindingsData>>> = ({ data }) => (
         </div>
       )}
     </div>
-    <Handle id="out" type="source" position={Position.Bottom} style={{ ...H, left: '50%' }} />
+    {data.source && <Handle id={data.source.id} type="source" position={Position.Bottom} style={{ ...H, left: data.source.left }} />}
   </div>
 )
 
 const BranchesFlowNode: FC<NodeProps<Node<BranchesData>>> = ({ data }) => (
   <div className="w-[var(--banner-w)] max-w-full rounded-xl border border-input bg-card px-4 py-3 text-left shadow-xs">
-    <Handle id="in" type="target" position={Position.Top} style={{ ...H, left: '50%' }} />
+    {data.targets.map((h) => (
+      <Handle key={h.id} id={h.id} type="target" position={Position.Top} style={{ ...H, left: h.left }} />
+    ))}
     <div className="text-sm font-semibold text-foreground">{data.prompt.text.trim() || data.sub}</div>
     <div className="mb-3 mt-0.5 text-[12.5px] leading-relaxed text-muted-foreground">{data.sub}</div>
     <BranchOptions
@@ -159,15 +183,15 @@ export interface ReasoningFlowProps {
   escalationReason?: string
 }
 
-// Horizontal layout constants.
+// Horizontal layout constants (node widths + inter-row gaps).
 const SOURCE_W = 158
 const SOURCE_GAP = 14
 const BANNER_W = 460
-const H_ROW_Y = { sources: 210, findings: 400, branches: 610 }
-// Vertical layout: estimated node heights + gap for the stacked column.
-const V_GAP = 26
-const V_EST = { framing: 150, source: 96, findings: 118, branches: 150 }
-const VERTICAL_MAX_W = 520
+const H_GAP_Y = 40 // vertical gap between rows in the horizontal fan-out
+const V_GAP = 20 // vertical gap between stacked nodes on mobile
+const PAD = 8 // container bottom padding below the last row
+/** Below this natural width the horizontal fan won't fit → lay out vertically. */
+const FIT_PAD = 24
 
 function edge(source: string, sourceHandle: string, target: string, targetHandle: string): Edge {
   return {
@@ -181,8 +205,27 @@ function edge(source: string, sourceHandle: string, target: string, targetHandle
   }
 }
 
-function buildGraph(props: ReasoningFlowProps, t: Translator, vertical: boolean) {
-  const cards = deriveTraceSourceCards(props.steps)
+/** Natural width the horizontal fan-out needs for the given source count. */
+export function naturalWidth(sourceCount: number): number {
+  const rowW = sourceCount > 0 ? sourceCount * SOURCE_W + (sourceCount - 1) * SOURCE_GAP : BANNER_W
+  return Math.max(rowW, BANNER_W)
+}
+
+export interface BuiltGraph {
+  nodes: Node[]
+  edges: Edge[]
+  /** Row groups, top→bottom, for the measured y-stacking pass. */
+  rows: string[][]
+  /** Content width in the node coordinate space (for centring in wide canvases). */
+  contentW: number
+}
+
+/**
+ * Pure graph builder — exported for structural regression tests. Produces the
+ * nodes (with per-orientation handle specs), the parallel wiring, and the row
+ * groups for the measured layout pass. See ReasoningFlow.spec.
+ */
+export function buildGraph(props: ReasoningFlowProps, t: Translator, vertical: boolean, cards: TraceSourceCard[]): BuiltGraph {
   const hasSources = cards.length > 0
   const hasFindings = Boolean(props.answerConfidence) || (props.citations?.length ?? 0) > 0
   const hasBranches = Boolean(props.choicePrompt && props.choicePrompt.options.length > 0)
@@ -192,6 +235,10 @@ function buildGraph(props: ReasoningFlowProps, t: Translator, vertical: boolean)
   const bannerX = (contentW - BANNER_W) / 2
   const rowX = (contentW - rowW) / 2
   const sourceIds = cards.map((c) => `src-${c.id}`)
+  // x of source i's centre, expressed as an offset from the banner's left edge —
+  // so a banner handle placed here sits directly above/below the card centre and
+  // the connector drops straight (no S-bend).
+  const handlePx = (i: number) => `${rowX + i * (SOURCE_W + SOURCE_GAP) + SOURCE_W / 2 - bannerX}px`
 
   const routing =
     props.routingDecision && props.routingReason?.trim()
@@ -201,6 +248,24 @@ function buildGraph(props: ReasoningFlowProps, t: Translator, vertical: boolean)
         })
       : undefined
   const routingLabel = routing ? t('thinking.routing.whyLabel') : undefined
+
+  const convergeId = hasFindings ? 'findings' : hasBranches ? 'branches' : null
+
+  // Framing's bottom handles: per-source (aligned) when fanning horizontally,
+  // else a single centre. Only the handles this orientation uses are rendered.
+  const framingSources: HandleSpec[] = hasSources
+    ? vertical
+      ? [{ id: 'c-bottom', left: '50%' }]
+      : sourceIds.map((sid, i) => ({ id: `to-${sid}`, left: handlePx(i) }))
+    : convergeId
+      ? [{ id: 'c-bottom', left: '50%' }]
+      : []
+
+  // Converge target's top handles: one per incoming source (so the fan-in never
+  // collapses onto a single point) or a single centre when there are no sources.
+  const convergeTargets: HandleSpec[] = hasSources
+    ? sourceIds.map((sid, i) => ({ id: `from-${sid}`, left: vertical ? spread(i, sourceIds.length) : handlePx(i) }))
+    : [{ id: 'c-top', left: '50%' }]
 
   const framingData: FramingData = {
     label: t('thinking.node.framingTab'),
@@ -212,99 +277,118 @@ function buildGraph(props: ReasoningFlowProps, t: Translator, vertical: boolean)
     escalation: props.escalationReason?.trim()
       ? t('thinking.escalationNarration', { reason: props.escalationReason.trim() })
       : undefined,
-    sourceIds: hasSources ? sourceIds : [],
+    sources: framingSources,
   }
   const findingsData: FindingsData | null = hasFindings
     ? {
         confidence: props.answerConfidence,
         chips: props.citations ? citationChips(props.citations) : [],
-        sourceIds: hasSources ? sourceIds : [],
         label: t('thinking.node.findingsTab'),
+        targets: convergeTargets,
+        source: hasBranches ? { id: 'out', left: '50%' } : undefined,
       }
     : null
   const branchesData: BranchesData | null =
     hasBranches && props.choicePrompt
-      ? { prompt: props.choicePrompt, onRespond: props.onChoiceRespond ?? (() => {}), sub: t('thinking.node.branchesSub') }
+      ? {
+          prompt: props.choicePrompt,
+          onRespond: props.onChoiceRespond ?? (() => {}),
+          sub: t('thinking.node.branchesSub'),
+          // Branches receives the fan-in only when it IS the converge target
+          // (no findings); otherwise it takes a single feed from findings.
+          targets: hasFindings ? [{ id: 'c-top', left: '50%' }] : convergeTargets,
+        }
       : null
 
   const nodes: Node[] = []
   const edges: Edge[] = []
-  const convergeTarget = findingsData ? 'findings' : branchesData ? 'branches' : null
+  const bx = vertical ? 0 : bannerX
 
-  if (vertical) {
-    // Single column: framing → each source → converge → branches, straight chain.
-    let y = 0
-    const push = (id: string, type: string, data: unknown, est: number) => {
-      nodes.push({ id, type, position: { x: 0, y }, data: data as Record<string, unknown> })
-      y += est + V_GAP
-    }
-    push('framing', 'framing', framingData, V_EST.framing)
-    let prev = { id: 'framing', handle: 'c-bottom' }
-    cards.forEach((card, i) => {
-      const id = sourceIds[i]
-      push(id, 'source', { card, hitLabel: t('thinking.hitCount', { count: card.hitCount }), gapLabel: t('thinking.gapHit') }, V_EST.source)
-      edges.push(edge(prev.id, prev.handle, id, 'in'))
-      prev = { id, handle: 'out' }
-    })
-    if (findingsData) {
-      push('findings', 'findings', findingsData, V_EST.findings)
-      edges.push(edge(prev.id, prev.handle, 'findings', 'c-top'))
-      prev = { id: 'findings', handle: 'out' }
-    }
-    if (branchesData) {
-      push('branches', 'branches', branchesData, V_EST.branches)
-      edges.push(edge(prev.id, prev.handle, 'branches', 'in'))
-    }
-    return { nodes, edges }
-  }
-
-  // Horizontal fan-out/fan-in.
-  nodes.push({ id: 'framing', type: 'framing', position: { x: bannerX, y: 0 }, data: framingData as Record<string, unknown> })
+  nodes.push({ id: 'framing', type: 'framing', position: { x: bx, y: 0 }, data: framingData as Record<string, unknown> })
   cards.forEach((card, i) => {
     nodes.push({
       id: sourceIds[i],
       type: 'source',
-      position: { x: rowX + i * (SOURCE_W + SOURCE_GAP), y: H_ROW_Y.sources },
+      position: { x: vertical ? 0 : rowX + i * (SOURCE_W + SOURCE_GAP), y: 0 },
       data: { card, hitLabel: t('thinking.hitCount', { count: card.hitCount }), gapLabel: t('thinking.gapHit') } as Record<string, unknown>,
     })
   })
-  if (hasSources && convergeTarget) {
-    sourceIds.forEach((sid) => {
-      edges.push(edge('framing', `to-${sid}`, sid, 'in'))
-      edges.push(edge(sid, 'out', convergeTarget, convergeTarget === 'findings' ? `from-${sid}` : 'in'))
-    })
-  } else if (hasSources) {
-    sourceIds.forEach((sid) => edges.push(edge('framing', `to-${sid}`, sid, 'in')))
-  } else if (convergeTarget) {
-    edges.push(edge('framing', 'c-bottom', convergeTarget, convergeTarget === 'findings' ? 'c-top' : 'in'))
-  }
   if (findingsData) {
-    nodes.push({ id: 'findings', type: 'findings', position: { x: bannerX, y: hasSources ? H_ROW_Y.findings : H_ROW_Y.sources }, data: findingsData as Record<string, unknown> })
+    nodes.push({ id: 'findings', type: 'findings', position: { x: bx, y: 0 }, data: findingsData as Record<string, unknown> })
   }
   if (branchesData) {
-    nodes.push({
-      id: 'branches',
-      type: 'branches',
-      position: { x: bannerX, y: findingsData ? H_ROW_Y.branches : hasSources ? H_ROW_Y.findings : H_ROW_Y.sources },
-      data: branchesData as Record<string, unknown>,
-    })
-    if (findingsData) edges.push(edge('findings', 'out', 'branches', 'in'))
+    nodes.push({ id: 'branches', type: 'branches', position: { x: bx, y: 0 }, data: branchesData as Record<string, unknown> })
   }
-  return { nodes, edges }
+
+  // Wiring — identical parallel semantics in both orientations: framing fans out
+  // to every source, every source converges on the assessment/branches node.
+  if (hasSources) {
+    sourceIds.forEach((sid) => edges.push(edge('framing', vertical ? 'c-bottom' : `to-${sid}`, sid, 'in')))
+    if (convergeId) sourceIds.forEach((sid) => edges.push(edge(sid, 'out', convergeId, `from-${sid}`)))
+  } else if (convergeId) {
+    edges.push(edge('framing', 'c-bottom', convergeId, 'c-top'))
+  }
+  if (findingsData && branchesData) edges.push(edge('findings', 'out', 'branches', 'c-top'))
+
+  // Row groups for the measured stacking pass. Horizontal: the sources share one
+  // row; vertical: every node is its own row (a single readable column).
+  const rows: string[][] = [['framing']]
+  if (hasSources) {
+    if (vertical) sourceIds.forEach((sid) => rows.push([sid]))
+    else rows.push(sourceIds)
+  }
+  if (findingsData) rows.push(['findings'])
+  if (branchesData) rows.push(['branches'])
+
+  return { nodes, edges, rows, contentW: vertical ? 0 : contentW }
 }
 
-const FlowInner: FC<{ nodes: Node[]; edges: Edge[]; vertical: boolean; width: number }> = ({ nodes, edges, vertical, width }) => {
+const FlowInner: FC<{ built: BuiltGraph; vertical: boolean; width: number }> = ({ built, vertical, width }) => {
+  const { nodes, edges, rows, contentW } = built
   const initialized = useNodesInitialized()
-  const { fitView } = useReactFlow()
-  const [height, setHeight] = useState(vertical ? 420 : 340)
+  const { getNodes } = useReactFlow()
+  const [rfNodes, setRfNodes] = useState<Node[]>(nodes)
+  const [height, setHeight] = useState(vertical ? 480 : 360)
+  const [laidOut, setLaidOut] = useState(false)
 
+  const onNodesChange = useCallback((changes: NodeChange[]) => setRfNodes((nds) => applyNodeChanges(changes, nds)), [])
+
+  // Re-seed the controlled nodes when the derived graph changes (props stream in
+  // or the orientation flips) — positions are provisional until measured.
+  useEffect(() => {
+    setRfNodes(nodes)
+  }, [nodes])
+
+  // Measure → place: once every node reports a measured size, stack the rows by
+  // their REAL heights and size the container to the exact bounds. No fitView,
+  // no hardcoded height guesses — the graph renders at 1:1 and never overlaps.
   useEffect(() => {
     if (!initialized) return
-    const bounds = getNodesBounds(nodes)
-    setHeight(Math.max(120, Math.ceil(bounds.height) + 8))
-    const raf = requestAnimationFrame(() => fitView({ padding: 0.04, maxZoom: 1, minZoom: 0.5 }))
-    return () => cancelAnimationFrame(raf)
-  }, [initialized, nodes, fitView])
+    const measured = new Map(getNodes().map((n) => [n.id, n.measured?.height ?? 0]))
+    const baseX = new Map(nodes.map((n) => [n.id, n.position.x]))
+    const originX = vertical ? 0 : Math.max(0, (width - contentW) / 2)
+    const gap = vertical ? V_GAP : H_GAP_Y
+    const yById = new Map<string, number>()
+    let y = 0
+    for (const row of rows) {
+      let rowH = 0
+      for (const id of row) {
+        yById.set(id, y)
+        rowH = Math.max(rowH, measured.get(id) ?? 0)
+      }
+      y += rowH + gap
+    }
+    setRfNodes((nds) =>
+      nds.map((n) => ({
+        ...n,
+        position: { x: (baseX.get(n.id) ?? n.position.x) + originX, y: yById.get(n.id) ?? n.position.y },
+      }))
+    )
+    setHeight(Math.max(120, Math.ceil(y - gap) + PAD))
+    setLaidOut(true)
+    // getNodes is stable; rfNodes intentionally excluded to avoid a re-layout loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialized, nodes, rows, contentW, vertical, width])
 
   // In vertical mode every node spans the container; horizontal uses fixed widths.
   const bannerW = vertical ? `${Math.max(200, width - 4)}px` : `${BANNER_W}px`
@@ -312,17 +396,23 @@ const FlowInner: FC<{ nodes: Node[]; edges: Edge[]; vertical: boolean; width: nu
 
   return (
     <div
-      style={{ height, ['--banner-w' as string]: bannerW, ['--source-w' as string]: sourceW }}
+      style={{
+        height,
+        opacity: laidOut ? 1 : 0,
+        transition: 'opacity 150ms ease-out',
+        ['--banner-w' as string]: bannerW,
+        ['--source-w' as string]: sourceW,
+      }}
       className="w-full"
       data-testid="reasoning-flow"
     >
       <ReactFlow
-        nodes={nodes}
+        nodes={rfNodes}
         edges={edges}
         nodeTypes={nodeTypes}
-        fitView
-        fitViewOptions={{ padding: 0.04, maxZoom: 1, minZoom: 0.5 }}
-        minZoom={0.5}
+        onNodesChange={onNodesChange}
+        defaultViewport={{ x: 0, y: 0, zoom: 1 }}
+        minZoom={1}
         maxZoom={1}
         nodesDraggable={false}
         nodesConnectable={false}
@@ -355,14 +445,16 @@ export const ReasoningFlow: FC<ReasoningFlowProps> = (props) => {
     return () => ro.disconnect()
   }, [])
 
-  const vertical = width > 0 && width < VERTICAL_MAX_W
-  const { nodes, edges } = useMemo(() => buildGraph(props, t, vertical), [props, t, vertical])
+  const cards = useMemo(() => deriveTraceSourceCards(props.steps), [props.steps])
+  // Go vertical only when the horizontal fan genuinely won't fit — so the graph
+  // never overflows a narrow chat column and never floats tiny in a wide one.
+  const vertical = width > 0 && width < naturalWidth(cards.length) + FIT_PAD
+  const built = useMemo(() => buildGraph(props, t, vertical, cards), [props, t, vertical, cards])
 
   return (
     <div ref={containerRef} className="flex w-full flex-col gap-3">
-      {/* key forces a fresh mount on orientation flip so React Flow re-fits. */}
-      <ReactFlowProvider key={vertical ? 'v' : 'h'}>
-        <FlowInner nodes={nodes} edges={edges} vertical={vertical} width={width || 720} />
+      <ReactFlowProvider>
+        <FlowInner built={built} vertical={vertical} width={width || 720} />
       </ReactFlowProvider>
 
       {showTechnicalReasoning && props.steps.length > 0 && (
