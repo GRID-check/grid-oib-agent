@@ -59,6 +59,8 @@ export interface ChatThinkingProps {
   routingReason?: string
   /** Set when this turn escalated shallow→deep — framing-node narration. */
   escalationReason?: string
+  /** Render the Herleitung expanded on first mount (e.g. the current turn). */
+  defaultOpen?: boolean
 }
 
 export const ChatThinking: FC<ChatThinkingProps> = ({
@@ -77,6 +79,7 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
   routingDecision,
   routingReason,
   escalationReason,
+  defaultOpen = false,
 }) => {
   const t = useTranslations('chat')
 
@@ -120,7 +123,7 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
 
   return (
     <div className="animate-in fade-in-0 slide-in-from-bottom-1 w-full rounded-2xl bg-muted/50 shadow-xs duration-200 ease-out">
-      <Collapsible>
+      <Collapsible defaultOpen={defaultOpen}>
         <CollapsibleTrigger asChild>
           <button
             type="button"

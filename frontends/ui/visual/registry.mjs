@@ -12,6 +12,13 @@
 
 export const SCREENSHOT_TARGETS = [
   {
+    id: 'herleitung',
+    path: '/dev/herleitung',
+    description:
+      'Herleitung reasoning trace, expanded — the redesigned full-width calm timeline (framing → parallel sources → assessment), replacing the old measured-SVG connector graph.',
+    waitFor: '[data-testid="herleitung-preview"]',
+  },
+  {
     id: 'document-grid',
     path: '/dev/document-grid',
     description: 'Chat document_grid surfacing card — real project + Büroarchiv files as preview cards.',
