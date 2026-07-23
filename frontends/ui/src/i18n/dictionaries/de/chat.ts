@@ -30,7 +30,16 @@ export const chat: typeof en.chat = {
       projekt: 'Projekt',
       buero: 'Büro',
     },
-    unavailable: 'Nicht mehr verfügbar',
+    // Eine referenzierte Datei, die sich nicht mehr auf eine Dokumentzeile
+    // auflösen lässt — eine ehrliche, handlungsfähige Karte (im Archiv / in den
+    // Projektdateien öffnen) statt einer stummen toten Kachel.
+    unresolvedHint: 'Der Assistent hat diese Datei referenziert.',
+    openInArchive: 'Im Archiv öffnen',
+    openInFiles: 'In den Projektdateien öffnen',
+    // Der Auflösungs-Abruf ist fehlgeschlagen — eine Wiederholaktion statt einer
+    // dauerhaft toten Kachel.
+    loadError: 'Dokumente konnten nicht geladen werden.',
+    retry: 'Erneut versuchen',
     openAria: 'Dokument öffnen: {label}',
   },
   composer: {

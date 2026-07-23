@@ -35,8 +35,15 @@ export const chat = {
       projekt: 'Project',
       buero: 'Office',
     },
-    // A surfaced file that no longer resolves to a readable document row.
-    unavailable: 'No longer available',
+    // A surfaced file that no longer resolves to a live document row — an honest,
+    // actionable card (the assistant referenced it; open the archive / project
+    // files) rather than a silent dead tile.
+    unresolvedHint: 'The assistant referenced this file.',
+    openInArchive: 'Open in archive',
+    openInFiles: 'Open in project files',
+    // The resolve fetch failed — a retry affordance, not a permanent dead tile.
+    loadError: 'Documents couldn’t be loaded.',
+    retry: 'Try again',
     openAria: 'Open document: {label}',
   },
   // Composer (InputArea) control row — WS-3 click-dummy overhaul.
