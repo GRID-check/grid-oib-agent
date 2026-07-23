@@ -8,10 +8,12 @@
  */
 
 import { type FC, useCallback } from 'react'
-import { Monitor, Moon, Sun, Globe, Palette, ShieldCheck, LogOut } from 'lucide-react'
+import { Monitor, Moon, Sun, Globe, Palette, ShieldCheck, LogOut, ListTree } from 'lucide-react'
 
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
 import {
   Select,
   SelectContent,
@@ -53,6 +55,8 @@ export const ProfileControls: FC<ProfileControlsProps> = ({
   const tc = useTranslations('common')
   const theme = useLayoutStore((s) => s.theme)
   const setTheme = useLayoutStore((s) => s.setTheme)
+  const showTechnicalReasoning = useLayoutStore((s) => s.showTechnicalReasoning)
+  const setShowTechnicalReasoning = useLayoutStore((s) => s.setShowTechnicalReasoning)
   const { locale, setLocale, localeNames } = useLocale()
   const { signOut } = useAuth()
 
@@ -116,6 +120,33 @@ export const ProfileControls: FC<ProfileControlsProps> = ({
               ))}
             </SelectContent>
           </Select>
+        </CardContent>
+      </Card>
+
+      {/* Reasoning trace (Herleitung) — technical steps are a per-user opt-in */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <ListTree className="size-4 text-muted-foreground" aria-hidden />
+            {t('reasoning.title')}
+          </CardTitle>
+          <CardDescription>{t('reasoning.description')}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-between gap-4">
+            <div className="min-w-0">
+              <Label htmlFor="technical-reasoning-toggle" className="text-sm font-medium">
+                {t('reasoning.label')}
+              </Label>
+              <p className="mt-1 text-xs text-muted-foreground">{t('reasoning.hint')}</p>
+            </div>
+            <Switch
+              id="technical-reasoning-toggle"
+              checked={showTechnicalReasoning}
+              onCheckedChange={setShowTechnicalReasoning}
+              aria-label={t('reasoning.label')}
+            />
+          </div>
         </CardContent>
       </Card>
 
