@@ -187,6 +187,37 @@ source checkboxes from the existing sources endpoint), per-workflow run
 history with links into the existing research-run/report surfaces. i18n:
 `en`/`de` dictionaries (nav + workflows namespace).
 
+## Platform templates (ADR-0027)
+
+The Workflows gallery merges two sources: the built-in templates above and
+**platform-managed templates** the platform owner publishes centrally so they
+appear in every organization's gallery (opt-in — selecting one pre-fills the
+builder, exactly like a built-in; nothing auto-creates or runs).
+
+| Component | Where | Role |
+|---|---|---|
+| Table + migration | `frontends/ui/src/lib/db/schema/platform-workflow-templates.ts`, `frontends/ui/drizzle/0024_platform_workflow_templates.sql` | Global `platform_workflow_templates` — no tenant scope, no run state |
+| Types + service | `frontends/ui/src/lib/platform-workflow-templates/` | Zod schemas (per-locale content), repository, CRUD + DTO mapping |
+| Platform BFF | `frontends/ui/src/app/api/platform/workflow-templates/…` | `requirePlatformOwner` CRUD: list (drafts incl.), create, patch (publish toggle), delete |
+| Org BFF | `frontends/ui/src/app/api/workflow-templates` | Session-auth, workflows-flag-gated read of PUBLISHED templates (lean, both-locale, no PII) |
+| Platform UI | `frontends/ui/src/features/platform/components/workflow-templates.tsx` (+ `workflow-template-form.tsx`) | Manager card on `/app/platform`: DE/EN form, JSON import/export, publish toggle |
+| Gallery merge | `frontends/ui/src/features/workflows/components/template-cards.tsx`, `…/lib/templates.ts` (`resolveGalleryTemplate`) | Fetches published templates, resolves the active locale into the same `ResolvedTemplate` shape |
+
+Data model (`platform_workflow_templates`, global): `provenance`,
+`data_sources` (same null=all / additional-sources contract as `workflows`),
+`agent_type`, `schedule_cron`/`schedule_timezone` (a SUGGESTION — no
+min-interval enforced), `content` JSONB (`{ de, en }`, each carrying
+name/description/category + the version-1 block definition), `published`,
+`sort_order`, author columns. Publishing is a `published` PATCH; the org read
+is served by a partial index on `(sort_order, created_at) WHERE published`.
+
+Authoring is by **form and JSON file**: the create payload is the JSON
+interchange schema (unknown envelope keys stripped), so a per-template export
+re-imports losslessly and always lands as a draft. The platform CRUD routes
+are intentionally NOT behind the per-org workflows flag — authoring the shared
+catalog is a platform-owner capability; the flag gates only the org-facing
+gallery read.
+
 ## Testing
 
 - BFF: vitest — compiler determinism/limits, cron validation incl. min

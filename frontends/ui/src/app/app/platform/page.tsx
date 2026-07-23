@@ -19,6 +19,7 @@ import { PlatformOverview } from './platform-overview'
 import { VectorMaintenance } from './vector-maintenance'
 import { AgentProfiler } from '@/features/platform/components/agent-profiler'
 import { NormRegistry } from '@/features/platform/components/norm-registry'
+import { WorkflowTemplates } from '@/features/platform/components/workflow-templates'
 
 const isAuthRequired = (): boolean => process.env.REQUIRE_AUTH?.toLowerCase() === 'true'
 
@@ -81,6 +82,7 @@ export default async function PlatformPage(): Promise<JSX.Element> {
       <PlatformOverview />
       <AgentProfiler />
       <BaseKnowledge />
+      <WorkflowTemplates />
       <NormRegistry />
       <VectorMaintenance />
     </div>,
