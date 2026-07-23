@@ -126,4 +126,21 @@ export const platform = {
     spanCount: '{count} spans',
     noSpans: 'No spans recorded for this turn.',
   },
+  maintenance: {
+    title: 'Vector maintenance',
+    description:
+      'Remove orphaned vectors — indexed chunks left behind by past deletes, whose document no longer exists. They are invisible in the app but can still surface in retrieval. Safe to run any time; it only removes chunks with no live document.',
+    reconcile: 'Reconcile orphaned vectors',
+    reconciling: 'Reconciling…',
+    confirmTitle: 'Reconcile orphaned vectors?',
+    confirmDescription:
+      'This scans every collection and deletes indexed chunks whose document no longer exists. Documents you can still see are never touched. This cannot be undone, but a removed document can be re-uploaded.',
+    confirm: 'Run reconcile',
+    cancel: 'Cancel',
+    resultRemoved: 'Removed {chunks} orphaned chunk(s) across {collections} collection(s)',
+    resultClean: 'No orphaned vectors found',
+    resultCleanDetail: 'No orphaned vectors found across {collections} collection(s)',
+    resultFailures: '{count} collection(s) could not be reconciled',
+    failed: 'Reconcile failed',
+  },
 }

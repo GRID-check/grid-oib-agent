@@ -3,6 +3,7 @@
 import logging
 import os
 import tempfile
+from urllib.parse import unquote
 from urllib.parse import urlparse
 
 import httpx
@@ -141,9 +142,18 @@ def _infer_suffix(content_type: str, url: str) -> str:
 
 
 def _extract_filename(url: str) -> str:
-    """Extract filename from URL path."""
+    """Extract the real filename from a (presigned) URL path.
+
+    The path segment is percent-encoded by the S3 presigner (a storage key
+    ``.../doc/{id}/Zürich Plan.pdf`` becomes ``.../Z%C3%BCrich%20Plan.pdf``),
+    so the basename must be URL-decoded. This value is persisted as the chunk
+    ``file_name`` metadata, and deletion matches chunks by that exact string
+    against the raw DB filename. Skipping the decode stored the encoded form,
+    so any document whose name contained a space or non-ASCII character (common
+    in the German OIB corpus) could never have its vectors deleted.
+    """
     path = urlparse(url).path
-    filename = os.path.basename(path)
+    filename = unquote(os.path.basename(path))
     if not filename or filename == "/":
         return "document"
     return filename
