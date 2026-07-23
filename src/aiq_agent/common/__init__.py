@@ -84,6 +84,16 @@ _postgres_pools: dict[str, AsyncConnectionPool] = {}
 # loser's connection when it is overwritten in the cache.
 _checkpointer_lock = asyncio.Lock()
 
+
+def _pool_int_env(name: str, default: int) -> int:
+    """Positive-int env override for pool sizing; falls back on unset/invalid/≤0."""
+    try:
+        val = int(os.environ.get(name, ""))
+        return val if val > 0 else default
+    except (TypeError, ValueError):
+        return default
+
+
 __all__ = [
     "DEFAULT_DATA_SOURCES",
     "DISABLED_SOURCES_HEADER",
@@ -237,10 +247,16 @@ async def get_checkpointer(checkpoint_db: str) -> BaseCheckpointSaver:
         if is_postgres_dsn(checkpoint_db):
             pool = _postgres_pools.get(checkpoint_db)
             if pool is None:
+                # Per-replica connection ceiling for checkpoint reads/writes. The
+                # old hard-coded max_size=3 throttled the chat tier's concurrent
+                # turns (every super-step checks out a connection); make it tunable
+                # and default higher now that the tier scales (ADR-0028).
+                min_size = _pool_int_env("GRID_CHECKPOINT_POOL_MIN_SIZE", 1)
+                max_size = max(min_size, _pool_int_env("GRID_CHECKPOINT_POOL_MAX_SIZE", 10))
                 pool = AsyncConnectionPool(
                     conninfo=checkpoint_db,
-                    min_size=1,
-                    max_size=3,
+                    min_size=min_size,
+                    max_size=max_size,
                     kwargs={"autocommit": True, "row_factory": dict_row},
                 )
                 _postgres_pools[checkpoint_db] = pool
