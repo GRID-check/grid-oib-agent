@@ -61,7 +61,9 @@ export const AGENT_GROUPS: AgentGroupDefinition[] = [
     // reasoning-mandatory model (incident: org override `intent ->
     // x-ai/grok-4.5`) makes OpenRouter reject every intent call with HTTP 400
     // "Reasoning is mandatory for this endpoint and cannot be disabled".
-    // `reasoningOff` filters those models out of the picker and the save path.
+    // `reasoningOff` filters those out via a denylist of known reasoning-only
+    // families (isReasoningSafeForOff); hybrid models that accept reasoning-off
+    // — nearly the whole modern catalog — stay selectable.
     requirements: { requiredParameters: [], minContextLength: 16384, reasoningOff: true },
   },
   {

@@ -95,7 +95,7 @@ describe('reasoning-off enforcement (intent group runs reasoning_effort:none)', 
     expect(validateModelForGroup(nonReasoning, intent).ok).toBe(true)
   })
 
-  it('grok-style model (declares reasoning) fails for intent but passes for shallow_research', () => {
+  it('reasoning-mandatory family (denylisted, e.g. x-ai/grok-4) fails for intent but passes for shallow_research', () => {
     const grok = model({
       id: 'x-ai/grok-4.5',
       supportedParameters: ['tools', 'temperature', 'reasoning'],
@@ -108,17 +108,35 @@ describe('reasoning-off enforcement (intent group runs reasoning_effort:none)', 
     expect(validateModelForGroup(grok, shallow).ok).toBe(true)
   })
 
-  it('allowlisted hybrid family (deepseek/ prefix) passes for intent even with reasoning declared', () => {
-    const deepseek = model({
+  it('OpenAI o-series (denylisted prefix) fails for the reasoning-off intent group', () => {
+    const o3 = model({ id: 'openai/o3-mini', supportedParameters: ['tools', 'reasoning'] })
+    expect(validateModelForGroup(o3, intent).ok).toBe(false)
+  })
+
+  it('hybrid reasoning model (declares reasoning, not denylisted) now PASSES for intent', () => {
+    // The common modern case: the model advertises reasoning but accepts
+    // reasoning-off. We fail open, so it is selectable for the intent group.
+    const hybrid = model({
+      id: 'anthropic/claude-sonnet-4.5',
+      supportedParameters: ['tools', 'temperature', 'reasoning'],
+    })
+    expect(validateModelForGroup(hybrid, intent).ok).toBe(true)
+  })
+
+  it('deepseek chat (hybrid) passes, deepseek-r1 (reasoning-only, denylisted) fails', () => {
+    const chat = model({
       id: 'deepseek/deepseek-v4-flash',
       supportedParameters: ['tools', 'temperature', 'reasoning'],
     })
-    expect(validateModelForGroup(deepseek, intent).ok).toBe(true)
+    expect(validateModelForGroup(chat, intent).ok).toBe(true)
+
+    const r1 = model({ id: 'deepseek/deepseek-r1', supportedParameters: ['tools', 'reasoning'] })
+    expect(validateModelForGroup(r1, intent).ok).toBe(false)
   })
 
-  it('include_reasoning also counts as declaring reasoning', () => {
+  it('a model that merely declares include_reasoning still passes (hybrid, not denylisted)', () => {
     const m = model({ id: 'vendor/reasoner', supportedParameters: ['tools', 'include_reasoning'] })
-    expect(validateModelForGroup(m, intent).ok).toBe(false)
+    expect(validateModelForGroup(m, intent).ok).toBe(true)
   })
 })
 
