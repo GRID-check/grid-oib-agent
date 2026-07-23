@@ -59,6 +59,14 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="document-grid-card"]',
   },
   {
+    id: 'file-preview',
+    mobile: true,
+    path: '/dev/file-preview',
+    description:
+      'File-preview modal (real FilePreviewDialog, backend-free) with rich metadata — desktop split (both columns scroll) vs. mobile full-screen sheet (preview capped, all metadata reachable).',
+    waitFor: '[role="dialog"]',
+  },
+  {
     id: 'file-browser',
     mobile: true,
     path: '/dev/file-browser',
