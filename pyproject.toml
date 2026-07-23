@@ -20,7 +20,7 @@ dependencies = [
     "nvidia-nat[langchain,async_endpoints,phoenix,mcp]==1.7.0",
     "nvidia-nat-eval==1.7.0",
     "nvidia-nat-profiler==1.7.0",
-    "deepagents>=0.6.5",
+    "deepagents>=0.6.12",
     "langgraph-checkpoint-postgres>=3.0.0",
     "langgraph-checkpoint-sqlite>=2.0.0",
     "langchain-modal==0.0.5",
