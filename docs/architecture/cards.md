@@ -39,6 +39,28 @@ lifts onto the top-level message so the frontend reads it at `message.cards`.
 (The older post-hoc "re-derive cards from the finished prose" LLM call in
 `cards/generate.py` / `cards/prompt.py` remains as a fallback path.)
 
+**System cards** (`SYSTEM_CARD_TYPES` in `cards/catalog.py`) are a variant the
+**model must never fabricate**: `emit_card` refuses them and they are omitted
+from the model-facing catalog. They are emitted only by a specific tool on a
+sanctioned path, carrying **real** data:
+
+- `memory_proposal` — emitted by the `remember` tool when an org-scoped memory
+  write needs human confirmation.
+- `document_grid` — emitted by the **`surface_documents`** tool
+  (`cards/surface_documents.py`). When the user wants to *find or browse* their
+  own material (a project they worked on, files on a topic, references for an
+  idea), the answering agent calls the tool with a topic `query`; the tool runs
+  a **deterministic vector search** over the in-scope project + Büroarchiv
+  collections (never the base OIB corpus), aggregates one hit per file above a
+  relevance floor, enriches each with its document-level summary + tags
+  (metadata only — never full text) so the agent can introduce the results
+  conversationally, and pushes a `document_grid` card of the **real** files.
+  The frontend resolves each file name to its live document row and renders the
+  raised "project-selector" preview cards (`DocumentPreviewCard`), which open
+  the document via the shared `PdfViewerDialog`. This is the difference between
+  *citing* a document and *surfacing* it for the user to open. See
+  [ADR-0026](../adr/) for the source-kind doctrine the provenance chips follow.
+
 ## How cards render
 
 The frontend validates the wire cards (`validateGridCards`) and renders them
@@ -82,13 +104,19 @@ values render "fehlende Angabe", never a guess. See
 | `energy_performance` | Heizwärmebedarf on the A++–G energy-class ladder + HWB/fGEE bars | Energieausweis (OIB 6) |
 | `elevator_requirement` | served-storey stack + lift shaft, requirement verdict + cabin/door checks | barrier-free lift (OIB 4) |
 | `parking_requirement` | slot grid (required vs provided) + count bars for cars/bikes | Stellplatznachweis (Bauordnung) |
+| `document_grid` *(system)* | a grid of REAL project/Büroarchiv files surfaced for browsing (thumbnail, provenance chip, summary), each opening the document | document discovery |
 
 The card-generation LLM is `card_llm` (config `reasoning_effort: medium`). Adding a
 card type = define the Pydantic model (`cards/models.py`), regenerate the schema
 (`scripts/generate_card_schema.py` → `npm run generate:cards`), add a renderer, and
 wire the `GridCards` dispatcher. A dev-only gallery at `/dev/cards`
 (`src/app/dev/cards/page.tsx`, 404 outside development) renders every card type
-with realistic fixtures for visual review. Next phases: a 3D massing card
+with realistic fixtures for visual review; `/dev/document-grid` previews the
+backend-free `document_grid` surfacing card. Both are captured by the screenshot
+harness (`npm run screenshots`, see `docs/ux/visual-screenshots.md`).
+For a system card emitted by a tool (`document_grid`), that tool must be added to
+the agent's `tools:` list in the config (e.g. `shallow_research_agent`) and its
+`_type` registered — see `surface_documents` in `configs/config_oib_openrouter.yml`. Next phases: a 3D massing card
 (three.js/R3F) and the IFC/BIM viewer (`docs/roadmap/ifc-viewer-card-spec.md`).
 
 ## Known rough edges

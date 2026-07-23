@@ -24,7 +24,7 @@ from pydantic_core import PydanticUndefined
 # never be advertised to the model — it must not be able to fabricate them. They
 # remain valid union members for validation/serialization/rendering; only their
 # description in the model-facing catalog is suppressed.
-SYSTEM_CARD_TYPES = frozenset({"memory_proposal"})
+SYSTEM_CARD_TYPES = frozenset({"memory_proposal", "document_grid"})
 
 # One worked example per hard-to-nest card, so the model sees the exact shape
 # instead of discovering it through repeated validation failures. Keys are the

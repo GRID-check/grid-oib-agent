@@ -334,6 +334,13 @@ functions:
   emit_card:
     _type: emit_card
 
+  # Document surfacing: the agent calls surface_documents to run a real vector
+  # search over the project + Büroarchiv corpus and present the matching files
+  # as a clickable preview grid (a `document_grid` system card). Distinct from
+  # knowledge_search, which grounds legal answers as citations.
+  surface_documents:
+    _type: surface_documents
+
   # Purpose-built OIB Soll-Ist-Abgleich (backlog T4-3): staged pipeline
   # (requirement profile per Richtlinie -> batched evidence judgment ->
   # deterministic matrix + German report) — the structured alternative to
@@ -385,6 +392,7 @@ functions:
       - ris_catalog_lookup_tool
       - remember
       - emit_card
+      - surface_documents
     verbose: true
     max_llm_turns: 10
     max_tool_iterations: 5

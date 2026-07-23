@@ -44,6 +44,8 @@ export const parkingRequirementCardSchema = z.object({ "basis": z.union([z.strin
 
 export const memoryProposalCardSchema = z.object({ "confidence": z.enum(["low","medium","high"]).default("medium"), "content": z.string().min(1).describe("The finding to remember (shown to the user verbatim)"), "kind": z.enum(["decision","constraint","open_question","derived_fact","preference"]), "title": z.string().min(1).describe("Short title for the memory proposal"), "type": z.literal("memory_proposal") }).describe("A proposal to save a finding to long-term memory, confirmed by the user.\n\nSystem-emitted by the `remember` tool when an org-scoped write needs human\nauthorization; the user chooses org-wide or project scope and the write goes\nthrough their authenticated session.")
 
+export const documentGridCardSchema = z.object({ "documents": z.array(z.any()).min(1).describe("The surfaced files, best match first"), "query": z.union([z.string(), z.null()]).describe("The search phrase these documents matched").default(null), "title": z.string().min(1).describe("Short heading, e.g. 'Relevante Dokumente – Fluchtwege'"), "type": z.literal("document_grid").default("document_grid") }).describe("A grid of REAL project/Büroarchiv documents surfaced for the user.\n\nSystem-emitted by the ``surface_documents`` tool after a deterministic vector\nsearch — the model asks for a search, the tool returns real files. Renders as\nclickable file-explorer preview cards (thumbnail, name, match snippet) that\nopen the document.")
+
 export const acousticCheckItemSchema = z.object({ "check": z.any().describe("Measured vs required in dB (comparator differs by metric)"), "metric": z.enum(["DnTw","LnTw","Rw_res"]).describe("Airborne / impact / resulting metric"), "path_label": z.string().min(1).describe("What is separated, e.g. 'Wohnungstrennwand Top 3/Top 4'"), "reference": z.any().describe("Source of the dB limit (OIB 5 / ÖNORM B 8115-2)") }).describe("One sound-insulation check between two building parts.")
 
 export const aufstellflaechePlanSchema = z.object({ "distance_to_facade": z.union([z.any(), z.null()]).describe("Distance to the facade (m)").default(null), "length": z.any().describe("Aufstellfläche length (m)"), "width": z.any().describe("Aufstellfläche width (m)") }).describe("The fire-brigade Aufstellfläche geometry.")
@@ -74,6 +76,8 @@ export const sectionStoreySchema = z.object({ "below_grade": z.boolean().describ
 
 export const setbackSideSchema = z.object({ "actual_m": z.union([z.number(), z.null()]).describe("Actual distance in metres; null if unknown").default(null), "required_m": z.number().describe("Required setback in metres (OIB/Bauordnung)"), "side": z.enum(["front","back","left","right"]).describe("Which edge"), "status": z.enum(["pass","fail","warning","needs_input"]).describe("Verdict for this side") }).describe("A required distance from the building footprint to one parcel edge.")
 
+export const surfacedDocumentSchema = z.object({ "file_name": z.string().min(1).describe("Exact indexed file name (resolves to the live document row)"), "page": z.union([z.number().int(), z.null()]).describe("1-based page the snippet came from, if known").default(null), "score": z.union([z.number(), z.null()]).describe("0..1 relevance score of the best chunk").default(null), "snippet": z.union([z.string(), z.null()]).describe("Best-matching passage — WHY this file surfaced").default(null), "source": z.union([z.enum(["projekt","buero"]), z.null()]).describe("Which corpus it came from: 'projekt' (project) or 'buero' (Büroarchiv)").default(null), "summary": z.union([z.string(), z.null()]).describe("One-line description of what the document is").default(null) }).describe("One real document surfaced by a corpus search, with its match evidence.")
+
 export const gridCardSchema = z.discriminatedUnion('type', [
   summaryCardSchema,
   legalBasisCardSchema,
@@ -96,4 +100,5 @@ export const gridCardSchema = z.discriminatedUnion('type', [
   elevatorRequirementCardSchema,
   parkingRequirementCardSchema,
   memoryProposalCardSchema,
+  documentGridCardSchema,
 ])
