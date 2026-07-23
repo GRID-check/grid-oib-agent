@@ -43,6 +43,20 @@ export const SCREENSHOT_TARGETS = [
     waitFor: 'main',
   },
   {
+    id: 'platform-workflow-templates',
+    path: '/dev/platform-workflow-templates',
+    description:
+      'Platform workflow-templates manager (ADR-0027) — published + draft rows, provenance chips, cadence hints, and the JSON-import dropzone.',
+    waitFor: '[data-testid="platform-template-list"]',
+  },
+  {
+    id: 'workflow-template-gallery',
+    path: '/dev/workflow-template-gallery',
+    description:
+      'Org Workflows template gallery (ADR-0027) — GRID built-in templates followed by the platform-published ones.',
+    waitFor: '[data-testid="workflow-templates"]',
+  },
+  {
     id: 'focus-ring',
     path: '/dev/focus-ring',
     description:

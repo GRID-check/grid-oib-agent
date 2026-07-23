@@ -339,7 +339,10 @@ export function WorkflowTemplates(): JSX.Element {
         )}
 
         {!isLoading && !hasError && sorted.length > 0 && (
-          <div className="divide-y divide-border overflow-hidden rounded-lg border border-border">
+          <div
+            className="divide-y divide-border overflow-hidden rounded-lg border border-border"
+            data-testid="platform-template-list"
+          >
             {sorted.map((template) => (
               <div
                 key={template.id}

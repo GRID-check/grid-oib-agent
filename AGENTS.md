@@ -72,8 +72,18 @@ Host `npm install` is unreliable on this project — run frontend checks in Dock
 | Backend syntax | `.venv/Scripts/python.exe -m py_compile <files>` |
 | Backend lint | `.venv/Scripts/ruff.exe check <files>` (and `ruff format --check`) |
 | Backend tests | `.venv/Scripts/python.exe -m pytest tests/` |
+| UI screenshot evidence | `cd frontends/ui && npm run screenshots [-- <id>]` → PNGs in `frontends/ui/visual/screenshots/` |
 
 Note: the UI tsconfig includes test files, so spec type errors block the production `next build`.
+
+**Visual screenshots (UI evidence).** User-visible UI changes are "done" only
+with a committed screenshot. This repo has a reproducible harness: a registry
+(`frontends/ui/visual/registry.mjs`) of `/dev/*` preview routes that render real
+components with fixture data (no backend), captured in light + dark by
+`npm run screenshots`. When you build a user-visible surface, add a `/dev/<name>`
+preview route + a registry target and commit the resulting PNGs. Full playbook
+(dark-mode `.dark` class, module-scope fetch shims, pre-installed Chromium):
+**`docs/ux/visual-screenshots.md`**.
 
 **Security & static analysis (free, runs entirely in CI).** `.github/workflows/security.yml` runs on push/PR + weekly: **Semgrep** (SAST for Python/TS/JS/Actions — replaces CodeQL and Sonar's security rules), **OSV-Scanner** (dependency CVEs from lockfiles — replaces Sonar SCA), **pip-audit + npm audit**, and **gitleaks** (secret scan, full history). No GitHub Advanced Security licence or SonarQube Cloud subscription needed. Semgrep and OSV-Scanner are currently non-blocking (Phase 1: findings in the job log while noise is tuned via `.semgrepignore` / `.gitleaks.toml`); drop their `continue-on-error` to make them required checks. **Dependabot** (`.github/dependabot.yml`) opens the dependency fix PRs. Code smells / maintainability are covered by the native linters and the coverage gate in `ci.yml` (ruff, eslint, `--cov-fail-under`); note this drops Sonar's **clean-as-you-code** gate, so the `PLR09xx` refactor rules ruff ignores (too-many-arguments/branches/statements) are no longer reported on new code.
 
