@@ -746,6 +746,90 @@ def guess_doc_class(file_name: str) -> str:
     return _OIB_CLASS_TO_DOC_CLASS.get(raw, DEFAULT_DOC_CLASS)
 
 
+# German role prefixes derived from the corpus filename convention. These seed a
+# *default* display title only — the stored value in the document_metadata store
+# is authoritative and admin-overridable, so an odd future filename never shows a
+# wrong name forever (worst case: a mediocre default an admin corrects once).
+_OIB_TITLE_ROLE_PREFIXES: tuple[tuple[str, str], ...] = (
+    ("erlaeuterungen_", "Erläuterungen zu "),
+    ("aenderungen_", "Änderungen zu "),
+)
+
+_OIB_EDITION_RE = re.compile(r"ausgabe[_-]mai[_-]2023")
+_OIB_REVISION_RE = re.compile(r"rev[_.]?(\d+)")
+_OIB_NUMBER_RE = re.compile(r"^(\d+(?:\.\d+)?)")
+
+
+def guess_display_title(file_name: str) -> str | None:
+    """Derive a human display title for an OIB corpus document from its filename.
+
+    This is the DEFAULT seed stamped at ingestion; the stored
+    ``display_title`` (document_metadata store) overrides it and is the
+    user-editable source of truth. Returns ``None`` for a filename this cannot
+    confidently render (any non-OIB upload, or an unrecognised OIB structure) —
+    callers then keep the document's existing name rather than showing a mangled
+    guess.
+
+    Examples::
+
+        oib-rl_2_ausgabe_mai_2023.pdf        -> "OIB-Richtlinie 2, Ausgabe Mai 2023"
+        oib-rl_2.3_ausgabe_mai_2023.pdf      -> "OIB-Richtlinie 2.3, Ausgabe Mai 2023"
+        oib-rl_6-leitfaden_...pdf            -> "OIB-Richtlinie 6 – Leitfaden, Ausgabe Mai 2023"
+        erlaeuterungen_oib-rl_2_...pdf       -> "Erläuterungen zu OIB-Richtlinie 2, Ausgabe Mai 2023"
+    """
+    if not file_name:
+        return None
+    stem = Path(Path(file_name).name).stem
+    # Normalise the one known separator inconsistency (`6-leitfaden` vs
+    # `2_leitfaden`) so the rest of the parse is uniform.
+    low = stem.lower().replace("-leitfaden", "_leitfaden")
+
+    role_prefix = ""
+    for marker, german in _OIB_TITLE_ROLE_PREFIXES:
+        if low.startswith(marker):
+            role_prefix = german
+            low = low[len(marker) :]
+            break
+
+    if not low.startswith("oib-rl_"):
+        return None
+    low = low[len("oib-rl_") :]
+
+    edition = ""
+    edition_match = _OIB_EDITION_RE.search(low)
+    if edition_match:
+        edition = "Ausgabe Mai 2023"
+        low = (low[: edition_match.start()] + low[edition_match.end() :]).strip("_")
+
+    revision = ""
+    revision_match = _OIB_REVISION_RE.search(low)
+    if revision_match:
+        revision = f"Rev. {revision_match.group(1)}"
+        low = (low[: revision_match.start()] + low[revision_match.end() :]).strip("_")
+
+    is_leitfaden = "leitfaden" in low
+    low = low.replace("leitfaden", "").strip("_")
+
+    if low.startswith("begriffsbestimmungen"):
+        subject = "OIB-Richtlinie Begriffsbestimmungen"
+    elif low.startswith("zitierte_normen"):
+        subject = "OIB-Richtlinie – Zitierte Normen und sonstige technische Regelwerke"
+    elif not low:
+        subject = "OIB-Richtlinie"
+    else:
+        number_match = _OIB_NUMBER_RE.match(low)
+        if not number_match:
+            return None
+        subject = f"OIB-Richtlinie {number_match.group(1)}"
+
+    if is_leitfaden:
+        subject += " – Leitfaden"
+
+    title = f"{role_prefix}{subject}"
+    tail = ", ".join(part for part in (edition, revision) if part)
+    return f"{title}, {tail}" if tail else title
+
+
 def lane_for_hit(
     *,
     doc_class: str | None = None,

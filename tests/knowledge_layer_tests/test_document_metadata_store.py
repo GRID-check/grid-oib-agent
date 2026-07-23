@@ -1,7 +1,7 @@
 """Unit tests for document summarization storage.
 
 Tests cover:
-- SummaryStore SQLAlchemy-based storage (SQLite)
+- DocumentMetadataStore SQLAlchemy-based storage (SQLite)
 - Factory functions (register_summary, get_available_documents, etc.)
 - AvailableDocument model
 - URL normalization for database connections
@@ -12,9 +12,9 @@ from pathlib import Path
 
 import pytest
 
+from aiq_agent.knowledge.document_metadata_store import DocumentMetadataStore
+from aiq_agent.knowledge.document_metadata_store import _normalize_db_url
 from aiq_agent.knowledge.schema import AvailableDocument
-from aiq_agent.knowledge.summary_store import SummaryStore
-from aiq_agent.knowledge.summary_store import _normalize_db_url
 
 # =============================================================================
 # URL Normalization Tests
@@ -44,31 +44,31 @@ class TestNormalizeDbUrl:
 
     def test_postgresql_url_async_mode(self):
         """Test PostgreSQL URL normalization for async mode."""
-        url = "postgresql://user:pass@localhost:5432/db"
+        url = "postgresql://user:pass@localhost:5432/db"  # pragma: allowlist secret
         result = _normalize_db_url(url, async_mode=True)
-        assert result == "postgresql+psycopg://user:pass@localhost:5432/db"
+        assert result == "postgresql+psycopg://user:pass@localhost:5432/db"  # pragma: allowlist secret
 
     def test_postgresql_url_sync_mode(self):
         """Test PostgreSQL URL normalization for sync mode."""
-        url = "postgresql://user:pass@localhost:5432/db"
+        url = "postgresql://user:pass@localhost:5432/db"  # pragma: allowlist secret
         result = _normalize_db_url(url, async_mode=False)
-        assert result == "postgresql+psycopg://user:pass@localhost:5432/db"
+        assert result == "postgresql+psycopg://user:pass@localhost:5432/db"  # pragma: allowlist secret
 
     def test_postgres_shorthand_url(self):
         """Test postgres:// shorthand URL normalization."""
-        url = "postgres://user:pass@localhost:5432/db"
+        url = "postgres://user:pass@localhost:5432/db"  # pragma: allowlist secret
         result = _normalize_db_url(url, async_mode=True)
-        assert result == "postgresql+psycopg://user:pass@localhost:5432/db"
+        assert result == "postgresql+psycopg://user:pass@localhost:5432/db"  # pragma: allowlist secret
 
     def test_postgresql_with_existing_driver(self):
         """Test PostgreSQL URL with existing driver gets normalized."""
-        url = "postgresql+asyncpg://user:pass@localhost:5432/db"
+        url = "postgresql+asyncpg://user:pass@localhost:5432/db"  # pragma: allowlist secret
         result = _normalize_db_url(url, async_mode=True)
         assert "psycopg" in result
 
     def test_unknown_url_passthrough(self):
         """Test unknown database URLs pass through unchanged."""
-        url = "mysql://user:pass@localhost/db"
+        url = "mysql://user:pass@localhost/db"  # pragma: allowlist secret
         result = _normalize_db_url(url, async_mode=True)
         assert result == url
 
@@ -97,13 +97,25 @@ class TestAvailableDocument:
         """Test model serialization to dict."""
         doc = AvailableDocument(file_name="report.pdf", summary="Financial report.")
         data = doc.model_dump()
-        assert data == {"file_name": "report.pdf", "summary": "Financial report.", "tags": None, "doc_class": None}
+        assert data == {
+            "file_name": "report.pdf",
+            "summary": "Financial report.",
+            "tags": None,
+            "doc_class": None,
+            "display_title": None,
+        }
 
     def test_model_dump_without_summary(self):
         """Test model serialization without summary."""
         doc = AvailableDocument(file_name="report.pdf")
         data = doc.model_dump()
-        assert data == {"file_name": "report.pdf", "summary": None, "tags": None, "doc_class": None}
+        assert data == {
+            "file_name": "report.pdf",
+            "summary": None,
+            "tags": None,
+            "doc_class": None,
+            "display_title": None,
+        }
 
     def test_model_validate(self):
         """Test model creation from dict."""
@@ -122,12 +134,12 @@ class TestAvailableDocument:
 
 
 # =============================================================================
-# SummaryStore Tests
+# DocumentMetadataStore Tests
 # =============================================================================
 
 
-class TestSummaryStore:
-    """Tests for the SummaryStore SQLAlchemy-based storage."""
+class TestDocumentMetadataStore:
+    """Tests for the DocumentMetadataStore SQLAlchemy-based storage."""
 
     @pytest.fixture
     def temp_db(self):
@@ -139,12 +151,12 @@ class TestSummaryStore:
 
     @pytest.fixture
     def store(self, temp_db):
-        """Create a SummaryStore instance with temp database."""
-        return SummaryStore(temp_db)
+        """Create a DocumentMetadataStore instance with temp database."""
+        return DocumentMetadataStore(temp_db)
 
     def test_store_initialization(self, temp_db):
-        """Test SummaryStore initializes correctly."""
-        store = SummaryStore(temp_db)
+        """Test DocumentMetadataStore initializes correctly."""
+        store = DocumentMetadataStore(temp_db)
         assert store.db_url == temp_db
 
     def test_register_summary(self, store):
@@ -205,17 +217,17 @@ class TestSummaryStore:
         assert docs[0].tags == ["Grundriss"]
 
     def test_fresh_table_has_tags_column(self, temp_db):
-        """A freshly-created summaries table includes the tags column."""
+        """A freshly-created document_metadata table includes the tags column."""
         from sqlalchemy import create_engine
         from sqlalchemy import inspect
 
-        SummaryStore(temp_db)  # creates the table
+        DocumentMetadataStore(temp_db)  # creates the table
         engine = create_engine(temp_db)
-        columns = {c["name"] for c in inspect(engine).get_columns("summaries")}
+        columns = {c["name"] for c in inspect(engine).get_columns("document_metadata")}
         assert "tags" in columns
 
     def test_existing_table_without_tags_is_migrated(self):
-        """A pre-existing summaries table (no tags column) is migrated in place."""
+        """A pre-existing summaries table (no tags column) is renamed + migrated in place."""
         from sqlalchemy import create_engine
         from sqlalchemy import inspect
         from sqlalchemy import text
@@ -244,10 +256,12 @@ class TestSummaryStore:
 
             assert "tags" not in {c["name"] for c in inspect(engine).get_columns("summaries")}
 
-            # Constructing the store must migrate the existing table in place.
-            SummaryStore._tables_initialized.discard(db_url)
-            store = SummaryStore(db_url)
-            assert "tags" in {c["name"] for c in inspect(engine).get_columns("summaries")}
+            # Constructing the store renames the legacy table and backfills columns.
+            DocumentMetadataStore._tables_initialized.discard(db_url)
+            store = DocumentMetadataStore(db_url)
+            inspector = inspect(engine)
+            assert not inspector.has_table("summaries")  # renamed away
+            assert "tags" in {c["name"] for c in inspector.get_columns("document_metadata")}
 
             # Existing rows survive, tags default to None, new writes carry tags.
             docs = store.get_all("c")
@@ -279,13 +293,13 @@ class TestSummaryStore:
         assert store.get_doc_class("coll", "doc.pdf") is None
 
     def test_fresh_table_has_doc_class_column(self, temp_db):
-        """A freshly-created summaries table includes the doc_class column."""
+        """A freshly-created document_metadata table includes the doc_class column."""
         from sqlalchemy import create_engine
         from sqlalchemy import inspect
 
-        SummaryStore(temp_db)  # creates the table
+        DocumentMetadataStore(temp_db)  # creates the table
         engine = create_engine(temp_db)
-        columns = {c["name"] for c in inspect(engine).get_columns("summaries")}
+        columns = {c["name"] for c in inspect(engine).get_columns("document_metadata")}
         assert "doc_class" in columns
 
     def test_existing_table_without_doc_class_is_migrated(self):
@@ -319,14 +333,109 @@ class TestSummaryStore:
 
             assert "doc_class" not in {c["name"] for c in inspect(engine).get_columns("summaries")}
 
-            SummaryStore._tables_initialized.discard(db_url)
-            store = SummaryStore(db_url)
-            assert "doc_class" in {c["name"] for c in inspect(engine).get_columns("summaries")}
+            DocumentMetadataStore._tables_initialized.discard(db_url)
+            store = DocumentMetadataStore(db_url)
+            assert "doc_class" in {c["name"] for c in inspect(engine).get_columns("document_metadata")}
 
             # Existing rows survive with a null doc_class; new writes round-trip.
             assert store.get_doc_class("c", "old.pdf") is None
             store.set_doc_class("c", "old.pdf", "oib_leitfaden")
             assert store.get_doc_class("c", "old.pdf") == "oib_leitfaden"
+
+    def test_set_and_get_display_title_roundtrip(self, store):
+        """set_display_title updates an existing row; get_display_title reads it back."""
+        store.register("coll", "doc.pdf", "A summary.")
+        assert store.get_display_title("coll", "doc.pdf") is None  # default null
+        assert store.set_display_title("coll", "doc.pdf", "OIB-Richtlinie 2, Ausgabe Mai 2023") is True
+        assert store.get_display_title("coll", "doc.pdf") == "OIB-Richtlinie 2, Ausgabe Mai 2023"
+        # It also surfaces on the AvailableDocument read.
+        docs = store.get_all("coll")
+        assert docs[0].display_title == "OIB-Richtlinie 2, Ausgabe Mai 2023"
+
+    def test_set_display_title_without_row_returns_false(self, store):
+        """set_display_title never creates a row: no summary → False, still null."""
+        assert store.set_display_title("coll", "missing.pdf", "Some title") is False
+        assert store.get_display_title("coll", "missing.pdf") is None
+
+    def test_set_display_title_clear(self, store):
+        """A None value clears the override so the derived default applies again."""
+        store.register("coll", "doc.pdf", "A summary.")
+        store.set_display_title("coll", "doc.pdf", "A title")
+        assert store.set_display_title("coll", "doc.pdf", None) is True
+        assert store.get_display_title("coll", "doc.pdf") is None
+
+    def test_display_titles_batch(self, store):
+        """get_display_titles_batch returns only rows with a truthy stored title."""
+        store.register("coll", "a.pdf", "A.")
+        store.register("coll", "b.pdf", "B.")
+        store.register("coll", "c.pdf", "C.")
+        store.set_display_title("coll", "a.pdf", "Title A")
+        store.set_display_title("coll", "c.pdf", "Title C")
+        got = store.get_display_titles_batch("coll", ["a.pdf", "b.pdf", "c.pdf"])
+        assert got == {"a.pdf": "Title A", "c.pdf": "Title C"}
+
+    def test_fresh_table_has_display_title_column(self, temp_db):
+        """A freshly-created document_metadata table includes the display_title column."""
+        from sqlalchemy import create_engine
+        from sqlalchemy import inspect
+
+        DocumentMetadataStore(temp_db)  # creates the table
+        engine = create_engine(temp_db)
+        columns = {c["name"] for c in inspect(engine).get_columns("document_metadata")}
+        assert "display_title" in columns
+
+    def test_legacy_summaries_table_renamed_preserving_rows(self):
+        """A legacy ``summaries`` table is renamed to ``document_metadata`` in place,
+        preserving existing rows and backfilling every added column."""
+        from sqlalchemy import create_engine
+        from sqlalchemy import inspect
+        from sqlalchemy import text
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_url = f"sqlite:///{Path(tmpdir) / 'legacy_full.db'}"
+
+            # Simulate the original schema: named ``summaries``, with the old index,
+            # no doc_class/display_title columns.
+            engine = create_engine(db_url)
+            with engine.connect() as conn:
+                conn.execute(
+                    text(
+                        "CREATE TABLE summaries ("
+                        "collection VARCHAR(256) NOT NULL, "
+                        "filename VARCHAR(512) NOT NULL, "
+                        "summary TEXT NOT NULL, "
+                        "tags TEXT, "
+                        "created_at DATETIME, "
+                        "PRIMARY KEY (collection, filename))"
+                    )
+                )
+                conn.execute(text("CREATE INDEX idx_summaries_collection ON summaries (collection)"))
+                conn.execute(
+                    text(
+                        "INSERT INTO summaries (collection, filename, summary) "
+                        "VALUES ('oib_knowledge', 'oib-rl_2_ausgabe_mai_2023.pdf', 'Brandschutz.')"
+                    )
+                )
+                conn.commit()
+
+            DocumentMetadataStore._tables_initialized.discard(db_url)
+            store = DocumentMetadataStore(db_url)
+
+            inspector = inspect(engine)
+            assert not inspector.has_table("summaries")  # legacy table renamed away
+            assert inspector.has_table("document_metadata")
+            columns = {c["name"] for c in inspector.get_columns("document_metadata")}
+            assert {"tags", "doc_class", "display_title"} <= columns
+            index_names = {ix["name"] for ix in inspector.get_indexes("document_metadata")}
+            assert "idx_document_metadata_collection" in index_names
+            assert "idx_summaries_collection" not in index_names  # legacy index dropped
+
+            # The pre-existing row survived untouched and its new columns are null.
+            docs = store.get_all("oib_knowledge")
+            assert len(docs) == 1
+            assert docs[0].file_name == "oib-rl_2_ausgabe_mai_2023.pdf"
+            assert docs[0].summary == "Brandschutz."
+            assert docs[0].display_title is None
 
     def test_get_all_empty_collection(self, store):
         """Test getting documents from empty collection returns empty list."""
@@ -465,9 +574,9 @@ class TestFactoryFunctions:
         """Reset the global summary store before each test."""
         from aiq_agent.knowledge import factory
 
-        factory._summary_store = None
+        factory._document_metadata_store = None
         yield
-        factory._summary_store = None
+        factory._document_metadata_store = None
 
     @pytest.fixture
     def temp_db_url(self):
@@ -484,8 +593,8 @@ class TestFactoryFunctions:
 
         from aiq_agent.knowledge import factory
 
-        assert factory._summary_store is not None
-        assert factory._summary_store.db_url == temp_db_url
+        assert factory._document_metadata_store is not None
+        assert factory._document_metadata_store.db_url == temp_db_url
 
     def test_register_summary(self, temp_db_url):
         """Test registering a summary via factory function."""
@@ -612,7 +721,7 @@ class TestFactoryFunctions:
 
         from aiq_agent.knowledge import factory
 
-        assert factory._summary_store is not None
+        assert factory._document_metadata_store is not None
 
 
 # =============================================================================
@@ -634,9 +743,9 @@ class TestReconcileCollectionSummaries:
         """Reset the global summary store before each test."""
         from aiq_agent.knowledge import factory
 
-        factory._summary_store = None
+        factory._document_metadata_store = None
         yield
-        factory._summary_store = None
+        factory._document_metadata_store = None
 
     @pytest.fixture
     def temp_db_url(self):
@@ -803,9 +912,9 @@ class TestSummaryIntegration:
         """Reset global store before each test."""
         from aiq_agent.knowledge import factory
 
-        factory._summary_store = None
+        factory._document_metadata_store = None
         yield
-        factory._summary_store = None
+        factory._document_metadata_store = None
 
     def test_full_workflow(self, temp_db_url):
         """Test complete summary storage workflow."""
@@ -890,12 +999,14 @@ class TestSummaryIntegration:
 
 
 class TestMigrationFailureNotCached:
-    """A failed tags-column migration must NOT mark the store initialized, so the
-    next access retries it instead of writing against a missing column."""
+    """A failed column migration must NOT mark the store initialized, so the next
+    access retries it instead of writing against a missing column. The legacy
+    ``summaries`` table is renamed before columns are added, so a first-pass
+    failure leaves a renamed-but-incomplete table the retry completes."""
 
     @staticmethod
     def _legacy_db(dir_path):
-        """Create a pre-tags-column ``summaries`` table and return (url, engine)."""
+        """Create a pre-columns ``summaries`` table and return (url, engine)."""
         from sqlalchemy import create_engine
         from sqlalchemy import text
 
@@ -919,64 +1030,63 @@ class TestMigrationFailureNotCached:
     def _columns(engine):
         from sqlalchemy import inspect
 
-        return {c["name"] for c in inspect(engine).get_columns("summaries")}
+        inspector = inspect(engine)
+        table = "document_metadata" if inspector.has_table("document_metadata") else "summaries"
+        return {c["name"] for c in inspector.get_columns(table)}
+
+    @staticmethod
+    def _flaky_add_column(calls):
+        """Return an ``_add_column_if_missing`` that raises on its first call."""
+        real = DocumentMetadataStore._add_column_if_missing
+
+        def flaky(self, conn, column, ddl_type="TEXT"):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise RuntimeError("simulated ALTER failure")
+            return real(self, conn, column, ddl_type)
+
+        return flaky
 
     def test_failed_sync_migration_not_cached_then_retried(self, monkeypatch):
         with tempfile.TemporaryDirectory() as tmpdir:
             db_url, engine = self._legacy_db(Path(tmpdir))
-            SummaryStore._tables_initialized.discard(db_url)
+            DocumentMetadataStore._tables_initialized.discard(db_url)
             try:
                 calls = {"n": 0}
-                real = SummaryStore._migrate_add_tags_column_sync
-
-                def flaky(self):
-                    calls["n"] += 1
-                    if calls["n"] == 1:
-                        return False  # simulate a failed ALTER: column NOT added
-                    return real(self)
-
-                monkeypatch.setattr(SummaryStore, "_migrate_add_tags_column_sync", flaky)
+                monkeypatch.setattr(DocumentMetadataStore, "_add_column_if_missing", self._flaky_add_column(calls))
 
                 # First construction: migration "fails" -> not cached, no tags col.
-                SummaryStore(db_url)
-                assert db_url not in SummaryStore._tables_initialized
+                DocumentMetadataStore(db_url)
+                assert db_url not in DocumentMetadataStore._tables_initialized
                 assert "tags" not in self._columns(engine)
 
                 # Next construction retries the migration -> succeeds and caches.
-                SummaryStore(db_url)
-                assert db_url in SummaryStore._tables_initialized
+                DocumentMetadataStore(db_url)
+                assert db_url in DocumentMetadataStore._tables_initialized
                 assert "tags" in self._columns(engine)
             finally:
-                SummaryStore._tables_initialized.discard(db_url)
+                DocumentMetadataStore._tables_initialized.discard(db_url)
 
     @pytest.mark.asyncio
     async def test_failed_async_migration_not_cached_then_retried(self, monkeypatch):
         with tempfile.TemporaryDirectory() as tmpdir:
             db_url, engine = self._legacy_db(Path(tmpdir))
-            SummaryStore._tables_initialized.discard(db_url)
+            DocumentMetadataStore._tables_initialized.discard(db_url)
             try:
                 calls = {"n": 0}
-                real = SummaryStore._migrate_add_tags_column_conn  # underlying fn
-
-                def flaky(sync_conn, db_url_arg):
-                    calls["n"] += 1
-                    if calls["n"] == 1:
-                        return False  # simulate a failed ALTER: column NOT added
-                    return real(sync_conn, db_url_arg)
-
-                monkeypatch.setattr(SummaryStore, "_migrate_add_tags_column_conn", staticmethod(flaky))
+                monkeypatch.setattr(DocumentMetadataStore, "_add_column_if_missing", self._flaky_add_column(calls))
 
                 # First ensure: migration "fails" -> not cached, no tags col.
-                await SummaryStore._ensure_table_async(db_url)
-                assert db_url not in SummaryStore._tables_initialized
+                await DocumentMetadataStore._ensure_table_async(db_url)
+                assert db_url not in DocumentMetadataStore._tables_initialized
                 assert "tags" not in self._columns(engine)
 
                 # Next ensure retries the migration -> succeeds and caches.
-                await SummaryStore._ensure_table_async(db_url)
-                assert db_url in SummaryStore._tables_initialized
+                await DocumentMetadataStore._ensure_table_async(db_url)
+                assert db_url in DocumentMetadataStore._tables_initialized
                 assert "tags" in self._columns(engine)
             finally:
-                SummaryStore._tables_initialized.discard(db_url)
+                DocumentMetadataStore._tables_initialized.discard(db_url)
 
 
 # =============================================================================

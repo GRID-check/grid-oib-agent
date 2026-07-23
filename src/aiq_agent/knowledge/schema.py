@@ -254,9 +254,13 @@ class AvailableDocument(BaseModel):
             discipline).
         doc_class: Optional explicit per-document classification ("Dokumentart"),
             preferred over the filename guess for lane/kind placement.
+        display_title: Optional user-facing document name shown on citation chips
+            and in the base-corpus admin UI. When unset, callers fall back to the
+            derived default (``guess_display_title``); the filename is never shown.
     """
 
     file_name: str
     summary: str | None = None
     tags: list[str] | None = None
     doc_class: str | None = None
+    display_title: str | None = None

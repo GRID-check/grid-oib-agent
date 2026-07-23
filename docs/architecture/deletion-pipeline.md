@@ -8,7 +8,7 @@
 
 GRID has no working deletion story. Today:
 
-- `DELETE /api/projects/[id]` exists but no UI calls it, and it leaks: SeaweedFS objects (no S3 delete code exists anywhere in the repo), the project's Chroma collection, `summaries` rows, `aiq_jobs` rows, and LangGraph checkpoints. `conversations.projectId` is `ON DELETE SET NULL`, so chats become permanent orphans and their checkpoints become unreachable.
+- `DELETE /api/projects/[id]` exists but no UI calls it, and it leaks: SeaweedFS objects (no S3 delete code exists anywhere in the repo), the project's Chroma collection, `document_metadata` rows, `aiq_jobs` rows, and LangGraph checkpoints. `conversations.projectId` is `ON DELETE SET NULL`, so chats become permanent orphans and their checkpoints become unreachable.
 - There is no way to delete a single document (no DB delete endpoint, no SeaweedFS delete). The only existing path (`deleteFiles` → `DELETE /v1/collections/{name}/documents`) removes Chroma chunks only.
 - Session/conversation deletion leaks LangGraph checkpoints.
 - There is no organization offboarding at all.
@@ -105,7 +105,7 @@ For each row: set `status='purging'`, run the entity's step list, then set `purg
 **Document** (`documents` row still present; pointers from row):
 1. Delete SeaweedFS object at `storage_key`
 2. Delete Chroma chunks for that file (existing backend `DELETE /v1/collections/{collection}/documents`)
-3. Delete `summaries` row (`aiq_jobs`) for (collection, filename)
+3. Delete `document_metadata` row (`aiq_jobs`) for (collection, filename)
 4. Delete `documents` row
 
 **Conversation**:
@@ -114,7 +114,7 @@ For each row: set `status='purging'`, run the entity's step list, then set `purg
 
 **Project**:
 1. Gather pointers: `collectionName`, SeaweedFS prefix `org/{orgId}/project/{projectId}/`, all conversation ids for the project
-2. Delete Chroma collection (existing `DELETE /v1/collections/{name}`; also clears its `summaries`)
+2. Delete Chroma collection (existing `DELETE /v1/collections/{name}`; also clears its `document_metadata` rows)
 3. Delete `aiq_jobs` rows (`job_info`, `job_access`, `job_events`) for jobs referencing that collection
 4. Delete LangGraph checkpoints for all gathered conversation ids
 5. Delete all SeaweedFS objects under the prefix (paginated `ListObjectsV2` + batched `DeleteObjects` — first S3 delete code in the repo)

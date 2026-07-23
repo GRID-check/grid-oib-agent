@@ -29,6 +29,8 @@ export interface KnowledgeFile {
   ingestedAt: string | null
   summary: string | null
   docClass: string | null
+  /** Effective user-facing name: stored admin override, else derived default. */
+  displayTitle: string | null
 }
 
 export interface KnowledgeBaseSummary {
@@ -63,6 +65,7 @@ interface BackendFileEntry {
   ingested_at?: unknown
   summary?: unknown
   doc_class?: unknown
+  display_title?: unknown
 }
 
 const FILE_STATES: KnowledgeFileState[] = ['ingested', 'stale', 'pending', 'snapshot', 'removed', 'inconsistent']
@@ -94,6 +97,7 @@ function mapFile(entry: BackendFileEntry): KnowledgeFile {
     ingestedAt: asString(entry.ingested_at),
     summary: asString(entry.summary),
     docClass: asString(entry.doc_class),
+    displayTitle: asString(entry.display_title),
   }
 }
 
@@ -275,6 +279,35 @@ export async function updateKnowledgeBaseDocClass(fileName: string, docClass: st
   if (res.status === 400) {
     const detail = await res.text().catch(() => '')
     throw new BadRequestError(detail.slice(0, 500) || 'Invalid doc_class')
+  }
+  if (res.status === 404) {
+    throw new NotFoundError('No summary found for that document')
+  }
+  if (!res.ok) {
+    throw new UpstreamError(`Knowledge backend returned ${res.status}`)
+  }
+}
+
+/**
+ * Rename a base-corpus document (user-facing display title). Store-authoritative,
+ * so the new name reflects on citation chips immediately with no re-ingest. Pass
+ * an empty string / null to clear the override and restore the derived default.
+ */
+export async function updateKnowledgeBaseDisplayTitle(
+  fileName: string,
+  displayTitle: string | null,
+): Promise<void> {
+  const name = requirePdfBasename(fileName)
+  let res: Response
+  try {
+    res = await fetch(`${getBackendUrl()}/v1/admin/oib/documents/${encodeURIComponent(name)}/display-title`, {
+      method: 'PATCH',
+      headers: { ...adminHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ display_title: displayTitle }),
+      signal: AbortSignal.timeout(KNOWLEDGE_STATUS_TIMEOUT_MS),
+    })
+  } catch (error) {
+    throw new UpstreamError('Knowledge backend unreachable', error instanceof Error ? error.message : undefined)
   }
   if (res.status === 404) {
     throw new NotFoundError('No summary found for that document')

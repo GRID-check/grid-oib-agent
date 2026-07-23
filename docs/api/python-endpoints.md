@@ -37,7 +37,7 @@ Downloads the file from `file_ref` (presigned SeaweedFS URL), saves to a tempora
 | Method | Path | Description | Request | Response | Handler |
 |--------|------|-------------|---------|----------|---------|
 | `POST` | `/v1/collections/{collection_name}/documents` | Upload documents | `multipart` with `files` | `{ job_id, file_ids, message }` (202) | `add_document_routes` in `aiq_api.routes.documents` |
-| `GET` | `/v1/collections/{collection_name}/documents` | List documents in a collection (enriched with persisted per-document summaries **and tags** from the `summaries` table) | — | `[FileInfo]` | Same |
+| `GET` | `/v1/collections/{collection_name}/documents` | List documents in a collection (enriched with persisted per-document summaries **and tags** from the `document_metadata` table) | — | `[FileInfo]` | Same |
 | `PATCH` | `/v1/collections/{collection_name}/documents/{file_name}/tags` | Replace a document's controlled tags (never touches the summary). Dedups then validates against the ingestion vocabulary `ALLOWED_TAGS`. | `{ tags: [string] }` | `{ collection_name, file_name, tags }` | Same |
 | `GET` | `/v1/collections/{collection_name}/documents/{file_name}/visual-details` | Per-page VLM descriptions of a document's visual chunks (drawings/images/charts) — the "detailed information" the summary is distilled from. Read-only; fail-open (`{ details: [] }`) when the backend lacks the method or the lookup errors. | — | `{ details: [{ page, content_type, drawing_type, scale, text }] }` | Same |
 | `DELETE` | `/v1/collections/{collection_name}/documents` | Delete files from a collection | `{ file_ids }` | `{ message, successful, failed, total_deleted }` | Same |
@@ -114,6 +114,8 @@ These routes are **not registered by custom code** — they are provided by the 
 | Method | Path | Auth | Description | Request | Response | Handler |
 |--------|------|------|-------------|---------|----------|---------|
 | `POST` | `/v1/admin/oib/sync` | Admin token (`X-Admin-Token` header matching `GRID_ADMIN_TOKEN` env) | Trigger incremental OIB PDF ingestion. Runs `sync()` from `aiq_agent.oib_sync` in a thread pool. | — | `{ status, message, files_added, files_total }` | `add_oib_routes` in `aiq_api.routes.oib` |
+| `PATCH` | `/v1/admin/oib/documents/{file_name}/doc-class` | Admin token | Set a base-corpus document's explicit `doc_class` ("Dokumentart"). Store-authoritative — no re-ingest. `400` off-vocabulary, `404` when no metadata row. | `{ doc_class }` | `{ file_name, doc_class }` | `add_oib_routes` |
+| `PATCH` | `/v1/admin/oib/documents/{file_name}/display-title` | Admin token | Rename a base-corpus document (user-facing `display_title` on citation chips). Store-authoritative — no re-ingest. Empty/null clears the override, restoring the derived default. `404` when no metadata row. | `{ display_title }` | `{ file_name, display_title }` | `add_oib_routes` |
 
 ## Health
 

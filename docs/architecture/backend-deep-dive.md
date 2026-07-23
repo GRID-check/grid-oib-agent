@@ -368,11 +368,14 @@ no project scope when `session.organizationId` is falsy (anonymous /
 
 Two separate stores back "documents" and are **architecturally distinct**:
 the **ChromaDB vector index** that `knowledge_search`/`knowledge_retrieval`
-queries (what's actually retrievable), and a **SQL `summaries` side-table**
-(`SummaryStore`, `src/aiq_agent/knowledge/summary_store.py` + `factory.py
-get_available_documents_async`) that is the **sole source** of the
-`available_documents` list (file name + summary, optionally tags) rendered
-into agent prompts and shown in the Data Sources panel. A document could
+queries (what's actually retrievable), and a **SQL `document_metadata`
+side-table** (`DocumentMetadataStore`,
+`src/aiq_agent/knowledge/document_metadata_store.py` + `factory.py
+get_available_documents_async`; formerly the `document_metadata` table / `SummaryStore`,
+renamed because it now holds summary + tags + `doc_class` + `display_title`) that
+is the **sole source** of the `available_documents` list (file name + summary,
+optionally tags, doc_class, and the user-facing `display_title`) rendered into
+agent prompts and shown in the Data Sources panel. A document could
 previously end up fully ingested and retrievable via `knowledge_search` yet
 **absent** from `available_documents` — see "Silent summary-row loss on
 double LLM failure" below for the fix that closed the practical case of
@@ -394,7 +397,7 @@ prompts (`agents/deep_researcher/prompts/planner.j2`,
 shallow researcher's unconditional "use `knowledge_search` first" instruction
 (`agents/shallow_researcher/prompts/researcher.j2:31`). The document
 *listing* block is still wrapped in `{% if available_documents %}` (nothing
-to list when the summaries table has no row), but `planner.j2` and
+to list when the document_metadata table has no row), but `planner.j2` and
 `researcher.j2` now separately instruct the agent to probe `knowledge_search`
 unconditionally whenever the query concerns project/user content — "do this
 regardless of whether the ... list below is empty or missing" — explaining
@@ -412,7 +415,7 @@ exceptions/timeouts and return `None` on failure. Previously the
 deterministic, text-derived fallback summary only kicked in when `not
 summary and tags and text_documents` — i.e. only when tag classification
 succeeded but summarization did not — so when **both** calls failed, no
-`summaries` row was ever written even though the file's chunks were embedded
+`document_metadata` row was ever written even though the file's chunks were embedded
 successfully and the file was already `FileStatus.SUCCESS`. Two fixes landed
 together:
 
@@ -425,7 +428,7 @@ together:
    ingestion job — the Knowledge API, `scripts/ingest_oib.py`'s `oib_sync`,
    and any future caller get it for free. It diffs a collection's indexed,
    successfully-ingested files (`BaseIngestor.list_files`) against the
-   `summaries` table and registers a deterministic fallback summary for any
+   `document_metadata` table and registers a deterministic fallback summary for any
    gap, logging a WARNING per backfilled document (a gap still means the
    primary summary path failed silently — this is a backstop, not a silent
    fix). Backends may optionally expose `get_document_text_sample()` to give
@@ -435,7 +438,7 @@ together:
 Together these implement backlog T3-10's cure (reconciliation pass +
 ungating `fallback_summary_from_text` from tag success) and make "ingested ⇒
 visible in `available_documents`" hold for every ingestion path — a document
-that finishes ingestion always gets a `summaries` row, either from the
+that finishes ingestion always gets a `document_metadata` row, either from the
 primary LLM path or, on backfill, from the reconciliation pass. The two
 stores remain architecturally distinct (SQL side-table vs. ChromaDB vector
 index), so this is a structural backstop rather than a merge of the two

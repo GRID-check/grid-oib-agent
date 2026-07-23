@@ -215,18 +215,21 @@ These tables are separate from Drizzle ORM (the Next.js app only manages `grid_a
 
 ---
 
-## Runtime schema migration: `summaries.tags`
+## Runtime schema migration: `document_metadata` (rename + column adds)
 
-The Python backend has **no migration framework** for its own tables (`aiq_jobs`) — `SummaryStore` (`src/aiq_agent/knowledge/summary_store.py`) creates and evolves the `summaries` table itself at store init.
+The Python backend has **no migration framework** for its own tables (`aiq_jobs`) — `DocumentMetadataStore` (`src/aiq_agent/knowledge/document_metadata_store.py`) creates and evolves the `document_metadata` table itself at store init (both the sync `_ensure_table_sync` and async `_ensure_table_async` paths call the shared `_run_schema`).
 
-The document-tagging feature (FB-8) added a `tags TEXT` column (a JSON-encoded list of controlled tags) to `summaries`. Because `init-db.sql` pre-creates the `summaries` table **without** the `tags` column and `CREATE TABLE IF NOT EXISTS` never alters an existing table, `SummaryStore` performs an idempotent in-place migration on first access (both the sync `_ensure_table_sync` and async `_ensure_table_async` paths):
+This table was originally named `summaries` (class `SummaryStore`) and has since grown a `tags TEXT` column (controlled ingestion tags), a `doc_class TEXT` column (explicit "Dokumentart"), and a `display_title TEXT` column (the user-facing citation-chip name — the OIB corpus never shows a raw filename). Because it now holds far more than summaries, both the table and the store class were renamed to `document_metadata`. `_run_schema` reconciles any prior shape on first access, idempotently:
 
-- **Fresh table** (table absent): `metadata.create_all()` creates `summaries` **with** the `tags` column — no ALTER needed.
-- **Pre-existing table** (the normal Postgres/`init-db.sql` case): add the column explicitly.
-  - **PostgreSQL** — `ALTER TABLE summaries ADD COLUMN IF NOT EXISTS tags TEXT`.
-  - **SQLite** — no `IF NOT EXISTS` for columns, so it runs a `PRAGMA table_info(summaries)` existence check first, then `ALTER TABLE summaries ADD COLUMN tags TEXT` only when the column is missing.
+- **Legacy `summaries` table present, `document_metadata` absent** (an existing deployment): `ALTER TABLE summaries RENAME TO document_metadata` — the rows are preserved untouched — then the collection index is recreated under `idx_document_metadata_collection` and the old `idx_summaries_collection` is dropped.
+- **Fresh table** (neither present): `document_metadata` is created with all columns.
+- **Column backfill** (always, after the above): each optional column (`tags`, `doc_class`, `display_title`) is added if missing.
+  - **PostgreSQL** — `ALTER TABLE document_metadata ADD COLUMN IF NOT EXISTS <col> TEXT`.
+  - **SQLite** — no `IF NOT EXISTS` for columns, so a `PRAGMA table_info(document_metadata)` existence check runs first, then `ALTER TABLE ... ADD COLUMN` only when missing.
 
-The migration reports success/failure: the store URL is added to the in-memory `_tables_initialized` cache **only when the column is confirmed present**, so a failed migration is retried on the next access instead of caching a half-initialized store (which would write against a missing column). This mirrors the `job_access` migration pattern in `frontends/aiq_api/src/aiq_api/jobs/access.py`. Since it is exercised on every existing deployment, updating `init-db.sql` to add the column there is intentionally **not** done — the runtime path is the single source of truth.
+The migration reports success/failure: the store URL is added to the in-memory `_tables_initialized` cache **only when the schema is confirmed ready**, so a failed migration is retried on the next access instead of caching a half-initialized store. This mirrors the `job_access` migration pattern in `frontends/aiq_api/src/aiq_api/jobs/access.py`. `init-db.sql` now pre-creates `document_metadata` (with only `summary`) on fresh deployments; the rename path above is what carries an already-running deployment across the name change, and the column-adds are still exercised on every deployment.
+
+> **Back-compat note:** the DB *file* (default `summaries.db`), the `AIQ_SUMMARY_DB` env var, and the NAT `summary_db` config field intentionally keep their names — they identify the *database*, not the table, and renaming them would orphan existing databases / break deployment configs.
 
 ---
 
