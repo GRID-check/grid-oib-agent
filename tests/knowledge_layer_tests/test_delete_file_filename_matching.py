@@ -13,9 +13,10 @@ from __future__ import annotations
 
 import threading
 
-import aiq_agent.knowledge as knowledge_pkg
 from knowledge_layer.llamaindex import adapter as adapter_mod
 from knowledge_layer.llamaindex.adapter import LlamaIndexIngestor
+
+import aiq_agent.knowledge as knowledge_pkg
 
 
 class _FakeCollection:
