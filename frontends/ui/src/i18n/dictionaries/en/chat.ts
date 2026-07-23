@@ -41,8 +41,7 @@ export const chat = {
   },
   // Composer (InputArea) control row — WS-3 click-dummy overhaul.
   composer: {
-    placeholder:
-      'Describe what you are working on — Piloti shows you, step by step, what is relevant …',
+    placeholder: 'Ask Piloti about this project …',
     sources: 'Data basis',
     sourcesAria: 'Data basis — {enabled} of {total} sources enabled. Opens the data sources panel.',
     deepResearch: 'Deep Research',

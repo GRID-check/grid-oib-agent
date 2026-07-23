@@ -272,7 +272,7 @@ const FileChip: FC<{
   return (
     <span
       className={cn(
-        'bg-card inline-flex h-7 max-w-[200px] items-center gap-1.5 rounded-md border px-2 text-[12px]',
+        'bg-card inline-flex h-7 max-w-[200px] shrink-0 items-center gap-1.5 rounded-md border px-2 text-[12px]',
         isFailed && 'border-error/50'
       )}
       title={`${file.fileName} — ${statusTitle}`}
@@ -762,7 +762,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           // chat plane). No hard border — the field reads as a calm surface, and
           // focus is signalled by a subtle focus-within ring instead of an
           // outline. Textarea on top, hairline-separated control row below.
-          'bg-card focus-within:ring-ring/40 relative flex flex-col rounded-xl px-4 py-[14px] shadow-sm transition-[box-shadow,border-color] duration-200 ease-out focus-within:ring-2',
+          'bg-card focus-within:ring-ring/40 relative flex flex-col rounded-xl px-4 py-2.5 shadow-sm transition-[box-shadow,border-color] duration-200 ease-out focus-within:ring-2',
           isDisabledByAuth && 'opacity-60',
           isDragging && isUnsupportedDrag
             ? 'border-2 border-error border-dashed'
@@ -802,7 +802,10 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
         {/* Inline file chips — one per attached file, above the textarea.
             Live status dot/spinner, retry on failure, ✕ to remove. */}
         {sessionFiles.length > 0 && (
-          <div className="mb-2 flex flex-wrap gap-1.5" aria-label={t('inputArea.manageFiles')}>
+          <div
+            className="mb-2 flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            aria-label={t('inputArea.manageFiles')}
+          >
             {sessionFiles.map((file) => (
               <FileChip
                 key={file.id}
@@ -819,7 +822,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           ref={textareaRef}
           // text-base (16px) below md keeps iOS Safari from zooming the page
           // when the composer gains focus; desktop keeps the tighter 14.5px.
-          className="max-h-52 min-h-[52px] resize-none border-0 bg-transparent px-1.5 py-1 text-base leading-[1.55] shadow-none focus-visible:ring-0 md:text-[14.5px]"
+          className="max-h-52 min-h-[40px] resize-none border-0 bg-transparent px-1.5 py-1 text-base leading-[1.5] shadow-none focus-visible:ring-0 md:text-[14.5px]"
           value={message}
           onChange={(e) => handleValueChange(e.target.value)}
           onKeyDown={handleKeyDown}
@@ -862,7 +865,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
         {/* Bottom control row — hairline-separated from the textarea.
             Order per the click dummy: scope · Datengrundlage · Deep-Research,
             then attach + send pushed right. */}
-        <div className="mt-[14px] flex flex-wrap items-center gap-1.5 border-t pt-[14px]">
+        <div className="mt-2.5 flex flex-wrap items-center gap-1.5 border-t pt-2.5">
           {/* Scope chip — current project; cross-project is honestly disabled.
               Dashed status-active dot + label + chevron (dummy composer). */}
           <Popover>
@@ -877,7 +880,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                 <span className="border-status-active flex size-[14px] shrink-0 items-center justify-center rounded-full border border-dashed">
                   <span className="bg-status-active size-[5px] rounded-full" />
                 </span>
-                <span className="text-foreground/85 max-w-44 truncate text-[12.5px] font-medium">
+                <span className="text-foreground/85 hidden max-w-44 truncate text-[12.5px] font-medium sm:inline">
                   {scopeLabel}
                 </span>
                 <ChevronDown className="text-muted-foreground size-3 shrink-0" aria-hidden="true" />
@@ -932,7 +935,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                 className="bg-card text-muted-foreground shadow-xs hover:bg-accent focus-visible:ring-ring/50 inline-flex h-8 shrink-0 items-center gap-[7px] rounded-lg border px-[11px] text-[12.5px] transition-colors focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Layers className="size-3.5 shrink-0" aria-hidden="true" />
-                <span>{tChat('composer.sources')}</span>
+                <span className="hidden sm:inline">{tChat('composer.sources')}</span>
                 <span className="bg-muted text-foreground/80 inline-flex h-4 min-w-4 items-center justify-center rounded-md px-1 text-[10.5px] font-semibold tabular-nums">
                   {enabledSourcesCount}
                 </span>
@@ -976,7 +979,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
             )}
           >
             <ZoomIn className="size-3.5" aria-hidden="true" />
-            <span>{tChat('composer.deepResearch')}</span>
+            <span className="hidden sm:inline">{tChat('composer.deepResearch')}</span>
           </button>
 
           {/* Right Actions: manage-files, attach, submit — pushed right */}
@@ -990,7 +993,11 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="text-muted-foreground h-8 rounded-lg px-2.5"
+                    // Redundant with the inline file chips (status + retry + remove)
+                    // on a narrow composer — hidden on mobile so the action row
+                    // stays one clean line; the FileSourcesTab dialog it opens
+                    // (browse + upload zone) remains available on wider viewports.
+                    className="text-muted-foreground hidden h-8 rounded-lg px-2.5 sm:inline-flex"
                     disabled={isDisabledByAuth || !knowledgeLayerAvailable}
                     aria-label={t('inputArea.manageFilesCount', { count: attachedFilesCount })}
                     title={
@@ -1164,7 +1171,9 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           sources in the store — see lib/source-presets.ts. */}
       {isEmptyThread && !isDisabledByAuth && (
         <div
-          className="mt-[18px] flex flex-wrap items-center justify-center gap-2"
+          // Shortcuts are a desktop affordance — hidden on mobile, where they
+          // only add vertical bulk under an already space-constrained composer.
+          className="mt-[18px] hidden flex-wrap items-center justify-center gap-2 sm:flex"
           role="group"
           aria-label={tChat('shortcuts.label')}
         >

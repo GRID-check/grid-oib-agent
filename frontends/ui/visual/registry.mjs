@@ -33,6 +33,13 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="composer-preview"]',
   },
   {
+    id: 'composer-files',
+    path: '/dev/composer-files',
+    description:
+      'The chat composer with files attached (ready / ingesting / failed) — inline FileChips, manage-files button, per-file retry/remove — desktop + mobile.',
+    waitFor: '[data-testid="composer-files-preview"]',
+  },
+  {
     id: 'confirm-dialog',
     path: '/dev/confirm-dialog',
     description: 'Shared destructive ConfirmDialog (backs admin confirms + delete modals), shown open.',

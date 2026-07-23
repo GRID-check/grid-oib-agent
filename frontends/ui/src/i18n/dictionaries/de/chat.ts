@@ -34,8 +34,7 @@ export const chat: typeof en.chat = {
     openAria: 'Dokument öffnen: {label}',
   },
   composer: {
-    placeholder:
-      'Beschreiben Sie, woran Sie gerade arbeiten — Piloti zeigt Ihnen Schritt für Schritt, was dafür relevant ist …',
+    placeholder: 'Fragen Sie Piloti zu diesem Projekt …',
     sources: 'Datengrundlage',
     sourcesAria: 'Datengrundlage – {enabled} von {total} Quellen aktiv. Öffnet die Datenquellen.',
     deepResearch: 'Deep Research',
