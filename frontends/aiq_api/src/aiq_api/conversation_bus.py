@@ -184,17 +184,35 @@ class RedisTransport:
 
     def __init__(self, url: str | None = None, *, client: Any = None) -> None:
         if client is not None:
+            # Tests inject a single client; reuse it for both roles.
             self._redis = client
+            self._sub_redis = client
+            self._owns_clients = False
         else:
             from redis.asyncio import Redis
 
+            # Command client: a short read timeout so publish/set/get/xadd fail
+            # fast (and the bus fails open) instead of hanging the request path.
             self._redis = Redis.from_url(url, decode_responses=True, socket_timeout=1.0, socket_connect_timeout=1.0)
+            # Pub/sub client: subscribe reads BLOCK waiting for the next message,
+            # so they must NOT inherit the 1s command timeout — that raised
+            # "Timeout reading from <host>" every second and tore down the relay
+            # loop. No read timeout here; a periodic health check still detects a
+            # genuinely dead connection.
+            self._sub_redis = Redis.from_url(
+                url,
+                decode_responses=True,
+                socket_timeout=None,
+                socket_connect_timeout=1.0,
+                health_check_interval=30,
+            )
+            self._owns_clients = True
 
     async def publish(self, channel: str, data: str) -> None:
         await self._redis.publish(channel, data)
 
     async def subscribe(self, channel: str) -> AsyncIterator[str]:
-        pubsub = self._redis.pubsub()
+        pubsub = self._sub_redis.pubsub()
         await pubsub.subscribe(channel)
         try:
             async for msg in pubsub.listen():
@@ -236,6 +254,9 @@ class RedisTransport:
     async def close(self) -> None:
         with contextlib.suppress(Exception):
             await self._redis.aclose()
+        if self._owns_clients:
+            with contextlib.suppress(Exception):
+                await self._sub_redis.aclose()
 
 
 class ConversationBus:

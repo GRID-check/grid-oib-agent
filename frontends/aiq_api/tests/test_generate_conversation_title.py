@@ -142,6 +142,20 @@ async def test_null_choices_returns_malformed_not_500(app):
 
 
 @pytest.mark.asyncio
+async def test_null_content_returns_malformed_not_500(app):
+    """A 200 with ``message.content = null`` (a reasoning-only reply) must degrade
+    to llm_response_malformed, not raise AttributeError on ``None.strip()`` → 500."""
+    mock_post = AsyncMock(return_value=_title_response(None))
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        with patch("httpx.AsyncClient", _fake_async_client(mock_post)):
+            response = await client.post("/v1/generate-conversation-title", json=_BODY)
+
+    assert response.status_code == 200
+    assert response.json() == {"title": "", "tags": [], "error": "llm_response_malformed"}
+
+
+@pytest.mark.asyncio
 async def test_llm_failure_is_swallowed(app):
     """Network failure degrades to an empty result with a diagnosable code."""
     mock_post = AsyncMock(side_effect=httpx.RequestError("Connection refused"))
