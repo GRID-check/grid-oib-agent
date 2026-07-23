@@ -46,6 +46,6 @@ jobs:
     # seeded them, or a transient labels API hiccup).
     continue-on-error: true
     steps:
-      - uses: actions/labeler@v5
+      - uses: actions/labeler@v6.2.0
         with:
           sync-labels: true
