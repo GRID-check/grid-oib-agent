@@ -51,19 +51,20 @@ function renderPane(overrides: Partial<Parameters<typeof FileBrowserPane>[0]> = 
 }
 
 describe('FileBrowserPane — card grid', () => {
-  it('renders one card per file with a content-aware skeleton thumbnail', () => {
+  it('renders one card per file with a content-aware skeleton thumbnail', async () => {
     renderPane()
     const cards = screen.getAllByTestId('file-card')
     expect(cards).toHaveLength(2)
     // Kind inference drives the thumbnail: "site-plan.pdf" → siteplan sketch.
+    // The thumbnail request settles (a brief skeleton first) before the fallback.
     const sitePlanCard = cards.find((c) => within(c).queryByText('site-plan.pdf'))!
-    expect(within(sitePlanCard).getByTestId('document-kind-thumbnail')).toHaveAttribute(
+    expect(await within(sitePlanCard).findByTestId('document-kind-thumbnail')).toHaveAttribute(
       'data-kind',
       'siteplan'
     )
     // "permit.pdf" → official-notice sketch.
     const permitCard = cards.find((c) => within(c).queryByText('permit.pdf'))!
-    expect(within(permitCard).getByTestId('document-kind-thumbnail')).toHaveAttribute(
+    expect(await within(permitCard).findByTestId('document-kind-thumbnail')).toHaveAttribute(
       'data-kind',
       'notice'
     )

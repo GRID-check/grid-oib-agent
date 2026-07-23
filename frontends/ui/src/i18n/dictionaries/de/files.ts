@@ -28,6 +28,14 @@ export const files: typeof en.files = {
     // zitierbar wird – die bislang fehlende Bestätigung des Abschlusses.
     ingestionComplete: '„{name}“ ist jetzt in Pilotis Wissen – zitierbar',
   },
+  // Karten-Thumbnail-Fallbacks: ein warmer Platzhalter-Chip, wenn kein Thumbnail
+  // existiert, und ein ehrliches „konnte nicht geladen werden“ bei einem echten
+  // Fehler (nie ein Bild-kaputt-Look). `image` ist der generische Chip ohne
+  // Dateiendung.
+  thumbnail: {
+    image: 'Bild',
+    unavailable: 'Vorschau nicht verfügbar',
+  },
   preview: {
     closePreview: 'Vorschau schließen',
     expandPreview: 'Große Vorschau öffnen',

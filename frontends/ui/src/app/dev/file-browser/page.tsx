@@ -42,6 +42,8 @@ const FILES: FileItem[] = [
     contentType: 'application/acad',
     fileSize: 5_600_000,
   }),
+  // Image with no thumbnail → the WARM placeholder (soft tile + format chip),
+  // NOT a broken-image glyph.
   makeFile('p4', 'Fassadenschnitt_Nord.png', 'Fassadenschnitt der Nordseite mit Fluchtbalkon.', {
     contentType: 'image/png',
     fileSize: 4_100_000,
@@ -53,6 +55,12 @@ const FILES: FileItem[] = [
     status: 'processing',
     fileSize: 900_000,
   }),
+  // Image whose thumbnail genuinely FAILS to load (5xx) → the distinct
+  // "Vorschau nicht verfügbar" treatment, separate from "no thumbnail".
+  makeFile('p7', 'Baustellenfoto_Rohbau.jpg', 'Baustellenfoto des Rohbaus, Nordfassade.', {
+    contentType: 'image/jpeg',
+    fileSize: 5_300_000,
+  }),
 ]
 
 if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
@@ -62,6 +70,9 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
     const real = window.fetch.bind(window)
     window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      // p7 simulates a GENUINE thumbnail failure (5xx) → distinct error tile;
+      // every other thumbnail 404s → warm "no thumbnail" placeholder.
+      if (/\/api\/documents\/p7\/thumbnail$/.test(url)) return new Response(null, { status: 500 })
       if (/\/api\/documents\/.+\/thumbnail$/.test(url)) return new Response(null, { status: 404 })
       return real(input, init)
     }
