@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import type { FileItem, FolderItem } from './project-file-workspace'
 import { Search, FolderOpen, Loader2, Sparkles, UploadCloud, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -8,14 +8,9 @@ import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState } from '@/components/ui/empty-state'
 import { useLocale, useTranslations } from '@/i18n'
-import { formatFileSize } from '@/lib/utils/format-file-size'
-import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
-import { extChipTint, fileExtensionLabel, inferDocumentKind } from '../document-kind'
 import { useSemanticSearch } from '../hooks/use-semantic-search'
-import { DocumentKindThumbnail } from './document-kind-thumbnail'
-import { DocumentStatusBadge } from './document-status'
-import { SemanticMatch } from './semantic-match'
+import { FileCard } from './file-card'
 
 interface FileBrowserPaneProps {
   files: FileItem[]
@@ -358,127 +353,6 @@ function FolderChip({ label, active, onClick }: { label: string; active: boolean
       )}
     >
       {label}
-    </button>
-  )
-}
-
-/**
- * Lazy-load the thumbnail image for a file card, falling back to the
- * content-aware SVG sketch when no thumbnail exists or on error.
- */
-function ThumbnailWithFallback({ file }: { file: FileItem }) {
-  const [imgUrl, setImgUrl] = useState<string | null>(null)
-  const [imgError, setImgError] = useState(false)
-  const kind = inferDocumentKind(file)
-  const canHaveThumbnail = file.contentType === 'application/pdf' || (file.contentType ?? '').startsWith('image/')
-
-  useEffect(() => {
-    if (!canHaveThumbnail) return
-    let cancelled = false
-    fetch(`/api/documents/${file.id}/thumbnail`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (!cancelled && data?.url) setImgUrl(data.url)
-      })
-      .catch(() => { /* fallback to SVG sketch */ })
-    return () => { cancelled = true }
-  }, [file.id, canHaveThumbnail])
-
-  if (imgUrl && !imgError) {
-    return (
-      <img
-        src={imgUrl}
-        alt=""
-        className="absolute inset-0 h-full w-full object-cover"
-        onError={() => setImgError(true)}
-      />
-    )
-  }
-
-  return <DocumentKindThumbnail kind={kind} variant="fill" />
-}
-
-/**
- * One document card: content-aware skeleton thumbnail, name, one-line AI
- * description (only when the backend generated one — nothing fake), tinted
- * extension chip, size + relative time, and the ingestion-status badge (kept —
- * critical operational info the click dummy lacks).
- */
-function FileCard({
-  file,
-  isSelected,
-  onSelect,
-  locale,
-  match,
-}: {
-  file: FileItem
-  isSelected: boolean
-  onSelect: () => void
-  locale: string
-  /** Present on a semantic result: the snippet + page + score to show WHY it matched. */
-  match?: { snippet: string; page: number | null; score: number }
-}) {
-  const t = useTranslations('files')
-  const ext = fileExtensionLabel(file.filename)
-  const isFailed = file.status === 'failed'
-  const failureReason = isFailed ? file.errorMessage || t('preview.ingestionFailedGeneric') : undefined
-
-  return (
-    <button
-      type="button"
-      onClick={onSelect}
-      aria-pressed={isSelected}
-      data-testid="file-card"
-      className={cn(
-        'group flex flex-col overflow-hidden rounded-xl border bg-card text-left shadow-2xs transition-shadow duration-200 ease-out hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-        isSelected && 'ring-2 ring-ring'
-      )}
-    >
-      {/* Thumbnail header — real thumbnail if available, otherwise SVG sketch.
-          The ingestion-status badge (kept — the dummy lacks it) rides quietly
-          in the top-right corner. */}
-      <div className="relative h-24 w-full shrink-0 overflow-hidden border-b bg-card md:h-[132px]">
-        <ThumbnailWithFallback file={file} />
-        <DocumentStatusBadge
-          status={file.status}
-          className="absolute right-2 top-2 border-transparent bg-background/80 px-1.5 py-0 text-[10px] font-medium leading-4 shadow-2xs backdrop-blur-sm"
-        />
-      </div>
-
-      {/* Body */}
-      <div className="flex w-full flex-1 flex-col px-3.5 pb-[13px] pt-3">
-        <p className="truncate text-[12.5px] font-medium text-foreground" title={file.filename}>
-          {file.filename}
-        </p>
-        {match ? (
-          // Semantic result: show WHY it matched (snippet + page + relevance)
-          // rather than the generic one-line summary.
-          <SemanticMatch snippet={match.snippet} page={match.page} score={match.score} />
-        ) : isFailed ? (
-          <p className="mt-[3px] line-clamp-2 text-[11.5px] leading-[1.45] text-destructive" title={failureReason}>
-            {failureReason}
-          </p>
-        ) : (
-          file.summary && (
-            <p className="mt-[3px] line-clamp-2 text-[11.5px] leading-[1.45] text-muted-foreground" title={file.summary}>
-              {file.summary}
-            </p>
-          )
-        )}
-        <div className="mt-auto flex min-w-0 items-center gap-[7px] pt-[9px] text-[11px] text-muted-foreground/80">
-          {ext !== '' && (
-            <span
-              className="inline-flex shrink-0 items-center rounded px-1.5 py-[2.5px] text-[9px] font-bold uppercase leading-none tracking-[0.04em]"
-              style={extChipTint(ext)}
-            >
-              {ext}
-            </span>
-          )}
-          <span className="min-w-0 truncate tabular-nums" title={formatAbsoluteTime(file.createdAt, locale)}>
-            {formatFileSize(file.fileSize, locale)} · {formatRelativeTime(file.createdAt, locale)}
-          </span>
-        </div>
-      </div>
     </button>
   )
 }

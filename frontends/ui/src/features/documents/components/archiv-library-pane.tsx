@@ -20,7 +20,7 @@
  * before the WS-1 token retune is applied.
  */
 
-import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { Archive, Loader2, Search, Sparkles, X } from 'lucide-react'
 import type { FileItem } from './project-file-workspace'
 import { Button } from '@/components/ui/button'
@@ -28,20 +28,10 @@ import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState } from '@/components/ui/empty-state'
 import { useLocale, useTranslations } from '@/i18n'
-import { formatFileSize } from '@/lib/utils/format-file-size'
-import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
-import { extChipTint, fileExtensionLabel, inferDocumentKind } from '../document-kind'
+import { inferDocumentKind } from '../document-kind'
 import { useSemanticSearch } from '../hooks/use-semantic-search'
-import { DocumentKindThumbnail } from './document-kind-thumbnail'
-import { DocumentStatusBadge } from './document-status'
-import { SemanticMatch } from './semantic-match'
-
-/** Büroarchiv signal tint — semantic tokens with pre-retune fallbacks, no hex. */
-const OFFICE_TINT: CSSProperties = {
-  backgroundColor: 'var(--source-office-tint, var(--background-color-feedback-warning-subtle))',
-  color: 'var(--source-office-text, var(--source-office, var(--text-color-feedback-warning)))',
-}
+import { FileCard } from './file-card'
 
 interface ArchivLibraryPaneProps {
   files: FileItem[]
@@ -121,17 +111,17 @@ export function ArchivLibraryPane({
         <Skeleton className="h-9 w-full" />
         <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
           {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="overflow-hidden rounded-xl border bg-secondary shadow-sm">
+            <div key={i} className="overflow-hidden rounded-xl border bg-muted/50 shadow-xs">
               <div className="overflow-hidden rounded-b-[10px] bg-card shadow-xs">
-                <Skeleton className="h-[190px] w-full rounded-none" />
-                <div className="space-y-2.5 px-4 pb-[13px] pt-3.5">
-                  <Skeleton className="h-[30px] w-full" />
+                <Skeleton className="h-[124px] w-full rounded-none" />
+                <div className="space-y-2 px-3.5 pb-3 pt-[11px]">
+                  <Skeleton className="h-4 w-20" />
                   <Skeleton className="h-3.5 w-2/3" />
-                  <Skeleton className="h-3 w-24" />
+                  <Skeleton className="h-3 w-full" />
                 </div>
               </div>
-              <div className="px-4 pb-2.5 pt-[9px]">
-                <Skeleton className="h-3 w-1/2" />
+              <div className="px-3.5 pb-2.5 pt-[9px]">
+                <Skeleton className="ml-auto h-3 w-24" />
               </div>
             </div>
           ))}
@@ -366,51 +356,11 @@ function CategoryChip({ label, active, onClick }: { label: string; active: boole
 }
 
 /**
- * Lazy-load the thumbnail image for an Archiv card, falling back to the
- * content-aware SVG sketch when no thumbnail exists or on error.
- */
-function ArchivThumbnailWithFallback({ file }: { file: FileItem }) {
-  const [imgUrl, setImgUrl] = useState<string | null>(null)
-  const [imgError, setImgError] = useState(false)
-  const kind = inferDocumentKind(file)
-  const canHaveThumbnail = file.contentType === 'application/pdf' || (file.contentType ?? '').startsWith('image/')
-
-  useEffect(() => {
-    if (!canHaveThumbnail) return
-    let cancelled = false
-    fetch(`/api/documents/${file.id}/thumbnail`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (!cancelled && data?.url) setImgUrl(data.url)
-      })
-      .catch(() => { /* fallback to SVG sketch */ })
-    return () => { cancelled = true }
-  }, [file.id, canHaveThumbnail])
-
-  if (imgUrl && !imgError) {
-    return (
-      <img
-        src={imgUrl}
-        alt=""
-        className="absolute inset-0 h-full w-full object-cover"
-        onError={() => setImgError(true)}
-      />
-    )
-  }
-
-  return <DocumentKindThumbnail kind={kind} className="h-[88px] w-auto text-muted-foreground/70" />
-}
-
-/**
- * One archive-document card (click-dummy detail-card anatomy): an inner white
- * block — h190 skeleton thumbnail by inferred kind + hairline divider, a gold
- * Büroarchiv kind chip (`--source-office`) beside a 30×30 tinted extension tile,
- * the name, and a one-line AI summary (only when the backend generated one) —
- * sitting proud of a subtle outer surface, with a footer tab carrying the real
- * tag provenance (left) and the operational size · time (right). The
- * ingestion-status badge is kept (critical operational info the dummy lacks).
- * Documents without tags get no provenance line, and there is deliberately no
- * "verified/Geprüft" marker — that workflow does not exist (spec §2.3).
+ * One Archiv document card — the shared raised {@link FileCard} with Archiv
+ * content mapping: the gold Büroarchiv-tinted chip carries the inferred document
+ * KIND, and the footer lead carries the real tag provenance (only when tags
+ * exist). A thin wrapper on purpose — the card STYLE lives once in FileCard,
+ * shared with the Files browser and the chat surfacing grid.
  */
 function ArchivDocumentCard({
   file,
@@ -423,83 +373,25 @@ function ArchivDocumentCard({
   isSelected: boolean
   onSelect: () => void
   locale: string
-  /** Present on a semantic result: the snippet + page + score to show WHY it matched. */
   match?: { snippet: string; page: number | null; score: number }
 }) {
   const t = useTranslations('archiv')
-  const tFiles = useTranslations('files')
   const kind = inferDocumentKind(file)
   const kindLabel = t(`library.kind.${kind}` as 'library.kind.document')
-  const ext = fileExtensionLabel(file.filename)
-  const isFailed = file.status === 'failed'
-  const failureReason = isFailed ? file.errorMessage || tFiles('preview.ingestionFailedGeneric') : undefined
   const provenance = (file.tags ?? []).slice(0, 3).join(' · ')
 
   return (
-    <button
-      type="button"
-      onClick={onSelect}
-      aria-pressed={isSelected}
-      data-testid="archiv-document-card"
-      className={cn(
-        'group flex flex-col overflow-hidden rounded-xl border bg-secondary text-left shadow-sm transition-shadow duration-200 ease-out hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none',
-        isSelected && 'ring-2 ring-ring',
-      )}
-    >
-      {/* Inner white block: thumbnail + metadata, sitting proud of the subtle
-          outer surface so the footer reads as a separate tab (dummy anatomy). */}
-      <div className="w-full overflow-hidden rounded-b-[10px] bg-card shadow-xs">
-        {/* Thumbnail — lazy-loaded real thumbnail or fallback sketch. */}
-        <div className="relative flex h-[190px] w-full items-center justify-center border-b bg-card overflow-hidden">
-          <ArchivThumbnailWithFallback file={file} />
-          <DocumentStatusBadge status={file.status} className="absolute right-2.5 top-2.5" />
-        </div>
-
-        {/* Metadata block */}
-        <div className="px-4 pb-[13px] pt-3.5">
-          <div className="flex items-center gap-2">
-            <span
-              className="inline-flex shrink-0 items-center rounded-[6px] px-2 py-[3px] text-[11px] font-semibold leading-none tracking-[0.03em]"
-              style={OFFICE_TINT}
-            >
-              {kindLabel}
-            </span>
-            <span className="flex-1" />
-            {ext !== '' && (
-              <span
-                className="flex size-[30px] shrink-0 items-center justify-center rounded-[6px] text-[9px] font-bold leading-none tracking-[0.03em]"
-                style={extChipTint(ext)}
-              >
-                {ext}
-              </span>
-            )}
-          </div>
-          <p className="mt-[11px] truncate text-[0.84375rem] font-medium leading-[1.4] text-foreground" title={file.filename}>
-            {file.filename}
-          </p>
-          {match ? (
-            // Semantic result: show WHY it matched (snippet + page + relevance)
-            // rather than the generic one-line summary.
-            <SemanticMatch snippet={match.snippet} page={match.page} score={match.score} />
-          ) : isFailed ? (
-            <p className="mt-[3px] line-clamp-2 text-xs text-destructive" title={failureReason}>
-              {failureReason}
-            </p>
-          ) : (
-            file.summary && (
-              <p className="mt-[3px] line-clamp-1 text-xs text-muted-foreground" title={file.summary}>
-                {file.summary}
-              </p>
-            )
-          )}
-        </div>
-      </div>
-
-      {/* Footer tab on the subtle outer surface: real provenance (left) and the
-          operational size/time (right). Provenance renders only from real tag
-          data — no fake source, and deliberately no "verified/Geprüft" marker. */}
-      <div className="flex w-full items-center gap-2 px-4 pb-2.5 pt-[9px] text-[0.71875rem]">
-        {provenance !== '' ? (
+    <FileCard
+      file={file}
+      isSelected={isSelected}
+      onSelect={onSelect}
+      locale={locale}
+      match={match}
+      testId="archiv-document-card"
+      source="buero"
+      sourceLabel={kindLabel}
+      footerLead={
+        provenance !== '' ? (
           <span
             className="min-w-0 flex-1 truncate text-muted-foreground/80"
             data-testid="archiv-provenance"
@@ -507,22 +399,8 @@ function ArchivDocumentCard({
           >
             {t('library.provenance', { source: provenance })}
           </span>
-        ) : (
-          <span className="flex-1" />
-        )}
-        <span className="shrink-0 tabular-nums text-muted-foreground/70">
-          {formatFileSize(file.fileSize, locale)}
-        </span>
-        <span aria-hidden className="text-muted-foreground/40">
-          ·
-        </span>
-        <span
-          className="shrink-0 truncate text-muted-foreground/70"
-          title={formatAbsoluteTime(file.createdAt, locale)}
-        >
-          {formatRelativeTime(file.createdAt, locale)}
-        </span>
-      </div>
-    </button>
+        ) : undefined
+      }
+    />
   )
 }

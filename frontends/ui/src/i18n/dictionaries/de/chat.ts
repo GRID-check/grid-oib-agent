@@ -20,6 +20,20 @@ export const chat: typeof en.chat = {
       web: 'Webquelle',
     },
   },
+  // Dokumentraster: echte Projekt-/Büroarchiv-Dateien, die der Assistent als
+  // anklickbare Vorschaukarten anzeigt (`document_grid`-Karte / `surface_documents`).
+  documentGrid: {
+    countOne: '1 Dokument',
+    countOther: '{count} Dokumente',
+    forQuery: '„{query}“',
+    source: {
+      projekt: 'Projekt',
+      buero: 'Büro',
+    },
+    unavailable: 'Nicht mehr verfügbar',
+    openAria: 'Dokument öffnen: {label}',
+    loadFailed: 'Das Dokument konnte nicht geöffnet werden. Bitte versuchen Sie es erneut.',
+  },
   composer: {
     placeholder:
       'Beschreiben Sie, woran Sie gerade arbeiten — Piloti zeigt Ihnen Schritt für Schritt, was dafür relevant ist …',

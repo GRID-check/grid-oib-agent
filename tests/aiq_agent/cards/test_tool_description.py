@@ -37,6 +37,9 @@ _EXAMPLE_EXEMPT = {
     # System-emitted (by the remember tool); never advertised to the model, so it
     # ships without a worked example on purpose.
     "memory_proposal",
+    # System-emitted (by the surface_documents tool) from a real corpus search;
+    # never advertised to the model, so it ships without a worked example.
+    "document_grid",
 }
 
 

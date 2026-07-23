@@ -682,6 +682,51 @@
       "title": "DimensionDiagramCard",
       "type": "object"
     },
+    "DocumentGridCard": {
+      "description": "A grid of REAL project/B\u00fcroarchiv documents surfaced for the user.\n\nSystem-emitted by the ``surface_documents`` tool after a deterministic vector\nsearch \u2014 the model asks for a search, the tool returns real files. Renders as\nclickable file-explorer preview cards (thumbnail, name, match snippet) that\nopen the document.",
+      "properties": {
+        "documents": {
+          "description": "The surfaced files, best match first",
+          "items": {
+            "$ref": "#/$defs/SurfacedDocument"
+          },
+          "minItems": 1,
+          "title": "Documents",
+          "type": "array"
+        },
+        "query": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The search phrase these documents matched",
+          "title": "Query"
+        },
+        "title": {
+          "description": "Short heading, e.g. 'Relevante Dokumente \u2013 Fluchtwege'",
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "document_grid",
+          "default": "document_grid",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "documents"
+      ],
+      "title": "DocumentGridCard",
+      "type": "object"
+    },
     "EgressDiagramCard": {
       "description": "A schematic escape-route (Fluchtweg) path with the total length checked.\n\nEmit for escape-route-length questions ('ist der Fluchtweg mit 12 m + 26 m\nzul\u00e4ssig?'). Draws the path segment-by-segment from the worst-case point to\nthe exit and checks the total against the OIB 2 limit (typically 40 m).",
       "properties": {
@@ -2044,6 +2089,91 @@
       "title": "SummaryCard",
       "type": "object"
     },
+    "SurfacedDocument": {
+      "description": "One real document surfaced by a corpus search, with its match evidence.",
+      "properties": {
+        "file_name": {
+          "description": "Exact indexed file name (resolves to the live document row)",
+          "minLength": 1,
+          "title": "File Name",
+          "type": "string"
+        },
+        "page": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "1-based page the snippet came from, if known",
+          "title": "Page"
+        },
+        "score": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "0..1 relevance score of the best chunk",
+          "title": "Score"
+        },
+        "snippet": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Best-matching passage \u2014 WHY this file surfaced",
+          "title": "Snippet"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "enum": [
+                "projekt",
+                "buero"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Which corpus it came from: 'projekt' (project) or 'buero' (B\u00fcroarchiv)",
+          "title": "Source"
+        },
+        "summary": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "One-line description of what the document is",
+          "title": "Summary"
+        }
+      },
+      "required": [
+        "file_name"
+      ],
+      "title": "SurfacedDocument",
+      "type": "object"
+    },
     "ThermalEnvelopeCard": {
       "description": "A thermal-envelope (W\u00e4rmeschutz) schematic: U-values per building part.\n\nEmit for U-Wert / W\u00e4rmeschutz questions (OIB 6). Draws a simple building\ncross-section with each envelope component highlighted by status, and one\nlimit bar per component reading its U-value against the maximum permitted\n(lower is better). Fills the OIB 6 energy-efficiency domain.",
       "properties": {
@@ -2102,6 +2232,7 @@
       "daylight_incidence": "#/$defs/DaylightIncidenceCard",
       "density_check": "#/$defs/DensityCheckCard",
       "dimension_diagram": "#/$defs/DimensionDiagramCard",
+      "document_grid": "#/$defs/DocumentGridCard",
       "egress_diagram": "#/$defs/EgressDiagramCard",
       "elevator_requirement": "#/$defs/ElevatorRequirementCard",
       "energy_performance": "#/$defs/EnergyPerformanceCard",
@@ -2183,6 +2314,9 @@
     },
     {
       "$ref": "#/$defs/MemoryProposalCard"
+    },
+    {
+      "$ref": "#/$defs/DocumentGridCard"
     }
   ]
 }

@@ -21,6 +21,8 @@ import { ThermalEnvelopeCard } from '../schematics/ThermalEnvelopeCard'
 import { EnergyPerformanceCard } from '../schematics/EnergyPerformanceCard'
 import { ElevatorRequirementCard } from '../schematics/ElevatorRequirementCard'
 import { ParkingRequirementCard } from '../schematics/ParkingRequirementCard'
+import { DocumentGridCard } from './DocumentGridCard'
+import type { SurfacedDocument } from '@/features/documents/hooks/use-surfaced-documents'
 import { FadeIn } from '@/components/motion'
 
 interface GridCardsProps {
@@ -338,6 +340,19 @@ export const GridCards: FC<GridCardsProps> = ({ cards, projectId }) => {
                 title={card.title || ''}
                 rationale={card.rationale || ''}
                 patch={card.patch || []}
+                projectId={projectId}
+              />
+            </FadeIn>
+          )
+        }
+
+        if (card.type === 'document_grid') {
+          return (
+            <FadeIn key={key} distance={6}>
+              <DocumentGridCard
+                title={card.title}
+                query={card.query}
+                documents={(card.documents ?? []) as SurfacedDocument[]}
                 projectId={projectId}
               />
             </FadeIn>

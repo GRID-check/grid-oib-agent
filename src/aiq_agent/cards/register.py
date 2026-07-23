@@ -18,6 +18,11 @@ schema to the model through the shared :mod:`aiq_agent.cards.catalog`.
 import json
 import logging
 
+# Importing this module runs its ``@register_function`` so NAT discovers the
+# ``surface_documents`` tool through the same ``aiq_cards`` entry point that
+# imports this file — no extra plugin entry needed.
+from aiq_agent.cards import surface_documents as _surface_documents  # noqa: F401
+
 # Re-exported so the shape-hint retry loop and tests keep importing them from
 # here; the definitions live in the framing-free catalog module.
 from aiq_agent.cards.catalog import CARD_EXAMPLES as _CARD_EXAMPLES  # noqa: F401
