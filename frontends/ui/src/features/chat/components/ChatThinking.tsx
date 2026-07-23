@@ -20,7 +20,8 @@ import type { ThinkingStep, CitationSource } from '../types'
 import { deriveTraceSourceCards } from '../lib/trace-lanes'
 import { deriveLiveActivity } from '../lib/live-activity'
 import { useElapsedSeconds, formatElapsed } from '../hooks/use-elapsed-seconds'
-import { ReasoningChain, type ChoicePrompt } from './reasoning'
+import { ReasoningFlow } from './reasoning/ReasoningFlow'
+import { type ChoicePrompt } from './reasoning'
 import { buildContextChips } from './reasoning/context'
 
 export interface ChatThinkingProps {
@@ -59,6 +60,8 @@ export interface ChatThinkingProps {
   routingReason?: string
   /** Set when this turn escalated shallow→deep — framing-node narration. */
   escalationReason?: string
+  /** Render the Herleitung expanded on first mount (e.g. the current turn). */
+  defaultOpen?: boolean
 }
 
 export const ChatThinking: FC<ChatThinkingProps> = ({
@@ -77,6 +80,7 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
   routingDecision,
   routingReason,
   escalationReason,
+  defaultOpen = false,
 }) => {
   const t = useTranslations('chat')
 
@@ -120,7 +124,7 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
 
   return (
     <div className="animate-in fade-in-0 slide-in-from-bottom-1 w-full rounded-2xl bg-muted/50 shadow-xs duration-200 ease-out">
-      <Collapsible>
+      <Collapsible defaultOpen={defaultOpen}>
         <CollapsibleTrigger asChild>
           <button
             type="button"
@@ -214,8 +218,8 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
         </CollapsibleTrigger>
 
         <CollapsibleContent>
-          <div className="border-base border-t px-4 pb-4 pt-4">
-            <ReasoningChain
+          <div className="border-base border-t px-2 pb-3 pt-3 sm:px-4">
+            <ReasoningFlow
               steps={steps}
               userQuestion={userQuestion}
               answerConfidence={answerConfidence}

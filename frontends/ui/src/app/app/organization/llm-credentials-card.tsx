@@ -16,6 +16,7 @@ import { KeyRound, RefreshCcw, ShieldCheck, Trash2 } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -54,7 +55,9 @@ const NEEDS_BASE_URL = new Set(['azure-openai', 'custom'])
 
 export const LlmCredentialsCard: FC = () => {
   const t = useTranslations('organization')
+  const tc = useTranslations('common')
 
+  const [revokeOpen, setRevokeOpen] = useState(false)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
   const [credentials, setCredentials] = useState<CredentialView[]>([])
@@ -162,12 +165,12 @@ export const LlmCredentialsCard: FC = () => {
 
   const handleRevoke = useCallback(async () => {
     if (!active) return
-    if (!window.confirm(t('byok.revokeConfirm'))) return
     setBusy(true)
     try {
       const res = await fetch(`/api/organization/llm-credentials/${active.id}`, { method: 'DELETE' })
       if (!res.ok) throw new Error(`revoke failed (${res.status})`)
       toast.success(t('byok.revoked'))
+      setRevokeOpen(false)
       await reload()
     } catch {
       toast.error(t('byok.revokeError'))
@@ -189,6 +192,17 @@ export const LlmCredentialsCard: FC = () => {
 
   return (
     <div className="flex flex-col gap-6">
+      <ConfirmDialog
+        open={revokeOpen}
+        onOpenChange={setRevokeOpen}
+        title={t('byok.revoke')}
+        description={t('byok.revokeConfirm')}
+        confirmLabel={t('byok.revoke')}
+        cancelLabel={tc('actions.cancel')}
+        tone="destructive"
+        pending={busy}
+        onConfirm={handleRevoke}
+      />
       {/* The org owner's choice: platform service vs their own key (ADR-0022).
           Only meaningful once a credential is stored — the key stays in the
           vault either way, so switching back is one toggle. */}
@@ -228,7 +242,12 @@ export const LlmCredentialsCard: FC = () => {
               <Button size="sm" variant="outline" onClick={handleVerify} disabled={busy}>
                 <ShieldCheck className="size-3.5" aria-hidden /> {t('byok.verify')}
               </Button>
-              <Button size="sm" variant="outline" onClick={handleRevoke} disabled={busy}>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setRevokeOpen(true)}
+                disabled={busy}
+              >
                 <Trash2 className="size-3.5" aria-hidden /> {t('byok.revoke')}
               </Button>
             </div>

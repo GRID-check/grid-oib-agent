@@ -85,6 +85,10 @@ export const platform: typeof en.platform = {
     indexingProgress: 'Indexiere {done} von {total} Dokument(en)…',
     indexingDone: 'Indexiert',
     indexingPending: 'Wird indexiert…',
+    pollTimeoutTitle: 'Verarbeitung dauert länger als erwartet',
+    pollTimeoutDescription:
+      'Der Upload wird weiterhin im Hintergrund indexiert. Aktualisieren Sie, um den aktuellen Status zu prüfen.',
+    pollTimeoutRefresh: 'Aktualisieren',
     uploadPending: '{name} empfangen — wird im Hintergrund indexiert',
     zipQueued: 'ZIP empfangen: {accepted} PDF(s) eingereiht, {rejected} übersprungen',
     zipRejectedTitle: 'Aus dem ZIP übersprungen',

@@ -561,6 +561,13 @@ export interface ChatState {
    * across contexts.
    */
   composerDrafts: Record<string, string>
+  /**
+   * Transient live chat send callback registered by InputArea's WebSocket hook
+   * (mirrors `respondToInteractionFn`, not persisted). Lets components that do
+   * not own the socket — e.g. the retry action on an errored answer in
+   * ChatArea — resend through the real send path.
+   */
+  chatSendFn: ((content: string) => void) | null
   /** Content for the Details Panel - Report tab */
   reportContent: string
   /** Category of the current report content (distinguishes intermediate notes from final report) */
@@ -974,6 +981,10 @@ export interface ChatActions {
   setComposerPrefill: (text: string) => void
   /** Read and clear the queued composer prefill; returns null when empty. */
   consumeComposerPrefill: () => string | null
+  /** Register the live chat send callback (called by InputArea on mount). */
+  setChatSendFn: (fn: ((content: string) => void) | null) => void
+  /** Resend the current conversation's last user message (retry affordance). */
+  retryLastUserMessage: () => void
 
   /** Save (or update) the in-progress composer draft for a session. Passing an empty string drops the entry. */
   setComposerDraft: (conversationId: string, text: string) => void

@@ -49,6 +49,14 @@ export type MessagesSlice = {
    * already scoped to one project + user) and cannot leak across contexts.
    */
   composerDrafts: Record<string, string>
+  /**
+   * Transient send callback registered by InputArea's WebSocket chat hook
+   * (mirrors `respondToInteractionFn`). Lets sibling components that do not own
+   * the socket — e.g. the "Erneut versuchen" retry action on an errored answer,
+   * rendered in ChatArea — resend a message through the live send path. Not
+   * persisted (see `partialize` in store.ts).
+   */
+  chatSendFn: ((content: string) => void) | null
 
   startAssistantMessage: () => ChatMessage
   appendToAssistantMessage: (content: string) => void
@@ -147,6 +155,15 @@ export type MessagesSlice = {
   setComposerPrefill: (text: string) => void
   /** Read and clear the queued composer prefill; returns null when empty. */
   consumeComposerPrefill: () => string | null
+  /** Register the live chat send callback (called by InputArea on mount). */
+  setChatSendFn: (fn: ((content: string) => void) | null) => void
+  /**
+   * Resend the last user message of the current conversation — the retry
+   * affordance on an errored answer. Sends through the registered `chatSendFn`
+   * when present; otherwise falls back to prefilling the composer with that
+   * text so the user can send it manually. No-op when there is no user message.
+   */
+  retryLastUserMessage: () => void
 
   /** Save (or update) the in-progress composer draft for a session. Passing an empty string drops the entry. */
   setComposerDraft: (conversationId: string, text: string) => void
@@ -261,6 +278,7 @@ export const initialMessagesState = {
   projectId: null as string | null,
   composerPrefill: null as string | null,
   composerDrafts: {} as Record<string, string>,
+  chatSendFn: null as ((content: string) => void) | null,
 }
 
 /**
@@ -1557,6 +1575,30 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
     if (composerPrefill === null) return null
     set({ composerPrefill: null }, false, 'consumeComposerPrefill')
     return composerPrefill
+  },
+
+  setChatSendFn: (fn) => {
+    set({ chatSendFn: fn }, false, 'setChatSendFn')
+  },
+
+  retryLastUserMessage: () => {
+    const { currentConversation, chatSendFn, setComposerPrefill } = get()
+    const messages = currentConversation?.messages
+    if (!messages || messages.length === 0) return
+    // The errored answer is the last message; the question to resend is the
+    // most recent user turn preceding it.
+    const lastUser = [...messages]
+      .reverse()
+      .find((msg) => msg.messageType === 'user' || msg.role === 'user')
+    const text = lastUser?.content?.trim()
+    if (!text) return
+    // Prefer the live send path (a real resend, new user turn); degrade to
+    // prefilling the composer so the question is never silently lost.
+    if (chatSendFn) {
+      chatSendFn(text)
+    } else {
+      setComposerPrefill(text)
+    }
   },
 
   setComposerDraft: (conversationId: string, text: string) => {

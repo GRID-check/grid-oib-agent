@@ -84,6 +84,11 @@ export const organization: typeof en.organization = {
     activate: 'Aktivieren',
     activated: 'Version aktiviert',
     activateError: 'Diese Version konnte nicht aktiviert werden.',
+    activateTitle: 'Für die gesamte Organisation aktivieren?',
+    activateDescription:
+      'Setzt {target} sofort als Produktionsmodell für alle Mitglieder Ihrer Organisation — wirksam für neue Unterhaltungen. Sie können jederzeit zu einer anderen Version zurückkehren.',
+    activateConfirm: 'Jetzt aktivieren',
+    defaultsTarget: 'die Workflow-Standards',
     useDefaults: 'Overrides deaktivieren (Workflow-Standards verwenden)',
     loadError: 'Die Modellkonfiguration konnte nicht geladen werden.',
     byokCatalogHint:
@@ -94,6 +99,10 @@ export const organization: typeof en.organization = {
     zdrEnabled: 'Zero Data Retention aktiviert',
     zdrDisabled: 'Zero Data Retention deaktiviert',
     zdrError: 'Die Zero-Data-Retention-Richtlinie konnte nicht geändert werden.',
+    zdrDisableTitle: 'Zero Data Retention deaktivieren?',
+    zdrDisableDescription:
+      'Anfragen können künftig an Endpunkte ohne Zero-Data-Retention gesendet werden, sodass der Anbieter Prompts und Antworten speichern kann. Dies betrifft alle Mitglieder Ihrer Organisation.',
+    zdrDisableConfirm: 'Deaktivieren',
   },
   byok: {
     title: 'LLM-API-Schlüssel (BYOK)',

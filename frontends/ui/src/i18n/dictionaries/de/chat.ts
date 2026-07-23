@@ -34,8 +34,7 @@ export const chat: typeof en.chat = {
     openAria: 'Dokument öffnen: {label}',
   },
   composer: {
-    placeholder:
-      'Beschreiben Sie, woran Sie gerade arbeiten — Piloti zeigt Ihnen Schritt für Schritt, was dafür relevant ist …',
+    placeholder: 'Fragen Sie Piloti zu diesem Projekt …',
     sources: 'Datengrundlage',
     sourcesAria: 'Datengrundlage – {enabled} von {total} Quellen aktiv. Öffnet die Datenquellen.',
     deepResearch: 'Deep Research',
@@ -64,6 +63,17 @@ export const chat: typeof en.chat = {
     withName: '{greeting}, {name}.',
     subtitle: 'Fragen Sie zu Ihrem Projekt – Antworten belegen ihre Quellen.',
   },
+  // Beispielhafte österreichische Baurecht-Fragen im leeren Chat — ein Klick
+  // füllt den Verfasser vor (sendet nicht automatisch), gegen die Blockade des
+  // leeren Blatts.
+  examples: {
+    label: 'Zum Beispiel',
+    questions: {
+      fluchtweg: 'Fluchtweglänge nach OIB-2?',
+      barrierefreiheit: 'Barrierefreiheit Wohnbau Wien?',
+      brandabschnitte: 'Brandabschnitte Gebäudeklasse 4?',
+    },
+  },
   // Empty-state lock chip + thread role tabs (click-dummy overhaul, WS-3).
   workspace: {
     private: 'Privater Workspace',
@@ -79,6 +89,11 @@ export const chat: typeof en.chat = {
   answerSources: {
     label: 'Belegt durch',
     ariaLabel: 'Quellen, auf die sich diese Antwort stützt',
+    // Ehrliche „Lücke“-Zeile: eine inhaltliche Antwort ohne Quellenangabe zeigt
+    // dies in der neutralen --source-auto-Familie, statt die fehlende Beleglage
+    // zu verbergen (Designsprache — erstklassige Wissenslücken-Behandlung).
+    gapLabel: 'Ohne Quellenbeleg',
+    gapAria: 'Diese Antwort nennt keine Quellen',
     // Hinweis unter der Quellenzeile, wenn die Zitatprüfung nicht belegbare
     // Quellenangaben entfernt hat (WP-A `citations_removed`).
     citationsRemoved: '{count} Quellenangabe(n) entfernt (nicht verifizierbar)',
@@ -210,7 +225,7 @@ export const chat: typeof en.chat = {
       ris: 'RIS (Österreichisches Recht)',
     },
     node: {
-      framingTab: 'Zwischenschritt',
+      framingTab: 'Einordnung',
       framingTitle: 'Frage verstanden',
       framingQuestion: 'Du fragst: „{question}“',
       contextLabel: 'Kontext',
@@ -218,12 +233,6 @@ export const chat: typeof en.chat = {
       sourcesTitle: 'Geprüfte Quellen',
       findingsTab: 'Einschätzung',
       findingsTitle: 'Belegt durch',
-      confidenceLabel: 'Belegt',
-      confidence: {
-        high: 'Gut belegt',
-        medium: 'Teilweise belegt',
-        low: 'Schwach belegt',
-      },
       branchesTab: 'Folgewege',
       branchesTitle: 'Wie willst du weiter vorgehen?',
       branchesSub: 'Wähle eine Option — das Ergebnis wird für deine Wahl zusammengestellt.',
@@ -268,6 +277,9 @@ export const chat: typeof en.chat = {
   error: {
     showDetails: 'Details anzeigen',
     hideDetails: 'Details ausblenden',
+    // Wiederholaktion bei einer fehlgeschlagenen Antwort (Designsprache:
+    // „hilfreiche Meldung + erneut versuchen“).
+    retry: 'Erneut versuchen',
   },
   errorRegistry: {
     connectionLost: {

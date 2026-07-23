@@ -15,6 +15,7 @@ import { getNavFlags } from '@/lib/authz/nav'
 import { OrgTopbar } from '@/components/shell'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
+import { PageHeader } from '@/components/ui/page-header'
 import { getTranslations } from '@/i18n/server'
 import type { Translator } from '@/i18n'
 import { getOrgSettings, getOrganizationOverview } from '@/lib/organizations/service'
@@ -93,10 +94,7 @@ export default async function ProfilePage(): Promise<JSX.Element> {
           {t('backToApp')}
         </Link>
 
-        <header className="mb-8">
-          <h1 className="text-2xl font-semibold tracking-tight">{t('title')}</h1>
-          <p className="mt-1 text-sm text-muted-foreground">{t('subtitle')}</p>
-        </header>
+        <PageHeader className="mb-8" title={t('title')} subtitle={t('subtitle')} />
 
         <div className="flex flex-col gap-6">
           {/* Account */}

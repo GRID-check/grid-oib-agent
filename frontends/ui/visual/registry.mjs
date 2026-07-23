@@ -12,6 +12,40 @@
 
 export const SCREENSHOT_TARGETS = [
   {
+    id: 'herleitung',
+    path: '/dev/herleitung',
+    description:
+      'Herleitung reasoning trace, expanded — the React Flow node graph (framing → parallel sources → assessment) wired into the real ChatThinking.',
+    waitFor: '.react-flow__node',
+  },
+  {
+    id: 'chat-turn',
+    path: '/dev/chat-turn',
+    description:
+      'A complete chat turn as ChatArea composes it — user question, collapsed Herleitung, and the cited "Ergebnis" answer card — desktop + mobile.',
+    waitFor: '[data-testid="chat-turn-preview"]',
+  },
+  {
+    id: 'composer',
+    path: '/dev/composer',
+    description:
+      'The chat composer (real InputArea, backend-free) in its empty-thread state — textarea, scope/sources/deep-research controls, attach + send — desktop + mobile.',
+    waitFor: '[data-testid="composer-preview"]',
+  },
+  {
+    id: 'composer-files',
+    path: '/dev/composer-files',
+    description:
+      'The chat composer with files attached (ready / ingesting / failed) — inline FileChips, manage-files button, per-file retry/remove — desktop + mobile.',
+    waitFor: '[data-testid="composer-files-preview"]',
+  },
+  {
+    id: 'confirm-dialog',
+    path: '/dev/confirm-dialog',
+    description: 'Shared destructive ConfirmDialog (backs admin confirms + delete modals), shown open.',
+    waitFor: '[role="alertdialog"], [role="dialog"]',
+  },
+  {
     id: 'document-grid',
     path: '/dev/document-grid',
     description: 'Chat document_grid surfacing card — real project + Büroarchiv files as preview cards.',

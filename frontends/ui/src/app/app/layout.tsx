@@ -14,7 +14,13 @@
 
 import { type ReactNode } from 'react'
 import { getGridSession } from '@/lib/auth/session'
-import { FEATURE_FLAGS, isFeatureEnabled, isProjectKnowledgePageEnabled } from '@/lib/authz/feature-flags'
+import {
+  FEATURE_FLAGS,
+  isFeatureEnabled,
+  isProjectKnowledgePageEnabled,
+  isWorkflowsEnabled,
+} from '@/lib/authz/feature-flags'
+import { getNavFlags } from '@/lib/authz/nav'
 import { KeyboardShortcuts } from '@/components/shell'
 
 const isAuthRequired = (): boolean => process.env.REQUIRE_AUTH?.toLowerCase() === 'true'
@@ -31,6 +37,9 @@ export default async function AppLayout({ children }: AppLayoutProps): Promise<J
     // get the shortcuts surface at all. Users without an org (onboarding)
     // have nowhere for the palette to navigate — skip it for them too.
     if (session?.organizationId && isFeatureEnabled(session, FEATURE_FLAGS.keyboardShortcuts)) {
+      // Same section flags the project rail receives, so ⌘K's current-project
+      // commands stay in lock-step with the rail (shared PROJECT_SECTIONS).
+      const navFlags = await getNavFlags(session)
       shortcuts = (
         <KeyboardShortcuts
           authRequired={isAuthRequired()}
@@ -38,6 +47,8 @@ export default async function AppLayout({ children }: AppLayoutProps): Promise<J
           // (it serves capability subsets, see getNavFlags / UX-16).
           canViewOrganization
           showKnowledge={isProjectKnowledgePageEnabled(session)}
+          showWorkflows={isWorkflowsEnabled(session)}
+          canAccessArchiv={navFlags.canAccessArchiv}
         />
       )
     }

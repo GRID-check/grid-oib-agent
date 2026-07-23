@@ -2,9 +2,11 @@
 
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { toast } from 'sonner'
-import { AlertCircle, LayoutGrid, ListTree, RotateCcw, ShieldCheck, X } from 'lucide-react'
+import { AlertCircle, FileText, LayoutGrid, ListTree, RotateCcw, ShieldCheck, X } from 'lucide-react'
+import { sourceBase } from '@/lib/ui/source-tint'
 import { useProjectDocuments } from '../hooks/use-project-documents'
 import { useFileDragDrop } from '../hooks/use-file-drag-drop'
+import { useIngestionCompleteToast } from '../hooks/use-ingestion-complete-toast'
 import { FolderTreePane } from './folder-tree-pane'
 import { FileBrowserPane } from './file-browser-pane'
 import { FilePreviewDialog } from './file-preview-dialog'
@@ -165,6 +167,21 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
       lastToastedError.current = null
     }
   }, [error])
+
+  // Confirm the one moment that matters: the instant a document finishes async
+  // ingestion and becomes citable. Provenance-correct — project green + doc icon
+  // (spec §4, color never travels alone). Fires once per newly-completed file.
+  useIngestionCompleteToast(
+    files,
+    useCallback(
+      (file: FileItem) => {
+        toast.success(t('toast.ingestionComplete', { name: file.filename }), {
+          icon: <FileText className="size-4" style={{ color: sourceBase('project') }} aria-hidden />,
+        })
+      },
+      [t]
+    )
+  )
 
   // Refetch the corpus when an upload batch settles (covers non-orchestrated paths).
   const wasUploading = useRef(false)

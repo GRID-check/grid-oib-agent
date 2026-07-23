@@ -272,7 +272,7 @@ const FileChip: FC<{
   return (
     <span
       className={cn(
-        'bg-card inline-flex h-7 max-w-[200px] items-center gap-1.5 rounded-md border px-2 text-[12px]',
+        'bg-card inline-flex h-7 max-w-[200px] shrink-0 items-center gap-1.5 rounded-md border px-2 text-[12px]',
         isFailed && 'border-error/50'
       )}
       title={`${file.fileName} — ${statusTitle}`}
@@ -280,7 +280,7 @@ const FileChip: FC<{
       {isPending ? (
         <Loader2 className="text-muted-foreground size-3 shrink-0 animate-spin" aria-hidden="true" />
       ) : isFailed ? (
-        <span className="bg-error size-2 shrink-0 rounded-full" aria-hidden="true" />
+        <span className="bg-danger size-2 shrink-0 rounded-full" aria-hidden="true" />
       ) : (
         <Check className="text-status-active size-3 shrink-0" aria-hidden="true" />
       )}
@@ -471,6 +471,15 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     setRespondToInteractionFn(respondToInteraction)
     return () => setRespondToInteractionFn(null)
   }, [respondToInteraction, setRespondToInteractionFn])
+
+  // Register the live send path so components that do not own the socket (e.g.
+  // the "Erneut versuchen" retry on an errored answer in ChatArea) can resend
+  // the last user message. Mirrors the respondToInteractionFn registration.
+  const setChatSendFn = useChatStore((state) => state.setChatSendFn)
+  useEffect(() => {
+    setChatSendFn(sendMessage)
+    return () => setChatSendFn(null)
+  }, [sendMessage, setChatSendFn])
 
   // Layout store — individual selectors for minimal re-render surface
   const enabledDataSourceIds = useLayoutStore((s) => s.enabledDataSourceIds)
@@ -753,7 +762,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           // chat plane). No hard border — the field reads as a calm surface, and
           // focus is signalled by a subtle focus-within ring instead of an
           // outline. Textarea on top, hairline-separated control row below.
-          'bg-card focus-within:ring-ring/40 relative flex flex-col rounded-xl px-4 py-[14px] shadow-sm transition-[box-shadow,border-color] duration-200 ease-out focus-within:ring-2',
+          'bg-card focus-within:ring-ring/40 relative flex flex-col rounded-xl px-4 py-2.5 shadow-sm transition-[box-shadow,border-color] duration-200 ease-out focus-within:ring-2',
           isDisabledByAuth && 'opacity-60',
           isDragging && isUnsupportedDrag
             ? 'border-2 border-error border-dashed'
@@ -793,7 +802,14 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
         {/* Inline file chips — one per attached file, above the textarea.
             Live status dot/spinner, retry on failure, ✕ to remove. */}
         {sessionFiles.length > 0 && (
-          <div className="mb-2 flex flex-wrap gap-1.5" aria-label={t('inputArea.manageFiles')}>
+          <div
+            // Horizontal scroll strip with a soft right-edge fade so an
+            // overflowing chip dissolves instead of hard-clipping — and the fade
+            // quietly signals there is more to scroll. The mask self-hides when
+            // the chips don't reach the edge (nothing there to fade).
+            className="mb-2 flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [mask-image:linear-gradient(to_right,black_calc(100%_-_24px),transparent)] [scrollbar-width:none] [-webkit-mask-image:linear-gradient(to_right,black_calc(100%_-_24px),transparent)] [&::-webkit-scrollbar]:hidden"
+            aria-label={t('inputArea.manageFiles')}
+          >
             {sessionFiles.map((file) => (
               <FileChip
                 key={file.id}
@@ -810,7 +826,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           ref={textareaRef}
           // text-base (16px) below md keeps iOS Safari from zooming the page
           // when the composer gains focus; desktop keeps the tighter 14.5px.
-          className="max-h-52 min-h-[52px] resize-none border-0 bg-transparent px-1.5 py-1 text-base leading-[1.55] shadow-none focus-visible:ring-0 md:text-[14.5px]"
+          className="max-h-52 min-h-[40px] resize-none border-0 bg-transparent px-1.5 py-1 text-base leading-[1.5] shadow-none focus-visible:ring-0 md:text-[14.5px]"
           value={message}
           onChange={(e) => handleValueChange(e.target.value)}
           onKeyDown={handleKeyDown}
@@ -853,7 +869,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
         {/* Bottom control row — hairline-separated from the textarea.
             Order per the click dummy: scope · Datengrundlage · Deep-Research,
             then attach + send pushed right. */}
-        <div className="mt-[14px] flex flex-wrap items-center gap-1.5 border-t pt-[14px]">
+        <div className="mt-2.5 flex flex-wrap items-center gap-1.5 border-t pt-2.5">
           {/* Scope chip — current project; cross-project is honestly disabled.
               Dashed status-active dot + label + chevron (dummy composer). */}
           <Popover>
@@ -863,12 +879,12 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                 disabled={isDisabledByAuth}
                 aria-label={tChat('composer.scopeAria', { project: scopeLabel })}
                 title={tChat('composer.scopeAria', { project: scopeLabel })}
-                className="bg-card shadow-xs hover:bg-accent focus-visible:ring-ring/50 inline-flex h-8 min-w-0 items-center gap-[7px] rounded-md border px-[11px] transition-colors focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50"
+                className="bg-card shadow-xs hover:bg-accent focus-visible:ring-ring/50 inline-flex h-8 min-w-0 items-center gap-[7px] rounded-lg border px-[11px] transition-colors focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <span className="border-status-active flex size-[14px] shrink-0 items-center justify-center rounded-full border border-dashed">
                   <span className="bg-status-active size-[5px] rounded-full" />
                 </span>
-                <span className="text-foreground/85 max-w-44 truncate text-[12.5px] font-medium">
+                <span className="text-foreground/85 hidden max-w-44 truncate text-[12.5px] font-medium sm:inline">
                   {scopeLabel}
                 </span>
                 <ChevronDown className="text-muted-foreground size-3 shrink-0" aria-hidden="true" />
@@ -920,10 +936,10 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                   total: totalSourcesCount,
                 })}
                 title={t('inputArea.selectedConnections')}
-                className="bg-card text-muted-foreground shadow-xs hover:bg-accent focus-visible:ring-ring/50 inline-flex h-8 shrink-0 items-center gap-[7px] rounded-md border px-[11px] text-[12.5px] transition-colors focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50"
+                className="bg-card text-muted-foreground shadow-xs hover:bg-accent focus-visible:ring-ring/50 inline-flex h-8 shrink-0 items-center gap-[7px] rounded-lg border px-[11px] text-[12.5px] transition-colors focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Layers className="size-3.5 shrink-0" aria-hidden="true" />
-                <span>{tChat('composer.sources')}</span>
+                <span className="hidden sm:inline">{tChat('composer.sources')}</span>
                 <span className="bg-muted text-foreground/80 inline-flex h-4 min-w-4 items-center justify-center rounded-md px-1 text-[10.5px] font-semibold tabular-nums">
                   {enabledSourcesCount}
                 </span>
@@ -959,7 +975,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
             disabled={isDisabledByAuth}
             onClick={() => setDeepResearchIntent(!deepResearchIntent)}
             className={cn(
-              'inline-flex h-8 shrink-0 cursor-pointer items-center gap-[7px] rounded-md border px-3 text-[12.5px] font-medium transition-[color,background-color,box-shadow] duration-200 ease-out',
+              'inline-flex h-8 shrink-0 cursor-pointer items-center gap-[7px] rounded-lg border px-3 text-[12.5px] font-medium transition-[color,background-color,box-shadow] duration-200 ease-out',
               'focus-visible:ring-ring/50 focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50',
               deepResearchIntent
                 ? 'border-primary bg-primary text-primary-foreground shadow-xs'
@@ -967,7 +983,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
             )}
           >
             <ZoomIn className="size-3.5" aria-hidden="true" />
-            <span>{tChat('composer.deepResearch')}</span>
+            <span className="hidden sm:inline">{tChat('composer.deepResearch')}</span>
           </button>
 
           {/* Right Actions: manage-files, attach, submit — pushed right */}
@@ -981,7 +997,11 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="text-muted-foreground h-8 rounded-lg px-2.5"
+                    // Redundant with the inline file chips (status + retry + remove)
+                    // on a narrow composer — hidden on mobile so the action row
+                    // stays one clean line; the FileSourcesTab dialog it opens
+                    // (browse + upload zone) remains available on wider viewports.
+                    className="text-muted-foreground hidden h-8 rounded-lg px-2.5 sm:inline-flex"
                     disabled={isDisabledByAuth || !knowledgeLayerAvailable}
                     aria-label={t('inputArea.manageFilesCount', { count: attachedFilesCount })}
                     title={
@@ -1020,7 +1040,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
             <Button
               variant="ghost"
               size="icon"
-              className="text-subtle size-[34px] rounded-[10px]"
+              className="text-subtle size-[34px] rounded-lg"
               onClick={handleAttachClick}
               disabled={isDisabledByAuth || isUploading || isBusy || !knowledgeLayerAvailable}
               aria-label={t('inputArea.attachFiles')}
@@ -1155,7 +1175,9 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           sources in the store — see lib/source-presets.ts. */}
       {isEmptyThread && !isDisabledByAuth && (
         <div
-          className="mt-[18px] flex flex-wrap items-center justify-center gap-2"
+          // Shortcuts are a desktop affordance — hidden on mobile, where they
+          // only add vertical bulk under an already space-constrained composer.
+          className="mt-[18px] hidden flex-wrap items-center justify-center gap-2 sm:flex"
           role="group"
           aria-label={tChat('shortcuts.label')}
         >

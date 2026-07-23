@@ -76,7 +76,7 @@ describe('FileBrowserPane — card grid', () => {
     expect(within(card).getByText('PDF')).toBeInTheDocument()
     expect(within(card).getByText(/1\.0 KB/)).toBeInTheDocument()
     // The ingestion-status badge is kept — critical info the dummy lacks.
-    expect(within(card).getByText('Ready')).toBeInTheDocument()
+    expect(within(card).getByText('Citable')).toBeInTheDocument()
   })
 
   it('surfaces the failure reason on failed cards', () => {

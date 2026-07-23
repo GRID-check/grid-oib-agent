@@ -53,6 +53,7 @@
     "@workos-inc/authkit-nextjs": "^4.1.4",
     "@workos-inc/node": "^10.7.0",
     "@workos-inc/widgets": "^1.15.0",
+    "@xyflow/react": "^12.11.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",

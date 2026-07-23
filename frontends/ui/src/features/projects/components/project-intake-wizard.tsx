@@ -80,7 +80,7 @@ interface ProjectIntakeWizardProps {
 
 type Answers = Record<string, ProjectPrimitiveValue>
 
-/** Shape of the autosaved intake draft persisted in sessionStorage. */
+/** Shape of the autosaved intake draft persisted in localStorage. */
 interface IntakeDraft {
   answers?: Answers
   bauwerke?: BauwerkInstance[]
@@ -196,7 +196,7 @@ export function ProjectIntakeWizard({
 
         let restored = false
         try {
-          const raw = sessionStorage.getItem(STORAGE_KEY)
+          const raw = localStorage.getItem(STORAGE_KEY)
           if (raw) {
             const parsed = JSON.parse(raw) as IntakeDraft
             if (parsed.answers) {
@@ -216,7 +216,7 @@ export function ProjectIntakeWizard({
                 restored = true
               } else {
                 try {
-                  sessionStorage.removeItem(STORAGE_KEY)
+                  localStorage.removeItem(STORAGE_KEY)
                 } catch {
                   /* ignore */
                 }
@@ -262,7 +262,7 @@ export function ProjectIntakeWizard({
     if (loading) return
     const timer = setTimeout(() => {
       try {
-        sessionStorage.setItem(
+        localStorage.setItem(
           STORAGE_KEY,
           JSON.stringify({
             answers,
@@ -422,7 +422,7 @@ export function ProjectIntakeWizard({
       }
 
       try {
-        sessionStorage.removeItem(STORAGE_KEY)
+        localStorage.removeItem(STORAGE_KEY)
       } catch {
         /* ignore */
       }
@@ -1391,6 +1391,12 @@ function QuestionHeader({ question, domId }: { question: ProjectIntakeQuestion; 
       <div className="flex items-baseline gap-2">
         <Label htmlFor={domId} className="text-sm font-medium">
           {question.label}
+          {/* Mark the handful of hard-required fields so they're distinguishable
+              from the ~90 soft ones BEFORE Next is pressed (error prevention),
+              mirroring the FieldShell required marker used elsewhere. */}
+          {question.required && (
+            <span aria-hidden className="text-destructive"> *</span>
+          )}
         </Label>
         {question.optional && (
           <span className="text-xs font-normal text-muted-foreground">{t('intake.optional')}</span>

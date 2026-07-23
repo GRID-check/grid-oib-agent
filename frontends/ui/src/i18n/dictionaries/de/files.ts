@@ -15,11 +15,18 @@ export const files: typeof en.files = {
     uploadFailed: 'Upload fehlgeschlagen',
   },
   status: {
-    ready: 'Bereit',
+    // "Zitierbar" (nicht bloß "Bereit") beantwortet die entscheidende Frage:
+    // Das Dokument ist jetzt in Pilotis Wissen und kann zitiert werden.
+    ready: 'Zitierbar',
     processing: 'Wird verarbeitet',
     uploading: 'Wird hochgeladen',
     failed: 'Fehlgeschlagen',
     unknown: 'Unbekannt',
+  },
+  toast: {
+    // Sobald die asynchrone Verarbeitung abgeschlossen ist und das Dokument
+    // zitierbar wird – die bislang fehlende Bestätigung des Abschlusses.
+    ingestionComplete: '„{name}“ ist jetzt in Pilotis Wissen – zitierbar',
   },
   preview: {
     closePreview: 'Vorschau schließen',

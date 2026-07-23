@@ -45,6 +45,7 @@ vi.mock('@/features/chat', () => ({
         return mockCurrentSessionId
       }),
       setRespondToInteractionFn: vi.fn(),
+      setChatSendFn: vi.fn(),
       deepResearchStatus: mockDeepResearchStatus,
       isDeepResearchStreaming: mockIsDeepResearchStreaming,
       deepResearchOwnerConversationId: mockDeepResearchOwnerConversationId,
@@ -217,9 +218,7 @@ describe('InputArea', () => {
     render(<InputArea isAuthenticated={true} />)
 
     expect(
-      screen.getByPlaceholderText(
-        'Describe what you are working on — Piloti shows you, step by step, what is relevant …'
-      )
+      screen.getByPlaceholderText('Ask Piloti about this project …')
     ).toBeInTheDocument()
   })
 

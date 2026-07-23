@@ -160,7 +160,7 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
         <Button
           variant="ghost"
           size="icon"
-          className="size-8 shrink-0 rounded-md md:hidden"
+          className="size-11 shrink-0 rounded-md md:hidden"
           onClick={handleNavClick}
           aria-label={tNav('openNavigation')}
           title={tNav('openNavigation')}
@@ -173,7 +173,7 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
         <Button
           variant="ghost"
           size="icon"
-          className="size-8 shrink-0 rounded-md"
+          className="size-11 shrink-0 rounded-md"
           onClick={handleMenuClick}
           disabled={!isAuthenticated}
           aria-label={t('chatToolbar.toggleSessions')}
