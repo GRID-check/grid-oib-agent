@@ -1,7 +1,8 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
+import { sourceTint } from '@/lib/ui/source-tint'
 import { AlertCircle, Archive, RotateCcw, Trash2, Upload, X } from 'lucide-react'
 import type { FileItem } from './project-file-workspace'
 import { useArchivDocuments } from '../hooks/use-archiv-documents'
@@ -24,13 +25,9 @@ interface ArchivWorkspaceProps {
 
 /**
  * Gold Büroarchiv identity mark (spec §4, `--source-office`): icon + label
- * together so color is never the only carrier (a11y). Semantic tokens with
- * pre-retune fallbacks — no hex.
+ * together so color is never the only carrier (a11y).
  */
-const OFFICE_TINT: CSSProperties = {
-  backgroundColor: 'var(--source-office-tint, var(--background-color-feedback-warning-subtle))',
-  color: 'var(--source-office-text, var(--source-office, var(--text-color-feedback-warning)))',
-}
+const OFFICE_TINT = sourceTint('office')
 
 interface ArchivListResponse {
   documents?: Array<Record<string, unknown>>
