@@ -335,6 +335,38 @@ class TestGetCheckpointer:
             mock_checkpointer.setup.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_postgres_pool_default_sizing(self, monkeypatch):
+        """Pool defaults to min_size=1, max_size=10 (raised from the old hard-coded 3)."""
+        monkeypatch.delenv("GRID_CHECKPOINT_POOL_MIN_SIZE", raising=False)
+        monkeypatch.delenv("GRID_CHECKPOINT_POOL_MAX_SIZE", raising=False)
+        mock_checkpointer = MagicMock()
+        mock_checkpointer.setup = AsyncMock()
+        with (
+            patch("aiq_agent.common.AsyncConnectionPool", return_value=MagicMock()) as mock_pool_class,
+            patch("aiq_agent.common.AsyncPostgresSaver", return_value=mock_checkpointer),
+        ):
+            await get_checkpointer("postgresql://user:pass@localhost:5432/testdb")
+        kwargs = mock_pool_class.call_args.kwargs
+        assert kwargs["min_size"] == 1
+        assert kwargs["max_size"] == 10
+
+    @pytest.mark.asyncio
+    async def test_postgres_pool_sizing_env_override(self, monkeypatch):
+        """Env vars override pool sizing; max is floored to min."""
+        monkeypatch.setenv("GRID_CHECKPOINT_POOL_MIN_SIZE", "4")
+        monkeypatch.setenv("GRID_CHECKPOINT_POOL_MAX_SIZE", "2")  # < min -> floored to min
+        mock_checkpointer = MagicMock()
+        mock_checkpointer.setup = AsyncMock()
+        with (
+            patch("aiq_agent.common.AsyncConnectionPool", return_value=MagicMock()) as mock_pool_class,
+            patch("aiq_agent.common.AsyncPostgresSaver", return_value=mock_checkpointer),
+        ):
+            await get_checkpointer("postgresql://user:pass@localhost:5432/testdb")
+        kwargs = mock_pool_class.call_args.kwargs
+        assert kwargs["min_size"] == 4
+        assert kwargs["max_size"] == 4
+
+    @pytest.mark.asyncio
     async def test_postgres_pool_caching(self):
         """Test that Postgres pools are cached and reused."""
         postgres_dsn = "postgresql://user:pass@localhost:5432/testdb"

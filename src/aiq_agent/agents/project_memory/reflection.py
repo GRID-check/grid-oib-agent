@@ -80,6 +80,12 @@ MAX_NEW_ITEMS = 5
 _MAX_CONTENT_CHARS = 500
 _MAX_ANSWER_CHARS = 4000
 _MAX_QUERY_CHARS = 2000
+# The existing memory digest grows as project memory accumulates; every other
+# input to this prompt is already sliced, so cap the digest too — otherwise the
+# background reflection LLM call's token cost grows unbounded with memory size.
+# Head-sliced to match the query/answer slices above (the digest's ordering is
+# owned by the BFF, so we don't assume newest-first/last).
+_MAX_DIGEST_CHARS = 6000
 
 REFLECTION_SYSTEM_PROMPT = (
     "You are Grid's memory-reflection step. You run in the background AFTER the user "
@@ -108,6 +114,8 @@ REFLECTION_SYSTEM_PROMPT = (
 def _build_user_prompt(query: str, answer: str, memory_digest: str | None) -> str:
     """Assemble the reflection prompt from the turn and the existing memory."""
     existing = memory_digest.strip() if memory_digest else "(no project memory recorded yet)"
+    if len(existing) > _MAX_DIGEST_CHARS:
+        existing = existing[:_MAX_DIGEST_CHARS] + "\n… (project memory truncated)"
     return (
         "## Existing project memory\n"
         f"{existing}\n\n"

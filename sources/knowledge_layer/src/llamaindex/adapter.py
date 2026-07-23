@@ -43,6 +43,7 @@ from pathlib import Path
 from typing import Any
 
 from aiq_agent.common.credential_resolution import read_api_key_env
+from aiq_agent.knowledge import ingest_status_store
 from aiq_agent.knowledge.base import BaseIngestor
 from aiq_agent.knowledge.base import BaseRetriever
 from aiq_agent.knowledge.base import TTLCleanupMixin
@@ -65,6 +66,52 @@ logger = logging.getLogger(__name__)
 DEFAULT_VLM_MODEL = os.environ.get("AIQ_VLM_MODEL", "nvidia/nemotron-nano-12b-v2-vl")
 # Default VLM model base URL
 DEFAULT_VLM_BASE_URL = os.environ.get("AIQ_VLM_BASE_URL", "https://integrate.api.nvidia.com/v1")
+
+
+# ---------------------------------------------------------------------------
+# ChromaDB client construction (embedded vs shared server).
+#
+# Horizontal scaling: when AIQ_CHROMA_URL (e.g. ``http://chroma:8000``) or
+# AIQ_CHROMA_HOST is set, every backend replica and research worker talks to ONE
+# shared Chroma server over HTTP instead of each opening its own embedded
+# PersistentClient on local disk (which pins the vector store to a single pod).
+# Unset -> today's embedded behaviour, unchanged, so local dev and single-node
+# deployments are untouched. The returned client is API-compatible either way,
+# so every downstream call site (collections, queries, count/peek, heartbeat)
+# is identical.
+# ---------------------------------------------------------------------------
+def _make_chroma_client(persist_dir: str):
+    """Return a ChromaDB client: shared HTTP server when configured, else embedded."""
+    import chromadb
+    from chromadb.config import Settings
+
+    settings = Settings(anonymized_telemetry=False)
+
+    url = os.environ.get("AIQ_CHROMA_URL", "").strip()
+    host = os.environ.get("AIQ_CHROMA_HOST", "").strip()
+    port_env = os.environ.get("AIQ_CHROMA_PORT", "").strip()
+
+    if url:
+        from urllib.parse import urlparse
+
+        # A scheme-less value like "chroma:8000" parses with scheme="chroma" and
+        # hostname=None, which would silently connect to an empty host. Prepend a
+        # scheme so host:port is parsed as authority.
+        parsed = urlparse(url if "://" in url else f"http://{url}")
+        ssl = parsed.scheme == "https"
+        host = parsed.hostname or host
+        if not host:
+            raise ValueError(f"AIQ_CHROMA_URL has no host: {url!r}")
+        # URL port wins; else AIQ_CHROMA_PORT; else scheme default.
+        port = parsed.port or (int(port_env) if port_env.isdigit() else (443 if ssl else 8000))
+    elif host:
+        ssl = os.environ.get("AIQ_CHROMA_SSL", "").lower() in ("1", "true", "yes")
+        port = int(port_env) if port_env.isdigit() else (443 if ssl else 8000)
+    else:
+        os.makedirs(persist_dir, exist_ok=True)
+        return chromadb.PersistentClient(path=persist_dir, settings=settings)
+
+    return chromadb.HttpClient(host=host, port=port, ssl=ssl, settings=settings)
 
 
 # Image extraction settings - filters out small icons/logos
@@ -169,6 +216,13 @@ TTL_CLEANUP_INTERVAL_SECONDS = int(os.environ.get("AIQ_TTL_CLEANUP_INTERVAL_SECO
 # Terminal jobs are retained this long for status polling/file listings, then
 # pruned so in-memory job tracking doesn't grow for the life of the process.
 JOB_RETENTION_SECONDS = 3600  # 1 hour
+
+# Terminal per-file tracking entries (self._files) are retained this long, then
+# pruned. SUCCESS files are still listable afterwards (list_files rebuilds them
+# from Chroma chunks — with a fresh id, exactly as for any never-tracked file);
+# FAILED rows drop off the listing once this window passes. Bounds self._files,
+# which otherwise grew for the life of the process (scaling review phase-2, #13).
+FILE_TRACKING_RETENTION_SECONDS = int(os.environ.get("AIQ_FILE_TRACKING_RETENTION_SECONDS", "86400"))  # 24h
 
 # Document summarization + tag-classification input limits live in the shared
 # aiq_agent.knowledge.document_classification module (CLASSIFY_MAX_INPUT_CHARS).
@@ -1364,15 +1418,8 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         """Get or create the shared ChromaDB client (thread-safe)."""
         with self._lock:
             if self._chroma_client is None:
-                import chromadb
-                from chromadb.config import Settings
-
-                os.makedirs(self.persist_dir, exist_ok=True)
-                # Disable telemetry to reduce file descriptor usage
-                self._chroma_client = chromadb.PersistentClient(
-                    path=self.persist_dir,
-                    settings=Settings(anonymized_telemetry=False),
-                )
+                # Shared server when AIQ_CHROMA_URL/HOST is set, else embedded.
+                self._chroma_client = _make_chroma_client(self.persist_dir)
             return self._chroma_client
 
     def _update_file_status(
@@ -1406,6 +1453,9 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         tracked_file.error_message = error
 
             job.processed_files = file_index + 1
+
+        # Persist outside the lock (DB I/O) so any replica can serve this status.
+        ingest_status_store.put(job)
 
     def submit_job(
         self,
@@ -1457,6 +1507,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             )
             with self._lock:
                 self._jobs[job_id] = job
+            ingest_status_store.put(job)
             return job_id
 
         # Create pending job with file details
@@ -1512,6 +1563,10 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         with self._lock:
             self._jobs[job_id] = job
 
+        # Persist the initial PENDING status so a poll to any replica resolves it
+        # immediately, even before this replica's pool starts processing.
+        ingest_status_store.put(job)
+
         # Run ingestion on the bounded pool; the job stays PENDING while queued.
         self._ingest_pool.submit(self._run_ingestion, job_id, validated_paths, collection_name, job_config)
 
@@ -1539,25 +1594,82 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             for jid in stale:
                 del self._jobs[jid]
         if stale:
-            logger.debug("Pruned %d completed job(s) from tracking", len(stale))
+            # Also drop the durable cross-replica status row so the ingest_jobs
+            # table is bounded by the same retention window. Previously this grew
+            # forever: ingest_status_store.delete() existed but had zero callers.
+            # Best-effort (delete() swallows its own errors) and done outside the
+            # lock since it does DB I/O.
+            for jid in stale:
+                ingest_status_store.delete(jid)
+            logger.debug("Pruned %d completed job(s) from tracking (+ status rows)", len(stale))
+
+    def _prune_stale_files(self) -> None:
+        """Drop terminal per-file tracking entries older than the retention window.
+
+        Mirrors ``_prune_completed_jobs`` for ``self._files``, which otherwise
+        grew for the life of the process (one entry per upload, never removed
+        except on explicit delete). Only SUCCESS/FAILED entries are eligible, and
+        only once their completion/upload time is older than
+        ``FILE_TRACKING_RETENTION_SECONDS`` — INGESTING/UPLOADING entries (live
+        work) are always kept. SUCCESS files stay listable afterwards
+        (reconstructed from Chroma), so this loses only a stable file_id, not a
+        file.
+        """
+        now = datetime.now(tz=UTC)
+        with self._lock:
+            stale = []
+            for fid, fi in self._files.items():
+                if fi.status not in (FileStatus.SUCCESS, FileStatus.FAILED):
+                    continue
+                aged_at = fi.ingested_at or fi.uploaded_at
+                if aged_at is None:
+                    continue
+                if aged_at.tzinfo is None:
+                    aged_at = aged_at.replace(tzinfo=UTC)
+                if (now - aged_at).total_seconds() > FILE_TRACKING_RETENTION_SECONDS:
+                    stale.append(fid)
+            for fid in stale:
+                del self._files[fid]
+        if stale:
+            logger.debug("Pruned %d stale file tracking entry(ies)", len(stale))
+
+    def _index_tracked_files(self, collection_name: str) -> dict[str, tuple[str, FileInfo]]:
+        """``file_name -> (file_id, FileInfo)`` for one collection, first-seen wins.
+
+        Built in a single O(files) pass so ``list_files`` no longer rescans all
+        of ``self._files`` per listed file (was O(files²) as the dict grew).
+        """
+        index: dict[str, tuple[str, FileInfo]] = {}
+        with self._lock:
+            for fid, fi in self._files.items():
+                if fi.collection_name == collection_name and fi.file_name not in index:
+                    index[fi.file_name] = (fid, fi)
+        return index
 
     def get_job_status(self, job_id: str) -> IngestionJobStatus:
         """Get current status of an ingestion job."""
         self._prune_completed_jobs()
+        self._prune_stale_files()
         with self._lock:
-            if job_id not in self._jobs:
-                return IngestionJobStatus(
-                    job_id=job_id,
-                    status=JobState.FAILED,
-                    submitted_at=datetime.utcnow(),
-                    total_files=0,
-                    processed_files=0,
-                    collection_name="unknown",
-                    backend=self.backend_name,
-                    error_message="Job ID not found",
-                    completed_at=datetime.utcnow().isoformat(),
-                )
-            return self._jobs[job_id].model_copy()
+            local = self._jobs.get(job_id)
+        if local is not None:
+            return local.model_copy()
+        # Not on this replica: the job may have been accepted by another replica.
+        # Fall back to the shared store so status polls resolve from anywhere.
+        shared = ingest_status_store.get(job_id)
+        if shared is not None:
+            return shared
+        return IngestionJobStatus(
+            job_id=job_id,
+            status=JobState.FAILED,
+            submitted_at=datetime.utcnow(),
+            total_files=0,
+            processed_files=0,
+            collection_name="unknown",
+            backend=self.backend_name,
+            error_message="Job ID not found",
+            completed_at=datetime.utcnow().isoformat(),
+        )
 
     # =========================================================================
     # Collection Management Implementation
@@ -1953,12 +2065,17 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
     def list_files(self, collection_name: str) -> list[FileInfo]:
         """List all files in a collection."""
         try:
+            self._prune_stale_files()
             client = self._get_chroma_client()
 
             try:
                 collection = client.get_collection(name=collection_name)
             except Exception:
                 return []
+
+            # Correlate tracked FileInfo by name in one pass (was an O(files)
+            # rescan of self._files per listed file).
+            tracked_by_name = self._index_tracked_files(collection_name)
 
             # Get all unique file names from chunks
             metadatas = self._get_all_metadatas(collection)
@@ -1995,16 +2112,8 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             # Convert to FileInfo objects
             result = []
             for file_name, info in files_map.items():
-                # Try to find existing FileInfo from tracking
-                file_id = None
-                file_info = None
-                with self._lock:
-                    if hasattr(self, "_files"):
-                        for fid, fi in self._files.items():
-                            if fi.file_name == file_name and fi.collection_name == collection_name:
-                                file_id = fid
-                                file_info = fi
-                                break
+                # O(1) tracked-file lookup from the prebuilt index.
+                file_id, file_info = tracked_by_name.get(file_name, (None, None))
 
                 # Parse timestamps from chunk metadata
                 uploaded_at = self._parse_timestamp(info["creation_date"])
@@ -2088,9 +2197,17 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                                 file_info.error_message = file_detail.error_message
                             else:
                                 file_info.status = FileStatus.SUCCESS
-                            # completed_at is now an ISO string, parse it back to datetime
+                            # completed_at is an ISO string on the local path but
+                            # Pydantic coerces it back to a datetime when the
+                            # status is rehydrated from the shared store (a
+                            # cross-replica read), so normalize both forms.
                             if file_info.status == FileStatus.SUCCESS and job_status.completed_at:
-                                file_info.ingested_at = datetime.fromisoformat(job_status.completed_at)
+                                _completed = job_status.completed_at
+                                file_info.ingested_at = (
+                                    _completed
+                                    if isinstance(_completed, datetime)
+                                    else datetime.fromisoformat(_completed)
+                                )
                         elif job_status.status == JobState.FAILED:
                             file_detail = next(
                                 (
@@ -2291,12 +2408,12 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                 job = self._jobs[job_id]
                 job.status = JobState.PROCESSING
                 job.started_at = datetime.utcnow()
+            ingest_status_store.put(job)
 
             # Initialize components
             self._ensure_initialized()
 
             # Import LlamaIndex components
-            import chromadb
             from llama_index.core import Document
             from llama_index.core import Settings
             from llama_index.core import StorageContext
@@ -2328,17 +2445,14 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             base_vlm_model = config.get("vlm_model", self.vlm_model)
             vlm_model = _resolve_vlm_model_override(organization_id) or base_vlm_model
 
-            # Set up ChromaDB client (use shared client if using default persist_dir)
+            # Set up ChromaDB client (use shared client if using default persist_dir).
+            # In shared-server mode _make_chroma_client ignores persist_dir and
+            # returns the one server client regardless of branch.
             persist_dir = config.get("persist_dir", self.persist_dir)
             if persist_dir == self.persist_dir:
                 chroma_client = self._get_chroma_client()
             else:
-                from chromadb.config import Settings as ChromaSettings
-
-                chroma_client = chromadb.PersistentClient(
-                    path=persist_dir,
-                    settings=ChromaSettings(anonymized_telemetry=False),
-                )
+                chroma_client = _make_chroma_client(persist_dir)
 
             # Get or create collection
             chroma_collection = chroma_client.get_or_create_collection(
@@ -2812,6 +2926,9 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     "extraction_mode": extraction_mode,
                 }
 
+            # Persist the terminal status so any replica serves the final result.
+            ingest_status_store.put(job)
+
             # Update collection's updated_at timestamp
             self._update_collection_timestamp(collection_name)
             # Invalidate any cached retrieval results for this collection.
@@ -2844,6 +2961,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                 job.status = JobState.FAILED
                 job.completed_at = datetime.utcnow().isoformat()
                 job.error_message = str(e)
+            ingest_status_store.put(job)
 
         finally:
             # Clean up temp files if requested
@@ -2984,8 +3102,6 @@ class LlamaIndexRetriever(BaseRetriever):
 
     def _initialize_components(self):
         try:
-            import chromadb
-            from chromadb.config import Settings as ChromaSettings
             from llama_index.core import Settings
             from llama_index.embeddings.nvidia import NVIDIAEmbedding
 
@@ -3003,11 +3119,8 @@ class LlamaIndexRetriever(BaseRetriever):
             )
             Settings.embed_model = self._embed_model
 
-            # Disable telemetry to reduce file descriptor usage
-            self._chroma_client = chromadb.PersistentClient(
-                path=self.persist_dir,
-                settings=ChromaSettings(anonymized_telemetry=False),
-            )
+            # Shared server when AIQ_CHROMA_URL/HOST is set, else embedded.
+            self._chroma_client = _make_chroma_client(self.persist_dir)
 
             self._initialized = True
             logger.info("LlamaIndex retriever components initialized")
@@ -3277,14 +3390,8 @@ def list_collections(persist_dir: str | None = None) -> list[dict[str, Any]]:
     if persist_dir is None:
         persist_dir = os.environ.get("AIQ_CHROMA_DIR", "/tmp/chroma_data")
     try:
-        import chromadb
-        from chromadb.config import Settings
-
-        # Disable telemetry to reduce file descriptor usage
-        client = chromadb.PersistentClient(
-            path=persist_dir,
-            settings=Settings(anonymized_telemetry=False),
-        )
+        # Shared server when AIQ_CHROMA_URL/HOST is set, else embedded.
+        client = _make_chroma_client(persist_dir)
         collections = client.list_collections()
 
         return [

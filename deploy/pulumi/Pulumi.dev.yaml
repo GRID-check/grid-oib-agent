@@ -1,0 +1,79 @@
+# Stack configuration for the `dev` (staging) stack — TEMPLATE.
+#
+# Deployed automatically from the `develop` branch by .github/workflows/deploy.yml
+# once CI + Security are green. Non-secret values below are placeholders; edit
+# them. Secret values are NOT in this file — set them once with the CLI so they
+# are encrypted into this file by the Pulumi Cloud secrets provider (safe to
+# commit encrypted):
+#
+#   cd deploy/pulumi
+#   pulumi stack init grid-check/dev            # Pulumi Cloud backend
+#   pulumi config set --secret grid-oib:kubeconfig            "$(cat /path/to/kubeconfig)"
+#   pulumi config set --secret grid-oib:pgAppPassword         "$(openssl rand -base64 24)"
+#   pulumi config set --secret grid-oib:seaweedfsSecretKey    "$(openssl rand -base64 24)"
+#   pulumi config set --secret grid-oib:gridInternalApiToken  "$(openssl rand -hex 32)"
+#   pulumi config set --secret grid-oib:gridAdminToken        "$(openssl rand -hex 32)"
+#   pulumi config set --secret grid-oib:openrouterApiKey      "sk-or-..."
+#   pulumi config set --secret grid-oib:tavilyApiKey          "tvly-..."
+#   pulumi config set --secret grid-oib:workosApiKey          "sk_test_..."
+#   pulumi config set --secret grid-oib:workosCookiePassword  "$(openssl rand -hex 32)"
+#   pulumi config set --secret grid-oib:jobPayloadKek         "$(openssl rand -base64 32)"
+#
+# Staging is intentionally lighter than prod (single replicas, smaller volumes).
+config:
+  grid-oib:namespace: grid
+
+  # ── Images (GHCR) ──
+  grid-oib:imageRegistry: ghcr.io/grid-check
+  grid-oib:imageTag: latest
+
+  # ── Storage ──
+  grid-oib:storageClass: REPLACE_ME  # `kubectl get storageclass`
+
+  # ── Ingress / TLS ── (staging subdomains; staging ACME CA)
+  grid-oib:appDomain: app.dev.example.com
+  grid-oib:s3Domain: s3.dev.example.com
+  grid-oib:letsEncryptEmail: ops@example.com
+  grid-oib:useStagingIssuer: "true"   # keep true on staging (avoids LE rate limits)
+
+  # ── Postgres ──
+  grid-oib:pgInstances: "1"
+  grid-oib:pgStorageSize: 10Gi
+
+  # ── SeaweedFS ──
+  grid-oib:seaweedfsStorageSize: 10Gi
+  grid-oib:seaweedfsBucket: grid-documents
+  grid-oib:seaweedfsAccessKey: grid
+
+  # ── Shared Chroma ──
+  grid-oib:chromaEnabled: "true"
+  grid-oib:chromaStorageSize: 10Gi
+
+  # ── Agent (smaller on staging) ──
+  grid-oib:backendRequestsCpu: "500m"
+  grid-oib:backendRequestsMemory: 1Gi
+  grid-oib:backendLimitsCpu: "2"
+  grid-oib:backendLimitsMemory: 4Gi
+  grid-oib:backendDaskWorkers: "1"
+  grid-oib:backendDaskThreads: "2"
+  grid-oib:backendMaxActiveJobs: "4"
+  grid-oib:backendMaxActiveJobsPerOrg: "2"
+  grid-oib:backendIngestMaxWorkers: "2"
+  grid-oib:backendDataStorageSize: 10Gi
+
+  # ── Research execution ──
+  grid-oib:jobExecution: db
+  grid-oib:agentWorkerMinReplicas: "1"
+  grid-oib:agentWorkerMaxReplicas: "3"
+  grid-oib:agentWorkerConcurrency: "1"
+  grid-oib:backendReplicas: "1"
+
+  # ── Frontend ──
+  grid-oib:frontendMinReplicas: "1"
+  grid-oib:frontendMaxReplicas: "3"
+
+  # ── Auth / platform ──
+  grid-oib:requireAuth: "true"
+  grid-oib:workosClientId: client_REPLACE_ME
+  grid-oib:enforceFeatureFlags: "false"
+  grid-oib:workflowsEnabled: "false"

@@ -17,6 +17,12 @@ from aiq_agent.auth import get_current_principal
 _job_access_schema_initialized: set[str] = set()
 
 _JOB_ACCESS_INDEX_SQL = "CREATE INDEX IF NOT EXISTS idx_job_access_owner ON job_access(owner_auth_type, owner_subject)"
+_JOB_ACCESS_ORG_INDEX_SQL = (
+    # The per-org admission count (`count_active_jobs(... organization_id=...)`)
+    # filters `job_access.organization_id` on the submit hot path; without this it
+    # is an unindexed scan against the (never-pruned in db mode) job_info join.
+    "CREATE INDEX IF NOT EXISTS idx_job_access_org ON job_access(organization_id)"
+)
 _JOB_ACCESS_PROJECT_INDEX_SQL = (
     "CREATE INDEX IF NOT EXISTS idx_job_access_owner_project ON job_access(owner_subject, project_collection)"
 )
@@ -30,6 +36,12 @@ _JOB_ACCESS_CLEANUP_SQL = text(
 )
 _JOB_INFO_DELETE_SQL = text("DELETE FROM job_info WHERE job_id = :job_id")
 _JOB_EVENTS_DELETE_SQL = text("DELETE FROM job_events WHERE job_id = :job_id")
+
+# Terminal (non-active) job statuses. Mirrors nat's JobStatus terminal set
+# (SUCCESS/FAILURE/INTERRUPTED); hard-coded here — as it already is in
+# jobs/submit.py and routes/jobs.py — to keep this module free of the heavy nat
+# import on the admission hot path.
+_TERMINAL_STATUSES = ("SUCCESS", "FAILURE", "INTERRUPTED")
 
 
 def _is_postgres(db_url: str) -> bool:
@@ -138,6 +150,101 @@ def cleanup_job_access(db_url: str, conn: Connection | None = None) -> int:
         result = owned_conn.execute(_JOB_ACCESS_CLEANUP_SQL)
         owned_conn.commit()
         return result.rowcount or 0
+
+
+def expire_terminal_jobs(
+    db_url: str,
+    delete_grace_seconds: int,
+    conn: Connection | None = None,
+) -> tuple[int, int]:
+    """Age out finished ``job_info`` rows so the table stays bounded in db mode.
+
+    Two phases, both preserving the single most-recent finished job so an idle
+    deployment always shows its last run:
+
+    1. **Mark** terminal rows ``is_expired = true`` once ``updated_at +
+       expiry_seconds`` has passed (the per-row expiry NAT itself honors). This
+       mirrors NAT's ``cleanup_expired_jobs`` — which runs only via the Dask
+       cleanup task and is therefore skipped in ``db`` execution mode (ADR-0021),
+       leaving ``job_info``/``job_access`` to grow forever. Marking here re-arms
+       the existing access/event cleanup, which keys off ``is_expired``.
+    2. **Delete** rows whose ``updated_at`` is older than ``delete_grace_seconds``
+       (job_events + job_access + job_info together) so the table is actually
+       bounded, not merely flagged.
+
+    Runs on the caller's connection (under its advisory lock) without committing
+    when ``conn`` is given, else opens and commits its own. Returns
+    ``(marked, deleted)``.
+    """
+    if conn is not None:
+        return _expire_terminal_jobs(conn, db_url, delete_grace_seconds)
+    with _job_access_connection(db_url) as owned_conn:
+        marked, deleted = _expire_terminal_jobs(owned_conn, db_url, delete_grace_seconds)
+        owned_conn.commit()
+        return marked, deleted
+
+
+def _expire_terminal_jobs(conn: Connection, db_url: str, delete_grace_seconds: int) -> tuple[int, int]:
+    from sqlalchemy import bindparam
+    from sqlalchemy import inspect
+
+    if not inspect(conn.engine).has_table("job_info"):
+        return (0, 0)
+
+    is_pg = _is_postgres(db_url)
+    status_params: dict[str, Any] = {f"s{i}": s for i, s in enumerate(_TERMINAL_STATUSES)}
+    placeholders = ", ".join(f":s{i}" for i in range(len(_TERMINAL_STATUSES)))
+    # Never touch the newest finished job (matches NAT's "always keep the most
+    # recent finished job"); COALESCE guards the empty-table case.
+    keep_newest = (
+        f"job_id <> COALESCE((SELECT job_id FROM job_info WHERE status IN ({placeholders}) "
+        "ORDER BY updated_at DESC LIMIT 1), '')"
+    )
+    if is_pg:
+        past_expiry = "updated_at < NOW() - make_interval(secs => expiry_seconds)"
+        past_grace = "updated_at < NOW() - make_interval(secs => :grace)"
+        not_expired = "is_expired IS NOT TRUE"
+        set_expired = "is_expired = true"
+    else:
+        past_expiry = "datetime(updated_at, '+' || expiry_seconds || ' seconds') < datetime('now')"
+        past_grace = "datetime(updated_at, '+' || :grace || ' seconds') < datetime('now')"
+        not_expired = "COALESCE(is_expired, 0) = 0"
+        set_expired = "is_expired = 1"
+
+    marked = (
+        conn.execute(
+            # Interpolated fragments are trusted dialect literals + generated ":sN"
+            # placeholders; status values are bound, so this is not injectable.
+            # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
+            text(
+                f"UPDATE job_info SET {set_expired} "
+                f"WHERE {not_expired} AND status IN ({placeholders}) AND {past_expiry} AND {keep_newest}"
+            ),
+            status_params,
+        ).rowcount
+        or 0
+    )
+
+    stale_ids = list(
+        conn.execute(
+            # Interpolated fragments are trusted dialect literals + generated ":sN"
+            # placeholders; grace/status values are bound.
+            # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
+            text(f"SELECT job_id FROM job_info WHERE status IN ({placeholders}) AND {past_grace} AND {keep_newest}"),
+            {**status_params, "grace": delete_grace_seconds},
+        ).scalars()
+    )
+    if not stale_ids:
+        return (marked, 0)
+
+    for table in ("job_events", "job_access", "job_info"):
+        conn.execute(
+            # Fixed table names from the literal tuple above; job ids are bound.
+            # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
+            text(f"DELETE FROM {table} WHERE job_id IN :ids").bindparams(bindparam("ids", expanding=True)),
+            {"ids": stale_ids},
+        )
+    return (marked, len(stale_ids))
 
 
 def rollback_job_submission(job_id: str, db_url: str) -> None:
@@ -251,6 +358,7 @@ def _ensure_job_access_schema(conn: Connection, db_url: str) -> None:
     else:
         _ensure_sqlite_job_access_columns(conn)
     conn.execute(text(_JOB_ACCESS_PROJECT_INDEX_SQL))
+    conn.execute(text(_JOB_ACCESS_ORG_INDEX_SQL))
     _job_access_schema_initialized.add(db_url)
 
 

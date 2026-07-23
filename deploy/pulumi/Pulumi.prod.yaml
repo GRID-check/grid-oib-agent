@@ -1,0 +1,89 @@
+# Stack configuration for the `prod` stack — TEMPLATE.
+#
+# Non-secret values are shown with placeholders; edit them for your cluster.
+# Secret values are NOT in this file yet — set them with the CLI so they are
+# encrypted into this file by the stack's secrets provider:
+#
+#   cd deploy/pulumi
+#   pulumi stack init prod
+#   pulumi config set --secret grid-oib:kubeconfig            "$(cat /path/to/kubeconfig)"
+#   pulumi config set --secret grid-oib:pgAppPassword         "$(openssl rand -base64 24)"
+#   pulumi config set --secret grid-oib:seaweedfsSecretKey    "$(openssl rand -base64 24)"
+#   pulumi config set --secret grid-oib:gridInternalApiToken  "$(openssl rand -hex 32)"
+#   pulumi config set --secret grid-oib:gridAdminToken        "$(openssl rand -hex 32)"
+#   pulumi config set --secret grid-oib:openrouterApiKey      "sk-or-..."
+#   pulumi config set --secret grid-oib:tavilyApiKey          "tvly-..."
+#   pulumi config set --secret grid-oib:workosApiKey          "sk_live_..."
+#   pulumi config set --secret grid-oib:workosCookiePassword  "$(openssl rand -hex 32)"
+#   # Encrypts DB-claimed job payloads at rest (they carry the user auth token).
+#   # REQUIRED whenever jobExecution=db (the deploy fails closed without it; set
+#   # grid-oib:allowPlaintextJobPayloads=true to override for dev/single-node):
+#   pulumi config set --secret grid-oib:jobPayloadKek          "$(openssl rand -base64 32)"
+#   # Optional (only if using the local BYOK backend):
+#   pulumi config set --secret grid-oib:byokLocalKek          "$(openssl rand -base64 32)"
+#
+# Discover your provider's StorageClass first:  kubectl get storageclass
+config:
+  grid-oib:namespace: grid
+
+  # ── Images (from the publish-images CI workflow → GHCR) ──
+  grid-oib:imageRegistry: ghcr.io/grid-check
+  grid-oib:imageTag: latest
+
+  # ── Storage: the provider's Lightbits (NVMe/TCP) StorageClass ──
+  grid-oib:storageClass: REPLACE_ME  # e.g. lightbits, or run `kubectl get sc`
+
+  # ── Ingress / TLS ──
+  grid-oib:appDomain: app.example.com
+  grid-oib:s3Domain: s3.example.com
+  grid-oib:letsEncryptEmail: ops@example.com
+  grid-oib:useStagingIssuer: "true"   # flip to false once DNS + TLS verified
+
+  # ── Postgres (CloudNativePG) ──
+  grid-oib:pgInstances: "1"           # set 3 for HA (1 primary + 2 replicas)
+  grid-oib:pgStorageSize: 20Gi
+
+  # ── SeaweedFS ──
+  grid-oib:seaweedfsStorageSize: 20Gi
+  grid-oib:seaweedfsBucket: grid-documents
+  grid-oib:seaweedfsAccessKey: grid
+
+  # ── Shared Chroma vector store (horizontal scaling) ──
+  # true = one shared Chroma server all agent replicas/workers use (unpins
+  # vectors from a single pod). false = embedded per-pod Chroma (single agent).
+  grid-oib:chromaEnabled: "true"
+  grid-oib:chromaStorageSize: 20Gi
+
+  # ── Agent (backend) — vertical scaling levers ──
+  grid-oib:backendRequestsCpu: "1"
+  grid-oib:backendRequestsMemory: 2Gi
+  grid-oib:backendLimitsCpu: "4"
+  grid-oib:backendLimitsMemory: 8Gi
+  grid-oib:backendDaskWorkers: "1"
+  grid-oib:backendDaskThreads: "4"
+  grid-oib:backendMaxActiveJobs: "8"
+  grid-oib:backendMaxActiveJobsPerOrg: "3"
+  grid-oib:backendIngestMaxWorkers: "2"
+  grid-oib:backendDataStorageSize: 20Gi
+
+  # ── Research execution (ADR-0021) ──
+  # "dask" = per-pod cluster (agent is a singleton). "db" = DB-claimed workers:
+  # web tier runs no Dask and dedicated agent-worker replicas execute research
+  # jobs, scaling the token-heavy workload horizontally. Requires chromaEnabled.
+  grid-oib:jobExecution: db
+  grid-oib:agentWorkerMinReplicas: "2"
+  grid-oib:agentWorkerMaxReplicas: "8"
+  grid-oib:agentWorkerConcurrency: "1"
+  # Chat/web replicas. Safe at >1 via conversation affinity (the frontend WS
+  # proxy pins each conversation to its owning replica — ADR-0028).
+  grid-oib:backendReplicas: "2"
+
+  # ── Frontend (horizontal) ──
+  grid-oib:frontendMinReplicas: "2"
+  grid-oib:frontendMaxReplicas: "6"
+
+  # ── Auth / platform ──
+  grid-oib:requireAuth: "true"
+  grid-oib:workosClientId: client_REPLACE_ME
+  grid-oib:enforceFeatureFlags: "false"
+  grid-oib:workflowsEnabled: "false"

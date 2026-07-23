@@ -85,8 +85,25 @@ class TTLCleanupMixin:
             except Exception as e:
                 logger.error(f"TTL cleanup loop error for {self.backend_name}: {e}")
 
+    # Distinct advisory lock id for the collection TTL cleanup ("AIQTTLCL").
+    _TTL_CLEANUP_LOCK_ID = 0x41495154_544C434C
+
     def _cleanup_expired_collections(self) -> None:
-        """Check all collections and delete those that have expired."""
+        """Check all collections and delete those that have expired.
+
+        Elects a single runner via a Postgres advisory lock so that, with the
+        vector store now shared across replicas, N replicas don't race the same
+        session-collection deletions each cycle. Fail-open on single-node.
+        """
+        from .leader_lock import leader_lock
+
+        with leader_lock(self._TTL_CLEANUP_LOCK_ID) as is_leader:
+            if not is_leader:
+                logger.debug("TTL cleanup (%s): another replica holds the lock; skipping", self.backend_name)
+                return
+            self._run_cleanup_expired_collections()
+
+    def _run_cleanup_expired_collections(self) -> None:
         try:
             collections = self.list_collections()
             logger.info(f"TTL cleanup ({self.backend_name}): checking {len(collections)} collections for expiration")

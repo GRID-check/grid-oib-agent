@@ -96,6 +96,38 @@ const BACKEND_HTTP_URL = getBackendUrl()
 const BACKEND_WS_URL = getBackendWsUrl()
 const NEXT_INTERNAL_URL = process.env.NEXT_INTERNAL_URL || 'http://localhost:3001'
 
+// ── Conversation affinity (horizontal aiq-agent scaling) ──
+// The backend keeps per-conversation WebSocket delivery, human-in-the-loop
+// futures, and the running LangGraph task IN PROCESS, so a given conversation
+// must always reach the SAME backend replica for reconnect + HITL to work. When
+// aiq-agent runs >1 replica (a StatefulSet), pin each conversation to a specific
+// pod via a stable hash of conversationId -> that pod's stable DNS name. Falls
+// back to the load-balanced Service when there's 1 replica, no pod template, or
+// no conversationId — so single-replica behavior is unchanged.
+const BACKEND_REPLICAS = Math.max(1, parseInt(process.env.BACKEND_REPLICAS || '1', 10) || 1)
+// Per-pod WS DNS template with a literal `{i}`, e.g.
+// an in-cluster headless-service pod address like
+// aiq-agent-{i}.aiq-agent-headless:8000 (ws, in-cluster only) supplied via env.
+// nosemgrep: javascript.lang.security.detect-insecure-websocket.detect-insecure-websocket
+const BACKEND_POD_WS_TEMPLATE = process.env.BACKEND_POD_WS_TEMPLATE || ''
+
+// FNV-1a: stable, dependency-free, well-distributed for short ids.
+function hashToIndex(str, mod) {
+  let h = 0x811c9dc5
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i)
+    h = Math.imul(h, 0x01000193)
+  }
+  return (h >>> 0) % mod
+}
+
+function pickBackendWsTarget(conversationId) {
+  if (BACKEND_REPLICAS <= 1 || !BACKEND_POD_WS_TEMPLATE || !conversationId) {
+    return BACKEND_WS_URL
+  }
+  return BACKEND_POD_WS_TEMPLATE.replace('{i}', String(hashToIndex(String(conversationId), BACKEND_REPLICAS)))
+}
+
 // ── WS-upgrade rate limiter (ADR-0020) ──
 // Every upgrade triggers session resolution, FGA checks, and budget reads in
 // the BFF, so a reconnect storm amplifies straight into WorkOS and Postgres.
@@ -476,7 +508,9 @@ const startServer = async () => {
           req,
           socket,
           head,
-          { target: BACKEND_WS_URL, changeOrigin: true },
+          // Conversation affinity: pin this conversation to its owning backend
+          // replica so in-process WS/HITL/task state is always reachable.
+          { target: pickBackendWsTarget(conversationId), changeOrigin: true },
           (err) => {
             if (err) {
               console.error('[WS Proxy] Error:', err.message)

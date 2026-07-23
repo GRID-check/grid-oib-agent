@@ -23,6 +23,82 @@ from .access import job_exists
 from .access import rollback_job_submission
 from .runner import run_agent_job
 
+
+def job_execution_mode() -> str:
+    """Execution backend for research jobs: ``dask`` (default, per-pod cluster)
+    or ``db`` (DB-claimed workers, ADR-0021 — enables horizontal scaling)."""
+    return os.environ.get("GRID_JOB_EXECUTION", "dask").strip().lower()
+
+
+def _build_run_agent_payload(
+    *,
+    configure_logging,
+    log_level,
+    scheduler_address,
+    db_url,
+    config_path,
+    job_id,
+    input_text,
+    agent_config,
+    parent_trace_context,
+    available_documents,
+    data_sources,
+    auth_token,
+    collection_scope,
+    project_context,
+    model_overrides,
+    usage_context,
+    user_info,
+    clarifier_result,
+    memory_reflection_enabled,
+    memory_reflection_llm,
+) -> dict:
+    """Build the JSON-serializable ``run_agent_job`` kwargs a DB worker replays.
+
+    Keys mirror ``run_agent_job``'s signature exactly; ``parent_trace_context``
+    is the 7-tuple expanded positionally in the Dask path. Every value is a
+    plain str/int/bool/list/dict/None, so it round-trips through JSON.
+    """
+    (
+        parent_span_id,
+        parent_function_id,
+        parent_function_name,
+        parent_workflow_run_id,
+        parent_workflow_trace_id,
+        parent_conversation_id,
+        request_trace_tags,
+    ) = parent_trace_context
+    return {
+        "configure_logging": configure_logging,
+        "log_level": log_level,
+        "scheduler_address": scheduler_address,
+        "db_url": db_url,
+        "config_file_path": config_path,
+        "job_id": job_id,
+        "input_text": input_text,
+        "agent_class_path": agent_config.class_path,
+        "agent_config_name": agent_config.config_name,
+        "parent_span_id": parent_span_id,
+        "parent_function_id": parent_function_id,
+        "parent_function_name": parent_function_name,
+        "parent_workflow_run_id": parent_workflow_run_id,
+        "parent_workflow_trace_id": parent_workflow_trace_id,
+        "parent_conversation_id": parent_conversation_id,
+        "request_trace_tags": request_trace_tags,
+        "available_documents": available_documents,
+        "data_sources": data_sources,
+        "auth_token": auth_token,
+        "collection_scope": collection_scope,
+        "project_context": project_context,
+        "model_overrides": model_overrides,
+        "usage_context": usage_context,
+        "user_info": user_info,
+        "clarifier_result": clarifier_result,
+        "memory_reflection_enabled": memory_reflection_enabled,
+        "memory_reflection_llm": memory_reflection_llm,
+    }
+
+
 logger = logging.getLogger(__name__)
 
 # @environment_variable GRID_MAX_ACTIVE_JOBS
@@ -331,7 +407,8 @@ async def submit_agent_job(
     # Use Dask thread pool instead of process pool for workers. Set to 1 to enable.
     use_threads = os.environ.get("NAT_USE_DASK_THREADS", "0") == "1"
 
-    if not scheduler_address:
+    db_execution = job_execution_mode() == "db"
+    if not scheduler_address and not db_execution:
         raise SchedulerNotConfiguredError("Async job submission requires NAT_DASK_SCHEDULER_ADDRESS to be set")
 
     # Auto-capture auth token if not explicitly provided
@@ -423,34 +500,69 @@ async def submit_agent_job(
     project_collection = _derive_project_collection(collection_scope)
 
     try:
-        await job_store.submit_job(
-            job_id=resolved_job_id,
-            expiry_seconds=expiry_seconds,
-            job_fn=run_agent_job,
-            job_args=[
-                not use_threads,  # configure_logging
-                log_level,
-                scheduler_address,
-                db_url,
-                config_path,
-                resolved_job_id,
-                input_text,
-                agent_config.class_path,
-                agent_config.config_name,
-                *parent_trace_context,
-                available_documents,
-                data_sources,
-                auth_token,
-                collection_scope,
-                project_context,
-                model_overrides,
-                usage_context,
-                user_info,
-                clarifier_result,
-                memory_reflection_enabled,
-                memory_reflection_llm,
-            ],
-        )
+        if db_execution:
+            # DB-claimed execution (ADR-0021): persist a SUBMITTED job_info row
+            # (no Dask) and enqueue a claimable row carrying the run_agent_job
+            # payload. A worker replica claims and runs it. _create_job reuses
+            # NAT's job_info semantics without the scheduler.
+            from . import queue
+
+            payload = _build_run_agent_payload(
+                configure_logging=not use_threads,
+                log_level=log_level,
+                scheduler_address=scheduler_address or "",
+                db_url=db_url,
+                config_path=config_path,
+                job_id=resolved_job_id,
+                input_text=input_text,
+                agent_config=agent_config,
+                parent_trace_context=parent_trace_context,
+                available_documents=available_documents,
+                data_sources=data_sources,
+                auth_token=auth_token,
+                collection_scope=collection_scope,
+                project_context=project_context,
+                model_overrides=model_overrides,
+                usage_context=usage_context,
+                user_info=user_info,
+                clarifier_result=clarifier_result,
+                memory_reflection_enabled=memory_reflection_enabled,
+                memory_reflection_llm=memory_reflection_llm,
+            )
+            await job_store._create_job(
+                config_file=config_path or None,
+                job_id=resolved_job_id,
+                expiry_seconds=expiry_seconds,
+            )
+        else:
+            await job_store.submit_job(
+                job_id=resolved_job_id,
+                expiry_seconds=expiry_seconds,
+                job_fn=run_agent_job,
+                job_args=[
+                    not use_threads,  # configure_logging
+                    log_level,
+                    scheduler_address,
+                    db_url,
+                    config_path,
+                    resolved_job_id,
+                    input_text,
+                    agent_config.class_path,
+                    agent_config.config_name,
+                    *parent_trace_context,
+                    available_documents,
+                    data_sources,
+                    auth_token,
+                    collection_scope,
+                    project_context,
+                    model_overrides,
+                    usage_context,
+                    user_info,
+                    clarifier_result,
+                    memory_reflection_enabled,
+                    memory_reflection_llm,
+                ],
+            )
         await loop.run_in_executor(
             None,
             create_job_access,
@@ -461,7 +573,20 @@ async def submit_agent_job(
             project_collection,
             organization_id,
         )
+        if db_execution:
+            # Enqueue the claimable row LAST — only once job_info AND job_access
+            # are fully persisted — so a worker can never claim and run a job
+            # whose ownership/rollback state is still incomplete.
+            await loop.run_in_executor(None, queue.enqueue, db_url, resolved_job_id, payload)
     except Exception:
+        if db_execution:
+            # Drop any partial queue row so a half-submitted job is never run.
+            try:
+                from . import queue as _queue
+
+                await loop.run_in_executor(None, _queue.mark_done, db_url, resolved_job_id, None)
+            except Exception:
+                logger.warning("Failed to clean up queue row for %s during rollback", resolved_job_id, exc_info=True)
         if not preexistence_verified:
             # rollback_job_submission deletes job_access, job_events AND
             # job_info. Without positive proof the job ID did not exist before

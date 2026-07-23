@@ -96,14 +96,14 @@ class IntentClassifier:
         tools_info: list[dict[str, str]] | None = None,
         prompt: str | None = None,
         callbacks: list[BaseCallbackHandler] | None = None,
-        max_history: int = 20,
+        max_history_tokens: int = 8000,
         llm_timeout: float = 90,
     ) -> None:
         self.llm = llm
         self.tools_info = tools_info or []
         self.prompt = prompt or self._load_default_prompt()
         self.callbacks = callbacks or []
-        self.max_history = max_history
+        self.max_history_tokens = max_history_tokens
         self.llm_timeout = llm_timeout
 
     async def _ainvoke_classifier(
@@ -193,7 +193,7 @@ class IntentClassifier:
             tools=tools_info if tools_info is not None else self.tools_info,
             project_context=state.project_context,
         )
-        trimmed_conversation = trim_message_history(list(state.messages), max_tokens=self.max_history)
+        trimmed_conversation = trim_message_history(list(state.messages), max_tokens=self.max_history_tokens)
         messages: list[BaseMessage] = (
             [SystemMessage(content=system_content)]
             + trimmed_conversation

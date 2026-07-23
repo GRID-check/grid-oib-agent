@@ -272,6 +272,7 @@ class EventStore:
             Column("event_data", Text, nullable=True),
             Column("created_at", DateTime, server_default=func.now()),
             Index("idx_job_events_job_id_id", "job_id", "id"),
+            Index("idx_job_events_created_at", "created_at"),
         )
 
         inspector = inspect(self._sync_engine)
@@ -309,6 +310,7 @@ class EventStore:
             Column("event_data", Text, nullable=True),
             Column("created_at", DateTime, server_default=func.now()),
             Index("idx_job_events_job_id_id", "job_id", "id"),
+            Index("idx_job_events_created_at", "created_at"),
         )
 
         async with engine.begin() as conn:
@@ -456,6 +458,7 @@ class EventStore:
                 Column("event_data", Text, nullable=True),
                 Column("created_at", DateTime, server_default=func.now()),
                 Index("idx_job_events_job_id_id", "job_id", "id"),
+                Index("idx_job_events_created_at", "created_at"),
             )
             metadata.create_all(engine)
             logger.info("Created job_events table in %s", redact_db_url(db_url))

@@ -6,6 +6,15 @@ This project is Docker-first. Run it via Docker Compose on Windows, macOS, or Li
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the branch/commit/PR-title conventions, local validation steps, the CI merge gate, and secret-scanning + doc-link hygiene.
 
+## Working style: prefer visuals
+
+The maintainer values visual explanations. When explaining architecture, data
+flows, deployment topology, sequence/interaction, or any non-trivial design,
+render a diagram with the **Excalidraw** tool (`create_view`) rather than
+describing it in prose alone. Keep diagrams structured: a clear layered/left-to
+-right flow, aligned grid, orthogonal arrows that don't cross boxes, and a short
+legend. Offer a diagram proactively for architecture/design discussions.
+
 ## Repository layout
 
 | Path | Purpose |
@@ -19,7 +28,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the branch/commit/PR-title convention
 | `frontends/cli/` | `aiq-research` CLI |
 | `frontends/benchmarks/` | Evaluation harnesses |
 | `configs/` | Workflow configs. **LLM-agnostic** — any OpenAI-compatible endpoint (set `base_url`/`model_name`/key per config). **`config_oib_openrouter.yml` is the working reference config** (`config_grid_oib.yml`/Kimi is currently unmaintained) |
-| `deploy/` | Docker Compose assets and environment templates |
+| `deploy/` | Docker Compose assets and environment templates; `deploy/pulumi/` holds the Pulumi (TypeScript) Kubernetes deployment (see `docs/deployment/kubernetes.md`) |
 | `docs/architecture/` | Architecture docs (see `backend-deep-dive.md`, `project-memory-design.md`) |
 | `skills/` | API-consumer skill examples |
 | `scripts/` | Utility scripts, including `scripts/ingest_oib.py` |
