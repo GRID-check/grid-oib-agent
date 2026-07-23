@@ -72,23 +72,31 @@ removes the affinity pin: **any replica serves any conversation**, and a relay's
 death just means the client reconnects elsewhere while the owner keeps
 publishing.
 
-**Gating & rollout.** The bus is OFF by default — with `GRID_CONVERSATION_BUS`
-unset it uses an in-process transport, so single-replica / current behavior is
-byte-identical (and every existing WS test passes unchanged). It activates only
-when `GRID_CONVERSATION_BUS=1` **and** `REDIS_URL` are set. The safe flip is:
-(1) deploy with the bus enabled but affinity still on (co-located owner==relay —
-bus is exercised, harmless); (2) live-validate cross-replica reconnect + HITL;
-(3) remove affinity from `server.js` (route WS to the plain load-balanced
-`aiq-agent` service) so sockets spread independently of turn ownership. Owner
-election (`SET NX EX` on `conv:<id>:owner`) prevents two replicas running one
-conversation once affinity is off.
+**Default & rollout.** The bus is **ON by default** (`GRID_CONVERSATION_BUS=1`),
+the intended architecture. It activates whenever `REDIS_URL` is set; with no
+`REDIS_URL` it uses an in-process transport (single-process, byte-identical to
+the pre-bus path). Every Redis operation **fails open** to local socket delivery,
+so a single node — e.g. the Coolify docker-compose deployment — behaves exactly
+as before even with the bus on; on a single node it is also naturally correct
+(owner==relay: the local write displays frames, HITL resolves locally, and the
+Redis publishes are filtered by own-origin). Set `GRID_CONVERSATION_BUS=0` to opt
+out and fall back to affinity. The remaining rollout step for *multiple* replicas
+is: (1) live-validate cross-replica reconnect + HITL on a real cluster;
+(2) remove affinity from `server.js` (route WS to the plain load-balanced
+`aiq-agent` service) so sockets spread independently of turn ownership — owner
+election (`SET NX EX` on `conv:<id>:owner`) then prevents two replicas running
+one conversation.
 
 ### Validation
-The bus protocol and the registry wiring are unit-tested over an in-memory
-transport with two `ConversationBus` instances standing in for two replicas
-(fan-out ordering, HITL round-trip, supersede/cancel, reconnect replay, exclusive
-owner election, fail-open; `test_conversation_bus.py`, `test_websocket_bus_wiring.py`).
-Affinity logic is a pure function with a safe fallback; the Pulumi program
-typechecks and `server.js` parses. **Still needs live validation before the
-affinity-off flip:** true cross-replica reconnect end-to-end, Dragonfly pub/sub
+The bus protocol and registry wiring are unit-tested over an in-memory transport
+with two `ConversationBus` instances standing in for two replicas (fan-out
+ordering, HITL round-trip, supersede/cancel, reconnect replay, exclusive owner
+election, fail-open; `test_conversation_bus.py`, `test_websocket_bus_wiring.py`).
+The **`RedisTransport` is additionally validated against real Redis semantics via
+`fakeredis`** (`test_conversation_bus_redis.py`): pub/sub fan-out, `XADD`/`XRANGE`
+replay, and `SET NX EX` owner election over a shared fake server — the exact
+`redis.asyncio` calls the production path makes. Affinity logic is a pure
+function with a safe fallback; the Pulumi program typechecks and `server.js`
+parses. **Still needs live validation before the multi-replica affinity-off
+flip:** true cross-replica reconnect end-to-end against Dragonfly, its pub/sub
 semantics under eviction, HITL races, and owner-key expiry vs. heartbeat timing.

@@ -176,12 +176,19 @@ class InMemoryTransport:
 
 
 class RedisTransport:
-    """redis.asyncio-backed transport for real multi-replica operation."""
+    """redis.asyncio-backed transport for real multi-replica operation.
 
-    def __init__(self, url: str) -> None:
-        from redis.asyncio import Redis
+    ``client`` may be injected (a redis.asyncio-compatible client, e.g. fakeredis)
+    so the transport is testable against real Redis semantics without a server.
+    """
 
-        self._redis = Redis.from_url(url, decode_responses=True, socket_timeout=1.0, socket_connect_timeout=1.0)
+    def __init__(self, url: str | None = None, *, client: Any = None) -> None:
+        if client is not None:
+            self._redis = client
+        else:
+            from redis.asyncio import Redis
+
+            self._redis = Redis.from_url(url, decode_responses=True, socket_timeout=1.0, socket_connect_timeout=1.0)
 
     async def publish(self, channel: str, data: str) -> None:
         await self._redis.publish(channel, data)
@@ -305,9 +312,11 @@ class ConversationBus:
 
 
 # ---------------------------------------------------------------------------
-# Process-global bus. In-memory (fail-open) unless REDIS_URL is set AND the bus
-# is explicitly enabled — so multi-replica routing is opt-in until live-validated
-# (ADR-0028), and every existing single-replica test/path is byte-unchanged.
+# Process-global bus. Redis-backed (the stateless architecture) whenever
+# REDIS_URL is set and the bus is not explicitly disabled — ON by default. With
+# no REDIS_URL it uses the in-process transport (single-process, byte-identical
+# to the pre-bus path); the Redis path fails open to local delivery on error.
+# Opt out with GRID_CONVERSATION_BUS=0.
 # ---------------------------------------------------------------------------
 _bus: ConversationBus | None = None
 _in_memory_singleton: InMemoryTransport | None = None
@@ -315,7 +324,11 @@ _force_multi_for_tests = False
 
 
 def _bus_enabled() -> bool:
-    return os.environ.get("GRID_CONVERSATION_BUS", "").lower() in ("1", "true", "yes")
+    # Default ON: the stateless conversation bus is the intended architecture.
+    # Explicit falsey values opt out (the tier then falls back to affinity /
+    # single-process local delivery, byte-identical to the pre-bus path).
+    val = os.environ.get("GRID_CONVERSATION_BUS", "1").strip().lower()
+    return val not in ("0", "false", "no", "off", "")
 
 
 def get_bus() -> ConversationBus:

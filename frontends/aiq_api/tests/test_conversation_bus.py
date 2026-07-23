@@ -156,11 +156,27 @@ async def test_stream_buffer_is_bounded(monkeypatch):
     assert len(buffered) == 10  # oldest trimmed, never grows unbounded
 
 
-def test_get_bus_is_in_memory_when_disabled(monkeypatch):
+def test_bus_enabled_by_default(monkeypatch):
     monkeypatch.delenv("GRID_CONVERSATION_BUS", raising=False)
     monkeypatch.setenv("REDIS_URL", "redis://localhost:6379")
     reset_bus_for_tests()
-    assert is_multi_replica_bus() is False  # not enabled -> single-node fail-open
+    assert is_multi_replica_bus() is True  # default ON — the stateless architecture
+    reset_bus_for_tests()
+
+
+def test_bus_opt_out_via_env(monkeypatch):
+    monkeypatch.setenv("GRID_CONVERSATION_BUS", "0")
+    monkeypatch.setenv("REDIS_URL", "redis://localhost:6379")
+    reset_bus_for_tests()
+    assert is_multi_replica_bus() is False  # explicit opt-out -> local fallback
+    reset_bus_for_tests()
+
+
+def test_bus_is_in_memory_without_redis(monkeypatch):
+    monkeypatch.delenv("GRID_CONVERSATION_BUS", raising=False)
+    monkeypatch.delenv("REDIS_URL", raising=False)
+    reset_bus_for_tests()
+    assert is_multi_replica_bus() is False  # no REDIS_URL -> single-process in-memory
     bus = get_bus()
     assert bus is get_bus()  # cached singleton
     reset_bus_for_tests()

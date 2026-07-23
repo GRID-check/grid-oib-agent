@@ -226,7 +226,7 @@ export function loadConfig(): GridConfig {
   rejectPlaceholder("workosClientId", ["REPLACE_ME"]);
 
   const jobExecution: "dask" | "db" = (cfg.get("jobExecution") ?? "dask") === "db" ? "db" : "dask";
-  const conversationBus = bool(cfg, "conversationBus", false);
+  const conversationBus = bool(cfg, "conversationBus", true);
 
   // Fail closed: db-claimed job payloads carry the user's auth token and persist
   // in Postgres (table + WAL + backups + replicas). Refuse to deploy db mode

@@ -83,6 +83,9 @@ services:
       - AIQ_LISTEN_DB_URL=postgresql://aiq:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/aiq_jobs
       # ── Shared cache (Dragonfly, ADR-0020) ──
       - REDIS_URL=redis://dragonfly:6379/0
+      # Stateless chat tier via the Dragonfly pub/sub conversation bus (ADR-0028).
+      # On by default; fails open to local delivery. Set to 0 to opt out.
+      - GRID_CONVERSATION_BUS=${GRID_CONVERSATION_BUS:-1}
       # ── Single-writer memory bridge to the frontend BFF ──
       - FRONTEND_INTERNAL_URL=http://frontend:3000
       - GRID_INTERNAL_API_TOKEN=${SERVICE_PASSWORD_INTERNALTOKEN}
