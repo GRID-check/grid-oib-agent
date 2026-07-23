@@ -81,7 +81,7 @@ export const AgentsTab: FC = () => {
           </p>
         </div>
       ) : (
-        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
+        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain">
           {agentsWithToolCalls.map((agent) => (
             <div key={agent.id} className="shrink-0">
               <AgentCard agent={agent} defaultExpanded />

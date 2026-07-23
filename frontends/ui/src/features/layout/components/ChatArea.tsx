@@ -253,7 +253,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
     <div
       ref={scrollContainerRef}
       onScroll={handleScroll}
-      className="scrollbar-hide flex flex-1 flex-col overflow-y-auto"
+      className="scrollbar-hide flex flex-1 flex-col overflow-y-auto overscroll-contain"
       aria-label={t('chatArea.ariaMessages')}
     >
       {!hasHydrated ? (

@@ -412,7 +412,7 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
       {/* Session List — items stagger in when the panel opens (forceMount keeps the
           panel in the DOM, so this is driven by the open state, not by mounting) */}
       <motion.div
-        className="flex flex-1 flex-col overflow-y-auto"
+        className="flex flex-1 flex-col overflow-y-auto overscroll-contain"
         variants={staggerParent}
         initial={false}
         animate={isSessionsPanelOpen ? 'visible' : 'hidden'}

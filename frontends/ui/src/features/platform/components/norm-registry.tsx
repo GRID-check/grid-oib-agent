@@ -712,7 +712,7 @@ function NormEditorDialog({
 
   return (
     <Dialog open onOpenChange={(open) => !open && onCancel()}>
-      <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
+      <DialogContent className="max-h-[90dvh] max-w-2xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{isNew ? 'Neuer Eintrag' : 'Eintrag bearbeiten'}</DialogTitle>
           <DialogDescription>

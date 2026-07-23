@@ -60,7 +60,7 @@ export const ToolCallsTab: FC<ToolCallsTabProps> = ({ toolCalls = [] }) => {
           </p>
         </div>
       ) : (
-        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
+        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain">
           {toolCalls.map((toolCall) => (
             <div key={toolCall.id} className="shrink-0">
               <ToolCallCard toolCall={toolCall} />
