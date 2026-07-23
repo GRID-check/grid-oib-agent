@@ -186,7 +186,7 @@ export function installPostgres(
   const user = encodeURIComponent(cfg.postgres.appUser);
   const dsn = (opts: { db: string; driver?: string }): pulumi.Output<string> => {
     const scheme = opts.driver ?? "postgresql";
-    // Percent-encode the password: `pgAppPassword` is documented as
+    // Percent-encode the password. The `pgAppPassword` value is documented as
     // `openssl rand -base64 24`, which routinely contains `/` or `+` — raw
     // interpolation there breaks URI parsing (asyncpg/psycopg/node-pg/psql all
     // misparse the authority), which looks like an auth failure across the whole
