@@ -83,6 +83,14 @@ describe('laneForHitClient', () => {
     )
     expect(laneForHitClient({ sourceUrl: 'https://example.com/a' }).key).toBe('web')
   })
+
+  test('classifies the official OIB domain as Baurecht/OIB, not web', () => {
+    expect(laneForHitClient({ sourceUrl: 'https://www.oib.or.at/de/oib-richtlinien' })).toEqual({
+      key: 'baurecht_oib',
+      label: 'OIB-Richtlinie',
+    })
+    expect(laneForHitClient({ sourceUrl: 'https://oib.or.at/anything' }).key).toBe('baurecht_oib')
+  })
 })
 
 describe('parseTraceLanesBlock', () => {
@@ -176,6 +184,34 @@ describe('deriveTraceLanes', () => {
       },
     ])
     expect(cards).toHaveLength(0)
+  })
+
+  test('does not fabricate a source from a URL echoed in shallow_research prose', () => {
+    // "reSEARCH" matches the /search/ tool heuristic, so shallow_research prose
+    // used to be URL-scanned — an example link like oib.or.at (handed to the
+    // model by its own prompt) then rendered as a phantom "Web" source card
+    // even though the timeline shows zero tool calls. It must yield nothing.
+    const cards = deriveTraceLanes([
+      {
+        functionName: 'shallow_research',
+        category: 'agents',
+        content:
+          'Grid speichert Daten in einer Wissensdatenbank. Siehe https://www.oib.or.at/de/oib-richtlinien',
+      },
+    ])
+    expect(cards).toHaveLength(0)
+  })
+
+  test('still honors a structured Trace-Lanes block re-emitted by an agent step', () => {
+    // The URL-scan gate must not suppress explicit backend markers.
+    const cards = deriveTraceLanes([
+      {
+        functionName: 'shallow_research',
+        category: 'agents',
+        content: kbPayload,
+      },
+    ])
+    expect(cards.map((c) => c.key)).toContain('baurecht_oib')
   })
 })
 
