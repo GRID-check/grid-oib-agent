@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { AlertTriangle } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { TypeToConfirmDialog } from '@/components/ui/type-to-confirm-dialog'
@@ -58,14 +59,20 @@ export function ProjectDangerZone({ projectId, projectName }: ProjectDangerZoneP
   }
 
   return (
-    <section className="rounded-lg border border-destructive/40 p-4">
-      <h3 className="text-sm font-semibold text-destructive">{t('dangerZone.heading')}</h3>
-      <p className="mt-1 text-sm text-muted-foreground">{t('dangerZone.description')}</p>
-      <Button
-        variant="destructive"
-        className="mt-3"
-        onClick={() => setOpen(true)}
-      >
+    <section className="rounded-2xl border border-destructive/40 bg-destructive/[0.03] p-6">
+      <div className="flex items-start gap-3">
+        <span
+          className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg bg-destructive/10 text-destructive"
+          aria-hidden
+        >
+          <AlertTriangle className="size-[18px]" />
+        </span>
+        <div className="min-w-0">
+          <h3 className="text-sm font-semibold text-destructive">{t('dangerZone.heading')}</h3>
+          <p className="mt-1 text-sm text-muted-foreground">{t('dangerZone.description')}</p>
+        </div>
+      </div>
+      <Button variant="destructive" className="mt-4" onClick={() => setOpen(true)}>
         {t('dangerZone.deleteButton')}
       </Button>
       <TypeToConfirmDialog

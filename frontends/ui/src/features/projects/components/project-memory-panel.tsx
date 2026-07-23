@@ -243,7 +243,7 @@ export function ProjectMemoryPanel({ projectId }: ProjectMemoryPanelProps): JSX.
     <section className="space-y-4">
       <div className="flex items-end justify-between gap-4">
         <div>
-          <h2 className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+          <h2 className="text-sm font-semibold text-foreground">
             {t('memory.heading')}
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">{t('memory.description')}</p>

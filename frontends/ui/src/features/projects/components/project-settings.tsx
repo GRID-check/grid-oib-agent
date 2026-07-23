@@ -164,9 +164,7 @@ export function ProjectSettings({
       <StaggerItem>
         <section aria-label={t('project.sections.members')} className="space-y-4">
           <div className="space-y-1">
-            <h2 className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-              {t('project.sections.members')}
-            </h2>
+            <h2 className="text-sm font-semibold text-foreground">{t('project.sections.members')}</h2>
             <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
               {canManageProject
                 ? t('project.membersDescriptionManage')

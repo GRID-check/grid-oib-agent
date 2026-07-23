@@ -31,6 +31,12 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="archiv-document-card"]',
   },
   {
+    id: 'settings',
+    path: '/dev/settings',
+    description: 'Project settings — section chrome, headings, and danger zone.',
+    waitFor: 'h1',
+  },
+  {
     id: 'cards-gallery',
     path: '/dev/cards',
     description: 'Full Grid card gallery — every card type with fixture data.',
