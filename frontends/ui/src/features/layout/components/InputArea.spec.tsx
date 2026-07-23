@@ -179,6 +179,15 @@ vi.mock('./FileSourcesTab', () => ({
   FileSourcesTab: () => null,
 }))
 
+// FilePreviewDialog is the shared read-only preview opened from a file chip; the
+// real component pulls the whole preview-pane graph (PDF viewer, fetches). Stub
+// it to a lightweight marker that surfaces the previewed file's name, so the
+// clickable-chip → preview behavior can be asserted in isolation.
+vi.mock('@/features/documents/components/file-preview-dialog', () => ({
+  FilePreviewDialog: ({ file }: { file: { filename: string } | null }) =>
+    file ? <div data-testid="file-preview">{file.filename}</div> : null,
+}))
+
 import { useWebSocketChat, useIsCurrentSessionBusy } from '@/features/chat'
 import { useFileUpload, useFileDragDrop } from '@/features/documents'
 
@@ -453,6 +462,57 @@ describe('InputArea', () => {
     // ...and each file also shows as an inline removable chip.
     expect(screen.getByText('doc.pdf')).toBeInTheDocument()
     expect(screen.getByText('doc2.pdf')).toBeInTheDocument()
+  })
+
+  test('clicking a successful file chip opens the read-only preview dialog', async () => {
+    const user = userEvent.setup()
+    vi.mocked(useFileUpload).mockReturnValue({
+      uploadFiles: mockUploadFiles,
+      deleteFile: mockDeleteFile,
+      retryFile: mockRetryFile,
+      sessionFiles: [
+        {
+          id: 'file-1',
+          fileName: 'doc.pdf',
+          fileSize: 1234,
+          status: 'success',
+          collectionName: 'session-1',
+        },
+      ],
+      isUploading: false,
+      error: null,
+      clearError: vi.fn(),
+    } as unknown as ReturnType<typeof useFileUpload>)
+
+    render(<InputArea isAuthenticated={true} />)
+
+    // Closed initially — the preview only opens on an explicit chip click.
+    expect(screen.queryByTestId('file-preview')).not.toBeInTheDocument()
+
+    // The chip body is a button that opens the shared preview for that file.
+    await user.click(screen.getByRole('button', { name: /open file: doc\.pdf/i }))
+
+    expect(screen.getByTestId('file-preview')).toHaveTextContent('doc.pdf')
+  })
+
+  test('a still-uploading file chip is not clickable to open a preview', () => {
+    vi.mocked(useFileUpload).mockReturnValue({
+      uploadFiles: mockUploadFiles,
+      deleteFile: mockDeleteFile,
+      retryFile: mockRetryFile,
+      sessionFiles: [
+        { id: 'file-1', fileName: 'up.pdf', status: 'uploading', collectionName: 'session-1' },
+      ],
+      isUploading: false,
+      error: null,
+      clearError: vi.fn(),
+    } as unknown as ReturnType<typeof useFileUpload>)
+
+    render(<InputArea isAuthenticated={true} />)
+
+    // No open affordance for an in-flight file, and the preview stays closed.
+    expect(screen.queryByRole('button', { name: /open file: up\.pdf/i })).not.toBeInTheDocument()
+    expect(screen.queryByTestId('file-preview')).not.toBeInTheDocument()
   })
 
   test('removing an inline file chip calls deleteFile', async () => {
