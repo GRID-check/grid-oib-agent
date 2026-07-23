@@ -1,12 +1,11 @@
 'use client'
 
 import { useState } from 'react'
-import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Chip } from '@/components/ui/chip'
-import { motion, springGentle } from '@/components/motion'
 import { useTranslations } from '@/i18n'
 import { useChatStore } from '@/features/chat/store'
+import { ProposalShell } from './ProposalShell'
 
 type MemoryKind = 'decision' | 'constraint' | 'open_question' | 'derived_fact' | 'preference'
 type MemoryConfidence = 'low' | 'medium' | 'high'
@@ -72,28 +71,24 @@ export function MemoryProposalCard({
 
   if (status === 'savedOrg' || status === 'savedProject') {
     return (
-      <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} transition={springGentle}>
-        <Card className="gap-2 border-l-2 border-l-success p-5 shadow-xs">
-          <p className="text-sm text-foreground">
-            {status === 'savedOrg' ? t('memoryProposal.savedOrg') : t('memoryProposal.savedProject')}
-          </p>
-        </Card>
-      </motion.div>
+      <ProposalShell tone="accepted">
+        <p className="text-sm text-foreground">
+          {status === 'savedOrg' ? t('memoryProposal.savedOrg') : t('memoryProposal.savedProject')}
+        </p>
+      </ProposalShell>
     )
   }
 
   if (status === 'dismissed') {
     return (
-      <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} transition={springGentle}>
-        <Card className="gap-2 border-l-2 border-l-subtle p-5 shadow-xs">
-          <p className="text-sm text-muted-foreground">{t('memoryProposal.dismissed')}</p>
-        </Card>
-      </motion.div>
+      <ProposalShell tone="dismissed">
+        <p className="text-sm text-muted-foreground">{t('memoryProposal.dismissed')}</p>
+      </ProposalShell>
     )
   }
 
   return (
-    <Card className="gap-3 border-l-2 border-l-warning p-5 shadow-xs">
+    <ProposalShell tone="pending">
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm font-semibold text-foreground">{title}</p>
         <Chip variant="muted" size="sm">
@@ -125,6 +120,6 @@ export function MemoryProposalCard({
           {t('memoryProposal.no')}
         </Button>
       </div>
-    </Card>
+    </ProposalShell>
   )
 }
