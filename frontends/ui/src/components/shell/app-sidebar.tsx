@@ -24,18 +24,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import {
-  Archive,
-  ChevronsLeft,
-  ChevronsRight,
-  Clock,
-  Compass,
-  Folder,
-  Menu,
-  Settings,
-  X,
-  Zap,
-} from 'lucide-react'
+import { ChevronsLeft, ChevronsRight, Menu, X } from 'lucide-react'
 
 import { Logo } from '@/components/brand/logo'
 import { useTranslations } from '@/i18n'
@@ -45,36 +34,11 @@ import { cn } from '@/lib/utils'
 import { ProjectSwitcher, type ProjectSwitcherProject } from './project-switcher'
 import { SidebarUserMenu, type SidebarUser } from './sidebar-user-menu'
 import { ConnectionPresenceIndicator } from './connection-presence-indicator'
-
-interface NavItem {
-  /** i18n key under `nav.sections` and stable React key. */
-  key: 'chat' | 'files' | 'workflows' | 'archiv' | 'history' | 'settings'
-  /** Project path segment, or null when `href` carries an absolute target. */
-  segment: string | null
-  /** Absolute href for items outside the project subtree (the org Archiv). */
-  href?: string
-  icon: React.ComponentType<{ className?: string }>
-}
-
-// Order and icons follow the click dummy, with one deliberate deviation (user
-// feedback): Ask Piloti (compass) · Workflows (bolt) · Files (folder) ·
-// History (clock) · Archiv (box). Archiv moved to the foot of the list so it
-// sits just above the spacer/Settings — it is an org-wide, cross-project
-// doorway rather than a primary project section, and reads better pinned low.
-const NAV_ITEMS: NavItem[] = [
-  { key: 'chat', segment: 'chat', icon: Compass },
-  { key: 'workflows', segment: 'workflows', icon: Zap },
-  { key: 'files', segment: 'files', icon: Folder },
-  { key: 'history', segment: 'history', icon: Clock },
-  // The org-wide Archiv (ADR-0024) keeps its org-scoped route; the sidebar
-  // entry is a doorway, not a project subpage (spec §5: project-chrome Archiv
-  // is a later phase — until then this links to the existing org page). Kept
-  // last so it hugs the bottom of the section nav, above Settings.
-  { key: 'archiv', segment: null, href: '/app/archiv', icon: Archive },
-]
-
-/** Pinned bottom entry, rendered above the user footer (spec §5). */
-const SETTINGS_ITEM: NavItem = { key: 'settings', segment: 'settings', icon: Settings }
+import {
+  PROJECT_SETTINGS_SECTION,
+  railSections,
+  type ProjectSection,
+} from './project-sections'
 
 const COLLAPSE_STORAGE_KEY = 'grid.sidebar.collapsed'
 
@@ -127,6 +91,13 @@ export function AppSidebar({
   const mobileOpen = useLayoutStore((s) => s.isMobileNavOpen)
   const setMobileOpen = useLayoutStore((s) => s.setMobileNavOpen)
 
+  // Focus management for the mobile drawer (role="dialog" aria-modal). On open
+  // we move focus into the panel and trap Tab within it; on close we restore
+  // focus to whatever opened it (the top-bar hamburger or the chat toolbar's).
+  const drawerRef = React.useRef<HTMLDivElement>(null)
+  const closeButtonRef = React.useRef<HTMLButtonElement>(null)
+  const drawerOpenerRef = React.useRef<HTMLElement | null>(null)
+
   // Chat owns its top chrome (floating pills), so the global mobile top bar is
   // redundant there — hide it and let the chat toolbar host the nav opener.
   const isChatRoute = pathname === `${base}/chat` || pathname.startsWith(`${base}/chat/`)
@@ -163,6 +134,58 @@ export function AppSidebar({
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [mobileOpen, setMobileOpen])
 
+  // Focus trap: on open move focus to the close button, keep Tab cycling inside
+  // the panel, and restore focus to the opener on close. Runs only while the
+  // drawer is open (it is unmounted otherwise), so the cleanup that restores
+  // focus fires on every close.
+  React.useEffect(() => {
+    if (!mobileOpen) return
+    if (typeof document === 'undefined') return
+
+    // Remember what had focus so we can hand it back when the drawer closes.
+    const opener = document.activeElement
+    drawerOpenerRef.current = opener instanceof HTMLElement ? opener : null
+
+    // Move focus into the panel (the close button is the first control).
+    closeButtonRef.current?.focus()
+
+    const focusableSelector =
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Tab') return
+      const panel = drawerRef.current
+      if (!panel) return
+      const focusable = Array.from(panel.querySelectorAll<HTMLElement>(focusableSelector))
+      if (focusable.length === 0) {
+        // Nothing to focus but the panel — keep focus from escaping it.
+        event.preventDefault()
+        return
+      }
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      const active = document.activeElement
+      if (event.shiftKey) {
+        if (active === first || !panel.contains(active)) {
+          event.preventDefault()
+          last.focus()
+        }
+      } else if (active === last || !panel.contains(active)) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('keydown', onKeyDown)
+      // Restore focus to the opener (if it's still in the document).
+      const openerEl = drawerOpenerRef.current
+      if (openerEl && document.contains(openerEl)) openerEl.focus()
+      drawerOpenerRef.current = null
+    }
+  }, [mobileOpen])
+
   const toggleCollapsed = React.useCallback(() => {
     setCollapsed((prev) => {
       const next = !prev
@@ -173,38 +196,36 @@ export function AppSidebar({
     })
   }, [])
 
-  const itemHref = (item: NavItem) => item.href ?? `${base}/${item.segment}`
+  const itemHref = (item: ProjectSection) => item.href ?? `${base}/${item.segment}`
 
-  const isActive = (item: NavItem) => pathname.startsWith(itemHref(item))
+  const isActive = (item: ProjectSection) => pathname.startsWith(itemHref(item))
 
   // "Frag Piloti" always opens a FRESH chat (new/empty draft), never the last
   // thread the user left open. It carries ?new=1, which the chat client consumes
   // once to reset the store to a new-session draft (reusing startNewSessionDraft)
   // and then strips from the URL. Active-state detection still keys off the plain
   // path (itemHref), so the query never breaks the highlight.
-  const navLinkHref = (item: NavItem) =>
+  const navLinkHref = (item: ProjectSection) =>
     item.key === 'chat' ? `${itemHref(item)}?new=1` : itemHref(item)
 
-  // Workflows is feature-flagged (default off). Archiv shows for any member of
+  // The rail's section list comes from the shared PROJECT_SECTIONS config
+  // (consumed identically by the ⌘K palette, so the two can never drift).
+  // Workflows is feature-flagged (default off); Archiv shows for any member of
   // an org with the `organization-archiv` flag — the same gate the user menu's
   // Archiv entry uses (the layout passes both from getNavFlags).
-  const navItems = NAV_ITEMS.filter(
-    (item) =>
-      (item.key !== 'workflows' || showWorkflows) &&
-      (item.key !== 'archiv' || canAccessArchiv),
-  )
+  const navItems = railSections({ showWorkflows, canAccessArchiv })
 
-  const activeItem = [...navItems, SETTINGS_ITEM].find(isActive)
+  const activeItem = [...navItems, PROJECT_SETTINGS_SECTION].find(isActive)
 
   // A nav row — shared by the desktop rail, the collapsed rail (icon-only
   // tiles) and the mobile drawer. Active = raised white card with a hairline
   // border and soft shadow; inactive = quiet muted ink with a sidebar hover.
-  const renderNavLink = (item: NavItem, variant: 'desktop' | 'mobile') => {
+  const renderNavLink = (item: ProjectSection, variant: 'desktop' | 'mobile') => {
     const href = navLinkHref(item)
     const active = isActive(item)
     const Icon = item.icon
     const iconOnly = variant === 'desktop' && collapsed
-    const label = t(`sections.${item.key}`)
+    const label = t(`sections.${item.i18nKey}`)
     return (
       <Link
         key={item.key}
@@ -253,7 +274,7 @@ export function AppSidebar({
         variant === 'mobile' ? 'px-3 pb-2' : 'mb-2.5',
       )}
     >
-      {renderNavLink(SETTINGS_ITEM, variant)}
+      {renderNavLink(PROJECT_SETTINGS_SECTION, variant)}
     </div>
   )
 
@@ -275,7 +296,7 @@ export function AppSidebar({
             onClick={() => setMobileOpen(true)}
             aria-label={t('openNavigation')}
             aria-expanded={mobileOpen}
-            className="flex size-10 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors duration-200 ease-out hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
+            className="flex size-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors duration-200 ease-out hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
           >
             <Menu className="size-5" aria-hidden />
           </button>
@@ -289,7 +310,7 @@ export function AppSidebar({
         </div>
         {activeItem && (
           <span className="truncate text-sm font-medium text-muted-foreground">
-            {t(`sections.${activeItem.key}`)}
+            {t(`sections.${activeItem.i18nKey}`)}
           </span>
         )}
       </header>
@@ -302,7 +323,10 @@ export function AppSidebar({
             onClick={() => setMobileOpen(false)}
             aria-hidden
           />
-          <div className="absolute inset-y-0 left-0 flex w-72 max-w-[85vw] flex-col border-r border-border bg-surface-sunken shadow-lg animate-in slide-in-from-left duration-200 motion-reduce:animate-none">
+          <div
+            ref={drawerRef}
+            className="absolute inset-y-0 left-0 flex w-72 max-w-[85vw] flex-col border-r border-border bg-surface-sunken shadow-lg animate-in slide-in-from-left duration-200 motion-reduce:animate-none"
+          >
             <div className="flex h-14 shrink-0 items-center justify-between px-4">
               <Link
                 href="/app/projects"
@@ -312,10 +336,11 @@ export function AppSidebar({
                 Piloti
               </Link>
               <button
+                ref={closeButtonRef}
                 type="button"
                 onClick={() => setMobileOpen(false)}
                 aria-label={t('closeNavigation')}
-                className="flex size-10 items-center justify-center rounded-lg text-muted-foreground transition-colors duration-200 ease-out hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
+                className="flex size-11 items-center justify-center rounded-lg text-muted-foreground transition-colors duration-200 ease-out hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
               >
                 <X className="size-5" aria-hidden />
               </button>

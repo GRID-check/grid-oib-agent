@@ -13,21 +13,7 @@
 
 import * as React from 'react'
 import { usePathname, useRouter } from 'next/navigation'
-import {
-  BookOpenCheck,
-  Building2,
-  ClipboardList,
-  FolderKanban,
-  FolderOpen,
-  History,
-  LogOut,
-  MessageSquare,
-  Moon,
-  Plus,
-  Settings,
-  Sun,
-  UserRound,
-} from 'lucide-react'
+import { Building2, FolderKanban, LogOut, Moon, Plus, Sun, UserRound } from 'lucide-react'
 
 import { useAuth } from '@/adapters/auth/use-auth'
 import {
@@ -41,30 +27,12 @@ import {
 } from '@/components/ui/command'
 import { useLayoutStore } from '@/features/layout/store'
 import { useTranslations } from '@/i18n'
+import { paletteSections } from './project-sections'
 
 interface PaletteProject {
   id: string
   name: string
 }
-
-interface SectionItem {
-  /** i18n key under `nav.sections` (intake lives in the shortcuts namespace). */
-  key: 'chat' | 'files' | 'knowledge' | 'history' | 'settings' | 'intake'
-  segment: string
-  icon: React.ComponentType<{ className?: string }>
-}
-
-// Mirrors the sidebar IA (spec §5): Chat/Files/History plus the Settings and
-// Intake destinations. Overview/Members/Research left the IA — their content
-// lives in Settings and History respectively (FB-9/FB-10).
-const SECTION_ITEMS: SectionItem[] = [
-  { key: 'chat', segment: 'chat', icon: MessageSquare },
-  { key: 'files', segment: 'files', icon: FolderOpen },
-  { key: 'knowledge', segment: 'knowledge', icon: BookOpenCheck },
-  { key: 'history', segment: 'history', icon: History },
-  { key: 'settings', segment: 'settings', icon: Settings },
-  { key: 'intake', segment: 'intake', icon: ClipboardList },
-]
 
 /** Extract the active project id from `/app/projects/{id}[/…]`, if any. */
 export function projectIdFromPathname(pathname: string): string | null {
@@ -81,6 +49,10 @@ export interface CommandPaletteProps {
   canViewOrganization: boolean
   /** Whether the project knowledge page is enabled (feature-flagged, default off). */
   showKnowledge?: boolean
+  /** Whether the Workflows page is enabled (feature-flagged, default off). */
+  showWorkflows?: boolean
+  /** Whether the org-wide Archiv is reachable (`organization-archiv`, ADR-0024). */
+  canAccessArchiv?: boolean
 }
 
 export function CommandPalette({
@@ -89,6 +61,8 @@ export function CommandPalette({
   authRequired,
   canViewOrganization,
   showKnowledge = false,
+  showWorkflows = false,
+  canAccessArchiv = false,
 }: CommandPaletteProps) {
   const router = useRouter()
   const pathname = usePathname() ?? ''
@@ -167,13 +141,14 @@ export function CommandPalette({
           <>
             <CommandSeparator />
             <CommandGroup heading={t('groups.currentProject')}>
-              {SECTION_ITEMS.filter((item) => item.key !== 'knowledge' || showKnowledge).map((item) => {
+              {paletteSections({ showKnowledge, showWorkflows, canAccessArchiv }).map((item) => {
                 const Icon = item.icon
-                const label =
-                  item.key === 'intake' ? t('intake') : tNav(`sections.${item.key}`)
-                const href = item.segment
-                  ? `/app/projects/${projectId}/${item.segment}`
-                  : `/app/projects/${projectId}`
+                const label = tNav(`sections.${item.i18nKey}`)
+                const href =
+                  item.href ??
+                  (item.segment
+                    ? `/app/projects/${projectId}/${item.segment}`
+                    : `/app/projects/${projectId}`)
                 return (
                   <CommandItem
                     key={item.key}
