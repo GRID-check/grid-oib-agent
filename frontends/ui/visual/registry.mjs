@@ -26,6 +26,13 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="chat-turn-preview"]',
   },
   {
+    id: 'composer',
+    path: '/dev/composer',
+    description:
+      'The chat composer (real InputArea, backend-free) in its empty-thread state — textarea, scope/sources/deep-research controls, attach + send — desktop + mobile.',
+    waitFor: '[data-testid="composer-preview"]',
+  },
+  {
     id: 'confirm-dialog',
     path: '/dev/confirm-dialog',
     description: 'Shared destructive ConfirmDialog (backs admin confirms + delete modals), shown open.',
