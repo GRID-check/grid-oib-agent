@@ -44,6 +44,7 @@ import { useLayoutStore } from '@/features/layout/store'
 import { cn } from '@/lib/utils'
 import { ProjectSwitcher, type ProjectSwitcherProject } from './project-switcher'
 import { SidebarUserMenu, type SidebarUser } from './sidebar-user-menu'
+import { ConnectionPresenceIndicator } from './connection-presence-indicator'
 
 interface NavItem {
   /** i18n key under `nav.sections` and stable React key. */
@@ -329,6 +330,9 @@ export function AppSidebar({
             {renderSettings('mobile')}
 
             <div className="border-t border-border p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+              {/* Ambient connection health — so a dropped socket is visible in
+                  the shell, not discovered when a message silently fails. */}
+              <ConnectionPresenceIndicator className="mb-3 px-1" />
               <SidebarUserMenu
                 user={user}
                 authRequired={authRequired}
@@ -402,6 +406,13 @@ export function AppSidebar({
 
         {/* Pinned Settings entry */}
         {renderSettings('desktop')}
+
+        {/* Ambient connection health — so a dropped socket is visible in the
+            shell, not discovered when a message silently fails. Dot-only on the
+            collapsed rail. */}
+        <div className={cn('pb-2.5', collapsed ? 'flex justify-center' : 'px-1.5')}>
+          <ConnectionPresenceIndicator compact={collapsed} />
+        </div>
 
         {/* Footer: user (avatar + name) with a hairline top border */}
         <div className={cn('border-t border-border pt-3', collapsed ? 'flex w-full justify-center' : undefined)}>
