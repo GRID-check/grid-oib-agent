@@ -44,12 +44,20 @@ Browser WebSocket
       • proxies the upgrade to the aiq-agent backend
   → NAT workflow  chat_deepresearcher_agent
       LangGraph:  intent_classifier
-                    ├─ meta      → shallow_research  (persona + `remember`; also the
-                    │               friendly redirect for OUT-OF-SCOPE queries — the
-                    │               classifier labels clearly off-domain questions
-                    │               `meta`, never research)
+                    ├─ out_of_scope → END  (classifier emits a FIXED redirect
+                    │                  message; no answering agent runs — a clearly
+                    │                  off-domain question never spins up a research
+                    │                  agent or a source lookup. Surfaced as the
+                    │                  `meta`/"Direktantwort" routing decision.)
+                    ├─ meta      → shallow_research  (persona + `remember`; greetings,
+                    │               capability & project-profile questions)
                     ├─ shallow   → shallow_research ─(escalate?)→ clarifier
                     └─ deep      → clarifier → deep_research
+
+    Note: the shallow node doubles as the conversational assistant, so the UI
+    presents it neutrally as "Assistant" (getDisplayName in
+    intermediate-step-parser.ts), not "Shallow Research Agent" — a greeting is
+    not a research run.
   → response streamed back through the MONKEYPATCHED WS handler
       frontends/aiq_api/src/aiq_api/websocket_reconnect.py
   → frontends/ui/src/adapters/api/websocket-client.ts  (parse system_response)

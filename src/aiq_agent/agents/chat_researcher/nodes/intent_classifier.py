@@ -32,6 +32,21 @@ _LLM_UNAVAILABLE_MESSAGE = (
 )
 _LLM_TIMEOUT_MESSAGE = "The model service took too long to respond and the request timed out. "
 
+# Fixed redirect for out-of-scope queries. The classifier emits this verbatim
+# and the turn ends WITHOUT invoking any answering agent — no LLM call, no source
+# lookup, no research-agent step in the trace. Bilingual (German-first product
+# with English-speaking users) so it is comprehensible without a language-aware
+# generation step. Kept short and inviting so a rare misclassification of a niche
+# in-domain question still nudges the user to rephrase rather than dead-ending.
+_OUT_OF_SCOPE_REDIRECT = (
+    "Das liegt außerhalb meines Fachgebiets. Ich unterstütze dich bei OIB-Richtlinien, "
+    "österreichischem Baurecht (RIS), technischen Richtlinien und internem Bürowissen — "
+    "womit kann ich dir dort weiterhelfen?\n\n"
+    "_(That's outside my area — I can help with Austrian building regulations, OIB "
+    "guidelines, technical building standards, and your office knowledge. If I misread "
+    "your question, feel free to rephrase it.)_"
+)
+
 # Appended as the final turn of the classification request. With the raw
 # conversation replayed as real chat turns, a chat-tuned model's strongest pull
 # is to keep conversing and answer the user's question instead of classifying
@@ -58,7 +73,7 @@ _INTENT_RESPONSE_FORMAT = {
         "schema": {
             "type": "object",
             "properties": {
-                "intent": {"type": "string", "enum": ["meta", "research"]},
+                "intent": {"type": "string", "enum": ["meta", "research", "out_of_scope"]},
                 "research_depth": {
                     "anyOf": [{"type": "string", "enum": ["shallow", "deep"]}, {"type": "null"}],
                 },
@@ -254,9 +269,19 @@ class IntentClassifier:
                 }
 
             raw_intent = (parsed.get("intent") or "research").strip().lower()
-            intent = raw_intent if raw_intent in ("meta", "research") else "research"
+            intent = raw_intent if raw_intent in ("meta", "research", "out_of_scope") else "research"
             research_depth = (parsed.get("research_depth") or "shallow").strip().lower()
             depth_reasoning = parsed.get("depth_reasoning") or ""
+
+            # Out-of-scope: short-circuit with the fixed redirect and end the turn.
+            # No answering agent runs — this is the "predefined text, no research
+            # agent" path. The message is emitted here (like the error path) and
+            # routing sends the turn straight to END.
+            if intent == "out_of_scope":
+                return {
+                    "user_intent": IntentResult(intent="out_of_scope", raw=parsed),
+                    "messages": [AIMessage(content=_OUT_OF_SCOPE_REDIRECT)],
+                }
 
             # Pure router: no user-facing text is authored here. Meta turns are
             # handled by the shallow agent (it owns the persona and the
