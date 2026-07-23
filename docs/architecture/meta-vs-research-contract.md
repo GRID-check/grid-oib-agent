@@ -47,6 +47,44 @@ standalone/eval caller. Regression tests cover both cells of the
 `{meta, research} × {sources, no-sources}` matrix
 (`tests/aiq_agent/agents/shallow_researcher/test_agent.py`).
 
+## Meta turns must not search — deterministic tool gating
+
+`requires_sources=False` stopped a meta turn's empty registry from being
+treated as a failure, but it did not stop the meta turn from *searching* in the
+first place. The shallow agent binds its full tool set to the LLM, so a
+greeting ("wie läufts so") could still trigger a web / knowledge-base lookup:
+the search tools were dangling in front of a weak model, and the prompt's "no
+tool calls on meta turns" instruction is only advisory.
+
+The fix makes the meta contract's **Tools** row (see the table below)
+deterministic inside `ShallowResearchAgent`, without waiting for the full split:
+
+- On `requires_sources=False`, `agent_node` binds a **narrowed** LLM
+  (`_ensure_meta_partition` / `_meta_tool_binding`) that offers only
+  *interaction* tools (`remember`, `emit_card`) — never the data-source search
+  tools. The prompt's rendered tool list is narrowed to match. So search is
+  never **offered**.
+- The tools node also swaps to a **meta-scoped `ToolNode`** (interaction tools
+  only) on meta turns, so a hallucinated call to a search tool returns an
+  invalid-tool error instead of executing. So search cannot **run** even if the
+  model invents a call it was never given.
+
+A tool is classified as a search tool by `_is_search_tool`: it resolves to a
+configured data source via `get_source_id_for_tool` **and** is not on the
+interaction allowlist (`_INTERACTION_TOOL_BASENAMES = {remember, emit_card}`,
+matched on the tool's base name). The allowlist wins so an interaction tool
+whose qualified name prefix-matches a data-source *group* ref (e.g.
+`mcp__remember` under a group `mcp`) is never dropped — losing `remember` on a
+"remember this" turn is exactly the misroute the router sends meta to shallow to
+avoid. The partition is computed lazily (the data-source registry is populated
+by run time, not at `__init__`) and cached per instance; the per-org override
+path builds a fresh agent, so the cache cannot go stale.
+
+Limitation: this uses the data-source registry as the source of truth for "is a
+search tool", so a genuine search tool that is **not** declared under
+`data_sources:` is not recognized as one — it would remain bound on meta turns
+(and is also uncitable). Declare evidence/search tools under `data_sources:`.
+
 ## The structural direction: a dedicated meta agent
 
 The tactical fix stops the bleeding, but the deeper design should **separate the
