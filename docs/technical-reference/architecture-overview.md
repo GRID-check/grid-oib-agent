@@ -114,7 +114,7 @@ Next.js BFF
 Python FastAPI
   │  4. LlamaIndex ingestor chunks and embeds document
   │  5. ChromaDB persists vectors
-  │  6. Document summary stored in PostgreSQL (summaries table)
+  │  6. Document summary stored in PostgreSQL (document_metadata table)
   ▼
 Return: job_id for status polling
 ```

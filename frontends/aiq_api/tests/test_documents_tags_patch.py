@@ -16,10 +16,10 @@ from fastapi import FastAPI
 from httpx import ASGITransport
 from httpx import AsyncClient
 
+from aiq_agent.knowledge.document_metadata_store import DocumentMetadataStore
 from aiq_agent.knowledge.factory import clear_active_ingestor
 from aiq_agent.knowledge.factory import configure_summary_db
 from aiq_agent.knowledge.factory import set_active_ingestor
-from aiq_agent.knowledge.summary_store import SummaryStore
 from aiq_api.routes.documents import add_document_routes
 
 
@@ -28,14 +28,14 @@ def summary_db():
     """Point the factory's summary store at a fresh temp SQLite DB."""
     with tempfile.TemporaryDirectory() as tmpdir:
         db_url = f"sqlite:///{Path(tmpdir) / 'tags.db'}"
-        SummaryStore._tables_initialized.discard(db_url)
+        DocumentMetadataStore._tables_initialized.discard(db_url)
         configure_summary_db(db_url)
         yield db_url
 
 
 @pytest.fixture
 def store(summary_db):
-    return SummaryStore(summary_db)
+    return DocumentMetadataStore(summary_db)
 
 
 @pytest.fixture

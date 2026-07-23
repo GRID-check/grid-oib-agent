@@ -22,7 +22,7 @@ docker compose up -d --build
          │      │   │   • Creates job_info table
          │      │   │   • Creates job_access table
          │      │   │   • Creates job_events table
-         │      │   │   • Creates summaries table
+         │      │   │   • Creates document_metadata table
          │      │   • Connects to aiq_checkpoints
          │      │   │   • Creates checkpoint_migrations table
          │      │   │   • Creates checkpoints table
@@ -135,7 +135,7 @@ This command:
 
 The `init-db.sql` script (`deploy/compose/init-db.sql`) runs as part of PostgreSQL initialization. It creates 3 databases and their schemas. Key details:
 
-- **aiq_jobs** database: Contains `job_info`, `job_access`, `job_events`, and `summaries` tables.
+- **aiq_jobs** database: Contains `job_info`, `job_access`, `job_events`, and `document_metadata` tables.
 - **aiq_checkpoints** database: Contains `checkpoints`, `checkpoint_blobs`, `checkpoint_writes`, and `checkpoint_migrations` tables for LangGraph state persistence.
 - **grid_app** database: Created but left empty (schema managed by Drizzle Kit migrations from the frontend).
 

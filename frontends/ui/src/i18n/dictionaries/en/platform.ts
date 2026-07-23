@@ -99,6 +99,14 @@ export const platform = {
     docClassFilterAll: 'All document types',
     docClassUpdated: 'Document type of {name} set to “{label}”',
     docClassUpdateFailed: 'Could not change the document type of {name}',
+    // Display title (rename).
+    displayTitleFor: 'Display name for {name}',
+    displayTitleEdit: 'Rename {name}',
+    displayTitlePlaceholder: 'Display name (leave empty to reset)',
+    displayTitleSave: 'Save name',
+    displayTitleCancel: 'Cancel rename',
+    displayTitleUpdated: 'Renamed {name}',
+    displayTitleUpdateFailed: 'Could not rename {name}',
     // Row actions.
     viewPdf: 'View PDF',
     noMatch: 'No documents match your filter.',

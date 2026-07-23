@@ -43,9 +43,9 @@ def leader_lock(lock_id: int):
     try:
         from sqlalchemy import text
 
-        from .summary_store import SummaryStore
+        from .document_metadata_store import DocumentMetadataStore
 
-        conn = SummaryStore._get_or_create_sync_engine(url).connect()
+        conn = DocumentMetadataStore._get_or_create_sync_engine(url).connect()
         acquired = bool(conn.execute(text("SELECT pg_try_advisory_lock(:id)"), {"id": lock_id}).scalar())
     except Exception:
         logger.warning("leader_lock(%s) acquisition failed; running unguarded", lock_id, exc_info=True)

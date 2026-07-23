@@ -84,6 +84,13 @@ class OibFileEntry(BaseModel):
     doc_class: str | None = Field(
         None, description="Explicit per-document classification ('Dokumentart'), if one was set/guessed."
     )
+    display_title: str | None = Field(
+        None,
+        description=(
+            "Effective user-facing document name: the stored admin override, else the default derived "
+            "from the OIB filename convention. None only for a document with neither (a non-OIB upload)."
+        ),
+    )
 
 
 class OibStatusSummary(BaseModel):
@@ -130,18 +137,24 @@ def _cached_file_hash(path: Path) -> str:
     return digest
 
 
-def _load_summaries(collection_name: str) -> dict[str, tuple[str | None, str | None]]:
-    """Best-effort lookup of per-document (summary, doc_class) from the store.
+def _load_summaries(collection_name: str) -> dict[str, tuple[str | None, str | None, str | None]]:
+    """Best-effort lookup of per-document (summary, doc_class, display_title).
 
-    The summary store is authoritative for both fields; a store hiccup resolves
-    to an empty map so status never fails on it. Keyed by filename.
+    The document_metadata store is authoritative for all three fields; a store
+    hiccup resolves to an empty map so status never fails on it. Keyed by
+    filename. ``display_title`` is the stored override only — the caller layers
+    the derived default on top so a repo-corpus doc that was never explicitly
+    seeded still shows an effective name.
     """
     try:
         from aiq_agent.knowledge.factory import get_available_documents
 
-        return {doc.file_name: (doc.summary, doc.doc_class) for doc in get_available_documents(collection_name)}
+        return {
+            doc.file_name: (doc.summary, doc.doc_class, doc.display_title)
+            for doc in get_available_documents(collection_name)
+        }
     except Exception as e:
-        logger.debug("Document summaries unavailable for %s: %s", collection_name, e)
+        logger.debug("Document metadata unavailable for %s: %s", collection_name, e)
         return {}
 
 
@@ -264,11 +277,16 @@ def get_status(ingestor=None) -> OibKnowledgeStatus:
             )
         )
 
+    from aiq_agent.common.norm_registry import guess_display_title
+
     summaries = _load_summaries(collection_name)
     for entry in entries:
-        summary, doc_class = summaries.get(entry.file_name, (None, None))
+        summary, doc_class, stored_title = summaries.get(entry.file_name, (None, None, None))
         entry.summary = summary
         entry.doc_class = doc_class
+        # Effective name: the admin override wins, else the derived default so the
+        # admin UI always shows a real name (never a raw filename) to rename from.
+        entry.display_title = stored_title or guess_display_title(entry.file_name)
 
     counts = OibStatusSummary(
         total_files=len(entries),

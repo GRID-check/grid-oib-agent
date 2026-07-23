@@ -4,7 +4,7 @@ Ingestion *executes* on the replica that accepted the upload (a bounded local
 thread pool), but its status must be readable from ANY replica — otherwise a
 ``GET /v1/documents/{job_id}/status`` poll routed elsewhere 404s. This persists
 each ``IngestionJobStatus`` (a Pydantic model → JSON) to Postgres so every
-replica serves the same answer. It reuses the SummaryStore engine cache and the
+replica serves the same answer. It reuses the DocumentMetadataStore engine cache and the
 summaries database (``AIQ_SUMMARY_DB``, falling back to ``NAT_JOB_STORE_DB_URL``).
 
 Best-effort / fail-open: with no DB configured (local dev) every call is a
@@ -19,8 +19,8 @@ import os
 
 from sqlalchemy import text
 
+from .document_metadata_store import DocumentMetadataStore
 from .schema import IngestionJobStatus
-from .summary_store import SummaryStore
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,7 @@ def _is_postgres(url: str) -> bool:
 def _ensure_table(url: str) -> None:
     if url in _initialized:
         return
-    engine = SummaryStore._get_or_create_sync_engine(url)
+    engine = DocumentMetadataStore._get_or_create_sync_engine(url)
     ts = "TIMESTAMP WITH TIME ZONE DEFAULT NOW()" if _is_postgres(url) else "DATETIME DEFAULT CURRENT_TIMESTAMP"
     with engine.connect() as conn:
         conn.execute(
@@ -64,7 +64,7 @@ def put(status: IngestionJobStatus) -> None:
         return
     try:
         _ensure_table(url)
-        engine = SummaryStore._get_or_create_sync_engine(url)
+        engine = DocumentMetadataStore._get_or_create_sync_engine(url)
         now = "NOW()" if _is_postgres(url) else "CURRENT_TIMESTAMP"
         with engine.connect() as conn:
             conn.execute(
@@ -93,7 +93,7 @@ def get(job_id: str) -> IngestionJobStatus | None:
         return None
     try:
         _ensure_table(url)
-        engine = SummaryStore._get_or_create_sync_engine(url)
+        engine = DocumentMetadataStore._get_or_create_sync_engine(url)
         with engine.connect() as conn:
             row = conn.execute(
                 text("SELECT status_json FROM ingest_jobs WHERE job_id = :job_id"),
@@ -114,7 +114,7 @@ def delete(job_id: str) -> None:
         return
     try:
         _ensure_table(url)
-        engine = SummaryStore._get_or_create_sync_engine(url)
+        engine = DocumentMetadataStore._get_or_create_sync_engine(url)
         with engine.connect() as conn:
             conn.execute(text("DELETE FROM ingest_jobs WHERE job_id = :job_id"), {"job_id": job_id})
             conn.commit()

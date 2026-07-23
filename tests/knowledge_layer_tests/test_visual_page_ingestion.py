@@ -377,10 +377,10 @@ def summary_db(tmp_path):
     from aiq_agent.knowledge import configure_summary_db
     from aiq_agent.knowledge import factory
 
-    factory._summary_store = None
+    factory._document_metadata_store = None
     configure_summary_db(f"sqlite:///{tmp_path / 'summaries.db'}")
     yield
-    factory._summary_store = None
+    factory._document_metadata_store = None
 
 
 @pytest.fixture

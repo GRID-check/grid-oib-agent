@@ -7,7 +7,7 @@ The store registers itself as ``norm_registry``'s runtime source via
 ``set_db_loader``; the registry stays fail-open (a broken store falls back to
 the YAML seed, never breaks the prompt-building hot path).
 
-Modeled on :mod:`aiq_agent.knowledge.summary_store` (URL normalization, engine
+Modeled on :mod:`aiq_agent.knowledge.document_metadata_store` (URL normalization, engine
 cache with TTL, lazy ``_ensure_table`` via ``inspect().has_table``, fail-open
 try/except → ``logger.warning``).
 
@@ -51,7 +51,7 @@ NORM_STORE_CACHE_TTL_SECONDS = 30
 
 
 def _normalize_db_url(db_url: str) -> str:
-    """Normalize a database URL to a sync driver (mirrors summary_store, sync-only)."""
+    """Normalize a database URL to a sync driver (mirrors document_metadata_store, sync-only)."""
     if db_url.startswith("postgresql") or db_url.startswith("postgres"):
         base_url = db_url.replace("+asyncpg", "").replace("+psycopg2", "").replace("+psycopg", "")
         if not base_url.startswith("postgresql://"):

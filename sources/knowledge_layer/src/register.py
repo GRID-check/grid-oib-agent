@@ -464,6 +464,70 @@ def _hit_doc_class(chunk, resolved: dict[tuple[str, str], str]) -> str | None:
     return metadata.get("doc_class")
 
 
+def _resolve_display_titles(chunks) -> dict[tuple[str, str], str]:
+    """Resolve the stored ``display_title`` for each hit's document (batched).
+
+    Mirrors :func:`_resolve_doc_classes`: the document_metadata store is the
+    source of truth for the user-facing name. Builds a ``(collection, file_name)
+    -> stored display_title`` map with one batched query per in-scope collection.
+    Fail-open: any store error yields an empty/partial map and callers fall back
+    to the derived default (:func:`~aiq_agent.common.norm_registry.guess_display_title`).
+    """
+    resolved: dict[tuple[str, str], str] = {}
+    try:
+        from aiq_agent.knowledge.factory import get_document_display_titles
+    except Exception:
+        return resolved
+
+    by_collection: dict[str, list[str]] = {}
+    seen: set[tuple[str, str]] = set()
+    for chunk in chunks:
+        collection = (chunk.metadata or {}).get("collection")
+        file_name = chunk.file_name
+        if not collection or not file_name:
+            continue
+        key = (collection, file_name)
+        if key in seen:
+            continue
+        seen.add(key)
+        by_collection.setdefault(collection, []).append(file_name)
+
+    for collection, file_names in by_collection.items():
+        try:
+            stored_map = get_document_display_titles(collection, file_names)
+        except Exception:
+            stored_map = {}
+        for file_name, stored in stored_map.items():
+            if stored:
+                resolved[(collection, file_name)] = stored
+    return resolved
+
+
+def _hit_display_title(chunk, resolved: dict[tuple[str, str], str]) -> str | None:
+    """User-facing document name for a single hit: stored override wins.
+
+    Precedence: the admin-editable stored ``display_title`` (source of truth) →
+    the deterministic default derived from the OIB filename convention
+    (:func:`~aiq_agent.common.norm_registry.guess_display_title`) → ``None`` for a
+    document with neither (e.g. a project upload), where the caller keeps the raw
+    filename because that IS the user-meaningful name for their own files.
+    """
+    metadata = chunk.metadata or {}
+    collection = metadata.get("collection")
+    if collection and chunk.file_name:
+        stored = resolved.get((collection, chunk.file_name))
+        if stored:
+            return stored
+    if chunk.file_name:
+        try:
+            from aiq_agent.common.norm_registry import guess_display_title
+
+            return guess_display_title(chunk.file_name)
+        except Exception:
+            return None
+    return None
+
+
 def _trace_lanes_json(chunks, resolved: dict[tuple[str, str], str] | None = None) -> str:
     """Machine-readable lane fan-out for the chat Herleitung UI.
 
@@ -529,21 +593,31 @@ def _format_results(retrieval_result, query: str) -> str:
 
     lines = [f"Found {len(retrieval_result.chunks)} relevant document(s):\n"]
 
-    # Resolve the authoritative doc_class per document once (summary store wins
-    # over chunk metadata) and reuse it for both the Dokumentart line and the
-    # Trace-Lanes fan-out so the two never disagree.
+    # Resolve the authoritative doc_class per document once (store wins over chunk
+    # metadata) and reuse it for both the Dokumentart line and the Trace-Lanes
+    # fan-out so the two never disagree.
     resolved = _resolve_doc_classes(retrieval_result.chunks)
+    # Resolve the user-facing display title per document once (stored override →
+    # derived default). This becomes the citation chip label so the answer never
+    # surfaces a raw corpus filename like "oib-rl_2_ausgabe_mai_2023.pdf".
+    resolved_titles = _resolve_display_titles(retrieval_result.chunks)
 
     for i, chunk in enumerate(retrieval_result.chunks, 1):
-        # Build citation string: "filename, p.X" or just "filename"
+        # Build citation string: "filename, p.X" or just "filename". The Citation
+        # keeps the real filename — it is the document identity used for preview
+        # resolution and source dedup; only the human Source label is prettified.
         if chunk.page_number and chunk.page_number > 0:
             citation = f"{chunk.file_name}, p.{chunk.page_number}"
         else:
             citation = chunk.file_name
 
-        # Header with source info
+        # Header with source info. `Source:` carries the user-facing display name
+        # (parsed into the citation chip's title); it falls back to the filename
+        # for documents with no display title (project/Büroarchiv uploads).
+        display_title = _hit_display_title(chunk, resolved_titles) or chunk.file_name
+
         lines.append(f"--- Result {i} ---")
-        lines.append(f"Source: {chunk.file_name}")
+        lines.append(f"Source: {display_title}")
         collection = (chunk.metadata or {}).get("collection")
         if collection:
             lines.append(f"Collection: {collection}")
