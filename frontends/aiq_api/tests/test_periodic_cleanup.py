@@ -253,7 +253,7 @@ class TestCleanupOldEventsLoop:
 
         calls = []
 
-        async def mock_run(db_url, retention_seconds, is_postgres):
+        async def mock_run(db_url, retention_seconds, is_postgres, *args):
             calls.append(("run", retention_seconds))
             if len(calls) >= 2:
                 raise asyncio.CancelledError()
@@ -283,7 +283,7 @@ class TestCleanupOldEventsLoop:
 
         call_count = 0
 
-        async def mock_run(db_url, retention_seconds, is_postgres):
+        async def mock_run(db_url, retention_seconds, is_postgres, *args):
             nonlocal call_count
             call_count += 1
             if call_count == 1:

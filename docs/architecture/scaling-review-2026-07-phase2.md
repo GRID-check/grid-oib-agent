@@ -21,15 +21,21 @@ the TTL-cleanup lock — is a cliff).
    `checkpoint_writes`). Per-run byte growth is superlinear (full-state blob per
    changed channel per step). **[LANDED — deep]** `worker.py` now purges a deep
    run's `AIQ_DEEP_CHECKPOINT_DB` rows (`thread_id = job_id`) on non-cancelled
-   completion (`_purge_deep_checkpoint`, tested). **Still open — chat:** the
-   `AIQ_CHECKPOINT_DB` conversation checkpoints have no terminal event and grow
-   with every chat turn across all conversations; they need an **age-based
-   retention reaper** (keep last-K per thread, or drop threads idle > N days),
-   not a completion hook.
+   completion (`_purge_deep_checkpoint`, tested). **[LANDED — chat]** the
+   `AIQ_CHECKPOINT_DB` conversation checkpoints have no terminal event, so a
+   leader-locked **age reaper** (`jobs/checkpoint_retention.py`,
+   `reap_idle_threads`) now drops whole threads idle beyond
+   `GRID_CHAT_CHECKPOINT_RETENTION_SECONDS` (default 14d), using the checkpoint's
+   own `ts` field — no schema change; hourly, one replica per cycle
+   (`pg_try_advisory_xact_lock`). Keep-last-K per hot thread remains a follow-up.
 2. **`job_info` / `job_access` never expire in `db` mode** — NAT's periodic cleanup
-   Dask task is skipped (`routes/jobs.py:1155`) and nothing replaces it; also slows
-   the admission-count query on every submit. *Fix:* a leader-locked scheduled
-   expiry (mirror the ghost-reaper lock).
+   Dask task is skipped (`routes/jobs.py`) and nothing replaced it; also slowed
+   the admission-count query. **[LANDED]** `access.expire_terminal_jobs` now runs
+   inside the existing leader-locked event-cleanup cycle when there is no Dask
+   client (db mode): it marks terminal rows `is_expired` past their per-row
+   expiry (mirroring NAT, keeping the newest finished job) and hard-deletes rows
+   past `GRID_JOB_INFO_DELETE_GRACE_SECONDS` (default 7d) across
+   job_info/job_access/job_events. Tested.
 3. **Per-token `job_events` inserts** (`callbacks.py:759-767`) — one row per streamed
    LLM token. Bounded by the 24h TTL (`event_store.py:649`) but heavy; **[LANDED]**
    `idx_job_events_created_at` so the TTL delete + ghost-reaper scan aren't full-table.
@@ -79,6 +85,11 @@ the TTL-cleanup lock — is a cliff).
   schema-ensure (access.py / event_store.py) — see ADR-0027 for why they live there
   and not in the infra bootstraps.
 - `ingest_jobs` retention (dead `delete()` wired).
+- Deep-run checkpoint purge on completion (`worker._purge_deep_checkpoint`).
+- Chat checkpoint age reaper (`jobs/checkpoint_retention.py`) — leader-locked,
+  hourly, drops idle threads past the retention window.
+- db-mode `job_info`/`job_access` expiry (`access.expire_terminal_jobs`) folded
+  into the leader-locked event-cleanup cycle: mark-past-expiry + hard-delete-past-grace.
 
 ## Shallow / chat path (the interactive, higher-frequency path)
 
