@@ -60,7 +60,16 @@ export function PdfViewerDialog({ open, onOpenChange, fileName, page, title, src
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex h-[85vh] w-[95vw] max-w-5xl flex-col gap-3 p-4 sm:p-5">
+      {/*
+        Near-fullscreen so the document renders large at its own aspect ratio.
+        The `sm:max-w-*` override is load-bearing: the base DialogContent carries
+        `sm:max-w-lg` (32rem), and tailwind-merge keeps it because a plain
+        `max-w-*` sits in a different variant — so at any ≥sm viewport the dialog
+        was silently clamped to 512px, turning it tall-and-narrow and letterboxing
+        wide/landscape drawings (a small page over a large dark void). Setting the
+        `sm:` width here is what actually lets it fill the viewport.
+      */}
+      <DialogContent className="flex h-[90vh] w-[95vw] max-w-[95vw] sm:max-w-[95vw] flex-col gap-3 p-4 sm:p-5">
         <DialogHeader className="shrink-0 pr-8 text-left">
           <DialogTitle className="flex items-center gap-2 text-base">
             {headerChip}
