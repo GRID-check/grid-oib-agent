@@ -438,7 +438,9 @@ describe('ChatThinking', () => {
 
       await expandChain(user)
 
-      expect(screen.getByText('Well supported')).toBeVisible()
+      // Confidence renders through the shared, neutral ConfidenceChip vocabulary
+      // (never the provenance palette) — one confidence display everywhere.
+      expect(screen.getByText('Confidence: high')).toBeVisible()
     })
 
     test('assessment node renders citation chips (deduped by lane)', async () => {

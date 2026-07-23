@@ -230,12 +230,6 @@ export const chat = {
       sourcesTitle: 'Sources examined',
       findingsTab: 'Assessment',
       findingsTitle: 'Backed by',
-      confidenceLabel: 'Confidence',
-      confidence: {
-        high: 'Well supported',
-        medium: 'Partly supported',
-        low: 'Weakly supported',
-      },
       branchesTab: 'Next steps',
       branchesTitle: 'How do you want to proceed?',
       branchesSub: 'Pick one option — the answer is assembled for your choice.',

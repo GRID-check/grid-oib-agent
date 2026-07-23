@@ -218,12 +218,6 @@ export const chat: typeof en.chat = {
       sourcesTitle: 'Geprüfte Quellen',
       findingsTab: 'Einschätzung',
       findingsTitle: 'Belegt durch',
-      confidenceLabel: 'Belegt',
-      confidence: {
-        high: 'Gut belegt',
-        medium: 'Teilweise belegt',
-        low: 'Schwach belegt',
-      },
       branchesTab: 'Folgewege',
       branchesTitle: 'Wie willst du weiter vorgehen?',
       branchesSub: 'Wähle eine Option — das Ergebnis wird für deine Wahl zusammengestellt.',

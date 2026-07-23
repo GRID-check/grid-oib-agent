@@ -22,6 +22,7 @@ import { ChainNode } from './ChainNode'
 import { BranchOptions } from './BranchOptions'
 import { SourceCard } from './SourceCard'
 import { AuthorityTag } from '../AuthorityTag'
+import { ConfidenceChip } from '../ConfidenceChip'
 
 const ENTRANCE =
   'animate-in fade-in-0 slide-in-from-bottom-1 duration-300 ease-out motion-reduce:animate-none'
@@ -128,12 +129,6 @@ export const SourceFanOutNode: FC<SourceFanOutNodeProps> = ({ t, cards, order })
 
 /* ── Node 3: Assessment (confidence + citations) ─────────────────────────── */
 
-const CONFIDENCE_SIGNAL: Record<'low' | 'medium' | 'high', SourceSignal> = {
-  high: 'project',
-  medium: 'office',
-  low: 'auto',
-}
-
 interface CitationChip {
   key: string
   label: string
@@ -177,19 +172,13 @@ export const FindingsNode: FC<FindingsNodeProps> = ({ t, answerConfidence, citat
       order={order}
       maxWidthClassName="max-w-[600px]"
     >
-      {answerConfidence && (
-        <span
-          className="inline-flex h-6 items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium"
-          style={sourceSignalStyle(CONFIDENCE_SIGNAL[answerConfidence])}
-        >
-          <span
-            className="size-1.5 rounded-full"
-            style={{ backgroundColor: `var(--source-${CONFIDENCE_SIGNAL[answerConfidence]})` }}
-            aria-hidden="true"
-          />
-          {t(`thinking.node.confidence.${answerConfidence}`)}
-        </span>
-      )}
+      {/* Confidence is a MODEL self-assessment, not provenance — it must never
+          borrow the --source-* palette (green/gold/blue mean "where this came
+          from"). Render it in the neutral ConfidenceChip vocabulary shared with
+          the answer footer, so confidence reads one way everywhere and the
+          provenance colors stay reserved for real citations (design language
+          §Principles/2: color never travels outside its meaning). */}
+      {answerConfidence && <ConfidenceChip confidence={answerConfidence} />}
       {shown.length > 0 && (
         <div className={answerConfidence ? 'mt-3' : ''}>
           <div className="mb-1.5 text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">

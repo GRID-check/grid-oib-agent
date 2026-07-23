@@ -280,7 +280,7 @@ const FileChip: FC<{
       {isPending ? (
         <Loader2 className="text-muted-foreground size-3 shrink-0 animate-spin" aria-hidden="true" />
       ) : isFailed ? (
-        <span className="bg-error size-2 shrink-0 rounded-full" aria-hidden="true" />
+        <span className="bg-danger size-2 shrink-0 rounded-full" aria-hidden="true" />
       ) : (
         <Check className="text-status-active size-3 shrink-0" aria-hidden="true" />
       )}
