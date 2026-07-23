@@ -114,3 +114,15 @@ def test_reap_exhausted_deletes_rows(db_url):
     with queue._connection(db_url) as conn:
         remaining = conn.execute(text("SELECT count(*) FROM research_job_queue")).scalar()
     assert remaining == 0  # exhausted rows are removed, not left as 'failed'
+
+
+def test_reap_exhausted_leader_lock_id_is_distinct():
+    """The worker reap lock must not collide with the web-tier reaper/cleanup or
+    checkpoint locks — a shared id would make two unrelated reapers mutually
+    exclude each other across replicas."""
+    from aiq_api.jobs.checkpoint_retention import _PG_CHECKPOINT_LOCK_ID
+    from aiq_api.routes.jobs import _PG_ADVISORY_LOCK_ID
+    from aiq_api.routes.jobs import _PG_REAPER_LOCK_ID
+
+    others = {_PG_ADVISORY_LOCK_ID, _PG_REAPER_LOCK_ID, _PG_CHECKPOINT_LOCK_ID}
+    assert queue._PG_REAP_EXHAUSTED_LOCK_ID not in others

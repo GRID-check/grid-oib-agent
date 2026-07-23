@@ -35,6 +35,13 @@ _queue_schema_initialized: set[str] = set()
 QUEUED = "queued"
 CLAIMED = "claimed"
 
+# Transaction-level advisory lock so only ONE worker replica runs the
+# exhausted-claim reap per cycle. Without it every worker ran the scan+delete on
+# every poll tick, so DB load scaled with replica count, not job volume
+# (scaling review phase-2, item 12). Distinct from the web-tier reaper/cleanup
+# lock ids in routes/jobs.py. "AIQRXHS" in hex.
+_PG_REAP_EXHAUSTED_LOCK_ID = 0x41495152_58485300
+
 
 def _is_postgres(db_url: str) -> bool:
     return db_url.startswith("postgres")
@@ -221,6 +228,15 @@ def reap_exhausted(db_url: str, stale_seconds: int, max_attempts: int) -> list[s
         params = {"threshold": threshold, "max_attempts": max_attempts}
     with _connection(db_url) as conn:
         _ensure_schema(conn, db_url)
+        # Leader-elect per cycle: on Postgres a single replica holds the xact lock
+        # and reaps; the rest skip the scan entirely (the lock auto-releases at
+        # commit/close). SQLite (dev, single process) needs no lock.
+        if _is_postgres(db_url):
+            locked = conn.execute(
+                text("SELECT pg_try_advisory_xact_lock(:id)"), {"id": _PG_REAP_EXHAUSTED_LOCK_ID}
+            ).scalar()
+            if not locked:
+                return []
         rows = (
             conn.execute(
                 text(
