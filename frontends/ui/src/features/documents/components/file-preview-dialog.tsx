@@ -2,6 +2,7 @@
 
 import { useEffect, type ReactNode } from 'react'
 import { useTranslations } from '@/i18n'
+import { useBodyScrollLock } from '@/shared/hooks/use-body-scroll-lock'
 import type { FileItem } from './project-file-workspace'
 import { FilePreviewPane } from './file-preview-pane'
 
@@ -41,6 +42,10 @@ export function FilePreviewDialog({
 }: FilePreviewDialogProps) {
   const t = useTranslations('files')
 
+  // Lock background page scroll while the dialog is open — otherwise the page
+  // scrolls behind the hand-rolled `fixed inset-0` overlay on mobile touch.
+  useBodyScrollLock(!!file)
+
   // Escape closes the dialog (a11y — the hand-rolled modal must honor Escape the
   // way a native dialog would).
   useEffect(() => {
@@ -59,11 +64,17 @@ export function FilePreviewDialog({
       role="dialog"
       aria-modal
       aria-label={t('preview.dialogLabel', { name: file.filename })}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 pt-[max(1rem,env(safe-area-inset-top))] md:p-10"
+      className="fixed inset-0 z-50 flex items-stretch justify-center bg-black/45 sm:items-center sm:p-6 md:p-10"
       onClick={onClose}
     >
+      {/*
+        Definite height, not `max-h-full` — the pane needs a bounded panel so its
+        scroll chain (body + both metadata/preview columns) has something to bite
+        against. Mobile: a full-screen sheet (`100dvh`, square corners). Desktop
+        (sm+): a centered card capped at 85vh / 960px wide.
+      */}
       <div
-        className="flex max-h-full w-full max-w-[920px] flex-col overflow-hidden rounded-xl border bg-card shadow-2xl"
+        className="flex h-[100dvh] w-full flex-col overflow-hidden border bg-card shadow-2xl sm:h-[85vh] sm:max-w-[960px] sm:rounded-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <FilePreviewPane
