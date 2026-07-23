@@ -3,6 +3,7 @@
 import { type FC, type ReactNode, useState } from 'react'
 import { AlertTriangle, type LucideIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 import {
   Dialog,
   DialogClose,
@@ -84,7 +85,12 @@ export const ConfirmDialog: FC<ConfirmDialogProps> = ({
   // default is a neutral ink confirm.
   const confirmVariant = tone === 'default' ? 'default' : 'destructive'
   const Icon = icon === null ? null : (icon ?? (tone === 'default' ? null : AlertTriangle))
-  const iconClass = tone === 'warning' ? 'text-warning' : 'text-destructive'
+  // The icon sits in a soft tinted disc (Linear/Apple confirm pattern) so the
+  // dialog reads as a considered object, not a bare glyph + text.
+  const tintClass =
+    tone === 'warning'
+      ? 'bg-warning-subtle text-warning'
+      : 'bg-danger-subtle text-destructive'
 
   const handleOpenChange = (next: boolean) => {
     if (pending) return // never close mid-flight
@@ -112,13 +118,22 @@ export const ConfirmDialog: FC<ConfirmDialogProps> = ({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            {Icon && <Icon className={`h-5 w-5 ${iconClass}`} aria-hidden="true" />}
-            <span>{title}</span>
-          </DialogTitle>
-          {description && <DialogDescription>{description}</DialogDescription>}
+          <div className="flex items-start gap-3.5">
+            {Icon && (
+              <span
+                className={cn('mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-full', tintClass)}
+                aria-hidden="true"
+              >
+                <Icon className="size-[18px]" />
+              </span>
+            )}
+            <div className="min-w-0 flex-1 space-y-1.5">
+              <DialogTitle className="text-base leading-snug">{title}</DialogTitle>
+              {description && <DialogDescription>{description}</DialogDescription>}
+              {children && <div className="text-sm text-muted-foreground">{children}</div>}
+            </div>
+          </div>
         </DialogHeader>
-        {children}
         <DialogFooter>
           <DialogClose asChild>
             <Button variant="ghost" disabled={pending}>

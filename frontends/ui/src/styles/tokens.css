@@ -89,18 +89,24 @@
 
   --radius: 0.75rem; /* 12px — inside the dummy's 7–14px range */
 
-  /* ---- elevation (layered, soft — dummy's raised/card/popover shadows) ---- */
+  /* ---- elevation (Apple-style layered depth: a tight contact shadow + a mid
+     lift + a soft ambient spread, all low-opacity so paper stays calm) ---- */
   --shadow-hairline: 0 0 0 1px color-mix(in oklch, var(--ink-border) 6%, transparent);
-  --elevation-xs: 0 1px 2px color-mix(in oklch, var(--ink-border) 5%, transparent); /* raised chip/button */
+  --elevation-xs:
+    0 1px 1px color-mix(in oklch, var(--ink-border) 6%, transparent),
+    0 1px 3px color-mix(in oklch, var(--ink-border) 4%, transparent); /* raised chip/button */
   --elevation-sm:
-    0 1px 2px color-mix(in oklch, var(--ink-border) 4%, transparent),
-    0 3px 10px color-mix(in oklch, var(--ink-border) 4%, transparent); /* card */
+    0 1px 1px color-mix(in oklch, var(--ink-border) 5%, transparent),
+    0 2px 5px color-mix(in oklch, var(--ink-border) 4%, transparent),
+    0 6px 16px color-mix(in oklch, var(--ink-border) 5%, transparent); /* card */
   --elevation-md:
-    0 2px 6px color-mix(in oklch, var(--ink-border) 5%, transparent),
-    0 12px 32px color-mix(in oklch, var(--ink-border) 8%, transparent); /* popover */
+    0 1px 2px color-mix(in oklch, var(--ink-border) 5%, transparent),
+    0 4px 10px color-mix(in oklch, var(--ink-border) 5%, transparent),
+    0 16px 40px color-mix(in oklch, var(--ink-border) 8%, transparent); /* popover */
   --elevation-lg:
-    0 4px 12px color-mix(in oklch, var(--ink-border) 6%, transparent),
-    0 28px 72px color-mix(in oklch, var(--ink-border) 13%, transparent); /* modal */
+    0 2px 4px color-mix(in oklch, var(--ink-border) 5%, transparent),
+    0 10px 24px color-mix(in oklch, var(--ink-border) 7%, transparent),
+    0 32px 80px color-mix(in oklch, var(--ink-border) 12%, transparent); /* modal */
 
   /* ---- legacy semantic vars (light) — same palette, KUI names ---- */
   --text-color-primary: var(--ink); /* #1f2023 */
@@ -196,18 +202,23 @@
   --ring: color-mix(in oklch, var(--foreground) 60%, transparent); /* paper-based focus ring */
   --overlay: color-mix(in oklch, var(--background) 92%, transparent); /* deeper scrim for dark surfaces */
 
-  /* ---- elevation (dark: deeper, still soft) ---- */
+  /* ---- elevation (dark: same layered stack, deeper) ---- */
   --shadow-hairline: 0 0 0 1px color-mix(in oklch, var(--foreground) 6%, transparent);
-  --elevation-xs: 0 1px 2px oklch(0 0 0 / 30%);
+  --elevation-xs:
+    0 1px 1px oklch(0 0 0 / 40%),
+    0 1px 3px oklch(0 0 0 / 30%);
   --elevation-sm:
-    0 1px 2px oklch(0 0 0 / 28%),
-    0 3px 10px oklch(0 0 0 / 22%);
+    0 1px 1px oklch(0 0 0 / 34%),
+    0 2px 5px oklch(0 0 0 / 26%),
+    0 6px 16px oklch(0 0 0 / 30%);
   --elevation-md:
-    0 2px 6px oklch(0 0 0 / 30%),
-    0 12px 32px oklch(0 0 0 / 36%);
+    0 1px 2px oklch(0 0 0 / 34%),
+    0 4px 10px oklch(0 0 0 / 32%),
+    0 16px 40px oklch(0 0 0 / 40%);
   --elevation-lg:
-    0 4px 12px oklch(0 0 0 / 34%),
-    0 28px 72px oklch(0 0 0 / 46%);
+    0 2px 4px oklch(0 0 0 / 36%),
+    0 10px 24px oklch(0 0 0 / 40%),
+    0 32px 80px oklch(0 0 0 / 50%);
 
   /* ---- legacy semantic vars (dark) ---- */
   --text-color-primary: oklch(0.958 0.004 91.4);
