@@ -475,8 +475,9 @@ class ChatDeepResearcherConfig(FunctionBaseConfig, name="chat_deepresearcher_age
     """Configuration for the chat deep researcher orchestrator agent."""
 
     enable_escalation: bool = Field(default=False, description="Enable escalation from shallow to deep research")
-    max_history: int = Field(
-        default=20, description="Maximum number of messages to keep in history before invoking the agent"
+    max_history_tokens: int = Field(
+        default=8000,
+        description="Maximum number of tokens of chat history to keep before invoking the agent",
     )
     verbose: bool = Field(default=False, description="Enable verbose logging")
     enable_clarifier: bool = Field(default=False, description="Enable clarification of research queries")
@@ -700,7 +701,7 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         enable_clarifier=config.enable_clarifier,
         enable_escalation=config.enable_escalation,
         callbacks=callbacks,
-        max_history=config.max_history,
+        max_history_tokens=config.max_history_tokens,
         deep_research_job_submitter=deep_research_job_submitter,
         checkpointer=checkpointer,
         validate_deep_research_tools_fn=validate_deep_research_tools,

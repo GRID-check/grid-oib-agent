@@ -276,7 +276,7 @@ class ChatResearcherAgent:
         enable_clarifier: bool = True,
         enable_escalation: bool = True,
         callbacks: list[BaseCallbackHandler] | None = None,
-        max_history: int = 5,
+        max_history_tokens: int = 8000,
         deep_research_job_submitter: Callable[[Any], Awaitable[str]] | None = None,
         checkpointer: BaseCheckpointSaver | None = None,
         validate_deep_research_tools_fn: Callable[[list[str] | None], tuple[bool, str]] | None = None,
@@ -292,7 +292,7 @@ class ChatResearcherAgent:
             enable_clarifier: Whether to enable clarification
             enable_escalation: Whether to escalate shallow to deep on low confidence
             callbacks: Optional list of callback handlers
-            max_history: Maximum number of messages to keep in history
+            max_history_tokens: Maximum number of tokens of history to keep
             deep_research_job_submitter: Optional function to submit deep research as async job
             checkpointer: Optional checkpointer for persistent state (defaults to MemorySaver)
 
@@ -306,7 +306,7 @@ class ChatResearcherAgent:
         self.enable_clarifier = enable_clarifier
         self.enable_escalation = enable_escalation
         self.callbacks = callbacks or []
-        self.max_history = max_history
+        self.max_history_tokens = max_history_tokens
         self.deep_research_job_submitter = deep_research_job_submitter
         self.checkpointer = checkpointer
         self.validate_deep_research_tools_fn = validate_deep_research_tools_fn
@@ -375,7 +375,7 @@ class ChatResearcherAgent:
                         "enable_clarifier is True but clarifier_agent is not defined in config. "
                         "Either add clarifier_agent to functions or set enable_clarifier: false."
                     )
-                trimmed_messages: list[BaseMessage] = trim_message_history(state.messages, self.max_history)
+                trimmed_messages: list[BaseMessage] = trim_message_history(state.messages, self.max_history_tokens)
                 available_docs = [doc.model_dump() for doc in (state.available_documents or [])]
                 clarifier_state = ClarifierAgentState(
                     messages=trimmed_messages,
@@ -420,7 +420,7 @@ class ChatResearcherAgent:
             )
 
         async def shallow_research_node(state: ChatResearcherState) -> dict[str, Any]:
-            trimmed_messages: list[BaseMessage] = trim_message_history(state.messages, self.max_history)
+            trimmed_messages: list[BaseMessage] = trim_message_history(state.messages, self.max_history_tokens)
 
             logger.debug(
                 "shallow_research_node: ChatResearcherState.available_documents = %s",
@@ -568,7 +568,7 @@ class ChatResearcherAgent:
             return {"messages": [], "shallow_result": None}
 
         async def deep_research_node(state: ChatResearcherState) -> dict[str, Any]:
-            trimmed_messages: list[BaseMessage] = trim_message_history(state.messages, self.max_history)
+            trimmed_messages: list[BaseMessage] = trim_message_history(state.messages, self.max_history_tokens)
             if self.deep_research_job_submitter is not None:
                 try:
                     job_id = await self.deep_research_job_submitter(state)
