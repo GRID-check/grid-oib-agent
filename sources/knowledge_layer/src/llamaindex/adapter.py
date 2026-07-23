@@ -2015,15 +2015,25 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             )
 
             if not results["ids"]:
-                # Try matching with tmp prefix pattern (same as foundational_rag)
-                # Python's tempfile uses 8 random characters: tmp[8chars]_filename
-                tmp_pattern = re.compile(rf"^tmp.{{8}}_{re.escape(file_name)}$")
+                # The stored file_name metadata can diverge from the requested
+                # name in two ways, so normalise both before comparing:
+                #   1. a temp-upload prefix — Python's tempfile uses 8 random
+                #      chars: tmp[8chars]_filename (same as foundational_rag);
+                #   2. percent-encoding — when the name was derived from a
+                #      presigned-URL path at ingest time (a space/umlaut was
+                #      stored as %20/%C3%…). URL-decoding both sides lets a
+                #      document ingested under an encoded name still be deleted
+                #      by its real, decoded filename.
+                from urllib.parse import unquote
+
+                tmp_prefix = re.compile(r"^tmp.{8}_")
                 all_results = collection.get(include=["metadatas"])
-                matching_ids = [
-                    all_results["ids"][i]
-                    for i, meta in enumerate(all_results.get("metadatas", []))
-                    if tmp_pattern.match(meta.get("file_name", ""))
-                ]
+                matching_ids = []
+                for i, meta in enumerate(all_results.get("metadatas", [])):
+                    stored = meta.get("file_name", "") or ""
+                    stripped = tmp_prefix.sub("", stored)
+                    if file_name in (stripped, unquote(stripped)):
+                        matching_ids.append(all_results["ids"][i])
                 if not matching_ids:
                     if not tracking_ids_to_remove:
                         logger.warning(f"No chunks found for file_name={file_name}")

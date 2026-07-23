@@ -118,7 +118,10 @@ def derive_routing_decision(
     intent = getattr(user_intent, "intent", None)
     if intent == "error":
         return "error"
-    if intent == "meta":
+    # An out-of-scope turn is a fixed conversational redirect (no agent ran), so
+    # it surfaces as a "meta"/direct-answer route for transparency — the frontend
+    # already renders `meta` as "Direktantwort", which is exactly what it is.
+    if intent in ("meta", "out_of_scope"):
         return "meta"
     if intent is None:
         return None
@@ -639,6 +642,12 @@ class ChatResearcherAgent:
             shallow AND meta/conversational turns) -> shallow agent, which owns
             the persona and the `remember` tool."""
             if state.user_intent and state.user_intent.intent == "error":
+                return "END"
+            # Out-of-scope turns are answered by the classifier's fixed redirect
+            # message (already in state) and end immediately — no answering agent
+            # runs, so a greeting/off-topic question never spins up the shallow
+            # (research) agent or a source lookup.
+            if state.user_intent and state.user_intent.intent == "out_of_scope":
                 return "END"
             # Meta/conversational turns (greetings, capability questions AND
             # memory/`remember` requests) are owned by the shallow agent and must

@@ -429,7 +429,8 @@ class TestShallowResearcherAgent:
         """requires_sources=False renders a deterministic suppression note and no marker mandate."""
         rendered = self._render_default_prompt(mock_llm_provider, real_tool, requires_sources=False)
 
-        assert "classified as conversational / meta" in rendered
+        assert "<turn_classification>" in rendered
+        assert "NOT a research turn" in rendered
         # The marker-mandate blocks are omitted on meta turns.
         assert "<insufficient_answer_marker>" not in rendered
         assert "<confidence_marker>" not in rendered
@@ -1793,3 +1794,119 @@ class TestShallowResearcherQuoteVerification:
     def test_state_defaults_quotes_verified_true(self):
         state = ShallowResearchAgentState(messages=[HumanMessage(content="hi")])
         assert state.answer_quotes_verified is True
+
+
+class TestShallowClarificationGuidance:
+    """The shallow agent must be told to push back on under-specified queries —
+    in shallow mode too, and independent of whether project_context is present.
+
+    Regression: the only Rueckfrage/pushback guidance lived INSIDE the
+    ``{% if project_context %}`` block, so a shallow turn with no project brief
+    got zero clarification guidance and always answered straight through.
+    """
+
+    def _render(self, *, requires_sources: bool, project_context):
+        from pathlib import Path
+
+        from aiq_agent.agents.shallow_researcher import agent as shallow_agent
+        from aiq_agent.common import load_prompt
+        from aiq_agent.common import render_prompt_template
+
+        prompt = load_prompt(
+            Path(shallow_agent.__file__).parent / "prompts",
+            "researcher",
+        )
+        return render_prompt_template(
+            prompt,
+            tools=[{"name": "knowledge_search"}],
+            user_info={"name": "Alex", "email": "a@example.com"},
+            current_datetime="2026-07-23",
+            available_documents=[],
+            project_context=project_context,
+            ris_catalog=None,
+            norm_doctrine=None,
+            parcel_note=None,
+            requires_sources=requires_sources,
+        )
+
+    def test_clarification_guidance_present_on_research_turn_without_project_context(self):
+        """A research turn (requires_sources=True) with NO project context still
+        gets the push-back guidance — the core regression."""
+        rendered = self._render(requires_sources=True, project_context=None)
+        assert "<clarification>" in rendered
+        assert "Folgefrage" in rendered
+        # It must explicitly extend push-back to the shallow/quick path.
+        lowered = rendered.lower()
+        assert "shallow" in lowered
+        # And it must teach the "state your assumption" alternative, not only asking.
+        assert "assumption" in lowered
+
+    def test_clarification_guidance_present_with_project_context_too(self):
+        rendered = self._render(requires_sources=True, project_context="facts:\n  bundesland: unknown")
+        assert "<clarification>" in rendered
+        assert "Folgefrage" in rendered
+
+    def test_clarification_guidance_suppressed_on_meta_turn(self):
+        """Meta/conversational turns (requires_sources=False) answer/redirect
+        directly and must NOT carry the research push-back block."""
+        rendered = self._render(requires_sources=False, project_context=None)
+        assert "<clarification>" not in rendered
+
+
+class TestOffTopicDeclineShape:
+    """Out-of-scope questions route to the assistant as `meta`, but the assistant
+    must DECLINE + redirect them — not answer them from its own knowledge.
+
+    Regression: the meta output shape said "answer from your own knowledge", so a
+    clearly off-topic question (e.g. "how do I bake a cake") classified `meta`
+    risked getting a cheerful full answer. The contract now carves out an
+    explicit off-topic decline shape.
+    """
+
+    def _render_meta(self):
+        from pathlib import Path
+
+        from aiq_agent.agents.shallow_researcher import agent as shallow_agent
+        from aiq_agent.common import load_prompt
+        from aiq_agent.common import render_prompt_template
+
+        prompt = load_prompt(Path(shallow_agent.__file__).parent / "prompts", "researcher")
+        # requires_sources=False is the meta/off-topic (non-research) turn.
+        return render_prompt_template(
+            prompt,
+            tools=[],
+            user_info={"name": "Alex", "email": "a@example.com"},
+            current_datetime="2026-07-23",
+            available_documents=[],
+            project_context=None,
+            ris_catalog=None,
+            norm_doctrine=None,
+            parcel_note=None,
+            requires_sources=False,
+        )
+
+    def test_contract_has_explicit_off_topic_decline_shape(self):
+        rendered = self._render_meta()
+        assert "Off-topic / out-of-scope turn" in rendered
+        # The decisive instruction: do not answer, decline + redirect.
+        assert "Do NOT answer" in rendered
+        lowered = rendered.lower()
+        assert "decline" in lowered and "redirect" in lowered
+        # A worked off-topic decline example is present to anchor the behavior.
+        assert 'type="off_topic"' in rendered
+
+    def test_in_scope_conversational_shape_still_answers(self):
+        """Guard against over-correction: genuine conversational/platform turns
+        (greetings, capability questions) are still answered directly."""
+        rendered = self._render_meta()
+        assert "in-scope meta turn" in rendered
+        # The capability example that DOES answer is retained.
+        assert 'type="meta"' in rendered
+
+    def test_non_research_turn_classification_points_at_both_shapes(self):
+        """The requires_sources=False banner must not blanket-say 'reply
+        directly' (which pushed toward answering off-topic questions)."""
+        rendered = self._render_meta()
+        banner = rendered.split("<turn_classification>")[1].split("</turn_classification>")[0]
+        assert "off-topic" in banner.lower()
+        assert "decline" in banner.lower()

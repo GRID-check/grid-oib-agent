@@ -224,6 +224,51 @@ class TestIntentClassifier:
         meta_bullet = next(line for line in classifier.prompt.splitlines() if '**intent = "meta"**' in line)
         assert "project profile" in meta_bullet
 
+    def test_default_prompt_has_out_of_scope_bucket(self, mock_llm):
+        """Out-of-scope queries are their OWN intent, distinct from meta.
+
+        Regression: "how do I bake a cake" matched no meta sub-bucket and the
+        old tie-break ("mixed or unclear intent -> research") routed it to a
+        research lookup. It is now `out_of_scope` — a fixed redirect that runs no
+        answering agent — kept separate from `meta` (which is only turns about
+        Grid or the interaction itself).
+        """
+        classifier = IntentClassifier(llm=mock_llm)
+        prompt = classifier.prompt
+        # A dedicated out_of_scope intent bucket exists in the taxonomy.
+        assert '**intent = "out_of_scope"**' in prompt
+        # It is presented as a distinct JSON option, not folded into meta.
+        assert '"intent": "meta" | "research" | "out_of_scope"' in prompt
+        # The tie-break prefers research over out_of_scope when in-domain is
+        # unclear (guards against over-triggering the redirect).
+        tie_break_line = next(line for line in prompt.splitlines() if "Tie-breaks" in line)
+        assert "out_of_scope" in tie_break_line
+        assert 'prefer "research"' in tie_break_line
+
+    @pytest.mark.asyncio
+    async def test_out_of_scope_emits_canned_redirect_and_no_depth(self, mock_llm):
+        """An out_of_scope classification short-circuits: the fixed redirect
+        message is emitted here and NO answering agent runs (no depth_decision,
+        so routing has nothing to send to shallow/deep)."""
+        mock_response = MagicMock()
+        mock_response.content = '{"intent":"out_of_scope","research_depth":null,"depth_reasoning":null}'
+        mock_llm.ainvoke = AsyncMock(return_value=mock_response)
+
+        classifier = IntentClassifier(llm=mock_llm)
+        state = ChatResearcherState(messages=[HumanMessage(content="How do I bake a cake?")])
+        result = await classifier.run(state)
+
+        assert result["user_intent"].intent == "out_of_scope"
+        # The classifier authored the redirect itself (like the error path).
+        assert "messages" in result
+        assert len(result["messages"]) == 1
+        assert isinstance(result["messages"][0], AIMessage)
+        # No depth decision is produced — nothing for the router to escalate.
+        assert "depth_decision" not in result
+        # The redirect names the domain and does not answer the off-topic question.
+        content = result["messages"][0].content
+        assert "Fachgebiet" in content or "outside my area" in content
+
 
 class _BindSpyChatModel(FakeMessagesListChatModel):
     """Fake chat model that records the kwargs passed to bind()."""
@@ -366,7 +411,11 @@ class TestIntentClassifierRobustness:
         assert len(_BindSpyChatModel.bind_kwargs) == 1
         response_format = _BindSpyChatModel.bind_kwargs[0]["response_format"]
         assert response_format["type"] == "json_schema"
-        assert response_format["json_schema"]["schema"]["properties"]["intent"]["enum"] == ["meta", "research"]
+        assert response_format["json_schema"]["schema"]["properties"]["intent"]["enum"] == [
+            "meta",
+            "research",
+            "out_of_scope",
+        ]
 
     @pytest.mark.asyncio
     async def test_structured_output_rejection_falls_back_to_plain_call(self):

@@ -2,6 +2,7 @@ import { describe, test, expect } from 'vitest'
 import {
   citationSnippet,
   deriveAnswerSources,
+  oibDocumentKey,
   parseKbLocator,
   resolveCitationTarget,
   type ProjectDocumentRef,
@@ -170,6 +171,78 @@ describe('deriveAnswerSources', () => {
 
     expect(ref.citation).toBeUndefined()
     expect(ref.snippet).toBe('Der zweite Fluchtweg ist …')
+  })
+
+  test('collapses a KB citation and a legal_basis card for the SAME OIB document into one chip', () => {
+    // The exact reported bug: one document reaching the row via both streams —
+    // the KB citation (filename identity) and the legal_basis card (law name).
+    const citations = [
+      citation({
+        id: 'c-1',
+        url: undefined,
+        content: '[KB] oib-rl_2_ausgabe_mai_2023.pdf, p.5',
+        fileName: 'oib-rl_2_ausgabe_mai_2023.pdf',
+        title: 'OIB-Richtlinie 2, Ausgabe Mai 2023',
+        kind: 'baurecht',
+        lane: 'baurecht_oib',
+        isCited: true,
+      }),
+    ]
+    const cards = [
+      { type: 'legal_basis', law: 'OIB-Richtlinie 2 Ausgabe Mai 2023', section: 'Pkt. 3.1' },
+    ] as GridCard[]
+
+    const sources = deriveAnswerSources(citations, cards)
+
+    expect(sources).toHaveLength(1)
+    // The surviving chip is the citation — it shows the display name (never the
+    // raw filename) and stays openable to the real PDF.
+    expect(sources[0].label).toBe('OIB-Richtlinie 2, Ausgabe Mai 2023')
+    expect(sources[0].citation?.fileName).toBe('oib-rl_2_ausgabe_mai_2023.pdf')
+  })
+
+  test('keeps a legal_basis card that names a DIFFERENT OIB document than the citation', () => {
+    const citations = [
+      citation({
+        id: 'c-1',
+        url: undefined,
+        content: '[KB] oib-rl_2_ausgabe_mai_2023.pdf, p.5',
+        fileName: 'oib-rl_2_ausgabe_mai_2023.pdf',
+        kind: 'baurecht',
+        lane: 'baurecht_oib',
+        isCited: true,
+      }),
+    ]
+    // A Leitfaden is a distinct document from the Richtlinie → two chips.
+    const cards = [{ type: 'legal_basis', law: 'OIB-Richtlinie 2 Leitfaden' }] as GridCard[]
+
+    expect(deriveAnswerSources(citations, cards)).toHaveLength(2)
+  })
+})
+
+describe('oibDocumentKey', () => {
+  test('maps a filename and a human law label to the same canonical identity', () => {
+    expect(oibDocumentKey('oib-rl_2_ausgabe_mai_2023.pdf')).toBe('oib:2')
+    expect(oibDocumentKey('OIB-Richtlinie 2, Ausgabe Mai 2023')).toBe('oib:2')
+    expect(oibDocumentKey('OIB RL 2')).toBe('oib:2')
+  })
+
+  test('distinguishes Richtlinie, Leitfaden, sub-numbers, and roles', () => {
+    expect(oibDocumentKey('oib-rl_2.3_ausgabe_mai_2023.pdf')).toBe('oib:2.3')
+    expect(oibDocumentKey('oib-rl_2_leitfaden_ausgabe_mai_2023.pdf')).toBe('oib:2:lf')
+    expect(oibDocumentKey('erlaeuterungen_oib-rl_2_ausgabe_mai_2023.pdf')).toBe('oib:erl:2')
+    expect(oibDocumentKey('oib-rl_begriffsbestimmungen_ausgabe_mai_2023.pdf')).toBe('oib:begriffe')
+  })
+
+  test('does not grab the edition year as the number', () => {
+    expect(oibDocumentKey('OIB-Richtlinie 6, Ausgabe Mai 2023')).toBe('oib:6')
+  })
+
+  test('returns null for non-OIB names so their own identity is used', () => {
+    expect(oibDocumentKey('Brandschutzkonzept_v3.pdf')).toBeNull()
+    expect(oibDocumentKey('BO Wien §111')).toBeNull()
+    expect(oibDocumentKey('')).toBeNull()
+    expect(oibDocumentKey(undefined)).toBeNull()
   })
 })
 

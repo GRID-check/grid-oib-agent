@@ -6,7 +6,7 @@
 -- idempotent (IF NOT EXISTS) so re-runs are safe.
 --
 -- Databases:
---   - aiq_jobs         (job metadata, events, document summaries)
+--   - aiq_jobs         (job metadata, events, document metadata)
 --   - aiq_checkpoints  (LangGraph conversation state)
 --   - grid_app         (Next.js BFF application state)
 --
@@ -14,7 +14,8 @@
 --   - job_info      — NAT JobStore metadata (status, timestamps, expiry)
 --   - job_access    — AIQ-owned job ownership/access control metadata
 --   - job_events    — SSE streaming events and job event persistence
---   - summaries     — Document summaries (collection + filename keyed)
+--   - document_metadata — Per-document metadata: summary, tags, doc_class,
+--                     display_title (collection + filename keyed; was `summaries`)
 --
 -- Tables in aiq_checkpoints:
 --   - checkpoints           — LangGraph conversation checkpoints
@@ -79,8 +80,12 @@ CREATE TABLE IF NOT EXISTS job_events (
 CREATE INDEX IF NOT EXISTS idx_job_events_job_id ON job_events(job_id);
 CREATE INDEX IF NOT EXISTS idx_job_events_job_id_id ON job_events(job_id, id);
 
--- Document summaries table
-CREATE TABLE IF NOT EXISTS summaries (
+-- Per-document metadata table (summary + tags + doc_class + display_title).
+-- Formerly named `summaries`; existing deployments are renamed in place at
+-- runtime by DocumentMetadataStore (ALTER TABLE ... RENAME), preserving rows.
+-- Only the summary column is created here; the optional columns are added by the
+-- store's in-place migration on first access (always exercised on a live DB).
+CREATE TABLE IF NOT EXISTS document_metadata (
     collection VARCHAR(256) NOT NULL,
     filename VARCHAR(512) NOT NULL,
     summary TEXT NOT NULL,
@@ -88,7 +93,7 @@ CREATE TABLE IF NOT EXISTS summaries (
     PRIMARY KEY (collection, filename)
 );
 
-CREATE INDEX IF NOT EXISTS idx_summaries_collection ON summaries(collection);
+CREATE INDEX IF NOT EXISTS idx_document_metadata_collection ON document_metadata(collection);
 
 -- =============================================================================
 -- Create LangGraph checkpoint tables in aiq_checkpoints database

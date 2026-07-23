@@ -63,6 +63,43 @@ export interface AnswerSourceRef {
 /** Max chips rendered under one answer — keep the row a summary, not a dump. */
 const MAX_ANSWER_SOURCES = 8
 
+/**
+ * Canonical identity for an OIB base-corpus document, derived PURELY from either
+ * its filename (`oib-rl_2_ausgabe_mai_2023.pdf`) or a human law label
+ * (`OIB-Richtlinie 2, Ausgabe Mai 2023`, `OIB RL 2 Leitfaden`, `OIB 2.3`).
+ *
+ * This is the shared key that collapses the two provenance streams — a KB
+ * citation and a `legal_basis` card that name the SAME Richtlinie — into one
+ * chip. It intentionally ignores the edition and any section/paragraph, since
+ * those do not change WHICH document is being cited. Returns `null` for anything
+ * that is not recognisably an OIB document, so non-OIB sources keep their own
+ * (filename/url/label) dedup identity untouched.
+ *
+ * Mirrors the backend filename convention (norm_registry.oib_doc_class /
+ * guess_display_title) but only needs to produce a stable key, not a name.
+ */
+const OIB_NUMBER_RE = /(?:oib[\s._-]*(?:rl|richtlinie)?|richtlinie)[\s._-]*(\d+(?:\.\d+)?)/i
+
+export const oibDocumentKey = (nameOrLabel: string | undefined | null): string | null => {
+  const raw = (nameOrLabel ?? '').trim().toLowerCase()
+  if (!raw || !/(oib|richtlinie)/.test(raw)) return null
+
+  const role = /erl[aä]uterung|erlaeuterung/.test(raw)
+    ? 'erl'
+    : /[äa]nderung|aenderung/.test(raw)
+      ? 'aen'
+      : ''
+  const leitfaden = /leitfaden/.test(raw) ? 'lf' : ''
+
+  let subject: string | null = null
+  if (/begriffsbestimmung/.test(raw)) subject = 'begriffe'
+  else if (/zitierte/.test(raw) && /normen/.test(raw)) subject = 'zitnormen'
+  else subject = OIB_NUMBER_RE.exec(raw)?.[1] ?? null
+
+  if (!subject) return null
+  return ['oib', role, subject, leitfaden].filter(Boolean).join(':')
+}
+
 /** Leading backend origin token, e.g. "[RIS] …" (citation_verification). */
 const ORIGIN_TOKEN_RE = /^\s*\[(KB|Web|RIS)\]\s*/i
 
@@ -152,7 +189,11 @@ export const deriveAnswerSources = (
         : kind === 'ris'
           ? 'RIS'
           : undefined
+      // Prefer the canonical OIB document identity so a KB citation and a
+      // legal_basis card naming the same Richtlinie collapse to one chip; fall
+      // back to the filename/url identity for everything else.
       const dedupe =
+        oibDocumentKey(citation.fileName || citation.citationKey || citation.title) ||
         citation.citationKey ||
         citation.fileName ||
         citation.url ||
@@ -182,10 +223,11 @@ export const deriveAnswerSources = (
       // legal_basis cards name the building-law grounding → the Baurecht (law)
       // family; tag OIB vs. RIS from the cited law's name.
       const authority = /oib/i.test(label) ? 'OIB' : 'RIS'
-      push(
-        { key: `legal-${label}`, label, kind: 'ris', signal: 'law', authority, snippet },
-        `legal-${label}`
-      )
+      // Dedup on the canonical OIB identity so a card that names the same
+      // Richtlinie as an already-listed KB citation does not add a second chip;
+      // non-OIB legal bases keep their own `legal-<label>` identity.
+      const dedupe = oibDocumentKey(card.law) ?? `legal-${label}`
+      push({ key: `legal-${label}`, label, kind: 'ris', signal: 'law', authority, snippet }, dedupe)
     }
   }
 

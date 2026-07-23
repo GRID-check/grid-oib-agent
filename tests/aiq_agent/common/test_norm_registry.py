@@ -563,3 +563,56 @@ class TestParcelNote:
         parsed = yaml.safe_load(open("configs/norms/at/registry.yml"))
         assert nr.NormsFile.model_validate(parsed).corpus_collection == "oib_knowledge"
         assert nr.NormsFile(version=1, entries=[]).corpus_collection == "oib_knowledge"
+
+
+class TestGuessDisplayTitle:
+    """The default display-title seed derived from the OIB filename convention."""
+
+    def test_richtlinie(self):
+        assert nr.guess_display_title("oib-rl_2_ausgabe_mai_2023.pdf") == "OIB-Richtlinie 2, Ausgabe Mai 2023"
+
+    def test_sub_number(self):
+        assert nr.guess_display_title("oib-rl_2.3_ausgabe_mai_2023.pdf") == "OIB-Richtlinie 2.3, Ausgabe Mai 2023"
+
+    def test_leitfaden_underscore_and_hyphen_normalize(self):
+        assert nr.guess_display_title("oib-rl_2_leitfaden_ausgabe_mai_2023.pdf") == (
+            "OIB-Richtlinie 2 – Leitfaden, Ausgabe Mai 2023"
+        )
+        # The corpus has a hyphen variant for RL 6; it must normalize identically.
+        assert nr.guess_display_title("oib-rl_6-leitfaden_ausgabe_mai_2023.pdf") == (
+            "OIB-Richtlinie 6 – Leitfaden, Ausgabe Mai 2023"
+        )
+
+    def test_role_prefixes(self):
+        assert nr.guess_display_title("erlaeuterungen_oib-rl_2_ausgabe_mai_2023.pdf") == (
+            "Erläuterungen zu OIB-Richtlinie 2, Ausgabe Mai 2023"
+        )
+        assert nr.guess_display_title("aenderungen_oib-rl_2.1_ausgabe_mai_2023.pdf") == (
+            "Änderungen zu OIB-Richtlinie 2.1, Ausgabe Mai 2023"
+        )
+
+    def test_named_documents(self):
+        assert nr.guess_display_title("oib-rl_begriffsbestimmungen_ausgabe_mai_2023.pdf") == (
+            "OIB-Richtlinie Begriffsbestimmungen, Ausgabe Mai 2023"
+        )
+        assert (
+            nr.guess_display_title(
+                "oib-rl_zitierte_normen_und_sonstige_technische_regelwerke_ausgabe_mai_2023_rev.1.pdf"
+            )
+            == "OIB-Richtlinie – Zitierte Normen und sonstige technische Regelwerke, Ausgabe Mai 2023, Rev. 1"
+        )
+
+    def test_edition_year_is_not_mistaken_for_the_number(self):
+        assert nr.guess_display_title("oib-rl_6_ausgabe_mai_2023.pdf") == "OIB-Richtlinie 6, Ausgabe Mai 2023"
+
+    def test_non_oib_returns_none(self):
+        assert nr.guess_display_title("Brandschutzkonzept_v3.pdf") is None
+        assert nr.guess_display_title("") is None
+
+    def test_covers_every_real_corpus_file(self):
+        """Every shipped OIB corpus PDF derives a confident (non-None) title."""
+        corpus = Path("data/oib")
+        if not corpus.is_dir():
+            pytest.skip("corpus not present in this checkout")
+        for pdf in corpus.glob("*.pdf"):
+            assert nr.guess_display_title(pdf.name), pdf.name

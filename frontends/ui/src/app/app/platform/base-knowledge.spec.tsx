@@ -26,6 +26,7 @@ function file(overrides: Partial<KnowledgeBaseStatus['files'][number]>): Knowled
     ingestedAt: null,
     summary: null,
     docClass: 'sonstiges',
+    displayTitle: null,
     ...overrides,
   }
 }
@@ -114,6 +115,35 @@ describe('BaseKnowledge', () => {
         (init as RequestInit | undefined)?.method === 'PATCH',
     )
     expect(JSON.parse((patchCall![1] as RequestInit).body as string)).toEqual({ doc_class: 'gesetz' })
+  })
+
+  test('renaming a document PATCHes the display-title endpoint with the new name', async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(jsonResponse(STATUS))
+    vi.stubGlobal('fetch', fetchSpy)
+    const user = userEvent.setup()
+
+    render(<BaseKnowledge />)
+    await screen.findByText('oib-richtlinie-2.pdf')
+
+    // Enter rename mode, clear the draft, type a new display name, save.
+    await user.click(screen.getByRole('button', { name: 'Rename oib-richtlinie-2.pdf' }))
+    const input = screen.getByRole('textbox', { name: 'Display name for oib-richtlinie-2.pdf' })
+    await user.clear(input)
+    await user.type(input, 'OIB-Richtlinie 2, Ausgabe Mai 2023')
+    await user.click(screen.getByRole('button', { name: 'Save name' }))
+
+    await waitFor(() => {
+      const patchCall = fetchSpy.mock.calls.find(
+        ([url, init]) =>
+          typeof url === 'string' &&
+          url.includes('/api/platform/knowledge/documents/oib-richtlinie-2.pdf/display-title') &&
+          (init as RequestInit | undefined)?.method === 'PATCH',
+      )
+      expect(patchCall).toBeDefined()
+      expect(JSON.parse((patchCall![1] as RequestInit).body as string)).toEqual({
+        display_title: 'OIB-Richtlinie 2, Ausgabe Mai 2023',
+      })
+    })
   })
 
   test('a repo-shipped (corpus) row exposes a delete action that calls the service on confirm', async () => {

@@ -72,6 +72,18 @@ const COLLECTION_RE = /^Collection:\s*(.+)$/im
 const CITATION_RE = /^Citation:\s*(.+)$/im
 const URL_RE = /https?:\/\/[^\s<>"'`)\]]+/gi
 
+/**
+ * Orchestrator / research-agent step names. Their function names contain
+ * "research", which the tool heuristic's `/search/` matches — so without this
+ * guard their PROSE gets URL-scanned as if it were tool evidence, and a URL the
+ * agent merely echoes (e.g. the `oib.or.at` example link from the shallow-agent
+ * prompt) becomes a phantom source card with no tool call behind it. We still
+ * honor an explicit `## Trace-Lanes` / `--- Result N ---` block they re-emit;
+ * we just never fabricate lanes from their bare text via the URL scan.
+ */
+const RESEARCH_AGENT_STEP_RE =
+  /^(chat_researcher|chat_deepresearcher_agent|intent_classifier|depth_router|shallow_research|deep_research|meta_chatter)/i
+
 /** Backend OIB class → lane (mirror of `_OIB_CLASS_LANES`). */
 const OIB_CLASS_LANES: Record<string, { key: string; label: string }> = {
   richtlinie: { key: 'baurecht_oib', label: 'OIB-Richtlinie' },
@@ -149,6 +161,13 @@ export const laneForHitClient = (opts: {
   const url = opts.sourceUrl || ''
   if (url.includes('ris.bka.gv.at')) {
     return { key: 'baurecht_ris', label: 'Rechtsquelle (RIS)' }
+  }
+  // The official OIB site is the base OIB corpus, not a generic web hit.
+  // Without this, any oib.or.at URL (e.g. the example link the shallow-agent
+  // prompt hands the model) would default to the "Web" lane and read as a web
+  // search — the OIB domain belongs in the Baurecht/OIB family.
+  if (url.includes('oib.or.at')) {
+    return { key: 'baurecht_oib', label: 'OIB-Richtlinie' }
   }
   if (collection) {
     // Named KB collection that is not project/archiv → base corpus
@@ -246,14 +265,25 @@ export const parseUrlHits = (payload: string): TraceLaneCard[] => {
   return Array.from(buckets.values())
 }
 
-/** Extract lane cards from one tool payload string. */
-export const extractTraceLanesFromPayload = (payload: string): TraceLaneCard[] => {
+/**
+ * Extract lane cards from one tool payload string.
+ *
+ * `allowUrlScan` gates the bare-URL fallback (`parseUrlHits`): the structured
+ * `## Trace-Lanes` / `--- Result N ---` parsers are always safe (they only fire
+ * on explicit backend markers), but the loose URL scan turns any link in free
+ * text into a source card. Callers pass `false` for agent/orchestrator steps so
+ * an echoed URL in the agent's prose cannot fabricate a phantom source.
+ */
+export const extractTraceLanesFromPayload = (
+  payload: string,
+  allowUrlScan = true
+): TraceLaneCard[] => {
   if (!payload?.trim()) return []
   const fromBlock = parseTraceLanesBlock(payload)
   if (fromBlock && fromBlock.length > 0) return fromBlock
   const fromKb = parseKbResultBlocks(payload)
   if (fromKb.length > 0) return fromKb
-  return parseUrlHits(payload)
+  return allowUrlScan ? parseUrlHits(payload) : []
 }
 
 const mergeCards = (into: Map<string, TraceLaneCard>, cards: TraceLaneCard[]) => {
@@ -301,7 +331,12 @@ export const deriveTraceLanes = (
       /##\s*Trace-Lanes/i.test(payload) ||
       /---\s*Result\s+\d+\s*---/i.test(payload)
     if (!looksLikeTool) continue
-    mergeCards(buckets, extractTraceLanesFromPayload(payload))
+    // Research/orchestrator steps match the tool heuristic only because
+    // "reSEARCH" contains "search". Never scan their prose for source URLs
+    // (that invents web cards from echoed example links); still honor an
+    // explicit structured block inside extractTraceLanesFromPayload.
+    const allowUrlScan = !RESEARCH_AGENT_STEP_RE.test((step.functionName || '').trim())
+    mergeCards(buckets, extractTraceLanesFromPayload(payload, allowUrlScan))
   }
   // Stable-ish order: law first, then project, office, auto; within signal by label.
   const signalOrder: Record<SourceSignal, number> = {

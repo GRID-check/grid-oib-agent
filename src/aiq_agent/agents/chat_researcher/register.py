@@ -80,7 +80,7 @@ def _reflection_answer_is_substantive(result: object, answer_text: str) -> bool:
     if user_intent is None and isinstance(result, dict):
         user_intent = result.get("user_intent")
     intent = getattr(user_intent, "intent", None)
-    if intent in {"meta", "error"}:
+    if intent in {"meta", "error", "out_of_scope"}:
         return False
     return True
 

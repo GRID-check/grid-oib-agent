@@ -121,10 +121,33 @@ def _ingest_and_classify(target: Path, doc_class: str) -> None:
                 logger.warning("No summary row to stamp doc_class for %s after ingest", name)
         except Exception:
             logger.exception("Failed to persist doc_class=%s for %s after ingest", doc_class, name)
+        _seed_display_title(name)
     elif terminal == FileStatus.FAILED:
         logger.error("Background ingestion of %s failed; it will be retried by the next sync", name)
     else:
         logger.error("Background ingestion of %s timed out; it will be retried by the next sync", name)
+
+
+def _seed_display_title(name: str) -> None:
+    """Stamp the DEFAULT user-facing display title for a freshly ingested doc.
+
+    Derives the name from the OIB filename convention and stores it as the
+    starting value an admin can later override. A filename that yields no
+    confident default (a non-OIB upload) is left without a title, so its own
+    filename remains its name. Never raises — a seed failure is cosmetic.
+    """
+    from aiq_agent import oib_sync
+    from aiq_agent.common.norm_registry import guess_display_title
+    from aiq_agent.knowledge.factory import set_document_display_title
+
+    default_title = guess_display_title(name)
+    if not default_title:
+        return
+    try:
+        if not set_document_display_title(oib_sync.COLLECTION_NAME, name, default_title):
+            logger.warning("No metadata row to seed display_title for %s after ingest", name)
+    except Exception:
+        logger.exception("Failed to seed display_title for %s after ingest", name)
 
 
 def _is_safe_zip_member(member_name: str, base_dir: Path) -> bool:
@@ -472,3 +495,46 @@ def add_oib_routes(router: APIRouter) -> None:
                 detail=f"No summary found for '{name}' in the base corpus",
             )
         return {"file_name": name, "doc_class": request.doc_class}
+
+    class UpdateDisplayTitleRequest(BaseModel):
+        display_title: str | None = Field(
+            default=None,
+            description="User-facing document name. Empty/null clears the override so the derived default applies.",
+        )
+
+    @router.patch(
+        "/v1/admin/oib/documents/{file_name}/display-title",
+        tags=["oib"],
+        summary="Rename an OIB base-corpus document (user-facing display title)",
+    )
+    async def update_oib_display_title(
+        file_name: str,
+        request: UpdateDisplayTitleRequest,
+        _: None = Depends(_require_admin_token),
+    ) -> dict[str, str | None]:
+        """Set the user-facing ``display_title`` on a base-corpus document's row.
+
+        Retrieval is store-authoritative for the display title (the knowledge
+        layer prefers the stored value over the derived filename default), so a
+        rename reflects on citation chips immediately with NO re-ingest. A null or
+        blank value clears the override, restoring the derived default. 404s when
+        no metadata row exists for the document (the summary is the anchor).
+        """
+        from aiq_agent import oib_sync
+        from aiq_agent.knowledge.factory import set_document_display_title
+
+        name = Path(file_name).name
+        new_title = (request.display_title or "").strip() or None
+
+        try:
+            updated = await asyncio.to_thread(set_document_display_title, oib_sync.COLLECTION_NAME, name, new_title)
+        except Exception as e:
+            logger.exception("OIB display_title update failed for %s", name)
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)) from e
+
+        if not updated:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No summary found for '{name}' in the base corpus",
+            )
+        return {"file_name": name, "display_title": new_title}

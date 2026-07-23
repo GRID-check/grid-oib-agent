@@ -19,13 +19,16 @@ import { toast } from 'sonner'
 import {
   AlertCircle,
   BookOpenCheck,
+  Check,
   Eye,
   FileText,
   Loader2,
+  Pencil,
   RefreshCw,
   RotateCcw,
   Trash2,
   Upload,
+  X,
 } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -121,6 +124,10 @@ export function BaseKnowledge() {
   // Optimistic doc_class edits, applied over the fetched status until a refetch
   // confirms them (keyed by filename).
   const [docClassOverrides, setDocClassOverrides] = useState<Record<string, DocClass>>({})
+  // Optimistic display-title (rename) edits, plus the row currently being renamed.
+  const [displayTitleOverrides, setDisplayTitleOverrides] = useState<Record<string, string>>({})
+  const [editingTitle, setEditingTitle] = useState<string | null>(null)
+  const [titleDraft, setTitleDraft] = useState('')
   const [pendingDelete, setPendingDelete] = useState<KnowledgeFile | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
   const [viewerFile, setViewerFile] = useState<string | null>(null)
@@ -299,6 +306,42 @@ export function BaseKnowledge() {
     [load, t],
   )
 
+  const handleRename = useCallback(
+    (file: KnowledgeFile) => {
+      const nextTitle = titleDraft.trim()
+      const current = (file.displayTitle ?? '').trim()
+      setEditingTitle(null)
+      if (nextTitle === current) return
+      // Optimistic: show the new name immediately; revert on failure. An empty
+      // draft clears the override, so the derived default takes over again.
+      setDisplayTitleOverrides((prev) => ({ ...prev, [file.fileName]: nextTitle }))
+      fetch(`/api/platform/knowledge/documents/${encodeURIComponent(file.fileName)}/display-title`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ display_title: nextTitle }),
+      })
+        .then(async (r) => {
+          if (!r.ok) throw new Error(`Rename failed (${r.status})`)
+          toast.success(t('knowledge.displayTitleUpdated', { name: file.fileName }))
+          await load()
+          setDisplayTitleOverrides((prev) => {
+            const next = { ...prev }
+            delete next[file.fileName]
+            return next
+          })
+        })
+        .catch(() => {
+          setDisplayTitleOverrides((prev) => {
+            const next = { ...prev }
+            delete next[file.fileName]
+            return next
+          })
+          toast.error(t('knowledge.displayTitleUpdateFailed', { name: file.fileName }))
+        })
+    },
+    [titleDraft, load, t],
+  )
+
   const handleDelete = useCallback(() => {
     if (!pendingDelete) return
     const name = pendingDelete.fileName
@@ -320,14 +363,23 @@ export function BaseKnowledge() {
       })
   }, [pendingDelete, load, t])
 
-  // Files with any optimistic doc_class edit applied.
+  // Files with any optimistic doc_class / display-title edit applied.
   const files = useMemo<KnowledgeFile[]>(() => {
     const all = status?.files ?? []
-    if (Object.keys(docClassOverrides).length === 0) return all
-    return all.map((f) =>
-      docClassOverrides[f.fileName] ? { ...f, docClass: docClassOverrides[f.fileName] } : f,
-    )
-  }, [status, docClassOverrides])
+    if (Object.keys(docClassOverrides).length === 0 && Object.keys(displayTitleOverrides).length === 0) {
+      return all
+    }
+    return all.map((f) => {
+      let next = f
+      if (docClassOverrides[f.fileName]) next = { ...next, docClass: docClassOverrides[f.fileName] }
+      if (f.fileName in displayTitleOverrides) {
+        // An empty override means "cleared" → fall back to the filename here; the
+        // reload will replace it with the backend's derived default.
+        next = { ...next, displayTitle: displayTitleOverrides[f.fileName] || null }
+      }
+      return next
+    })
+  }, [status, docClassOverrides, displayTitleOverrides])
 
   // Dokumentart filter chips — the classes actually present, in canonical order
   // (OIB foundations first), each with a live count. Nothing invented.
@@ -360,7 +412,61 @@ export function BaseKnowledge() {
         <div className="flex min-w-0 items-start gap-2.5">
           <FileText className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
           <div className="flex min-w-0 flex-col gap-1.5">
-            <p className="truncate text-sm font-medium text-foreground">{file.fileName}</p>
+            {editingTitle === file.fileName ? (
+              <div className="flex items-center gap-1.5">
+                <Input
+                  autoFocus
+                  value={titleDraft}
+                  onChange={(e) => setTitleDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleRename(file)
+                    else if (e.key === 'Escape') setEditingTitle(null)
+                  }}
+                  className="h-7 w-[22rem] max-w-full text-sm"
+                  aria-label={t('knowledge.displayTitleFor', { name: file.fileName })}
+                  placeholder={t('knowledge.displayTitlePlaceholder')}
+                />
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-7"
+                  aria-label={t('knowledge.displayTitleSave')}
+                  onClick={() => handleRename(file)}
+                >
+                  <Check className="size-4" aria-hidden />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-7"
+                  aria-label={t('knowledge.displayTitleCancel')}
+                  onClick={() => setEditingTitle(null)}
+                >
+                  <X className="size-4" aria-hidden />
+                </Button>
+              </div>
+            ) : (
+              <div className="flex min-w-0 items-center gap-1">
+                <p className="truncate text-sm font-medium text-foreground">
+                  {file.displayTitle ?? file.fileName}
+                </p>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-6 shrink-0 text-muted-foreground"
+                  aria-label={t('knowledge.displayTitleEdit', { name: file.fileName })}
+                  onClick={() => {
+                    setTitleDraft(file.displayTitle ?? '')
+                    setEditingTitle(file.fileName)
+                  }}
+                >
+                  <Pencil className="size-3.5" aria-hidden />
+                </Button>
+              </div>
+            )}
+            {file.displayTitle && file.displayTitle !== file.fileName && (
+              <p className="truncate text-xs text-muted-foreground">{file.fileName}</p>
+            )}
             <div className="flex flex-wrap items-center gap-1.5">
               <SourceSignalChip
                 signal={docClassSignal(cls)}
