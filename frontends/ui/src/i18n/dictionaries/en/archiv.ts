@@ -36,6 +36,11 @@ export const archiv = {
       document: 'Document',
     },
   },
+  toast: {
+    // Fired the instant async ingestion finishes and the document becomes
+    // citable across every project in the organization.
+    ingestionComplete: '“{name}” is now in the office Archiv — citable',
+  },
   workspace: {
     dropToUpload: 'Drop files to add them to the Archiv',
     dropUnsupported: 'Some files are not a supported type',

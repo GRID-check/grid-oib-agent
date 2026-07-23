@@ -22,6 +22,11 @@ export const files = {
     failed: 'Failed',
     unknown: 'Unknown',
   },
+  toast: {
+    // Fired the instant async ingestion finishes and the document becomes
+    // citable — the confirmation the completion moment previously lacked.
+    ingestionComplete: '“{name}” is now in Piloti’s knowledge — citable',
+  },
   preview: {
     closePreview: 'Close preview',
     expandPreview: 'Open large preview',

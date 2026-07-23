@@ -44,8 +44,12 @@ interface FilePreviewPaneProps {
    */
   showMetadataPanel?: boolean
   /**
-   * Extra action controls rendered under the download button (e.g. the Archiv's
-   * Delete affordance). Omitted for project documents, which have no delete.
+   * Extra action controls rendered in the right metadata column's action area,
+   * below the status/size rows and the re-ingest control (e.g. the Delete
+   * affordance, an authored full-width destructive button). A full-width control
+   * would misalign inside the icon-button header row, so it lives in the column
+   * where such buttons belong. Both the project Files and org Archiv workspaces
+   * supply a Delete here.
    */
   extraActions?: ReactNode
 }
@@ -221,7 +225,6 @@ export function FilePreviewPane({ file, projectName, canManage = true, onClose, 
             <Maximize2 className="size-4" />
           </Button>
         )}
-        {extraActions}
         {onClose && (
           <Button variant="ghost" size="icon" className="size-7 shrink-0" onClick={onClose} aria-label={t('preview.closePreview')}>
             <X className="size-4" />
@@ -230,9 +233,23 @@ export function FilePreviewPane({ file, projectName, canManage = true, onClose, 
       </div>
 
       {downloadFailed && (
-        <p role="alert" className="shrink-0 border-b px-4 py-2 text-xs text-destructive">
-          {t('preview.downloadFailed')}
-        </p>
+        <div
+          role="alert"
+          className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 border-b px-4 py-2"
+        >
+          <p className="text-xs text-destructive">{t('preview.downloadFailed')}</p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 gap-1.5"
+            onClick={handleDownload}
+            disabled={isDownloading}
+          >
+            <RotateCcw className="size-3.5" aria-hidden />
+            {t('preview.tryAgain')}
+          </Button>
+        </div>
       )}
 
       {canExpandPreview && previewUrl && (
@@ -412,6 +429,10 @@ export function FilePreviewPane({ file, projectName, canManage = true, onClose, 
               )}
             </div>
           )}
+
+          {/* Extra actions (e.g. Delete) — a full-width destructive control that
+              belongs in this column, not the icon-button header row. */}
+          {extraActions}
 
           <div className="flex-1" />
           {showMetadataPanel && (

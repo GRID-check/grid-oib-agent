@@ -23,6 +23,11 @@ export const files: typeof en.files = {
     failed: 'Fehlgeschlagen',
     unknown: 'Unbekannt',
   },
+  toast: {
+    // Sobald die asynchrone Verarbeitung abgeschlossen ist und das Dokument
+    // zitierbar wird – die bislang fehlende Bestätigung des Abschlusses.
+    ingestionComplete: '„{name}“ ist jetzt in Pilotis Wissen – zitierbar',
+  },
   preview: {
     closePreview: 'Vorschau schließen',
     expandPreview: 'Große Vorschau öffnen',
