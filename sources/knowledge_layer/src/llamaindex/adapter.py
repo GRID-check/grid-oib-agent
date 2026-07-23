@@ -217,6 +217,13 @@ TTL_CLEANUP_INTERVAL_SECONDS = int(os.environ.get("AIQ_TTL_CLEANUP_INTERVAL_SECO
 # pruned so in-memory job tracking doesn't grow for the life of the process.
 JOB_RETENTION_SECONDS = 3600  # 1 hour
 
+# Terminal per-file tracking entries (self._files) are retained this long, then
+# pruned. SUCCESS files are still listable afterwards (list_files rebuilds them
+# from Chroma chunks — with a fresh id, exactly as for any never-tracked file);
+# FAILED rows drop off the listing once this window passes. Bounds self._files,
+# which otherwise grew for the life of the process (scaling review phase-2, #13).
+FILE_TRACKING_RETENTION_SECONDS = int(os.environ.get("AIQ_FILE_TRACKING_RETENTION_SECONDS", "86400"))  # 24h
+
 # Document summarization + tag-classification input limits live in the shared
 # aiq_agent.knowledge.document_classification module (CLASSIFY_MAX_INPUT_CHARS).
 
@@ -1596,9 +1603,53 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                 ingest_status_store.delete(jid)
             logger.debug("Pruned %d completed job(s) from tracking (+ status rows)", len(stale))
 
+    def _prune_stale_files(self) -> None:
+        """Drop terminal per-file tracking entries older than the retention window.
+
+        Mirrors ``_prune_completed_jobs`` for ``self._files``, which otherwise
+        grew for the life of the process (one entry per upload, never removed
+        except on explicit delete). Only SUCCESS/FAILED entries are eligible, and
+        only once their completion/upload time is older than
+        ``FILE_TRACKING_RETENTION_SECONDS`` — INGESTING/UPLOADING entries (live
+        work) are always kept. SUCCESS files stay listable afterwards
+        (reconstructed from Chroma), so this loses only a stable file_id, not a
+        file.
+        """
+        now = datetime.now(tz=UTC)
+        with self._lock:
+            stale = []
+            for fid, fi in self._files.items():
+                if fi.status not in (FileStatus.SUCCESS, FileStatus.FAILED):
+                    continue
+                aged_at = fi.ingested_at or fi.uploaded_at
+                if aged_at is None:
+                    continue
+                if aged_at.tzinfo is None:
+                    aged_at = aged_at.replace(tzinfo=UTC)
+                if (now - aged_at).total_seconds() > FILE_TRACKING_RETENTION_SECONDS:
+                    stale.append(fid)
+            for fid in stale:
+                del self._files[fid]
+        if stale:
+            logger.debug("Pruned %d stale file tracking entry(ies)", len(stale))
+
+    def _index_tracked_files(self, collection_name: str) -> dict[str, tuple[str, FileInfo]]:
+        """``file_name -> (file_id, FileInfo)`` for one collection, first-seen wins.
+
+        Built in a single O(files) pass so ``list_files`` no longer rescans all
+        of ``self._files`` per listed file (was O(files²) as the dict grew).
+        """
+        index: dict[str, tuple[str, FileInfo]] = {}
+        with self._lock:
+            for fid, fi in self._files.items():
+                if fi.collection_name == collection_name and fi.file_name not in index:
+                    index[fi.file_name] = (fid, fi)
+        return index
+
     def get_job_status(self, job_id: str) -> IngestionJobStatus:
         """Get current status of an ingestion job."""
         self._prune_completed_jobs()
+        self._prune_stale_files()
         with self._lock:
             local = self._jobs.get(job_id)
         if local is not None:
@@ -2014,12 +2065,17 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
     def list_files(self, collection_name: str) -> list[FileInfo]:
         """List all files in a collection."""
         try:
+            self._prune_stale_files()
             client = self._get_chroma_client()
 
             try:
                 collection = client.get_collection(name=collection_name)
             except Exception:
                 return []
+
+            # Correlate tracked FileInfo by name in one pass (was an O(files)
+            # rescan of self._files per listed file).
+            tracked_by_name = self._index_tracked_files(collection_name)
 
             # Get all unique file names from chunks
             metadatas = self._get_all_metadatas(collection)
@@ -2056,16 +2112,8 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             # Convert to FileInfo objects
             result = []
             for file_name, info in files_map.items():
-                # Try to find existing FileInfo from tracking
-                file_id = None
-                file_info = None
-                with self._lock:
-                    if hasattr(self, "_files"):
-                        for fid, fi in self._files.items():
-                            if fi.file_name == file_name and fi.collection_name == collection_name:
-                                file_id = fid
-                                file_info = fi
-                                break
+                # O(1) tracked-file lookup from the prebuilt index.
+                file_id, file_info = tracked_by_name.get(file_name, (None, None))
 
                 # Parse timestamps from chunk metadata
                 uploaded_at = self._parse_timestamp(info["creation_date"])

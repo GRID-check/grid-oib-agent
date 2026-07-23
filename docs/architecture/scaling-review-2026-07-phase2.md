@@ -78,7 +78,11 @@ the TTL-cleanup lock — is a cliff).
     and the rest skip the scan; SQLite (dev) is unlocked. Distinct lock id from
     the web-tier reaper/cleanup/checkpoint locks (tested).
 13. **`self._files` in-process dict never pruned** + O(n²) `list_files`
-    (`adapter.py:1345,2055`). *Fix:* prune on the `_jobs` cadence.
+    (`adapter.py:1345,2055`). **[LANDED]** `_prune_stale_files` (mirrors
+    `_prune_completed_jobs`, on the same cadence) ages out terminal entries past
+    `AIQ_FILE_TRACKING_RETENTION_SECONDS` (default 24h); `list_files` now
+    correlates tracked files via a one-pass `_index_tracked_files` index (O(files),
+    was O(files²)). Both unit-tested in isolation.
 14. **Uncapped embedded-image extraction + sequential VLM captioning**
     (`adapter.py:453,2579`) — one image-heavy PDF can starve the 2-worker ingest pool.
     *Fix:* cap image count (mirror `MAX_RENDERED_PAGES`), bound VLM concurrency.
