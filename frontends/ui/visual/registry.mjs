@@ -13,6 +13,7 @@
 export const SCREENSHOT_TARGETS = [
   {
     id: 'herleitung',
+    mobile: true,
     path: '/dev/herleitung',
     description:
       'Herleitung reasoning trace, expanded — the React Flow node graph (framing → parallel sources → assessment) wired into the real ChatThinking.',
@@ -20,6 +21,7 @@ export const SCREENSHOT_TARGETS = [
   },
   {
     id: 'chat-turn',
+    mobile: true,
     path: '/dev/chat-turn',
     description:
       'A complete chat turn as ChatArea composes it — user question, collapsed Herleitung, and the cited "Ergebnis" answer card — desktop + mobile.',
@@ -27,6 +29,7 @@ export const SCREENSHOT_TARGETS = [
   },
   {
     id: 'composer',
+    mobile: true,
     path: '/dev/composer',
     description:
       'The chat composer (real InputArea, backend-free) in its empty-thread state — textarea, scope/sources/deep-research controls, attach + send — desktop + mobile.',
@@ -34,6 +37,7 @@ export const SCREENSHOT_TARGETS = [
   },
   {
     id: 'composer-files',
+    mobile: true,
     path: '/dev/composer-files',
     description:
       'The chat composer with files attached (ready / ingesting / failed) — inline FileChips, manage-files button, per-file retry/remove — desktop + mobile.',
@@ -41,12 +45,14 @@ export const SCREENSHOT_TARGETS = [
   },
   {
     id: 'confirm-dialog',
+    mobile: true,
     path: '/dev/confirm-dialog',
     description: 'Shared destructive ConfirmDialog (backs admin confirms + delete modals), shown open.',
     waitFor: '[role="alertdialog"], [role="dialog"]',
   },
   {
     id: 'document-grid',
+    mobile: true,
     path: '/dev/document-grid',
     description: 'Chat document_grid surfacing card — real project + Büroarchiv files as preview cards.',
     // Wait for the real card to mount and its resolution fetch to settle.
@@ -54,18 +60,21 @@ export const SCREENSHOT_TARGETS = [
   },
   {
     id: 'file-browser',
+    mobile: true,
     path: '/dev/file-browser',
     description: 'Files browser grid — the shared raised FileCard in its home surface.',
     waitFor: '[data-testid="file-card"]',
   },
   {
     id: 'archiv-library',
+    mobile: true,
     path: '/dev/archiv-library',
     description: 'Archiv library grid — compared against the Files browser for unification.',
     waitFor: '[data-testid="archiv-document-card"]',
   },
   {
     id: 'settings',
+    mobile: true,
     path: '/dev/settings',
     description: 'Project settings — section chrome, headings, and danger zone.',
     waitFor: 'h1',
