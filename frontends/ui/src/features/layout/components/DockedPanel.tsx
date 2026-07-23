@@ -14,7 +14,7 @@
 
 'use client'
 
-import { type FC, type ReactNode, useCallback, useEffect, useRef } from 'react'
+import { type FC, type ReactNode, useCallback, useRef } from 'react'
 import { X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -22,33 +22,7 @@ import { useIsMobile } from '@/hooks/use-is-mobile'
 import { useTranslations } from '@/i18n'
 import { useEscapeKey } from '@/shared/hooks/use-escape-key'
 import { usePanelFocus } from '@/shared/hooks/use-panel-focus'
-
-/**
- * Reference-counted body scroll lock. Multiple mobile drawers can be open at
- * once (e.g. Sessions + Data Sources both in state), so a naive per-panel
- * set/restore would let the first one to close prematurely re-enable page
- * scroll while another drawer is still up. The counter restores the original
- * overflow only once the last locker releases.
- */
-let scrollLockCount = 0
-let savedBodyOverflow = ''
-
-const lockBodyScroll = (): void => {
-  if (typeof document === 'undefined') return
-  if (scrollLockCount === 0) {
-    savedBodyOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-  }
-  scrollLockCount += 1
-}
-
-const releaseBodyScroll = (): void => {
-  if (typeof document === 'undefined') return
-  scrollLockCount = Math.max(0, scrollLockCount - 1)
-  if (scrollLockCount === 0) {
-    document.body.style.overflow = savedBodyOverflow
-  }
-}
+import { useBodyScrollLock } from '@/shared/hooks/use-body-scroll-lock'
 
 interface DockedPanelProps {
   /** Whether the panel is open */
@@ -109,11 +83,7 @@ export const DockedPanel: FC<DockedPanelProps> = ({
 
   // Lock background scroll while the drawer is open on mobile, where it covers
   // the page modally. Desktop docks beside usable content, so scroll stays free.
-  useEffect(() => {
-    if (!isMobile || !open) return
-    lockBodyScroll()
-    return () => releaseBodyScroll()
-  }, [isMobile, open])
+  useBodyScrollLock(isMobile && open)
 
   if (!open && !forceMount) return null
 
@@ -171,7 +141,7 @@ export const DockedPanel: FC<DockedPanelProps> = ({
         </div>
 
         {/* Scrollable body */}
-        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-4">{children}</div>
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain p-4">{children}</div>
 
         {/* Footer */}
         {footer && <div className="border-border/60 shrink-0 border-t px-4 py-3">{footer}</div>}
