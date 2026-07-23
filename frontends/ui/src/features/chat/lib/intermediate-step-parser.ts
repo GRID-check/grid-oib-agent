@@ -134,6 +134,13 @@ export const getDisplayName = (functionName: string): string => {
   if (functionName === 'chat_deepresearcher_agent') {
     return 'Chat Researcher'
   }
+  // The shallow node doubles as the conversational assistant (greetings,
+  // capability questions, memory) AND the quick-lookup path — so the raw
+  // title-cased "Shallow Research Agent" mislabels a simple greeting as a
+  // research run. Present it neutrally as "Assistant" for every turn it handles.
+  if (functionName === 'shallow_research_agent' || functionName === 'shallow_research') {
+    return 'Assistant'
+  }
   // Handle special case for workflow
   if (functionName === '<workflow>') {
     return 'Workflow'

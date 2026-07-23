@@ -480,6 +480,9 @@ class TestRoutingBoundary:
         # Depth is ignored for non-research intents.
         assert derive_routing_decision(IntentResult(intent="meta", raw=None), deep) == "meta"
         assert derive_routing_decision(IntentResult(intent="error", raw=None), deep) == "error"
+        # Out-of-scope surfaces as a "meta"/direct-answer route (frontend renders
+        # it as "Direktantwort"); it never carries a depth path.
+        assert derive_routing_decision(IntentResult(intent="out_of_scope", raw=None), None) == "meta"
         # A research turn with no depth decision falls back to shallow, never deep.
         assert derive_routing_decision(research, None) == "shallow"
         # No classification at all -> nothing to surface.
@@ -518,20 +521,22 @@ class TestRoutingBoundary:
         return calls, shallow, deep, clarifier
 
     @pytest.mark.asyncio
-    async def test_out_of_scope_meta_routes_to_shallow_redirect(self, trackers):
-        """An out-of-scope query (now classified `meta`) is answered by the
-        shallow agent as a friendly redirect — never routed to research/deep."""
+    async def test_out_of_scope_short_circuits_without_any_agent(self, trackers):
+        """An out-of-scope query is answered by the classifier's fixed redirect
+        (already in state) and ends — NO answering agent runs: not shallow, not
+        deep, not the clarifier. This is the 'predefined text, no research agent'
+        path."""
         calls, shallow, deep, clarifier = trackers
 
-        async def meta_classifier(state):
-            # The intent classifier now maps clearly out-of-scope queries to meta.
+        async def out_of_scope_classifier(state):
+            # The classifier emits the redirect itself and no depth decision.
             return {
-                "user_intent": IntentResult(intent="meta", raw=None),
-                "depth_decision": DepthDecision(decision="shallow", raw_reasoning="out of scope"),
+                "user_intent": IntentResult(intent="out_of_scope", raw=None),
+                "messages": [AIMessage(content="Das liegt außerhalb meines Fachgebiets. …")],
             }
 
         agent = ChatResearcherAgent(
-            intent_classifier_fn=meta_classifier,
+            intent_classifier_fn=out_of_scope_classifier,
             shallow_research_fn=shallow,
             deep_research_fn=deep,
             clarifier_fn=clarifier,
@@ -539,10 +544,12 @@ class TestRoutingBoundary:
         state = ChatResearcherState(messages=[HumanMessage(content="How do I bake a cake?")])
         result = await agent.run(state, thread_id="t")
 
-        assert calls["shallow"] is True, "out-of-scope meta turn should be answered by the assistant/shallow agent"
-        assert calls["deep"] is False, "out-of-scope query must never reach deep research"
+        assert calls["shallow"] is False, "out-of-scope must NOT spin up the shallow/research agent"
+        assert calls["deep"] is False
         assert calls["clarifier"] is False
-        assert result is not None
+        # The redirect authored by the classifier survives to the terminal state.
+        contents = [m.content for m in result["messages"] if isinstance(m, AIMessage)]
+        assert any("Fachgebiet" in c for c in contents)
 
     @pytest.mark.asyncio
     async def test_well_specified_shallow_answers_without_overclarifying(self, trackers):
