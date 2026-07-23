@@ -349,7 +349,13 @@ const FlowInner: FC<{ built: BuiltGraph; vertical: boolean; width: number }> = (
   const { getNodes } = useReactFlow()
   const [rfNodes, setRfNodes] = useState<Node[]>(nodes)
   const [height, setHeight] = useState(vertical ? 480 : 360)
-  const [laidOut, setLaidOut] = useState(false)
+  // Track WHICH orientation the current layout was measured for (not just "have
+  // we ever laid out"). On an orientation flip the freshly-seeded nodes sit at
+  // provisional y=0 until the measure effect re-stacks them; keying the opacity
+  // gate on the orientation hides that one provisional frame during a reflow,
+  // while same-orientation prop-stream updates keep the graph visible (no flicker).
+  const [laidOutFor, setLaidOutFor] = useState<'v' | 'h' | null>(null)
+  const orientation = vertical ? 'v' : 'h'
 
   const onNodesChange = useCallback((changes: NodeChange[]) => setRfNodes((nds) => applyNodeChanges(changes, nds)), [])
 
@@ -385,7 +391,7 @@ const FlowInner: FC<{ built: BuiltGraph; vertical: boolean; width: number }> = (
       }))
     )
     setHeight(Math.max(120, Math.ceil(y - gap) + PAD))
-    setLaidOut(true)
+    setLaidOutFor(vertical ? 'v' : 'h')
     // getNodes is stable; rfNodes intentionally excluded to avoid a re-layout loop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialized, nodes, rows, contentW, vertical, width])
@@ -398,7 +404,7 @@ const FlowInner: FC<{ built: BuiltGraph; vertical: boolean; width: number }> = (
     <div
       style={{
         height,
-        opacity: laidOut ? 1 : 0,
+        opacity: laidOutFor === orientation ? 1 : 0,
         transition: 'opacity 150ms ease-out',
         ['--banner-w' as string]: bannerW,
         ['--source-w' as string]: sourceW,
