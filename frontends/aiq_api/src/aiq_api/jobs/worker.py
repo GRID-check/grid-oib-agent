@@ -31,6 +31,34 @@ from .runner import run_agent_job
 logger = logging.getLogger(__name__)
 
 
+def _purge_deep_checkpoint(job_id: str) -> None:
+    """Best-effort deletion of a finished deep run's durable checkpoint rows.
+
+    The deep-research checkpointer keys ``thread_id == job_id`` in
+    ``AIQ_DEEP_CHECKPOINT_DB`` and writes the full growing state every step, but
+    nothing prunes ``checkpoints``/``checkpoint_blobs``/``checkpoint_writes`` — so
+    they grow (superlinearly per run) forever. Once a run is terminal the
+    checkpoint is dead weight (resume is manual-resubmit, never auto-read), so
+    drop it. Never raises.
+    """
+    dsn = os.environ.get("AIQ_DEEP_CHECKPOINT_DB")
+    if not dsn:
+        return
+    try:
+        from sqlalchemy import text
+
+        from .event_store import EventStore
+
+        engine = EventStore._get_or_create_sync_engine(dsn)
+        with engine.connect() as conn:
+            for table in ("checkpoint_writes", "checkpoint_blobs", "checkpoints"):
+                # Fixed table names (LangGraph schema); job_id is bound.
+                conn.execute(text(f"DELETE FROM {table} WHERE thread_id = :tid"), {"tid": job_id})  # noqa: S608
+            conn.commit()
+    except Exception:
+        logger.debug("Deep checkpoint purge skipped for job %s", job_id, exc_info=True)
+
+
 def _int_env(name: str, default: int) -> int:
     try:
         val = int(os.environ.get(name, ""))
@@ -107,11 +135,13 @@ class ResearchWorker:
         # run_agent_job owns its own job_info status transitions + telemetry.
         run_task = asyncio.create_task(run_agent_job(**payload))
         heartbeat = asyncio.create_task(self._heartbeat_loop(job_id, run_task))
+        claim_lost = False
         try:
             await run_task
         except asyncio.CancelledError:
             # Heartbeat cancelled us because we lost the claim — another worker
             # owns the job now; yield quietly.
+            claim_lost = True
             logger.warning("Run for job %s aborted after claim loss", job_id)
         except Exception:
             logger.exception("Job %s failed in worker %s", job_id, self.worker_id)
@@ -120,6 +150,11 @@ class ResearchWorker:
             # Ownership-guarded: if we lost the claim, this deletes nothing and
             # leaves the new owner's row intact.
             await asyncio.to_thread(queue.mark_done, self.db_url, job_id, self.worker_id)
+            # Terminal on THIS worker (success or error — not a claim loss, where
+            # the new owner may still resume) -> drop the durable deep checkpoint
+            # so those tables don't grow forever.
+            if not claim_lost:
+                await asyncio.to_thread(_purge_deep_checkpoint, job_id)
 
     async def _fail_exhausted(self) -> None:
         """Flip crashed-and-exhausted claims to FAILURE in job_info."""

@@ -18,11 +18,14 @@ the TTL-cleanup lock — is a cliff).
 ## P0 — unbounded growth / hot-path (fix first)
 
 1. **LangGraph checkpoint tables never cleaned** (`checkpoints`/`checkpoint_blobs`/
-   `checkpoint_writes`). Only whole-project deletion purges them
-   (`routes/maintenance.py:69-80`); per-run byte growth is superlinear (full-state
-   blob per changed channel per step, `agent.py:314-365`). *Fix:* completion-triggered
-   purge keyed `thread_id = job_id` when a run reaches a terminal status (reuse the
-   existing purge SQL).
+   `checkpoint_writes`). Per-run byte growth is superlinear (full-state blob per
+   changed channel per step). **[LANDED — deep]** `worker.py` now purges a deep
+   run's `AIQ_DEEP_CHECKPOINT_DB` rows (`thread_id = job_id`) on non-cancelled
+   completion (`_purge_deep_checkpoint`, tested). **Still open — chat:** the
+   `AIQ_CHECKPOINT_DB` conversation checkpoints have no terminal event and grow
+   with every chat turn across all conversations; they need an **age-based
+   retention reaper** (keep last-K per thread, or drop threads idle > N days),
+   not a completion hook.
 2. **`job_info` / `job_access` never expire in `db` mode** — NAT's periodic cleanup
    Dask task is skipped (`routes/jobs.py:1155`) and nothing replaces it; also slows
    the admission-count query on every submit. *Fix:* a leader-locked scheduled
