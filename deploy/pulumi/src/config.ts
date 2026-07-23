@@ -286,10 +286,11 @@ export function loadConfig(): GridConfig {
     chroma: {
       enabled: bool(cfg, "chromaEnabled", true),
       // Deliberately pinned (NOT latest): the server API/wire protocol is
-      // coupled to the backend's `chromadb` Python client, and 0.5.x vs 1.x/2.x
-      // change the /api/v1 -> /api/v2 surface (the readiness probe path too).
-      // Bump this only together with the backend image's chromadb client.
-      image: cfg.get("chromaImage") ?? "chromadb/chroma:0.5.23",
+      // coupled to the backend's `chromadb` Python client. It MUST match — a 1.x
+      // client against a 0.5.x server fails ingestion with KeyError('_type'),
+      // and 1.x moved the API/probe surface /api/v1 -> /api/v2. The backend
+      // currently ships chromadb 1.5.9; bump this only together with it.
+      image: cfg.get("chromaImage") ?? "chromadb/chroma:1.5.9",
       storageSize: cfg.get("chromaStorageSize") ?? "20Gi",
     },
 
