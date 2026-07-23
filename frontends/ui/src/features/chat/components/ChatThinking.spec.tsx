@@ -424,7 +424,9 @@ describe('ChatThinking', () => {
 
       await expandChain(user)
 
-      expect(screen.getByText('Question understood')).toBeVisible()
+      // The framing node restates the question (its "Framing" eyebrow labels it);
+      // the leaner node no longer shows a separate "Question understood" title.
+      expect(screen.getByText('Framing')).toBeVisible()
       expect(
         screen.getByText(/Wie viele Rettungswege brauche ich\?/)
       ).toBeVisible()
@@ -469,8 +471,9 @@ describe('ChatThinking', () => {
 
       await expandChain(user)
 
-      expect(screen.getByText('Backed by')).toBeVisible()
-      // Deduped to a single lane chip.
+      // The assessment node ("Assessment" eyebrow) lists the citations, deduped
+      // to a single lane chip.
+      expect(screen.getByText('Assessment')).toBeVisible()
       expect(screen.getAllByText('OIB-Richtlinie')).toHaveLength(1)
     })
 

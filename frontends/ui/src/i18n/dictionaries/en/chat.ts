@@ -222,7 +222,7 @@ export const chat = {
       ris: 'RIS (Austrian Law)',
     },
     node: {
-      framingTab: 'Intermediate step',
+      framingTab: 'Framing',
       framingTitle: 'Question understood',
       framingQuestion: 'You asked: “{question}”',
       contextLabel: 'Context',

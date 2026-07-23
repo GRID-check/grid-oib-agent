@@ -20,7 +20,8 @@ import type { ThinkingStep, CitationSource } from '../types'
 import { deriveTraceSourceCards } from '../lib/trace-lanes'
 import { deriveLiveActivity } from '../lib/live-activity'
 import { useElapsedSeconds, formatElapsed } from '../hooks/use-elapsed-seconds'
-import { ReasoningChain, type ChoicePrompt } from './reasoning'
+import { ReasoningFlow } from './reasoning/ReasoningFlow'
+import { type ChoicePrompt } from './reasoning'
 import { buildContextChips } from './reasoning/context'
 
 export interface ChatThinkingProps {
@@ -217,8 +218,8 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
         </CollapsibleTrigger>
 
         <CollapsibleContent>
-          <div className="border-base border-t px-4 pb-4 pt-4">
-            <ReasoningChain
+          <div className="border-base border-t px-2 pb-3 pt-3 sm:px-4">
+            <ReasoningFlow
               steps={steps}
               userQuestion={userQuestion}
               answerConfidence={answerConfidence}

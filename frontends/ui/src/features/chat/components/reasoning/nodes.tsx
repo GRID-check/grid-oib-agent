@@ -132,7 +132,7 @@ export const SourceFanOutNode: FC<SourceFanOutNodeProps> = ({ t, cards, order })
 
 /* ── Node 3: Assessment (confidence + citations) ─────────────────────────── */
 
-interface CitationChip {
+export interface CitationChip {
   key: string
   label: string
   signal: SourceSignal
@@ -141,7 +141,7 @@ interface CitationChip {
 }
 
 /** Collapse the flat citation list into unique lane chips (mock has none real). */
-const citationChips = (citations: CitationSource[]): CitationChip[] => {
+export const citationChips = (citations: CitationSource[]): CitationChip[] => {
   const byLane = new Map<string, CitationChip>()
   for (const c of citations) {
     const kind = asSourceKind(c.kind) ?? kindForLane(c.lane)

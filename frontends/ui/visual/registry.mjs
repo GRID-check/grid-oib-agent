@@ -15,8 +15,8 @@ export const SCREENSHOT_TARGETS = [
     id: 'herleitung',
     path: '/dev/herleitung',
     description:
-      'Herleitung reasoning trace, expanded — the redesigned full-width calm timeline (framing → parallel sources → assessment), replacing the old measured-SVG connector graph.',
-    waitFor: '[data-testid="herleitung-preview"]',
+      'Herleitung reasoning trace, expanded — the React Flow node graph (framing → parallel sources → assessment) wired into the real ChatThinking.',
+    waitFor: '.react-flow__node',
   },
   {
     id: 'document-grid',

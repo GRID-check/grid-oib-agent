@@ -210,7 +210,7 @@ export const chat: typeof en.chat = {
       ris: 'RIS (Österreichisches Recht)',
     },
     node: {
-      framingTab: 'Zwischenschritt',
+      framingTab: 'Einordnung',
       framingTitle: 'Frage verstanden',
       framingQuestion: 'Du fragst: „{question}“',
       contextLabel: 'Kontext',
