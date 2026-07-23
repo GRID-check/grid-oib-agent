@@ -3,19 +3,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { sourceTint } from '@/lib/ui/source-tint'
-import { AlertCircle, Archive, RotateCcw, Upload, X } from 'lucide-react'
+import { AlertCircle, Archive, RotateCcw, X } from 'lucide-react'
 import type { FileItem } from './project-file-workspace'
 import { useArchivDocuments } from '../hooks/use-archiv-documents'
 import { useFileDragDrop } from '../hooks/use-file-drag-drop'
 import { ArchivLibraryPane } from './archiv-library-pane'
 import { FilePreviewDialog } from './file-preview-dialog'
 import { DeleteDocumentButton } from './delete-document-button'
+import { FileDropOverlay, useWindowDragGuard } from './file-drop-overlay'
 import { ProjectUppyUpload } from './project-uppy-upload'
 import { ActiveUploads } from './active-uploads'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { useTranslations } from '@/i18n'
-import { cn } from '@/lib/utils'
 
 interface ArchivWorkspaceProps {
   /** Whether the viewer may upload/delete (holds `org:archiv:manage`). */
@@ -150,15 +150,7 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
     disabled: isUploading || !canManage,
   })
 
-  useEffect(() => {
-    const prevent = (e: DragEvent) => e.preventDefault()
-    window.addEventListener('dragover', prevent)
-    window.addEventListener('drop', prevent)
-    return () => {
-      window.removeEventListener('dragover', prevent)
-      window.removeEventListener('drop', prevent)
-    }
-  }, [])
+  useWindowDragGuard()
 
   const uploadButton = canManage ? (
     <ProjectUppyUpload onUpload={(f) => uploadFiles(f)} isUploading={isUploading} />
@@ -167,18 +159,12 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
   return (
     <div className="relative flex h-full flex-col" {...(canManage ? dragHandlers : {})} data-testid="archiv-dropzone">
       {canManage && isDragging && (
-        <div
-          className={cn(
-            'pointer-events-none absolute inset-2 z-50 flex flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed text-center',
-            isUnsupportedDrag ? 'border-destructive bg-destructive/5' : 'border-ring bg-primary/5 backdrop-blur-sm',
-          )}
-          data-testid="archiv-drop-overlay"
-        >
-          <Upload className={cn('size-6', isUnsupportedDrag ? 'text-destructive' : 'text-primary')} aria-hidden />
-          <p className={cn('text-sm font-medium', isUnsupportedDrag ? 'text-destructive' : 'text-primary')}>
-            {isUnsupportedDrag ? t('workspace.dropUnsupported') : t('workspace.dropToUpload')}
-          </p>
-        </div>
+        <FileDropOverlay
+          isUnsupported={isUnsupportedDrag}
+          uploadLabel={t('workspace.dropToUpload')}
+          unsupportedLabel={t('workspace.dropUnsupported')}
+          testId="archiv-drop-overlay"
+        />
       )}
 
       {/* Top action bar */}

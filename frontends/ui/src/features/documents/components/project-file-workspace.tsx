@@ -2,13 +2,14 @@
 
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { toast } from 'sonner'
-import { AlertCircle, LayoutGrid, ListTree, RotateCcw, ShieldCheck, Upload, X } from 'lucide-react'
+import { AlertCircle, LayoutGrid, ListTree, RotateCcw, ShieldCheck, X } from 'lucide-react'
 import { useProjectDocuments } from '../hooks/use-project-documents'
 import { useFileDragDrop } from '../hooks/use-file-drag-drop'
 import { FolderTreePane } from './folder-tree-pane'
 import { FileBrowserPane } from './file-browser-pane'
 import { FilePreviewDialog } from './file-preview-dialog'
 import { DeleteDocumentButton } from './delete-document-button'
+import { FileDropOverlay, useWindowDragGuard } from './file-drop-overlay'
 import { ProjectUppyUpload } from './project-uppy-upload'
 import { ActiveUploads } from './active-uploads'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -247,17 +248,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
   // Guard against the browser navigating away when a file is dropped outside the
   // drop zone (e.g. onto a gap in the layout). Prevent the default open-file
   // behaviour at the window level while this workspace is mounted.
-  useEffect(() => {
-    const prevent = (e: DragEvent) => {
-      e.preventDefault()
-    }
-    window.addEventListener('dragover', prevent)
-    window.addEventListener('drop', prevent)
-    return () => {
-      window.removeEventListener('dragover', prevent)
-      window.removeEventListener('drop', prevent)
-    }
-  }, [])
+  useWindowDragGuard()
 
   const handleCreateFolder = useCallback(
     async (name: string, parentId?: string) => {
@@ -281,23 +272,12 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
     <div className="relative flex h-full flex-col" {...dragHandlers} data-testid="workspace-dropzone">
       {/* Drag-and-drop overlay — mirrors the chat FileUploadZone affordance. */}
       {isDragging && (
-        <div
-          className={cn(
-            'pointer-events-none absolute inset-2 z-50 flex flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed text-center',
-            isUnsupportedDrag
-              ? 'border-destructive bg-destructive/5'
-              : 'border-ring bg-primary/5 backdrop-blur-sm'
-          )}
-          data-testid="workspace-drop-overlay"
-        >
-          <Upload
-            className={cn('size-6', isUnsupportedDrag ? 'text-destructive' : 'text-primary')}
-            aria-hidden
-          />
-          <p className={cn('text-sm font-medium', isUnsupportedDrag ? 'text-destructive' : 'text-primary')}>
-            {isUnsupportedDrag ? t('workspace.dropUnsupported') : t('workspace.dropToUpload')}
-          </p>
-        </div>
+        <FileDropOverlay
+          isUnsupported={isUnsupportedDrag}
+          uploadLabel={t('workspace.dropToUpload')}
+          unsupportedLabel={t('workspace.dropUnsupported')}
+          testId="workspace-drop-overlay"
+        />
       )}
 
       {/* Top action bar */}
