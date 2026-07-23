@@ -43,10 +43,7 @@ def _setup(dsn: str) -> None:
         ]
         for job_id, status, updated_at, expiry in rows:
             conn.execute(
-                text(
-                    "INSERT INTO job_info (job_id, status, updated_at, expiry_seconds) "
-                    "VALUES (:j, :s, :u, :e)"
-                ),
+                text("INSERT INTO job_info (job_id, status, updated_at, expiry_seconds) VALUES (:j, :s, :u, :e)"),
                 {"j": job_id, "s": status, "u": updated_at, "e": expiry},
             )
             conn.execute(text("INSERT INTO job_access (job_id, owner) VALUES (:j, 'u')"), {"j": job_id})

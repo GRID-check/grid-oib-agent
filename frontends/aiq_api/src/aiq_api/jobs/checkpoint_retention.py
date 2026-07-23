@@ -82,9 +82,7 @@ def reap_idle_threads(dsn: str | None, retention_seconds: int, now: datetime | N
                 conn.execute(
                     # ts_expr is a dialect-chosen literal; the cutoff is bound.
                     # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
-                    text(
-                        f"SELECT thread_id FROM checkpoints GROUP BY thread_id HAVING MAX({ts_expr}) < :cutoff"
-                    ),
+                    text(f"SELECT thread_id FROM checkpoints GROUP BY thread_id HAVING MAX({ts_expr}) < :cutoff"),
                     {"cutoff": cutoff},
                 ).scalars()
             )
