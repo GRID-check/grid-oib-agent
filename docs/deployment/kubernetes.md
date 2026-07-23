@@ -18,7 +18,7 @@ their own namespaces.
 
 | Workload | k8s object | Replicas | Storage | Scales by |
 |---|---|---|---|---|
-| `aiq-agent` (agent: web + Dask + Chroma) | **StatefulSet** | **1** (chat tier not replica-safe for WS reconnect/HITL yet — §6.4) | RWO PVC `/app/data` | **Vertically** (CPU/mem + Dask knobs); horizontal chat needs conversation-affinity first |
+| `aiq-agent` (agent: web + Dask + Chroma) | **StatefulSet** | **1** in `dask`; `backendReplicas` (default 2) in `db` | RWO PVC `/app/data` | **Vertically** (CPU/mem + Dask knobs) + **horizontally** in `db` via conversation affinity (§6.4, ADR-0028) |
 | `frontend` (Next.js + BFF + WS gateway) | Deployment + HPA | 2→6 | — | Horizontally (CPU HPA) |
 | `purger` | Deployment | 1 | — | n/a (SKIP LOCKED-safe) |
 | `workflow-scheduler` | Deployment | 1 | — | n/a (DB-claimed ticks) |
@@ -215,21 +215,20 @@ Safe rollout: `jobExecution: dask` (default in code) is byte-for-byte today's
 behaviour; flip to `db` per environment. `agentWorkerMinReplicas` /
 `agentWorkerMaxReplicas` / `agentWorkerConcurrency` size the worker tier.
 
-### 6.4 Multi-replica chat/web tier — PARTIAL (`jobExecution: db`)
+### 6.4 Multi-replica chat/web tier — IMPLEMENTED via conversation affinity (`jobExecution: db`)
 
-> **Correction (scaling review, phase 2):** `backendReplicas` now defaults to
-> **1**. The stateless parts of the chat/retrieval path are replica-safe, but
-> the **interactive WebSocket path is not**: the WS session registry, HITL
-> (clarifier) futures, and the running LangGraph task are in-process with no
-> cross-replica fallback, and there is no `sessionAffinity`. So a reconnect or a
-> human-in-the-loop turn that lands on a different replica silently fails to
-> reattach. Running `backendReplicas > 1` therefore requires **conversation
-> affinity** (pin frontend→backend by `conversation_id`) or externalizing the
-> WS+HITL state first. The tier that scales horizontally *today* is
-> `agent-worker` (stateless, DB-claimed). See
-> docs/architecture/scaling-review-2026-07-phase2.md (chat P0).
+In `db` mode `aiq-agent` runs `backendReplicas` (default 2). The interactive
+WebSocket path keeps per-conversation state (WS delivery, HITL futures, the
+running LangGraph task) **in process**, so the frontend gateway pins each
+conversation to its **owning replica** by a stable hash of `conversationId`
+(**conversation affinity, ADR-0028**): pods are addressed via the headless
+service `aiq-agent-<i>.aiq-agent-headless:8000`, and the proxy falls back to the
+load-balanced service at 1 replica. A reconnect/HITL turn therefore returns to
+the replica that owns the conversation. Tradeoff: a replica restart drops that
+slice's *live* streams (recovered from the Postgres checkpoint on the next turn);
+the fully-stateless Dragonfly-pub/sub target is the ADR-0028 follow-up.
 
-The stateless parts that *are* replica-safe:
+The stateless parts (replica-safe regardless of affinity):
 
 - **Vectors** are shared (Chroma server, §6.3); **job/checkpoint state** is in
   Postgres; **caches + citation registry** are in Dragonfly.

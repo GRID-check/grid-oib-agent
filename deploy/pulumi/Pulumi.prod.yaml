@@ -74,11 +74,9 @@ config:
   grid-oib:agentWorkerMinReplicas: "2"
   grid-oib:agentWorkerMaxReplicas: "8"
   grid-oib:agentWorkerConcurrency: "1"
-  # Chat/web replicas. Default 1: the chat tier is not yet replica-safe for WS
-  # reconnect + HITL (see scaling-review-2026-07-phase2.md). Raise only after
-  # adding conversation-affinity / externalizing WS state. agent-worker is the
-  # tier that scales horizontally today.
-  grid-oib:backendReplicas: "1"
+  # Chat/web replicas. Safe at >1 via conversation affinity (the frontend WS
+  # proxy pins each conversation to its owning replica — ADR-0028).
+  grid-oib:backendReplicas: "2"
 
   # ── Frontend (horizontal) ──
   grid-oib:frontendMinReplicas: "2"

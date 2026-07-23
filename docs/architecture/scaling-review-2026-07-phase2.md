@@ -86,16 +86,14 @@ Investigated separately — it runs synchronously per chat turn over WebSocket o
 the `aiq-agent` web tier (scales to `backendReplicas`). It is the volume driver.
 
 ### P0 (chat-specific)
-- **CHAT TIER IS NOT REPLICA-SAFE** (`websocket_reconnect.py:90-435`). The WS
-  session registry, HITL/clarifier futures, and the running LangGraph task are
-  in-process with no cross-replica fallback (unlike the citation registry). A
-  reconnect / HITL turn landing on a different replica silently fails to reattach;
-  there is no `sessionAffinity` in the deploy. So `backendReplicas > 1` + the
-  `kubernetes.md §6.4` "multi-replica chat tier" claim are **incorrect** for
-  reconnect/HITL. *Fix:* either default `backendReplicas: 1` until solved, or add
-  conversation-affinity (frontend→backend pin by conversation_id) / externalize
-  the WS+HITL state (a Dragonfly/Postgres "which replica owns this conversation"
-  pointer with redirect).
+- **CHAT TIER REPLICA-SAFETY** (`websocket_reconnect.py:90-435`). The WS session
+  registry, HITL/clarifier futures, and the running LangGraph task are in-process
+  with no cross-replica fallback. **[LANDED — conversation affinity, ADR-0028]**
+  the frontend WS proxy now pins each conversation to its owning replica by
+  `hash(conversationId) % N` via headless per-pod DNS, so reconnect/HITL return to
+  the owner; `backendReplicas` is 2 again. **Follow-up (fully stateless):**
+  Dragonfly pub/sub event bus so any replica serves any reconnect and a replica
+  restart doesn't drop live streams.
 - **No provider prompt caching + non-invariant static prefix** (`researcher.j2:36,64,84`;
   no `cache_control` anywhere) — the ~2-3k-token system prompt re-billed ~every
   turn; the meta/research branch and the per-turn live memory-digest sit above the
