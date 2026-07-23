@@ -1,3 +1,4 @@
+import { type JSX } from 'react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { getTranslations } from '@/i18n/server'
 

@@ -12,7 +12,7 @@
  * and fill the verified document number / URLs from a picked candidate.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { type JSX, useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { z } from 'zod'
 import {

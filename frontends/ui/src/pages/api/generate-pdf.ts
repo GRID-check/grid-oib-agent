@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import React from 'react'
-import { renderToStream } from '@react-pdf/renderer'
+import { renderToStream, type DocumentProps } from '@react-pdf/renderer'
 import { MarkdownPDF } from '../../lib/pdf/ReactPdfDocument'
 
 /**
@@ -21,7 +21,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     const stream = await renderToStream(
-      React.createElement(MarkdownPDF, { markdown }) as React.ReactElement
+      React.createElement(MarkdownPDF, { markdown }) as React.ReactElement<DocumentProps>
     )
 
     const chunks: Buffer[] = []

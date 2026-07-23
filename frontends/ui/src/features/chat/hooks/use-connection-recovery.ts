@@ -34,7 +34,7 @@ export function useConnectionRecovery(onRecovered: () => void): void {
     (s) => s.dismissConnectionErrors
   )
 
-  const timerRef = useRef<ReturnType<typeof setTimeout>>()
+  const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const delayRef = useRef(INITIAL_DELAY_MS)
   const activeRef = useRef(false)
 

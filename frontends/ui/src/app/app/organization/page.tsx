@@ -6,6 +6,7 @@
  * remove), and — per the admin's permissions — the advanced enterprise widgets.
  */
 
+import { type JSX } from 'react'
 import Link from 'next/link'
 import { ArrowLeft, Building2, Cpu, Gauge, Globe, KeyRound, Mail, ScrollText, ShieldAlert, Users } from 'lucide-react'
 import { requireAuthorizedPageSession } from '@/lib/auth/require-auth'

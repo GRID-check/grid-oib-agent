@@ -12,7 +12,7 @@
  * own auth guard, and pages like onboarding must render without an org.
  */
 
-import { type ReactNode } from 'react'
+import { type JSX, type ReactNode } from 'react'
 import { getGridSession } from '@/lib/auth/session'
 import { FEATURE_FLAGS, isFeatureEnabled, isProjectKnowledgePageEnabled } from '@/lib/authz/feature-flags'
 import { KeyboardShortcuts } from '@/components/shell'

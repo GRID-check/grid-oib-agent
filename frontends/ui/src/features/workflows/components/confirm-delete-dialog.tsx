@@ -6,6 +6,7 @@
  * confirmation — not type-to-confirm — is the right friction here.
  */
 
+import { type JSX } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {

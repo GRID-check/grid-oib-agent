@@ -13,7 +13,7 @@
  *     thumbnail header, mirroring the click-dummy's Dateien cards.
  */
 
-import type { ReactNode, SVGProps } from 'react'
+import type { JSX, ReactNode, SVGProps } from 'react'
 import type { DocumentKind } from '../document-kind'
 import { cn } from '@/lib/utils'
 

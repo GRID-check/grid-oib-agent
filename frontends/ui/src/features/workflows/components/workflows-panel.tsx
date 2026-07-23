@@ -7,7 +7,7 @@
  * it, so it refetches and reflects any create/edit.
  */
 
-import { useCallback, useState } from 'react'
+import { type JSX, useCallback, useState } from 'react'
 import { toast } from 'sonner'
 import { useTranslations } from '@/i18n'
 import { getWorkflow, type WorkflowDetail } from '@/adapters/api/workflows-client'

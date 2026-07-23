@@ -9,6 +9,7 @@
  * anywhere and 404s outside development.
  */
 
+import { type JSX } from 'react'
 import { notFound } from 'next/navigation'
 import { DocumentGridCard } from '@/features/grid-cards/components/DocumentGridCard'
 

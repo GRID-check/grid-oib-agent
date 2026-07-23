@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { type JSX, useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { AlertCircle, ArrowRight, Telescope } from 'lucide-react'
 import { Stagger, StaggerItem } from '@/components/motion'

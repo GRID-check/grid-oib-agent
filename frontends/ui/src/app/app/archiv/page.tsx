@@ -5,6 +5,7 @@
  * deletes gated on `org:archiv:manage`.
  */
 
+import { type JSX } from 'react'
 import { type Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import { ArrowLeft } from 'lucide-react'

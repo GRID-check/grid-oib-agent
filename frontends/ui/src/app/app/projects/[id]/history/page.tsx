@@ -1,3 +1,4 @@
+import { type JSX } from 'react'
 import { type Metadata } from 'next'
 import { eq } from 'drizzle-orm'
 import { notFound } from 'next/navigation'

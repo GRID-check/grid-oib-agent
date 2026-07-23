@@ -14,7 +14,7 @@
 
 import Link from 'next/link'
 import { Settings } from 'lucide-react'
-import { useMemo } from 'react'
+import { type JSX, useMemo } from 'react'
 import { motion, springSnappy } from '@/components/motion'
 import type { Project } from '@/lib/db/schema'
 import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'

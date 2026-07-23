@@ -16,6 +16,7 @@
  * "More coming" placeholder closes the grid.
  */
 
+import { type JSX } from 'react'
 import { ArrowRight, Clock, FileCheck2, Plus, ShieldCheck, type LucideIcon } from 'lucide-react'
 import { useTranslations, type Translator } from '@/i18n'
 import { presetForCron } from '../lib/schedule'

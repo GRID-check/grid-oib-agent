@@ -6,6 +6,7 @@
  * an explanatory card, mirroring the org page's non-admin experience.
  */
 
+import { type JSX } from 'react'
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { ArrowLeft, ShieldAlert } from 'lucide-react'

@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { type JSX, useCallback, useEffect, useRef, useState } from 'react'
 import { AlertCircle, Brain, Check, Pencil, Pin, PinOff, Plus, Trash2, X } from 'lucide-react'
 import {
   PROJECT_MEMORY_KINDS,

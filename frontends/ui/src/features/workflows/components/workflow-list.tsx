@@ -9,7 +9,7 @@
  * history). Empty and error states reuse the shared primitives.
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { type JSX, useCallback, useEffect, useState } from 'react'
 import {
   AlertCircle,
   CalendarClock,

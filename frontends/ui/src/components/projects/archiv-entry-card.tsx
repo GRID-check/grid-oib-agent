@@ -13,7 +13,7 @@
  * semantic vars only, no hex, theme-aware either way.
  */
 
-import type { CSSProperties } from 'react'
+import type { JSX, CSSProperties } from 'react'
 import Link from 'next/link'
 import { Archive, ChevronRight } from 'lucide-react'
 import { useTranslations } from '@/i18n'

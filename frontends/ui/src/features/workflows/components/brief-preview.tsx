@@ -8,6 +8,7 @@
  * so the preview is honest rather than re-styled.
  */
 
+import { type JSX } from 'react'
 import { FileText } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { useTranslations } from '@/i18n'

@@ -14,7 +14,9 @@ function getTextFromChildren(node: ReactNode): string {
   if (typeof node === 'number') return String(node)
   if (Array.isArray(node)) return node.map(getTextFromChildren).join('')
   if (node && typeof node === 'object' && 'props' in node) {
-    return getTextFromChildren((node as React.ReactElement).props.children)
+    return getTextFromChildren(
+      (node as React.ReactElement<{ children?: ReactNode }>).props.children
+    )
   }
   return ''
 }

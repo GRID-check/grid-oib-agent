@@ -7,7 +7,7 @@
  * deterministic SVG sketch fallback renders. 404s outside development.
  */
 
-import { useState } from 'react'
+import { type JSX, useState } from 'react'
 import { notFound } from 'next/navigation'
 import { FileBrowserPane } from '@/features/documents/components/file-browser-pane'
 import type { FileItem } from '@/features/documents/components/project-file-workspace'

@@ -12,7 +12,7 @@
  * and merged into the definition on submit.
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { type JSX, useEffect, useMemo, useState } from 'react'
 import { ArrowLeft, Lock, Plus, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { z } from 'zod'

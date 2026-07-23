@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { type JSX, useMemo, useState } from 'react'
 import type { FolderItem } from './project-file-workspace'
 import { Folder, FolderOpen, Loader2, Plus } from 'lucide-react'
 import { Input } from '@/components/ui/input'

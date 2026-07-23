@@ -8,7 +8,7 @@
  * and the `?new=1` auto-open wiring for the create dialog.
  */
 
-import { useMemo, useState } from 'react'
+import { type JSX, useMemo, useState } from 'react'
 import { FolderOpen, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'

@@ -7,6 +7,7 @@
  * ({@link ProfileControls}).
  */
 
+import { type JSX } from 'react'
 import Link from 'next/link'
 import { ArrowLeft, Building2, UserRound } from 'lucide-react'
 import { requireAuthorizedPageSession } from '@/lib/auth/require-auth'

@@ -21,7 +21,7 @@
  * family, again because there is no real per-row source to color them by.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { type JSX, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { AlertCircle, ChevronRight, MessageSquare, Search } from 'lucide-react'
 import type { Conversation } from '@/lib/db/schema'
