@@ -30,6 +30,17 @@ product/visual sign-off on a running app, or is larger follow-up work.
    hard-required fields now carry a required marker.
 5. **Documents** — the terminal status says "Citable"/"Zitierbar" instead of a
    bare "Ready"; the chat File-Sources empty state uses the crafted `EmptyState`.
+6. **Apple-tier coherence pass** — foundation-level visual craft that propagates
+   system-wide: 3-layer elevation stacks (contact + mid + ambient) on the shadow
+   scale; `ConfirmDialog` tinted-disc header; `EmptyState` raised light-catching
+   icon disc; and the completed-answer "Ergebnis" card unified into one sectioned
+   object (answer body + provenance footer divided by a hairline, no floating
+   inner card). Verified in light + dark via `/dev` previews (`chat-turn`,
+   `herleitung`, `confirm-dialog`).
+7. **Herleitung** — the collapsed reasoning trace is now a real streamed React
+   Flow node graph (framing → parallel source fan-out → assessment → branches),
+   responsive to a single-column chain on narrow widths; no overlapping
+   connectors.
 
 Everything below marked **[backlog]** is the prioritized remainder.
 
