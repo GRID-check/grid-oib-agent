@@ -123,4 +123,21 @@ export const platform: typeof en.platform = {
     spanCount: '{count} Spans',
     noSpans: 'Keine Spans für diesen Turn erfasst.',
   },
+  maintenance: {
+    title: 'Vektor-Wartung',
+    description:
+      'Verwaiste Vektoren entfernen – indexierte Textabschnitte, die bei früheren Löschungen zurückblieben und deren Dokument nicht mehr existiert. In der App sind sie unsichtbar, können aber weiterhin in der Suche auftauchen. Jederzeit gefahrlos ausführbar; es werden nur Abschnitte ohne vorhandenes Dokument entfernt.',
+    reconcile: 'Verwaiste Vektoren bereinigen',
+    reconciling: 'Wird bereinigt…',
+    confirmTitle: 'Verwaiste Vektoren bereinigen?',
+    confirmDescription:
+      'Dies durchsucht jede Sammlung und löscht indexierte Abschnitte, deren Dokument nicht mehr existiert. Weiterhin sichtbare Dokumente bleiben unberührt. Der Vorgang kann nicht rückgängig gemacht werden, ein entferntes Dokument lässt sich aber erneut hochladen.',
+    confirm: 'Bereinigung starten',
+    cancel: 'Abbrechen',
+    resultRemoved: '{chunks} verwaiste Abschnitt(e) in {collections} Sammlung(en) entfernt',
+    resultClean: 'Keine verwaisten Vektoren gefunden',
+    resultCleanDetail: 'Keine verwaisten Vektoren in {collections} Sammlung(en) gefunden',
+    resultFailures: '{count} Sammlung(en) konnten nicht bereinigt werden',
+    failed: 'Bereinigung fehlgeschlagen',
+  },
 }

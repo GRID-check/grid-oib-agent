@@ -16,6 +16,7 @@ import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/ca
 import { getTranslations } from '@/i18n/server'
 import { BaseKnowledge } from './base-knowledge'
 import { PlatformOverview } from './platform-overview'
+import { VectorMaintenance } from './vector-maintenance'
 import { AgentProfiler } from '@/features/platform/components/agent-profiler'
 import { NormRegistry } from '@/features/platform/components/norm-registry'
 
@@ -81,6 +82,7 @@ export default async function PlatformPage(): Promise<JSX.Element> {
       <AgentProfiler />
       <BaseKnowledge />
       <NormRegistry />
+      <VectorMaintenance />
     </div>,
   )
 }
