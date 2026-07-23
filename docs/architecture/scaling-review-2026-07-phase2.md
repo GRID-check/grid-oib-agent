@@ -72,8 +72,11 @@ the TTL-cleanup lock — is a cliff).
 11. **Fleet-wide Postgres connections uncapped** (~30/process × replicas + 1 unpooled
     per SSE viewer). *Fix:* central connection budget + SSE cap.
 12. **`reap_exhausted` runs every worker every tick, un-leader-locked**
-    (`worker.py:161`) — DB load scales with worker count, not job volume. *Fix:*
-    leader-lock or de-cadence.
+    (`worker.py:161`) — DB load scaled with worker count, not job volume.
+    **[LANDED]** `queue.reap_exhausted` now takes a Postgres transaction-level
+    advisory lock (`_PG_REAP_EXHAUSTED_LOCK_ID`) so one replica reaps per cycle
+    and the rest skip the scan; SQLite (dev) is unlocked. Distinct lock id from
+    the web-tier reaper/cleanup/checkpoint locks (tested).
 13. **`self._files` in-process dict never pruned** + O(n²) `list_files`
     (`adapter.py:1345,2055`). *Fix:* prune on the `_jobs` cadence.
 14. **Uncapped embedded-image extraction + sequential VLM captioning**
