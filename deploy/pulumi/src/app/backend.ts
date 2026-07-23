@@ -7,6 +7,7 @@ import { AppWiring, backendEnv } from "./config";
 export interface Backend {
   statefulSet: k8s.apps.v1.StatefulSet;
   service: k8s.core.v1.Service;
+  headlessService: k8s.core.v1.Service;
 }
 
 /**
@@ -38,8 +39,12 @@ export function installBackend(
     {
       metadata: { name: "aiq-agent", namespace: w.namespace, labels },
       spec: {
-        serviceName: "aiq-agent",
-        // Singleton in dask mode; multi-replica chat tier in db mode.
+        // Headless governing service → stable per-pod DNS
+        // (aiq-agent-<i>.aiq-agent-headless), which the frontend uses for
+        // conversation affinity so a chat pins to its owning replica.
+        serviceName: "aiq-agent-headless",
+        // Singleton in dask mode; multi-replica chat tier in db mode (safe with
+        // conversation affinity — ADR-0028).
         replicas: cfg.jobExecution === "db" ? cfg.backend.replicas : 1,
         selector: { matchLabels: labels },
         template: {
@@ -95,6 +100,26 @@ export function installBackend(
     { provider: w.provider, dependsOn: [secret, ...dependsOn] },
   );
 
+  // Headless service: stable per-pod DNS (aiq-agent-<i>.aiq-agent-headless) for
+  // conversation affinity (the frontend routes a conversation to its owning pod).
+  const headlessService = new k8s.core.v1.Service(
+    "aiq-agent-headless",
+    {
+      metadata: { name: "aiq-agent-headless", namespace: w.namespace, labels },
+      spec: {
+        clusterIP: "None",
+        selector: labels,
+        ports: [{ port: 8000, targetPort: 8000, name: "http" }],
+        // Serve DNS for pods as soon as they exist (before Ready) so affinity
+        // routing resolves during rollouts.
+        publishNotReadyAddresses: true,
+      },
+    },
+    { provider: w.provider },
+  );
+
+  // Load-balanced ClusterIP for callers that don't need affinity (BACKEND_URL,
+  // internal REST, the migration/health checks).
   const service = new k8s.core.v1.Service(
     "aiq-agent",
     {
@@ -107,5 +132,5 @@ export function installBackend(
     { provider: w.provider, dependsOn: statefulSet },
   );
 
-  return { statefulSet, service };
+  return { statefulSet, service, headlessService };
 }

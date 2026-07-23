@@ -109,7 +109,7 @@ export interface GridConfig {
      * Web/chat replica count. Only applied when jobExecution="db" (in "dask"
      * mode the agent is a hard singleton and this is forced to 1). The
      * chat/retrieval path is replica-safe via shared Chroma + Postgres + cache;
-     * see the base-corpus-upload caveat in docs/deployment/kubernetes.md §6.3.
+     * see the base-corpus-upload caveat in docs/deployment/kubernetes.md §6.4.
      */
     replicas: number;
   };
@@ -202,6 +202,40 @@ function bool(cfg: pulumi.Config, key: string, fallback: boolean): boolean {
 export function loadConfig(): GridConfig {
   const cfg = new pulumi.Config();
 
+  // Reject the Pulumi.prod.yaml template placeholders up front. `require()`
+  // happily returns "REPLACE_ME"/"app.example.com", so without this the failure
+  // only surfaces ~20 min later as PVCs stuck Pending / TLS never issuing.
+  const rejectPlaceholder = (key: string, markers: string[]) => {
+    const v = cfg.get(key);
+    if (v !== undefined && markers.some((m) => v.includes(m))) {
+      throw new Error(
+        `grid-oib:${key} is still the template placeholder ("${v}"). Set a real value before deploying.`,
+      );
+    }
+  };
+  rejectPlaceholder("storageClass", ["REPLACE_ME"]);
+  rejectPlaceholder("appDomain", ["example.com"]);
+  rejectPlaceholder("s3Domain", ["example.com"]);
+  rejectPlaceholder("workosClientId", ["REPLACE_ME"]);
+
+  const jobExecution: "dask" | "db" = (cfg.get("jobExecution") ?? "dask") === "db" ? "db" : "dask";
+
+  // Fail closed: db-claimed job payloads carry the user's auth token and persist
+  // in Postgres (table + WAL + backups + replicas). Refuse to deploy db mode
+  // without a KEK to encrypt them at rest, unless plaintext is explicitly opted
+  // into for dev. Guards against the silent plaintext-token-at-rest default.
+  const jobPayloadKek = cfg.getSecret("jobPayloadKek");
+  const allowPlaintextJobPayloads = bool(cfg, "allowPlaintextJobPayloads", false);
+  if (jobExecution === "db" && jobPayloadKek === undefined && !allowPlaintextJobPayloads) {
+    throw new Error(
+      "jobExecution=db persists research-job payloads (which carry the user auth token) in Postgres, " +
+        "so they must be encrypted at rest. Set a 32-byte base64 KEK:\n" +
+        "  pulumi config set --secret grid-oib:jobPayloadKek $(openssl rand -base64 32)\n" +
+        "To deliberately run with PLAINTEXT payloads (dev/single-node only), set:\n" +
+        "  pulumi config set grid-oib:allowPlaintextJobPayloads true",
+    );
+  }
+
   return {
     namespace: cfg.get("namespace") ?? "grid",
     kubeconfig: cfg.requireSecret("kubeconfig"),
@@ -222,7 +256,11 @@ export function loadConfig(): GridConfig {
       appDomain: cfg.require("appDomain"),
       s3Domain: cfg.require("s3Domain"),
       letsEncryptEmail: cfg.require("letsEncryptEmail"),
-      useStagingIssuer: bool(cfg, "useStagingIssuer", false),
+      // Default to the LE STAGING CA: on a first deploy the LoadBalancer IP (and
+    // therefore DNS) doesn't exist yet, so HTTP-01 can't be solved and every
+    // failed prod attempt burns Let's Encrypt rate limits. Flip to false only
+    // after DNS resolves to the gateway and a staging cert has issued.
+    useStagingIssuer: bool(cfg, "useStagingIssuer", true),
       installMetricsServer: bool(cfg, "installMetricsServer", true),
     },
 
@@ -239,6 +277,10 @@ export function loadConfig(): GridConfig {
 
     chroma: {
       enabled: bool(cfg, "chromaEnabled", true),
+      // Deliberately pinned (NOT latest): the server API/wire protocol is
+      // coupled to the backend's `chromadb` Python client, and 0.5.x vs 1.x/2.x
+      // change the /api/v1 -> /api/v2 surface (the readiness probe path too).
+      // Bump this only together with the backend image's chromadb client.
       image: cfg.get("chromaImage") ?? "chromadb/chroma:0.5.23",
       storageSize: cfg.get("chromaStorageSize") ?? "20Gi",
     },
@@ -265,6 +307,10 @@ export function loadConfig(): GridConfig {
       configFile: cfg.get("backendConfigFile") ?? "/app/configs/config_oib_openrouter.yml",
       chromaDir: cfg.get("backendChromaDir") ?? "/app/data/chroma_data",
       dataStorageSize: cfg.get("backendDataStorageSize") ?? "20Gi",
+      // Multi-replica chat/web tier. Safe because the frontend WS proxy pins each
+      // conversation to its owning replica by hash (conversation affinity,
+      // ADR-0028), so the in-process WS/HITL/task state is always reachable. The
+      // headless service (backend.ts) provides the per-pod DNS this needs.
       replicas: num(cfg, "backendReplicas", 2),
     },
 
@@ -280,7 +326,7 @@ export function loadConfig(): GridConfig {
       hpaCpuTargetPercent: num(cfg, "frontendHpaCpuTargetPercent", 70),
     },
 
-    jobExecution: (cfg.get("jobExecution") ?? "dask") === "db" ? "db" : "dask",
+    jobExecution,
     agentWorker: {
       resources: {
         requestsCpu: cfg.get("agentWorkerRequestsCpu") ?? "1",
@@ -321,7 +367,7 @@ export function loadConfig(): GridConfig {
     internal: {
       apiToken: cfg.requireSecret("gridInternalApiToken"),
       adminToken: cfg.requireSecret("gridAdminToken"),
-      jobPayloadKek: cfg.getSecret("jobPayloadKek") ?? pulumi.output(""),
+      jobPayloadKek: jobPayloadKek ?? pulumi.output(""),
     },
 
     workflows: {

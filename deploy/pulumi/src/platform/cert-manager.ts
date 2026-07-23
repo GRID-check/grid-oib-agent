@@ -38,7 +38,9 @@ export function installCertManager(
     "cert-manager",
     {
       chart: "cert-manager",
-      version: "v1.17.2",
+      // Unpinned: track the latest chart. `enableGatewayAPI` has been stable
+      // config since v1.15, so newer releases stay compatible with the wiring
+      // below.
       namespace: ns.metadata.name,
       repositoryOpts: { repo: "https://charts.jetstack.io" },
       values: {
