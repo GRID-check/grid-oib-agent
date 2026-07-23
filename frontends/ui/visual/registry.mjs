@@ -19,6 +19,12 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '.react-flow__node',
   },
   {
+    id: 'confirm-dialog',
+    path: '/dev/confirm-dialog',
+    description: 'Shared destructive ConfirmDialog (backs admin confirms + delete modals), shown open.',
+    waitFor: '[role="alertdialog"], [role="dialog"]',
+  },
+  {
     id: 'document-grid',
     path: '/dev/document-grid',
     description: 'Chat document_grid surfacing card — real project + Büroarchiv files as preview cards.',
