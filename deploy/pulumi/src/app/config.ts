@@ -95,6 +95,9 @@ export function backendEnv(w: AppWiring): EnvVar[] {
     sref("AIQ_DEEP_CHECKPOINT_DB"),
     // Shared cache.
     { name: "REDIS_URL", value: w.redisUrl },
+    // Stateless chat tier via the Dragonfly pub/sub conversation bus (ADR-0028).
+    // Off by default; needs REDIS_URL + live validation before the affinity-off flip.
+    { name: "GRID_CONVERSATION_BUS", value: cfg.conversationBus ? "1" : "0" },
     // Project-memory write path (backend → frontend BFF).
     { name: "FRONTEND_INTERNAL_URL", value: "http://frontend:3000" },
     sref("GRID_INTERNAL_API_TOKEN"),

@@ -311,6 +311,7 @@ class ConversationBus:
 # ---------------------------------------------------------------------------
 _bus: ConversationBus | None = None
 _in_memory_singleton: InMemoryTransport | None = None
+_force_multi_for_tests = False
 
 
 def _bus_enabled() -> bool:
@@ -339,10 +340,21 @@ def get_bus() -> ConversationBus:
 
 def is_multi_replica_bus() -> bool:
     """True when the bus actually spans replicas (Redis-backed + enabled)."""
-    return _bus_enabled() and bool(os.environ.get("REDIS_URL"))
+    return _force_multi_for_tests or (_bus_enabled() and bool(os.environ.get("REDIS_URL")))
+
+
+def force_multi_replica_for_tests(transport: InMemoryTransport | None = None) -> ConversationBus:
+    """Force multi-replica mode over an in-memory transport (tests only). Returns
+    the process bus; peers sharing its transport stand in for other replicas."""
+    global _bus, _in_memory_singleton, _force_multi_for_tests
+    _in_memory_singleton = transport or InMemoryTransport()
+    _bus = ConversationBus(_in_memory_singleton, replica_id="test-owner")
+    _force_multi_for_tests = True
+    return _bus
 
 
 def reset_bus_for_tests() -> None:
-    global _bus, _in_memory_singleton
+    global _bus, _in_memory_singleton, _force_multi_for_tests
     _bus = None
     _in_memory_singleton = None
+    _force_multi_for_tests = False

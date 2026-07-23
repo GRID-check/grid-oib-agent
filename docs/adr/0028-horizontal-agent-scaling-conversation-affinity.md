@@ -58,17 +58,37 @@ rewriting the backend**.
 - Affinity concentrates a hot conversation on one replica (no in-conversation
   parallelism) — fine, a conversation is inherently sequential.
 
-### Follow-up — the fully-stateless target
-The robust end state is a **Dragonfly (Redis) pub/sub event bus**: the replica
-running a turn publishes streaming events to `conv:<id>:events`, any replica
-holding the client's WS subscribes and relays, and HITL responses round-trip on
-`conv:<id>:response`. That removes affinity entirely (any replica serves any
-reconnect) and survives replica death without dropping streams. Dragonfly is
-already in the stack (ADR-0020). Deferred because it is a larger change to the
-interactive hot path that needs live validation; affinity is the correct,
-low-risk first step.
+### The fully-stateless target — IMPLEMENTED (gated)
+The robust end state is a **Dragonfly (Redis) pub/sub event bus**, and it is now
+implemented (`frontends/aiq_api/src/aiq_api/conversation_bus.py` + the
+`WebSocketSessionRegistry` wiring): the replica running a turn (the **owner**,
+which keeps the loop-bound HITL future + LangGraph task) publishes streaming
+frames to `conv:<id>:events`; any replica holding the client's WS (the **relay**)
+subscribes and writes them to the socket; HITL answers round-trip on
+`conv:<id>:input`, where the owner's subscriber resolves its future. A bounded
+Redis stream (`conv:<id>:stream`) buffers frames for reconnect replay
+(best-effort — the Postgres checkpoint stays source of truth, ADR-0020). This
+removes the affinity pin: **any replica serves any conversation**, and a relay's
+death just means the client reconnects elsewhere while the owner keeps
+publishing.
+
+**Gating & rollout.** The bus is OFF by default — with `GRID_CONVERSATION_BUS`
+unset it uses an in-process transport, so single-replica / current behavior is
+byte-identical (and every existing WS test passes unchanged). It activates only
+when `GRID_CONVERSATION_BUS=1` **and** `REDIS_URL` are set. The safe flip is:
+(1) deploy with the bus enabled but affinity still on (co-located owner==relay —
+bus is exercised, harmless); (2) live-validate cross-replica reconnect + HITL;
+(3) remove affinity from `server.js` (route WS to the plain load-balanced
+`aiq-agent` service) so sockets spread independently of turn ownership. Owner
+election (`SET NX EX` on `conv:<id>:owner`) prevents two replicas running one
+conversation once affinity is off.
 
 ### Validation
+The bus protocol and the registry wiring are unit-tested over an in-memory
+transport with two `ConversationBus` instances standing in for two replicas
+(fan-out ordering, HITL round-trip, supersede/cancel, reconnect replay, exclusive
+owner election, fail-open; `test_conversation_bus.py`, `test_websocket_bus_wiring.py`).
 Affinity logic is a pure function with a safe fallback; the Pulumi program
-typechecks and `server.js` parses. End-to-end WS routing across replicas needs a
-`pulumi up` + browser check before relying on it at scale.
+typechecks and `server.js` parses. **Still needs live validation before the
+affinity-off flip:** true cross-replica reconnect end-to-end, Dragonfly pub/sub
+semantics under eviction, HITL races, and owner-key expiry vs. heartbeat timing.

@@ -129,6 +129,13 @@ export interface GridConfig {
    * horizontally.
    */
   jobExecution: "dask" | "db";
+  /**
+   * Enable the Dragonfly pub/sub conversation bus (ADR-0028) so the chat tier is
+   * fully stateless — any replica serves any conversation's WebSocket. Off by
+   * default; needs REDIS_URL and a live cross-replica validation pass before the
+   * affinity-off flip. When false the tier relies on conversation affinity.
+   */
+  conversationBus: boolean;
   agentWorker: {
     resources: ResourceSpec;
     minReplicas: number;
@@ -219,6 +226,7 @@ export function loadConfig(): GridConfig {
   rejectPlaceholder("workosClientId", ["REPLACE_ME"]);
 
   const jobExecution: "dask" | "db" = (cfg.get("jobExecution") ?? "dask") === "db" ? "db" : "dask";
+  const conversationBus = bool(cfg, "conversationBus", false);
 
   // Fail closed: db-claimed job payloads carry the user's auth token and persist
   // in Postgres (table + WAL + backups + replicas). Refuse to deploy db mode
@@ -327,6 +335,7 @@ export function loadConfig(): GridConfig {
     },
 
     jobExecution,
+    conversationBus,
     agentWorker: {
       resources: {
         requestsCpu: cfg.get("agentWorkerRequestsCpu") ?? "1",
