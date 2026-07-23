@@ -19,6 +19,13 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '.react-flow__node',
   },
   {
+    id: 'chat-turn',
+    path: '/dev/chat-turn',
+    description:
+      'A complete chat turn as ChatArea composes it — user question, collapsed Herleitung, and the cited "Ergebnis" answer card — desktop + mobile.',
+    waitFor: '[data-testid="chat-turn-preview"]',
+  },
+  {
     id: 'confirm-dialog',
     path: '/dev/confirm-dialog',
     description: 'Shared destructive ConfirmDialog (backs admin confirms + delete modals), shown open.',

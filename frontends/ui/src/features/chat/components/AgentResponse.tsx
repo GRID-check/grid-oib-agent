@@ -383,8 +383,11 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             : 'overflow-hidden rounded-[12px] border border-input bg-input-background shadow-md'
         }
       >
-        {/* White inner block — the answer body sits flat here (dummy anatomy) */}
-        <div className="flex flex-col gap-2 break-words rounded-b-[10px] bg-card px-[22px] pb-[18px] pt-[19px] shadow-sm">
+        {/* Answer body — the hero white surface. It fills the top of the card
+            flush (corners clipped by the shell) and is separated from the
+            provenance footer by a single hairline, so the whole thing reads as
+            one considered object with sections — not a card floating in a tray. */}
+        <div className="flex flex-col gap-2 break-words border-b border-border/55 bg-card px-[22px] pb-[17px] pt-[18px]">
           {/* Optional Grid cards rendered before the markdown body */}
           {hasCards && <GridCards cards={cards} projectId={projectId} />}
 
@@ -430,8 +433,9 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
         </div>
 
         {/* "Belegt durch": provenance chips for sources this answer carries.
-            Sits on the tinted shell below the white block. */}
-        <div className="px-[22px] pb-3 pt-[11px]">
+            Sits on the tinted shell below the answer body, divided by the
+            body's hairline. */}
+        <div className="px-[22px] pb-3.5 pt-3">
           <AnswerSourcesRow
             citations={citations}
             cards={cards}
