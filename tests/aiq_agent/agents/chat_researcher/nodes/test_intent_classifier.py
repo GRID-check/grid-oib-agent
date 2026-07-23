@@ -224,6 +224,30 @@ class TestIntentClassifier:
         meta_bullet = next(line for line in classifier.prompt.splitlines() if '**intent = "meta"**' in line)
         assert "project profile" in meta_bullet
 
+    def test_default_prompt_routes_out_of_scope_to_meta(self, mock_llm):
+        """Out-of-scope queries must be an explicit `meta` bucket, not swept into
+        research by the tie-break.
+
+        Regression: "how do I bake a cake" matched no meta sub-bucket and the
+        old tie-break ("mixed or unclear intent -> research") routed it to a
+        research lookup, producing a dishonest classification and wasting a
+        search. It must classify as meta so the assistant gives a friendly
+        redirect instead.
+        """
+        classifier = IntentClassifier(llm=mock_llm)
+        prompt = classifier.prompt
+        # An explicit out-of-scope -> meta rule exists.
+        assert "Out-of-scope" in prompt
+        out_of_scope_line = next(line for line in prompt.splitlines() if "Out-of-scope" in line)
+        assert "meta" in out_of_scope_line
+        assert "never research" in out_of_scope_line
+        # The tie-break no longer blanket-routes unclear intent to research: it
+        # only keeps IN-DOMAIN ambiguity as research, sending clearly
+        # out-of-domain queries to meta.
+        tie_break_line = next(line for line in prompt.splitlines() if "Tie-breaks" in line)
+        assert "in-domain" in tie_break_line.lower()
+        assert "meta" in tie_break_line
+
 
 class _BindSpyChatModel(FakeMessagesListChatModel):
     """Fake chat model that records the kwargs passed to bind()."""

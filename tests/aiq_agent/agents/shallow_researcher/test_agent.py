@@ -1793,3 +1793,60 @@ class TestShallowResearcherQuoteVerification:
     def test_state_defaults_quotes_verified_true(self):
         state = ShallowResearchAgentState(messages=[HumanMessage(content="hi")])
         assert state.answer_quotes_verified is True
+
+
+class TestShallowClarificationGuidance:
+    """The shallow agent must be told to push back on under-specified queries —
+    in shallow mode too, and independent of whether project_context is present.
+
+    Regression: the only Rueckfrage/pushback guidance lived INSIDE the
+    ``{% if project_context %}`` block, so a shallow turn with no project brief
+    got zero clarification guidance and always answered straight through.
+    """
+
+    def _render(self, *, requires_sources: bool, project_context):
+        from pathlib import Path
+
+        from aiq_agent.agents.shallow_researcher import agent as shallow_agent
+        from aiq_agent.common import load_prompt
+        from aiq_agent.common import render_prompt_template
+
+        prompt = load_prompt(
+            Path(shallow_agent.__file__).parent / "prompts",
+            "researcher",
+        )
+        return render_prompt_template(
+            prompt,
+            tools=[{"name": "knowledge_search"}],
+            user_info={"name": "Alex", "email": "a@example.com"},
+            current_datetime="2026-07-23",
+            available_documents=[],
+            project_context=project_context,
+            ris_catalog=None,
+            norm_doctrine=None,
+            parcel_note=None,
+            requires_sources=requires_sources,
+        )
+
+    def test_clarification_guidance_present_on_research_turn_without_project_context(self):
+        """A research turn (requires_sources=True) with NO project context still
+        gets the push-back guidance — the core regression."""
+        rendered = self._render(requires_sources=True, project_context=None)
+        assert "<clarification>" in rendered
+        assert "Folgefrage" in rendered
+        # It must explicitly extend push-back to the shallow/quick path.
+        lowered = rendered.lower()
+        assert "shallow" in lowered
+        # And it must teach the "state your assumption" alternative, not only asking.
+        assert "assumption" in lowered
+
+    def test_clarification_guidance_present_with_project_context_too(self):
+        rendered = self._render(requires_sources=True, project_context="facts:\n  bundesland: unknown")
+        assert "<clarification>" in rendered
+        assert "Folgefrage" in rendered
+
+    def test_clarification_guidance_suppressed_on_meta_turn(self):
+        """Meta/conversational turns (requires_sources=False) answer/redirect
+        directly and must NOT carry the research push-back block."""
+        rendered = self._render(requires_sources=False, project_context=None)
+        assert "<clarification>" not in rendered
