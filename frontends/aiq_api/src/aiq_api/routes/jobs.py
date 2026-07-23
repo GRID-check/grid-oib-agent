@@ -1165,13 +1165,23 @@ def _start_periodic_cleanup(
     """
     global _cleanup_task
 
+    from ..jobs.submit import job_execution_mode
+
+    # Detect db-execution mode DIRECTLY (ADR-0021) rather than probing
+    # job_store.dask_client. In db mode the store is constructed with an EMPTY
+    # scheduler address, so its lazily-built `dask_client` property raises
+    # ValueError("missing port number in address '' ") on first access — and
+    # getattr(..., None) only suppresses AttributeError, so probing it crashes
+    # startup. The reaper path (_do_reap_cycle) already gates on this same signal.
+    db_execution = job_execution_mode() == "db"
+
     # Cleanup interval: half the expiry time, clamped to [60s, 3600s]
     cleanup_interval = max(60, min(expiry_seconds // 2, 3600))
 
     # Submit NAT's periodic_cleanup as a long-running Dask task for job_info table.
     # In db-execution mode (ADR-0021) there is no Dask client; job_info expiry is
     # instead handled by the shared-Postgres event/expiry paths, so skip cleanly.
-    if getattr(job_store, "dask_client", None) is None:
+    if db_execution:
         logger.info("No Dask client (db execution) - skipping NAT periodic_cleanup Dask submit")
     else:
         try:
@@ -1201,7 +1211,7 @@ def _start_periodic_cleanup(
     # In db-execution mode (no Dask client) NAT's job_info expiry never runs, so this loop
     # also ages out job_info/job_access under the same lock (ADR-0021; expire_terminal_jobs).
     # Cancel any previously-started task before overwriting the reference.
-    expire_job_info = getattr(job_store, "dask_client", None) is None
+    expire_job_info = db_execution
     delete_grace_seconds = _int_env("GRID_JOB_INFO_DELETE_GRACE_SECONDS", 604800)  # 7d
     if _cleanup_task and not _cleanup_task.done():
         _cleanup_task.cancel()
