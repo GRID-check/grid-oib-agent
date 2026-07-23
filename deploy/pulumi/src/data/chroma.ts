@@ -46,20 +46,19 @@ export function installChroma(
                 name: "chroma",
                 image: cfg.chroma.image,
                 ports: [{ containerPort: 8000, name: "http" }],
-                env: [
-                  { name: "IS_PERSISTENT", value: "TRUE" },
-                  { name: "PERSIST_DIRECTORY", value: "/data" },
-                  { name: "ANONYMIZED_TELEMETRY", value: "FALSE" },
-                ],
+                // Chroma 1.x is a Rust server configured by a baked /config.yaml
+                // (persist_path: /data); the 0.5.x IS_PERSISTENT/PERSIST_DIRECTORY
+                // env vars are ignored, so persistence comes from the /data mount.
                 volumeMounts: [{ name: "data", mountPath: "/data" }],
+                // /api/v2 — v1 was removed in Chroma 1.0.
                 readinessProbe: {
-                  httpGet: { path: "/api/v1/heartbeat", port: 8000 },
+                  httpGet: { path: "/api/v2/heartbeat", port: 8000 },
                   initialDelaySeconds: 10,
                   periodSeconds: 10,
                   failureThreshold: 12,
                 },
                 livenessProbe: {
-                  httpGet: { path: "/api/v1/heartbeat", port: 8000 },
+                  httpGet: { path: "/api/v2/heartbeat", port: 8000 },
                   initialDelaySeconds: 30,
                   periodSeconds: 20,
                 },

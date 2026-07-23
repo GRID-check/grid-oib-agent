@@ -149,6 +149,58 @@ def test_sync_logs_discovery_progress_and_outcomes(monkeypatch, tmp_path, caplog
     assert "OIB sync complete:" in caplog.text
 
 
+@dataclass
+class _CollectionInfoStub:
+    """Minimal stand-in for CollectionInfo (only the fields sync() probes)."""
+
+    chunk_count: int
+    file_count: int
+
+
+def test_sync_reingests_when_registry_full_but_collection_empty(monkeypatch, tmp_path):
+    """Registry (data volume) says the PDF is ingested, but the vector store is a
+    fresh/empty collection — e.g. after repointing at a new shared Chroma server.
+    The registry is stale, so sync must re-ingest instead of skipping. Regression
+    for the shared-Chroma migration leaving oib_knowledge empty."""
+    fake_ingestor = FakeIngestor({"a.pdf": FileStatus.SUCCESS}, release_after_uploads=1)
+    # Collection exists but is EMPTY (0 chunks) — the drifted-store signal.
+    fake_ingestor.get_collection = lambda _name: _CollectionInfoStub(chunk_count=0, file_count=0)
+    registry_path = _configure_sync(monkeypatch, tmp_path, fake_ingestor, max_workers="1")
+    pdf = tmp_path / "oib" / "a.pdf"
+    _write_pdf(pdf, b"a")
+    # Pre-seed the registry with the file's CURRENT hash: without the self-heal,
+    # the incremental diff would treat it as unchanged and skip it.
+    registry_path.write_text(
+        json.dumps({oib_sync._FORMAT_KEY: oib_sync.CHUNK_FORMAT_VERSION, str(pdf): oib_sync._file_hash(pdf)}),
+        encoding="utf-8",
+    )
+
+    succeeded, total = oib_sync.sync()
+
+    assert (succeeded, total) == (1, 1)
+    assert fake_ingestor.uploaded == ["a.pdf"]  # re-ingested despite the matching hash
+
+
+def test_sync_skips_when_registry_matches_and_collection_populated(monkeypatch, tmp_path):
+    """The self-heal must NOT fire when the store already holds the corpus: a
+    populated collection + matching registry hash still skips (no needless
+    re-ingest, and no risk of wiping a good registry on a transient read)."""
+    fake_ingestor = FakeIngestor({"a.pdf": FileStatus.SUCCESS}, release_after_uploads=1)
+    fake_ingestor.get_collection = lambda _name: _CollectionInfoStub(chunk_count=42, file_count=1)
+    registry_path = _configure_sync(monkeypatch, tmp_path, fake_ingestor, max_workers="1")
+    pdf = tmp_path / "oib" / "a.pdf"
+    _write_pdf(pdf, b"a")
+    registry_path.write_text(
+        json.dumps({oib_sync._FORMAT_KEY: oib_sync.CHUNK_FORMAT_VERSION, str(pdf): oib_sync._file_hash(pdf)}),
+        encoding="utf-8",
+    )
+
+    succeeded, total = oib_sync.sync()
+
+    assert (succeeded, total) == (0, 1)
+    assert fake_ingestor.uploaded == []  # registry and store agree → nothing re-ingested
+
+
 def test_discover_pdfs_dedupes_by_name_with_uploads_winning(monkeypatch, tmp_path):
     fake_ingestor = FakeIngestor({})
     _configure_sync(monkeypatch, tmp_path, fake_ingestor)

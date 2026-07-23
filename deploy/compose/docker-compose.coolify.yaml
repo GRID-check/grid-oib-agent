@@ -194,22 +194,26 @@ services:
   # disk. Chroma's OSS server is itself single-node (one process on a durable
   # volume) — that is fine here: it is the *shared* store, not a per-replica one.
   chroma:
-    image: ${CHROMA_IMAGE:-chromadb/chroma:0.5.23}
-    environment:
-      - IS_PERSISTENT=TRUE
-      - PERSIST_DIRECTORY=/data
-      - ANONYMIZED_TELEMETRY=FALSE
+    # MUST track the `chromadb` client version the app is built against (see
+    # sources/knowledge_layer). Chroma 1.x changed the collection-config wire
+    # schema, so a 1.x client against a 0.5.x server fails ingestion with
+    # KeyError('_type'). 1.x is a Rust server configured by a baked /config.yaml
+    # (persist_path: /data) — the 0.5.x IS_PERSISTENT/PERSIST_DIRECTORY env vars
+    # are ignored, so persistence comes purely from mounting the volume at /data.
+    image: ${CHROMA_IMAGE:-chromadb/chroma:1.5.9}
     expose:
       - "8000"
     volumes:
       - chroma-server-data:/data
     healthcheck:
-      # /api/v1/heartbeat is the same probe the K8s readiness/liveness uses.
+      # The 1.x image is near-distroless (no python/curl), but ships bash — so
+      # probe /api/v2/heartbeat (v1 was removed in 1.0) over bash's /dev/tcp.
+      # $$s escapes to a literal $s so compose doesn't interpolate it away.
       test:
         - "CMD"
-        - "python"
+        - "bash"
         - "-c"
-        - "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/heartbeat')"
+        - 'exec 3<>/dev/tcp/localhost/8000; printf "GET /api/v2/heartbeat HTTP/1.0\r\n\r\n" >&3; read -r s <&3; [[ "$$s" == *200* ]]'
       interval: 10s
       timeout: 10s
       retries: 12

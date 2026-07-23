@@ -117,6 +117,30 @@ def _ensure_collection(ingestor) -> None:
         logger.info("Collection %s already exists (create raised: %s)", COLLECTION_NAME, e)
 
 
+def _collection_is_empty(ingestor) -> bool:
+    """True when the OIB collection is missing or holds no vectors.
+
+    Detects registry/vector-store drift. The sync registry lives on the data
+    volume, but the vectors live in Chroma — an embedded dir, or (shared mode) a
+    SEPARATE Chroma-server volume. Those can diverge: classically, when the
+    deployment is repointed at a fresh shared Chroma server (``AIQ_CHROMA_URL``)
+    while the registry still lists the whole corpus as ingested. The collection
+    is then empty even though the registry is full, and the incremental diff in
+    ``sync()`` would skip everything and leave it empty forever.
+
+    Returns ``False`` (the safe, non-destructive answer) if the store cannot be
+    probed, so a transient Chroma hiccup never wipes a good registry.
+    """
+    try:
+        info = ingestor.get_collection(COLLECTION_NAME)
+    except Exception as exc:
+        logger.debug("Could not probe collection %s: %s", COLLECTION_NAME, exc)
+        return False
+    if info is None:
+        return True
+    return getattr(info, "chunk_count", None) == 0 or getattr(info, "file_count", None) == 0
+
+
 def _get_max_workers() -> int:
     raw_value = os.environ.get("OIB_SYNC_MAX_WORKERS", "4")
     try:
@@ -393,6 +417,25 @@ def sync() -> tuple[int, int]:
         registry = {}
     registry.setdefault(_FORMAT_KEY, CHUNK_FORMAT_VERSION)
     _save_registry(registry)
+
+    # Reconcile the registry against the ACTUAL vector store. The registry (data
+    # volume) and the vectors (embedded dir, or a shared Chroma-server volume)
+    # live on different volumes and can drift apart — e.g. after repointing the
+    # deployment at a fresh shared Chroma server while the registry still lists
+    # the whole corpus as ingested. Without this, the diff below finds nothing
+    # new and the collection stays empty forever ("No new or changed OIB PDFs").
+    # If the registry claims ingested files but the collection is empty/missing,
+    # the registry is stale: drop it (keeping the format stamp) to force a full
+    # re-ingest. Guarded so a transient Chroma error never discards a good one.
+    if any(key != _FORMAT_KEY for key in registry) and _collection_is_empty(_get_oib_ingestor()):
+        logger.warning(
+            "OIB sync: registry lists ingested files but collection %s is empty/missing "
+            "(vector store reset or repointed) — forcing a full re-ingest",
+            COLLECTION_NAME,
+        )
+        registry = {_FORMAT_KEY: CHUNK_FORMAT_VERSION}
+        _save_registry(registry)
+
     new_or_changed: list[tuple[Path, str]] = []
     max_workers = _get_max_workers()
 

@@ -322,11 +322,21 @@ The OIB knowledge base lives entirely on two persistent volumes and is **not**
 baked into the image:
 
 - **Embeddings** — held by the shared `chroma` server on its own persistent
-  volume (`chroma-server-data`, mounted at `/data`, `IS_PERSISTENT=TRUE`). Every
-  `aiq-agent` and `agent-worker` reaches it at `AIQ_CHROMA_URL`
-  (`http://chroma:8000`). The legacy embedded directory `AIQ_CHROMA_DIR`
-  (`/app/data/chroma_data`, volume `chroma_data`) is used only as the fallback
-  when `AIQ_CHROMA_URL` is unset (i.e. `GRID_JOB_EXECUTION=dask`).
+  volume (`chroma-server-data`, mounted at `/data`). Every `aiq-agent` and
+  `agent-worker` reaches it at `AIQ_CHROMA_URL` (`http://chroma:8000`). The
+  legacy embedded directory `AIQ_CHROMA_DIR` (`/app/data/chroma_data`, volume
+  `chroma_data`) is used only as the fallback when `AIQ_CHROMA_URL` is unset
+  (i.e. `GRID_JOB_EXECUTION=dask`).
+
+> **The Chroma server image MUST match the backend's `chromadb` client version.**
+> The two share a wire protocol that changed incompatibly at 1.0: a **1.x client
+> against a 0.5.x server fails every ingestion with `KeyError('_type')`**, and
+> 1.x moved the API/health surface from `/api/v1` to `/api/v2`. The backend
+> currently ships `chromadb` **1.5.9**, so the server is pinned to
+> `chromadb/chroma:1.5.9` (override with `CHROMA_IMAGE`). Chroma 1.x is a Rust
+> server configured by a baked `/config.yaml` (`persist_path: /data`) — the old
+> `IS_PERSISTENT`/`PERSIST_DIRECTORY` env vars are ignored; persistence comes
+> from the `/data` volume mount. Bump the image only in lockstep with the client.
 
 > **Migration from an earlier embedded-Chroma deployment.** Older stacks stored
 > the corpus in the per-container `chroma_data` volume. Switching to the shared
