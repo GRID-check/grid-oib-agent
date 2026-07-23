@@ -21,10 +21,9 @@
  */
 
 import { useMemo, useState, type ReactNode } from 'react'
-import { Archive, Loader2, Search, Sparkles, X } from 'lucide-react'
+import { Archive, Search, Sparkles } from 'lucide-react'
 import type { FileItem } from './project-file-workspace'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState } from '@/components/ui/empty-state'
 import { useLocale, useTranslations } from '@/i18n'
@@ -32,6 +31,7 @@ import { inferDocumentKind } from '../document-kind'
 import { useSemanticSearch } from '../hooks/use-semantic-search'
 import { FileCard } from './file-card'
 import { FileGrid, FileCardSkeleton } from './file-grid'
+import { FileSearchBar } from './file-search-bar'
 import { FilterChip } from './filter-chip'
 
 interface ArchivLibraryPaneProps {
@@ -137,88 +137,30 @@ export function ArchivLibraryPane({
     <div className="flex h-full flex-col">
       {/* Search bar — instant substring filter as you type; Enter (or the search
           button) runs the semantic search over the Archiv collection. */}
-      <div className="sticky top-0 z-10 border-b bg-background/95 px-4 py-2.5 backdrop-blur">
-        <form
-          className="flex items-center gap-2"
-          onSubmit={(e) => {
-            e.preventDefault()
-            runSemantic()
-          }}
-        >
-          <div className="relative flex-1">
-            <Search
-              className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-              aria-hidden
-            />
-            <Input
-              type="text"
-              value={search}
-              onChange={(e) => handleSearchChange(e.target.value)}
-              placeholder={t('library.semantic.searchPlaceholder')}
-              aria-label={t('library.searchLabel')}
-              className="pl-8 pr-8"
-            />
-            {search !== '' && (
-              <button
-                type="button"
-                onClick={clearSearch}
-                aria-label={t('library.resetSearch')}
-                className="absolute right-1.5 top-1/2 flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
-              >
-                <X className="size-3.5" aria-hidden />
-              </button>
-            )}
-          </div>
-          <Button
-            type="submit"
-            size="sm"
-            variant="secondary"
-            className="shrink-0 gap-1.5"
-            disabled={search.trim() === '' || semantic.isSearching}
-          >
-            {semantic.isSearching ? (
-              <Loader2 className="size-3.5 animate-spin" aria-hidden />
-            ) : (
-              <Sparkles className="size-3.5" aria-hidden />
-            )}
-            {t('library.semantic.run')}
-          </Button>
-        </form>
-      </div>
-
-      {/* Semantic-mode banner — transparent about which mode is active, with a
-          clear reset back to the normal list. */}
-      {semantic.active && (
-        <div
-          className="flex items-center gap-2 border-b border-primary/20 bg-primary/5 px-4 py-2 text-xs"
-          role="status"
-          data-testid="archiv-semantic-banner"
-        >
-          {semantic.isSearching ? (
-            <Loader2 className="size-3.5 shrink-0 animate-spin text-primary" aria-hidden />
-          ) : (
-            <Sparkles className="size-3.5 shrink-0 text-primary" aria-hidden />
-          )}
-          <span className="min-w-0 flex-1 truncate text-foreground">
-            {semantic.isSearching
-              ? t('library.semantic.searching', { query: semantic.query ?? '' })
-              : t('library.semantic.banner', {
-                  count: String(semantic.hits.length),
-                  query: semantic.query ?? '',
-                })}
-          </span>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-7 shrink-0 gap-1.5 px-2 text-muted-foreground hover:text-foreground"
-            onClick={clearSearch}
-          >
-            <X className="size-3.5" aria-hidden />
-            {t('library.semantic.reset')}
-          </Button>
-        </div>
-      )}
+      <FileSearchBar
+        value={search}
+        onChange={handleSearchChange}
+        onSubmit={runSemantic}
+        onClear={clearSearch}
+        placeholder={t('library.semantic.searchPlaceholder')}
+        searchLabel={t('library.searchLabel')}
+        resetLabel={t('library.resetSearch')}
+        canSearch
+        runLabel={t('library.semantic.run')}
+        isSearching={semantic.isSearching}
+        semanticActive={semantic.active}
+        bannerText={
+          semantic.isSearching
+            ? t('library.semantic.searching', { query: semantic.query ?? '' })
+            : t('library.semantic.banner', {
+                count: String(semantic.hits.length),
+                query: semantic.query ?? '',
+              })
+        }
+        resetSemanticLabel={t('library.semantic.reset')}
+        onResetSemantic={clearSearch}
+        bannerTestId="archiv-semantic-banner"
+      />
 
       {/* Category chips — filter over the tags that really exist. Hidden in
           semantic mode (the query is the context). */}
