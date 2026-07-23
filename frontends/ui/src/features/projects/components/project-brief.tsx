@@ -10,6 +10,7 @@ import type { BriefAssumption } from '@/lib/project-profile/brief-view'
 import type { ProjectProfile } from '@/lib/project-profile/types'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { CountPill } from '@/components/ui/count-pill'
 import { EmptyState } from '@/components/ui/empty-state'
 import { useLocale, useTranslations } from '@/i18n'
 import { sourceTint } from '@/lib/ui/source-tint'
@@ -90,12 +91,12 @@ export function ProjectBrief({
           </span>
           <h2 className="text-sm font-semibold text-foreground">{t('overview.brief.heading')}</h2>
           {brief.totalCount > 0 && (
-            <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground">
+            <CountPill>
               {t('overview.brief.captured', {
                 answered: String(brief.answeredCount),
                 total: String(brief.totalCount),
               })}
-            </span>
+            </CountPill>
           )}
         </div>
         {canEdit && (

@@ -6,6 +6,7 @@ import { useLocale, useTranslations } from '@/i18n'
 import { FileCard } from '@/features/documents/components/file-card'
 import { FileGrid, FileCardSkeleton } from '@/features/documents/components/file-grid'
 import { FilePreviewDialog } from '@/features/documents/components/file-preview-dialog'
+import { CountPill } from '@/components/ui/count-pill'
 import type { FileItem } from '@/features/documents/components/project-file-workspace'
 import {
   useSurfacedDocuments,
@@ -84,9 +85,7 @@ export const DocumentGridCard: FC<DocumentGridCardProps> = ({ title, query, docu
             </p>
           )}
         </div>
-        <span className="shrink-0 rounded-full bg-muted px-2.5 py-1 text-[11px] font-medium tabular-nums text-muted-foreground">
-          {countLabel}
-        </span>
+        <CountPill>{countLabel}</CountPill>
       </header>
 
       {/* Grid — raised document cards; min-w-0 cells so long names truncate cleanly. */}
