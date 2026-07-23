@@ -79,24 +79,34 @@ export default function HerleitungPreviewPage() {
     notFound()
   }
 
+  const common = {
+    steps: [step],
+    isThinking: false as const,
+    defaultOpen: true,
+    userQuestion:
+      'Wie viele Rettungswege brauche ich für ein Bürogebäude der Gebäudeklasse 4 in Wien?',
+    answerConfidence: 'high' as const,
+    citations,
+    enabledDataSources: ['OIB-Korpus', 'RIS', 'Projektdokumente'],
+    messageFiles: [{ id: 'f1', fileName: 'Grundriss_EG.pdf' }],
+    routingDecision: 'shallow' as const,
+    routingReason:
+      'konkrete Frage zu OIB-Richtlinie 2 (Brandschutz), kein Bedarf für Tiefenrecherche',
+  }
+
   return (
     <main className="min-h-dvh bg-background px-4 py-10">
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
+      <div className="mx-auto flex w-full max-w-3xl flex-col gap-8">
         <h1 className="font-mono text-xs text-muted-foreground" data-testid="herleitung-preview">
-          /dev/herleitung — reasoning timeline (expanded)
+          /dev/herleitung — reasoning graph (desktop + mobile)
         </h1>
-        <ChatThinking
-          steps={[step]}
-          isThinking={false}
-          defaultOpen
-          userQuestion="Wie viele Rettungswege brauche ich für ein Bürogebäude der Gebäudeklasse 4 in Wien?"
-          answerConfidence="high"
-          citations={citations}
-          enabledDataSources={['OIB-Korpus', 'RIS', 'Projektdokumente']}
-          messageFiles={[{ id: 'f1', fileName: 'Grundriss_EG.pdf' }]}
-          routingDecision="shallow"
-          routingReason="konkrete Frage zu OIB-Richtlinie 2 (Brandschutz), kein Bedarf für Tiefenrecherche"
-        />
+        <ChatThinking {...common} />
+        <div>
+          <div className="mb-2 font-mono text-xs text-muted-foreground">↓ mobile width (380px)</div>
+          <div className="w-[380px] max-w-full">
+            <ChatThinking {...common} />
+          </div>
+        </div>
       </div>
     </main>
   )
