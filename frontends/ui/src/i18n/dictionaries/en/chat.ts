@@ -219,6 +219,8 @@ export const chat = {
     showThinking: 'Show thinking ({count})',
     showThinkingSteps: 'Show thinking steps ({count})',
     herleitungSummary: 'Trace · {steps} steps · {sources} sources',
+    // aria-label naming the reasoning graph as one region for screen readers.
+    reasoningGraphLabel: 'Reasoning trace',
     stepsLabel: 'Thinking steps',
     stepsHeading: 'Intermediate steps',
     sourcesFanOut: 'Sources',

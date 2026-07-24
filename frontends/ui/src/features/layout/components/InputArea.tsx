@@ -281,7 +281,12 @@ const FileChip: FC<{
   const statusIcon = isPending ? (
     <Loader2 className="text-muted-foreground size-3 shrink-0 animate-spin" aria-hidden="true" />
   ) : isFailed ? (
-    <span className="bg-danger size-2 shrink-0 rounded-full" aria-hidden="true" />
+    // A distinct glyph (not a bare red dot) so the failure carries a shape, not
+    // color alone — plus an sr-only label so it isn't inferred only from color.
+    <>
+      <XCircle className="text-destructive size-3 shrink-0" aria-hidden="true" />
+      <span className="sr-only">{t('inputArea.fileFailedStatus')}</span>
+    </>
   ) : (
     <Check className="text-status-active size-3 shrink-0" aria-hidden="true" />
   )
@@ -888,7 +893,12 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           ref={textareaRef}
           // text-base (16px) below md keeps iOS Safari from zooming the page
           // when the composer gains focus; desktop keeps the tighter 14.5px.
-          className="max-h-52 min-h-[40px] resize-none border-0 bg-transparent px-1.5 py-1 text-base leading-[1.5] shadow-none focus-visible:ring-0 md:text-[14.5px]"
+          // The composer CARD signals focus with its focus-within ring (see the
+          // card class above), so the textarea shows no ring/border/outline of
+          // its own. `outline-hidden!` beats the app's global :focus-visible
+          // outline (globals.css, unlayered) with an important utility — otherwise
+          // focus is drawn twice: a nested box inside the card's ring.
+          className="max-h-52 min-h-[40px] resize-none border-0 bg-transparent px-1.5 py-1 text-base leading-[1.5] shadow-none outline-none! focus-visible:ring-0 md:text-[14.5px]"
           value={message}
           onChange={(e) => handleValueChange(e.target.value)}
           onKeyDown={handleKeyDown}

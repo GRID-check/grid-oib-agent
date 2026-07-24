@@ -339,6 +339,7 @@ export function buildGraph(props: ReasoningFlowProps, t: Translator, vertical: b
 }
 
 const FlowInner: FC<{ built: BuiltGraph; vertical: boolean; width: number }> = ({ built, vertical, width }) => {
+  const t = useTranslations('chat')
   const { nodes, edges, rows, contentW } = built
   const initialized = useNodesInitialized()
   const { getNodes } = useReactFlow()
@@ -406,6 +407,8 @@ const FlowInner: FC<{ built: BuiltGraph; vertical: boolean; width: number }> = (
       }}
       className="w-full"
       data-testid="reasoning-flow"
+      role="group"
+      aria-label={t('thinking.reasoningGraphLabel')}
     >
       <ReactFlow
         nodes={rfNodes}
@@ -418,6 +421,15 @@ const FlowInner: FC<{ built: BuiltGraph; vertical: boolean; width: number }> = (
         nodesDraggable={false}
         nodesConnectable={false}
         elementsSelectable={false}
+        // This is a read-only display graph — nothing is selectable, draggable,
+        // or deletable. Leaving nodes/edges focusable makes every node an inert
+        // keyboard tab stop and has the screen reader announce "press enter to
+        // select / delete to remove" on content where those keys do nothing. The
+        // real interactive content (branch-option buttons) are native <button>s
+        // and stay reachable regardless.
+        nodesFocusable={false}
+        edgesFocusable={false}
+        disableKeyboardA11y
         zoomOnScroll={false}
         zoomOnPinch={false}
         zoomOnDoubleClick={false}

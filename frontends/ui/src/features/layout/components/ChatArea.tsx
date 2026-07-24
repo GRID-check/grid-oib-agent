@@ -38,6 +38,7 @@ import {
 import type { ChatMessage, StatusType } from '@/features/chat'
 import { AnimatePresence, motion, fadeRise, springGentle } from '@/components/motion'
 import { useAuth } from '@/adapters/auth'
+import { useReducedMotion } from '@/hooks/use-reduced-motion'
 import { useTranslations } from '@/i18n'
 
 interface ChatAreaProps {
@@ -123,6 +124,12 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   // value and does not release the spacer out from under a live stream.
   const isStreamingRef = useRef(isStreaming)
   isStreamingRef.current = isStreaming
+  // Latest reduced-motion preference for the anchor scroll (a JS scrollIntoView
+  // overrides the CSS scroll-behavior gate, so honour it explicitly). Ref-held so
+  // the anchor effect's deps stay tied to the turn id, not this preference.
+  const prefersReducedMotion = useReducedMotion()
+  const reducedMotionRef = useRef(prefersReducedMotion)
+  reducedMotionRef.current = prefersReducedMotion
 
   const messages = currentConversation?.messages
 
@@ -267,7 +274,10 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
     }
     // scroll-mt on the anchored turn keeps clearance for the floating toolbar
     // pills so the question lands just below them, not behind them.
-    target.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
+    target.scrollIntoView?.({
+      behavior: reducedMotionRef.current ? 'auto' : 'smooth',
+      block: 'start',
+    })
   }, [currentUserMessageId])
 
   // Release the top-anchor spacer once the answer has landed (turn no longer

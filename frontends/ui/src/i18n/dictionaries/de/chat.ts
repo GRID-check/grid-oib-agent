@@ -210,6 +210,8 @@ export const chat: typeof en.chat = {
     showThinking: 'Denkschritte anzeigen ({count})',
     showThinkingSteps: 'Denkschritte anzeigen ({count})',
     herleitungSummary: 'Herleitung · {steps} Schritte · {sources} Quellen',
+    // aria-label naming the reasoning graph as one region for screen readers.
+    reasoningGraphLabel: 'Herleitung',
     stepsLabel: 'Denkschritte',
     stepsHeading: 'Zwischenschritte',
     sourcesFanOut: 'Quellen',
