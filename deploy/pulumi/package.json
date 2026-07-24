@@ -7,6 +7,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "preview": "pulumi preview",
+    "validate": "pulumi preview --json > .plan.json && node scripts/validate-crs.mjs .plan.json",
     "up": "pulumi up",
     "destroy": "pulumi destroy"
   },

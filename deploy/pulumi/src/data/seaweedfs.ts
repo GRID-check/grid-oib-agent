@@ -63,6 +63,19 @@ export function installSeaweedFS(
     { provider },
   );
 
+  // Every port weed tooling needs. The gRPC ports (HTTP + 10000) are REQUIRED:
+  // `weed shell` (the bucket-init Job) and any `weed` admin tooling talk gRPC to
+  // master:19333 / filer:18888 — in compose this worked implicitly (direct
+  // container networking), but a k8s Service filters ports, and without 19333
+  // `weed shell` connect-blocks forever (found by the live smoke deploy).
+  const seaweedPorts = [
+    { port: 8333, name: "s3" },
+    { port: 9333, name: "master" },
+    { port: 19333, name: "master-grpc" },
+    { port: 8888, name: "filer" },
+    { port: 18888, name: "filer-grpc" },
+  ];
+
   // Headless service for the StatefulSet's stable network identity.
   const headless = new k8s.core.v1.Service(
     "seaweedfs-headless",
@@ -71,11 +84,7 @@ export function installSeaweedFS(
       spec: {
         clusterIP: "None",
         selector: labels,
-        ports: [
-          { port: 8333, name: "s3" },
-          { port: 9333, name: "master" },
-          { port: 8888, name: "filer" },
-        ],
+        ports: seaweedPorts,
       },
     },
     { provider },
@@ -110,7 +119,9 @@ export function installSeaweedFS(
                 ports: [
                   { containerPort: 8333, name: "s3" },
                   { containerPort: 9333, name: "master" },
+                  { containerPort: 19333, name: "master-grpc" },
                   { containerPort: 8888, name: "filer" },
+                  { containerPort: 18888, name: "filer-grpc" },
                 ],
                 volumeMounts: [
                   { name: "data", mountPath: "/data" },
@@ -160,11 +171,7 @@ export function installSeaweedFS(
       metadata: { name: "seaweedfs", namespace, labels },
       spec: {
         selector: labels,
-        ports: [
-          { port: 8333, targetPort: 8333, name: "s3" },
-          { port: 9333, targetPort: 9333, name: "master" },
-          { port: 8888, targetPort: 8888, name: "filer" },
-        ],
+        ports: seaweedPorts,
       },
     },
     { provider, dependsOn: statefulSet },
@@ -179,11 +186,16 @@ export function installSeaweedFS(
   const createBuckets = buckets
     .map(
       (b) =>
-        `out=$(echo 's3.bucket.create -name ${b}' | weed shell -master=seaweedfs:9333 2>&1); ` +
+        // `timeout 120`: weed shell connect-blocks silently if it can't reach a
+        // gRPC port — bound it so a connectivity regression fails the Job (and
+        // the deploy) loudly instead of hanging the rollout forever.
+        `out=$(echo 's3.bucket.create -name ${b}' | timeout 120 weed shell -master=seaweedfs:9333 2>&1); ` +
         'rc=$?; echo "$out"; ' +
         `if [ $rc -ne 0 ] && ! echo "$out" | grep -qi "already exists"; then exit $rc; fi`,
     )
-    .join(" ");
+    // "; " — a bare space would butt the next command against `fi` and produce
+    // `/bin/sh: syntax error` (caught by the live smoke deploy).
+    .join("; ");
 
   const bucketInitJob = new k8s.batch.v1.Job(
     "seaweedfs-bucket-init",

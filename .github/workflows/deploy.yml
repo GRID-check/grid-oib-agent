@@ -54,6 +54,20 @@ jobs:
         working-directory: deploy/pulumi
         run: npx tsc --noEmit
 
+      # Plan + schema-validate every CustomResource against the upstream CRD
+      # schemas (tsc can't check apiextensions.CustomResource fields). Catches a
+      # bad CNPG/Gateway/cert-manager spec BEFORE pulumi up touches the cluster.
+      - name: Validate CR schemas from plan
+        working-directory: deploy/pulumi
+        run: |
+          curl -fsSL https://get.pulumi.com | sh -s -- --version latest
+          export PATH="$HOME/.pulumi/bin:$PATH"
+          pulumi stack select grid-check/grid-oib/dev
+          pulumi preview --json > .plan.json
+          node scripts/validate-crs.mjs .plan.json
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+
       - name: Pulumi up
         uses: pulumi/actions@v6
         with:

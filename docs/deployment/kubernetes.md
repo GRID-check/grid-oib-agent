@@ -162,6 +162,14 @@ EOF
 Revoke it by deleting the Secret/ServiceAccount when it's no longer needed — it
 does **not** expire on its own.
 
+One interaction to plan for: the Control Center can restrict **API access**
+(blocked / country-allowlist / IP-allowlist). CI deploys need the runner to
+reach the cluster API — GitHub-hosted and Blacksmith runners have changing
+egress IPs, so a strict IP-allowlist will break `pulumi up` from CI. Either
+keep the API open and rely on the ServiceAccount token as the credential, use a
+country allowlist that covers the runners, or run deploys from a self-hosted
+runner with a fixed egress IP.
+
 **Provider add-ons.** A base **metrics** stack (serving `metrics.k8s.io`) is
 always provisioned and cannot be removed, so `installMetricsServer` defaults to
 **false** — installing our own would just fight it (the HPAs read the built-in
@@ -371,10 +379,36 @@ follow-up); high-traffic chat/retrieval does not need it.
 
 `.github/workflows/deploy.yml` deploys the **dev** stack automatically after
 `Publish Images` succeeds on `develop`, pinning `imageTag` to that commit's
-immutable `sha-<sha>` tag (never `latest`) and running `tsc --noEmit` as a
-cluster-free gate before `pulumi up`. It needs a `PULUMI_ACCESS_TOKEN` repo
-secret and a stack whose `kubeconfig` secret is a **non-expiring ServiceAccount
-token** (§2b), not the Control-Center download. Prod is promoted manually.
+immutable `sha-<sha>` tag (never `latest`) and running two cluster-free gates
+before `pulumi up`: `tsc --noEmit` (typed manifests) and
+`scripts/validate-crs.mjs` (schema-validates every CustomResource in the plan
+against the upstream CRD schemas — the untyped half tsc can't see). It needs a
+`PULUMI_ACCESS_TOKEN` repo secret and a stack whose `kubeconfig` secret is a
+**non-expiring ServiceAccount token** (§2b), not the Control-Center download.
+Prod is promoted manually.
+
+### What has been validated without the provider cluster
+
+The full program was smoke-deployed against a real single-node cluster on the
+provider's exact Kubernetes version (**v1.33.9**), with NetworkPolicies
+enforced and prod-shaped config (`jobExecution: db`, backups on, shared
+Chroma):
+
+- **Green end-to-end:** namespaces, NetworkPolicies, cert-manager (Gateway
+  integration up after the Envoy-Gateway CRD ordering), Envoy Gateway
+  controller from the unpinned OCI chart, EnvoyProxy HA fleet (2 replicas +
+  PDB), `Gateway` PROGRAMMED with a LoadBalancer address, HTTPRoute
+  host-routing (verified with live requests), CNPG operator + webhook-wait Job,
+  `Cluster` bootstrap to "healthy" incl. the **Barman backup spec accepted by
+  the live latest operator**, `pg-init-tables` DDL Job, Dragonfly, SeaweedFS,
+  Chroma, PVC binding, PDBs, and the PVC-retention pins.
+- **Expected sandbox-only failures:** ACME registration (the test sandbox
+  intercepts TLS; real clusters have direct egress) and app-tier image pulls
+  (GHCR images are private; the manifests themselves were accepted by the API
+  server). Neither involves the config.
+- The smoke run also **caught and fixed a real first-deploy blocker** (a shell
+  syntax error in the multi-bucket init Job) — the reason this kind of live
+  validation exists.
 
 ## 9. Out of scope (deliberate follow-ups)
 

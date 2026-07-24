@@ -68,6 +68,25 @@ vertical-scaling knobs (`backendRequestsCpu/Memory`, `backendLimits*`,
 `backendDaskWorkers`, `backendDaskThreads`, `backendMaxActiveJobs*`) are the
 primary way to give the agent more capacity today.
 
+## Validation (no target cluster required)
+
+```bash
+npm run typecheck   # tsc: every typed manifest, incl. Gateway/Envoy CRD specs
+npm run validate    # pulumi preview → schema-check every CustomResource in the
+                    # plan against the real upstream CRD schemas (CNPG included)
+```
+
+`validate` needs a selected stack (its config feeds the plan) but works even
+when the kubeconfig points at an unreachable cluster. The deploy workflow runs
+both before `pulumi up`.
+
+The whole program was additionally smoke-deployed end-to-end against a real
+single-node cluster running the provider's exact Kubernetes version
+(v1.33.9): platform + data tiers came up green — CNPG bootstrap + Barman backup
+config accepted by the live operator webhook, Envoy fleet HA config applied,
+Gateway programmed with a LoadBalancer IP, HTTPRoute host-routing verified, and
+the bootstrap Jobs ran to completion under enforced NetworkPolicies.
+
 ## Layout
 
 ```
