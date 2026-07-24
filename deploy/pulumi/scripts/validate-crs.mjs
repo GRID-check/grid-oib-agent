@@ -9,29 +9,42 @@
  *
  * Validators:
  *   - Gateway API / Envoy Gateway / cert-manager kinds: the runtime validators
- *     bundled with @kubernetes-models (generated from the upstream CRDs — the
- *     same packages whose types tsc already checks; this adds value for plans
- *     because it validates the *resolved* inputs, including anything TypeScript
- *     couldn't see through).
- *   - CloudNativePG kinds (Cluster, ScheduledBackup): validated with ajv
- *     against the openAPIV3Schema from the pinned upstream release manifest
- *     (CNPG_RELEASE_URL below — bump the version there to validate against a
- *     newer operator). Fetched on first run and cached in .schemas-cache/
- *     (gitignored); if the fetch fails (offline), CNPG kinds are reported as
- *     SKIP with a warning instead of failing the gate.
+ *     bundled with @kubernetes-models (generated from the upstream CRDs).
+ *   - CloudNativePG kinds: validated with ajv against the openAPIV3Schema from
+ *     the pinned upstream release manifest (CNPG_RELEASE_URL — bump the tag to
+ *     validate against a newer operator). Fetched on first run, cached in
+ *     .schemas-cache/ (gitignored).
  *
- * Exit code 0 = every CR in the plan validated; 1 = any failure. Unknown
- * apiVersion/kind pairs are reported as SKIP (never silently ignored).
+ * This is a GATE and it fails closed:
+ *   - exit 1 on any schema failure;
+ *   - exit 1 when a non-native CR has no validator (SKIP) — set ALLOW_SKIP=1
+ *     to relax while wiring a new validator;
+ *   - exit 1 when the CNPG schemas can't be fetched — set
+ *     CNPG_SCHEMAS_OPTIONAL=1 to relax for offline runs.
+ *
+ * Whole-object checks beyond the spec schema: metadata name/namespace RFC-1123
+ * sanity and rejection of unexpected top-level fields (a `hostnames` sitting
+ * next to `spec` instead of inside it is a silent no-op on the cluster).
+ * Pulumi's unknown-value sentinel (computed Outputs) is elided from the object
+ * before validation — such fields can't be checked pre-deploy; they're counted
+ * and reported so a PASS with elisions is visible.
+ *
+ * Delete steps are not validated: a schema-invalid legacy resource must not
+ * block the deploy that removes it.
  */
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 
-/** Pinned CNPG release whose CRD schemas the plan is validated against. */
+/** Pinned CNPG release (tag ref, immutable) whose CRDs the plan is validated against. */
 const CNPG_RELEASE_URL =
-  "https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/main/releases/cnpg-1.28.0.yaml";
-const CNPG_KINDS = new Set(["Cluster", "ScheduledBackup", "Backup"]);
+  "https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/v1.28.0/releases/cnpg-1.28.0.yaml";
+const CNPG_GROUP = "postgresql.cnpg.io/v1";
+const CNPG_KINDS = new Set(["Cluster", "ScheduledBackup", "Backup", "Pooler"]);
+
+/** Pulumi's preview placeholder for not-yet-known Output values. */
+const UNKNOWN_SENTINEL = "04da6b54-80e4-46f7-8ec5-a065f938c709";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
@@ -59,16 +72,65 @@ const NATIVE_GROUPS = new Set([
   "apps",
 ]);
 
-/** Pull every planned resource state that looks like a k8s CustomResource. */
+/** Pull every planned (non-delete) resource state that looks like a k8s CR. */
 const crs = [];
 for (const step of steps) {
-  const state = step.newState ?? step.oldState;
+  if (step.op === "delete" || step.op === "delete-replaced") continue;
+  const state = step.newState;
   const inputs = state?.inputs;
   if (!inputs?.apiVersion || !inputs?.kind) continue;
-  // Only CRDs need schema help — native kinds are typed by the Pulumi SDK.
   const group = String(inputs.apiVersion).split("/")[0];
   if (!group.includes(".") || NATIVE_GROUPS.has(group)) continue; // typed, skip
   crs.push({ urn: state.urn ?? step.urn, inputs });
+}
+
+// ── Pre-validation whole-object checks ──────────────────────────────────────
+const NAME_RE = /^[a-z0-9]([-a-z0-9.]{0,251}[a-z0-9])?$/;
+const NS_RE = /^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$/;
+const TOP_LEVEL_OK = new Set(["apiVersion", "kind", "metadata", "spec", "status"]);
+
+/** Returns a list of structural problems the spec schema alone can't catch. */
+function structuralIssues(inputs) {
+  const issues = [];
+  const md = inputs.metadata ?? {};
+  if (md.name !== undefined && md.name !== UNKNOWN_SENTINEL && !NAME_RE.test(md.name)) {
+    issues.push(`metadata.name ${JSON.stringify(md.name)} is not a valid DNS-1123 subdomain`);
+  }
+  if (
+    md.namespace !== undefined &&
+    md.namespace !== UNKNOWN_SENTINEL &&
+    !NS_RE.test(md.namespace)
+  ) {
+    issues.push(`metadata.namespace ${JSON.stringify(md.namespace)} is not a valid DNS-1123 label`);
+  }
+  for (const key of Object.keys(inputs)) {
+    if (!TOP_LEVEL_OK.has(key)) {
+      issues.push(
+        `unexpected top-level field "${key}" — did it belong under spec? (the apiserver would silently drop it)`,
+      );
+    }
+  }
+  return issues;
+}
+
+/** Deep-copy inputs with unknown-Output sentinel fields removed; count elisions. */
+function elideUnknowns(value, counter) {
+  if (value === UNKNOWN_SENTINEL) {
+    counter.n++;
+    return undefined;
+  }
+  if (Array.isArray(value)) {
+    return value.map((v) => elideUnknowns(v, counter)).filter((v) => v !== undefined);
+  }
+  if (value && typeof value === "object") {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) {
+      const e = elideUnknowns(v, counter);
+      if (e !== undefined) out[k] = e;
+    }
+    return out;
+  }
+  return value;
 }
 
 // ── @kubernetes-models validators (ESM subpath imports) ─────────────────────
@@ -91,7 +153,8 @@ const MODEL_PACKAGES = {
 // pulumi-preview plan generated locally in CI, so it does not apply.
 // nosemgrep: javascript.ajv.security.audit.ajv-allerrors-true.ajv-allerrors-true
 const ajv = new Ajv({ strict: false, allErrors: true, validateFormats: false, logger: false });
-let cnpgSchemas = null; // kind → compiled validator, or {} if unavailable
+let cnpgSchemas = null; // kind → compiled validator; null until loaded
+let cnpgLoadError = null;
 async function loadCnpgSchemas() {
   if (cnpgSchemas) return cnpgSchemas;
   cnpgSchemas = {};
@@ -116,7 +179,7 @@ async function loadCnpgSchemas() {
       mkdirSync(cacheDir, { recursive: true });
       writeFileSync(cacheFile, raw);
     } catch (err) {
-      console.warn(`WARN  could not fetch CNPG CRDs (${err.message}) — CNPG kinds will be SKIPPED`);
+      cnpgLoadError = err;
       return cnpgSchemas;
     }
   }
@@ -138,17 +201,49 @@ for (const { urn, inputs } of crs) {
   const { apiVersion, kind } = inputs;
   const label = `${apiVersion}/${kind} (${String(urn).split("::").pop()})`;
 
-  if (apiVersion === "postgresql.cnpg.io/v1") {
-    const validate = (await loadCnpgSchemas())[kind];
-    if (!validate) {
-      console.log(`SKIP  ${label} — CNPG schema unavailable`);
-      skip++;
+  const issues = structuralIssues(inputs);
+  if (issues.length) {
+    console.log(`FAIL  ${label}`);
+    failures.push({ label, errors: issues });
+    fail++;
+    continue;
+  }
+
+  const unknowns = { n: 0 };
+  const cleaned = elideUnknowns(inputs, unknowns);
+  const suffix = unknowns.n ? `  (${unknowns.n} unknown Output field(s) elided)` : "";
+  const object = {
+    apiVersion,
+    kind,
+    metadata: cleaned.metadata ?? { name: "placeholder" },
+    spec: cleaned.spec,
+  };
+
+  if (apiVersion === CNPG_GROUP) {
+    const schemas = await loadCnpgSchemas();
+    if (cnpgLoadError) {
+      const msg = `CNPG schemas unavailable (${cnpgLoadError.message})`;
+      if (process.env.CNPG_SCHEMAS_OPTIONAL === "1") {
+        console.log(`SKIP  ${label} — ${msg} [CNPG_SCHEMAS_OPTIONAL=1]`);
+        skip++;
+      } else {
+        console.log(`FAIL  ${label} — ${msg}; the gate fails closed`);
+        failures.push({ label, errors: msg });
+        fail++;
+      }
       continue;
     }
-    // The CRD schema covers the whole object; metadata is validated loosely by
-    // the apiserver, so validate spec shape within the full-object schema.
-    if (validate({ apiVersion, kind, metadata: { name: "x" }, spec: inputs.spec })) {
-      console.log(`PASS  ${label}`);
+    const validate = schemas[kind];
+    if (!validate) {
+      // A cnpg.io kind we have no schema for is a typo or a new kind — either
+      // way it must not slide through a gate that claims to cover this group.
+      console.log(`FAIL  ${label} — no schema for this kind in the pinned CNPG release`);
+      failures.push({ label, errors: `unknown ${CNPG_GROUP} kind "${kind}"` });
+      fail++;
+      continue;
+    }
+    if (validate(object)) {
+      console.log(`PASS  ${label}${suffix}`);
       pass++;
     } else {
       console.log(`FAIL  ${label}`);
@@ -160,16 +255,22 @@ for (const { urn, inputs } of crs) {
 
   const loader = MODEL_PACKAGES[apiVersion];
   if (!loader) {
-    console.log(`SKIP  ${label} — no validator wired for ${apiVersion}`);
-    skip++;
+    if (process.env.ALLOW_SKIP === "1") {
+      console.log(`SKIP  ${label} — no validator wired for ${apiVersion} [ALLOW_SKIP=1]`);
+      skip++;
+    } else {
+      console.log(`FAIL  ${label} — no validator wired for ${apiVersion}; the gate fails closed`);
+      failures.push({ label, errors: `no validator for ${apiVersion} — wire one or set ALLOW_SKIP=1` });
+      fail++;
+    }
     continue;
   }
   try {
     const mod = await loader(kind);
     const Model = mod[kind];
-    const instance = new Model({ metadata: { name: "x" }, spec: inputs.spec });
+    const instance = new Model({ metadata: object.metadata, spec: object.spec });
     instance.validate();
-    console.log(`PASS  ${label}`);
+    console.log(`PASS  ${label}${suffix}`);
     pass++;
   } catch (err) {
     console.log(`FAIL  ${label}`);

@@ -3,16 +3,28 @@ name: Deploy (staging)
 # Deploys the `dev` (staging) Pulumi stack after the images for a develop commit
 # have been built + pushed. Chained off "Publish Images" (not a raw push) so the
 # stack never references a tag GHCR doesn't have yet, and it deploys the exact
-# commit's immutable SHA tag rather than the moving `latest`.
+# commit's immutable SHA tag rather than the moving `latest`. An explicit gate
+# step additionally requires the commit's CI and Security workflows to be green
+# before anything touches the cluster (Publish Images runs in parallel with
+# them, so chaining alone would deploy untested code).
 #
-# One-time setup (per environment, done once with the Pulumi CLI — see
-# deploy/pulumi/Pulumi.dev.yaml for the full secret list):
-#   - Create the stack:  pulumi stack init grid-check/dev
-#   - Set every --secret (kubeconfig, pgAppPassword, tokens, API keys, …).
-#     For the kubeconfig, use a NON-EXPIRING ServiceAccount token, not the
-#     Control-Center download (which dies in ≤2 weeks) — see
-#     docs/deployment/kubernetes.md §2b.
-#   - Add repo secret PULUMI_ACCESS_TOKEN (a Pulumi Cloud access token).
+# One-time setup (per environment). Pulumi stack CONFIG IS FILE-BASED: the
+# values live in deploy/pulumi/Pulumi.dev.yaml in THIS REPO, not in Pulumi
+# Cloud (which stores only state + the secrets-decryption key). CI reads the
+# checked-out file, so the configured stack file MUST BE COMMITTED:
+#   1. cd deploy/pulumi && pulumi stack init grid-check/dev
+#   2. Edit Pulumi.dev.yaml: real appDomain/s3Domain/letsEncryptEmail/
+#      workosClientId/storageClass (placeholders make the program fail closed).
+#   3. Set every secret with `pulumi config set --secret ...` (full list in the
+#      Pulumi.dev.yaml header). For the kubeconfig use a NON-EXPIRING
+#      ServiceAccount token, not the Control-Center download (dies in ≤2 weeks)
+#      — see docs/deployment/kubernetes.md §2b.
+#   4. COMMIT the updated Pulumi.dev.yaml to `develop` — the secrets in it are
+#      ciphertext (encrypted by the stack's Pulumi-Cloud-managed key) and safe
+#      to commit. Without this commit every CI deploy fails its preflight.
+#   5. Add repo secret PULUMI_ACCESS_TOKEN (a Pulumi Cloud access token).
+# The "Preflight" step below verifies step 2/4 happened and fails with
+# instructions if not.
 on:
   workflow_run:
     workflows: ["Publish Images"]
@@ -22,6 +34,7 @@ on:
 
 permissions:
   contents: read
+  actions: read # poll CI / Security workflow conclusions for the gate step
 
 concurrency:
   group: deploy-dev
@@ -34,7 +47,19 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: blacksmith-4vcpu-ubuntu-2404
     environment: staging
+    env:
+      DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
     steps:
+      # Manual dispatch only deploys develop: images are published only for
+      # develop/release/tags, so dispatching from a feature branch would pin a
+      # sha-<sha> tag that does not exist in GHCR and roll the cluster into
+      # ImagePullBackOff.
+      - name: Guard manual dispatch to develop
+        if: ${{ github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/develop' }}
+        run: |
+          echo "::error::workflow_dispatch deploys are only supported from develop (images for '${{ github.ref }}' are never published)."
+          exit 1
+
       # The upstream "Publish Images" workflow runs ONLY on push to
       # develop/release and on tags (never on pull_request), so
       # workflow_run.head_sha is always a trusted, already-merged commit, not
@@ -44,7 +69,60 @@ jobs:
       - uses: actions/checkout@v7
         with:
           # Deploy the exact commit whose images were just published.
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ env.DEPLOY_SHA }}
+
+      # The stated invariant: staging only receives commits whose CI and
+      # Security workflows passed. Publish Images has no `needs` relationship
+      # to them, so enforce it here by polling both workflows' conclusions for
+      # the deploy SHA (they usually finish long before the image build).
+      - name: Require green CI + Security for this commit
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const required = ["CI", "Security"];
+            const sha = process.env.DEPLOY_SHA;
+            const deadline = Date.now() + 25 * 60 * 1000;
+            for (const name of required) {
+              for (;;) {
+                const runs = (await github.rest.actions.listWorkflowRunsForRepo({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  head_sha: sha,
+                  per_page: 50,
+                })).data.workflow_runs.filter((r) => r.name === name);
+                const run = runs[0]; // most recent for this SHA
+                if (run && run.status === "completed") {
+                  if (run.conclusion !== "success") {
+                    core.setFailed(`${name} for ${sha} concluded '${run.conclusion}' — refusing to deploy.`);
+                    return;
+                  }
+                  core.info(`${name}: success`);
+                  break;
+                }
+                if (!run) core.info(`${name}: no run found yet for ${sha}, waiting…`);
+                else core.info(`${name}: ${run.status}, waiting…`);
+                if (Date.now() > deadline) {
+                  core.setFailed(`${name} for ${sha} did not complete within 25 minutes.`);
+                  return;
+                }
+                await new Promise((r) => setTimeout(r, 30_000));
+              }
+            }
+
+      # Fail fast, with instructions, if the committed stack file is still the
+      # template — otherwise the failure surfaces as a cryptic preview error.
+      - name: Preflight - stack file is configured, not the template
+        working-directory: deploy/pulumi
+        run: |
+          bad=0
+          grep -nE "REPLACE_ME|example\.com" Pulumi.dev.yaml && bad=1
+          grep -q "secure:" Pulumi.dev.yaml || { echo "no 'secure:' ciphertext blocks found — secrets were never set/committed"; bad=1; }
+          if [ "$bad" -ne 0 ]; then
+            echo "::error::deploy/pulumi/Pulumi.dev.yaml on develop is still the placeholder template."
+            echo "::error::Run the one-time setup in this workflow's header (edit values, set --secret config, COMMIT the file), then re-run."
+            exit 1
+          fi
+          echo "stack file preflight OK"
 
       - uses: actions/setup-node@v7
         with:
@@ -61,8 +139,9 @@ jobs:
         run: npx tsc --noEmit
 
       # Plan + schema-validate every CustomResource against the upstream CRD
-      # schemas (tsc can't check apiextensions.CustomResource fields). Catches a
-      # bad CNPG/Gateway/cert-manager spec BEFORE pulumi up touches the cluster.
+      # schemas (tsc can't check apiextensions.CustomResource fields). The
+      # imageTag override is applied BEFORE previewing so the validated plan is
+      # the same plan `pulumi up` applies.
       - name: Validate CR schemas from plan
         working-directory: deploy/pulumi
         run: |
@@ -73,6 +152,7 @@ jobs:
           sh "$RUNNER_TEMP/install-pulumi.sh" --version latest
           export PATH="$HOME/.pulumi/bin:$PATH"
           pulumi stack select grid-check/grid-oib/dev
+          pulumi config set grid-oib:imageTag "sha-${DEPLOY_SHA}"
           pulumi preview --json > .plan.json
           node scripts/validate-crs.mjs .plan.json
         env:
@@ -89,6 +169,6 @@ jobs:
           # with `type=sha,format=long` → `sha-<full-sha>`), overriding the
           # stack's default `latest` for a reproducible deploy.
           config-map: |
-            { "grid-oib:imageTag": { "value": "sha-${{ github.event.workflow_run.head_sha || github.sha }}", "secret": false } }
+            { "grid-oib:imageTag": { "value": "sha-${{ env.DEPLOY_SHA }}", "secret": false } }
         env:
           PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}

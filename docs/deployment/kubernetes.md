@@ -378,14 +378,29 @@ follow-up); high-traffic chat/retrieval does not need it.
 ## 8. CI/CD
 
 `.github/workflows/deploy.yml` deploys the **dev** stack automatically after
-`Publish Images` succeeds on `develop`, pinning `imageTag` to that commit's
-immutable `sha-<sha>` tag (never `latest`) and running two cluster-free gates
-before `pulumi up`: `tsc --noEmit` (typed manifests) and
+`Publish Images` succeeds on `develop`. Before `pulumi up` it enforces four
+gates: the commit's **CI and Security workflows must be green** (Publish Images
+runs in parallel with them, so the chain alone would deploy untested code — a
+polling gate closes that race), a **preflight** that the committed stack file
+is configured (see below), `tsc --noEmit` (typed manifests), and
 `scripts/validate-crs.mjs` (schema-validates every CustomResource in the plan
-against the upstream CRD schemas — the untyped half tsc can't see). It needs a
-`PULUMI_ACCESS_TOKEN` repo secret and a stack whose `kubeconfig` secret is a
-**non-expiring ServiceAccount token** (§2b), not the Control-Center download.
-Prod is promoted manually.
+— previewed with the same `sha-<sha>` imageTag the deploy applies). Manual
+`workflow_dispatch` is refused outside `develop` (no images exist for other
+branches). Prod is promoted manually.
+
+**Pulumi stack config is file-based — the configured stack file must be
+committed.** `pulumi config set` writes values (secrets as ciphertext) into
+`deploy/pulumi/Pulumi.dev.yaml` in your working copy; Pulumi Cloud stores only
+state and the decryption key. CI reads the *checked-out* file, so the one-time
+setup is: `pulumi stack init grid-check/dev` → edit the placeholder values →
+set every `--secret` (kubeconfig must be the **non-expiring ServiceAccount
+token** from §2b, not the ≤2-week Control-Center download) → **commit the
+updated `Pulumi.dev.yaml` to `develop`** (encrypted secrets are safe to
+commit) → add the `PULUMI_ACCESS_TOKEN` repo secret. Until that commit lands,
+every CI deploy fails its preflight with instructions. Two more infrastructure
+prerequisites: the `blacksmith-*` runner integration, and the `staging` GitHub
+environment (created on first run; note that adding required reviewers to it
+turns the "automatic" deploy into an approval-gated one).
 
 ### What has been validated without the provider cluster
 
