@@ -381,6 +381,93 @@ describe('ChatArea', () => {
     expect(secondCallProps.isThinking).toBe(false)
   })
 
+  test('anchors a newly sent user message to the top of the viewport on send', () => {
+    // Spy on scrollIntoView — the "anchor this question to the top" action, as
+    // distinct from the stick-to-bottom controller's container.scrollTo.
+    const scrollIntoView = vi.fn()
+    const originalScrollIntoView = Element.prototype.scrollIntoView
+    Element.prototype.scrollIntoView = scrollIntoView
+
+    const makeState = (currentUserMessageId: string | null) => ({
+      currentConversation: {
+        id: 'c1',
+        messages: [{ id: 'user-1', role: 'user', content: 'My question', messageType: 'user' }],
+      },
+      isLoading: false,
+      isStreaming: true,
+      currentUserMessageId,
+      currentStatus: null,
+      hasHydrated: true,
+      isRecoveryPending: false,
+      thinkingSteps: [],
+      respondToPrompt: mockRespondToPrompt,
+      dismissErrorCard: mockDismissErrorCard,
+      getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
+      retryLastUserMessage: vi.fn(),
+    })
+
+    // Mount with no active turn: nothing to anchor yet.
+    vi.mocked(useChatStore).mockImplementation((selector?: (s: any) => any) =>
+      selector ? selector(makeState(null)) : makeState(null)
+    )
+    // ChatArea is memoized; with the store mocked there's no live subscription,
+    // so a distinct prop (a fresh onSignIn) stands in to trigger the re-render
+    // the real store subscription would cause when currentUserMessageId changes.
+    const { rerender } = render(<ChatArea isAuthenticated={true} onSignIn={vi.fn()} />)
+    expect(scrollIntoView).not.toHaveBeenCalled()
+
+    // A new user message becomes the active turn (send): it must be anchored to
+    // the TOP (block: 'start'), letting the answer stream downward — NOT chased
+    // to the bottom.
+    vi.mocked(useChatStore).mockImplementation((selector?: (s: any) => any) =>
+      selector ? selector(makeState('user-1')) : makeState('user-1')
+    )
+    rerender(<ChatArea isAuthenticated={true} onSignIn={vi.fn()} />)
+
+    expect(scrollIntoView).toHaveBeenCalledTimes(1)
+    expect(scrollIntoView).toHaveBeenCalledWith(expect.objectContaining({ block: 'start' }))
+
+    Element.prototype.scrollIntoView = originalScrollIntoView
+  })
+
+  test('does not re-anchor an already-active user message on unrelated re-renders', () => {
+    const scrollIntoView = vi.fn()
+    const originalScrollIntoView = Element.prototype.scrollIntoView
+    Element.prototype.scrollIntoView = scrollIntoView
+
+    const state = {
+      currentConversation: {
+        id: 'c1',
+        messages: [{ id: 'user-1', role: 'user', content: 'My question', messageType: 'user' }],
+      },
+      isLoading: false,
+      isStreaming: true,
+      currentUserMessageId: 'user-1',
+      currentStatus: null,
+      hasHydrated: true,
+      isRecoveryPending: false,
+      thinkingSteps: [],
+      respondToPrompt: mockRespondToPrompt,
+      dismissErrorCard: mockDismissErrorCard,
+      getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
+      retryLastUserMessage: vi.fn(),
+    }
+
+    vi.mocked(useChatStore).mockImplementation((selector?: (s: any) => any) =>
+      selector ? selector(state) : state
+    )
+    // Mounting with the turn already active (e.g. session restore) must NOT
+    // anchor — the bottom-jump effect owns initial positioning there. A fresh
+    // onSignIn forces the re-render (ChatArea is memoized) so we prove a plain
+    // re-render with an unchanged currentUserMessageId does not re-anchor.
+    const { rerender } = render(<ChatArea isAuthenticated={true} onSignIn={vi.fn()} />)
+    rerender(<ChatArea isAuthenticated={true} onSignIn={vi.fn()} />)
+
+    expect(scrollIntoView).not.toHaveBeenCalled()
+
+    Element.prototype.scrollIntoView = originalScrollIntoView
+  })
+
   test('keeps earlier interrupted thinking state while a new message is actively streaming', () => {
     mockGetThinkingStepsForMessage.mockImplementation((messageId: string) => {
       if (messageId === 'user-1') return [{ id: 'step-1', displayName: 'Step 1' }]
