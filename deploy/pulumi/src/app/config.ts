@@ -120,11 +120,11 @@ export function backendEnv(w: AppWiring): EnvVar[] {
     { name: "AIQ_VLM_MODEL", value: cfg.llm.vlmModel },
     { name: "AIQ_VLM_BASE_URL", value: cfg.llm.vlmBaseUrl },
     srefAs("AIQ_VLM_API_KEY", "OPENROUTER_API_KEY"),
-    // Object storage.
-    { name: "SEAWEED_ENDPOINT", value: w.seaweedInternalEndpoint },
-    { name: "SEAWEED_ACCESS_KEY", value: cfg.seaweedfs.accessKey },
-    sref("SEAWEED_SECRET_KEY"),
-    { name: "SEAWEED_BUCKET", value: cfg.seaweedfs.bucket },
+    // NOTE: no SEAWEED_* here on purpose — the backend Python tree has zero
+    // consumers (verified by grep across src/, frontends/aiq_api/, sources/,
+    // shared/; compose gives them only to frontend + purger). Injecting the S3
+    // root credential into tiers that never use it just widens the attack
+    // surface.
   ];
   // Shared Chroma server (horizontal scaling): when set, the adapter uses an
   // HttpClient instead of the embedded per-pod store.
@@ -175,7 +175,12 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
     { name: "WORKOS_CLIENT_ID", value: cfg.auth.workosClientId },
     sref("WORKOS_API_KEY"),
     sref("WORKOS_COOKIE_PASSWORD"),
+    // Set BOTH: authkit-nextjs reads the literal NEXT_PUBLIC_ var (works at
+    // runtime only while the image is built without it — Next.js would inline
+    // a build-time value); WORKOS_REDIRECT_URI is the first-party callback
+    // route's explicit runtime override and is immune to build-time inlining.
     { name: "NEXT_PUBLIC_WORKOS_REDIRECT_URI", value: `https://${cfg.ingress.appDomain}/api/auth/callback` },
+    { name: "WORKOS_REDIRECT_URI", value: `https://${cfg.ingress.appDomain}/api/auth/callback` },
     // BYOK.
     { name: "GRID_BYOK_SECRET_BACKEND", value: cfg.auth.byokSecretBackend },
     sref("GRID_BYOK_LOCAL_KEK"),

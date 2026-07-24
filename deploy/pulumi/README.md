@@ -50,6 +50,8 @@ pulumi config set --secret grid-oib:openrouterApiKey     "sk-or-..."
 pulumi config set --secret grid-oib:tavilyApiKey         "tvly-..."
 pulumi config set --secret grid-oib:workosApiKey         "sk_live_..."
 pulumi config set --secret grid-oib:workosCookiePassword "$(openssl rand -hex 32)"
+# REQUIRED with the template's jobExecution=db (deploy fails closed without it):
+pulumi config set --secret grid-oib:jobPayloadKek      "$(openssl rand -base64 32)"
 
 pulumi preview
 pulumi up

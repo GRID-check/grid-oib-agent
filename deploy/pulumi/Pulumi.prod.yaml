@@ -67,6 +67,11 @@ config:
   grid-oib:pgBackupSchedule: "0 0 2 * * *"   # 6-field (sec min hour …): 02:00 daily
 
   # ── SeaweedFS ──
+  # Pin the storage engine in prod: the provider replaces nodes on ITS schedule,
+  # and an unpinned tag would re-pull whatever SeaweedFS shipped that day —
+  # surprise storage-engine upgrades are the one class of update you want to
+  # control. 3.80 is the compose-proven version; bump deliberately.
+  grid-oib:seaweedfsImage: chrislusf/seaweedfs:3.80
   grid-oib:seaweedfsStorageSize: 20Gi
   grid-oib:seaweedfsBucket: grid-documents
   grid-oib:seaweedfsAccessKey: grid

@@ -110,7 +110,7 @@ export function installSeaweedFS(
             containers: [
               {
                 name: "seaweedfs",
-                image: "chrislusf/seaweedfs:latest",
+                image: cfg.seaweedfs.image,
                 command: ["/bin/sh", "-c"],
                 args: [
                   "exec weed server -dir=/data -volume.max=0 -s3 " +
@@ -161,7 +161,16 @@ export function installSeaweedFS(
         ],
       },
     },
-    { provider, dependsOn: s3Secret },
+    {
+      provider,
+      dependsOn: s3Secret,
+      // volumeClaimTemplates are IMMUTABLE: a storage-size change would make
+      // Pulumi REPLACE the StatefulSet (deleting the only S3 server) while the
+      // existing PVC keeps its old size anyway. Growing the volume is done by
+      // patching the PVC (see docs/deployment/kubernetes.md storage section);
+      // the template value is initial-size-only.
+      ignoreChanges: ["spec.volumeClaimTemplates"],
+    },
   );
 
   // Stable ClusterIP service clients resolve as `seaweedfs`.
@@ -180,20 +189,22 @@ export function installSeaweedFS(
   // Pre-create the documents bucket (+ any extras, e.g. PG backups). SeaweedFS
   // does not auto-create on PUT. Idempotent: bucket-already-exists is a no-op.
   const buckets = [cfg.seaweedfs.bucket, ...extraBuckets];
-  // One create per bucket, tolerating ONLY the idempotent "already exists" case
-  // — a blanket `|| true` would hide a real failure (bad master/auth), report
-  // success, and let the first upload 404 at runtime instead of failing deploy.
+  // `weed shell` exits 0 even when the command it ran FAILED (verified against
+  // a live server: bad bucket name → "error: …" on stdout, exit 0; unknown
+  // command → exit 0). Exit-code checks are therefore dead code. The only
+  // reliable contract is POSITIVE VERIFICATION: run the create, then require
+  // the bucket to appear in `s3.bucket.list` — that catches auth errors, filer
+  // errors, and races identically. `timeout 120` bounds weed shell's silent
+  // connect-block if a gRPC port regresses (also found live).
   const createBuckets = buckets
     .map(
       (b) =>
-        // `timeout 120`: weed shell connect-blocks silently if it can't reach a
-        // gRPC port — bound it so a connectivity regression fails the Job (and
-        // the deploy) loudly instead of hanging the rollout forever.
-        `out=$(echo 's3.bucket.create -name ${b}' | timeout 120 weed shell -master=seaweedfs:9333 2>&1); ` +
-        'rc=$?; echo "$out"; ' +
-        `if [ $rc -ne 0 ] && ! echo "$out" | grep -qi "already exists"; then exit $rc; fi`,
+        `echo 's3.bucket.create -name ${b}' | timeout 120 weed shell -master=seaweedfs:9333 2>&1; ` +
+        `if ! echo 's3.bucket.list' | timeout 120 weed shell -master=seaweedfs:9333 2>&1 | grep -q '^ *${b}'; ` +
+        `then echo "FATAL: bucket ${b} missing after create"; exit 1; fi; ` +
+        `echo "bucket ${b} verified"`,
     )
-    // "; " — a bare space would butt the next command against `fi` and produce
+    // "; " — a bare space would butt commands together and produce
     // `/bin/sh: syntax error` (caught by the live smoke deploy).
     .join("; ");
 
@@ -211,7 +222,7 @@ export function installSeaweedFS(
             containers: [
               {
                 name: "bucket-init",
-                image: "chrislusf/seaweedfs:latest",
+                image: cfg.seaweedfs.image,
                 securityContext: hardenedJobSecurityContext(),
                 resources: {
                   requests: { cpu: "25m", memory: "64Mi" },

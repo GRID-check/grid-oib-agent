@@ -18,7 +18,7 @@ their own namespaces.
 
 | Workload | k8s object | Replicas | Storage | Scales by |
 |---|---|---|---|---|
-| `aiq-agent` (agent: web + Dask + Chroma) | **StatefulSet** | **1** | RWO PVC `/app/data` | **Vertically** (CPU/mem + Dask knobs). Singleton today. |
+| `aiq-agent` (agent web tier) | **StatefulSet** | 1 (dask) / N (db, default 2) | RWO PVC `/app/data` per replica | dask mode: vertically (singleton). db mode (both shipped templates): horizontally + PDB/spread — §6.4 |
 | `frontend` (Next.js + BFF + WS gateway) | Deployment + HPA | 2→6 | — | Horizontally (CPU HPA) |
 | `purger` | Deployment | 1 | — | n/a (SKIP LOCKED-safe) |
 | `workflow-scheduler` | Deployment | 1 | — | n/a (DB-claimed ticks) |
@@ -83,8 +83,15 @@ an object store. So:
   StatefulSets pin `persistentVolumeClaimRetentionPolicy: Retain` so deleting a
   workload never cascades a PVC delete, and you can patch a live PV to survive
   even a PVC delete: `kubectl patch pv <pv> -p '{"spec":{"persistentVolumeReclaimPolicy":"Retain"}}'`.
-- Volumes **expand online** (grow `*StorageSize` then `pulumi up`); they cannot
-  shrink. **VolumeSnapshots** are supported via the `lightbits` SnapshotClass.
+- Volumes **expand online**, but for the three StatefulSets NOT via config:
+  `volumeClaimTemplates` are immutable (a size change would *replace* the
+  StatefulSet while the existing PVC kept its old size — the program pins
+  `ignoreChanges` on the templates so that can't happen by accident). Grow a
+  live volume by patching the PVC directly, e.g.
+  `kubectl -n grid patch pvc data-seaweedfs-0 -p '{"spec":{"resources":{"requests":{"storage":"50Gi"}}}}'`,
+  then update the config value so future clusters start at the new size. Only
+  `pgStorageSize` (CNPG manages its own PVCs) expands via config + `pulumi up`.
+  Volumes cannot shrink. **VolumeSnapshots** via the `lightbits` SnapshotClass.
 - The **CSI driver / StorageClasses are provider-installed**; Pulumi only
   references a class by name. We do not install the driver.
 - **S3 is provided by SeaweedFS**, which runs on top of one of these PVCs (§4).
@@ -108,6 +115,26 @@ replicas sit on different nodes so a single node loss never empties a tier.
 Single-replica workloads deliberately get **no** PDB — `minAvailable: 1` on one
 pod would block the drain forever and deadlock the upgrade. Postgres HA is
 CloudNativePG's own PDB.
+
+**In dask mode, automatic upgrades interrupt in-flight research.** The default
+`jobExecution: dask` runs the agent as a singleton (deliberately without a
+PDB): every provider-initiated node drain evicts it, killing in-process Dask
+state (durable deep-research checkpoints survive; live WS/HITL state does not)
+with a recovery tail of volume re-attach + image pull + up-to-10-min boot.
+Both shipped stack templates use `db` mode, which drains one replica at a time.
+
+**Moving image tags make `pulumi up` a no-op.** With `imageTag: latest`, a
+redeploy after publishing new images changes no pod spec, so nothing rolls and
+the migration Job does not re-fire — but a later pod restart (e.g. a node
+drain) silently pulls the new code, possibly against an un-migrated schema.
+The CI workflow avoids this by pinning `sha-<commit>` per deploy; for manual
+deploys either pin `imageTag` to a SHA or run `pulumi up --refresh`.
+
+**Size worker groups against the HPA ceilings.** The autoscaler only adds
+nodes within a worker group's min/max. If frontend `maxReplicas` (6) +
+agent-worker `maxReplicas` (8) + the fixed tiers exceed the group's max
+capacity, the extra pods sit Pending forever. Check the sum of limits at max
+scale against the group product when sizing.
 
 **Cluster-autoscaler scales on *unschedulable pods*, not utilisation.** Its
 documented prerequisites — an HPA as the first scaling tier, `requests`/`limits`
@@ -248,14 +275,23 @@ schema.
   a node. Replicas use `preferred` pod anti-affinity on `kubernetes.io/hostname`
   so they spread across worker nodes. Apps always talk to the `grid-pg-rw`
   service (the current primary).
-- **Backups (PITR) — IMPLEMENTED.** With `grid-oib:pgBackupsEnabled: true` (prod
-  default) CNPG archives WAL continuously and takes a nightly base backup to a
-  `grid-pg-backups` SeaweedFS bucket (auto-created) via its Barman object-store
-  integration — the only recovery path from the provider's `Delete` reclaim
-  policy. Tune with `pgBackupRetention` (default `30d`) and `pgBackupSchedule`
-  (6-field cron, default `0 0 2 * * *`). Restore is `kubectl cnpg`/a bootstrap
-  `recovery` from the same object store. Credentials come from the
-  `grid-pg-backup-s3` Secret (the SeaweedFS access/secret key).
+- **Backups (PITR) — IMPLEMENTED, with an honest scope.** With
+  `grid-oib:pgBackupsEnabled: true` (prod default) CNPG archives WAL
+  continuously and takes a nightly base backup (plus one immediately on
+  creation, so a PITR baseline exists from day one) via its Barman object-store
+  integration. The default target is the in-cluster SeaweedFS
+  `grid-pg-backups` bucket (auto-created; the Cluster is gated on it so
+  archiving never races the bucket): that protects against **Postgres PVC
+  loss/corruption**, but NOT against cluster deletion or a SeaweedFS-volume
+  loss — the backup lives on the same `Delete`-reclaim CSI. For real offsite
+  PITR, point `pgBackupEndpoint` (+ `pgBackupBucket`,
+  `pgBackupAccessKey`/`pgBackupSecretKey`) at an external S3, or book the
+  provider's Velero addon. The `grid-documents` SeaweedFS bucket itself has no
+  automated backup yet — the provider's Velero addon or scheduled
+  VolumeSnapshots (needs a scheduler, e.g. snapscheduler) are the options.
+  Tune with `pgBackupRetention` (default `30d`) and `pgBackupSchedule` (6-field
+  cron, default `0 0 2 * * *`). Restore is `kubectl cnpg` / a bootstrap
+  `recovery` from the same object store.
 
 ---
 
@@ -429,7 +465,6 @@ Chroma):
 
 - SeaweedFS modular HA cluster (§4) — single-node today; its PVC survives node
   loss (NVMe/TCP re-attach), so a node drain is a brief reschedule, not data loss.
-- The backend refactors that unlock horizontal agent scaling (§6.3).
 - Egress NetworkPolicies (needs per-endpoint validation on a live cluster).
 - An observability stack (Prometheus/Grafana/Loki). Envoy Gateway, cert-manager,
   CNPG, and SeaweedFS all expose Prometheus metrics, so this is a natural next

@@ -56,6 +56,14 @@ export function installHttpRoutes(
     { provider, dependsOn: app },
   );
 
+  // Envoy's default 15s request timeout applies here too — a presigned
+  // download/preview of a large PDF (or a slow client) would be reset
+  // mid-body. Same 3600s budget as the app route.
+  const s3BackendPolicySpec: IBackendTrafficPolicySpec = {
+    targetRefs: [{ group: "gateway.networking.k8s.io", kind: "HTTPRoute", name: "grid-s3" }],
+    timeout: { http: { requestTimeout: "3600s" } },
+  };
+
   const s3RouteSpec: IHTTPRouteSpec = {
     parentRefs: [{ name: GATEWAY_NAME, sectionName: "https-s3" }],
     hostnames: [cfg.ingress.s3Domain],
@@ -70,6 +78,17 @@ export function installHttpRoutes(
       spec: s3RouteSpec,
     },
     { provider, dependsOn },
+  );
+
+  new k8s.apiextensions.CustomResource(
+    "grid-s3-backend-traffic-policy",
+    {
+      apiVersion: "gateway.envoyproxy.io/v1alpha1",
+      kind: "BackendTrafficPolicy",
+      metadata: { name: "grid-s3-timeouts", namespace, labels: commonLabels("seaweedfs") },
+      spec: s3BackendPolicySpec,
+    },
+    { provider, dependsOn: s3 },
   );
 
   return { app, s3 };

@@ -86,7 +86,18 @@ export interface GridConfig {
      */
     backups: {
       enabled: boolean;
-      /** SeaweedFS bucket for base backups + WAL (auto-created). */
+      /**
+       * S3 endpoint Barman writes to. Default: the in-cluster SeaweedFS —
+       * which protects against Postgres PVC loss but NOT against cluster
+       * deletion (it lives on the same Delete-reclaim CSI). Point this at an
+       * external S3 (with matching bucket + credentials via
+       * pgBackupAccessKey/pgBackupSecretKey) for real offsite PITR.
+       */
+      endpoint: string;
+      /** Override credentials for an external endpoint (default: SeaweedFS's). */
+      accessKey?: string;
+      secretKey?: pulumi.Output<string>;
+      /** Bucket for base backups + WAL (auto-created only on in-cluster SeaweedFS). */
       bucket: string;
       /** Barman retention (e.g. "30d"). */
       retention: string;
@@ -124,6 +135,13 @@ export interface GridConfig {
   };
 
   seaweedfs: {
+    /**
+     * SeaweedFS server image. Defaults to `latest` (project preference for
+     * fresh components); for prod consider pinning (the compose stack pins
+     * 3.80) — this is the storage engine, and the provider's automatic node
+     * replacement re-pulls the tag at unpredictable times.
+     */
+    image: string;
     storageSize: string;
     bucket: string;
     accessKey: string;
@@ -179,9 +197,10 @@ export interface GridConfig {
   jobExecution: "dask" | "db";
   /**
    * Enable the Dragonfly pub/sub conversation bus (ADR-0028) so the chat tier is
-   * fully stateless — any replica serves any conversation's WebSocket. Off by
-   * default; needs REDIS_URL and a live cross-replica validation pass before the
-   * affinity-off flip. When false the tier relies on conversation affinity.
+   * fully stateless — any replica serves any conversation's WebSocket. ON by
+   * default (the intended architecture; uses REDIS_URL and fails open to local
+   * delivery). Set false to fall back to conversation affinity, e.g. while
+   * validating the bus cross-replica in a new environment.
    */
   conversationBus: boolean;
   agentWorker: {
@@ -272,6 +291,11 @@ export function loadConfig(): GridConfig {
   rejectPlaceholder("appDomain", ["example.com"]);
   rejectPlaceholder("s3Domain", ["example.com"]);
   rejectPlaceholder("workosClientId", ["REPLACE_ME"]);
+  // Let's Encrypt refuses ACME account registration for example.com contacts —
+  // without this guard a deploy that fixed the domains but not the email passes
+  // everything and then TLS silently never issues (the exact delayed-failure
+  // class this guard exists to kill).
+  rejectPlaceholder("letsEncryptEmail", ["example.com"]);
 
   const jobExecution: "dask" | "db" = (cfg.get("jobExecution") ?? "dask") === "db" ? "db" : "dask";
   const conversationBus = bool(cfg, "conversationBus", true);
@@ -281,6 +305,19 @@ export function loadConfig(): GridConfig {
   // in Postgres (table + WAL + backups + replicas). Refuse to deploy db mode
   // without a KEK to encrypt them at rest, unless plaintext is explicitly opted
   // into for dev. Guards against the silent plaintext-token-at-rest default.
+  // Fail closed: db mode REQUIRES the shared Chroma server. Without it every
+  // web replica and worker opens an embedded per-pod store — workers ingest
+  // into stores no web replica can read (retrieval silently empty), and the
+  // volume-less agent-worker can't even write its store (image FS, root-owned).
+  // The deploy would report success and be functionally broken.
+  const chromaEnabled = bool(cfg, "chromaEnabled", true);
+  if (jobExecution === "db" && !chromaEnabled) {
+    throw new Error(
+      "jobExecution=db requires the shared Chroma server (workers and web replicas must " +
+        "read/write one vector store). Set grid-oib:chromaEnabled=true, or use jobExecution=dask.",
+    );
+  }
+
   const jobPayloadKek = cfg.getSecret("jobPayloadKek");
   const allowPlaintextJobPayloads = bool(cfg, "allowPlaintextJobPayloads", false);
   if (jobExecution === "db" && jobPayloadKek === undefined && !allowPlaintextJobPayloads) {
@@ -337,6 +374,9 @@ export function loadConfig(): GridConfig {
         cfg.get("pgPrimaryUpdateStrategy") === "supervised" ? "supervised" : "unsupervised",
       backups: {
         enabled: bool(cfg, "pgBackupsEnabled", false),
+        endpoint: cfg.get("pgBackupEndpoint") ?? "http://seaweedfs:8333",
+        accessKey: cfg.get("pgBackupAccessKey"),
+        secretKey: cfg.getSecret("pgBackupSecretKey"),
         bucket: cfg.get("pgBackupBucket") ?? "grid-pg-backups",
         retention: cfg.get("pgBackupRetention") ?? "30d",
         schedule: cfg.get("pgBackupSchedule") ?? "0 0 2 * * *",
@@ -351,7 +391,7 @@ export function loadConfig(): GridConfig {
     networkPolicies: bool(cfg, "networkPolicies", true),
 
     chroma: {
-      enabled: bool(cfg, "chromaEnabled", true),
+      enabled: chromaEnabled,
       // Deliberately pinned (NOT latest): the server API/wire protocol is
       // coupled to the backend's `chromadb` Python client. It MUST match — a 1.x
       // client against a 0.5.x server fails ingestion with KeyError('_type'),
@@ -362,6 +402,7 @@ export function loadConfig(): GridConfig {
     },
 
     seaweedfs: {
+      image: cfg.get("seaweedfsImage") ?? "chrislusf/seaweedfs:latest",
       storageSize: cfg.get("seaweedfsStorageSize") ?? "20Gi",
       bucket: cfg.get("seaweedfsBucket") ?? "grid-documents",
       accessKey: cfg.get("seaweedfsAccessKey") ?? "grid",

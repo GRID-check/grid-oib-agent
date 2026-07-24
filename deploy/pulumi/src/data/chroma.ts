@@ -34,7 +34,7 @@ export function installChroma(
     {
       metadata: { name: "chroma", namespace, labels },
       spec: {
-        serviceName: "chroma",
+        serviceName: "chroma-headless",
         replicas: 1,
         // Shared vector store on a `Delete`-reclaim StorageClass — retain the PVC
         // across StatefulSet delete/scale so a teardown can't wipe the embeddings
@@ -85,6 +85,21 @@ export function installChroma(
           },
         ],
       },
+    },
+    {
+      provider,
+      // Immutable volumeClaimTemplates — see seaweedfs.ts; grow via PVC patch.
+      ignoreChanges: ["spec.volumeClaimTemplates"],
+    },
+  );
+
+  // Headless governing service — the StatefulSet per-pod DNS contract requires
+  // one (chroma-0.chroma-headless). Clients keep using the ClusterIP `chroma`.
+  new k8s.core.v1.Service(
+    "chroma-headless",
+    {
+      metadata: { name: "chroma-headless", namespace, labels },
+      spec: { clusterIP: "None", selector: labels, ports: [{ port: 8000, name: "http" }] },
     },
     { provider },
   );

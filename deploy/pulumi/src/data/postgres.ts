@@ -87,6 +87,13 @@ export function installPostgres(
       // Unpinned: track the latest CloudNativePG operator chart.
       namespace: opNs.metadata.name,
       repositoryOpts: { repo: "https://cloudnative-pg.github.io/charts" },
+      // The chart ships no resources by default; set both (autoscaler prereq).
+      values: {
+        resources: {
+          requests: { cpu: "50m", memory: "128Mi" },
+          limits: { cpu: "500m", memory: "512Mi" },
+        },
+      },
     },
     { provider, dependsOn: opNs },
   );
@@ -157,8 +164,10 @@ export function installPostgres(
         {
           metadata: { name: backupSecretName, namespace },
           stringData: {
-            ACCESS_KEY_ID: cfg.seaweedfs.accessKey,
-            SECRET_ACCESS_KEY: cfg.seaweedfs.secretKey,
+            // Defaults to the in-cluster SeaweedFS identity; overridable for an
+            // external S3 endpoint (offsite PITR — see config.ts).
+            ACCESS_KEY_ID: cfg.postgres.backups.accessKey ?? cfg.seaweedfs.accessKey,
+            SECRET_ACCESS_KEY: cfg.postgres.backups.secretKey ?? cfg.seaweedfs.secretKey,
           },
         },
         { provider },
@@ -175,7 +184,7 @@ export function installPostgres(
           retentionPolicy: cfg.postgres.backups.retention,
           barmanObjectStore: {
             destinationPath: `s3://${cfg.postgres.backups.bucket}/`,
-            endpointURL: "http://seaweedfs:8333",
+            endpointURL: cfg.postgres.backups.endpoint,
             s3Credentials: {
               accessKeyId: { name: backupSecretName, key: "ACCESS_KEY_ID" },
               secretAccessKey: { name: backupSecretName, key: "SECRET_ACCESS_KEY" },
@@ -247,7 +256,11 @@ export function installPostgres(
     },
     {
       provider,
-      dependsOn: [operator, webhookReady, ...(backupSecret ? [backupSecret] : [])],
+      // backupDeps gates the CLUSTER (not just the ScheduledBackup) on the
+      // backup bucket existing: WAL archiving starts the moment the cluster
+      // boots and would otherwise race bucket-init into NoSuchBucket-degraded
+      // ContinuousArchiving on every first deploy.
+      dependsOn: [operator, webhookReady, ...(backupSecret ? [backupSecret] : []), ...backupDeps],
     },
   );
 
@@ -277,8 +290,20 @@ export function installPostgres(
     { provider },
   );
 
-  const jobsPlain = dsn({ db: "aiq_jobs" });
-  const checkpointsPlain = dsn({ db: "aiq_checkpoints" });
+  // DSNs embed the app password — put them in a Secret and env them via
+  // secretKeyRef, so `kubectl get job/pod -o yaml` in the namespace doesn't
+  // hand out the DB credential (the app tier already works this way).
+  const initDsnSecret = new k8s.core.v1.Secret(
+    "pg-init-dsns",
+    {
+      metadata: { namespace },
+      stringData: {
+        JOBS_DSN: dsn({ db: "aiq_jobs" }),
+        CHECKPOINTS_DSN: dsn({ db: "aiq_checkpoints" }),
+      },
+    },
+    { provider },
+  );
 
   const initJob = new k8s.batch.v1.Job(
     "pg-init-tables",
@@ -286,7 +311,8 @@ export function installPostgres(
       metadata: { namespace },
       spec: {
         backoffLimit: 10,
-        // Re-run on every `pulumi up` (config/image changes) — DDL is idempotent.
+        // Re-runs whenever the Job spec changes or `pulumi up --refresh` notices
+        // the TTL reaped it — DDL is idempotent either way.
         ttlSecondsAfterFinished: 300,
         template: {
           metadata: { labels: commonLabels("pg-init") },
@@ -298,10 +324,7 @@ export function installPostgres(
                 image: "postgres:17-alpine",
                 securityContext: hardenedJobSecurityContext(),
                 resources: JOB_RESOURCES,
-                env: [
-                  { name: "JOBS_DSN", value: jobsPlain },
-                  { name: "CHECKPOINTS_DSN", value: checkpointsPlain },
-                ],
+                envFrom: [{ secretRef: { name: initDsnSecret.metadata.name } }],
                 command: ["/bin/sh", "-c"],
                 args: [
                   [
@@ -320,7 +343,7 @@ export function installPostgres(
         },
       },
     },
-    { provider, dependsOn: [cluster, initSqlCm] },
+    { provider, dependsOn: [cluster, initSqlCm, initDsnSecret] },
   );
 
   // 5. Nightly base backup (WAL is archived continuously by the cluster above).
@@ -338,6 +361,9 @@ export function installPostgres(
             backupOwnerReference: "self",
             cluster: { name: CLUSTER_NAME },
             method: "barmanObjectStore",
+            // Take the first base backup immediately on creation — without it
+            // PITR is impossible until the first scheduled (02:00) run.
+            immediate: true,
           },
         },
         { provider, dependsOn: [cluster, ...backupDeps] },

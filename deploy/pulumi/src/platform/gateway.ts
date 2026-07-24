@@ -98,6 +98,14 @@ export function installGatewayResources(
         ...(envoyService ? { envoyService } : {}),
         envoyDeployment: {
           replicas: 2,
+          // Requests AND limits on the data-plane fleet — the platform's
+          // cluster-autoscaler prerequisite applies to the edge pods too.
+          container: {
+            resources: {
+              requests: { cpu: "100m", memory: "128Mi" },
+              limits: { cpu: "1", memory: "512Mi" },
+            },
+          },
           pod: {
             affinity: {
               podAntiAffinity: {
@@ -116,7 +124,10 @@ export function installGatewayResources(
             },
           },
         },
-        envoyPDB: { minAvailable: 1 },
+        // maxUnavailable (not minAvailable): scales with replica count and can
+        // never wedge a provider-initiated drain the way minAvailable can when
+        // both replicas land on one node (same policy as scheduling.ts).
+        envoyPDB: { maxUnavailable: 1 },
       },
     },
   };
