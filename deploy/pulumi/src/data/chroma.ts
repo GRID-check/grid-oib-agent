@@ -93,6 +93,11 @@ export function installChroma(
       provider,
       // Immutable volumeClaimTemplates — see seaweedfs.ts; grow via PVC patch.
       ignoreChanges: ["spec.volumeClaimTemplates"],
+      // Fixed-name StatefulSet: Pulumi's default create-before-delete replace
+      // collides with the existing object ("chroma already exists"). Any
+      // immutable-field replace must delete first — safe: the PVC is pinned
+      // Retain and rebinds to the recreated StatefulSet by template name.
+      deleteBeforeReplace: true,
     },
   );
 

@@ -163,6 +163,8 @@ export function installSeaweedFS(
       // patching the PVC (see docs/deployment/kubernetes.md storage section);
       // the template value is initial-size-only.
       ignoreChanges: ["spec.volumeClaimTemplates"],
+      // Fixed-name StatefulSet: replaces must delete first (see chroma.ts).
+      deleteBeforeReplace: true,
     },
   );
 

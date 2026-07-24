@@ -121,6 +121,8 @@ export function installBackend(
       dependsOn: [secret, ...dependsOn],
       // Immutable volumeClaimTemplates — see seaweedfs.ts; grow via PVC patch.
       ignoreChanges: ["spec.volumeClaimTemplates"],
+      // Fixed-name StatefulSet: replaces must delete first (see chroma.ts).
+      deleteBeforeReplace: true,
       // First boot = multi-GB image pull + Dask/Chroma init + optional corpus
       // sync; the startupProbe alone allows 10 min. Give the await headroom so
       // a healthy-but-slow first deploy doesn't fail on Pulumi's default 10m.
