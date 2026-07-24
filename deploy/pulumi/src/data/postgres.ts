@@ -3,6 +3,14 @@ import * as pulumi from "@pulumi/pulumi";
 import { GridConfig } from "../config";
 import { commonLabels } from "../platform/namespaces";
 import { hardenedJobSecurityContext } from "../platform/security";
+import {
+  BOOTSTRAP_JOB_RESOURCES,
+  DATA_RESOURCES,
+  JOB_DEFAULTS,
+  PLATFORM_RESOURCES,
+  PORT,
+  POSTGRES_TUNING,
+} from "../constants";
 
 export interface Postgres {
   operator: k8s.helm.v3.Release;
@@ -16,12 +24,6 @@ export interface Postgres {
   /** Build a DSN for one of the three logical databases. */
   dsn: (opts: { db: string; driver?: string }) => pulumi.Output<string>;
 }
-
-/** Small resource envelope for the short-lived bootstrap Jobs. */
-const JOB_RESOURCES = {
-  requests: { cpu: "25m", memory: "64Mi" },
-  limits: { cpu: "250m", memory: "256Mi" },
-};
 
 const CLUSTER_NAME = "grid-pg";
 
@@ -88,12 +90,7 @@ export function installPostgres(
       namespace: opNs.metadata.name,
       repositoryOpts: { repo: "https://cloudnative-pg.github.io/charts" },
       // The chart ships no resources by default; set both (autoscaler prereq).
-      values: {
-        resources: {
-          requests: { cpu: "50m", memory: "128Mi" },
-          limits: { cpu: "500m", memory: "512Mi" },
-        },
-      },
+      values: { resources: PLATFORM_RESOURCES.cnpgOperator },
     },
     { provider, dependsOn: opNs },
   );
@@ -119,7 +116,7 @@ export function installPostgres(
                 name: "wait",
                 image: "curlimages/curl:latest",
                 securityContext: hardenedJobSecurityContext(),
-                resources: JOB_RESOURCES,
+                resources: BOOTSTRAP_JOB_RESOURCES,
                 command: ["/bin/sh", "-c"],
                 args: [
                   // Any HTTP response (even 404) means the webhook TLS listener
@@ -242,14 +239,11 @@ export function installPostgres(
         // gets since we hand the app the -rw service directly (no pooler here).
         postgresql: {
           parameters: {
-            max_connections: "200",
-            shared_buffers: "256MB",
+            max_connections: POSTGRES_TUNING.maxConnections,
+            shared_buffers: POSTGRES_TUNING.sharedBuffers,
           },
         },
-        resources: {
-          requests: { cpu: "500m", memory: "1Gi" },
-          limits: { cpu: "2", memory: "4Gi" },
-        },
+        resources: DATA_RESOURCES.postgres,
         // Continuous WAL archiving + base-backup target (empty unless enabled).
         ...backupSpec,
       },
@@ -275,7 +269,7 @@ export function installPostgres(
     // misparse the authority), which looks like an auth failure across the whole
     // stack. Encoding in the DSN keeps the Postgres role password itself intact.
     return cfg.postgres.appPassword.apply(
-      (pw) => `${scheme}://${user}:${encodeURIComponent(pw)}@${rwHost}:5432/${opts.db}`,
+      (pw) => `${scheme}://${user}:${encodeURIComponent(pw)}@${rwHost}:${PORT.postgres}/${opts.db}`,
     );
   };
 
@@ -310,10 +304,10 @@ export function installPostgres(
     {
       metadata: { namespace },
       spec: {
-        backoffLimit: 10,
+        backoffLimit: JOB_DEFAULTS.backoffLimit,
         // Re-runs whenever the Job spec changes or `pulumi up --refresh` notices
         // the TTL reaped it — DDL is idempotent either way.
-        ttlSecondsAfterFinished: 300,
+        ttlSecondsAfterFinished: JOB_DEFAULTS.ttlSecondsAfterFinished,
         template: {
           metadata: { labels: commonLabels("pg-init") },
           spec: {
@@ -323,7 +317,7 @@ export function installPostgres(
                 name: "psql",
                 image: "postgres:17-alpine",
                 securityContext: hardenedJobSecurityContext(),
-                resources: JOB_RESOURCES,
+                resources: BOOTSTRAP_JOB_RESOURCES,
                 envFrom: [{ secretRef: { name: initDsnSecret.metadata.name } }],
                 command: ["/bin/sh", "-c"],
                 args: [

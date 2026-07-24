@@ -2,6 +2,7 @@ import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
 import { GridConfig } from "../config";
 import { commonLabels } from "../platform/namespaces";
+import { DATA_RESOURCES, PORT } from "../constants";
 
 export interface Chroma {
   statefulSet: k8s.apps.v1.StatefulSet;
@@ -49,7 +50,7 @@ export function installChroma(
               {
                 name: "chroma",
                 image: cfg.chroma.image,
-                ports: [{ containerPort: 8000, name: "http" }],
+                ports: [{ containerPort: PORT.chroma, name: "http" }],
                 // Chroma 1.x is a Rust server configured by a baked /config.yaml
                 // (persist_path: /data); the 0.5.x IS_PERSISTENT/PERSIST_DIRECTORY
                 // env vars are ignored, so persistence comes from the /data mount.
@@ -66,10 +67,7 @@ export function installChroma(
                   initialDelaySeconds: 30,
                   periodSeconds: 20,
                 },
-                resources: {
-                  requests: { cpu: "250m", memory: "512Mi" },
-                  limits: { cpu: "2", memory: "4Gi" },
-                },
+                resources: DATA_RESOURCES.chroma,
               },
             ],
           },
@@ -99,7 +97,7 @@ export function installChroma(
     "chroma-headless",
     {
       metadata: { name: "chroma-headless", namespace, labels },
-      spec: { clusterIP: "None", selector: labels, ports: [{ port: 8000, name: "http" }] },
+      spec: { clusterIP: "None", selector: labels, ports: [{ port: PORT.chroma, name: "http" }] },
     },
     { provider },
   );
@@ -110,11 +108,11 @@ export function installChroma(
       metadata: { name: "chroma", namespace, labels },
       spec: {
         selector: labels,
-        ports: [{ port: 8000, targetPort: 8000, name: "http" }],
+        ports: [{ port: PORT.chroma, targetPort: PORT.chroma, name: "http" }],
       },
     },
     { provider, dependsOn: statefulSet },
   );
 
-  return { statefulSet, service, url: pulumi.output("http://chroma:8000") };
+  return { statefulSet, service, url: pulumi.output(`http://chroma:${PORT.chroma}`) };
 }

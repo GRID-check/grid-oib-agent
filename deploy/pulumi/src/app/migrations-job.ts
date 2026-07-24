@@ -3,6 +3,7 @@ import * as pulumi from "@pulumi/pulumi";
 import { GridConfig, frontendImage } from "../config";
 import { commonLabels } from "../platform/namespaces";
 import { hardenedContainerSecurityContext } from "../platform/security";
+import { JOB_DEFAULTS, LIGHT_WORKER_RESOURCES, UID } from "../constants";
 import { AppWiring, migrationEnv } from "./config";
 
 /**
@@ -27,13 +28,13 @@ export function runMigrations(
     {
       metadata: { namespace: w.namespace },
       spec: {
-        backoffLimit: 6,
-        ttlSecondsAfterFinished: 300,
+        backoffLimit: JOB_DEFAULTS.backoffLimit,
+        ttlSecondsAfterFinished: JOB_DEFAULTS.ttlSecondsAfterFinished,
         template: {
           metadata: { labels: commonLabels("grid-app-migrate") },
           spec: {
             restartPolicy: "OnFailure",
-            securityContext: { runAsNonRoot: true, runAsUser: 1001, runAsGroup: 1001 },
+            securityContext: { runAsNonRoot: true, runAsUser: UID.frontend, runAsGroup: UID.frontend },
             containers: [
               {
                 name: "migrate",
@@ -42,10 +43,7 @@ export function runMigrations(
                 securityContext: hardenedContainerSecurityContext(),
                 command: ["node", "node_modules/drizzle-kit/bin.cjs", "migrate"],
                 env: migrationEnv(),
-                resources: {
-                  requests: { cpu: "50m", memory: "128Mi" },
-                  limits: { cpu: "500m", memory: "512Mi" },
-                },
+                resources: LIGHT_WORKER_RESOURCES,
               },
             ],
           },

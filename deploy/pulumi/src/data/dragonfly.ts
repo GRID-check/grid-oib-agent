@@ -2,6 +2,7 @@ import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
 import { GridConfig } from "../config";
 import { commonLabels } from "../platform/namespaces";
+import { DATA_RESOURCES, PORT } from "../constants";
 
 export interface Dragonfly {
   service: k8s.core.v1.Service;
@@ -52,15 +53,15 @@ export function installDragonfly(
                   "--cache_mode=true",
                   "--dbfilename=",
                 ],
-                ports: [{ containerPort: 6379, name: "redis" }],
+                ports: [{ containerPort: PORT.redis, name: "redis" }],
                 resources: {
-                  requests: { cpu: "50m", memory: "128Mi" },
+                  requests: DATA_RESOURCES.dragonflyRequests,
                   // Limit sits ABOVE --maxmemory (which caps only the dataset);
                   // RSS overhead above it would otherwise OOMKill the cache.
-                  limits: { cpu: "500m", memory: cfg.dragonfly.memoryLimit },
+                  limits: { cpu: DATA_RESOURCES.dragonflyCpuLimit, memory: cfg.dragonfly.memoryLimit },
                 },
                 readinessProbe: {
-                  tcpSocket: { port: 6379 },
+                  tcpSocket: { port: PORT.redis },
                   initialDelaySeconds: 5,
                   periodSeconds: 10,
                 },
@@ -79,11 +80,11 @@ export function installDragonfly(
       metadata: { name: "dragonfly", namespace, labels },
       spec: {
         selector: labels,
-        ports: [{ port: 6379, targetPort: 6379, name: "redis" }],
+        ports: [{ port: PORT.redis, targetPort: PORT.redis, name: "redis" }],
       },
     },
     { provider, dependsOn: deployment },
   );
 
-  return { service, url: pulumi.output("redis://dragonfly:6379/0") };
+  return { service, url: pulumi.output(`redis://dragonfly:${PORT.redis}/0`) };
 }

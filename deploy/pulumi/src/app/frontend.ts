@@ -5,6 +5,7 @@ import { commonLabels } from "../platform/namespaces";
 import { installPdb, spreadAcrossNodes } from "../platform/scheduling";
 import { hardenedContainerSecurityContext } from "../platform/security";
 import { AppWiring, frontendEnv } from "./config";
+import { PORT, UID } from "../constants";
 
 export interface Frontend {
   deployment: k8s.apps.v1.Deployment;
@@ -49,7 +50,7 @@ export function installFrontend(
           spec: {
             // The frontend image runs as non-root UID 1001; make it explicit so
             // the pod is Pod-Security "restricted"-ready.
-            securityContext: { runAsNonRoot: true, runAsUser: 1001, runAsGroup: 1001 },
+            securityContext: { runAsNonRoot: true, runAsUser: UID.frontend, runAsGroup: UID.frontend },
             // Spread replicas across worker nodes so a single node loss (or the
             // provider's automatic upgrade node-replacement) never drops the
             // whole frontend tier. Soft (ScheduleAnyway) — never blocks a deploy.
@@ -62,16 +63,16 @@ export function installFrontend(
                 securityContext: hardenedContainerSecurityContext(),
                 // Skip the image's built-in migrate; the Job owns migrations.
                 command: ["node", "server.js"],
-                ports: [{ containerPort: 3000, name: "http" }],
+                ports: [{ containerPort: PORT.frontend, name: "http" }],
                 env: frontendEnv(w),
                 resources: toResourceRequirements(cfg.frontend.resources),
                 readinessProbe: {
-                  httpGet: { path: "/api/healthz", port: 3000 },
+                  httpGet: { path: "/api/healthz", port: PORT.frontend },
                   initialDelaySeconds: 10,
                   periodSeconds: 10,
                 },
                 livenessProbe: {
-                  httpGet: { path: "/api/healthz", port: 3000 },
+                  httpGet: { path: "/api/healthz", port: PORT.frontend },
                   initialDelaySeconds: 30,
                   periodSeconds: 15,
                   failureThreshold: 5,
@@ -93,7 +94,7 @@ export function installFrontend(
       metadata: { name: "frontend", namespace: w.namespace, labels },
       spec: {
         selector: labels,
-        ports: [{ port: 3000, targetPort: 3000, name: "http" }],
+        ports: [{ port: PORT.frontend, targetPort: PORT.frontend, name: "http" }],
       },
     },
     { provider: w.provider, dependsOn: deployment },

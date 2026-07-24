@@ -1,6 +1,7 @@
 import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
 import { GridConfig } from "../config";
+import { PORT } from "../constants";
 
 /**
  * Namespace-scoped NetworkPolicies for `grid`: a **default-deny for ingress**
@@ -62,7 +63,7 @@ export function installNetworkPolicies(
     podSelector: { matchLabels: { "app.kubernetes.io/name": "frontend" } },
     policyTypes: ["Ingress"],
     ingress: [
-      { from: [nsLabel("envoy-gateway-system")], ports: [{ protocol: "TCP", port: 3000 }] },
+      { from: [nsLabel("envoy-gateway-system")], ports: [{ protocol: "TCP", port: PORT.frontend }] },
     ],
   });
 
@@ -71,7 +72,7 @@ export function installNetworkPolicies(
     podSelector: { matchLabels: { "app.kubernetes.io/name": "seaweedfs" } },
     policyTypes: ["Ingress"],
     ingress: [
-      { from: [nsLabel("envoy-gateway-system")], ports: [{ protocol: "TCP", port: 8333 }] },
+      { from: [nsLabel("envoy-gateway-system")], ports: [{ protocol: "TCP", port: PORT.seaweedS3 }] },
     ],
   });
 

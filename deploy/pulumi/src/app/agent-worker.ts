@@ -5,6 +5,7 @@ import { commonLabels } from "../platform/namespaces";
 import { installPdb, spreadAcrossNodes } from "../platform/scheduling";
 import { hardenedContainerSecurityContext } from "../platform/security";
 import { AppWiring, workerEnv } from "./config";
+import { UID } from "../constants";
 
 /**
  * Research worker tier (ADR-0021) — only deployed when jobExecution = "db".
@@ -37,7 +38,7 @@ export function installAgentWorker(
         template: {
           metadata: { labels },
           spec: {
-            securityContext: { runAsNonRoot: true, runAsUser: 1000, runAsGroup: 1000 },
+            securityContext: { runAsNonRoot: true, runAsUser: UID.backend, runAsGroup: UID.backend },
             // Spread workers across nodes (autoscaler prerequisite + survives a
             // single node loss / automatic-upgrade node replacement).
             topologySpreadConstraints: spreadAcrossNodes(labels),

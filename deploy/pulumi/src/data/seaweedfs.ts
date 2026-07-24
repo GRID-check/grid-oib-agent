@@ -3,6 +3,7 @@ import * as pulumi from "@pulumi/pulumi";
 import { GridConfig } from "../config";
 import { commonLabels } from "../platform/namespaces";
 import { hardenedJobSecurityContext } from "../platform/security";
+import { BOOTSTRAP_JOB_RESOURCES, DATA_RESOURCES, JOB_DEFAULTS, PORT } from "../constants";
 
 export interface SeaweedFS {
   statefulSet: k8s.apps.v1.StatefulSet;
@@ -69,11 +70,11 @@ export function installSeaweedFS(
   // container networking), but a k8s Service filters ports, and without 19333
   // `weed shell` connect-blocks forever (found by the live smoke deploy).
   const seaweedPorts = [
-    { port: 8333, name: "s3" },
-    { port: 9333, name: "master" },
-    { port: 19333, name: "master-grpc" },
-    { port: 8888, name: "filer" },
-    { port: 18888, name: "filer-grpc" },
+    { port: PORT.seaweedS3, name: "s3" },
+    { port: PORT.seaweedMaster, name: "master" },
+    { port: PORT.seaweedMasterGrpc, name: "master-grpc" },
+    { port: PORT.seaweedFiler, name: "filer" },
+    { port: PORT.seaweedFilerGrpc, name: "filer-grpc" },
   ];
 
   // Headless service for the StatefulSet's stable network identity.
@@ -116,13 +117,7 @@ export function installSeaweedFS(
                   "exec weed server -dir=/data -volume.max=0 -s3 " +
                     "-s3.config=/etc/seaweedfs/s3.json -s3.port=8333",
                 ],
-                ports: [
-                  { containerPort: 8333, name: "s3" },
-                  { containerPort: 9333, name: "master" },
-                  { containerPort: 19333, name: "master-grpc" },
-                  { containerPort: 8888, name: "filer" },
-                  { containerPort: 18888, name: "filer-grpc" },
-                ],
+                ports: seaweedPorts.map((p) => ({ containerPort: p.port, name: p.name })),
                 volumeMounts: [
                   { name: "data", mountPath: "/data" },
                   { name: "s3config", mountPath: "/etc/seaweedfs", readOnly: true },
@@ -138,10 +133,7 @@ export function installSeaweedFS(
                   initialDelaySeconds: 30,
                   periodSeconds: 15,
                 },
-                resources: {
-                  requests: { cpu: "100m", memory: "256Mi" },
-                  limits: { cpu: "1", memory: "1Gi" },
-                },
+                resources: DATA_RESOURCES.seaweedfs,
               },
             ],
             volumes: [
@@ -213,8 +205,8 @@ export function installSeaweedFS(
     {
       metadata: { namespace },
       spec: {
-        backoffLimit: 10,
-        ttlSecondsAfterFinished: 300,
+        backoffLimit: JOB_DEFAULTS.backoffLimit,
+        ttlSecondsAfterFinished: JOB_DEFAULTS.ttlSecondsAfterFinished,
         template: {
           metadata: { labels: commonLabels("seaweedfs-init") },
           spec: {
@@ -224,10 +216,7 @@ export function installSeaweedFS(
                 name: "bucket-init",
                 image: cfg.seaweedfs.image,
                 securityContext: hardenedJobSecurityContext(),
-                resources: {
-                  requests: { cpu: "25m", memory: "64Mi" },
-                  limits: { cpu: "250m", memory: "256Mi" },
-                },
+                resources: BOOTSTRAP_JOB_RESOURCES,
                 command: ["/bin/sh", "-c"],
                 args: [
                   "until wget -q -O /dev/null http://seaweedfs:9333/cluster/status; " +

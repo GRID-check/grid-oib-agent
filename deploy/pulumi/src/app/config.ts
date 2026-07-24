@@ -1,6 +1,7 @@
 import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
 import { GridConfig } from "../config";
+import { APP_DEFAULTS, PORT } from "../constants";
 
 type EnvVar = k8s.types.input.core.v1.EnvVar;
 
@@ -75,7 +76,7 @@ export function backendEnv(w: AppWiring): EnvVar[] {
     { name: "APP_ENV", value: "production" },
     { name: "LOG_LEVEL", value: "INFO" },
     { name: "HOST", value: "0.0.0.0" },
-    { name: "PORT", value: "8000" },
+    { name: "PORT", value: String(PORT.backend) },
     { name: "CONFIG_FILE", value: cfg.backend.configFile },
     { name: "COLLECTION_NAME", value: "oib_knowledge" },
     // Research execution backend (dask = per-pod; db = DB-claimed workers).
@@ -100,7 +101,7 @@ export function backendEnv(w: AppWiring): EnvVar[] {
     // local delivery. Set conversationBus=false to fall back to affinity.
     { name: "GRID_CONVERSATION_BUS", value: cfg.conversationBus ? "1" : "0" },
     // Project-memory write path (backend → frontend BFF).
-    { name: "FRONTEND_INTERNAL_URL", value: "http://frontend:3000" },
+    { name: "FRONTEND_INTERNAL_URL", value: `http://frontend:${PORT.frontend}` },
     sref("GRID_INTERNAL_API_TOKEN"),
     sref("GRID_ADMIN_TOKEN"),
     // Dask (in-process research execution) — vertical scaling knobs.
@@ -154,7 +155,7 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
   return [
     { name: "APP_ENV", value: "production" },
     { name: "REQUIRE_AUTH", value: String(cfg.auth.requireAuth) },
-    { name: "BACKEND_URL", value: "http://aiq-agent:8000" },
+    { name: "BACKEND_URL", value: `http://aiq-agent:${PORT.backend}` },
     // Conversation affinity for horizontal aiq-agent scaling (ADR-0028): the
     // WS proxy pins a conversation to `aiq-agent-<hash>.aiq-agent-headless` so
     // its in-process WS/HITL/task state is always on the same replica. With 1
@@ -163,7 +164,7 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
     // In-cluster headless-service pod address; traffic never leaves the pod
     // network, so the non-TLS ws scheme below is intentional.
     // nosemgrep: javascript.lang.security.detect-insecure-websocket.detect-insecure-websocket
-    { name: "BACKEND_POD_WS_TEMPLATE", value: "ws://aiq-agent-{i}.aiq-agent-headless:8000" },
+    { name: "BACKEND_POD_WS_TEMPLATE", value: `ws://aiq-agent-{i}.aiq-agent-headless:${PORT.backend}` },
     // Frontend replica baseline — lets server.js warn if a multi-replica deploy
     // is missing REDIS_URL (shared cache + WS rate limiter would diverge per pod).
     { name: "FRONTEND_REPLICAS", value: String(cfg.frontend.minReplicas) },
@@ -191,8 +192,8 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
     { name: "SEAWEED_ACCESS_KEY", value: cfg.seaweedfs.accessKey },
     sref("SEAWEED_SECRET_KEY"),
     { name: "SEAWEED_BUCKET", value: cfg.seaweedfs.bucket },
-    { name: "SEAWEED_PRESIGNED_URL_TTL_SECONDS", value: "600" },
-    { name: "PROJECT_PURGE_GRACE_DAYS", value: "7" },
+    { name: "SEAWEED_PRESIGNED_URL_TTL_SECONDS", value: String(APP_DEFAULTS.presignedUrlTtlSeconds) },
+    { name: "PROJECT_PURGE_GRACE_DAYS", value: String(APP_DEFAULTS.projectPurgeGraceDays) },
     // Model catalog + budgets.
     sref("OPENROUTER_API_KEY"),
     { name: "GRID_BUDGET_EUR_PER_USD", value: cfg.llm.budgetEurPerUsd },
@@ -203,7 +204,7 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
     { name: "GRID_ENFORCE_FEATURE_FLAGS", value: String(cfg.auth.enforceFeatureFlags) },
     // Shared cache + WS rate limiting (needed for >1 replica correctness).
     { name: "REDIS_URL", value: w.redisUrl },
-    { name: "GRID_WS_UPGRADE_RATE_LIMIT", value: "30" },
+    { name: "GRID_WS_UPGRADE_RATE_LIMIT", value: String(APP_DEFAULTS.wsUpgradeRateLimit) },
     // Workflows.
     { name: "GRID_WORKFLOWS_ENABLED", value: String(cfg.workflows.enabled) },
     { name: "GRID_WORKFLOW_MIN_INTERVAL_MINUTES", value: String(cfg.workflows.minIntervalMinutes) },
@@ -215,14 +216,14 @@ export function purgerEnv(w: AppWiring): EnvVar[] {
   const { cfg } = w;
   return [
     sref("GRID_APP_DATABASE_URL"),
-    { name: "BACKEND_URL", value: "http://aiq-agent:8000" },
+    { name: "BACKEND_URL", value: `http://aiq-agent:${PORT.backend}` },
     sref("GRID_INTERNAL_API_TOKEN"),
     { name: "SEAWEED_ENDPOINT", value: w.seaweedInternalEndpoint },
     { name: "SEAWEED_ACCESS_KEY", value: cfg.seaweedfs.accessKey },
     sref("SEAWEED_SECRET_KEY"),
     { name: "SEAWEED_BUCKET", value: cfg.seaweedfs.bucket },
     sref("WORKOS_API_KEY"),
-    { name: "PURGER_POLL_INTERVAL_MS", value: "60000" },
+    { name: "PURGER_POLL_INTERVAL_MS", value: String(APP_DEFAULTS.purgerPollMs) },
   ];
 }
 
@@ -231,13 +232,13 @@ export function schedulerEnv(w: AppWiring): EnvVar[] {
   const { cfg } = w;
   return [
     sref("GRID_APP_DATABASE_URL"),
-    { name: "FRONTEND_INTERNAL_URL", value: "http://frontend:3000" },
+    { name: "FRONTEND_INTERNAL_URL", value: `http://frontend:${PORT.frontend}` },
     sref("GRID_INTERNAL_API_TOKEN"),
     { name: "GRID_WORKFLOWS_ENABLED", value: String(cfg.workflows.enabled) },
     { name: "GRID_ENFORCE_FEATURE_FLAGS", value: String(cfg.auth.enforceFeatureFlags) },
-    { name: "GRID_WORKFLOW_SCHEDULER_POLL_MS", value: "30000" },
-    { name: "GRID_WORKFLOW_SCHEDULER_BATCH", value: "20" },
-    { name: "GRID_WORKFLOW_RUNS_RETENTION_DAYS", value: "90" },
+    { name: "GRID_WORKFLOW_SCHEDULER_POLL_MS", value: String(APP_DEFAULTS.schedulerPollMs) },
+    { name: "GRID_WORKFLOW_SCHEDULER_BATCH", value: String(APP_DEFAULTS.schedulerBatch) },
+    { name: "GRID_WORKFLOW_RUNS_RETENTION_DAYS", value: String(APP_DEFAULTS.workflowRunsRetentionDays) },
   ];
 }
 

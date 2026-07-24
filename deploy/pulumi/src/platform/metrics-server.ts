@@ -1,4 +1,5 @@
 import * as k8s from "@pulumi/kubernetes";
+import { PLATFORM_RESOURCES } from "../constants";
 
 /**
  * metrics-server — provides the `metrics.k8s.io` API the CPU HPAs (frontend +
@@ -25,10 +26,7 @@ export function installMetricsServer(provider: k8s.Provider): k8s.helm.v3.Releas
         // `<unknown>/70%`. (Reminder: this whole module only runs when
         // installMetricsServer=true, i.e. NOT on the managed provider.)
         args: ["--kubelet-insecure-tls"],
-        resources: {
-          requests: { cpu: "50m", memory: "64Mi" },
-          limits: { cpu: "200m", memory: "256Mi" },
-        },
+        resources: PLATFORM_RESOURCES.metricsServer,
       },
     },
     { provider },

@@ -5,6 +5,7 @@ import { commonLabels } from "../platform/namespaces";
 import { installPdb, spreadAcrossNodes } from "../platform/scheduling";
 import { hardenedContainerSecurityContext } from "../platform/security";
 import { AppWiring, backendEnv } from "./config";
+import { PORT, UID } from "../constants";
 
 export interface Backend {
   statefulSet: k8s.apps.v1.StatefulSet;
@@ -65,7 +66,7 @@ export function installBackend(
             // The image runs as UID 1000 and needs to write /app/data (Chroma +
             // uploads); fsGroup makes the PVC group-writable, replacing the
             // compose chown init container.
-            securityContext: { runAsNonRoot: true, runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000 },
+            securityContext: { runAsNonRoot: true, runAsUser: UID.backend, runAsGroup: UID.backend, fsGroup: UID.backend },
             // In db mode the web tier runs >1 replica — spread across nodes so an
             // upgrade node-drain / node loss can't take every chat replica down.
             // (Singleton dask mode: the array is empty, a harmless no-op.)
@@ -76,24 +77,24 @@ export function installBackend(
                 image: backendImage(cfg),
                 imagePullPolicy: cfg.images.pullPolicy,
                 securityContext: hardenedContainerSecurityContext(),
-                ports: [{ containerPort: 8000, name: "http" }],
+                ports: [{ containerPort: PORT.backend, name: "http" }],
                 env: backendEnv(w),
                 volumeMounts: [{ name: "data", mountPath: "/app/data" }],
                 resources: toResourceRequirements(cfg.backend.resources),
                 // Boot spins up Dask + opens Chroma and may run a volume-based
                 // OIB sync — generous startup window before liveness kicks in.
                 startupProbe: {
-                  httpGet: { path: "/health", port: 8000 },
+                  httpGet: { path: "/health", port: PORT.backend },
                   periodSeconds: 10,
                   failureThreshold: 60,
                 },
                 readinessProbe: {
-                  httpGet: { path: "/health", port: 8000 },
+                  httpGet: { path: "/health", port: PORT.backend },
                   periodSeconds: 15,
                   timeoutSeconds: 10,
                 },
                 livenessProbe: {
-                  httpGet: { path: "/health", port: 8000 },
+                  httpGet: { path: "/health", port: PORT.backend },
                   periodSeconds: 20,
                   timeoutSeconds: 10,
                   failureThreshold: 6,
@@ -135,7 +136,7 @@ export function installBackend(
       spec: {
         clusterIP: "None",
         selector: labels,
-        ports: [{ port: 8000, targetPort: 8000, name: "http" }],
+        ports: [{ port: PORT.backend, targetPort: PORT.backend, name: "http" }],
         // Serve DNS for pods as soon as they exist (before Ready) so affinity
         // routing resolves during rollouts.
         publishNotReadyAddresses: true,
@@ -152,7 +153,7 @@ export function installBackend(
       metadata: { name: "aiq-agent", namespace: w.namespace, labels },
       spec: {
         selector: labels,
-        ports: [{ port: 8000, targetPort: 8000, name: "http" }],
+        ports: [{ port: PORT.backend, targetPort: PORT.backend, name: "http" }],
       },
     },
     { provider: w.provider, dependsOn: statefulSet },

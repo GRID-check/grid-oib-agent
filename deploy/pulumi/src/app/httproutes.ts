@@ -6,6 +6,7 @@ import type { IBackendTrafficPolicySpec } from "@kubernetes-models/envoy-gateway
 import { GridConfig } from "../config";
 import { commonLabels } from "../platform/namespaces";
 import { GATEWAY_NAME } from "../platform/gateway";
+import { EDGE_TIMEOUT, PORT } from "../constants";
 
 /**
  * Gateway API HTTPRoutes (replacing the legacy Ingress resources):
@@ -25,7 +26,7 @@ export function installHttpRoutes(
   const appRouteSpec: IHTTPRouteSpec = {
     parentRefs: [{ name: GATEWAY_NAME, sectionName: "https-app" }],
     hostnames: [cfg.ingress.appDomain],
-    rules: [{ backendRefs: [{ name: "frontend", port: 3000 }] }],
+    rules: [{ backendRefs: [{ name: "frontend", port: PORT.frontend }] }],
   };
   const app = new k8s.apiextensions.CustomResource(
     "grid-app-route",
@@ -43,7 +44,7 @@ export function installHttpRoutes(
   // 3600s budget as the client-side policy.
   const appBackendPolicySpec: IBackendTrafficPolicySpec = {
     targetRefs: [{ group: "gateway.networking.k8s.io", kind: "HTTPRoute", name: "grid-app" }],
-    timeout: { http: { requestTimeout: "3600s" } },
+    timeout: { http: { requestTimeout: EDGE_TIMEOUT } },
   };
   new k8s.apiextensions.CustomResource(
     "grid-app-backend-traffic-policy",
@@ -61,13 +62,13 @@ export function installHttpRoutes(
   // mid-body. Same 3600s budget as the app route.
   const s3BackendPolicySpec: IBackendTrafficPolicySpec = {
     targetRefs: [{ group: "gateway.networking.k8s.io", kind: "HTTPRoute", name: "grid-s3" }],
-    timeout: { http: { requestTimeout: "3600s" } },
+    timeout: { http: { requestTimeout: EDGE_TIMEOUT } },
   };
 
   const s3RouteSpec: IHTTPRouteSpec = {
     parentRefs: [{ name: GATEWAY_NAME, sectionName: "https-s3" }],
     hostnames: [cfg.ingress.s3Domain],
-    rules: [{ backendRefs: [{ name: "seaweedfs", port: 8333 }] }],
+    rules: [{ backendRefs: [{ name: "seaweedfs", port: PORT.seaweedS3 }] }],
   };
   const s3 = new k8s.apiextensions.CustomResource(
     "grid-s3-route",

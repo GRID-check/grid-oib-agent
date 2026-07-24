@@ -11,6 +11,7 @@ import type { IEnvoyProxySpec } from "@kubernetes-models/envoy-gateway/gateway.e
 import type { IClientTrafficPolicySpec } from "@kubernetes-models/envoy-gateway/gateway.envoyproxy.io/v1alpha1/ClientTrafficPolicySpec";
 import { GridConfig } from "../config";
 import { commonLabels } from "./namespaces";
+import { EDGE_TIMEOUT, PLATFORM_RESOURCES } from "../constants";
 
 /** Stable names referenced by the cert-manager solver and the HTTPRoutes. */
 export const GATEWAY_NAME = "grid-gateway";
@@ -100,12 +101,7 @@ export function installGatewayResources(
           replicas: 2,
           // Requests AND limits on the data-plane fleet — the platform's
           // cluster-autoscaler prerequisite applies to the edge pods too.
-          container: {
-            resources: {
-              requests: { cpu: "100m", memory: "128Mi" },
-              limits: { cpu: "1", memory: "512Mi" },
-            },
-          },
+          container: { resources: PLATFORM_RESOURCES.envoyProxy },
           pod: {
             affinity: {
               podAntiAffinity: {
@@ -198,7 +194,7 @@ export function installGatewayResources(
   // keep it raised too for consistency.
   const clientTrafficPolicySpec: IClientTrafficPolicySpec = {
     targetRefs: [{ group: "gateway.networking.k8s.io", kind: "Gateway", name: GATEWAY_NAME }],
-    timeout: { http: { idleTimeout: "3600s", streamIdleTimeout: "3600s" } },
+    timeout: { http: { idleTimeout: EDGE_TIMEOUT, streamIdleTimeout: EDGE_TIMEOUT } },
   };
   new k8s.apiextensions.CustomResource(
     "grid-client-traffic-policy",
