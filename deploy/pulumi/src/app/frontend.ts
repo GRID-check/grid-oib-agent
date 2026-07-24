@@ -2,12 +2,14 @@ import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
 import { GridConfig, frontendImage, toResourceRequirements } from "../config";
 import { commonLabels } from "../platform/namespaces";
+import { installPdb, spreadAcrossNodes } from "../platform/scheduling";
 import { AppWiring, frontendEnv } from "./config";
 
 export interface Frontend {
   deployment: k8s.apps.v1.Deployment;
   service: k8s.core.v1.Service;
   hpa: k8s.autoscaling.v2.HorizontalPodAutoscaler;
+  pdb: k8s.policy.v1.PodDisruptionBudget;
 }
 
 /**
@@ -44,6 +46,10 @@ export function installFrontend(
         template: {
           metadata: { labels },
           spec: {
+            // Spread replicas across worker nodes so a single node loss (or the
+            // provider's automatic upgrade node-replacement) never drops the
+            // whole frontend tier. Soft (ScheduleAnyway) — never blocks a deploy.
+            topologySpreadConstraints: spreadAcrossNodes(labels),
             containers: [
               {
                 name: "frontend",
@@ -117,5 +123,9 @@ export function installFrontend(
     { provider: w.provider, dependsOn: deployment },
   );
 
-  return { deployment, service, hpa };
+  // Cap voluntary disruptions at one pod so an automatic-upgrade node drain
+  // can't evict every frontend replica simultaneously.
+  const pdb = installPdb("frontend", w.namespace, w.provider, labels, [deployment]);
+
+  return { deployment, service, hpa, pdb };
 }

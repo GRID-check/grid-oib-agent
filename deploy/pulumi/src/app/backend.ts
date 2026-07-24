@@ -2,12 +2,15 @@ import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
 import { GridConfig, backendImage, toResourceRequirements } from "../config";
 import { commonLabels } from "../platform/namespaces";
+import { installPdb, spreadAcrossNodes } from "../platform/scheduling";
 import { AppWiring, backendEnv } from "./config";
 
 export interface Backend {
   statefulSet: k8s.apps.v1.StatefulSet;
   service: k8s.core.v1.Service;
   headlessService: k8s.core.v1.Service;
+  /** Only present in db mode (multi-replica); a singleton needs no PDB. */
+  pdb?: k8s.policy.v1.PodDisruptionBudget;
 }
 
 /**
@@ -33,6 +36,7 @@ export function installBackend(
   dependsOn: pulumi.Resource[],
 ): Backend {
   const labels = commonLabels("aiq-agent");
+  const multiReplica = cfg.jobExecution === "db" && cfg.backend.replicas > 1;
 
   const statefulSet = new k8s.apps.v1.StatefulSet(
     "aiq-agent",
@@ -47,6 +51,13 @@ export function installBackend(
         // conversation affinity — ADR-0028).
         replicas: cfg.jobExecution === "db" ? cfg.backend.replicas : 1,
         selector: { matchLabels: labels },
+        // StatefulSet PVCs must survive the StatefulSet: the /app/data volume
+        // holds the base OIB corpus + (in dask mode) the only Chroma store, and
+        // the provider's StorageClasses all reclaim `Delete`, so a controller
+        // that cascaded a PVC delete would irreversibly destroy that data. Retain
+        // on both delete and scale-down (matches the k8s default; pinned so a
+        // future default flip to Delete can't silently start wiping volumes).
+        persistentVolumeClaimRetentionPolicy: { whenDeleted: "Retain", whenScaled: "Retain" },
         template: {
           metadata: { labels },
           spec: {
@@ -54,6 +65,10 @@ export function installBackend(
             // uploads); fsGroup makes the PVC group-writable, replacing the
             // compose chown init container.
             securityContext: { runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000 },
+            // In db mode the web tier runs >1 replica — spread across nodes so an
+            // upgrade node-drain / node loss can't take every chat replica down.
+            // (Singleton dask mode: the array is empty, a harmless no-op.)
+            ...(multiReplica ? { topologySpreadConstraints: spreadAcrossNodes(labels) } : {}),
             containers: [
               {
                 name: "aiq-agent",
@@ -132,5 +147,12 @@ export function installBackend(
     { provider: w.provider, dependsOn: statefulSet },
   );
 
-  return { statefulSet, service, headlessService };
+  // PDB only when the tier is genuinely multi-replica (db mode). On a singleton
+  // a maxUnavailable:1 PDB is a no-op, but adding it conditionally keeps the
+  // intent explicit and avoids churn on the dask-mode stack.
+  const pdb = multiReplica
+    ? installPdb("aiq-agent", w.namespace, w.provider, labels, [statefulSet])
+    : undefined;
+
+  return { statefulSet, service, headlessService, pdb };
 }

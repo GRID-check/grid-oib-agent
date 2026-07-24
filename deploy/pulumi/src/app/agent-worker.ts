@@ -2,6 +2,7 @@ import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
 import { GridConfig, backendImage, toResourceRequirements } from "../config";
 import { commonLabels } from "../platform/namespaces";
+import { installPdb, spreadAcrossNodes } from "../platform/scheduling";
 import { AppWiring, workerEnv } from "./config";
 
 /**
@@ -18,7 +19,11 @@ export function installAgentWorker(
   cfg: GridConfig,
   secret: k8s.core.v1.Secret,
   dependsOn: pulumi.Resource[],
-): { deployment: k8s.apps.v1.Deployment; hpa: k8s.autoscaling.v2.HorizontalPodAutoscaler } {
+): {
+  deployment: k8s.apps.v1.Deployment;
+  hpa: k8s.autoscaling.v2.HorizontalPodAutoscaler;
+  pdb: k8s.policy.v1.PodDisruptionBudget;
+} {
   const labels = commonLabels("agent-worker");
 
   const deployment = new k8s.apps.v1.Deployment(
@@ -32,6 +37,9 @@ export function installAgentWorker(
           metadata: { labels },
           spec: {
             securityContext: { runAsUser: 1000, runAsGroup: 1000 },
+            // Spread workers across nodes (autoscaler prerequisite + survives a
+            // single node loss / automatic-upgrade node replacement).
+            topologySpreadConstraints: spreadAcrossNodes(labels),
             containers: [
               {
                 name: "agent-worker",
@@ -100,5 +108,9 @@ export function installAgentWorker(
     { provider: w.provider, dependsOn: deployment },
   );
 
-  return { deployment, hpa };
+  // One-at-a-time voluntary disruptions so an upgrade node drain can't evict
+  // the whole worker tier and stall all in-flight research jobs at once.
+  const pdb = installPdb("agent-worker", w.namespace, w.provider, labels, [deployment]);
+
+  return { deployment, hpa, pdb };
 }

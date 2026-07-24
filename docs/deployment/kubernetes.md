@@ -27,8 +27,11 @@ their own namespaces.
 | `seaweedfs` (S3) | StatefulSet | 1 | RWO PVC `/data` | See §4 |
 
 Platform add-ons installed by Pulumi: **cert-manager** (+ Let's Encrypt issuer,
-Gateway-API-enabled), **Envoy Gateway** (Gateway API controller), the
-**CloudNativePG operator**, and **metrics-server** (for the HPAs).
+Gateway-API-enabled), **Envoy Gateway** (Gateway API controller), and the
+**CloudNativePG operator**. The HPAs need `metrics.k8s.io`, which the managed
+provider already serves via its unremovable base metrics stack — so
+`installMetricsServer` defaults to **false** (flip it true only on a bare
+cluster with no metrics API). See §2b.
 
 > Edge = **Gateway API**, not Ingress. The Kubernetes ingress-nginx controller
 > is retired (maintenance ended 2026-03-31; no further releases or security
@@ -59,17 +62,113 @@ Internet ──▶ Envoy Gateway ──┬─▶ app.<domain> (HTTPRoute) ──
   on merge to `develop`. Pin `imageTag` to a commit SHA for reproducible deploys.
 - Pulumi CLI + Node 20+.
 
-### Storage & Lightbits — what it is and isn't
+### Storage — what it is and isn't
 
-Lightbits is **block** storage (NVMe/TCP), exposed to Kubernetes through its CSI
-driver as a **StorageClass** that hands out fast ReadWriteOnce PVCs. It is *not*
+The provider's CSI is **block** storage (NVMe/TCP, Lightbits under the hood),
+exposed as **StorageClasses** that hand out fast ReadWriteOnce PVCs. It is *not*
 an object store. So:
 
-- Every stateful PVC (Postgres, SeaweedFS, the agent's `/app/data`) is placed on
-  the Lightbits StorageClass — set once via `grid-oib:storageClass`.
-- The **CSI driver / StorageClass is provider-installed**; Pulumi only
-  references the class by name. We do not install the driver.
-- **S3 is provided by SeaweedFS**, which runs on top of a Lightbits PVC (see §4).
+- Three classes ship, differing only in storage-level replica count:
+  `premium` (**default**, 3 replicas), `standard` (2), `single-replica` (1).
+  Set the one you want once via `grid-oib:storageClass` (prod → `premium`).
+  `lightbits` is the **VolumeSnapshotClass** name (driver
+  `csi.lightbitslabs.com`), *not* a StorageClass — don't set `storageClass` to it.
+- **Only ReadWriteOnce** — no RWX. Every PVC here is RWO and each is mounted by a
+  single pod (Postgres, SeaweedFS, Chroma, and the agent's per-replica
+  `/app/data`), so this is a non-issue; just don't add an RWX volume expecting
+  shared mounts. Because the CSI is network-attached (NVMe/TCP), an RWO volume
+  still re-attaches to a *replacement* node after a node loss.
+- **Reclaim policy is `Delete` on every class:** deleting a PVC destroys the
+  volume and its data irreversibly. Two mitigations are wired/available — the
+  StatefulSets pin `persistentVolumeClaimRetentionPolicy: Retain` so deleting a
+  workload never cascades a PVC delete, and you can patch a live PV to survive
+  even a PVC delete: `kubectl patch pv <pv> -p '{"spec":{"persistentVolumeReclaimPolicy":"Retain"}}'`.
+- Volumes **expand online** (grow `*StorageSize` then `pulumi up`); they cannot
+  shrink. **VolumeSnapshots** are supported via the `lightbits` SnapshotClass.
+- The **CSI driver / StorageClasses are provider-installed**; Pulumi only
+  references a class by name. We do not install the driver.
+- **S3 is provided by SeaweedFS**, which runs on top of one of these PVCs (§4).
+
+---
+
+## 2b. Managed provider (k0s) specifics — how this config accounts for them
+
+The target is a **managed k0s** cluster (CNCF-conformant, standard Kubernetes
+API). A handful of provider behaviours shape the manifests; each is handled so
+you don't have to retrofit it.
+
+**Automatic version upgrades drain nodes.** The provider upgrades Kubernetes and
+replaces worker nodes on its own schedule, with no operator step — i.e. *routine*
+voluntary node drains. Every multi-replica workload therefore carries a
+**PodDisruptionBudget** (`maxUnavailable: 1`) and a soft **topologySpreadConstraint**
+across `kubernetes.io/hostname` (`src/platform/scheduling.ts`, applied to
+`frontend`, `agent-worker`, and the `db`-mode `aiq-agent` web tier; the Envoy
+proxy already had both). A drain can then only take one replica at a time, and
+replicas sit on different nodes so a single node loss never empties a tier.
+Single-replica workloads deliberately get **no** PDB — `minAvailable: 1` on one
+pod would block the drain forever and deadlock the upgrade. Postgres HA is
+CloudNativePG's own PDB.
+
+**Cluster-autoscaler scales on *unschedulable pods*, not utilisation.** Its
+documented prerequisites — an HPA as the first scaling tier, `requests`/`limits`
+on every container, and `topologySpreadConstraints` — are all met: HPAs on
+`frontend` + `agent-worker`, requests **and** limits on every workload, and the
+spread constraints above. So a burst first scales pods via HPA, and only if pods
+go Pending does a node get added.
+
+**Node loss wipes ephemeral storage; only PVCs survive.** On node replacement,
+`emptyDir` / `hostPath` / container-fs are gone. This stack uses **none** of
+those for durable data — no `emptyDir`, no `hostPath`, no DaemonSets anywhere —
+so the k0s kubelet-path quirk (`/var/lib/k0s/kubelet` instead of
+`/var/lib/kubelet`) is a non-issue here; the only ephemeral file is the
+agent-worker's `/tmp` liveness marker, which is meant to be transient. All state
+lives on PVCs (which survive) or in Postgres.
+
+**Networking is Cilium, no kube-proxy.** All Service types work normally;
+nothing in this program assumes kube-proxy. The edge Service is a
+`LoadBalancer` that Cilium gives an external IP automatically. A released IP
+stays **reserved for 14 days** and is reclaimable via the
+`k8s.at/managed-loadbalancer-ip` annotation — set `grid-oib:loadBalancerIp` to
+the assigned address after the first deploy and it's stamped onto the Envoy
+Service, so DNS keeps resolving across any Gateway re-creation. (Inbound API
+restriction — block / country- / IP-allowlist — and the dedicated outbound NAT
+IP for egress whitelisting are Control-Center settings, not manifests.)
+
+**Kubeconfig tokens expire (≤ 2 weeks).** The Control-Center kubeconfig is fine
+for hands-on `pulumi up`, but a token baked into `grid-oib:kubeconfig` for
+unattended CI/CD **will stop working within two weeks**. For automation, use the
+provider's documented permanent-credential path: a ServiceAccount with a
+non-expiring token Secret, then feed *that* kubeconfig to Pulumi. Least-privilege
+RBAC is better than `cluster-admin` if your platform team scopes it, but at
+minimum:
+
+```bash
+kubectl -n kube-system create serviceaccount grid-deployer
+kubectl create clusterrolebinding grid-deployer \
+  --clusterrole=cluster-admin --serviceaccount=kube-system:grid-deployer
+kubectl -n kube-system apply -f - <<'EOF'
+apiVersion: v1
+kind: Secret
+metadata:
+  name: grid-deployer-token
+  namespace: kube-system
+  annotations: { kubernetes.io/service-account.name: grid-deployer }
+type: kubernetes.io/service-account-token
+EOF
+# Build a kubeconfig from that token + the cluster CA/endpoint and store it:
+#   pulumi config set --secret grid-oib:kubeconfig "$(cat grid-deployer.kubeconfig)"
+```
+
+Revoke it by deleting the Secret/ServiceAccount when it's no longer needed — it
+does **not** expire on its own.
+
+**Provider add-ons.** A base **metrics** stack (serving `metrics.k8s.io`) is
+always provisioned and cannot be removed, so `installMetricsServer` defaults to
+**false** — installing our own would just fight it (the HPAs read the built-in
+one). Managed **Backups** (Velero) and **Metrics** (Grafana) are paid Control-
+Center add-ons; CNPG PITR and a Prometheus/Grafana/Loki stack remain the
+in-cluster follow-ups in §7. A cheap interim backup is a scheduled
+**VolumeSnapshot** (SnapshotClass `lightbits`) of the Postgres and SeaweedFS PVCs.
 
 ---
 

@@ -47,8 +47,21 @@ export interface GridConfig {
     letsEncryptEmail: string;
     /** Use the LE staging CA (avoids rate limits while wiring DNS/TLS). */
     useStagingIssuer: boolean;
-    /** Install metrics-server (needed by the HPAs). Disable if the cluster ships one. */
+    /**
+     * Install metrics-server (needed by the HPAs). Leave FALSE on the managed
+     * provider: it already provisions base metrics components that serve
+     * `metrics.k8s.io` and cannot be removed, so a second install just fights
+     * the built-in one. Only set true on a bare cluster with no metrics API.
+     */
     installMetricsServer: boolean;
+    /**
+     * Optional fixed external IP for the Envoy Gateway LoadBalancer. The provider
+     * assigns one automatically on first deploy and then RESERVES a released IP
+     * for 14 days, reclaimable via the `k8s.at/managed-loadbalancer-ip` service
+     * annotation. Set this to that IP so DNS never has to chase a new address
+     * across a Gateway/service re-creation. Empty = let the provider assign one.
+     */
+    loadBalancerIp?: string;
   };
 
   postgres: {
@@ -269,7 +282,9 @@ export function loadConfig(): GridConfig {
     // failed prod attempt burns Let's Encrypt rate limits. Flip to false only
     // after DNS resolves to the gateway and a staging cert has issued.
     useStagingIssuer: bool(cfg, "useStagingIssuer", true),
-      installMetricsServer: bool(cfg, "installMetricsServer", true),
+      // Default FALSE: the managed provider ships an unremovable metrics stack.
+      installMetricsServer: bool(cfg, "installMetricsServer", false),
+      loadBalancerIp: cfg.get("loadBalancerIp"),
     },
 
     postgres: {

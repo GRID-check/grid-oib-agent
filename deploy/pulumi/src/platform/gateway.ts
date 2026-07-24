@@ -83,10 +83,19 @@ export function installGatewayResources(
   // fleet to a SINGLE replica with no PDB — the whole cluster's front door
   // would ride on one pod on one node (a node drain = full outage for both
   // domains). Pin 2 replicas, a PDB, and spread them across nodes.
+  //
+  // The provider auto-assigns the LoadBalancer's external IP (Cilium) and, when
+  // pinned via `k8s.at/managed-loadbalancer-ip`, keeps/reclaims it across a
+  // service re-creation (released IPs stay reserved 14 days). Annotate the
+  // generated Envoy Service with it so the DNS A-record target is stable.
+  const envoyService = cfg.ingress.loadBalancerIp
+    ? { annotations: { "k8s.at/managed-loadbalancer-ip": cfg.ingress.loadBalancerIp } }
+    : undefined;
   const envoyProxySpec: IEnvoyProxySpec = {
     provider: {
       type: "Kubernetes",
       kubernetes: {
+        ...(envoyService ? { envoyService } : {}),
         envoyDeployment: {
           replicas: 2,
           pod: {

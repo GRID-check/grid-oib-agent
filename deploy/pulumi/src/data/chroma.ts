@@ -36,6 +36,10 @@ export function installChroma(
       spec: {
         serviceName: "chroma",
         replicas: 1,
+        // Shared vector store on a `Delete`-reclaim StorageClass — retain the PVC
+        // across StatefulSet delete/scale so a teardown can't wipe the embeddings
+        // (matches the k8s default; pinned against a future default flip).
+        persistentVolumeClaimRetentionPolicy: { whenDeleted: "Retain", whenScaled: "Retain" },
         selector: { matchLabels: labels },
         template: {
           metadata: { labels },

@@ -27,14 +27,19 @@ config:
   grid-oib:imageRegistry: ghcr.io/grid-check
   grid-oib:imageTag: latest
 
-  # ── Storage ──
-  grid-oib:storageClass: REPLACE_ME  # `kubectl get storageclass`
+  # ── Storage (provider CSI, NVMe/TCP) ──
+  # Classes: premium (default, 3 replicas) / standard (2) / single-replica (1).
+  # `lightbits` is the VolumeSnapshotClass, not a StorageClass. All reclaim
+  # `Delete` (PVC delete = data gone). Staging can use the cheaper single-replica.
+  grid-oib:storageClass: single-replica
 
   # ── Ingress / TLS ── (staging subdomains; staging ACME CA)
   grid-oib:appDomain: app.dev.example.com
   grid-oib:s3Domain: s3.dev.example.com
   grid-oib:letsEncryptEmail: ops@example.com
   grid-oib:useStagingIssuer: "true"   # keep true on staging (avoids LE rate limits)
+  # Provider ships an unremovable metrics stack — don't install a second one.
+  grid-oib:installMetricsServer: "false"
 
   # ── Postgres ──
   grid-oib:pgInstances: "1"

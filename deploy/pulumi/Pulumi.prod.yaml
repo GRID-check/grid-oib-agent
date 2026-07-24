@@ -30,14 +30,27 @@ config:
   grid-oib:imageRegistry: ghcr.io/grid-check
   grid-oib:imageTag: latest
 
-  # ── Storage: the provider's Lightbits (NVMe/TCP) StorageClass ──
-  grid-oib:storageClass: REPLACE_ME  # e.g. lightbits, or run `kubectl get sc`
+  # ── Storage (provider CSI, NVMe/TCP) ──
+  # Classes offered by the provider (see `kubectl get storageclass`):
+  #   premium         — DEFAULT, 3 storage replicas (use for all durable data)
+  #   standard        — 2 replicas
+  #   single-replica  — 1 replica (cheapest; no storage-level redundancy)
+  # NOTE: `lightbits` is the *VolumeSnapshotClass* name, NOT a StorageClass.
+  # All classes reclaim `Delete` — deleting a PVC destroys its data irreversibly.
+  grid-oib:storageClass: premium
 
   # ── Ingress / TLS ──
   grid-oib:appDomain: app.example.com
   grid-oib:s3Domain: s3.example.com
   grid-oib:letsEncryptEmail: ops@example.com
   grid-oib:useStagingIssuer: "true"   # flip to false once DNS + TLS verified
+  # The provider ships an unremovable metrics stack, so DON'T install a second.
+  grid-oib:installMetricsServer: "false"
+  # After the first deploy, read the Envoy LoadBalancer's external IP
+  # (`kubectl -n envoy-gateway-system get svc`) and pin it here so DNS keeps
+  # pointing at the same address across any Gateway re-creation (the provider
+  # reserves a released IP for 14 days and reclaims it via this annotation):
+  # grid-oib:loadBalancerIp: "203.0.113.10"
 
   # ── Postgres (CloudNativePG) ──
   grid-oib:pgInstances: "1"           # set 3 for HA (1 primary + 2 replicas)

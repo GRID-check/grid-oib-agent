@@ -85,6 +85,11 @@ export function installSeaweedFS(
       spec: {
         serviceName: headless.metadata.name,
         replicas: 1,
+        // The object store's only copy of every uploaded PDF lives on this PVC,
+        // and the provider's StorageClasses reclaim `Delete`. Retain the PVC
+        // across StatefulSet delete/scale so tearing down the workload never
+        // cascades into irreversible data loss (matches the k8s default; pinned).
+        persistentVolumeClaimRetentionPolicy: { whenDeleted: "Retain", whenScaled: "Retain" },
         selector: { matchLabels: labels },
         template: {
           metadata: { labels },

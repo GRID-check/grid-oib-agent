@@ -20,9 +20,13 @@ SeaweedFS object storage — behind Envoy Gateway (Gateway API) with automatic L
 ## Prerequisites
 
 - Pulumi CLI + Node 20+.
-- A kubeconfig for the target cluster.
-- The provider's block **StorageClass** name (Lightbits). Find it with
-  `kubectl get storageclass`.
+- A kubeconfig for the target cluster. **Note:** the Control-Center kubeconfig
+  token is short-lived (max 2 weeks). For unattended CI/CD deploys, use a
+  permanent ServiceAccount token instead — see the "Managed provider (k0s)"
+  section in [`docs/deployment/kubernetes.md`](../../docs/deployment/kubernetes.md).
+- The provider's **StorageClass** name — `premium` (default, 3 replicas),
+  `standard` (2), or `single-replica` (1). Confirm with `kubectl get storageclass`.
+  (`lightbits` is the VolumeSnapshotClass, not a StorageClass.)
 - Images published to a registry (the `publish-images` GitHub Actions workflow
   pushes them to GHCR on merge to `develop`).
 
