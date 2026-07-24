@@ -3,6 +3,7 @@ import * as pulumi from "@pulumi/pulumi";
 import { GridConfig, frontendImage, toResourceRequirements } from "../config";
 import { commonLabels } from "../platform/namespaces";
 import { installPdb, spreadAcrossNodes } from "../platform/scheduling";
+import { hardenedContainerSecurityContext } from "../platform/security";
 import { AppWiring, frontendEnv } from "./config";
 
 export interface Frontend {
@@ -46,6 +47,9 @@ export function installFrontend(
         template: {
           metadata: { labels },
           spec: {
+            // The frontend image runs as non-root UID 1001; make it explicit so
+            // the pod is Pod-Security "restricted"-ready.
+            securityContext: { runAsNonRoot: true, runAsUser: 1001, runAsGroup: 1001 },
             // Spread replicas across worker nodes so a single node loss (or the
             // provider's automatic upgrade node-replacement) never drops the
             // whole frontend tier. Soft (ScheduleAnyway) — never blocks a deploy.
@@ -55,6 +59,7 @@ export function installFrontend(
                 name: "frontend",
                 image: frontendImage(cfg),
                 imagePullPolicy: cfg.images.pullPolicy,
+                securityContext: hardenedContainerSecurityContext(),
                 // Skip the image's built-in migrate; the Job owns migrations.
                 command: ["node", "server.js"],
                 ports: [{ containerPort: 3000, name: "http" }],

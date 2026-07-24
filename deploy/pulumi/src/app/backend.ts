@@ -3,6 +3,7 @@ import * as pulumi from "@pulumi/pulumi";
 import { GridConfig, backendImage, toResourceRequirements } from "../config";
 import { commonLabels } from "../platform/namespaces";
 import { installPdb, spreadAcrossNodes } from "../platform/scheduling";
+import { hardenedContainerSecurityContext } from "../platform/security";
 import { AppWiring, backendEnv } from "./config";
 
 export interface Backend {
@@ -64,7 +65,7 @@ export function installBackend(
             // The image runs as UID 1000 and needs to write /app/data (Chroma +
             // uploads); fsGroup makes the PVC group-writable, replacing the
             // compose chown init container.
-            securityContext: { runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000 },
+            securityContext: { runAsNonRoot: true, runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000 },
             // In db mode the web tier runs >1 replica — spread across nodes so an
             // upgrade node-drain / node loss can't take every chat replica down.
             // (Singleton dask mode: the array is empty, a harmless no-op.)
@@ -74,6 +75,7 @@ export function installBackend(
                 name: "aiq-agent",
                 image: backendImage(cfg),
                 imagePullPolicy: cfg.images.pullPolicy,
+                securityContext: hardenedContainerSecurityContext(),
                 ports: [{ containerPort: 8000, name: "http" }],
                 env: backendEnv(w),
                 volumeMounts: [{ name: "data", mountPath: "/app/data" }],

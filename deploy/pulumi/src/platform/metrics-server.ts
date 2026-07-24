@@ -26,7 +26,10 @@ export function installMetricsServer(provider: k8s.Provider): k8s.helm.v3.Releas
         // Managed clusters that ship valid kubelet certs should install their
         // own metrics-server instead (installMetricsServer=false).
         args: ["--kubelet-insecure-tls"],
-        resources: { requests: { cpu: "50m", memory: "64Mi" } },
+        resources: {
+          requests: { cpu: "50m", memory: "64Mi" },
+          limits: { cpu: "200m", memory: "256Mi" },
+        },
       },
     },
     { provider },

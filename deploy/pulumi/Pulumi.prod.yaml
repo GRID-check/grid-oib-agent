@@ -51,10 +51,20 @@ config:
   # pointing at the same address across any Gateway re-creation (the provider
   # reserves a released IP for 14 days and reclaims it via this annotation):
   # grid-oib:loadBalancerIp: "203.0.113.10"
+  # NetworkPolicies (default-deny ingress + least-privilege allows) are ON by
+  # default. Set false only if a validation pass shows they block required
+  # traffic on your cluster. Egress is left open (see network-policies.ts).
+  # grid-oib:networkPolicies: "true"
 
   # ── Postgres (CloudNativePG) ──
-  grid-oib:pgInstances: "1"           # set 3 for HA (1 primary + 2 replicas)
+  grid-oib:pgInstances: "3"           # HA: 1 primary + 2 streaming replicas
   grid-oib:pgStorageSize: 20Gi
+  # Continuous WAL archiving + nightly base backups to SeaweedFS (PITR). This is
+  # the only recovery path from the provider's `Delete` reclaim policy, so it is
+  # ON in prod. The grid-pg-backups bucket is auto-created.
+  grid-oib:pgBackupsEnabled: "true"
+  grid-oib:pgBackupRetention: 30d
+  grid-oib:pgBackupSchedule: "0 0 2 * * *"   # 6-field (sec min hour …): 02:00 daily
 
   # ── SeaweedFS ──
   grid-oib:seaweedfsStorageSize: 20Gi

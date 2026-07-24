@@ -2,6 +2,7 @@ import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
 import { GridConfig, frontendImage } from "../config";
 import { commonLabels } from "../platform/namespaces";
+import { hardenedContainerSecurityContext } from "../platform/security";
 import { AppWiring, migrationEnv } from "./config";
 
 /**
@@ -29,13 +30,19 @@ export function runMigrations(
           metadata: { labels: commonLabels("grid-app-migrate") },
           spec: {
             restartPolicy: "OnFailure",
+            securityContext: { runAsNonRoot: true, runAsUser: 1001, runAsGroup: 1001 },
             containers: [
               {
                 name: "migrate",
                 image: frontendImage(cfg),
                 imagePullPolicy: cfg.images.pullPolicy,
+                securityContext: hardenedContainerSecurityContext(),
                 command: ["node", "node_modules/drizzle-kit/bin.cjs", "migrate"],
                 env: migrationEnv(),
+                resources: {
+                  requests: { cpu: "50m", memory: "128Mi" },
+                  limits: { cpu: "500m", memory: "512Mi" },
+                },
               },
             ],
           },

@@ -12,10 +12,10 @@ SeaweedFS object storage — behind Envoy Gateway (Gateway API) with automatic L
 
 | Layer | Resources |
 |-------|-----------|
-| Platform | namespace `grid`, cert-manager (Gateway-API) + Let's Encrypt `ClusterIssuer`, Envoy Gateway, metrics-server |
-| Data | CloudNativePG operator + `Cluster` (`aiq_jobs`, `aiq_checkpoints`, `grid_app`), Dragonfly, SeaweedFS StatefulSet + bucket-init Job |
-| App | `aiq-agent` StatefulSet (+ PVC), `frontend` Deployment + HPA, `purger`, `workflow-scheduler`, a one-shot `drizzle-kit migrate` Job |
-| Edge | Gateway API (Envoy Gateway) + HTTPRoutes with cert-manager TLS for `appDomain` and `s3Domain` |
+| Platform | namespace `grid` (+ default-deny NetworkPolicies), cert-manager (Gateway-API) + Let's Encrypt `ClusterIssuer`, Envoy Gateway, (metrics-server only on bare clusters) |
+| Data | CloudNativePG operator + `Cluster` (`aiq_jobs`, `aiq_checkpoints`, `grid_app`) with optional PITR backups to SeaweedFS (`ScheduledBackup`), Dragonfly, SeaweedFS StatefulSet + bucket-init Job |
+| App | `aiq-agent` StatefulSet (+ PVC, +PDB/spread in db mode), `frontend` Deployment + HPA + PDB, `agent-worker` Deployment + HPA + PDB (db mode), `purger`, `workflow-scheduler`, a one-shot `drizzle-kit migrate` Job |
+| Edge | Gateway API (Envoy Gateway, HA: 2 replicas + PDB) + HTTPRoutes with cert-manager TLS for `appDomain` and `s3Domain` |
 
 ## Prerequisites
 

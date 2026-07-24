@@ -234,13 +234,20 @@ bootstrapped app DB; `aiq_checkpoints` and `grid_app` are created (owned by the
 checkpoint tables; the frontend's `drizzle-kit migrate` Job owns `grid_app`'s
 schema.
 
-- **HA:** set `grid-oib:pgInstances: 3` for one primary + two streaming
-  replicas with automatic failover. Apps always talk to the `grid-pg-rw`
+- **HA:** `grid-oib:pgInstances: 3` (the prod default) runs one primary + two
+  streaming replicas with automatic failover; `primaryUpdateStrategy:
+  unsupervised` lets CNPG switch over + roll on its own when the provider drains
+  a node. Replicas use `preferred` pod anti-affinity on `kubernetes.io/hostname`
+  so they spread across worker nodes. Apps always talk to the `grid-pg-rw`
   service (the current primary).
-- **Backups (follow-up):** CloudNativePG supports scheduled base backups + WAL
-  archiving to S3 — point it at a `grid-pg-backups` SeaweedFS bucket for
-  point-in-time recovery. Not enabled in this first cut; add a `backup` /
-  `ScheduledBackup` block when you want PITR.
+- **Backups (PITR) — IMPLEMENTED.** With `grid-oib:pgBackupsEnabled: true` (prod
+  default) CNPG archives WAL continuously and takes a nightly base backup to a
+  `grid-pg-backups` SeaweedFS bucket (auto-created) via its Barman object-store
+  integration — the only recovery path from the provider's `Delete` reclaim
+  policy. Tune with `pgBackupRetention` (default `30d`) and `pgBackupSchedule`
+  (6-field cron, default `0 0 2 * * *`). Restore is `kubectl cnpg`/a bootstrap
+  `recovery` from the same object store. Credentials come from the
+  `grid-pg-backup-s3` Secret (the SeaweedFS access/secret key).
 
 ---
 
@@ -341,11 +348,40 @@ follow-up); high-traffic chat/retrieval does not need it.
 
 ---
 
-## 7. Out of scope (deliberate follow-ups)
+## 7. Security & hardening (what's wired)
 
-- CloudNativePG scheduled backups / PITR to SeaweedFS (§5).
-- SeaweedFS modular HA cluster (§4).
+- **Pod Security:** the `grid` namespace enforces the `baseline` standard, and
+  every first-party workload container runs with a restricted-compliant
+  securityContext (`runAsNonRoot`, `allowPrivilegeEscalation: false`,
+  `capabilities.drop: [ALL]`, `seccompProfile: RuntimeDefault`) — see
+  `src/platform/security.ts`. Bootstrap Jobs get the same minus the fixed UID.
+  Third-party workloads (CNPG, SeaweedFS, Chroma, Dragonfly) keep their images'
+  own contexts, which is why the namespace stays at `baseline` not `restricted`.
+- **NetworkPolicies** (`grid-oib:networkPolicies`, default **on**): a
+  default-deny for ingress plus least-privilege allows — intra-namespace, the
+  edge (Envoy) to `frontend`/`seaweedfs`, and the CNPG operator to its pods.
+  Egress is deliberately open (the agent calls many external LLM/search APIs);
+  tightening it is the one item that needs a live-cluster validation pass first.
+- **Image pull policy** resolves to `Always` for the moving `latest` tag (so a
+  rescheduled pod never silently runs a stale image) and `IfNotPresent` for a
+  pinned SHA. Pin `imageTag` to a SHA in prod for reproducible deploys — the
+  deploy workflow already does this for staging.
+
+## 8. CI/CD
+
+`.github/workflows/deploy.yml` deploys the **dev** stack automatically after
+`Publish Images` succeeds on `develop`, pinning `imageTag` to that commit's
+immutable `sha-<sha>` tag (never `latest`) and running `tsc --noEmit` as a
+cluster-free gate before `pulumi up`. It needs a `PULUMI_ACCESS_TOKEN` repo
+secret and a stack whose `kubeconfig` secret is a **non-expiring ServiceAccount
+token** (§2b), not the Control-Center download. Prod is promoted manually.
+
+## 9. Out of scope (deliberate follow-ups)
+
+- SeaweedFS modular HA cluster (§4) — single-node today; its PVC survives node
+  loss (NVMe/TCP re-attach), so a node drain is a brief reschedule, not data loss.
 - The backend refactors that unlock horizontal agent scaling (§6.3).
-- GitOps (Argo/Flux) and an observability stack (Prometheus/Grafana/Loki).
-  Envoy Gateway, cert-manager, CNPG, and SeaweedFS all expose Prometheus
-  metrics, so this is a natural next layer.
+- Egress NetworkPolicies (needs per-endpoint validation on a live cluster).
+- An observability stack (Prometheus/Grafana/Loki). Envoy Gateway, cert-manager,
+  CNPG, and SeaweedFS all expose Prometheus metrics, so this is a natural next
+  layer — and the provider's paid Metrics (Grafana) add-on is the quick option.

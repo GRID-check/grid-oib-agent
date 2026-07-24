@@ -55,7 +55,9 @@ export function installDragonfly(
                 ports: [{ containerPort: 6379, name: "redis" }],
                 resources: {
                   requests: { cpu: "50m", memory: "128Mi" },
-                  limits: { cpu: "500m", memory: cfg.dragonfly.maxmemory },
+                  // Limit sits ABOVE --maxmemory (which caps only the dataset);
+                  // RSS overhead above it would otherwise OOMKill the cache.
+                  limits: { cpu: "500m", memory: cfg.dragonfly.memoryLimit },
                 },
                 readinessProbe: {
                   tcpSocket: { port: 6379 },

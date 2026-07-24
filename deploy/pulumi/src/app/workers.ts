@@ -2,6 +2,7 @@ import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
 import { GridConfig, frontendImage, toResourceRequirements } from "../config";
 import { commonLabels } from "../platform/namespaces";
+import { hardenedContainerSecurityContext } from "../platform/security";
 import { AppWiring, purgerEnv, schedulerEnv } from "./config";
 
 /**
@@ -35,11 +36,13 @@ export function installWorkers(
         template: {
           metadata: { labels: commonLabels("purger") },
           spec: {
+            securityContext: { runAsNonRoot: true, runAsUser: 1001, runAsGroup: 1001 },
             containers: [
               {
                 name: "purger",
                 image: frontendImage(cfg),
                 imagePullPolicy: cfg.images.pullPolicy,
+                securityContext: hardenedContainerSecurityContext(),
                 command: ["node", "purger/index.js"],
                 env: purgerEnv(w),
                 resources: workerResources,
@@ -67,11 +70,13 @@ export function installWorkers(
         template: {
           metadata: { labels: commonLabels("workflow-scheduler") },
           spec: {
+            securityContext: { runAsNonRoot: true, runAsUser: 1001, runAsGroup: 1001 },
             containers: [
               {
                 name: "workflow-scheduler",
                 image: frontendImage(cfg),
                 imagePullPolicy: cfg.images.pullPolicy,
+                securityContext: hardenedContainerSecurityContext(),
                 command: ["node", "scheduler/index.js"],
                 env: schedulerEnv(w),
                 resources: workerResources,

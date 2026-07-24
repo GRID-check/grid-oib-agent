@@ -3,6 +3,7 @@ import * as pulumi from "@pulumi/pulumi";
 import { GridConfig, backendImage, toResourceRequirements } from "../config";
 import { commonLabels } from "../platform/namespaces";
 import { installPdb, spreadAcrossNodes } from "../platform/scheduling";
+import { hardenedContainerSecurityContext } from "../platform/security";
 import { AppWiring, workerEnv } from "./config";
 
 /**
@@ -36,7 +37,7 @@ export function installAgentWorker(
         template: {
           metadata: { labels },
           spec: {
-            securityContext: { runAsUser: 1000, runAsGroup: 1000 },
+            securityContext: { runAsNonRoot: true, runAsUser: 1000, runAsGroup: 1000 },
             // Spread workers across nodes (autoscaler prerequisite + survives a
             // single node loss / automatic-upgrade node replacement).
             topologySpreadConstraints: spreadAcrossNodes(labels),
@@ -45,6 +46,7 @@ export function installAgentWorker(
                 name: "agent-worker",
                 image: backendImage(cfg),
                 imagePullPolicy: cfg.images.pullPolicy,
+                securityContext: hardenedContainerSecurityContext(),
                 env: workerEnv(w),
                 resources: toResourceRequirements(cfg.agentWorker.resources),
                 // Liveness: the worker touches /tmp/research-worker.alive every

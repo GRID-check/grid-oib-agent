@@ -1,0 +1,70 @@
+name: Deploy (staging)
+
+# Deploys the `dev` (staging) Pulumi stack after the images for a develop commit
+# have been built + pushed. Chained off "Publish Images" (not a raw push) so the
+# stack never references a tag GHCR doesn't have yet, and it deploys the exact
+# commit's immutable SHA tag rather than the moving `latest`.
+#
+# One-time setup (per environment, done once with the Pulumi CLI — see
+# deploy/pulumi/Pulumi.dev.yaml for the full secret list):
+#   - Create the stack:  pulumi stack init grid-check/dev
+#   - Set every --secret (kubeconfig, pgAppPassword, tokens, API keys, …).
+#     For the kubeconfig, use a NON-EXPIRING ServiceAccount token, not the
+#     Control-Center download (which dies in ≤2 weeks) — see
+#     docs/deployment/kubernetes.md §2b.
+#   - Add repo secret PULUMI_ACCESS_TOKEN (a Pulumi Cloud access token).
+on:
+  workflow_run:
+    workflows: ["Publish Images"]
+    types: [completed]
+    branches: [develop]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-dev
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Pulumi up (dev)
+    # Only when the image build actually succeeded (skip on failed/cancelled).
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    environment: staging
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Deploy the exact commit whose images were just published.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: deploy/pulumi/package-lock.json
+
+      - name: Install program deps
+        working-directory: deploy/pulumi
+        run: npm ci
+
+      - name: Typecheck (cluster-free gate)
+        working-directory: deploy/pulumi
+        run: npx tsc --noEmit
+
+      - name: Pulumi up
+        uses: pulumi/actions@v6
+        with:
+          command: up
+          stack-name: grid-check/grid-oib/dev
+          work-dir: deploy/pulumi
+          refresh: true
+          # Pin this run to the commit's immutable image tag (publish-images tags
+          # with `type=sha,format=long` → `sha-<full-sha>`), overriding the
+          # stack's default `latest` for a reproducible deploy.
+          config-map: |
+            { "grid-oib:imageTag": { "value": "sha-${{ github.event.workflow_run.head_sha || github.sha }}", "secret": false } }
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}

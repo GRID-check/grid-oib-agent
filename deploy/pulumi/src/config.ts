@@ -72,11 +72,46 @@ export interface GridConfig {
     appUser: string;
     /** App role password. Secret. Drives every DSN. */
     appPassword: pulumi.Output<string>;
+    /**
+     * How CNPG rolls the primary during an operator/image update.
+     * "unsupervised" = automatic switchover + restart (no human), which is what
+     * you want on a provider that drains/replaces nodes automatically.
+     */
+    primaryUpdateStrategy: "unsupervised" | "supervised";
+    /**
+     * Continuous WAL archiving + scheduled base backups to SeaweedFS via CNPG's
+     * Barman object-store integration — the only real defence against the
+     * provider's `Delete` reclaim policy (a dropped PVC is otherwise
+     * unrecoverable). Gives point-in-time recovery.
+     */
+    backups: {
+      enabled: boolean;
+      /** SeaweedFS bucket for base backups + WAL (auto-created). */
+      bucket: string;
+      /** Barman retention (e.g. "30d"). */
+      retention: string;
+      /** 6-field cron (CNPG uses seconds-first): default nightly 02:00. */
+      schedule: string;
+    };
   };
 
   dragonfly: {
     maxmemory: string;
+    /**
+     * Pod memory LIMIT. Must sit ABOVE `maxmemory`: that flag caps the dataset,
+     * but RSS (fragmentation, dashtable overhead, serialization buffers) runs
+     * higher, so limit == maxmemory guarantees OOMKills under load.
+     */
+    memoryLimit: string;
   };
+
+  /**
+   * Namespace-scoped NetworkPolicies: a default-deny for ingress into `grid`
+   * plus least-privilege allows (edge→frontend/s3, intra-tier data access).
+   * Egress stays open (the agent calls many external LLM/search endpoints).
+   * On Cilium, kubelet health probes are not affected by these policies.
+   */
+  networkPolicies: boolean;
 
   chroma: {
     /**
@@ -240,6 +275,7 @@ export function loadConfig(): GridConfig {
 
   const jobExecution: "dask" | "db" = (cfg.get("jobExecution") ?? "dask") === "db" ? "db" : "dask";
   const conversationBus = bool(cfg, "conversationBus", true);
+  const imageTag = cfg.get("imageTag") ?? "latest";
 
   // Fail closed: db-claimed job payloads carry the user's auth token and persist
   // in Postgres (table + WAL + backups + replicas). Refuse to deploy db mode
@@ -263,10 +299,15 @@ export function loadConfig(): GridConfig {
 
     images: {
       registry: cfg.get("imageRegistry") ?? "ghcr.io/grid-check",
-      tag: cfg.get("imageTag") ?? "latest",
+      tag: imageTag,
       backend: cfg.get("backendImage"),
       frontend: cfg.get("frontendImage"),
-      pullPolicy: cfg.get("imagePullPolicy") ?? "IfNotPresent",
+      // A MOVING tag (`latest`) must re-pull on every pod start, or a rescheduled
+      // pod silently keeps a stale cached image and a deploy "succeeds" without
+      // shipping the new code. Only a pinned/immutable tag (a SHA) is safe as
+      // IfNotPresent. Explicit `imagePullPolicy` always wins.
+      pullPolicy:
+        cfg.get("imagePullPolicy") ?? (imageTag === "latest" ? "Always" : "IfNotPresent"),
     },
 
     storage: {
@@ -292,11 +333,22 @@ export function loadConfig(): GridConfig {
       storageSize: cfg.get("pgStorageSize") ?? "20Gi",
       appUser: cfg.get("pgAppUser") ?? "aiq",
       appPassword: cfg.requireSecret("pgAppPassword"),
+      primaryUpdateStrategy:
+        cfg.get("pgPrimaryUpdateStrategy") === "supervised" ? "supervised" : "unsupervised",
+      backups: {
+        enabled: bool(cfg, "pgBackupsEnabled", false),
+        bucket: cfg.get("pgBackupBucket") ?? "grid-pg-backups",
+        retention: cfg.get("pgBackupRetention") ?? "30d",
+        schedule: cfg.get("pgBackupSchedule") ?? "0 0 2 * * *",
+      },
     },
 
     dragonfly: {
       maxmemory: cfg.get("dragonflyMaxmemory") ?? "512mb",
+      memoryLimit: cfg.get("dragonflyMemoryLimit") ?? "768Mi",
     },
+
+    networkPolicies: bool(cfg, "networkPolicies", true),
 
     chroma: {
       enabled: bool(cfg, "chromaEnabled", true),

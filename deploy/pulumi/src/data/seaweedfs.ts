@@ -2,6 +2,7 @@ import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
 import { GridConfig } from "../config";
 import { commonLabels } from "../platform/namespaces";
+import { hardenedJobSecurityContext } from "../platform/security";
 
 export interface SeaweedFS {
   statefulSet: k8s.apps.v1.StatefulSet;
@@ -33,6 +34,8 @@ export function installSeaweedFS(
   cfg: GridConfig,
   provider: k8s.Provider,
   namespace: pulumi.Input<string>,
+  /** Extra buckets to pre-create alongside the documents bucket (e.g. PG backups). */
+  extraBuckets: string[] = [],
 ): SeaweedFS {
   const labels = commonLabels("seaweedfs");
 
@@ -167,8 +170,21 @@ export function installSeaweedFS(
     { provider, dependsOn: statefulSet },
   );
 
-  // Pre-create the documents bucket (SeaweedFS does not auto-create on PUT).
-  // Idempotent: bucket-already-exists is a successful no-op.
+  // Pre-create the documents bucket (+ any extras, e.g. PG backups). SeaweedFS
+  // does not auto-create on PUT. Idempotent: bucket-already-exists is a no-op.
+  const buckets = [cfg.seaweedfs.bucket, ...extraBuckets];
+  // One create per bucket, tolerating ONLY the idempotent "already exists" case
+  // — a blanket `|| true` would hide a real failure (bad master/auth), report
+  // success, and let the first upload 404 at runtime instead of failing deploy.
+  const createBuckets = buckets
+    .map(
+      (b) =>
+        `out=$(echo 's3.bucket.create -name ${b}' | weed shell -master=seaweedfs:9333 2>&1); ` +
+        'rc=$?; echo "$out"; ' +
+        `if [ $rc -ne 0 ] && ! echo "$out" | grep -qi "already exists"; then exit $rc; fi`,
+    )
+    .join(" ");
+
   const bucketInitJob = new k8s.batch.v1.Job(
     "seaweedfs-bucket-init",
     {
@@ -184,18 +200,16 @@ export function installSeaweedFS(
               {
                 name: "bucket-init",
                 image: "chrislusf/seaweedfs:latest",
+                securityContext: hardenedJobSecurityContext(),
+                resources: {
+                  requests: { cpu: "25m", memory: "64Mi" },
+                  limits: { cpu: "250m", memory: "256Mi" },
+                },
                 command: ["/bin/sh", "-c"],
                 args: [
-                  // Wait for the master, create the bucket, then TOLERATE only
-                  // the idempotent "already exists" case — a blanket `|| true`
-                  // would hide a real failure (bad master/auth), report success,
-                  // and let the first upload 404 at runtime instead of failing
-                  // the deploy.
                   "until wget -q -O /dev/null http://seaweedfs:9333/cluster/status; " +
                     "do echo waiting for seaweedfs; sleep 3; done; " +
-                    `out=$(echo 's3.bucket.create -name ${cfg.seaweedfs.bucket}' | ` +
-                    "weed shell -master=seaweedfs:9333 2>&1); rc=$?; echo \"$out\"; " +
-                    'if [ $rc -ne 0 ] && ! echo "$out" | grep -qi "already exists"; then exit $rc; fi',
+                    createBuckets,
                 ],
               },
             ],

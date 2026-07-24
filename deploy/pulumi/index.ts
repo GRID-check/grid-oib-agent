@@ -22,6 +22,7 @@ import { makeAppNamespace } from "./src/platform/namespaces";
 import { installCertManager } from "./src/platform/cert-manager";
 import { installGatewayController, installGatewayResources } from "./src/platform/gateway";
 import { installMetricsServer } from "./src/platform/metrics-server";
+import { installNetworkPolicies } from "./src/platform/network-policies";
 import { installPostgres } from "./src/data/postgres";
 import { installDragonfly } from "./src/data/dragonfly";
 import { installSeaweedFS } from "./src/data/seaweedfs";
@@ -41,6 +42,11 @@ const provider = makeProvider(cfg);
 const ns = makeAppNamespace(cfg, provider);
 const namespace = ns.metadata.name;
 
+// Default-deny ingress + least-privilege allows for the app namespace.
+if (cfg.networkPolicies) {
+  installNetworkPolicies(cfg, provider, namespace);
+}
+
 // Gateway API edge: install the Envoy Gateway controller (+ Gateway API CRDs)
 // FIRST so cert-manager can enable its Gateway integration at startup.
 const gatewayController = installGatewayController(provider);
@@ -50,9 +56,20 @@ if (cfg.ingress.installMetricsServer) {
 }
 
 // ── Data tier ─────────────────────────────────────────────────────────────
-const postgres = installPostgres(cfg, provider, namespace);
+// SeaweedFS first so Postgres can gate its PITR backups on the backup bucket.
+const seaweed = installSeaweedFS(
+  cfg,
+  provider,
+  namespace,
+  cfg.postgres.backups.enabled ? [cfg.postgres.backups.bucket] : [],
+);
+const postgres = installPostgres(
+  cfg,
+  provider,
+  namespace,
+  cfg.postgres.backups.enabled ? [seaweed.bucketInitJob] : [],
+);
 const dragonfly = installDragonfly(cfg, provider, namespace);
-const seaweed = installSeaweedFS(cfg, provider, namespace);
 const chroma = cfg.chroma.enabled ? installChroma(cfg, provider, namespace) : undefined;
 
 // ── Shared wiring for the app tier ─────────────────────────────────────────
@@ -122,6 +139,9 @@ export const appRoute = routes.app.metadata.name;
 export const gatewayName = gatewayResources.gateway.metadata.name;
 export const chromaUrl = chroma ? chroma.url : pulumi.output("embedded");
 export const jobExecution = cfg.jobExecution;
+export const pgInstances = cfg.postgres.instances;
+export const pgBackupsEnabled = cfg.postgres.backups.enabled;
+export const networkPoliciesEnabled = cfg.networkPolicies;
 export const agentWorkerDeployment = agentWorker
   ? agentWorker.deployment.metadata.name
   : pulumi.output("(none: dask mode)");

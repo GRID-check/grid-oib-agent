@@ -52,7 +52,10 @@ export function installCertManager(
           kind: "ControllerConfiguration",
           enableGatewayAPI: true,
         },
-        resources: { requests: { cpu: "10m", memory: "64Mi" } },
+        resources: {
+          requests: { cpu: "10m", memory: "64Mi" },
+          limits: { cpu: "100m", memory: "128Mi" },
+        },
       },
     },
     { provider, dependsOn: [ns, ...dependsOn] },
