@@ -7,6 +7,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "preview": "pulumi preview",
+    "validate": "pulumi preview --json > .plan.json && node scripts/validate-crs.mjs .plan.json",
     "up": "pulumi up",
     "destroy": "pulumi destroy"
   },
@@ -15,6 +16,8 @@
     "@kubernetes-models/envoy-gateway": "^2.0.0",
     "@kubernetes-models/gateway-api": "^2.0.0",
     "@types/node": "^22.10.0",
+    "ajv": "^8.20.0",
+    "js-yaml": "^5.2.2",
     "typescript": "^5.7.0"
   },
   "dependencies": {

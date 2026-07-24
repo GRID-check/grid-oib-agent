@@ -30,20 +30,48 @@ config:
   grid-oib:imageRegistry: ghcr.io/grid-check
   grid-oib:imageTag: latest
 
-  # ── Storage: the provider's Lightbits (NVMe/TCP) StorageClass ──
-  grid-oib:storageClass: REPLACE_ME  # e.g. lightbits, or run `kubectl get sc`
+  # ── Storage (provider CSI, NVMe/TCP) ──
+  # Classes offered by the provider (see `kubectl get storageclass`):
+  #   premium         — DEFAULT, 3 storage replicas (use for all durable data)
+  #   standard        — 2 replicas
+  #   single-replica  — 1 replica (cheapest; no storage-level redundancy)
+  # NOTE: `lightbits` is the *VolumeSnapshotClass* name, NOT a StorageClass.
+  # All classes reclaim `Delete` — deleting a PVC destroys its data irreversibly.
+  grid-oib:storageClass: premium
 
   # ── Ingress / TLS ──
   grid-oib:appDomain: app.example.com
   grid-oib:s3Domain: s3.example.com
   grid-oib:letsEncryptEmail: ops@example.com
   grid-oib:useStagingIssuer: "true"   # flip to false once DNS + TLS verified
+  # The provider ships an unremovable metrics stack, so DON'T install a second.
+  grid-oib:installMetricsServer: "false"
+  # After the first deploy, read the Envoy LoadBalancer's external IP
+  # (`kubectl -n envoy-gateway-system get svc`) and pin it here so DNS keeps
+  # pointing at the same address across any Gateway re-creation (the provider
+  # reserves a released IP for 14 days and reclaims it via this annotation):
+  # grid-oib:loadBalancerIp: "203.0.113.10"
+  # NetworkPolicies (default-deny ingress + least-privilege allows) are ON by
+  # default. Set false only if a validation pass shows they block required
+  # traffic on your cluster. Egress is left open (see network-policies.ts).
+  # grid-oib:networkPolicies: "true"
 
   # ── Postgres (CloudNativePG) ──
-  grid-oib:pgInstances: "1"           # set 3 for HA (1 primary + 2 replicas)
+  grid-oib:pgInstances: "3"           # HA: 1 primary + 2 streaming replicas
   grid-oib:pgStorageSize: 20Gi
+  # Continuous WAL archiving + nightly base backups to SeaweedFS (PITR). This is
+  # the only recovery path from the provider's `Delete` reclaim policy, so it is
+  # ON in prod. The grid-pg-backups bucket is auto-created.
+  grid-oib:pgBackupsEnabled: "true"
+  grid-oib:pgBackupRetention: 30d
+  grid-oib:pgBackupSchedule: "0 0 2 * * *"   # 6-field (sec min hour …): 02:00 daily
 
   # ── SeaweedFS ──
+  # Pin the storage engine in prod: the provider replaces nodes on ITS schedule,
+  # and an unpinned tag would re-pull whatever SeaweedFS shipped that day —
+  # surprise storage-engine upgrades are the one class of update you want to
+  # control. 3.80 is the compose-proven version; bump deliberately.
+  grid-oib:seaweedfsImage: chrislusf/seaweedfs:3.80
   grid-oib:seaweedfsStorageSize: 20Gi
   grid-oib:seaweedfsBucket: grid-documents
   grid-oib:seaweedfsAccessKey: grid

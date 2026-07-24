@@ -1,7 +1,9 @@
 import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
-import { GridConfig, frontendImage, toResourceRequirements } from "../config";
+import { GridConfig, frontendImage } from "../config";
 import { commonLabels } from "../platform/namespaces";
+import { hardenedContainerSecurityContext } from "../platform/security";
+import { LIGHT_WORKER_RESOURCES, UID } from "../constants";
 import { AppWiring, purgerEnv, schedulerEnv } from "./config";
 
 /**
@@ -16,12 +18,7 @@ export function installWorkers(
   secret: k8s.core.v1.Secret,
   dependsOn: pulumi.Resource[],
 ): { purger: k8s.apps.v1.Deployment; scheduler: k8s.apps.v1.Deployment } {
-  const workerResources = toResourceRequirements({
-    requestsCpu: "50m",
-    requestsMemory: "128Mi",
-    limitsCpu: "500m",
-    limitsMemory: "512Mi",
-  });
+  const workerResources = LIGHT_WORKER_RESOURCES;
 
   const purger = new k8s.apps.v1.Deployment(
     "purger",
@@ -35,11 +32,14 @@ export function installWorkers(
         template: {
           metadata: { labels: commonLabels("purger") },
           spec: {
+            enableServiceLinks: false, // see chroma.ts — legacy env collisions
+            securityContext: { runAsNonRoot: true, runAsUser: UID.frontend, runAsGroup: UID.frontend },
             containers: [
               {
                 name: "purger",
                 image: frontendImage(cfg),
                 imagePullPolicy: cfg.images.pullPolicy,
+                securityContext: hardenedContainerSecurityContext(),
                 command: ["node", "purger/index.js"],
                 env: purgerEnv(w),
                 resources: workerResources,
@@ -67,11 +67,14 @@ export function installWorkers(
         template: {
           metadata: { labels: commonLabels("workflow-scheduler") },
           spec: {
+            enableServiceLinks: false, // see chroma.ts — legacy env collisions
+            securityContext: { runAsNonRoot: true, runAsUser: UID.frontend, runAsGroup: UID.frontend },
             containers: [
               {
                 name: "workflow-scheduler",
                 image: frontendImage(cfg),
                 imagePullPolicy: cfg.images.pullPolicy,
+                securityContext: hardenedContainerSecurityContext(),
                 command: ["node", "scheduler/index.js"],
                 env: schedulerEnv(w),
                 resources: workerResources,

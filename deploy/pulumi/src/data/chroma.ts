@@ -2,6 +2,7 @@ import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
 import { GridConfig } from "../config";
 import { commonLabels } from "../platform/namespaces";
+import { DATA_RESOURCES, PORT } from "../constants";
 
 export interface Chroma {
   statefulSet: k8s.apps.v1.StatefulSet;
@@ -34,18 +35,27 @@ export function installChroma(
     {
       metadata: { name: "chroma", namespace, labels },
       spec: {
-        serviceName: "chroma",
+        serviceName: "chroma-headless",
         replicas: 1,
+        // Shared vector store on a `Delete`-reclaim StorageClass — retain the PVC
+        // across StatefulSet delete/scale so a teardown can't wipe the embeddings
+        // (matches the k8s default; pinned against a future default flip).
+        persistentVolumeClaimRetentionPolicy: { whenDeleted: "Retain", whenScaled: "Retain" },
         selector: { matchLabels: labels },
         template: {
           metadata: { labels },
           spec: {
+            // Legacy Docker-link env injection (CHROMA_PORT=tcp://…) collides
+            // with Chroma's CHROMA_-prefixed config parsing and panics the server
+            // on any pod restart after the Service exists (found live). Nothing
+            // consumes service-link vars — disable them everywhere.
+            enableServiceLinks: false,
             securityContext: { fsGroup: 1000 },
             containers: [
               {
                 name: "chroma",
                 image: cfg.chroma.image,
-                ports: [{ containerPort: 8000, name: "http" }],
+                ports: [{ containerPort: PORT.chroma, name: "http" }],
                 // Chroma 1.x is a Rust server configured by a baked /config.yaml
                 // (persist_path: /data); the 0.5.x IS_PERSISTENT/PERSIST_DIRECTORY
                 // env vars are ignored, so persistence comes from the /data mount.
@@ -62,10 +72,7 @@ export function installChroma(
                   initialDelaySeconds: 30,
                   periodSeconds: 20,
                 },
-                resources: {
-                  requests: { cpu: "250m", memory: "512Mi" },
-                  limits: { cpu: "2", memory: "4Gi" },
-                },
+                resources: DATA_RESOURCES.chroma,
               },
             ],
           },
@@ -82,6 +89,26 @@ export function installChroma(
         ],
       },
     },
+    {
+      provider,
+      // Immutable volumeClaimTemplates — see seaweedfs.ts; grow via PVC patch.
+      ignoreChanges: ["spec.volumeClaimTemplates"],
+      // Fixed-name StatefulSet: Pulumi's default create-before-delete replace
+      // collides with the existing object ("chroma already exists"). Any
+      // immutable-field replace must delete first — safe: the PVC is pinned
+      // Retain and rebinds to the recreated StatefulSet by template name.
+      deleteBeforeReplace: true,
+    },
+  );
+
+  // Headless governing service — the StatefulSet per-pod DNS contract requires
+  // one (chroma-0.chroma-headless). Clients keep using the ClusterIP `chroma`.
+  new k8s.core.v1.Service(
+    "chroma-headless",
+    {
+      metadata: { name: "chroma-headless", namespace, labels },
+      spec: { clusterIP: "None", selector: labels, ports: [{ port: PORT.chroma, name: "http" }] },
+    },
     { provider },
   );
 
@@ -91,11 +118,11 @@ export function installChroma(
       metadata: { name: "chroma", namespace, labels },
       spec: {
         selector: labels,
-        ports: [{ port: 8000, targetPort: 8000, name: "http" }],
+        ports: [{ port: PORT.chroma, targetPort: PORT.chroma, name: "http" }],
       },
     },
     { provider, dependsOn: statefulSet },
   );
 
-  return { statefulSet, service, url: pulumi.output("http://chroma:8000") };
+  return { statefulSet, service, url: pulumi.output(`http://chroma:${PORT.chroma}`) };
 }

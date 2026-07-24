@@ -47,8 +47,21 @@ export interface GridConfig {
     letsEncryptEmail: string;
     /** Use the LE staging CA (avoids rate limits while wiring DNS/TLS). */
     useStagingIssuer: boolean;
-    /** Install metrics-server (needed by the HPAs). Disable if the cluster ships one. */
+    /**
+     * Install metrics-server (needed by the HPAs). Leave FALSE on the managed
+     * provider: it already provisions base metrics components that serve
+     * `metrics.k8s.io` and cannot be removed, so a second install just fights
+     * the built-in one. Only set true on a bare cluster with no metrics API.
+     */
     installMetricsServer: boolean;
+    /**
+     * Optional fixed external IP for the Envoy Gateway LoadBalancer. The provider
+     * assigns one automatically on first deploy and then RESERVES a released IP
+     * for 14 days, reclaimable via the `k8s.at/managed-loadbalancer-ip` service
+     * annotation. Set this to that IP so DNS never has to chase a new address
+     * across a Gateway/service re-creation. Empty = let the provider assign one.
+     */
+    loadBalancerIp?: string;
   };
 
   postgres: {
@@ -59,11 +72,57 @@ export interface GridConfig {
     appUser: string;
     /** App role password. Secret. Drives every DSN. */
     appPassword: pulumi.Output<string>;
+    /**
+     * How CNPG rolls the primary during an operator/image update.
+     * "unsupervised" = automatic switchover + restart (no human), which is what
+     * you want on a provider that drains/replaces nodes automatically.
+     */
+    primaryUpdateStrategy: "unsupervised" | "supervised";
+    /**
+     * Continuous WAL archiving + scheduled base backups to SeaweedFS via CNPG's
+     * Barman object-store integration — the only real defence against the
+     * provider's `Delete` reclaim policy (a dropped PVC is otherwise
+     * unrecoverable). Gives point-in-time recovery.
+     */
+    backups: {
+      enabled: boolean;
+      /**
+       * S3 endpoint Barman writes to. Default: the in-cluster SeaweedFS —
+       * which protects against Postgres PVC loss but NOT against cluster
+       * deletion (it lives on the same Delete-reclaim CSI). Point this at an
+       * external S3 (with matching bucket + credentials via
+       * pgBackupAccessKey/pgBackupSecretKey) for real offsite PITR.
+       */
+      endpoint: string;
+      /** Override credentials for an external endpoint (default: SeaweedFS's). */
+      accessKey?: string;
+      secretKey?: pulumi.Output<string>;
+      /** Bucket for base backups + WAL (auto-created only on in-cluster SeaweedFS). */
+      bucket: string;
+      /** Barman retention (e.g. "30d"). */
+      retention: string;
+      /** 6-field cron (CNPG uses seconds-first): default nightly 02:00. */
+      schedule: string;
+    };
   };
 
   dragonfly: {
     maxmemory: string;
+    /**
+     * Pod memory LIMIT. Must sit ABOVE `maxmemory`: that flag caps the dataset,
+     * but RSS (fragmentation, dashtable overhead, serialization buffers) runs
+     * higher, so limit == maxmemory guarantees OOMKills under load.
+     */
+    memoryLimit: string;
   };
+
+  /**
+   * Namespace-scoped NetworkPolicies: a default-deny for ingress into `grid`
+   * plus least-privilege allows (edge→frontend/s3, intra-tier data access).
+   * Egress stays open (the agent calls many external LLM/search endpoints).
+   * On Cilium, kubelet health probes are not affected by these policies.
+   */
+  networkPolicies: boolean;
 
   chroma: {
     /**
@@ -76,6 +135,13 @@ export interface GridConfig {
   };
 
   seaweedfs: {
+    /**
+     * SeaweedFS server image. Defaults to `latest` (project preference for
+     * fresh components); for prod consider pinning (the compose stack pins
+     * 3.80) — this is the storage engine, and the provider's automatic node
+     * replacement re-pulls the tag at unpredictable times.
+     */
+    image: string;
     storageSize: string;
     bucket: string;
     accessKey: string;
@@ -131,9 +197,10 @@ export interface GridConfig {
   jobExecution: "dask" | "db";
   /**
    * Enable the Dragonfly pub/sub conversation bus (ADR-0028) so the chat tier is
-   * fully stateless — any replica serves any conversation's WebSocket. Off by
-   * default; needs REDIS_URL and a live cross-replica validation pass before the
-   * affinity-off flip. When false the tier relies on conversation affinity.
+   * fully stateless — any replica serves any conversation's WebSocket. ON by
+   * default (the intended architecture; uses REDIS_URL and fails open to local
+   * delivery). Set false to fall back to conversation affinity, e.g. while
+   * validating the bus cross-replica in a new environment.
    */
   conversationBus: boolean;
   agentWorker: {
@@ -224,14 +291,33 @@ export function loadConfig(): GridConfig {
   rejectPlaceholder("appDomain", ["example.com"]);
   rejectPlaceholder("s3Domain", ["example.com"]);
   rejectPlaceholder("workosClientId", ["REPLACE_ME"]);
+  // Let's Encrypt refuses ACME account registration for example.com contacts —
+  // without this guard a deploy that fixed the domains but not the email passes
+  // everything and then TLS silently never issues (the exact delayed-failure
+  // class this guard exists to kill).
+  rejectPlaceholder("letsEncryptEmail", ["example.com"]);
 
   const jobExecution: "dask" | "db" = (cfg.get("jobExecution") ?? "dask") === "db" ? "db" : "dask";
   const conversationBus = bool(cfg, "conversationBus", true);
+  const imageTag = cfg.get("imageTag") ?? "latest";
 
   // Fail closed: db-claimed job payloads carry the user's auth token and persist
   // in Postgres (table + WAL + backups + replicas). Refuse to deploy db mode
   // without a KEK to encrypt them at rest, unless plaintext is explicitly opted
   // into for dev. Guards against the silent plaintext-token-at-rest default.
+  // Fail closed: db mode REQUIRES the shared Chroma server. Without it every
+  // web replica and worker opens an embedded per-pod store — workers ingest
+  // into stores no web replica can read (retrieval silently empty), and the
+  // volume-less agent-worker can't even write its store (image FS, root-owned).
+  // The deploy would report success and be functionally broken.
+  const chromaEnabled = bool(cfg, "chromaEnabled", true);
+  if (jobExecution === "db" && !chromaEnabled) {
+    throw new Error(
+      "jobExecution=db requires the shared Chroma server (workers and web replicas must " +
+        "read/write one vector store). Set grid-oib:chromaEnabled=true, or use jobExecution=dask.",
+    );
+  }
+
   const jobPayloadKek = cfg.getSecret("jobPayloadKek");
   const allowPlaintextJobPayloads = bool(cfg, "allowPlaintextJobPayloads", false);
   if (jobExecution === "db" && jobPayloadKek === undefined && !allowPlaintextJobPayloads) {
@@ -250,10 +336,15 @@ export function loadConfig(): GridConfig {
 
     images: {
       registry: cfg.get("imageRegistry") ?? "ghcr.io/grid-check",
-      tag: cfg.get("imageTag") ?? "latest",
+      tag: imageTag,
       backend: cfg.get("backendImage"),
       frontend: cfg.get("frontendImage"),
-      pullPolicy: cfg.get("imagePullPolicy") ?? "IfNotPresent",
+      // A MOVING tag (`latest`) must re-pull on every pod start, or a rescheduled
+      // pod silently keeps a stale cached image and a deploy "succeeds" without
+      // shipping the new code. Only a pinned/immutable tag (a SHA) is safe as
+      // IfNotPresent. Explicit `imagePullPolicy` always wins.
+      pullPolicy:
+        cfg.get("imagePullPolicy") ?? (imageTag === "latest" ? "Always" : "IfNotPresent"),
     },
 
     storage: {
@@ -269,7 +360,9 @@ export function loadConfig(): GridConfig {
     // failed prod attempt burns Let's Encrypt rate limits. Flip to false only
     // after DNS resolves to the gateway and a staging cert has issued.
     useStagingIssuer: bool(cfg, "useStagingIssuer", true),
-      installMetricsServer: bool(cfg, "installMetricsServer", true),
+      // Default FALSE: the managed provider ships an unremovable metrics stack.
+      installMetricsServer: bool(cfg, "installMetricsServer", false),
+      loadBalancerIp: cfg.get("loadBalancerIp"),
     },
 
     postgres: {
@@ -277,14 +370,28 @@ export function loadConfig(): GridConfig {
       storageSize: cfg.get("pgStorageSize") ?? "20Gi",
       appUser: cfg.get("pgAppUser") ?? "aiq",
       appPassword: cfg.requireSecret("pgAppPassword"),
+      primaryUpdateStrategy:
+        cfg.get("pgPrimaryUpdateStrategy") === "supervised" ? "supervised" : "unsupervised",
+      backups: {
+        enabled: bool(cfg, "pgBackupsEnabled", false),
+        endpoint: cfg.get("pgBackupEndpoint") ?? "http://seaweedfs:8333",
+        accessKey: cfg.get("pgBackupAccessKey"),
+        secretKey: cfg.getSecret("pgBackupSecretKey"),
+        bucket: cfg.get("pgBackupBucket") ?? "grid-pg-backups",
+        retention: cfg.get("pgBackupRetention") ?? "30d",
+        schedule: cfg.get("pgBackupSchedule") ?? "0 0 2 * * *",
+      },
     },
 
     dragonfly: {
       maxmemory: cfg.get("dragonflyMaxmemory") ?? "512mb",
+      memoryLimit: cfg.get("dragonflyMemoryLimit") ?? "768Mi",
     },
 
+    networkPolicies: bool(cfg, "networkPolicies", true),
+
     chroma: {
-      enabled: bool(cfg, "chromaEnabled", true),
+      enabled: chromaEnabled,
       // Deliberately pinned (NOT latest): the server API/wire protocol is
       // coupled to the backend's `chromadb` Python client. It MUST match — a 1.x
       // client against a 0.5.x server fails ingestion with KeyError('_type'),
@@ -295,6 +402,7 @@ export function loadConfig(): GridConfig {
     },
 
     seaweedfs: {
+      image: cfg.get("seaweedfsImage") ?? "chrislusf/seaweedfs:latest",
       storageSize: cfg.get("seaweedfsStorageSize") ?? "20Gi",
       bucket: cfg.get("seaweedfsBucket") ?? "grid-documents",
       accessKey: cfg.get("seaweedfsAccessKey") ?? "grid",

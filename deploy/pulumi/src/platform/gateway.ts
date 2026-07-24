@@ -11,6 +11,7 @@ import type { IEnvoyProxySpec } from "@kubernetes-models/envoy-gateway/gateway.e
 import type { IClientTrafficPolicySpec } from "@kubernetes-models/envoy-gateway/gateway.envoyproxy.io/v1alpha1/ClientTrafficPolicySpec";
 import { GridConfig } from "../config";
 import { commonLabels } from "./namespaces";
+import { EDGE_TIMEOUT, PLATFORM_RESOURCES } from "../constants";
 
 /** Stable names referenced by the cert-manager solver and the HTTPRoutes. */
 export const GATEWAY_NAME = "grid-gateway";
@@ -83,12 +84,24 @@ export function installGatewayResources(
   // fleet to a SINGLE replica with no PDB — the whole cluster's front door
   // would ride on one pod on one node (a node drain = full outage for both
   // domains). Pin 2 replicas, a PDB, and spread them across nodes.
+  //
+  // The provider auto-assigns the LoadBalancer's external IP (Cilium) and, when
+  // pinned via `k8s.at/managed-loadbalancer-ip`, keeps/reclaims it across a
+  // service re-creation (released IPs stay reserved 14 days). Annotate the
+  // generated Envoy Service with it so the DNS A-record target is stable.
+  const envoyService = cfg.ingress.loadBalancerIp
+    ? { annotations: { "k8s.at/managed-loadbalancer-ip": cfg.ingress.loadBalancerIp } }
+    : undefined;
   const envoyProxySpec: IEnvoyProxySpec = {
     provider: {
       type: "Kubernetes",
       kubernetes: {
+        ...(envoyService ? { envoyService } : {}),
         envoyDeployment: {
           replicas: 2,
+          // Requests AND limits on the data-plane fleet — the platform's
+          // cluster-autoscaler prerequisite applies to the edge pods too.
+          container: { resources: PLATFORM_RESOURCES.envoyProxy },
           pod: {
             affinity: {
               podAntiAffinity: {
@@ -107,7 +120,10 @@ export function installGatewayResources(
             },
           },
         },
-        envoyPDB: { minAvailable: 1 },
+        // maxUnavailable (not minAvailable): scales with replica count and can
+        // never wedge a provider-initiated drain the way minAvailable can when
+        // both replicas land on one node (same policy as scheduling.ts).
+        envoyPDB: { maxUnavailable: 1 },
       },
     },
   };
@@ -178,7 +194,7 @@ export function installGatewayResources(
   // keep it raised too for consistency.
   const clientTrafficPolicySpec: IClientTrafficPolicySpec = {
     targetRefs: [{ group: "gateway.networking.k8s.io", kind: "Gateway", name: GATEWAY_NAME }],
-    timeout: { http: { idleTimeout: "3600s", streamIdleTimeout: "3600s" } },
+    timeout: { http: { idleTimeout: EDGE_TIMEOUT, streamIdleTimeout: EDGE_TIMEOUT } },
   };
   new k8s.apiextensions.CustomResource(
     "grid-client-traffic-policy",

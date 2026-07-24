@@ -2,12 +2,23 @@ import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
 import { GridConfig } from "../config";
 import { commonLabels } from "../platform/namespaces";
+import { hardenedJobSecurityContext } from "../platform/security";
+import {
+  BOOTSTRAP_JOB_RESOURCES,
+  DATA_RESOURCES,
+  JOB_DEFAULTS,
+  PLATFORM_RESOURCES,
+  PORT,
+  POSTGRES_TUNING,
+} from "../constants";
 
 export interface Postgres {
   operator: k8s.helm.v3.Release;
   cluster: k8s.apiextensions.CustomResource;
   /** Job that ensures job/checkpoint tables exist (idempotent). */
   initJob: k8s.batch.v1.Job;
+  /** Nightly PITR base-backup schedule (only when backups are enabled). */
+  scheduledBackup?: k8s.apiextensions.CustomResource;
   /** Read/write service host (the CNPG primary), e.g. `grid-pg-rw`. */
   rwHost: string;
   /** Build a DSN for one of the three logical databases. */
@@ -61,6 +72,8 @@ export function installPostgres(
   cfg: GridConfig,
   provider: k8s.Provider,
   namespace: pulumi.Input<string>,
+  /** Gate the ScheduledBackup on the SeaweedFS bucket-init when backups are on. */
+  backupDeps: pulumi.Resource[] = [],
 ): Postgres {
   // 1. CloudNativePG operator (cluster-wide; installs the CRDs we use below).
   const opNs = new k8s.core.v1.Namespace(
@@ -76,6 +89,8 @@ export function installPostgres(
       // Unpinned: track the latest CloudNativePG operator chart.
       namespace: opNs.metadata.name,
       repositoryOpts: { repo: "https://cloudnative-pg.github.io/charts" },
+      // The chart ships no resources by default; set both (autoscaler prereq).
+      values: { resources: PLATFORM_RESOURCES.cnpgOperator },
     },
     { provider, dependsOn: opNs },
   );
@@ -100,6 +115,8 @@ export function installPostgres(
               {
                 name: "wait",
                 image: "curlimages/curl:latest",
+                securityContext: hardenedJobSecurityContext(),
+                resources: BOOTSTRAP_JOB_RESOURCES,
                 command: ["/bin/sh", "-c"],
                 args: [
                   // Any HTTP response (even 404) means the webhook TLS listener
@@ -133,6 +150,49 @@ export function installPostgres(
     { provider },
   );
 
+  // 2b. Object-store credentials for continuous backup (only when enabled). The
+  //     provider's StorageClasses reclaim `Delete`, so WAL archiving + scheduled
+  //     base backups to SeaweedFS are the only path to point-in-time recovery
+  //     after an accidental PVC/volume loss.
+  const backupSecretName = "grid-pg-backup-s3"; // pragma: allowlist secret
+  const backupSecret = cfg.postgres.backups.enabled
+    ? new k8s.core.v1.Secret(
+        "pg-backup-s3",
+        {
+          metadata: { name: backupSecretName, namespace },
+          stringData: {
+            // Defaults to the in-cluster SeaweedFS identity; overridable for an
+            // external S3 endpoint (offsite PITR — see config.ts).
+            ACCESS_KEY_ID: cfg.postgres.backups.accessKey ?? cfg.seaweedfs.accessKey,
+            SECRET_ACCESS_KEY: cfg.postgres.backups.secretKey ?? cfg.seaweedfs.secretKey,
+          },
+        },
+        { provider },
+      )
+    : undefined;
+
+  // NOTE: this uses CNPG's in-tree `barmanObjectStore`. It is stable and works
+  // on current operators but is being superseded by the barman-cloud plugin;
+  // if a future auto-pulled operator (chart is unpinned) drops the in-tree path,
+  // the webhook will reject this at `pulumi up` — switch to the plugin then.
+  const backupSpec = cfg.postgres.backups.enabled
+    ? {
+        backup: {
+          retentionPolicy: cfg.postgres.backups.retention,
+          barmanObjectStore: {
+            destinationPath: `s3://${cfg.postgres.backups.bucket}/`,
+            endpointURL: cfg.postgres.backups.endpoint,
+            s3Credentials: {
+              accessKeyId: { name: backupSecretName, key: "ACCESS_KEY_ID" },
+              secretAccessKey: { name: backupSecretName, key: "SECRET_ACCESS_KEY" },
+            },
+            wal: { compression: "gzip", maxParallel: 2 },
+            data: { compression: "gzip" },
+          },
+        },
+      }
+    : {};
+
   // 3. The Postgres cluster. `aiq_jobs` is the bootstrapped app DB; the other
   //    two databases are created by postInitSQL (as superuser, once) owned by
   //    the app role, so the same credentials reach all three.
@@ -149,6 +209,17 @@ export function installPostgres(
         // major — CloudNativePG treats a major bump as a declarative migration,
         // and a floating `latest` could refuse to start on the old data dir.
         imageName: "ghcr.io/cloudnative-pg/postgresql:17",
+        // Automatic switchover + rolling restart on operator/image updates — the
+        // right default when the provider drains/replaces nodes on its own.
+        primaryUpdateStrategy: cfg.postgres.primaryUpdateStrategy,
+        // Keep primary and replicas off the same worker node so a single node
+        // loss / upgrade drain can't take the whole cluster down. `preferred` so
+        // a small (or single-node) cluster still schedules.
+        affinity: {
+          enablePodAntiAffinity: true,
+          topologyKey: "kubernetes.io/hostname",
+          podAntiAffinityType: "preferred",
+        },
         storage: {
           size: cfg.postgres.storageSize,
           storageClass: cfg.storage.className,
@@ -168,17 +239,23 @@ export function installPostgres(
         // gets since we hand the app the -rw service directly (no pooler here).
         postgresql: {
           parameters: {
-            max_connections: "200",
-            shared_buffers: "256MB",
+            max_connections: POSTGRES_TUNING.maxConnections,
+            shared_buffers: POSTGRES_TUNING.sharedBuffers,
           },
         },
-        resources: {
-          requests: { cpu: "500m", memory: "1Gi" },
-          limits: { cpu: "2", memory: "4Gi" },
-        },
+        resources: DATA_RESOURCES.postgres,
+        // Continuous WAL archiving + base-backup target (empty unless enabled).
+        ...backupSpec,
       },
     },
-    { provider, dependsOn: [operator, webhookReady] },
+    {
+      provider,
+      // backupDeps gates the CLUSTER (not just the ScheduledBackup) on the
+      // backup bucket existing: WAL archiving starts the moment the cluster
+      // boots and would otherwise race bucket-init into NoSuchBucket-degraded
+      // ContinuousArchiving on every first deploy.
+      dependsOn: [operator, webhookReady, ...(backupSecret ? [backupSecret] : []), ...backupDeps],
+    },
   );
 
   const rwHost = `${CLUSTER_NAME}-rw`;
@@ -192,7 +269,7 @@ export function installPostgres(
     // misparse the authority), which looks like an auth failure across the whole
     // stack. Encoding in the DSN keeps the Postgres role password itself intact.
     return cfg.postgres.appPassword.apply(
-      (pw) => `${scheme}://${user}:${encodeURIComponent(pw)}@${rwHost}:5432/${opts.db}`,
+      (pw) => `${scheme}://${user}:${encodeURIComponent(pw)}@${rwHost}:${PORT.postgres}/${opts.db}`,
     );
   };
 
@@ -207,29 +284,42 @@ export function installPostgres(
     { provider },
   );
 
-  const jobsPlain = dsn({ db: "aiq_jobs" });
-  const checkpointsPlain = dsn({ db: "aiq_checkpoints" });
+  // DSNs embed the app password — put them in a Secret and env them via
+  // secretKeyRef, so `kubectl get job/pod -o yaml` in the namespace doesn't
+  // hand out the DB credential (the app tier already works this way).
+  const initDsnSecret = new k8s.core.v1.Secret(
+    "pg-init-dsns",
+    {
+      metadata: { namespace },
+      stringData: {
+        JOBS_DSN: dsn({ db: "aiq_jobs" }),
+        CHECKPOINTS_DSN: dsn({ db: "aiq_checkpoints" }),
+      },
+    },
+    { provider },
+  );
 
   const initJob = new k8s.batch.v1.Job(
     "pg-init-tables",
     {
       metadata: { namespace },
       spec: {
-        backoffLimit: 10,
-        // Re-run on every `pulumi up` (config/image changes) — DDL is idempotent.
-        ttlSecondsAfterFinished: 300,
+        backoffLimit: JOB_DEFAULTS.backoffLimit,
+        // Re-runs whenever the Job spec changes or `pulumi up --refresh` notices
+        // the TTL reaped it — DDL is idempotent either way.
+        ttlSecondsAfterFinished: JOB_DEFAULTS.ttlSecondsAfterFinished,
         template: {
           metadata: { labels: commonLabels("pg-init") },
           spec: {
+            enableServiceLinks: false, // see chroma.ts — legacy env collisions
             restartPolicy: "OnFailure",
             containers: [
               {
                 name: "psql",
                 image: "postgres:17-alpine",
-                env: [
-                  { name: "JOBS_DSN", value: jobsPlain },
-                  { name: "CHECKPOINTS_DSN", value: checkpointsPlain },
-                ],
+                securityContext: hardenedJobSecurityContext(),
+                resources: BOOTSTRAP_JOB_RESOURCES,
+                envFrom: [{ secretRef: { name: initDsnSecret.metadata.name } }],
                 command: ["/bin/sh", "-c"],
                 args: [
                   [
@@ -248,8 +338,32 @@ export function installPostgres(
         },
       },
     },
-    { provider, dependsOn: [cluster, initSqlCm] },
+    { provider, dependsOn: [cluster, initSqlCm, initDsnSecret] },
   );
 
-  return { operator, cluster, initJob, rwHost, dsn };
+  // 5. Nightly base backup (WAL is archived continuously by the cluster above).
+  //    Gated on the SeaweedFS bucket-init (passed via backupDeps) so the first
+  //    run has a bucket to write to.
+  const scheduledBackup = cfg.postgres.backups.enabled
+    ? new k8s.apiextensions.CustomResource(
+        "pg-scheduled-backup",
+        {
+          apiVersion: "postgresql.cnpg.io/v1",
+          kind: "ScheduledBackup",
+          metadata: { name: "grid-pg-nightly", namespace, labels: commonLabels("postgres") },
+          spec: {
+            schedule: cfg.postgres.backups.schedule,
+            backupOwnerReference: "self",
+            cluster: { name: CLUSTER_NAME },
+            method: "barmanObjectStore",
+            // Take the first base backup immediately on creation — without it
+            // PITR is impossible until the first scheduled (02:00) run.
+            immediate: true,
+          },
+        },
+        { provider, dependsOn: [cluster, ...backupDeps] },
+      )
+    : undefined;
+
+  return { operator, cluster, initJob, scheduledBackup, rwHost, dsn };
 }

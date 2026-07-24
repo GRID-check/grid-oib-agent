@@ -2,7 +2,10 @@ import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
 import { GridConfig, backendImage, toResourceRequirements } from "../config";
 import { commonLabels } from "../platform/namespaces";
+import { installPdb, spreadAcrossNodes } from "../platform/scheduling";
+import { hardenedContainerSecurityContext } from "../platform/security";
 import { AppWiring, workerEnv } from "./config";
+import { UID } from "../constants";
 
 /**
  * Research worker tier (ADR-0021) — only deployed when jobExecution = "db".
@@ -18,7 +21,11 @@ export function installAgentWorker(
   cfg: GridConfig,
   secret: k8s.core.v1.Secret,
   dependsOn: pulumi.Resource[],
-): { deployment: k8s.apps.v1.Deployment; hpa: k8s.autoscaling.v2.HorizontalPodAutoscaler } {
+): {
+  deployment: k8s.apps.v1.Deployment;
+  hpa: k8s.autoscaling.v2.HorizontalPodAutoscaler;
+  pdb: k8s.policy.v1.PodDisruptionBudget;
+} {
   const labels = commonLabels("agent-worker");
 
   const deployment = new k8s.apps.v1.Deployment(
@@ -31,12 +38,17 @@ export function installAgentWorker(
         template: {
           metadata: { labels },
           spec: {
-            securityContext: { runAsUser: 1000, runAsGroup: 1000 },
+            enableServiceLinks: false, // see chroma.ts — legacy env collisions
+            securityContext: { runAsNonRoot: true, runAsUser: UID.backend, runAsGroup: UID.backend },
+            // Spread workers across nodes (autoscaler prerequisite + survives a
+            // single node loss / automatic-upgrade node replacement).
+            topologySpreadConstraints: spreadAcrossNodes(labels),
             containers: [
               {
                 name: "agent-worker",
                 image: backendImage(cfg),
                 imagePullPolicy: cfg.images.pullPolicy,
+                securityContext: hardenedContainerSecurityContext(),
                 env: workerEnv(w),
                 resources: toResourceRequirements(cfg.agentWorker.resources),
                 // Liveness: the worker touches /tmp/research-worker.alive every
@@ -100,5 +112,9 @@ export function installAgentWorker(
     { provider: w.provider, dependsOn: deployment },
   );
 
-  return { deployment, hpa };
+  // One-at-a-time voluntary disruptions so an upgrade node drain can't evict
+  // the whole worker tier and stall all in-flight research jobs at once.
+  const pdb = installPdb("agent-worker", w.namespace, w.provider, labels, [deployment]);
+
+  return { deployment, hpa, pdb };
 }

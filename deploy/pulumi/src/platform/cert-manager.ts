@@ -2,6 +2,7 @@ import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
 import { GridConfig } from "../config";
 import { GATEWAY_NAME } from "./gateway";
+import { PLATFORM_RESOURCES } from "../constants";
 
 export interface CertManager {
   release: k8s.helm.v3.Release;
@@ -52,7 +53,7 @@ export function installCertManager(
           kind: "ControllerConfiguration",
           enableGatewayAPI: true,
         },
-        resources: { requests: { cpu: "10m", memory: "64Mi" } },
+        resources: PLATFORM_RESOURCES.certManager,
       },
     },
     { provider, dependsOn: [ns, ...dependsOn] },
