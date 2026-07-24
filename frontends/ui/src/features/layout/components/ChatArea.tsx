@@ -117,6 +117,12 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   // bottom-jump effect below owns scrolling).
   const anchorSpacerRef = useRef<HTMLDivElement>(null)
   const prevUserMessageIdRef = useRef<string | null | undefined>(currentUserMessageId)
+  // Latest streaming flag for the deferred spacer-release check below. Kept in a
+  // ref so a rAF scheduled while streaming was momentarily false (a send that
+  // anchors a turn, then flips streaming true a tick later) sees the up-to-date
+  // value and does not release the spacer out from under a live stream.
+  const isStreamingRef = useRef(isStreaming)
+  isStreamingRef.current = isStreaming
 
   const messages = currentConversation?.messages
 
@@ -265,14 +271,21 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   }, [currentUserMessageId])
 
   // Release the top-anchor spacer once the answer has landed (turn no longer
-  // streaming), so no trailing empty gap lingers below a finished answer.
+  // streaming), so no trailing empty gap lingers below a finished answer. Also
+  // keyed on `currentUserMessageId` so a turn that anchors but never streams —
+  // e.g. an immediate send failure before the stream starts — still releases the
+  // spacer instead of leaving dead scroll space. The rAF re-checks the live
+  // streaming flag so a normal turn (streaming true a tick after the id changes)
+  // keeps its spacer.
   useEffect(() => {
     if (isStreaming) return
     const raf = requestAnimationFrame(() => {
-      if (anchorSpacerRef.current) anchorSpacerRef.current.style.minHeight = '0px'
+      if (!isStreamingRef.current && anchorSpacerRef.current) {
+        anchorSpacerRef.current.style.minHeight = '0px'
+      }
     })
     return () => cancelAnimationFrame(raf)
-  }, [isStreaming])
+  }, [isStreaming, currentUserMessageId])
 
   const handleScrollToLatest = useCallback(() => {
     isAtBottomRef.current = true

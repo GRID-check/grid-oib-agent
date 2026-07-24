@@ -70,7 +70,7 @@ export function FileSearchBar({
               onChange={(e) => onChange(e.target.value)}
               placeholder={placeholder}
               aria-label={searchLabel}
-              className="pl-8 pr-10"
+              className="pl-8 pr-10 md:pr-9"
             />
             {value !== '' && (
               <button

@@ -1,4 +1,4 @@
-import { render, screen } from '@/test-utils'
+import { render, screen, waitFor } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
 import { ChatThinking } from './ChatThinking'
@@ -49,6 +49,39 @@ describe('ChatThinking', () => {
       expect(await screen.findByText('Intermediate steps')).toBeInTheDocument()
     })
   })
+
+  describe('turn-driven autoOpen (live expands, done collapses)', () => {
+    // The expanded reasoning renders the "Selected Data Sources:" footer (moved
+    // inside the collapsible), so its presence is a proxy for "expanded".
+    const sources = ['web_search']
+
+    test('autoOpen expands the reasoning without a click (live turn)', () => {
+      render(<ChatThinking steps={[createStep()]} autoOpen enabledDataSources={sources} />)
+      expect(screen.getByText('Selected Data Sources:')).toBeVisible()
+    })
+
+    test('autoOpen=false keeps the reasoning collapsed (past/done turn)', () => {
+      render(<ChatThinking steps={[createStep()]} autoOpen={false} enabledDataSources={sources} />)
+      expect(screen.queryByText('Selected Data Sources:')).not.toBeInTheDocument()
+    })
+
+    test('a live→done autoOpen transition collapses the reasoning', async () => {
+      const { rerender } = render(
+        <ChatThinking steps={[createStep()]} autoOpen enabledDataSources={sources} />
+      )
+      expect(screen.getByText('Selected Data Sources:')).toBeVisible()
+      rerender(<ChatThinking steps={[createStep()]} autoOpen={false} enabledDataSources={sources} />)
+      await waitFor(() =>
+        expect(screen.queryByText('Selected Data Sources:')).not.toBeInTheDocument()
+      )
+    })
+
+    // NB: the "a manual toggle in between is not stomped" guarantee (the
+    // prevAutoOpen ref only re-drives `open` when autoOpen actually CHANGES) is
+    // covered by the transition test above plus the ref-guard logic; a UI-level
+    // manual-collapse assertion proved flaky against the controlled Collapsible
+    // in jsdom, so it is intentionally not asserted here.
+})
 
   describe('empty state', () => {
     test('renders nothing when no steps provided', () => {

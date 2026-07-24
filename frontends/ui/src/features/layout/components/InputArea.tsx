@@ -1248,7 +1248,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           scoping exists. A tiny, mobile-only line under the composer keeps the
           active source count legible without re-bulking the action row. Shown on
           the empty thread (first-run), where learning the scope matters most. */}
-      {isEmptyThread && !isDisabledByAuth && (
+      {isEmptyThread && !isDisabledByAuth && enabledSourcesCount > 0 && (
         <p
           className="text-muted-foreground mt-1.5 flex items-center justify-center gap-1.5 text-[11px] sm:hidden"
           role="note"
