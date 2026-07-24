@@ -8,9 +8,12 @@
  * an effect (backend-free). Not linked anywhere; 404s outside development.
  *
  * `?state=` selects an extra captured state:
- *   - (none)   → the composer with clickable chips + the mobile "manage" entry.
- *   - preview  → the shared read-only FilePreviewDialog opened from a chip.
- *   - sheet    → the mobile FileSourcesTab bottom-sheet (manage files).
+ *   - (none)        → the composer with clickable chips + the mobile "manage" entry.
+ *   - preview       → the shared read-only FilePreviewDialog opened from a chip.
+ *   - sheet         → the mobile FileSourcesTab bottom-sheet (manage files).
+ *   - research-done → the post-research composer: locked field + the explicit
+ *                     "Neue Sitzung starten" forward action and helper line
+ *                     (replaces the old no-op explanation popover).
  *
  * A module-scope fetch shim (browser + dev only) serves the file-preview URL and
  * visual-details payload so the preview pane renders fully backend-free — same
@@ -132,14 +135,32 @@ export default function ComposerFilesPreviewPage() {
   const [state, setState] = useState<string | null>(null)
 
   useEffect(() => {
-    setState(new URLSearchParams(window.location.search).get('state'))
+    const requested = new URLSearchParams(window.location.search).get('state')
+    setState(requested)
+    // The post-research state seeds a SUCCESSFUL deep-research answer so the
+    // composer derives its locked/completed state (isResearchSessionSuccessful)
+    // and shows the "Neue Sitzung starten" forward action + helper line.
+    const messages =
+      requested === 'research-done'
+        ? [
+            {
+              id: 'dr-1',
+              role: 'assistant' as const,
+              content: 'Recherchebericht erstellt.',
+              messageType: 'agent_response' as const,
+              deepResearchJobId: 'job-1',
+              deepResearchJobStatus: 'success' as const,
+              timestamp: new Date('2024-01-15T10:00:00Z'),
+            },
+          ]
+        : []
     useChatStore.setState({
       currentConversation: {
         id: CONV_ID,
         userId: 'dev',
         projectId: 'dev',
         title: 'Dev',
-        messages: [],
+        messages,
         createdAt: new Date('2024-01-15'),
         updatedAt: new Date('2024-01-15'),
       },

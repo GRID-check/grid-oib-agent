@@ -69,6 +69,22 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[role="dialog"]',
   },
   {
+    id: 'composer-research-done',
+    mobile: true,
+    path: '/dev/composer-files?state=research-done',
+    description:
+      'The post-research composer: after a SUCCESSFUL research run the field is locked and the send slot becomes an explicit "Neue Sitzung starten" forward action (replacing the old no-op explanation popover), with a helper line — desktop + mobile.',
+    waitFor: '[data-testid="composer-files-preview"]',
+  },
+  {
+    id: 'chat-welcome',
+    mobile: true,
+    path: '/dev/chat-welcome',
+    description:
+      'The authenticated empty chat state (real ChatArea WelcomeState) — greeting, the one-line subtitle telling first-timers that answers cite their sources, and the example-question chips — desktop + mobile.',
+    waitFor: 'h1',
+  },
+  {
     id: 'confirm-dialog',
     mobile: true,
     path: '/dev/confirm-dialog',
