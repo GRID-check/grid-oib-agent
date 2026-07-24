@@ -393,6 +393,11 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   // Get current conversation for filtering files and ensureSession for auto-creation
   const currentConversation = useChatStore((state) => state.currentConversation)
   const ensureSession = useChatStore((state) => state.ensureSession)
+  // The real "new session" action — the same one the logo / new-session path in
+  // MainLayout uses (startNewSessionDraft). Wired to the post-research
+  // "Neue Sitzung starten" button so the completed-report dead-end becomes a
+  // forward action instead of a no-op explanation popover.
+  const startNewSessionDraft = useChatStore((state) => state.startNewSessionDraft)
 
   // One-shot composer prefill from deep links (?ask=) and welcome-screen chips.
   const composerPrefill = useChatStore((state) => state.composerPrefill)
@@ -680,6 +685,14 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     clearComposerDraft,
     t,
   ])
+
+  // Post-research forward action: start a fresh session draft (the real
+  // new-session path) so the user can ask follow-ups after a completed report,
+  // instead of being stuck at a locked composer with a no-op explanation.
+  const handleStartNewSession = useCallback(() => {
+    startNewSessionDraft()
+    setMessage('')
+  }, [startNewSessionDraft])
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -1099,21 +1112,30 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                 Exception: isResponseMode always shows the normal send button so users can
                 submit HITL responses (approve/reject) even during active research. */}
             {isResearchSessionSuccessful && !isResponseMode ? (
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button
-                    size="icon"
-                    className="size-9 rounded-lg shadow-md"
-                    aria-label={t('inputArea.researchCompletedAria')}
-                    title={t('inputArea.researchCompleted')}
-                  >
-                    <ArrowUp className="h-4 w-4" aria-hidden="true" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent side="top" align="end" className="w-auto max-w-xs p-3">
-                  <p className="text-sm">{t('inputArea.researchCompletedPopover')}</p>
-                </PopoverContent>
-              </Popover>
+              // Completed research is a dead-end for the locked composer: replace
+              // the old no-op explanation popover with an explicit forward action
+              // that starts a fresh session (the real new-session path). A short
+              // helper line below the composer carries the "why" the popover used
+              // to hide.
+              <motion.div
+                className="inline-flex"
+                whileTap={{ scale: 0.94 }}
+                transition={springSnappy}
+                tabIndex={-1}
+              >
+                <Button
+                  size="sm"
+                  className="h-9 gap-1.5 rounded-lg px-3 shadow-md"
+                  onClick={handleStartNewSession}
+                  aria-label={t('inputArea.startNewSession')}
+                  title={t('inputArea.startNewSession')}
+                >
+                  <RotateCw className="size-3.5" aria-hidden="true" />
+                  <span className="text-[12.5px] font-semibold">
+                    {t('inputArea.startNewSession')}
+                  </span>
+                </Button>
+              </motion.div>
             ) : isResearchSessionInProgress && !isResponseMode ? (
               <Popover>
                 <PopoverTrigger asChild>
@@ -1209,7 +1231,32 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
             {tChat('composer.deepResearchHint')}
           </p>
         )}
+
+        {/* Post-research helper line — the explanation that used to live in the
+            (no-op) send popover, now always visible next to the "Neue Sitzung
+            starten" action so the completed-report lock is understandable. */}
+        {isResearchSessionSuccessful && !isResponseMode && (
+          <p className="text-muted-foreground mt-2 text-xs leading-relaxed" role="note">
+            {t('inputArea.researchCompletedPopover')}
+          </p>
+        )}
       </div>
+
+      {/* Mobile scope cue: on phones the scope / Datengrundlage / Deep-Research
+          labels collapse to bare icons (to keep the action row one compact
+          line), so a mobile user can't tell what sources are active or that
+          scoping exists. A tiny, mobile-only line under the composer keeps the
+          active source count legible without re-bulking the action row. Shown on
+          the empty thread (first-run), where learning the scope matters most. */}
+      {isEmptyThread && !isDisabledByAuth && (
+        <p
+          className="text-muted-foreground mt-1.5 flex items-center justify-center gap-1.5 text-[11px] sm:hidden"
+          role="note"
+        >
+          <Layers className="size-3 shrink-0 opacity-70" aria-hidden="true" />
+          <span>{tChat('composer.sourcesActiveMobile', { count: enabledSourcesCount })}</span>
+        </p>
+      )}
 
       {/* Shortcut preset chips (empty thread only): map onto the REAL data
           sources in the store — see lib/source-presets.ts. */}

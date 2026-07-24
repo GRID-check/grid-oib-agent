@@ -226,6 +226,7 @@ export const research = {
     researchCompleted: 'Research completed',
     researchCompletedPopover:
       'Research completed. For further questions or reports, please create a new session.',
+    startNewSession: 'Start new session',
     researchInProgressAria: 'Research in progress - please wait',
     researchInProgress: 'Research in progress',
     researchInProgressPopover:

@@ -62,6 +62,9 @@ export const chat = {
     scopeCurrent: 'Current project',
     scopeAll: 'All projects',
     scopeAllSoon: 'Coming soon — cross-project search is not available yet.',
+    // Mobile-only cue: the source/scope labels collapse to icons on phones, so a
+    // tiny one-line hint under the composer keeps the active source count legible.
+    sourcesActiveMobile: '{count} sources active',
   },
   // Source-preset shortcut chips under the composer (empty thread).
   shortcuts: {

@@ -21,6 +21,9 @@ let mockDrafts: Record<string, string> = {}
 // Shallow-thinking stream state + cancel action for the composer stop button.
 let mockIsStreaming = false
 const mockStopStreaming = vi.fn()
+// Real new-session action (startNewSessionDraft) wired to the post-research
+// "Start new session" button.
+const mockStartNewSessionDraft = vi.fn()
 
 const mockSaveDataSourcesToConversation = vi.fn()
 
@@ -44,6 +47,7 @@ vi.mock('@/features/chat', () => ({
         if (!mockCurrentSessionId) mockCurrentSessionId = 'session-new'
         return mockCurrentSessionId
       }),
+      startNewSessionDraft: mockStartNewSessionDraft,
       setRespondToInteractionFn: vi.fn(),
       setChatSendFn: vi.fn(),
       deepResearchStatus: mockDeepResearchStatus,
@@ -620,16 +624,30 @@ describe('InputArea', () => {
     expect(screen.getByRole('textbox')).toBeDisabled()
   })
 
-  test('shows research completed tooltip on send button when research is done', () => {
+  test('shows the "Start new session" forward action on the send slot when research is done', () => {
     mockDeepResearchStatus = 'success'
     mockIsDeepResearchStreaming = false
     mockDeepResearchOwnerConversationId = 'session-1'
 
     render(<InputArea isAuthenticated={true} connectionMode="websocket" />)
 
-    expect(
-      screen.getByRole('button', { name: /research completed - create new session/i })
-    ).toBeInTheDocument()
+    // The old no-op explanation popover is replaced by an actionable button.
+    expect(screen.getByRole('button', { name: /start new session/i })).toBeInTheDocument()
+  })
+
+  test('the post-research "Start new session" button starts a fresh session draft', async () => {
+    const user = userEvent.setup()
+    mockDeepResearchStatus = 'success'
+    mockIsDeepResearchStreaming = false
+    mockDeepResearchOwnerConversationId = 'session-1'
+
+    render(<InputArea isAuthenticated={true} connectionMode="websocket" />)
+
+    await user.click(screen.getByRole('button', { name: /start new session/i }))
+
+    // Wired to the real new-session action (the same startNewSessionDraft the
+    // logo / new-session path uses), turning the dead-end into a forward action.
+    expect(mockStartNewSessionDraft).toHaveBeenCalledTimes(1)
   })
 
   test('keeps the composer locked when a persisted message reports success', () => {
@@ -644,9 +662,7 @@ describe('InputArea', () => {
     render(<InputArea isAuthenticated={true} connectionMode="websocket" />)
 
     expect(screen.getByRole('textbox')).toBeDisabled()
-    expect(
-      screen.getByRole('button', { name: /research completed - create new session/i })
-    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /start new session/i })).toBeInTheDocument()
   })
 
   test.each(['failure', 'interrupted'] as const)(
@@ -663,10 +679,10 @@ describe('InputArea', () => {
       expect(
         screen.getByPlaceholderText('Research didn’t finish. Ask a follow-up or try again.')
       ).toBeInTheDocument()
-      // ...and the normal send button is shown (no "create new session" lock popover).
+      // ...and the normal send button is shown (no "start new session" lock).
       expect(screen.getByRole('button', { name: /send message/i })).toBeInTheDocument()
       expect(
-        screen.queryByRole('button', { name: /research completed - create new session/i })
+        screen.queryByRole('button', { name: /start new session/i })
       ).not.toBeInTheDocument()
     }
   )

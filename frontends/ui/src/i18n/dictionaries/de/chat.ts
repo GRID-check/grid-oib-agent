@@ -55,6 +55,9 @@ export const chat: typeof en.chat = {
     scopeCurrent: 'Aktuelles Projekt',
     scopeAll: 'Alle Projekte',
     scopeAllSoon: 'Bald verfügbar – projektübergreifende Suche ist noch nicht möglich.',
+    // Mobile-only cue: the source/scope labels collapse to icons on phones, so a
+    // tiny one-line hint under the composer keeps the active source count legible.
+    sourcesActiveMobile: '{count} Quellen aktiv',
   },
   shortcuts: {
     label: 'Schnellzugriff',

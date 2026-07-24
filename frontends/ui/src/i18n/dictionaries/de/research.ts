@@ -234,6 +234,7 @@ export const research: typeof en.research = {
     researchCompleted: 'Recherche abgeschlossen',
     researchCompletedPopover:
       'Recherche abgeschlossen. Für weitere Fragen oder Berichte erstellen Sie bitte eine neue Sitzung.',
+    startNewSession: 'Neue Sitzung starten',
     researchInProgressAria: 'Recherche läuft – bitte warten',
     researchInProgress: 'Recherche läuft',
     researchInProgressPopover:
