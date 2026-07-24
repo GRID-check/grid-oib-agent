@@ -14,17 +14,24 @@
  *     because it validates the *resolved* inputs, including anything TypeScript
  *     couldn't see through).
  *   - CloudNativePG kinds (Cluster, ScheduledBackup): validated with ajv
- *     against the openAPIV3Schema extracted from the pinned upstream release
- *     manifest vendored in schemas/cnpg-crds.yaml (see schemas/README.md for
- *     the refresh command).
+ *     against the openAPIV3Schema from the pinned upstream release manifest
+ *     (CNPG_RELEASE_URL below — bump the version there to validate against a
+ *     newer operator). Fetched on first run and cached in .schemas-cache/
+ *     (gitignored); if the fetch fails (offline), CNPG kinds are reported as
+ *     SKIP with a warning instead of failing the gate.
  *
  * Exit code 0 = every CR in the plan validated; 1 = any failure. Unknown
  * apiVersion/kind pairs are reported as SKIP (never silently ignored).
  */
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
+
+/** Pinned CNPG release whose CRD schemas the plan is validated against. */
+const CNPG_RELEASE_URL =
+  "https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/main/releases/cnpg-1.28.0.yaml";
+const CNPG_KINDS = new Set(["Cluster", "ScheduledBackup", "Backup"]);
 
 const here = dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
@@ -75,16 +82,40 @@ const MODEL_PACKAGES = {
     import(`@kubernetes-models/cert-manager/cert-manager.io/v1/${kind}`),
 };
 
-// ── CNPG schemas from the vendored release manifest ─────────────────────────
+// ── CNPG schemas from the pinned release manifest (fetched + cached) ────────
 // validateFormats off: CRD int32/date-time formats are advisory (the apiserver
 // doesn't enforce them either); logger off to keep CI output readable.
 const ajv = new Ajv({ strict: false, allErrors: true, validateFormats: false, logger: false });
-let cnpgSchemas = null; // kind → compiled validator
-function loadCnpgSchemas() {
+let cnpgSchemas = null; // kind → compiled validator, or {} if unavailable
+async function loadCnpgSchemas() {
   if (cnpgSchemas) return cnpgSchemas;
   cnpgSchemas = {};
-  const docs = yaml.loadAll(readFileSync(join(here, "../schemas/cnpg-crds.yaml"), "utf8"));
-  for (const doc of docs) {
+  const cacheDir = join(here, "../.schemas-cache");
+  const cacheFile = join(cacheDir, "cnpg-crds.yaml");
+  let raw;
+  if (existsSync(cacheFile)) {
+    raw = readFileSync(cacheFile, "utf8");
+  } else {
+    try {
+      const res = await fetch(CNPG_RELEASE_URL);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const full = await res.text();
+      // Cache only the CRDs we validate — the full release manifest is >1 MB.
+      const docs = yaml
+        .loadAll(full)
+        .filter(
+          (d) =>
+            d?.kind === "CustomResourceDefinition" && CNPG_KINDS.has(d.spec?.names?.kind),
+        );
+      raw = docs.map((d) => yaml.dump(d)).join("---\n");
+      mkdirSync(cacheDir, { recursive: true });
+      writeFileSync(cacheFile, raw);
+    } catch (err) {
+      console.warn(`WARN  could not fetch CNPG CRDs (${err.message}) — CNPG kinds will be SKIPPED`);
+      return cnpgSchemas;
+    }
+  }
+  for (const doc of yaml.loadAll(raw)) {
     if (doc?.kind !== "CustomResourceDefinition") continue;
     const kind = doc.spec?.names?.kind;
     const version = doc.spec?.versions?.find((v) => v.storage) ?? doc.spec?.versions?.[0];
@@ -103,9 +134,9 @@ for (const { urn, inputs } of crs) {
   const label = `${apiVersion}/${kind} (${String(urn).split("::").pop()})`;
 
   if (apiVersion === "postgresql.cnpg.io/v1") {
-    const validate = loadCnpgSchemas()[kind];
+    const validate = (await loadCnpgSchemas())[kind];
     if (!validate) {
-      console.log(`SKIP  ${label} — no schema in schemas/cnpg-crds.yaml`);
+      console.log(`SKIP  ${label} — CNPG schema unavailable`);
       skip++;
       continue;
     }

@@ -5,3 +5,4 @@ bin/
 Pulumi.*.yaml.bak
 .plan.json
 Pulumi.test.yaml
+.schemas-cache/
