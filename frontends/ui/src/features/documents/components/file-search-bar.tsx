@@ -70,14 +70,14 @@ export function FileSearchBar({
               onChange={(e) => onChange(e.target.value)}
               placeholder={placeholder}
               aria-label={searchLabel}
-              className="pl-8 pr-8"
+              className="pl-8 pr-10"
             />
             {value !== '' && (
               <button
                 type="button"
                 onClick={onClear}
                 aria-label={resetLabel}
-                className="absolute right-1.5 top-1/2 flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+                className="absolute right-1 top-1/2 flex size-9 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none md:right-1.5 md:size-6"
               >
                 <X className="size-3.5" aria-hidden />
               </button>
