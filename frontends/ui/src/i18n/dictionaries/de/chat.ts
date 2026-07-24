@@ -30,7 +30,16 @@ export const chat: typeof en.chat = {
       projekt: 'Projekt',
       buero: 'Büro',
     },
-    unavailable: 'Nicht mehr verfügbar',
+    // Eine referenzierte Datei, die sich nicht mehr auf eine Dokumentzeile
+    // auflösen lässt — eine ehrliche, handlungsfähige Karte (im Archiv / in den
+    // Projektdateien öffnen) statt einer stummen toten Kachel.
+    unresolvedHint: 'Der Assistent hat diese Datei referenziert.',
+    openInArchive: 'Im Archiv öffnen',
+    openInFiles: 'In den Projektdateien öffnen',
+    // Der Auflösungs-Abruf ist fehlgeschlagen — eine Wiederholaktion statt einer
+    // dauerhaft toten Kachel.
+    loadError: 'Dokumente konnten nicht geladen werden.',
+    retry: 'Erneut versuchen',
     openAria: 'Dokument öffnen: {label}',
   },
   composer: {
@@ -46,6 +55,9 @@ export const chat: typeof en.chat = {
     scopeCurrent: 'Aktuelles Projekt',
     scopeAll: 'Alle Projekte',
     scopeAllSoon: 'Bald verfügbar – projektübergreifende Suche ist noch nicht möglich.',
+    // Mobile-only cue: the source/scope labels collapse to icons on phones, so a
+    // tiny one-line hint under the composer keeps the active source count legible.
+    sourcesActiveMobile: '{count} Quellen aktiv',
   },
   shortcuts: {
     label: 'Schnellzugriff',
@@ -197,7 +209,9 @@ export const chat: typeof en.chat = {
     done: 'Fertig',
     showThinking: 'Denkschritte anzeigen ({count})',
     showThinkingSteps: 'Denkschritte anzeigen ({count})',
-    herleitungSummary: 'Herleitung · {steps} Zwischenschritte · {sources} Quellen',
+    herleitungSummary: 'Herleitung · {steps} Schritte · {sources} Quellen',
+    // aria-label naming the reasoning graph as one region for screen readers.
+    reasoningGraphLabel: 'Herleitung',
     stepsLabel: 'Denkschritte',
     stepsHeading: 'Zwischenschritte',
     sourcesFanOut: 'Quellen',
@@ -232,9 +246,11 @@ export const chat: typeof en.chat = {
       sourcesTab: 'Quellen',
       sourcesTitle: 'Geprüfte Quellen',
       findingsTab: 'Einschätzung',
-      findingsTitle: 'Belegt durch',
+      // Reine Herleitungs-Info im Einschätzungsknoten: in welchen Quellenspuren
+      // es Treffer gab. NICHT das Vertrauensurteil (Konfidenz/Belege) — das
+      // steht einmal auf der Antwortkarte.
+      findingsHits: 'Treffer in: {lanes}',
       branchesTab: 'Folgewege',
-      branchesTitle: 'Wie willst du weiter vorgehen?',
       branchesSub: 'Wähle eine Option — das Ergebnis wird für deine Wahl zusammengestellt.',
     },
   },

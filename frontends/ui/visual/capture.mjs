@@ -27,6 +27,10 @@ const UI_ROOT = join(HERE, '..')
 const OUT_DIR = join(HERE, 'screenshots')
 const THEMES = ['light', 'dark']
 const VIEWPORT = { width: 1200, height: 900 }
+// Mobile variant — a common phone logical width (iPhone 12/13/14 class). Captured
+// with isMobile/hasTouch so viewport meta + touch heuristics match a real device,
+// written as `<id>.mobile.<theme>.png` alongside the desktop shot.
+const MOBILE_VIEWPORT = { width: 390, height: 844 }
 
 /** Resolve the pre-installed Chromium executable (no download in this env). */
 async function resolveChromium() {
@@ -103,7 +107,14 @@ async function bootDevServer() {
 }
 
 async function main() {
-  const only = process.argv.slice(2)
+  // Flags: `--mobile` also captures the mobile variant for every target;
+  // `--mobile-only` captures ONLY the mobile variant. Without either, a target
+  // is captured at mobile only when it opts in via `mobile: true` in the registry.
+  const rawArgs = process.argv.slice(2)
+  const flags = new Set(rawArgs.filter((a) => a.startsWith('--')))
+  const forceMobile = flags.has('--mobile')
+  const mobileOnly = flags.has('--mobile-only')
+  const only = rawArgs.filter((a) => !a.startsWith('--'))
   const targets = only.length ? SCREENSHOT_TARGETS.filter((t) => only.includes(t.id)) : SCREENSHOT_TARGETS
   if (targets.length === 0) {
     console.error(`[screenshots] no targets matched: ${only.join(', ')}`)
@@ -125,33 +136,44 @@ async function main() {
   const written = []
   try {
     for (const target of targets) {
-      for (const theme of THEMES) {
-        const context = await browser.newContext({
-          viewport: VIEWPORT,
-          colorScheme: theme,
-          deviceScaleFactor: 2, // crisp, retina-quality PNGs
-        })
-        const page = await context.newPage()
-        const url = `${baseUrl}${target.path}`
-        console.log(`[screenshots] ${target.id} (${theme}) → ${url}`)
-        await page.goto(url, { waitUntil: 'networkidle', timeout: 120_000 })
-        // Force the app's class-based theme so `.dark` tokens apply deterministically.
-        await page.evaluate((t) => {
-          document.documentElement.classList.toggle('dark', t === 'dark')
-        }, theme)
-        if (target.waitFor) {
-          await page.waitForSelector(target.waitFor, { timeout: 30_000 }).catch(() => {})
+      // Which viewport variants to capture for this target.
+      const variants = []
+      if (!mobileOnly) variants.push({ suffix: '', viewport: VIEWPORT, isMobile: false, hasTouch: false })
+      if (mobileOnly || forceMobile || target.mobile) {
+        variants.push({ suffix: '.mobile', viewport: MOBILE_VIEWPORT, isMobile: true, hasTouch: true })
+      }
+      for (const variant of variants) {
+        for (const theme of THEMES) {
+          const context = await browser.newContext({
+            viewport: variant.viewport,
+            colorScheme: theme,
+            deviceScaleFactor: 2, // crisp, retina-quality PNGs
+            isMobile: variant.isMobile,
+            hasTouch: variant.hasTouch,
+          })
+          const page = await context.newPage()
+          const url = `${baseUrl}${target.path}`
+          const label = `${target.id}${variant.suffix} (${theme})`
+          console.log(`[screenshots] ${label} → ${url}`)
+          await page.goto(url, { waitUntil: 'networkidle', timeout: 120_000 })
+          // Force the app's class-based theme so `.dark` tokens apply deterministically.
+          await page.evaluate((t) => {
+            document.documentElement.classList.toggle('dark', t === 'dark')
+          }, theme)
+          if (target.waitFor) {
+            await page.waitForSelector(target.waitFor, { timeout: 30_000 }).catch(() => {})
+          }
+          // Optional keyboard focus: press Tab N times so `:focus-visible` engages
+          // (it only fires for keyboard nav), capturing a real focus-ring state.
+          if (target.tabStops) {
+            for (let i = 0; i < target.tabStops; i++) await page.keyboard.press('Tab')
+          }
+          await page.waitForTimeout(400) // let fonts/animations settle
+          const file = join(OUT_DIR, `${target.id}${variant.suffix}.${theme}.png`)
+          await page.screenshot({ path: file, fullPage: true })
+          written.push(file)
+          await context.close()
         }
-        // Optional keyboard focus: press Tab N times so `:focus-visible` engages
-        // (it only fires for keyboard nav), capturing a real focus-ring state.
-        if (target.tabStops) {
-          for (let i = 0; i < target.tabStops; i++) await page.keyboard.press('Tab')
-        }
-        await page.waitForTimeout(400) // let fonts/animations settle
-        const file = join(OUT_DIR, `${target.id}.${theme}.png`)
-        await page.screenshot({ path: file, fullPage: true })
-        written.push(file)
-        await context.close()
       }
     }
   } finally {

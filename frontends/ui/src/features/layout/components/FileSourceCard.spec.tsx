@@ -64,6 +64,35 @@ describe('FileSourceCard', () => {
     expect(screen.getByText('Upload failed')).toBeInTheDocument()
   })
 
+  test('opens the preview when the row is clicked (available + onOpen)', async () => {
+    const user = userEvent.setup()
+    const onOpen = vi.fn()
+
+    render(<FileSourceCard {...defaultProps} status="available" onOpen={onOpen} />)
+
+    await user.click(screen.getByRole('button', { name: /open preview: document.pdf/i }))
+
+    expect(onOpen).toHaveBeenCalledWith('file-1')
+  })
+
+  test('does not render an open affordance while the file is still ingesting', () => {
+    const onOpen = vi.fn()
+
+    render(<FileSourceCard {...defaultProps} status="ingesting" onOpen={onOpen} />)
+
+    expect(
+      screen.queryByRole('button', { name: /open preview: document.pdf/i })
+    ).not.toBeInTheDocument()
+  })
+
+  test('does not render an open affordance when onOpen is not provided', () => {
+    render(<FileSourceCard {...defaultProps} status="available" />)
+
+    expect(
+      screen.queryByRole('button', { name: /open preview: document.pdf/i })
+    ).not.toBeInTheDocument()
+  })
+
   test('calls onDelete when delete button is clicked', async () => {
     const user = userEvent.setup()
     const onDelete = vi.fn()

@@ -35,8 +35,15 @@ export const chat = {
       projekt: 'Project',
       buero: 'Office',
     },
-    // A surfaced file that no longer resolves to a readable document row.
-    unavailable: 'No longer available',
+    // A surfaced file that no longer resolves to a live document row — an honest,
+    // actionable card (the assistant referenced it; open the archive / project
+    // files) rather than a silent dead tile.
+    unresolvedHint: 'The assistant referenced this file.',
+    openInArchive: 'Open in archive',
+    openInFiles: 'Open in project files',
+    // The resolve fetch failed — a retry affordance, not a permanent dead tile.
+    loadError: 'Documents couldn’t be loaded.',
+    retry: 'Try again',
     openAria: 'Open document: {label}',
   },
   // Composer (InputArea) control row — WS-3 click-dummy overhaul.
@@ -55,6 +62,9 @@ export const chat = {
     scopeCurrent: 'Current project',
     scopeAll: 'All projects',
     scopeAllSoon: 'Coming soon — cross-project search is not available yet.',
+    // Mobile-only cue: the source/scope labels collapse to icons on phones, so a
+    // tiny one-line hint under the composer keeps the active source count legible.
+    sourcesActiveMobile: '{count} sources active',
   },
   // Source-preset shortcut chips under the composer (empty thread).
   shortcuts: {
@@ -209,6 +219,8 @@ export const chat = {
     showThinking: 'Show thinking ({count})',
     showThinkingSteps: 'Show thinking steps ({count})',
     herleitungSummary: 'Trace · {steps} steps · {sources} sources',
+    // aria-label naming the reasoning graph as one region for screen readers.
+    reasoningGraphLabel: 'Reasoning trace',
     stepsLabel: 'Thinking steps',
     stepsHeading: 'Intermediate steps',
     sourcesFanOut: 'Sources',
@@ -243,9 +255,11 @@ export const chat = {
       sourcesTab: 'Sources',
       sourcesTitle: 'Sources examined',
       findingsTab: 'Assessment',
-      findingsTitle: 'Backed by',
+      // Reasoning-only detail in the assessment node: which source lanes
+      // produced hits. NOT the answer's trust verdict (confidence/provenance) —
+      // that lives once, on the answer card.
+      findingsHits: 'Hits in: {lanes}',
       branchesTab: 'Next steps',
-      branchesTitle: 'How do you want to proceed?',
       branchesSub: 'Pick one option — the answer is assembled for your choice.',
     },
   },

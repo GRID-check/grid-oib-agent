@@ -108,3 +108,6 @@ frontends/benchmarks/*/analysis/*.csv
 
 # Node dependencies (never commit)
 node_modules/
+
+# Claude Code agent worktrees (transient, isolated checkouts)
+.claude/worktrees/

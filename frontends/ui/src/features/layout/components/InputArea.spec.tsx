@@ -21,6 +21,9 @@ let mockDrafts: Record<string, string> = {}
 // Shallow-thinking stream state + cancel action for the composer stop button.
 let mockIsStreaming = false
 const mockStopStreaming = vi.fn()
+// Real new-session action (startNewSessionDraft) wired to the post-research
+// "Start new session" button.
+const mockStartNewSessionDraft = vi.fn()
 
 const mockSaveDataSourcesToConversation = vi.fn()
 
@@ -44,6 +47,7 @@ vi.mock('@/features/chat', () => ({
         if (!mockCurrentSessionId) mockCurrentSessionId = 'session-new'
         return mockCurrentSessionId
       }),
+      startNewSessionDraft: mockStartNewSessionDraft,
       setRespondToInteractionFn: vi.fn(),
       setChatSendFn: vi.fn(),
       deepResearchStatus: mockDeepResearchStatus,
@@ -177,6 +181,15 @@ vi.mock('@/features/documents', () => ({
 // pulls a large dependency graph that is irrelevant to composer unit tests.
 vi.mock('./FileSourcesTab', () => ({
   FileSourcesTab: () => null,
+}))
+
+// FilePreviewDialog is the shared read-only preview opened from a file chip; the
+// real component pulls the whole preview-pane graph (PDF viewer, fetches). Stub
+// it to a lightweight marker that surfaces the previewed file's name, so the
+// clickable-chip → preview behavior can be asserted in isolation.
+vi.mock('@/features/documents/components/file-preview-dialog', () => ({
+  FilePreviewDialog: ({ file }: { file: { filename: string } | null }) =>
+    file ? <div data-testid="file-preview">{file.filename}</div> : null,
 }))
 
 import { useWebSocketChat, useIsCurrentSessionBusy } from '@/features/chat'
@@ -455,6 +468,57 @@ describe('InputArea', () => {
     expect(screen.getByText('doc2.pdf')).toBeInTheDocument()
   })
 
+  test('clicking a successful file chip opens the read-only preview dialog', async () => {
+    const user = userEvent.setup()
+    vi.mocked(useFileUpload).mockReturnValue({
+      uploadFiles: mockUploadFiles,
+      deleteFile: mockDeleteFile,
+      retryFile: mockRetryFile,
+      sessionFiles: [
+        {
+          id: 'file-1',
+          fileName: 'doc.pdf',
+          fileSize: 1234,
+          status: 'success',
+          collectionName: 'session-1',
+        },
+      ],
+      isUploading: false,
+      error: null,
+      clearError: vi.fn(),
+    } as unknown as ReturnType<typeof useFileUpload>)
+
+    render(<InputArea isAuthenticated={true} />)
+
+    // Closed initially — the preview only opens on an explicit chip click.
+    expect(screen.queryByTestId('file-preview')).not.toBeInTheDocument()
+
+    // The chip body is a button that opens the shared preview for that file.
+    await user.click(screen.getByRole('button', { name: /open file: doc\.pdf/i }))
+
+    expect(screen.getByTestId('file-preview')).toHaveTextContent('doc.pdf')
+  })
+
+  test('a still-uploading file chip is not clickable to open a preview', () => {
+    vi.mocked(useFileUpload).mockReturnValue({
+      uploadFiles: mockUploadFiles,
+      deleteFile: mockDeleteFile,
+      retryFile: mockRetryFile,
+      sessionFiles: [
+        { id: 'file-1', fileName: 'up.pdf', status: 'uploading', collectionName: 'session-1' },
+      ],
+      isUploading: false,
+      error: null,
+      clearError: vi.fn(),
+    } as unknown as ReturnType<typeof useFileUpload>)
+
+    render(<InputArea isAuthenticated={true} />)
+
+    // No open affordance for an in-flight file, and the preview stays closed.
+    expect(screen.queryByRole('button', { name: /open file: up\.pdf/i })).not.toBeInTheDocument()
+    expect(screen.queryByTestId('file-preview')).not.toBeInTheDocument()
+  })
+
   test('removing an inline file chip calls deleteFile', async () => {
     const user = userEvent.setup()
     vi.mocked(useFileUpload).mockReturnValue({
@@ -560,16 +624,30 @@ describe('InputArea', () => {
     expect(screen.getByRole('textbox')).toBeDisabled()
   })
 
-  test('shows research completed tooltip on send button when research is done', () => {
+  test('shows the "Start new session" forward action on the send slot when research is done', () => {
     mockDeepResearchStatus = 'success'
     mockIsDeepResearchStreaming = false
     mockDeepResearchOwnerConversationId = 'session-1'
 
     render(<InputArea isAuthenticated={true} connectionMode="websocket" />)
 
-    expect(
-      screen.getByRole('button', { name: /research completed - create new session/i })
-    ).toBeInTheDocument()
+    // The old no-op explanation popover is replaced by an actionable button.
+    expect(screen.getByRole('button', { name: /start new session/i })).toBeInTheDocument()
+  })
+
+  test('the post-research "Start new session" button starts a fresh session draft', async () => {
+    const user = userEvent.setup()
+    mockDeepResearchStatus = 'success'
+    mockIsDeepResearchStreaming = false
+    mockDeepResearchOwnerConversationId = 'session-1'
+
+    render(<InputArea isAuthenticated={true} connectionMode="websocket" />)
+
+    await user.click(screen.getByRole('button', { name: /start new session/i }))
+
+    // Wired to the real new-session action (the same startNewSessionDraft the
+    // logo / new-session path uses), turning the dead-end into a forward action.
+    expect(mockStartNewSessionDraft).toHaveBeenCalledTimes(1)
   })
 
   test('keeps the composer locked when a persisted message reports success', () => {
@@ -584,9 +662,7 @@ describe('InputArea', () => {
     render(<InputArea isAuthenticated={true} connectionMode="websocket" />)
 
     expect(screen.getByRole('textbox')).toBeDisabled()
-    expect(
-      screen.getByRole('button', { name: /research completed - create new session/i })
-    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /start new session/i })).toBeInTheDocument()
   })
 
   test.each(['failure', 'interrupted'] as const)(
@@ -603,10 +679,10 @@ describe('InputArea', () => {
       expect(
         screen.getByPlaceholderText('Research didn’t finish. Ask a follow-up or try again.')
       ).toBeInTheDocument()
-      // ...and the normal send button is shown (no "create new session" lock popover).
+      // ...and the normal send button is shown (no "start new session" lock).
       expect(screen.getByRole('button', { name: /send message/i })).toBeInTheDocument()
       expect(
-        screen.queryByRole('button', { name: /research completed - create new session/i })
+        screen.queryByRole('button', { name: /start new session/i })
       ).not.toBeInTheDocument()
     }
   )

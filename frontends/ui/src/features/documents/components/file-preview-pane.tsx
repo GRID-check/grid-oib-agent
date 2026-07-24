@@ -187,8 +187,11 @@ export function FilePreviewPane({ file, projectName, canManage = true, onClose, 
 
   return (
     <div className="@container flex h-full flex-col bg-card">
-      {/* Header — extension tile, name/meta, download, expand, close. */}
-      <div className="flex shrink-0 items-center gap-3 border-b px-4 py-3">
+      {/* Header — extension tile, name/meta, download, expand, close. The row
+          stays on one line (the name truncates); below `@md` the Download label
+          collapses to its icon so the controls never crowd a ~360px sheet. The
+          top padding grows past the safe-area inset on the full-screen sheet. */}
+      <div className="flex shrink-0 items-center gap-2 border-b px-3 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] @md:gap-3 @md:px-4 sm:pt-3">
         <span
           className="flex size-8 shrink-0 items-center justify-center rounded-md text-[9.5px] font-bold uppercase leading-none"
           style={extChipTint(ext)}
@@ -206,18 +209,20 @@ export function FilePreviewPane({ file, projectName, canManage = true, onClose, 
           type="button"
           variant="outline"
           size="sm"
-          className="h-8 shrink-0 gap-1.5"
+          className="h-8 shrink-0 gap-1.5 px-2 @md:px-3"
           onClick={handleDownload}
           disabled={isDownloading}
+          aria-label={t('preview.download')}
+          title={t('preview.download')}
         >
           <Download className="size-3.5" aria-hidden />
-          {t('preview.download')}
+          <span className="hidden @md:inline">{t('preview.download')}</span>
         </Button>
         {canExpandPreview && previewUrl && (
           <Button
             variant="ghost"
             size="icon"
-            className="size-7 shrink-0"
+            className="size-8 shrink-0"
             onClick={() => setIsLargePreviewOpen(true)}
             aria-label={t('preview.expandPreview')}
             title={t('preview.expandPreview')}
@@ -226,7 +231,7 @@ export function FilePreviewPane({ file, projectName, canManage = true, onClose, 
           </Button>
         )}
         {onClose && (
-          <Button variant="ghost" size="icon" className="size-7 shrink-0" onClick={onClose} aria-label={t('preview.closePreview')}>
+          <Button variant="ghost" size="icon" className="size-8 shrink-0" onClick={onClose} aria-label={t('preview.closePreview')}>
             <X className="size-4" />
           </Button>
         )}
@@ -263,17 +268,24 @@ export function FilePreviewPane({ file, projectName, canManage = true, onClose, 
       )}
 
       {/* Body split — document preview on the left, indexed metadata on the
-          right. Side-by-side in the wide Dateien modal; stacks in a narrow
-          container (e.g. a docked column) via container queries. */}
-      <div className="flex min-h-0 flex-1 flex-col @2xl:flex-row">
+          right. Two independently-scrolling columns side-by-side in the wide
+          Dateien modal (`@2xl`+); a SINGLE vertical scroll (preview capped, all
+          metadata flowing below) in a narrow container / mobile sheet.
+
+          The scroll chain matters: `min-h-0` lets this flex child actually
+          shrink below its content, and the overflow lives on the RIGHT layer for
+          each mode — the body itself scrolls when stacked, each column scrolls
+          when split. Without a bounded panel above (the dialog now gives one)
+          this used to overflow into the panel's `overflow-hidden` and clip the
+          metadata unreachably. */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain @2xl:flex-row @2xl:overflow-hidden">
         {/* Left: live preview, or a decorative page mock while loading / when
-            there is no inline preview. The column claims a generous minimum
-            height so the document is readable inline — a comfortable fixed
-            floor when the pane is docked/stacked (narrow), scaling to the
-            viewport once the split goes side-by-side in the wide Dateien modal.
-            The Maximize2 affordance in the header still opens the full-screen
-            viewer for PDFs and images. */}
-        <div className="flex min-h-[420px] min-w-0 flex-1 justify-center overflow-y-auto bg-muted/40 p-5 @2xl:min-h-[65vh]">
+            there is no inline preview. Stacked (mobile): a capped ~50dvh block
+            that clips to itself so a tall document/image never pushes the
+            metadata off-screen. Split (@2xl+): an independently-scrollable
+            column. The Maximize2 affordance in the header still opens the
+            full-screen viewer for PDFs and images. */}
+        <div className="flex h-[50dvh] shrink-0 min-w-0 justify-center overflow-hidden bg-muted/40 p-5 @2xl:h-auto @2xl:min-h-0 @2xl:flex-1 @2xl:overflow-y-auto @2xl:overscroll-contain">
           {canPreview && isLoading ? (
             <PageMock skeleton />
           ) : canPreview && previewUrl ? (
@@ -283,7 +295,7 @@ export function FilePreviewPane({ file, projectName, canManage = true, onClose, 
               <img
                 src={previewUrl}
                 alt={file.filename}
-                className="h-fit max-w-full rounded border bg-background object-contain shadow-sm"
+                className="h-fit max-h-full max-w-full rounded border bg-background object-contain shadow-sm @2xl:max-h-none"
               />
             )
           ) : (
@@ -301,11 +313,15 @@ export function FilePreviewPane({ file, projectName, canManage = true, onClose, 
           )}
         </div>
 
-        {/* Right: 250px indexed-metadata panel (files-metadata-panel flag, FB-8).
+        {/* Right: indexed-metadata panel (files-metadata-panel flag, FB-8).
             The AI summary that grounds the agent's answers, the ingestion-detected
             key-value props, and the user-correctable tags. Status/type/size sit
-            below it and are never gated (they predate the metadata panel). */}
-        <div className="flex w-full shrink-0 flex-col overflow-y-auto border-t bg-muted/30 p-4 @2xl:w-[250px] @2xl:border-l @2xl:border-t-0">
+            below it and are never gated (they predate the metadata panel).
+
+            Stacked (mobile): plain flow content inside the body's single scroll —
+            never `shrink-0` against an unbounded parent, which is what clipped it
+            before. Split (@2xl+): a fixed-width column that scrolls on its own. */}
+        <div className="flex w-full flex-col border-t bg-muted/30 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] @2xl:w-[280px] @2xl:shrink-0 @2xl:min-h-0 @2xl:overflow-y-auto @2xl:overscroll-contain @2xl:border-l @2xl:border-t-0 @2xl:pb-4">
           {showMetadataPanel && (
             <section className="space-y-3" aria-label={t('preview.indexed.title')}>
               <p className="flex items-center gap-1.5 text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
@@ -445,7 +461,7 @@ export function FilePreviewPane({ file, projectName, canManage = true, onClose, 
 
       {/* Footer page indicator — mirrors the click-dummy's "Seite 1 von N". */}
       {typeof file.pageCount === 'number' && file.pageCount > 0 && (
-        <div className="flex shrink-0 items-center justify-center border-t bg-muted/30 px-4 py-2 text-[11.5px] text-muted-foreground">
+        <div className="flex shrink-0 items-center justify-center border-t bg-muted/30 px-4 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] text-[11.5px] text-muted-foreground @2xl:pb-2">
           {t('preview.pageIndicator', { count: file.pageCount })}
         </div>
       )}

@@ -367,7 +367,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
             through the chip row instead. All tree functionality (expand/collapse,
             selection, drill-in, create) is preserved. */}
         {view === 'tree' && (
-          <div className="max-h-48 w-full shrink-0 overflow-y-auto border-b md:max-h-none md:w-60 md:border-b-0 md:border-r">
+          <div className="max-h-72 w-full shrink-0 overflow-y-auto border-b md:max-h-none md:w-60 md:border-b-0 md:border-r">
             {foldersError ? (
               <PaneLoadError message={t('workspace.foldersLoadError')} onRetry={loadFolders} />
             ) : (
@@ -453,7 +453,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
 }
 
 /** One segment of the card/tree view toggle. */
-function ViewToggleButton({
+export function ViewToggleButton({
   active,
   onClick,
   label,
@@ -472,7 +472,7 @@ function ViewToggleButton({
       aria-label={label}
       title={label}
       className={cn(
-        'flex size-7 items-center justify-center rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        'flex size-10 items-center justify-center rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:size-7',
         active ? 'bg-accent text-foreground shadow-2xs' : 'text-muted-foreground hover:text-foreground'
       )}
     >

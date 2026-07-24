@@ -11,7 +11,16 @@
 
 'use client'
 
-import { type FC, memo, useRef, useEffect, useCallback, useState, useMemo } from 'react'
+import {
+  type FC,
+  memo,
+  useRef,
+  useEffect,
+  useLayoutEffect,
+  useCallback,
+  useState,
+  useMemo,
+} from 'react'
 import { ArrowDown, FileText, Lock } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { Button } from '@/components/ui/button'
@@ -29,6 +38,7 @@ import {
 import type { ChatMessage, StatusType } from '@/features/chat'
 import { AnimatePresence, motion, fadeRise, springGentle } from '@/components/motion'
 import { useAuth } from '@/adapters/auth'
+import { useReducedMotion } from '@/hooks/use-reduced-motion'
 import { useTranslations } from '@/i18n'
 
 interface ChatAreaProps {
@@ -93,6 +103,33 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   // value without being re-created on every scroll.
   const isAtBottomRef = useRef(true)
   const [showScrollButton, setShowScrollButton] = useState(false)
+
+  // ── New-question top-anchor bookkeeping (ChatGPT/Claude pattern) ────────────
+  // When a NEW user message is sent we pin THAT message near the top of the
+  // viewport and let the answer stream fill downward, instead of the stick-to-
+  // bottom controller chasing the growing answer (which scrolled the question
+  // off-screen). The anchored question's turn carries `data-chat-anchor` so the
+  // effect can find it in the committed DOM (motion.div doesn't attach a
+  // forwarded ref synchronously); `anchorSpacerRef` is an invisible min-height
+  // block below the list that guarantees there is always enough scroll room to
+  // bring the question to the top (imperatively sized so it needs no extra
+  // render); `prevUserMessageIdRef` debounces the anchor so it fires once per
+  // newly-sent question (and never on mount / session restore, where the
+  // bottom-jump effect below owns scrolling).
+  const anchorSpacerRef = useRef<HTMLDivElement>(null)
+  const prevUserMessageIdRef = useRef<string | null | undefined>(currentUserMessageId)
+  // Latest streaming flag for the deferred spacer-release check below. Kept in a
+  // ref so a rAF scheduled while streaming was momentarily false (a send that
+  // anchors a turn, then flips streaming true a tick later) sees the up-to-date
+  // value and does not release the spacer out from under a live stream.
+  const isStreamingRef = useRef(isStreaming)
+  isStreamingRef.current = isStreaming
+  // Latest reduced-motion preference for the anchor scroll (a JS scrollIntoView
+  // overrides the CSS scroll-behavior gate, so honour it explicitly). Ref-held so
+  // the anchor effect's deps stay tied to the turn id, not this preference.
+  const prefersReducedMotion = useReducedMotion()
+  const reducedMotionRef = useRef(prefersReducedMotion)
+  reducedMotionRef.current = prefersReducedMotion
 
   const messages = currentConversation?.messages
 
@@ -198,13 +235,67 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   }, [scrollToBottom, isEmpty, hasHydrated])
 
   // On conversation switch, jump straight to the newest message and re-engage
-  // auto-follow (no smooth animation across a full thread swap).
+  // auto-follow (no smooth animation across a full thread swap). Also release
+  // any stale top-anchor spacer so a swapped-in thread starts flush at bottom.
   useEffect(() => {
     isAtBottomRef.current = true
     setShowScrollButton(false)
+    if (anchorSpacerRef.current) anchorSpacerRef.current.style.minHeight = '0px'
     const raf = requestAnimationFrame(() => scrollToBottom('auto'))
     return () => cancelAnimationFrame(raf)
   }, [currentConversation?.id, scrollToBottom])
+
+  // Anchor a NEWLY-sent user question near the TOP of the viewport and DISENGAGE
+  // the bottom auto-follow, so the streaming answer fills downward from the
+  // question instead of the controller chasing the bottom (which scrolled the
+  // question off-screen). Runs only when `currentUserMessageId` transitions to a
+  // brand-new id — never on mount / restore (prevUserMessageIdRef is seeded with
+  // the mount value). useLayoutEffect so `isAtBottomRef` flips to false BEFORE
+  // the ResizeObserver's post-layout callback reads it, so growth never yanks
+  // the view down for this turn. Near-bottom auto-follow re-engages naturally
+  // the moment the user scrolls back down (handleScroll), the jump-to-latest
+  // button still surfaces while scrolled up, and a user reading up-thread is
+  // never moved — all preserved.
+  useLayoutEffect(() => {
+    const id = currentUserMessageId
+    if (!id || id === prevUserMessageIdRef.current) return
+    prevUserMessageIdRef.current = id
+    const container = scrollContainerRef.current
+    const target = container?.querySelector<HTMLElement>('[data-chat-anchor="true"]')
+    if (!container || !target) return
+    isAtBottomRef.current = false
+    setShowScrollButton(false)
+    // Guarantee the question can actually reach the top: reserve a viewport of
+    // scroll room below the list (imperative — no extra render). The streaming
+    // answer consumes this room as it grows; the spacer is released once the
+    // turn ends (effect below).
+    if (anchorSpacerRef.current) {
+      anchorSpacerRef.current.style.minHeight = `${container.clientHeight}px`
+    }
+    // scroll-mt on the anchored turn keeps clearance for the floating toolbar
+    // pills so the question lands just below them, not behind them.
+    target.scrollIntoView?.({
+      behavior: reducedMotionRef.current ? 'auto' : 'smooth',
+      block: 'start',
+    })
+  }, [currentUserMessageId])
+
+  // Release the top-anchor spacer once the answer has landed (turn no longer
+  // streaming), so no trailing empty gap lingers below a finished answer. Also
+  // keyed on `currentUserMessageId` so a turn that anchors but never streams —
+  // e.g. an immediate send failure before the stream starts — still releases the
+  // spacer instead of leaving dead scroll space. The rAF re-checks the live
+  // streaming flag so a normal turn (streaming true a tick after the id changes)
+  // keeps its spacer.
+  useEffect(() => {
+    if (isStreaming) return
+    const raf = requestAnimationFrame(() => {
+      if (!isStreamingRef.current && anchorSpacerRef.current) {
+        anchorSpacerRef.current.style.minHeight = '0px'
+      }
+    })
+    return () => cancelAnimationFrame(raf)
+  }, [isStreaming, currentUserMessageId])
 
   const handleScrollToLatest = useCallback(() => {
     isAtBottomRef.current = true
@@ -253,7 +344,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
     <div
       ref={scrollContainerRef}
       onScroll={handleScroll}
-      className="scrollbar-hide flex flex-1 flex-col overflow-y-auto"
+      className="scrollbar-hide flex flex-1 flex-col overflow-y-auto overscroll-contain"
       aria-label={t('chatArea.ariaMessages')}
     >
       {!hasHydrated ? (
@@ -330,10 +421,14 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                   }
                 : undefined
 
+              // The just-sent question's turn is the top-anchor target on send.
+              const isAnchorTarget = isUserMessage && message.id === currentUserMessageId
+
               return (
                 <motion.div
                   key={message.id}
-                  className="flex flex-col gap-4"
+                  data-chat-anchor={isAnchorTarget ? 'true' : undefined}
+                  className="flex scroll-mt-20 flex-col gap-4 sm:scroll-mt-16"
                   variants={fadeRise}
                   // Animate only genuinely new messages; hydrated ones render in place.
                   initial={hydratedIds.has(message.id) ? false : 'hidden'}
@@ -353,15 +448,19 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                     showAnswerFeedback={showAnswerFeedback}
                   />
 
-                  {/* The Herleitung gets the FULL message column — it is the
-                      product's proof-of-work (which sources were checked, what
-                      was found, how confident), so it must not be starved into a
-                      narrow, cramped strip. */}
+                  {/* Assistant-side thread spine: the Herleitung shares the
+                      answer card's width and left alignment, so the reasoning and
+                      the answer stack as ONE left column (the user bubble stays
+                      right-aligned). Auto-expanded while the turn is live, it
+                      collapses to a one-line bar once the answer lands. */}
                   {isUserMessage && hasThinkingSteps && (
-                    <div className="flex w-full justify-start">
+                    <div className="w-[680px] max-w-full">
                       <ChatThinking
                         steps={messageSteps}
                         isThinking={isStreaming && message.id === currentUserMessageId}
+                        autoOpen={
+                          (isStreaming && message.id === currentUserMessageId) || isWaiting
+                        }
                         isWaiting={isWaiting}
                         isInterrupted={isInterrupted}
                         isRecoveryPending={isRecoveryPending}
@@ -385,6 +484,12 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
 
           {/* Latency-gap typing indicator (before the first token arrives) */}
           {showTypingPlaceholder && <TypingIndicator status={currentStatus} />}
+
+          {/* Top-anchor spacer: invisible, zero-height by default, sized to a
+              viewport only while a just-sent question is anchored to the top so
+              it can reach the top and the answer streams downward. Released when
+              the turn ends. */}
+          <div ref={anchorSpacerRef} aria-hidden="true" style={{ minHeight: 0 }} />
         </div>
       )}
     </div>
@@ -746,6 +851,12 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
       <h1 className="text-center text-[23px] font-medium tracking-display text-foreground">
         {heading}
       </h1>
+
+      {/* One-line subtitle under the greeting: tells a first-timer that answers
+          cite their sources (copy already in both locales — chat.greeting.subtitle). */}
+      <p className="text-muted-foreground mt-2 max-w-md text-center text-[13.5px] leading-relaxed">
+        {tChat('greeting.subtitle')}
+      </p>
 
       {/* Example question chips — quiet bg-card hairline chips that prefill the
           composer (do not auto-send), so the empty canvas offers a first move. */}

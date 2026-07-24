@@ -71,8 +71,8 @@ vi.mock('@xyflow/react', async () => {
         }),
       ),
     useNodesInitialized: () => true,
-    useReactFlow: () => ({ fitView: () => {} }),
-    getNodesBounds: () => ({ x: 0, y: 0, width: 0, height: 0 }),
+    useReactFlow: () => ({ getNodes: () => [] }),
+    applyNodeChanges: (_changes: unknown, nodes: unknown) => nodes,
   }
 })
 

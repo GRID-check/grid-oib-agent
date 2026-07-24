@@ -27,6 +27,13 @@ export const files = {
     // citable — the confirmation the completion moment previously lacked.
     ingestionComplete: '“{name}” is now in Piloti’s knowledge — citable',
   },
+  // Card thumbnail fallbacks: a warm placeholder chip when no thumbnail exists,
+  // and an honest "couldn't load" label for a genuine failure (never a broken
+  // image look). `image` is the generic chip when there is no file extension.
+  thumbnail: {
+    image: 'Image',
+    unavailable: 'Preview unavailable',
+  },
   preview: {
     closePreview: 'Close preview',
     expandPreview: 'Open large preview',

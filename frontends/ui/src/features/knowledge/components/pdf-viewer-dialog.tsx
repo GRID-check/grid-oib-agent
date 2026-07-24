@@ -69,7 +69,7 @@ export function PdfViewerDialog({ open, onOpenChange, fileName, page, title, src
         wide/landscape drawings (a small page over a large dark void). Setting the
         `sm:` width here is what actually lets it fill the viewport.
       */}
-      <DialogContent className="flex h-[90vh] w-[95vw] max-w-[95vw] sm:max-w-[95vw] flex-col gap-3 p-4 sm:p-5">
+      <DialogContent className="flex h-[90dvh] w-[95vw] max-w-[95vw] sm:max-w-[95vw] flex-col gap-3 p-4 sm:p-5">
         <DialogHeader className="shrink-0 pr-8 text-left">
           <DialogTitle className="flex items-center gap-2 text-base">
             {headerChip}
@@ -91,7 +91,7 @@ export function PdfViewerDialog({ open, onOpenChange, fileName, page, title, src
         {children}
         {open &&
           (isImage ? (
-            <div className="min-h-0 w-full flex-1 overflow-auto rounded-lg border border-border bg-surface-sunken">
+            <div className="min-h-0 w-full flex-1 overflow-auto overscroll-contain rounded-lg border border-border bg-surface-sunken">
               <img src={src} alt={title ?? fileName} className="mx-auto h-auto max-w-full" />
             </div>
           ) : (

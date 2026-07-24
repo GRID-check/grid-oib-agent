@@ -4,9 +4,17 @@
  * Chat-turn dev preview: renders a COMPLETE turn the way ChatArea composes it —
  * the user question (UserMessage), the reasoning trace (ChatThinking / Herleitung)
  * and the cited answer (AgentResponse, default "Ergebnis" card) — with fixture
- * data and no backend, so the hero message/answer presentation can be reviewed
- * and screenshotted (visual/registry.mjs → `chat-turn`) in light + dark, desktop
- * + mobile. Not linked anywhere and 404s outside development.
+ * data and no backend.
+ *
+ * Two states are rendered so the transition endpoints are both screenshot-able
+ * (visual/registry.mjs → `chat-turn`), in light + dark, desktop + mobile:
+ *   • LIVE      — isThinking, the Herleitung auto-EXPANDED (the streaming
+ *                 reasoning graph is the spectacle), the answer still absent.
+ *   • COMPLETED — the Herleitung auto-COLLAPSED to the one-line bar, the cited
+ *                 answer card dominant, with sources + confidence shown ONCE on
+ *                 the answer (deduped out of the reasoning assessment node).
+ *
+ * Not linked anywhere and 404s outside development.
  */
 
 import { notFound } from 'next/navigation'
@@ -88,36 +96,65 @@ const answer = `Für ein Bürogebäude der **Gebäudeklasse 4** sind in der Rege
 
 Die maximale Fluchtweglänge bis zum sicheren Bereich beträgt **40 m** (OIB-RL 2, Pkt. 3.2).`
 
-function Turn({ width, label }: { width: string; label: string }) {
-  const thinking = {
-    steps: [step],
-    isThinking: false as const,
-    defaultOpen: false,
-    userQuestion: question,
-    answerConfidence: 'high' as const,
-    citations,
-    enabledDataSources: ['OIB-Korpus', 'RIS', 'Projektdokumente'],
-    messageFiles: [{ id: 'f1', fileName: 'Grundriss_EG.pdf' }],
-    routingDecision: 'shallow' as const,
-    routingReason:
-      'konkrete Frage zu OIB-Richtlinie 2 (Brandschutz), kein Bedarf für Tiefenrecherche',
-  }
+const commonThinking = {
+  steps: [step],
+  userQuestion: question,
+  enabledDataSources: ['OIB-Korpus', 'RIS', 'Projektdokumente'],
+  messageFiles: [{ id: 'f1', fileName: 'Grundriss_EG.pdf' }],
+  routingDecision: 'shallow' as const,
+  routingReason:
+    'konkrete Frage zu OIB-Richtlinie 2 (Brandschutz), kein Bedarf für Tiefenrecherche',
+}
 
+/**
+ * The LIVE turn: the assistant is still working. The Herleitung is auto-EXPANDED
+ * (the streaming reasoning graph is the focus) and no answer card exists yet.
+ */
+function LiveTurn() {
   return (
-    <div className={width}>
-      <div className="mb-2 font-mono text-xs text-muted-foreground">{label}</div>
-      <div className="flex flex-col gap-5 rounded-2xl border bg-background p-5">
-        <UserMessage content={question} timestamp={new Date('2024-01-15T14:30:00')} />
-        <ChatThinking {...thinking} />
-        <AgentResponse
-          content={answer}
-          timestamp={new Date('2024-01-15T14:30:12')}
-          citations={citations}
+    <div className="flex flex-col gap-5 rounded-2xl border bg-background p-5">
+      <div className="font-mono text-xs text-muted-foreground">↓ LIVE — thinking, Herleitung expanded, answer absent</div>
+      <UserMessage content={question} timestamp={new Date('2024-01-15T14:30:00')} />
+      <div className="w-[680px] max-w-full">
+        <ChatThinking
+          {...commonThinking}
+          isThinking
+          autoOpen
           answerConfidence="high"
-          routingDecision="shallow"
-          messageId="msg-a1"
+          citations={citations}
         />
       </div>
+    </div>
+  )
+}
+
+/**
+ * The COMPLETED turn: the answer has landed. The Herleitung has auto-COLLAPSED to
+ * the one-line bar and the cited answer card is dominant — sources + confidence
+ * shown ONCE, on the answer.
+ */
+function CompletedTurn() {
+  return (
+    <div className="flex flex-col gap-5 rounded-2xl border bg-background p-5">
+      <div className="font-mono text-xs text-muted-foreground">↓ COMPLETED — Herleitung collapsed, answer dominant</div>
+      <UserMessage content={question} timestamp={new Date('2024-01-15T14:30:00')} />
+      <div className="w-[680px] max-w-full">
+        <ChatThinking
+          {...commonThinking}
+          isThinking={false}
+          autoOpen={false}
+          answerConfidence="high"
+          citations={citations}
+        />
+      </div>
+      <AgentResponse
+        content={answer}
+        timestamp={new Date('2024-01-15T14:30:12')}
+        citations={citations}
+        answerConfidence="high"
+        routingDecision="shallow"
+        messageId="msg-a1"
+      />
     </div>
   )
 }
@@ -131,10 +168,10 @@ export default function ChatTurnPreviewPage() {
     <main className="min-h-dvh bg-muted/30 px-4 py-10">
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-10">
         <h1 className="font-mono text-xs text-muted-foreground" data-testid="chat-turn-preview">
-          /dev/chat-turn — full turn: question → Herleitung → cited answer
+          /dev/chat-turn — live (reasoning expanded) → completed (answer-dominant)
         </h1>
-        <Turn width="w-full" label="↓ desktop column" />
-        <Turn width="w-[390px] max-w-full" label="↓ mobile width (390px)" />
+        <LiveTurn />
+        <CompletedTurn />
       </div>
     </main>
   )

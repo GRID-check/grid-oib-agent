@@ -13,16 +13,18 @@ import { UploadCloud, X } from 'lucide-react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
-import { Spinner } from '@/components/ui/spinner'
 import { AnimatePresence } from '@/components/motion'
-import { FileSourceCard } from './FileSourceCard'
+import { FileSourceCard, FileSourceCardSkeleton } from './FileSourceCard'
 import { DeleteFileConfirmationModal } from './DeleteFileConfirmationModal'
+import { FilePreviewDialog } from '@/features/documents/components/file-preview-dialog'
 import {
   useFileUpload,
   useDocumentsStore,
   FileUploadZone,
   mapToDisplayStatus,
 } from '@/features/documents'
+import { trackedFileToFileItem } from '@/features/documents/types'
+import type { TrackedFile } from '@/features/documents'
 import { sessionHasKnownCollection } from '@/features/documents/persistence'
 import { useChatStore } from '@/features/chat/store'
 import { useLayoutStore } from '../store'
@@ -160,6 +162,16 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
   const [fileIdToDelete, setFileIdToDelete] = useState<string | null>(null)
 
+  // Read-only preview opened by tapping an available file row.
+  const [previewFile, setPreviewFile] = useState<TrackedFile | null>(null)
+  const handleOpenPreview = useCallback(
+    (fileId: string) => {
+      const file = targetFiles.find((f) => f.id === fileId)
+      if (file) setPreviewFile(file)
+    },
+    [targetFiles]
+  )
+
   /**
    * Handle file upload with session auto-creation.
    * Validation is handled internally by uploadFiles.
@@ -264,10 +276,15 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
     // When files are expected (loading, uploading, or session known to have files),
     // always show the spinner — never flash "No Files" during transitions.
     if (isAwaitingFiles) {
+      // Skeleton rows that mirror the real FileSourceCard shape — matching the
+      // grid file surfaces' skeleton vocabulary instead of a lone centered
+      // spinner. The status text stays for screen readers / assertions.
       return (
-        <div className="flex flex-1 flex-col items-center justify-center gap-2 py-8">
-          <Spinner label={t('fileSourcesTab.loadingFiles')} />
-          <span className="text-sm text-muted-foreground">{t('fileSourcesTab.checkingFiles')}</span>
+        <div className="flex flex-1 flex-col gap-2" aria-busy="true">
+          <span className="sr-only">{t('fileSourcesTab.checkingFiles')}</span>
+          {Array.from({ length: 3 }).map((_, i) => (
+            <FileSourceCardSkeleton key={i} />
+          ))}
         </div>
       )
     }
@@ -313,7 +330,7 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
   }
 
   return (
-    <div className="flex flex-1 flex-col gap-2 overflow-y-auto">
+    <div className="flex min-w-0 flex-1 flex-col gap-2 overflow-x-hidden overflow-y-auto">
       {/* Hidden file input */}
       <input
         ref={fileInputRef}
@@ -365,6 +382,7 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
             errorMessage={file.errorMessage ?? undefined}
             expirationIntervalHours={fileUploadConfig.fileExpirationCheckIntervalHours}
             onDelete={handleDeleteClick}
+            onOpen={handleOpenPreview}
           />
         ))}
       </AnimatePresence>
@@ -375,6 +393,13 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
         onOpenChange={handleModalOpenChange}
         onConfirm={handleConfirmDelete}
         fileName={targetFiles.find((f) => f.id === fileIdToDelete)?.fileName}
+      />
+
+      {/* Read-only preview opened by tapping an available file row. */}
+      <FilePreviewDialog
+        file={previewFile ? trackedFileToFileItem(previewFile) : null}
+        canManage={false}
+        onClose={() => setPreviewFile(null)}
       />
     </div>
   )
