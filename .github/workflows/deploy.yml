@@ -56,8 +56,11 @@ jobs:
       # ImagePullBackOff.
       - name: Guard manual dispatch to develop
         if: ${{ github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/develop' }}
+        # Read the ref from the runner's built-in $GITHUB_REF env var rather than
+        # interpolating ${{ github.ref }} into the shell, so `github` context data
+        # never lands in the run script (Semgrep run-shell-injection).
         run: |
-          echo "::error::workflow_dispatch deploys are only supported from develop (images for '${{ github.ref }}' are never published)."
+          echo "::error::workflow_dispatch deploys are only supported from develop (images for '$GITHUB_REF' are never published)."
           exit 1
 
       # The upstream "Publish Images" workflow runs ONLY on push to
