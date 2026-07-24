@@ -85,6 +85,11 @@ const MODEL_PACKAGES = {
 // ── CNPG schemas from the pinned release manifest (fetched + cached) ────────
 // validateFormats off: CRD int32/date-time formats are advisory (the apiserver
 // doesn't enforce them either); logger off to keep CI output readable.
+// allErrors reports every schema violation in a CR at once instead of stopping
+// at the first. The DoS-via-unbounded-errors concern the ajv-allerrors rule
+// flags needs attacker-controlled input, but the only input here is our own
+// pulumi-preview plan generated locally in CI, so it does not apply.
+// nosemgrep: javascript.ajv.security.audit.ajv-allerrors-true.ajv-allerrors-true
 const ajv = new Ajv({ strict: false, allErrors: true, validateFormats: false, logger: false });
 let cnpgSchemas = null; // kind → compiled validator, or {} if unavailable
 async function loadCnpgSchemas() {

@@ -35,6 +35,12 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     environment: staging
     steps:
+      # The upstream "Publish Images" workflow runs ONLY on push to
+      # develop/release and on tags (never on pull_request), so
+      # workflow_run.head_sha is always a trusted, already-merged commit, not
+      # fork PR code. This is the safe use of workflow_run + checkout, so the
+      # generic pwn-request rule is a false positive here.
+      # nosemgrep: yaml.github-actions.security.workflow-run-target-code-checkout.workflow-run-target-code-checkout
       - uses: actions/checkout@v7
         with:
           # Deploy the exact commit whose images were just published.
@@ -60,7 +66,11 @@ jobs:
       - name: Validate CR schemas from plan
         working-directory: deploy/pulumi
         run: |
-          curl -fsSL https://get.pulumi.com | sh -s -- --version latest
+          # Download the installer to a file first, then run it, rather than
+          # piping curl straight into a shell (curl|sh): a hijacked endpoint
+          # can't execute in one uninspectable stream.
+          curl -fsSL https://get.pulumi.com -o "$RUNNER_TEMP/install-pulumi.sh"
+          sh "$RUNNER_TEMP/install-pulumi.sh" --version latest
           export PATH="$HOME/.pulumi/bin:$PATH"
           pulumi stack select grid-check/grid-oib/dev
           pulumi preview --json > .plan.json
