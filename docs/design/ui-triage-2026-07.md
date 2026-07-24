@@ -1,0 +1,184 @@
+# UI/UX Triage — July 2026
+
+A full heuristic evaluation of the Piloti/GRID app (excluding the marketing
+page), run against Nielsen's 10 usability heuristics plus the supporting laws
+(Fitts, Hick, Miller, Jakob, Gestalt, Tesler's conservation of complexity,
+aesthetic–usability, peak-end) — read through *value* and *actual user flow* for
+an architect doing Austrian building-compliance work under enterprise scrutiny.
+
+Every recommendation stays inside the existing design language
+(`grid-design-language.md`): warm-paper monochrome + provenance signal colors,
+tokens only. This is refinement within the system, not a redesign — the app is
+already unusually mature (streaming status, EU AI-Act disclosure, iOS-zoom
+prevention, safe-area insets, per-session drafts, HITL, drag-drop upload).
+
+Status legend: **[done]** landed this pass · **[backlog]** recommended, needs
+product/visual sign-off on a running app, or is larger follow-up work.
+
+## Shipped this pass
+
+1. **Chat trust** — confidence no longer borrows the provenance palette (it now
+   renders through the shared neutral `ConfidenceChip`); the invisible
+   failed-upload dot (`bg-error`, an undefined utility) is restored.
+2. **`ConfirmDialog` primitive** — one shared confirm component; the off-brand
+   `window.confirm` for BYOK revoke and four copy-paste delete/stop modals now
+   route through it.
+3. **Shell** — the built-but-never-mounted `ConnectionPresenceIndicator` is now
+   in the sidebar + mobile drawer, so a dropped connection is visible.
+4. **Intake** — the autosaved draft moved from `sessionStorage` (dies on tab
+   close) to `localStorage`, making "Entwurf gespeichert" truthful; the four
+   hard-required fields now carry a required marker.
+5. **Documents** — the terminal status says "Citable"/"Zitierbar" instead of a
+   bare "Ready"; the chat File-Sources empty state uses the crafted `EmptyState`.
+6. **Apple-tier coherence pass** — foundation-level visual craft that propagates
+   system-wide: 3-layer elevation stacks (contact + mid + ambient) on the shadow
+   scale; `ConfirmDialog` tinted-disc header; `EmptyState` raised light-catching
+   icon disc; and the completed-answer "Ergebnis" card unified into one sectioned
+   object (answer body + provenance footer divided by a hairline, no floating
+   inner card). Verified in light + dark via `/dev` previews (`chat-turn`,
+   `herleitung`, `confirm-dialog`).
+7. **Herleitung** — the collapsed reasoning trace is now a real streamed React
+   Flow node graph (framing → parallel source fan-out → assessment → branches),
+   responsive to a single-column chain on narrow widths; no overlapping
+   connectors.
+
+Everything below marked **[backlog]** is the prioritized remainder.
+
+---
+
+## Cross-cutting root cause: structural DRY
+
+The token layer is strong (shadows 100% on-token, zero emojis in UI, exemplary
+`SourceSignalChip`). The failure mode is **the same concept hand-rolled many
+times, each copy drifting slightly** — the root of most consistency findings.
+
+| Pattern | Inline copies | Primitive |
+|---|---|---|
+| Destructive confirm dialog | 5 copy-paste modals + 1 `window.confirm` | **`ConfirmDialog`** [done] |
+| Page header (`<header><h1>…`) | 15–16×, drifted 5 ways | `PageHeader` [backlog] |
+| Eyebrow / section label | ~39×, 4 tracking values | `SectionLabel` [backlog] |
+| Numeric stat tile | 11 sites, inconsistent `tabular-nums` | `StatCard`/`StatValue` [backlog] |
+| Project-section nav list | 2–3 drifted configs (rail ≠ ⌘K) | shared `PROJECT_SECTIONS` [backlog] |
+| Async load→error→skeleton→content | ~7× hand-rolled in admin cards | `useResource`/`AsyncCard` [backlog] |
+| Files vs Archiv workspace | ~80% duplicated | `useDocumentWorkspace` [backlog] |
+| Inline `Loader2` | ~75× (bypasses `Spinner` a11y) | adopt `Spinner` [backlog] |
+| Pill/chip variants | 9+ overlapping | fold into `Chip` + `SourceSignalChip` [backlog] |
+
+The doc↔code radius contradiction (doc says `rounded-lg`; primitives ship
+`rounded-2xl`/`rounded-3xl`; inline cards use 3 radii + 17 arbitrary
+`rounded-[Npx]`) is **[backlog]** — it needs one visual decision on a running
+app before changing 118 sites. Once `PageHeader` exists, the `text-2xl` vs
+documented `text-xl` title-size question becomes a single knob.
+
+---
+
+## Chat — the core value loop (priority)
+
+- **[done] P0 · Provenance colors hijacked to encode confidence.** `CONFIDENCE_SIGNAL`
+  painted high-confidence green and medium gold — the exact colors that mean
+  *Projektwissen* / *Büroarchiv* provenance everywhere else, laundering a model's
+  self-assessment in the visual language of sourced evidence. Now renders through
+  the shared neutral `ConfidenceChip`; `--source-*` is reserved for real citations.
+- **[done] P2 · Invisible failed-upload dot** (`bg-error` → `bg-danger`).
+- **[backlog] P0 · Answer is center-aligned** while its question (right) and
+  reasoning (left) are not — the peak moment is spatially orphaned and breaks the
+  left-aligned-assistant convention. High visual blast-radius; wants a
+  running-app look first.
+- **[backlog] P1 · No retry when an answer errors** (`ErrorBanner` is dismiss-only) —
+  add an `onRetry` wired to a last-user-message resend.
+- **[backlog] P1 · Empty state has a greeting but no example questions**;
+  **ungrounded answers hide their lack of sources** (render an honest
+  `--source-auto` gap row); **composer fully disabled while busy** (allow
+  drafting, gate only send); **`AgentPrompt` still uses old bubble anatomy**;
+  two source-chip vocabularies; `SIGNAL_ICON` defined 3×.
+- **[backlog] componentization** · `AgentResponse` inline/default variants
+  duplicate ~130 lines → `AnswerBody`/`ViewReportButton`/`AnswerProvenanceFooter`;
+  `ChatArea` per-turn derivation → `useTurnState`.
+
+## Navigation / shell / mobile
+
+- **[done] P1 · Orphaned `ConnectionPresenceIndicator`** — now mounted in the
+  sidebar + mobile drawer (was built, tested, never rendered).
+- **[backlog] P1 · Rail and ⌘K palette are two drifted nav configs** — ⌘K can't
+  reach Workflows; same destinations use different icons. Unify onto one shared
+  `PROJECT_SECTIONS`.
+- **[backlog] P1 · "Resume where you left off" is half-wired** — the section is
+  recorded on every nav (`useRecordProjectSection`) but every entry point
+  hardcodes `/chat`, and `useResumeProjectHref` has no callers. The project-card
+  inline comment cites spec §5 ("always lands on Chat"), which *contradicts*
+  resume — so this needs a product decision: wire `useResumeProjectHref` into the
+  card/switcher, or delete the write-only recording. Not guessed here.
+- **[backlog] P1 · Collapsed rail erases project identity** (switcher hidden when
+  collapsed); **Archiv is a context-ejecting doorway** with no divider.
+- **[backlog] M · Mobile touch targets < 44px** on the core loop (chat-toolbar
+  hamburger/history 32px, drawer gear 24px); **mobile drawer has no focus trap**;
+  top bar shows the section but not the project; **dead `heading` prop on
+  `OrgTopbar`**; two shell frames differ in height (h-16 vs h-14).
+
+## Project intake wizard
+
+- **[done] P0 · "Entwurf gespeichert" was a broken promise** — draft moved from
+  `sessionStorage` to `localStorage`.
+- **[done] P0 · Required fields carried no signal** — added the required marker.
+- **[backlog] P0 · Consistency check fires only at the very end** — run the
+  deterministic checks per-stage as calm in-context help; **no exit / save-and-
+  leave** (a room with one door, acute in edit mode).
+- **[backlog] componentization** · the 1601-line monolith → extract field
+  renderers, `BauwerkStage`, `ReviewStep`, `ConflictFindings`, `IntakeStepper`,
+  and `useIntakeDraft`/`useStageValidation`/`useIntakeSubmit`. Reuse the `Chip`
+  primitive instead of the hand-rolled `Segmented`/`ChipMultiSelect`. Share a
+  `FactGrid` between `project-brief` and the wizard Review.
+
+## Documents / knowledge / archiv
+
+- **[done] P0 · Status wording never said "citable"** — reworded from "Ready".
+- **[done] P1 · Chat File-Sources empty state was bare text** — now `EmptyState`.
+- **[backlog] P0 · Ingestion completion is silent** — the instant a document
+  becomes citable fires no confirmation; add a provenance-correct success toast.
+  Best landed with the `useDocumentWorkspace` extraction so it fires once across
+  both the project and Archiv workspaces (currently ~80% duplicated).
+- **[backlog] P0 · Grid has no live status once the client orchestrator is gone** —
+  a doc still ingesting server-side shows a "Processing" badge that never
+  advances; add polling / a refresh affordance.
+- **[backlog] P1 · Delete button is mis-composed** — `DeleteDocumentButton` is
+  authored `w-full mt-2` but rendered inline in an `items-center` header row;
+  move it to the metadata action column. Download-failure dead-end (no retry);
+  `Sparkles` leans generic-AI; semantic relevance UI is provenance-blind.
+- **[backlog] componentization** · `file-preview-pane` (663L) → `DocumentTagsSection`
+  + `usePreviewDocument`; Files/Archiv workspaces → `useDocumentWorkspace` +
+  `DocumentWorkspaceShell`.
+
+## Organization / platform admin (enterprise safety)
+
+- **[done] P1 · `window.confirm` for credential revoke** — now the shared
+  `ConfirmDialog`.
+- **[backlog] P0 · Turning OFF Zero-Data-Retention is a silent one-tap toggle** —
+  gate the *disable* path behind a consequence-spelling confirm (now trivial with
+  `ConfirmDialog`).
+- **[backlog] P1 · Runtime model rollback/reset applies instantly, whole-org, with
+  no confirm** (while the reversible authoring path *is* gated — inverted
+  friction); **ingestion polling ends silently after its ceiling**; **binding-OIB
+  delete has the same friction as any upload**; **norm editor is a 20-field wall**
+  (no progressive disclosure); **nested Card** violates the guardrail;
+  **credential/URL entry isn't forgiving** (untrimmed key, unnormalized base URL).
+- **[backlog] P2 · Page titles are `text-2xl`** (doc says `text-xl`); negative
+  budget limits silently swallowed; no unsaved-changes guard.
+- **[backlog] componentization** · shared `useResource`/`AsyncCard`,
+  `SettingsCard`, `ListRow`/`MicroStat`; split `base-knowledge` (814L),
+  `budget-usage-card` (706L), `norm-registry` (953L) into composition.
+
+---
+
+## Recommended follow-up sequence (post-this-pass)
+
+1. `ConfirmDialog` is now available → land the admin safety confirms (ZDR disable,
+   whole-org model rollback) — small, high-value.
+2. Chat: answer left-alignment + example-question chips + error-retry — with eyes
+   on a running app.
+3. `PageHeader` + `SectionLabel` + `StatCard` primitives, then roll out (settles
+   the title-size question as one knob).
+4. `useDocumentWorkspace` extraction → then the ingestion-completion toast + grid
+   live-status land once, for both workspaces.
+5. Intake per-stage consistency + save-and-leave, then the wizard componentization.
+6. Nav-config unification; mobile touch-target + focus-trap sweep; radius
+   source-of-truth decision.

@@ -13,11 +13,26 @@ export const files = {
     uploadFailed: 'Upload failed',
   },
   status: {
-    ready: 'Ready',
+    // "Citable" (not a bare "Ready") answers the one question that matters to a
+    // compliance user: the document is now in Piloti's knowledge and can be
+    // cited in an answer.
+    ready: 'Citable',
     processing: 'Processing',
     uploading: 'Uploading',
     failed: 'Failed',
     unknown: 'Unknown',
+  },
+  toast: {
+    // Fired the instant async ingestion finishes and the document becomes
+    // citable — the confirmation the completion moment previously lacked.
+    ingestionComplete: '“{name}” is now in Piloti’s knowledge — citable',
+  },
+  // Card thumbnail fallbacks: a warm placeholder chip when no thumbnail exists,
+  // and an honest "couldn't load" label for a genuine failure (never a broken
+  // image look). `image` is the generic chip when there is no file extension.
+  thumbnail: {
+    image: 'Image',
+    unavailable: 'Preview unavailable',
   },
   preview: {
     closePreview: 'Close preview',

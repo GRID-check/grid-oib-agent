@@ -2,9 +2,11 @@
 
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { toast } from 'sonner'
-import { AlertCircle, LayoutGrid, ListTree, RotateCcw, ShieldCheck, X } from 'lucide-react'
+import { AlertCircle, FileText, LayoutGrid, ListTree, RotateCcw, ShieldCheck, X } from 'lucide-react'
+import { sourceBase } from '@/lib/ui/source-tint'
 import { useProjectDocuments } from '../hooks/use-project-documents'
 import { useFileDragDrop } from '../hooks/use-file-drag-drop'
+import { useIngestionCompleteToast } from '../hooks/use-ingestion-complete-toast'
 import { FolderTreePane } from './folder-tree-pane'
 import { FileBrowserPane } from './file-browser-pane'
 import { FilePreviewDialog } from './file-preview-dialog'
@@ -165,6 +167,21 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
       lastToastedError.current = null
     }
   }, [error])
+
+  // Confirm the one moment that matters: the instant a document finishes async
+  // ingestion and becomes citable. Provenance-correct — project green + doc icon
+  // (spec §4, color never travels alone). Fires once per newly-completed file.
+  useIngestionCompleteToast(
+    files,
+    useCallback(
+      (file: FileItem) => {
+        toast.success(t('toast.ingestionComplete', { name: file.filename }), {
+          icon: <FileText className="size-4" style={{ color: sourceBase('project') }} aria-hidden />,
+        })
+      },
+      [t]
+    )
+  )
 
   // Refetch the corpus when an upload batch settles (covers non-orchestrated paths).
   const wasUploading = useRef(false)
@@ -350,7 +367,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
             through the chip row instead. All tree functionality (expand/collapse,
             selection, drill-in, create) is preserved. */}
         {view === 'tree' && (
-          <div className="max-h-48 w-full shrink-0 overflow-y-auto border-b md:max-h-none md:w-60 md:border-b-0 md:border-r">
+          <div className="max-h-72 w-full shrink-0 overflow-y-auto border-b md:max-h-none md:w-60 md:border-b-0 md:border-r">
             {foldersError ? (
               <PaneLoadError message={t('workspace.foldersLoadError')} onRetry={loadFolders} />
             ) : (
@@ -436,7 +453,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
 }
 
 /** One segment of the card/tree view toggle. */
-function ViewToggleButton({
+export function ViewToggleButton({
   active,
   onClick,
   label,
@@ -455,7 +472,7 @@ function ViewToggleButton({
       aria-label={label}
       title={label}
       className={cn(
-        'flex size-7 items-center justify-center rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        'flex size-10 items-center justify-center rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:size-7',
         active ? 'bg-accent text-foreground shadow-2xs' : 'text-muted-foreground hover:text-foreground'
       )}
     >

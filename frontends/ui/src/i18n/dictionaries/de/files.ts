@@ -15,11 +15,26 @@ export const files: typeof en.files = {
     uploadFailed: 'Upload fehlgeschlagen',
   },
   status: {
-    ready: 'Bereit',
+    // "Zitierbar" (nicht bloß "Bereit") beantwortet die entscheidende Frage:
+    // Das Dokument ist jetzt in Pilotis Wissen und kann zitiert werden.
+    ready: 'Zitierbar',
     processing: 'Wird verarbeitet',
     uploading: 'Wird hochgeladen',
     failed: 'Fehlgeschlagen',
     unknown: 'Unbekannt',
+  },
+  toast: {
+    // Sobald die asynchrone Verarbeitung abgeschlossen ist und das Dokument
+    // zitierbar wird – die bislang fehlende Bestätigung des Abschlusses.
+    ingestionComplete: '„{name}“ ist jetzt in Pilotis Wissen – zitierbar',
+  },
+  // Karten-Thumbnail-Fallbacks: ein warmer Platzhalter-Chip, wenn kein Thumbnail
+  // existiert, und ein ehrliches „konnte nicht geladen werden“ bei einem echten
+  // Fehler (nie ein Bild-kaputt-Look). `image` ist der generische Chip ohne
+  // Dateiendung.
+  thumbnail: {
+    image: 'Bild',
+    unavailable: 'Vorschau nicht verfügbar',
   },
   preview: {
     closePreview: 'Vorschau schließen',

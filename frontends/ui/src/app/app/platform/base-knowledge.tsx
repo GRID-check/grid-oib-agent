@@ -118,6 +118,10 @@ export function BaseKnowledge() {
   // Reactive (unlike watchRef) so the progress bar + per-file list re-render as
   // each one finishes indexing.
   const [watched, setWatched] = useState<string[]>([])
+  // Set when polling hits its ceiling with documents still indexing, so the
+  // progress affordance is replaced by a persistent, actionable notice rather
+  // than vanishing silently.
+  const [pollTimedOut, setPollTimedOut] = useState(false)
   const [lastUpload, setLastUpload] = useState<KnowledgeUploadResult | null>(null)
   const [isSyncing, setIsSyncing] = useState(false)
   const [isDragActive, setIsDragActive] = useState(false)
@@ -183,6 +187,7 @@ export function BaseKnowledge() {
       if (pollTimerRef.current) clearTimeout(pollTimerRef.current)
       watchRef.current = new Set(names)
       setWatched(names)
+      setPollTimedOut(false)
       if (watchRef.current.size === 0) return
 
       let polls = 0
@@ -195,10 +200,18 @@ export function BaseKnowledge() {
         } catch {
           // Transient fetch failure — keep trying until the poll ceiling.
         }
-        if (!isWorking(next, watchRef.current) || polls >= MAX_POLLS) {
+        const stillWorking = isWorking(next, watchRef.current)
+        if (!stillWorking || polls >= MAX_POLLS) {
           watchRef.current = new Set()
           pollTimerRef.current = null
-          setWatched([])
+          if (stillWorking) {
+            // Hit the ceiling while documents are still indexing. Keep the
+            // watched set so the progress affordance is swapped for a persistent
+            // notice (below) instead of silently disappearing.
+            setPollTimedOut(true)
+          } else {
+            setWatched([])
+          }
           return
         }
         pollTimerRef.current = setTimeout(() => void tick(), POLL_INTERVAL_MS)
@@ -632,7 +645,7 @@ export function BaseKnowledge() {
 
         {/* Live indexing progress — an aggregate 'N of M' bar plus, for a bulk
             ZIP, a per-file list that flips pending → indexed as each finishes. */}
-        {uploadProgress && (
+        {uploadProgress && !pollTimedOut && (
           <div className="flex flex-col gap-2.5 rounded-lg border border-border bg-card/50 p-3" data-testid="knowledge-upload-progress">
             <div className="flex items-center gap-2">
               <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" aria-hidden />
@@ -660,6 +673,30 @@ export function BaseKnowledge() {
               </ul>
             )}
           </div>
+        )}
+
+        {/* Polling ceiling reached while still indexing — a persistent, actionable
+            notice so the progress affordance never just vanishes. */}
+        {pollTimedOut && (
+          <Alert variant="info" data-testid="knowledge-poll-timeout">
+            <AlertCircle className="size-4" aria-hidden />
+            <AlertTitle>{t('knowledge.pollTimeoutTitle')}</AlertTitle>
+            <AlertDescription className="flex flex-col items-start gap-2">
+              <span>{t('knowledge.pollTimeoutDescription')}</span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  // Re-arm polling for the still-working documents and refresh now.
+                  startPolling(watched)
+                  void load()
+                }}
+              >
+                <RefreshCw className="size-3.5" aria-hidden />
+                {t('knowledge.pollTimeoutRefresh')}
+              </Button>
+            </AlertDescription>
+          </Alert>
         )}
 
         {/* ZIP member summary (accepted / rejected). */}

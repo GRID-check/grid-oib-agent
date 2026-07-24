@@ -80,7 +80,7 @@ interface ProjectIntakeWizardProps {
 
 type Answers = Record<string, ProjectPrimitiveValue>
 
-/** Shape of the autosaved intake draft persisted in sessionStorage. */
+/** Shape of the autosaved intake draft persisted in localStorage. */
 interface IntakeDraft {
   answers?: Answers
   bauwerke?: BauwerkInstance[]
@@ -180,6 +180,9 @@ export function ProjectIntakeWizard({
   const STORAGE_KEY = `intake-draft-${projectId}`
   const isEdit = mode === 'edit'
   const bwCounter = useRef(1)
+  // The active module-stepper button, scrolled into view whenever the step changes
+  // so the current pill never hides off the right edge on a narrow screen.
+  const activeStepRef = useRef<HTMLButtonElement | null>(null)
 
   // Load the definition, then restore a draft or prefill from the stored profile.
   useEffect(() => {
@@ -196,7 +199,7 @@ export function ProjectIntakeWizard({
 
         let restored = false
         try {
-          const raw = sessionStorage.getItem(STORAGE_KEY)
+          const raw = localStorage.getItem(STORAGE_KEY)
           if (raw) {
             const parsed = JSON.parse(raw) as IntakeDraft
             if (parsed.answers) {
@@ -216,7 +219,7 @@ export function ProjectIntakeWizard({
                 restored = true
               } else {
                 try {
-                  sessionStorage.removeItem(STORAGE_KEY)
+                  localStorage.removeItem(STORAGE_KEY)
                 } catch {
                   /* ignore */
                 }
@@ -262,7 +265,7 @@ export function ProjectIntakeWizard({
     if (loading) return
     const timer = setTimeout(() => {
       try {
-        sessionStorage.setItem(
+        localStorage.setItem(
           STORAGE_KEY,
           JSON.stringify({
             answers,
@@ -286,6 +289,21 @@ export function ProjectIntakeWizard({
       return () => clearTimeout(timer)
     }
   }, [draftSaved])
+
+  // Keep the active module pill visible: on a phone the A–H stepper is wider than
+  // the screen, so from module E on the current step would sit off the right edge.
+  useEffect(() => {
+    const el = activeStepRef.current
+    if (!el) return
+    const prefersReduced =
+      typeof window !== 'undefined' &&
+      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    el.scrollIntoView({
+      inline: 'center',
+      block: 'nearest',
+      behavior: prefersReduced ? 'auto' : 'smooth',
+    })
+  }, [currentStep])
 
   const stages = definition?.stages ?? []
   const totalSteps = stages.length
@@ -422,7 +440,7 @@ export function ProjectIntakeWizard({
       }
 
       try {
-        sessionStorage.removeItem(STORAGE_KEY)
+        localStorage.removeItem(STORAGE_KEY)
       } catch {
         /* ignore */
       }
@@ -568,42 +586,58 @@ export function ProjectIntakeWizard({
         </Alert>
       )}
 
-      {/* Module stepper (A–H) */}
-      <nav aria-label={t('intake.progressAria')} className="mb-6 -mx-1 overflow-x-auto px-1 pb-1">
-        <ol className="flex min-w-max items-start gap-1.5">
-          {stages.map((s, i) => {
-            const state = i < currentStep ? 'complete' : i === currentStep ? 'current' : 'upcoming'
-            const reachable = i <= currentStep
-            return (
-              <li key={s.id} className="flex w-20 shrink-0 flex-col items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => reachable && goToStep(i)}
-                  disabled={!reachable}
-                  aria-current={state === 'current' ? 'step' : undefined}
-                  className={cn(
-                    'flex size-7 shrink-0 items-center justify-center rounded-full border text-xs font-medium transition-colors',
-                    state === 'complete' && 'border-primary bg-primary text-primary-foreground',
-                    state === 'current' && 'border-primary text-primary ring-2 ring-ring/30',
-                    state === 'upcoming' && 'border-border text-muted-foreground',
-                    reachable && state !== 'current' && 'hover:border-primary/60',
-                  )}
-                >
-                  {state === 'complete' ? <Check className="size-3.5" aria-hidden /> : s.id}
-                </button>
-                <span
-                  className={cn(
-                    'w-full truncate text-center text-[11px] leading-tight',
-                    state === 'current' ? 'font-medium text-foreground' : 'text-muted-foreground',
-                  )}
-                >
-                  {s.title}
-                </span>
-              </li>
-            )
-          })}
-        </ol>
-      </nav>
+      {/* Module stepper (A–H). The edge fades signal that it scrolls horizontally. */}
+      <div className="relative mb-6">
+        <nav aria-label={t('intake.progressAria')} className="-mx-1 overflow-x-auto px-1 pb-1">
+          <ol className="flex min-w-max items-start gap-1.5">
+            {stages.map((s, i) => {
+              const state = i < currentStep ? 'complete' : i === currentStep ? 'current' : 'upcoming'
+              const reachable = i <= currentStep
+              return (
+                <li key={s.id} className="shrink-0">
+                  <button
+                    type="button"
+                    ref={state === 'current' ? activeStepRef : undefined}
+                    onClick={() => reachable && goToStep(i)}
+                    disabled={!reachable}
+                    aria-current={state === 'current' ? 'step' : undefined}
+                    className="group flex w-20 flex-col items-center gap-1.5 rounded-lg px-1 py-1.5 outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:cursor-default"
+                  >
+                    <span
+                      className={cn(
+                        'flex size-7 shrink-0 items-center justify-center rounded-full border text-xs font-medium transition-colors',
+                        state === 'complete' && 'border-primary bg-primary text-primary-foreground',
+                        state === 'current' && 'border-primary text-primary ring-2 ring-ring/30',
+                        state === 'upcoming' && 'border-border text-muted-foreground',
+                        reachable && state !== 'current' && 'group-hover:border-primary/60',
+                      )}
+                    >
+                      {state === 'complete' ? <Check className="size-3.5" aria-hidden /> : s.id}
+                    </span>
+                    <span
+                      className={cn(
+                        'w-full truncate text-center text-[11px] leading-tight',
+                        state === 'current' ? 'font-medium text-foreground' : 'text-muted-foreground',
+                      )}
+                    >
+                      {s.title}
+                    </span>
+                  </button>
+                </li>
+              )
+            })}
+          </ol>
+        </nav>
+        {/* Scroll-affordance fades at each edge. */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-y-0 left-0 w-4 bg-gradient-to-r from-background to-transparent"
+        />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-y-0 right-0 w-4 bg-gradient-to-l from-background to-transparent"
+        />
+      </div>
 
       <div className="mb-8 flex items-center justify-between gap-4">
         <Progress value={progress} className="h-1 flex-1" />
@@ -732,7 +766,7 @@ export function ProjectIntakeWizard({
           </Alert>
         )}
 
-        <div className="mt-10 flex items-center justify-between gap-4 border-t pt-6">
+        <div className="sticky bottom-0 z-20 -mx-4 mt-10 flex items-center justify-between gap-4 border-t bg-background/85 px-4 pt-4 backdrop-blur-md pb-[max(1rem,env(safe-area-inset-bottom))]">
           <Button
             type="button"
             variant="outline"
@@ -1391,6 +1425,12 @@ function QuestionHeader({ question, domId }: { question: ProjectIntakeQuestion; 
       <div className="flex items-baseline gap-2">
         <Label htmlFor={domId} className="text-sm font-medium">
           {question.label}
+          {/* Mark the handful of hard-required fields so they're distinguishable
+              from the ~90 soft ones BEFORE Next is pressed (error prevention),
+              mirroring the FieldShell required marker used elsewhere. */}
+          {question.required && (
+            <span aria-hidden className="text-destructive"> *</span>
+          )}
         </Label>
         {question.optional && (
           <span className="text-xs font-normal text-muted-foreground">{t('intake.optional')}</span>
@@ -1412,7 +1452,7 @@ function WhyDisclosure({ why }: { why: string }) {
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="inline-flex items-center gap-1 font-mono text-[11px] text-primary transition-colors hover:text-primary/80"
+        className="-my-2 inline-flex min-h-11 items-center gap-1 py-2 font-mono text-[11px] text-primary transition-colors hover:text-primary/80 md:my-0 md:min-h-0 md:py-0"
       >
         <ChevronDown className={cn('size-3 transition-transform', open && 'rotate-180')} aria-hidden />
         {t('intake.why')}
@@ -1512,9 +1552,12 @@ function Segmented({
             aria-pressed={active}
             onClick={() => onChange(opt.value)}
             className={cn(
-              'border-border transition-colors',
+              'inline-flex items-center justify-center border-border transition-colors',
               i > 0 && 'border-l',
-              size === 'sm' ? 'px-2.5 py-1.5 text-[11px] font-medium' : 'px-3.5 py-2 text-sm',
+              // Comfortable tap targets on touch screens; denser on desktop pointers.
+              size === 'sm'
+                ? 'min-h-9 px-3 text-xs font-medium md:min-h-8 md:px-2.5 md:text-[11px]'
+                : 'min-h-11 px-4 text-sm md:min-h-9 md:px-3.5',
               !active && 'bg-card text-foreground hover:bg-muted',
               active && tone === 'default' && 'bg-primary text-primary-foreground',
               active && tone === 'warning' && 'bg-warning text-white',
@@ -1550,7 +1593,7 @@ function ChipMultiSelect({
             aria-pressed={active}
             onClick={() => onChange(active ? value.filter((v) => v !== opt.value) : [...value, opt.value])}
             className={cn(
-              'rounded-full border px-3.5 py-1.5 text-sm transition-colors',
+              'inline-flex min-h-11 items-center justify-center rounded-full border px-4 py-1.5 text-sm transition-colors md:min-h-9 md:px-3.5',
               active
                 ? 'border-primary bg-primary text-primary-foreground'
                 : 'border-border bg-card text-foreground hover:border-primary/50 hover:bg-primary/5',

@@ -14,8 +14,19 @@
  */
 
 import type { JSX, ReactNode, SVGProps } from 'react'
+import { ImageIcon, ImageOff } from 'lucide-react'
 import type { DocumentKind } from '../document-kind'
 import { cn } from '@/lib/utils'
+
+/**
+ * Office-gold source tint for the image placeholder's format chip. Mirrors
+ * `TINTS.office` in `../document-kind` (photos map to the office family) so the
+ * colour never travels without an icon + label — never a lone glyph.
+ */
+const OFFICE_TINT = {
+  background: 'var(--source-office-tint, var(--background-color-feedback-warning-subtle))',
+  color: 'var(--source-office-text, var(--text-color-feedback-warning))',
+} as const
 
 type SvgProps = Omit<SVGProps<SVGSVGElement>, 'viewBox' | 'children'>
 
@@ -234,35 +245,15 @@ function NoticeFill() {
   )
 }
 
-/** Photo: warm tonal wash + camera glyph (no literal color — muted tokens). */
-function PhotoFill() {
-  return (
-    <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-muted via-muted to-muted-foreground/25">
-      <svg
-        width={26}
-        height={26}
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={1.6}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        className="text-muted-foreground/70"
-      >
-        <rect x={3} y={3} width={18} height={18} rx={2} />
-        <circle cx={9} cy={9} r={2} />
-        <path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21" />
-      </svg>
-    </div>
-  )
-}
-
 const FILLS: Record<DocumentKind, () => JSX.Element> = {
   floorplan: FloorPlanFill,
   section: SectionFill,
   siteplan: SitePlanFill,
   notice: NoticeFill,
-  photo: PhotoFill,
+  // Photos are handled specially in the fill branch (warm image placeholder
+  // with a format chip); this entry keeps the record type-complete but is never
+  // reached for `variant="fill"`.
+  photo: DocumentFill,
   document: DocumentFill,
 }
 
@@ -280,18 +271,78 @@ export function DocumentKindThumbnail({
   kind,
   className,
   variant = 'icon',
+  formatLabel,
+  failed = false,
+  failedLabel,
 }: {
   kind: DocumentKind
   className?: string
   variant?: 'icon' | 'fill'
+  /** Format/kind chip on the image placeholder (e.g. "PNG" / "Bild"). */
+  formatLabel?: string
+  /** A GENUINE load failure — a distinct, honest treatment (never a broken-image look). */
+  failed?: boolean
+  /** Label for the genuine-failure treatment (e.g. "Vorschau nicht verfügbar"). */
+  failedLabel?: string
 }) {
   if (variant === 'fill') {
+    // Genuine load failure: a distinct, muted "couldn't load" tile — never red,
+    // and clearly different from the "no thumbnail available" placeholders below.
+    if (failed) {
+      return (
+        <div
+          aria-hidden
+          data-kind={kind}
+          data-testid="document-kind-thumbnail"
+          data-state="failed"
+          className={cn(
+            'absolute inset-0 flex flex-col items-center justify-center gap-2 bg-muted text-muted-foreground/70',
+            className
+          )}
+        >
+          <ImageOff className="size-6 opacity-50" aria-hidden />
+          {failedLabel && (
+            <span className="px-3 text-center text-[10.5px] font-medium leading-tight">{failedLabel}</span>
+          )}
+        </div>
+      )
+    }
+
+    // An image with no thumbnail: a WARM, intentional placeholder — soft paper
+    // wash + image glyph + a format chip (icon travels WITH a label, office-gold
+    // family) — never a lone glyph that reads as a browser broken-image icon.
+    if (kind === 'photo') {
+      return (
+        <div
+          aria-hidden
+          data-kind={kind}
+          data-testid="document-kind-thumbnail"
+          data-state="placeholder"
+          className={cn(
+            'absolute inset-0 flex flex-col items-center justify-center gap-2.5 bg-gradient-to-br from-muted/40 via-muted/60 to-muted text-muted-foreground',
+            className
+          )}
+        >
+          <ImageIcon className="size-[26px] opacity-45" aria-hidden />
+          {formatLabel && (
+            <span
+              className="inline-flex items-center rounded-[6px] px-2 py-[3px] text-[10px] font-bold uppercase leading-none tracking-[0.04em]"
+              style={OFFICE_TINT}
+            >
+              {formatLabel}
+            </span>
+          )}
+        </div>
+      )
+    }
+
     const Fill = FILLS[kind] ?? DocumentFill
     return (
       <div
         aria-hidden
         data-kind={kind}
         data-testid="document-kind-thumbnail"
+        data-state="placeholder"
         className={cn(
           'absolute inset-0 text-muted-foreground',
           FILL_PADDED[kind] && 'px-[18px] py-[14px]',

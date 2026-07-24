@@ -47,7 +47,6 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from '@/components/ui/dialog'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Spinner } from '@/components/ui/spinner'
@@ -69,6 +68,8 @@ import { useAppConfig } from '@/shared/context'
 import { useTranslations } from '@/i18n'
 import { useFileUpload, useFileDragDrop } from '@/features/documents'
 import type { TrackedFile } from '@/features/documents'
+import { trackedFileToFileItem } from '@/features/documents/types'
+import { FilePreviewDialog } from '@/features/documents/components/file-preview-dialog'
 
 /** Preset chip order + their provenance signals (spec §4 --source-* family). */
 const SOURCE_PRESETS: Array<{ id: SourcePresetId; signal: SourcePresetId }> = [
@@ -254,37 +255,66 @@ const SourcesPopoverContent: FC = () => {
  * Inline removable file chip shown above the composer textarea. Live status:
  * spinner while uploading/ingesting, green check on success, red on failure
  * (failed chips also offer a retry). The ✕ deletes the file.
+ *
+ * A successful chip's icon+name form a button that opens the shared read-only
+ * FilePreviewDialog — the primary way back to an attached file, and on mobile
+ * (where the manage-files button is hidden) the main file-access path. Chips
+ * that are still uploading/ingesting or have failed are not openable (there is
+ * nothing to preview yet); their body stays inert and only retry/remove act.
  */
 const FileChip: FC<{
   file: TrackedFile
+  onOpen: (file: TrackedFile) => void
   onRemove: (id: string) => void
   onRetry: (id: string) => void
-}> = ({ file, onRemove, onRetry }) => {
+}> = ({ file, onOpen, onRemove, onRetry }) => {
   const t = useTranslations('research')
   const isPending = file.status === 'uploading' || file.status === 'ingesting'
   const isFailed = file.status === 'failed'
+  const isSuccess = file.status === 'success'
   const statusTitle = isPending
     ? t('inputArea.fileUploadingStatus')
     : isFailed
       ? file.errorMessage || t('inputArea.fileFailedStatus')
       : t('inputArea.fileReadyStatus')
 
+  const statusIcon = isPending ? (
+    <Loader2 className="text-muted-foreground size-3 shrink-0 animate-spin" aria-hidden="true" />
+  ) : isFailed ? (
+    // A distinct glyph (not a bare red dot) so the failure carries a shape, not
+    // color alone — plus an sr-only label so it isn't inferred only from color.
+    <>
+      <XCircle className="text-destructive size-3 shrink-0" aria-hidden="true" />
+      <span className="sr-only">{t('inputArea.fileFailedStatus')}</span>
+    </>
+  ) : (
+    <Check className="text-status-active size-3 shrink-0" aria-hidden="true" />
+  )
+
   return (
     <span
       className={cn(
-        'bg-card inline-flex h-7 max-w-[200px] items-center gap-1.5 rounded-md border px-2 text-[12px]',
+        'bg-card inline-flex h-7 max-w-[200px] shrink-0 items-center gap-1.5 rounded-md border px-2 text-[12px]',
         isFailed && 'border-error/50'
       )}
       title={`${file.fileName} — ${statusTitle}`}
     >
-      {isPending ? (
-        <Loader2 className="text-muted-foreground size-3 shrink-0 animate-spin" aria-hidden="true" />
-      ) : isFailed ? (
-        <span className="bg-error size-2 shrink-0 rounded-full" aria-hidden="true" />
+      {isSuccess ? (
+        <button
+          type="button"
+          onClick={() => onOpen(file)}
+          aria-label={t('inputArea.openFile', { name: file.fileName })}
+          className="text-foreground/85 focus-visible:ring-ring/50 flex min-w-0 flex-1 items-center gap-1.5 rounded-sm focus-visible:outline-none focus-visible:ring-2"
+        >
+          {statusIcon}
+          <span className="min-w-0 truncate">{file.fileName}</span>
+        </button>
       ) : (
-        <Check className="text-status-active size-3 shrink-0" aria-hidden="true" />
+        <span className="flex min-w-0 flex-1 items-center gap-1.5">
+          {statusIcon}
+          <span className="text-foreground/85 min-w-0 truncate">{file.fileName}</span>
+        </span>
       )}
-      <span className="text-foreground/85 min-w-0 truncate">{file.fileName}</span>
       {isFailed && (
         <button
           type="button"
@@ -342,6 +372,14 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   const tChat = useTranslations('chat')
   const [message, setMessage] = useState('')
 
+  // Attached-file preview (read-only): a successful chip opens the shared
+  // FilePreviewDialog for its file. Also the primary file-access path on mobile.
+  const [previewFile, setPreviewFile] = useState<TrackedFile | null>(null)
+  // Manage-files dialog/sheet open state — driven by BOTH the desktop button and
+  // the mobile "N Dateien verwalten" text entry, so it is controlled (not
+  // trigger-bound) and one dialog instance serves both breakpoints.
+  const [manageFilesOpen, setManageFilesOpen] = useState(false)
+
   // File input ref for attachment button
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -360,6 +398,11 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   // Get current conversation for filtering files and ensureSession for auto-creation
   const currentConversation = useChatStore((state) => state.currentConversation)
   const ensureSession = useChatStore((state) => state.ensureSession)
+  // The real "new session" action — the same one the logo / new-session path in
+  // MainLayout uses (startNewSessionDraft). Wired to the post-research
+  // "Neue Sitzung starten" button so the completed-report dead-end becomes a
+  // forward action instead of a no-op explanation popover.
+  const startNewSessionDraft = useChatStore((state) => state.startNewSessionDraft)
 
   // One-shot composer prefill from deep links (?ask=) and welcome-screen chips.
   const composerPrefill = useChatStore((state) => state.composerPrefill)
@@ -471,6 +514,15 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     setRespondToInteractionFn(respondToInteraction)
     return () => setRespondToInteractionFn(null)
   }, [respondToInteraction, setRespondToInteractionFn])
+
+  // Register the live send path so components that do not own the socket (e.g.
+  // the "Erneut versuchen" retry on an errored answer in ChatArea) can resend
+  // the last user message. Mirrors the respondToInteractionFn registration.
+  const setChatSendFn = useChatStore((state) => state.setChatSendFn)
+  useEffect(() => {
+    setChatSendFn(sendMessage)
+    return () => setChatSendFn(null)
+  }, [sendMessage, setChatSendFn])
 
   // Layout store — individual selectors for minimal re-render surface
   const enabledDataSourceIds = useLayoutStore((s) => s.enabledDataSourceIds)
@@ -639,6 +691,14 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     t,
   ])
 
+  // Post-research forward action: start a fresh session draft (the real
+  // new-session path) so the user can ask follow-ups after a completed report,
+  // instead of being stuck at a locked composer with a no-op explanation.
+  const handleStartNewSession = useCallback(() => {
+    startNewSessionDraft()
+    setMessage('')
+  }, [startNewSessionDraft])
+
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
       if (e.key !== 'Enter') return
@@ -753,7 +813,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           // chat plane). No hard border — the field reads as a calm surface, and
           // focus is signalled by a subtle focus-within ring instead of an
           // outline. Textarea on top, hairline-separated control row below.
-          'bg-card focus-within:ring-ring/40 relative flex flex-col rounded-xl px-4 py-[14px] shadow-sm transition-[box-shadow,border-color] duration-200 ease-out focus-within:ring-2',
+          'bg-card focus-within:ring-ring/40 relative flex flex-col rounded-xl px-4 py-2.5 shadow-sm transition-[box-shadow,border-color] duration-200 ease-out focus-within:ring-2',
           isDisabledByAuth && 'opacity-60',
           isDragging && isUnsupportedDrag
             ? 'border-2 border-error border-dashed'
@@ -793,11 +853,19 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
         {/* Inline file chips — one per attached file, above the textarea.
             Live status dot/spinner, retry on failure, ✕ to remove. */}
         {sessionFiles.length > 0 && (
-          <div className="mb-2 flex flex-wrap gap-1.5" aria-label={t('inputArea.manageFiles')}>
+          <div
+            // Horizontal scroll strip with a soft right-edge fade so an
+            // overflowing chip dissolves instead of hard-clipping — and the fade
+            // quietly signals there is more to scroll. The mask self-hides when
+            // the chips don't reach the edge (nothing there to fade).
+            className="mb-2 flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [mask-image:linear-gradient(to_right,black_calc(100%_-_24px),transparent)] [scrollbar-width:none] [-webkit-mask-image:linear-gradient(to_right,black_calc(100%_-_24px),transparent)] [&::-webkit-scrollbar]:hidden"
+            aria-label={t('inputArea.manageFiles')}
+          >
             {sessionFiles.map((file) => (
               <FileChip
                 key={file.id}
                 file={file}
+                onOpen={setPreviewFile}
                 onRemove={deleteFile}
                 onRetry={retryFile}
               />
@@ -805,12 +873,32 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           </div>
         )}
 
+        {/* Mobile-only entry to the full manage-files sheet. The desktop
+            manage-files button is hidden on phones (the action row stays one
+            line), so this compact text link — under the chip strip, only when
+            files exist — is the phone user's way to the browse/upload/delete
+            list. Not another chip in the action row (keeps it un-bulked). */}
+        {attachedFilesCount > 0 && (
+          <button
+            type="button"
+            onClick={() => setManageFilesOpen(true)}
+            className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 mb-2 self-start rounded-sm text-[12px] font-medium underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 sm:hidden"
+          >
+            {t('inputArea.manageFilesMobile', { count: attachedFilesCount })}
+          </button>
+        )}
+
         {/* Text Input */}
         <Textarea
           ref={textareaRef}
           // text-base (16px) below md keeps iOS Safari from zooming the page
           // when the composer gains focus; desktop keeps the tighter 14.5px.
-          className="max-h-52 min-h-[52px] resize-none border-0 bg-transparent px-1.5 py-1 text-base leading-[1.55] shadow-none focus-visible:ring-0 md:text-[14.5px]"
+          // The composer CARD signals focus with its focus-within ring (see the
+          // card class above), so the textarea shows no ring/border/outline of
+          // its own. `outline-hidden!` beats the app's global :focus-visible
+          // outline (globals.css, unlayered) with an important utility — otherwise
+          // focus is drawn twice: a nested box inside the card's ring.
+          className="max-h-52 min-h-[40px] resize-none border-0 bg-transparent px-1.5 py-1 text-base leading-[1.5] shadow-none outline-none! focus-visible:ring-0 md:text-[14.5px]"
           value={message}
           onChange={(e) => handleValueChange(e.target.value)}
           onKeyDown={handleKeyDown}
@@ -853,7 +941,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
         {/* Bottom control row — hairline-separated from the textarea.
             Order per the click dummy: scope · Datengrundlage · Deep-Research,
             then attach + send pushed right. */}
-        <div className="mt-[14px] flex flex-wrap items-center gap-1.5 border-t pt-[14px]">
+        <div className="mt-2.5 flex flex-wrap items-center gap-1.5 border-t pt-2.5">
           {/* Scope chip — current project; cross-project is honestly disabled.
               Dashed status-active dot + label + chevron (dummy composer). */}
           <Popover>
@@ -863,12 +951,12 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                 disabled={isDisabledByAuth}
                 aria-label={tChat('composer.scopeAria', { project: scopeLabel })}
                 title={tChat('composer.scopeAria', { project: scopeLabel })}
-                className="bg-card shadow-xs hover:bg-accent focus-visible:ring-ring/50 inline-flex h-8 min-w-0 items-center gap-[7px] rounded-md border px-[11px] transition-colors focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50"
+                className="bg-card shadow-xs hover:bg-accent focus-visible:ring-ring/50 inline-flex h-8 min-w-0 items-center gap-[7px] rounded-lg border px-[11px] transition-colors focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <span className="border-status-active flex size-[14px] shrink-0 items-center justify-center rounded-full border border-dashed">
                   <span className="bg-status-active size-[5px] rounded-full" />
                 </span>
-                <span className="text-foreground/85 max-w-44 truncate text-[12.5px] font-medium">
+                <span className="text-foreground/85 hidden max-w-44 truncate text-[12.5px] font-medium sm:inline">
                   {scopeLabel}
                 </span>
                 <ChevronDown className="text-muted-foreground size-3 shrink-0" aria-hidden="true" />
@@ -920,10 +1008,10 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                   total: totalSourcesCount,
                 })}
                 title={t('inputArea.selectedConnections')}
-                className="bg-card text-muted-foreground shadow-xs hover:bg-accent focus-visible:ring-ring/50 inline-flex h-8 shrink-0 items-center gap-[7px] rounded-md border px-[11px] text-[12.5px] transition-colors focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50"
+                className="bg-card text-muted-foreground shadow-xs hover:bg-accent focus-visible:ring-ring/50 inline-flex h-8 shrink-0 items-center gap-[7px] rounded-lg border px-[11px] text-[12.5px] transition-colors focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Layers className="size-3.5 shrink-0" aria-hidden="true" />
-                <span>{tChat('composer.sources')}</span>
+                <span className="hidden sm:inline">{tChat('composer.sources')}</span>
                 <span className="bg-muted text-foreground/80 inline-flex h-4 min-w-4 items-center justify-center rounded-md px-1 text-[10.5px] font-semibold tabular-nums">
                   {enabledSourcesCount}
                 </span>
@@ -959,7 +1047,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
             disabled={isDisabledByAuth}
             onClick={() => setDeepResearchIntent(!deepResearchIntent)}
             className={cn(
-              'inline-flex h-8 shrink-0 cursor-pointer items-center gap-[7px] rounded-md border px-3 text-[12.5px] font-medium transition-[color,background-color,box-shadow] duration-200 ease-out',
+              'inline-flex h-8 shrink-0 cursor-pointer items-center gap-[7px] rounded-lg border px-3 text-[12.5px] font-medium transition-[color,background-color,box-shadow] duration-200 ease-out',
               'focus-visible:ring-ring/50 focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50',
               deepResearchIntent
                 ? 'border-primary bg-primary text-primary-foreground shadow-xs'
@@ -967,7 +1055,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
             )}
           >
             <ZoomIn className="size-3.5" aria-hidden="true" />
-            <span>{tChat('composer.deepResearch')}</span>
+            <span className="hidden sm:inline">{tChat('composer.deepResearch')}</span>
           </button>
 
           {/* Right Actions: manage-files, attach, submit — pushed right */}
@@ -976,33 +1064,28 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                 (browse, upload zone, per-file delete). Replaces the old
                 right-panel toggle. Shown only when files exist. */}
             {attachedFilesCount > 0 && (
-              <Dialog>
-                <DialogTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="text-muted-foreground h-8 rounded-lg px-2.5"
-                    disabled={isDisabledByAuth || !knowledgeLayerAvailable}
-                    aria-label={t('inputArea.manageFilesCount', { count: attachedFilesCount })}
-                    title={
-                      knowledgeLayerAvailable
-                        ? t('inputArea.manageFiles')
-                        : t('inputArea.uploadNotAvailable')
-                    }
-                  >
-                    <FileText className="size-3" aria-hidden="true" />
-                    <span className="text-xs font-semibold">{attachedFilesCount}</span>
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="max-w-lg">
-                  <DialogHeader>
-                    <DialogTitle>{t('inputArea.manageFiles')}</DialogTitle>
-                  </DialogHeader>
-                  <div className="flex max-h-[60vh] flex-col overflow-y-auto">
-                    <FileSourcesTab />
-                  </div>
-                </DialogContent>
-              </Dialog>
+              <Button
+                variant="ghost"
+                size="sm"
+                // Redundant with the inline file chips (status + retry + remove)
+                // on a narrow composer — hidden on mobile so the action row
+                // stays one clean line; the FileSourcesTab dialog it opens
+                // (browse + upload zone) remains available on wider viewports.
+                // Mobile reaches the same dialog via the "manage" text entry
+                // under the chip strip.
+                className="text-muted-foreground hidden h-8 rounded-lg px-2.5 sm:inline-flex"
+                disabled={isDisabledByAuth || !knowledgeLayerAvailable}
+                onClick={() => setManageFilesOpen(true)}
+                aria-label={t('inputArea.manageFilesCount', { count: attachedFilesCount })}
+                title={
+                  knowledgeLayerAvailable
+                    ? t('inputArea.manageFiles')
+                    : t('inputArea.uploadNotAvailable')
+                }
+              >
+                <FileText className="size-3" aria-hidden="true" />
+                <span className="text-xs font-semibold">{attachedFilesCount}</span>
+              </Button>
             )}
 
             {/* Hidden file input */}
@@ -1020,7 +1103,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
             <Button
               variant="ghost"
               size="icon"
-              className="text-subtle size-[34px] rounded-[10px]"
+              className="text-subtle size-[34px] rounded-lg"
               onClick={handleAttachClick}
               disabled={isDisabledByAuth || isUploading || isBusy || !knowledgeLayerAvailable}
               aria-label={t('inputArea.attachFiles')}
@@ -1039,21 +1122,30 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                 Exception: isResponseMode always shows the normal send button so users can
                 submit HITL responses (approve/reject) even during active research. */}
             {isResearchSessionSuccessful && !isResponseMode ? (
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button
-                    size="icon"
-                    className="size-9 rounded-lg shadow-md"
-                    aria-label={t('inputArea.researchCompletedAria')}
-                    title={t('inputArea.researchCompleted')}
-                  >
-                    <ArrowUp className="h-4 w-4" aria-hidden="true" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent side="top" align="end" className="w-auto max-w-xs p-3">
-                  <p className="text-sm">{t('inputArea.researchCompletedPopover')}</p>
-                </PopoverContent>
-              </Popover>
+              // Completed research is a dead-end for the locked composer: replace
+              // the old no-op explanation popover with an explicit forward action
+              // that starts a fresh session (the real new-session path). A short
+              // helper line below the composer carries the "why" the popover used
+              // to hide.
+              <motion.div
+                className="inline-flex"
+                whileTap={{ scale: 0.94 }}
+                transition={springSnappy}
+                tabIndex={-1}
+              >
+                <Button
+                  size="sm"
+                  className="h-9 gap-1.5 rounded-lg px-3 shadow-md"
+                  onClick={handleStartNewSession}
+                  aria-label={t('inputArea.startNewSession')}
+                  title={t('inputArea.startNewSession')}
+                >
+                  <RotateCw className="size-3.5" aria-hidden="true" />
+                  <span className="text-[12.5px] font-semibold">
+                    {t('inputArea.startNewSession')}
+                  </span>
+                </Button>
+              </motion.div>
             ) : isResearchSessionInProgress && !isResponseMode ? (
               <Popover>
                 <PopoverTrigger asChild>
@@ -1149,13 +1241,40 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
             {tChat('composer.deepResearchHint')}
           </p>
         )}
+
+        {/* Post-research helper line — the explanation that used to live in the
+            (no-op) send popover, now always visible next to the "Neue Sitzung
+            starten" action so the completed-report lock is understandable. */}
+        {isResearchSessionSuccessful && !isResponseMode && (
+          <p className="text-muted-foreground mt-2 text-xs leading-relaxed" role="note">
+            {t('inputArea.researchCompletedPopover')}
+          </p>
+        )}
       </div>
+
+      {/* Mobile scope cue: on phones the scope / Datengrundlage / Deep-Research
+          labels collapse to bare icons (to keep the action row one compact
+          line), so a mobile user can't tell what sources are active or that
+          scoping exists. A tiny, mobile-only line under the composer keeps the
+          active source count legible without re-bulking the action row. Shown on
+          the empty thread (first-run), where learning the scope matters most. */}
+      {isEmptyThread && !isDisabledByAuth && enabledSourcesCount > 0 && (
+        <p
+          className="text-muted-foreground mt-1.5 flex items-center justify-center gap-1.5 text-[11px] sm:hidden"
+          role="note"
+        >
+          <Layers className="size-3 shrink-0 opacity-70" aria-hidden="true" />
+          <span>{tChat('composer.sourcesActiveMobile', { count: enabledSourcesCount })}</span>
+        </p>
+      )}
 
       {/* Shortcut preset chips (empty thread only): map onto the REAL data
           sources in the store — see lib/source-presets.ts. */}
       {isEmptyThread && !isDisabledByAuth && (
         <div
-          className="mt-[18px] flex flex-wrap items-center justify-center gap-2"
+          // Shortcuts are a desktop affordance — hidden on mobile, where they
+          // only add vertical bulk under an already space-constrained composer.
+          className="mt-[18px] hidden flex-wrap items-center justify-center gap-2 sm:flex"
           role="group"
           aria-label={tChat('shortcuts.label')}
         >
@@ -1192,6 +1311,38 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           <span>{t('inputArea.aiDisclosure')}</span>
         </p>
       </div>
+
+      {/* Manage-files dialog — one controlled instance shared by the desktop
+          button and the mobile text entry. Mobile: a bottom sheet that slides up
+          (85dvh, rounded top, safe-area padding). Desktop (sm+): the standard
+          centered dialog. The FileSourcesTab inside is the full browse / upload /
+          per-file open+delete surface. */}
+      <Dialog open={manageFilesOpen} onOpenChange={setManageFilesOpen}>
+        <DialogContent
+          className={cn(
+            'flex max-w-full flex-col gap-0 rounded-b-none rounded-t-2xl p-0',
+            'bottom-0 left-0 top-auto translate-x-0 translate-y-0',
+            'h-[85dvh] max-h-[85dvh]',
+            'sm:bottom-auto sm:left-[50%] sm:top-[50%] sm:h-auto sm:max-h-[calc(100dvh-2rem)] sm:max-w-lg sm:translate-x-[-50%] sm:translate-y-[-50%] sm:rounded-3xl sm:p-6'
+          )}
+        >
+          <DialogHeader className="border-b px-4 py-3 text-left sm:border-0 sm:p-0">
+            <DialogTitle>{t('inputArea.manageFiles')}</DialogTitle>
+          </DialogHeader>
+          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-2 sm:px-0 sm:pb-0 sm:pt-2">
+            <FileSourcesTab />
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Read-only preview of an attached file, opened from a successful chip.
+          Read-only (canManage=false): the composer is not a management surface —
+          that is what the manage-files dialog above is for. */}
+      <FilePreviewDialog
+        file={previewFile ? trackedFileToFileItem(previewFile) : null}
+        canManage={false}
+        onClose={() => setPreviewFile(null)}
+      />
     </div>
   )
 })

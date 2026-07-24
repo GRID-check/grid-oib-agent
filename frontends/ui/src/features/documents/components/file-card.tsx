@@ -12,6 +12,7 @@ import { extChipTint, fileExtensionLabel, inferDocumentKind } from '../document-
 import { DocumentKindThumbnail } from './document-kind-thumbnail'
 import { DocumentStatusBadge } from './document-status'
 import { SemanticMatch } from './semantic-match'
+import { Skeleton } from '@/components/ui/skeleton'
 
 /** Provenance tint per corpus, from the shared `--source-*` token family. */
 const SOURCE_TINT: Record<'projekt' | 'buero', CSSProperties> = {
@@ -19,46 +20,114 @@ const SOURCE_TINT: Record<'projekt' | 'buero', CSSProperties> = {
   buero: sourceTint('office'),
 }
 
+/** Thumbnail request lifecycle for a single card. */
+type ThumbState = 'loading' | 'ready' | 'none' | 'error'
+
 /**
- * Lazy-load the thumbnail image for a file card, falling back to the
- * content-aware SVG sketch when no thumbnail exists or on error. The
- * `/api/documents/{id}/thumbnail` route is scope-aware, so this serves both
+ * Module-level de-dup cache — one thumbnail resolution per file id for the page
+ * lifetime, mirroring the `indexCache` pattern in `use-surfaced-documents`. It
+ * stops the request thrashing when a card's file object is remapped each render.
+ * A genuine failure rejects and is evicted so a later mount can retry; a
+ * resolved "no thumbnail" (null url) stays cached.
+ */
+const thumbnailCache = new Map<string, Promise<string | null>>()
+
+/** Test hook — clears the module cache between specs. */
+export const resetThumbnailCache = (): void => {
+  thumbnailCache.clear()
+}
+
+/**
+ * Resolve a file's thumbnail url. `/api/documents/{id}/thumbnail` returns 200
+ * with `{ url: null }` (or 404) when no thumbnail exists — that's NOT a failure,
+ * it resolves to `null`. Any other non-ok status (5xx, network) rejects into the
+ * genuine-error state so the card can tell "no thumbnail" from "failed to load".
+ */
+function loadThumbnail(fileId: string): Promise<string | null> {
+  const existing = thumbnailCache.get(fileId)
+  if (existing) return existing
+  const promise = fetch(`/api/documents/${fileId}/thumbnail`)
+    .then((r) => {
+      if (!r.ok) {
+        if (r.status === 404) return null
+        throw new Error(`thumbnail ${r.status}`)
+      }
+      return r.json()
+    })
+    .then((data) => (data && typeof data.url === 'string' ? data.url : null))
+  // Evict a rejected resolution so a later mount can retry (successes stay cached).
+  promise.catch(() => thumbnailCache.delete(fileId))
+  thumbnailCache.set(fileId, promise)
+  return promise
+}
+
+/**
+ * Lazy-load the thumbnail image for a file card. While the request is in flight
+ * a skeleton shows (never a jump straight to the fallback). When no thumbnail
+ * exists it falls back to a WARM, content-aware placeholder — an image gets a
+ * soft tile + format chip, never a lone glyph that mimics a broken image. Only a
+ * GENUINE failure (5xx / network / broken image url) shows a distinct
+ * "couldn't load" treatment. The route is scope-aware, so this serves both
  * project uploads and Büroarchiv documents by id.
  */
 export function ThumbnailWithFallback({ file }: { file: FileItem }) {
-  const [imgUrl, setImgUrl] = useState<string | null>(null)
-  const [imgError, setImgError] = useState(false)
+  const t = useTranslations('files')
   const kind = inferDocumentKind(file)
   const canHaveThumbnail = file.contentType === 'application/pdf' || (file.contentType ?? '').startsWith('image/')
+  const [state, setState] = useState<ThumbState>(canHaveThumbnail ? 'loading' : 'none')
+  const [imgUrl, setImgUrl] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!canHaveThumbnail) return
+    if (!canHaveThumbnail) {
+      setState('none')
+      return
+    }
     let cancelled = false
-    fetch(`/api/documents/${file.id}/thumbnail`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (!cancelled && data?.url) setImgUrl(data.url)
+    setState('loading')
+    loadThumbnail(file.id)
+      .then((url) => {
+        if (cancelled) return
+        if (url) {
+          setImgUrl(url)
+          setState('ready')
+        } else {
+          setState('none')
+        }
       })
       .catch(() => {
-        /* fallback to SVG sketch */
+        if (!cancelled) setState('error')
       })
     return () => {
       cancelled = true
     }
   }, [file.id, canHaveThumbnail])
 
-  if (imgUrl && !imgError) {
+  if (state === 'ready' && imgUrl) {
     return (
       <img
         src={imgUrl}
         alt=""
         className="absolute inset-0 h-full w-full object-cover"
-        onError={() => setImgError(true)}
+        // A url that resolves but won't render is a genuine failure, not "no thumbnail".
+        onError={() => setState('error')}
       />
     )
   }
 
-  return <DocumentKindThumbnail kind={kind} variant="fill" />
+  if (state === 'loading') {
+    return <Skeleton className="absolute inset-0 h-full w-full rounded-none" data-testid="thumbnail-skeleton" />
+  }
+
+  const ext = fileExtensionLabel(file.filename)
+  return (
+    <DocumentKindThumbnail
+      kind={kind}
+      variant="fill"
+      formatLabel={ext || t('thumbnail.image')}
+      failed={state === 'error'}
+      failedLabel={t('thumbnail.unavailable')}
+    />
+  )
 }
 
 export interface FileCardProps {

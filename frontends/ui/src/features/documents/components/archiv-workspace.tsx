@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { sourceTint } from '@/lib/ui/source-tint'
+import { sourceBase, sourceTint } from '@/lib/ui/source-tint'
 import { AlertCircle, Archive, RotateCcw, X } from 'lucide-react'
 import type { FileItem } from './project-file-workspace'
 import { useArchivDocuments } from '../hooks/use-archiv-documents'
 import { useFileDragDrop } from '../hooks/use-file-drag-drop'
+import { useIngestionCompleteToast } from '../hooks/use-ingestion-complete-toast'
 import { ArchivLibraryPane } from './archiv-library-pane'
 import { FilePreviewDialog } from './file-preview-dialog'
 import { DeleteDocumentButton } from './delete-document-button'
@@ -110,6 +111,21 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
     }
     if (!error) lastToastedError.current = null
   }, [error])
+
+  // Confirm the instant a document finishes async ingestion and becomes citable.
+  // Provenance-correct for the office Archiv — gold + archive-box icon (spec §4,
+  // color never travels alone). Fires once per newly-completed file.
+  useIngestionCompleteToast(
+    files,
+    useCallback(
+      (file: FileItem) => {
+        toast.success(t('toast.ingestionComplete', { name: file.filename }), {
+          icon: <Archive className="size-4" style={{ color: sourceBase('office') }} aria-hidden />,
+        })
+      },
+      [t]
+    )
+  )
 
   // Refetch the durable list when an upload batch settles.
   const wasUploading = useRef(false)

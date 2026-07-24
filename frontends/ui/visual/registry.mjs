@@ -12,26 +12,126 @@
 
 export const SCREENSHOT_TARGETS = [
   {
+    id: 'herleitung',
+    mobile: true,
+    path: '/dev/herleitung',
+    description:
+      'Herleitung reasoning trace, expanded — the React Flow node graph (framing → parallel sources → assessment) wired into the real ChatThinking.',
+    waitFor: '.react-flow__node',
+  },
+  {
+    id: 'herleitung-branches',
+    mobile: true,
+    path: '/dev/herleitung?variant=branches',
+    description:
+      'Herleitung with a live choice prompt and NO findings — the parallel sources fan IN to the branches node directly (per-source handles); long question + four options exercise the measured, content-driven layout.',
+    waitFor: '.react-flow__node',
+  },
+  {
+    id: 'chat-turn',
+    mobile: true,
+    path: '/dev/chat-turn',
+    description:
+      'A chat turn at both transition endpoints — a LIVE turn (Herleitung auto-expanded, reasoning graph streaming, answer absent) and a COMPLETED turn (Herleitung collapsed to the one-line bar, cited "Ergebnis" answer card dominant, sources+confidence once) — desktop + mobile.',
+    // Wait for the LIVE turn's reasoning graph to mount before capturing.
+    waitFor: '.react-flow__node',
+  },
+  {
+    id: 'composer',
+    mobile: true,
+    path: '/dev/composer',
+    description:
+      'The chat composer (real InputArea, backend-free) in its empty-thread state — textarea, scope/sources/deep-research controls, attach + send — desktop + mobile.',
+    waitFor: '[data-testid="composer-preview"]',
+  },
+  {
+    id: 'composer-files',
+    mobile: true,
+    path: '/dev/composer-files',
+    description:
+      'The chat composer with files attached (ready / ingesting / failed) — clickable inline FileChips, manage-files button, mobile "manage" text entry, per-file retry/remove — desktop + mobile.',
+    waitFor: '[data-testid="composer-files-preview"]',
+  },
+  {
+    id: 'composer-files-preview',
+    mobile: true,
+    path: '/dev/composer-files?state=preview',
+    description:
+      'The shared read-only FilePreviewDialog opened from a successful composer file chip (canManage=false) — desktop split vs. mobile full-screen sheet.',
+    waitFor: '[role="dialog"]',
+  },
+  {
+    id: 'composer-files-sheet',
+    mobile: true,
+    path: '/dev/composer-files?state=sheet',
+    description:
+      'The mobile FileSourcesTab bottom-sheet (manage attached files) — slide-up sheet with per-file open + delete rows.',
+    waitFor: '[role="dialog"]',
+  },
+  {
+    id: 'composer-research-done',
+    mobile: true,
+    path: '/dev/composer-files?state=research-done',
+    description:
+      'The post-research composer: after a SUCCESSFUL research run the field is locked and the send slot becomes an explicit "Neue Sitzung starten" forward action (replacing the old no-op explanation popover), with a helper line — desktop + mobile.',
+    waitFor: '[data-testid="composer-files-preview"]',
+  },
+  {
+    id: 'chat-welcome',
+    mobile: true,
+    path: '/dev/chat-welcome',
+    description:
+      'The authenticated empty chat state (real ChatArea WelcomeState) — greeting, the one-line subtitle telling first-timers that answers cite their sources, and the example-question chips — desktop + mobile.',
+    waitFor: 'h1',
+  },
+  {
+    id: 'confirm-dialog',
+    mobile: true,
+    path: '/dev/confirm-dialog',
+    description: 'Shared destructive ConfirmDialog (backs admin confirms + delete modals), shown open.',
+    waitFor: '[role="alertdialog"], [role="dialog"]',
+  },
+  {
     id: 'document-grid',
+    mobile: true,
     path: '/dev/document-grid',
     description: 'Chat document_grid surfacing card — real project + Büroarchiv files as preview cards.',
     // Wait for the real card to mount and its resolution fetch to settle.
     waitFor: '[data-testid="document-grid-card"]',
   },
   {
+    id: 'intake',
+    mobile: true,
+    path: '/dev/intake',
+    description:
+      'Project intake wizard (real ProjectIntakeWizard, backend-free) — mobile focus: sticky safe-area Back/Next footer, scroll-into-view stepper, ≥44px touch targets.',
+    waitFor: 'main',
+  },
+  {
+    id: 'file-preview',
+    mobile: true,
+    path: '/dev/file-preview',
+    description:
+      'File-preview modal (real FilePreviewDialog, backend-free) with rich metadata — desktop split (both columns scroll) vs. mobile full-screen sheet (preview capped, all metadata reachable).',
+    waitFor: '[role="dialog"]',
+  },
+  {
     id: 'file-browser',
+    mobile: true,
     path: '/dev/file-browser',
     description: 'Files browser grid — the shared raised FileCard in its home surface.',
     waitFor: '[data-testid="file-card"]',
   },
   {
     id: 'archiv-library',
+    mobile: true,
     path: '/dev/archiv-library',
     description: 'Archiv library grid — compared against the Files browser for unification.',
     waitFor: '[data-testid="archiv-document-card"]',
   },
   {
     id: 'settings',
+    mobile: true,
     path: '/dev/settings',
     description: 'Project settings — section chrome, headings, and danger zone.',
     waitFor: 'h1',

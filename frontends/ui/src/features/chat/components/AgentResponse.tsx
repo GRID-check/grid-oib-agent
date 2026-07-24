@@ -313,7 +313,12 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
         )}
 
         {/* "Belegt durch": provenance chips for sources this answer carries */}
-        <AnswerSourcesRow citations={citations} cards={cards} />
+        <AnswerSourcesRow
+          citations={citations}
+          cards={cards}
+          routingDecision={routingDecision}
+          isStreaming={isStreaming}
+        />
         <CitationsRemovedNote citationsRemoved={citationsRemoved} />
 
         {/* Footer chips: self-assessed confidence + what Piloti recorded this turn */}
@@ -353,7 +358,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // error) or an absent signal keeps the "Ergebnis" tab (fail-open).
   const isMeta = routingDecision === 'meta'
   return (
-    <div className="animate-in fade-in-0 slide-in-from-bottom-1 mx-auto flex w-[680px] max-w-full flex-col duration-200">
+    <div className="animate-in fade-in-0 slide-in-from-bottom-1 flex w-[680px] max-w-full flex-col duration-200">
       {/* Role tab — uppercase 10.5/600. Substantive answer: near-black action
           fill + check. Meta reply: quiet secondary fill + conversation icon. */}
       {isMeta ? (
@@ -378,8 +383,11 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             : 'overflow-hidden rounded-[12px] border border-input bg-input-background shadow-md'
         }
       >
-        {/* White inner block — the answer body sits flat here (dummy anatomy) */}
-        <div className="flex flex-col gap-2 break-words rounded-b-[10px] bg-card px-[22px] pb-[18px] pt-[19px] shadow-sm">
+        {/* Answer body — the hero white surface. It fills the top of the card
+            flush (corners clipped by the shell) and is separated from the
+            provenance footer by a single hairline, so the whole thing reads as
+            one considered object with sections — not a card floating in a tray. */}
+        <div className="flex flex-col gap-2 break-words border-b border-border/55 bg-card px-[22px] pb-[17px] pt-[18px]">
           {/* Optional Grid cards rendered before the markdown body */}
           {hasCards && <GridCards cards={cards} projectId={projectId} />}
 
@@ -425,9 +433,15 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
         </div>
 
         {/* "Belegt durch": provenance chips for sources this answer carries.
-            Sits on the tinted shell below the white block. */}
-        <div className="px-[22px] pb-3 pt-[11px]">
-          <AnswerSourcesRow citations={citations} cards={cards} />
+            Sits on the tinted shell below the answer body, divided by the
+            body's hairline. */}
+        <div className="px-[22px] pb-3.5 pt-3">
+          <AnswerSourcesRow
+            citations={citations}
+            cards={cards}
+            routingDecision={routingDecision}
+            isStreaming={isStreaming}
+          />
           <CitationsRemovedNote citationsRemoved={citationsRemoved} />
           {/* Footer chips: self-assessed confidence + what Piloti recorded */}
           <div className="mt-2 flex flex-wrap items-center gap-2">

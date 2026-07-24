@@ -13,6 +13,7 @@ import { http, HttpResponse } from 'msw'
 import { server } from '@/mocks/server'
 import { DocumentGridCard } from './DocumentGridCard'
 import { resetSurfacedDocumentsCache } from '@/features/documents/hooks/use-surfaced-documents'
+import { resetThumbnailCache } from '@/features/documents/components/file-card'
 
 function row(id: string, filename: string, extra: Record<string, unknown> = {}) {
   return {
@@ -33,7 +34,10 @@ function row(id: string, filename: string, extra: Record<string, unknown> = {}) 
   }
 }
 
-afterEach(() => resetSurfacedDocumentsCache())
+afterEach(() => {
+  resetSurfacedDocumentsCache()
+  resetThumbnailCache()
+})
 
 describe('DocumentGridCard', () => {
   it('resolves surfaced files to project + Archiv rows and shows the match snippet', async () => {
@@ -69,9 +73,10 @@ describe('DocumentGridCard', () => {
     expect(screen.getByText('Office')).toBeInTheDocument()
   })
 
-  it('degrades an unresolvable file to a "not available" card, never a crash', async () => {
+  it('degrades an unresolvable file to an honest, actionable card (not a dead tile)', async () => {
     server.use(
       http.get('/api/documents', () => HttpResponse.json({ documents: [] })),
+      // 403 = feature gate, fail-open — NOT a fetch error, so no retry state.
       http.get('/api/archiv/documents', () => HttpResponse.json({}, { status: 403 }))
     )
 
@@ -84,7 +89,46 @@ describe('DocumentGridCard', () => {
     )
 
     await waitFor(() => expect(screen.getByText('Verschwunden.pdf')).toBeInTheDocument())
-    expect(screen.getByText('No longer available')).toBeInTheDocument()
+    // Honest explanation + a REAL action linking into the project files.
+    expect(screen.getByText('The assistant referenced this file.')).toBeInTheDocument()
+    const link = screen.getByTestId('document-grid-unresolved')
+    expect(link).toHaveAttribute('href', '/app/projects/proj-1/files')
+    expect(screen.getByText('Open in project files')).toBeInTheDocument()
+    // Not the old dead "no longer available" grey box.
+    expect(screen.queryByText('No longer available')).not.toBeInTheDocument()
+  })
+
+  it('shows a retry affordance (not dead tiles) when the resolve fetch genuinely fails', async () => {
+    let projectCalls = 0
+    server.use(
+      http.get('/api/documents', () => {
+        projectCalls += 1
+        // First load fails (5xx = genuine error); the retry succeeds.
+        return projectCalls === 1
+          ? HttpResponse.json({}, { status: 500 })
+          : HttpResponse.json({ documents: [row('p1', 'Fluchtwegplan.pdf')] })
+      }),
+      http.get('/api/archiv/documents', () => HttpResponse.json({}, { status: 403 })),
+      http.get('/api/documents/:id/thumbnail', () => HttpResponse.json({}, { status: 404 }))
+    )
+
+    render(
+      <DocumentGridCard
+        title="Dokumente"
+        documents={[{ file_name: 'Fluchtwegplan.pdf', source: 'projekt' }]}
+        projectId="proj-1"
+      />
+    )
+
+    // Genuine failure → retry state, never a permanent dead tile.
+    await waitFor(() => expect(screen.getByTestId('document-grid-error')).toBeInTheDocument())
+    expect(screen.getByText('Documents couldn’t be loaded.')).toBeInTheDocument()
+    expect(screen.queryByTestId('document-grid-unresolved')).not.toBeInTheDocument()
+
+    // Retrying refetches and now resolves the file.
+    await userEvent.click(screen.getByText('Try again'))
+    await waitFor(() => expect(screen.getByText('Fluchtwegplan.pdf')).toBeInTheDocument())
+    expect(screen.queryByTestId('document-grid-error')).not.toBeInTheDocument()
   })
 
   it('renders nothing when there are no documents', () => {
@@ -131,8 +175,11 @@ describe('DocumentGridCard', () => {
     )
 
     await waitFor(() => expect(screen.getByText('Bericht.pdf')).toBeInTheDocument())
-    // Resolved to nothing → "No longer available", not the project file's card.
-    expect(screen.getByText('No longer available')).toBeInTheDocument()
+    // Resolved to nothing → honest unresolved card linking to the ARCHIV (buero
+    // source), never the same-named project file's card.
+    expect(screen.getByText('The assistant referenced this file.')).toBeInTheDocument()
+    expect(screen.getByTestId('document-grid-unresolved')).toHaveAttribute('href', '/app/archiv')
+    expect(screen.getByText('Open in archive')).toBeInTheDocument()
     expect(screen.queryByText('Project')).not.toBeInTheDocument()
   })
 })

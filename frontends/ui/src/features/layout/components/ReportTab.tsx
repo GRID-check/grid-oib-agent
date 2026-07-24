@@ -171,7 +171,7 @@ export const ReportTab: FC<ReportTabProps> = ({ children, showSourceBadges = tru
   return (
     <div className="flex h-full flex-col">
       {/* Scrollable content area */}
-      <div className="flex flex-1 flex-col gap-4 overflow-y-auto">
+      <div className="flex flex-1 flex-col gap-4 overflow-y-auto overscroll-contain">
         {children ? (
           children
         ) : isEmpty ? (

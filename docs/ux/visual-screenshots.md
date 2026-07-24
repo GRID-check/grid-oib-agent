@@ -22,7 +22,23 @@ cd frontends/ui
 npm run screenshots                       # boot next dev, capture every target
 npm run screenshots -- document-grid      # only the matching target id(s)
 BASE_URL=http://localhost:3000 npm run screenshots   # reuse a running server
+npm run screenshots -- composer --mobile  # also capture the mobile variant
+npm run screenshots -- --mobile-only      # capture ONLY the mobile variants
 ```
+
+### Mobile variant
+
+Every desktop shot has an optional mobile twin, captured at a 390×844 phone
+viewport with `isMobile`/`hasTouch` (viewport meta + touch heuristics match a
+real device) and written as `<id>.mobile.<theme>.png`. It is produced when:
+
+- the target opts in with `mobile: true` in the registry (captured on every run), or
+- you pass `--mobile` (adds the mobile variant to whatever targets you selected), or
+- you pass `--mobile-only` (captures the mobile variant and skips desktop).
+
+Mobile is a first-class surface here — a change to any responsive layout is not
+done (see the definition-of-done skill) until its mobile twin has been reviewed
+in light and dark, the same bar as desktop.
 
 ## Adding a new screenshot target
 

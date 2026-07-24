@@ -176,6 +176,7 @@ export const research = {
     waitUpload: 'Wait for upload to complete',
     cannotDeleteBusy: 'Cannot delete files during active operations',
     deleteFile: 'Delete file',
+    open: 'Open preview: {title}',
   },
 
   fileSourcesTab: {
@@ -225,6 +226,7 @@ export const research = {
     researchCompleted: 'Research completed',
     researchCompletedPopover:
       'Research completed. For further questions or reports, please create a new session.',
+    startNewSession: 'Start new session',
     researchInProgressAria: 'Research in progress - please wait',
     researchInProgress: 'Research in progress',
     researchInProgressPopover:
@@ -240,6 +242,8 @@ export const research = {
     retryUpload: 'Retry upload',
     manageFiles: 'Manage files',
     manageFilesCount: 'Manage attached files ({count})',
+    manageFilesMobile: 'Manage {count} files',
+    openFile: 'Open file: {name}',
     fileUploadingStatus: 'Uploading',
     fileFailedStatus: 'Upload failed',
     fileReadyStatus: 'Ready',

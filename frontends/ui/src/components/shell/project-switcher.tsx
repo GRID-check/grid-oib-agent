@@ -114,7 +114,9 @@ export function ProjectSwitcher({ projects, activeProjectId, collapsed }: Projec
                   event.stopPropagation()
                   router.push(`/app/projects/${project.id}/settings`)
                 }}
-                className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
+                // ≥44px touch target (a11y) via padding, with the icon kept
+                // small; negative margin keeps the row from growing.
+                className="-my-2 -mr-1.5 flex size-11 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
               >
                 <Settings className="size-3.5" aria-hidden />
               </button>

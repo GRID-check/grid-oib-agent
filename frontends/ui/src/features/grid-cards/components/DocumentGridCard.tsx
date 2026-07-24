@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, type FC } from 'react'
-import { FileWarning, FolderSearch } from 'lucide-react'
+import { useMemo, useState, type FC } from 'react'
+import { ArrowUpRight, CloudAlert, FileSearch, FolderSearch, RotateCcw } from 'lucide-react'
 import { useLocale, useTranslations } from '@/i18n'
 import { FileCard } from '@/features/documents/components/file-card'
 import { FileGrid, FileCardSkeleton } from '@/features/documents/components/file-grid'
@@ -21,24 +21,67 @@ interface DocumentGridCardProps {
   projectId?: string | null
 }
 
-/** A surfaced file whose row no longer resolves — a lean, honest, non-clickable card. */
-const UnresolvedCard: FC<{ entry: ResolvedSurfacedDocument }> = ({ entry }) => {
+/**
+ * A surfaced file whose row no longer resolves to a live document (removed, or
+ * beyond the bounded list window — see the `TODO(backend)` in the hook). Not a
+ * dead grey tile: an honest, actionable card that says the assistant referenced
+ * the file and links to where it can be found (the org Archiv for a Büro file,
+ * the project's files otherwise).
+ */
+const UnresolvedCard: FC<{ entry: ResolvedSurfacedDocument; projectId?: string | null }> = ({
+  entry,
+  projectId,
+}) => {
   const t = useTranslations('chat')
+  const isBuero = entry.surfaced.source === 'buero'
+  const href = isBuero ? '/app/archiv' : projectId ? `/app/projects/${projectId}/files` : '/app/archiv'
+  const actionLabel = isBuero || !projectId ? t('documentGrid.openInArchive') : t('documentGrid.openInFiles')
+
   return (
-    <div className="flex h-full min-w-0 flex-col overflow-hidden rounded-xl border border-dashed bg-muted/40 text-left">
+    <a
+      href={href}
+      data-testid="document-grid-unresolved"
+      className="group flex h-full min-w-0 flex-col overflow-hidden rounded-xl border border-dashed bg-muted/40 text-left transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+    >
       <div className="w-full overflow-hidden rounded-b-[10px] bg-card/60 shadow-2xs">
-        <div className="flex h-[124px] w-full items-center justify-center border-b bg-card/40">
-          <FileWarning className="size-7 text-muted-foreground/40" aria-hidden />
+        <div className="flex h-[124px] w-full items-center justify-center border-b bg-card/40 text-muted-foreground/45">
+          <FileSearch className="size-7" aria-hidden />
         </div>
         <div className="px-3.5 pb-3 pt-[11px]">
-          <p className="truncate text-[12.5px] font-medium text-muted-foreground" title={entry.surfaced.file_name}>
+          <p className="truncate text-[12.5px] font-medium text-foreground/80" title={entry.surfaced.file_name}>
             {entry.surfaced.file_name}
           </p>
-          <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.05em] text-muted-foreground/60">
-            {t('documentGrid.unavailable')}
+          <p className="mt-1 line-clamp-2 text-[11px] leading-[1.45] text-muted-foreground">
+            {t('documentGrid.unresolvedHint')}
           </p>
+          <span className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-medium text-primary group-hover:underline">
+            {actionLabel}
+            <ArrowUpRight className="size-3.5" aria-hidden />
+          </span>
         </div>
       </div>
+    </a>
+  )
+}
+
+/** Resolve failed (network / 5xx) — a retry affordance, never a wall of dead tiles. */
+const ResolveErrorState: FC<{ onRetry: () => void }> = ({ onRetry }) => {
+  const t = useTranslations('chat')
+  return (
+    <div
+      data-testid="document-grid-error"
+      className="flex flex-col items-center gap-3 rounded-xl border border-dashed bg-muted/30 px-4 py-8 text-center"
+    >
+      <CloudAlert className="size-7 text-muted-foreground/50" aria-hidden />
+      <p className="text-[12.5px] text-muted-foreground">{t('documentGrid.loadError')}</p>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="inline-flex items-center gap-1.5 rounded-lg border bg-background px-3 py-1.5 text-[12px] font-medium transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+      >
+        <RotateCcw className="size-3.5" aria-hidden />
+        {t('documentGrid.retry')}
+      </button>
     </div>
   )
 }
@@ -54,7 +97,25 @@ const UnresolvedCard: FC<{ entry: ResolvedSurfacedDocument }> = ({ entry }) => {
 export const DocumentGridCard: FC<DocumentGridCardProps> = ({ title, query, documents, projectId }) => {
   const t = useTranslations('chat')
   const { locale } = useLocale()
-  const { resolved, isLoading } = useSurfacedDocuments(documents, projectId ?? null)
+  const { resolved, isLoading, error, retry } = useSurfacedDocuments(documents, projectId ?? null)
+
+  // Stabilize the per-card display file (the summary remap) so its identity only
+  // changes when the resolution does — no thumbnail-fetch thrash on every render.
+  const cells = useMemo(
+    () =>
+      resolved.map((entry) => ({
+        entry,
+        file: entry.file
+          ? {
+              ...entry.file,
+              // Prefer the live row's AI summary; fall back to the tool's summary,
+              // then a plain matched passage — never a relevance score.
+              summary: entry.file.summary ?? entry.surfaced.summary ?? entry.surfaced.snippet ?? null,
+            }
+          : null,
+      })),
+    [resolved]
+  )
   // Clicking a surfaced document opens the SAME preview dialog the Files and
   // Archiv workspaces use — read-only here (no delete / re-ingest), and the
   // pane handles preview vs download for every file type itself.
@@ -88,34 +149,39 @@ export const DocumentGridCard: FC<DocumentGridCardProps> = ({ title, query, docu
         <CountPill>{countLabel}</CountPill>
       </header>
 
-      {/* Grid — raised document cards; min-w-0 cells so long names truncate cleanly. */}
+      {/* Grid — raised document cards; min-w-0 cells so long names truncate cleanly.
+          Loading shows a skeleton (never the dead-tile state); a genuine resolve
+          failure shows a retry affordance instead of a wall of unresolved cards. */}
       <div className="p-4">
-        <FileGrid>
-        {isLoading
-          ? Array.from({ length: Math.min(documents.length, 4) }).map((_, i) => <FileCardSkeleton key={i} />)
-          : resolved.map((entry) =>
-              entry.file ? (
+        {isLoading ? (
+          <FileGrid>
+            {Array.from({ length: Math.min(documents.length, 4) }).map((_, i) => (
+              <FileCardSkeleton key={i} />
+            ))}
+          </FileGrid>
+        ) : error ? (
+          <ResolveErrorState onRetry={retry} />
+        ) : (
+          <FileGrid>
+            {cells.map(({ entry, file }) =>
+              file ? (
                 <FileCard
                   key={entry.key}
-                  file={{
-                    ...entry.file,
-                    // Prefer the live row's AI summary; fall back to the tool's
-                    // summary, then a plain matched passage — never a relevance score.
-                    summary: entry.file.summary ?? entry.surfaced.summary ?? entry.surfaced.snippet ?? null,
-                  }}
+                  file={file}
                   isSelected={false}
                   locale={locale}
-                  onSelect={() => setOpenFile({ file: entry.file as FileItem, source: entry.docSource })}
+                  onSelect={() => setOpenFile({ file, source: entry.docSource })}
                   source={entry.docSource}
                   sourceLabel={entry.docSource ? t(`documentGrid.source.${entry.docSource}`) : undefined}
                   hideStatusWhenReady
-                  ariaLabel={t('documentGrid.openAria', { label: entry.file.filename })}
+                  ariaLabel={t('documentGrid.openAria', { label: file.filename })}
                 />
               ) : (
-                <UnresolvedCard key={entry.key} entry={entry} />
+                <UnresolvedCard key={entry.key} entry={entry} projectId={projectId} />
               )
             )}
-        </FileGrid>
+          </FileGrid>
+        )}
       </div>
       <FilePreviewDialog
         file={openFile?.file ?? null}

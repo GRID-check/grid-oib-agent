@@ -30,12 +30,20 @@ export const chat: typeof en.chat = {
       projekt: 'Projekt',
       buero: 'Büro',
     },
-    unavailable: 'Nicht mehr verfügbar',
+    // Eine referenzierte Datei, die sich nicht mehr auf eine Dokumentzeile
+    // auflösen lässt — eine ehrliche, handlungsfähige Karte (im Archiv / in den
+    // Projektdateien öffnen) statt einer stummen toten Kachel.
+    unresolvedHint: 'Der Assistent hat diese Datei referenziert.',
+    openInArchive: 'Im Archiv öffnen',
+    openInFiles: 'In den Projektdateien öffnen',
+    // Der Auflösungs-Abruf ist fehlgeschlagen — eine Wiederholaktion statt einer
+    // dauerhaft toten Kachel.
+    loadError: 'Dokumente konnten nicht geladen werden.',
+    retry: 'Erneut versuchen',
     openAria: 'Dokument öffnen: {label}',
   },
   composer: {
-    placeholder:
-      'Beschreiben Sie, woran Sie gerade arbeiten — Piloti zeigt Ihnen Schritt für Schritt, was dafür relevant ist …',
+    placeholder: 'Fragen Sie Piloti zu diesem Projekt …',
     sources: 'Datengrundlage',
     sourcesAria: 'Datengrundlage – {enabled} von {total} Quellen aktiv. Öffnet die Datenquellen.',
     deepResearch: 'Deep Research',
@@ -47,6 +55,9 @@ export const chat: typeof en.chat = {
     scopeCurrent: 'Aktuelles Projekt',
     scopeAll: 'Alle Projekte',
     scopeAllSoon: 'Bald verfügbar – projektübergreifende Suche ist noch nicht möglich.',
+    // Mobile-only cue: the source/scope labels collapse to icons on phones, so a
+    // tiny one-line hint under the composer keeps the active source count legible.
+    sourcesActiveMobile: '{count} Quellen aktiv',
   },
   shortcuts: {
     label: 'Schnellzugriff',
@@ -64,6 +75,17 @@ export const chat: typeof en.chat = {
     withName: '{greeting}, {name}.',
     subtitle: 'Fragen Sie zu Ihrem Projekt – Antworten belegen ihre Quellen.',
   },
+  // Beispielhafte österreichische Baurecht-Fragen im leeren Chat — ein Klick
+  // füllt den Verfasser vor (sendet nicht automatisch), gegen die Blockade des
+  // leeren Blatts.
+  examples: {
+    label: 'Zum Beispiel',
+    questions: {
+      fluchtweg: 'Fluchtweglänge nach OIB-2?',
+      barrierefreiheit: 'Barrierefreiheit Wohnbau Wien?',
+      brandabschnitte: 'Brandabschnitte Gebäudeklasse 4?',
+    },
+  },
   // Empty-state lock chip + thread role tabs (click-dummy overhaul, WS-3).
   workspace: {
     private: 'Privater Workspace',
@@ -79,6 +101,11 @@ export const chat: typeof en.chat = {
   answerSources: {
     label: 'Belegt durch',
     ariaLabel: 'Quellen, auf die sich diese Antwort stützt',
+    // Ehrliche „Lücke“-Zeile: eine inhaltliche Antwort ohne Quellenangabe zeigt
+    // dies in der neutralen --source-auto-Familie, statt die fehlende Beleglage
+    // zu verbergen (Designsprache — erstklassige Wissenslücken-Behandlung).
+    gapLabel: 'Ohne Quellenbeleg',
+    gapAria: 'Diese Antwort nennt keine Quellen',
     // Hinweis unter der Quellenzeile, wenn die Zitatprüfung nicht belegbare
     // Quellenangaben entfernt hat (WP-A `citations_removed`).
     citationsRemoved: '{count} Quellenangabe(n) entfernt (nicht verifizierbar)',
@@ -182,7 +209,9 @@ export const chat: typeof en.chat = {
     done: 'Fertig',
     showThinking: 'Denkschritte anzeigen ({count})',
     showThinkingSteps: 'Denkschritte anzeigen ({count})',
-    herleitungSummary: 'Herleitung · {steps} Zwischenschritte · {sources} Quellen',
+    herleitungSummary: 'Herleitung · {steps} Schritte · {sources} Quellen',
+    // aria-label naming the reasoning graph as one region for screen readers.
+    reasoningGraphLabel: 'Herleitung',
     stepsLabel: 'Denkschritte',
     stepsHeading: 'Zwischenschritte',
     sourcesFanOut: 'Quellen',
@@ -210,22 +239,18 @@ export const chat: typeof en.chat = {
       ris: 'RIS (Österreichisches Recht)',
     },
     node: {
-      framingTab: 'Zwischenschritt',
+      framingTab: 'Einordnung',
       framingTitle: 'Frage verstanden',
       framingQuestion: 'Du fragst: „{question}“',
       contextLabel: 'Kontext',
       sourcesTab: 'Quellen',
       sourcesTitle: 'Geprüfte Quellen',
       findingsTab: 'Einschätzung',
-      findingsTitle: 'Belegt durch',
-      confidenceLabel: 'Belegt',
-      confidence: {
-        high: 'Gut belegt',
-        medium: 'Teilweise belegt',
-        low: 'Schwach belegt',
-      },
+      // Reine Herleitungs-Info im Einschätzungsknoten: in welchen Quellenspuren
+      // es Treffer gab. NICHT das Vertrauensurteil (Konfidenz/Belege) — das
+      // steht einmal auf der Antwortkarte.
+      findingsHits: 'Treffer in: {lanes}',
       branchesTab: 'Folgewege',
-      branchesTitle: 'Wie willst du weiter vorgehen?',
       branchesSub: 'Wähle eine Option — das Ergebnis wird für deine Wahl zusammengestellt.',
     },
   },
@@ -268,6 +293,9 @@ export const chat: typeof en.chat = {
   error: {
     showDetails: 'Details anzeigen',
     hideDetails: 'Details ausblenden',
+    // Wiederholaktion bei einer fehlgeschlagenen Antwort (Designsprache:
+    // „hilfreiche Meldung + erneut versuchen“).
+    retry: 'Erneut versuchen',
   },
   errorRegistry: {
     connectionLost: {

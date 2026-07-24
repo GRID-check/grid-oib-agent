@@ -35,14 +35,20 @@ export const chat = {
       projekt: 'Project',
       buero: 'Office',
     },
-    // A surfaced file that no longer resolves to a readable document row.
-    unavailable: 'No longer available',
+    // A surfaced file that no longer resolves to a live document row — an honest,
+    // actionable card (the assistant referenced it; open the archive / project
+    // files) rather than a silent dead tile.
+    unresolvedHint: 'The assistant referenced this file.',
+    openInArchive: 'Open in archive',
+    openInFiles: 'Open in project files',
+    // The resolve fetch failed — a retry affordance, not a permanent dead tile.
+    loadError: 'Documents couldn’t be loaded.',
+    retry: 'Try again',
     openAria: 'Open document: {label}',
   },
   // Composer (InputArea) control row — WS-3 click-dummy overhaul.
   composer: {
-    placeholder:
-      'Describe what you are working on — Piloti shows you, step by step, what is relevant …',
+    placeholder: 'Ask Piloti about this project …',
     sources: 'Data basis',
     sourcesAria: 'Data basis — {enabled} of {total} sources enabled. Opens the data sources panel.',
     deepResearch: 'Deep Research',
@@ -56,6 +62,9 @@ export const chat = {
     scopeCurrent: 'Current project',
     scopeAll: 'All projects',
     scopeAllSoon: 'Coming soon — cross-project search is not available yet.',
+    // Mobile-only cue: the source/scope labels collapse to icons on phones, so a
+    // tiny one-line hint under the composer keeps the active source count legible.
+    sourcesActiveMobile: '{count} sources active',
   },
   // Source-preset shortcut chips under the composer (empty thread).
   shortcuts: {
@@ -75,6 +84,16 @@ export const chat = {
     withName: '{greeting}, {name}.',
     subtitle: 'Ask about your project — answers cite their sources.',
   },
+  // Example Austrian Baurecht questions on the empty chat state — clicking one
+  // prefills the composer (does not auto-send) to break blank-page paralysis.
+  examples: {
+    label: 'Try asking',
+    questions: {
+      fluchtweg: 'Escape route length per OIB-2?',
+      barrierefreiheit: 'Accessibility in Vienna residential construction?',
+      brandabschnitte: 'Fire compartments for building class 4?',
+    },
+  },
   // Empty-state lock chip + thread role tabs (click-dummy overhaul, WS-3).
   workspace: {
     private: 'Private workspace',
@@ -91,6 +110,11 @@ export const chat = {
   answerSources: {
     label: 'Sources',
     ariaLabel: 'Sources this answer is backed by',
+    // Honest "Lücke" gap row: a substantive answer that cites nothing renders
+    // this in the neutral --source-auto family instead of hiding its lack of
+    // grounding (design language — first-class knowledge-gap treatment).
+    gapLabel: 'Without source citation',
+    gapAria: 'This answer cites no sources',
     // Note under the sources row when citation verification dropped one or more
     // unverifiable citations (WP-A `citations_removed`).
     citationsRemoved: '{count} citation(s) removed (not verifiable)',
@@ -195,6 +219,8 @@ export const chat = {
     showThinking: 'Show thinking ({count})',
     showThinkingSteps: 'Show thinking steps ({count})',
     herleitungSummary: 'Trace · {steps} steps · {sources} sources',
+    // aria-label naming the reasoning graph as one region for screen readers.
+    reasoningGraphLabel: 'Reasoning trace',
     stepsLabel: 'Thinking steps',
     stepsHeading: 'Intermediate steps',
     sourcesFanOut: 'Sources',
@@ -222,22 +248,18 @@ export const chat = {
       ris: 'RIS (Austrian Law)',
     },
     node: {
-      framingTab: 'Intermediate step',
+      framingTab: 'Framing',
       framingTitle: 'Question understood',
       framingQuestion: 'You asked: “{question}”',
       contextLabel: 'Context',
       sourcesTab: 'Sources',
       sourcesTitle: 'Sources examined',
       findingsTab: 'Assessment',
-      findingsTitle: 'Backed by',
-      confidenceLabel: 'Confidence',
-      confidence: {
-        high: 'Well supported',
-        medium: 'Partly supported',
-        low: 'Weakly supported',
-      },
+      // Reasoning-only detail in the assessment node: which source lanes
+      // produced hits. NOT the answer's trust verdict (confidence/provenance) —
+      // that lives once, on the answer card.
+      findingsHits: 'Hits in: {lanes}',
       branchesTab: 'Next steps',
-      branchesTitle: 'How do you want to proceed?',
       branchesSub: 'Pick one option — the answer is assembled for your choice.',
     },
   },
@@ -279,6 +301,8 @@ export const chat = {
   error: {
     showDetails: 'Show details',
     hideDetails: 'Hide details',
+    // Retry action on an errored answer (design language: "helpful message + retry").
+    retry: 'Try again',
   },
   // Localized titles + default messages for the chat error registry
   // (features/chat/lib/error-registry.ts). Keyed by error code.

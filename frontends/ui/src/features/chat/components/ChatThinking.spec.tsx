@@ -1,4 +1,4 @@
-import { render, screen } from '@/test-utils'
+import { render, screen, waitFor } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
 import { ChatThinking } from './ChatThinking'
@@ -49,6 +49,39 @@ describe('ChatThinking', () => {
       expect(await screen.findByText('Intermediate steps')).toBeInTheDocument()
     })
   })
+
+  describe('turn-driven autoOpen (live expands, done collapses)', () => {
+    // The expanded reasoning renders the "Selected Data Sources:" footer (moved
+    // inside the collapsible), so its presence is a proxy for "expanded".
+    const sources = ['web_search']
+
+    test('autoOpen expands the reasoning without a click (live turn)', () => {
+      render(<ChatThinking steps={[createStep()]} autoOpen enabledDataSources={sources} />)
+      expect(screen.getByText('Selected Data Sources:')).toBeVisible()
+    })
+
+    test('autoOpen=false keeps the reasoning collapsed (past/done turn)', () => {
+      render(<ChatThinking steps={[createStep()]} autoOpen={false} enabledDataSources={sources} />)
+      expect(screen.queryByText('Selected Data Sources:')).not.toBeInTheDocument()
+    })
+
+    test('a live→done autoOpen transition collapses the reasoning', async () => {
+      const { rerender } = render(
+        <ChatThinking steps={[createStep()]} autoOpen enabledDataSources={sources} />
+      )
+      expect(screen.getByText('Selected Data Sources:')).toBeVisible()
+      rerender(<ChatThinking steps={[createStep()]} autoOpen={false} enabledDataSources={sources} />)
+      await waitFor(() =>
+        expect(screen.queryByText('Selected Data Sources:')).not.toBeInTheDocument()
+      )
+    })
+
+    // NB: the "a manual toggle in between is not stomped" guarantee (the
+    // prevAutoOpen ref only re-drives `open` when autoOpen actually CHANGES) is
+    // covered by the transition test above plus the ref-guard logic; a UI-level
+    // manual-collapse assertion proved flaky against the controlled Collapsible
+    // in jsdom, so it is intentionally not asserted here.
+})
 
   describe('empty state', () => {
     test('renders nothing when no steps provided', () => {
@@ -340,13 +373,14 @@ describe('ChatThinking', () => {
     })
   })
 
-  describe('data sources footer (always visible)', () => {
-    // The basis footer (data sources + files as pills) stays visible WITHOUT
-    // expanding the Herleitung — an always-present chip row.
-    test('shows enabled data sources as chips without expanding', () => {
+  describe('data sources footer (in expanded reasoning)', () => {
+    // The basis footer (data sources + files as pills) now lives INSIDE the
+    // expanded Herleitung so the collapsed turn stays compact and answer-first
+    // (P0/P2-4). It renders once the reasoning is open (`defaultOpen`).
+    test('shows enabled data sources as chips when expanded', () => {
       const steps = [createStep()]
 
-      render(<ChatThinking steps={steps} enabledDataSources={['web_search', 'knowledge_base']} />)
+      render(<ChatThinking steps={steps} defaultOpen enabledDataSources={['web_search', 'knowledge_base']} />)
 
       expect(screen.getByText('Selected Data Sources:')).toBeVisible()
       expect(screen.getByText('Web Search')).toBeVisible()
@@ -360,7 +394,7 @@ describe('ChatThinking', () => {
         { id: 'file-2', fileName: 'report.docx' },
       ]
 
-      render(<ChatThinking steps={steps} messageFiles={messageFiles} />)
+      render(<ChatThinking steps={steps} defaultOpen messageFiles={messageFiles} />)
 
       expect(screen.getByText('document.pdf')).toBeVisible()
       expect(screen.getByText('report.docx')).toBeVisible()
@@ -372,6 +406,7 @@ describe('ChatThinking', () => {
       render(
         <ChatThinking
           steps={steps}
+          defaultOpen
           enabledDataSources={['web_search']}
           messageFiles={[{ id: 'file-1', fileName: 'document.pdf' }]}
         />
@@ -384,7 +419,7 @@ describe('ChatThinking', () => {
     test('maps knowledge_layer to the OIB Knowledge Base chip', () => {
       const steps = [createStep()]
 
-      render(<ChatThinking steps={steps} enabledDataSources={['web_search', 'knowledge_layer']} />)
+      render(<ChatThinking steps={steps} defaultOpen enabledDataSources={['web_search', 'knowledge_layer']} />)
 
       expect(screen.getByText('OIB Knowledge Base')).toBeVisible()
       expect(screen.queryByText(/knowledge_layer/i)).not.toBeInTheDocument()
@@ -394,7 +429,7 @@ describe('ChatThinking', () => {
       const steps = [createStep()]
 
       render(
-        <ChatThinking steps={steps} enabledDataSources={['web_search', 'onedrive', 'google_drive']} />
+        <ChatThinking steps={steps} defaultOpen enabledDataSources={['web_search', 'onedrive', 'google_drive']} />
       )
 
       expect(screen.getByText('Web Search')).toBeVisible()
@@ -424,13 +459,15 @@ describe('ChatThinking', () => {
 
       await expandChain(user)
 
-      expect(screen.getByText('Question understood')).toBeVisible()
+      // The framing node restates the question (its "Framing" eyebrow labels it);
+      // the leaner node no longer shows a separate "Question understood" title.
+      expect(screen.getByText('Framing')).toBeVisible()
       expect(
         screen.getByText(/Wie viele Rettungswege brauche ich\?/)
       ).toBeVisible()
     })
 
-    test('assessment node renders a confidence pill when answerConfidence is set', async () => {
+    test('assessment node does NOT restate the confidence verdict (deduped to the answer card)', async () => {
       const user = userEvent.setup()
       const steps = [createStep()]
 
@@ -438,10 +475,12 @@ describe('ChatThinking', () => {
 
       await expandChain(user)
 
-      expect(screen.getByText('Well supported')).toBeVisible()
+      // The trust verdict (confidence) now lives once, on the answer card — it is
+      // no longer duplicated inside the Herleitung's assessment node (P1-2).
+      expect(screen.queryByText('Confidence: high')).not.toBeInTheDocument()
     })
 
-    test('assessment node renders citation chips (deduped by lane)', async () => {
+    test('assessment node summarizes hit lanes (reasoning detail, deduped by lane)', async () => {
       const user = userEvent.setup()
       const steps = [createStep()]
       const citations = [
@@ -467,9 +506,11 @@ describe('ChatThinking', () => {
 
       await expandChain(user)
 
-      expect(screen.getByText('Backed by')).toBeVisible()
-      // Deduped to a single lane chip.
-      expect(screen.getAllByText('OIB-Richtlinie')).toHaveLength(1)
+      // The assessment node ("Assessment" eyebrow) now shows a reasoning-only
+      // hit-lane summary ("Hits in: <lane>"), deduped to a single lane — not a
+      // second copy of the answer's provenance chips.
+      expect(screen.getByText('Assessment')).toBeVisible()
+      expect(screen.getByText('Hits in: OIB-Richtlinie')).toBeVisible()
     })
 
     test('assessment node is hidden without confidence or citations', async () => {

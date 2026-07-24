@@ -44,9 +44,19 @@ export interface KeyboardShortcutsProps {
   canViewOrganization: boolean
   /** Whether the project knowledge page is enabled (feature-flagged, default off). */
   showKnowledge?: boolean
+  /** Whether the Workflows page is enabled (feature-flagged, default off). */
+  showWorkflows?: boolean
+  /** Whether the org-wide Archiv is reachable (`organization-archiv`, ADR-0024). */
+  canAccessArchiv?: boolean
 }
 
-export function KeyboardShortcuts({ authRequired, canViewOrganization, showKnowledge = false }: KeyboardShortcutsProps) {
+export function KeyboardShortcuts({
+  authRequired,
+  canViewOrganization,
+  showKnowledge = false,
+  showWorkflows = false,
+  canAccessArchiv = false,
+}: KeyboardShortcutsProps) {
   const { enabled } = useShortcutsPreference()
   const router = useRouter()
   const [paletteOpen, setPaletteOpen] = React.useState(false)
@@ -116,6 +126,8 @@ export function KeyboardShortcuts({ authRequired, canViewOrganization, showKnowl
         authRequired={authRequired}
         canViewOrganization={canViewOrganization}
         showKnowledge={showKnowledge}
+        showWorkflows={showWorkflows}
+        canAccessArchiv={canAccessArchiv}
       />
       <ShortcutsCheatsheet open={cheatsheetOpen} onOpenChange={setCheatsheetOpen} />
     </>

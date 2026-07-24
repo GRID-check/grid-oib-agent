@@ -43,12 +43,17 @@ function renderPane(overrides: Partial<Parameters<typeof ArchivLibraryPane>[0]> 
 }
 
 describe('ArchivLibraryPane — card grid', () => {
-  it('renders one card per document with a content-aware skeleton thumbnail', () => {
+  it('renders one card per document with a content-aware skeleton thumbnail', async () => {
     renderPane()
     const cards = screen.getAllByTestId('archiv-document-card')
     expect(cards).toHaveLength(3)
     const schnittCard = cards.find((c) => within(c).queryByText('fassade-schnitt.pdf'))!
-    expect(within(schnittCard).getByTestId('document-kind-thumbnail')).toHaveAttribute('data-kind', 'section')
+    // The thumbnail request settles (a brief skeleton first) before the
+    // content-aware fallback shows.
+    expect(await within(schnittCard).findByTestId('document-kind-thumbnail')).toHaveAttribute(
+      'data-kind',
+      'section'
+    )
   })
 
   it('shows the tinted extension chip, size, and the ingestion status badge', () => {
@@ -56,7 +61,7 @@ describe('ArchivLibraryPane — card grid', () => {
     const card = screen.getAllByTestId('archiv-document-card')[0]
     expect(within(card).getByText('PDF')).toBeInTheDocument()
     expect(within(card).getByText(/1\.0 KB/)).toBeInTheDocument()
-    expect(within(card).getByText('Ready')).toBeInTheDocument()
+    expect(within(card).getByText('Citable')).toBeInTheDocument()
   })
 
   it('shows the one-line AI summary only when the backend generated one', () => {

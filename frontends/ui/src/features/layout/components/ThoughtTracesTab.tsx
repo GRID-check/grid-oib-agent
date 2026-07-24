@@ -57,7 +57,7 @@ export const ThoughtTracesTab: FC<ThoughtTracesTabProps> = ({ thoughtTraces = []
           </p>
         </div>
       ) : (
-        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
+        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain">
           {thoughtTraces.map((thought) => (
             <div key={thought.id} className="shrink-0">
               <ThoughtCard thought={thought} />

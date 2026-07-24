@@ -10,9 +10,9 @@
 
 'use client'
 
-import { type FC, useMemo } from 'react'
+import { type FC, useMemo, useState, useEffect, useRef } from 'react'
 import { ChevronDown, CheckCircle2, AlertTriangle, Clock, Loader2 } from 'lucide-react'
-import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible'
+import { Collapsible, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { motion, AnimatePresence } from '@/components/motion'
 import { Spinner } from '@/components/ui/spinner'
 import { useTranslations } from '@/i18n'
@@ -20,7 +20,8 @@ import type { ThinkingStep, CitationSource } from '../types'
 import { deriveTraceSourceCards } from '../lib/trace-lanes'
 import { deriveLiveActivity } from '../lib/live-activity'
 import { useElapsedSeconds, formatElapsed } from '../hooks/use-elapsed-seconds'
-import { ReasoningChain, type ChoicePrompt } from './reasoning'
+import { ReasoningFlow } from './reasoning/ReasoningFlow'
+import { type ChoicePrompt } from './reasoning'
 import { buildContextChips } from './reasoning/context'
 
 export interface ChatThinkingProps {
@@ -59,6 +60,16 @@ export interface ChatThinkingProps {
   routingReason?: string
   /** Set when this turn escalated shallow→deep — framing-node narration. */
   escalationReason?: string
+  /** Render the Herleitung expanded on first mount (e.g. the current turn). */
+  defaultOpen?: boolean
+  /**
+   * Turn-driven desired open state (P0). When set, the Herleitung follows it:
+   * auto-EXPANDED while the turn is live (thinking / awaiting input) and
+   * auto-COLLAPSES to the one-line bar once the answer lands — a smooth,
+   * animated transition, not a jump. The user can still toggle it by hand; a
+   * later change to this value (e.g. live→done) re-drives the panel.
+   */
+  autoOpen?: boolean
 }
 
 export const ChatThinking: FC<ChatThinkingProps> = ({
@@ -77,8 +88,23 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
   routingDecision,
   routingReason,
   escalationReason,
+  defaultOpen = false,
+  autoOpen,
 }) => {
   const t = useTranslations('chat')
+
+  // Controlled open state. Seeded from the turn-driven `autoOpen` (or the
+  // uncontrolled `defaultOpen` fallback), then re-driven whenever `autoOpen`
+  // flips — so a turn expands live and collapses on completion — while still
+  // honouring a manual toggle in between.
+  const [open, setOpen] = useState<boolean>(autoOpen ?? defaultOpen)
+  const prevAutoOpen = useRef<boolean | undefined>(autoOpen)
+  useEffect(() => {
+    if (autoOpen !== undefined && autoOpen !== prevAutoOpen.current) {
+      prevAutoOpen.current = autoOpen
+      setOpen(autoOpen)
+    }
+  }, [autoOpen])
 
   const sourceCards = useMemo(() => deriveTraceSourceCards(steps), [steps])
   // Unique source cards (hits + gaps) — bar "m Quellen", not sum of Treffer.
@@ -120,7 +146,7 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
 
   return (
     <div className="animate-in fade-in-0 slide-in-from-bottom-1 w-full rounded-2xl bg-muted/50 shadow-xs duration-200 ease-out">
-      <Collapsible>
+      <Collapsible open={open} onOpenChange={setOpen}>
         <CollapsibleTrigger asChild>
           <button
             type="button"
@@ -213,21 +239,56 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
           </button>
         </CollapsibleTrigger>
 
-        <CollapsibleContent>
-          <div className="border-base border-t px-4 pb-4 pt-4">
-            <ReasoningChain
-              steps={steps}
-              userQuestion={userQuestion}
-              answerConfidence={answerConfidence}
-              citations={citations}
-              choicePrompt={choicePrompt}
-              onChoiceRespond={onChoiceRespond}
-              routingDecision={routingDecision}
-              routingReason={routingReason}
-              escalationReason={escalationReason}
-            />
-          </div>
-        </CollapsibleContent>
+        {/* Expanded content — height-animated so the completion collapse reads
+            as a smooth shrink to the one-line bar, not a jump. The basis footer
+            lives INSIDE here (not always-on) so the collapsed turn is just the
+            one-line summary and never bulks the thread before the answer. */}
+        <AnimatePresence initial={false}>
+          {open && (
+            <motion.div
+              key="herleitung-content"
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.28, ease: [0.25, 0.1, 0.25, 1] }}
+              className="overflow-hidden"
+            >
+              <div className="border-base border-t px-2 pb-3 pt-3 sm:px-4">
+                <ReasoningFlow
+                  steps={steps}
+                  userQuestion={userQuestion}
+                  answerConfidence={answerConfidence}
+                  citations={citations}
+                  choicePrompt={choicePrompt}
+                  onChoiceRespond={onChoiceRespond}
+                  routingDecision={routingDecision}
+                  routingReason={routingReason}
+                  escalationReason={escalationReason}
+                />
+              </div>
+
+              {/* Basis footer — the data sources + files this query ran against,
+                  as clean pills. Only shown when the Herleitung is expanded. */}
+              {contextChips.length > 0 && (
+                <div className="flex flex-col gap-2 border-t border-border/60 px-4 pb-4 pt-3">
+                  <span className="text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
+                    {t('thinking.selectedDataSources')}
+                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {contextChips.map((chip) => (
+                      <span
+                        key={chip}
+                        className="whitespace-nowrap rounded-md bg-secondary px-2.5 py-1 text-[11px] font-medium text-muted-foreground"
+                      >
+                        {chip}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </Collapsible>
 
       {/* Mid-turn drop notice: a silent reconnect can leave a turn without any
@@ -255,26 +316,6 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
           </span>
         </div>
       ) : null}
-
-      {/* Basis footer — the data sources + files this query ran against, always
-          visible as clean pills (does not require expanding the Herleitung). */}
-      {contextChips.length > 0 && (
-        <div className="flex flex-col gap-2 border-t border-border/60 px-4 pb-4 pt-3">
-          <span className="text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
-            {t('thinking.selectedDataSources')}
-          </span>
-          <div className="flex flex-wrap gap-1.5">
-            {contextChips.map((chip) => (
-              <span
-                key={chip}
-                className="whitespace-nowrap rounded-md bg-secondary px-2.5 py-1 text-[11px] font-medium text-muted-foreground"
-              >
-                {chip}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   )
 }

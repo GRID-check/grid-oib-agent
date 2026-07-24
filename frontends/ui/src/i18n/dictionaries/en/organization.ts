@@ -82,6 +82,11 @@ export const organization = {
     activate: 'Activate',
     activated: 'Version activated',
     activateError: 'Could not activate this version.',
+    activateTitle: 'Activate for the whole organization?',
+    activateDescription:
+      'Makes {target} the production model for every member of your organization, effective immediately for new conversations. You can roll back to another version at any time.',
+    activateConfirm: 'Activate now',
+    defaultsTarget: 'the workflow defaults',
     useDefaults: 'Deactivate overrides (use workflow defaults)',
     loadError: 'Could not load the model configuration.',
     byokCatalogHint:
@@ -92,6 +97,10 @@ export const organization = {
     zdrEnabled: 'Zero data retention enabled',
     zdrDisabled: 'Zero data retention disabled',
     zdrError: 'Could not change the zero-data-retention policy.',
+    zdrDisableTitle: 'Turn off zero data retention?',
+    zdrDisableDescription:
+      'Requests may then be sent to endpoints without zero data retention, so the provider can store prompts and responses. This affects every member of your organization.',
+    zdrDisableConfirm: 'Turn off',
   },
   byok: {
     title: 'LLM API key (BYOK)',

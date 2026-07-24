@@ -10,6 +10,7 @@ import type {
   FileInfo,
   IngestionJobStatus,
 } from '@/adapters/api/documents-schemas'
+import type { FileItem } from './components/project-file-workspace'
 
 // Re-export API types from schemas (single source of truth)
 export type {
@@ -78,6 +79,33 @@ export type BannerType = keyof JobBannerState
 export const DEFAULT_JOB_BANNER_STATE: JobBannerState = {
   uploaded: false,
   ingested: false,
+}
+
+/**
+ * Map a composer/upload {@link TrackedFile} onto the {@link FileItem} shape the
+ * shared FilePreviewDialog / FilePreviewPane consume, so an attached file can be
+ * opened in the same read-only preview used everywhere else. Metadata the pane
+ * fetches or tolerates as null (summary, page/chunk counts, content types, tags,
+ * MIME type) is passed as null — the pane resolves what it can from the preview
+ * endpoint using the (server) file id. Prefers `serverFileId` so the preview
+ * fetch hits the persisted document; falls back to the client id pre-upload.
+ */
+export function trackedFileToFileItem(file: TrackedFile): FileItem {
+  return {
+    id: file.serverFileId ?? file.id,
+    filename: file.fileName,
+    fileSize: file.fileSize ?? null,
+    contentType: null,
+    status: file.status,
+    folderId: null,
+    createdAt: file.uploadedAt ?? new Date().toISOString(),
+    errorMessage: file.errorMessage ?? null,
+    summary: null,
+    pageCount: null,
+    chunkCount: null,
+    contentTypes: null,
+    tags: null,
+  }
 }
 
 /** Document store state */
