@@ -84,6 +84,14 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="document-grid-card"]',
   },
   {
+    id: 'intake',
+    mobile: true,
+    path: '/dev/intake',
+    description:
+      'Project intake wizard (real ProjectIntakeWizard, backend-free) — mobile focus: sticky safe-area Back/Next footer, scroll-into-view stepper, ≥44px touch targets.',
+    waitFor: 'main',
+  },
+  {
     id: 'file-preview',
     mobile: true,
     path: '/dev/file-preview',
