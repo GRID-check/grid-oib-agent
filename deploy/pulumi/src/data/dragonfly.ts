@@ -38,6 +38,7 @@ export function installDragonfly(
         template: {
           metadata: { labels },
           spec: {
+            enableServiceLinks: false, // see chroma.ts — legacy env collisions
             containers: [
               {
                 name: "dragonfly",

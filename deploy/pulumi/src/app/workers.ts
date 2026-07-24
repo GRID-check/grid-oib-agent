@@ -32,6 +32,7 @@ export function installWorkers(
         template: {
           metadata: { labels: commonLabels("purger") },
           spec: {
+            enableServiceLinks: false, // see chroma.ts — legacy env collisions
             securityContext: { runAsNonRoot: true, runAsUser: UID.frontend, runAsGroup: UID.frontend },
             containers: [
               {
@@ -66,6 +67,7 @@ export function installWorkers(
         template: {
           metadata: { labels: commonLabels("workflow-scheduler") },
           spec: {
+            enableServiceLinks: false, // see chroma.ts — legacy env collisions
             securityContext: { runAsNonRoot: true, runAsUser: UID.frontend, runAsGroup: UID.frontend },
             containers: [
               {

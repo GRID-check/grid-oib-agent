@@ -38,6 +38,7 @@ export function installAgentWorker(
         template: {
           metadata: { labels },
           spec: {
+            enableServiceLinks: false, // see chroma.ts — legacy env collisions
             securityContext: { runAsNonRoot: true, runAsUser: UID.backend, runAsGroup: UID.backend },
             // Spread workers across nodes (autoscaler prerequisite + survives a
             // single node loss / automatic-upgrade node replacement).

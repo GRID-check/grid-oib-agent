@@ -48,6 +48,7 @@ export function installFrontend(
         template: {
           metadata: { labels },
           spec: {
+            enableServiceLinks: false, // see chroma.ts — legacy env collisions
             // The frontend image runs as non-root UID 1001; make it explicit so
             // the pod is Pod-Security "restricted"-ready.
             securityContext: { runAsNonRoot: true, runAsUser: UID.frontend, runAsGroup: UID.frontend },

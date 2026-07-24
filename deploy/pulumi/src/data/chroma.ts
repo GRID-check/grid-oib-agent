@@ -45,6 +45,11 @@ export function installChroma(
         template: {
           metadata: { labels },
           spec: {
+            // Legacy Docker-link env injection (CHROMA_PORT=tcp://…) collides
+            // with Chroma's CHROMA_-prefixed config parsing and panics the server
+            // on any pod restart after the Service exists (found live). Nothing
+            // consumes service-link vars — disable them everywhere.
+            enableServiceLinks: false,
             securityContext: { fsGroup: 1000 },
             containers: [
               {

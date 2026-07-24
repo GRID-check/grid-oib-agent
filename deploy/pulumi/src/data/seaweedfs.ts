@@ -107,6 +107,7 @@ export function installSeaweedFS(
         template: {
           metadata: { labels },
           spec: {
+            enableServiceLinks: false, // see chroma.ts — legacy env collisions
             securityContext: { fsGroup: 1000 },
             containers: [
               {
@@ -210,6 +211,7 @@ export function installSeaweedFS(
         template: {
           metadata: { labels: commonLabels("seaweedfs-init") },
           spec: {
+            enableServiceLinks: false,
             restartPolicy: "OnFailure",
             containers: [
               {

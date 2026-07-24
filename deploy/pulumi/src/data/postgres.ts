@@ -311,6 +311,7 @@ export function installPostgres(
         template: {
           metadata: { labels: commonLabels("pg-init") },
           spec: {
+            enableServiceLinks: false, // see chroma.ts — legacy env collisions
             restartPolicy: "OnFailure",
             containers: [
               {
