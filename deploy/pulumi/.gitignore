@@ -4,3 +4,4 @@ bin/
 # Pulumi writes no local secrets, but guard against accidental plaintext dumps.
 Pulumi.*.yaml.bak
 .plan.json
+Pulumi.test.yaml
