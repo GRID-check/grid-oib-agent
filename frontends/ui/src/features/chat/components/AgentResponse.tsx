@@ -358,7 +358,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // error) or an absent signal keeps the "Ergebnis" tab (fail-open).
   const isMeta = routingDecision === 'meta'
   return (
-    <div className="animate-in fade-in-0 slide-in-from-bottom-1 mx-auto flex w-[680px] max-w-full flex-col duration-200">
+    <div className="animate-in fade-in-0 slide-in-from-bottom-1 flex w-[680px] max-w-full flex-col duration-200">
       {/* Role tab — uppercase 10.5/600. Substantive answer: near-black action
           fill + check. Meta reply: quiet secondary fill + conversation icon. */}
       {isMeta ? (

@@ -206,7 +206,7 @@ export const chat: typeof en.chat = {
     done: 'Fertig',
     showThinking: 'Denkschritte anzeigen ({count})',
     showThinkingSteps: 'Denkschritte anzeigen ({count})',
-    herleitungSummary: 'Herleitung · {steps} Zwischenschritte · {sources} Quellen',
+    herleitungSummary: 'Herleitung · {steps} Schritte · {sources} Quellen',
     stepsLabel: 'Denkschritte',
     stepsHeading: 'Zwischenschritte',
     sourcesFanOut: 'Quellen',
@@ -241,6 +241,10 @@ export const chat: typeof en.chat = {
       sourcesTab: 'Quellen',
       sourcesTitle: 'Geprüfte Quellen',
       findingsTab: 'Einschätzung',
+      // Reine Herleitungs-Info im Einschätzungsknoten: in welchen Quellenspuren
+      // es Treffer gab. NICHT das Vertrauensurteil (Konfidenz/Belege) — das
+      // steht einmal auf der Antwortkarte.
+      findingsHits: 'Treffer in: {lanes}',
       branchesTab: 'Folgewege',
       branchesSub: 'Wähle eine Option — das Ergebnis wird für deine Wahl zusammengestellt.',
     },

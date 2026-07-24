@@ -44,15 +44,12 @@ import '@xyflow/react/dist/style.css'
 import type { Translator } from '@/i18n'
 import { useTranslations } from '@/i18n'
 import { useLayoutStore } from '@/features/layout/store'
-import { sourceSignalStyle } from '@/features/layout/components/SourceSignalChip'
 import { TechnicalSteps } from './TechnicalSteps'
 import type { ThinkingStep, CitationSource } from '../../types'
 import { deriveTraceSourceCards } from '../../lib/trace-lanes'
 import type { TraceSourceCard } from '../../lib/trace-lanes'
 import { SourceCard } from './SourceCard'
 import { BranchOptions } from './BranchOptions'
-import { ConfidenceChip } from '../ConfidenceChip'
-import { AuthorityTag } from '../AuthorityTag'
 import { citationChips } from './citations'
 import type { ChoicePrompt } from './citations'
 
@@ -81,9 +78,13 @@ type FramingData = {
 }
 type SourceData = { card: TraceSourceCard; hitLabel: string; gapLabel: string }
 type FindingsData = {
-  confidence?: 'low' | 'medium' | 'high'
-  chips: ReturnType<typeof citationChips>
   label: string
+  /**
+   * Reasoning-specific detail: which lanes actually produced hits for this turn
+   * (deduped lane labels). This is NOT the answer's trust verdict — the
+   * confidence chip and provenance chips live once, on the answer card.
+   */
+  hitSummary?: string
   /** Top (target) handles — one per incoming source, or a single centre. */
   targets: HandleSpec[]
   /** Bottom (source) handle — present only when a branches node follows. */
@@ -127,23 +128,12 @@ const FindingsFlowNode: FC<NodeProps<Node<FindingsData>>> = ({ data }) => (
       <Handle key={h.id} id={h.id} type="target" position={Position.Top} style={{ ...H, left: h.left }} />
     ))}
     <Eyebrow>{data.label}</Eyebrow>
-    <div className="mt-2 flex flex-col gap-2">
-      {data.confidence && <ConfidenceChip confidence={data.confidence} />}
-      {data.chips.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          {data.chips.map((chip) => (
-            <span
-              key={chip.key}
-              className="inline-flex h-6 max-w-full items-center gap-1 truncate rounded-md border px-2.5 text-xs font-medium"
-              style={sourceSignalStyle(chip.signal)}
-            >
-              {chip.authority && <AuthorityTag>{chip.authority}</AuthorityTag>}
-              <span className="truncate">{chip.label}</span>
-            </span>
-          ))}
-        </div>
-      )}
-    </div>
+    {/* Reasoning-specific detail only — which lanes produced hits. The trust
+        verdict (confidence + provenance chips) is NOT restated here; it lives
+        once on the answer card, where users act on it. */}
+    {data.hitSummary && (
+      <p className="mt-1.5 text-[12px] leading-relaxed text-muted-foreground">{data.hitSummary}</p>
+    )}
     {data.source && <Handle id={data.source.id} type="source" position={Position.Bottom} style={{ ...H, left: data.source.left }} />}
   </div>
 )
@@ -279,11 +269,16 @@ export function buildGraph(props: ReasoningFlowProps, t: Translator, vertical: b
       : undefined,
     sources: framingSources,
   }
+  // Which lanes actually produced hits (deduped) — reasoning detail, not the
+  // verdict. citationChips already collapses the flat citation list per lane.
+  const hitLanes = props.citations ? citationChips(props.citations).map((c) => c.label) : []
   const findingsData: FindingsData | null = hasFindings
     ? {
-        confidence: props.answerConfidence,
-        chips: props.citations ? citationChips(props.citations) : [],
         label: t('thinking.node.findingsTab'),
+        hitSummary:
+          hitLanes.length > 0
+            ? t('thinking.node.findingsHits', { lanes: hitLanes.join(', ') })
+            : undefined,
         targets: convergeTargets,
         source: hasBranches ? { id: 'out', left: '50%' } : undefined,
       }

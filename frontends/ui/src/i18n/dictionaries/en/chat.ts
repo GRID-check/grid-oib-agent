@@ -250,6 +250,10 @@ export const chat = {
       sourcesTab: 'Sources',
       sourcesTitle: 'Sources examined',
       findingsTab: 'Assessment',
+      // Reasoning-only detail in the assessment node: which source lanes
+      // produced hits. NOT the answer's trust verdict (confidence/provenance) —
+      // that lives once, on the answer card.
+      findingsHits: 'Hits in: {lanes}',
       branchesTab: 'Next steps',
       branchesSub: 'Pick one option — the answer is assembled for your choice.',
     },

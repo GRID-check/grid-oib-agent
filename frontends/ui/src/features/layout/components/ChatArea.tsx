@@ -353,15 +353,19 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                     showAnswerFeedback={showAnswerFeedback}
                   />
 
-                  {/* The Herleitung gets the FULL message column — it is the
-                      product's proof-of-work (which sources were checked, what
-                      was found, how confident), so it must not be starved into a
-                      narrow, cramped strip. */}
+                  {/* Assistant-side thread spine: the Herleitung shares the
+                      answer card's width and left alignment, so the reasoning and
+                      the answer stack as ONE left column (the user bubble stays
+                      right-aligned). Auto-expanded while the turn is live, it
+                      collapses to a one-line bar once the answer lands. */}
                   {isUserMessage && hasThinkingSteps && (
-                    <div className="flex w-full justify-start">
+                    <div className="w-[680px] max-w-full">
                       <ChatThinking
                         steps={messageSteps}
                         isThinking={isStreaming && message.id === currentUserMessageId}
+                        autoOpen={
+                          (isStreaming && message.id === currentUserMessageId) || isWaiting
+                        }
                         isWaiting={isWaiting}
                         isInterrupted={isInterrupted}
                         isRecoveryPending={isRecoveryPending}

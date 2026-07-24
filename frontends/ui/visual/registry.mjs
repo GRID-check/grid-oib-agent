@@ -32,8 +32,9 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/chat-turn',
     description:
-      'A complete chat turn as ChatArea composes it — user question, collapsed Herleitung, and the cited "Ergebnis" answer card — desktop + mobile.',
-    waitFor: '[data-testid="chat-turn-preview"]',
+      'A chat turn at both transition endpoints — a LIVE turn (Herleitung auto-expanded, reasoning graph streaming, answer absent) and a COMPLETED turn (Herleitung collapsed to the one-line bar, cited "Ergebnis" answer card dominant, sources+confidence once) — desktop + mobile.',
+    // Wait for the LIVE turn's reasoning graph to mount before capturing.
+    waitFor: '.react-flow__node',
   },
   {
     id: 'composer',
