@@ -96,7 +96,8 @@ def add_ingest_routes(router: APIRouter):
                 try:
                     await asyncio.to_thread(
                         _generate_and_upload_thumbnail,
-                        temp_path, request.thumbnail_upload_url,
+                        temp_path,
+                        request.thumbnail_upload_url,
                     )
                 except Exception:
                     logger.warning("Pre-ingest thumbnail failed (swallowed)", exc_info=True)
