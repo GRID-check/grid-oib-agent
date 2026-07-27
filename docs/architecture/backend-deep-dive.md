@@ -457,9 +457,11 @@ sources — see backlog T3-10 for the closed status and rationale.
 
 ### Multimodal & visual/vector-drawing ingestion
 
-`_run_ingestion` (`adapter.py`) extracts content from a PDF along four
-independent tracks, then indexes every resulting `Document` chunk and derives
-the document summary:
+`_run_ingestion` (`adapter.py`) extracts content from a PDF in a **two-phase
+pipeline**, then indexes every resulting `Document` chunk and derives the
+document summary:
+
+**Phase 1 — extraction (no VLM):**
 
 1. **Text** — `_extract_text_from_pdf` (pdfplumber), per page. Licence/watermark
    boilerplate lines (e.g. `VECTORWORKS EDUCATIONAL VERSION`) are removed by
@@ -469,32 +471,40 @@ the document summary:
 2. **Tables** — `_extract_tables_from_pdf` (pdfplumber), gated on
    `extract_tables`.
 3. **Embedded raster images** — `_extract_images_from_pdf` (pypdfium2 image
-   XObjects) → `_analyze_image_with_vlm`, gated on `extract_images`/
-   `extract_charts`. This only sees **raster** images embedded in the page. The
-   generic caption prompt is content-focused and, like the drawing prompt,
-   instructs the model to **exclude** licence/watermark/tool-stamp text (e.g.
-   `VECTORWORKS EDUCATIONAL VERSION`). As belt-and-braces, the returned caption is
-   also run through `_scrub_watermark_phrases` — a **substring** watermark filter
-   (the `WATERMARK_PHRASE_PATTERNS` counterparts of `_strip_watermark_lines`'
-   whole-line patterns) — before it is stored, so a stamp the VLM wove mid-prose
-   never survives. The identical raster-image caption path is used for
-   **standalone uploaded JPG/PNG plans** (`_build_image_caption_document`).
-4. **Rendered visual/vector pages** — `_render_visual_pdf_pages`, gated on
-   `AIQ_RENDER_VISUAL_PAGES` (default on) **and** a resolvable VLM key. This is
-   the track that captures **vector CAD/architectural drawings** (plans,
+   XObjects), gated on `extract_images`/`extract_charts`. Returns raw image
+   bytes — **no VLM call yet**.
+4. **Rendered visual/vector pages** — `processing.render_visual_pages_no_vlm`,
+   gated on `AIQ_RENDER_VISUAL_PAGES` (default on) **and** a resolvable VLM key.
+   This is the track that captures **vector CAD/architectural drawings** (plans,
    sections, elevations, perspectives): they are thousands of vector *path*
    objects with almost no text and **no embedded raster image**, so tracks 1
    and 3 both miss them entirely. The whole page is composited into one bitmap
    (`page.render`, scaled so the long edge ≈ `AIQ_PAGE_RENDER_MAX_DIM` px,
-   default 2048) and sent to `_analyze_drawing_page_with_vlm` with a
-   drawing-aware German prompt that returns a structured description (drawing
-   type, Maßstab/scale, rooms/elements, spatial relationships, and a
-   one-sentence summary), parsed by `_parse_drawing_fields`. A page is routed
-   here only when its watermark-stripped text is below
-   `AIQ_VISUAL_PAGE_MIN_TEXT_CHARS` (200) **or** it has ≥
-   `AIQ_VISUAL_PAGE_MIN_PATHS` (300) vector paths — so ordinary text PDFs (the
-   bulk OIB corpus) skip the VLM at near-zero cost — and at most
-   `AIQ_MAX_RENDERED_PAGES` (20) pages are rendered per document.
+   default 2048) — **no VLM call yet**. A page is routed here only when its
+   watermark-stripped text is below `AIQ_VISUAL_PAGE_MIN_TEXT_CHARS` (200)
+   **or** it has ≥ `AIQ_VISUAL_PAGE_MIN_PATHS` (300) vector paths — so ordinary
+   text PDFs (the bulk OIB corpus) skip rendering at near-zero cost — and at
+   most `AIQ_MAX_RENDERED_PAGES` (20) pages are rendered per document.
+
+**Phase 2 — concurrent VLM enrichment:**
+
+All image bytes (from track 3) and rendered page bitmaps (from track 4) are
+passed to `processing.enrich_vlm_batch`, which runs every VLM caption call in a
+single `ThreadPoolExecutor` (4 workers) per file, with **content-hash caching**
+via the shared Dragonfly/Redis store (ADR-0020). The cache key is
+`vlm:caption:{prompt_type}:{sha256(image_bytes)}` with a 30-day TTL, so
+re-ingesting a changed PDF only re-captions its new/modified pages.
+
+- **Embedded raster images** → `_analyze_image_with_vlm` with the generic English
+  caption prompt (classifies chart vs. image, describes content, instructs the
+  model to **exclude** licence/watermark/tool-stamp text). Returned captions are
+  also run through `_scrub_watermark_phrases` as a belt-and-braces substring
+  filter. The identical path is used for **standalone uploaded JPG/PNG plans**
+  (`_build_image_caption_document`).
+- **Rendered visual/vector pages** → `_analyze_drawing_page_with_vlm` with the
+  drawing-aware German prompt that returns a structured description (drawing
+  type, Maßstab/scale, rooms/elements, spatial relationships, and a one-sentence
+  summary), parsed by `_parse_drawing_fields`.
 
 The drawing prompt returns a rich structured block — drawing type, Maßstab,
 Nutzung, Räume/Elemente, Materialien/Bauweise, räumliche Beziehungen, and a
@@ -505,7 +515,10 @@ circulation) that used to have no indexed content at all. The same descriptions
 are browsable by the user, second to the one-line summary: `get_document_visual_details`
 reads the visual chunks back from Chroma and the file-preview pane's collapsible
 **"Detailed information"** section lazy-loads them (`GET /api/documents/{id}/visual-details`
-→ `GET /v1/collections/{c}/documents/{f}/visual-details`).
+→ `GET /v1/collections/{c}/documents/{f}/visual-details`). Drawing chunks carry
+`content_type: "drawing"` in metadata (mapped to `ContentType.DRAWING` at
+retrieval by `normalize`), giving them their own citation format
+`"file, p.N, drawing_type"` in the agent context.
 
 **Summary sourcing (why the summary no longer describes the watermark).** The
 document summary + tag LLM calls are started **after** visual extraction. For a
@@ -525,15 +538,16 @@ it the summary stays `None` rather than becoming an empty string — so a
 Bebauungsplan JPG is never summarised by its CAD licence stamp.
 
 **Org BYOK + runtime model override for the VLM.** The vision model used across
-all four tracks is resolved the SAME way the NAT chat models resolve theirs.
-`/v1/ingest` forwards `x-grid-organization-id` (the BFF's `dispatchIngest` sets
-it) into the job config; because `_run_ingestion` runs in a detached thread pool
-with no request context, the org id must be captured at the request boundary and
-carried in the config. From it the ingestor resolves, per job:
-`resolve_vlm_credential(org_id)` (org BYOK key + base URL, else the deployment
-env chain) and `_resolve_vlm_model_override(org_id)` (the org's `ingest_vlm`
-model override, `AgentGroup.INGEST_VLM`). The resolved `(model, base_url,
-api_key)` is threaded into every VLM call site. Org-agnostic base-corpus sync
+all VLM call sites (Phase 2 enrichment) is resolved the SAME way the NAT chat
+models resolve theirs. `/v1/ingest` forwards `x-grid-organization-id` (the BFF's
+`dispatchIngest` sets it) into the job config; because `_run_ingestion` runs in a
+detached thread pool with no request context, the org id must be captured at the
+request boundary and carried in the config. From it the ingestor resolves, per
+job: `resolve_vlm_credential(org_id)` (org BYOK key + base URL, else the
+deployment env chain) and `_resolve_vlm_model_override(org_id)` (the org's
+`ingest_vlm` model override, `AgentGroup.INGEST_VLM`). The resolved
+`(model, base_url, api_key)` is threaded into `processing.enrich_vlm_batch`.
+Org-agnostic base-corpus sync
 (`oib_sync`) carries no org id and gets the deployment default, unchanged. Org
 admins select the model in the model-config picker (`ingest_vlm` group, gated to
 vision-capable models); see `docs/architecture/org-model-configuration.md`.
@@ -555,11 +569,15 @@ falling back to the content-aware SVG sketch (`DocumentKindThumbnail`).
    `_thumb.jpg`) and generates a presigned **PUT** URL for it.
 2. The PUT URL is passed to the backend's `/v1/ingest` as
    `thumbnail_upload_url`.
-3. During ingestion (`_run_ingestion` in `adapter.py`), after a file is
-   indexed and marked SUCCESS, `_generate_and_upload_thumbnail` renders:
+3. During ingestion (`_run_ingestion` in `adapter.py`), the thumbnail is
+   generated **early** — right after text extraction, before any VLM,
+   indexing, or summary work — so the BFF polling job status sees a
+   thumbnail as soon as the backend has the file in hand:
    - **PDFs**: page 0 via `pypdfium2` → PIL → 200px JPEG quality 80.
    - **Images**: PIL open → RGB → 200px JPEG quality 80.
-4. The JPEG bytes are PUT to SeaweedFS via the presigned URL.
+4. The JPEG bytes are PUT to SeaweedFS via the presigned URL (pypdfium2
+   render is quick — ~50 ms per page — so it does not delay the pipeline
+   noticeably).
 
 **Serving:**
 - `GET /api/documents/{id}/thumbnail` → `getDocumentThumbnail()` presigns a

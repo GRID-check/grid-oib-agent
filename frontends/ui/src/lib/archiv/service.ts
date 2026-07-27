@@ -23,7 +23,7 @@ import { canManageArchiv } from '@/lib/authz/organizations'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { getBackendUrl } from '@/lib/backend-proxy'
 import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
-import { assertUploadTypeAllowed, dispatchIngest, fetchSemanticHits, joinHitsToFiles, type SearchedDocument } from '@/lib/documents/service'
+import { assertFileSizeAllowed, assertUploadTypeAllowed, dispatchIngest, fetchSemanticHits, joinHitsToFiles, type SearchedDocument } from '@/lib/documents/service'
 import { reconcileDocumentStatuses, type DocumentMetadata } from '@/lib/documents/reconcile-status'
 import type { DocumentListRow } from '@/lib/documents/repository'
 import type { AuthorizedSession } from '@/lib/auth/types'
@@ -99,6 +99,7 @@ export async function uploadArchivDocument(
 ): Promise<UploadArchivDocumentResult> {
   if (!canManageArchiv(session)) throw new ForbiddenError()
   await assertUploadTypeAllowed(session, file.name)
+  assertFileSizeAllowed(file.size)
 
   const documentId = crypto.randomUUID()
   const collectionName = archivCollectionName(session.organizationId)

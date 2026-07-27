@@ -21,6 +21,7 @@ vi.mock('@/lib/audit/service', () => ({
 // Shared document machinery reused by the Archiv — mocked so these tests focus
 // on the Archiv service's own orchestration/authorization.
 vi.mock('@/lib/documents/service', () => ({
+  assertFileSizeAllowed: vi.fn(),
   assertUploadTypeAllowed: vi.fn().mockResolvedValue(undefined),
   dispatchIngest: vi.fn().mockResolvedValue({ jobId: 'job-1', status: 'pending' }),
   // The semantic-search join is unit-tested in the documents service; here we

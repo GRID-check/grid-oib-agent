@@ -1,5 +1,7 @@
 """URL-based ingestion endpoint for documents stored in SeaweedFS."""
 
+import asyncio
+import io
 import logging
 import os
 import tempfile
@@ -11,6 +13,7 @@ from fastapi import APIRouter
 from fastapi import Depends
 from fastapi import Header
 from fastapi import HTTPException
+from PIL import Image
 
 from aiq_agent.knowledge.base import BaseIngestor
 
@@ -86,6 +89,18 @@ def add_ingest_routes(router: APIRouter):
             if x_grid_organization_id:
                 config["organization_id"] = x_grid_organization_id
 
+            # Fast thumbnail: generate a 200px JPEG before the job enters the
+            # pool so the BFF polling sees it (near-)instantly. Fail-open —
+            # a thumbnail is decorative and never blocks ingestion.
+            if request.thumbnail_upload_url:
+                try:
+                    await asyncio.to_thread(
+                        _generate_and_upload_thumbnail,
+                        temp_path, request.thumbnail_upload_url,
+                    )
+                except Exception:
+                    logger.warning("Pre-ingest thumbnail failed (swallowed)", exc_info=True)
+
             job_id = ingestor.submit_job(
                 [temp_path],
                 collection,
@@ -157,3 +172,50 @@ def _extract_filename(url: str) -> str:
     if not filename or filename == "/":
         return "document"
     return filename
+
+
+def _generate_and_upload_thumbnail(file_path: str, thumbnail_url: str) -> None:
+    """Render the first page of a PDF/image as a 200px JPEG and PUT it to the
+    presigned SeaweedFS URL. Fail-open on any error (thumbnails are decorative).
+
+    Called in the ingest request handler (before ``submit_job``) so the
+    thumbnail is available near-instantly — before the file even enters the
+    worker pool.
+    """
+    try:
+        ext = os.path.splitext(file_path)[1].lower()
+        thumbnail_bytes: bytes | None = None
+
+        if ext == ".pdf":
+            import pypdfium2 as pdfium
+
+            doc = pdfium.PdfDocument(file_path)
+            try:
+                if len(doc) > 0:
+                    page = doc[0]
+                    try:
+                        width_pt, height_pt = page.get_size()
+                        longest_pt = max(width_pt, height_pt) or 1.0
+                        scale = 200.0 / longest_pt
+                        bitmap = page.render(scale=scale)
+                        img = bitmap.to_pil().convert("RGB")
+                        buf = io.BytesIO()
+                        img.save(buf, format="JPEG", quality=80)
+                        thumbnail_bytes = buf.getvalue()
+                    finally:
+                        page.close()
+            finally:
+                doc.close()
+        elif ext in (".png", ".jpg", ".jpeg"):
+            img = Image.open(file_path).convert("RGB")
+            img.thumbnail((200, 200))
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=80)
+            thumbnail_bytes = buf.getvalue()
+
+        if thumbnail_bytes:
+            resp = httpx.put(thumbnail_url, content=thumbnail_bytes)
+            resp.raise_for_status()
+            logger.info("Pre-ingest thumbnail uploaded (%d bytes)", len(thumbnail_bytes))
+    except Exception:
+        logger.warning("Pre-ingest thumbnail generation failed (swallowed)", exc_info=True)
