@@ -472,4 +472,17 @@ describe('COUNTRY_TOKENS / isValidCountryToken', () => {
   it('contains the four country options', () => {
     expect(COUNTRY_TOKENS).toEqual(['at', 'de', 'ch', 'other'])
   })
+
+  it('accepts recognized country tokens', () => {
+    expect(isValidCountryToken('at')).toBe(true)
+    expect(isValidCountryToken('de')).toBe(true)
+    expect(isValidCountryToken('ch')).toBe(true)
+    expect(isValidCountryToken('other')).toBe(true)
+  })
+
+  it('rejects unknown country tokens', () => {
+    expect(isValidCountryToken('fr')).toBe(false)
+    expect(isValidCountryToken('')).toBe(false)
+    expect(isValidCountryToken('AT')).toBe(false)
+  })
 })
