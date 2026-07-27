@@ -146,6 +146,32 @@ describe('NATSystemResponseMessageSchema transparency extras (WP-A → WP-B)', (
     expect(parsed.answer_confidence_capped_reason).toBeUndefined()
   })
 
+  test('answer_confidence_reason parses when present', () => {
+    const parsed = NATSystemResponseMessageSchema.parse({
+      ...base,
+      answer_confidence_reason: 'Direkt durch OIB-RL 2 belegt',
+    })
+    expect(parsed.answer_confidence_reason).toBe('Direkt durch OIB-RL 2 belegt')
+  })
+
+  test('answer_confidence_reason over 500 chars degrades to undefined (catch)', () => {
+    const parsed = NATSystemResponseMessageSchema.parse({
+      ...base,
+      answer_confidence_reason: 'x'.repeat(501),
+    })
+    expect(parsed.content).toBe('an answer')
+    expect(parsed.answer_confidence_reason).toBeUndefined()
+  })
+
+  test('a non-string answer_confidence_reason degrades to undefined (catch)', () => {
+    const parsed = NATSystemResponseMessageSchema.parse({
+      ...base,
+      answer_confidence_reason: 42,
+    })
+    expect(parsed.content).toBe('an answer')
+    expect(parsed.answer_confidence_reason).toBeUndefined()
+  })
+
 })
 
 describe('NATSystemResponseMessageSchema sources per-entry tolerance', () => {

@@ -97,6 +97,8 @@ export interface AnswerTransparency {
   routingReason?: string
   escalationReason?: string
   answerConfidenceCappedReason?: 'ungrounded' | 'quote_unverified'
+  /** The model's own one-clause justification for its self-assessment, shown verbatim in the chip tooltip. */
+  answerConfidenceReason?: string
   citationsRemoved?: { count: number; reasons: string[] }
 }
 
@@ -240,6 +242,12 @@ export interface ChatMessage {
    * tooltip (PB-9).
    */
   answerConfidenceCappedReason?: 'ungrounded' | 'quote_unverified'
+  /**
+   * The model's own one-clause justification for its confidence level
+   * (`[CONFIDENCE:level | reason]`). Shown verbatim in the ConfidenceChip
+   * tooltip so the reader can see WHY the level was chosen.
+   */
+  answerConfidenceReason?: string
   /**
    * Which path the turn took after intent classification (meta/shallow/deep/
    * error) — drives the "Warum dieser Weg?" narration in the Herleitung.

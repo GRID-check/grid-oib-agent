@@ -276,6 +276,11 @@ export const NATSystemResponseMessageSchema = z.object({
     .enum(['ungrounded', 'quote_unverified'])
     .optional()
     .catch(undefined),
+  // The model's own one-clause justification for its self-assessment
+  // (`[CONFIDENCE:level | reason]`). Shown verbatim in the chip tooltip. Hard
+  // wire cap at 500 chars (backend already caps at 300) — an oversized reason
+  // degrades to "absent", never kills the frame.
+  answer_confidence_reason: z.string().max(500).optional().catch(undefined),
   // Present only when citation verification removed ≥1 citation.
   citations_removed: z
     .object({

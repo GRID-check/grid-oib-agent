@@ -177,6 +177,10 @@ Delivers final or streaming response text.
   cards?: [...],
   deep_research_job_id?: string,
   answer_confidence?: "low" | "medium" | "high",
+  // Optional one-clause justification the model appended to its confidence
+  // marker (`[CONFIDENCE:high | <reason>]`), ≤300 chars, shown verbatim in the
+  // ConfidenceChip tooltip. Absent when the model gave no reason.
+  answer_confidence_reason?: string,
   // Structured sources from the research registry (shallow path). Enables
   // Belegt-durch chips to open OIB/project PDFs via file_name + page.
   sources?: Array<{
@@ -201,7 +205,7 @@ Delivers final or streaming response text.
   routing_decision?: "meta" | "shallow" | "deep" | "error",
   routing_reason?: string,
   escalation_reason?: string,
-  answer_confidence_capped_reason?: "ungrounded",
+  answer_confidence_capped_reason?: "ungrounded" | "quote_unverified",
   citations_removed?: { count: number, reasons: string[] },
   job_admission_rejected?: true,
   retry_after_seconds?: number
@@ -222,7 +226,8 @@ The client extracts content in priority order: `output` → `text` → raw strin
 | `routing_decision` | `"meta" \| "shallow" \| "deep" \| "error"` | Which path the turn took after intent classification. Rendered as a "Warum dieser Weg?" line in the expanded Herleitung. |
 | `routing_reason` | `string` | Human-readable "why" for the routing decision, rendered verbatim from the classifier. |
 | `escalation_reason` | `string` | Present only when a shallow→deep escalation happened this turn. Rendered as `Eskaliert zur Tiefenrecherche: <reason>` in the thinking panel and above the deep-research banner. |
-| `answer_confidence_capped_reason` | `"ungrounded"` | Present only when confidence was downgraded for lack of citation grounding. Adds a sentence to the ConfidenceChip tooltip. |
+| `answer_confidence_reason` | `string` (≤300 chars) | The model's own one-clause justification for its self-assessed confidence, parsed from the `[CONFIDENCE:<level> \| <reason>]` marker. Shown verbatim in the ConfidenceChip tooltip under "Assistant's reason". |
+| `answer_confidence_capped_reason` | `"ungrounded" \| "quote_unverified"` | Present only when confidence was downgraded by the deterministic overconfidence guard (no citation grounding, or an unverifiable quote). Adds a sentence to the ConfidenceChip tooltip. |
 | `citations_removed` | `{ count: number, reasons: string[] }` | Present only when citation verification removed ≥1 citation. Renders a muted note under the sources row (reasons in a tooltip). |
 | `job_admission_rejected` | `true` | Marks the answer text as a queue-rejection notice (NOT a research answer). The client renders a warning banner (error code `research.queue_full`) and leaves the composer unlocked. |
 | `retry_after_seconds` | `number` | Only alongside `job_admission_rejected` — retry hint (seconds). |

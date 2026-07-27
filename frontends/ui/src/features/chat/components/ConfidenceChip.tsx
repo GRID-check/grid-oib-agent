@@ -20,6 +20,13 @@ interface ConfidenceChipProps {
    * source.
    */
   cappedReason?: 'ungrounded' | 'quote_unverified'
+  /**
+   * The model's own one-clause justification for its level
+   * (`[CONFIDENCE:level | reason]`), shown verbatim in the tooltip so the
+   * reader can see WHY the level was chosen. Absent on older turns and when
+   * the marker carried no reason.
+   */
+  reason?: string
 }
 
 /**
@@ -29,8 +36,11 @@ interface ConfidenceChipProps {
  * absent, so historical messages, deep-research turns, and error turns show no
  * chip. Low uses the warning tone (sparingly) to nudge caution; medium/high stay
  * muted so a confident answer never shouts.
+ *
+ * The tooltip explains the chip in full: what the level means, the model's own
+ * reason (when given), the self-assessment caveat, and any deterministic cap.
  */
-export const ConfidenceChip: FC<ConfidenceChipProps> = ({ confidence, cappedReason }) => {
+export const ConfidenceChip: FC<ConfidenceChipProps> = ({ confidence, cappedReason, reason }) => {
   const t = useTranslations('chat')
 
   if (confidence !== 'low' && confidence !== 'medium' && confidence !== 'high') {
@@ -49,9 +59,7 @@ export const ConfidenceChip: FC<ConfidenceChipProps> = ({ confidence, cappedReas
       : cappedReason === 'quote_unverified'
         ? t('confidence.cappedReasons.quoteUnverified')
         : undefined
-  const tooltip = cappedReasonText
-    ? `${t('confidence.tooltip')} ${cappedReasonText}`
-    : t('confidence.tooltip')
+  const trimmedReason = reason?.trim() ? reason.trim() : undefined
 
   return (
     <Tooltip>
@@ -69,7 +77,16 @@ export const ConfidenceChip: FC<ConfidenceChipProps> = ({ confidence, cappedReas
           </button>
         </Chip>
       </TooltipTrigger>
-      <TooltipContent className="max-w-xs">{tooltip}</TooltipContent>
+      <TooltipContent className="max-w-xs">
+        <span className="block">{t(`confidence.levelMeanings.${confidence}`)}</span>
+        {trimmedReason ? (
+          <span className="mt-1 block">
+            <span className="font-medium">{t('confidence.reasonLabel')}:</span> {trimmedReason}
+          </span>
+        ) : null}
+        <span className="mt-1 block">{t('confidence.tooltip')}</span>
+        {cappedReasonText ? <span className="mt-1 block">{cappedReasonText}</span> : null}
+      </TooltipContent>
     </Tooltip>
   )
 }

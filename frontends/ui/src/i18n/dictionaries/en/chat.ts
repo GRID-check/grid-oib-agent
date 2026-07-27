@@ -428,6 +428,14 @@ export const chat = {
     ariaLabel: 'Assistant self-assessed confidence: {level}',
     tooltip:
       "The assistant's own assessment of how well this answer is supported by its sources. It can be wrong.",
+    // What each level MEANS, shown in the tooltip so the reader can interpret the chip.
+    levelMeanings: {
+      high: 'High: the answer is directly grounded in the retrieved sources, which support it clearly and consistently.',
+      medium: 'Medium: partially grounded — sources support parts, but a gap, an inference, or a minor ambiguity remains.',
+      low: 'Low: sources are missing, conflicting, or clearly insufficient; the answer extrapolates from general knowledge.',
+    },
+    // Label introducing the model's own one-clause justification (verbatim).
+    reasonLabel: "Assistant's reason",
     // Extra sentence appended to the tooltip explaining WHY the confidence was
     // capped, keyed by `answer_confidence_capped_reason` (WP-A, PB-9).
     cappedReasons: {

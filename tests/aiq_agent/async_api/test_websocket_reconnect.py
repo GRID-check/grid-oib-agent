@@ -788,6 +788,7 @@ async def test_persist_assistant_message_posts_expected_payload(monkeypatch) -> 
         cards=[{"type": "summary", "title": "T"}],
         deep_research_job_id="job-9",
         answer_confidence="high",
+        answer_confidence_reason="Direkt durch OIB-RL 2 belegt",
     )
 
     assert ok is True
@@ -806,6 +807,7 @@ async def test_persist_assistant_message_posts_expected_payload(monkeypatch) -> 
     assert body["metadata"]["cards"] == [{"type": "summary", "title": "T"}]
     assert body["metadata"]["deep_research_job_id"] == "job-9"
     assert body["metadata"]["answer_confidence"] == "high"
+    assert body["metadata"]["answer_confidence_reason"] == "Direkt durch OIB-RL 2 belegt"
 
 
 @pytest.mark.asyncio

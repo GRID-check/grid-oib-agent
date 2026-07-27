@@ -328,6 +328,7 @@ _TRANSPARENCY_EXTRA_FIELDS = (
     "routing_reason",
     "escalation_reason",
     "answer_confidence_capped_reason",
+    "answer_confidence_reason",
     "citations_removed",
     "job_admission_rejected",
     "retry_after_seconds",
@@ -397,6 +398,7 @@ async def persist_assistant_message(
     cards: Any = None,
     deep_research_job_id: Any = None,
     answer_confidence: Any = None,
+    answer_confidence_reason: Any = None,
     sources: Any = None,
 ) -> bool:
     """Persist a finished assistant turn to the BFF when the client is gone.
@@ -455,6 +457,8 @@ async def persist_assistant_message(
         metadata["deep_research_job_id"] = deep_research_job_id
     if answer_confidence:
         metadata["answer_confidence"] = answer_confidence
+    if answer_confidence_reason:
+        metadata["answer_confidence_reason"] = answer_confidence_reason
     if sources:
         metadata["sources"] = sources
 
@@ -903,6 +907,7 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
             cards = dump.get("cards")
             deep_research_job_id = dump.get("deep_research_job_id")
             answer_confidence = dump.get("answer_confidence")
+            answer_confidence_reason = dump.get("answer_confidence_reason")
             sources = dump.get("sources")
 
             if not (text and text.strip()) and not cards:
@@ -916,6 +921,7 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
                 cards=cards,
                 deep_research_job_id=deep_research_job_id,
                 answer_confidence=answer_confidence,
+                answer_confidence_reason=answer_confidence_reason,
                 sources=sources,
             )
         except Exception:  # noqa: BLE001 — never let persistence crash the handler

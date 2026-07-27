@@ -61,6 +61,11 @@ export interface AgentResponseProps {
    */
   answerConfidenceCappedReason?: 'ungrounded' | 'quote_unverified'
   /**
+   * The model's own one-clause justification for its confidence level, shown
+   * verbatim in the ConfidenceChip tooltip.
+   */
+  answerConfidenceReason?: string
+  /**
    * Citation-verification result: how many citations were removed as
    * unverifiable, with de-duplicated reasons. Renders a muted note under the
    * "Belegt durch" sources row when present.
@@ -180,6 +185,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   conversationId,
   answerConfidence,
   answerConfidenceCappedReason,
+  answerConfidenceReason,
   citationsRemoved,
   showConfidenceChip = true,
   messageId,
@@ -327,6 +333,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             <ConfidenceChip
               confidence={answerConfidence}
               cappedReason={answerConfidenceCappedReason}
+              reason={answerConfidenceReason}
             />
           )}
           <MemoryNotedChip projectId={projectId} conversationId={conversationId} />
@@ -450,6 +457,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
               <ConfidenceChip
                 confidence={answerConfidence}
                 cappedReason={answerConfidenceCappedReason}
+                reason={answerConfidenceReason}
               />
             )}
             <MemoryNotedChip projectId={projectId} conversationId={conversationId} />

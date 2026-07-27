@@ -2,8 +2,6 @@
 
 This repo is the Grid-branded AI-Q agent worktree. It contains a Next.js UI, a Python backend using the NeMo Agent Toolkit, and a custom OIB knowledge source.
 
-This project is Docker-first. Run it via Docker Compose on Windows, macOS, or Linux; native commands are optional and mainly for local development outside the container stack.
-
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the branch/commit/PR-title conventions, local validation steps, the CI merge gate, and secret-scanning + doc-link hygiene.
 
 ## Working style: prefer visuals
@@ -34,45 +32,20 @@ legend. Offer a diagram proactively for architecture/design discussions.
 | `scripts/` | Utility scripts, including `scripts/ingest_oib.py` |
 | `data/oib/` | OIB Richtlinien PDFs, tracked with Git LFS |
 
-## Docker-first quick start
-
-1. Copy the environment template and add your API keys:
-   ```bash
-   cp deploy/.env.example deploy/.env
-   # edit deploy/.env with your LLM API keys (OpenRouter for the working config)
-   ```
-
-2. Build and start the full stack:
-   ```bash
-   docker compose -f deploy/compose/docker-compose.yaml --env-file deploy/.env up -d --build
-   ```
-
-3. Initial OIB ingestion starts automatically in the background when the `aiq-agent` container boots (`deploy/entrypoint.py`). Watch its progress in the container logs:
-   ```bash
-   docker compose -f deploy/compose/docker-compose.yaml --env-file deploy/.env logs -f aiq-agent
-   ```
-   To re-run ingestion manually (incremental — e.g. after adding PDFs to `data/oib/`):
-   ```bash
-   docker compose -f deploy/compose/docker-compose.yaml --env-file deploy/.env exec aiq-agent python scripts/ingest_oib.py
-   ```
-   The same re-run can be triggered over HTTP via the admin-token-guarded `POST /v1/admin/oib/sync` endpoint.
-
-4. Open the UI at http://localhost:3000.
-   The backend API is available at http://localhost:8000.
-
-VS Code users can also open the project in the dev container configured in `.devcontainer/`.
-
 ## Verification workflow
 
-Host `npm install` is unreliable on this project — run frontend checks in Docker:
+All checks run natively on the host (no Docker available in this environment):
 
 | Check | Command |
 |-------|---------|
-| Frontend typecheck + tests | `cd frontends/ui && docker build -f Dockerfile.typecheck -t grid-tsc . && docker run --rm grid-tsc` |
+| Frontend typecheck | `cd frontends/ui && npm run type-check` |
+| Frontend tests | `cd frontends/ui && npx vitest run <files>` |
 | Backend syntax | `.venv/Scripts/python.exe -m py_compile <files>` |
 | Backend lint | `.venv/Scripts/ruff.exe check <files>` (and `ruff format --check`) |
-| Backend tests | `.venv/Scripts/python.exe -m pytest tests/` |
+| Backend tests | `$env:PYTHONPATH='src'; .venv/Scripts/python.exe -m pytest tests/` |
 | UI screenshot evidence | `cd frontends/ui && npm run screenshots [-- <id>]` → PNGs in `frontends/ui/visual/screenshots/` |
+
+**Backend tests MUST run with `PYTHONPATH=src`** (PowerShell: `$env:PYTHONPATH='src'` before the pytest call). This worktree's `.venv` has `aiq_agent` installed from a different worktree, so without it pytest validates the wrong code.
 
 Note: the UI tsconfig includes test files, so spec type errors block the production `next build`.
 
@@ -81,7 +54,10 @@ with a committed screenshot. This repo has a reproducible harness: a registry
 (`frontends/ui/visual/registry.mjs`) of `/dev/*` preview routes that render real
 components with fixture data (no backend), captured in light + dark by
 `npm run screenshots`. When you build a user-visible surface, add a `/dev/<name>`
-preview route + a registry target and commit the resulting PNGs. Full playbook
+preview route + a registry target and commit the resulting PNGs. The
+`visual-coverage` workflow nudges (comment-only, phase 1) when a PR adds a
+component without that evidence — opt out non-visual components with a
+`// no-visual: <reason>` marker. Full playbook
 (dark-mode `.dark` class, module-scope fetch shims, pre-installed Chromium):
 **`docs/ux/visual-screenshots.md`**.
 

@@ -170,6 +170,7 @@ _STREAM_EXTRA_FIELDS = (
     "routing_reason",
     "escalation_reason",
     "answer_confidence_capped_reason",
+    "answer_confidence_reason",
     "citations_removed",
     "job_admission_rejected",
     "retry_after_seconds",
@@ -1024,6 +1025,7 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         routing_reason = getattr(depth_decision, "raw_reasoning", None)
         escalation_reason = _result_field(result, "escalation_reason")
         answer_confidence_capped_reason = _result_field(result, "answer_confidence_capped_reason")
+        answer_confidence_reason = _result_field(result, "answer_confidence_reason")
         citations_removed = _result_field(result, "citations_removed")
         job_admission_rejected = _result_field(result, "job_admission_rejected")
         retry_after_seconds = _result_field(result, "retry_after_seconds")
@@ -1059,6 +1061,8 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
             response.escalation_reason = escalation_reason
         if answer_confidence_capped_reason:
             response.answer_confidence_capped_reason = answer_confidence_capped_reason
+        if answer_confidence_reason:
+            response.answer_confidence_reason = answer_confidence_reason
         if citations_removed:
             response.citations_removed = citations_removed
         if job_admission_rejected:

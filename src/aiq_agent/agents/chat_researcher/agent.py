@@ -156,6 +156,7 @@ def _finalize_shallow_answer(
     quotes_verified: bool = True,
     escalation_present: bool | None = None,
     self_reported: ConfidenceLevel | None = None,
+    self_reported_reason: str | None = None,
     verified_sources: list[dict[str, Any]] | None = None,
     citations_removed: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -188,12 +189,12 @@ def _finalize_shallow_answer(
     if escalation_present is None:
         # Fallback: no structured signals — detect both markers from the text.
         without_escalation, escalation_present = detect_and_strip_escalation_marker(content)
-        clean_content, self_reported = detect_and_strip_confidence_marker(without_escalation)
+        clean_content, self_reported, self_reported_reason = detect_and_strip_confidence_marker(without_escalation)
     else:
         # Structured signals are authoritative for routing; strip defensively so
         # no marker can leak even if this message still carries one.
         without_escalation, _ = detect_and_strip_escalation_marker(content)
-        clean_content, _ = detect_and_strip_confidence_marker(without_escalation)
+        clean_content, _, _ = detect_and_strip_confidence_marker(without_escalation)
 
     if not clean_content.strip() and not escalation_present:
         # An empty answer is a generation failure, not an escalation signal:
@@ -223,6 +224,7 @@ def _finalize_shallow_answer(
             ),
             # Escalation supersedes the shallow answer → surface no self-assessment.
             "answer_confidence": None,
+            "answer_confidence_reason": None,
             "verified_sources": verified_sources,
         }
 
@@ -230,6 +232,7 @@ def _finalize_shallow_answer(
         "messages": [updated_message],
         "shallow_result": None,
         "answer_confidence": surface_answer_confidence(self_reported, citation_grounded, quotes_verified),
+        "answer_confidence_reason": self_reported_reason,
         "answer_confidence_capped_reason": answer_confidence_capped_reason(
             self_reported, citation_grounded, quotes_verified
         ),
@@ -543,9 +546,15 @@ class ChatResearcherAgent:
             if raw_escalation is not None:
                 escalation_present: bool | None = bool(raw_escalation)
                 self_reported = getattr(result, "answer_confidence_marker", None)
+                # Fail-open: only a real string is a reason — an unexpected
+                # type (older caller, mock) degrades to "no reason", never
+                # breaks state validation.
+                raw_reason = getattr(result, "answer_confidence_marker_reason", None)
+                self_reported_reason = raw_reason if isinstance(raw_reason, str) else None
             else:
                 escalation_present = None
                 self_reported = None
+                self_reported_reason = None
 
             verified_sources = getattr(result, "verified_sources", None)
             if not isinstance(verified_sources, list):
@@ -560,6 +569,7 @@ class ChatResearcherAgent:
                     quotes_verified=quotes_verified,
                     escalation_present=escalation_present,
                     self_reported=self_reported,
+                    self_reported_reason=self_reported_reason,
                     verified_sources=verified_sources,
                     citations_removed=citations_removed,
                 )
@@ -570,6 +580,7 @@ class ChatResearcherAgent:
                     quotes_verified=quotes_verified,
                     escalation_present=escalation_present,
                     self_reported=self_reported,
+                    self_reported_reason=self_reported_reason,
                     verified_sources=verified_sources,
                     citations_removed=citations_removed,
                 )
@@ -775,6 +786,7 @@ class ChatResearcherAgent:
                 "routing_reason": None,
                 "escalation_reason": None,
                 "answer_confidence_capped_reason": None,
+                "answer_confidence_reason": None,
                 "citations_removed": None,
                 "job_admission_rejected": None,
                 "retry_after_seconds": None,

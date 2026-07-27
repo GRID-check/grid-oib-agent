@@ -83,6 +83,8 @@ so the frontend can read them at `message.<field>` (not nested under
 - `cards`  → `message.cards`  (rendered as Grid cards)
 - `deep_research_job_id` → `message.deep_research_job_id` (opens the research panel)
 - `answer_confidence` → `message.answer_confidence` (honest self-assessment chip)
+- `answer_confidence_reason` → `message.answer_confidence_reason` (the model's
+  own one-clause justification, shown verbatim in the chip tooltip)
 - `sources` → `message.sources` (verified citation sources)
 
 **Transparency extras (WP-A).** The same lift carries a family of optional,
@@ -104,6 +106,12 @@ boundary in `ChatResearcherAgent.run()`:
   an empty/missing shallow answer is a generation failure — the node answers
   with the standard retry-able error (`escalate_to_deep=False`) instead of
   deep-escalating on a bug.
+- `answer_confidence_reason` (≤300 chars) — the model's own one-clause
+  justification. The shallow researcher may append `| <reason>` to its terminal
+  `[CONFIDENCE:<level>]` marker (`researcher.j2`); `markers.py` parses it
+  (fail-open: an invalid level discards level AND reason, the reason is trimmed
+  and capped), and `_finalize_shallow_answer` carries it as
+  `answer_confidence_reason` alongside the level. Escalated turns drop it.
 - `answer_confidence_capped_reason` (`"ungrounded" | "quote_unverified"`) — set
   when `surface_answer_confidence` downgraded the self-report: `"ungrounded"` when
   citation verification left the answer without grounding, `"quote_unverified"`

@@ -419,6 +419,15 @@ export const chat: typeof en.chat = {
     ariaLabel: 'Selbsteinschätzung des Assistenten: {level}',
     tooltip:
       'Die eigene Einschätzung des Assistenten, wie gut diese Antwort durch seine Quellen gestützt ist. Sie kann falsch sein.',
+    // Was jede Stufe BEDEUTET — im Tooltip gezeigt, damit der Leser den Chip einordnen kann.
+    levelMeanings: {
+      high: 'Hoch: die Antwort ist direkt durch die abgerufenen Quellen belegt, die sie klar und konsistent stützen.',
+      medium:
+        'Mittel: teilweise belegt — Quellen stützen Teile, aber eine Lücke, eine Schlussfolgerung oder eine kleine Mehrdeutigkeit bleibt.',
+      low: 'Niedrig: Quellen fehlen, widersprechen sich oder reichen nicht aus; die Antwort extrapoliert aus Allgemeinwissen.',
+    },
+    // Label vor der eigenen Kurzbegründung des Modells (wortgetreu).
+    reasonLabel: 'Begründung des Assistenten',
     // Zusatzsatz, der im Tooltip erklärt, WARUM die Einschätzung gedeckelt
     // wurde, je nach `answer_confidence_capped_reason` (WP-A, PB-9).
     cappedReasons: {
