@@ -88,10 +88,15 @@ def _cached_vlm_call(
 
     On cache hit: returns the stored JSON result directly.
     On cache miss: calls ``live_call(*args, **kwargs)``, stores, and returns.
-    On store error: degrades to live call (fail-open — cache never blocks ingest).
+    On read or store error: degrades to a live call (fail-open — a cache-backend
+    hiccup must never block ingest nor masquerade as a VLM analysis failure).
     """
     key = vlm_cache_key(image_bytes, prompt_type)
-    cached = get_json(key)
+    try:
+        cached = get_json(key)
+    except Exception:
+        logger.debug("VLM cache read failed (swallowed) for %s", key[:60])
+        cached = None
     if cached is not None:
         logger.debug("VLM cache HIT for %s", key[:60])
         return cached
