@@ -374,13 +374,14 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
       )}
 
       {/* Shell: subtle surface + hairline + soft shadow, corners clipped. A meta
-          reply sits on a quieter muted surface with a lighter shadow so the
-          whole card — not just the tab — reads as the calmer, non-result kind. */}
+          reply sits on a quieter muted surface, so the whole card — not just the
+          tab — reads as the calmer, non-result kind. Both kinds use shadow-sm,
+          matching the composer's elevation so the answer never outranks it. */}
       <div
         className={
           isMeta
             ? 'overflow-hidden rounded-[12px] border border-input bg-muted/50 shadow-sm'
-            : 'overflow-hidden rounded-[12px] border border-input bg-input-background shadow-md'
+            : 'overflow-hidden rounded-[12px] border border-input bg-input-background shadow-sm'
         }
       >
         {/* Answer body — the hero white surface. It fills the top of the card

@@ -16,6 +16,8 @@ import type { ThinkingStep } from '../types'
 export type LiveActivityKey =
   | 'understanding'
   | 'planning'
+  | 'searchingKnowledge'
+  | 'searchingRis'
   | 'searchingWeb'
   | 'searchingSources'
   | 'researching'
@@ -25,12 +27,16 @@ export type LiveActivityKey =
 /**
  * Ordered keyword → activity rules. First match on the (lowercased) function
  * name wins, so more specific buckets are listed before broader ones (e.g.
- * "web_search" resolves to the web bucket before the generic "search" rule).
+ * "web_search" resolves to the web bucket before the generic "search" rule,
+ * and "knowledge_search" / "ris_search_tool" get their own OIB/RIS labels
+ * before the generic sources rule's `lookup`/`knowledge` keywords).
  */
 const ACTIVITY_RULES: Array<{ match: RegExp; key: LiveActivityKey }> = [
   { match: /intent|classif|understand/, key: 'understanding' },
   { match: /web[_-]?search|tavily|serp|google|bing/, key: 'searchingWeb' },
-  { match: /retriev|knowledge|corpus|vector|embed|rag|index|lookup|qdrant/, key: 'searchingSources' },
+  { match: /knowledge/, key: 'searchingKnowledge' },
+  { match: /ris[_-]?(search|catalog|fetch)/, key: 'searchingRis' },
+  { match: /retriev|corpus|vector|embed|rag|index|lookup|qdrant/, key: 'searchingSources' },
   { match: /read|fetch|crawl|scrape|extract|parse|open[_-]?url|browse/, key: 'reading' },
   { match: /depth|rout|plan|decompos|strateg/, key: 'planning' },
   { match: /research/, key: 'researching' },

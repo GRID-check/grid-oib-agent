@@ -210,6 +210,8 @@ export const chat = {
       understanding: 'Understanding your question …',
       planning: 'Planning the approach …',
       searchingWeb: 'Searching the web …',
+      searchingKnowledge: 'Searching OIB knowledge …',
+      searchingRis: 'Searching RIS (Austrian law) …',
       searchingSources: 'Searching your sources …',
       researching: 'Researching …',
       reading: 'Reading the results …',
