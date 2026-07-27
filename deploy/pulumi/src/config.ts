@@ -287,6 +287,8 @@ export interface GridConfig {
       maxLogCount: number;
       maxTraceCount: number;
     };
+    /** OTLP Primary API key shared with the dashboard. */
+    otelPrimaryApiKey: pulumi.Output<string>;
   };
 }
 
@@ -549,6 +551,7 @@ export function loadConfig(): GridConfig {
         maxLogCount: num(cfg, "dashboardMaxLogCount", 50000),
         maxTraceCount: num(cfg, "dashboardMaxTraceCount", 50000),
       },
+      otelPrimaryApiKey: cfg.getSecret("otelPrimaryApiKey") ?? pulumi.output(""),
     },
   };
 }

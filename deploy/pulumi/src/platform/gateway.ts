@@ -169,6 +169,14 @@ export function installGatewayResources(
         tls: { mode: "Terminate", certificateRefs: [{ name: "grid-s3-tls" }] },
         allowedRoutes: { namespaces: { from: "Same" } },
       },
+      {
+        name: "https-otel",
+        port: 443,
+        protocol: "HTTPS",
+        hostname: cfg.observability.otelDomain,
+        tls: { mode: "Terminate", certificateRefs: [{ name: "grid-otel-tls" }] },
+        allowedRoutes: { namespaces: { from: "Same" } },
+      },
     ],
   };
   const gateway = new k8s.apiextensions.CustomResource(

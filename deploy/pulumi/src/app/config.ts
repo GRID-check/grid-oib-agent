@@ -92,6 +92,11 @@ export function buildSecrets(w: AppWiring): k8s.core.v1.Secret {
         AIQ_LISTEN_DB_URL: w.dsn({ db: "aiq_jobs" }),
         AIQ_DEEP_CHECKPOINT_DB: w.dsn({ db: "aiq_checkpoints" }),
         GRID_APP_DATABASE_URL: w.dsn({ db: "grid_app" }),
+        // Aspire dashboard OTLP tracing.
+        OTLP_API_KEY: cfg.observability.otelPrimaryApiKey,
+        OTEL_EXPORTER_OTLP_HEADERS: cfg.observability.otelPrimaryApiKey.apply(
+          (key) => `x-otlp-api-key=${key}`
+        ),
       },
     },
     { provider: w.provider },
@@ -148,6 +153,9 @@ export function backendEnv(w: AppWiring): EnvVar[] {
     { name: "FRONTEND_INTERNAL_URL", value: `http://frontend:${PORT.frontend}` },
     sref("GRID_INTERNAL_API_TOKEN"),
     sref("GRID_ADMIN_TOKEN"),
+    // Aspire dashboard OTLP tracing.
+    { name: "OTEL_EXPORTER_OTLP_ENDPOINT", value: `http://aspire-dashboard:4317` },
+    sref("OTEL_EXPORTER_OTLP_HEADERS"),
     // Dask (in-process research execution) — vertical scaling knobs.
     { name: "DASK_NWORKERS", value: String(cfg.backend.daskWorkers) },
     { name: "DASK_NTHREADS", value: String(cfg.backend.daskThreads) },

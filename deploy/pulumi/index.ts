@@ -34,6 +34,7 @@ import { installFrontend } from "./src/app/frontend";
 import { installWorkers } from "./src/app/workers";
 import { installAgentWorker } from "./src/app/agent-worker";
 import { installHttpRoutes } from "./src/app/httproutes";
+import { installObservabilityDashboard } from "./src/platform/observability";
 
 const cfg = loadConfig();
 const provider = makeProvider(cfg);
@@ -129,6 +130,14 @@ const routes = installHttpRoutes(cfg, provider, namespace, [
   seaweed.service,
 ]);
 
+// ── Observability (Aspire dashboard) ───────────────────────────────────────────
+const dashboard = installObservabilityDashboard(
+  cfg, provider, namespace,
+  cfg.observability.otelPrimaryApiKey,
+  cfg.auth.workosApiKey,
+  [gatewayResources.gateway],
+);
+
 // ── Stack outputs ────────────────────────────────────────────────────────────
 export const appUrl = pulumi.interpolate`https://${cfg.ingress.appDomain}`;
 export const s3Url = pulumi.interpolate`https://${cfg.ingress.s3Domain}`;
@@ -147,6 +156,7 @@ export const jobExecution = cfg.jobExecution;
 export const pgInstances = cfg.postgres.instances;
 export const pgBackupsEnabled = cfg.postgres.backups.enabled;
 export const networkPoliciesEnabled = cfg.networkPolicies;
+export const otelUrl = pulumi.interpolate`https://${cfg.observability.otelDomain}`;
 export const agentWorkerDeployment = agentWorker
   ? agentWorker.deployment.metadata.name
   : pulumi.output("(none: dask mode)");
