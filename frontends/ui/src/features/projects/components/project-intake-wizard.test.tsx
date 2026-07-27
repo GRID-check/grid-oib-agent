@@ -238,14 +238,14 @@ describe('ProjectIntakeWizard — Fix 3 save-success feedback', () => {
   it('toasts a save confirmation with the captured-fact count after a successful save', async () => {
     const user = userEvent.setup()
     stubFetch()
-    // bundesland + vorhabensart + the seeded project_name fact = 3 captured facts.
-    seedReviewDraft({ A2_land: 'wien', A5: ['neubau'] })
+    // country + bundesland + vorhabensart + the seeded project_name fact = 4 captured facts.
+    seedReviewDraft({ A2_country: 'at', A2_land: 'wien', A5: ['neubau'] })
     renderWizard(false)
 
     await user.click(await screen.findByRole('button', { name: /save/i }))
 
     await waitFor(() => expect(pushMock).toHaveBeenCalledWith(`/app/projects/${PROJECT_ID}`))
-    expect(toast.success).toHaveBeenCalledWith(expect.stringMatching(/3 details captured/i))
+    expect(toast.success).toHaveBeenCalledWith(expect.stringMatching(/4 details captured/i))
   })
 
   it('does NOT toast a success when the save fails', async () => {
@@ -372,7 +372,7 @@ describe('ProjectIntakeWizard — edit-mode save preserves agent-recorded knowle
   it('carries novel facts/goals/unknowns through the whole-profile PUT', async () => {
     const user = userEvent.setup()
     const stub = stubFetch()
-    seedReviewDraft({ A2_land: 'wien' }, Date.parse('2026-01-02T00:00:00.000Z'))
+    seedReviewDraft({ A2_country: 'at', A2_land: 'wien' }, Date.parse('2026-01-02T00:00:00.000Z'))
     const initialProfile = {
       facts: {
         brandabschnitt_flaeche: {
