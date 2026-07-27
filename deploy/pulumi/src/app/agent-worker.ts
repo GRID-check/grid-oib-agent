@@ -39,6 +39,7 @@ export function installAgentWorker(
           metadata: { labels },
           spec: {
             enableServiceLinks: false, // see chroma.ts — legacy env collisions
+            imagePullSecrets: w.imagePullSecrets,
             securityContext: { runAsNonRoot: true, runAsUser: UID.backend, runAsGroup: UID.backend },
             // Spread workers across nodes (autoscaler prerequisite + survives a
             // single node loss / automatic-upgrade node replacement).

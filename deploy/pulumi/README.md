@@ -87,6 +87,7 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 | `imageTag` | `latest` | Tag for both images. CI pins `sha-<commit>`; `latest` forces pullPolicy Always |
 | `backendImage` / `frontendImage` | — | Full image-ref overrides (registry+tag ignored) |
 | `imagePullPolicy` | auto | `Always` for `latest`, else `IfNotPresent` |
+| `registryUsername` + 🔒 `registryPassword` | — | Only for PRIVATE app images: creates the `grid-registry-pull` dockerconfigjson Secret and wires it as `imagePullSecrets` on every app workload (the kubelet pulls anonymously, so private GHCR packages need this — a PAT/OAuth token with `read:packages` works as the password). Omit both for public images |
 | **Storage** | | |
 | **`storageClass`** | — | Provider class for every PVC: `premium` (3 replicas) / `standard` (2) / `single-replica` (1) |
 | **Ingress / TLS** | | |
@@ -155,7 +156,7 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 | `allowAgentOrgMemory` | `false` | Org-memory write path |
 | 🔒 **`gridInternalApiToken`** / 🔒 **`gridAdminToken`** | — | Cross-service tokens |
 | **Workflows** | | |
-| `workflowsEnabled` | `false` | Scheduled workflows feature |
+| `workflowsEnabled` | `false` | Scheduled workflows feature; the `workflow-scheduler` Deployment is only created when `true` |
 | `workflowMinIntervalMinutes` | `15` | Minimum schedule interval |
 
 ## Validation (no target cluster required)

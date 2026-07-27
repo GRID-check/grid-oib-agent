@@ -17,7 +17,7 @@ export function installWorkers(
   cfg: GridConfig,
   secret: k8s.core.v1.Secret,
   dependsOn: pulumi.Resource[],
-): { purger: k8s.apps.v1.Deployment; scheduler: k8s.apps.v1.Deployment } {
+): { purger: k8s.apps.v1.Deployment; scheduler?: k8s.apps.v1.Deployment } {
   const workerResources = LIGHT_WORKER_RESOURCES;
 
   const purger = new k8s.apps.v1.Deployment(
@@ -33,6 +33,7 @@ export function installWorkers(
           metadata: { labels: commonLabels("purger") },
           spec: {
             enableServiceLinks: false, // see chroma.ts — legacy env collisions
+            imagePullSecrets: w.imagePullSecrets,
             securityContext: { runAsNonRoot: true, runAsUser: UID.frontend, runAsGroup: UID.frontend },
             containers: [
               {
@@ -52,40 +53,47 @@ export function installWorkers(
     { provider: w.provider, dependsOn: [secret, ...dependsOn] },
   );
 
-  const scheduler = new k8s.apps.v1.Deployment(
-    "workflow-scheduler",
-    {
-      metadata: {
-        name: "workflow-scheduler",
-        namespace: w.namespace,
-        labels: commonLabels("workflow-scheduler"),
-      },
-      spec: {
-        replicas: 1,
-        strategy: { type: "Recreate" },
-        selector: { matchLabels: commonLabels("workflow-scheduler") },
-        template: {
-          metadata: { labels: commonLabels("workflow-scheduler") },
+  // The scheduler container exits 0 immediately when the Workflows feature is
+  // off (its own runtime gate) — under a Deployment that means a permanent
+  // CrashLoopBackOff. So only create it when the feature is actually enabled;
+  // flipping workflowsEnabled + re-running `pulumi up` adds it later.
+  const scheduler = cfg.workflows.enabled
+    ? new k8s.apps.v1.Deployment(
+        "workflow-scheduler",
+        {
+          metadata: {
+            name: "workflow-scheduler",
+            namespace: w.namespace,
+            labels: commonLabels("workflow-scheduler"),
+          },
           spec: {
-            enableServiceLinks: false, // see chroma.ts — legacy env collisions
-            securityContext: { runAsNonRoot: true, runAsUser: UID.frontend, runAsGroup: UID.frontend },
-            containers: [
-              {
-                name: "workflow-scheduler",
-                image: frontendImage(cfg),
-                imagePullPolicy: cfg.images.pullPolicy,
-                securityContext: hardenedContainerSecurityContext(),
-                command: ["node", "scheduler/index.js"],
-                env: schedulerEnv(w),
-                resources: workerResources,
+            replicas: 1,
+            strategy: { type: "Recreate" },
+            selector: { matchLabels: commonLabels("workflow-scheduler") },
+            template: {
+              metadata: { labels: commonLabels("workflow-scheduler") },
+              spec: {
+                enableServiceLinks: false, // see chroma.ts — legacy env collisions
+                imagePullSecrets: w.imagePullSecrets,
+                securityContext: { runAsNonRoot: true, runAsUser: UID.frontend, runAsGroup: UID.frontend },
+                containers: [
+                  {
+                    name: "workflow-scheduler",
+                    image: frontendImage(cfg),
+                    imagePullPolicy: cfg.images.pullPolicy,
+                    securityContext: hardenedContainerSecurityContext(),
+                    command: ["node", "scheduler/index.js"],
+                    env: schedulerEnv(w),
+                    resources: workerResources,
+                  },
+                ],
               },
-            ],
+            },
           },
         },
-      },
-    },
-    { provider: w.provider, dependsOn: [secret, ...dependsOn] },
-  );
+        { provider: w.provider, dependsOn: [secret, ...dependsOn] },
+      )
+    : undefined;
 
   return { purger, scheduler };
 }

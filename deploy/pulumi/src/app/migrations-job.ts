@@ -34,6 +34,7 @@ export function runMigrations(
           metadata: { labels: commonLabels("grid-app-migrate") },
           spec: {
             enableServiceLinks: false, // see chroma.ts — legacy env collisions
+            imagePullSecrets: w.imagePullSecrets,
             restartPolicy: "OnFailure",
             securityContext: { runAsNonRoot: true, runAsUser: UID.frontend, runAsGroup: UID.frontend },
             containers: [

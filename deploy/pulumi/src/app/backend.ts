@@ -64,6 +64,7 @@ export function installBackend(
           metadata: { labels },
           spec: {
             enableServiceLinks: false, // see chroma.ts — legacy env collisions
+            imagePullSecrets: w.imagePullSecrets,
             // The image runs as UID 1000 and needs to write /app/data (Chroma +
             // uploads); fsGroup makes the PVC group-writable, replacing the
             // compose chown init container.
