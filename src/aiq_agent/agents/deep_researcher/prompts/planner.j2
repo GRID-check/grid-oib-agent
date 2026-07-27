@@ -113,7 +113,7 @@ Generate lightweight final-answer requirements. Constraints are derived from:
 4. **Structured Elements**: If comparisons, structured data, calculations, or technical details would enhance the answer, add constraints for those elements.
 5. **Language**: If user input is non-English, add a constraint for response language.
 6. **Jurisdiction Boundaries**: If the project context shows a non-AT country, add a constraint that the answer must state the OIB corpus is Austrian and recommend local verification.
- 
+
 ## Queries
 After you have finished your own search tool calls and refined the plan, list the final queries in the ResearchPlan schema. The orchestrator will pass these ResearchQuery objects to `run_research_batch`; independent ResearchQuery objects can be batched together by the orchestrator. Base this list on what you discovered during your planning searches. Do not invent queries you did not ground in your tool use.
 The researcher worker has no additional context, so each query must be **self-contained and specific**.
