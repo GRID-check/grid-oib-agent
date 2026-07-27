@@ -142,6 +142,54 @@ nennen (soweit aus anderen Dokumenten bekannt) und offenlegen, dass der Volltext
 **Bestand/Übergangsrecht:** Wenn das Projekt kein Neubau ist (Sanierung, Zubau, Änderung), darauf hinweisen, dass
 Bestandsschutz/Übergangsbestimmungen gelten können und dies baurechtlich zu prüfen ist."""
 
+# The jurisdiction + project-hard-limits grounding, injected into every deep-research
+# prompt as {{ jurisdiction_grounding }} — ONE copy, rendered by the prompt factories
+# (same pattern as NORM_DOCTRINE). Keep the rendered prompts long and specific; only
+# the authorship is deduplicated here so the four prompts cannot drift apart.
+JURISDICTION_GROUNDING = """## Jurisdiction & Country Handling
+
+The project context (injected at the bottom of this prompt) carries a `country=<cc>` line: an ISO-2 country
+code (e.g. `at`, `de`, `ch`) or the sentinel `other` for any country without a dedicated pipeline. When the
+line is absent the country is UNCONFIRMED: default to the Austrian pipeline but treat it as provisional (see
+below), never as a confirmed `country=at`. For Austrian projects there is also a `bundesland=<token>` line
+naming the state.
+
+- **country=at (confirmed)**: Full Austrian building-regulation pipeline applies. OIB-Richtlinien,
+  Landesbauordnung, and RIS are authoritative; cite ÖNORM only as a reference unless its binding incorporation
+  and applicable text are verified; never reproduce ÖNORM full text as binding. Answer with binding-law
+  precision, name the exact regulation/edition/Punkt, and state the applicable Bundesland.
+- **country != at** (any other ISO-2 code, or the `other` sentinel): The OIB corpus and RIS tools are
+  Austrian-only. Provide general/comparative guidance based on available sources, but clearly state that the
+  answer draws on Austrian law and may not be binding in the project's jurisdiction. Always recommend local
+  verification by a qualified professional. Do NOT cite OIB/RIS findings as binding for a non-AT jurisdiction.
+- **country absent (unconfirmed)**: Use the Austrian pipeline provisionally, but do NOT present
+  OIB/RIS/Landesbauordnung findings as binding. State that the jurisdiction is unconfirmed, ask for (or
+  explicitly flag the assumption of) `country=at`, and add the same local-verification disclaimer as for a
+  non-AT project.
+- The `bundesland=ausserhalb_oesterreichs` token means the project is outside Austria (functionally the same
+  as `country != at`), even when no explicit non-AT country line is present.
+
+## Project Hard Limits & Grounding
+
+The project context includes confirmed facts (hard constraints), unknowns (gaps), and assumptions
+(provisional). Use them as follows:
+
+- **Confirmed facts** are binding — never contradict them. If research sources conflict with a confirmed
+  fact, flag the conflict and explain.
+- **Unknowns** are known gaps — if a critical fact for the answer (especially building-class relevant:
+  fluchtniveau_m, geschosse, bgf, nutzungen, bundesland) is flagged unknown, the answer must either ask for
+  it or state the gap clearly.
+- **Assumptions** are provisional estimates — treat as likely but note the uncertainty.
+- Wizard facts that constrain building-regulation outputs: **fluchtniveau_m** → Gebäudeklasse per OIB-RL 2;
+  **geschosse_oberirdisch / geschosse_unterirdisch**; **max_gebaeudehoehe**; **bgf_oberirdisch**;
+  **vorhabensart** (neubau/zubau/umbau/sanierung/...); **nutzungen** (wohnen/büro/handel/...); **bauweise**;
+  **aufzug**; **konditionierung**; **feuerstaetten**; **publikumsverkehr**; **gefahrenzonen**;
+  **brandschutz_anlagen**; **waermeversorgung**; **pv**; **lueftung**; **kuehlung**; **versickerung**.
+- Keys with `@bwN` suffix apply to a specific building; keys with `@zone` suffix to a use zone.
+- When the plan or synthesis concerns a building-regulation question, cross-check the projected output
+  against the project's hard limits. If the research produces a requirement that contradicts a confirmed
+  fact, note the contradiction in the output rather than blindly repeating both."""
+
 
 class VerifySeed(BaseModel):
     """Live-verification seed for scripts/build_ris_catalog.py (and the admin verify API)."""

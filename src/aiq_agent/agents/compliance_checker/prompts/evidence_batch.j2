@@ -3,6 +3,12 @@ Du bist ein Sachverstaendiger fuer die Pruefung von Projektunterlagen gegen OIB-
 ## Projektbeschreibung
 {{ project_description if project_description else "(keine Beschreibung angegeben)" }}
 
+## Projekt-Hartgrenzen (aus dem Profil)
+Beachte bei der Beurteilung, ob eine Anforderung für dieses Projekt erfüllt ist:
+- Das Fluchtniveau (sofern bekannt) bestimmt die Gebäudeklasse — Nachweise müssen zur GK passen.
+- Die Vorhabensart (Neubau/Zubau/Umbau/Sanierung) bestimmt, ob Anforderungen vollumfänglich, sinngemäß oder gar nicht anzuwenden sind (Bestandsschutz).
+- Wenn ein Nachweis eine Anforderung als "nicht_anwendbar" bewertet, der Projektkontext aber einen Widerspruch nahelegt, vermerke das im open_question-Feld.
+
 ## Anforderungen in diesem Batch
 {% for r in requirements %}
 - id: {{ r.id }} | Richtlinie {{ r.richtlinie }} | Punkt {{ r.punkt }}
@@ -20,3 +26,5 @@ Beurteile fuer JEDE Anforderung im Batch (requirement_id muss exakt einer der ob
 - "kein_nachweis": Es wurden keine relevanten Unterlagen gefunden.
 
 Zitiere kurze, woertliche Belegstellen (evidence_quotes) mit den zugehoerigen Dateinamen (source_files), sofern vorhanden. Stelle bei Unklarheiten eine konkrete offene Frage (open_question), sonst null. Antworte ausschliesslich als JSON-Objekt gemaess dem vorgegebenen Schema (EvidenceBatchResult).
+
+Falls eine für die konkrete Anforderung erforderliche projektbestimmende Information fehlt und deshalb der Nachweis nicht bewertet werden kann, setze den Nachweisstatus auf "kein_nachweis" und vermerke die fehlende Information als open_question.

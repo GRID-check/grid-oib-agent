@@ -499,9 +499,10 @@ class ToolResultPruningMiddleware(AgentMiddleware):
 
     _TRUNCATION_SUFFIX = "\n\n[... truncated ...]"
 
-    def __init__(self, keep_last_n: int = 3, max_chars: int = 500):
+    def __init__(self, keep_last_n: int = 3, max_chars: int = 500, total_char_budget: int = 0):
         self.keep_last_n = keep_last_n
         self.max_chars = max_chars
+        self.total_char_budget = total_char_budget
         # message id -> permanently truncated content for that message.
         self._truncated_by_id: dict[str, str] = {}
 
@@ -522,6 +523,29 @@ class ToolResultPruningMiddleware(AgentMiddleware):
             msg = request.messages[i]
             if msg.id is not None and msg.id not in self._truncated_by_id:
                 self._truncated_by_id[msg.id] = str(msg.content)[: self.max_chars] + self._TRUNCATION_SUFFIX
+
+        # Total-char budget: if the sum of all oversized tool-result chars
+        # within the last-N window exceeds the budget, monotonically truncate
+        # the oldest oversized ones until under budget. This prevents the
+        # writer's context from growing unbounded across many research notes.
+        if self.total_char_budget > 0:
+            kept_oversized_indices = (
+                oversized_indices[-self.keep_last_n :]
+                if len(oversized_indices) > self.keep_last_n
+                else list(oversized_indices)
+            )
+            total_chars = sum(
+                len(self._truncated_by_id.get(request.messages[i].id, str(request.messages[i].content)))
+                for i in kept_oversized_indices
+            )
+            for i in kept_oversized_indices:
+                if total_chars <= self.total_char_budget:
+                    break
+                msg = request.messages[i]
+                if msg.id is not None and msg.id not in self._truncated_by_id:
+                    truncated = str(msg.content)[: self.max_chars] + self._TRUNCATION_SUFFIX
+                    self._truncated_by_id[msg.id] = truncated
+                    total_chars = total_chars - len(str(msg.content)) + len(truncated)
 
         if not self._truncated_by_id:
             return await handler(request)
