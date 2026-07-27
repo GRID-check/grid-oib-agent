@@ -265,6 +265,29 @@ export interface GridConfig {
     enabled: boolean;
     minIntervalMinutes: number;
   };
+
+  observability: {
+    /** Public hostname for the Aspire dashboard (e.g. otel.dev.bigls.net). */
+    otelDomain: string;
+    /**
+     * WorkOS organization id (not external id) for the GRID Platform org.
+     * Used as the OIDC claim value to gate dashboard access to platform owners.
+     */
+    platformOrgId: string;
+    /**
+     * Aspire dashboard image reference with a pinned tag (e.g.
+     * mcr.microsoft.com/dotnet/aspire-dashboard:9.1.0).
+     */
+    dashboardImage: string;
+    /**
+     * Telemetry ring-buffer limits inside the dashboard pod. Aspire defaults
+     * to 10000/10000; raised to 50000 for a live view window.
+     */
+    telemetryLimits: {
+      maxLogCount: number;
+      maxTraceCount: number;
+    };
+  };
 }
 
 export interface ResourceSpec {
@@ -307,6 +330,8 @@ export function loadConfig(): GridConfig {
   // everything and then TLS silently never issues (the exact delayed-failure
   // class this guard exists to kill).
   rejectPlaceholder("letsEncryptEmail", ["example.com"]);
+  rejectPlaceholder("otelDomain", ["example.com"]);
+  rejectPlaceholder("platformOrgId", ["REPLACE_ME"]);
 
   const jobExecution: "dask" | "db" = (cfg.get("jobExecution") ?? "dask") === "db" ? "db" : "dask";
   const conversationBus = bool(cfg, "conversationBus", true);
@@ -514,6 +539,16 @@ export function loadConfig(): GridConfig {
     workflows: {
       enabled: bool(cfg, "workflowsEnabled", false),
       minIntervalMinutes: num(cfg, "workflowMinIntervalMinutes", 15),
+    },
+
+    observability: {
+      otelDomain: cfg.require("otelDomain"),
+      platformOrgId: cfg.require("platformOrgId"),
+      dashboardImage: cfg.get("dashboardImage") ?? "mcr.microsoft.com/dotnet/aspire-dashboard:9.1.0",
+      telemetryLimits: {
+        maxLogCount: num(cfg, "dashboardMaxLogCount", 50000),
+        maxTraceCount: num(cfg, "dashboardMaxTraceCount", 50000),
+      },
     },
   };
 }

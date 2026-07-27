@@ -115,3 +115,8 @@ config:
   grid-oib:workosClientId: client_REPLACE_ME
   grid-oib:enforceFeatureFlags: "false"
   grid-oib:workflowsEnabled: "false"
+
+  # ── Observability / Aspire dashboard ──
+  grid-oib:otelDomain: otel.example.com
+  grid-oib:platformOrgId: REPLACE_ME
+  grid-oib:dashboardImage: mcr.microsoft.com/dotnet/aspire-dashboard:9.1.0
