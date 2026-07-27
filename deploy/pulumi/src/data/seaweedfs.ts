@@ -115,7 +115,13 @@ export function installSeaweedFS(
                 image: cfg.seaweedfs.image,
                 command: ["/bin/sh", "-c"],
                 args: [
-                  "exec weed server -dir=/data -volume.max=0 -s3 " +
+                  // `-volume.max=0` is a trap: the volume server derives the
+                  // number of slots from diskSize / volumeSizeLimit, so a small
+                  // PVC yields 0 writable volumes and every upload fails with
+                  // "No writable volumes and no free volumes left". Use an
+                  // explicit, modest cap; SeaweedFS grows volumes lazily, so 8
+                  // slots on a 10 Gi PVC is fine (they aren't pre-allocated).
+                  "exec weed server -dir=/data -volume.max=8 -s3 " +
                     "-s3.config=/etc/seaweedfs/s3.json -s3.port=8333",
                 ],
                 ports: seaweedPorts.map((p) => ({ containerPort: p.port, name: p.name })),
