@@ -70,6 +70,7 @@ class KnowledgeRetrievalConfig(FunctionBaseConfig, name="knowledge_retrieval"):
     top_k: int = Field(default=5, description="Number of results to return")
     max_chunks_per_document: int = Field(
         default=2,
+        ge=0,
         description=(
             "Diversity cap: at most this many chunks from a single document are included before "
             "other documents get a slot; any remaining slots up to top_k are then filled with the "
@@ -804,13 +805,18 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             return f"Error searching knowledge base: {str(e)}"
 
     # Yield the function info for NAT registration
+    if max_per_document > 0:
+        diversity_clause = (
+            f"spread across multiple distinct documents (at most {max_per_document} per document "
+            "where possible), so cross-cutting questions see every relevant Richtlinie."
+        )
+    else:
+        diversity_clause = "ranked purely by relevance, with no per-document diversity cap."
     yield FunctionInfo.from_fn(
         search,
         description=(
             "Search the knowledge base for relevant documents. "
             "Use this to find information from ingested PDFs, documents, and other files. "
-            f"Returns up to {top_k} relevant excerpts with citations, spread across multiple "
-            f"distinct documents (at most {max_per_document} per document where possible), "
-            "so cross-cutting questions see every relevant Richtlinie."
+            f"Returns up to {top_k} relevant excerpts with citations, {diversity_clause}"
         ),
     )
