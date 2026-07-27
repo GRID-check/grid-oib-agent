@@ -14,15 +14,50 @@ from langchain.tools import ToolRuntime
 from langchain_core.messages import HumanMessage
 from langchain_core.tools import BaseTool
 from langchain_core.tools import tool
+from langgraph.errors import GraphRecursionError
 
+from aiq_agent.common import RunBudgetExceededError
 from aiq_agent.common import extract_json
 
+from ..models import ResearchGap
 from ..models import ResearchNotes
 from ..models import ResearchQuery
 
 _NO_TOOL_RUNTIME = cast(ToolRuntime, None)
 logger = logging.getLogger(__name__)
 _NOTE_SLUG_MAX_LENGTH = 64
+
+# Explicit per-worker step cap: without one the LangGraph default
+# recursion_limit (25) lets a stuck researcher burn its whole budget before
+# failing, and the failure surfaced as a resubmittable error, feeding the
+# plan -> batch -> resubmit loop. 100 steps is generous for a single-query
+# researcher (each tool round-trip costs 2 steps) while still bounding a
+# pathological worker.
+RESEARCHER_RECURSION_LIMIT = 100
+
+# Code-level bound on orchestrator resubmissions of the same query digest
+# (the "retry budget: at most 2" prompt prose is advisory only). After this
+# many submissions of one digest the query is returned as a terminal
+# unresearchable gap instead of being run again.
+MAX_QUERY_SUBMISSIONS = 3
+
+# Research notes are read back by the writer at full size (its pruning
+# middleware keeps the last N results intact), so a single oversized note can
+# blow the writer's context late in the run. Cap the persisted payload; the
+# marker tells the writer the note was cut off.
+RESEARCH_NOTE_MAX_CHARS = 40_000
+_RESEARCH_NOTE_TRUNCATION_SUFFIX = "\n\n[... truncated: research note exceeded the size budget ...]"
+
+# Unresearchable-gap marker language strings reused by the batch-tool terminal
+# outcome and by tests.
+_UNRESEARCHABLE_SUMMARY = "Dieser Aspekt konnte nach mehrmaligen Versuchen nicht recherchiert werden."
+_UNRESEARCHABLE_NARRATIVE = (
+    "Der Worker hat wiederholt das Schritt- oder Wiederholungslimit erreicht, ohne verwertbare Ergebnisse zu liefern."
+)
+
+
+class ResearcherExhaustedError(Exception):
+    """Terminal per-query worker outcome: the query cannot be researched within its step budget."""
 
 
 def format_research_request(query: ResearchQuery) -> str:
@@ -110,10 +145,20 @@ async def _run_research_query(
         # passed through unchanged.
         worker_callbacks = [cb.for_new_run() if hasattr(cb, "for_new_run") else cb for cb in callbacks]
         try:
+            config: dict[str, Any] = {"recursion_limit": RESEARCHER_RECURSION_LIMIT}
+            if worker_callbacks:
+                config["callbacks"] = worker_callbacks
             result = await researcher_runnable.ainvoke(
                 researcher_invoke_state(query, runtime),
-                config={"callbacks": worker_callbacks} if worker_callbacks else None,
+                config=config,
             )
+        except RunBudgetExceededError:
+            raise
+        except GraphRecursionError:
+            raise ResearcherExhaustedError(
+                f"researcher worker exceeded the step budget ({RESEARCHER_RECURSION_LIMIT} steps) "
+                f"for query {query.query!r}"
+            ) from None
         except Exception as exc:  # noqa: BLE001 - captured as per-item failure
             raise RuntimeError(f"researcher worker failed for query {query.query!r}: {exc}") from exc
 
@@ -163,14 +208,18 @@ def _research_note_files(queries: list[ResearchQuery], notes: list[ResearchNotes
     Serialized without ``exclude_none`` so the sole nullable field
     (``evidence_judgment``) is written as ``null`` rather than dropped, keeping
     the persisted JSON a round-trip-valid ResearchNotes.
+
+    Notes whose serialised payload exceeds ``RESEARCH_NOTE_MAX_CHARS`` are
+    truncated with a suffix marker so the writer's context budget is not
+    blown by a single oversized payload.
     """
-    return [
-        (
-            _research_note_path(query),
-            json.dumps(note.model_dump(mode="json"), indent=2, ensure_ascii=False).encode("utf-8"),
-        )
-        for query, note in zip(queries, notes, strict=False)
-    ]
+    files: list[tuple[str, bytes]] = []
+    for query, note in zip(queries, notes, strict=False):
+        payload = json.dumps(note.model_dump(mode="json"), indent=2, ensure_ascii=False)
+        if len(payload) > RESEARCH_NOTE_MAX_CHARS:
+            payload = payload[:RESEARCH_NOTE_MAX_CHARS] + _RESEARCH_NOTE_TRUNCATION_SUFFIX
+        files.append((_research_note_path(query), payload.encode("utf-8")))
+    return files
 
 
 def _persist_research_notes(
@@ -218,6 +267,8 @@ async def _run_research_queries(
     errors: list[str] = []
     for query, raw_result in zip(queries, raw_results, strict=False):
         if isinstance(raw_result, BaseException):
+            if isinstance(raw_result, RunBudgetExceededError):
+                raise raw_result
             error = str(raw_result) or raw_result.__class__.__name__
             errors.append(f"{query.query}: {error}")
         else:
@@ -246,6 +297,34 @@ def _assert_preferred_tools_available(queries: list[ResearchQuery], researcher_t
         )
 
 
+def _query_digest(query: ResearchQuery) -> str:
+    """Return a stable hex digest for a ResearchQuery, used for submission tracking."""
+    return hashlib.sha1(
+        json.dumps(query.model_dump(mode="json"), sort_keys=True, ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+
+
+def _terminal_unresearchable_note(query: ResearchQuery) -> ResearchNotes:
+    """Build a terminal ResearchNotes for a query that exhausted its resubmission budget."""
+    return ResearchNotes(
+        query_topic=_research_note_slug(query.query),
+        target_components=query.target_components,
+        summary=_UNRESEARCHABLE_SUMMARY,
+        findings=[],
+        gaps=[
+            ResearchGap(
+                description=f"Query: {query.query}",
+                impact=_UNRESEARCHABLE_NARRATIVE,
+                suggested_follow_up_queries=[],
+            )
+        ],
+        sources=[],
+        narrative_notes=_UNRESEARCHABLE_NARRATIVE,
+        language="Deutsch",
+        evidence_judgment=None,
+    )
+
+
 def build_research_batch_tool(
     *,
     researcher_runnable: Any,
@@ -255,7 +334,13 @@ def build_research_batch_tool(
     backend: Any | None = None,
     source_registry_middleware: Any | None = None,
 ) -> BaseTool:
-    """Build an orchestrator-only tool that runs researcher tasks concurrently."""
+    """Build an orchestrator-only tool that runs researcher tasks concurrently.
+
+    Tracks submitted query digests across calls: after ``MAX_QUERY_SUBMISSIONS``
+    submissions of the same digest the query is returned as a terminal
+    unresearchable gap instead of being re-run.
+    """
+    _submission_counts: dict[str, int] = {}
 
     @tool
     async def run_research_batch(
@@ -273,19 +358,38 @@ def build_research_batch_tool(
             )
 
         _assert_preferred_tools_available(queries, researcher_tool_names)
+
+        # Separate queries that have exhausted their resubmission budget.
+        runnable_queries: list[ResearchQuery] = []
+        terminal_queries: list[ResearchQuery] = []
+        for q in queries:
+            digest = _query_digest(q)
+            _submission_counts[digest] = _submission_counts.get(digest, 0) + 1
+            if _submission_counts[digest] > MAX_QUERY_SUBMISSIONS:
+                terminal_queries.append(q)
+            else:
+                runnable_queries.append(q)
+
         successful_queries, notes, errors = await _run_research_queries(
-            queries=queries,
+            queries=runnable_queries,
             researcher_runnable=researcher_runnable,
             runtime=runtime,
             callbacks=callbacks,
-            max_concurrency=max_research_concurrency,
+            max_concurrency=min(max_research_concurrency, len(runnable_queries) if runnable_queries else 1),
         )
+
+        # Append terminal outcomes for oversubmitted queries.
+        for q in terminal_queries:
+            successful_queries.append(q)
+            notes.append(_terminal_unresearchable_note(q))
+
         if source_registry_middleware is not None:
             source_registry_middleware.register_research_note_sources(notes)
         _persist_research_notes(backend=backend, queries=successful_queries, notes=notes)
 
         if errors:
             retained_detail = ""
+            total_successful = len(successful_queries)
             if notes:
                 retained_actions = []
                 if source_registry_middleware is not None:
@@ -294,7 +398,7 @@ def build_research_batch_tool(
                     retained_actions.append("persisted under /shared/")
                 retained_text = " and ".join(retained_actions) if retained_actions else "retained"
                 retained_detail = (
-                    f" {len(notes)} successful researcher worker(s) were {retained_text}; "
+                    f" {total_successful} successful researcher worker(s) were {retained_text}; "
                     "resubmit only the failed queries."
                 )
             raise RuntimeError(

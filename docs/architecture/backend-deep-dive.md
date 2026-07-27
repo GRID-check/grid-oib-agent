@@ -96,8 +96,14 @@ boundary in `ChatResearcherAgent.run()`:
 - `routing_decision` (`meta`/`shallow`/`deep`/`error`) + `routing_reason`
   (`depth_decision.raw_reasoning`) — which path the turn took and why.
 - `escalation_reason` — set by the clarifier node only on a shallow→deep
-  escalation (`ShallowResult.escalation_reason`, or a fixed German notice on the
-  keyword-fallback path).
+  escalation, and only from the structured `ShallowResult.escalation_reason`
+  carried by the shallow agent's explicit `[ESCALATE_TO_DEEP]` marker. There is
+  no keyword/prose fallback: a substring match on the answer tail ("nicht
+  finden", "weitere Recherche erforderlich") false-positived on successful
+  German legal answers and surprise-escalated them to deep research. Likewise
+  an empty/missing shallow answer is a generation failure — the node answers
+  with the standard retry-able error (`escalate_to_deep=False`) instead of
+  deep-escalating on a bug.
 - `answer_confidence_capped_reason` (`"ungrounded" | "quote_unverified"`) — set
   when `surface_answer_confidence` downgraded the self-report: `"ungrounded"` when
   citation verification left the answer without grounding, `"quote_unverified"`
@@ -645,14 +651,30 @@ Austria's). The org-Archiv stratum (ADR-0024) sits beside these unchanged.
   the curated `binding_note` lines, a static OIB-corpus citation note, and the
   project applicability section (`applicability.render_project_block`). The
   Normenhierarchie doctrine itself is one constant (`NORM_DOCTRINE`) injected
-  into the shallow-researcher, deep-researcher, planner, and writer templates
-  as `{{ norm_doctrine }}`.
-- **Jurisdiction** — `resolve_bundesland`: the validated envelope token wins
-  (`ausserhalb_oesterreichs` → None is final), then the structured
-  `bundesland=<token>` prompt fact, then free-text state-name probing.
-  `focus_entries` drops other states' law and sorts the project's state first;
-  the same rule filters `ris_search`'s catalog short-circuit and
-  `ris_catalog_lookup` before truncation.
+   into the shallow-researcher, deep-researcher, planner, and writer templates
+   as `{{ norm_doctrine }}`.
+- **Jurisdiction** — `resolve_country(project_context)` regexes the structured
+   `country=<cc>` fact from the prompt text (`at`/`de`/`ch`/`other`, authored
+   by the intake wizard's new A2_country question); absent → `"at"`. Every
+   prompt now carries a **Jurisdiction & Country Handling** block that instructs
+   the agent: for `at` → full OIB/RIS pipeline, binding precision; for non-AT →
+   Austrian corpus only, comparative guidance, recommend local verification.
+- **Bundesland** — `resolve_bundesland`: the validated envelope token wins
+   (`ausserhalb_oesterreichs` → None is final), then the structured
+   `bundesland=<token>` prompt fact, then free-text state-name probing.
+   `focus_entries` drops other states' law and sorts the project's state first;
+   the same rule filters `ris_search`'s catalog short-circuit and
+   `ris_catalog_lookup` before truncation. When the country is non-AT, the
+   profile save derives `bundesland=ausserhalb_oesterreichs`, so the downstream
+   pipeline consistently treats non-Austrian projects as jurisdiction-neutral.
+- **Hard limits** — Every research-facing prompt now includes a **Project Hard
+   Limits & Grounding** block that instructs agents to treat confirmed wizard
+   facts (fluchtniveau, BG Fläche, Anzahl Geschoße, Bauweise, Nutzung,
+   Brandschutzanlagen, …) as binding constraints, derive building classes from
+   them, flag contradictions, and surface gaps. The compliance-checker pair
+   (`requirement_profile.j2`, `evidence_batch.j2`) gained a
+   **Projekt-Hartgrenzen** section that maps each wizard fact to its OIB
+   significance.
 - **Applicability** — `common/applicability.py` is a small hand-written module
   (no DSL): OIB verdicts from project facts (mirrors the UI's
   `applicable-standards.ts`), German trigger hints for the four boolean intake
@@ -895,6 +917,46 @@ yet).
   now retries only rate limits, timeouts, transport errors, and 5xx (was any
   exception). See `src/aiq_agent/agents/deep_researcher/README.md`
   "Known limitations" for details.
+- **Researcher-worker step cap — fixed 2026-07-27 (`tools/research.py`)** —
+  each single-query researcher runnable now receives an explicit
+  `recursion_limit=100` in its invoke config (was: relying on LangGraph's
+  default of 25, which triggered `GraphRecursionError` early and fed the
+  plan→batch→resubmit burn loop). The caught `GraphRecursionError` now
+  becomes a terminal `ResearcherExhaustedError` (listed in the batch error
+  as an exhausted query, not wrapped in a resubmittable `RuntimeError`).
+- **Orchestrator recursion limit lowered — fixed 2026-07-27
+  (`factory.py:569`)** — `_ORCHESTRATOR_RECURSION_LIMIT` changed from 2000
+  to 150 so the step-count ceiling can actually fire as a hard stop before
+  the 40-minute wall-clock killer surfaces as a generic internal error.
+- **Code-level query resubmission cap (`tools/research.py`) — fixed
+  2026-07-27** — the batch tool now tracks submitted query digests per run
+  instance. After `MAX_QUERY_SUBMISSIONS=3` submissions of the same digest
+  (was: prompt prose only that the model could ignore), the query is returned
+  as a terminal unresearchable gap with a German-language "nicht recherchierbar"
+  note instead of being re-run and burning more budget.
+- **Wall-clock timeout re-raised as `TimeoutError` — fixed 2026-07-27
+  (`agent.py:372-378`)** — `asyncio.wait_for`'s `TimeoutError` is no longer
+  wrapped into `RuntimeError`. The runner's `sanitize_job_error` already
+  special-cases `TimeoutError` (matching "wall-clock" in the message to
+  produce a German UI string), so users now see "Die Recherche hat ihr
+  Zeitlimit erreicht" instead of a generic internal error.
+- **Research-note size cap (`tools/research.py`) — fixed 2026-07-27** —
+  `_research_note_files` now truncates serialised payloads exceeding
+  `RESEARCH_NOTE_MAX_CHARS=40_000` with a suffix marker, preventing a single
+  oversized note from blowing the writer's context late in a run.
+- **Writer total-char budget (`ToolResultPruningMiddleware`) — fixed
+  2026-07-27** — the writer's middleware stack now enforces
+  `total_char_budget=200_000`: when the sum of all oversized tool results
+  exceeds this ceiling, the oldest oversized results are monotonically
+  truncated (same per-message-id freeze as the existing keep-last-N logic)
+  so the writer's context cannot grow unbounded across many research notes.
+- **`RunBudgetExceededError` no longer erased by worker wrapping (`F6`) —
+  fixed 2026-07-27** — `_run_research_query` now re-raises
+  `RunBudgetExceededError` (was: caught by `except Exception` and wrapped
+  into a resubmittable `RuntimeError`). The error also propagates past
+  `asyncio.gather(return_exceptions=True)` in `_run_research_queries`
+  so the budget guard can halt a budget-exhausted job immediately rather
+  than being silently converted to a batch-level `RuntimeError`.
 - **Deep-research strict structured-output schema bounds — fixed 2026-07-16
   (`2db0f7d`)** — `EvidenceJudgment.relevance_score` (`ge=0`/`le=100`) and
   `ResearchQuery.preferred_tools` (`min_length`) used to compile to

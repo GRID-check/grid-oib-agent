@@ -373,7 +373,7 @@ class DeepResearcherAgent:
                 try:
                     result = await asyncio.wait_for(invocation, timeout=self.max_run_seconds)
                 except TimeoutError as exc:
-                    raise RuntimeError(
+                    raise TimeoutError(
                         f"deep research exceeded the {self.max_run_seconds} s wall-clock budget"
                     ) from exc
             else:

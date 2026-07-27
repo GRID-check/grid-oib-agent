@@ -49,6 +49,13 @@ from .tools.source_tool_batching import adapt_source_tools_for_research
 
 logger = logging.getLogger(__name__)
 
+# Orchestrator graph recursion limit. Lowered from the LangGraph default (25)
+# and from the previous hard-coded 2000 so it can actually fire as a hard stop
+# before the 40-minute wall-clock kill surfaces as a generic internal error.
+# 150 steps is generous: each plan→batch→synthesis cycle costs ~5–10 steps,
+# so 150 allows ~15–30 cycles before the limit triggers.
+_ORCHESTRATOR_RECURSION_LIMIT = 150
+
 FILESYSTEM_TOOL_NAMES = {
     "edit_file",
     "execute",
@@ -213,6 +220,12 @@ _WRITER_ASSUMED_MAX_BATCHES = 5
 _WRITER_TOOL_RESULT_HEADROOM = 20
 _WRITER_MAX_TOOL_RESULT_CHARS = 20_000
 
+# Total-character budget for the writer's tool-result context. Even with
+# per-message max_chars and keep_last_n, the sum of all kept tool results can
+# grow unbounded (e.g. many research-note files each at 20K chars). When the
+# total exceeds this ceiling, the oldest oversized messages are truncated too.
+_WRITER_CHAR_BUDGET = 200_000
+
 DEFAULT_TOOL_RESULT_KEEP_LAST_N = 10
 DEFAULT_TOOL_RESULT_MAX_CHARS = 2000
 
@@ -229,6 +242,7 @@ def build_common_middleware(
     extra_valid_tool_names: Sequence[str] = (),
     tool_result_keep_last_n: int = DEFAULT_TOOL_RESULT_KEEP_LAST_N,
     tool_result_max_chars: int = DEFAULT_TOOL_RESULT_MAX_CHARS,
+    tool_result_total_char_budget: int = 0,
 ) -> list[Any]:
     """Build the shared middleware stack with agent-specific valid tool names."""
     valid_tool_names = {tool.name for tool in [*tool_set.all_tools, *tool_set.researcher_tools]}
@@ -245,7 +259,11 @@ def build_common_middleware(
             no_retry_tools=_NO_RETRY_TOOL_NAMES,
         ),
         source_registry_middleware,
-        ToolResultPruningMiddleware(keep_last_n=tool_result_keep_last_n, max_chars=tool_result_max_chars),
+        ToolResultPruningMiddleware(
+            keep_last_n=tool_result_keep_last_n,
+            max_chars=tool_result_max_chars,
+            total_char_budget=tool_result_total_char_budget,
+        ),
         _model_retry_middleware(),
     ]
 
@@ -287,6 +305,7 @@ def build_deep_research_middleware_set(
         writer=common(
             tool_result_keep_last_n=writer_tool_result_keep_last_n(max_research_concurrency),
             tool_result_max_chars=_WRITER_MAX_TOOL_RESULT_CHARS,
+            tool_result_total_char_budget=_WRITER_CHAR_BUDGET,
         ),
         orchestrator=common(["run_research_batch"]),
     )
@@ -566,4 +585,4 @@ def build_deep_research_graph(
         permissions=context.permissions(ORCHESTRATOR_AGENT),
         backend=context.backend,
     )
-    return agent.with_config({"recursion_limit": 2000})
+    return agent.with_config({"recursion_limit": _ORCHESTRATOR_RECURSION_LIMIT})

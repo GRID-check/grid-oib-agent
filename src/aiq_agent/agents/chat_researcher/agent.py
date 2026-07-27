@@ -74,12 +74,6 @@ def surface_answer_confidence(
     return self_reported
 
 
-# Fixed reason for the keyword-fallback escalation path, where no structured
-# ``ShallowResult.escalation_reason`` exists (the shallow answer read as
-# insufficient by tail-keyword match).
-ESCALATION_KEYWORD_REASON = "Die erste Antwort enthielt einen Hinweis auf unzureichende Informationen."
-
-
 def answer_confidence_capped_reason(
     self_reported: ConfidenceLevel | None,
     citation_grounded: bool,
@@ -201,6 +195,21 @@ def _finalize_shallow_answer(
         without_escalation, _ = detect_and_strip_escalation_marker(content)
         clean_content, _ = detect_and_strip_confidence_marker(without_escalation)
 
+    if not clean_content.strip() and not escalation_present:
+        # An empty answer is a generation failure, not an escalation signal:
+        # surface the standard retry-able error instead of deep-escalating on
+        # a bug. Same rationale as the exception branches in the caller.
+        logger.error("Shallow research produced an empty answer")
+        err_msg = "An error occurred while researching your question. Please try again."
+        return {
+            "messages": [AIMessage(content=err_msg)],
+            "shallow_result": ShallowResult(
+                answer=err_msg,
+                confidence="high",
+                escalate_to_deep=False,
+            ),
+        }
+
     updated_message = message.model_copy(update={"content": clean_content}) if clean_content != content else message
 
     if escalation_present:
@@ -230,10 +239,13 @@ def _finalize_shallow_answer(
 
 
 def matches_escalation_keywords(content: str) -> bool:
-    """Return True if the tail of an answer signals insufficient information.
+    """Return True if the tail of an answer reads as an insufficiency statement.
 
-    Verbatim lift of the keyword tail-match logic historically embedded in
-    ``should_escalate``: only the last 800 characters (lowercased) are examined.
+    Only the last 800 characters (lowercased) are examined. Used by the memory
+    reflection filter (``register._reflection_answer_is_substantive``) to skip
+    canned insufficiency answers — NOT by the escalation decision, which
+    requires the explicit ``[ESCALATE_TO_DEEP]`` marker (a substring match on
+    German legal hedging false-positived on successful answers).
     """
     tail = content[-800:].lower() if len(content) > 800 else content.lower()
     escalation_keywords = [
@@ -321,30 +333,18 @@ class ChatResearcherAgent:
 
         The clarifier node sits on BOTH the direct-deep route and the
         shallow→deep escalation route, so it computes this once. A reason is
-        returned only on an escalation entry (a shallow answer preceded this
-        node): the structured ``ShallowResult.escalation_reason`` when present,
-        otherwise the fixed keyword-fallback notice. A direct-deep entry (no
-        shallow answer, escalation disabled, or a meta turn) yields ``None`` so
-        the field stays absent. Mirrors ``should_escalate``'s branches.
+        returned only on an escalation entry: the structured
+        ``ShallowResult.escalation_reason`` carried by the shallow agent's
+        explicit ``[ESCALATE_TO_DEEP]`` marker. A direct-deep entry (no shallow
+        answer, escalation disabled, or a meta turn) yields ``None`` so the
+        field stays absent. Mirrors ``should_escalate``'s branches.
         """
         if not self.enable_escalation:
             return None
         if state.user_intent and state.user_intent.intent == "meta":
             return None
-        if state.shallow_result is not None:
-            if state.shallow_result.escalate_to_deep:
-                return state.shallow_result.escalation_reason
-            return None
-        last_ai_content = None
-        for m in reversed(state.messages):
-            if isinstance(m, AIMessage):
-                last_ai_content = m.content if hasattr(m, "content") else str(m)
-                break
-        if not last_ai_content:
-            return None
-        last_content = last_ai_content if isinstance(last_ai_content, str) else str(last_ai_content)
-        if matches_escalation_keywords(last_content):
-            return ESCALATION_KEYWORD_REASON
+        if state.shallow_result is not None and state.shallow_result.escalate_to_deep:
+            return state.shallow_result.escalation_reason
         return None
 
     def _build_graph(self) -> CompiledStateGraph:
@@ -506,13 +506,18 @@ class ChatResearcherAgent:
 
             if not result.messages:
                 logger.error("Shallow research agent returned no messages")
+                # A missing answer is a generation failure, not an escalation
+                # signal — same handling as the exception branches above:
+                # retry-able error, no deep escalation, and an actual message
+                # so the user is not left staring at an empty turn.
+                err_msg = "An error occurred while researching your question. Please try again."
                 return {
+                    "messages": [AIMessage(content=err_msg)],
                     "shallow_result": ShallowResult(
-                        answer="An error occurred during shallow research.",
-                        confidence="low",
-                        escalate_to_deep=True,
-                        escalation_reason="Shallow research encountered an error",
-                    )
+                        answer=err_msg,
+                        confidence="high",
+                        escalate_to_deep=False,
+                    ),
                 }
             new_messages = result.messages[len(trimmed_messages) :]
             final_ai_message = next(
@@ -667,38 +672,35 @@ class ChatResearcherAgent:
                 return "END"
 
             # Conversational (meta) turns are answered by the shallow agent but
-            # must never escalate: the keyword tail-match below could otherwise
-            # misread chit-chat ("I don't have enough information about you...")
-            # as a failed research attempt and launch deep research.
+            # must never escalate to deep research.
             if state.user_intent and state.user_intent.intent == "meta":
                 return "END"
 
-            # Respect explicit escalation decision from shallow research.
-            # Successful shallow paths set shallow_result=None so this guard
-            # only fires when shallow explicitly set escalate_to_deep.
+            # Escalation requires the shallow agent's explicit, prompted
+            # [ESCALATE_TO_DEEP] marker (carried as the structured
+            # shallow_result). There is deliberately no keyword/prose fallback:
+            # German legal hedging in a SUCCESSFUL answer ("lässt sich nicht
+            # finden", "weitere Recherche erforderlich") false-positived a
+            # substring match and surprise-escalated good answers to deep
+            # research. Successful shallow paths set shallow_result=None so
+            # this guard only fires when shallow explicitly set
+            # escalate_to_deep.
             if state.shallow_result is not None:
                 if state.shallow_result.escalate_to_deep:
                     return "deep_research"
                 return "END"
 
+            # Defensive: an empty/whitespace answer is a generation failure,
+            # not an escalation signal — _finalize_shallow_answer already
+            # converts it to a retry-able error (shallow_result set), so this
+            # branch is unreachable on the normal path; never deep-escalate it.
             messages = state.messages
-            if not messages:
-                return "END"
-
-            last_ai_content = None
             for m in reversed(messages):
                 if isinstance(m, AIMessage):
-                    last_ai_content = m.content if hasattr(m, "content") else str(m)
+                    content = m.content if hasattr(m, "content") else str(m)
+                    if isinstance(content, str) and not content.strip():
+                        logger.error("Empty shallow answer reached should_escalate; ending turn without escalation")
                     break
-            if not last_ai_content:
-                return "END"
-
-            last_content = last_ai_content if isinstance(last_ai_content, str) else str(last_ai_content)
-            if not last_content.strip():
-                return "deep_research"
-
-            if matches_escalation_keywords(last_content):
-                return "deep_research"
 
             return "END"
 

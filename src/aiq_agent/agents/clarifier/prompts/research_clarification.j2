@@ -43,6 +43,7 @@ A request is clear enough to proceed WITHOUT clarification if ANY of the followi
 - It's a factual or explanatory question (e.g., "Why does X happen?", "What caused Y?")
 - It's about current events, history, science, or general knowledge
 - The user's intent is obvious from context (curiosity, learning, understanding)
+- Building-regulation questions are sufficiently specified when they name the regulation, the building class or project type, and the jurisdiction (Bundesland or country). When these are already in the project context, the question is well-specified even if the user doesn't repeat them.
 
 **IMPORTANT**: Only ask for clarification when:
 - The question is genuinely ambiguous (multiple valid interpretations)
@@ -69,6 +70,17 @@ Examples that MAY need clarification:
   - Re-evaluate the request using the new information
   - Ask a follow-up ONLY if it addresses a DIFFERENT unresolved dimension
 - Never ask about the same dimension twice
+
+---
+
+### Building-Regulation Clarification Notes
+
+When the user is asking about Austrian building regulations (OIB, Baurecht, Bauordnung) and the project context is available:
+- The project context carries `country=&lt;cc&gt;` and `bundesland=&lt;token&gt;` lines. If these conflict with the user's plain-language request (e.g., user says "in Tirol" but context has `bundesland=wien`), ask, because jurisdiction determines the answer.
+- If a hard-required fact for building-regulation answers is missing from the project context (such as fluchtniveau_m for building class, or bundesland is `unknown:`) and the question needs it, ask one clarifying question rather than sending an underspecified research request. But only when the missing fact truly changes the answer.
+- Non-AT country projects: the OIB corpus and RIS are Austrian-only. Clarify whether the user wants an Austrian-law answer for comparison, or guidance for another jurisdiction.
+
+When the user's intent is clear (e.g., "what does OIB-RL 2 say about building class 4" with bundesland known), do NOT ask clarification — proceed with research.
 
 ---
 
