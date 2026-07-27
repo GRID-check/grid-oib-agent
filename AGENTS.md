@@ -34,7 +34,7 @@ legend. Offer a diagram proactively for architecture/design discussions.
 
 ## Verification workflow
 
-All checks run natively on the host (no Docker available in this environment):
+Host-native checks are the default; Docker is not required:
 
 | Check | Command |
 |-------|---------|

@@ -217,7 +217,7 @@ Delivers final or streaming response text.
 - **SystemResponseContent** (`{ text: string | null }`): Standard assistant response.
 - **GenerateResponse** (`{ output: string }`): Shallow/meta response format.
 
-The client extracts content in priority order: `output` → `text` → raw string. The `isFinal` flag is derived from `status === 'complete'`. Structured extras (`cards`, `deep_research_job_id`, `answer_confidence`, `sources`) are optional and fail-open when absent.
+The client extracts content in priority order: `output` → `text` → raw string. The `isFinal` flag is derived from `status === 'complete'`. Every structured extra is optional and fail-open when absent — `cards`, `deep_research_job_id`, `answer_confidence`, `answer_confidence_reason`, `sources`, plus the transparency extras tabled below.
 
 **Transparency extras** (terminal frame; all optional, fail-open per-field):
 

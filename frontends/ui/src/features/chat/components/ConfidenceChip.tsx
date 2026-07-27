@@ -59,7 +59,9 @@ export const ConfidenceChip: FC<ConfidenceChipProps> = ({ confidence, cappedReas
       : cappedReason === 'quote_unverified'
         ? t('confidence.cappedReasons.quoteUnverified')
         : undefined
-  const trimmedReason = reason?.trim() ? reason.trim() : undefined
+  // Trim only to DETECT an empty/whitespace-only reason; the reason itself is
+  // rendered verbatim, as the wire contract promises.
+  const displayReason = reason?.trim() ? reason : undefined
 
   return (
     <Tooltip>
@@ -79,9 +81,9 @@ export const ConfidenceChip: FC<ConfidenceChipProps> = ({ confidence, cappedReas
       </TooltipTrigger>
       <TooltipContent className="max-w-xs">
         <span className="block">{t(`confidence.levelMeanings.${confidence}`)}</span>
-        {trimmedReason ? (
+        {displayReason ? (
           <span className="mt-1 block">
-            <span className="font-medium">{t('confidence.reasonLabel')}:</span> {trimmedReason}
+            <span className="font-medium">{t('confidence.reasonLabel')}:</span> {displayReason}
           </span>
         ) : null}
         <span className="mt-1 block">{t('confidence.tooltip')}</span>

@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import {
+  ANSWER_CONFIDENCE_REASON_MAX_CHARS,
   HumanPromptType,
   NATHumanPromptSchema,
   NATIncomingMessageSchema,
@@ -154,10 +155,19 @@ describe('NATSystemResponseMessageSchema transparency extras (WP-A → WP-B)', (
     expect(parsed.answer_confidence_reason).toBe('Direkt durch OIB-RL 2 belegt')
   })
 
-  test('answer_confidence_reason over 500 chars degrades to undefined (catch)', () => {
+  test('answer_confidence_reason at exactly the wire cap is preserved', () => {
+    const atCap = 'x'.repeat(ANSWER_CONFIDENCE_REASON_MAX_CHARS)
     const parsed = NATSystemResponseMessageSchema.parse({
       ...base,
-      answer_confidence_reason: 'x'.repeat(501),
+      answer_confidence_reason: atCap,
+    })
+    expect(parsed.answer_confidence_reason).toBe(atCap)
+  })
+
+  test('answer_confidence_reason one char over the wire cap degrades to undefined (catch)', () => {
+    const parsed = NATSystemResponseMessageSchema.parse({
+      ...base,
+      answer_confidence_reason: 'x'.repeat(ANSWER_CONFIDENCE_REASON_MAX_CHARS + 1),
     })
     expect(parsed.content).toBe('an answer')
     expect(parsed.answer_confidence_reason).toBeUndefined()
@@ -171,7 +181,6 @@ describe('NATSystemResponseMessageSchema transparency extras (WP-A → WP-B)', (
     expect(parsed.content).toBe('an answer')
     expect(parsed.answer_confidence_reason).toBeUndefined()
   })
-
 })
 
 describe('NATSystemResponseMessageSchema sources per-entry tolerance', () => {
