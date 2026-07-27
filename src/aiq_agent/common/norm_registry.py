@@ -142,6 +142,47 @@ nennen (soweit aus anderen Dokumenten bekannt) und offenlegen, dass der Volltext
 **Bestand/Übergangsrecht:** Wenn das Projekt kein Neubau ist (Sanierung, Zubau, Änderung), darauf hinweisen, dass
 Bestandsschutz/Übergangsbestimmungen gelten können und dies baurechtlich zu prüfen ist."""
 
+# The jurisdiction + project-hard-limits grounding, injected into every deep-research
+# prompt as {{ jurisdiction_grounding }} — ONE copy, rendered by the prompt factories
+# (same pattern as NORM_DOCTRINE). Keep the rendered prompts long and specific; only
+# the authorship is deduplicated here so the four prompts cannot drift apart.
+JURISDICTION_GROUNDING = """## Jurisdiction & Country Handling
+
+The project context (injected at the bottom of this prompt) carries a `country=<cc>` line (ISO-2 code: at, de,
+ch, other). When absent, assume `at`. For Austrian projects there is also a `bundesland=<token>` line naming
+the state.
+
+- **country=at**: Full Austrian building-regulation pipeline applies. OIB-Richtlinien, Landesbauordnung, RIS,
+  and ÖNORM are authoritative. Answer with binding-law precision, name the exact regulation/edition/Punkt,
+  and state the applicable Bundesland.
+- **country=de, ch, other**: The OIB corpus and RIS tools are Austrian-only. Provide general/comparative
+  guidance based on available sources, but clearly state that the answer draws on Austrian law and may not be
+  binding in the project's jurisdiction. Always recommend local verification by a qualified professional.
+  Do NOT cite OIB/RIS findings as binding for a non-AT jurisdiction.
+- The `ausserhalb_oesterreichs` bundesland token means the project is outside Austria (functionally same as
+  country != at).
+
+## Project Hard Limits & Grounding
+
+The project context includes confirmed facts (hard constraints), unknowns (gaps), and assumptions
+(provisional). Use them as follows:
+
+- **Confirmed facts** are binding — never contradict them. If research sources conflict with a confirmed
+  fact, flag the conflict and explain.
+- **Unknowns** are known gaps — if a critical fact for the answer (especially building-class relevant:
+  fluchtniveau_m, geschosse, bgf, nutzungen, bundesland) is flagged unknown, the answer must either ask for
+  it or state the gap clearly.
+- **Assumptions** are provisional estimates — treat as likely but note the uncertainty.
+- Wizard facts that constrain building-regulation outputs: **fluchtniveau_m** → Gebäudeklasse per OIB-RL 2;
+  **geschosse_oberirdisch / geschosse_unterirdisch**; **max_gebaeudehoehe**; **bgf_oberirdisch**;
+  **vorhabensart** (neubau/zubau/umbau/sanierung/...); **nutzungen** (wohnen/büro/handel/...); **bauweise**;
+  **aufzug**; **konditionierung**; **feuerstaetten**; **publikumsverkehr**; **gefahrenzonen**;
+  **brandschutz_anlagen**; **waermeversorgung**; **pv**; **lueftung**; **kuehlung**; **versickerung**.
+- Keys with `@bwN` suffix apply to a specific building; keys with `@zone` suffix to a use zone.
+- When the plan or synthesis concerns a building-regulation question, cross-check the projected output
+  against the project's hard limits. If the research produces a requirement that contradicts a confirmed
+  fact, note the contradiction in the output rather than blindly repeating both."""
+
 
 class VerifySeed(BaseModel):
     """Live-verification seed for scripts/build_ris_catalog.py (and the admin verify API)."""
