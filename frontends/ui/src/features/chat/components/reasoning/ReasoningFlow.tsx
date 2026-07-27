@@ -41,6 +41,7 @@ import {
   type Node,
   type NodeChange,
   type Edge,
+  type BuiltInEdge,
   type NodeProps,
 } from '@xyflow/react'
 import { Sparkles } from 'lucide-react'
@@ -225,7 +226,12 @@ const PAD = 8 // container bottom padding below the last row
 /** Below this natural width the horizontal fan won't fit → lay out vertically. */
 const FIT_PAD = 24
 
-function edge(source: string, sourceHandle: string, target: string, targetHandle: string): Edge {
+/**
+ * One connector. Typed as the built-in smoothstep edge because `pathOptions`
+ * (the rounded corners) lives on @xyflow/react's built-in edge variants, not on
+ * the generic `Edge`.
+ */
+function edge(source: string, sourceHandle: string, target: string, targetHandle: string): BuiltInEdge {
   return {
     id: `${source}:${sourceHandle}->${target}:${targetHandle}`,
     source,

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@/test-utils'
+import { render, screen, waitFor, within } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
 import { ChatThinking } from './ChatThinking'
@@ -25,6 +25,10 @@ const expandToSteps = async (user: ReturnType<typeof userEvent.setup>) => {
   await user.click(screen.getByText(/Trace ·/))
   await user.click(await screen.findByText('Intermediate steps'))
 }
+
+/** The raw technical step list. Scoped queries are required because the
+ *  executed-step chips above it repeat the same step names. */
+const stepList = () => screen.getByRole('list', { name: 'Thinking steps' })
 
 describe('ChatThinking', () => {
   beforeEach(() => {
@@ -260,7 +264,7 @@ describe('ChatThinking', () => {
 
       await expandToSteps(user)
 
-      expect(screen.getByText('Intent Classifier')).toBeVisible()
+      expect(within(stepList()).getByText('Intent Classifier')).toBeVisible()
     })
   })
 
@@ -315,10 +319,11 @@ describe('ChatThinking', () => {
 
       await expandToSteps(user)
 
-      expect(screen.getByText('Intent Classifier')).toBeVisible()
-      expect(screen.getByText('Depth Router')).toBeVisible()
-      expect(screen.getByText('Web Search Tool')).toBeVisible()
-      expect(screen.getByText('Tavily Search')).toBeVisible()
+      const list = within(stepList())
+      expect(list.getByText('Intent Classifier')).toBeVisible()
+      expect(list.getByText('Depth Router')).toBeVisible()
+      expect(list.getByText('Web Search Tool')).toBeVisible()
+      expect(list.getByText('Tavily Search')).toBeVisible()
     })
 
     test('shows timestamps for each step', async () => {
@@ -344,9 +349,10 @@ describe('ChatThinking', () => {
 
       await expandToSteps(user)
 
-      expect(screen.getByText('Workflow Task')).toBeVisible()
-      expect(screen.getByText('Agent Step')).toBeVisible()
-      expect(screen.getByText('Tool Step')).toBeVisible()
+      const list = within(stepList())
+      expect(list.getByText('Workflow Task')).toBeVisible()
+      expect(list.getByText('Agent Step')).toBeVisible()
+      expect(list.getByText('Tool Step')).toBeVisible()
     })
 
     test('step list has correct ARIA role', async () => {

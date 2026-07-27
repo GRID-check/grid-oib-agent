@@ -71,7 +71,14 @@ vi.mock('@xyflow/react', async () => {
         }),
       ),
     useNodesInitialized: () => true,
-    useReactFlow: () => ({ getNodes: () => [] }),
+    // The measured layout pass reads node bounds and centres the viewport; with
+    // no real canvas both are inert stubs (an undefined `getNodesBounds` would
+    // throw inside the layout effect and fail every test that renders the graph).
+    useReactFlow: () => ({
+      getNodes: () => [],
+      getNodesBounds: () => ({ x: 0, y: 0, width: 0, height: 0 }),
+      setViewport: () => {},
+    }),
     applyNodeChanges: (_changes: unknown, nodes: unknown) => nodes,
   }
 })
