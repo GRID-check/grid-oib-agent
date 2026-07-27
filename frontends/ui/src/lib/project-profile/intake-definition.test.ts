@@ -5,12 +5,14 @@ import {
   answersFromProfile,
   BUNDESLAND_TOKENS,
   buildIntakeProfile,
+  COUNTRY_TOKENS,
   evaluateIntakeCondition,
   findIntakeQuestion,
   flattenIntakeQuestions,
   formatIntakeAnswer,
   humanizeProfileKey,
   isValidBundeslandToken,
+  isValidCountryToken,
   labelForProfileKey,
   mergeIntakeProfile,
   modeKeyFor,
@@ -27,6 +29,7 @@ type Answers = Record<string, ProjectPrimitiveValue>
 describe('buildIntakeProfile', () => {
   it('writes confirmed facts through the shared patch engine', () => {
     const answers: Answers = {
+      A2_country: 'at',
       A2_land: 'tirol',
       A2_adr: 'Innrain 1, 6020 Innsbruck',
       A5: ['neubau'],
@@ -56,7 +59,7 @@ describe('buildIntakeProfile', () => {
   })
 
   it('captures the Bundesland as a confirmed fact (jurisdiction is a hard fact)', () => {
-    const profile = buildIntakeProfile({ A2_land: 'tirol' }, definition)
+    const profile = buildIntakeProfile({ A2_country: 'at', A2_land: 'tirol' }, definition)
 
     expect(profile.facts.bundesland?.value).toBe('tirol')
     expect(profile.facts.bundesland?.confidence).toBe('confirmed')
@@ -65,19 +68,20 @@ describe('buildIntakeProfile', () => {
   })
 
   it('records the missing Bundesland as an unknown', () => {
-    const profile = buildIntakeProfile({ A5: ['neubau'] }, definition)
+    const profile = buildIntakeProfile({ A2_country: 'at', A5: ['neubau'] }, definition)
     expect(profile.unknowns).toContain('bundesland')
   })
 
   it('asks for a free-text location only outside Austria', () => {
-    const profile = buildIntakeProfile({ A2_land: 'ausserhalb_oesterreichs' }, definition)
+    const profile = buildIntakeProfile({ A2_country: 'de' }, definition)
     expect(profile.unknowns).toContain('standort_details')
 
     const withDetails = buildIntakeProfile(
-      { A2_land: 'ausserhalb_oesterreichs', standort_details: 'Bayern, Deutschland' },
+      { A2_country: 'de', standort_details: 'Bayern, Deutschland' },
       definition,
     )
     expect(withDetails.facts.standort_details?.value).toBe('Bayern, Deutschland')
+    expect(withDetails.facts.bundesland?.value).toBe('ausserhalb_oesterreichs')
   })
 
   it('maps the number_tri answer modes onto facts / assumptions / unknowns', () => {
@@ -103,6 +107,31 @@ describe('buildIntakeProfile', () => {
       definition,
     )
     expect(open.unknowns).toContain('geschosse_oberirdisch@bw1')
+  })
+
+  it('derives bundesland=ausserhalb_oesterreichs when country is de', () => {
+    const profile = buildIntakeProfile({ A2_country: 'de' }, definition)
+    expect(profile.facts.bundesland?.value).toBe('ausserhalb_oesterreichs')
+  })
+
+  it('derives country=at from an AT bundesland for legacy profiles', () => {
+    const profile = buildIntakeProfile(
+      { A2_country: 'at', A2_land: 'wien', A2_adr: 'Test', A5: ['neubau'] } as any,
+      definition,
+      { projectName: 'Test' },
+    )
+    expect(profile.facts.country?.value).toBe('at')
+    expect(profile.facts.bundesland?.value).toBe('wien')
+  })
+
+  it('leaves bundesland unset when country is de and standort_details provided', () => {
+    const profile = buildIntakeProfile(
+      { A2_country: 'de', standort_details: 'Bayern, Deutschland' } as any,
+      definition,
+      { projectName: 'Test' },
+    )
+    expect(profile.facts.bundesland?.value).toBe('ausserhalb_oesterreichs')
+    expect(profile.facts.standort_details?.value).toBe('Bayern, Deutschland')
   })
 
   it('maps yes_no_open onto a boolean fact or an unknown', () => {
@@ -145,6 +174,7 @@ describe('answersFromProfile', () => {
   it('round-trips a built profile back into wizard answers and the building list', () => {
     const bauwerke = [{ id: 'bw1', name: 'Haupthaus' }]
     const answers: Answers = {
+      A2_country: 'at',
       A2_land: 'wien',
       A5: ['neubau', 'umbau'],
       'C1@bw1': 'gebaeude',
@@ -293,7 +323,7 @@ describe('pruneStaleConditionalAnswers', () => {
   })
 
   it('leaves unconditional and unrelated answers untouched', () => {
-    const answers = { A2_land: 'wien', A5: ['neubau'] }
+    const answers = { A2_country: 'at', A2_land: 'wien', A5: ['neubau'] }
     const pruned = pruneStaleConditionalAnswers(answers, definition)
     expect(pruned).toEqual(answers)
     expect(pruned).toBe(answers)
@@ -333,7 +363,7 @@ describe('mergeIntakeProfile', () => {
   }
 
   it('preserves agent-recorded novel facts, goals, unknowns, and assumptions', () => {
-    const built = buildIntakeProfile({ A2_land: 'tirol' }, definition)
+    const built = buildIntakeProfile({ A2_country: 'at', A2_land: 'tirol' }, definition)
     const merged = mergeIntakeProfile(built, storedProfile, definition)
 
     // Intake-owned key wins from the wizard...
@@ -347,7 +377,7 @@ describe('mergeIntakeProfile', () => {
   })
 
   it('does NOT resurrect an intake answer the user just cleared', () => {
-    const built = buildIntakeProfile({}, definition)
+    const built = buildIntakeProfile({ A2_country: 'at' }, definition)
     const merged = mergeIntakeProfile(built, storedProfile, definition)
 
     expect(merged.facts.bundesland).toBeUndefined()
@@ -355,7 +385,7 @@ describe('mergeIntakeProfile', () => {
   })
 
   it('returns the built profile unchanged when there is no stored profile', () => {
-    const built = buildIntakeProfile({ A2_land: 'wien' }, definition)
+    const built = buildIntakeProfile({ A2_country: 'at', A2_land: 'wien' }, definition)
     expect(mergeIntakeProfile(built, null, definition)).toBe(built)
   })
 })
@@ -398,7 +428,7 @@ describe('projectIntakeDefinitionV1 shape', () => {
     const required = flattenIntakeQuestions(definition)
       .filter((q) => q.required)
       .map((q) => q.id)
-    expect(new Set(required)).toEqual(new Set(['A1', 'A2_adr', 'A2_land', 'A5']))
+    expect(new Set(required)).toEqual(new Set(['A1', 'A2_adr', 'A2_country', 'A2_land', 'A5']))
   })
 })
 
@@ -435,5 +465,24 @@ describe('BUNDESLAND_TOKENS / isValidBundeslandToken', () => {
     expect(isValidBundeslandToken('atlantis')).toBe(false)
     expect(isValidBundeslandToken('')).toBe(false)
     expect(isValidBundeslandToken('Wien')).toBe(false)
+  })
+})
+
+describe('COUNTRY_TOKENS / isValidCountryToken', () => {
+  it('contains the four country options', () => {
+    expect(COUNTRY_TOKENS).toEqual(['at', 'de', 'ch', 'other'])
+  })
+
+  it('accepts recognized country tokens', () => {
+    expect(isValidCountryToken('at')).toBe(true)
+    expect(isValidCountryToken('de')).toBe(true)
+    expect(isValidCountryToken('ch')).toBe(true)
+    expect(isValidCountryToken('other')).toBe(true)
+  })
+
+  it('rejects unknown country tokens', () => {
+    expect(isValidCountryToken('fr')).toBe(false)
+    expect(isValidCountryToken('')).toBe(false)
+    expect(isValidCountryToken('AT')).toBe(false)
   })
 })
