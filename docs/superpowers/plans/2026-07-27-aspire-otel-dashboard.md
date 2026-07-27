@@ -662,3 +662,23 @@ Plan complete and saved. Two execution options:
 
 **Which approach?**
 
+
+---
+
+## Amendment (2026-07-27): OTel Collector + frontend OTEL — executed inline by controller
+
+Post-review architecture amendment (see spec amendment + ADR-0029 amendment for
+full rationale). Executed directly (not subagent) per maintainer quality bar:
+
+- **Task 6 — Ingestion Secret + key hardening**: `otel-ingestion` k8s Secret in
+  `observability.ts`; dashboard `PrimaryApiKey` via `secretKeyRef`; deleted
+  `OTLP_API_KEY`/`OTEL_EXPORTER_OTLP_HEADERS` from app `grid-secrets`.
+- **Task 7 — `src/platform/otel-collector.ts`**: contrib collector Deployment +
+  ConfigMap (otlp receivers, memory_limiter+batch, otlphttp exporter to
+  aspire-dashboard with `x-otlp-api-key` from env, health_check :13133,
+  traces+logs+metrics pipelines) + Service; `collectorImage` config key
+  (default `0.157.0`); wired in `index.ts`.
+- **Task 8 — Producers**: backend endpoint → `http://otel-collector:4318/v1/traces`
+  (full path, NAT posts as-is); frontend `@vercel/otel` + `src/instrumentation.ts`
+  (env-gated) + Pulumi env `http://otel-collector:4318` (base, JS appends path).
+- Verified: `npm run typecheck` (Pulumi) ✅; frontend Docker typecheck ✅.

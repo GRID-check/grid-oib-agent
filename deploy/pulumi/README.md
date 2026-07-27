@@ -163,6 +163,7 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 | **`platformOrgId`** | — | WorkOS org id required by the dashboard OIDC claim gate |
 | 🔒 `otelPrimaryApiKey` | — | Shared OTLP ingestion key (`x-otlp-api-key`) dashboard ↔ backend/worker |
 | `dashboardImage` | `mcr.microsoft.com/dotnet/aspire-dashboard:9.1.0` | Dashboard image pin |
+| `collectorImage` | `otel/opentelemetry-collector-contrib:0.157.0` | OTel Collector image pin (single OTLP ingestion point) |
 | `dashboardMaxLogCount` / `dashboardMaxTraceCount` | `50000` / `50000` | In-memory ring-buffer limits |
 
 ## Validation (no target cluster required)

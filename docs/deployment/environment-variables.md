@@ -230,6 +230,20 @@ The scheduler also reuses `GRID_APP_DATABASE_URL`, `FRONTEND_INTERNAL_URL`, and 
 | `LANGCHAIN_TRACING_V2` | No | — | Set to `true` to enable LangSmith tracing. |
 | `WANDB_API_KEY` | No | — | Weights & Biases API key for experiment tracking. |
 
+## Observability (ADR-0029, Kubernetes/Pulumi-injected)
+
+These are set by the Pulumi stack on the respective Deployments — not part of
+`deploy/.env`. In Compose they are unset and tracing no-ops.
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | No | unset | OTLP/HTTP collector endpoint. Python tiers get the FULL path (`http://otel-collector:4318/v1/traces` — the NAT exporter posts as-is); the frontend gets the BASE URL (JS exporter appends `/v1/traces` per spec). Unset → frontend instrumentation no-ops. |
+| `OTEL_SERVICE_NAME` | No | per-tier | `service.name` resource: `grid-ui` / `grid-aiq-agent` / `grid-agent-worker`. |
+
+The Aspire ingestion key is NOT an env var on producers — it lives in the
+Kubernetes Secret `otel-ingestion`, referenced only by the collector and the
+dashboard (see `docs/deployment/kubernetes.md` §9).
+
 ---
 
 ## Notes

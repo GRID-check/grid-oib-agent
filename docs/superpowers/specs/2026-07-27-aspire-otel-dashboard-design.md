@@ -143,3 +143,67 @@ merely unused today (config only has console logging telemetry).
   required (unauthenticated OTLP rejected).
 - No unit tests for Pulumi component (stack is preview-verified); backend change
   is config-only.
+
+---
+
+## Amendment (2026-07-27): OTel Collector as the ingestion point + frontend OTEL
+
+Approved by the maintainer after a post-implementation architecture review.
+
+### Decision
+
+Services no longer export OTLP directly to the Aspire dashboard. A dedicated
+**OpenTelemetry Collector** (`otel/opentelemetry-collector-contrib`, pinned) is
+the cluster's single OTLP ingestion point:
+
+```
+browser/Next.js BFF ─┐
+aiq-agent (chat)     ├─ plain OTLP (in-cluster, no key) ─> otel-collector ─> OTLP/HTTP + x-otlp-api-key ─> aspire-dashboard
+agent-worker         ┘                                   (batch, memory_limiter; traces+logs+metrics pipelines)
+```
+
+Rationale: decouples producers from the storage/UI decision (swapping Aspire
+for Grafana/Tempo later is a collector-config change, not an app change);
+centralizes API-key auth, batching, and back-pressure in one place; all three
+signal pipelines (traces, logs, metrics) are wired now so future signal
+adoption is app-only work.
+
+### Changes vs. the original design
+
+1. **New platform component** `src/platform/otel-collector.ts`: Deployment
+   (1 replica, `otel/opentelemetry-collector-contrib:0.157.0`, health_check
+   extension on :13133, memory_limiter+batch processors, `otlphttp` exporter
+   to `http://aspire-dashboard:4318`), ConfigMap-mounted config, Service
+   `otel-collector:4317/4318`. No NetworkPolicy changes (same-namespace
+   ingress allowed, egress open by design).
+2. **OTLP key handling hardened**: the key moves into a dedicated Kubernetes
+   Secret `otel-ingestion` (created by the observability module) and is
+   referenced via `secretKeyRef` by BOTH the dashboard
+   (`Dashboard__Otlp__PrimaryApiKey`) and the collector (`OTLP_API_KEY` env,
+   interpolated into the exporter header). Previously it was a plain env
+   value on the dashboard Deployment. The unused `OTLP_API_KEY` /
+   `OTEL_EXPORTER_OTLP_HEADERS` entries in the app `grid-secrets` Secret are
+   removed.
+3. **Backend rewiring**: `OTEL_EXPORTER_OTLP_ENDPOINT` →
+   `http://otel-collector:4318/v1/traces` (full path — the NAT exporter posts
+   to explicit endpoints as-is). Header plumbing deleted.
+4. **Frontend OTEL (new)**: `frontends/ui/src/instrumentation.ts` with
+   `@vercel/otel` (`registerOTel`), gated on
+   `process.env.OTEL_EXPORTER_OTLP_ENDPOINT` being set (capability derived
+   from the dependency — no flag). Covers BFF route handlers + server-side
+   fetch automatically. Pulumi injects `OTEL_SERVICE_NAME=grid-ui` and
+   `OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318` (BASE URL — the
+   JS OTLP HTTP exporter appends `/v1/traces` per the OTEL spec; this
+   asymmetry with the backend's full-path endpoint is intentional).
+   Known gap: the custom `server.js` WS proxy is not auto-instrumented —
+   follow-up.
+5. **Out of scope (follow-ups)**: metrics/log instrumentation in apps,
+   purger/scheduler processes, Grafana stack, WS proxy spans.
+
+### Verification additions
+
+- `npm run typecheck` (Pulumi) and frontend Docker typecheck pass with
+  `@vercel/otel` added.
+- Post-deploy: end-to-end trace shows `grid-ui` → `grid-aiq-agent` spans in
+  one trace; collector logs show no export errors; dashboard still rejects
+  unauthenticated OTLP on its own ports.

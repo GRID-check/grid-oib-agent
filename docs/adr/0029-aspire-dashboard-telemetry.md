@@ -43,14 +43,50 @@ Key decisions within the approach:
   static token.
 - **Gateway:** dedicated `https-otel` listener on the shared Envoy Gateway
   with an HTTPRoute for the UI only. OTLP ingestion stays cluster-internal.
-- **OTLP API key:** a dedicated Pulumi-managed secret, shared between the
-  dashboard (`Dashboard:Otlp:PrimaryApiKey`) and the backend/worker pods via
-  the `grid-secrets` Secret (`x-otlp-api-key` header).
-- **Scope:** backend (aiq-agent) + agent-worker traces only. The two Python
-  tiers share the NAT config and get per-tier `service.name` via
-  `OTEL_SERVICE_NAME` (`grid-aiq-agent` / `grid-agent-worker`). Frontend
-  Next.js / workflow-scheduler OTEL instrumentation and a log pipeline are
-  follow-ups.
+- **Ingestion:** an **OpenTelemetry Collector** (`otel-collector` Service) is
+  the cluster's single OTLP ingestion point. Producers send plain OTLP
+  in-cluster; the collector alone holds the ingestion key and is the only
+  client of the dashboard's OTLP ports. See the amendment below.
+- **OTLP API key:** a Pulumi-managed value materialised exactly once, in the
+  dedicated Kubernetes Secret `otel-ingestion`, referenced via `secretKeyRef`
+  by the dashboard (`Dashboard:Otlp:PrimaryApiKey`) and the collector's
+  exporter header. It never appears as a plain env value on a pod spec.
+- **Scope:** traces from all three app tiers — Next.js BFF (`grid-ui`),
+  aiq-agent (`grid-aiq-agent`), and agent-worker (`grid-agent-worker`). The
+  collector carries traces+logs+metrics pipelines so future signal adoption
+  is app-only work. Metrics/log instrumentation, purger/scheduler, and the
+  `server.js` WS proxy are follow-ups.
+
+## Amendment (2026-07-27): OTel Collector as ingestion point + frontend OTEL
+
+Added after a post-implementation architecture review, before first deploy.
+
+**Problem with the initial cut:** services exported OTLP directly to the
+dashboard — the API key was plumbed into every producer, and the storage/UI
+decision was baked into app config. The Aspire dashboard is a live ops pane,
+not a production observability backend (ring buffer, no retention/alerting).
+
+**Change:** a dedicated `otel/opentelemetry-collector-contrib` Deployment
+(`deploy/pulumi/src/platform/otel-collector.ts`) receives OTLP gRPC+HTTP from
+all producers and exports via `otlphttp` to the dashboard with the
+`x-otlp-api-key` header. Processors: `memory_limiter` + `batch`; the
+`health_check` extension backs the probes. Pipelines for **traces, logs, and
+metrics** are all wired now.
+
+**Why this is the right long-term shape:**
+
+- Producers are decoupled from the backend choice — swapping Aspire for a
+  Grafana/Tempo stack later is a collector-config change, not an app change.
+- API-key auth, batching, and back-pressure live in exactly one place.
+- The frontend gap is closed: `frontends/ui/src/instrumentation.ts` registers
+  `@vercel/otel` (gated on `OTEL_EXPORTER_OTLP_ENDPOINT` being set — the
+  capability is derived from the dependency, no flag), giving end-to-end
+  traces `grid-ui` → `grid-aiq-agent`. Known gap: the custom `server.js` WS
+  proxy is not auto-instrumented (follow-up).
+- Endpoint asymmetry (intentional): the frontend gets the BASE URL
+  (`http://otel-collector:4318`, JS exporter appends `/v1/traces` per spec);
+  the Python NAT exporter posts to explicit endpoints as-is, so the backend
+  keeps the full path.
 
 ## Verified deployment facts
 

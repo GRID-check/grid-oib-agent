@@ -465,11 +465,27 @@ Chroma):
   syntax error in the multi-bucket init Job) — the reason this kind of live
   validation exists.
 
-## 9. Observability — Aspire Dashboard (ADR-0029)
+## 9. Observability — OTel Collector + Aspire Dashboard (ADR-0029)
 
-The stack deploys a .NET Aspire standalone dashboard
-(`deploy/pulumi/src/platform/observability.ts`) as a live trace/span viewer
-for platform owners.
+The stack deploys two observability components:
+
+- **`otel-collector`** (`deploy/pulumi/src/platform/otel-collector.ts`) — an
+  OpenTelemetry Collector that is the cluster's single OTLP ingestion point.
+  All producers send plain OTLP in-cluster; the collector batches, applies
+  memory back-pressure, and is the ONLY holder of the Aspire ingestion key.
+  Traces, logs, and metrics pipelines are all wired, so adopting a new
+  signal later is app-only work. Swapping the backend (Grafana/Tempo/…) is a
+  collector-config change, not an app change.
+- **`aspire-dashboard`** (`deploy/pulumi/src/platform/observability.ts`) — a
+  .NET Aspire standalone dashboard behind the collector, as a live
+  trace/span viewer for platform owners.
+
+```
+grid-ui / grid-aiq-agent / grid-agent-worker
+        │  plain OTLP (in-cluster, no key)
+        ▼
+  otel-collector ── OTLP/HTTP + x-otlp-api-key ──▶ aspire-dashboard
+```
 
 **URL:** `https://<otelDomain>` (stack output `otelUrl`).
 
@@ -478,32 +494,38 @@ on `org_id = <platformOrgId>` — the same population that has platform admin
 access (ADR-0016). One-time setup: register
 `https://<otelDomain>/signin-oidc` as a redirect URI in the WorkOS dashboard.
 
-**Scope:** backend traces only. The two Python tiers — `aiq-agent`
-(chat/web) and `agent-worker` (deep-research jobs, `jobExecution: db`) —
-share the NAT config and appear as separate resources via `OTEL_SERVICE_NAME`
-(`grid-aiq-agent` / `grid-agent-worker`). Frontend, workflow-scheduler and
-purger emit no telemetry (Node, no OTEL instrumentation — follow-up).
+**Scope:** traces from all three app tiers. The Python tiers (`aiq-agent`
+chat/web, `agent-worker` deep-research jobs) share the NAT config; the
+Next.js BFF registers `@vercel/otel` from `src/instrumentation.ts`. They
+appear as separate resources via `OTEL_SERVICE_NAME` (`grid-ui` /
+`grid-aiq-agent` / `grid-agent-worker`). Workflow-scheduler and purger emit
+no telemetry, and the `server.js` WS proxy is not auto-instrumented
+(follow-ups).
 
 **Wiring:**
 
 - `configs/config_oib_openrouter.yml` enables the `otelcollector_redaction`
   tracing exporter (spans only, OTLP/HTTP).
-- Pulumi injects `OTEL_EXPORTER_OTLP_ENDPOINT`
-  (`http://aspire-dashboard:4318/v1/traces`), `OTEL_SERVICE_NAME`, and the
-  secret-backed `OTEL_EXPORTER_OTLP_HEADERS` (`x-otlp-api-key=<key>`) into
-  both tiers; the dashboard gets the same key as
-  `Dashboard:Otlp:PrimaryApiKey` from the Pulumi config secret
-  `observability.otelPrimaryApiKey`.
-- Only the UI port (18888) is exposed through the Gateway (`https-otel`
-  listener + HTTPRoute). OTLP ingestion (4317 gRPC / 4318 HTTP) is
-  cluster-internal; intra-namespace traffic is covered by the
+- Pulumi injects `OTEL_SERVICE_NAME` + `OTEL_EXPORTER_OTLP_ENDPOINT` into all
+  three tiers. Endpoint asymmetry (intentional): the Python tiers get the
+  FULL path (`http://otel-collector:4318/v1/traces` — the NAT exporter posts
+  as-is); the frontend gets the BASE URL (`http://otel-collector:4318` — the
+  JS OTLP HTTP exporter appends `/v1/traces` per the OTEL spec).
+- The ingestion key lives in the dedicated Secret `otel-ingestion`,
+  referenced via `secretKeyRef` by the dashboard
+  (`Dashboard:Otlp:PrimaryApiKey`) and the collector exporter header — never
+  a plain env value. Producers hold no key.
+- Only the dashboard UI port (18888) is exposed through the Gateway
+  (`https-otel` listener + HTTPRoute). Collector and dashboard OTLP ports
+  are cluster-internal; intra-namespace traffic is covered by the
   `allow-same-namespace` NetworkPolicy.
 
 **Caveats:**
 
 - **In-memory ring buffer** (configured to 50k log/trace entries) — data is
-  lost on pod restart. This is a live-view tool, not a log archive.
-- Single replica; a dashboard outage loses no application data.
+  lost on dashboard pod restart. This is a live-view tool, not a log archive.
+- Single replica each; an observability outage loses no application data (the
+  collector's batch processor retries exports).
 - No alerting — operators must watch the dashboard.
 
 **Non-obvious deployment facts** (verified against the dashboard docs and the
@@ -515,7 +537,7 @@ settings live under `Authentication:Schemes:OpenIdConnect:*` (NOT
 (`https://api.workos.com/user_management/<client_id>`);
 `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true` is required because TLS terminates
 at the Gateway; the NAT exporter posts OTLP/HTTP to the endpoint as-is, so
-the full `/v1/traces` path is required.
+the full `/v1/traces` path is required on the Python tiers.
 
 ## 10. Out of scope (deliberate follow-ups)
 
