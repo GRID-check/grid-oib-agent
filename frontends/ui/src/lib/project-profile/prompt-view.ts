@@ -97,6 +97,17 @@ export function buildProjectPromptView(profile: ProjectProfile): string {
   const sections: string[][] = [['PROJECT_CONTEXT v1']]
 
   const factKeys = Object.keys(normalized.facts).sort()
+
+  // Legacy profile: no country fact but valid AT bundesland → derive country=at
+  const countryInFacts = normalized.facts.country
+  if (!countryInFacts && normalized.facts.bundesland?.value) {
+    const bv = normalized.facts.bundesland.value
+    if (typeof bv === 'string' && bv !== 'ausserhalb_oesterreichs' && isValidBundeslandToken(bv)) {
+      factKeys.unshift('country')
+      normalized.facts.country = { value: 'at', confidence: 'confirmed', source: 'onboarding', updatedAt: '' } as any
+    }
+  }
+
   if (factKeys.length > 0) {
     sections.push([
       'confirmed:',

@@ -168,10 +168,26 @@ export const projectIntakeDefinitionV1: ProjectIntakeDefinition = {
           writesTo: '/facts/standort_adresse/value',
         },
         {
+          id: 'A2_country',
+          label: 'Land',
+          type: 'single_select',
+          required: true,
+          help: 'In welchem Land befindet sich das Bauvorhaben?',
+          why: 'Bestimmt den anwendbaren Rechtsrahmen und steuert, ob die österreichischen OIB-Richtlinien und Bauordnungen anwendbar sind.',
+          options: [
+            { value: 'at', label: 'Österreich (AT)' },
+            { value: 'de', label: 'Deutschland (DE)' },
+            { value: 'ch', label: 'Schweiz (CH)' },
+            { value: 'other', label: 'Anderes Land' },
+          ],
+          writesTo: '/facts/country/value',
+        },
+        {
           id: 'A2_land',
           label: 'Bundesland',
           type: 'single_select',
           required: true,
+          conditions: [{ param: 'A2_country', op: 'equals', value: 'at' }],
           why: 'Bestimmt die zuständige Bauordnung, den dort geltenden OIB-Stand und die anwendbaren Landesgesetze.',
           options: [
             { value: 'wien', label: 'Wien' },
@@ -190,9 +206,9 @@ export const projectIntakeDefinitionV1: ProjectIntakeDefinition = {
         {
           id: 'standort_details',
           label: 'Land & Region',
-          help: 'Land und Region/Stadt, z. B. „Bayern, Deutschland“ — damit Piloti das anwendbare Recht einordnen kann.',
+          help: 'Land und Region/Stadt, z. B. „Bayern, Deutschland" — für die Einordnung des anwendbaren Rechts.',
           type: 'text',
-          conditions: [{ param: 'A2_land', op: 'equals', value: 'ausserhalb_oesterreichs' }],
+          conditions: [{ param: 'A2_country', op: 'includes_any', value: ['de', 'ch', 'other'] }],
           writesTo: '/facts/standort_details/value',
         },
         {
@@ -1009,6 +1025,15 @@ export function isValidBundeslandToken(token: string): boolean {
   return BUNDESLAND_TOKENS.includes(token)
 }
 
+export const COUNTRY_TOKENS: readonly string[] = (() => {
+  const question = flattenIntakeQuestions(projectIntakeDefinitionV1).find((q) => q.id === 'A2_country')
+  return question?.options?.map((option) => option.value) ?? []
+})()
+
+export function isValidCountryToken(token: string): boolean {
+  return COUNTRY_TOKENS.includes(token)
+}
+
 /**
  * Whether a question is currently relevant given the answers collected so far.
  * Conditions are AND-combined. `param` is resolved within `instanceId`'s scope
@@ -1301,6 +1326,35 @@ export function buildIntakeProfile(
         emitAnswer(ctx, question, question.id, target.key, target, answers)
       }
     }
+  }
+
+  const bundeslandPath = '/facts/bundesland'
+
+  // Derive country from bundesland for legacy profiles.
+  const hasCountry = ctx.patch.some(p => p.path === '/facts/country')
+  const bundeslandPatch = ctx.patch.find(p => p.path === bundeslandPath)
+  if (!hasCountry && bundeslandPatch) {
+    const bValue = bundeslandPatch.value
+    const bToken = typeof bValue === 'object' && bValue ? (bValue as any).value : bValue
+    if (typeof bToken === 'string' && bToken !== 'ausserhalb_oesterreichs' && (BUNDESLAND_TOKENS as readonly string[]).includes(bToken)) {
+      ctx.patch.push({
+        op: 'add',
+        path: '/facts/country',
+        value: { value: 'at', confidence: 'confirmed', source: NOW_SOURCE, updatedAt: ctx.now },
+      })
+    }
+  }
+
+  // Derive bundesland for non-AT country.
+  const countryFact = ctx.patch.find(p => p.path === '/facts/country')
+  const hasBundesland = ctx.patch.some(p => p.path === bundeslandPath)
+  const countryValue = countryFact?.value && typeof countryFact.value === 'object' ? (countryFact.value as any).value : countryFact?.value
+  if (countryFact && typeof countryValue === 'string' && countryValue !== 'at' && !hasBundesland) {
+    ctx.patch.push({
+      op: 'add',
+      path: bundeslandPath,
+      value: { value: 'ausserhalb_oesterreichs', confidence: 'confirmed', source: NOW_SOURCE, updatedAt: ctx.now },
+    })
   }
 
   for (const key of ctx.unknowns) {
