@@ -420,6 +420,23 @@ export async function assertUploadTypeAllowed(session: AuthorizedSession, filena
 }
 
 /**
+ * Server-side file-size enforcement: guards the S3 upload against oversized
+ * payloads even when the client allows them (the client check is a UX courtesy).
+ * Reuses the env-based config that also drives the client-side max, so both
+ * layers are governed by one source of truth.
+ */
+export function assertFileSizeAllowed(sizeBytes: number): void {
+  const { maxFileSize } = getFileUploadConfigFromEnv(process.env)
+  if (sizeBytes > maxFileSize) {
+    const maxSizeMB = maxFileSize / (1024 * 1024)
+    throw new BadRequestError(`File exceeds the maximum allowed size of ${maxSizeMB} MB`, {
+      fileSize: sizeBytes,
+      maxSizeBytes: maxFileSize,
+    })
+  }
+}
+
+/**
  * Store an uploaded file in SeaweedFS, record it, and hand it to the backend for
  * ingestion. The ingest call is best-effort: the document is already durable
  * in SeaweedFS + Postgres, and status reads reconcile the outcome later.
@@ -433,6 +450,7 @@ export async function uploadDocument(
 
   await requireProjectAccess(session, projectId, 'project:edit')
   await assertUploadTypeAllowed(session, file.name)
+  assertFileSizeAllowed(file.size)
 
   let folderPath: string | null = null
   if (folderId) {

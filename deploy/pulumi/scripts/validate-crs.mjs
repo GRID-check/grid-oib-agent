@@ -289,6 +289,6 @@ if (failures.length) {
   process.exit(1);
 }
 if (crs.length === 0) {
-  console.error("No custom resources found in the plan — wrong file?");
-  process.exit(1);
+  console.warn("No custom resources changed in this plan — nothing to validate.");
+  process.exit(0);
 }

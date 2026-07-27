@@ -1071,108 +1071,6 @@ def _analyze_drawing_page_with_vlm(
         return (f"[Drawing - analysis failed: {str(e)[:50]}]", {})
 
 
-def _render_visual_pdf_pages(
-    pdf_path: str,
-    vlm_model: str = DEFAULT_VLM_MODEL,
-    vlm_base_url: str = DEFAULT_VLM_BASE_URL,
-    vlm_api_key: str | None = None,
-    max_dim: int = PAGE_RENDER_MAX_DIM,
-    min_text_chars: int = VISUAL_PAGE_MIN_TEXT_CHARS,
-    min_paths: int = VISUAL_PAGE_MIN_PATHS,
-    max_pages: int = MAX_RENDERED_PAGES,
-) -> list[dict[str, Any]]:
-    """Render text-sparse / vector-heavy PDF pages and VLM-caption them.
-
-    For each page: read its text (watermark-stripped) and count vector path
-    objects. A page is "visual" — and therefore rendered and captioned — when
-    its text is below ``min_text_chars`` OR it has at least ``min_paths`` path
-    objects. This captures vector CAD drawings and scanned pages that the text
-    and embedded-image extractors both miss, while text pages skip the VLM
-    entirely. The whole page is composited into one bitmap (scaled so its long
-    edge ≈ ``max_dim`` px) so visual relationships and scale stay intact.
-
-    Returns a list of dicts:
-      ``{"caption", "fields", "page_number", "width", "height"}``.
-    """
-    try:
-        import io
-
-        import pypdfium2 as pdfium
-    except ImportError:
-        logger.warning("pypdfium2 not installed. Install with: pip install pypdfium2")
-        return []
-
-    results: list[dict[str, Any]] = []
-    rendered = 0
-    try:
-        doc = pdfium.PdfDocument(pdf_path)
-        try:
-            for page_num in range(len(doc)):
-                page = doc[page_num]
-                try:
-                    # Cheap per-page signals: watermark-stripped text length and
-                    # path-object count (a plan/section is hundreds+ of paths).
-                    text_page = page.get_textpage()
-                    try:
-                        raw_text = text_page.get_text_range()
-                    finally:
-                        text_page.close()
-                    text_len = len(_strip_watermark_lines(raw_text))
-
-                    path_count = 0
-                    for obj in page.get_objects():
-                        if obj.type == _PAGEOBJ_PATH:
-                            path_count += 1
-                            if path_count >= min_paths:
-                                break
-
-                    is_visual = text_len < min_text_chars or path_count >= min_paths
-                    if not is_visual:
-                        continue
-
-                    if rendered >= max_pages:
-                        logger.warning(
-                            "Visual-page render cap (%d) reached for %s; skipping remaining pages",
-                            max_pages,
-                            pdf_path,
-                        )
-                        break
-
-                    width_pt, height_pt = page.get_size()
-                    longest_pt = max(width_pt, height_pt) or 1.0
-                    scale = max_dim / longest_pt
-                    bitmap = page.render(scale=scale)
-                    pil_image = bitmap.to_pil().convert("RGB")
-                    buf = io.BytesIO()
-                    pil_image.save(buf, format="JPEG", quality=90)
-
-                    caption, fields = _analyze_drawing_page_with_vlm(
-                        buf.getvalue(),
-                        vlm_model=vlm_model,
-                        vlm_base_url=vlm_base_url,
-                        vlm_api_key=vlm_api_key,
-                    )
-                    results.append(
-                        {
-                            "caption": caption,
-                            "fields": fields,
-                            "page_number": page_num + 1,
-                            "width": pil_image.width,
-                            "height": pil_image.height,
-                        }
-                    )
-                    rendered += 1
-                finally:
-                    page.close()
-        finally:
-            doc.close()
-        logger.info("Rendered + captioned %d visual page(s) from %s", len(results), pdf_path)
-    except Exception as e:
-        logger.error("Error rendering visual PDF pages: %s", e)
-
-    return results
-
-
 def _summary_from_drawing_fields(pages: list[dict[str, Any]]) -> str | None:
     """Build a document summary from rendered-page drawing descriptions.
 
@@ -2605,6 +2503,21 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     all_documents.extend(text_documents)
                     logger.info(f"  Text extraction: {len(text_documents)} documents")
 
+                    # Favourable ordering: thumbnail first. This is the quickest
+                    # operation (pypdfium2 page-1 render → fire-and-forget PUT to
+                    # as soon as the backend has the file.
+                    # NOTE: thumbnail is now generated pre-ingest in the
+                    # /v1/ingest route handler. That route sets
+                    # config["thumbnail_pregenerated"] once it has successfully
+                    # uploaded one, so this fallback only fires when pre-ingest
+                    # generation was absent or failed — for any caller that
+                    # submits jobs without going through that endpoint (tests or
+                    # future alternative front doors) or whose pre-render failed.
+                    # This avoids rendering + PUTting the thumbnail twice per file.
+                    thumbnail_upload_url = config.get("thumbnail_upload_url")
+                    if thumbnail_upload_url and (is_pdf or is_image) and not config.get("thumbnail_pregenerated"):
+                        self._generate_and_upload_thumbnail(file_path, thumbnail_upload_url)
+
                     # Summary + tag classification are started AFTER visual
                     # extraction (below) so that for text-sparse drawing PDFs the
                     # rendered-page descriptions — not a watermark — feed the
@@ -2634,54 +2547,64 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         total_tables += len(tables)
                         logger.info(f"  Table extraction: {len(tables)} tables")
 
-                    # 3. Extract and analyze images/charts (PDF only)
-                    # Uses single VLM call per image for classification + captioning
-                    if is_pdf and (extract_images or extract_charts):
-                        images = _extract_images_from_pdf(file_path)
-                        file_charts = 0
-                        file_images = 0
+                    # 3+4. Combined image + drawing extraction with concurrent VLM
+                    # enrichment. Replaces the old sequential per-image and per-page
+                    # VLM loops with a single batch that runs ALL VLM calls for the
+                    # file concurrently (4 workers), with content-hash caching so a
+                    # re-ingest or cross-document duplicate skips the API call.
+                    if is_pdf:
+                        # Extract image bytes (no VLM yet)
+                        images = _extract_images_from_pdf(file_path) if (extract_images or extract_charts) else []
 
-                        for img in images:
-                            # Single VLM call that classifies AND captions
-                            content_type, caption = _analyze_image_with_vlm(
-                                img["image_bytes"],
-                                vlm_model=vlm_model,
-                                vlm_base_url=vlm_base_url,
-                                vlm_api_key=vlm_api_key,
-                                extract_charts=extract_charts,
+                        from knowledge_layer.llamaindex import processing as _processing
+
+                        drawing_pages_raw: list[dict[str, Any]] = []
+                        if RENDER_VISUAL_PAGES and vlm_api_key:
+                            drawing_pages_raw = _processing.render_visual_pages_no_vlm(
+                                file_path,
+                                min_text_chars=VISUAL_PAGE_MIN_TEXT_CHARS,
+                                min_paths=VISUAL_PAGE_MIN_PATHS,
+                                max_pages=MAX_RENDERED_PAGES,
+                                max_dim=PAGE_RENDER_MAX_DIM,
                             )
 
-                            # Scrub licence/watermark stamps the VLM may have
-                            # woven into the caption before it is stored (and can
-                            # become a summary). Fail-open: keep a short
-                            # placeholder rather than an empty caption.
+                        image_results, drawing_pages = _processing.enrich_vlm_batch(
+                            image_records=images,
+                            drawing_pages=drawing_pages_raw,
+                            vlm_model=vlm_model,
+                            vlm_base_url=vlm_base_url,
+                            vlm_api_key=vlm_api_key,
+                            extract_charts=extract_charts,
+                        )
+
+                        # Build image/chart documents
+                        file_charts = 0
+                        file_images = 0
+                        for record, content_type, caption in image_results:
                             caption = _scrub_watermark_phrases(caption) or "[Image - no describable content]"
 
                             is_chart = content_type == "chart"
 
-                            # Skip based on extraction preferences
                             if extract_charts and not extract_images and not is_chart:
-                                continue  # Only want charts, this is an image
+                                continue
                             if extract_images and not extract_charts and is_chart:
-                                continue  # Only want images, this is a chart
+                                continue
 
                             prefix = "CHART" if is_chart else "IMAGE"
-
                             image_doc = Document(
-                                text=f"[{prefix} from page {img['page_number']}]\n\n{caption}",
+                                text=f"[{prefix} from page {record['page_number']}]\n\n{caption}",
                                 metadata={
                                     "file_name": file_name,
                                     "file_size": file_size,
-                                    "page_label": str(img["page_number"]),
+                                    "page_label": str(record["page_number"]),
                                     "content_type": content_type,
-                                    "image_index": img["image_index"],
-                                    "image_format": img["format"],
-                                    "image_width": img["width"],
-                                    "image_height": img["height"],
+                                    "image_index": record["image_index"],
+                                    "image_format": record["format"],
+                                    "image_width": record["width"],
+                                    "image_height": record["height"],
                                 },
                             )
                             all_documents.append(image_doc)
-
                             if is_chart:
                                 file_charts += 1
                             else:
@@ -2689,25 +2612,14 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
 
                         total_charts += file_charts
                         total_images += file_images
-                        logger.info(f"  Visual extraction: {file_charts} charts, {file_images} images")
+                        if file_charts or file_images:
+                            logger.info(f"  Visual extraction: {file_charts} charts, {file_images} images")
 
-                    # 4. Render visual/vector pages (PDF only). Captures CAD /
-                    # architectural drawings that carry almost no text and no
-                    # embedded raster image (pure vector paths) — the case both
-                    # the text and image extractors miss. Gated on a resolvable
-                    # VLM key so it silently no-ops in text-only deployments, and
-                    # internally only renders pages detected as visual.
-                    if is_pdf and RENDER_VISUAL_PAGES and vlm_api_key:
-                        drawing_pages = _render_visual_pdf_pages(
-                            file_path,
-                            vlm_model=vlm_model,
-                            vlm_base_url=vlm_base_url,
-                            vlm_api_key=vlm_api_key,
-                        )
+                        # Build drawing documents
                         for page in drawing_pages:
                             fields = page.get("fields") or {}
                             drawing_doc = Document(
-                                text=f"[DRAWING from page {page['page_number']}]\n\n{page['caption']}",
+                                text=f"[DRAWING from page {page['page_number']}]\n\n{page.get('caption', '')}",
                                 metadata={
                                     "file_name": file_name,
                                     "file_size": file_size,
@@ -2715,8 +2627,8 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                                     "content_type": "drawing",
                                     "drawing_type": fields.get("drawing_type", ""),
                                     "drawing_scale": fields.get("scale", ""),
-                                    "image_width": page["width"],
-                                    "image_height": page["height"],
+                                    "image_width": page.get("width", 0),
+                                    "image_height": page.get("height", 0),
                                 },
                             )
                             all_documents.append(drawing_doc)
@@ -2826,11 +2738,6 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     total_chunks += chunks_created
 
                     self._update_file_status(job, i, FileStatus.SUCCESS, chunks_created=chunks_created)
-
-                    # Generate and upload thumbnail if a presigned upload URL was provided
-                    thumbnail_upload_url = config.get("thumbnail_upload_url")
-                    if thumbnail_upload_url and (is_pdf or is_image):
-                        self._generate_and_upload_thumbnail(file_path, thumbnail_upload_url)
 
                     # Drawing PDFs (text-sparse) whose LLM summary failed fall
                     # back to a deterministic, watermark-free summary synthesised
@@ -3329,6 +3236,8 @@ class LlamaIndexRetriever(BaseRetriever):
                 content_type = ContentType.IMAGE
             elif content_type_str == "chart":
                 content_type = ContentType.CHART
+            elif content_type_str == "drawing":
+                content_type = ContentType.DRAWING
             else:
                 content_type = ContentType.TEXT
 
@@ -3339,6 +3248,9 @@ class LlamaIndexRetriever(BaseRetriever):
             elif content_type == ContentType.IMAGE:
                 img_idx = metadata.get("image_index", 0)
                 display_citation = f"{file_name}, p.{page_number}, Image {img_idx + 1}"
+            elif content_type == ContentType.DRAWING:
+                drawing_type = metadata.get("drawing_type", "Zeichnung")
+                display_citation = f"{file_name}, p.{page_number}, {drawing_type}"
             elif page_number:
                 # Add text anchor for easier verification (Ctrl+F in source)
                 node_content = node.get_content() if hasattr(node, "get_content") else str(node)
