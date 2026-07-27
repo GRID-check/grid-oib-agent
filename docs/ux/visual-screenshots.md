@@ -52,12 +52,18 @@ in light and dark, the same bar as desktop.
 3. **Run** `npm run screenshots -- <id>` and commit the resulting PNGs alongside the change.
 4. **PR preview (automatic):** when the PR diff adds a new target id to the
    registry, the `screenshot-preview` workflow (`.github/workflows/screenshot-preview.yml`)
-   captures just those new ids and posts the PNGs (desktop + mobile, light +
-   dark) as a **sticky PR comment** — so reviewers see the rendered surface
-   without checking out the branch. The comment images are served from the
-   `screenshot-previews` branch (`pr-<number>/`); the workflow is informational
-   only and never blocks the PR. It runs for same-repo PRs only (fork tokens
-   are read-only and cannot receive comments).
+   captures just those new ids (desktop + mobile, light + dark), uploads them as
+   the `screenshot-previews` artifact and links it from a **sticky PR comment**,
+   so reviewers get the rendered surface without checking out the branch.
+   The comment *links* the PNGs instead of embedding them because this
+   repository is **private**: GitHub renders comment images through an anonymous
+   proxy that 404s on every URL into a private repo, so inline previews are not
+   possible here (an earlier revision pushed the PNGs to a `screenshot-previews`
+   branch and referenced `raw.githubusercontent.com`; it could only ever have
+   rendered broken images). Committing the PNGs in step 3 remains the way
+   reviewers see them rendered, in the diff. The workflow is informational only
+   and never blocks the PR, and it runs for same-repo PRs only (fork tokens are
+   read-only and cannot receive comments).
 
 ## Visual coverage gate (CI)
 
@@ -111,6 +117,11 @@ this on every PR that adds components:
   browser**, so `.github/workflows/screenshot-preview.yml` runs
   `npx playwright-core install chromium` once per lockfile (cached in
   `~/.cache/ms-playwright`) and the harness falls back to Playwright's own path.
+- **Never stage CI output in a dot-directory.** `actions/upload-artifact@v4`
+  skips hidden paths unless `include-hidden-files: true`, and with
+  `if-no-files-found: ignore` it does so *silently*: the preview job copied four
+  PNGs into `.preview-out`, logged them, uploaded an empty artifact and every
+  preview comment then reported "produced no files". Stage into `preview-out`.
 - **Wait for `networkidle` *and* the `waitFor` selector.** `next dev` compiles
   routes lazily, so the first navigation to a route is slow (generous 120s goto
   timeout). Waiting only for load fires before the resolution fetch settles;
