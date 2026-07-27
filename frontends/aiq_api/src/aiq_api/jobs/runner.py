@@ -15,6 +15,7 @@ import base64
 import importlib
 import json
 import logging
+import os
 import uuid
 from typing import Any
 
@@ -47,6 +48,23 @@ _LLM_PROVIDER_ERROR_MODULES = frozenset(
 # Root modules of HTTP/transport stacks — classified as connection errors.
 _NETWORK_ERROR_MODULES = frozenset({"httpx", "httpcore", "aiohttp", "requests", "urllib3"})
 
+# langgraph is a transitive (not declared) dependency of this package — guard
+# the import so error classification keeps working if it is ever absent.
+try:
+    from langgraph.errors import GraphRecursionError as _GraphRecursionError
+except ImportError:
+    _GraphRecursionError = None
+
+# User-safe error messages for sanitize_job_error — named constants so they
+# are testable and searchable.  Each category gets one curated string that
+# leaks no exception-internal data (hosts, DSNs, paths, credentials).
+_WALL_CLOCK_TIMEOUT_MSG = "Die Recherche hat ihr Zeitlimit erreicht und wurde ohne vollständiges Ergebnis abgebrochen."
+_GENERIC_TIMEOUT_MSG = "The job timed out while waiting on an external service."
+_GRAPH_RECURSION_ERROR_MSG = "Die Recherche hat ihr Schritt-Limit erreicht, ohne ein vollständiges Ergebnis zu liefern."
+_LLM_PROVIDER_ERROR_MSG = "The LLM provider returned an error while running the job."
+_CONNECTION_ERROR_MSG = "A connection error occurred while running the job."
+_INTERNAL_ERROR_MSG = "The job failed due to an internal error."
+
 
 def sanitize_job_error(exc: BaseException) -> str:
     """Map an internal exception to a user-safe error message.
@@ -56,8 +74,9 @@ def sanitize_job_error(exc: BaseException) -> str:
     which are returned to API clients. Callers must log the full exception
     server-side (``logger.exception``) and persist/emit only this message.
 
-    Kept informative by category (timeout / provider / connection / internal)
-    without ever including the exception's own text.
+    Kept informative by category (time budget / step limit / timeout /
+    provider / connection / internal) without ever including the exception's
+    own text.
 
     NOTE: cancellation paths intentionally bypass this — the UI string-matches
     the exact error "cancelled by user".
@@ -72,12 +91,22 @@ def sanitize_job_error(exc: BaseException) -> str:
 
     root_module = (type(exc).__module__ or "").split(".")[0]
     if isinstance(exc, TimeoutError):
-        return "The job timed out while waiting on an external service."
+        # The deep-research wall-clock budget (max_run_seconds) is re-raised as
+        # a TimeoutError carrying a "wall-clock" marker; a bare TimeoutError is
+        # an external-service wait.
+        if "wall-clock" in str(exc).lower():
+            return _WALL_CLOCK_TIMEOUT_MSG
+        return _GENERIC_TIMEOUT_MSG
+    if _GraphRecursionError is not None and isinstance(exc, _GraphRecursionError):
+        # A runaway graph hit recursion_limit — not an internal defect, and not
+        # an LLM provider error (langgraph is deliberately not in the provider
+        # module set above).
+        return _GRAPH_RECURSION_ERROR_MSG
     if root_module in _LLM_PROVIDER_ERROR_MODULES:
-        return "The LLM provider returned an error while running the job."
+        return _LLM_PROVIDER_ERROR_MSG
     if root_module in _NETWORK_ERROR_MODULES or isinstance(exc, (ConnectionError, OSError)):
-        return "A connection error occurred while running the job."
-    return "The job failed due to an internal error."
+        return _CONNECTION_ERROR_MSG
+    return _INTERNAL_ERROR_MSG
 
 
 async def _update_status_if_not_terminal(job_store: Any, job_id: str, status: Any, **kwargs: Any) -> bool:
@@ -304,6 +333,33 @@ async def _resolve_deep_research_checkpointer(fn_config: Any) -> Any | None:
     from aiq_agent.common import get_checkpointer
 
     return await get_checkpointer(checkpoint_db)
+
+
+def _purge_deep_checkpoint(job_id: str) -> None:
+    """Best-effort deletion of a finished deep run's durable checkpoint rows.
+
+    The deep-research checkpointer keys ``thread_id == job_id`` in
+    ``AIQ_DEEP_CHECKPOINT_DB`` and writes the full growing state every step, but
+    nothing prunes ``checkpoints``/``checkpoint_blobs``/``checkpoint_writes`` — so
+    they grow (superlinearly per run) forever. Once a run is terminal the
+    checkpoint is dead weight (resume is manual-resubmit, never auto-read), so
+    drop it. Never raises.
+    """
+    dsn = os.environ.get("AIQ_DEEP_CHECKPOINT_DB")
+    if not dsn:
+        return
+    try:
+        from sqlalchemy import text
+
+        from .event_store import EventStore
+
+        engine = EventStore._get_or_create_sync_engine(dsn)
+        with engine.connect() as conn:
+            for table in ("checkpoint_writes", "checkpoint_blobs", "checkpoints"):
+                conn.execute(text(f"DELETE FROM {table} WHERE thread_id = :tid"), {"tid": job_id})  # noqa: S608
+            conn.commit()
+    except Exception:
+        logger.debug("Deep checkpoint purge skipped for job %s", job_id, exc_info=True)
 
 
 def _load_agent_class(agent_class_path: str) -> type:
@@ -972,6 +1028,11 @@ async def run_agent_job(
         # Drop the job's URL dedup caches: they are class-level dicts keyed by
         # job_id and otherwise accumulate for the life of the worker process.
         AgentEventCallback.cleanup_job_urls(job_id)
+        # Drop the run's durable deep-checkpoint rows (AIQ_DEEP_CHECKPOINT_DB,
+        # thread_id == job_id) once the run is terminal, so they don't grow
+        # forever.  Both the Dask (this file) and DB-queue (worker.py) paths
+        # run this; the worker-path call is idempotent with this one.
+        _purge_deep_checkpoint(job_id)
 
 
 def _create_agent_instance(
@@ -1009,6 +1070,7 @@ def _create_agent_instance(
             max_research_concurrency=fn_config.max_research_concurrency,
             max_concurrent_source_tool_calls=fn_config.max_concurrent_source_tool_calls,
             max_source_tool_batch_size=fn_config.max_source_tool_batch_size,
+            max_run_seconds=fn_config.max_run_seconds,
             checkpointer=checkpointer,
         )
 

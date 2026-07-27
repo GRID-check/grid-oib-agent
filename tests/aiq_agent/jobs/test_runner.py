@@ -1538,6 +1538,7 @@ class TestAsyncJobRunnerAgentFactory:
                 max_research_concurrency=None,
                 max_concurrent_source_tool_calls=None,
                 max_source_tool_batch_size=None,
+                max_run_seconds=None,
                 checkpointer=None,
             ):
                 self.llm_provider = llm_provider
@@ -1553,6 +1554,7 @@ class TestAsyncJobRunnerAgentFactory:
                 self.max_research_concurrency = max_research_concurrency
                 self.max_concurrent_source_tool_calls = max_concurrent_source_tool_calls
                 self.max_source_tool_batch_size = max_source_tool_batch_size
+                self.max_run_seconds = max_run_seconds
                 self.checkpointer = checkpointer
 
         fn_config = DeepResearchAgentConfig(
@@ -1590,6 +1592,8 @@ class TestAsyncJobRunnerAgentFactory:
         assert agent.max_research_concurrency == 2
         assert agent.max_concurrent_source_tool_calls == 3
         assert agent.max_source_tool_batch_size == 4
+        # F5: max_run_seconds wired through from fn_config (DeepResearchAgentConfig default 2400)
+        assert agent.max_run_seconds == 2400
 
     def test_async_deep_researcher_constructor_applies_config_tuning(self):
         """Async construction preserves catalog and concurrency settings."""
@@ -1795,6 +1799,7 @@ class TestAsyncJobRunnerAgentFactory:
                 max_research_concurrency=None,
                 max_concurrent_source_tool_calls=None,
                 max_source_tool_batch_size=None,
+                max_run_seconds=None,
                 checkpointer=None,
             ):
                 raise TypeError("internal constructor failure")
