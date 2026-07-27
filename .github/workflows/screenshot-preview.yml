@@ -56,8 +56,10 @@ jobs:
           BASE_REF: ${{ github.base_ref }}
         run: |
           set -euo pipefail
-          git fetch origin "$BASE_REF" --depth=1
-
+          # No `git fetch` here: `fetch-depth: 0` above already fetched every
+          # branch, so `origin/$BASE_REF` is present — and with
+          # `persist-credentials: false` a fetch would fail for lack of a
+          # credential.
           BASE_FILE=$(mktemp --suffix=.mjs)
           if git cat-file -e "origin/$BASE_REF:frontends/ui/visual/registry.mjs" 2>/dev/null; then
             git show "origin/$BASE_REF:frontends/ui/visual/registry.mjs" > "$BASE_FILE"

@@ -47,6 +47,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Find added components and visual coverage
         id: scan
@@ -54,7 +55,8 @@ jobs:
           BASE_REF: ${{ github.base_ref }}
         run: |
           set -euo pipefail
-          git fetch origin "$BASE_REF" --depth=1
+          # `fetch-depth: 0` above already fetched every branch, so no runtime
+          # `git fetch` (which has no credential) is needed for the base ref.
           BASE="origin/$BASE_REF"
 
           # 1. Components added by this PR (specs, primitives, and dev routes excluded).
