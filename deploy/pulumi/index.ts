@@ -35,6 +35,7 @@ import { installWorkers } from "./src/app/workers";
 import { installAgentWorker } from "./src/app/agent-worker";
 import { installHttpRoutes } from "./src/app/httproutes";
 import { installObservabilityDashboard } from "./src/platform/observability";
+import { installOtelCollector } from "./src/platform/otel-collector";
 
 const cfg = loadConfig();
 const provider = makeProvider(cfg);
@@ -131,11 +132,16 @@ const routes = installHttpRoutes(cfg, provider, namespace, [
 ]);
 
 // ── Observability (Aspire dashboard) ───────────────────────────────────────────
-installObservabilityDashboard(
+const obs = installObservabilityDashboard(
   cfg, provider, namespace,
   cfg.observability.otelPrimaryApiKey,
   cfg.auth.workosApiKey,
   [gatewayResources.gateway],
+);
+installOtelCollector(
+  cfg, provider, namespace,
+  obs.ingestionSecret,
+  [obs.service],
 );
 
 // ── Stack outputs ────────────────────────────────────────────────────────────

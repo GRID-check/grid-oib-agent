@@ -14,7 +14,17 @@ export interface Observability {
   deployment: k8s.apps.v1.Deployment;
   service: k8s.core.v1.Service;
   route: k8s.apiextensions.CustomResource;
+  /**
+   * Dedicated Secret holding the OTLP ingestion API key (key: `api-key`).
+   * Referenced via secretKeyRef by the dashboard (PrimaryApiKey) AND the
+   * OTel Collector (exporter header) — the key never appears as a plain env
+   * value on a pod spec.
+   */
+  ingestionSecret: k8s.core.v1.Secret;
 }
+
+/** Key under which the OTLP ingestion API key is stored in the Secret. */
+export const OTLP_API_KEY_SECRET_KEY = "api-key";
 
 /**
  * Deploys the .NET Aspire standalone dashboard as a single-replica Deployment
@@ -39,6 +49,21 @@ export function installObservabilityDashboard(
   const labels = commonLabels(COMPONENT);
   const name = COMPONENT;
   const { observability: obs } = cfg;
+
+  // OTLP ingestion key in a dedicated Secret — referenced via secretKeyRef by
+  // the dashboard and the OTel Collector so it never lands on a pod spec as a
+  // plain value.
+  const ingestionSecret = new k8s.core.v1.Secret(
+    "otel-ingestion",
+    {
+      metadata: { name: "otel-ingestion", namespace, labels },
+      stringData: { [OTLP_API_KEY_SECRET_KEY]: otlpApiKey },
+    },
+    { provider, dependsOn },
+  );
+  const apiKeyFromSecret: k8s.types.input.core.v1.EnvVarSource = {
+    secretKeyRef: { name: ingestionSecret.metadata.name, key: OTLP_API_KEY_SECRET_KEY },
+  };
 
   // The OIDC client secret for the built-in Aspire OIDC RP is the WorkOS API
   // key (AuthKit uses the API key as the OIDC client secret).
@@ -93,9 +118,9 @@ export function installObservabilityDashboard(
                   { name: "ASPNETCORE_FORWARDEDHEADERS_ENABLED", value: "true" },
                   // App identity in the UI.
                   { name: "Dashboard__ApplicationName", value: "Grid" },
-                  // OTLP ingestion auth (cluster-internal callers present the key).
+                  // OTLP ingestion auth (only the collector presents the key).
                   { name: "Dashboard__Otlp__AuthMode", value: "ApiKey" },
-                  { name: "Dashboard__Otlp__PrimaryApiKey", value: otlpApiKey },
+                  { name: "Dashboard__Otlp__PrimaryApiKey", valueFrom: apiKeyFromSecret },
                   // Raised ring-buffer limits for a useful live-view window.
                   { name: "Dashboard__TelemetryLimits__MaxLogCount", value: String(obs.telemetryLimits.maxLogCount) },
                   { name: "Dashboard__TelemetryLimits__MaxTraceCount", value: String(obs.telemetryLimits.maxTraceCount) },
@@ -126,11 +151,11 @@ export function installObservabilityDashboard(
         },
       },
     },
-    { provider, dependsOn },
+    { provider, dependsOn: [...dependsOn, ingestionSecret] },
   );
 
   // Cluster-internal Service: the UI port for the HTTPRoute target, and the
-  // two OTLP ports for backend/worker pods to send traces.
+  // two OTLP ports consumed exclusively by the OTel Collector.
   const service = new k8s.core.v1.Service(
     "aspire-dashboard",
     {
@@ -164,5 +189,5 @@ export function installObservabilityDashboard(
     { provider, dependsOn: service },
   );
 
-  return { deployment, service, route };
+  return { deployment, service, route, ingestionSecret };
 }

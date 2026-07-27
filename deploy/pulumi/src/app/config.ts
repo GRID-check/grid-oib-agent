@@ -92,11 +92,6 @@ export function buildSecrets(w: AppWiring): k8s.core.v1.Secret {
         AIQ_LISTEN_DB_URL: w.dsn({ db: "aiq_jobs" }),
         AIQ_DEEP_CHECKPOINT_DB: w.dsn({ db: "aiq_checkpoints" }),
         GRID_APP_DATABASE_URL: w.dsn({ db: "grid_app" }),
-        // Aspire dashboard OTLP tracing.
-        OTLP_API_KEY: cfg.observability.otelPrimaryApiKey,
-        OTEL_EXPORTER_OTLP_HEADERS: cfg.observability.otelPrimaryApiKey.apply(
-          (key) => `x-otlp-api-key=${key}`
-        ),
       },
     },
     { provider: w.provider },
@@ -153,15 +148,15 @@ export function backendEnv(w: AppWiring, otelServiceName = "grid-aiq-agent"): En
     { name: "FRONTEND_INTERNAL_URL", value: `http://frontend:${PORT.frontend}` },
     sref("GRID_INTERNAL_API_TOKEN"),
     sref("GRID_ADMIN_TOKEN"),
-    // Aspire dashboard OTLP tracing. HTTP/protobuf to :4318 — the full
-    // /v1/traces path is required: the NAT exporter posts to the endpoint
-    // as-is (path appending only happens for SDK env-var defaults, not for
-    // an endpoint the config passes explicitly). OTEL_SERVICE_NAME becomes
-    // service.name on the spans so chat tier and worker tier are distinct
-    // resources in the dashboard.
+    // OTLP tracing via the cluster collector (ADR-0029 amendment). Producers
+    // send plain OTLP in-cluster — the collector alone holds the Aspire API
+    // key. HTTP/protobuf to :4318 — the full /v1/traces path is required: the
+    // NAT exporter posts to the endpoint as-is (path appending only happens
+    // for SDK env-var defaults, not for an endpoint the config passes
+    // explicitly). OTEL_SERVICE_NAME becomes service.name on the spans so
+    // chat tier and worker tier are distinct resources in the dashboard.
     { name: "OTEL_SERVICE_NAME", value: otelServiceName },
-    { name: "OTEL_EXPORTER_OTLP_ENDPOINT", value: `http://aspire-dashboard:4318/v1/traces` },
-    sref("OTEL_EXPORTER_OTLP_HEADERS"),
+    { name: "OTEL_EXPORTER_OTLP_ENDPOINT", value: `http://otel-collector:4318/v1/traces` },
     // Dask (in-process research execution) — vertical scaling knobs.
     { name: "DASK_NWORKERS", value: String(cfg.backend.daskWorkers) },
     { name: "DASK_NTHREADS", value: String(cfg.backend.daskThreads) },
@@ -266,6 +261,12 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
     // Workflows.
     { name: "GRID_WORKFLOWS_ENABLED", value: String(cfg.workflows.enabled) },
     { name: "GRID_WORKFLOW_MIN_INTERVAL_MINUTES", value: String(cfg.workflows.minIntervalMinutes) },
+    // OTLP tracing via the cluster collector (src/instrumentation.ts, gated
+    // on the endpoint being set). NOTE the BASE URL here vs. the backend's
+    // full /v1/traces path: the JS OTLP HTTP exporter appends the signal
+    // path per the OTEL spec; the Python NAT exporter does not.
+    { name: "OTEL_SERVICE_NAME", value: "grid-ui" },
+    { name: "OTEL_EXPORTER_OTLP_ENDPOINT", value: "http://otel-collector:4318" },
   ];
 }
 

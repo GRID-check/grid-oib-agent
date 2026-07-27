@@ -280,6 +280,11 @@ export interface GridConfig {
      */
     dashboardImage: string;
     /**
+     * OpenTelemetry Collector image reference with a pinned tag — the single
+     * OTLP ingestion point that fans out to the dashboard (ADR-0029 amendment).
+     */
+    collectorImage: string;
+    /**
      * Telemetry ring-buffer limits inside the dashboard pod. Aspire defaults
      * to 10000/10000; raised to 50000 for a live view window.
      */
@@ -547,6 +552,7 @@ export function loadConfig(): GridConfig {
       otelDomain: cfg.require("otelDomain"),
       platformOrgId: cfg.require("platformOrgId"),
       dashboardImage: cfg.get("dashboardImage") ?? "mcr.microsoft.com/dotnet/aspire-dashboard:9.1.0",
+      collectorImage: cfg.get("collectorImage") ?? "otel/opentelemetry-collector-contrib:0.157.0",
       telemetryLimits: {
         maxLogCount: num(cfg, "dashboardMaxLogCount", 50000),
         maxTraceCount: num(cfg, "dashboardMaxTraceCount", 50000),
