@@ -16,8 +16,8 @@ import pytest
 from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
 
-from aiq_agent.agents.chat_researcher.agent import ChatResearcherAgent
 from aiq_agent.agents.chat_researcher.agent import ESCALATION_MARKER
+from aiq_agent.agents.chat_researcher.agent import ChatResearcherAgent
 from aiq_agent.agents.chat_researcher.agent import _normalize_citations_removed
 from aiq_agent.agents.chat_researcher.agent import answer_confidence_capped_reason
 from aiq_agent.agents.chat_researcher.agent import derive_routing_decision

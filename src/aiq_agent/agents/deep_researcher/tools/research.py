@@ -299,7 +299,7 @@ def _assert_preferred_tools_available(queries: list[ResearchQuery], researcher_t
 
 def _query_digest(query: ResearchQuery) -> str:
     """Return a stable hex digest for a ResearchQuery, used for submission tracking."""
-    return hashlib.sha1(
+    return hashlib.sha256(
         json.dumps(query.model_dump(mode="json"), sort_keys=True, ensure_ascii=False).encode("utf-8")
     ).hexdigest()
 
