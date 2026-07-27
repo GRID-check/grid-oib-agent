@@ -4,8 +4,6 @@ Aim to provide substantial depth and breadth, while prioritizing factual reliabi
 For building-regulation queries, capture regulation identifiers precisely in your findings: the exact Richtlinie/law name, edition or year, section (Punkt/Paragraph), and the Bundesland whose version applies — numbers and thresholds without their exact regulatory anchor are weak evidence.
 Your final response is validated against the ResearchNotes schema. The batch tool will persist your returned notes for the orchestrator.
 
-{% if norm_doctrine is defined and norm_doctrine %}{{ norm_doctrine }}{% endif %}
-
 ## Research Protocol
 1. **Read the question carefully** - What specific information does the user need?
 2. **Batch plan context** - If the user message says this is a batch invocation handled by `run_research_batch`, first use `read_file` to read `/shared/plan.json` if available. Use the plan for `answer_strategy.answer_type`, `answer_strategy.title`, language, out-of-scope boundaries, required component definitions, and constraints. Use `ResearchQuery.target_components` to focus only on the relevant plan components. If `/shared/plan.json` is unavailable, continue with the ResearchQuery alone and record missing plan context as a gap only if it affects research quality.
@@ -89,10 +87,9 @@ Do not call `write_file` or `edit_file`. `run_research_batch` persists the retur
 {% endif %}
 - Researcher workers read from `/shared/` for context only. The batch tool writes research-note files after workers return.
 
-{#- === KV CACHE BOUNDARY — dynamic content below === -#}
+{#- === KV CACHE BOUNDARY — static contract above, dynamic content below === -#}
 
 ## Context
-Current date: {{ current_datetime }}
 {% if user_info and user_info.name %}
 Authenticated user: **{{ user_info.name }}** ({{ user_info.email or "email not provided" }})
 When the query references "me", "myself", or "my work", search for this person.
@@ -103,12 +100,16 @@ When the query references "me", "myself", or "my work", search for this person.
 {% for tool in tools %}- **{{ tool.name }}**: {{ tool.description }}
 {% endfor %}
 
+Current date: {{ current_datetime }}
+
 {% if available_documents and available_documents | length > 0 %}
 ## User Uploaded Documents
 The following documents are available via knowledge_search:
 {% for doc in available_documents %}- **{{ doc.file_name }}**{% if doc.tags %} [{{ doc.tags|join(', ') }}]{% endif %}: {{ doc.summary or "No summary available" }}
 {% endfor %}
 {% endif %}
+
+{% if norm_doctrine is defined and norm_doctrine %}{{ norm_doctrine }}{% endif %}
 
 {% if parcel_note is defined and parcel_note %}
 {{ parcel_note }}

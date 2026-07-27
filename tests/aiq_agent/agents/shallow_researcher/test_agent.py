@@ -567,6 +567,66 @@ class TestShallowResearcherAgent:
         )
         assert synthesis_instruction_found
 
+    @pytest.mark.asyncio
+    async def test_forced_synthesis_strips_emitted_tool_calls(self, mock_llm_provider, mock_llm, real_tool):
+        """Fix B: forced synthesis strips any tool_calls the model emits.
+
+        The forced-synthesis call binds the tools with ``tool_choice="none"``, but
+        nothing stops a model from emitting tool_calls anyway. If they survive,
+        ``tools_condition`` routes back to the tools node and — since the budget is
+        already exhausted — the graph loops until the recursion limit, breaking the
+        tool-budget guarantee. The branch must strip them so the graph terminates.
+        """
+        response_with_calls = AIMessage(
+            content="Final synthesized answer [1]",
+            tool_calls=[{"name": "web_search_tool", "args": {"query": "x"}, "id": "call_1"}],
+        )
+        mock_llm.ainvoke = AsyncMock(return_value=response_with_calls)
+
+        agent = ShallowResearcherAgent(
+            llm_provider=mock_llm_provider,
+            tools=[real_tool],
+            max_tool_iterations=2,
+        )
+
+        # Start at max iterations so the forced-synthesis branch runs.
+        state = ShallowResearchAgentState(
+            messages=[HumanMessage(content="Test query")],
+            tool_iterations=2,
+        )
+
+        result = await agent.run(state)
+
+        # The final answer message must carry no tool calls, so tools_condition
+        # routes to __end__ and the graph terminates on the synthesized content.
+        final_message = result.messages[-1]
+        assert not getattr(final_message, "tool_calls", None)
+        assert "Final synthesized answer" in str(final_message.content)
+
+    def test_static_prefix_independent_of_requires_sources(self, mock_llm_provider, real_tool):
+        """Fix A: the cacheable prefix above the KV-cache boundary is stable.
+
+        The boundary is where the first ``## Context`` block begins; everything
+        before it is the static contract. It must be byte-identical for research
+        turns (requires_sources=True) and meta turns (False) — the marker-mandate
+        fork used to sit above the boundary and busted the prefix on every turn
+        flip. The fork itself now lives below the boundary.
+        """
+        research = self._render_default_prompt(mock_llm_provider, real_tool, requires_sources=True)
+        meta = self._render_default_prompt(mock_llm_provider, real_tool, requires_sources=False)
+
+        prefix_research = research.split("## Context", 1)[0]
+        prefix_meta = meta.split("## Context", 1)[0]
+
+        # The static prefix no longer depends on requires_sources.
+        assert prefix_research == prefix_meta
+        # The marker mandate is genuinely below the boundary, not in the prefix.
+        assert "<insufficient_answer_marker>" not in prefix_research
+        # Sanity: the two full renders still differ (the fork moved, not vanished).
+        assert research != meta
+        assert "<insufficient_answer_marker>" in research
+        assert "<insufficient_answer_marker>" not in meta
+
 
 # ---------------------------------------------------------------------------
 # Integration tests — verify end-to-end source capture without bypasses

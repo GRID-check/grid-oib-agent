@@ -72,11 +72,19 @@ bounded by per-org/member/project budgets — see
   sending unauthenticated requests.
 - The legacy Kimi config (`config_grid_oib.yml`) is **unmaintained/broken** — do
   not use it as a starting point; base new configs on the OpenRouter reference.
-- No call site sets provider prompt-caching hints on static prompt prefixes
-  (orchestrator/planner/researcher/writer system prompts, tool registry,
-  source registry) — every LLM call resends them in full. See
+- No call site sets *explicit* provider prompt-caching hints on static prompt
+  prefixes (orchestrator/planner/researcher/writer system prompts, tool
+  registry, source registry) — every LLM call resends them in full. See
   [`scaling-review-2026-07.md`](scaling-review-2026-07.md) §6.1 for the cost
-  impact. On the deep-research graph specifically, provider caching used to
+  impact. What the fleet *does* set (build-time, in `llm_factory`) is a
+  first-party routing pin for `deepseek/*` models on OpenRouter —
+  `provider: {"order": ["deepseek"], "allow_fallbacks": true}` — because live
+  OpenRouter endpoints data shows only the first-party `deepseek` host supports
+  *implicit* prompt caching (all third-party hosts report
+  `supports_implicit_caching=false`), so default load-balancing would scatter
+  requests across uncached hosts and destroy the prefix-cache hit rate. This
+  makes implicit caching reachable but sets no explicit cache_control breakpoints.
+  On the deep-research graph specifically, provider caching used to
   be further undercut by `ToolResultPruningMiddleware` shifting message
   bytes on nearly every model call; that truncation is now monotonic
   (2026-07-16, `0b5d29d`), removing that specific defeat — see

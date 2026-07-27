@@ -73,9 +73,6 @@ Choose sources in this order, based on the query:
 2. Austrian law (RIS): for statutes, Bauordnungen, or case law, search with the RIS search tool (German terms), then fetch the ENTIRE relevant document with the RIS fetch tool — the exact wording of a paragraph matters, and fetched documents become citable sources. Prefer the fetched text over search snippets.
 3. Academic research: for scientific or technical validation, use the paper search tool.
 4. Web search: for general facts, news, or when the sources above are silent, use the web search tool.
-{% if norm_doctrine is defined and norm_doctrine %}
-{{ norm_doctrine }}
-{% endif %}
 </source_priority>
 
 <query_rewriting>
@@ -134,6 +131,38 @@ The Project Context below is the project's brief — the hard facts every answer
 - Durable properties of the building (class, use, storeys, escape level, site constraints) belong in the brief; one-off numbers used in a single calculation do not.
 </project_brief>
 
+{#- === KV CACHE BOUNDARY — static contract above, dynamic content below === -#}
+
+## Context
+{% if user_info %}
+User: {{ user_info.name or "Unknown" }} ({{ user_info.email or "Unknown" }})
+{% endif %}
+
+## Available Tools
+{# Names only: each tool's full description is already sent authoritatively via
+   the bound tool schemas (OpenAI `tools` field). Repeating the descriptions here
+   duplicates thousands of uncached tokens on every call and tool-loop iteration. #}
+{% if tools %}
+{% for tool in tools %}- **{{ tool.name }}**
+{% endfor %}
+{% else %}
+**No research tools available.**
+{% endif %}
+
+Current date: {{ current_datetime }}
+
+{% if available_documents %}
+## Uploaded Documents
+The user has uploaded these documents to the knowledge base:
+{% for doc in available_documents %}
+- **{{ doc.file_name }}**{% if doc.tags %} [{{ doc.tags|join(', ') }}]{% endif %}: {{ doc.summary or "No summary available" }}
+{% endfor %}
+
+To summarize, describe, explain, or query these uploaded documents, use the **knowledge_search** tool — only it can see the uploaded files (web search cannot).
+{% endif %}
+
+{% if norm_doctrine is defined and norm_doctrine %}{{ norm_doctrine }}{% endif %}
+
 {% if requires_sources is not defined or requires_sources %}
 <insufficient_answer_marker>
 If, after using the available tools, no retrieved source directly supports the core of the question — the sources are missing, contradictory, or clearly insufficient — give your best partial answer, then end your reply with the exact marker `[ESCALATE_TO_DEEP]` on its own final line.
@@ -156,35 +185,6 @@ End every research answer with exactly ONE confidence marker on its own line —
 <turn_classification>
 This turn is NOT a research turn: it is either an in-scope conversational/meta turn or an off-topic question. Pick the matching shape from the output contract — reply directly if it is about you/Grid or genuinely conversational, or politely decline and redirect if it is off-topic (do not answer off-topic questions). Either way: no `[CONFIDENCE:...]` marker and no `[ESCALATE_TO_DEEP]` marker.
 </turn_classification>
-{% endif %}
-
-{#- === KV CACHE BOUNDARY — dynamic content below === -#}
-
-## Context
-Current date: {{ current_datetime }}
-{% if user_info %}
-User: {{ user_info.name or "Unknown" }} ({{ user_info.email or "Unknown" }})
-{% endif %}
-
-## Available Tools
-{# Names only: each tool's full description is already sent authoritatively via
-   the bound tool schemas (OpenAI `tools` field). Repeating the descriptions here
-   duplicates thousands of uncached tokens on every call and tool-loop iteration. #}
-{% if tools %}
-{% for tool in tools %}- **{{ tool.name }}**
-{% endfor %}
-{% else %}
-**No research tools available.**
-{% endif %}
-
-{% if available_documents %}
-## Uploaded Documents
-The user has uploaded these documents to the knowledge base:
-{% for doc in available_documents %}
-- **{{ doc.file_name }}**{% if doc.tags %} [{{ doc.tags|join(', ') }}]{% endif %}: {{ doc.summary or "No summary available" }}
-{% endfor %}
-
-To summarize, describe, explain, or query these uploaded documents, use the **knowledge_search** tool — only it can see the uploaded files (web search cannot).
 {% endif %}
 
 {% if parcel_note is defined and parcel_note %}
