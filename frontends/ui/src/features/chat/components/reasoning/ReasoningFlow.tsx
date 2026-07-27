@@ -418,10 +418,19 @@ const FlowInner: FC<{ built: BuiltGraph; vertical: boolean; width: number; live:
   const orientation = vertical ? 'v' : 'h'
 
   const onNodesChange = useCallback((changes: NodeChange[]) => setRfNodes((nds) => applyNodeChanges(changes, nds)), [])
+  // Track the last-seeded node-ids string to avoid re-seeding on reference-only
+  // changes (which creates an infinite render loop when the parent's useMemo
+  // deps — e.g. a mocked useTranslations — produce a new `built` on every render).
+  const seededIds = useRef('')
 
-  // Re-seed the controlled nodes when the derived graph changes (props stream in
-  // or the orientation flips) — positions are provisional until measured.
+  // Re-seed the controlled nodes when the derived graph structure changes (props
+  // stream in or the orientation flips) — positions are provisional until measured.
+  // Comparing node IDs structurally prevents the loop from a new `nodes` reference
+  // with identical content.
   useEffect(() => {
+    const ids = nodes.map((n) => n.id).sort().join(',')
+    if (ids === seededIds.current) return
+    seededIds.current = ids
     setRfNodes(nodes)
   }, [nodes])
 
@@ -459,10 +468,11 @@ const FlowInner: FC<{ built: BuiltGraph; vertical: boolean; width: number; live:
     setHeight(Math.max(120, Math.ceil(bounds.height) + PAD))
     setViewport({ x: Math.max(0, (width - bounds.width) / 2), y: 0, zoom: 1 })
     setLaidOutFor(vertical ? 'v' : 'h')
-    // getNodes/getNodesBounds/setViewport are stable; rfNodes intentionally
-    // excluded to avoid a re-layout loop.
+    // getNodes/getNodesBounds/setViewport are stable; rfNodes and nodes
+    // intentionally excluded to avoid a re-layout loop — nodes structural
+    // changes are tracked via the re-seed effect above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialized, nodes, rows, vertical, width])
+  }, [initialized, rows, vertical, width])
 
   // In vertical mode every node spans the container; horizontal uses fixed widths.
   const bannerW = vertical ? `${Math.max(200, width - 4)}px` : `${BANNER_W}px`
